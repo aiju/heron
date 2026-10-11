@@ -1,0 +1,8 @@
+timer interrupts
+sum of squares 1..1000 = 333833500
+interrupted during the sum: yes
+sleep 10: 10 ticks
+sleep 25: 25 ticks
+timer off, tick count unchanged: yes
+swi: hello from a system call
+done

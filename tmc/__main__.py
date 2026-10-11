@@ -6,6 +6,7 @@
   test  [NAME...]                            run the program test suite
   ucode [-o DIR]                             build microcode ROM images
   bench                                      instruction-level benchmark table
+  report [--hw]                              write docs/performance.md
   hw    ...                                  chip-level tools (see tmc.hw.cli)
 """
 
@@ -145,6 +146,15 @@ def main(argv=None):
     b = sub.add_parser("bench", help="instruction-level benchmark table")
     b.add_argument("--markdown", action="store_true")
     b.set_defaults(fn=lambda args: __import__("tmc.testing", fromlist=["x"]).cmd_bench(args))
+
+    an = sub.add_parser("analyze", help="ISA usage statistics over all programs")
+    an.set_defaults(fn=lambda args: __import__("tmc.analyze", fromlist=["x"]).main())
+
+    rp = sub.add_parser("report", help="write docs/performance.md")
+    rp.add_argument("--hw", action="store_true", help="also run every program on the chip-level simulator")
+    rp.add_argument("--jobs", type=int, default=4)
+    rp.set_defaults(fn=lambda args: __import__("tmc.report", fromlist=["x"]).main(
+        (["--hw"] if args.hw else []) + ["--jobs", str(args.jobs)]))
 
     h = sub.add_parser("hw", help="chip-level tools")
     h.add_argument("rest", nargs=argparse.REMAINDER)

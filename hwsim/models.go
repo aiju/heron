@@ -1065,7 +1065,10 @@ func (x *IODev) value(s *Sim, a int) uint16 {
 		}
 		return 0xFFFF
 	case 0x02:
-		return b2u16(len(x.Input) > 0)
+		if len(x.Input) > 0 {
+			return 1
+		}
+		return 2 // end of input: all input is supplied up front
 	case 0x06:
 		return uint16(x.TimerFlag)
 	case 0x08:

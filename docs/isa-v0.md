@@ -94,7 +94,7 @@ the long memory forms give absolute addressing: `LD r1, [label]`.
 
 | f | Name | Operation |
 |---|---|---|
-| 0 | `HALT` | Stop. With interrupts enabled, wait for an interrupt instead. `0000` is `HALT`. |
+| 0 | `HALT` | Stop. With interrupts enabled, wait for an interrupt instead (see below). `0000` is `HALT`. |
 | 1 | `NOP` | |
 | 2 | `JMP rs` | `PC ← rs` |
 | 3 | `CALL rs` | push `PC`; `PC ← rs` |
@@ -144,21 +144,39 @@ The stack grows down and `sp` points at the last item pushed.
 
 Entering an interrupt or trap pushes `PC` (the next instruction), then the
 flags word, clears `I` and jumps to the vector. `RTI` undoes it. The flags word
-is `I N Z C V` in bits 4–0.
+is `I N Z C V` in bits 4–0. `SWI` and reserved instructions share the trap
+vector; a handler can tell them apart by the instruction before the saved PC.
+A reserved opcode traps after its first word, even in the two-word groups.
+
+When interrupts are recognised:
+
+- Between instructions only, and only if `I` was set before the instruction's
+  last cycle. So no interrupt can be taken right after `EI`: the instruction
+  after `EI` always runs first. This makes `EI` followed by `HALT` a race-free
+  way to sleep.
+- One can still be taken right after `DI` (it was enabled when `DI` started).
+  The handler then returns with `I = 0`, so `DI` still protects what follows.
+- Right after `RTI`, if the restored flags enable interrupts and one is
+  pending.
+- `HALT` with `I = 1` waits for an interrupt and continues after the `HALT`
+  when the handler returns. If one is already pending it's taken at once.
+  `HALT` with `I = 0` stops the machine for good.
 
 ## I/O page
 
 | Address | Read | Write |
 |---|---|---|
-| `FF00` | console input byte, or `FFFF` if none | console output (low byte) |
-| `FF02` | 1 if console input is waiting | – |
+| `FF00` | console input byte, or `FFFF` if no byte is waiting | console output (low byte) |
+| `FF02` | bit 0: a byte is waiting; bit 1: end of input | – |
 | `FF04` | – | timer period in clock cycles (0 = off) |
 | `FF06` | timer flag (drives IRQ) | acknowledge timer |
 | `FF08` | cycle counter bits 15–0 (latches the high half) | – |
 | `FF0A` | latched cycle counter bits 31–16 | – |
 
 Byte writes to the I/O page present the byte as the low byte of the register
-at the even address.
+at the even address. On real hardware `FFFF` from `FF00` only means "nothing
+yet"; the simulators supply all input up front, so there they also set the
+end-of-input bit once it's used up.
 
 ## Assembler syntax
 
@@ -168,7 +186,9 @@ label:  ADD   r1, r2          ; register-register
         MOV   r1, #msg        ; picks MVI or the two-word form
         LD    r1, [r2 + 4]    ; picks the 1-word form if the offset fits
         LDB   r3, [buffer]    ; absolute
-        BNE   .loop           ; ±256 bytes; Jcc / JMP / CALL for anything further
+        LDB   r3, [table + r2]; static array indexed by a register (long form)
+        BNE   .loop           ; becomes JNE (two words, same cycles) if out of range
+        BSR   helper          ; becomes CALL if out of range
 .loop:                        ; local label, scoped to the last global label
         .word 1, 2, label
         .byte 'a', 0x0D, "text"
@@ -182,14 +202,18 @@ size = end - start            ; constants (also .equ)
 
 Mnemonics and registers are case-insensitive; `sp` is `r15`. `LI rd, x` is an
 alias for `MOV rd, #x`. Expressions support `+ - * / % & | ^ << >> ~`,
-parentheses, `'c'` characters, `$` (current address), `lo()` and `hi()`.
+parentheses, `'c'` characters, `$` (current address), `lo()`/`hi()` (the low
+and high byte) and `lo16()`/`hi16()` (the two halves of a 32-bit constant).
+There's no register + register addressing mode; `[label + reg]` and
+`[reg + offset]` are the same mode (a 16-bit displacement plus a base
+register).
 
 ## Software conventions
 
 These are conventions for the programs in `programs/`, not hardware rules.
 
 - Arguments go in `r1`–`r4`, results come back in `r1` (and `r2` for a second
-  value or the high half of a 32-bit result).
+  value or the high half of a 32-bit result; a third result goes in `r3`).
 - `r1`–`r7` are scratch (caller-saved). `r8`–`r14` must be preserved by the
   callee. `sp` is `r15`.
 - Calls use `CALL`/`BSR` and `RET`; the return address is on the stack.

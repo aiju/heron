@@ -7,7 +7,7 @@ simulator and the chip-level simulator should agree cycle for cycle.
 
 I/O page (word registers, see docs/isa-v0.md):
   FF00  W: console out (low byte)    R: console in (byte, or 0xFFFF if none)
-  FF02  R: 1 if console input is waiting
+  FF02  R: bit 0 = console input waiting, bit 1 = end of input
   FF04  W: timer period in cycles (0 = off)
   FF06  R: timer flag               W: acknowledge (clear flag)
   FF08  R: cycle counter bits 15..0 (latches bits 31..16 into FF0A)
@@ -42,7 +42,9 @@ class Devices:
                 return self.inp.pop(0)
             return 0xFFFF
         if a == 0xFF02:
-            return 1 if self.inp else 0
+            # bit 0: a byte is waiting; bit 1: end of input (all input is
+            # supplied up front in the simulators, so empty means closed)
+            return 1 if self.inp else 2
         if a == 0xFF06:
             return self.timer_flag
         if a == 0xFF08:
@@ -164,10 +166,12 @@ class Machine:
         if sp < self.min_sp and sp != 0:
             self.min_sp = sp
         self.dev.tick(self.cycles)
-        if self.halted and self.i and self.dev.timer_period:
-            # HALT with interrupts on waits for the next interrupt
-            self.cycles = max(self.cycles, self.dev.timer_next)
-            self.dev.tick(self.cycles)
+        if self.halted and self.i and (self.dev.irq() or self.dev.timer_period):
+            # HALT with interrupts on waits for an interrupt; one that's
+            # already pending is taken at once
+            if not self.dev.irq():
+                self.cycles = max(self.cycles, self.dev.timer_next)
+                self.dev.tick(self.cycles)
             self.halted = False
             i_before = 1
         enabled = self.i if k == "RTI" else i_before

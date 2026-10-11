@@ -1,0 +1,4 @@
+quicksort 256: sorted, checksum 5C8B 0502
+  a[0]=81 a[1]=82 a[127]=31236 a[128]=31329 a[254]=65306 a[255]=65370
+insertion sort 64: sorted, checksum 6FEC B86A
+  a[0]=1056 a[31]=31792 a[63]=63782

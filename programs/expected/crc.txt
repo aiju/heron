@@ -1,0 +1,4 @@
+bitwise "123456789": 29B1
+table   "123456789": 29B1
+bitwise 1 KB buffer: 81B5
+table   1 KB buffer: 81B5

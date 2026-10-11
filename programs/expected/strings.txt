@@ -1,0 +1,24 @@
+strlen("") = 0
+strlen("x") = 1
+strlen("Hello, world!") = 13
+strlen("The quick brown fox jumps over the lazy dog.") = 44
+strcpy -> "copy me"
+strcmp("abc", "abc") = 0
+strcmp("abc", "abd") = -1
+strcmp("abd", "abc") = 1
+strcmp("ab", "abc") = -99
+strcmp("abc", "ab") = 99
+strcmp("", "") = 0
+strcmp("Zebra", "apple") = -7
+strcmp("été", "abc") = 136
+memcpy  0123456789a.....................
+memcpy  ...56789abcd....................
+memcpy  ....1234567.....................
+memcpy  ..23456789abcdefghijkl..........
+memcpy  .....7..........................
+memset  ---*********--######----
+memmove 0101234589a
+memmove 1234589589a
+reverse "!dlrow ,olleH"
+upper   "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG."
+words in paragraph: 48

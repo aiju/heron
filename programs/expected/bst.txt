@@ -1,0 +1,3 @@
+every 10th key in order: 2975 7944 13204 19436 24193 31520 39133 43744 49675 57305
+visited 100 nodes, in order: yes
+height: 16

@@ -149,8 +149,10 @@ BINARY_PREC = [
 ]
 
 FUNCS = {
-    "lo": lambda x: x & 0xFF,
-    "hi": lambda x: (x >> 8) & 0xFF,
+    "lo": lambda x: x & 0xFF,              # low byte
+    "hi": lambda x: (x >> 8) & 0xFF,       # high byte
+    "lo16": lambda x: x & 0xFFFF,          # low word of a 32-bit constant
+    "hi16": lambda x: (x >> 16) & 0xFFFF,  # high word of a 32-bit constant
 }
 
 
@@ -374,6 +376,7 @@ class Assembler:
         self.warnings = []
         self.stmts = []
         self.reg_names = {k.lower(): v for k, v in isa.REGISTERS.items()}
+        self.owner = {}       # symbol -> statement that defines it
 
     # ---- parsing ---------------------------------------------------------
 
@@ -462,21 +465,24 @@ class Assembler:
             if toks[-1] != ("op", "]"):
                 raise AsmError("missing ']'")
             inner = toks[1:-1]
+            regs = [i for i, t in enumerate(inner) if self.reg(t)]
             base, disp = None, None
-            if inner and self.reg(inner[0]):
+            if len(regs) > 1:
+                raise AsmError("register + register addressing doesn't exist: add the registers "
+                               "first, or use [label + reg] for a static array")
+            if regs and regs[0] == 0:
                 base = self.reg(inner[0])
                 rest = inner[1:]
                 if rest:
                     if rest[0] not in (("op", "+"), ("op", "-")):
                         raise AsmError("expected + or - after base register")
                     disp = parse_expr(rest if rest[0] == ("op", "-") else rest[1:], scope)
-            elif len(inner) >= 2 and self.reg(inner[-1]) and inner[-2] == ("op", "+"):
+            elif regs and regs[0] == len(inner) - 1 and len(inner) >= 3 and inner[-2] == ("op", "+"):
                 base = self.reg(inner[-1])
                 disp = parse_expr(inner[:-2], scope)
+            elif regs:
+                raise AsmError("register must come first, or last after '+', inside [...]")
             else:
-                for t in inner:
-                    if self.reg(t):
-                        raise AsmError("register must come first or last inside [...]")
                 disp = parse_expr(inner, scope) if inner else None
             return Mem(base, disp)
         if len(toks) == 1 and toks[0][0] == "str":
@@ -510,6 +516,7 @@ class Assembler:
         st.data = b""
         if n == ".equ":
             name = ops[0][0][1]
+            self.define(mangle(name, st.scope), st)
             e = parse_expr(ops[1], st.scope)
             try:
                 self.symbols[mangle(name, st.scope)] = eval_expr(e, self.symbols, pc)
@@ -570,6 +577,11 @@ class Assembler:
             return pc
         raise AsmError(f"unknown directive {n}")
 
+    def define(self, sym, st):
+        prev = self.owner.setdefault(sym, st)
+        if prev is not st:
+            raise AsmError(f"{sym} is already defined at {prev.where[0]}:{prev.where[1]}")
+
     def one_pass(self):
         pc = 0
         changed = False
@@ -577,6 +589,7 @@ class Assembler:
             try:
                 st.addr = pc
                 if st.kind == "label":
+                    self.define(st.label, st)
                     if self.symbols.get(st.label) != pc:
                         changed = True
                     self.symbols[st.label] = pc

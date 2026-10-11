@@ -181,20 +181,19 @@ def assemble(name, ops, ctx):
         return [W(OP_MEML, rd, base, MEM_FN.index(U)), disp & 0xFFFF]
 
     # ---- branches: B<cc> (relative) and J<cc> (absolute) ----
+    # An out-of-range Bcc becomes Jcc and BSR becomes CALL (same cycles, one
+    # more word), like the other short/long forms.
     if U == "BSR" or (U[0] == "B" and _cond_code(U[1:]) is not None):
         cc = 15 if U == "BSR" else _cond_code(U[1:])
         if k != "E":
             ctx.error(f"{U} needs a target address")
         target, known = ctx.value(ops[0].expr)
         off = target - (ctx.pc + 2)
-        if known:
-            if off & 1:
-                ctx.error(f"{U} target is at an odd address")
-            if not -256 <= off <= 254:
-                if ctx.final:
-                    alt = "CALL" if U == "BSR" else ("JMP" if cc == 14 else "J" + COND[cc])
-                    ctx.error(f"{U} target out of range ({off:+d} bytes; use {alt})")
-                off = 0
+        if known and off & 1:
+            ctx.error(f"{U} target is at an odd address")
+        if ctx.long or (known and not -256 <= off <= 254):
+            v, _ = _imm16(ctx, ops[0].expr, "address")
+            return [W(OP_JCC, cc), v]
         return [W(OP_BCC, cc) | ((off >> 1) & 0xFF)]
     if U[0] == "J" and _cond_code(U[1:]) is not None:
         cc = _cond_code(U[1:])
