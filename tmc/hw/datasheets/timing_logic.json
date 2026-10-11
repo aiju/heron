@@ -1,0 +1,1811 @@
+{
+  "_conditions": "All times in ns. Values transcribed from the cited manufacturer datasheets (downloaded Oct 2026). Per arc: 'max' = maximum propagation delay over -40..+85 C at CL = 50 pF and VCC = 4.5 V (HCT) or VCC = 5 V +-0.5 V (ACT, whose limits therefore cover 4.5 V). 'typ' = 25 C typical at VCC = 5 V: for HCT parts the datasheets only give the 5 V typical at CL = 15 pF, so HCT 'typ' is a 15 pF number and reads ~2-4 ns faster than a 50 pF load would give; 'typ_4V5_50pF' (25 C, 4.5 V, 50 pF) is the like-for-like HCT typical where the datasheet gives it (Nexperia and TI SN74HCT sheets). For ACT parts 'typ' is 25 C, 5 V, CL = 50 pF. 'min' = guaranteed minimum delay over -40..+85 C (only ACT sheets specify it; useful for hold checks). Where tPLH and tPHL differ, the larger value is given (and the smaller min). Enable = tPZH/tPZL, disable = tPHZ/tPLZ. 'checks' are datasheet minimum timing requirements over -40..+85 C at 4.5 V (HCT) or 5 V +-0.5 V (ACT); 'fmax_MHz' is the guaranteed minimum maximum clock frequency. A missing key means the datasheet does not give it. Keys ending in '_est' are estimates, explained in 'notes'. Pin names are normalised to TI style (CLK, /CLR, /LOAD, ENP, ENT, RCO, /OE, /G); each part's notes give the datasheet's own names where they differ. 'alt' lists second-source datasheets with their own numbers: vendors differ a lot, so for worst-case STA use the datasheet of the vendor you actually buy, or the worse of the two.",
+  "74HCT00": {
+    "family": "HCT",
+    "function": "quad 2-input NAND",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT00",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT00.pdf",
+    "datasheet": "Nexperia 74HC00; 74HCT00 product data sheet, Rev. 11, 29 Apr 2025",
+    "availability": "Nexperia 74HCT00D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: SN74HCT00 active (DR, PWR, NSR); DIP SN74HCT00N is NRND.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 10,
+        "typ_4V5_50pF": 12,
+        "max": 24
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT00",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct00.pdf",
+        "datasheet": "SCLS062F (Oct 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->Y": {
+            "typ_4V5_50pF": 11,
+            "max": 25
+          }
+        }
+      }
+    ]
+  },
+  "74HCT02": {
+    "family": "HCT",
+    "function": "quad 2-input NOR",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT02",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT02.pdf",
+    "datasheet": "Nexperia 74HC02; 74HCT02 product data sheet, Rev. 9, 15 Feb 2024",
+    "availability": "Nexperia 74HCT02D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: SN74HCT02 active (DR, PWR, NSR); DIP SN74HCT02N is NRND.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 9,
+        "typ_4V5_50pF": 11,
+        "max": 24
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT02",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct02.pdf",
+        "datasheet": "SCLS065G (Oct 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->Y": {
+            "typ_4V5_50pF": 11,
+            "max": 25
+          }
+        }
+      }
+    ]
+  },
+  "74HCT04": {
+    "family": "HCT",
+    "function": "hex inverter",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT04",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf",
+    "datasheet": "Nexperia 74HC04; 74HCT04 product data sheet, Rev. 10, 16 Feb 2024",
+    "availability": "Nexperia 74HCT04D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: SN74HCT04 active (DR, PWR, NSR); DIP SN74HCT04N is NRND.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 8,
+        "typ_4V5_50pF": 10,
+        "max": 24
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT04",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct04.pdf",
+        "datasheet": "SCLS042F (Oct 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->Y": {
+            "typ_4V5_50pF": 14,
+            "max": 25
+          }
+        }
+      }
+    ]
+  },
+  "74HCT08": {
+    "family": "HCT",
+    "function": "quad 2-input AND",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT08",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT08.pdf",
+    "datasheet": "Nexperia 74HC08; 74HCT08 product data sheet, Rev. 9, 16 Feb 2024",
+    "availability": "Nexperia 74HCT08D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: SN74HCT08 active incl. DIP SN74HCT08N.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 11,
+        "typ_4V5_50pF": 14,
+        "max": 30
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT08",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct08.pdf",
+        "datasheet": "SCLS063G (Aug 2024)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->Y": {
+            "typ_4V5_50pF": 15,
+            "max": 30
+          }
+        }
+      }
+    ]
+  },
+  "74HCT10": {
+    "family": "HCT",
+    "function": "triple 3-input NAND",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT10",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT10.pdf",
+    "datasheet": "Nexperia 74HC10; 74HCT10 product data sheet, Rev. 5, 20 Feb 2024",
+    "availability": "Nexperia 74HCT10D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: CD74HCT10E (DIP) NRND, SOIC M/MT obsolete - effectively being phased out at TI.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 11,
+        "typ_4V5_50pF": 14,
+        "max": 30
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT10",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct10.pdf",
+        "datasheet": "SCHS404",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+        "arcs": {
+          "A->Y": {
+            "typ": 9,
+            "max": 30
+          }
+        }
+      }
+    ]
+  },
+  "74HCT20": {
+    "family": "HCT",
+    "function": "dual 4-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT20",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct20.pdf",
+    "datasheet": "TI SCHS417",
+    "availability": "TI CD74HCT20 active (E = DIP, M96 SOIC). Nexperia makes only the 74HC20 (no HCT20 datasheet).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 11,
+        "max": 35
+      }
+    },
+    "checks": {}
+  },
+  "74HCT21": {
+    "family": "HCT",
+    "function": "dual 4-input AND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT21",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct21.pdf",
+    "datasheet": "TI SCHS418",
+    "availability": "TI CD74HCT21 active (E = DIP, M96 SOIC); TI appears to be the only current HCT21 source (no Nexperia HCT21).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 11,
+        "max": 34
+      }
+    },
+    "checks": {}
+  },
+  "74HCT30": {
+    "family": "HCT",
+    "function": "8-input NAND",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT30",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT30.pdf",
+    "datasheet": "Nexperia 74HC30; 74HCT30 product data sheet, Rev. 10, 13 Mar 2024",
+    "availability": "Nexperia 74HCT30D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: CD74HCT30 active (E = DIP, M96).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 12,
+        "typ_4V5_50pF": 16,
+        "max": 35
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT30",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct30.pdf",
+        "datasheet": "SCHS419",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+        "arcs": {
+          "A->Y": {
+            "typ": 11,
+            "max": 35
+          }
+        }
+      }
+    ]
+  },
+  "74HCT32": {
+    "family": "HCT",
+    "function": "quad 2-input OR",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT32",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT32.pdf",
+    "datasheet": "Nexperia 74HC32; 74HCT32 product data sheet, Rev. 10, 30 Apr 2025",
+    "availability": "Nexperia 74HCT32D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: SN74HCT32 active incl. DIP SN74HCT32N.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 9,
+        "typ_4V5_50pF": 11,
+        "max": 30
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT32",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct32.pdf",
+        "datasheet": "SCLS064G (Oct 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->Y": {
+            "typ_4V5_50pF": 15,
+            "max": 30
+          }
+        }
+      }
+    ]
+  },
+  "74HCT74": {
+    "family": "HCT",
+    "function": "dual D flip-flop with set/reset",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT74",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT74.pdf",
+    "datasheet": "Nexperia 74HC74; 74HCT74, Rev. 9, 2 Apr 2024",
+    "availability": "Nexperia 74HCT74D: 'Production' on nexperia.com (checked Oct 2026); no DIP. TI SN74HCT74 active (DR, PWR, DBR); DIP SN74HCT74N is NRND; CD74HCT74E (DIP) active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "typ": 15,
+        "typ_4V5_50pF": 18,
+        "max": 44
+      },
+      "/PRE,/CLR->Q": {
+        "typ": 18,
+        "typ_4V5_50pF": 24,
+        "max": 50
+      }
+    },
+    "checks": {
+      "setup D->CLK": 15,
+      "hold D->CLK": 3,
+      "tw CLK": 23,
+      "tw /PRE,/CLR": 20,
+      "recovery /PRE,/CLR->CLK": 8,
+      "fmax_MHz": 22
+    },
+    "notes": "Nexperia names: CP=CLK, SD=/PRE, RD=/CLR. The async arc is the larger of SD->Q (23/50) and RD->Q (24/50).",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT74",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct74.pdf",
+        "datasheet": "SCLS169G (Oct 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "CLK->Q": {
+            "typ_4V5_50pF": 20,
+            "max": 35
+          },
+          "/PRE,/CLR->Q": {
+            "typ_4V5_50pF": 21,
+            "max": 44
+          }
+        },
+        "checks": {
+          "setup D->CLK": 15,
+          "hold D->CLK": 0,
+          "tw CLK": 23,
+          "tw /PRE,/CLR": 20,
+          "recovery /PRE,/CLR->CLK": 0,
+          "fmax_MHz": 22
+        }
+      }
+    ]
+  },
+  "74HCT86": {
+    "family": "HCT",
+    "function": "quad 2-input XOR",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT86",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT86.pdf",
+    "datasheet": "Nexperia 74HC86; 74HCT86 product data sheet, Rev. 7, 2 Apr 2024",
+    "availability": "Nexperia 74HCT86D: 'Production' on nexperia.com (checked Oct 2026); SO/TSSOP/DHVQFN only, no DIP. Also TI: CD74HCT86 active (E = DIP, M96). (SN74HCT86 datasheet link 404s - TI only sells the CD74 version.)",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 14,
+        "typ_4V5_50pF": 17,
+        "max": 40
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT86",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct86.pdf",
+        "datasheet": "SCHS410A (Aug 2024)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+        "arcs": {
+          "A->Y": {
+            "typ": 13,
+            "max": 40
+          }
+        }
+      }
+    ]
+  },
+  "74HCT138": {
+    "family": "HCT",
+    "function": "3-to-8 decoder, inverting",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT138",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT138.pdf",
+    "datasheet": "Nexperia 74HC138; 74HCT138, Rev. 10, 26 Feb 2024",
+    "availability": "Nexperia 74HCT138D: 'Production' on nexperia.com (checked Oct 2026); no DIP. TI SN74HCT138 active incl. DIP SN74HCT138N; CD74HCT138E also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 17,
+        "typ_4V5_50pF": 20,
+        "max": 44
+      },
+      "G1->Y": {
+        "typ": 19,
+        "typ_4V5_50pF": 18,
+        "max": 50
+      },
+      "/G2A,/G2B->Y": {
+        "typ": 19,
+        "typ_4V5_50pF": 19,
+        "max": 50
+      }
+    },
+    "checks": {},
+    "notes": "Nexperia names: A0-A2 = A,B,C; E3 = G1 (active high); E1,E2 = /G2A,/G2B. The 5 V/15 pF typ for E3 (19) is higher than its 4.5 V/50 pF typ (18) - that is how the datasheet reads.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT138",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct138.pdf",
+        "datasheet": "SCLS171F (Mar 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->Y": {
+            "typ_4V5_50pF": 23,
+            "max": 45
+          },
+          "G1->Y": {
+            "typ_4V5_50pF": 22,
+            "max": 42
+          },
+          "/G2A,/G2B->Y": {
+            "typ_4V5_50pF": 22,
+            "max": 42
+          }
+        },
+        "notes": "TI gives a single 'Enable -> any Y' row for all three enables."
+      }
+    ]
+  },
+  "74HCT151": {
+    "family": "HCT",
+    "function": "8-input multiplexer",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT151",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT151.pdf",
+    "datasheet": "Nexperia 74HC151; 74HCT151, Rev. 11, 11 Mar 2024",
+    "availability": "Nexperia 74HCT151D: 'Production' on nexperia.com (checked Oct 2026); SO16/TSSOP16, no DIP. TI CD74HCT151 active (E = DIP, M96).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "data->Y": {
+        "typ": 19,
+        "typ_4V5_50pF": 22,
+        "max": 48
+      },
+      "data->W": {
+        "typ": 19,
+        "typ_4V5_50pF": 22,
+        "max": 48
+      },
+      "select->Y": {
+        "typ": 20,
+        "typ_4V5_50pF": 23,
+        "max": 51
+      },
+      "select->W": {
+        "typ": 20,
+        "typ_4V5_50pF": 25,
+        "max": 54
+      },
+      "/G->Y": {
+        "typ": 13,
+        "typ_4V5_50pF": 16,
+        "max": 36
+      },
+      "/G->W": {
+        "typ": 18,
+        "typ_4V5_50pF": 21,
+        "max": 45
+      }
+    },
+    "checks": {},
+    "notes": "Nexperia names: I0-I7 = data, S0-S2 = select, /E = /G (strobe), /Y = W. Row order (Y vs /Y) checked against the rendered datasheet page.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT151",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct151.pdf",
+        "datasheet": "SCHS150D (Nov 2021)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+        "arcs": {
+          "data->Y": {
+            "typ": 16,
+            "max": 48
+          },
+          "data->W": {
+            "typ": 15,
+            "max": 45
+          },
+          "select->Y": {
+            "typ": 17,
+            "max": 51
+          },
+          "select->W": {
+            "typ": 18,
+            "max": 54
+          },
+          "/G->Y": {
+            "typ": 12,
+            "max": 36
+          },
+          "/G->W": {
+            "typ": 15,
+            "max": 46
+          }
+        }
+      }
+    ]
+  },
+  "74HCT153": {
+    "family": "HCT",
+    "function": "dual 4-input multiplexer",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT153",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT153.pdf",
+    "datasheet": "Nexperia 74HC153; 74HCT153, Rev. 11, 11 Mar 2024",
+    "availability": "Nexperia 74HCT153D: 'Production' on nexperia.com (checked Oct 2026); SO16/TSSOP16, no DIP. TI CD74HCT153 active (E = DIP, M96).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "data->Y": {
+        "typ": 16,
+        "typ_4V5_50pF": 19,
+        "max": 43
+      },
+      "select->Y": {
+        "typ": 17,
+        "typ_4V5_50pF": 20,
+        "max": 43
+      },
+      "/G->Y": {
+        "typ": 11,
+        "typ_4V5_50pF": 14,
+        "max": 34
+      }
+    },
+    "checks": {},
+    "notes": "Nexperia names: nI0-nI3 = data, S0,S1 = select, /nE = /G. data->Y is asymmetric: tPHL typ 19 / max 43, tPLH typ 13 / max 30 (4.5 V, 50 pF); the larger is given.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT153",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct153.pdf",
+        "datasheet": "SCHS151C (Oct 2003)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+        "arcs": {
+          "data->Y": {
+            "typ": 14,
+            "max": 43
+          },
+          "select->Y": {
+            "typ": 14,
+            "max": 43
+          },
+          "/G->Y": {
+            "typ": 11,
+            "max": 34
+          }
+        },
+        "notes": "The TI table lists 'I to Y' twice (typ 9/max 30 and typ 14/max 43), almost certainly tPLH and tPHL as in the Nexperia sheet; the larger is given."
+      }
+    ]
+  },
+  "74HCT157": {
+    "family": "HCT",
+    "function": "quad 2-input multiplexer",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT157",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT157.pdf",
+    "datasheet": "Nexperia 74HC157; 74HCT157, Rev. 10, 28 May 2024",
+    "availability": "Nexperia 74HCT157D: 'Production' on nexperia.com (checked Oct 2026); no DIP. TI SN74HCT157 active (DR); DIP SN74HCT157N NRND; CD74HCT157E (DIP) active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "data->Y": {
+        "typ": 13,
+        "typ_4V5_50pF": 16,
+        "max": 34
+      },
+      "select->Y": {
+        "typ": 19,
+        "typ_4V5_50pF": 22,
+        "max": 46
+      },
+      "/G->Y": {
+        "typ": 12,
+        "typ_4V5_50pF": 15,
+        "max": 33
+      }
+    },
+    "checks": {},
+    "notes": "Nexperia names: nI0,nI1 = data, S = select, /E = /G.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT157",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct157.pdf",
+        "datasheet": "SCLS071D (Oct 2003)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "data->Y": {
+            "typ_4V5_50pF": 18,
+            "max": 35
+          },
+          "select->Y": {
+            "typ_4V5_50pF": 20,
+            "max": 40
+          },
+          "/G->Y": {
+            "typ_4V5_50pF": 18,
+            "max": 33
+          }
+        }
+      }
+    ]
+  },
+  "74HCT161": {
+    "family": "HCT",
+    "function": "4-bit sync binary counter, async clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT161",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct161.pdf",
+    "datasheet": "TI SCHS154D (Oct 2003), covers CD74HC/HCT161 and 163",
+    "availability": "TI CD74HCT161M96 (SOIC) active; CD74HCT161E (DIP) NRND. Nexperia makes only the 74HC161 (no HCT161 datasheet) - TI is effectively the only HCT161 source.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "typ": 16,
+        "max": 49
+      },
+      "CLK->RCO": {
+        "typ": 18,
+        "max": 53
+      },
+      "ENT->RCO": {
+        "typ": 13,
+        "max": 40
+      },
+      "/CLR->Q": {
+        "typ": 21,
+        "max": 63
+      },
+      "/CLR->RCO": {
+        "max": 63
+      }
+    },
+    "checks": {
+      "setup D->CLK": 13,
+      "hold D->CLK": 5,
+      "setup ENP,ENT->CLK": 16,
+      "hold ENP,ENT->CLK": 3,
+      "setup /LOAD->CLK": 15,
+      "hold /LOAD->CLK": 3,
+      "tw CLK": 20,
+      "tw /CLR": 25,
+      "recovery /CLR->CLK": 19,
+      "fmax_MHz": 24
+    },
+    "notes": "TI/Harris names: P0-P3 = D, PE = ENP, TE = ENT, SPE = /LOAD, MR = /CLR, TC = RCO, CP = CLK. 'tw CLK' is specified for CLK low only. The datasheet's fmax note says cascaded counters are limited by CLK->RCO + ENT setup + hold instead."
+  },
+  "74HCT163": {
+    "family": "HCT",
+    "function": "4-bit sync binary counter, sync clear",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT163",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT163.pdf",
+    "datasheet": "Nexperia 74HC163; 74HCT163, Rev. 5, 12 Oct 2018",
+    "availability": "Nexperia status NOT confirmed: the 74HCT163D/PW product pages show no lifecycle status (every other Nexperia part here shows 'Production') and the datasheet has not been revised since 2018 - check before relying on Nexperia. TI CD74HCT163 active (E = DIP, M96).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "typ": 20,
+        "typ_4V5_50pF": 23,
+        "max": 49
+      },
+      "CLK->RCO": {
+        "typ": 25,
+        "typ_4V5_50pF": 29,
+        "max": 61
+      },
+      "ENT->RCO": {
+        "typ": 14,
+        "typ_4V5_50pF": 17,
+        "max": 44
+      }
+    },
+    "checks": {
+      "setup D->CLK": 25,
+      "setup /CLR->CLK": 25,
+      "setup /LOAD->CLK": 25,
+      "setup ENP,ENT->CLK": 50,
+      "hold D->CLK": 0,
+      "hold /CLR->CLK": 0,
+      "hold /LOAD->CLK": 0,
+      "hold ENP,ENT->CLK": 0,
+      "tw CLK": 25,
+      "fmax_MHz": 21
+    },
+    "notes": "Nexperia names: CP = CLK, MR = /CLR (synchronous on the 163), PE = /LOAD, CEP = ENP, CET = ENT, TC = RCO, Dn = D. Nexperia's ENP/ENT setup (50 ns at -40..85 C) is much longer than TI's (16 ns). ENT->RCO max is 32 at 25 C but 44 at -40..85 C as printed.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT163",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct163.pdf",
+        "datasheet": "SCHS154D (Oct 2003)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+        "arcs": {
+          "CLK->Q": {
+            "typ": 16,
+            "max": 49
+          },
+          "CLK->RCO": {
+            "typ": 18,
+            "max": 53
+          },
+          "ENT->RCO": {
+            "typ": 13,
+            "max": 40
+          }
+        },
+        "checks": {
+          "setup D->CLK": 13,
+          "setup ENP,ENT->CLK": 16,
+          "setup /LOAD->CLK": 15,
+          "setup /CLR->CLK": 16,
+          "hold D->CLK": 5,
+          "hold ENP,ENT->CLK": 3,
+          "hold /LOAD->CLK": 3,
+          "tw CLK": 20,
+          "fmax_MHz": 24
+        },
+        "notes": "TI gives no hold time for MR (/CLR) on the 163. 'tw CLK' is for CLK low only."
+      }
+    ]
+  },
+  "74HCT175": {
+    "family": "HCT",
+    "function": "quad D flip-flop with clear",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT175",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT175.pdf",
+    "datasheet": "Nexperia 74HC175; 74HCT175, Rev. 7, 14 Mar 2024",
+    "availability": "Nexperia 74HCT175D: 'Production' on nexperia.com (checked Oct 2026); SO16/TSSOP16, no DIP. TI CD74HCT175 active (E = DIP, M96).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "CLK->Q,/Q": {
+        "typ": 16,
+        "typ_4V5_50pF": 19,
+        "max": 41
+      },
+      "/CLR->Q": {
+        "typ": 19,
+        "typ_4V5_50pF": 22,
+        "max": 48
+      },
+      "/CLR->/Q": {
+        "typ": 16,
+        "typ_4V5_50pF": 19,
+        "max": 44
+      }
+    },
+    "checks": {
+      "setup D->CLK": 20,
+      "hold D->CLK": 5,
+      "tw CLK": 25,
+      "tw /CLR": 25,
+      "recovery /CLR->CLK": 5,
+      "fmax_MHz": 20
+    },
+    "notes": "Nexperia names: CP = CLK, MR = /CLR.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT175",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct175.pdf",
+        "datasheet": "SCHS160C (Oct 2003)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+        "arcs": {
+          "CLK->Q,/Q": {
+            "typ": 13,
+            "max": 41
+          },
+          "/CLR->Q,/Q": {
+            "typ": 17,
+            "max": 44
+          }
+        },
+        "checks": {
+          "setup D->CLK": 25,
+          "hold D->CLK": 5,
+          "tw CLK": 25,
+          "tw /CLR": 25,
+          "recovery /CLR->CLK": 5,
+          "fmax_MHz": 20
+        },
+        "notes": "TI calls the recovery time 'removal time, MR to clock'."
+      }
+    ]
+  },
+  "74HCT245": {
+    "family": "HCT",
+    "function": "octal bus transceiver, 3-state",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT245",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT245.pdf",
+    "datasheet": "Nexperia 74HC245; 74HCT245, Rev. 9, 9 May 2025",
+    "availability": "Nexperia 74HCT245D: 'Production' on nexperia.com (checked Oct 2026); no DIP. TI SN74HCT245 active incl. DIP SN74HCT245N; CD74HCT245E also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->B, B->A": {
+        "typ": 10,
+        "typ_4V5_50pF": 12,
+        "max": 28
+      },
+      "/OE->A,B enable": {
+        "typ_4V5_50pF": 16,
+        "max": 38
+      },
+      "/OE->A,B disable": {
+        "typ_4V5_50pF": 16,
+        "max": 38
+      }
+    },
+    "checks": {},
+    "notes": "No 5 V/15 pF typical is given for enable/disable. Neither Nexperia nor TI specify DIR->output separately; a DIR change disables one port and enables the other, so use the /OE disable and enable times.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT245",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct245.pdf",
+        "datasheet": "SCLS020H (Dec 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->B, B->A": {
+            "typ_4V5_50pF": 16,
+            "max": 28
+          },
+          "/OE->A,B enable": {
+            "typ_4V5_50pF": 25,
+            "max": 58
+          },
+          "/OE->A,B disable": {
+            "typ_4V5_50pF": 26,
+            "max": 50
+          }
+        }
+      }
+    ]
+  },
+  "74HCT377": {
+    "family": "HCT",
+    "function": "octal D flip-flop with clock enable",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT377",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT377.pdf",
+    "datasheet": "Nexperia 74HC377; 74HCT377, Rev. 6, 5 Aug 2024",
+    "availability": "Nexperia 74HCT377D: 'Production' on nexperia.com (checked Oct 2026); SO20/TSSOP20, no DIP. TI SN74HCT377 active (N = DIP, DWR); CD74HCT377E also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "typ": 14,
+        "typ_4V5_50pF": 17,
+        "max": 40
+      }
+    },
+    "checks": {
+      "setup D->CLK": 15,
+      "hold D->CLK": 2,
+      "setup /EN->CLK": 28,
+      "hold /EN->CLK": 3,
+      "tw CLK": 25,
+      "fmax_MHz": 22
+    },
+    "notes": "Nexperia names: CP = CLK, /E = /EN.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT377",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct377.pdf",
+        "datasheet": "SCLS067D (Mar 2003)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "CLK->Q": {
+            "typ_4V5_50pF": 15,
+            "max": 38
+          }
+        },
+        "checks": {
+          "setup D->CLK": 15,
+          "hold D->CLK": 3,
+          "setup /EN->CLK": 15,
+          "hold /EN->CLK": 5,
+          "tw CLK": 25,
+          "fmax_MHz": 20
+        },
+        "notes": "TI name for /EN is CLKEN."
+      }
+    ]
+  },
+  "74HCT541": {
+    "family": "HCT",
+    "function": "octal buffer/line driver, 3-state",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT541",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT541.pdf",
+    "datasheet": "Nexperia 74HC541; 74HCT541, Rev. 6, 5 Aug 2024",
+    "availability": "Nexperia 74HCT541D: 'Production' on nexperia.com (checked Oct 2026); SO20/TSSOP20, no DIP. TI SN74HCT541 active incl. DIP SN74HCT541N; CD74HCT541E also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "typ": 12,
+        "typ_4V5_50pF": 15,
+        "max": 35
+      },
+      "/OE->Y enable": {
+        "typ_4V5_50pF": 21,
+        "max": 44
+      },
+      "/OE->Y disable": {
+        "typ_4V5_50pF": 21,
+        "max": 44
+      }
+    },
+    "checks": {},
+    "notes": "No 5 V/15 pF typical is given for enable/disable. /OE = either of /OE1, /OE2.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT541",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct541.pdf",
+        "datasheet": "SCLS306E (May 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "A->Y": {
+            "typ_4V5_50pF": 13,
+            "max": 29
+          },
+          "/OE->Y enable": {
+            "typ_4V5_50pF": 21,
+            "max": 38
+          },
+          "/OE->Y disable": {
+            "typ_4V5_50pF": 19,
+            "max": 38
+          }
+        }
+      }
+    ]
+  },
+  "74HCT574": {
+    "family": "HCT",
+    "function": "octal D flip-flop, 3-state",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT574",
+    "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT574.pdf",
+    "datasheet": "Nexperia 74HC574; 74HCT574, Rev. 10, 5 Aug 2024",
+    "availability": "Nexperia 74HCT574D: 'Production' on nexperia.com (checked Oct 2026); no DIP. TI SN74HCT574 active incl. DIP SN74HCT574N; CD74HCT574E also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "typ": 15,
+        "typ_4V5_50pF": 18,
+        "max": 41
+      },
+      "/OE->Q enable": {
+        "typ_4V5_50pF": 19,
+        "max": 41
+      },
+      "/OE->Q disable": {
+        "typ_4V5_50pF": 16,
+        "max": 35
+      }
+    },
+    "checks": {
+      "setup D->CLK": 15,
+      "hold D->CLK": 5,
+      "tw CLK": 20,
+      "fmax_MHz": 24
+    },
+    "notes": "No 5 V/15 pF typical is given for enable/disable. Nexperia names: CP = CLK.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT574",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct574.pdf",
+        "datasheet": "SCLS177H (Aug 2024)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "arcs": {
+          "CLK->Q": {
+            "typ_4V5_50pF": 30,
+            "max": 45
+          },
+          "/OE->Q enable": {
+            "typ_4V5_50pF": 26,
+            "max": 38
+          },
+          "/OE->Q disable": {
+            "typ_4V5_50pF": 23,
+            "max": 38
+          }
+        },
+        "checks": {
+          "setup D->CLK": 25,
+          "hold D->CLK": 5,
+          "tw CLK": 20,
+          "fmax_MHz": 24
+        },
+        "notes": "TI's setup time (25 ns) is much longer than Nexperia's (15 ns)."
+      }
+    ]
+  },
+  "74HCT688": {
+    "family": "HCT",
+    "function": "8-bit identity comparator",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT688",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct688.pdf",
+    "datasheet": "TI SCHS196E (Oct 2022)",
+    "availability": "TI CD74HCT688 active (E = DIP, M96). Nexperia makes only the 74HC688 - TI appears to be the only current HCT688 source.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "P,Q->/P=Q": {
+        "typ": 14,
+        "max": 42
+      },
+      "/G->/P=Q": {
+        "typ": 9,
+        "max": 30
+      }
+    },
+    "checks": {},
+    "notes": "TI names: A0-A7/B0-B7 = P/Q, /E = /G, output 'Y' = /P=Q."
+  },
+  "74ACT00": {
+    "family": "ACT",
+    "function": "quad 2-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT00",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act00.pdf",
+    "datasheet": "TI SCAS523F (Apr 2025)",
+    "availability": "TI SN74ACT00 active incl. DIP SN74ACT00N; CD74ACT00 also listed (DIP CD74ACT00E NRND).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1,
+        "typ": 5.5,
+        "max": 9.5
+      }
+    },
+    "checks": {},
+    "notes": "tPLH typ 5.5/max 9.5; tPHL typ 4/max 7 or 8. The current datasheet labels both temperature columns 'SNx4ACT00' (likely SN54 then SN74); max 9.5 holds in either column."
+  },
+  "74ACT02": {
+    "family": "ACT",
+    "function": "quad 2-input NOR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT02",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act02.pdf",
+    "datasheet": "TI SCHS309B (May 2002)",
+    "availability": "TI CD74ACT02 active (E = DIP, M96, PWR, BQA). No SN74ACT02 at TI.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 3.1,
+        "max": 11.1
+      }
+    },
+    "checks": {},
+    "notes": "The CD74ACT (ex-Harris) datasheets give only min/max over temperature, no 25 C typical."
+  },
+  "74ACT04": {
+    "family": "ACT",
+    "function": "hex inverter",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT04",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act04.pdf",
+    "datasheet": "TI SCAS518F (Nov 2024)",
+    "availability": "TI SN74ACT04 active incl. DIP SN74ACT04N.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1,
+        "typ": 6,
+        "max": 9
+      }
+    },
+    "checks": {}
+  },
+  "74ACT08": {
+    "family": "ACT",
+    "function": "quad 2-input AND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT08",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act08.pdf",
+    "datasheet": "TI SCAS535E (Feb 2025)",
+    "availability": "TI SN74ACT08 active incl. DIP SN74ACT08N.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1,
+        "typ": 6.5,
+        "max": 10
+      }
+    },
+    "checks": {}
+  },
+  "74ACT10": {
+    "family": "ACT",
+    "function": "triple 3-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT10",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act10.pdf",
+    "datasheet": "TI SCAS526E (Jul 2025)",
+    "availability": "TI SN74ACT10 active incl. DIP SN74ACT10N; CD74ACT10E (DIP) also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1,
+        "typ": 6.5,
+        "max": 10
+      }
+    },
+    "checks": {},
+    "notes": "The datasheet's tPHL max over temperature is printed as '905' (a typo, probably 9.5); max = 10 comes from tPLH. The CD74ACT10 second source is slower (max 12.3).",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74ACT10",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74act10.pdf",
+        "datasheet": "SCHS316",
+        "typ_cond": "not given",
+        "arcs": {
+          "A->Y": {
+            "min": 3.5,
+            "max": 12.3
+          }
+        }
+      }
+    ]
+  },
+  "74ACT20": {
+    "family": "ACT",
+    "function": "dual 4-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT20",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act20.pdf",
+    "datasheet": "TI SCHS320",
+    "availability": "TI CD74ACT20 active (E = DIP, M96).",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 3.5,
+        "max": 12.3
+      }
+    },
+    "checks": {},
+    "notes": "No 25 C typical in the CD74ACT datasheet."
+  },
+  "74ACT21": {
+    "family": "ACT",
+    "function": "dual 4-input AND",
+    "manufacturer": "Integral (Belarus)",
+    "part_number": "IN74ACT21",
+    "source": "https://en.integral.by/upload/iblock/eda/IN74ACT21.pdf",
+    "datasheet": "Integral IN74ACT21 technical data (undated)",
+    "availability": "No 74ACT21 from TI, onsemi or Nexperia. The only datasheet found is Integral's IN74ACT21 (Belarus), a small manufacturer whose parts are not normally carried by the big Western distributors (stock not checked). Practical substitute: 74ACT20 plus an inverter, or 74ACT08 pairs.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-10%, CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1.0,
+        "max": 10.0
+      }
+    },
+    "checks": {}
+  },
+  "74ACT30": {
+    "family": "ACT",
+    "function": "8-input NAND",
+    "availability": "Not found: no 74ACT30 or CD74ACT30 datasheet from TI (cd74act30 link 404s), onsemi or Nexperia. TI's 74ACT11030 is an 8-input NAND but uses the 74ACT11000-series pinout (power and ground on centre pins), so it is not a drop-in replacement. Use 74HCT30 or build it from 74ACT20 + 74ACT32/02.",
+    "arcs": {},
+    "checks": {}
+  },
+  "74ACT32": {
+    "family": "ACT",
+    "function": "quad 2-input OR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT32",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act32.pdf",
+    "datasheet": "TI SCAS530E (Apr 2025)",
+    "availability": "TI SN74ACT32 active incl. DIP SN74ACT32N.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1,
+        "typ": 6.5,
+        "max": 10
+      }
+    },
+    "checks": {}
+  },
+  "74ACT74": {
+    "family": "ACT",
+    "function": "dual D flip-flop with set/reset",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT74",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act74.pdf",
+    "datasheet": "TI SCAS520J (Apr 2025)",
+    "availability": "TI SN74ACT74 active incl. DIP SN74ACT74N; CD74ACT74E also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "min": 3,
+        "typ": 7.5,
+        "max": 13
+      },
+      "/PRE,/CLR->Q": {
+        "min": 2.5,
+        "typ": 6,
+        "max": 11.5
+      }
+    },
+    "checks": {
+      "setup D->CLK": 3.5,
+      "hold D->CLK": 1,
+      "tw CLK": 6,
+      "tw /PRE,/CLR": 6,
+      "recovery /PRE,/CLR->CLK": 0,
+      "fmax_MHz": 125
+    },
+    "notes": "Recovery = TI's 'setup time, PRE or CLR inactive before CLK'."
+  },
+  "74ACT86": {
+    "family": "ACT",
+    "function": "quad 2-input XOR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT86",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act86.pdf",
+    "datasheet": "TI SCAS534E (Apr 2025)",
+    "availability": "TI SN74ACT86 active incl. DIP SN74ACT86N.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1,
+        "typ": 8.5,
+        "max": 10.5
+      }
+    },
+    "checks": {}
+  },
+  "74ACT138": {
+    "family": "ACT",
+    "function": "3-to-8 decoder, inverting",
+    "manufacturer": "onsemi",
+    "part_number": "74ACT138",
+    "source": "https://www.onsemi.com/pdf/datasheet/74act138-d.pdf",
+    "datasheet": "onsemi 74ACT138/D Rev. 2 (Feb 2024)",
+    "availability": "onsemi 74ACT138SC/SCX (SOIC-16) in the current ordering table. TI CD74ACT138 active incl. DIP CD74ACT138E.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 1.5,
+        "typ": 7.0,
+        "max": 11.5
+      },
+      "G1->Y": {
+        "min": 1.5,
+        "typ": 8.0,
+        "max": 13.0
+      },
+      "/G2A,/G2B->Y": {
+        "min": 2.0,
+        "typ": 8.0,
+        "max": 12.5
+      }
+    },
+    "checks": {},
+    "notes": "onsemi names: A0-A2 = A,B,C; E3 = G1; /E1,/E2 = /G2A,/G2B.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74ACT138",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74act138.pdf",
+        "datasheet": "SCHS329C (Jul 2024)",
+        "typ_cond": "not given",
+        "arcs": {
+          "A->Y": {
+            "min": 3.1,
+            "max": 10.9
+          },
+          "G1->Y": {
+            "min": 2.8,
+            "max": 10.0
+          },
+          "/G2A,/G2B->Y": {
+            "min": 2.7,
+            "max": 9.5
+          }
+        }
+      }
+    ]
+  },
+  "74ACT151": {
+    "family": "ACT",
+    "function": "8-input multiplexer",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT151",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act151.pdf",
+    "datasheet": "TI SCHS338B (May 2025)",
+    "availability": "TI CD74ACT151 active in SOIC (M96), TSSOP (PWR) and WQFN only - no DIP.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "data->Y": {
+        "min": 4.0,
+        "max": 14.1
+      },
+      "data->W": {
+        "min": 4.4,
+        "max": 15.4
+      },
+      "select->Y": {
+        "min": 5.2,
+        "max": 18.4
+      },
+      "select->W": {
+        "min": 5.6,
+        "max": 19.6
+      },
+      "/G->Y": {
+        "min": 3.1,
+        "max": 11.0
+      },
+      "/G->W": {
+        "min": 3.5,
+        "max": 12.3
+      }
+    },
+    "checks": {},
+    "notes": "TI names: D0-D7 = data, A,B,C = select, /G = strobe, W = inverted output. No 25 C typical given."
+  },
+  "74ACT153": {
+    "family": "ACT",
+    "function": "dual 4-input multiplexer",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT153",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act153.pdf",
+    "datasheet": "TI SCHS339",
+    "availability": "TI CD74ACT153 active (E = DIP, NSR); M96 NRND. TI also released a new SN74ACT153 (Jun 2025, TSSOP/WQFN only), see alt.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "data->Y": {
+        "min": 4.6,
+        "max": 16.4
+      },
+      "select->Y": {
+        "min": 5.7,
+        "max": 20.0
+      },
+      "/G->Y": {
+        "min": 3.2,
+        "max": 11.5
+      }
+    },
+    "checks": {},
+    "notes": "TI names: C0-C3 = data, A,B = select, /G = strobe.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74ACT153",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74act153.pdf",
+        "datasheet": "SLVSJ64 (Jun 2025)",
+        "typ_cond": "typ: 25 C, 5 V, CL 50 pF",
+        "max_cond": "min/max: -40..+125 C at VCC = 5 V (table says 5V, not 4.5 V)",
+        "arcs": {
+          "data->Y": {
+            "min": 3.7,
+            "typ": 6.1,
+            "max": 8.2
+          },
+          "select->Y": {
+            "min": 4.1,
+            "typ": 6.6,
+            "max": 8.8
+          },
+          "/G->Y": {
+            "min": 3.7,
+            "typ": 6.1,
+            "max": 7.8
+          }
+        },
+        "notes": "A new-generation TI part, more than twice as fast as the CD74ACT153. Its limits are specified at 5 V over -40..+125 C, so they are not strictly comparable with the other ACT max values."
+      }
+    ]
+  },
+  "74ACT157": {
+    "family": "ACT",
+    "function": "quad 2-input multiplexer",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT157",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act157.pdf",
+    "datasheet": "TI SCHS340D (Jul 2025)",
+    "availability": "TI CD74ACT157 active incl. DIP CD74ACT157E. onsemi MC74ACT157 (SOIC/TSSOP) also in the current ordering table.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "data->Y": {
+        "min": 2.5,
+        "max": 8.6
+      },
+      "select->Y": {
+        "min": 3.8,
+        "max": 13.2
+      },
+      "/G->Y": {
+        "min": 3.6,
+        "max": 12.3
+      }
+    },
+    "checks": {},
+    "notes": "TI names: A,B = data, A/B = select, /G = strobe. No 25 C typical given by TI or onsemi.",
+    "alt": [
+      {
+        "manufacturer": "onsemi",
+        "part_number": "MC74ACT157",
+        "source": "https://www.onsemi.com/pdf/datasheet/mc74ac157-d.pdf",
+        "datasheet": "MC74AC157/D Rev. 9 (Feb 2024)",
+        "typ_cond": "not given",
+        "arcs": {
+          "data->Y": {
+            "min": 1.0,
+            "max": 8.5
+          },
+          "select->Y": {
+            "min": 1.5,
+            "max": 10.5
+          },
+          "/G->Y": {
+            "min": 1.0,
+            "max": 11.5
+          }
+        },
+        "notes": "onsemi names: I0n,I1n = data, S = select, /E = /G, Zn = Y."
+      }
+    ]
+  },
+  "74ACT161": {
+    "family": "ACT",
+    "function": "4-bit sync binary counter, async clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT161",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act161.pdf",
+    "datasheet": "TI SCHS298B (Mar 2003)",
+    "availability": "TI CD74ACT161M96 (SOIC) active; DIP CD74ACT161E NRND. onsemi's MC74ACT161 datasheet is current, but only the 163 appears in its ordering table.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "min": 4.2,
+        "max": 15.0
+      },
+      "CLK->RCO": {
+        "min": 4.3,
+        "max": 15.2
+      },
+      "ENT->RCO": {
+        "min": 2.8,
+        "max": 9.8
+      },
+      "/CLR->Q": {
+        "min": 4.2,
+        "max": 15.0
+      },
+      "/CLR->RCO": {
+        "min": 4.2,
+        "max": 15.0
+      }
+    },
+    "checks": {
+      "setup D->CLK": 4.4,
+      "hold D->CLK": 0,
+      "setup /LOAD->CLK": 5.3,
+      "hold ENP,ENT->CLK": 0,
+      "setup ENP,ENT->CLK_est": 5.3,
+      "hold /LOAD->CLK_est": 0,
+      "tw CLK": 5.4,
+      "tw /CLR": 5.3,
+      "recovery /CLR->CLK": 5.3,
+      "fmax_MHz": 91
+    },
+    "notes": "The TI CD74ACT161 timing table omits ENP/ENT setup and /LOAD hold. The _est values are copied from the companion CD74ACT163 datasheet (same die family, same ENP/ENT/LOAD logic); onsemi's MC74ACT161 specifies ENP/ENT setup 6.5 and /LOAD hold -0.5. Large vendor spread: onsemi requires 11.5 ns D setup versus TI's 4.4.",
+    "alt": [
+      {
+        "manufacturer": "onsemi",
+        "part_number": "MC74ACT161",
+        "source": "https://www.onsemi.com/pdf/datasheet/mc74ac161-d.pdf",
+        "datasheet": "MC74AC161/D Rev. 9 (Feb 2024)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+        "arcs": {
+          "CLK->Q": {
+            "min": 1.5,
+            "typ": 8.0,
+            "max": 11.5
+          },
+          "CLK->RCO": {
+            "min": 1.5,
+            "typ": 11.0,
+            "max": 13.5
+          },
+          "ENT->RCO": {
+            "min": 1.5,
+            "typ": 8.0,
+            "max": 10.5
+          },
+          "/CLR->Q": {
+            "min": 1.5,
+            "typ": 8.0,
+            "max": 11.0
+          },
+          "/CLR->RCO": {
+            "min": 2.0,
+            "typ": 10.0,
+            "max": 14.5
+          }
+        },
+        "checks": {
+          "setup D->CLK": 11.5,
+          "hold D->CLK": 0,
+          "setup /LOAD->CLK": 9.5,
+          "hold /LOAD->CLK": -0.5,
+          "setup ENP,ENT->CLK": 6.5,
+          "hold ENP,ENT->CLK": 0,
+          "tw CLK": 3.5,
+          "tw /CLR": 7.5,
+          "recovery /CLR->CLK": 0.5,
+          "fmax_MHz": 100
+        },
+        "notes": "onsemi names: Pn = D, /PE = /LOAD, CEP = ENP, CET = ENT, /MR = /CLR, TC = RCO. Only MC74ACT163DR2G appears in the datasheet's ordering table, so the ACT161 may no longer be orderable from onsemi."
+      }
+    ]
+  },
+  "74ACT163": {
+    "family": "ACT",
+    "function": "4-bit sync binary counter, sync clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT163",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act163.pdf",
+    "datasheet": "TI SCHS300B (Mar 2003)",
+    "availability": "TI CD74ACT163 active incl. DIP CD74ACT163E. onsemi MC74ACT163DR2G (SOIC) in the current ordering table.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "min": 4.2,
+        "max": 15.0
+      },
+      "CLK->RCO": {
+        "min": 4.3,
+        "max": 15.2
+      },
+      "ENT->RCO": {
+        "min": 2.8,
+        "max": 9.8
+      }
+    },
+    "checks": {
+      "setup D->CLK": 4.4,
+      "setup ENP,ENT->CLK": 5.3,
+      "setup /LOAD->CLK": 6.6,
+      "setup /CLR->CLK": 6.6,
+      "hold D->CLK": 0,
+      "hold ENP,ENT->CLK": 0,
+      "hold /LOAD->CLK": 0,
+      "hold /CLR->CLK": 0,
+      "tw CLK": 5.4,
+      "fmax_MHz": 91
+    },
+    "alt": [
+      {
+        "manufacturer": "onsemi",
+        "part_number": "MC74ACT163",
+        "source": "https://www.onsemi.com/pdf/datasheet/mc74ac161-d.pdf",
+        "datasheet": "MC74AC161/D Rev. 9 (Feb 2024)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+        "arcs": {
+          "CLK->Q": {
+            "min": 1.5,
+            "typ": 6.0,
+            "max": 12.0
+          },
+          "CLK->RCO": {
+            "min": 2.0,
+            "typ": 8.0,
+            "max": 15.0
+          },
+          "ENT->RCO": {
+            "min": 1.5,
+            "typ": 6.0,
+            "max": 11.0
+          }
+        },
+        "checks": {
+          "setup D->CLK": 12.0,
+          "hold D->CLK": 0.5,
+          "setup /CLR->CLK": 11.5,
+          "hold /CLR->CLK": -0.5,
+          "setup /LOAD->CLK": 10.5,
+          "hold /LOAD->CLK": 0,
+          "setup ENP,ENT->CLK": 6.5,
+          "hold ENP,ENT->CLK": 0.5,
+          "tw CLK": 3.5,
+          "fmax_MHz": 105
+        },
+        "notes": "onsemi names: /SR = /CLR (synchronous reset). Setup times are 2-3x TI's."
+      }
+    ]
+  },
+  "74ACT175": {
+    "family": "ACT",
+    "function": "quad D flip-flop with clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT175",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act175.pdf",
+    "datasheet": "TI SCHS345A (May 2024)",
+    "availability": "TI CD74ACT175 active incl. DIP CD74ACT175E.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "CLK->Q,/Q": {
+        "min": 3.0,
+        "max": 10.5
+      },
+      "/CLR->Q,/Q": {
+        "min": 3.3,
+        "max": 11.8
+      }
+    },
+    "checks": {
+      "setup D->CLK": 2,
+      "hold D->CLK": 2,
+      "tw CLK": 4.4,
+      "tw /CLR": 3.5,
+      "recovery /CLR->CLK": 1,
+      "fmax_MHz": 114
+    }
+  },
+  "74ACT245": {
+    "family": "ACT",
+    "function": "octal bus transceiver, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT245",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act245.pdf",
+    "datasheet": "TI SCAS452H (Apr 2024)",
+    "availability": "TI SN74ACT245 active incl. DIP SN74ACT245N; CD74ACT245 also listed (DIP NRND).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->B, B->A": {
+        "min": 1,
+        "typ": 4,
+        "max": 9
+      },
+      "/OE->A,B enable": {
+        "min": 1.5,
+        "typ": 5.5,
+        "max": 12
+      },
+      "/OE->A,B disable": {
+        "min": 1,
+        "typ": 5.5,
+        "max": 11
+      }
+    },
+    "checks": {},
+    "notes": "No separate DIR->output spec; treat a DIR change as disable plus enable."
+  },
+  "74ACT377": {
+    "family": "ACT",
+    "function": "octal D flip-flop with clock enable",
+    "manufacturer": "onsemi",
+    "part_number": "MC74ACT377",
+    "source": "https://www.onsemi.com/pdf/datasheet/mc74ac377-d.pdf",
+    "datasheet": "onsemi MC74AC377/D Rev. 11 (Feb 2024)",
+    "availability": "onsemi MC74ACT377DWR2G (SOIC-20W) is the only ACT377 in the ordering table; no TI ACT377 (sn74act377/cd74act377 links 404). No DIP.",
+    "typ_cond": "not given",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "min": 2.5,
+        "max": 11
+      }
+    },
+    "checks": {
+      "setup D->CLK": 5.5,
+      "hold D->CLK": 1.0,
+      "setup /EN->CLK": 5.5,
+      "hold /EN->CLK": 1.0,
+      "tw CLK": 4.5,
+      "fmax_MHz": 125
+    },
+    "notes": "onsemi names: CP = CLK, /CE = /EN. The datasheet's typical column is blank. CLK->Q tPLH max 10, tPHL max 11."
+  },
+  "74ACT541": {
+    "family": "ACT",
+    "function": "octal buffer/line driver, 3-state",
+    "manufacturer": "onsemi",
+    "part_number": "74ACT541",
+    "source": "https://www.onsemi.com/pdf/datasheet/74act541-d.pdf",
+    "datasheet": "onsemi 74ACT541/D Rev. 4 (Jul 2025)",
+    "availability": "onsemi 74ACT541SC/SCX (SOIC-20) and MTCX (TSSOP-20) in the current ordering table. TI CD74ACT541 active incl. DIP CD74ACT541E.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "A->Y": {
+        "min": 2.0,
+        "typ": 5.5,
+        "max": 7.5
+      },
+      "/OE->Y enable": {
+        "min": 2.0,
+        "typ": 6.5,
+        "max": 9.5
+      },
+      "/OE->Y disable": {
+        "min": 1.0,
+        "typ": 5.5,
+        "max": 8.0
+      }
+    },
+    "checks": {},
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74ACT541",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74act541.pdf",
+        "datasheet": "SCHS285B (May 2024)",
+        "typ_cond": "not given",
+        "arcs": {
+          "A->Y": {
+            "min": 2.1,
+            "max": 7.5
+          },
+          "/OE->Y enable": {
+            "min": 3.5,
+            "max": 12.2
+          },
+          "/OE->Y disable": {
+            "min": 3.5,
+            "max": 12.2
+          }
+        },
+        "notes": "The TI ACT-series table is garbled in the current PDF (shifted columns in the enable row). Enable = disable = 3.5/12.2 is inferred from the disable row and the 2-values-per-range layout; the AC541 table in the same document has equal enable and disable limits too."
+      }
+    ]
+  },
+  "74ACT574": {
+    "family": "ACT",
+    "function": "octal D flip-flop, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT574",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act574.pdf",
+    "datasheet": "TI SCAS537F (Feb 2024)",
+    "availability": "TI SN74ACT574 active incl. DIP SN74ACT574N; CD74ACT574E also active.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF",
+    "arcs": {
+      "CLK->Q": {
+        "min": 1.5,
+        "typ": 7,
+        "max": 12
+      },
+      "/OE->Q enable": {
+        "min": 1.5,
+        "typ": 6.4,
+        "max": 10
+      },
+      "/OE->Q disable": {
+        "min": 1.5,
+        "typ": 7,
+        "max": 11.5
+      }
+    },
+    "checks": {
+      "setup D->CLK": 2.5,
+      "hold D->CLK": 1,
+      "tw CLK": 4,
+      "fmax_MHz": 85
+    },
+    "notes": "In the current PDF the two /OE row pairs are mislabelled 'tPHL' and 'tt'. They are read here in TI's standard order (enable tPZH/tPZL, then disable tPHZ/tPLZ)."
+  },
+  "74ACT688": {
+    "family": "ACT",
+    "function": "8-bit identity comparator",
+    "availability": "Not found: no 74ACT688/74AC688 from TI (sn74act688/cd74act688 links 404), onsemi or Nexperia. Use 74HCT688 (CD74HCT688), or build the compare from 74ACT86 + a NOR/NAND tree.",
+    "arcs": {},
+    "checks": {}
+  }
+}

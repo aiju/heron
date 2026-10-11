@@ -1,0 +1,2263 @@
+{
+  "_meta": {
+    "compiled": "2026-10-11",
+    "units": "ns unless stated otherwise",
+    "arc_convention": "Each arc has typ_lh/typ_hl/max_lh/max_hl (tPLH/tPHL) exactly as printed in the datasheet, plus 'typ' and 'max' = the LARGER of LH/HL for convenience. 74F parts also carry min_lh/min_hl and max_com* (max over the commercial temperature/VCC range, which is the number to use for worst-case design).",
+    "param_convention": "Memory params are objects {min:..} or {max:..} (or both) exactly as specified; access/delay/float times are max, setup/hold/pulse/cycle times are min. Datasheet symbol names that differ from the canonical ones are given in 'symbol_map'.",
+    "estimates": "Keys ending in _est are NOT from a datasheet; each carries a 'basis' explaining how it was derived.",
+    "polarity_note": "181/182 datasheets name outputs by active-low data convention (F-bar, G-bar, P-bar, Cn+4). Arc values apply to the physical pins regardless of interpretation."
+  },
+  "74LS181": {
+    "source": "https://www.ti.com/lit/ds/symlink/sn54ls181.pdf (TI SDLS136, Dec 1972, rev. Mar 1988, p.7; package addendum dated 14-Jun-2026)",
+    "conditions": "VCC = 5 V, TA = 25 C, CL = 15 pF, RL = 2 kOhm (TI LS test load). Typ and max both at 25 C/5 V; TI gives no max over the full 0-70 C/4.75-5.25 V range for switching.",
+    "availability": "Commercial SN74LS181N: discontinued (TI product page SN74LS181 returns 404; not listed in TI's package addendum). Fairchild/onsemi DM74LS181N: obsolete (onsemi redirects to obsoletePart). Only TI SN54LS181J / SNJ54LS181J (military, 24-pin 600-mil ceramic DIP) are listed ACTIVE (addendum 14-Jun-2026); JM38510/07801BJA is NRND. Otherwise new-old-stock / surplus only.",
+    "arcs": {
+      "Cn->Cn+4": {
+        "typ": 18,
+        "max": 27,
+        "typ_lh": 18,
+        "typ_hl": 13,
+        "max_lh": 27,
+        "max_hl": 20
+      },
+      "A/B->Cn+4 (M=0 sum)": {
+        "typ": 25,
+        "max": 38,
+        "typ_lh": 25,
+        "typ_hl": 25,
+        "max_lh": 38,
+        "max_hl": 38
+      },
+      "A/B->Cn+4 (M=0 diff)": {
+        "typ": 27,
+        "max": 41,
+        "typ_lh": 27,
+        "typ_hl": 27,
+        "max_lh": 41,
+        "max_hl": 41
+      },
+      "Cn->F (M=0 sum or diff)": {
+        "typ": 17,
+        "max": 26,
+        "typ_lh": 17,
+        "typ_hl": 13,
+        "max_lh": 26,
+        "max_hl": 20
+      },
+      "A/B->G (M=0 sum)": {
+        "typ": 19,
+        "max": 29,
+        "typ_lh": 19,
+        "typ_hl": 15,
+        "max_lh": 29,
+        "max_hl": 23
+      },
+      "A/B->G (M=0 diff)": {
+        "typ": 21,
+        "max": 32,
+        "typ_lh": 21,
+        "typ_hl": 21,
+        "max_lh": 32,
+        "max_hl": 32
+      },
+      "A/B->P (M=0 sum)": {
+        "typ": 20,
+        "max": 30,
+        "typ_lh": 20,
+        "typ_hl": 20,
+        "max_lh": 30,
+        "max_hl": 30
+      },
+      "A/B->P (M=0 diff)": {
+        "typ": 22,
+        "max": 33,
+        "typ_lh": 20,
+        "typ_hl": 22,
+        "max_lh": 30,
+        "max_hl": 33
+      },
+      "Ai/Bi->Fi same bit (M=0 sum)": {
+        "typ": 21,
+        "max": 32,
+        "typ_lh": 21,
+        "typ_hl": 13,
+        "max_lh": 32,
+        "max_hl": 20
+      },
+      "Ai/Bi->Fi same bit (M=0 diff)": {
+        "typ": 21,
+        "max": 32,
+        "typ_lh": 21,
+        "typ_hl": 21,
+        "max_lh": 32,
+        "max_hl": 32
+      },
+      "Ai/Bi->Fi (M=1 logic)": {
+        "typ": 26,
+        "max": 38,
+        "typ_lh": 22,
+        "typ_hl": 26,
+        "max_lh": 33,
+        "max_hl": 38
+      },
+      "A/B->A=B (M=0 diff)": {
+        "typ": 41,
+        "max": 62,
+        "typ_lh": 33,
+        "typ_hl": 41,
+        "max_lh": 50,
+        "max_hl": 62,
+        "note": "A=B is open-collector; timing depends on pull-up (test RL = 2 kOhm)."
+      },
+      "AnyA/B->AnyF (M=0 sum)_est": {
+        "typ": 25,
+        "max": 38,
+        "typ_lh": 25,
+        "typ_hl": 25,
+        "max_lh": 38,
+        "max_hl": 38,
+        "basis": "NOT in TI table (TI only gives same-bit Ai->Fi). Cross-bit path goes through the internal lookahead; conservatively set equal to A/B->Cn+4 (sum). In the 74F181 datasheet, which does list both, AnyA/B->AnyF is ~80% of A/B->Cn+4, so this is pessimistic."
+      },
+      "AnyA/B->AnyF (M=0 diff)_est": {
+        "typ": 27,
+        "max": 41,
+        "typ_lh": 27,
+        "typ_hl": 27,
+        "max_lh": 41,
+        "max_hl": 41,
+        "basis": "As above, set equal to A/B->Cn+4 (diff)."
+      },
+      "S0-S3->F_est": {
+        "basis": "NOT specified in any 181 datasheet found (TI, Fairchild DM74LS181, National/Fairchild 74F181). Logic diagram (TI p.5) shows S0-S3 entering the same first-level AND-NOR gates as A/B, so use the A/B->F/G/P/Cn+4 arc of the mode being selected INTO as the estimate (e.g. AnyA/B->AnyF_est for F, A/B->Cn+4 for Cn+4)."
+      },
+      "M->F_est": {
+        "typ": 21,
+        "max": 32,
+        "typ_lh": 21,
+        "typ_hl": 13,
+        "max_lh": 32,
+        "max_hl": 20,
+        "basis": "NOT specified. Logic diagram: M -> inverter -> the same carry-inhibit gates that Cn drives -> output XOR, i.e. Cn->F plus one internal inverter. Conservatively set equal to Ai/Bi->Fi (sum) which is >= Cn->F."
+      }
+    },
+    "notes": "Arcs not given by TI: A/B->Cn+4 in logic mode, any S->output, M->output, cross-bit A/B->F (estimates provided with _est). Test conditions for each mode: SUM = M=0, S0=S3=4.5V, S1=S2=0V; DIFF = M=0, S0=S3=0V, S1=S2=4.5V; logic = M=4.5V. See also 74LS181_Fairchild_DM74LS181 which gives slightly different max values for some arcs."
+  },
+  "74LS181_Fairchild_DM74LS181": {
+    "source": "https://ece-classes.usc.edu/ee459/library/datasheets/DM74LS181.pdf (Fairchild DS009821, Oct 1988, rev. Apr 2000, p.5)",
+    "conditions": "VCC = 5 V, TA = 25 C, CL = 15 pF; RL = 2 kOhm to 5 V stated for A=B. Max only (no typ given).",
+    "availability": "DM74LS181N (24-pin 600-mil PDIP) obsolete at onsemi; NOS only.",
+    "arcs": {
+      "Cn->Cn+4": {
+        "max": 27,
+        "max_lh": 27,
+        "max_hl": 20
+      },
+      "Cn->F (M=0)": {
+        "max": 26,
+        "max_lh": 26,
+        "max_hl": 20
+      },
+      "A/B->G (M=0 sum)": {
+        "max": 29,
+        "max_lh": 29,
+        "max_hl": 23
+      },
+      "A/B->G (M=0 diff)": {
+        "max": 32,
+        "max_lh": 32,
+        "max_hl": 26
+      },
+      "A/B->P (M=0 sum)": {
+        "max": 30,
+        "max_lh": 30,
+        "max_hl": 30
+      },
+      "A/B->P (M=0 diff)": {
+        "max": 33,
+        "max_lh": 30,
+        "max_hl": 33
+      },
+      "Ai/Bi->Fi same bit (M=0 sum)": {
+        "max": 32,
+        "max_lh": 32,
+        "max_hl": 25
+      },
+      "Ai/Bi->Fi same bit (M=0 diff)": {
+        "max": 33,
+        "max_lh": 32,
+        "max_hl": 33
+      },
+      "A/B->F (M=1 logic)": {
+        "max": 33,
+        "max_lh": 33,
+        "max_hl": 29
+      },
+      "A/B->Cn+4 (M=0 sum)": {
+        "max": 38,
+        "max_lh": 38,
+        "max_hl": 38
+      },
+      "A/B->Cn+4 (M=0 diff)": {
+        "max": 41,
+        "max_lh": 41,
+        "max_hl": 41
+      },
+      "A/B->A=B (M=0 diff)": {
+        "max": 62,
+        "max_lh": 50,
+        "max_hl": 62
+      }
+    },
+    "notes": "Differs from TI in: A/B->G diff tPHL (26 vs 32), Ai->Fi sum tPHL (25 vs 20), Ai->Fi diff tPHL (33 vs 32), logic-mode tPHL (29 vs 38). The A/B->G (sum) row's condition reads 'M, S1, S2 = GND; S1, S3 = 4.5V' (apparent typo for S0, S3). No select->output or M->output arcs."
+  },
+  "74S181": {
+    "source": "https://www.ti.com/lit/ds/symlink/sn54ls181.pdf (TI SDLS136, same document as LS181, p.9)",
+    "conditions": "VCC = 5 V, TA = 25 C, CL = 15 pF, RL = 280 Ohm. Typ and max at 25 C/5 V only.",
+    "availability": "SN74S181 discontinued (TI product page 404); SN54S181 (military) marked NOT RECOMMENDED FOR NEW DESIGNS on ti.com and not in the current package addendum (no orderable S181 listed). NOS only.",
+    "arcs": {
+      "Cn->Cn+4": {
+        "typ": 7,
+        "max": 10.5,
+        "typ_lh": 7,
+        "typ_hl": 7,
+        "max_lh": 10.5,
+        "max_hl": 10.5
+      },
+      "A/B->Cn+4 (M=0 sum)": {
+        "typ": 12.5,
+        "max": 18.5,
+        "typ_lh": 12.5,
+        "typ_hl": 12.5,
+        "max_lh": 18.5,
+        "max_hl": 18.5
+      },
+      "A/B->Cn+4 (M=0 diff)": {
+        "typ": 15.5,
+        "max": 23,
+        "typ_lh": 15.5,
+        "typ_hl": 15.5,
+        "max_lh": 23,
+        "max_hl": 23
+      },
+      "Cn->F (M=0 sum or diff)": {
+        "typ": 7,
+        "max": 12,
+        "typ_lh": 7,
+        "typ_hl": 7,
+        "max_lh": 12,
+        "max_hl": 12
+      },
+      "A/B->G (M=0 sum)": {
+        "typ": 8,
+        "max": 12,
+        "typ_lh": 8,
+        "typ_hl": 7.5,
+        "max_lh": 12,
+        "max_hl": 12
+      },
+      "A/B->G (M=0 diff)": {
+        "typ": 10.5,
+        "max": 15,
+        "typ_lh": 10.5,
+        "typ_hl": 10.5,
+        "max_lh": 15,
+        "max_hl": 15
+      },
+      "A/B->P (M=0 sum)": {
+        "typ": 7.5,
+        "max": 12,
+        "typ_lh": 7.5,
+        "typ_hl": 7.5,
+        "max_lh": 12,
+        "max_hl": 12
+      },
+      "A/B->P (M=0 diff)": {
+        "typ": 10.5,
+        "max": 15,
+        "typ_lh": 10.5,
+        "typ_hl": 10.5,
+        "max_lh": 15,
+        "max_hl": 15
+      },
+      "Ai/Bi->Fi same bit (M=0 sum)": {
+        "typ": 11,
+        "max": 16.5,
+        "typ_lh": 11,
+        "typ_hl": 11,
+        "max_lh": 16.5,
+        "max_hl": 16.5
+      },
+      "Ai/Bi->Fi same bit (M=0 diff)": {
+        "typ": 14,
+        "max": 22,
+        "typ_lh": 14,
+        "typ_hl": 14,
+        "max_lh": 20,
+        "max_hl": 22
+      },
+      "Ai/Bi->Fi (M=1 logic)": {
+        "typ": 14,
+        "max": 22,
+        "typ_lh": 14,
+        "typ_hl": 14,
+        "max_lh": 20,
+        "max_hl": 22
+      },
+      "A/B->A=B (M=0 diff)": {
+        "typ": 20,
+        "max": 30,
+        "typ_lh": 15,
+        "typ_hl": 20,
+        "max_lh": 23,
+        "max_hl": 30,
+        "note": "A=B is open-collector."
+      },
+      "AnyA/B->AnyF (M=0 sum)_est": {
+        "typ": 12.5,
+        "max": 18.5,
+        "typ_lh": 12.5,
+        "typ_hl": 12.5,
+        "max_lh": 18.5,
+        "max_hl": 18.5,
+        "basis": "NOT in TI table; conservatively set equal to A/B->Cn+4 (sum). See 74LS181 note."
+      },
+      "AnyA/B->AnyF (M=0 diff)_est": {
+        "typ": 15.5,
+        "max": 23,
+        "typ_lh": 15.5,
+        "typ_hl": 15.5,
+        "max_lh": 23,
+        "max_hl": 23,
+        "basis": "NOT in TI table; set equal to A/B->Cn+4 (diff)."
+      },
+      "S0-S3->F_est": {
+        "basis": "NOT specified; use the A/B arc of the target mode (S enters the same first-level gates as A/B)."
+      },
+      "M->F_est": {
+        "typ": 11,
+        "max": 16.5,
+        "typ_lh": 11,
+        "typ_hl": 11,
+        "max_lh": 16.5,
+        "max_hl": 16.5,
+        "basis": "NOT specified; M path = Cn->F path plus one inverter; conservatively set equal to Ai/Bi->Fi (sum)."
+      }
+    },
+    "notes": "No select->output or M->output arcs in the datasheet. Same test-mode definitions as 74LS181."
+  },
+  "74F181": {
+    "source": "https://dmf.unisalento.it/~panareo/Elettronica_Digitale/Data%20sheet/74f181.pdf (National Semiconductor 54F/74F181, Aug 1995, TL/F/9491, p.6). Fairchild's later DS009491 is the same datasheet lineage (Fairchild took over National's logic line); its numbers were not separately verified.",
+    "conditions": "typ/max/min: TA = 25 C, VCC = 5.0 V, CL = 50 pF. max_com: TA = 0..70 C, VCC = 4.5..5.5 V, CL = 50 pF. RL is not printed in the AC table.",
+    "availability": "Obsolete: onsemi 74F181PC (24-pin 600-mil PDIP) and 74F181SPC (300-mil 'slim' PDIP) both redirect to onsemi's obsolete-part page. No manufacturer currently making it found. NOS from surplus dealers (e.g. small quantities listed on rcfreelance.com).",
+    "arcs": {
+      "Cn->Cn+4": {
+        "typ": 6.4,
+        "max": 8.5,
+        "typ_lh": 6.4,
+        "typ_hl": 6.1,
+        "max_lh": 8.5,
+        "max_hl": 8.0,
+        "max_com": 9.5,
+        "max_com_lh": 9.5,
+        "max_com_hl": 9.0,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "A/B->Cn+4 (M=0 sum)": {
+        "typ": 10.0,
+        "max": 13.0,
+        "typ_lh": 10.0,
+        "typ_hl": 9.4,
+        "max_lh": 13.0,
+        "max_hl": 12.0,
+        "max_com": 14.0,
+        "max_com_lh": 14.0,
+        "max_com_hl": 13.0,
+        "min_lh": 5.0,
+        "min_hl": 4.0
+      },
+      "A/B->Cn+4 (M=0 diff)": {
+        "typ": 10.8,
+        "max": 14.0,
+        "typ_lh": 10.8,
+        "typ_hl": 10.0,
+        "max_lh": 14.0,
+        "max_hl": 13.0,
+        "max_com": 15.0,
+        "max_com_lh": 15.0,
+        "max_com_hl": 14.0,
+        "min_lh": 5.0,
+        "min_hl": 5.0
+      },
+      "Cn->F (M=0 any)": {
+        "typ": 6.7,
+        "max": 8.5,
+        "typ_lh": 6.7,
+        "typ_hl": 6.5,
+        "max_lh": 8.5,
+        "max_hl": 8.5,
+        "max_com": 9.5,
+        "max_com_lh": 9.5,
+        "max_com_hl": 9.5,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "A/B->G (M=0 sum)": {
+        "typ": 5.8,
+        "max": 7.5,
+        "typ_lh": 5.7,
+        "typ_hl": 5.8,
+        "max_lh": 7.5,
+        "max_hl": 7.5,
+        "max_com": 8.5,
+        "max_com_lh": 8.5,
+        "max_com_hl": 8.5,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "A/B->G (M=0 diff)": {
+        "typ": 7.3,
+        "max": 9.5,
+        "typ_lh": 6.5,
+        "typ_hl": 7.3,
+        "max_lh": 8.5,
+        "max_hl": 9.5,
+        "max_com": 10.5,
+        "max_com_lh": 9.5,
+        "max_com_hl": 10.5,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "A/B->P (M=0 sum)": {
+        "typ": 5.5,
+        "max": 7.5,
+        "typ_lh": 5.0,
+        "typ_hl": 5.5,
+        "max_lh": 7.0,
+        "max_hl": 7.5,
+        "max_com": 8.5,
+        "max_com_lh": 8.0,
+        "max_com_hl": 8.5,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "A/B->P (M=0 diff)": {
+        "typ": 6.5,
+        "max": 8.5,
+        "typ_lh": 5.8,
+        "typ_hl": 6.5,
+        "max_lh": 7.5,
+        "max_hl": 8.5,
+        "max_com": 9.5,
+        "max_com_lh": 8.5,
+        "max_com_hl": 9.5,
+        "min_lh": 3.0,
+        "min_hl": 4.0
+      },
+      "Ai/Bi->Fi same bit (M=0 sum)": {
+        "typ": 7.2,
+        "max": 10.0,
+        "typ_lh": 7.0,
+        "typ_hl": 7.2,
+        "max_lh": 9.0,
+        "max_hl": 10.0,
+        "max_com": 10.0,
+        "max_com_lh": 10.0,
+        "max_com_hl": 10.0,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "Ai/Bi->Fi same bit (M=0 diff)": {
+        "typ": 8.2,
+        "max": 11.0,
+        "typ_lh": 8.2,
+        "typ_hl": 5.0,
+        "max_lh": 11.0,
+        "max_hl": 11.0,
+        "max_com": 12.0,
+        "max_com_lh": 12.0,
+        "max_com_hl": 12.0,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "AnyA/B->AnyF (M=0 sum)": {
+        "typ": 8.0,
+        "max": 10.5,
+        "typ_lh": 8.0,
+        "typ_hl": 7.8,
+        "max_lh": 10.5,
+        "max_hl": 10.0,
+        "max_com": 11.5,
+        "max_com_lh": 11.5,
+        "max_com_hl": 11.0,
+        "min_lh": 4.0,
+        "min_hl": 4.0
+      },
+      "AnyA/B->AnyF (M=0 diff)": {
+        "typ": 9.4,
+        "max": 12.0,
+        "typ_lh": 9.4,
+        "typ_hl": 9.4,
+        "max_lh": 12.0,
+        "max_hl": 12.0,
+        "max_com": 13.0,
+        "max_com_lh": 13.0,
+        "max_com_hl": 13.0,
+        "min_lh": 4.5,
+        "min_hl": 3.5
+      },
+      "A/B->F (M=1 logic)": {
+        "typ": 6.0,
+        "max": 10.0,
+        "typ_lh": 6.0,
+        "typ_hl": 6.0,
+        "max_lh": 9.0,
+        "max_hl": 10.0,
+        "max_com": 11.0,
+        "max_com_lh": 10.0,
+        "max_com_hl": 11.0,
+        "min_lh": 4.0,
+        "min_hl": 4.0
+      },
+      "A/B->A=B (M=0 diff)": {
+        "typ": 18.5,
+        "max": 27.0,
+        "typ_lh": 18.5,
+        "typ_hl": 9.8,
+        "max_lh": 27.0,
+        "max_hl": 12.5,
+        "max_com": 29.0,
+        "max_com_lh": 29.0,
+        "max_com_hl": 13.5,
+        "min_lh": 11.0,
+        "min_hl": 6.0
+      },
+      "S0-S3->F_est": {
+        "basis": "NOT specified in the datasheet; use the A/B arc of the target mode (S enters the same first-level gates as A/B)."
+      },
+      "M->F_est": {
+        "typ": 7.2,
+        "max": 10.0,
+        "typ_lh": 7.0,
+        "typ_hl": 7.2,
+        "max_lh": 9.0,
+        "max_hl": 10.0,
+        "max_com": 10.0,
+        "max_com_lh": 10.0,
+        "max_com_hl": 10.0,
+        "min_lh": 3.0,
+        "min_hl": 3.0,
+        "basis": "NOT specified; M path = Cn->F plus one inverter; conservatively set equal to Ai/Bi->Fi (sum)."
+      }
+    },
+    "notes": "Values transcribed from the rendered table and cross-checked against the text layer. Ai/Bi->Fi (diff) tPHL typ is printed as 5.0 ns (lower than its own min-to-max neighbours suggest; recorded as printed). The table also has 54F military max values (not recorded). A=B output is open-collector. No select->output or M->output arcs. Datasheet lists commercial PDIP 'P' (600 mil) and 'SP' (slim 300 mil) packages."
+  },
+  "74182": {
+    "source": "TI 'The TTL Data Book for Design Engineers', 2nd ed. 1981, p.7-284 (scan: https://faculty-web.msoe.edu/johnsontimoj/CE3101/files3101/The_TTL_Data_Book_For_Design_Engineers_2ed_1981.pdf, PDF page 541)",
+    "conditions": "VCC = 5 V, TA = 25 C, CL = 15 pF, RL = 400 Ohm.",
+    "availability": "Discontinued (TI product pages SN74182 and SN54182 return 404). NOS only. NTE publishes an NTE74182 replacement datasheet (https://media.onlinecomponents.com/productfiles/mf-nte/nte-nte74182.pdf) repeating the same single 11/15 typ, 17/22 max figures; its current availability was not checked.",
+    "arcs": {
+      "any input->any output (single spec)": {
+        "typ": 15,
+        "max": 22,
+        "typ_lh": 11,
+        "typ_hl": 15,
+        "max_lh": 17,
+        "max_hl": 22,
+        "note": "The datasheet gives ONE tPLH/tPHL pair for the device, not per-path arcs. Use it for Gn/Pn->Cn+x/y/z, Gn/Pn->G, Pn->P and Cn->Cn+x/y/z alike."
+      }
+    },
+    "notes": "Standard-TTL (non-Schottky) version. No per-path breakdown exists in TI's data sheet."
+  },
+  "74S182": {
+    "source": "https://www.ti.com/lit/ds/symlink/sn54s182.pdf (TI SDLS206, Dec 1972, rev. Mar 1988, p.4; package addendum 18-Sep-2026)",
+    "conditions": "VCC = 5 V, TA = 25 C, CL = 15 pF, RL = 280 Ohm.",
+    "availability": "Commercial SN74S182N discontinued (TI product page 404; not in addendum). TI SN54S182J / SNJ54S182J (16-pin ceramic DIP, -55..125 C), SNJ54S182FK (LCCC) and JM38510/07802BEA are listed ACTIVE (addendum 18-Sep-2026) - military parts, expensive. Fairchild/onsemi DM74S182N obsolete. Otherwise NOS.",
+    "arcs": {
+      "Gn/Pn->Cn+x/y/z": {
+        "typ": 4.5,
+        "max": 7,
+        "typ_lh": 4.5,
+        "typ_hl": 4.5,
+        "max_lh": 7,
+        "max_hl": 7
+      },
+      "Gn/Pn->G": {
+        "typ": 7,
+        "max": 10.5,
+        "typ_lh": 5,
+        "typ_hl": 7,
+        "max_lh": 7.5,
+        "max_hl": 10.5,
+        "note": "Datasheet lists inputs G0-G3, P1-P3 for this arc."
+      },
+      "Pn->P": {
+        "typ": 6.5,
+        "max": 10,
+        "typ_lh": 4.5,
+        "typ_hl": 6.5,
+        "max_lh": 6.5,
+        "max_hl": 10
+      },
+      "Cn->Cn+x/y/z": {
+        "typ": 7,
+        "max": 10.5,
+        "typ_lh": 6.5,
+        "typ_hl": 7,
+        "max_lh": 10,
+        "max_hl": 10.5
+      }
+    },
+    "notes": "TI's datasheet front page states it is 'directly compatible for use with' SN54LS181/SN74LS181 and the S181/S281/S381/S481. This is the CLA TI pairs with the LS181."
+  },
+  "74S182_Fairchild_DM74S182": {
+    "source": "https://wmsc.lcsc.com/wmsc/upload/file/pdf/v2/lcsc/2403111656_onsemi-DM74S182N_C17652805.pdf (Fairchild DS006474, Aug 1986, rev. Mar 2000, p.4)",
+    "conditions": "VCC = 5 V, TA = 25 C, RL = 280 Ohm; 'max' at CL = 15 pF, 'max_cl50' at CL = 50 pF. Max only (table headers are misprinted 'Min' but values are maxima).",
+    "availability": "DM74S182N (16-pin PDIP) obsolete at onsemi; NOS.",
+    "arcs": {
+      "Gn/Pn->Cn+x/y/z": {
+        "max": 7,
+        "max_lh": 7,
+        "max_hl": 7,
+        "max_cl50_lh": 10,
+        "max_cl50_hl": 11
+      },
+      "Gn/Pn->G": {
+        "max": 10.5,
+        "max_lh": 7.5,
+        "max_hl": 10.5,
+        "max_cl50_lh": 11,
+        "max_cl50_hl": 14
+      },
+      "Pn->P": {
+        "max": 10,
+        "max_lh": 6.5,
+        "max_hl": 10,
+        "max_cl50_lh": 10,
+        "max_cl50_hl": 14
+      },
+      "Cn->Cn+x/y/z": {
+        "max": 10.5,
+        "max_lh": 10,
+        "max_hl": 10.5,
+        "max_cl50_lh": 13,
+        "max_cl50_hl": 14
+      }
+    },
+    "notes": "CL=15pF maxima identical to TI; adds CL=50 pF maxima useful for heavier loading. Datasheet feature list: 'Typical propagation delay time 7 ns'."
+  },
+  "74F182": {
+    "source": "https://dmf.unisalento.it/~panareo/Elettronica_Digitale/Data%20sheet/74f182.pdf (Fairchild DS009492, Apr 1988, rev. Sep 2000, p.6)",
+    "conditions": "typ/max/min: TA = 25 C, VCC = 5.0 V, CL = 50 pF. max_com: TA = 0..70 C, VCC = 5.0 V per column header (recommended VCC range is 4.5-5.5 V), CL = 50 pF. RL not printed.",
+    "availability": "Obsolete: onsemi 74F182PC (16-pin PDIP) and 74F182SC/SJ redirect to onsemi's obsolete-part page. NOS from surplus dealers (e.g. rcfreelance.com listed 74F182PC).",
+    "arcs": {
+      "Cn->Cn+x/y/z": {
+        "typ": 6.8,
+        "max": 9.0,
+        "typ_lh": 6.6,
+        "typ_hl": 6.8,
+        "max_lh": 8.5,
+        "max_hl": 9.0,
+        "max_com": 10.0,
+        "max_com_lh": 9.5,
+        "max_com_hl": 10.0,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "P0-P2->Cn+x/y/z": {
+        "typ": 6.2,
+        "max": 8.0,
+        "typ_lh": 6.2,
+        "typ_hl": 3.7,
+        "max_lh": 8.0,
+        "max_hl": 5.0,
+        "max_com": 9.0,
+        "max_com_lh": 9.0,
+        "max_com_hl": 6.0,
+        "min_lh": 2.5,
+        "min_hl": 1.5
+      },
+      "G0-G2->Cn+x/y/z": {
+        "typ": 6.5,
+        "max": 8.5,
+        "typ_lh": 6.5,
+        "typ_hl": 3.9,
+        "max_lh": 8.5,
+        "max_hl": 5.2,
+        "max_com": 9.5,
+        "max_com_lh": 9.5,
+        "max_com_hl": 6.0,
+        "min_lh": 2.5,
+        "min_hl": 1.5
+      },
+      "P1-P3->G": {
+        "typ": 7.9,
+        "max": 10.0,
+        "typ_lh": 7.9,
+        "typ_hl": 6.0,
+        "max_lh": 10.0,
+        "max_hl": 8.0,
+        "max_com": 11.0,
+        "max_com_lh": 11.0,
+        "max_com_hl": 9.0,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "Gn->G": {
+        "typ": 8.3,
+        "max": 10.5,
+        "typ_lh": 8.3,
+        "typ_hl": 5.7,
+        "max_lh": 10.5,
+        "max_hl": 7.5,
+        "max_com": 11.5,
+        "max_com_lh": 11.5,
+        "max_com_hl": 8.5,
+        "min_lh": 3.0,
+        "min_hl": 3.0
+      },
+      "Pn->P": {
+        "typ": 5.7,
+        "max": 7.5,
+        "typ_lh": 5.7,
+        "typ_hl": 4.1,
+        "max_lh": 7.5,
+        "max_hl": 5.5,
+        "max_com": 8.5,
+        "max_com_lh": 8.5,
+        "max_com_hl": 6.5,
+        "min_lh": 3.0,
+        "min_hl": 2.5
+      }
+    },
+    "notes": "Table also gives -55..125 C maxima (not recorded). Designed for use with 74F181/74F381."
+  },
+  "74LS182": {
+    "source": "none found",
+    "availability": "No manufacturer datasheet for a 74LS182 was found (TI's 1981 TTL Data Book lists only SN54182/SN74182/SN54S182/SN74S182; Fairchild had DM74S182 and 74F182). The only references are a third-party pinout page (circuits-diy.com) and ST's M54/74HC182 datasheet, which describes itself as pin/function compatible with '54/74LS182'. Treat 74LS182 as not (or barely) produced; use 74S182 (or 74182/74F182) with the LS181.",
+    "arcs": {},
+    "notes": "CMOS 74HC182/74HCT182 (Philips) and M74HC182 (ST, 1993) existed; their timing was not researched here and they are obsolete."
+  },
+  "SST39SF010A-55": {
+    "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)",
+    "conditions": "VDD = 4.5-5.5 V, 0..70 C (C) or -40..85 C (I); CL = 30 pF for the 55 ns grade; inputs 0/3.0 V, 5 ns rise/fall, 1.5 V reference.",
+    "availability": "Active (DigiKey Oct 2026): SST39SF010A-55-4C-NHE / -4I-NHE (32-PLCC) and -55-4C-TU / -4I-TU (32-TSOP). No DIP in the 55 ns grade. The 45 ns grade was end-of-lifed in 2013 (datasheet revision history).",
+    "params": {
+      "tRC": {
+        "min": 55
+      },
+      "tACC": {
+        "max": 55
+      },
+      "tCE": {
+        "max": 55
+      },
+      "tOE": {
+        "max": 35
+      },
+      "tCLZ": {
+        "min": 0
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tCHZ": {
+        "max": 20
+      },
+      "tOHZ": {
+        "max": 20
+      },
+      "tOH": {
+        "min": 0
+      },
+      "tDF": {
+        "max": 20
+      }
+    },
+    "program_erase": {
+      "TBP_byte_program_us": {
+        "max": 10
+      },
+      "TAS": {
+        "min": 0
+      },
+      "TAH": {
+        "min": 30
+      },
+      "TCS": {
+        "min": 0
+      },
+      "TCH": {
+        "min": 0
+      },
+      "TOES": {
+        "min": 0
+      },
+      "TOEH": {
+        "min": 10
+      },
+      "TCP": {
+        "min": 40
+      },
+      "TWP": {
+        "min": 40
+      },
+      "TWPH": {
+        "min": 30
+      },
+      "TCPH": {
+        "min": 30
+      },
+      "TDS": {
+        "min": 40
+      },
+      "TDH": {
+        "min": 0
+      },
+      "TSE_sector_erase_ms": {
+        "max": 25
+      },
+      "TSCE_chip_erase_ms": {
+        "max": 100
+      }
+    },
+    "symbol_map": {
+      "tACC": "TAA (address access)",
+      "tCE": "TCE",
+      "tDF": "TCHZ/TOHZ (CE#/OE# high to high-Z); no separate tDF symbol"
+    },
+    "notes": "tCLZ/tOLZ/tCHZ/tOHZ/tOH are 'measured only for initial qualification'. 55 ns spec is at the lighter 30 pF load. PLCC-32 fits a through-hole PLCC socket, which is the practical hobby option."
+  },
+  "SST39SF010A-70": {
+    "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)",
+    "conditions": "VDD = 4.5-5.5 V; CL = 100 pF for the 70 ns grade; inputs 0/3.0 V, 5 ns rise/fall, 1.5 V reference.",
+    "availability": "Active in 32-PLCC (-70-4C/4I-NHE) and 32-TSOP (-TU). The 32-pin 600-mil PDIP SST39SF010A-70-4C-PHE is still listed in the May 2025 datasheet's valid combinations, but DigiKey (Oct 2026) marks it Obsolete ('no longer manufactured', suggests -70-4C-NHE). NOS DIPs are common.",
+    "params": {
+      "tRC": {
+        "min": 70
+      },
+      "tACC": {
+        "max": 70
+      },
+      "tCE": {
+        "max": 70
+      },
+      "tOE": {
+        "max": 35
+      },
+      "tCLZ": {
+        "min": 0
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tCHZ": {
+        "max": 25
+      },
+      "tOHZ": {
+        "max": 25
+      },
+      "tOH": {
+        "min": 0
+      },
+      "tDF": {
+        "max": 25
+      }
+    },
+    "program_erase": {
+      "TBP_byte_program_us": {
+        "max": 10
+      },
+      "TAS": {
+        "min": 0
+      },
+      "TAH": {
+        "min": 30
+      },
+      "TCS": {
+        "min": 0
+      },
+      "TCH": {
+        "min": 0
+      },
+      "TOES": {
+        "min": 0
+      },
+      "TOEH": {
+        "min": 10
+      },
+      "TCP": {
+        "min": 40
+      },
+      "TWP": {
+        "min": 40
+      },
+      "TWPH": {
+        "min": 30
+      },
+      "TCPH": {
+        "min": 30
+      },
+      "TDS": {
+        "min": 40
+      },
+      "TDH": {
+        "min": 0
+      },
+      "TSE_sector_erase_ms": {
+        "max": 25
+      },
+      "TSCE_chip_erase_ms": {
+        "max": 100
+      }
+    },
+    "symbol_map": {
+      "tACC": "TAA",
+      "tDF": "TCHZ/TOHZ"
+    },
+    "notes": "Speed grades in the current datasheet: 55 and 70 ns only."
+  },
+  "AT28C256-15": {
+    "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/AT28C256-Industrial-Grade-256-Kbit-Paged-Parallel-EEPROM-Data-Sheet-DS20006386.pdf (Microchip DS20006386B, 2022, Tables 6-2, 6-3, 6-4). Older Atmel doc0006M (12/2009) gives identical -15 values.",
+    "conditions": "VCC = 5 V +/-10%, -40..85 C. Inputs 0/3.0 V, tR/tF < 5 ns, 1.5 V reference; output load 1.8k to 5 V / 1.3k to GND / 100 pF. tDF measured with CL = 5 pF.",
+    "availability": "Active (DigiKey Oct 2026): AT28C256-15PU, 28-pin 600-mil PDIP, in stock (~$11.6). -15 (150 ns) is the only and fastest grade Microchip now offers; older Atmel sheets also listed -20/-25/-35.",
+    "params": {
+      "tACC": {
+        "max": 150
+      },
+      "tCE": {
+        "max": 150
+      },
+      "tOE": {
+        "min": 0,
+        "max": 70
+      },
+      "tDF": {
+        "min": 0,
+        "max": 50
+      },
+      "tOH": {
+        "min": 0
+      }
+    },
+    "write": {
+      "tAS": {
+        "min": 0
+      },
+      "tOES": {
+        "min": 0
+      },
+      "tAH": {
+        "min": 50
+      },
+      "tCS": {
+        "min": 0
+      },
+      "tCH": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 100
+      },
+      "tDS": {
+        "min": 50
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOEH": {
+        "min": 0
+      },
+      "tWPH_page": {
+        "min": 50
+      },
+      "tBLC_byte_load_us": {
+        "max": 150
+      },
+      "tWC_write_cycle_ms": {
+        "max": 10
+      },
+      "tWC_write_cycle_ms_AT28C256F": {
+        "max": 3
+      }
+    },
+    "notes": "tDF is characterized, not 100% tested. CE may be delayed up to tACC-tCE and OE up to tCE-tOE without affecting access time. Internal write takes up to 10 ms (poll via DATA/toggle); this is not an SRAM-style write."
+  },
+  "AS6C62256-55": {
+    "source": "https://www.alliancememory.com/wp-content/uploads/AS6C62256-23-March-2016-rev1.2.pdf (Alliance Memory AS6C62256 rev 1.2, Mar 2016, p.4)",
+    "conditions": "Single AC table valid over VCC 2.7-5.5 V. Input pulse 0.2 V to VCC-0.2 V, 3 ns rise/fall, 1.5 V reference, load CL = 50 pF + 1 TTL (IOH/IOL = -1/2 mA). tCLZ/tOLZ/tCHZ/tOHZ/tOW/tWHZ at CL = 5 pF (+/-500 mV).",
+    "availability": "Active (DigiKey Oct 2026): AS6C62256-55PCN, 28-pin 600-mil PDIP, 0..70 C, ~5.6k in stock (~$9.9). Also SOP-28 (-55SCN/-55SIN) and sTSOP.",
+    "params": {
+      "tRC": {
+        "min": 55
+      },
+      "tAA": {
+        "max": 55
+      },
+      "tACE": {
+        "max": 55
+      },
+      "tOE": {
+        "max": 30
+      },
+      "tCLZ": {
+        "min": 10
+      },
+      "tOLZ": {
+        "min": 5
+      },
+      "tCHZ": {
+        "max": 20
+      },
+      "tOHZ": {
+        "max": 20
+      },
+      "tOH": {
+        "min": 10
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 55
+      },
+      "tAW": {
+        "min": 50
+      },
+      "tCW": {
+        "min": 50
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 45
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 25
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOW": {
+        "min": 5
+      },
+      "tWHZ": {
+        "max": 20
+      }
+    },
+    "symbol_map": {
+      "tWR": "write recovery (address hold after end of write); there is no separate tAH"
+    },
+    "notes": "Starred params (tCLZ, tOLZ, tCHZ, tOHZ, tOW, tWHZ) are guaranteed by characterization, not production tested. DC levels: VIH min 2.4 V, VIL max 0.6 V (tighter than TTL's 0.8 V). In WE-controlled writes with OE low, tWP must exceed tWHZ + tDW."
+  },
+  "AS6C1008-55": {
+    "source": "https://www.alliancememory.com/wp-content/uploads/AS6C1008_Mar_2023V1.2.pdf (Alliance Memory AS6C1008 v1.2, Mar 2023, p.5)",
+    "conditions": "Single AC table valid over VCC 2.7-5.5 V; same test conditions as AS6C62256 (50 pF + 1 TTL; Z-transition params at 5 pF).",
+    "availability": "Active (DigiKey Oct 2026): AS6C1008-55PCN, 32-pin 600-mil PDIP, ~1.5k in stock (~$9.4). Datasheet also lists -55PIN (PDIP, industrial), SOP, TSOP, sTSOP, TFBGA.",
+    "params": {
+      "tRC": {
+        "min": 55
+      },
+      "tAA": {
+        "max": 55
+      },
+      "tACE": {
+        "max": 55
+      },
+      "tOE": {
+        "max": 30
+      },
+      "tCLZ": {
+        "min": 10
+      },
+      "tOLZ": {
+        "min": 5
+      },
+      "tCHZ": {
+        "max": 20
+      },
+      "tOHZ": {
+        "max": 20
+      },
+      "tOH": {
+        "min": 10
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 55
+      },
+      "tAW": {
+        "min": 50
+      },
+      "tCW": {
+        "min": 50
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 45
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 25
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOW": {
+        "min": 5
+      },
+      "tWHZ": {
+        "max": 20
+      }
+    },
+    "notes": "Read/write numbers are identical to AS6C62256-55. IMPORTANT: since the July 2021 revision the DC table gives VIH min = 0.7*VCC (3.5 V at 5 V) and VIL max 0.6 V, i.e. NOT TTL-input compatible at 5 V: LS/S/F TTL outputs (VOH min 2.5-2.7 V) do not guarantee a valid high. Drive it from HCT/ACT/AHCT or use pull-ups. Has a second chip enable CE2 (active high)."
+  },
+  "CY7C199D-10": {
+    "source": "https://cdn.components.ru/media/PDF/8018143.pdf (Cypress/Infineon CY7C199D datasheet 38-05471 Rev *N, Mar 2019, p.7)",
+    "conditions": "VCC = 5 V +/-0.5 V, -40..85 C. Inputs 0-3.0 V, 3 ns transitions, 1.5 V reference, load 30 pF (50 Ohm to 1.5 V); tHZOE/tHZCE/tHZWE at 5 pF (480/255 Ohm), +/-200 mV.",
+    "availability": "Only 28-pin 300-mil SOJ (-10VXI) and TSOP-I (-10ZXI); NO DIP. DigiKey (Oct 2026) shows CY7C199D-10VXI as Obsolete and recommends CY7C1049G-10VXI (a 512Kx8 part, different pinout); some other distributors still showed it Active/LTB. Treat as end-of-life.",
+    "params": {
+      "tRC": {
+        "min": 10
+      },
+      "tAA": {
+        "max": 10
+      },
+      "tACE": {
+        "max": 10
+      },
+      "tOE": {
+        "max": 5
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 5
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 5
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 10
+      },
+      "tCW": {
+        "min": 7
+      },
+      "tAW": {
+        "min": 7
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 7
+      },
+      "tDW": {
+        "min": 6
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 5
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tOE": "tDOE",
+      "tOH": "tOHA",
+      "tOLZ": "tLZOE",
+      "tOHZ": "tHZOE",
+      "tCLZ": "tLZCE",
+      "tCHZ": "tHZCE",
+      "tCW": "tSCE",
+      "tAH": "tHA (= tWR)",
+      "tAS": "tSA",
+      "tWP": "tPWE",
+      "tDW": "tSD",
+      "tDH": "tHD",
+      "tWHZ": "tHZWE",
+      "tOW": "tLZWE"
+    },
+    "notes": "TTL-compatible inputs (VIH 2.2 V, VIL 0.8 V); max VOH ~3.4 V so it cannot drive CMOS-level (3.5 V VIH) inputs. Write cycle with OE low: min cycle = tHZWE + tSD."
+  },
+  "CY7C199C-12": {
+    "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240124/FE8B8C70B0BB4A35668C1DF7B1991CB3.pdf (Cypress CY7C199C 38-05408 Rev *C, Aug 2006, p.5; Rev *B Nov 2004 gives the same values and adds a 25 ns grade)",
+    "conditions": "VCC = 5.0 V +/-10%. Inputs 0-3.0 V, <=3 ns transitions, 1.5 V reference; load C1 = 30 pF, R1 = 480 Ohm, R2 = 255 Ohm (Thevenin 167 Ohm / 1.73 V); high-Z params at 5 pF, +/-200 mV.",
+    "availability": "12 ns grade was only offered in SOJ (-12VC/-12VXC/-12VI) and TSOP-I (-12ZXC). CY7C199C has been superseded by CY7C199D (which has no DIP); C-version parts are NOS only.",
+    "params": {
+      "tRC": {
+        "min": 12
+      },
+      "tAA": {
+        "max": 12
+      },
+      "tACE": {
+        "max": 12
+      },
+      "tOE": {
+        "max": 5
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 5
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 5
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 12
+      },
+      "tCW": {
+        "min": 9
+      },
+      "tAW": {
+        "min": 9
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 8
+      },
+      "tDW": {
+        "min": 8
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 7
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tOE": "tDOE",
+      "tOH": "tOHA",
+      "tOLZ": "tLZOE",
+      "tOHZ": "tHZOE",
+      "tCLZ": "tLZCE",
+      "tCHZ": "tHZCE",
+      "tCW": "tSCE",
+      "tAH": "tHA",
+      "tAS": "tSA",
+      "tWP": "tPWE",
+      "tDW": "tSD",
+      "tDH": "tHD",
+      "tWHZ": "tHZWE",
+      "tOW": "tLZWE"
+    },
+    "notes": "Rev *C features list only 12 ns but the AC table has 12/15/20 columns. WE-controlled write with OE low: min cycle = tHZWE + tSD."
+  },
+  "CY7C199C-15": {
+    "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240124/FE8B8C70B0BB4A35668C1DF7B1991CB3.pdf (Cypress CY7C199C 38-05408 Rev *C, Aug 2006, p.5; Rev *B Nov 2004 gives the same values and adds a 25 ns grade)",
+    "conditions": "VCC = 5.0 V +/-10%. Inputs 0-3.0 V, <=3 ns transitions, 1.5 V reference; load C1 = 30 pF, R1 = 480 Ohm, R2 = 255 Ohm (Thevenin 167 Ohm / 1.73 V); high-Z params at 5 pF, +/-200 mV.",
+    "availability": "28-pin 300-mil DIP existed ONLY as CY7C199C-15PC / -15PXC (commercial). CY7C199C has been superseded by CY7C199D (which has no DIP); C-version parts are NOS only.",
+    "params": {
+      "tRC": {
+        "min": 15
+      },
+      "tAA": {
+        "max": 15
+      },
+      "tACE": {
+        "max": 15
+      },
+      "tOE": {
+        "max": 7
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 7
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 7
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 15
+      },
+      "tCW": {
+        "min": 10
+      },
+      "tAW": {
+        "min": 10
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 9
+      },
+      "tDW": {
+        "min": 9
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 7
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tOE": "tDOE",
+      "tOH": "tOHA",
+      "tOLZ": "tLZOE",
+      "tOHZ": "tHZOE",
+      "tCLZ": "tLZCE",
+      "tCHZ": "tHZCE",
+      "tCW": "tSCE",
+      "tAH": "tHA",
+      "tAS": "tSA",
+      "tWP": "tPWE",
+      "tDW": "tSD",
+      "tDH": "tHD",
+      "tWHZ": "tHZWE",
+      "tOW": "tLZWE"
+    },
+    "notes": "Rev *C features list only 12 ns but the AC table has 12/15/20 columns. WE-controlled write with OE low: min cycle = tHZWE + tSD."
+  },
+  "CY7C199C-20": {
+    "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240124/FE8B8C70B0BB4A35668C1DF7B1991CB3.pdf (Cypress CY7C199C 38-05408 Rev *C, Aug 2006, p.5; Rev *B Nov 2004 gives the same values and adds a 25 ns grade)",
+    "conditions": "VCC = 5.0 V +/-10%. Inputs 0-3.0 V, <=3 ns transitions, 1.5 V reference; load C1 = 30 pF, R1 = 480 Ohm, R2 = 255 Ohm (Thevenin 167 Ohm / 1.73 V); high-Z params at 5 pF, +/-200 mV.",
+    "availability": "CY7C199C has been superseded by CY7C199D (which has no DIP); C-version parts are NOS only.",
+    "params": {
+      "tRC": {
+        "min": 20
+      },
+      "tAA": {
+        "max": 20
+      },
+      "tACE": {
+        "max": 20
+      },
+      "tOE": {
+        "max": 9
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 9
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 9
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 20
+      },
+      "tCW": {
+        "min": 15
+      },
+      "tAW": {
+        "min": 15
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 15
+      },
+      "tDW": {
+        "min": 10
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 10
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tOE": "tDOE",
+      "tOH": "tOHA",
+      "tOLZ": "tLZOE",
+      "tOHZ": "tHZOE",
+      "tCLZ": "tLZCE",
+      "tCHZ": "tHZCE",
+      "tCW": "tSCE",
+      "tAH": "tHA",
+      "tAS": "tSA",
+      "tWP": "tPWE",
+      "tDW": "tSD",
+      "tDH": "tHD",
+      "tWHZ": "tHZWE",
+      "tOW": "tLZWE"
+    },
+    "notes": "Rev *C features list only 12 ns but the AC table has 12/15/20 columns. WE-controlled write with OE low: min cycle = tHZWE + tSD."
+  },
+  "IS61C256AL-10": {
+    "source": "https://static.chipdip.ru/lib/137/DOC012137217.pdf (ISSI IS61C256AL Rev. C1, Jan 2020, p.4-5)",
+    "conditions": "-10: commercial only, VDD = 5 V +/-5%. Inputs 0-3.0 V, 3 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm; Z-transition params at 5 pF (+/-500 mV).",
+    "availability": "Only 300-mil SOJ (-10JL) and TSOP-I (-10TL) in the datasheet; not listed at DigiKey (Oct 2026) - likely discontinued. NO DIP.",
+    "params": {
+      "tRC": {
+        "min": 10
+      },
+      "tAA": {
+        "max": 10
+      },
+      "tACE": {
+        "max": 10
+      },
+      "tOE": {
+        "max": 6
+      },
+      "tOH": {
+        "min": 2
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 5
+      },
+      "tCLZ": {
+        "min": 2
+      },
+      "tCHZ": {
+        "max": 5
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 10
+      },
+      "tCW": {
+        "min": 9
+      },
+      "tAW": {
+        "min": 9
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 9
+      },
+      "tWP_OE_high": {
+        "min": 8
+      },
+      "tDW": {
+        "min": 7
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 6
+      },
+      "tOW": {
+        "min": 0
+      }
+    },
+    "symbol_map": {
+      "tACE": "tACS",
+      "tOE": "tDOE",
+      "tOH": "tOHA",
+      "tOLZ": "tLZOE",
+      "tOHZ": "tHZOE",
+      "tCLZ": "tLZCS",
+      "tCHZ": "tHZCS",
+      "tCW": "tSCS",
+      "tAH": "tHA",
+      "tAS": "tSA",
+      "tWP": "tPWE1 (OE low)",
+      "tWP_OE_high": "tPWE2",
+      "tDW": "tSD",
+      "tDH": "tHD",
+      "tWHZ": "tHZWE",
+      "tOW": "tLZWE"
+    },
+    "notes": "TTL inputs (VIH 2.2 V, VIL 0.8 V). Z-transition params not 100% tested."
+  },
+  "IS61C256AL-12": {
+    "source": "https://static.chipdip.ru/lib/137/DOC012137217.pdf (ISSI IS61C256AL Rev. C1, Jan 2020, p.4-5)",
+    "conditions": "-12: VDD = 5 V +/-10%, commercial or industrial. Inputs 0-3.0 V, 3 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm; Z-transition params at 5 pF (+/-500 mV).",
+    "availability": "DigiKey (Oct 2026): IS61C256AL-12TLI (TSOP-I, industrial) Active and in stock (~$4); SOJ versions (-12JLI) Obsolete. NO DIP package.",
+    "params": {
+      "tRC": {
+        "min": 12
+      },
+      "tAA": {
+        "max": 12
+      },
+      "tACE": {
+        "max": 12
+      },
+      "tOE": {
+        "max": 6
+      },
+      "tOH": {
+        "min": 2
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 6
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 7
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 12
+      },
+      "tCW": {
+        "min": 10
+      },
+      "tAW": {
+        "min": 10
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 9
+      },
+      "tWP_OE_high": {
+        "min": 8
+      },
+      "tDW": {
+        "min": 7
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 6
+      },
+      "tOW": {
+        "min": 0
+      }
+    },
+    "symbol_map": {
+      "tACE": "tACS",
+      "tOE": "tDOE",
+      "tOH": "tOHA",
+      "tOLZ": "tLZOE",
+      "tOHZ": "tHZOE",
+      "tCLZ": "tLZCS",
+      "tCHZ": "tHZCS",
+      "tCW": "tSCS",
+      "tAH": "tHA",
+      "tAS": "tSA",
+      "tWP": "tPWE1 (OE low)",
+      "tWP_OE_high": "tPWE2",
+      "tDW": "tSD",
+      "tDH": "tHD",
+      "tWHZ": "tHZWE",
+      "tOW": "tLZWE"
+    },
+    "notes": "TTL inputs (VIH 2.2 V, VIL 0.8 V). Z-transition params not 100% tested."
+  },
+  "IDT71256SA12": {
+    "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)",
+    "conditions": "VCC = 5.0 V +/-10%. Inputs GND-3.0 V, 3 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Fig.1); tCLZ/tOLZ/tCHZ/tOHZ/tOW/tWHZ at 5 pF (Fig.2).",
+    "availability": "Commercial only. Package options: 28-pin 300-mil PDIP (TP, commercial), 300-mil SOJ (Y), TSOP-I (PZ). Renesas marks the whole 71256SA family Obsolete (product page and each part page incl. 71256SA12TPG/15TPG/20TPG, Oct 2026). DIP versions now NOS only. (A 1997 rev. also listed a 600-mil 'P' DIP.)",
+    "params": {
+      "tRC": {
+        "min": 12
+      },
+      "tAA": {
+        "max": 12
+      },
+      "tACE": {
+        "max": 12
+      },
+      "tOE": {
+        "max": 6
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "min": 0,
+        "max": 6
+      },
+      "tCLZ": {
+        "min": 4
+      },
+      "tCHZ": {
+        "min": 0,
+        "max": 6
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 12
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 12
+      },
+      "tAW": {
+        "min": 9
+      },
+      "tCW": {
+        "min": 9
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 8
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 6
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOW": {
+        "min": 4
+      },
+      "tWHZ": {
+        "min": 0,
+        "max": 6
+      }
+    },
+    "symbol_map": {
+      "tACE": "tACS (chip select access)"
+    },
+    "notes": "Z-transition params guaranteed by characterization, not production tested. TTL inputs (VIH 2.2 V, VIL 0.8 V)."
+  },
+  "IDT71256SA15": {
+    "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)",
+    "conditions": "VCC = 5.0 V +/-10%. Inputs GND-3.0 V, 3 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Fig.1); tCLZ/tOLZ/tCHZ/tOHZ/tOW/tWHZ at 5 pF (Fig.2).",
+    "availability": "Package options: 28-pin 300-mil PDIP (TP, commercial), 300-mil SOJ (Y), TSOP-I (PZ). Renesas marks the whole 71256SA family Obsolete (product page and each part page incl. 71256SA12TPG/15TPG/20TPG, Oct 2026). DIP versions now NOS only. (A 1997 rev. also listed a 600-mil 'P' DIP.)",
+    "params": {
+      "tRC": {
+        "min": 15
+      },
+      "tAA": {
+        "max": 15
+      },
+      "tACE": {
+        "max": 15
+      },
+      "tOE": {
+        "max": 7
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "min": 0,
+        "max": 6
+      },
+      "tCLZ": {
+        "min": 4
+      },
+      "tCHZ": {
+        "min": 0,
+        "max": 7
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 15
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 15
+      },
+      "tAW": {
+        "min": 10
+      },
+      "tCW": {
+        "min": 10
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 10
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 7
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOW": {
+        "min": 4
+      },
+      "tWHZ": {
+        "min": 0,
+        "max": 6
+      }
+    },
+    "symbol_map": {
+      "tACE": "tACS (chip select access)"
+    },
+    "notes": "Z-transition params guaranteed by characterization, not production tested. TTL inputs (VIH 2.2 V, VIL 0.8 V)."
+  },
+  "IDT71256SA20": {
+    "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)",
+    "conditions": "VCC = 5.0 V +/-10%. Inputs GND-3.0 V, 3 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Fig.1); tCLZ/tOLZ/tCHZ/tOHZ/tOW/tWHZ at 5 pF (Fig.2).",
+    "availability": "Package options: 28-pin 300-mil PDIP (TP, commercial), 300-mil SOJ (Y), TSOP-I (PZ). Renesas marks the whole 71256SA family Obsolete (product page and each part page incl. 71256SA12TPG/15TPG/20TPG, Oct 2026). DIP versions now NOS only. (A 1997 rev. also listed a 600-mil 'P' DIP.)",
+    "params": {
+      "tRC": {
+        "min": 20
+      },
+      "tAA": {
+        "max": 20
+      },
+      "tACE": {
+        "max": 20
+      },
+      "tOE": {
+        "max": 10
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "min": 0,
+        "max": 8
+      },
+      "tCLZ": {
+        "min": 4
+      },
+      "tCHZ": {
+        "min": 0,
+        "max": 10
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 20
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 20
+      },
+      "tAW": {
+        "min": 15
+      },
+      "tCW": {
+        "min": 15
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 15
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 11
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOW": {
+        "min": 4
+      },
+      "tWHZ": {
+        "min": 0,
+        "max": 10
+      }
+    },
+    "symbol_map": {
+      "tACE": "tACS (chip select access)"
+    },
+    "notes": "Z-transition params guaranteed by characterization, not production tested. TTL inputs (VIH 2.2 V, VIL 0.8 V)."
+  },
+  "IDT71256SA25": {
+    "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)",
+    "conditions": "VCC = 5.0 V +/-10%. Inputs GND-3.0 V, 3 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Fig.1); tCLZ/tOLZ/tCHZ/tOHZ/tOW/tWHZ at 5 pF (Fig.2).",
+    "availability": "Package options: 28-pin 300-mil PDIP (TP, commercial), 300-mil SOJ (Y), TSOP-I (PZ). Renesas marks the whole 71256SA family Obsolete (product page and each part page incl. 71256SA12TPG/15TPG/20TPG, Oct 2026). DIP versions now NOS only. (A 1997 rev. also listed a 600-mil 'P' DIP.)",
+    "params": {
+      "tRC": {
+        "min": 25
+      },
+      "tAA": {
+        "max": 25
+      },
+      "tACE": {
+        "max": 25
+      },
+      "tOE": {
+        "max": 11
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "min": 0,
+        "max": 10
+      },
+      "tCLZ": {
+        "min": 4
+      },
+      "tCHZ": {
+        "min": 0,
+        "max": 11
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 25
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 25
+      },
+      "tAW": {
+        "min": 20
+      },
+      "tCW": {
+        "min": 20
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 20
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 13
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOW": {
+        "min": 4
+      },
+      "tWHZ": {
+        "min": 0,
+        "max": 11
+      }
+    },
+    "symbol_map": {
+      "tACE": "tACS (chip select access)"
+    },
+    "notes": "Z-transition params guaranteed by characterization, not production tested. TTL inputs (VIH 2.2 V, VIL 0.8 V)."
+  },
+  "AS7C256A-10": {
+    "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)",
+    "conditions": "VCC = 5.0 V +/-0.5 V. Inputs GND-VCC, 2 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Thevenin 168 Ohm / 1.72 V); Z params at 5 pF (+/-500 mV).",
+    "availability": "ACTIVE and in stock (DigiKey Oct 2026, ~$7-9): all four grades in 28-pin 300-mil SOJ (-JCN/-JIN) and TSOP-I (-TCN/-TIN). NO DIP (Alliance's DIP fast part AS7C256B-15PIN is on its EOL list). This is the practical in-production fast 5 V 32Kx8; SOJ-28 is hand-solderable and SOJ-to-DIP adapters exist.",
+    "params": {
+      "tRC": {
+        "min": 10
+      },
+      "tAA": {
+        "max": 10
+      },
+      "tACE": {
+        "max": 10
+      },
+      "tOE": {
+        "max": 5
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 3
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 10
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 10
+      },
+      "tCW": {
+        "min": 8
+      },
+      "tAW": {
+        "min": 8
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 7
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 5
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 5
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tWHZ": "tWZ"
+    },
+    "notes": "Z-transition params and tOH guaranteed, not tested. TTL inputs (VIH 2.2 V, VIL 0.8 V). Pin compatible with other JEDEC 32Kx8 SRAMs."
+  },
+  "AS7C256A-12": {
+    "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)",
+    "conditions": "VCC = 5.0 V +/-0.5 V. Inputs GND-VCC, 2 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Thevenin 168 Ohm / 1.72 V); Z params at 5 pF (+/-500 mV).",
+    "availability": "ACTIVE and in stock (DigiKey Oct 2026, ~$7-9): all four grades in 28-pin 300-mil SOJ (-JCN/-JIN) and TSOP-I (-TCN/-TIN). NO DIP (Alliance's DIP fast part AS7C256B-15PIN is on its EOL list). This is the practical in-production fast 5 V 32Kx8; SOJ-28 is hand-solderable and SOJ-to-DIP adapters exist.",
+    "params": {
+      "tRC": {
+        "min": 12
+      },
+      "tAA": {
+        "max": 12
+      },
+      "tACE": {
+        "max": 12
+      },
+      "tOE": {
+        "max": 6
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 3
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 3
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 12
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 12
+      },
+      "tCW": {
+        "min": 8
+      },
+      "tAW": {
+        "min": 8
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 8
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 6
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 6
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tWHZ": "tWZ"
+    },
+    "notes": "Z-transition params and tOH guaranteed, not tested. TTL inputs (VIH 2.2 V, VIL 0.8 V). Pin compatible with other JEDEC 32Kx8 SRAMs."
+  },
+  "AS7C256A-15": {
+    "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)",
+    "conditions": "VCC = 5.0 V +/-0.5 V. Inputs GND-VCC, 2 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Thevenin 168 Ohm / 1.72 V); Z params at 5 pF (+/-500 mV).",
+    "availability": "ACTIVE and in stock (DigiKey Oct 2026, ~$7-9): all four grades in 28-pin 300-mil SOJ (-JCN/-JIN) and TSOP-I (-TCN/-TIN). NO DIP (Alliance's DIP fast part AS7C256B-15PIN is on its EOL list). This is the practical in-production fast 5 V 32Kx8; SOJ-28 is hand-solderable and SOJ-to-DIP adapters exist.",
+    "params": {
+      "tRC": {
+        "min": 15
+      },
+      "tAA": {
+        "max": 15
+      },
+      "tACE": {
+        "max": 15
+      },
+      "tOE": {
+        "max": 7
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 4
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 4
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 15
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 15
+      },
+      "tCW": {
+        "min": 10
+      },
+      "tAW": {
+        "min": 10
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 9
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 8
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 7
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tWHZ": "tWZ"
+    },
+    "notes": "Z-transition params and tOH guaranteed, not tested. TTL inputs (VIH 2.2 V, VIL 0.8 V). Pin compatible with other JEDEC 32Kx8 SRAMs."
+  },
+  "AS7C256A-20": {
+    "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)",
+    "conditions": "VCC = 5.0 V +/-0.5 V. Inputs GND-VCC, 2 ns rise/fall, 1.5 V reference; load 30 pF with 480/255 Ohm (Thevenin 168 Ohm / 1.72 V); Z params at 5 pF (+/-500 mV).",
+    "availability": "ACTIVE and in stock (DigiKey Oct 2026, ~$7-9): all four grades in 28-pin 300-mil SOJ (-JCN/-JIN) and TSOP-I (-TCN/-TIN). NO DIP (Alliance's DIP fast part AS7C256B-15PIN is on its EOL list). This is the practical in-production fast 5 V 32Kx8; SOJ-28 is hand-solderable and SOJ-to-DIP adapters exist.",
+    "params": {
+      "tRC": {
+        "min": 20
+      },
+      "tAA": {
+        "max": 20
+      },
+      "tACE": {
+        "max": 20
+      },
+      "tOE": {
+        "max": 8
+      },
+      "tOH": {
+        "min": 3
+      },
+      "tCLZ": {
+        "min": 3
+      },
+      "tCHZ": {
+        "max": 5
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tOHZ": {
+        "max": 5
+      },
+      "tPU": {
+        "min": 0
+      },
+      "tPD": {
+        "max": 20
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 20
+      },
+      "tCW": {
+        "min": 12
+      },
+      "tAW": {
+        "min": 12
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 12
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tAH": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 10
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tWHZ": {
+        "max": 8
+      },
+      "tOW": {
+        "min": 3
+      }
+    },
+    "symbol_map": {
+      "tWHZ": "tWZ"
+    },
+    "notes": "Z-transition params and tOH guaranteed, not tested. TTL inputs (VIH 2.2 V, VIL 0.8 V). Pin compatible with other JEDEC 32Kx8 SRAMs."
+  }
+}
