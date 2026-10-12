@@ -184,6 +184,27 @@ T("sram", "sram",
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
   family="mem", desc="32K x 8 static RAM")
 
+T("299", "sr299",
+  [(p, "in") for p in ("S0", "S1", "OE1", "OE2", "MR", "CP", "DS0", "DS7")]
+  + [(f"IO{i}", "io") for i in range(8)] + [("Q0S", "out"), ("Q7S", "out")],
+  arcs=[(["CP"], [f"IO{i}" for i in range(8)], "CLK->Q"),
+        (["CP"], ["Q0S", "Q7S"], "CLK->QS"),
+        (["MR"], [f"IO{i}" for i in range(8)] + ["Q0S", "Q7S"], "CLR->Q"),
+        (["OE1", "OE2", "S0", "S1"], [f"IO{i}" for i in range(8)], "OE->Y en")],
+  checks=[(["S0", "S1"], "CP", "rise", "setup S", "hold S"),
+          (["DS0", "DS7"], "CP", "rise", "setup DS", "hold DS"),
+          ([f"IO{i}" for i in range(8)], "CP", "rise", "setup IO", "hold IO")],
+  desc="8-bit universal shift/storage register, 3-state I/O (S1 S0: 00 hold, "
+       "01 shift toward Q7 (DS0 in), 10 toward Q0 (DS7 in), 11 load from I/O)")
+
+T("sram512", "sram",
+  [(f"A{i}", "in") for i in range(19)] + [(f"IO{i}", "io") for i in range(8)]
+  + [("CE", "in"), ("OE", "in"), ("WE", "in")],
+  arcs=[([f"A{i}" for i in range(19)], [f"IO{i}" for i in range(8)], "tAA"),
+        (["CE"], [f"IO{i}" for i in range(8)], "tACE"),
+        (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
+  family="mem", desc="512K x 8 static RAM")
+
 T("flash", "rom",
   [(f"A{i}", "in") for i in range(17)] + [(f"D{i}", "tri") for i in range(8)]
   + [("CE", "in"), ("OE", "in"), ("WE", "in")],
@@ -217,6 +238,13 @@ def load_timing():
         return json.load(f)
 
 
+T("iodev32", "iodev32",
+  [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WEL", "in"), ("WEH", "in")]
+  + [(f"A{i}", "in") for i in range(8)] + [(f"D{i}", "io") for i in range(16)] + [("IRQ", "out")],
+  arcs=[([f"A{i}" for i in range(8)] + ["IOSEL", "RD"], [f"D{i}" for i in range(16)], "tACC")],
+  family="fixture", desc="draft 1 I/O page (32-bit registers on a 16-bit bus)")
+
+
 # Bill-of-materials variants: chip type -> part number.
 VARIANTS = {
     # The default: in-production HCT logic, new-old-stock 74LS181 + 74S182.
@@ -241,6 +269,8 @@ def part_number(variant, chip_type, role=None):
         return v["cla"]
     if chip_type == "sram":
         return v["ram"] if role == "ram" else v["rf"]
+    if chip_type == "sram512":
+        return "AS6C4008-55"
     if chip_type == "flash":
         return v["rom"]
     if TYPES[chip_type].family == "fixture":

@@ -42,6 +42,10 @@ func NewModel(c *Chip) Model {
 		return &ClockGen{}
 	case "iodev":
 		return &IODev{}
+	case "iodev32":
+		return &IODev32{}
+	case "sr299":
+		return &SR299{}
 	}
 	panic("unknown model " + c.ModelN)
 }
@@ -1130,6 +1134,282 @@ func (x *IODev) Eval(s *Sim, c *Chip, pin int) {
 				x.TimerFlag = 0
 			}
 		case 0x06:
+			x.TimerFlag = 0
+		}
+		s.Drive(c, x.irq, x.TimerFlag, true, 5000)
+	}
+	x.writing = wr
+	if sel && s.In(c, x.rd) == 0 {
+		v := x.value(s, x.addr(s, c))
+		for i := 0; i < 16; i++ {
+			s.Drive(c, x.d[i], uint8(v>>i)&1, true, x.dAcc)
+		}
+		x.driving = true
+	} else if x.driving {
+		for i := 0; i < 16; i++ {
+			s.Drive(c, x.d[i], s.Outs[c.Outs[x.d[i]]].Val, false, 10000)
+		}
+		x.driving = false
+	}
+}
+
+// ---------------------------------------------------------------- 299 shift/storage register
+//
+// 74HCT299: S1 S0 = 00 hold, 01 shift toward Q7 (DS0 into Q0), 10 shift
+// toward Q0 (DS7 into Q7), 11 parallel load from the I/O pins. The I/O pins
+// drive only when OE1 = OE2 = 0 and not S0 = S1 = 1. Q0S/Q7S (Q0', Q7') are
+// always driven.
+
+type SR299 struct {
+	s0, s1, oe1, oe2, mr, cp, ds0, ds7, q0s, q7s int
+	io                                           [8]int
+	isIO                                         []int
+	state                                        [8]uint8
+	prev                                         uint8
+	lastEdge                                     int64
+	driving                                      bool
+	dClk, dQS, dClr, dEn, dDis                   int64
+	suS, hS, suDS, hDS, suIO, hIO                int64
+}
+
+func (m *SR299) Init(s *Sim, c *Chip) {
+	m.s0, m.s1, m.oe1, m.oe2 = c.Pin("S0"), c.Pin("S1"), c.Pin("OE1"), c.Pin("OE2")
+	m.mr, m.cp, m.ds0, m.ds7 = c.Pin("MR"), c.Pin("CP"), c.Pin("DS0"), c.Pin("DS7")
+	m.q0s, m.q7s = c.Pin("Q0S"), c.Pin("Q7S")
+	m.isIO = make([]int, len(c.PinNames))
+	for i := range m.isIO {
+		m.isIO[i] = -1
+	}
+	for i := 0; i < 8; i++ {
+		m.io[i] = c.Pin(fmt.Sprintf("IO%d", i))
+		m.isIO[m.io[i]] = i
+		m.state[i] = randBit()
+	}
+	m.dClk, m.dQS, m.dClr = c.D("CLK->Q"), c.D("CLK->QS"), c.D("CLR->Q")
+	m.dEn, m.dDis = c.D("OE->Y en"), c.D("OE->Y dis")
+	m.suS, m.hS = c.D("setup S"), c.D("hold S")
+	m.suDS, m.hDS = c.D("setup DS"), c.D("hold DS")
+	m.suIO, m.hIO = c.D("setup IO"), c.D("hold IO")
+	m.lastEdge = -1
+	m.outputs(s, c, 0, 0)
+}
+
+func (m *SR299) enabled(s *Sim, c *Chip) bool {
+	return s.In(c, m.oe1) == 0 && s.In(c, m.oe2) == 0 && !(s.In(c, m.s0) == 1 && s.In(c, m.s1) == 1)
+}
+
+func (m *SR299) outputs(s *Sim, c *Chip, dq, dqs int64) {
+	en := m.enabled(s, c)
+	d := dq
+	if en != m.driving {
+		if en {
+			d = m.dEn
+		} else {
+			d = m.dDis
+		}
+		if dq > d {
+			d = dq
+		}
+	}
+	for i := 0; i < 8; i++ {
+		s.Drive(c, m.io[i], m.state[i], en, d)
+	}
+	m.driving = en
+	s.Drive(c, m.q0s, m.state[0], true, dqs)
+	s.Drive(c, m.q7s, m.state[7], true, dqs)
+}
+
+func (m *SR299) Eval(s *Sim, c *Chip, pin int) {
+	switch {
+	case pin == m.cp:
+		v := s.In(c, m.cp)
+		if v == 1 && m.prev == 0 && s.In(c, m.mr) == 1 {
+			s.CheckSetup(c, m.s0, m.suS, "S0")
+			s.CheckSetup(c, m.s1, m.suS, "S1")
+			mode := int(s.In(c, m.s0)) | int(s.In(c, m.s1))<<1
+			var nx [8]uint8
+			switch mode {
+			case 0:
+				nx = m.state
+			case 1:
+				s.CheckSetup(c, m.ds0, m.suDS, "DS0")
+				nx[0] = s.In(c, m.ds0)
+				copy(nx[1:], m.state[:7])
+			case 2:
+				s.CheckSetup(c, m.ds7, m.suDS, "DS7")
+				nx[7] = s.In(c, m.ds7)
+				copy(nx[:7], m.state[1:])
+			case 3:
+				for i := 0; i < 8; i++ {
+					s.CheckSetup(c, m.io[i], m.suIO, "IO")
+					nx[i] = s.In(c, m.io[i])
+				}
+			}
+			m.state = nx
+			m.lastEdge = s.Now
+			m.outputs(s, c, m.dClk, m.dQS)
+		}
+		m.prev = v
+	case pin == m.mr:
+		if s.In(c, m.mr) == 0 {
+			m.state = [8]uint8{}
+			m.outputs(s, c, m.dClr, m.dClr)
+		}
+	case pin == m.s0 || pin == m.s1:
+		s.CheckHold(c, pin, m.lastEdge, m.hS, "S")
+		m.outputs(s, c, m.dEn, m.dQS)
+	case pin == m.oe1 || pin == m.oe2:
+		m.outputs(s, c, m.dEn, m.dQS)
+	case pin == m.ds0 || pin == m.ds7:
+		s.CheckHold(c, pin, m.lastEdge, m.hDS, "DS")
+	default:
+		if m.isIO[pin] >= 0 && !m.driving {
+			s.CheckHold(c, pin, m.lastEdge, m.hIO, "IO")
+		}
+	}
+}
+
+// ---------------------------------------------------------------- draft 1 I/O page
+//
+// 32-bit registers 4 apart, seen a half at a time over a 16-bit bus (the
+// same rules as tmc/hw/rtl_v1b.py IODev): console data at 0 (reading the low
+// half consumes a byte; the high half is FFFF after an empty read), status
+// at 4, timer period at 8/A (writing the low half sets the period, the high
+// half adds the top bits), timer flag at C, cycle counter at 10/12.
+
+type IODev32 struct {
+	clk, iosel, rd, wel, weh, irq int
+	a                             [8]int
+	d                             [16]int
+	prev                          uint8
+	writing                       bool
+	driving                       bool
+	lanes                         int
+	Input                         []byte
+	Output                        []byte
+	TimerPeriod, TimerCount       int64
+	TimerFlag                     uint8
+	lastEmpty                     bool
+	cycleHi                       uint16
+	dAcc                          int64
+}
+
+func (x *IODev32) Init(s *Sim, c *Chip) {
+	x.clk, x.iosel, x.rd, x.wel, x.weh, x.irq = c.Pin("CLK"), c.Pin("IOSEL"), c.Pin("RD"), c.Pin("WEL"), c.Pin("WEH"), c.Pin("IRQ")
+	for i := 0; i < 8; i++ {
+		x.a[i] = c.Pin(fmt.Sprintf("A%d", i))
+	}
+	for i := 0; i < 16; i++ {
+		x.d[i] = c.Pin(fmt.Sprintf("D%d", i))
+	}
+	x.dAcc = 20000
+	s.Drive(c, x.irq, 0, true, 0)
+}
+
+func (x *IODev32) addr(s *Sim, c *Chip) int {
+	a := 0
+	for i := 0; i < 8; i++ {
+		a |= int(s.In(c, x.a[i])) << i
+	}
+	return a &^ 1
+}
+
+func (x *IODev32) value(s *Sim, a int) uint16 {
+	switch a {
+	case 0x00:
+		if len(x.Input) > 0 {
+			return uint16(x.Input[0])
+		}
+		return 0xFFFF
+	case 0x02:
+		if x.lastEmpty {
+			return 0xFFFF
+		}
+		return 0
+	case 0x04:
+		if len(x.Input) > 0 {
+			return 1
+		}
+		return 2
+	case 0x08:
+		return uint16(x.TimerPeriod)
+	case 0x0A:
+		return uint16(x.TimerPeriod >> 16)
+	case 0x0C:
+		return uint16(x.TimerFlag)
+	case 0x10:
+		return uint16(s.Cycle)
+	case 0x12:
+		return x.cycleHi
+	}
+	return 0
+}
+
+func (x *IODev32) Eval(s *Sim, c *Chip, pin int) {
+	if !s.CheckOn {
+		return
+	}
+	sel := s.In(c, x.iosel) == 0
+	if pin == x.clk {
+		v := s.In(c, x.clk)
+		if v == 1 && x.prev == 0 {
+			if sel && s.In(c, x.rd) == 0 {
+				switch x.addr(s, c) {
+				case 0x00:
+					if len(x.Input) > 0 {
+						x.Input = x.Input[1:]
+						x.lastEmpty = false
+					} else {
+						x.lastEmpty = true
+					}
+				case 0x10:
+					x.cycleHi = uint16(s.Cycle >> 16)
+				}
+			}
+			if x.TimerPeriod > 0 && s.Cycle >= 0 {
+				x.TimerCount++
+				if x.TimerCount >= x.TimerPeriod {
+					x.TimerFlag = 1
+					x.TimerCount = 0
+				}
+			}
+			s.Drive(c, x.irq, x.TimerFlag, true, 5000)
+		}
+		x.prev = v
+	}
+	wl, wh := s.In(c, x.wel) == 0, s.In(c, x.weh) == 0
+	wr := sel && (wl || wh)
+	if wr {
+		x.lanes = 0
+		if wl {
+			x.lanes |= 1
+		}
+		if wh {
+			x.lanes |= 2
+		}
+	}
+	if x.writing && !wr {
+		var v uint16
+		for i := 0; i < 16; i++ {
+			v |= uint16(s.In(c, x.d[i])) << i
+		}
+		switch x.addr(s, c) {
+		case 0x00:
+			if x.lanes&1 != 0 {
+				x.Output = append(x.Output, byte(v))
+			}
+		case 0x08:
+			x.TimerPeriod, x.TimerCount = int64(v), 0
+			if v == 0 {
+				x.TimerFlag = 0
+			}
+		case 0x0A:
+			x.TimerPeriod = (x.TimerPeriod & 0xFFFF) | int64(v)<<16
+			x.TimerCount = 0
+			if x.TimerPeriod == 0 {
+				x.TimerFlag = 0
+			}
+		case 0x0C, 0x0E:
 			x.TimerFlag = 0
 		}
 		s.Drive(c, x.irq, x.TimerFlag, true, 5000)

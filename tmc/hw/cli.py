@@ -1,4 +1,4 @@
-"""Chip-level tools: python3 -m tmc hw <command>
+"""Chip-level tools: python3 -m tmc [--isa v0|v1b] hw <command>
 
   bom      [--variant V]                     parts list
   run      PROG.s [--period NS] [--variant V] [--corner typ|max] [--trace A:B]
@@ -22,6 +22,9 @@ from .. import isa as isas
 from ..sim import Machine
 from . import chips, cpu_v0, microcode
 
+# which implementation the commands work on (set from --isa by main)
+MACHINE = "v0"
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 BUILD = os.path.join(ROOT, "build")
 HWSIM_SRC = os.path.join(ROOT, "hwsim")
@@ -44,30 +47,69 @@ def py_sources():
     return glob.glob(os.path.join(ROOT, "tmc", "hw", "*.py")) + [chips.TIMING_PATH]
 
 
-def ensure_ucode():
-    out = os.path.join(BUILD, "ucode")
-    files = [os.path.join(out, f"ucode{k}.bin") for k in range(microcode.ROMS)]
-    if not all(os.path.exists(f) for f in files) or min(os.path.getmtime(f) for f in files) < newest(py_sources()):
+def cpu_module(machine=None):
+    machine = machine or MACHINE
+    if machine == "v1b":
+        from . import cpu_v1b
+        return cpu_v1b
+    return cpu_v0
+
+
+def ensure_ucode(machine=None):
+    """ROM images for the machine: {chip reference: file}."""
+    machine = machine or MACHINE
+    out = os.path.join(BUILD, "ucode" if machine == "v0" else f"ucode-{machine}")
+    if machine == "v0":
+        names = {f"U_UC{k}": f"ucode{k}.bin" for k in range(microcode.ROMS)}
+    else:
+        from . import ucode_v1b
+        names = {f"U_UC{k}": f"ucode{k}.bin" for k in range(ucode_v1b.ROMS)}
+        names.update({"U_DEC0": "decode0.bin", "U_DEC1": "decode1.bin"})
+    files = {ref: os.path.join(out, n) for ref, n in names.items()}
+    if not all(os.path.exists(f) for f in files.values()) or \
+            min(os.path.getmtime(f) for f in files.values()) < newest(py_sources()):
         os.makedirs(out, exist_ok=True)
-        for k, img in enumerate(microcode.rom_images()):
-            with open(files[k], "wb") as f:
+        if machine == "v0":
+            imgs = {f"U_UC{k}": img for k, img in enumerate(microcode.rom_images())}
+        else:
+            from . import ucode_v1b
+            uimgs, dimgs = ucode_v1b.rom_images()
+            imgs = {f"U_UC{k}": img for k, img in enumerate(uimgs)}
+            imgs.update({"U_DEC0": dimgs[0], "U_DEC1": dimgs[1]})
+        for ref, img in imgs.items():
+            with open(files[ref], "wb") as f:
                 f.write(img)
-    return {f"U_UC{k}": files[k] for k in range(microcode.ROMS)}
+    return files
 
 
-def ensure_netlist(variant, corner):
-    path = os.path.join(BUILD, f"netlist-{variant}-{corner}.json")
+def ensure_netlist(variant, corner, machine=None):
+    machine = machine or MACHINE
+    tag = "" if machine == "v0" else f"{machine}-"
+    path = os.path.join(BUILD, f"netlist-{tag}{variant}-{corner}.json")
     if not os.path.exists(path) or os.path.getmtime(path) < newest(py_sources()):
         os.makedirs(BUILD, exist_ok=True)
-        nl = cpu_v0.build()
+        nl = cpu_module(machine).build()
         with open(path, "w") as f:
             json.dump(nl.export(variant=variant, corner=corner), f)
     return path
 
 
-def trace_buses():
+def trace_buses(machine=None):
+    machine = machine or MACHINE
+
     def bus(name, n, start=0):
         return [f"{name}{i}" for i in range(start, start + n)]
+    if machine == "v1b":
+        from . import ucode_v1b
+        ctl = cpu_module(machine).control_nets()
+        return {
+            "Y": bus("Y", ucode_v1b.Y_BITS), "IR": bus("IR", 16), "PC": ["GND"] + bus("PC", 31, 1),
+            "ADDR": bus("ADDR", 20), "DBUS": bus("DBUS", 16), "ABUS": bus("ABUS", 32),
+            "BBUS": bus("BBUS", 32), "F": bus("F", 32), "RES": bus("RES", 32), "R": bus("RQ", 32),
+            "T": bus("TQ", 32), "MAR": bus("MAR", 20), "LC": bus("LC", 8),
+            "NZCVI": ["IFLAG", "VFLAG", "CFLAG", "ZFLAG", "NFLAG"][::-1],
+            "U": [ctl.get(i, "GND") for i in range(ucode_v1b.ROMS * 8)],
+        }
     ctl = cpu_v0.control_nets()
     return {
         "STEP": bus("STEP", 4), "IR": bus("IR", 16), "PC": ["GND"] + bus("PC", 15, 1),
@@ -80,9 +122,25 @@ def trace_buses():
     }
 
 
-def run_isa(path, inp=b"", isa_name="v0"):
+def run_isa(path, inp=b"", isa_name=None):
+    """Assemble and run on the instruction-level simulator. For v1b also run
+    the RTL model (the reference for cycle counts and fetches): returns
+    (image, machine) where machine.rtl is the RTL run."""
+    isa_name = isa_name or MACHINE
     isa = isas.get(isa_name)
     img = asmcore.assemble_file(isa, path)
+    if isa_name == "v1b":
+        from ..sim32 import Machine32
+        from .rtl_v1b import RTL
+        m = Machine32(isa, img, inp=inp)
+        m.run(max_cycles=200_000_000)
+        r = RTL(img, inp=inp)
+        r.fetch_log = []
+        r.run(max_cycles=200_000_000)
+        m.rtl = r
+        m.cycles = r.cycles
+        m.fetch_log = [(c, a & 0xFFFFF, w) for c, a, w in r.fetch_log]
+        return img, m
     m = Machine(isa, img, inp=inp, timing=microcode.timing_function(isa_name))
     m.fetch_log = []
     m.run(max_cycles=200_000_000)
@@ -91,15 +149,16 @@ def run_isa(path, inp=b"", isa_name="v0"):
 
 def run_hw(img, period_ns, variant=chips.DEFAULT_VARIANT, corner="max", seed=1, inp=b"",
            max_cycles=10_000_000, trace=None, fetch_trace=200_000, tag="run", we=(0.5, 0.875),
-           zero_regs=True):
+           zero_regs=True, machine=None):
+    machine = machine or MACHINE
     ensure_hwsim()
-    roms = ensure_ucode()
-    netlist = ensure_netlist(variant, corner)
+    roms = ensure_ucode(machine)
+    netlist = ensure_netlist(variant, corner, machine)
     work = os.path.join(BUILD, "runs")
     os.makedirs(work, exist_ok=True)
     stem = os.path.join(work, f"{tag}-{os.getpid()}-{time.time_ns()}")
     with open(stem + ".ram", "wb") as f:
-        f.write(img.to_bytes())
+        f.write(img.to_bytes(0x100000 if machine == "v1b" else 0x10000))
     cfg = {
         "netlist": netlist, "roms": roms, "ram_image": stem + ".ram", "ram_lo": "U_RAML", "ram_hi": "U_RAMH",
         "ram_dump": stem + ".dump", "period_ps": int(round(period_ns * 1000)), "seed": seed,
@@ -108,8 +167,11 @@ def run_hw(img, period_ns, variant=chips.DEFAULT_VARIANT, corner="max", seed=1, 
         "zero_regs": zero_regs,
         "out": stem + ".json",
     }
+    if machine == "v1b":
+        cfg.update(cpu_module(machine).CONFIG)
     if trace:
-        cfg.update(trace_from=trace[0], trace_to=trace[1], trace_file=stem + ".trace", trace_buses=trace_buses())
+        cfg.update(trace_from=trace[0], trace_to=trace[1], trace_file=stem + ".trace",
+                   trace_buses=trace_buses(machine))
     with open(stem + ".cfg", "w") as f:
         json.dump(cfg, f)
     subprocess.run([HWSIM, stem + ".cfg"], check=True)
@@ -126,6 +188,8 @@ def run_hw(img, period_ns, variant=chips.DEFAULT_VARIANT, corner="max", seed=1, 
 
 def compare(m, hw, check_cycles=True):
     """Differences between an ISA-sim Machine and a hardware result."""
+    if MACHINE == "v1b" or hasattr(m, "rtl"):
+        return compare_v1b(m, hw, check_cycles)
     diffs = []
     if not hw["halted"]:
         diffs.append(f"hardware did not halt: {hw['reason']}")
@@ -159,6 +223,42 @@ def compare(m, hw, check_cycles=True):
     return diffs
 
 
+def compare_v1b(m, hw, check_cycles=True):
+    """Draft 1b: the hardware must match the RTL model exactly (registers,
+    flags, PC, all of RAM, cycles, every fetch) and print what the
+    instruction-level simulator printed."""
+    r = m.rtl
+    diffs = []
+    if not hw["halted"]:
+        diffs.append(f"hardware did not halt: {hw['reason']}")
+    if hw["output"] != bytes(m.dev.out):
+        diffs.append("console output differs from the ISA simulator")
+    if check_cycles and hw["cycles"] != r.cycles:
+        diffs.append(f"cycles: hardware {hw['cycles']}, RTL model {r.cycles}")
+    for i in range(32):
+        if hw["regs_a"][i] != r.rf[i]:
+            diffs.append(f"RF[{i}]: hardware {hw['regs_a'][i]:08X}, RTL {r.rf[i]:08X}")
+        if hw["regs_b"][i] != hw["regs_a"][i]:
+            diffs.append(f"RF[{i}]: copies disagree ({hw['regs_a'][i]:08X} / {hw['regs_b'][i]:08X})")
+    for f, attr in (("NFLAG", "n"), ("ZFLAG", "z"), ("CFLAG", "c"), ("VFLAG", "v"), ("IFLAG", "i")):
+        if hw["flags"][f] != getattr(r, attr):
+            diffs.append(f"flag {f[0]}: hardware {hw['flags'][f]}, RTL {getattr(r, attr)}")
+    if hw["pc"] != r.PC:
+        diffs.append(f"PC: hardware {hw['pc']:08X}, RTL {r.PC:08X}")
+    ram = hw["ram"]
+    if ram != bytes(r.mem):
+        bad = [a for a in range(len(r.mem)) if ram[a] != r.mem[a]]
+        a = bad[0]
+        diffs.append(f"memory differs at {len(bad)} bytes, first {a:05X}: hardware {ram[a]:02X}, RTL {r.mem[a]:02X}")
+    if check_cycles:
+        for i, (h, s) in enumerate(zip(hw["fetches"], m.fetch_log)):
+            if tuple(h) != tuple(s):
+                diffs.append(f"fetch #{i}: hardware cycle {h[0]} addr {h[1]:05X} word {h[2]:04X}; "
+                             f"RTL cycle {s[0]} addr {s[1]:05X} word {s[2]:04X}")
+                break
+    return diffs
+
+
 def summarize(hw):
     lines = [f"  {hw['cycles']} cycles, {hw['events']:,} events, {hw['wall_seconds']:.1f} s wall "
              f"({hw['cycles'] / max(hw['wall_seconds'], 1e-9):,.0f} cycles/s)"]
@@ -174,12 +274,16 @@ def summarize(hw):
 
 
 def decode_trace(path, out=sys.stdout):
+    if MACHINE == "v1b":
+        from . import ucode_v1b as mc
+    else:
+        mc = microcode
     for line in open(path):
         parts = line.split()
         fields = dict(p.split("=") for p in parts[1:])
-        u = microcode.unpack(int(fields.pop("U"), 16))
+        u = mc.unpack(int(fields.pop("U"), 16))
         active = []
-        for name, (_, w, _) in microcode._pos.items():
+        for name, (_, w, _) in mc._pos.items():
             if u[name]:
                 active.append(name if w == 1 else f"{name}={u[name]}")
         out.write(f"{parts[0]:>6} " + " ".join(f"{k}={v}" for k, v in fields.items()) + "\n")
@@ -216,7 +320,7 @@ def cmd_run(args):
 
 def cmd_test(args):
     from ..testing import program_paths
-    paths = program_paths(args.names)
+    paths = program_paths(args.names or None, MACHINE)
     fails = 0
     for p in paths:
         inp = program_input(p)
@@ -264,7 +368,7 @@ def cmd_sweep(args):
 
 
 def cmd_bom(args):
-    nl = cpu_v0.build()
+    nl = cpu_module().build()
     total = 0
     for part, refs in nl.bom(args.variant).items():
         print(f"{len(refs):3} x {part:<16} {' '.join(refs[:8])}{' ...' if len(refs) > 8 else ''}")
@@ -273,7 +377,13 @@ def cmd_bom(args):
     return 0
 
 
-def main(argv):
+def main(argv, isa=None):
+    global MACHINE
+    if isa in ("v0", "v1b"):
+        MACHINE = isa
+    elif isa is not None:
+        print(f"no implementation of {isa} (there are v0 and v1b)", file=sys.stderr)
+        return 1
     p = argparse.ArgumentParser(prog="tmc hw")
     sub = p.add_subparsers(dest="cmd", required=True)
 

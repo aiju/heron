@@ -36,6 +36,17 @@ type Config struct {
 	TraceFile   string              `json:"trace_file"`
 	TraceBuses  map[string][]string `json:"trace_buses"`
 	Out         string              `json:"out"`
+	// machine description (defaults: the draft 0 CPU)
+	RFChips   map[string][]string `json:"rf_chips"`
+	RFEntries int                 `json:"rf_entries"`
+	RAMChips  []string            `json:"ram_chips"`
+	RAMBits   int                 `json:"ram_bits"`
+	AddrBits  int                 `json:"addr_bits"`
+	PCBits    int                 `json:"pc_bits"`
+	FetchNet  string              `json:"fetch_net"`
+	HaltNet   string              `json:"halt_net"`
+	HaltLevel int                 `json:"halt_level"`
+	Start     string              `json:"start"`
 }
 
 type Result struct {
@@ -44,9 +55,9 @@ type Result struct {
 	Cycles      int64                    `json:"cycles"`
 	ResetCycles int64                    `json:"reset_cycles"`
 	Output      []int                    `json:"output"`
-	RegsA       []int                    `json:"regs_a"`
-	RegsB       []int                    `json:"regs_b"`
-	PC          int                      `json:"pc"`
+	RegsA       []int64                  `json:"regs_a"`
+	RegsB       []int64                  `json:"regs_b"`
+	PC          int64                    `json:"pc"`
 	Flags       map[string]int           `json:"flags"`
 	Fetches     [][3]int64               `json:"fetches"`
 	FetchCount  int64                    `json:"fetch_count"`
@@ -82,6 +93,33 @@ func main() {
 	if cfg.ResetCycles == 0 {
 		cfg.ResetCycles = 4
 	}
+	if cfg.RFChips == nil {
+		cfg.RFChips = map[string][]string{"A": {"U_RFAL", "U_RFAH"}, "B": {"U_RFBL", "U_RFBH"}}
+	}
+	if cfg.RFEntries == 0 {
+		cfg.RFEntries = 16
+	}
+	if cfg.RAMChips == nil {
+		cfg.RAMChips = []string{cfg.RamLo, cfg.RamHi}
+	}
+	if cfg.RAMBits == 0 {
+		cfg.RAMBits = 15
+	}
+	if cfg.AddrBits == 0 {
+		cfg.AddrBits = 16
+	}
+	if cfg.PCBits == 0 {
+		cfg.PCBits = 15
+	}
+	if cfg.FetchNet == "" {
+		cfg.FetchNet = "uLDIR_n"
+	}
+	if cfg.HaltNet == "" {
+		cfg.HaltNet, cfg.HaltLevel = "uHALT_n", 0
+	}
+	if cfg.Start == "" {
+		cfg.Start = "v0"
+	}
 	rng = rand.New(rand.NewSource(cfg.Seed))
 
 	var nl NetlistJSON
@@ -97,23 +135,37 @@ func main() {
 		must(err)
 		pre[ref] = b
 	}
+	ramSize := 1 << cfg.RAMBits
 	if cfg.RamImage != "" {
 		img, err := os.ReadFile(cfg.RamImage)
 		must(err)
-		lo, hi := make([]byte, 32768), make([]byte, 32768)
-		for i := 0; i+1 < len(img) && i < 65536; i += 2 {
+		lo, hi := make([]byte, ramSize), make([]byte, ramSize)
+		for i := 0; i+1 < len(img) && i < 2*ramSize; i += 2 {
 			lo[i/2], hi[i/2] = img[i], img[i+1]
 		}
-		pre[cfg.RamLo], pre[cfg.RamHi] = lo, hi
+		pre[cfg.RAMChips[0]], pre[cfg.RAMChips[1]] = lo, hi
 	}
 	if cfg.ZeroRegs {
-		for _, ref := range []string{"U_RFAL", "U_RFAH", "U_RFBL", "U_RFBH"} {
-			pre[ref] = make([]byte, 32768)
+		for _, side := range []string{"A", "B"} {
+			for _, ref := range cfg.RFChips[side] {
+				pre[ref] = make([]byte, 32768)
+			}
 		}
 	}
 	s.Build(&nl, pre)
-	io := s.ChipByRef("X_IO").M.(*IODev)
-	io.Input = []byte(cfg.Input)
+	ioc := s.ChipByRef("X_IO")
+	var ioOut func() []byte
+	var timerOn func() bool
+	switch d := ioc.M.(type) {
+	case *IODev:
+		d.Input = []byte(cfg.Input)
+		ioOut = func() []byte { return d.Output }
+		timerOn = func() bool { return d.TimerPeriod != 0 }
+	case *IODev32:
+		d.Input = []byte(cfg.Input)
+		ioOut = func() []byte { return d.Output }
+		timerOn = func() bool { return d.TimerPeriod != 0 }
+	}
 
 	clk := s.ChipByRef("X_CLK")
 	oCLK, oWE, oRST := clk.Outs[clk.Pin("CLK")], clk.Outs[clk.Pin("WEWIN")], clk.Outs[clk.Pin("RESET")]
@@ -139,10 +191,23 @@ func main() {
 		}
 		return out
 	}
-	nHALT, nEND, nLDIR := net("uHALT_n"), net("uEND_n"), net("uLDIR_n")
-	nMRST, nMIRQ, nRST, nI := net("MODERST"), net("MODEIRQ"), net("RESET_n"), net("IFLAG")
-	nADDR, nDBUS := busNets("ADDR", 16, 0), busNets("DBUS", 16, 0)
-	nPC := busNets("PC", 15, 1)
+	nHALT, nLDIR := net(cfg.HaltNet), net(cfg.FetchNet)
+	nRST, nI := net("RESET_n"), net("IFLAG")
+	var nEND, nMRST, nMIRQ int32 = -1, -1, -1
+	if cfg.Start == "v0" {
+		nEND, nMRST, nMIRQ = net("uEND_n"), net("MODERST"), net("MODEIRQ")
+	}
+	nADDR, nDBUS := busNets("ADDR", cfg.AddrBits, 0), busNets("DBUS", 16, 0)
+	nPC := busNets("PC", cfg.PCBits, 1)
+	halting := func() bool {
+		if val(nHALT) != cfg.HaltLevel {
+			return false
+		}
+		if cfg.Start == "v0" {
+			return val(nMRST) == 0 && val(nMIRQ) == 0
+		}
+		return true
+	}
 
 	var trace *bufio.Writer
 	traceBuses := map[string][]int32{}
@@ -209,7 +274,13 @@ func main() {
 				res.Fetches = append(res.Fetches, [3]int64{s.Cycle, int64(a), int64(w)})
 			}
 		}
-		if progStart < 0 && val(nRST) == 1 && val(nMRST) == 1 && val(nEND) == 0 {
+		started := false
+		if cfg.Start == "v0" {
+			started = val(nRST) == 1 && val(nMRST) == 1 && val(nEND) == 0
+		} else {
+			started = val(nRST) == 1 && val(nLDIR) == 0 && cyc > cfg.ResetCycles
+		}
+		if progStart < 0 && started {
 			progStart = cyc + 1
 			// the fetch in the reset sequence's last cycle belongs to cycle -1
 			a, w := busVal(nADDR), busVal(nDBUS)
@@ -219,8 +290,8 @@ func main() {
 				res.Fetches = append(res.Fetches, [3]int64{-1, int64(a), int64(w)})
 			}
 		}
-		if progStart >= 0 && val(nHALT) == 0 && val(nMRST) == 0 && val(nMIRQ) == 0 {
-			if val(nI) == 0 || io.TimerPeriod == 0 {
+		if progStart >= 0 && halting() {
+			if val(nI) == 0 || !timerOn() {
 				res.Halted, res.Reason = true, "HALT"
 				res.Cycles = s.Cycle + 1
 				break
@@ -237,23 +308,26 @@ func main() {
 		}
 	}
 	res.WallSeconds = time.Since(start).Seconds()
-	res.Output = make([]int, len(io.Output))
-	for i, b := range io.Output {
+	out := ioOut()
+	res.Output = make([]int, len(out))
+	for i, b := range out {
 		res.Output[i] = int(b)
 	}
 	res.FetchHash = fetchHash
 	res.Events = s.Events
-	readRegs := func(lo, hi string) []int {
-		l, h := s.ChipByRef(lo).M.(*SRAM), s.ChipByRef(hi).M.(*SRAM)
-		out := make([]int, 16)
-		for i := range out {
-			out[i] = int(l.Mem[i]) | int(h.Mem[i])<<8
+	readRegs := func(refs []string) []int64 {
+		out := make([]int64, cfg.RFEntries)
+		for k, ref := range refs {
+			m := s.ChipByRef(ref).M.(*SRAM)
+			for i := range out {
+				out[i] |= int64(m.Mem[i]) << (8 * k)
+			}
 		}
 		return out
 	}
-	res.RegsA = readRegs("U_RFAL", "U_RFAH")
-	res.RegsB = readRegs("U_RFBL", "U_RFBH")
-	res.PC = busVal(nPC) << 1
+	res.RegsA = readRegs(cfg.RFChips["A"])
+	res.RegsB = readRegs(cfg.RFChips["B"])
+	res.PC = int64(busVal(nPC)) << 1
 	res.Flags = map[string]int{}
 	for _, f := range []string{"NFLAG", "ZFLAG", "CFLAG", "VFLAG", "IFLAG"} {
 		res.Flags[f] = val(net(f))
@@ -286,19 +360,19 @@ func main() {
 		"worst_nets": wl,
 	}
 	if cfg.RamDump != "" {
-		lo, hi := s.ChipByRef(cfg.RamLo).M.(*SRAM), s.ChipByRef(cfg.RamHi).M.(*SRAM)
-		dump := make([]byte, 65536)
-		for i := 0; i < 32768; i++ {
+		lo, hi := s.ChipByRef(cfg.RAMChips[0]).M.(*SRAM), s.ChipByRef(cfg.RAMChips[1]).M.(*SRAM)
+		dump := make([]byte, 2*ramSize)
+		for i := 0; i < ramSize; i++ {
 			dump[2*i], dump[2*i+1] = lo.Mem[i], hi.Mem[i]
 		}
 		must(os.WriteFile(cfg.RamDump, dump, 0o644))
 	}
-	out, err := json.MarshalIndent(res, "", " ")
+	js, err := json.MarshalIndent(res, "", " ")
 	must(err)
 	if cfg.Out != "" {
-		must(os.WriteFile(cfg.Out, out, 0o644))
+		must(os.WriteFile(cfg.Out, js, 0o644))
 	} else {
-		os.Stdout.Write(out)
+		os.Stdout.Write(js)
 	}
 }
 
@@ -328,12 +402,18 @@ func (s *Sim) Build(nl *NetlistJSON, pre map[string][]byte) {
 		}
 		c.M = NewModel(c)
 		if mem, ok := pre[c.Ref]; ok {
+			abits := 0
+			for _, p := range c.PinNames {
+				if len(p) > 1 && p[0] == 'A' && p[1] >= '0' && p[1] <= '9' {
+					abits++
+				}
+			}
 			switch m := c.M.(type) {
 			case *ROM:
-				m.Mem = make([]byte, 1<<17)
+				m.Mem = make([]byte, 1<<abits)
 				copy(m.Mem, mem)
 			case *SRAM:
-				m.Mem = make([]byte, 1<<15)
+				m.Mem = make([]byte, 1<<abits)
 				copy(m.Mem, mem)
 			}
 		}

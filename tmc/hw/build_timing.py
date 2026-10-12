@@ -40,6 +40,9 @@ LOGIC_MAP = {
     "377": {"CLK->Q": ["CLK->Q"]},
     "541": {"A->Y": ["A->Y"], "OE->Y en": ["/OE->Y enable"], "OE->Y dis": ["/OE->Y disable"]},
     "688": {"P->PEQ": ["P,Q->/P=Q"], "G->PEQ": ["/G->/P=Q"]},
+    "299": {"CLK->Q": ["CLK->I/O"], "CLK->QS": ["CLK->Q0,Q7"], "CLR->Q": ["/CLR->I/O", "/CLR->Q0,Q7"],
+            "OE->Y en": ["/OE->I/O enable", "S0,S1->I/O enable_est"],
+            "OE->Y dis": ["/OE->I/O disable", "S0,S1->I/O disable_est"]},
 }
 LOGIC_CHECKS = {
     "74": {"setup D": ["setup D->CLK"], "hold D": ["hold D->CLK"]},
@@ -53,6 +56,9 @@ LOGIC_CHECKS = {
     "175": {"setup D": ["setup D->CLK"], "hold D": ["hold D->CLK"]},
     "377": {"setup D": ["setup D->CLK"], "hold D": ["hold D->CLK"],
             "setup EN": ["setup /EN->CLK"], "hold EN": ["hold /EN->CLK"]},
+    "299": {"setup S": ["setup S0,S1->CLK"], "hold S": ["hold S0,S1->CLK"],
+            "setup DS": ["setup DS0,DS7->CLK"], "hold DS": ["hold DS0,DS7->CLK"],
+            "setup IO": ["setup I/O->CLK"], "hold IO": ["hold I/O->CLK"]},
 }
 
 ALU_MAP = {

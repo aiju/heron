@@ -990,14 +990,14 @@ def rr_routine(fn):
                             "cl", loop(name, step, "tc", tail32), loop(name, step, "tc4", exit16)))
     if name == "MULS":
         # Booth's algorithm: the same loop, adding or subtracting X
-        step = mi(a="r", rb="d", md="muls", rms="shr", ldr=1, lcinc=1)
+        step = mi(a="r", rb="d", md="muls", rms="shr", sin="f31", ldr=1, lcinc=1)
         # overflow iff HI isn't the sign extension of the low word, i.e.
         # HI + (bit 31 of the low word) != 0
         tail32 = chain(name, mi(wb=HI, b="r", alu="a", cin="mq31", ldr=1),
                        mi(b="r", ldcl="zero"),
                        end(name, wb="d", b="mq", fnz="nz", fc="ncl", fv="ncl"))
         big = chain(name, mi(rb="s", md="mqload"),
-                    mi(ra=0, rb="d", md="muls", rms="shr", ldr=1),
+                    mi(ra=0, rb="d", md="muls", rms="shr", sin="f31", ldr=1),
                     loop(name, step, "tc", tail32))
         # both operands fit in 16 bits: 16 steps on the multiplier's low half,
         # and the product fits in 32 bits, so HI is its sign
@@ -1005,7 +1005,7 @@ def rr_routine(fn):
                         mi(a="r", b="mq", alu="or", rms="ror16", ldr=1),
                         mi(wb="d", b="r", fnz="nz", fill="a31", ldsgn=1),
                         end(name, wb=HI, b="fillall", fill="sgn", czero=1, fv="0"))
-        small = chain(name, mi(ra=0, rb="d", md="muls", rms="shr", ldr=1),
+        small = chain(name, mi(ra=0, rb="d", md="muls", rms="shr", sin="f31", ldr=1),
                       loop(name, step, "tc4", small16))
         # x fits in 16 bits as a signed number iff x ^ (32 copies of its sign)
         # is below 2^15

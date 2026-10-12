@@ -314,12 +314,10 @@ class RTL:
         if rms == 0:
             RES = F
         elif rms == 1:
-            if md == MULU:
-                sin = C32
-            elif md == MULS:
-                sin = ((F >> 31) ^ OVF) & 1
-            else:
-                sin = (0, F >> 31, self.c, F & 1)[f["SIN"]]
+            # 74HCT151: SIN field, plus 4 in multiply steps (MD = x01)
+            mulstep = (md & 3) == 1
+            sin = (0, F >> 31, self.c, F & 1, C32, ((F >> 31) ^ OVF) & 1, 0, 0)[
+                f["SIN"] | (mulstep << 2)]
             RES = (F >> 1) | (sin << 31)
         elif rms == 2:
             RES = ((F >> 8) | (F << 24)) & M32

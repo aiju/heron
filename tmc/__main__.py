@@ -258,7 +258,7 @@ def main(argv=None):
 
     h = sub.add_parser("hw", help="chip-level tools")
     h.add_argument("rest", nargs=argparse.REMAINDER)
-    h.set_defaults(fn=lambda args: __import__("tmc.hw.cli", fromlist=["x"]).main(args.rest))
+    h.set_defaults(fn=lambda args: __import__("tmc.hw.cli", fromlist=["x"]).main(args.rest, args.isa))
 
     args = p.parse_args(argv)
     return args.fn(args) or 0
