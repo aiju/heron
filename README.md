@@ -21,6 +21,7 @@ chips. There have been two rounds so far:
 |---|---|
 | [docs/evaluation-v1.md](docs/evaluation-v1.md) | **Start here**: draft 1a vs 1b, the hardware options, and recommendations for draft 2 |
 | [docs/proposals.md](docs/proposals.md) | Every design idea from the discussions so far (ISA, clocking, system bus, MMU, I/O, video, DMA, networking, OS, big ideas) with its status |
+| [docs/system-bus.md](docs/system-bus.md) | Draft specification of the system bus: signals, transfers, arbitration, optional bursts, simple peripherals, electrical rules from the signal-integrity simulations, and how the main CPU uses it |
 | [docs/isa-v1.md](docs/isa-v1.md) | Draft 1, the common machine: registers, flags, memory, I/O, interrupts, shared instruction groups |
 | [docs/isa-v1a.md](docs/isa-v1a.md), [docs/isa-v1b.md](docs/isa-v1b.md) | The two draft 1 encodings |
 | [docs/timing-model-v1.md](docs/timing-model-v1.md) | How draft 1 cycle counts are estimated |
