@@ -613,9 +613,15 @@ class IRGen:
             f = FuncGen(self, fd).run()
             self.module.functions.append(f)
         for sym in self.tu.globals:
+            if sym.asm_label:
+                self.module.asm_labels[sym.asm_name] = sym.asm_label
             if sym.storage == "extern" or not sym.defined:
+                self.module.externs[sym.asm_name] = sym.ty.size if sym.ty.complete else None
                 continue
             self.module.data.append(self.global_data(sym))
+        for sym in self.tu.funcs.values():
+            if sym.asm_label:
+                self.module.asm_labels[sym.asm_name] = sym.asm_label
         return self.module
 
     # ---- static data ---------------------------------------------------------

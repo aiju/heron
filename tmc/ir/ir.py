@@ -369,6 +369,8 @@ class Module:
     def __init__(self):
         self.functions = []
         self.data = []
+        self.externs = {}       # data declared but defined elsewhere: name -> size (None: unknown)
+        self.asm_labels = {}    # name -> the assembler's name for it, if given in the source
 
     def function(self, name):
         for f in self.functions:

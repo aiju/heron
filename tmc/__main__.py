@@ -1,7 +1,11 @@
 """Command line: python3 -m tmc <command> ...
 
   asm   FILE.s [-o FILE.bin] [-l FILE.lst]   assemble
-  run   FILE.s [--input TEXT] [--trace] [--stats]
+  asm   -c FILE.s [-o FILE.o]                assemble into an object file (draft 1)
+  ld    FILE.o... [-o PROG.out]              link (see tmc/link.py)
+  objdump FILE.o [-d]                        show an object file, executable or library
+  ar    -o LIB.a FILE.o...                   make a library
+  run   FILE.s [--input TEXT] [--trace] [--stats]   (or an executable, or object files)
   dis   FILE.bin [--from ADDR] [--to ADDR]   disassemble a binary image
   test  [NAME...]                            run the program test suite
   ucode [-o DIR]                             build microcode ROM images
@@ -33,6 +37,18 @@ def get_timing(isa_name, enabled=True):
 
 def cmd_asm(args):
     isa = isas.get(args.isa)
+    if args.c:
+        from .tools import assemble_object
+        try:
+            o = assemble_object(args.isa, args.file)
+        except asmcore.AsmError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for w in o.warnings:
+            print(f"warning: {w}", file=sys.stderr)
+        out = args.o or args.file.rsplit(".", 1)[0] + ".o"
+        o.write(out)
+        return 0
     try:
         img = load_image(isa, args.file)
     except asmcore.AsmError as e:
@@ -53,12 +69,16 @@ def cmd_asm(args):
 
 
 def cmd_run(args):
-    isa = isas.get(args.isa)
+    from .tools import load_program
+    from .link import LinkError
+    from .obj import ObjError
     try:
-        img = load_image(isa, args.file)
-    except asmcore.AsmError as e:
+        img, args.isa = load_program(args.isa, args.files)
+    except (asmcore.AsmError, LinkError, ObjError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
+    isa = isas.get(args.isa)
+    args.file = args.files[0]
     inp = args.input.encode().decode("unicode_escape").encode("latin-1") if args.input else b""
     if args.input_file:
         with open(args.input_file, "rb") as f:
@@ -104,7 +124,7 @@ def run32(args, isa, img, inp):
     from .sim32 import Machine32, SimError as SimError32
     from . import timing32
     from .isa.v1common import Trap
-    if args.input_file is None and args.input is None:
+    if args.input_file is None and args.input is None and args.file.endswith(".s"):
         from .testing import metadata
         inp = metadata(args.file)["input"]
     m = Machine32(isa, img, inp=inp)
@@ -213,10 +233,23 @@ def main(argv=None):
     a.add_argument("file")
     a.add_argument("-o")
     a.add_argument("-l", help="write a listing")
+    a.add_argument("-c", action="store_true", help="write an object file to link later")
     a.set_defaults(fn=cmd_asm)
 
+    from . import tools
+    ld = sub.add_parser("ld", help="link object files into an executable")
+    tools.add_ld_arguments(ld)
+    ld.set_defaults(fn=tools.cmd_ld)
+    od = sub.add_parser("objdump", help="show an object file, executable or library")
+    tools.add_objdump_arguments(od)
+    od.set_defaults(fn=tools.cmd_objdump)
+    ar = sub.add_parser("ar", help="make or list a library of object files")
+    tools.add_ar_arguments(ar)
+    ar.set_defaults(fn=tools.cmd_ar)
+
     r = sub.add_parser("run", help="assemble and run on the instruction-level simulator")
-    r.add_argument("file")
+    r.add_argument("files", nargs="+", metavar="file",
+                   help="a .s file, an executable, or object files to link")
     r.add_argument("--input", help="console input (escapes allowed)")
     r.add_argument("--input-file")
     r.add_argument("--trace", action="store_true")

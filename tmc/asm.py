@@ -10,10 +10,25 @@ Size relaxation: an ISA hook may choose between a short and a long
 encoding. In the first pass unknown symbols evaluate to 0 (optimistic,
 so short forms get picked); whenever a statement grows it is marked
 "sticky long" and never shrinks again, so passes always converge.
+
+Object files (`relocatable=True`, `tmc asm -c`): each section (`.text`,
+`.data`, `.bss`, `.section NAME`) has its own location counter starting at
+0, and the linker places it. A section that uses `.org` is absolute
+instead. Addresses the linker fills in are relocations: when an ISA hook
+evaluates such an operand, `ctx.value` (an address used as a number) and
+`ctx.target` (a PC-relative target) return a stand-in value that makes the
+hook pick a form with a 16-bit field (a 32-bit one for symbols declared
+`.far`), and the hook names the field with `ctx.fix`. An operand the hook
+doesn't fix is an error, so ISAs without relocation support (draft 0)
+still assemble absolute code. Labels outside `.org` sections are exported
+unless the file lists its exports with `.global` (or hides a label with
+`.local`).
 """
 
 import os
 import re
+
+from . import obj as O
 
 # --------------------------------------------------------------------------
 # Errors
@@ -33,6 +48,14 @@ class AsmError(Exception):
 
 class Unresolved(Exception):
     """Raised during evaluation when a symbol isn't defined (yet)."""
+
+
+class RelValue:
+    """A data directive's value that the linker fills in: base + value."""
+    __slots__ = ("value", "base")
+
+    def __init__(self, value, base):
+        self.value, self.base = value, base
 
 
 # --------------------------------------------------------------------------
@@ -334,11 +357,25 @@ class Str:
 # Assembly context passed to the ISA hook
 
 
+REP_NEAR = 0x4000      # stand-in for an address the linker fills in: fits 16 bits
+REP_FAR = 0x45678      # ... for a .far symbol: needs 32 bits
+REP_PC = 0x1000        # stand-in distance to a branch target in another section
+
+
 class Ctx:
     def __init__(self, asm, stmt):
         self.asm = asm
         self.stmt = stmt
         self.pc = stmt.addr
+        self.pending = []       # operands that need a relocation (object files)
+        self.fixed = set()
+        self.relocs = []        # (offset, kind, base, addend)
+
+    @property
+    def abs_pc(self):
+        """True if ctx.pc is the final address (not an offset in a section
+        the linker will place)."""
+        return self.stmt.section is None
 
     @property
     def final(self):
@@ -357,13 +394,74 @@ class Ctx:
         return self.stmt.size // 2 if self.stmt.sticky_long else 0
 
     def value(self, expr):
-        """Evaluate an expression. Returns (value, known)."""
+        """Evaluate an expression used as a number (an immediate, an
+        absolute address, a displacement). Returns (value, known)."""
+        if not self.asm.relocatable:
+            try:
+                return eval_expr(expr, self.asm.symbols, self.pc), True
+            except Unresolved as u:
+                if self.asm.final_pass:
+                    raise AsmError(f"undefined symbol {u.args[0]}")
+                return 0, False
+        r = self._rel(expr)
+        if r is None:
+            return 0, False
+        v, base = r
+        if base is None:
+            return v, True
+        self.pending.append(expr)
+        return (REP_FAR if self.asm.is_far(base) else REP_NEAR) + v, True
+
+    def target(self, expr):
+        """Evaluate a branch target or other PC-relative operand: the
+        address, comparable with ctx.pc. Returns (value, known)."""
+        if not self.asm.relocatable:
+            return self.value(expr)
+        r = self._rel(expr)
+        if r is None:
+            return 0, False
+        v, base = r
+        direct = self.asm.direct(base, self.stmt.section)
+        if direct is not None:
+            return v + direct, True
+        self.pending.append(expr)
+        return self.pc + REP_PC, True
+
+    def fix(self, index, kind, expr, base=None):
+        """Parcel `index` of the encoding holds expr (kind: a relocation kind
+        from tmc.obj; for the PC-relative kinds, `base` is the address the
+        CPU adds the field to). Records a relocation when the linker has to
+        fill the field in; does nothing for assembly-time constants."""
+        if not self.asm.relocatable or not self.asm.final_pass:
+            self.fixed.add(id(expr))
+            return
+        v, b = self._rel(expr)
+        field = self.pc + 2 * index
+        if kind in (O.PC16, O.PC16H):
+            if self.asm.direct(b, self.stmt.section) is not None:
+                self.fixed.add(id(expr))
+                return
+            v -= base - field
+        elif b is None:
+            self.fixed.add(id(expr))
+            return
+        self.relocs.append((field, kind, b, v))
+        self.fixed.add(id(expr))
+
+    def _rel(self, expr):
         try:
-            return eval_expr(expr, self.asm.symbols, self.pc), True
+            return self.asm.eval_rel(expr, self.pc, self.stmt.section)
         except Unresolved as u:
             if self.asm.final_pass:
                 raise AsmError(f"undefined symbol {u.args[0]}")
-            return 0, False
+            return None
+
+    def check_fixed(self):
+        for e in self.pending:
+            if id(e) not in self.fixed:
+                names = sorted(symbols_in(e))
+                raise AsmError(f"the linker fills in the address of {', '.join(names) or 'this'}, "
+                               "but this operand can't hold it")
 
     def error(self, msg):
         raise AsmError(msg)
@@ -379,7 +477,8 @@ class Ctx:
 
 class Stmt:
     __slots__ = ("where", "text", "kind", "name", "operands", "addr", "size",
-                 "words", "data", "sticky_long", "scope", "label")
+                 "words", "data", "sticky_long", "scope", "label", "seckey", "section",
+                 "relocs", "toplevel")
 
     def __init__(self, where, text):
         self.where = where
@@ -394,11 +493,34 @@ class Stmt:
         self.sticky_long = False
         self.scope = None
         self.label = None
+        self.seckey = None    # the section (object files)
+        self.section = None   # ... if the linker places it, else None (addr is final)
+        self.relocs = []
+        self.toplevel = False
+
+
+def symbols_in(e):
+    if e[0] == "sym":
+        return {e[1]}
+    out = set()
+    for x in e[1:]:
+        if isinstance(x, tuple):
+            out |= symbols_in(x)
+    return out
+
+
+SECTION_DIRS = {".text": ".text", ".data": ".data", ".bss": ".bss"}
+NOBITS_PREFIXES = (".bss", ".farbss")
+
+
+def is_nobits(section):
+    return any(section == p or section.startswith(p + ".") for p in NOBITS_PREFIXES)
 
 
 class Assembler:
-    def __init__(self, isa):
+    def __init__(self, isa, relocatable=False):
         self.isa = isa
+        self.relocatable = relocatable
         self.symbols = {}
         self.final_pass = False
         self.warnings = []
@@ -406,6 +528,17 @@ class Assembler:
         self.reg_names = {k.lower(): v for k, v in isa.REGISTERS.items()}
         self.owner = {}       # symbol -> statement that defines it
         self.mem_top = getattr(isa, "MEM_TOP", 0x10000)
+        # object files
+        self.cur_section = ".text"      # while parsing
+        self.abs_sections = set()       # sections that use .org
+        self.sections = []              # in order of appearance
+        self.sym_section = {}           # label -> section, if the linker places it
+        self.equ_rel = {}               # name = relocatable expression: (value, base)
+        self.defined = set()            # every name the file defines
+        self.globals = set()
+        self.locals = set()
+        self.far = set()
+        self.sec_align = {}
 
     # ---- parsing ---------------------------------------------------------
 
@@ -442,6 +575,9 @@ class Assembler:
             st.kind = "label"
             st.label = mangle(name, scope)
             st.scope = scope
+            st.toplevel = not name.startswith(".")
+            st.seckey = self.cur_section
+            self.defined.add(st.label)
             self.stmts.append(st)
             toks = toks[2:]
         if not toks:
@@ -453,6 +589,8 @@ class Assembler:
             st.name = ".equ"
             st.scope = scope
             st.operands = [[toks[0]], toks[2:]]
+            st.seckey = self.cur_section
+            self.defined.add(mangle(toks[0][1], scope))
             self.stmts.append(st)
             return scope
         if toks[0][0] != "id":
@@ -462,6 +600,27 @@ class Assembler:
         st.scope = scope
         st.name = name
         ops = split_operands(toks[1:])
+        if name in SECTION_DIRS or name == ".section":
+            if name == ".section":
+                if len(ops) != 1 or len(ops[0]) != 1 or ops[0][0][0] != "id":
+                    raise AsmError(".section needs a name, like .section .text.main")
+                name = ops[0][0][1]
+            self.cur_section = SECTION_DIRS.get(name, name)
+            if self.cur_section not in self.sections:
+                self.sections.append(self.cur_section)
+            return scope
+        st.seckey = self.cur_section
+        if name == ".org":
+            self.abs_sections.add(self.cur_section)
+        if name in (".global", ".globl", ".extern", ".far", ".local"):
+            names = []
+            for o in ops:
+                if len(o) != 1 or o[0][0] != "id" or o[0][1].startswith("."):
+                    raise AsmError(f"{name} takes a list of symbol names")
+                names.append(o[0][1])
+            {".global": self.globals, ".globl": self.globals, ".extern": set(),
+             ".far": self.far, ".local": self.locals}[name].update(names)
+            return scope
         if name == ".include":
             if len(ops) != 1 or ops[0][0][0] != "str":
                 raise AsmError(".include needs a quoted file name")
@@ -582,32 +741,121 @@ class Assembler:
 
     # ---- passes ----------------------------------------------------------
 
-    def dir_values(self, st, ops, pc):
-        """Evaluate each operand of a data directive as an expression or string."""
+    def dir_values(self, st, ops, pc, relocs=None):
+        """Evaluate each operand of a data directive as an expression or
+        string. With `relocs` (a list), an address the linker fills in comes
+        back as Reloc(value, base), and is otherwise an error."""
         out = []
         for o in ops:
             if len(o) == 1 and o[0][0] == "str":
                 out.append(bytes(o[0][1]))
-            else:
-                e = parse_expr(o, st.scope)
-                try:
+                continue
+            e = parse_expr(o, st.scope)
+            try:
+                if not self.relocatable:
                     out.append(eval_expr(e, self.symbols, pc))
-                except Unresolved as u:
-                    if self.final_pass:
-                        raise AsmError(f"undefined symbol {u.args[0]}")
-                    out.append(0)
+                    continue
+                v, base = self.eval_rel(e, pc, st.section)
+            except Unresolved as u:
+                if self.final_pass:
+                    raise AsmError(f"undefined symbol {u.args[0]}")
+                out.append(0)
+                continue
+            if base is None:
+                out.append(v)
+            elif relocs is None:
+                raise AsmError(f"{st.name} needs a constant, not an address the linker fills in")
+            else:
+                out.append(RelValue(v, base))
         return out
+
+    # ---- relocatable values (object files) --------------------------------
+
+    def eval_rel(self, e, pc, section):
+        """Evaluate an expression in an object file: returns (value, base),
+        where base is None for a constant, or what the linker adds the value
+        to: ('label', name), ('ext', name) or ('sec', section)."""
+        kind = e[0]
+        if kind == "num":
+            return e[1], None
+        if kind == "pc":
+            return (pc, None) if section is None else (pc, ("sec", section))
+        if kind == "sym":
+            name = e[1]
+            if name in self.equ_rel:
+                return self.equ_rel[name]
+            if name in self.symbols:
+                if self.sym_section.get(name) is None:
+                    return self.symbols[name], None
+                return 0, ("label", name)
+            if name in self.defined:
+                raise Unresolved(name)
+            return 0, ("ext", name)
+        if kind in ("un", "call"):
+            v, b = self.eval_rel(e[2], pc, section)
+            if b is not None and not (kind == "un" and e[1] == "+"):
+                raise AsmError(f"can't apply {e[1]} to an address the linker fills in")
+            if kind == "call":
+                return FUNCS[e[1]](v), None
+            return {"-": -v, "~": ~v, "+": v, "!": int(not v)}[e[1]], b
+        op = e[1]
+        a, ba = self.eval_rel(e[2], pc, section)
+        c, bc = self.eval_rel(e[3], pc, section)
+        if ba is None and bc is None:
+            return eval_expr(("bin", op, ("num", a), ("num", c)), {}, pc), None
+        if op == "+" and (ba is None or bc is None):
+            return a + c, ba or bc
+        if op == "-" and bc is None:
+            return a - c, ba
+        if op == "-" and ba is not None:
+            sa, sc = self.base_section(ba), self.base_section(bc)
+            if sa is not None and sa == sc:
+                return a + self.base_offset(ba) - c - self.base_offset(bc), None
+            if ba == bc:
+                return a - c, None
+            raise AsmError("can't subtract addresses in different sections")
+        raise AsmError(f"can't use {op} on an address the linker fills in")
+
+    def base_section(self, base):
+        if base[0] == "label":
+            return self.sym_section.get(base[1])
+        if base[0] == "sec":
+            return base[1]
+        return None
+
+    def base_offset(self, base):
+        return self.symbols[base[1]] if base[0] == "label" else 0
+
+    def direct(self, base, section):
+        """If an operand with this base can be encoded relative to the
+        current statement without the linker (same section, or both
+        absolute), the offset to add to its value; else None."""
+        if base is None:
+            return 0 if section is None else None
+        if section is not None and self.base_section(base) == section:
+            return self.base_offset(base)
+        return None
+
+    def is_far(self, base):
+        return base[0] in ("label", "ext") and base[1] in self.far
 
     def run_directive(self, st, pc):
         n = st.name
         ops = st.operands
         st.data = b""
         if n == ".equ":
-            name = ops[0][0][1]
-            self.define(mangle(name, st.scope), st)
+            name = mangle(ops[0][0][1], st.scope)
+            self.define(name, st)
             e = parse_expr(ops[1], st.scope)
             try:
-                self.symbols[mangle(name, st.scope)] = eval_expr(e, self.symbols, pc)
+                if self.relocatable:
+                    v, base = self.eval_rel(e, pc, st.section)
+                    if base is None:
+                        self.symbols[name] = v
+                    else:
+                        self.equ_rel[name] = (v, base)
+                else:
+                    self.symbols[name] = eval_expr(e, self.symbols, pc)
             except Unresolved as u:
                 if self.final_pass:
                     raise AsmError(f"undefined symbol {u.args[0]}")
@@ -619,6 +867,9 @@ class Assembler:
             return v
         if n == ".align":
             (v,) = self.dir_values(st, ops, pc)
+            if v <= 0:
+                raise AsmError(".align needs a positive number")
+            self.note_align(st, v)
             pad = (-pc) % v
             st.data = bytes(pad)
             return pc + pad
@@ -655,9 +906,18 @@ class Assembler:
                 raise AsmError(f"{n} at an address that isn't a multiple of {size} (missing .align?)")
             buf = bytearray()
             bits = 8 * size
-            for v in self.dir_values(st, ops, pc):
+            self.note_align(st, size)
+            st.relocs = []
+            for v in self.dir_values(st, ops, pc, relocs=st.relocs):
                 if isinstance(v, bytes):
                     raise AsmError(f"{n} doesn't take strings")
+                if isinstance(v, RelValue):
+                    kind = {4: O.ABS32, 2: O.ABS16}.get(size)
+                    if kind is None:
+                        raise AsmError(f"{n} is too small for an address the linker fills in")
+                    if self.direct(v.base, None) is None:
+                        st.relocs.append((pc + len(buf), kind, v.base, v.value))
+                    v = 0
                 if self.final_pass and not -(1 << (bits - 1)) <= v < (1 << bits):
                     raise AsmError(f"{n} value {v} out of range")
                 buf += (v & ((1 << bits) - 1)).to_bytes(size, "little")
@@ -673,9 +933,13 @@ class Assembler:
             raise AsmError(f"{sym} is already defined at {prev.where[0]}:{prev.where[1]}")
 
     def one_pass(self):
-        pc = 0
+        pcs = {}                # location counter per section (one in an image)
         changed = False
         for st in self.stmts:
+            key = st.seckey if self.relocatable else None
+            if self.relocatable:
+                st.section = None if key in self.abs_sections else key
+            pc = pcs.get(key, 0)
             try:
                 st.addr = pc
                 if st.kind == "label":
@@ -683,6 +947,8 @@ class Assembler:
                     if self.symbols.get(st.label) != pc:
                         changed = True
                     self.symbols[st.label] = pc
+                    if self.relocatable:
+                        self.sym_section[st.label] = st.section
                 elif st.kind == "dir":
                     if st.name == ".org":
                         st.addr = pc
@@ -692,11 +958,15 @@ class Assembler:
                 else:
                     if pc & 1:
                         raise AsmError("instruction at odd address (missing .align 2?)")
-                    words = self.isa.assemble(st.name, st.operands, Ctx(self, st))
+                    self.note_align(st, 2)
+                    words, ctx = self.encode(st)
                     if len(words) * 2 < st.size and not self.final_pass:
                         # never shrink: keep the previous long form
                         st.sticky_long = True
-                        words = self.isa.assemble(st.name, st.operands, Ctx(self, st))
+                        words, ctx = self.encode(st)
+                    if self.final_pass:
+                        ctx.check_fixed()
+                        st.relocs = ctx.relocs
                     if len(words) * 2 != st.size:
                         if st.size:
                             st.sticky_long = True
@@ -704,14 +974,29 @@ class Assembler:
                     st.size = len(words) * 2
                     st.words = words
                     pc += st.size
-                if pc > self.mem_top:
+                if pc > self.mem_top and st.section is None:
                     raise AsmError("program runs past the end of memory")
             except AsmError as e:
                 e.where = e.where or st.where
                 raise
+            pcs[key] = pc
         return changed
 
-    def assemble(self):
+    def encode(self, st):
+        ctx = Ctx(self, st)
+        try:
+            return self.isa.assemble(st.name, st.operands, ctx), ctx
+        except AsmError as e:
+            if ctx.pending:
+                # the stand-in value for a linker-filled operand didn't fit
+                ctx.check_fixed()
+            raise
+
+    def note_align(self, st, n):
+        if self.relocatable and st.section is not None:
+            self.sec_align[st.section] = max(self.sec_align.get(st.section, 1), n)
+
+    def passes(self):
         for _ in range(20):
             if not self.one_pass():
                 break
@@ -719,7 +1004,146 @@ class Assembler:
             raise AsmError("assembly did not converge")
         self.final_pass = True
         self.one_pass()
+
+    def assemble(self):
+        if self.relocatable:
+            raise AsmError("use assemble_object() for an object file")
+        self.passes()
         return self.image()
+
+    def assemble_object(self, name="?"):
+        """Assemble into an object file (tmc.obj.ObjectFile)."""
+        if not self.relocatable:
+            raise AsmError("this assembler makes images: create it with relocatable=True")
+        self.passes()
+        o = O.ObjectFile(self.isa.NAME, name=name)
+        secs = {}               # relocatable section -> index (1-based)
+        content = {}
+        code = {}
+        abs_mem = {}            # absolute sections: address -> (byte, section, is code)
+        for st in self.stmts:
+            key = st.seckey
+            if st.kind == "insn":
+                data = b"".join(((w & 0xFFFF).to_bytes(2, "little") for w in st.words))
+            elif st.kind == "dir" and st.data:
+                data = st.data
+            else:
+                if st.section is not None and st.section not in secs:
+                    secs[st.section] = None
+                continue
+            if st.section is None:
+                for i, b in enumerate(data):
+                    abs_mem[st.addr + i] = (b, key, st.kind == "insn")
+                continue
+            secs[st.section] = None
+            buf = content.setdefault(st.section, bytearray())
+            if len(buf) < st.addr + len(data):
+                buf.extend(bytes(st.addr + len(data) - len(buf)))
+            buf[st.addr:st.addr + len(data)] = data
+            if st.kind == "insn":
+                code[st.section] = code.get(st.section, 0) + len(data)
+                if is_nobits(st.section):
+                    raise AsmError(f"instruction in {st.section}, which holds only zeros",
+                                   st.where)
+            elif is_nobits(st.section) and any(data):
+                raise AsmError(f"{st.section} holds only zeros", st.where)
+        # sizes come from the location counters (a section can end in .space)
+        size = {}
+        for st in self.stmts:
+            if st.section is not None:
+                end = st.addr + (st.size if st.kind == "insn" else len(st.data))
+                size[st.section] = max(size.get(st.section, 0), end)
+        for sec in secs:
+            nb = is_nobits(sec)
+            data = bytes(content.get(sec, b"")).ljust(size.get(sec, 0), b"\0")
+            o.sections.append(O.Section(sec, O.SEC_NOBITS if nb else 0, 0, len(data),
+                                        self.sec_align.get(sec, 1), b"" if nb else data,
+                                        code.get(sec, 0)))
+            secs[sec] = len(o.sections)
+        # absolute sections: one per contiguous run of bytes
+        abs_index = {}
+        run = None
+        for a in sorted(abs_mem):
+            b, key, is_code = abs_mem[a]
+            if run is None or a != run[0] + len(run[1]) or key != run[2]:
+                run = [a, bytearray(), key, 0]
+                o.sections.append(run)
+            run[1].append(b)
+            run[3] += is_code
+        for k, r in enumerate(o.sections):
+            if isinstance(r, list):
+                o.sections[k] = O.Section(r[2], O.SEC_ABS, r[0], len(r[1]), 1, bytes(r[1]), r[3])
+                abs_index[r[0]] = k + 1
+        # symbols
+        syms = {}
+
+        def add(name, section, value, flags):
+            syms[name] = len(o.symbols)
+            o.symbols.append(O.Symbol(name, section, value, flags))
+        for sec, k in secs.items():
+            add(sec, k, 0, O.SYM_SECTION)
+        exported = self.globals or {st.label for st in self.stmts
+                                    if st.kind == "label" and st.toplevel}
+        exported = exported - self.locals
+        for name in self.globals:
+            if name not in self.defined:
+                raise AsmError(f".global {name}, but {name} isn't defined here (no need to "
+                               "declare external symbols)")
+
+        def flags(name):
+            return ((O.SYM_GLOBAL if name in exported else 0)
+                    | (O.SYM_FAR if name in self.far else 0))
+        def abs_place(a):
+            for k, sec in enumerate(o.sections):
+                if sec.absolute and sec.addr <= a <= sec.addr + sec.size:
+                    return k + 1, a - sec.addr
+            return O.ABS, a
+        for st in self.stmts:
+            if st.kind == "label":
+                if st.section is None:
+                    add(st.label, *abs_place(self.symbols[st.label]), flags(st.label))
+                else:
+                    add(st.label, secs[st.section], self.symbols[st.label], flags(st.label))
+            elif st.kind == "dir" and st.name == ".equ":
+                name = mangle(st.operands[0][0][1], st.scope)
+                if name in self.symbols:
+                    add(name, O.ABS, self.symbols[name], flags(name) & ~O.SYM_GLOBAL
+                        if name not in self.globals else flags(name))
+                elif name in self.globals:
+                    v, base = self.equ_rel[name]
+                    if base[0] == "ext":
+                        raise AsmError(f"can't export {name}: it's an external symbol plus "
+                                       "a constant", st.where)
+                    sec = self.base_section(base)
+                    add(name, secs[sec], self.base_offset(base) + v, flags(name))
+
+        def symbol_for(base):
+            if base is None:
+                if "*ABS*" not in syms:
+                    add("*ABS*", O.ABS, 0, 0)
+                return syms["*ABS*"]
+            if base[0] == "sec":
+                return syms[base[1]]
+            name = base[1]
+            if name not in syms:
+                add(name, O.UNDEF, 0, O.SYM_GLOBAL | (O.SYM_FAR if name in self.far else 0))
+            return syms[name]
+        for st in self.stmts:
+            for off, kind, base, addend in st.relocs:
+                if st.section is None:
+                    # an absolute section: find its run
+                    k = max(a for a in abs_index if a <= off)
+                    sec, where = abs_index[k], off - k
+                else:
+                    sec, where = secs[st.section], off
+                o.relocs.append(O.Reloc(sec, where, kind, symbol_for(base), addend))
+                # the field holds nothing until the linker fills it in
+                target = o.sections[sec - 1]
+                if not target.nobits:
+                    data = bytearray(target.data)
+                    data[where:where + O.RELOC_SIZE[kind]] = bytes(O.RELOC_SIZE[kind])
+                    target.data = bytes(data)
+        return o
 
     def image(self):
         mem = {}

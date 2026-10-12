@@ -10,6 +10,7 @@ old-style (K&R) function definitions. A few C99 conveniences are accepted:
 designated initializers.
 """
 
+import re
 from .lex import CompileError, Token, unescape
 from .cpp import parse_int, char_value
 from . import ctype as T
@@ -44,7 +45,7 @@ class NotConstant(Exception):
 
 class Symbol:
     __slots__ = ("name", "ty", "kind", "storage", "value", "tok", "defined", "init",
-                 "is_local", "asm_name", "uid", "ir", "used", "address_taken")
+                 "is_local", "asm_name", "uid", "ir", "used", "address_taken", "asm_label")
     _uid = 0
 
     def __init__(self, name, ty, kind, storage, tok=None, is_local=False):
@@ -63,6 +64,7 @@ class Symbol:
         self.ir = None
         self.used = False
         self.address_taken = False
+        self.asm_label = None       # __asm__("name"): the assembler name, as is
 
     def __repr__(self):
         return f"Symbol({self.name}, {self.ty}, {self.kind})"
@@ -217,17 +219,22 @@ class Parser:
             name, ty, tok = self.declarator(spec.ty)
             if name is None:
                 self.error("declaration needs a name", tok)
+            label = self.asm_label()
             if spec.storage == "typedef":
+                if label:
+                    self.error("a typedef can't have an assembler name", tok)
                 self.declare_typedef(name, ty, tok)
             elif ty.is_func:
-                if first and self.at("{"):
+                if first and self.at("{") and not label:
                     self.function_definition(name, ty, spec, tok)
                     return
-                self.declare_function(name, ty, spec.storage, tok)
+                sym = self.declare_function(name, ty, spec.storage, tok)
+                self.set_asm_label(sym, label, tok)
             else:
                 if spec.storage in ("auto", "register"):
                     self.error("file-scope variable can't be auto or register", tok)
                 sym = self.declare_global(name, ty, spec.storage, tok)
+                self.set_asm_label(sym, label, tok)
                 if self.accept("="):
                     if spec.storage == "extern":
                         self.warn(f"{name} is extern and initialized", tok)
@@ -243,6 +250,32 @@ class Parser:
                 continue
             self.expect(";")
             return
+
+    def asm_label(self):
+        """GNU C's `__asm__("name")` after a declarator: the name the
+        assembler and linker know the symbol by (no `_` added)."""
+        t = self.peek()
+        if not (t.kind == "id" and t.text in ("__asm__", "__asm", "asm") and self.at("(", 1)):
+            return None
+        self.next()
+        self.expect("(")
+        if self.peek().kind != "str":
+            self.error("expected the assembler name as a string", self.peek())
+        label = self.string_literal().data[:-1].decode("latin-1")
+        self.expect(")")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label):
+            self.error(f"{label!r} isn't a valid assembler name", t)
+        return label
+
+    def set_asm_label(self, sym, label, tok):
+        if label is None:
+            return
+        if sym.asm_label not in (None, label):
+            self.error(f"{sym.name} already has the assembler name {sym.asm_label}", tok)
+        if sym.storage == "static":
+            self.error(f"{sym.name} is static: an assembler name only makes sense for "
+                       "symbols other files see", tok)
+        sym.asm_label = label
 
     def declare_typedef(self, name, ty, tok):
         old = self.scope.names.get(name)

@@ -323,7 +323,7 @@ def decode(m, pc):
 # Assembler hook
 
 
-def _imm_mode(ctx, expr, min_ext):
+def _imm_mode(ctx, expr, min_ext, n_before=1):
     """Encode a constant operand. Returns (M, R, ext parcels)."""
     v, known = ctx.value(expr)
     if known:
@@ -336,11 +336,13 @@ def _imm_mode(ctx, expr, min_ext):
             return 0xD, -sv - 1, []
     if min_ext <= 1:
         if -32768 <= sv <= 32767:
+            ctx.fix(n_before, c.ABS16S, expr)
             return 0xF, 0, [v & 0xFFFF]
         if v <= 0xFFFF:
             return 0xF, 1, [v]
         if v & 0xFFFF == 0:
             return 0xF, 2, [v >> 16]
+    ctx.fix(n_before, c.ABS32, expr)
     return 0xF, 3, [v & 0xFFFF, v >> 16]
 
 
@@ -350,10 +352,12 @@ def _mem_mode(ctx, mem, min_ext, n_before=1):
     if mem.base is not None and mem.base.n == 16:            # [pc + label]
         if mem.index is not None or mem.postinc or mem.predec:
             ctx.error("[pc + ...] takes only a label")
-        target, known = (ctx.value(mem.disp) if mem.disp is not None else (0, True))
+        target, known = (ctx.target(mem.disp) if mem.disp is not None else (0, True))
         off = target - (ctx.pc + 2 * (n_before + 1))
         if known and not -32768 <= off <= 32767:
             ctx.error("PC-relative target out of range (±32 KB)")
+        if mem.disp is not None:
+            ctx.fix(n_before, c.PC16, mem.disp, ctx.pc + 2 * (n_before + 1))
         return 0xF, {4: 0xA, 1: 0xB, 2: 0xC}[size], [off & 0xFFFF]
     if mem.postinc or mem.predec:
         if mem.postinc:
@@ -383,10 +387,13 @@ def _mem_mode(ctx, mem, min_ext, n_before=1):
     sd = as_signed(disp)
     if mem.base is None:                                     # absolute
         if min_ext <= 1 and (not known or -32768 <= sd <= 32767):
+            if mem.disp is not None:
+                ctx.fix(n_before, c.ABS16S, mem.disp)
             return 0xF, {4: 4, 1: 5, 2: 6}[size], [disp & 0xFFFF]
         off = disp - (ctx.pc + 2 * (n_before + 1))
-        if min_ext <= 1 and known and -32768 <= off <= 32767:
+        if min_ext <= 1 and known and ctx.abs_pc and -32768 <= off <= 32767:
             return 0xF, {4: 0xA, 1: 0xB, 2: 0xC}[size], [off & 0xFFFF]
+        ctx.fix(n_before, c.ABS32, mem.disp)
         return 0xF, {4: 7, 1: 8, 2: 9}[size], [disp & 0xFFFF, disp >> 16]
     b = mem.base.n
     if known and not -32768 <= sd <= 32767:
@@ -395,6 +402,8 @@ def _mem_mode(ctx, mem, min_ext, n_before=1):
         return {4: 2, 1: 8, 2: 0xB}[size], b, []
     if min_ext == 0 and known and b == 15 and size == 4 and 0 <= sd <= 60 and sd % 4 == 0:
         return 4, sd // 4, []
+    if mem.disp is not None:
+        ctx.fix(n_before, c.ABS16S, mem.disp)
     return {4: 3, 1: 9, 2: 0xC}[size], b, [disp & 0xFFFF]
 
 
@@ -405,7 +414,7 @@ def _ea(ctx, op, n_before=1):
             ctx.error("pc can only be used as [pc + label]")
         return 0, op.n, []
     if isinstance(op, Imm):
-        return _imm_mode(ctx, op.expr, min_ext)
+        return _imm_mode(ctx, op.expr, min_ext, n_before)
     if isinstance(op, Mem):
         return _mem_mode(ctx, op, min_ext, n_before)
     ctx.error("expected a register, #constant or [memory] operand")

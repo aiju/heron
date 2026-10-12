@@ -14,7 +14,8 @@ chips. There have been two rounds so far:
   three fetch styles).
 - **Software:** a C compiler for drafts 1a and 1b (a C89 subset, through an
   ISA-independent SSA IR), with a small C library. Its code runs in about
-  1.2× the cycles of the hand-written programs.
+  1.2× the cycles of the hand-written programs. Object files and a linker
+  let C and hand-written assembly be built separately and linked together.
 
 | Document | What's in it |
 |---|---|
@@ -22,6 +23,7 @@ chips. There have been two rounds so far:
 | [docs/proposals.md](docs/proposals.md) | Every design idea from the discussions so far (ISA, MMU, I/O, video, DMA, OS, big ideas) with its status |
 | [docs/compiler.md](docs/compiler.md) | The C compiler: what it supports, how it works, the IR, how good its code is, and what that says about 1a vs 1b |
 | [docs/compiler-performance.md](docs/compiler-performance.md) | Generated: compiled C against the hand-written programs, per program and configuration |
+| [docs/linking.md](docs/linking.md) | Object files, the linker, and linking C with hand-written assembly |
 | [docs/isa-v1.md](docs/isa-v1.md) | Draft 1, the common machine: registers, flags, memory, I/O, interrupts, shared instruction groups |
 | [docs/isa-v1a.md](docs/isa-v1a.md), [docs/isa-v1b.md](docs/isa-v1b.md) | The two draft 1 encodings |
 | [docs/timing-model-v1.md](docs/timing-model-v1.md) | How draft 1 cycle counts are estimated |
@@ -41,8 +43,10 @@ dependencies.
 ```sh
 python3 -m tmc --isa v1b run programs/v1b/life.s --stats   # draft 1b: cycles for all six configurations, mix, profile
 python3 -m tmc --isa v1b cc programs/c/life.c --run --stats # compile C for draft 1b (or v1a) and run it
+python3 -m tmc --isa v1b cc main.c programs/v1b/lib/print.s --run   # C and assembly linked together
+python3 -m tmc --isa v1b asm -c util.s           # an object file; tmc ld links, tmc objdump shows them
 python3 -m tmc ccbench                           # compiled C against the hand-written programs
-python3 -m unittest tests.test_cc tests.test_compiler      # C compiler tests (python3 tests/cc/fuzz.py: random ones)
+python3 -m unittest tests.test_cc tests.test_compiler tests.test_link   # compiler and linker tests (python3 tests/cc/fuzz.py: random ones)
 python3 -m tmc --isa v1a test                    # all draft 1a programs against expected output
 python3 -m tmc report1                           # regenerate docs/performance-v1.md (under a minute)
 
@@ -67,7 +71,9 @@ python3 -m tmc report --hw                       # regenerate docs/performance.m
 ## Layout
 
 ```
-tmc/asm.py          assembler core: expressions, labels, directives, size relaxation (ISA-independent)
+tmc/asm.py          assembler core: expressions, labels, directives, size relaxation, object files (ISA-independent)
+tmc/obj.py          object file, executable and library formats; relocation kinds
+tmc/link.py         the linker; tmc/tools.py has ld, objdump and ar
 tmc/isa/v0.py       ISA draft 0: encoder, disassembler, semantics (one module per ISA revision)
 tmc/isa/v1a.py      draft 1a; v1b.py draft 1b; v1common.py what they share (semantics, common groups)
 tmc/sim32.py        instruction-level simulator for the 32-bit draft 1 machines
@@ -100,7 +106,8 @@ The tooling is split so most of it carries over to the next draft:
 - **ISA-independent**: the assembler core, the simulator harness, the test
   suite and report, the chip library and timing data, the netlist language,
   the static timing analyser and the Go simulator.
-- **Per ISA**: `tmc/isa/vN.py` (encodings, assembler hook, semantics), the
+- **Per ISA**: `tmc/isa/vN.py` (encodings, assembler hook, semantics; the
+  hook names the fields the linker fills in with `ctx.fix`), the
   microcode, and the CPU netlist. The Go simulator's main loop expects a few
   conventional net names (`uHALT_n`, `uEND_n`, `uLDIR_n`, `MODERST`,
   `MODEIRQ`, `IFLAG`, `ADDRn`, `DBUSn`, `PCn`) and register-file chips

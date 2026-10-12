@@ -8,6 +8,7 @@ tmc.sim32.Machine32 and returns the key tmc.timing32 turns into cycles:
 """
 
 from ..asm import AsmError, Reg, RegRange, Imm, Mem, Expr
+from ..obj import ABS32, ABS16S, PC16, PC16H
 
 M32 = 0xFFFFFFFF
 RAM_SIZE = 0x100000
@@ -697,7 +698,7 @@ def asm_common(U, ops, ctx, opmap):
         cc = 15 if U == "BSR" else cond_code(U[1:])
         if k != "E":
             ctx.error(f"{U} needs a target address")
-        target, known = ctx.value(ops[0].expr)
+        target, known = ctx.target(ops[0].expr)
         off = target - (ctx.pc + 2)
         if known and off & 1:
             ctx.error(f"{U} target is at an odd address")
@@ -716,13 +717,16 @@ def asm_common(U, ops, ctx, opmap):
 
 
 def jcc(ctx, op_jcc, cc, expr):
-    target, known = ctx.value(expr)
+    target, known = ctx.target(expr)
     off = target - (ctx.pc + 4)
     if known and off & 1:
         ctx.error("jump target is at an odd address")
     if ctx.min_words > 2 or (known and not -65536 <= off <= 65534):
-        t = norm32(target) if known else 0
+        t, known = ctx.value(expr)
+        t = norm32(t) if known else 0
+        ctx.fix(1, ABS32, expr)
         return [W(op_jcc, cc, 1, 0), t & 0xFFFF, t >> 16]
+    ctx.fix(1, PC16H, expr, ctx.pc + 4)
     return [W(op_jcc, cc, 0, 0), (off >> 1) & 0xFFFF]
 
 

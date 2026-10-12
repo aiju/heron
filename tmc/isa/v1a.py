@@ -90,6 +90,8 @@ def assemble(name, ops, ctx):
             if short is not None and ctx.min_words <= 1 and -128 <= sv <= 127:
                 return [W(short, rd) | (sv & 0xFF)]
             kind = _imm_kind(v, ctx.min_words)
+            if kind in (0, 3):
+                ctx.fix(1, c.ABS16S if kind == 0 else c.ABS32, ops[1].expr)
             return [W(OP_ALUI, rd, kind, fn)] + _imm_parcels(kind, v)
         ctx.error(f"{U} needs 'rd, rs' or 'rd, #imm'")
     if U == "LI":
@@ -111,11 +113,14 @@ def assemble(name, ops, ctx):
     if U in MEM_FN:
         if U == "LEA" and k == "RE":
             # PC-relative: rd <- PC + disp16
-            target, known = ctx.value(ops[1].expr)
+            target, known = ctx.target(ops[1].expr)
             off = target - (ctx.pc + 4)
             if ctx.min_words <= 2 and (not known or -32768 <= off <= 32767):
+                ctx.fix(1, c.PC16, ops[1].expr, ctx.pc + 4)
                 return [W(OP_MEML, ops[0].n, 0, 9), off & 0xFFFF]
-            t = norm32(target) if known else 0
+            t, known = ctx.value(ops[1].expr)
+            t = norm32(t) if known else 0
+            ctx.fix(1, c.ABS32, ops[1].expr)
             return [W(OP_MEML, ops[0].n, 0, 0xE), t & 0xFFFF, t >> 16]
         if k != "RM":
             ctx.error(f"{U} needs 'reg, [base + offset]'")
@@ -143,9 +148,12 @@ def assemble(name, ops, ctx):
                 return [W(OP_LDB if U == "LDB" else OP_STB, rd, base, sd)]
         f16, f32 = MEM_FN[U]
         if ctx.min_words <= 2 and (not known or -32768 <= sd <= 32767):
+            if mem.disp is not None:
+                ctx.fix(1, c.ABS16S, mem.disp)
             return [W(OP_MEML, rd, base, f16), disp & 0xFFFF]
         if f32 is None:
             ctx.error(f"{U} only has a 16-bit displacement: put the address in a register")
+        ctx.fix(1, c.ABS32, mem.disp)
         return [W(OP_MEML, rd, base, f32), disp & 0xFFFF, disp >> 16]
 
     ctx.error(f"unknown instruction {name}")
