@@ -140,6 +140,7 @@ tmc/ir/        the IR and the target-independent passes
   cfg.py         orderings, dominators, loops, the verifier
   ssa.py         mem2reg
   passes.py      the optimiser
+  interp.py      an IR interpreter, for testing and debugging the optimiser
 tmc/codegen/   backends
   mir.py         machine instructions on virtual registers, liveness
   regalloc.py    iterated register coalescing
@@ -422,14 +423,18 @@ gets from 1b.
   structs, calls, initialized data and some algorithms.
 - `tests/test_compiler.py` has unit tests: the preprocessor, error
   messages, that given optimisations happen, that given instructions are
-  used, and some small programs.
+  used, and some small programs. It also runs every test program's IR,
+  before and after optimisation, on the IR interpreter
+  (`tmc/ir/interp.py`), which checks the optimiser without the backends.
 - `tests/cc/fuzz.py` generates random programs without undefined
   behaviour (all integer types, arrays, structs, loops that walk arrays,
   switches, calls) and compares tmc's output for both drafts with gcc's. It
-  found four bugs during development: a tail call that freed a stack frame
+  found five bugs during development: a tail call that freed a stack frame
   still in use, a loop test moved onto a value that wasn't an address, a
-  rewrite that referred to an instruction already deleted, and the
-  register allocator spilling rematerialised constants forever.
+  rewrite that referred to an instruction already deleted, the register
+  allocator spilling rematerialised constants forever, and a peephole that
+  looked at the wrong instructions when reusing flags. `tests/cc/regress.c`
+  keeps the last one.
 - `python3 -m tmc ccbench` checks the 15 benchmark programs.
 
 ## Limitations and next steps
