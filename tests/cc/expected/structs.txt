@@ -1,0 +1,12 @@
+q = 13 24, p = 3 4
+area 200 R 20
+union 44 11 3344 1122
+union 1122ff44
+list 29469
+ann 31 90
+bob 25 -3
+carol 47 1234
+carol ann 20
+pts 1030
+world world
+world

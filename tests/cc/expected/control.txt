@@ -1,0 +1,15 @@
+zero one two three four five six seven many many 
+sparse 3 3 6 5
+fall(0) = 11000
+fall(1) = 11
+fall(2) = 10
+fall(3) = 11100
+fall(4) = 10000
+fall(5) = 11000
+nested 10496
+collatz 25
+do 51
+goto 10
+short 1953 51
+cond 172182
+down 45

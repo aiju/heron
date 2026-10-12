@@ -1,0 +1,14 @@
+many 204
+many 74574
+sum 0 42 15
+ack 9 61
+hanoi 1023
+keep(0) = 180
+keep(1) = 190
+keep(2) = 212
+keep(3) = 230
+keep(4) = 244
+gcd 21 65535
+primes 303
+   42|42   |00042|beef|BEEF|10|z|str|     right|left  |%
++5  5 4000000000 -2147483648

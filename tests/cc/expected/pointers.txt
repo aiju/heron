@@ -1,0 +1,17 @@
+grid 3360 34 25
+diff 9 81 9
+sum 285
+swap 81 0
+short -7000 -7000
+op0 10 14
+op1 21 40
+op2 4 6
+count 4 8
+god yzal eht revo spmuj xof nworb kciuq eht
+alpha 5 l
+beta 4 e
+gamma 5 a
+delta 5 e
+spaces 8, end at 43
+pp 10 2 33
+le 33221100 ffeeddcc

@@ -1,0 +1,10 @@
+primes below 5000: 669, last 4999
+sorted -4995 73 4993
+qsort 0 487 999
+bsearch 1 1
+queens(4) = 2
+queens(5) = 10
+queens(6) = 4
+queens(7) = 40
+queens(8) = 92
+crc 414fa339

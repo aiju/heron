@@ -8,6 +8,7 @@
   bench                                      instruction-level benchmark table
   report [--hw]                              write docs/performance.md
   report1                                    write docs/performance-v1.md (draft 1a vs 1b)
+  cc    FILE.c... [--run]                    compile C (drafts 1a and 1b, see docs/compiler.md)
   hw    ...                                  chip-level tools (see tmc.hw.cli)
 """
 
@@ -255,6 +256,10 @@ def main(argv=None):
 
     r1 = sub.add_parser("report1", help="write docs/performance-v1.md (draft 1a vs 1b)")
     r1.set_defaults(fn=lambda args: __import__("tmc.report1", fromlist=["x"]).main())
+
+    cc = sub.add_parser("cc", help="compile C for draft 1a/1b (see tmc/cc)")
+    __import__("tmc.cc.__main__", fromlist=["x"]).add_arguments(cc)
+    cc.set_defaults(fn=lambda args: __import__("tmc.cc.__main__", fromlist=["x"]).run(args, args.isa))
 
     h = sub.add_parser("hw", help="chip-level tools")
     h.add_argument("rest", nargs=argparse.REMAINDER)

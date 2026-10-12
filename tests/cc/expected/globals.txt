@@ -1,0 +1,13 @@
+5 0
+primes 129
+hello abc 6 10
+red green blue 
+one=1 two=2 three=3 
+11 llo
+-1 400 200 255
+1 2 3 | 1 0 0 0
+4 5 6 | 2 3 0 0
+7 8 9 | 4 5 6 0
+1 xy 3
+100 101 102
+15
