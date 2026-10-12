@@ -197,6 +197,16 @@ def _key(job):
     return json.dumps(list(job))
 
 
+def _cost(job):
+    """Rough relative run time, for scheduling."""
+    kind = job[0]
+    if kind == "sso":
+        return 4 * job[5]                       # per package of switching lines
+    if kind == "line":
+        return job[1] / 16
+    return {"xtalk": 4, "clock": 1}.get(kind, 0.3)
+
+
 def run(preset, jobs_n=None, dry_run=False, retry_errors=False, limit=None):
     todo = jobs(preset)
     os.makedirs(WORK, exist_ok=True)
@@ -213,6 +223,9 @@ def run(preset, jobs_n=None, dry_run=False, retry_errors=False, limit=None):
                     continue
                 done[_key(rec["job"])] = rec
     pending = [j for j in todo if _key(list(j)) not in done]
+    # longest first, so the slow crosstalk and ground-bounce runs overlap
+    # with the many short ones instead of trailing at the end
+    pending.sort(key=_cost, reverse=True)
     if limit:
         pending = pending[:limit]
     kinds = {}
