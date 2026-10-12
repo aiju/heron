@@ -25,13 +25,14 @@ Chip counts are rough estimates, scaled from the 98-chip draft 0 design.
 6. [I/O](#6-io)
 7. [Channels and DMA](#7-channels-and-dma)
 8. [Video](#8-video)
-9. [Operating system support](#9-operating-system-support)
-10. [MMU](#10-mmu)
-11. [Address registers with hidden state](#11-address-registers-with-hidden-state)
-12. [Big ideas](#12-big-ideas)
-13. [Wishes from the program writers](#13-wishes-from-the-program-writers)
-14. [Open questions](#14-open-questions)
-15. [Offered next steps](#15-offered-next-steps)
+9. [Networking](#9-networking)
+10. [Operating system support](#10-operating-system-support)
+11. [MMU](#11-mmu)
+12. [Address registers with hidden state](#12-address-registers-with-hidden-state)
+13. [Big ideas](#13-big-ideas)
+14. [Wishes from the program writers](#14-wishes-from-the-program-writers)
+15. [Open questions](#15-open-questions)
+16. [Offered next steps](#16-offered-next-steps)
 
 ## 1. Direction and ambition
 
@@ -404,7 +405,77 @@ minimal).
 - **Prototype first:** a Python model of the card in the simulator that
   renders PNGs.
 
-## 9. Operating system support
+## 9. Networking
+
+Ethernet, for the main CPU and its OS: a fast link to a PC for development
+first, TCP/IP later.
+
+- **10 Mbit/s.** **recommended.**
+  - 10BASE-T carries 1.25 MB/s. A word-copy loop on the draft 1b hardware
+    moves about 1 MB/s at 3 MHz (~12 cycles per 32-bit word), so the CPU can
+    roughly keep up. At 100 Mbit/s the link would mostly wait for the CPU.
+  - It's a small fraction of a 16-bit system bus, so the card needs nothing
+    special from the bus.
+  - 100 Mbit/s would only pay for moving bulk data to and from a fast
+    coprocessor, and then only with DMA.
+- **Full duplex only.** **recommended.** Connected to a switch, the PHY
+  negotiates full duplex, so there are no collisions: no carrier sense,
+  collision detection or backoff. Those were the hardest part of a 1980s
+  Ethernet controller.
+- **No hardware address filter.** **recommended.** A switch only forwards
+  this machine's frames and broadcasts, so software can drop the rest.
+
+**Controller options:**
+
+| Option | Chips | Notes | Status |
+|---|---:|---|---|
+| **TTL MAC with a PHY chip** | ~40–60 | Design below | **recommended** |
+| WIZnet W5100 | ~2 | 8-bit parallel bus, 16 KB buffers; hardware TCP/IP or a raw-frame mode; still made | **open**, as a quick bring-up path |
+| Realtek RTL8019AS (NE2000-compatible) | ~3 | 5 V, 8/16-bit ISA-style bus, 16 KB buffer, 10 Mbit/s only; obsolete but easy to find and documented everywhere | **open** |
+| 16-bit 10/100 controllers (Davicom DM9000-class, Microchip LAN9221) | ~4 | 3.3 V; 5 V tolerance needs checking, may need level shifters | **open** |
+
+**The TTL MAC:**
+
+- **The PHY chip** does the analog side: line drivers and receivers, and
+  Manchester or 4B/5B coding. The isolation transformer comes built into
+  the RJ45 jack. 1980s boards used a serial-interface chip for the same job.
+  The PHY's MII interface at 10 Mbit/s is 4 bits at 2.5 MHz each way,
+  clocked by the PHY: slow enough for 74HCT.
+- **Levels.** The PHY runs at 3.3 V. Its outputs drive 74HCT inputs directly
+  (TTL thresholds); signals into it go through a 74LVC buffer.
+- **Receive:** find the preamble and the start-of-frame nibble, assemble
+  nibbles into 16-bit words, write them into the packet buffer, check the
+  CRC-32 four bits at a time, and post each frame's length and status to a
+  ring of receive descriptors.
+- **Transmit:** read a frame from the buffer, send the preamble and
+  start-of-frame, then the data, then the CRC.
+- **Packet buffer:** a 32K × 16 SRAM on the card, holding a ring for
+  received frames and space for frames to send. The CPU reaches it through
+  a window in the card's address space.
+- **CRC-32 by nibble:** a 32-bit register and an XOR network (or a 16-entry
+  table), ~8–12 chips.
+- **Interrupts** for frame received and frame sent.
+- **Later: DMA** straight into main memory as a bus master, following
+  descriptor rings like AMD's LANCE did (see [section 7](#7-channels-and-dma)).
+  It would be the first real test of bus mastering. **open.**
+- **Simulate first:** the MAC as a netlist in the chip-level simulator, with
+  a PHY fixture that plays recorded frames (pcap files) in and captures what
+  it sends.
+
+**Software:**
+
+- **Raw frames to a PC-side tool first:** loading programs in a fraction of
+  a second instead of over serial, a remote console, network boot.
+  **recommended.** That's a reason to build Ethernet early: it speeds up
+  all the development after it.
+- **CPU cost:** at ~1 MB/s, copying a full-size frame takes ~1.5 ms. A block
+  I/O instruction (~5–6 cycles per word, [section 7](#7-channels-and-dma))
+  roughly halves that; DMA removes it.
+- **TCP/IP** (a uIP- or lwIP-sized stack) once there's a C compiler and an
+  OS. **open.** Telnet into a timesharing system would give the OS ladder
+  in [section 1](#1-direction-and-ambition) a concrete goal.
+
+## 10. Operating system support
 
 - **Privilege mode bit** in the status word, saved by interrupt entry and
   `RTI`. **recommended.**
@@ -420,7 +491,7 @@ minimal).
   - Catch: `r0` must be forced to zero in logic, not by the reset sequence.
 - **Restartable instructions:** every instruction commits nothing before its
   last memory access. **adopted** in draft 1's rules; see the audit in
-  [section 10](#10-mmu). (The 68000 couldn't restart after bus errors, and
+  [section 11](#11-mmu). (The 68000 couldn't restart after bus errors, and
   the 68010 had to fix it.)
 - **Relocation:** position-independent code (PC-relative addressing), or a
   relocating loader with assembler relocation tables, or an MMU. **adopted**
@@ -437,7 +508,7 @@ minimal).
   - context switch ~170 cycles (~30 with banked registers);
   - system-call round trip ~40 cycles plus the work.
 
-## 10. MMU
+## 11. MMU
 
 What the OS needs: separate address spaces, protection (user/kernel, read
 only, no execute), restartable faults (demand paging, copy-on-write `fork`,
@@ -453,7 +524,7 @@ growing stacks), and sharing.
 | **Flat page map in SRAM** | paging, no flushes | ~12–15 chips | **recommended** |
 | Two-level map (Sun-2 style) | sparse, larger spaces | ~20 chips, two lookups in series | **open** |
 | Tagged translation cache plus page-table walk in microcode (as the VAX did) | full 32-bit spaces | ~20 chips plus microcode | **open**, upgrade path |
-| Address registers as the translation cache | see [section 11](#11-address-registers-with-hidden-state) | ~10–14 chips | **open** |
+| Address registers as the translation cache | see [section 12](#12-address-registers-with-hidden-state) | ~10–14 chips | **open** |
 
 **The flat page map proposal:**
 - **Shape:**
@@ -505,7 +576,7 @@ slower clock.
 2. The flat map.
 3. Tags plus a microcode walker, if ever.
 
-## 11. Address registers with hidden state
+## 12. Address registers with hidden state
 
 Proposed by Emily: split the registers into D and A registers like the
 68000, and give the A registers extra hidden state that caches MMU lookups
@@ -584,7 +655,7 @@ pointers. **rejected** as too heavy for TTL.
 **Measuring it needs bigger workloads.** The current programs fit in a few
 pages and would show near-perfect hit rates.
 
-## 12. Big ideas
+## 13. Big ideas
 
 From "what would you like in an ISA". All **open**.
 
@@ -624,7 +695,7 @@ From "what would you like in an ISA". All **open**.
   for type checks and garbage collection. Wider memory (34–36 bits) and tag
   checks in the ALU path; a whole-system decision.
 - **Bounded pointers:** full CHERI is too big; base/limit checks per access
-  are the light version ([section 11](#11-address-registers-with-hidden-state),
+  are the light version ([section 12](#12-address-registers-with-hidden-state),
   flavour 2).
 - **Hardware time-travel debugging:** every store also logs the old value
   and address into a ring-buffer SRAM, so a debugger can step backwards.
@@ -642,7 +713,7 @@ From "what would you like in an ISA". All **open**.
 4. precise restartable traps plus the debug trio;
 5. packed byte add.
 
-## 13. Wishes from the program writers
+## 14. Wishes from the program writers
 
 From [notes-v1/](notes-v1/), not covered above:
 
@@ -666,7 +737,7 @@ From [notes-v1/](notes-v1/), not covered above:
 Tooling items already done in this round: per-kind and per-routine cycles in
 `run --stats`; raw-byte output from `tmc run`.
 
-## 14. Open questions
+## 15. Open questions
 
 Questions raised along the way that only Emily can answer:
 
@@ -689,7 +760,7 @@ Answered so far:
 - 16-bit instruction parcels: yes.
 - Compare RISC-like and CISC-like encodings: done.
 
-## 15. Offered next steps
+## 16. Offered next steps
 
 Offered in the discussions, not done yet:
 
@@ -707,5 +778,7 @@ Offered in the discussions, not done yet:
     on bigger workloads.
 - One architecture sketch tying the system decisions together: private and
   shared memory, bus mastering, slots, the I/O page, interrupts.
+- A chip-level model of the TTL Ethernet MAC with a PHY fixture that replays
+  pcap captures, plus a raw-frame program loader on the PC side.
 - A 32-bit netlist estimate through the timing analysis, replacing the ±20%
   chip and clock guesses.
