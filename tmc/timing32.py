@@ -120,10 +120,10 @@ class Model:
             ops.append(Op(R, self.addr(x), deps))
             ops.append(Op(R, self.addr(x), (len(ops) - 1,)))
             return len(ops) - 1, []
-        if ea == "pi":                # MAR, T <- R; later T <- T + size, R <- T
-            ops.append(Op(("R",), 1, deps))
+        if ea == "pi":                # MAR <- R and T <- R + size in one cycle; R <- T later
+            ops.append(Op(R, self.addr(x), deps))
             i = len(ops) - 1
-            return i, ("pi", i, x)
+            return i, ("pd", i, x)
         if ea == "pd":                # MAR, T <- R - size; later R <- T
             ops.append(Op(R, self.addr(x), deps))
             i = len(ops) - 1

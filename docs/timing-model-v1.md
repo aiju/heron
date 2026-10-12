@@ -71,6 +71,9 @@ on top of that:
      on D16 when the upper half changes).
    - An absolute address goes from the immediate latch into MAR (1 cycle).
    - Indexed addresses take two adds.
+   - Auto-increment loads MAR from the register and computes `R + size` in
+     the same cycle. The register is written back while the bus is busy, as
+     draft 0 does for `sp` in `RET`.
 4. **Loads set flags at no cost.** Zero detect sits on the result bus.
 5. **Stores read their data during the address cycle.** The register file
    has two read ports (two copies, as in draft 0).
@@ -81,8 +84,8 @@ on top of that:
    **Returns** read the return address while incrementing `sp`.
 8. **`SAVE`/`RESTORE n`** stream registers over the bus at one per bus word,
    with the register-file reads or writes overlapped.
-9. **Multiply** is a shift-and-add loop, one 32-bit add per multiplier bit,
-   stopping when the rest of the multiplier is zero. **Divide** is 32
+9. **Multiply** is a shift-and-add loop, one 32-bit add per bit of the
+   multiplier (the second operand), stopping when the rest of it is zero. **Divide** is 32
    restoring steps. Signed versions take 2 more cycles. Each step is one cycle
    on D32 and two on D16.
 10. **Shifts by `n`** take one step per 16, then per 8 (using the byte
@@ -104,7 +107,7 @@ a 64 KB crossing):
 | word store `[r2 + 4]` | 4 | 4 | 2 | 4 | 4 | 2 |
 | 1b `ADD r1, [r2]` (word) | 7 | 6 | 5 | 6 | 5 | 4 |
 | 1b `ADD r1, byte [r2 + 8]` | 7 | 6 | 5 | 6 | 5 | 4 |
-| 1b `MOV r1, [r2]+` | 5 | 4 | 4 | 5 | 4 | 4 |
+| 1b `MOV r1, [r2]+` | 5 | 4 | 3 | 5 | 4 | 3 |
 | branch taken / not taken | 2 / 2 | 2 / 1 | 2 / 1 | 2 / 2 | 2 / 1 | 2 / 1 |
 | `CALL` (2 parcels) | 5 | 5 | 3 | 5 | 5 | 3 |
 | `RET` | 4 | 4 | 3 | 4 | 4 | 3 |

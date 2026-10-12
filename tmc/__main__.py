@@ -124,8 +124,9 @@ def run32(args, isa, img, inp):
         m.run(max_cycles=args.max_cycles)
     except SimError32 as e:
         err = e
-    sys.stdout.write(m.dev.out.decode("latin-1"))
     sys.stdout.flush()
+    sys.stdout.buffer.write(bytes(m.dev.out))
+    sys.stdout.buffer.flush()
     for pc, what in m.traps[:5]:
         near = max((a for a in syms if a <= pc), default=None)
         where = f" ({syms[near]}+{pc - near:#x})" if near is not None else ""

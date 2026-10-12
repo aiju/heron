@@ -98,9 +98,11 @@ can take an immediate or memory operand. `src` is the second operand.
 | `DIVUL` | `rd ← HI:rd ÷ src`, `HI ← remainder`, unsigned 64/32 divide |
 
 - Dividing by zero is a *divide error* trap (registers unchanged).
+- A multiply takes time in proportion to the number of significant bits of
+  the *second* operand (`src`), so put the smaller factor there.
 - `DIVS` of `−2^31 ÷ −1` gives `−2^31`, remainder 0, and sets V.
-- `DIVUL` with `HI ≥ src` would overflow: it sets V and leaves `rd` and `HI`
-  unchanged. Chained `DIVUL`s (remainder left in `HI` for the next word)
+- `DIVUL` with `HI ≥ src` would overflow: it sets V and leaves `rd`, `HI`
+  and the other flags unchanged. Chained `DIVUL`s (remainder left in `HI` for the next word)
   divide a bignum by a word, one instruction per word.
 
 ## Unary functions: `rd ← f(rs)`
@@ -193,7 +195,9 @@ byte.
 | `0xFFFFFF10` | cycle counter | – |
 
 The simulator supplies all input up front, so once it's used up the
-end-of-input bit is set and reads return `−1`.
+end-of-input bit is set and reads return `−1`. Read the console with a word
+load: a byte load returns `0xFF` at the end of input, which can't be told
+apart from a real `0xFF` byte.
 
 ## Software conventions
 
