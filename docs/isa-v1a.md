@@ -2,7 +2,7 @@
 
 Draft 1a is draft 0 widened to 32 bits, with the changes from the draft 0
 evaluation: multiply and divide, a shift group, `SAVE`/`RESTORE`,
-flag-preserving `INC`/`DEC`/`ADDI`, halfword and sign-extending loads, and
+`INC`/`DEC`/`ADDI` that leave C and V alone, halfword and sign-extending loads, and
 wider immediates. ALU instructions work on registers; memory is reached only
 through loads and stores. The machine state, flags, unary and shift
 functions, system group, interrupts and I/O are in the

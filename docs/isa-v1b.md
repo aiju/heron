@@ -122,7 +122,7 @@ system `0 a b f`.
 - 1a: one-parcel loads and stores with a small offset from any base register
   (`[r8 + 1]` is 2 parcels in 1b), 8-bit constants in one parcel for
   `MOV`/`ADDI`/`CMP`, immediate forms of every ALU function (including
-  `TST`, `BIC`, `MUL`, `DIV`), a flag-preserving `ADDI`, and sign-extending
+  `TST`, `BIC`, `MUL`, `DIV`), an `ADDI` that leaves C and V alone, and sign-extending
   loads.
 
 ## Assembler syntax

@@ -61,6 +61,7 @@ def analyse(name, results):
         "parcels_static": Counter(), "parcels_dyn": Counter(), "two_parcel": Counter(),
         "three_parcel": Counter(), "modes_dyn": Counter(), "modes_static": Counter(),
         "data_bytes": 0, "instructions": 0, "fetch_bytes": 0, "regs": {},
+        "kind_share": Counter(), "kind_cyc_share": Counter(), "mode_share": Counter(), "nprogs": 0,
     }
     seen = set()
     for prog, r in results.items():
@@ -70,16 +71,25 @@ def analyse(name, results):
         st["instructions"] += m.instructions
         st["data_bytes"] += m.data_bytes
         pcc = m.pc_cycles(MAIN)
+        tot_c = sum(pcc.values()) or 1
+        modes_here = Counter()
+        st["nprogs"] += 1
         for pc, cnt in m.pc_counts.items():
             ws = parcels(m, pc)
             k = isa.kind(ws)
             n = isa.size_of(ws[0])
             st["kinds"][k] += cnt
             st["kind_cycles"][k] += pcc[pc]
+            st["kind_share"][k] += cnt / m.instructions
+            st["kind_cyc_share"][k] += pcc[pc] / tot_c
             st["parcels_dyn"][n] += cnt
             st["fetch_bytes"] += 2 * n * cnt
-            if name == "v1b" and 1 <= (ws[0] >> 12) <= 9 or name == "v1b" and (ws[0] >> 12) == 0xB:
+            if name == "v1b" and (1 <= (ws[0] >> 12) <= 9 or (ws[0] >> 12) == 0xB):
+                modes_here[isa.mode_class(ws)] += cnt
                 st["modes_dyn"][isa.mode_class(ws)] += cnt
+        tm = sum(modes_here.values())
+        for k, v in modes_here.items():
+            st["mode_share"][k] += v / tm
         regs = set()
         for s in r["image"].stmts:
             if s.kind != "insn":
@@ -123,8 +133,73 @@ def profile(r, n=3, config=MAIN):
     return [(k, v / total) for k, v in per.most_common(n)]
 
 
+def autoinc_candidates(r):
+    """Draft 1a: pointer steps that post-increment / pre-decrement loads and
+    stores would absorb. Returns {pc of the ADDI: kind} for an ADDI of
+    +size within 3 instructions after a [rB] access, or of ±size within 3
+    before one (a step written first becomes a post-increment once the
+    pointer starts one element earlier), with nothing in between reading or
+    writing rB."""
+    isa = isas.get("v1a")
+    insns = [st for st in r["image"].stmts if st.kind == "insn"]
+    insns.sort(key=lambda st: st.addr)
+    decoded = []
+    for st in insns:
+        w = st.words[0]
+        op, d, b, c = w >> 12, (w >> 8) & 15, (w >> 4) & 15, w & 15
+        text = isa.disassemble(st.words + [0, 0], st.addr)[0]
+        regs = set(REG_RE.findall(text))
+        mem = None              # (base, size) for a [base + 0] access
+        if op in (4, 5) and c == 0:
+            mem = (b, 4)
+        elif op in (6, 7) and c == 0:
+            mem = (b, 1)
+        elif op == 0xA and c <= 7 and st.words[1] == 0 and b:
+            mem = (b, (4, 4, 1, 1, 2, 2, 1, 2)[c])
+        addi = (d, (w & 0xFF) - 256 if w & 0x80 else w & 0xFF) if op == 0xD else None
+        decoded.append((st.addr, mem, addi, regs))
+    rn = lambda n: "sp" if n == 15 else f"r{n}"
+    out = {}
+    for i, (addr, mem, addi, regs) in enumerate(decoded):
+        if not mem or not mem[0]:
+            continue
+        base, size = mem
+        name = rn(base)
+        for j in range(i + 1, min(i + 4, len(decoded))):            # post-increment
+            a2, m2, ad2, r2 = decoded[j]
+            if ad2 and ad2[0] == base and ad2[1] == size:
+                out[a2] = "post"
+                break
+            if name in r2:
+                break
+        for j in range(i - 1, max(i - 4, -1), -1):                   # pre-decrement, or a step
+            a2, m2, ad2, r2 = decoded[j]                            # written before the access
+            if ad2 and ad2[0] == base and ad2[1] in (size, -size):
+                out.setdefault(a2, "pre")
+                break
+            if name in r2:
+                break
+    return out
+
+
+def whatif_autoinc(r, config):
+    """(cycles, instructions, code parcels) for draft 1a with the pointer steps
+    absorbed into auto-increment loads and stores (an estimate)."""
+    m = r["machine"]
+    cand = autoinc_candidates(r)
+    saved_c = saved_i = 0
+    for (pc, k), n in m.pc_keys.items():
+        if pc in cand:
+            saved_i += n
+            saved_c += n * timing32.cycles(k, config)
+    base = m.cycles_avg(config)
+    own = {st.addr for st in r["image"].stmts if st.kind == "insn"
+           and os.path.abspath(st.where[0]) == os.path.abspath(r["path"])}
+    return base - saved_c, m.instructions - saved_i, sum(1 for a in cand if a in own)
+
+
 def fmt(n):
-    return f"{n:,}"
+    return f"{round(n):,}"
 
 
 def pct(a, b):
@@ -301,6 +376,38 @@ def report(data):
         L.append("</details>")
         L.append("")
 
+    # ---- what-if: 1a with auto-increment ----
+    L.append("## What if 1a had auto-increment?")
+    L.append("")
+    L.append("1a's op F is unused, enough for post-increment and pre-decrement loads and stores "
+             "(`LDB r1, [r2]+`, `ST r1, -[sp]`). This estimate removes every `ADDI rB, ±size` that "
+             "steps the base register of an adjacent `[rB]` load or store (within three instructions, "
+             "nothing else touching rB in between) and charges the access the same cycles, as the model "
+             "does for 1b. It's rough, and probably low: 1a code is often shaped around the short "
+             "offsets instead (the VM reads operands at `[r8 + 1]`, `[r8 + 2]` and steps r8 once per "
+             "instruction), and only a rewrite would show what auto-increment does there.")
+    L.append("")
+    L.append("| Program | ADDIs absorbed (executed) | 1a+inc / 1a, D16-overlap | 1b / 1a, D16-overlap | "
+             "1a+inc / 1a, D32-wide | 1b / 1a, D32-wide |")
+    L.append("|---|---:|---:|---:|---:|---:|")
+    gi = {"a16": [], "b16": [], "a32": [], "b32": []}
+    for p in progs:
+        if p not in common:
+            continue
+        ma, mb = a[p]["machine"], b[p]["machine"]
+        c16, i16, _ = whatif_autoinc(a[p], MAIN)
+        c32, _, _ = whatif_autoinc(a[p], "D32-wide")
+        base16, base32 = ma.cycles_avg(MAIN), ma.cycles_avg("D32-wide")
+        x = {"a16": c16 / base16, "b16": mb.cycles_avg(MAIN) / base16,
+             "a32": c32 / base32, "b32": mb.cycles_avg("D32-wide") / base32}
+        for k in gi:
+            gi[k].append(x[k])
+        L.append(f"| {p} | {fmt(ma.instructions - i16)} | {x['a16']:.2f} | {x['b16']:.2f} | "
+                 f"{x['a32']:.2f} | {x['b32']:.2f} |")
+    L.append(f"| **geometric mean** | | **{geomean(gi['a16']):.3f}** | **{geomean(gi['b16']):.3f}** | "
+             f"**{geomean(gi['a32']):.3f}** | **{geomean(gi['b32']):.3f}** |")
+    L.append("")
+
     # ---- against draft 0 ----
     L.append("## Against draft 0")
     L.append("")
@@ -362,18 +469,20 @@ def report(data):
     # ---- instruction mix ----
     L.append("## Instruction mix")
     L.append("")
-    L.append(f"Share of executed instructions and of {MAIN} cycles, all programs pooled (top 25 per ISA).")
+    L.append(f"Share of executed instructions and of {MAIN} cycles, averaged over the programs so each "
+             "counts equally (pooling would let `vm`, half of all instructions, decide the table). "
+             "Top 25 per ISA.")
     L.append("")
-    ka = sa["kinds"].most_common(25)
-    kb = sb["kinds"].most_common(25)
-    tca, tcb = sum(sa["kind_cycles"].values()), sum(sb["kind_cycles"].values())
+    ka = sa["kind_share"].most_common(25)
+    kb = sb["kind_share"].most_common(25)
+    na, nb = sa["nprogs"], sb["nprogs"]
     L.append("| 1a instruction | instr | cycles | 1b instruction | instr | cycles |")
     L.append("|---|---:|---:|---|---:|---:|")
     for i in range(max(len(ka), len(kb))):
         x = ka[i] if i < len(ka) else ("", 0)
         y = kb[i] if i < len(kb) else ("", 0)
-        L.append(f"| `{x[0]}` | {pct(x[1], sa['instructions'])} | {pct(sa['kind_cycles'][x[0]], tca)} | "
-                 f"`{y[0]}` | {pct(y[1], sb['instructions'])} | {pct(sb['kind_cycles'][y[0]], tcb)} |")
+        L.append(f"| `{x[0]}` | {pct(x[1], na)} | {pct(sa['kind_cyc_share'][x[0]], na)} | "
+                 f"`{y[0]}` | {pct(y[1], nb)} | {pct(sb['kind_cyc_share'][y[0]], nb)} |")
     L.append("")
     L.append("Where the time goes: the top routines of each program by cycles.")
     L.append("")
@@ -392,19 +501,18 @@ def report(data):
     L.append("Operand modes of the instructions that take one (`MOV ST LEA ADD SUB CMP AND OR XOR JMP CALL`). "
              "`b`/`h` mark byte and half operands; `#q` is a constant in the instruction (−16…15).")
     L.append("")
-    md, ms = sb["modes_dyn"], sb["modes_static"]
-    tdm, tsm = sum(md.values()), sum(ms.values())
-    L.append("| Mode | executed | in the source |")
+    md, ms = sb["mode_share"], sb["modes_static"]
+    tsm = sum(ms.values())
+    L.append("| Mode | executed (average over programs) | in the source |")
     L.append("|---|---:|---:|")
     for k, v in md.most_common():
-        L.append(f"| `{k}` | {pct(v, tdm)} | {pct(ms[k], tsm)} |")
+        L.append(f"| `{k}` | {pct(v, sb['nprogs'])} | {pct(ms[k], tsm)} |")
     L.append("")
-    alu_mem = sum(v for k, v in sb["kinds"].items()
-                  if k.split()[0] in ("ADD", "SUB", "CMP", "AND", "OR", "XOR") and "[" in k)
-    alu_all = sum(v for k, v in sb["kinds"].items()
-                  if k.split()[0] in ("ADD", "SUB", "CMP", "AND", "OR", "XOR"))
-    L.append(f"ALU instructions with a memory operand: {pct(alu_mem, alu_all)} of executed "
-             f"`ADD SUB CMP AND OR XOR`, {pct(alu_mem, sb['instructions'])} of all executed instructions.")
+    alu = ("ADD", "SUB", "CMP", "AND", "OR", "XOR")
+    alu_mem = sum(v for k, v in sb["kind_share"].items() if k.split()[0] in alu and "[" in k)
+    alu_all = sum(v for k, v in sb["kind_share"].items() if k.split()[0] in alu)
+    L.append(f"ALU instructions with a memory operand (average over programs): {pct(alu_mem, alu_all)} of "
+             f"executed `ADD SUB CMP AND OR XOR`, {pct(alu_mem, sb['nprogs'])} of all executed instructions.")
     L.append("")
 
     # ---- registers ----
