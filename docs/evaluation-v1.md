@@ -26,6 +26,18 @@
 stores, and probably a jump through a table. Build it with a 32-bit datapath
 if the chip budget allows, or at least a 32-bit bus.
 
+**Since then, draft 1b has been built** as a chip-level netlist in the
+D32-separate configuration. See [hardware-v1b.md](hardware-v1b.md) and
+[performance-v1b.md](performance-v1b.md).
+
+- It's 213 chips.
+- It runs at 3.0 MHz worst case (4.2 MHz typical) with 74HCT, which
+  confirms the 3 MHz used below.
+- It needs 0.91 times the cycles the model estimates. Everything that writes
+  a register is a cycle cheaper, because the write-back shares the fetch
+  cycle. Multiplies are slower, because they don't stop early.
+- It's about twice as fast as the draft 0 hardware.
+
 ## What was built
 
 - **Specs:** [the common machine](isa-v1.md), [draft 1a](isa-v1a.md) and
@@ -326,7 +338,8 @@ From the five writers' notes:
   configurations are assumed to run at the same clock. A 32-bit datapath, a
   wide bus and 1b's decoding each add some delay or chips. The model costs
   both drafts by the same rules, so the 1a/1b comparison is more reliable
-  than the absolute numbers.
+  than the absolute numbers. (The 1b implementation has since checked one
+  configuration, D32-separate: within 9%, see above.)
 - **The model changed twice while the programs were written**, both times to
   remove an unfairness the writers found:
   - auto-increment had cost an extra cycle that microcode wouldn't need;

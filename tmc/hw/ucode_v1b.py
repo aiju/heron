@@ -1571,3 +1571,340 @@ def describe_word(f):
         if v and name not in ("NEXT",):
             parts.append(name if w == 1 else f"{name}={v}")
     return " ".join(parts)
+
+
+# --------------------------------------------------------------------------
+# Listings
+
+_RF_NAMES = {SP: "sp", HI: "HI", TMP1: "TMP1", KC1: "24 = 0xE1", KC0: "25 = 0xE0"}
+_ALU_NAMES = {
+    (0, 0b1001): "A+B", (0, 0b0110): "A-B-1", (0, 0b0000): "A", (0, 0b1111): "A-1",
+    (0, 0b1100): "A+A", (1, 0b1011): "A&B", (1, 0b1110): "A|B", (1, 0b0110): "A^B",
+    (1, 0b0111): "A&~B", (1, 0b1111): "A", (1, 0b1010): "B", (1, 0b0000): "~A",
+    (1, 0b0011): "0", (1, 0b1000): "A|~B",
+}
+_CIN_NAMES = {v: k for k, v in CIN.items()}
+_FILL_NAMES = {v: k for k, v in FSEL.items()}
+_CLSRC_NAMES = {v: k for k, v in CLSRC.items()}
+_CSRC_NAMES = {0: "B[1]", 1: "F0", 2: "F7", 3: "F8", 4: "F15", 5: "F31", 6: "F7^fill",
+               7: "F15^fill"}
+_SIN_NAMES = {v: k for k, v in SIN.items()}
+_COND_NAMES = {v: k for k, v in CONDS.items()}
+_STEP_NAMES = {(1, 1): "multiply step: R + B if MQ[0]", (1, 2): "multiply step: R - B if MQ[0]",
+               (2, 3): "divide step", (0, 3): "divide fix-up: R + B if S33"}
+
+
+def _rf_name(f, side):
+    sel = f.get(side, 0)
+    if sel == 3:
+        k = f.get("RFK", 0)
+        return _RF_NAMES.get(k, f"r{k}")
+    return ("d", "r", "s")[sel]
+
+
+def explain(f):
+    """Readable summary of a microinstruction's field dict (without sequencing)."""
+    out = []
+    # what the B bus carries
+    b = []
+    if f.get("BRF"):
+        b.append(f"rf[{_rf_name(f, 'RFB')}]")
+    if f.get("BR"):
+        b.append("R")
+    if f.get("BMQ"):
+        b.append("MQ")
+    if f.get("BFL"):
+        b.append("flags")
+    if f.get("BT2"):
+        b.append("2*T.lo")
+    if f.get("BT0") and f.get("BT1") and f.get("BT23"):
+        b.append("T")
+    elif f.get("BT0") and f.get("BT1") and f.get("BF23") and not f.get("TLANE"):
+        b.append(f"T.lo, upper half fill({_FILL_NAMES[f.get('FSEL', 0)]})")
+    else:
+        if f.get("BT0"):
+            b.append("T byte (MAR[0])" if f.get("TLANE") else "T[7:0]")
+        if f.get("BT1"):
+            b.append("T[15:8]")
+        if f.get("BT23"):
+            b.append("T[31:16]")
+    fill = _FILL_NAMES[f.get("FSEL", 0)]
+    if f.get("BS0"):
+        v8 = f.get("V8", 0)
+        if v8 == V8["k"] and f.get("BF1") and f.get("BF23") and fill in ("0", "1"):
+            k = f.get("KONST", 0)
+            b.append(f"#{k - 256 if fill == '1' else k}")
+        elif v8 == V8["fill"] and f.get("BF1") and f.get("BF23"):
+            b.append(f"fill({fill})")
+        else:
+            b.append({0: "branch offset*2", 1: f"#{f.get('KONST', 0)} (byte 0)", 2: f"fill({fill})",
+                      3: "LC"}[v8])
+    if (f.get("BF1") or f.get("BF23")) and not (f.get("BS0") and f.get("BF1") and f.get("BF23")) \
+            and not (f.get("BT0") and f.get("BT1") and not f.get("TLANE")):
+        b.append(f"fill({fill}) above")
+    if b:
+        out.append("B=" + ", ".join(b))
+    # A bus
+    if f.get("ABR"):
+        a = "A=B"
+    elif f.get("ARF"):
+        a = f"A=rf[{_rf_name(f, 'RFA')}]"
+    elif f.get("APC"):
+        a = "A=PC"
+    elif f.get("AR"):
+        a = "A=R"
+    elif f.get("AR2"):
+        a = f"A=2R+{[None, 'R31', 'C', 'MQ31'][f.get('SINA', 0)] or '0'}"
+    else:
+        a = None
+    if a and not f.get("RFWE"):
+        out.append(a)
+    # ALU and result
+    uses_alu = (f.get("LDR") or (f.get("LDMAR") and not f.get("MARSRC")) or f.get("LDPC")
+                or f.get("LDLC") or f.get("DSRC") or f.get("MS") or f.get("FC") == FC["aluc"]
+                or f.get("FV") == FV["ovf"] or (f.get("LDCL") and f.get("CLSRC") == CLSRC["aluc"])
+                or f.get("FC") == FC["csrc"] and f.get("CSRC", 0) != CSRC["b1"])
+    if uses_alu:
+        ms, mqm = f.get("MS", 0), f.get("MQM", 0)
+        if ms:
+            alu = _STEP_NAMES.get((mqm, ms), "step")
+        else:
+            alu = _ALU_NAMES.get((f.get("M", 0), f.get("S", 0)), f"S={f.get('S', 0)}")
+            cin = _CIN_NAMES[f.get("CIN", 0)]
+            if f.get("M", 0) == 0 and cin != "0":
+                if alu == "A-B-1":
+                    alu = "A-B" if cin == "1" else f"A-B-1+{cin.upper()}"
+                else:
+                    alu += {"1": "+1", "c": "+C"}.get(cin, f"+{cin}")
+        rms = f.get("RMS", 0)
+        if rms == RMS["shr"]:
+            sin = _SIN_NAMES[f.get("SIN", 0)]
+            if (mqm == 1) and f.get("SIN", 0) == SIN["0"]:
+                sin = "carry"
+            elif mqm == 1:
+                sin = "sign"
+            alu = f"({alu}) >> 1 [{sin} in]"
+        elif rms in (RMS["ror8"], RMS["ror16"]):
+            alu = f"({alu}) ror {8 if rms == RMS['ror8'] else 16}"
+        rz = f.get("RZ", 0)
+        if rz:
+            alu += " clear bytes " + "".join(str(i) for i in range(4) if rz >> i & 1)
+        dests = []
+        if f.get("LDR"):
+            dests.append("R")
+        if f.get("LDMAR") and not f.get("MARSRC"):
+            dests.append("MAR")
+        if f.get("LDPC"):
+            dests.append("PC" + (" if cond" if f.get("PCCOND") else ""))
+        if f.get("LDLC"):
+            dests.append("LC")
+        out.append((", ".join(dests) + " ← " if dests else "RES = ") + alu)
+    if f.get("LDMAR") and f.get("MARSRC"):
+        out.append("MAR ← A")
+    if f.get("LCINC"):
+        out.append("LC+1")
+    # memory
+    if f.get("MEMRD"):
+        if not f.get("ADDRMAR"):
+            if f.get("LDIR"):
+                out.append("fetch: IR ← [PC], PC += 2")
+            else:
+                out.append(("T.hi" if f.get("LDTH") else "T.lo") + " ← [PC], PC += 2")
+        else:
+            out.append(("T.hi ← [MAR+2]" if f.get("HIWORD") else "T.lo ← [MAR]"))
+    if f.get("MEMWR"):
+        d = {DSRC["lo"]: "RES[15:0]", DSRC["hi"]: "RES[31:16]", DSRC["byte"]: "RES[7:0]"}
+        out.append(("[MAR+2]" if f.get("HIWORD") else "[MAR]") + " ← " + d.get(f.get("DSRC", 0), "?"))
+    if f.get("SIZE"):
+        out.append(f"({[None, 'byte', 'half', 'word'][f['SIZE']]} access)")
+    if f.get("LDX"):
+        out.append("SX ← DBUS[15:12]")
+    if f.get("RFWE"):
+        out.append(f"rf[{_rf_name(f, 'RFA')}] ← B" + (" (r0 too)" if f.get("WR0") else ""))
+    mqm = f.get("MQM", 0)
+    if mqm == 3:
+        out.append("MQ ← B")
+    # flags and latches
+    fnz = f.get("FNZ", 0)
+    if fnz:
+        out.append({1: "NZ", 2: "NZ (Z sticky)", 3: "flags ← B"}[fnz])
+    if f.get("CZERO"):
+        out.append("C ← 0")
+    elif f.get("FC") and fnz != 3:
+        fc = f["FC"]
+        out.append("C ← " + {FC["aluc"]: "carry", FC["ncl"]: "!CL",
+                             FC["csrc"]: _CSRC_NAMES[f.get("CSRC", 0)]}[fc])
+    fv = f.get("FV", 0)
+    if fv and fnz != 3:
+        out.append("V ← " + {FV["ovf"]: "overflow", FV["0"]: "0", FV["1"]: "1", FV["b0"]: "B[0]",
+                             FV["ncl"]: "!CL"}[fv])
+    fi = f.get("FI", 0)
+    if fi and fnz != 3:
+        out.append("I ← " + {v: k for k, v in FI.items()}[fi])
+    if f.get("LDCL"):
+        out.append(f"CL ← {_CLSRC_NAMES[f.get('CLSRC', 0)]}")
+    if f.get("LDSGN"):
+        out.append("SGN ← fill")
+    if f.get("CCB"):
+        out.append("(condition from IR[7:4])")
+    if f.get("GOIRQ"):
+        out.append("decode → interrupt entry")
+    if f.get("HALT"):
+        out.append("halt")
+    return "; ".join(out) if out else "(nothing)"
+
+
+def describe_routine(entry):
+    """Lines describing a routine: one per microinstruction, numbered in
+    the order they're reached, with the sequencing."""
+    order, index, stack = [], {}, [entry]
+    while stack:
+        n = stack.pop()
+        if id(n) in index:
+            continue
+        index[id(n)] = len(order)
+        order.append(n)
+        s = n.succ
+        if s[0] == "next":
+            stack.append(s[1])
+        elif s[0] == "branch":
+            stack += [x for x in (s[3], s[2]) if x is not n]
+    lines = []
+    for i, n in enumerate(order):
+        s = n.succ
+        if s[0] == "next":
+            j = index[id(s[1])]
+            seq = "" if j == i + 1 else f" → {j}"
+        elif s[0] == "branch":
+            cond = _COND_NAMES[s[1]]
+            if s[2] is n:
+                seq = f" ↺ until {cond}, then → {index[id(s[3])]}"
+            else:
+                seq = f" → if {cond}: {index[id(s[3])]} else {index[id(s[2])]}"
+        elif s[0] == "decode":
+            seq = "   END"
+        elif s[0] == "dispatch":
+            seq = " → one of 32 routines, by the extension parcel"
+        else:
+            seq = " ↺ (until an interrupt)"
+        lines.append(f"{i:>2}: {explain(n.f)}{seq}")
+    return lines
+
+
+LISTING_EXAMPLES = """
+        NOP
+        MOV   r1, #5
+        ADD   r1, r2
+        CMP   r1, r2
+        ADD   r1, #1000
+        MOV   r1, #70000
+        MOV   r1, [r2 + 4]
+        MOV   r1, byte [r2 + 1]
+        ADD   r1, [r2]
+        MOV   r1, [r2]+
+        ST    r1, [r2 + 4]
+        ST    r1, -[sp]
+        LEA   r1, [r2 + r4*8 + 4]
+        LSL   r1, #4
+        ASR   r1, #8
+        ROR   r1, #7
+        LSL   r1, r4
+        INC   r1
+x:      BEQ   x
+        JEQ   x
+        BSR   x
+        CALL  x
+        CALL  r9
+        RET
+        SETEQ r1
+        MULU  r1, r2
+        MULS  r1, r2
+        DIVU  r1, r2
+        SAVE  r8-r11
+        RESTORE r8-r11
+        HALT
+"""
+
+
+def describe():
+    """Markdown listing of representative routines."""
+    from .. import asm as asmcore
+    mc = built()
+    img = asmcore.assemble_text(v1b, LISTING_EXAMPLES)
+    L = ["# Draft 1b microcode: selected routines", "",
+         "Generated by `python3 -m tmc --isa v1b ucode --doc`; don't edit by hand. The whole",
+         "microcode (3,500 microinstructions) is in `build/ucode-v1b/ucode.lst` after",
+         "`python3 -m tmc --isa v1b ucode`. Field meanings are in",
+         "[hardware-v1b.md](hardware-v1b.md) and `tmc/hw/ucode_v1b.py`.", "",
+         "One line per clock cycle, numbered in the order they can run. `B=` is what",
+         "drives the B bus, `rf[d]`, `rf[r]` and `rf[s]` are the registers named by the",
+         "instruction's fields, `END` marks the last cycle, which fetches the next",
+         "instruction (a register write in the same cycle is the write-back). Branches",
+         "test a condition: `condt`/`ncondt` is the instruction's branch condition",
+         "(per polarity), `tc` the loop counter at its end, `tc4` its low nibble,",
+         "`cl` the condition latch.", ""]
+    shown = set()
+
+    def emit(title, node):
+        L.append(f"**{title}**")
+        L.append("")
+        L.append("```")
+        L.extend(describe_routine(node))
+        L.append("```")
+        L.append("")
+    for st in img.stmts:
+        if st.kind != "insn":
+            continue
+        key = classify(st.words[0])
+        if key in shown:
+            continue
+        shown.add(key)
+        text = " ".join(st.text.split(";")[0].split()).replace("x:", "").strip()
+        node = mc.entry[key]
+        emit(f"`{text}`", node)
+        if node.succ[0] == "dispatch":
+            ext = st.words[1]
+            i = (((ext >> 8) & 15) << 1) | int(ext & 0xFF != 0)
+            emit(f"`{text}`, after the dispatch (extension parcel {ext:04X})", node.succ[1][i])
+    emit("Interrupt entry", mc.irq)
+    emit("Address error (one-parcel instruction)", mc.faults[1])
+    emit("Reset", mc.reset)
+    return "\n".join(L)
+
+
+def full_listing():
+    """Every placed microinstruction: address, routine name, readable fields."""
+    mc = built()
+    lines = []
+    for a, n in enumerate(mc.by_addr):
+        if n is None:
+            continue
+        f = mc.word(n)
+        lines.append(f"{a:03X} {pack(f):030X} {n.name:<22} {explain(n.f)}"
+                     f" [{'END' if n.succ[0] == 'decode' else 'SEQ=%d NEXT=%03X COND=%d' % (f.get('SEQ', 0), f.get('NEXT', 0), f.get('COND', 0))}]")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_ucode(args):
+    import os
+    mc = built()
+    if getattr(args, "doc", False):
+        path = os.path.join(os.path.dirname(__file__), "..", "..", "docs", "microcode-v1b.md")
+        with open(path, "w") as f:
+            f.write(describe())
+        print(f"wrote {os.path.normpath(path)}")
+        return 0
+    out = args.o if args.o != "build/ucode" else "build/ucode-v1b"
+    os.makedirs(out, exist_ok=True)
+    imgs, dimgs = rom_images()
+    for k, img in enumerate(imgs):
+        with open(os.path.join(out, f"ucode{k}.bin"), "wb") as f:
+            f.write(img)
+    for k, img in enumerate(dimgs):
+        with open(os.path.join(out, f"decode{k}.bin"), "wb") as f:
+            f.write(img)
+    with open(os.path.join(out, "ucode.lst"), "w") as f:
+        f.write(full_listing())
+    print(f"{CONTROL_BITS} control bits in {ROMS} ROMs, {len(mc.nodes)} microinstructions "
+          f"({mc.used} of {1 << Y_BITS} slots), 2 decode ROMs -> {out}/")
+    return 0
