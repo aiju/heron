@@ -188,16 +188,19 @@ class FuncGen:
         self.breaks.pop()
         self.continues.pop()
 
+    # Loops are rotated: the condition is tested once on entry and again at
+    # the bottom, so each iteration takes one conditional branch instead of
+    # a conditional branch plus a jump back.
+
     def s_While(self, s):
-        head = self.new_block("while")
-        body = self.new_block("body")
+        body = self.new_block("while")
+        test = self.new_block("whiletest")
         end = self.new_block("endwhile")
-        self.goto_block(head)
         self.cond(s.c, body, end)
         self.b.set_block(body)
-        self.loop(s.body, end, head)
-        if not self.b.terminated:
-            self.b.jmp(head)
+        self.loop(s.body, end, test)
+        self.goto_block(test)
+        self.cond(s.c, body, end)
         self.b.set_block(end)
 
     def s_DoWhile(self, s):
@@ -213,11 +216,9 @@ class FuncGen:
     def s_For(self, s):
         if s.init is not None:
             self.stmt(s.init)
-        head = self.new_block("for")
-        body = self.new_block("forbody")
+        body = self.new_block("for")
         step = self.new_block("forstep")
         end = self.new_block("endfor")
-        self.goto_block(head)
         if s.c is not None:
             self.cond(s.c, body, end)
         else:
@@ -227,7 +228,10 @@ class FuncGen:
         self.goto_block(step)
         if s.step is not None:
             self.expr(s.step, discard=True)
-        self.b.jmp(head)
+        if s.c is not None:
+            self.cond(s.c, body, end)
+        else:
+            self.b.jmp(body)
         self.b.set_block(end)
 
     def s_Switch(self, s):
@@ -423,9 +427,9 @@ class FuncGen:
     def arith(self, op, l, r, ty):
         """Binary operation op on IR values of C type ty (shift counts aside)."""
         b = self.b
-        if op in self.ARITH:
-            return b.binop(self.ARITH[op], l, r)
         u = ty.unsigned or ty.is_pointer
+        if op in self.ARITH:
+            return b.binop(self.ARITH[op], l, r, nsw=not u and op in ("+", "-", "*"))
         if op == "/":
             return b.binop("divu" if u else "divs", l, r)
         if op == "%":
@@ -511,7 +515,7 @@ class FuncGen:
         a = self.addr(e.e)
         old = self.load(a, ty)
         step = e.delta * (ty.base.size if ty.is_pointer and not ty.base.is_void else 1)
-        new = b.binop("add", old, Const(step))
+        new = b.binop("add", old, Const(step), nsw=ty.is_integer and not ty.unsigned)
         new = self.convert(new, T.INT if not ty.is_pointer else ty, ty)
         self.store(new, a, ty)
         return old if e.post else new

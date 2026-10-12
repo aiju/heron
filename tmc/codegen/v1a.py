@@ -26,6 +26,18 @@ class V1A(Target):
     NAME = "v1a"
     SMALL_ADD = (-128, 127)
 
+    @staticmethod
+    def free_imm(op, c):
+        """Can instruction op take constant c without costing more than a
+        register operand would? (MVI, ADDI and CMPI take 8 bits; the rest
+        need an extension parcel.)"""
+        if not hasattr(c, "signed"):
+            return False
+        v = c.signed
+        if op in ("add", "sub") or op in ("eq", "ne", "lt", "le", "gt", "ge", "ltu", "leu", "gtu", "geu"):
+            return -128 <= v <= 127
+        return False
+
     # ---- operands ------------------------------------------------------
 
     def imm_or_reg(self, v):
@@ -70,20 +82,27 @@ class V1A(Target):
         terms = list(p.terms)
         # fold all register terms into one register
         base = None
-        for x, s in terms:
+        fresh = False                   # base is a temporary we may change
+        for x, s in sorted(terms, key=lambda t: t[1] == 1):
             r = self.reg(x)
-            if s != 1:
+            scaled = s != 1
+            if scaled:
                 t = VReg()
                 self.copy(t, r)
                 self.emit("LSL", [t, Imm(s.bit_length() - 1)], defs=[t], uses=[t], flags="nz")
                 r = t
             if base is None:
-                base = r
+                base, fresh = r, scaled
+            elif fresh:
+                self.emit("ADD", [base, r], defs=[base], uses=[base, r], flags="nz")
+            elif scaled:
+                self.emit("ADD", [r, base], defs=[r], uses=[r, base], flags="nz")
+                base, fresh = r, True
             else:
                 t = VReg()
                 self.copy(t, base)
                 self.emit("ADD", [t, r], defs=[t], uses=[t, r], flags="nz")
-                base = t
+                base, fresh = t, True
         if p.slot is not None:
             if base is None:
                 return Mem(SP, disp=disp, frame=frame)
@@ -227,6 +246,9 @@ class V1A(Target):
         d = self.def_reg(i)
         if i.op == "copy":
             self.move_into(d, a)
+            if isinstance(a, (Const, SymAddr)):
+                mi = self.blk.instrs[-1]
+                d.remat, mi.remat_of = mi, d
             return
         r = self.reg(a)
         self.emit(UNARY[i.op], [d, r], defs=[d], uses=[r], flags="nz")

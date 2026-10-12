@@ -128,6 +128,39 @@ def sext_from(v, bits, depth=0):
     return ubits(v, depth + 1) < bits
 
 
+def nonneg(v, depth=0, assumed=None):
+    """True if v, read as a signed number, is known to be >= 0. Relies on
+    signed adds not overflowing (the nsw flag, set from C's signed int
+    arithmetic)."""
+    if isinstance(v, Const):
+        return v.signed >= 0
+    if not isinstance(v, Instr) or depth > 8:
+        return False
+    if ubits(v) < 32:
+        return True
+    assumed = assumed if assumed is not None else set()
+    op, a = v.op, v.args
+    if op == "phi":
+        if v in assumed:
+            return True             # inductively
+        assumed.add(v)
+        ok = all(nonneg(x, depth + 1, assumed) for x in a)
+        if not ok:
+            assumed.discard(v)
+        return ok
+    if op in ("add", "mul") and v.signed:
+        return nonneg(a[0], depth + 1, assumed) and nonneg(a[1], depth + 1, assumed)
+    if op == "and":
+        return nonneg(a[0], depth + 1, assumed) or nonneg(a[1], depth + 1, assumed)
+    if op in ("or", "xor", "divs"):
+        return nonneg(a[0], depth + 1, assumed) and nonneg(a[1], depth + 1, assumed)
+    if op == "shr":
+        return isinstance(a[1], Const) and a[1].value & 31 != 0 or nonneg(a[0], depth + 1, assumed)
+    if op in ("sar", "rems"):
+        return nonneg(a[0], depth + 1, assumed)
+    return False
+
+
 # --------------------------------------------------------------------------
 # Simplification
 
@@ -195,16 +228,19 @@ class Simplifier:
                 return SymAddr(a.name, a.offset + sc)
             # (x + c1) + c2 -> x + (c1 + c2)
             if c is not None and isinstance(a, Instr) and a.op == "add" and isinstance(a.args[1], Const):
-                i.args = [a.args[0], Const(a.args[1].value + c)]
+                total = a.args[1].signed + sc
+                i.signed = i.signed and a.signed and -(1 << 31) <= total < (1 << 31)
+                i.args = [a.args[0], Const(total)]
                 self.changed = True
                 return self.simplify(i)
             # x + (-y) -> x - y
             if isinstance(b, Instr) and b.op == "neg":
-                i.op, i.args = "sub", [a, b.args[0]]
+                i.op, i.args, i.signed = "sub", [a, b.args[0]], False
                 self.changed = True
                 return None
         elif op == "sub":
             if c is not None:
+                i.signed = i.signed and sc != -(1 << 31)
                 i.op, i.args = "add", [a, Const(-c)]
                 self.changed = True
                 return self.simplify(i)
@@ -303,7 +339,7 @@ class Simplifier:
             k = log2(c) if c is not None else None
             if k is not None and k < 31:
                 # round toward zero: add 2^k - 1 to negative dividends first
-                if ubits(a) < 32:
+                if nonneg(a):
                     i.op, i.args = "shr", [a, Const(k)]
                     self.changed = True
                     return None
@@ -316,7 +352,7 @@ class Simplifier:
                 return Const(0)
             k = log2(c) if c is not None else None
             if k is not None and k < 31:
-                if ubits(a) < 32:
+                if nonneg(a):
                     i.op, i.args = "and", [a, Const(c - 1)]
                     self.changed = True
                     return None
@@ -364,6 +400,8 @@ class Simplifier:
                     return None
                 if op in ("eq", "ne") and c > 1:
                     return Const(0 if op == "eq" else 1)
+            if c == 0 and op in ("lt", "ge") and nonneg(a):
+                return Const(0 if op == "lt" else 1)
             # out-of-range compares of zero-extended values
             bits = ubits(a)
             if op in ("eq", "ne") and bits < 32 and c >= (1 << bits):
@@ -714,9 +752,248 @@ def cleanup_cfg(func):
 
 
 # --------------------------------------------------------------------------
+# Loop-invariant code motion
 
 
-def optimize(func, level=1, verify=False):
+def natural_loops(func, dom):
+    """header -> set of blocks, for every loop (back edges to the same header
+    merged)."""
+    loops = {}
+    for b in dom.rpo:
+        for h in b.succs:
+            if h in dom.pre and dom.dominates(h, b):
+                body = loops.setdefault(h, {h})
+                work = [b]
+                while work:
+                    x = work.pop()
+                    if x in body:
+                        continue
+                    body.add(x)
+                    work.extend(p for p in x.preds if p in dom.pre)
+    return loops
+
+
+def make_preheader(func, h, body):
+    """A block that is the loop's only entry and jumps straight to the
+    header, made if needed. None if the loop can't have one."""
+    outside = [p for p in h.preds if p not in body]
+    if len(outside) != 1 or h is func.entry:
+        return None
+    p = outside[0]
+    t = p.terminator
+    if t.op == "jmp":
+        return p
+    if t.op not in ("br", "switch"):
+        return None
+    pre = func.new_block("preheader")
+    func.blocks.remove(pre)
+    func.blocks.insert(func.blocks.index(h), pre)
+    pre.append(Instr("jmp", [], targets=[h]))
+    t.targets = [pre if x is h else x for x in t.targets]
+    for ph in h.phis():
+        ph.incoming = [pre if x is p else x for x in ph.incoming]
+    func.compute_preds()
+    return pre
+
+
+def hoistable(i):
+    if i.op not in PURE or i.op in ("vastart", "copy"):
+        return False
+    if i.op in ("divs", "divu", "rems", "remu"):
+        d = i.args[1]
+        return isinstance(d, Const) and d.value != 0     # dividing by zero traps
+    return True
+
+
+def licm(func):
+    dom = DomTree(func)
+    loops = natural_loops(func, dom)
+    changed = False
+    # inner loops first, so code can move out level by level
+    for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
+        pre = make_preheader(func, h, body)
+        if pre is None:
+            continue
+        defined_inside = {i for b in body for i in b.instrs}
+        moved = False
+        for b in dom.rpo:
+            if b not in body:
+                continue
+            for i in list(b.instrs):
+                if not hoistable(i):
+                    continue
+                if any(isinstance(a, Instr) and a in defined_inside for a in i.args):
+                    continue
+                b.instrs.remove(i)
+                pre.insert(len(pre.instrs) - 1, i)
+                defined_inside.discard(i)
+                moved = changed = True
+        if moved:
+            dom = DomTree(func)
+    return changed
+
+
+# --------------------------------------------------------------------------
+# Strength reduction of induction variables
+
+
+UNSIGNED_CMP = {"lt": "ltu", "le": "leu", "gt": "gtu", "ge": "geu", "ltu": "ltu", "leu": "leu",
+                "gtu": "gtu", "geu": "geu", "eq": "eq", "ne": "ne"}
+
+
+def scaled_iv(v, p):
+    """If v is p * k (p itself, a shift or a multiply by a constant),
+    return k."""
+    if v is p:
+        return 1
+    if isinstance(v, Instr) and v.args and v.args[0] is p and isinstance(v.args[-1], Const):
+        if v.op == "shl" and v.args[1].value < 31:
+            return 1 << v.args[1].value
+        if v.op == "mul":
+            return v.args[1].signed
+    return None
+
+
+def strength_reduce(func):
+    """For a loop counter p (a header phi stepped by a constant) and an
+    address base + p * k with base invariant in the loop, keep a pointer
+    that starts at base + init * k and steps by step * k. When the counter
+    is then only used to end the loop, compare the pointer against
+    base + limit * k instead and let the counter go."""
+    dom = DomTree(func)
+    loops = natural_loops(func, dom)
+    changed = False
+    for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
+        pre = make_preheader(func, h, body)
+        if pre is None:
+            continue
+        latches = [b for b in h.preds if b in body]
+        if len(latches) != 1 or len(h.preds) != 2:
+            continue
+        latch = latches[0]
+        users = func.users()
+        inside = {i for b in body for i in b.instrs}
+
+        def invariant(v):
+            return not (isinstance(v, Instr) and v in inside)
+        for p in list(h.phis()):
+            init = p.args[p.incoming.index(pre)]
+            nxt = p.args[p.incoming.index(latch)]
+            if not (isinstance(nxt, Instr) and nxt.op == "add" and nxt.args[0] is p
+                    and isinstance(nxt.args[1], Const) and nxt in inside):
+                continue
+            step = nxt.args[1].signed
+            # address computations base + p * k inside the loop
+            cands = []
+            for u in users.get(p, []):
+                if u.op in ("shl", "mul") and u in inside and scaled_iv(u, p):
+                    cands.extend((a, u) for a in users.get(u, []))
+                elif u.op == "add" and u in inside:
+                    cands.append((u, p))
+            reduced = {}
+            for a, term in cands:
+                if a.op != "add" or a not in inside or term not in a.args:
+                    continue
+                base = a.args[1] if a.args[0] is term else a.args[0]
+                if base is term or not invariant(base):
+                    continue
+                if not any(x.op in ("load", "store") for x in users.get(a, [])):
+                    continue
+                k = scaled_iv(term, p)
+                key = (id(base), k)
+                if key not in reduced:
+                    q = Instr("phi", [], incoming=[])
+                    h.insert(0, q)
+                    off = Instr("mul", [init, Const(k)])
+                    start = Instr("add", [base, off])
+                    pre.insert(len(pre.instrs) - 1, off)
+                    pre.insert(len(pre.instrs) - 1, start)
+                    qn = Instr("add", [q, Const(step * k)])
+                    nb = nxt.block
+                    nb.insert(nb.instrs.index(nxt) + 1, qn)
+                    q.args = [start, qn]
+                    q.incoming = [pre, latch]
+                    reduced[key] = (q, qn, base, k)
+                func.replace_uses({a: reduced[key][0]})
+                changed = True
+            if not reduced:
+                continue
+            # linear function test replacement
+            dce(func)
+            users = func.users()
+            if any(u is not nxt for u in users.get(p, [])):
+                continue
+            nu = [u for u in users.get(nxt, []) if u is not p]
+            if len(nu) != 1 or nu[0].op not in UNSIGNED_CMP:
+                continue
+            cmp = nu[0]
+            lim = cmp.args[1] if cmp.args[0] is nxt else cmp.args[0]
+            if lim is nxt or not invariant(lim) or step == 0:
+                continue
+            q, qn, base, k = next(iter(reduced.values()))
+            if k <= 0:
+                continue
+            off = Instr("mul", [lim, Const(k)])
+            end = Instr("add", [base, off])
+            pre.insert(len(pre.instrs) - 1, off)
+            pre.insert(len(pre.instrs) - 1, end)
+            op = UNSIGNED_CMP[cmp.op]
+            cmp.op = op
+            cmp.args = [qn, end] if cmp.args[0] is nxt else [end, qn]
+        if changed:
+            dom = DomTree(func)
+    return changed
+
+
+# --------------------------------------------------------------------------
+# Constants in registers across loops
+
+
+def hoist_constants(func, free_imm):
+    """A constant that an instruction in a loop can't take as a cheap
+    immediate (free_imm(op, value) says, per target) is loaded into a
+    register before the loop instead. Runs last: the simplifier would fold
+    the copies away again."""
+    dom = DomTree(func)
+    loops = natural_loops(func, dom)
+    changed = False
+    for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
+        pre = make_preheader(func, h, body)
+        if pre is None:
+            continue
+        made = {}
+
+        def reg_for(c):
+            key = (type(c).__name__, getattr(c, "value", None), getattr(c, "name", None),
+                   getattr(c, "offset", None))
+            if key not in made:
+                cp = Instr("copy", [c])
+                pre.insert(len(pre.instrs) - 1, cp)
+                made[key] = cp
+            return made[key]
+        for b in body:
+            for i in b.instrs:
+                op = i.op
+                if op == "store":
+                    v = i.args[0]
+                    if isinstance(v, SymAddr) or (isinstance(v, Const) and v.value):
+                        i.args[0] = reg_for(v)
+                elif op in CMPOPS or op in BINOPS:
+                    for k, v in enumerate(i.args):
+                        if k == 1 and op in ("shl", "shr", "sar") and isinstance(v, Const):
+                            continue
+                        if isinstance(v, (Const, SymAddr)) and not free_imm(op, v):
+                            i.args[k] = reg_for(v)
+        changed |= bool(made)
+        if made:
+            dom = DomTree(func)
+    return changed
+
+
+# --------------------------------------------------------------------------
+
+
+def optimize(func, level=1, verify=False, free_imm=None):
     from .cfg import verify as check
     cleanup_cfg(func)
     mem2reg(func)
@@ -724,11 +1001,22 @@ def optimize(func, level=1, verify=False):
         check(func)
     if level <= 0:
         return
-    for _ in range(20):
-        changed = False
-        for p in (simplify, gvn, load_cse, simplify, dce, cleanup_cfg):
-            changed |= bool(p(func))
+    loop_passes = [licm, strength_reduce, None]
+    for loop_pass in loop_passes:
+        for _ in range(20):
+            changed = False
+            for p in (simplify, gvn, load_cse, simplify, dce, cleanup_cfg):
+                changed |= bool(p(func))
+                if verify:
+                    check(func)
+            if not changed:
+                break
+        if loop_pass is not None:
+            loop_pass(func)
             if verify:
                 check(func)
-        if not changed:
-            break
+    if free_imm is not None:
+        hoist_constants(func, free_imm)
+        cleanup_cfg(func)
+        if verify:
+            check(func)

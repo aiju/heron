@@ -155,7 +155,7 @@ class Slot(Value):
 
 class Instr(Value):
     __slots__ = ("op", "args", "block", "id",
-                 "size", "signed", "volatile", "align",   # load/store/memcpy
+                 "size", "signed", "volatile", "align",   # load/store/memcpy; add/sub/mul: signed = nsw
                  "incoming",                        # phi: blocks, parallel to args
                  "targets",                         # jmp/br/switch successors
                  "cases",                           # switch: list of case values (ints)
@@ -408,8 +408,10 @@ class Builder:
         self.block.append(i)
         return i
 
-    def binop(self, op, a, b):
-        return self.emit(op, [a, b])
+    def binop(self, op, a, b, nsw=False):
+        """nsw: the operation can't overflow as signed arithmetic (C's signed
+        int arithmetic, where overflow is undefined); only for add, sub, mul."""
+        return self.emit(op, [a, b], signed=nsw)
 
     def unop(self, op, a):
         return self.emit(op, [a])
@@ -478,6 +480,8 @@ def format_instr(i):
         return f"switch {a}, default {i.targets[0].name} [{cs}]"
     if i.op in ("ret", "unreachable"):
         return f"{i.op} {a}".rstrip()
+    if i.op in ("add", "sub", "mul") and i.signed:
+        return f"%{i.id} = {i.op}.nsw {a}"
     if i.op == "call":
         extra = f" (variadic after {i.nfixed})" if i.nfixed is not None else ""
         args = ", ".join(_fmt_val(x) for x in i.args[1:])

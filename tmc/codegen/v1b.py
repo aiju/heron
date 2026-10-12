@@ -26,6 +26,19 @@ class V1B(Target):
     NAME = "v1b"
     SMALL_ADD = (-16, 15)
 
+    @staticmethod
+    def free_imm(op, c):
+        """Can instruction op take constant c without costing more than a
+        register operand would?"""
+        if not hasattr(c, "signed"):
+            return False                    # an address: one or two extension parcels
+        v = c.signed
+        if op in ("mul", "divs", "divu", "rems", "remu"):
+            return False                    # register operands only
+        if op == "add" and v in (1, -1):
+            return True                     # INC / DEC
+        return -16 <= v <= 15
+
     # ---- operands ------------------------------------------------------
 
     def mem_load_ok(self, v):
@@ -317,6 +330,9 @@ class V1B(Target):
         d = self.def_reg(i)
         if i.op == "copy":
             self.move_into(d, a)
+            if isinstance(a, (Const, SymAddr)):
+                mi = self.blk.instrs[-1]
+                d.remat, mi.remat_of = mi, d
             return
         r = self.reg(a)
         self.emit(UNARY[i.op], [d, r], defs=[d], uses=[r], flags="nz")

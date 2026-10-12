@@ -672,8 +672,9 @@ class Target:
             if b in used_labels:
                 lines.append(f"{b.label}:")
             for k, i in enumerate(instrs):
+                # a tail call, unless the callee might see this frame's locals
                 if (i.op == "BSR" and i.comment == "tail-ok" and k + 1 < len(instrs)
-                        and instrs[k + 1].op == "RET"):
+                        and instrs[k + 1].op == "RET" and mf.locals_size == 0):
                     instrs[k + 1] = MInstr("TAIL", [i.ops[0]])
                     continue
                 if i.op == "TAIL":

@@ -261,6 +261,11 @@ def main(argv=None):
     __import__("tmc.cc.__main__", fromlist=["x"]).add_arguments(cc)
     cc.set_defaults(fn=lambda args: __import__("tmc.cc.__main__", fromlist=["x"]).run(args, args.isa))
 
+    cb = sub.add_parser("ccbench", help="compiled C against the hand-written programs")
+    cb.add_argument("--write", action="store_true", help="write docs/compiler-performance.md")
+    cb.set_defaults(fn=lambda args: __import__("tmc.cc.bench", fromlist=["x"]).main(
+        ["--write"] if args.write else []))
+
     h = sub.add_parser("hw", help="chip-level tools")
     h.add_argument("rest", nargs=argparse.REMAINDER)
     h.set_defaults(fn=lambda args: __import__("tmc.hw.cli", fromlist=["x"]).main(args.rest))
