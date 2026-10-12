@@ -4,10 +4,11 @@
 ;
 ; A cell is a byte, 0 or 1. Each grid has a one-cell border (34 x 18 bytes)
 ; that is refilled from the opposite edges before every generation, so the
-; neighbour count needs no wrap-around arithmetic: with r2 pointing at the
-; top neighbour, the eight neighbours are at fixed offsets -1, 0, 1,
-; 33, 35, 67, 68, 69 and the cell itself at 34. Each one is a memory operand
-; of an ADD, so the count is one instruction per neighbour.
+; neighbour count needs no wrap-around arithmetic. The first load takes the
+; top-left neighbour and steps r2 on to the top one ([r2]+); from there the
+; other seven are at fixed offsets 0, 1, 33, 35, 67, 68, 69 and the cell
+; itself at 34. Each is a memory operand of an ADD (or the OR), so the count
+; is one instruction per neighbour.
 
         .include "lib/start.s"
 
@@ -55,8 +56,7 @@ main:   SAVE r8-r11
 
 ; step: r1 = current grid (border filled), r2 = next grid -> r1 = population
 ; of the next grid. Uses only r1-r6.
-step:   MOV  r3, r2
-        ADD  r3, #W2 + 1        ; r3 = the cell in the next grid
+step:   LEA  r3, [r2 + W2 + 1]  ; r3 = the cell in the next grid
         MOV  r2, r1             ; r2 = the cell's top-left neighbour
         MOV  r6, #0             ; r6 = population
         MOV  r4, #ROWS

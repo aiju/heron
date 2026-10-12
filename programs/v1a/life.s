@@ -10,9 +10,9 @@
 ;
 ; The short LDB reaches only 0-15 bytes past its base, so six of the nine
 ; loads are two-parcel long forms. Keeping one pointer per row instead makes
-; all nine one-parcel, but then four pointers step per cell instead of two;
-; I measured both, they come out within 0.3% of each other on D16-overlap,
-; and this version is the simpler leaf routine.
+; all nine one-parcel, but then four pointers step per cell instead of two.
+; Measured, the two are within 0.3% of each other on D16-overlap; this one
+; is the simpler leaf routine.
 
         .include "lib/start.s"
 
@@ -61,8 +61,7 @@ main:   SAVE r8-r11
 
 ; step: r1 = current grid (border filled), r2 = next grid -> r1 = population
 ; of the next grid. A leaf: uses only r1-r7.
-step:   MOV  r7, r2
-        ADDI r7, W2 + 1         ; r7 = the cell in the next grid
+step:   LEA  r7, [r2 + W2 + 1]  ; r7 = the cell in the next grid
         MOV  r2, r1             ; r2 = the cell's top-left neighbour
         MVI  r6, 0              ; r6 = population
         MVI  r3, ROWS
@@ -103,8 +102,7 @@ step:   MOV  r7, r2
 ; then whole rows, which also fills the corners.
 wrap:   PUSH r8
         MOV  r8, r1
-        MOV  r2, r1
-        ADDI r2, W2             ; row 1
+        LEA  r2, [r1 + W2]      ; row 1
         MVI  r3, ROWS
 .col:   LDB  r4, [r2 + COLS]
         STB  r4, [r2]           ; column 32 -> column 0
