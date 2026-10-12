@@ -282,8 +282,20 @@ class Machine32:
                 out[pc] += n
         return out
 
-    def cycles_for(self, config):
+    def cycles_for(self, config, shifted=False):
+        """Cycles in one configuration. shifted=True costs the program as if
+        all its code sat one parcel further on (only the wide fetch cares)."""
+        if shifted:
+            return sum(cnt * timing32.cycles((k[0], k[1] ^ 2) + k[2:], config)
+                       for (pc, k), cnt in self.pc_keys.items())
         return sum(cnt * timing32.cycles(k, config) for (pc, k), cnt in self.pc_keys.items())
+
+    def cycles_avg(self, config):
+        """The wide fetch depends on where loops fall relative to 32-bit
+        words; average the two possible code alignments for it."""
+        if config.endswith("wide"):
+            return (self.cycles_for(config) + self.cycles_for(config, True)) / 2
+        return self.cycles_for(config)
 
     def pc_cycles(self, config):
         """instruction address -> cycles spent there (None: interrupt entries)"""
@@ -293,7 +305,7 @@ class Machine32:
         return out
 
     def all_cycles(self):
-        return {c: self.cycles_for(c) for c in timing32.CONFIG_NAMES}
+        return {c: self.cycles_avg(c) for c in timing32.CONFIG_NAMES}
 
     def regs_str(self):
         rs = " ".join(f"r{i}={self.r[i]:X}" for i in range(1, 16))

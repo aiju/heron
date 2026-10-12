@@ -186,8 +186,8 @@ def report(data):
     L.append("## Whole suite")
     L.append("")
     common = [p for p in progs if p in a and p in b and a[p]["ok"] and b[p]["ok"]]
-    big = max(common, key=lambda p: a[p]["machine"].cycles_for(MAIN))
-    share = a[big]["machine"].cycles_for(MAIN) / sum(a[p]["machine"].cycles_for(MAIN) for p in common)
+    big = max(common, key=lambda p: a[p]["machine"].cycles_avg(MAIN))
+    share = a[big]["machine"].cycles_avg(MAIN) / sum(a[p]["machine"].cycles_avg(MAIN) for p in common)
     L.append(f"Over the {len(common)} programs that pass on both. The headline figure is the geometric "
              f"mean of the per-program ratios, so every program counts equally: `{big}` alone is "
              f"{100 * share:.0f}% of 1a's cycles and would dominate a plain total.")
@@ -199,12 +199,12 @@ def report(data):
     ib = sum(b[p]["instructions"] for p in common)
     cyc = {}
     for c in CONFIGS:
-        ca = sum(a[p]["machine"].cycles_for(c) for p in common)
-        cb = sum(b[p]["machine"].cycles_for(c) for p in common)
-        xa = ca - a[big]["machine"].cycles_for(c)
-        xb = cb - b[big]["machine"].cycles_for(c)
+        ca = sum(a[p]["machine"].cycles_avg(c) for p in common)
+        cb = sum(b[p]["machine"].cycles_avg(c) for p in common)
+        xa = ca - a[big]["machine"].cycles_avg(c)
+        xb = cb - b[big]["machine"].cycles_avg(c)
         cyc[c] = (ca, cb)
-        g = geomean([b[p]["machine"].cycles_for(c) / a[p]["machine"].cycles_for(c) for p in common])
+        g = geomean([b[p]["machine"].cycles_avg(c) / a[p]["machine"].cycles_avg(c) for p in common])
         L.append(f"| {c} | **{g:.3f}** | {fmt(ca)} | {fmt(cb)} | {cb / ca:.3f} | {xb / xa:.3f} | "
                  f"{ca / ia:.2f} | {cb / ib:.2f} |")
     L.append("")
@@ -220,6 +220,34 @@ def report(data):
              f"1a {fmt(ba)} bytes, 1b {fmt(bb)} bytes (1b / 1a = {bb / ba:.3f}).")
     L.append("")
     # speed-up from datapath and fetch
+    L.append("The wide fetch reads aligned 32-bit words, so its cycle counts depend on where loops "
+             "fall: shifting a program's code by one parcel changes them. All wide-fetch numbers in "
+             "this report are the average of the two alignments. The spread between them:")
+    L.append("")
+    L.append("| Program | 1a D16-wide | 1b D16-wide | 1a D32-wide | 1b D32-wide |")
+    L.append("|---|---:|---:|---:|---:|")
+    spread = []
+    for p in common:
+        cells = []
+        big_cell = 0
+        for c in ("D16-wide", "D32-wide"):
+            for res in (a, b):
+                m = res[p]["machine"]
+                x, y = m.cycles_for(c), m.cycles_for(c, True)
+                d = abs(x - y) / min(x, y)
+                big_cell = max(big_cell, d)
+                cells.append((c, res is b, d))
+        spread.append((big_cell, p, cells))
+    spread.sort(reverse=True)
+    for big_cell, p, cells in spread[:6]:
+        order = {("D16-wide", False): 0, ("D16-wide", True): 1, ("D32-wide", False): 2, ("D32-wide", True): 3}
+        vals = [""] * 4
+        for c, isb, d in cells:
+            vals[order[(c, isb)]] = f"{100 * d:.1f}%"
+        L.append(f"| {p} | " + " | ".join(vals) + " |")
+    L.append("")
+    L.append("(The six programs with the largest spread; the rest are smaller.)")
+    L.append("")
     L.append("Effect of the hardware choices: cycles relative to D16-separate of the same ISA "
              "(geometric mean over programs).")
     L.append("")
@@ -227,7 +255,7 @@ def report(data):
     L.append("|---|" + "---:|" * len(CONFIGS))
     for name, res in (("1a", a), ("1b", b)):
         L.append(f"| {name} | " + " | ".join(
-            f"{geomean([res[p]['machine'].cycles_for(c) / res[p]['machine'].cycles_for('D16-separate') for p in common]):.2f}"
+            f"{geomean([res[p]['machine'].cycles_avg(c) / res[p]['machine'].cycles_avg('D16-separate') for p in common]):.2f}"
             for c in CONFIGS) + " |")
     L.append("")
 
@@ -252,8 +280,8 @@ def report(data):
                      ("ok" if rb and rb["ok"] else "fail") + " |" + " |" * 11)
             continue
         ma, mb = ra["machine"], rb["machine"]
-        c1a, c1b = ma.cycles_for(MAIN), mb.cycles_for(MAIN)
-        w1a, w1b = ma.cycles_for("D32-wide"), mb.cycles_for("D32-wide")
+        c1a, c1b = ma.cycles_avg(MAIN), mb.cycles_avg(MAIN)
+        w1a, w1b = ma.cycles_avg("D32-wide"), mb.cycles_avg("D32-wide")
         L.append(f"| {p} | {fmt(ra['instructions'])} | {fmt(rb['instructions'])} | {own_code(ra)} | "
                  f"{own_code(rb)} | {fmt(c1a)} | {fmt(c1b)} | {c1b / c1a:.2f} | {fmt(w1a)} | "
                  f"{fmt(w1b)} | {w1b / w1a:.2f} | {fmt_time(c1a)} | {fmt_time(c1b)} |")
@@ -268,7 +296,7 @@ def report(data):
             if not r or not r["ok"]:
                 continue
             m = r["machine"]
-            L.append(f"| {p} | " + " | ".join(fmt(m.cycles_for(c)) for c in CONFIGS) + " |")
+            L.append(f"| {p} | " + " | ".join(fmt(m.cycles_avg(c)) for c in CONFIGS) + " |")
         L.append("")
         L.append("</details>")
         L.append("")
@@ -291,8 +319,8 @@ def report(data):
         if not r0 or not r0["ok"] or p not in common:
             continue
         ma, mb = a[p]["machine"], b[p]["machine"]
-        x = {"a16": r0["cycles"] / ma.cycles_for(MAIN), "b16": r0["cycles"] / mb.cycles_for(MAIN),
-             "a32": r0["cycles"] / ma.cycles_for("D32-overlap"), "b32": r0["cycles"] / mb.cycles_for("D32-overlap")}
+        x = {"a16": r0["cycles"] / ma.cycles_avg(MAIN), "b16": r0["cycles"] / mb.cycles_avg(MAIN),
+             "a32": r0["cycles"] / ma.cycles_avg("D32-overlap"), "b32": r0["cycles"] / mb.cycles_avg("D32-overlap")}
         for k in sp:
             sp[k].append(x[k])
         L.append(f"| {p} | {fmt(r0['instructions'])} | {fmt(r0['cycles'])} | {r0['code_bytes']} | "

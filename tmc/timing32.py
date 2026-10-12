@@ -118,7 +118,8 @@ class Model:
             return len(ops) - 1, []
         if ea == "idx":               # base + d8, then + index * scale
             ops.append(Op(R, self.addr(x), deps))
-            ops.append(Op(R, self.addr(x), (len(ops) - 1,)))
+            # the index is a whole 32-bit register: a full add, two passes on D16
+            ops.append(Op(R, self.aw, (len(ops) - 1,)))
             return len(ops) - 1, []
         if ea == "pi":                # MAR <- R and T <- R + size in one cycle; R <- T later
             ops.append(Op(R, self.addr(x), deps))

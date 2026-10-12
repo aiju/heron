@@ -70,7 +70,9 @@ on top of that:
    - `[register + disp]` and PC-relative addresses take an ALU cycle (or two
      on D16 when the upper half changes).
    - An absolute address goes from the immediate latch into MAR (1 cycle).
-   - Indexed addresses take two adds.
+   - Indexed addresses take two adds. The second adds a whole 32-bit
+     index register, so it is a full add: two cycles on D16, where the
+     page-crossing shortcut doesn't apply.
    - Auto-increment loads MAR from the register and computes `R + size` in
      the same cycle. The register is written back while the bus is busy, as
      draft 0 does for `sp` in `RET`.

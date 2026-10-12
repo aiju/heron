@@ -141,17 +141,37 @@ def run32(args, isa, img, inp):
         print(m.regs_str(), file=sys.stderr)
     if args.stats:
         allc = m.all_cycles()
-        print("cycles by configuration:", file=sys.stderr)
+        print("cycles by configuration (wide fetch: average of the two code alignments):", file=sys.stderr)
         for cfg in timing32.CONFIG_NAMES:
             print(f"  {cfg:<14} {allc[cfg]:>10}  CPI {allc[cfg] / max(1, m.instructions):.2f}",
                   file=sys.stderr)
         from collections import Counter
-        kinds = Counter()
+        import bisect
+        ref = timing32.REFERENCE
+        pcc = m.pc_cycles(ref)
+        total = sum(pcc.values()) or 1
+        kinds, kcyc = Counter(), Counter()
         for pc, n in m.pc_counts.items():
-            kinds[isa.kind(parcels_at(m.parcel, pc))] += n
-        print("instruction mix:", file=sys.stderr)
+            k = isa.kind(parcels_at(m.parcel, pc))
+            kinds[k] += n
+            kcyc[k] += pcc[pc]
+        print(f"instruction mix (count, share, share of {ref} cycles):", file=sys.stderr)
         for k, n in kinds.most_common():
-            print(f"  {k:<18} {n:>9}  {100 * n / max(1, m.instructions):5.1f}%", file=sys.stderr)
+            print(f"  {k:<18} {n:>9}  {100 * n / max(1, m.instructions):5.1f}%"
+                  f"  {100 * kcyc[k] / total:5.1f}%", file=sys.stderr)
+        labels = sorted((st.addr, st.label) for st in img.stmts
+                        if st.kind == "label" and "." not in st.label)
+        starts = [a for a, _ in labels]
+        per = Counter()
+        for pc, cyc in pcc.items():
+            if pc is None:
+                per["<interrupt entry>"] += cyc
+                continue
+            i = bisect.bisect_right(starts, pc) - 1
+            per[labels[i][1] if i >= 0 else "?"] += cyc
+        print(f"cycles by routine ({ref}):", file=sys.stderr)
+        for k, c in per.most_common(12):
+            print(f"  {k:<24} {c:>10}  {100 * c / total:5.1f}%", file=sys.stderr)
     return 0
 
 
