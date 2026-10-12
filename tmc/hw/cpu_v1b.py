@@ -54,10 +54,13 @@ def build():
     g("08", ["WEWIN0", "RESET_n"], "WEWIN")       # no writes while reset is held
 
     # ---- control store: ROMs addressed by the next address, uIR ------------------
+    # address {FAULT & LEN, FAULT, IRQP, Y}: see tmc/hw/ucode_v1b.py
+    upper = {uc.IRQP_BIT: "IRQP", uc.FAULT_BIT: "FAULT", uc.FAULT_BIT + 1: "FLEN0",
+             uc.FAULT_BIT + 2: "FLEN1"}
     for k in range(uc.ROMS):
         rom = nl.add("flash", f"U_UC{k}", CE="GND", OE="GND", WE="VCC")
         for i in range(17):
-            rom[f"A{i}"] = Y[i] if i < uc.Y_BITS else ("IRQP" if i == uc.Y_BITS else "GND")
+            rom[f"A{i}"] = Y[i] if i < uc.Y_BITS else upper.get(i, "GND")
         for i in range(8):
             rom[f"D{i}"] = f"UD{8 * k + i}"
         r = nl.add("377", f"U_UIR{k}", CLK="CLK", EN="GND")
@@ -86,32 +89,33 @@ def build():
     for i in range(3, 9):
         irx[f"D{i}"] = "GND"
 
-    # next-address multiplexer: 0 NEXT|cond, 1 decode, 2 dispatch, 3 address error
+    # next-address multiplexer: 0 NEXT (bit 0: the condition), 1 decode, 2 dispatch
+    # (bit 0: DBUS[7:0] != 0)
     nl.add("688", "U_DZ", G="GND", PEQ="DZ_n",
            **{f"P{i}": DBUS[i] for i in range(8)}, **{f"Q{i}": "GND" for i in range(8)})
-    g("04", ["DZ_n"], "DZ")
     nl.add("151", "U_CONDM", A=u["COND0"], B=u["COND1"], C=u["COND2"], G="GND", Y="CONDY",
-           D0="GND", D1="TC", D2=RQ[31], D3="CLQ", D4="BCOND", D5="MQ31", D6="TC4", D7="GND")
-    g("32", [u["NEXT0"], "CONDY"], "NEXT0C")
-    # misaligned access: word (SIZE 3) at MAR[1:0] != 0, half (SIZE 2) at MAR[0] = 1
+           D0=u["NEXT0"], D1="TC", D2=RQ[31], D3="CLQ", D4="CONDT", D5="MQ31", D6="TC4",
+           D7="CONDT_n")
+    # misaligned access: word (SIZE 3) at MAR[1:0] != 0, half (SIZE 2) at MAR[0] = 1.
+    # It turns the Y multiplexer off (Y = 0) and selects a fault page.
     g("08", [u["SIZE0"], MAR[1]], "MIS1")
     g("32", [MAR[0], "MIS1"], "MIS2")
     g("08", [u["SIZE1"], "MIS2"], "FAULT")
     g("04", ["FAULT"], "FAULT_n")
-    g("32", [u["SEQ0"], "FAULT"], "YSELA")
-    g("32", [u["SEQ1"], "FAULT"], "YSELB")
-    fault_y = {0: "LEN0", 1: "LEN1", 2: "VCC"}
+    g("08", ["FAULT", "LEN0"], "FLEN0")
+    g("08", ["FAULT", "LEN1"], "FLEN1")
+    g("32", ["RESET", "FAULT"], "YOFF")
     for k in range((uc.Y_BITS + 1) // 2):
-        m = nl.add("153", f"U_YM{k}", A="YSELA", B="YSELB", **{"1G": "RESET", "2G": "RESET"})
+        m = nl.add("153", f"U_YM{k}", A=u["SEQ0"], B=u["SEQ1"], **{"1G": "YOFF", "2G": "YOFF"})
         for sec in (0, 1):
             i = 2 * k + sec
             if i >= uc.Y_BITS:
                 for c in range(4):
                     m[f"{sec + 1}C{c}"] = "GND"
                 continue
-            nxt = "NEXT0C" if i == 0 else u[f"NEXT{i}"]
-            disp = "DZ" if i == 0 else (DBUS[7 + i] if i <= 4 else u[f"NEXT{i}"])
-            for c, s in enumerate([nxt, DEC[i], disp, fault_y.get(i, "GND")]):
+            nxt = "CONDY" if i == 0 else u[f"NEXT{i}"]
+            disp = "DZ_n" if i == 0 else (DBUS[7 + i] if i <= 4 else u[f"NEXT{i}"])
+            for c, s in enumerate([nxt, DEC[i], disp, "GND"]):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = Y[i]
 
@@ -123,10 +127,20 @@ def build():
     g("08", ["IRQS", "INEXT"], "IRQP_D")
 
     # ---- register file: two copies of 32 x 32 bits ------------------------------
-    SX = bus("SX", 4)
-    m = nl.add("157", "U_SXM", S=u["XSEL"], G="GND")
+    # SX: the s register field, loaded with IR[7:4] at every fetch and with the
+    # index register number (DBUS[15:12]) when the indexed mode's extension
+    # parcel is fetched (LDX)
+    SX, SXD = bus("SX", 4), bus("SXD", 4)
+    m = nl.add("157", "U_SXM", S=u["LDX_n"], G="GND")
     for j in range(4):
-        m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = IR[4 + j], TQ[12 + j], SX[j]
+        m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = DBUS[12 + j], DBUS[4 + j], SXD[j]
+    g("08", [u["LDIR_n"], u["LDX_n"]], "LDSX_n")
+    r = nl.add("377", "U_SX", CLK="CLK", EN="LDSX_n")
+    for j in range(8):
+        if j < 4:
+            r[f"D{j + 1}"], r[f"Q{j + 1}"] = SXD[j], SX[j]
+        else:
+            r[f"D{j + 1}"] = "GND"
     RFAA, RFBA = bus("RFAA", 5), bus("RFBA", 5)
     for side, sel, addr in (("A", "RFA", RFAA), ("B", "RFB", RFBA)):
         for k in range(2):
@@ -171,16 +185,15 @@ def build():
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = RQ[8 * k + i], BBUS[8 * k + i]
     # T by byte lane; byte 0 comes from T's byte 1 for a byte at an odd address
+    # (the 541s' second enables pick the lane)
     g("00", [u["TLANE"], MAR[0]], "ODD_n")
-    g("04", ["ODD_n"], "ODD")
-    g("32", [u["BT0_n"], "ODD"], "BT0E_n")
-    g("32", [u["BT0_n"], "ODD_n"], "BT0O_n")
-    for ref, src, dst, oe in (("U_BT0", TQ[0:8], BBUS[0:8], "BT0E_n"),
-                              ("U_BT10", TQ[8:16], BBUS[0:8], "BT0O_n"),
-                              ("U_BT1", TQ[8:16], BBUS[8:16], u["BT1_n"]),
-                              ("U_BT2", TQ[16:24], BBUS[16:24], u["BT23_n"]),
-                              ("U_BT3", TQ[24:32], BBUS[24:32], u["BT23_n"])):
-        b = nl.add("541", ref, OE1=oe, OE2="GND")
+    g("08", [u["TLANE"], MAR[0]], "ODD")
+    for ref, src, dst, oe, oe2 in (("U_BT0", TQ[0:8], BBUS[0:8], u["BT0_n"], "ODD"),
+                                   ("U_BT10", TQ[8:16], BBUS[0:8], u["BT0_n"], "ODD_n"),
+                                   ("U_BT1", TQ[8:16], BBUS[8:16], u["BT1_n"], "GND"),
+                                   ("U_BT2", TQ[16:24], BBUS[16:24], u["BT23_n"], "GND"),
+                                   ("U_BT3", TQ[24:32], BBUS[24:32], u["BT23_n"], "GND")):
+        b = nl.add("541", ref, OE1=oe, OE2=oe2)
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], dst[i]
     T2 = ["GND"] + TQ[0:15]                       # 2 * T.lo (bit 16 = T15 comes from the fill)
@@ -216,7 +229,7 @@ def build():
     def mqs(bit):
         return {0: "MQ0", 31: "MQ31"}.get(bit, f"MQS{bit}")
     for k in range(4):
-        sr = nl.add("299", f"U_MQ{k}", S0=u["MD0"], S1=u["MD1"], OE1=u["BMQ_n"], OE2="GND",
+        sr = nl.add("299", f"U_MQ{k}", S0=u["MQM0"], S1=u["MQM1"], OE1=u["BMQ_n"], OE2="GND",
                     MR="VCC", CP="CLK", Q0S=mqs(8 * k + 7), Q7S=mqs(8 * k))
         for n in range(8):
             sr[f"IO{n}"] = BBUS[8 * k + 7 - n]
@@ -232,32 +245,26 @@ def build():
            RCO="TC")
 
     # ---- ALU control: multiply/divide steps take over the function ----------------
-    # MD: 001 MULU step, 101 MULS (Booth) step, 010 divide step, 100 fix-up
-    g("86", [u["MD0"], u["MD1"]], "MDX")
-    g("32", ["MDX", u["MD2"]], "MDG")              # a step mode (not 000 / 011)
-    g("04", ["MQ0"], "MQ0_n")
-    g("04", ["BQQ"], "BQ_n")
-    g("08", ["MQ0_n", "BQQ"], "BOOTHA")
-    g("08", ["MQ0", "BQ_n"], "BOOTHS")
-    nl.add("153", "U_GAS", A=u["MD0"], B=u["MD2"],
-           **{"1G": "GND", "2G": "GND",
-              "1C0": "S33Q", "1C1": "MQ0", "1C2": "S33Q", "1C3": "BOOTHA", "1Y": "GA",
-              "2C0": "S33_n", "2C1": "GND", "2C2": "GND", "2C3": "BOOTHS", "2Y": "GS"})
-    nl.add("151", "U_CINM", A=u["CIN0"], B=u["CIN1"], C=u["CIN2"], G="GND", Y="CINMUX",
-           D0="GND", D1="VCC", D2="CFLAG", D3=ABUS[31], D4="MQ31", D5="SGNQ", D6="GND", D7="GND")
+    # MS (step select) 0: S from the uIR; 1 add if MQ[0] (S = 1001 or 0000);
+    # 2 subtract if MQ[0] (0110 or 0000); 3 add if S33, else subtract (divide)
+    # or pass (fix-up, MQM = 00). The carry in always comes from CIN (the
+    # microcode picks mq0 or s33n for steps) and M from the uIR.
+    g("08", ["S33_n", u["MQM1"]], "GSDIV")
     SE = bus("SE", 4)
-    nl.add("157", "U_SM0", S="MDG", G="GND",
-           **{"1A": u["S0"], "1B": "GA", "1Y": SE[0], "2A": u["S1"], "2B": "GS", "2Y": SE[1],
-              "3A": u["S2"], "3B": "GS", "3Y": SE[2], "4A": u["S3"], "4B": "GA", "4Y": SE[3]})
-    nl.add("157", "U_SM1", S="MDG", G="GND",
-           **{"1A": u["M"], "1B": "GND", "1Y": "ME", "2A": "CINMUX", "2B": "GS", "2Y": "CINE",
-              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
-    g("04", ["CINE"], "CIN_n")
+    for k, (lo, hi), data in ((0, (0, 3), ["MQ0", "GND", "S33Q"]),
+                              (1, (1, 2), ["GND", "MQ0", "GSDIV"])):
+        m = nl.add("153", f"U_SM{k}", A=u["MS0"], B=u["MS1"], **{"1G": "GND", "2G": "GND"})
+        for sec, i in ((1, lo), (2, hi)):
+            for c, src in enumerate([u[f"S{i}"]] + data):
+                m[f"{sec}C{c}"] = src
+            m[f"{sec}Y"] = SE[i]
+    nl.add("151", "U_CINM", A=u["CIN0"], B=u["CIN1"], C=u["CIN2"], G="GND", W="CIN_n",
+           D0="GND", D1="VCC", D2="CFLAG", D3=ABUS[31], D4="MQ31", D5="SGNQ", D6="MQ0", D7="S33_n")
 
     # ---- ALU: 8 x 74181, two-level carry lookahead (3 x 74182) ----------------------
     cn = ["CIN_n", "C4_n", "C8_n", "C12_n", "C16_n", "C20_n", "C24_n", "C28_n"]
     for k in range(8):
-        a = nl.add("181", f"U_ALU{k}", M="ME", CN=cn[k], P=f"ALUP{k}", G=f"ALUG{k}",
+        a = nl.add("181", f"U_ALU{k}", M=u["M"], CN=cn[k], P=f"ALUP{k}", G=f"ALUG{k}",
                    **{f"S{i}": SE[i] for i in range(4)})
         for i in range(4):
             a[f"A{i}"], a[f"B{i}"], a[f"F{i}"] = ABUS[4 * k + i], BBUS[4 * k + i], F[4 * k + i]
@@ -273,15 +280,18 @@ def build():
     # overflow: V = (A31 ^ B31 ^ S0) & (A31 ^ F31); S0 tells adding from subtracting
     g("86", [BBUS[31], SE[0]], "VT1")
     g("86", [ABUS[31], "VT1"], "VT2")
-    g("86", [ABUS[31], F[31]], "VT3")
-    g("08", ["VT2", "VT3"], "OVF")
+    g("86", [ABUS[31], F[31]], "VT3")                  # OVF = VT2 & VT3, see U_FV
 
     # ---- result multiplexer: F, F >> 1, ror 8, ror 16; bytes can be cleared ----------
-    g("04", [u["MD1"]], "MD1_n")
-    g("08", [u["MD0"], "MD1_n"], "MULSTEP")
-    g("86", [F[31], "OVF"], "F31XOVF")
+    g("04", [u["MQM1"]], "MQM1_n")
+    g("08", [u["MQM0"], "MQM1_n"], "MULSTEP")                # MQ shifts right
+    # the sign of a Booth step's 33-bit sum (F31 ^ OVF) is A31 if the operands'
+    # signs agree (VT2), else F31
+    nl.add("157", "U_MSGN", S="VT2", G="GND",
+           **{"1A": F[31], "1B": ABUS[31], "1Y": "MSIGN",
+              "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     nl.add("151", "U_SINM", A=u["SIN0"], B=u["SIN1"], C="MULSTEP", G="GND", Y="SINE",
-           D0="GND", D1=F[31], D2="CFLAG", D3=F[0], D4="C32", D5="F31XOVF", D6="GND", D7="GND")
+           D0="GND", D1=F[31], D2="CFLAG", D3=F[0], D4="C32", D5="MSIGN", D6="GND", D7="GND")
     for k in range(16):
         byte = k // 4
         m = nl.add("153", f"U_RES{k}", A=u["RMS0"], B=u["RMS1"],
@@ -354,9 +364,11 @@ def build():
         for j in range(4):
             i = 4 * k + j
             m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = asrc[i][0], asrc[i][1], ADDR[i]
-    # the I/O page is anything with MAR[31] set (decoded from MAR, not the address mux)
+    # the I/O page is anything with MAR[31] set (decoded from MAR, not the address
+    # mux). A misaligned access still reads the RAM (the data is ignored) but
+    # never selects the I/O device, whose reads have side effects.
+    g("08", [u["ADDRMAR"], "MAR31"], "RAMOFF")
     g("10", [u["ADDRMAR"], "MAR31", "FAULT_n"], "IOSEL_n")
-    g("04", ["IOSEL_n"], "IOSEL")
     g("04", [u["SIZE1"]], "SIZE1_n")
     g("08", [u["SIZE0"], "SIZE1_n"], "BYTE")           # SIZE 1: one byte lane
     g("04", [ADDR[0]], "ADDR0_n")
@@ -366,7 +378,7 @@ def build():
     g("10", ["MWOK", "WEWIN", "LOEN"], "WEL_n")
     g("10", ["MWOK", "WEWIN", "HIEN"], "WEH_n")
     for half, we in ((0, "WEL_n"), (1, "WEH_n")):
-        ram = nl.add("sram512", f"U_RAM{'LH'[half]}", role="ram", CE="IOSEL", OE=u["MEMRD_n"], WE=we)
+        ram = nl.add("sram512", f"U_RAM{'LH'[half]}", role="ram", CE="RAMOFF", OE=u["MEMRD_n"], WE=we)
         for i in range(19):
             ram[f"A{i}"] = ADDR[i + 1]
         for i in range(8):
@@ -378,16 +390,17 @@ def build():
     for i in range(16):
         io[f"D{i}"] = DBUS[i]
 
-    # store data: result bus low half, high half, or low byte on both lanes
-    nl.add("138", "U_DDEC", A=u["DSRC0"], B=u["DSRC1"], C="GND", G1="VCC", G2A="GND", G2B="GND",
-           Y1="DLO_n", Y2="DHI_n", Y3="DBY_n")
-    g("08", ["DLO_n", "DBY_n"], "DL0_n")
-    for ref, src, dst, oe in (("U_DR0", RES[0:8], DBUS[0:8], "DL0_n"),
-                              ("U_DR1", RES[8:16], DBUS[8:16], "DLO_n"),
-                              ("U_DR2", RES[16:24], DBUS[0:8], "DHI_n"),
-                              ("U_DR3", RES[24:32], DBUS[8:16], "DHI_n"),
-                              ("U_DRB", RES[0:8], DBUS[8:16], "DBY_n")):
-        b = nl.add("541", ref, OE1=oe, OE2="GND")
+    # store data: result bus low half (DSRC 11), high half (10), or low byte on
+    # both lanes (01). The two enables of each 541 decode it, so the drivers
+    # turn off quickly when the next cycle's RAM read turns on.
+    g("04", [u["DSRC0_n"]], "DSRC0")
+    g("04", [u["DSRC1_n"]], "DSRC1")
+    for ref, src, dst, oe1, oe2 in (("U_DR0", RES[0:8], DBUS[0:8], u["DSRC0_n"], "GND"),
+                                    ("U_DR1", RES[8:16], DBUS[8:16], u["DSRC0_n"], u["DSRC1_n"]),
+                                    ("U_DR2", RES[16:24], DBUS[0:8], "DSRC0", u["DSRC1_n"]),
+                                    ("U_DR3", RES[24:32], DBUS[8:16], "DSRC0", u["DSRC1_n"]),
+                                    ("U_DRB", RES[0:8], DBUS[8:16], u["DSRC0_n"], "DSRC1")):
+        b = nl.add("541", ref, OE1=oe1, OE2=oe2)
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], dst[i]
 
@@ -397,8 +410,7 @@ def build():
                **{f"P{i}": BBUS[8 * k + i] for i in range(8)}, **{f"Q{i}": "GND" for i in range(8)})
     g("32", ["ZB0_n", "ZB1_n"], "NZ01")
     g("32", ["ZB2_n", "ZB3_n"], "NZ23")
-    g("32", ["NZ01", "NZ23"], "ZERO_n")
-    g("04", ["ZERO_n"], "ZERO")
+    g("02", ["NZ01", "NZ23"], "ZERO")
     g("02", ["NZ23", "GND"], "HZ16")                   # B[31:16] == 0
     g("02", ["NZ23", BBUS[15]], "HZ17")                # B[31:15] == 0
     g("08", ["ZFLAG", "ZERO"], "ZSTICKY")
@@ -409,13 +421,17 @@ def build():
     g("86", [F[7], "FILL"], "F7X")
     g("86", [F[15], "FILL"], "F15X")
     nl.add("151", "U_CSRC", A=u["CSRC0"], B=u["CSRC1"], C=u["CSRC2"], G="GND", Y="CSRCY",
-           D0="C32", D1=F[0], D2=F[7], D3=F[8], D4=F[15], D5=F[31], D6="F7X", D7="F15X")
+           D0=BBUS[1], D1=F[0], D2=F[7], D3=F[8], D4=F[15], D5=F[31], D6="F7X", D7="F15X")
     nl.add("153", "U_FC", A=u["FC0"], B=u["FC1"],
            **{"1G": u["CZERO"], "2G": "VCC",
-              "1C0": "CFLAG", "1C1": "CSRCY", "1C2": BBUS[1], "1C3": "CL_n", "1Y": "CNEXT",
+              "1C0": "CFLAG", "1C1": "CSRCY", "1C2": "C32", "1C3": "CL_n", "1Y": "CNEXT",
               "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
-    nl.add("151", "U_FV", A=u["FV0"], B=u["FV1"], C=u["FV2"], G="GND", Y="VNEXT",
-           D0="VFLAG", D1="OVF", D2="GND", D3=BBUS[0], D4="CL_n", D5="VCC", D6="GND", D7="GND")
+    # V: FV 7 selects VT3 = A31 ^ F31, with the multiplexer disabled (output 0)
+    # unless the operands' signs allow an overflow (VT2)
+    g("10", [u["FV0"], u["FV1"], u["FV2"]], "FVOVF_n")
+    g("02", ["FVOVF_n", "VT2"], "FVOFF")
+    nl.add("151", "U_FV", A=u["FV0"], B=u["FV1"], C=u["FV2"], G="FVOFF", Y="VNEXT",
+           D0="VFLAG", D1="GND", D2="GND", D3=BBUS[0], D4="CL_n", D5="VCC", D6="GND", D7="VT3")
     nl.add("153", "U_FI", A=u["FI0"], B=u["FI1"],
            **{"1G": "GND", "2G": "VCC",
               "1C0": "IFLAG", "1C1": "VCC", "1C2": "GND", "1C3": BBUS[4], "1Y": "INEXT",
@@ -429,21 +445,22 @@ def build():
                                "1Q": "IFLAG", "1QN": "IFLAG_n",
                                "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
 
-    # condition latch CL, sign latch SGN, divide sign S33, Booth's previous bit BQ
-    g("08", ["CLQ", "HZ16"], "CLHZ16")
-    g("08", ["CLQ", "HZ17"], "CLHZ17")
-    nl.add("151", "U_CLM", A=u["CLSRC0"], B=u["CLSRC1"], C=u["CLSRC2"], G="GND", Y="CLSRCY",
-           D0="ZERO", D1="C32", D2="HZ16", D3="HZ17", D4="CLHZ16", D5="CLHZ17", D6="GND", D7="GND")
-    g("86", [RQ[31], "C32"], "S33T")
-    g("86", ["S33T", "GS"], "S33NEW")
-    g("04", ["S33NEW"], "QBIT")                         # quotient bit into MQ
-    g("04", [u["MD0"]], "MD0_n")
-    g("04", [u["MD2"]], "MD2_n")
-    g("21", ["MD0_n", u["MD1"], "MD2_n"], "DIVSTEP")   # 010
-    g("00", [u["MD0"], u["MD1"]], "MQLOAD_n")           # 011 (or 111, unused)
+    # condition latch CL, sign latch SGN, divide sign S33
+    # CLSRC 4 and 5 AND the test with CL: the multiplexer is disabled if CL is 0
+    g("08", [u["CLSRC2"], "CL_n"], "CLOFF")
+    nl.add("151", "U_CLM", A=u["CLSRC0"], B=u["CLSRC1"], C=u["CLSRC2"], G="CLOFF", Y="CLSRCY",
+           D0="ZERO", D1="C32", D2="HZ16", D3="HZ17", D4="HZ16", D5="HZ17", D6="GND", D7="GND")
+    # divide step: the new sign S33 = R31 ^ C32 ^ (subtracting = S33_n), and the
+    # quotient bit is its complement; both are one XOR after the carry out
+    # (C32 = !CARRY_n)
+    g("86", [RQ[31], "S33_n"], "RG")
+    g("04", ["RG"], "RG_n")
+    g("86", ["RG", "CARRY_n"], "QBIT")                  # quotient bit into MQ
+    g("86", ["RG_n", "CARRY_n"], "S33NEW")
+    g("04", [u["MQM0"]], "MQM0_n")
+    g("08", ["MQM0_n", u["MQM1"]], "DIVSTEP")          # MQ shifts left
+    g("00", [u["MQM0"], u["MQM1"]], "MQLOAD_n")
     g("08", ["S33Q", "MQLOAD_n"], "S33KEEP")
-    g("21", [u["MD0"], "MD1_n", u["MD2"]], "MULSSTEP") # 101
-    g("08", ["MULSSTEP", "MQ0"], "BQ_D")
     # two independent 2:1 multiplexers in one 74HCT153 (select CL by A, SGN by B)
     nl.add("153", "U_LATM", A=u["LDCL"], B=u["LDSGN"], **{"1G": "GND", "2G": "GND",
            "1C0": "CLQ", "1C1": "CLSRCY", "1C2": "CLQ", "1C3": "CLSRCY", "1Y": "CL_D",
@@ -457,8 +474,7 @@ def build():
                               "2Q": "SGNQ"})
     nl.add("74", "U_LAT1", **{"1D": "S33_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
                               "1Q": "S33Q", "1QN": "S33_n",
-                              "2D": "BQ_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "VCC",
-                              "2Q": "BQQ"})
+                              "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
 
     # ---- branch condition (ARM encoding): cc from IR[11:8], or IR[7:4] for SETcc -------
     CC = bus("CC", 4)
@@ -468,10 +484,11 @@ def build():
     g("08", ["CFLAG", "ZFLAG_n"], "C_HI")
     g("86", ["NFLAG", "VFLAG_n"], "N_EQ_V")
     g("08", ["ZFLAG_n", "N_EQ_V"], "C_GT")
-    nl.add("151", "U_COND", A=CC[1], B=CC[2], C=CC[3], G="GND", Y="CONDT",
+    nl.add("151", "U_COND", A=CC[1], B=CC[2], C=CC[3], G="GND", Y="CONDT", W="CONDT_n",
            D0="ZFLAG", D1="CFLAG", D2="NFLAG", D3="VFLAG", D4="C_HI", D5="N_EQ_V", D6="C_GT", D7="VCC")
-    g("86", ["CONDT", CC[0]], "BCOND")
-    g("04", ["BCOND"], "BCOND_n")
+    # microcode branches use CONDT or CONDT_n (the decode ROM picks a routine
+    # for each polarity); conditional PC loads (Bcc) apply the polarity here
+    g("86", ["CONDT_n", CC[0]], "BCOND_n")
 
     nl.finish()
     nl.check()

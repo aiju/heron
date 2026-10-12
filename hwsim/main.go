@@ -184,6 +184,22 @@ func main() {
 		}
 		return v
 	}
+	// any width (the v1b control word has 120 bits)
+	busHex := func(ns []int32) string {
+		digits := make([]byte, 0, len(ns)/4+1)
+		for i := (len(ns) - 1) / 4 * 4; i >= 0; i -= 4 {
+			d := 0
+			for j := 0; j < 4 && i+j < len(ns); j++ {
+				d |= int(s.Nets[ns[i+j]].Val) << j
+			}
+			digits = append(digits, "0123456789ABCDEF"[d])
+		}
+		out := strings.TrimLeft(string(digits), "0")
+		if out == "" {
+			return "0"
+		}
+		return out
+	}
 	busNets := func(prefix string, n int, start int) []int32 {
 		out := make([]int32, n)
 		for i := range out {
@@ -261,7 +277,7 @@ func main() {
 			var b strings.Builder
 			fmt.Fprintf(&b, "%d", s.Cycle)
 			for _, name := range traceNames {
-				fmt.Fprintf(&b, " %s=%X", name, busVal(traceBuses[name]))
+				fmt.Fprintf(&b, " %s=%s", name, busHex(traceBuses[name]))
 			}
 			b.WriteString("\n")
 			trace.WriteString(b.String())

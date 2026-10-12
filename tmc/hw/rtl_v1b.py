@@ -129,7 +129,7 @@ class RTL:
         self.mc = mc or uc.built()
         rom = self.mc.rom()
         idle = uc.unpack(uc.IDLE)
-        self.rom = [None] * (2 << uc.Y_BITS)
+        self.rom = [None] * (1 << (uc.FAULT_BIT + 3))
         cache = {}
         for a in range(len(self.rom)):
             w = rom.get(a)
@@ -148,8 +148,8 @@ class RTL:
         self.check = check
         self.rf = [0] * 32
         self.R = self.T = self.MAR = self.PC = self.IR = 0
-        self.LEN = self.LC = self.MQ = 0
-        self.BQ = self.S33 = self.SGN = self.CL = 0
+        self.LEN = self.LC = self.MQ = self.SX = 0
+        self.S33 = self.SGN = self.CL = 0
         self.n = self.z = self.c = self.v = self.i = 0
         self.irqs = self.irqp = 0
         self.uir = self.rom[0]
@@ -188,9 +188,8 @@ class RTL:
         chk = self.check
 
         # register file addresses
-        sx = (T >> 12) & 15 if f["XSEL"] else (IR >> 4) & 15
         rfk = f["RFK"]
-        srcs = ((IR >> 8) & 15, IR & 15, sx, rfk & 15)
+        srcs = ((IR >> 8) & 15, IR & 15, self.SX, rfk & 15)
         rfa = srcs[f["RFA"]] | (rfk & 16 if f["RFA"] == 3 else 0)
         rfb = srcs[f["RFB"]] | (rfk & 16 if f["RFB"] == 3 else 0)
 
@@ -281,24 +280,25 @@ class RTL:
                 fill = (A >> (31 if fsel == 5 else 15)) & 1
 
         # ALU
-        md = f["MD"]
-        MQLOAD, MULU, MULS, DIV, FIX = 3, 1, 5, 2, 4
-        if md in (MULU, MULS, DIV, FIX):
-            if md == MULU:              # add X if the multiplier bit is 1
+        mqm, ms = f["MQM"], f["MS"]
+        cin = (0, 1, self.c, (A or 0) >> 31, self.MQ >> 31, self.SGN, self.MQ & 1,
+               self.S33 ^ 1)[f["CIN"]]
+        gs = 0
+        if ms:
+            if ms == 1:                 # add X if the multiplier bit is 1
                 ga, gs = self.MQ & 1, 0
-            elif md == MULS:            # Booth: add or subtract X
-                y = self.MQ & 1
-                ga, gs = (y ^ 1) & self.BQ, y & (self.BQ ^ 1)
-            elif md == DIV:             # non-restoring divide step
+            elif ms == 2:               # subtract X if it is 1 (signed: the top bit)
+                ga, gs = 0, self.MQ & 1
+            elif mqm == 2:              # non-restoring divide step
                 ga, gs = self.S33, self.S33 ^ 1
             else:                       # fix-up: add B if negative
                 ga, gs = self.S33, 0
             s = (ga << 3) | (gs << 2) | (gs << 1) | ga
-            m = 0
-            cin = gs
+            m = f["M"]
+            if chk and (m or cin != gs):
+                self.err("step with M set or the wrong carry in")
         else:
             s, m = f["S"], f["M"]
-            cin = (0, 1, self.c, (A or 0) >> 31, self.MQ >> 31, self.SGN, 0, 0)[f["CIN"]]
         uses_a = not (m == 1 and s in (0b1010, 0b0011, 0b1100, 0b0101))
         uses_b = not ((m == 1 and s in (0b1111, 0b0000, 0b0011, 0b1100))
                       or (m == 0 and s in (0b0000, 0b1111, 0b1100)))
@@ -306,7 +306,8 @@ class RTL:
         F, C32 = alu32(Av, B, s, m, cin)
         s0 = s & 1
         # V = (A31 ^ (B31 ^ S0)) & (A31 ^ F31): S0 tells adding from subtracting
-        OVF = (((Av >> 31) ^ ((B >> 31) ^ s0)) & ((Av >> 31) ^ (F >> 31))) & 1
+        vt2 = ((Av >> 31) ^ (B >> 31) ^ s0) & 1
+        OVF = vt2 & ((Av >> 31) ^ (F >> 31)) & 1
         alu_ok = (A is not None or not uses_a) and (bfull or not uses_b)
 
         # result multiplexer
@@ -314,10 +315,12 @@ class RTL:
         if rms == 0:
             RES = F
         elif rms == 1:
-            # 74HCT151: SIN field, plus 4 in multiply steps (MD = x01)
-            mulstep = (md & 3) == 1
-            sin = (0, F >> 31, self.c, F & 1, C32, ((F >> 31) ^ OVF) & 1, 0, 0)[
-                f["SIN"] | (mulstep << 2)]
+            # 74HCT151: SIN field, plus 4 in multiply steps (MD = x01). The
+            # sign of a Booth step's 33-bit sum, F31 ^ OVF, is A31 when the
+            # operands' signs agree and F31 when they don't (a 74HCT157)
+            mulstep = mqm == 1
+            sign = (Av >> 31) & 1 if vt2 else (F >> 31) & 1
+            sin = (0, F >> 31, self.c, F & 1, C32, sign, 0, 0)[f["SIN"] | (mulstep << 2)]
             RES = (F >> 1) | (sin << 31)
         elif rms == 2:
             RES = ((F >> 8) | (F << 24)) & M32
@@ -350,7 +353,7 @@ class RTL:
                 self.err("data bus contention")
             if chk and not alu_ok:
                 self.err("store data from a floating bus")
-            if dsrc == 1:
+            if dsrc == 3:
                 D = RES & 0xFFFF
             elif dsrc == 2:
                 D = RES >> 16
@@ -360,7 +363,7 @@ class RTL:
         # sequencer
         seq = f["SEQ"]
         if fault:
-            y = uc.FAULT_BASE + self.LEN
+            y = 0
             dec = 0
         elif seq == 0:
             cnd = f["COND"]
@@ -372,14 +375,23 @@ class RTL:
                 cv = R >> 31
             elif cnd == 3:
                 cv = self.CL
-            elif cnd == 4:
+            elif cnd in (4, 7):
+                # the test before the polarity bit (cc0): the routine was
+                # chosen by the decode ROM for this polarity
                 cc = (IR >> 4) & 15 if f["CCB"] else (IR >> 8) & 15
-                cv = self.bcond(cc)
+                if chk and (cnd == 7) != (cc & 1):
+                    self.err("condition polarity doesn't match the instruction")
+                cv = self.bcond(cc & 14) ^ (cnd == 7)
             elif cnd == 5:
                 cv = self.MQ >> 31
             else:
                 cv = int(self.LC & 15 == 15)
-            y = f["NEXT"] | cv
+            if cnd:
+                if chk and f["NEXT"] & 1:
+                    self.err("branch with NEXT[0] set")
+                y = (f["NEXT"] & ~1) | cv
+            else:
+                y = f["NEXT"]
         elif seq == 1:
             if not f["GOIRQ"] and D is None:
                 self.err("decode with nothing on the data bus")
@@ -388,7 +400,7 @@ class RTL:
         elif seq == 2:
             if D is None:
                 self.err("dispatch with nothing on the data bus")
-            y = (f["NEXT"] & ~31) | (((D >> 8) & 15) << 1) | int(D & 0xFF == 0)
+            y = (f["NEXT"] & ~31) | (((D >> 8) & 15) << 1) | int(D & 0xFF != 0)
         else:
             self.err("bad SEQ")
 
@@ -429,8 +441,13 @@ class RTL:
             self.T = (self.T & 0xFFFF0000) | D
         if f["LDTH"]:
             self.T = (self.T & 0xFFFF) | (D << 16)
+        if f["LDX"]:
+            if chk and (D is None or f["LDIR"]):
+                self.err("SX loaded without an extension parcel")
+            self.SX = (D >> 12) & 15
         if f["LDIR"]:
             self.IR = D
+            self.SX = (D >> 4) & 15
             self.LEN = self.decode[D] >> uc.Y_BITS
             if self.fetch_log is not None:
                 self.fetch_log.append((self.cycles if self.started else -1, addr, D))
@@ -445,19 +462,17 @@ class RTL:
             self.LC = RES & 0xFF
         elif f["LCINC"]:
             self.LC = (self.LC + 1) & 0xFF
-        bq_next = self.MQ & 1 if md == MULS else 0
-        if md == MQLOAD:
+        if mqm == 3:
             if chk and not bfull:
                 self.err("MQ loaded from a floating bus")
             self.MQ = B
             self.S33 = 0
-        elif md in (MULU, MULS):
+        elif mqm == 1:
             self.MQ = ((F & 1) << 31) | (self.MQ >> 1)
-        elif md == DIV:
+        elif mqm == 2:
             s33 = ((R >> 31) ^ C32 ^ gs) & 1
             self.MQ = ((self.MQ << 1) | (s33 ^ 1)) & M32
             self.S33 = s33
-        self.BQ = bq_next
         if f["LDSGN"]:
             self.SGN = fill
         if f["LDCL"]:
@@ -486,7 +501,7 @@ class RTL:
         elif fc == 1:
             cs = f["CSRC"]
             if cs == 0:
-                self.c = C32
+                self.c = (B >> 1) & 1
             elif cs == 1:
                 self.c = F & 1
             elif cs == 2:
@@ -502,11 +517,11 @@ class RTL:
             else:
                 self.c = ((F >> 15) ^ fill) & 1
         elif fc == 2:
-            self.c = (B >> 1) & 1
+            self.c = C32
         elif fc == 3:
             self.c = self.CL ^ 1
         fv = f["FV"]
-        if fv == 1:
+        if fv == 7:
             self.v = OVF
         elif fv == 2:
             self.v = 0
@@ -532,7 +547,9 @@ class RTL:
         if f["HALT"]:
             if not self.i or not self.dev.period:
                 self.halted = True
-        self.uaddr = (irqp << uc.Y_BITS) | y
+        self.uaddr = (irqp << uc.IRQP_BIT) | y
+        if fault:
+            self.uaddr |= uc.fault_page(self.LEN)
         if self.ucount is not None:
             self.ucount[self.uaddr] += 1
         self.uir = self.rom[self.uaddr]

@@ -8,20 +8,24 @@ into the microinstruction register (uIR) at every clock edge, so the control
 signals are valid a register delay after the edge instead of a ROM access
 later. The next address Y is chosen during the current cycle:
 
-    SEQ 0  Y = NEXT | cond            branch: cond is ORed into bit 0
+    SEQ 0  Y = NEXT, or {NEXT[11:1], cond}
+                                       branch: the condition replaces bit 0
+                                       (NEXT[0] is 0 in a branch)
     SEQ 1  Y = decode ROM output       end of instruction: the decode ROM looks
                                        at the data bus, where the next
                                        instruction's first parcel is arriving
                                        (or, with GOIRQ, gives interrupt entry)
-    SEQ 2  Y = {NEXT[12:5], DBUS[11:8], DBUS[7:0] == 0}
+    SEQ 2  Y = {NEXT[11:5], DBUS[11:8], DBUS[7:0] != 0}
                                        indexed-mode dispatch on the extension
                                        parcel being fetched
-    fault  Y = {0...01, LEN}           misaligned access: address error entry
     reset  Y = 0
 
-ROM address = {IRQP, Y}. The IRQP = 1 half is a copy of the other, except
-that instruction-ending microinstructions don't fetch and go to interrupt
-entry instead, and HALT stops waiting.
+ROM address = {FAULT & LEN, FAULT, IRQP, Y}. The IRQP = 1 half is a copy of
+the other, except that instruction-ending microinstructions don't fetch and
+go to interrupt entry instead, and HALT stops waiting. A misaligned access
+(FAULT) forces Y to 0 and selects one of the fault pages, whose word 0 is
+the address error entry for that instruction length; the select lines of
+the Y multiplexer never depend on the data path.
 
 Microinstructions are written as dicts of logical field values with the
 helpers below, linked into a graph (Node), and placed in the ROM by
@@ -40,7 +44,7 @@ from ..isa import v1common as c
 
 FIELDS = [
     # sequencer
-    ("NEXT", 13, False), ("SEQ", 2, False), ("COND", 3, False), ("GOIRQ", 1, False),
+    ("NEXT", 12, False), ("SEQ", 2, False), ("COND", 3, False), ("GOIRQ", 1, False),
     ("HALT", 1, False),
     # A bus drivers
     ("ARF", 1, True), ("APC", 1, True), ("AR", 1, True), ("AR2", 1, True), ("ABR", 1, True),
@@ -50,12 +54,12 @@ FIELDS = [
     ("BT2", 1, True),
     ("TLANE", 1, False),
     # data bus driver
-    ("DSRC", 2, False),
+    ("DSRC", 2, True),
     # register file
-    ("RFA", 2, False), ("RFB", 2, False), ("XSEL", 1, False), ("RFK", 5, False),
+    ("RFA", 2, False), ("RFB", 2, False), ("LDX", 1, True), ("RFK", 5, False),
     ("RFWE", 1, False), ("WR0", 1, False),
     # ALU
-    ("S", 4, False), ("M", 1, False), ("CIN", 3, False), ("MD", 3, False),
+    ("S", 4, False), ("M", 1, False), ("CIN", 3, False), ("MQM", 2, False), ("MS", 2, False),
     # result multiplexer and shift inputs
     ("RMS", 2, False), ("RZ", 4, False), ("SIN", 2, False), ("SINA", 2, False),
     # immediate unit
@@ -74,7 +78,7 @@ FIELDS = [
 
 ROMS = 15
 ROM_ADDR_BITS = 17          # SST39SF010A
-Y_BITS = 13
+Y_BITS = 12
 
 def _layout():
     """Bit positions: NEXT takes the first Y_BITS bits, the rest are packed
@@ -99,13 +103,26 @@ WIDTH = {name: w for name, w, _ in FIELDS}
 
 # encodings
 SEQ_NEXT, SEQ_DECODE, SEQ_DISPATCH = 0, 1, 2
-CONDS = {"false": 0, "tc": 1, "r31": 2, "cl": 3, "bcond": 4, "mq31": 5, "tc4": 6}
-DSRC = {None: 0, "lo": 1, "hi": 2, "byte": 3}
+# condt: the branch condition's test (Z, C, N, V, HI, N == V, GT or always)
+# before the polarity bit; a routine branches on condt or ncondt depending
+# on the polarity bit of the instruction it serves
+CONDS = {"false": 0, "tc": 1, "r31": 2, "cl": 3, "condt": 4, "mq31": 5, "tc4": 6, "ncondt": 7}
+# store data onto the data bus: bit 0 = RES[7:0] on the low lane (lo, byte),
+# bit 1 = lo or hi (decoded by the 74HCT541s' two enables, no decoder)
+DSRC = {None: 0, "lo": 3, "hi": 2, "byte": 1}
+# s is the SX register: IR[7:4], or the index register number (T[15:12]) after
+# the indexed mode's extension parcel was fetched with ldx
 RFSEL = {"d": 0, "r": 1, "s": 2, "x": 2}           # 3 = RFK constant
-CIN = {"0": 0, "1": 1, "c": 2, "a31": 3, "mq31": 4, "sgn": 5}
-# MD[1:0] are the 74HCT299 mode pins of MQ (S1 S0: 00 hold, 01 shift toward
-# the LSB, 10 toward the MSB, 11 load); the other modes steer the ALU
-MD = {None: 0, "mqload": 3, "mulu": 1, "muls": 5, "div": 2, "fix": 4}
+CIN = {"0": 0, "1": 1, "c": 2, "a31": 3, "mq31": 4, "sgn": 5, "mq0": 6, "s33n": 7}
+# MQM: the 74HCT299 mode pins of MQ (S1 S0: 00 hold, 01 shift toward the
+# LSB, 10 toward the MSB, 11 load). MS: in a step, the ALU function comes
+# from MQ[0] or S33 instead of S (the carry in still comes from CIN, M is 0):
+#   1 add X if MQ[0]           mulu: multiply step, shifting R:MQ right with
+#   2 subtract X if MQ[0]      muls: C32 or (SIN f31) the true sign of the sum
+#   3 add X if S33, else subtract it (div), or else pass (fix)
+# md= sets both (and the carry in).
+MD = {None: (0, 0, None), "mqload": (3, 0, None), "mulu": (1, 1, "0"), "muls": (1, 2, "mq0"),
+      "div": (2, 3, "s33n"), "fix": (0, 3, "0")}
 RMS = {"f": 0, "shr": 1, "ror8": 2, "ror16": 3}
 SIN = {"0": 0, "f31": 1, "c": 2, "f0": 3}
 SINA = {"0": 0, "r31": 1, "c": 2, "mq31": 3}
@@ -113,9 +130,11 @@ V8 = {"bcc": 0, "k": 1, "fill": 2, "lc": 3}
 FSEL = {"0": 0, "1": 1, "ir7": 2, "t7": 3, "t15": 4, "a31": 5, "a15": 6, "sgn": 7}
 SIZE = {None: 0, "byte": 1, "half": 2, "word": 3}
 FNZ = {None: 0, "nz": 1, "sticky": 2, "loadf": 3}
-FC = {None: 0, "csrc": 1, "b1": 2, "ncl": 3}
-CSRC = {"aluc": 0, "f0": 1, "f7": 2, "f8": 3, "f15": 4, "f31": 5, "f7x": 6, "f15x": 7}
-FV = {None: 0, "ovf": 1, "0": 2, "b0": 3, "ncl": 4, "1": 5}
+FC = {None: 0, "csrc": 1, "aluc": 2, "ncl": 3}
+CSRC = {"b1": 0, "f0": 1, "f7": 2, "f8": 3, "f15": 4, "f31": 5, "f7x": 6, "f15x": 7}
+# ovf is 7 so that one gate can tell it (the multiplexer is disabled when
+# the operands' signs rule overflow out)
+FV = {None: 0, "0": 2, "b0": 3, "ncl": 4, "1": 5, "ovf": 7}
 FI = {None: 0, "1": 1, "0": 2, "b4": 3}
 # condition latch CL: B == 0, the ALU carry, B[31:16] == 0, B[31:15] == 0,
 # or one of the last two ANDed with CL
@@ -154,8 +173,6 @@ def _rf(f, side, sel):
         _put(f, "RFK", sel)
     else:
         _put(f, side, RFSEL[sel])
-        if sel in ("s", "x"):
-            _put(f, "XSEL", int(sel == "x"))
 
 
 B_PRESETS = {
@@ -221,7 +238,11 @@ def mi(**kw):
         elif k == "cin":
             _put(f, "CIN", CIN[v])
         elif k == "md":
-            _put(f, "MD", MD[v])
+            mqm, ms, cin = MD[v]
+            _put(f, "MQM", mqm)
+            _put(f, "MS", ms)
+            if cin is not None:
+                _put(f, "CIN", CIN[cin])
         elif k == "rms":
             _put(f, "RMS", RMS[v])
         elif k == "rz":
@@ -275,14 +296,15 @@ def mi(**kw):
             _put(f, "FI", FI[v])
         elif k == "loadf":                    # all five flags from the B bus
             _put(f, "FNZ", FNZ["loadf"])
-            _put(f, "FC", FC["b1"])
+            _put(f, "FC", FC["csrc"])
+            _put(f, "CSRC", CSRC["b1"])
             _put(f, "FV", FV["b0"])
             _put(f, "FI", FI["b4"])
         elif k == "ldcl":
             _put(f, "LDCL", 1)
             _put(f, "CLSRC", CLSRC[v])
         elif k in ("ldr", "ldmar", "ldtl", "ldth", "ldpc", "pccond", "ldlc", "lcinc", "ccb",
-                   "ldsgn", "wr0", "czero", "halt", "goirq"):
+                   "ldsgn", "wr0", "czero", "halt", "goirq", "ldx"):
             _put(f, k.upper(), 1)
         else:
             raise KeyError(f"unknown microcode keyword {k}")
@@ -497,7 +519,7 @@ def store_steps(size):
 
 def index_addr(s, dz, dest="mar"):
     """Address steps for the indexed mode after the extension parcel is in
-    T: base (IR R field) + T[7:0] + x * 2^s, x = T[15:12]."""
+    T: base (IR R field) + T[7:0] + x * 2^s, x = T[15:12] (copied to SX)."""
     final = {"ldmar": 1} if dest == "mar" else {"ldr": 1}
     steps = []
     if s == 0:
@@ -574,9 +596,9 @@ def ea_routine(op, k, M, R):
     if M == 5:
         table = []
         for i in range(32):
-            s, z, dz = i >> 3, (i >> 1) & 3, i & 1
+            s, z, dz = i >> 3, (i >> 1) & 3, (i & 1) ^ 1
             table.append(index_entry(opname, s, z, dz, f"{name} s{s}z{z}{'' if dz else 'd'}"))
-        return Node(mi(mem="ext"), ("dispatch", table), name)
+        return Node(mi(mem="ext", ldx=1), ("dispatch", table), name)
     size = mode_size(M, R)
     if opname == "LEA" and M == 0xF and R in (4, 5, 6):
         return chain(name, FETCH_EXT, end(name, wb="d", b="tlo", fill="t15"))
@@ -728,7 +750,9 @@ def _xor_first():
     """First steps of an arithmetic shift: A ^ s, SGN <- sign."""
     out = []
     for rms, rz in [("f", 0), ("shr", 0), ("ror8", 0b1000), ("ror16", 0b1100)]:
-        for cs in (None, "f7x", "f15x"):
+        # (taking the carry here too would make the slowest path in the
+        # machine: register -> fill -> B bus -> ALU -> carry flag)
+        for cs in (None,):
             def f(a, r, cc, sg, rms=rms, rz=rz, cs=cs):
                 s = _bit(a, 31)
                 x = a ^ (M32 if s else 0)
@@ -804,9 +828,11 @@ def _exec_plan(prog, x, cin):
         else:
             res = _rot(F, ["f", "", "ror8", "ror16"][rms])
         res &= _zmask(f.get("RZ", 0))
-        if f.get("FC"):
+        if f.get("FC") == FC["aluc"]:
+            cc = c32
+        elif f.get("FC"):
             cs = f["CSRC"]
-            cc = [c32, F & 1, F >> 7 & 1, F >> 8 & 1, F >> 15 & 1, F >> 31,
+            cc = [None, F & 1, F >> 7 & 1, F >> 8 & 1, F >> 15 & 1, F >> 31,
                   (F >> 7 ^ fill) & 1, (F >> 15 ^ fill) & 1][cs]
         if f.get("LDSGN"):
             sgn = fill
@@ -989,24 +1015,25 @@ def rr_routine(fn):
                      branch(name, mi(ra=0, rb="d", md="mulu", rms="shr", ldr=1, ldcl="and_hz16"),
                             "cl", loop(name, step, "tc", tail32), loop(name, step, "tc4", exit16)))
     if name == "MULS":
-        # Booth's algorithm: the same loop, adding or subtracting X
-        step = mi(a="r", rb="d", md="muls", rms="shr", sin="f31", ldr=1, lcinc=1)
+        # the same loop with a signed accumulator (shifting in the sum's true
+        # sign), subtracting X in the last step: the multiplier's top bit
+        # weighs -2^31 (or -2^15)
+        step = mi(a="r", rb="d", md="mulu", rms="shr", sin="f31", ldr=1, lcinc=1)
+        last = mi(a="r", rb="d", md="muls", rms="shr", sin="f31", ldr=1)
         # overflow iff HI isn't the sign extension of the low word, i.e.
         # HI + (bit 31 of the low word) != 0
-        tail32 = chain(name, mi(wb=HI, b="r", alu="a", cin="mq31", ldr=1),
+        tail32 = chain(name, last, mi(wb=HI, b="r", alu="a", cin="mq31", ldr=1),
                        mi(b="r", ldcl="zero"),
                        end(name, wb="d", b="mq", fnz="nz", fc="ncl", fv="ncl"))
-        big = chain(name, mi(rb="s", md="mqload"),
-                    mi(ra=0, rb="d", md="muls", rms="shr", sin="f31", ldr=1),
+        big = chain(name, mi(rb="s", md="mqload", ra=0, alu="passa", ldr=1),
                     loop(name, step, "tc", tail32))
         # both operands fit in 16 bits: 16 steps on the multiplier's low half,
         # and the product fits in 32 bits, so HI is its sign
-        small16 = chain(name, mi(a="r", alu="passa", rz=0b1100, ldr=1),
+        small16 = chain(name, last, mi(a="r", alu="passa", rz=0b1100, ldr=1),
                         mi(a="r", b="mq", alu="or", rms="ror16", ldr=1),
                         mi(wb="d", b="r", fnz="nz", fill="a31", ldsgn=1),
                         end(name, wb=HI, b="fillall", fill="sgn", czero=1, fv="0"))
-        small = chain(name, mi(ra=0, rb="d", md="muls", rms="shr", sin="f31", ldr=1),
-                      loop(name, step, "tc4", small16))
+        small = loop(name, step, "tc4", small16)
         # x fits in 16 bits as a signed number iff x ^ (32 copies of its sign)
         # is below 2^15
         return chain(name,
@@ -1014,8 +1041,10 @@ def rr_routine(fn):
                      mi(b="r", ldcl="hz17", ra=KC1, alu="passa", ldlc=1),
                      mi(ra="s", b="fillall", fill="a31", alu="xor", ldr=1),
                      mi(b="r", ldcl="and_hz17", ra="s", alu="passa", rz=0b1100, ldr=1),
-                     # MQ <- the multiplier's low half (reloaded whole if too big)
-                     branch(name, mi(b="r", md="mqload"), "cl", big, small))
+                     # MQ <- the multiplier's low half (reloaded whole if too
+                     # big), R <- 0 (the accumulator)
+                     branch(name, mi(b="r", md="mqload", ra=0, alu="passa", ldr=1), "cl",
+                            big, small))
     # divides: non-restoring, partial remainder in R (sign in S33), quotient
     # bits shifted into MQ
     divz = trap(c.DIV_VECTOR, 2)
@@ -1128,8 +1157,8 @@ def sys_routine(fn, a, b):
     if name == "SWI":
         return trap(c.SWI_VECTOR, 0)
     if name == "SET":
-        return branch("SETcc", mi(ccb=1), "bcond", end("SETcc", wb="d", kv=0),
-                      end("SETcc", wb="d", kv=1))
+        return branch("SETcc", mi(ccb=1), "ncondt" if b else "condt",
+                      end("SETcc", wb="d", kv=0), end("SETcc", wb="d", kv=1))
     if name == "SAVE":
         return save_routine(a, b)
     if name == "RESTORE":
@@ -1137,13 +1166,15 @@ def sys_routine(fn, a, b):
     raise ValueError(name)
 
 
-def jcc_routine(kind, k):
-    """op A: kind 'cond' / 'jmp' / 'call'; k 0 relative, 1 absolute."""
+def jcc_routine(kind, k, pol):
+    """op A: kind 'cond' / 'jmp' / 'call'; k 0 relative, 1 absolute; pol is
+    the condition's polarity bit."""
     name = {"cond": "Jcc", "jmp": "JMP", "call": "CALL"}[kind] + (" rel" if k == 0 else " abs")
+    cond = "ncondt" if pol else "condt"
     if k == 0:
         add = mi(a="pc", b="t2", fill="t15", alu="add", ldpc=1)     # PC + 2 * offset
         if kind == "cond":
-            return branch(name, FETCH_EXT, "bcond", end(name), chain(name, add, end(name)))
+            return branch(name, FETCH_EXT, cond, end(name), chain(name, add, end(name)))
         if kind == "jmp":
             return chain(name, FETCH_EXT, add, end(name))
         return chain(name, merge(FETCH_EXT, sp_minus(4)), *push_pc(), add,
@@ -1151,7 +1182,7 @@ def jcc_routine(kind, k):
     load = mi(b="t", alu="passb", ldpc=1)
     if kind == "cond":
         return chain(name, FETCH_EXT,
-                     branch(name, mi(mem="exthi"), "bcond", end(name), chain(name, load, end(name))))
+                     branch(name, mi(mem="exthi"), cond, end(name), chain(name, load, end(name))))
     if kind == "jmp":
         return chain(name, FETCH_EXT, mi(mem="exthi"), load, end(name))
     return chain(name, merge(FETCH_EXT, sp_minus(4)), mi(mem="exthi"), *push_pc(), load,
@@ -1183,7 +1214,7 @@ def classify(w):
         if name == "MTSR":
             return ("sys", f, a, 0) if a in c.SR_NAMES else ("illegal",)
         if name == "SET":
-            return ("sys", f, 0, 0) if b != 15 else ("illegal",)
+            return ("sys", f, 0, b & 1) if b != 15 else ("illegal",)
         return ("sys", f, 0, 0)
     if op == 0xC:
         return ("un", R) if R < len(c.UN_FN) else ("illegal",)
@@ -1199,7 +1230,9 @@ def classify(w):
     if op == 0xA:
         if M > 1 or R:
             return ("illegal",)
-        return ("jcc", "call" if d == 15 else ("jmp" if d == 14 else "cond"), M)
+        if d >= 14:
+            return ("jcc", "call" if d == 15 else "jmp", M, 0)
+        return ("jcc", "cond", M, d & 1)
     if op == 0xF:
         return ("rr", R) if R < len(v1b.RR_FN) else ("illegal",)
     # EA instructions
@@ -1232,7 +1265,7 @@ def routine(key):
     if kind == "bcc":
         return bcc_routine(key[1])
     if kind == "jcc":
-        return jcc_routine(key[1], key[2])
+        return jcc_routine(*key[1:])
     if kind == "rr":
         return rr_routine(key[1])
     if kind == "ea":
@@ -1252,7 +1285,13 @@ def reset_routine():
 # --------------------------------------------------------------------------
 # Placement
 
-FAULT_BASE = 4          # Y = 4 + LEN for an address error
+IRQP_BIT = Y_BITS               # ROM address bits above Y
+FAULT_BIT = Y_BITS + 1          # FAULT, then FAULT & LEN0, FAULT & LEN1
+
+
+def fault_page(ln):
+    """ROM address of the address error entry for instruction length ln."""
+    return (1 << FAULT_BIT) | (ln << (FAULT_BIT + 1))
 
 
 def _successors(n):
@@ -1364,7 +1403,7 @@ class Microcode:
         self.faults = {}
         for ln in range(4):
             node = trap(c.ADDR_VECTOR, 2 * max(ln, 1)).clone()
-            node.fixed = FAULT_BASE + ln
+            node.fixed = "fault"            # word 0 of a fault page, outside Y space
             self.faults[ln] = node
         self.irq = trap(c.IRQ_VECTOR, 0)
         self.keys = {}
@@ -1387,7 +1426,9 @@ class Microcode:
         size = 1 << Y_BITS
         used = [None] * size
         for n in self.nodes:
-            if n.fixed is not None:
+            if n.fixed == "fault":
+                n.addr = -1
+            elif n.fixed is not None:
                 n.addr = n.fixed
                 used[n.addr] = n
         # tables (32-aligned) from the top, pairs and singles from the bottom
@@ -1430,10 +1471,11 @@ class Microcode:
         f = dict(n.f)
         s = n.succ
         if s[0] == "next":
+            assert s[1].addr >= 0
             f["SEQ"], f["NEXT"] = SEQ_NEXT, s[1].addr
         elif s[0] == "branch":
             a0, a1 = s[2].addr, s[3].addr
-            assert a0 % 2 == 0 and a1 == a0 + 1, n.name
+            assert a0 >= 0 and a0 % 2 == 0 and a1 == a0 + 1, n.name
             f["SEQ"], f["NEXT"], f["COND"] = SEQ_NEXT, a0, s[1]
         elif s[0] == "decode":
             f["SEQ"] = SEQ_DECODE
@@ -1470,12 +1512,17 @@ class Microcode:
         """{ROM address: control word} for both IRQP halves."""
         out = {}
         for n in self.nodes:
+            if n.fixed == "fault":
+                continue
             out[n.addr] = pack(self.word(n))
-            out[(1 << Y_BITS) | n.addr] = pack(self.word(n, irq=True))
+            out[(1 << IRQP_BIT) | n.addr] = pack(self.word(n, irq=True))
+        for ln, n in self.faults.items():
+            out[fault_page(ln)] = pack(self.word(n))
+            out[fault_page(ln) | (1 << IRQP_BIT)] = pack(self.word(n, irq=True))
         return out
 
     def decode_rom(self):
-        """Decode ROM contents: address {GOIRQ, parcel} -> Y | LEN << 14."""
+        """Decode ROM contents: address {GOIRQ, parcel} -> Y | LEN << Y_BITS."""
         img = [0] * (1 << 17)
         for w in range(0x10000):
             ln = v1b.size_of(w) if self.keys[w][0] != "illegal" else 1
