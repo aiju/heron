@@ -44,18 +44,32 @@ def split_cycles(m, img, lib_names, config):
     return own, lib
 
 
-def code_sizes(img, lib_names):
+def kinds(m, img, isa, keep):
+    """Executed instruction kinds (isa.kind) at the addresses keep(pc) allows."""
+    from collections import Counter
+    mod = isas.get(isa)
     labels = functions(img)
-    end = next((a for a, n in labels if n == "__end"), None)
+    starts = [a for a, _ in labels]
+    out = Counter()
+    for pc, n in m.pc_counts.items():
+        k = bisect.bisect_right(starts, pc) - 1
+        if k >= 0 and keep(labels[k][1]):
+            out[mod.kind([m.parcel(pc), m.parcel(pc + 2), m.parcel(pc + 4)])] += n
+    return out
+
+
+def code_sizes(img, lib_names, own_names):
+    """Bytes of code in the program's own functions and in the C library
+    (a function runs to the next global label)."""
+    labels = functions(img)
     own = lib = 0
     for k, (a, name) in enumerate(labels):
-        if not name.startswith("_") or name.startswith("__"):
-            continue
-        nxt = labels[k + 1][0] if k + 1 < len(labels) else end
-        size = (nxt or a) - a
-        if name[1:] in lib_names:
+        if k + 1 >= len(labels):
+            break
+        size = labels[k + 1][0] - a
+        if name.startswith("_") and name[1:] in lib_names:
             lib += size
-        elif name[1:] in ("main",) or True:
+        elif name.startswith("_") and name[1:] in own_names:
             own += size
     return own, lib
 
@@ -73,7 +87,11 @@ def run_c(path, isa):
     res = {"ok": ok, "instructions": m.instructions, "cycles": m.all_cycles(), "image": img,
            "lib": prog.lib_functions}
     res["split"] = {c: split_cycles(m, img, prog.lib_functions, c) for c in CONFIGS}
-    res["code"] = code_sizes(img, prog.lib_functions)
+    res["kinds"] = kinds(m, img, isa, lambda n: not (n.startswith("_") and n[1:] in prog.lib_functions)
+                         and not n.startswith("__"))
+    own_names = {f.name for u in prog.units if not getattr(u, "library", False)
+                 for f in u.module.functions}
+    res["code"] = code_sizes(img, prog.lib_functions, own_names)
     return res
 
 
@@ -85,7 +103,8 @@ def run_asm(name, isa):
     m = r.get("machine")
     if not r["ok"]:
         return None
-    return {"cycles": m.all_cycles(), "instructions": m.instructions, "code": r["code_bytes"]}
+    return {"cycles": m.all_cycles(), "instructions": m.instructions, "code": r["code_bytes"],
+            "kinds": kinds(m, r["image"], isa, lambda n: True)}
 
 
 def geomean(xs):
@@ -146,7 +165,9 @@ def report(rows):
                "special-purpose routines. This table leaves the C library (printf, "
                "strcmp, memcpy, ...) out of the C side, so it compares only the code "
                "the compiler made from the program itself, against the whole of the "
-               "assembly version.\n")
+               "assembly version. The mean only counts the programs that spend less "
+               "than half their time in the C library (the others mostly measure "
+               "printf against the assembly versions' printing).\n")
     out.append("| Program | 1a C own | C own / asm | 1b C own | C own / asm | library share 1a / 1b |")
     out.append("|---|---:|---:|---:|---:|---:|")
     own_r = {"v1a": [], "v1b": []}
@@ -162,7 +183,8 @@ def report(rows):
             shares.append(f"{100 * lib / (own + lib):.0f}%")
             if a:
                 x = own / a["cycles"][cfg]
-                own_r[isa].append(x)
+                if lib < own:
+                    own_r[isa].append(x)
                 cells += [fmt(own), f"{x:.2f}"]
             else:
                 cells += [fmt(own), "–"]
@@ -190,6 +212,40 @@ def report(rows):
                 asm_ab.append(ab_["cycles"][cfg2] / aa["cycles"][cfg2])
         out.append(f"| {cfg2} | {geomean(ra):.2f} | {geomean(rb):.2f} | {geomean(ab):.3f} | "
                    f"{geomean(asm_ab):.3f} |")
+    out.append("")
+    out.append("### How the 1b code uses its operands\n")
+    out.append("Executed instructions of the main group (MOV, ST, LEA, the ALU operations, "
+               "JMP/CALL through an operand) by the kind of operand, summed over all programs: "
+               "the program's own code for C, the whole program for assembly.\n")
+    from collections import Counter
+    tot = {"C": Counter(), "asm": Counter()}
+    for r in rows:
+        if r["c_v1b"]["ok"]:
+            tot["C"].update(r["c_v1b"]["kinds"])
+        if r["asm_v1b"]:
+            tot["asm"].update(r["asm_v1b"]["kinds"])
+    groups = [("register", ("r",)), ("constant -16..15", ("#q",)),
+              ("16- or 32-bit constant", ("#i16", "#i32")),
+              ("[r]", ("[r]", "b[r]", "h[r]")),
+              ("[r + d16]", ("[r+d]", "b[r+d]", "h[r+d]")),
+              ("[sp + n]", ("[sp+n]",)),
+              ("auto-increment/decrement", ("[r]+", "b[r]+", "-[r]")),
+              ("indexed [r + r*s + d8]", ("[r+x]", "b[r+x]", "h[r+x]")),
+              ("absolute or PC-relative", ("[abs]", "b[abs]", "h[abs]", "[pc+d]", "b[pc+d]", "h[pc+d]"))]
+
+    def share(counter, names, ops=None):
+        total = sum(n for k, n in counter.items() if " " in k and (ops is None or k.split()[0] in ops))
+        part = sum(n for k, n in counter.items() if " " in k and k.split(" ", 1)[1] in names
+                   and (ops is None or k.split()[0] in ops))
+        return 100 * part / total if total else 0
+    out.append("| Operand | C | asm |")
+    out.append("|---|---:|---:|")
+    for label, names in groups:
+        out.append(f"| {label} | {share(tot['C'], names):.1f}% | {share(tot['asm'], names):.1f}% |")
+    mem = [n for _, ns in groups[3:] for n in ns]
+    alu = ("ADD", "SUB", "CMP", "AND", "OR", "XOR")
+    out.append(f"| *ALU instructions with a memory operand* | {share(tot['C'], mem, alu):.1f}% | "
+               f"{share(tot['asm'], mem, alu):.1f}% |")
     out.append("")
     out.append("### Code size (bytes)\n")
     out.append("The program's own functions (C) against the whole assembly version "

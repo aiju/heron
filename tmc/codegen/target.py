@@ -62,6 +62,7 @@ def split_critical_edges(func):
 
 class Target:
     NAME = "?"
+    FOLD_LOADS = True       # loads can be operands of other instructions
     ALLOC_ORDER = PHYS[1:15]
     SMALL_ADD = (-16, 15)        # add constants that fit the one-parcel form
 
@@ -179,7 +180,7 @@ class Target:
                 continue
             end = ep[u]
             if i.op == "load":
-                if any(n < k < end for k in side):
+                if not self.FOLD_LOADS or any(n < k < end for k in side):
                     continue
             elif i.op not in PURE:
                 continue
@@ -578,36 +579,87 @@ class Target:
             work.extend(b.succs)
         mf.blocks = [b for b in mf.blocks if b in live]
 
-    def peephole(self):
-        """Target-independent clean-ups on the allocated code."""
-        mf = self.mf
-        for b in mf.blocks:
+    # After CMP r, #c, these conditions only depend on N and Z of r itself
+    # (with c = 0, V is 0, so GE is "not N"; r > -1 is r >= 0).
+    NZ_CONDS = {0: {"EQ": "EQ", "NE": "NE", "MI": "MI", "PL": "PL", "GE": "PL", "LT": "MI"},
+                -1: {"GT": "PL", "LE": "MI"}}
+
+    IMM_OPS = ()        # mnemonics whose second operand may be an immediate instead
+
+    def fold_constants(self):
+        """MOV rt, #c; OP rd, rt  ->  OP rd, #c, when rt dies there (left
+        over from constants rematerialised by the register allocator)."""
+        live_in, live_out = liveness(self.mf)
+        for b in self.mf.blocks:
+            live = set(live_out[b])
+            after = []
+            for i in reversed(b.instrs):
+                after.append(set(live))
+                live -= set(r for r in i.defs if is_alloc(r))
+                live |= set(r for r in i.uses if is_alloc(r))
+            after.reverse()
             out = []
-            for i in b.instrs:
-                # drop CMP r, #0 when the previous instruction set N and Z from r
-                if (i.op == "CMP" and len(i.ops) == 2 and isinstance(i.ops[1], Imm)
-                        and i.ops[1].value == 0 and out and out[-1].flags == "nz"
-                        and out[-1].ops and out[-1].ops[0] is i.ops[0]
-                        and self.only_zn_tested(b, len(out))):
+            for k, i in enumerate(b.instrs):
+                prev = out[-1] if out else None
+                if (prev is not None and prev.op == "MOV" and len(prev.ops) == 2
+                        and isinstance(prev.ops[1], Imm) and i.op in self.IMM_OPS
+                        and len(i.ops) == 2 and i.ops[1] is prev.ops[0]
+                        and i.ops[0] is not prev.ops[0] and prev.ops[0] not in after[k]
+                        and self.imm_ok(i.op, prev.ops[1].value)):
+                    t = prev.ops[0]
+                    out[-1] = MInstr(i.op, [i.ops[0], prev.ops[1]], i.defs,
+                                     [r for r in i.uses if r is not t], flags=i.flags)
                     continue
                 out.append(i)
             b.instrs = out
 
-    def only_zn_tested(self, b, k):
-        """The flags set before instruction k of block b are only used by
-        EQ/NE/MI/PL branches or SETs (which don't care about C and V)."""
+    def imm_ok(self, op, value):
+        return True
+
+    def peephole(self):
+        """Target-independent clean-ups on the allocated code."""
+        mf = self.mf
+        self.fold_constants()
+        for b in mf.blocks:
+            out = []
+            for i in b.instrs:
+                # drop CMP r, #c when the previous instruction set N and Z
+                # from r and only the conditions above are tested
+                if (i.op == "CMP" and len(i.ops) == 2 and isinstance(i.ops[1], Imm)
+                        and i.ops[1].value in self.NZ_CONDS and out and out[-1].flags == "nz"
+                        and out[-1].ops and out[-1].ops[0] is i.ops[0]):
+                    users = self.flag_users(b, len(out))
+                    conds = self.NZ_CONDS[i.ops[1].value]
+                    if users is not None and all(self.cond_of(u) in conds for u in users):
+                        for u in users:
+                            self.set_cond(u, conds[self.cond_of(u)])
+                        continue
+                out.append(i)
+            b.instrs = out
+
+    @staticmethod
+    def cond_of(i):
+        return i.cond if i.op == "BCC" else i.op[3:]
+
+    @staticmethod
+    def set_cond(i, cc):
+        if i.op == "BCC":
+            i.cond = cc
+        else:
+            i.op = "SET" + cc
+
+    def flag_users(self, b, k):
+        """The branches and SETs that read the flags set by instruction k of
+        block b, or None if they might be read further on."""
+        out = []
         for i in b.instrs[k + 1:]:
             if i.op == "BCC" or i.op.startswith("SET"):
-                cc = i.cond if i.op == "BCC" else i.op[3:]
-                if cc not in ("EQ", "NE", "MI", "PL"):
-                    return False
+                out.append(i)
                 continue
-            if i.op == "JMP":
-                return True
-            if i.flags in ("cmp", "nz") or i.op in ("BSR", "CALL"):
-                return True
-            return False
-        return True
+            if i.op in ("JMP", "RET") or i.flags in ("cmp", "nz") or i.op in ("BSR", "CALL"):
+                return out
+            return None
+        return out
 
     # ======================================================================
     # Assembly text

@@ -29,6 +29,7 @@ def fold_binop(op, a, b):
     if op == "shl": return a << (b & 31)
     if op == "shr": return a >> (b & 31)
     if op == "sar": return sa >> (b & 31)
+    if op == "rotr": return (a >> (b & 31)) | (a << (32 - (b & 31)))
     if op in ("divu", "remu", "divs", "rems") and b == 0:
         return None
     if op == "divu": return a // b
@@ -233,6 +234,16 @@ class Simplifier:
                 i.args = [a.args[0], Const(total)]
                 self.changed = True
                 return self.simplify(i)
+            # x + (y + c) -> (x + y) + c: constants move outwards, where an
+            # address displacement can absorb them
+            if c is None:
+                for x, y in ((a, b), (b, a)):
+                    if (isinstance(y, Instr) and y.op == "add" and isinstance(y.args[1], Const)
+                            and not isinstance(x, Const) and not isinstance(y.args[0], Const)):
+                        inner = self.new(i, "add", [x, y.args[0]])
+                        i.args, i.signed = [inner, y.args[1]], False
+                        self.changed = True
+                        return None
             # x + (-y) -> x - y
             if isinstance(b, Instr) and b.op == "neg":
                 i.op, i.args, i.signed = "sub", [a, b.args[0]], False
@@ -255,6 +266,12 @@ class Simplifier:
         elif op == "mul":
             if c == 0:
                 return Const(0)
+            if (c is not None and isinstance(a, Instr) and a.op == "add"
+                    and isinstance(a.args[1], Const) and not isinstance(a.args[0], Const)):
+                inner = self.new(i, "mul", [a.args[0], Const(c)])
+                i.op, i.args, i.signed = "add", [inner, Const(a.args[1].value * c)], False
+                self.changed = True
+                return None
             if c == 1:
                 return a
             if c == M32:
@@ -290,6 +307,9 @@ class Simplifier:
                     return a
                 if c == M32:
                     return Const(M32)
+                r = self.rotate(i, a, b)
+                if r:
+                    return None
             else:
                 if c == 0:
                     return a
@@ -297,14 +317,29 @@ class Simplifier:
                     i.op, i.args = "not", [a]
                     self.changed = True
                     return None
-        elif op in ("shl", "shr", "sar"):
+        elif op in ("shl", "shr", "sar", "rotr"):
             if c is not None and c & 31 == 0:
                 return a
+            # (x + c2) << c  ->  (x << c) + (c2 << c): the constant can then
+            # go into an address displacement, and x << c be strength-reduced
+            if (op == "shl" and c is not None and isinstance(a, Instr) and a.op == "add"
+                    and isinstance(a.args[1], Const) and not isinstance(a.args[0], Const)):
+                inner = self.new(i, "shl", [a.args[0], Const(c & 31)])
+                i.op, i.args, i.signed = "add", [inner, Const(a.args[1].value << (c & 31))], False
+                self.changed = True
+                return None
             if isinstance(a, Const) and a.value == 0:
                 return Const(0)
             if c is not None and c > 31:
                 i.args = [a, Const(c & 31)]
                 self.changed = True
+            if op == "rotr":
+                if c is not None and isinstance(a, Instr) and a.op == "rotr" \
+                        and isinstance(a.args[1], Const):
+                    i.args = [a.args[0], Const((a.args[1].value + c) & 31)]
+                    self.changed = True
+                    return self.simplify(i)
+                return None
             # (x >> c1) >> c2 for the same kind of shift
             if (c is not None and isinstance(a, Instr) and a.op == op
                     and isinstance(a.args[1], Const)):
@@ -364,6 +399,21 @@ class Simplifier:
                 return None
         return None
 
+    def rotate(self, i, a, b):
+        """(x >> n) | (x << (32 - n)) is a rotate."""
+        def shift(v, op):
+            if isinstance(v, Instr) and v.op == op and isinstance(v.args[1], Const):
+                return v.args[0], v.args[1].value & 31
+            return None, None
+        for x, y in ((a, b), (b, a)):
+            v1, n1 = shift(x, "shr")
+            v2, n2 = shift(y, "shl")
+            if v1 is not None and v1 is v2 and n1 + n2 == 32:
+                i.op, i.args = "rotr", [v1, Const(n1)]
+                self.changed = True
+                return True
+        return False
+
     def biased(self, i, a, k):
         """x + (2^k - 1 if x < 0 else 0), computed before i."""
         if k == 1:
@@ -400,6 +450,21 @@ class Simplifier:
                     return None
                 if op in ("eq", "ne") and c > 1:
                     return Const(0 if op == "eq" else 1)
+            # x == c where x + k is computed before: compare x + k with c + k
+            # instead, so x can die at the add (while (n--) ...). For < and >
+            # only if the add can't overflow.
+            if isinstance(a, (Instr, Param)) and op in ("eq", "ne", "lt", "le", "gt", "ge"):
+                for u in self.users.get(a, ()):
+                    if (u.op == "add" and u.args[0] is a and isinstance(u.args[1], Const)
+                            and u.block is i.block and u in self.pos and i in self.pos
+                            and self.pos[u] < self.pos[i]):
+                        k = u.args[1].signed
+                        if op not in ("eq", "ne") and not (
+                                u.signed and -(1 << 31) <= s32(c) + k < (1 << 31)):
+                            continue
+                        i.args = [u, Const(c + k)]
+                        self.changed = True
+                        return None
             if c == 0 and op in ("lt", "ge") and nonneg(a):
                 return Const(0 if op == "lt" else 1)
             # out-of-range compares of zero-extended values
@@ -477,6 +542,8 @@ class Simplifier:
         f = self.func
         self.dom = DomTree(f)
         self.uses = f.use_counts()
+        self.users = f.users()
+        self.pos = {i: n for b in f.blocks for n, i in enumerate(b.instrs)}
         mapping = {}
 
         def res(v):
@@ -516,6 +583,16 @@ class Simplifier:
                         and c.args[1].value == 0:
                     t.args = [c.args[0]]
                     self.changed = True
+                elif isinstance(c, Instr) and c.op == "phi":
+                    # while (n--): test n - 1 != -1, so n dies at the decrement
+                    for u in self.users.get(c, ()):
+                        if (u.op == "add" and u.args[0] is c and isinstance(u.args[1], Const)
+                                and u.block is b and u in b.instrs):
+                            cmp = Instr("ne", [u, Const(u.args[1].value)])
+                            b.insert(len(b.instrs) - 1, cmp)
+                            t.args = [cmp]
+                            self.changed = True
+                            break
             elif t.op == "switch":
                 c = t.args[0]
                 if isinstance(c, Const):
@@ -854,6 +931,45 @@ def scaled_iv(v, p):
     return None
 
 
+def lockstep_pointer(h, p, step, pre, latch, users, inside):
+    """Another header phi of the loop that is a pointer used for memory
+    accesses and moves by k * step whenever p moves by step. Returns
+    (q, q_next, base, k) with base = q's start minus p's start times k,
+    or None."""
+    if not isinstance(step, int) or step <= 0:
+        return None
+    p0 = p.args[p.incoming.index(pre)]
+    for q in h.phis():
+        if q is p:
+            continue
+        qn = q.args[q.incoming.index(latch)]
+        if not (isinstance(qn, Instr) and qn.op == "add" and qn.args[0] is q
+                and isinstance(qn.args[1], Const)):
+            continue
+        qstep = qn.args[1].signed
+        if qstep <= 0 or qstep % step:
+            continue
+        k = qstep // step
+
+        def addr_use(v, depth=0):
+            for u in users.get(v, []):
+                if (u.op == "load" and u.args[0] is v) or (u.op == "store" and u.args[1] is v):
+                    return True
+                if depth < 1 and u.op == "add" and u in inside and isinstance(u.args[1], Const) \
+                        and addr_use(u, depth + 1):
+                    return True
+            return False
+        if not addr_use(q):
+            continue
+        q0 = q.args[q.incoming.index(pre)]
+        off = Instr("mul", [p0, Const(k)])
+        base = Instr("sub", [q0, off])
+        pre.insert(len(pre.instrs) - 1, off)
+        pre.insert(len(pre.instrs) - 1, base)
+        return q, qn, base, k
+    return None
+
+
 def strength_reduce(func):
     """For a loop counter p (a header phi stepped by a constant) and an
     address base + p * k with base invariant in the loop, keep a pointer
@@ -880,26 +996,35 @@ def strength_reduce(func):
             init = p.args[p.incoming.index(pre)]
             nxt = p.args[p.incoming.index(latch)]
             if not (isinstance(nxt, Instr) and nxt.op == "add" and nxt.args[0] is p
-                    and isinstance(nxt.args[1], Const) and nxt in inside):
+                    and invariant(nxt.args[1]) and nxt in inside):
                 continue
-            step = nxt.args[1].signed
-            # address computations base + p * k inside the loop
+            step = nxt.args[1].signed if isinstance(nxt.args[1], Const) else nxt.args[1]
+            # base + p * k inside the loop (base invariant): addresses, and
+            # multiplies (an add per iteration is cheaper than a MUL)
             cands = []
             for u in users.get(p, []):
                 if u.op in ("shl", "mul") and u in inside and scaled_iv(u, p):
-                    cands.extend((a, u) for a in users.get(u, []))
-                elif u.op == "add" and u in inside:
-                    cands.append((u, p))
+                    for a in users.get(u, []):
+                        if a.op == "add" and a in inside and u in a.args:
+                            base = a.args[1] if a.args[0] is u else a.args[0]
+                            cands.append((a, base, scaled_iv(u, p)))
+                    if u.op == "mul":
+                        cands.append((u, Const(0), scaled_iv(u, p)))
+                elif u.op == "add" and u in inside and u is not nxt:
+                    base = u.args[1] if u.args[0] is p else u.args[0]
+                    cands.append((u, base, 1))
             reduced = {}
-            for a, term in cands:
-                if a.op != "add" or a not in inside or term not in a.args:
+            for a, base, k in cands:
+                if base is p or not invariant(base) or k is None:
                     continue
-                base = a.args[1] if a.args[0] is term else a.args[0]
-                if base is term or not invariant(base):
+                if k == 1 and isinstance(base, Const):
+                    continue        # p + c: addressing modes take the offset for free
+                is_addr = any((x.op == "load" and x.args[0] is a) or
+                              (x.op == "store" and x.args[1] is a and x.args[0] is not a)
+                              for x in users.get(a, []))
+                if not is_addr and a.op != "mul" and not any(
+                        isinstance(t, Instr) and t.op == "mul" for t in a.args):
                     continue
-                if not any(x.op in ("load", "store") for x in users.get(a, [])):
-                    continue
-                k = scaled_iv(term, p)
                 key = (id(base), k)
                 if key not in reduced:
                     q = Instr("phi", [], incoming=[])
@@ -908,17 +1033,22 @@ def strength_reduce(func):
                     start = Instr("add", [base, off])
                     pre.insert(len(pre.instrs) - 1, off)
                     pre.insert(len(pre.instrs) - 1, start)
-                    qn = Instr("add", [q, Const(step * k)])
+                    if isinstance(step, int):
+                        stride = Const(step * k)
+                    else:
+                        stride = Instr("mul", [step, Const(k)])
+                        pre.insert(len(pre.instrs) - 1, stride)
+                    qn = Instr("add", [q, stride])
                     nb = nxt.block
                     nb.insert(nb.instrs.index(nxt) + 1, qn)
                     q.args = [start, qn]
                     q.incoming = [pre, latch]
-                    reduced[key] = (q, qn, base, k)
+                    reduced[key] = [q, qn, base, k, False]
+                reduced[key][4] |= is_addr
                 func.replace_uses({a: reduced[key][0]})
                 changed = True
-            if not reduced:
-                continue
-            # linear function test replacement
+            # linear function test replacement: if the counter only ends
+            # the loop, test a pointer that moves in step with it instead
             dce(func)
             users = func.users()
             if any(u is not nxt for u in users.get(p, [])):
@@ -930,9 +1060,17 @@ def strength_reduce(func):
             lim = cmp.args[1] if cmp.args[0] is nxt else cmp.args[0]
             if lim is nxt or not invariant(lim) or step == 0:
                 continue
-            q, qn, base, k = next(iter(reduced.values()))
-            if k <= 0:
-                continue
+            if not isinstance(step, int) and cmp.op not in ("lt", "le", "ltu", "leu"):
+                continue            # the direction of an unknown step: only counting up
+            # only an address walk is known not to wrap around
+            walks = [r for r in reduced.values() if r[4] and r[3] > 0]
+            if walks:
+                q, qn, base, k, _ = walks[0]
+            else:
+                w = lockstep_pointer(h, p, step, pre, latch, users, inside)
+                if w is None:
+                    continue
+                q, qn, base, k = w
             off = Instr("mul", [lim, Const(k)])
             end = Instr("add", [base, off])
             pre.insert(len(pre.instrs) - 1, off)
@@ -943,6 +1081,38 @@ def strength_reduce(func):
         if changed:
             dom = DomTree(func)
     return changed
+
+
+# --------------------------------------------------------------------------
+# Sinking
+
+
+def sink(func):
+    """Move a step like p + 1 down past the last use of p in its block
+    (but not past its own first use), so p dies at the step and the two
+    can share a register instead of needing a copy on the loop's back
+    edge. Only single-operand instructions move: sinking a whole
+    expression tree below its leaves would only raise register pressure."""
+    for b in func.blocks:
+        instrs = b.instrs
+        k = len(instrs) - 2
+        while k >= 0:
+            i = instrs[k]
+            regs = [a for a in i.args if isinstance(a, (Instr, Param))]
+            if i.op in PURE and i.op not in ("phi", "vastart") and len(regs) == 1:
+                x = regs[0]
+                first = len(instrs) - 1
+                last_x = None
+                for n in range(k + 1, len(instrs)):
+                    if i in instrs[n].args:
+                        first = n
+                        break
+                    if x in instrs[n].args:
+                        last_x = n
+                if last_x is not None and last_x < len(instrs) - 1:
+                    instrs.pop(k)
+                    instrs.insert(last_x, i)
+            k -= 1
 
 
 # --------------------------------------------------------------------------
@@ -958,6 +1128,8 @@ def hoist_constants(func, free_imm):
     loops = natural_loops(func, dom)
     changed = False
     for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
+        if any(i.op == "call" for b in body for i in b.instrs):
+            continue        # across a call the constant would need a callee-saved register
         pre = make_preheader(func, h, body)
         if pre is None:
             continue
@@ -980,8 +1152,10 @@ def hoist_constants(func, free_imm):
                         i.args[0] = reg_for(v)
                 elif op in CMPOPS or op in BINOPS:
                     for k, v in enumerate(i.args):
-                        if k == 1 and op in ("shl", "shr", "sar") and isinstance(v, Const):
+                        if k == 1 and op in ("shl", "shr", "sar", "rotr") and isinstance(v, Const):
                             continue
+                        if op in ("add", "sub"):
+                            continue        # displacements and LEA take any constant
                         if isinstance(v, (Const, SymAddr)) and not free_imm(op, v):
                             i.args[k] = reg_for(v)
         changed |= bool(made)
@@ -1020,3 +1194,6 @@ def optimize(func, level=1, verify=False, free_imm=None):
         cleanup_cfg(func)
         if verify:
             check(func)
+    sink(func)
+    if verify:
+        check(func)

@@ -14,7 +14,7 @@ from .addr import decompose, fits
 
 ALU = {"add": "ADD", "sub": "SUB", "and": "AND", "or": "OR", "xor": "XOR", "mul": "MULS",
        "divs": "DIVS", "divu": "DIVU"}
-SHIFT = {"shl": "LSL", "shr": "LSR", "sar": "ASR"}
+SHIFT = {"shl": "LSL", "shr": "LSR", "sar": "ASR", "rotr": "ROR"}
 UNARY = {"neg": "NEG", "not": "NOT", "sext8": "SXB", "zext8": "ZXB", "sext16": "SXH",
          "zext16": "ZXH"}
 LOADS = {(1, False): "LDB", (1, True): "LDSB", (2, False): "LDH", (2, True): "LDSH",
@@ -24,6 +24,9 @@ STORES = {1: "STB", 2: "STH", 4: "ST"}
 
 class V1A(Target):
     NAME = "v1a"
+    FOLD_LOADS = False      # load/store: no memory operands
+    IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR", "BIC", "TST", "MULU", "MULS",
+               "DIVU", "DIVS", "ADC", "SBC")
     SMALL_ADD = (-128, 127)
 
     @staticmethod

@@ -1,42 +1,47 @@
 /* queens: count the solutions of the 8 queens problem by backtracking with
-   bitmasks, and print the first solution found (lowest column first). */
+   bitmasks (bit i = column i), and print the first solution found, which is
+   the first in lowest-column-first order. The same algorithm as the
+   assembly versions: the free squares of a row are a mask, and x & -x picks
+   the lowest one. */
 #include <stdio.h>
+#include <string.h>
 
 #define N 8
 
 static int count;
-static int cols[N], first[N];
+static unsigned cur[N], first[N];
 
-static void solve(int row, unsigned free, unsigned left, unsigned right)
+static void solve(unsigned *row, unsigned free, unsigned left, unsigned right)
 {
-    int c;
-    if (row == N) {
-        if (count++ == 0) {
-            for (c = 0; c < N; c++)
-                first[c] = cols[c];
-        }
+    unsigned squares;
+    if (free == 0) {                    /* every column used: a solution */
+        if (++count == 1)
+            memcpy(first, cur, sizeof cur);
         return;
     }
-    for (c = 0; c < N; c++) {
-        unsigned bit = 1u << c;
-        if ((free & bit) && !(left & bit) && !(right & bit)) {
-            cols[row] = c;
-            solve(row + 1, free & ~bit, (left | bit) << 1, (right | bit) >> 1);
-        }
+    squares = free & ~left & ~right;
+    while (squares) {
+        unsigned bit = squares & -squares;
+        squares &= ~bit;
+        *row = bit;
+        solve(row + 1, free & ~bit, (left | bit) << 1, (right | bit) >> 1);
     }
 }
 
 int main(void)
 {
     int r, c;
-    solve(0, (1u << N) - 1, 0, 0);
+    solve(cur, (1u << N) - 1, 0, 0);
     printf("solutions: %d\nfirst:", count);
-    for (r = 0; r < N; r++)
-        printf(" %d", first[r] + 1);
+    for (r = 0; r < N; r++) {
+        for (c = 0; !(first[r] & 1u << c); c++)
+            ;
+        printf(" %d", c + 1);
+    }
     printf("\n");
     for (r = 0; r < N; r++) {
         for (c = 0; c < N; c++)
-            printf(c ? " %c" : "%c", c == first[r] ? 'Q' : '.');
+            printf(c ? " %c" : "%c", first[r] & 1u << c ? 'Q' : '.');
         printf("\n");
     }
     return 0;

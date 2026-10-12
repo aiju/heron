@@ -23,6 +23,13 @@ from . import tree as N
 from .parse import NotConstant, norm, eval_int
 
 
+class PlacingBuilder(Builder):
+    def set_block(self, b):
+        if b is not None and b not in self.func.blocks:
+            self.func.blocks.append(b)
+        self.block = b
+
+
 def load_info(ty):
     if ty.is_pointer:
         return 4, False
@@ -41,7 +48,7 @@ class FuncGen:
         self.f = ir.Function(fd.sym.asm_name, n, variadic=fty.variadic,
                              returns=not (fty.ret.is_void or self.sret),
                              static=fd.sym.storage == "static", param_names=names)
-        self.b = Builder(self.f)
+        self.b = PlacingBuilder(self.f)
         self.breaks = []
         self.continues = []
         self.labels = {}
@@ -82,7 +89,11 @@ class FuncGen:
         return f
 
     def new_block(self, hint=""):
-        return self.f.new_block(hint)
+        """A block that is placed in the function's block order only when
+        code starts going into it, so the layout follows the source."""
+        blk = self.f.new_block(hint)
+        self.f.blocks.remove(blk)
+        return blk
 
     def goto_block(self, blk):
         """End the current block with a jump to blk (if it's still open) and

@@ -61,41 +61,26 @@ char *fgets(char *buf, int size, FILE *f)
 
 /* ---- printf ---- */
 
-struct sink {
-    char *buf;          /* 0: the console */
-    size_t room;        /* bytes left in buf, including the final NUL */
-    int n;              /* characters produced */
-};
+/* The formatter writes either to the console (buf == 0) or into a buffer
+   with room for `room` bytes including the final NUL. The output state is
+   kept in locals so it lives in registers. */
 
-static void out(struct sink *s, int c)
-{
-    s->n++;
-    if (s->buf == 0) {
-        TMC_CONSOLE = c;
-    } else if (s->room > 1) {
-        *s->buf++ = c;
-        s->room--;
-    }
-}
+#define OUT(ch) do { int c_ = (ch); n++; if (buf == 0) TMC_CONSOLE = c_; \
+                     else if (room > 1) { *buf++ = c_; room--; } } while (0)
 
-static void pad(struct sink *s, int c, int n)
+static int format(char **bufp, size_t room, const char *fmt, va_list ap)
 {
-    while (n-- > 0)
-        out(s, c);
-}
-
-static int format(struct sink *s, const char *fmt, va_list ap)
-{
+    char *buf = *bufp;
     char digits[12];
-    int c;
+    int n = 0, c;
     while ((c = *fmt++) != 0) {
         int left = 0, zero = 0, plus = 0, space = 0, alt = 0;
         int width = 0, prec = -1;
-        int len, neg, base, upper;
+        int len, neg, base, upper, k;
         unsigned u;
         char *str;
         if (c != '%') {
-            out(s, c);
+            OUT(c);
             continue;
         }
         for (;;) {
@@ -116,7 +101,7 @@ static int format(struct sink *s, const char *fmt, va_list ap)
             }
             fmt++;
         } else {
-            while (*fmt >= '0' && *fmt <= '9')
+            while ((unsigned)(*fmt - '0') < 10)
                 width = width * 10 + (*fmt++ - '0');
         }
         if (*fmt == '.') {
@@ -126,7 +111,7 @@ static int format(struct sink *s, const char *fmt, va_list ap)
                 prec = va_arg(ap, int);
                 fmt++;
             } else {
-                while (*fmt >= '0' && *fmt <= '9')
+                while ((unsigned)(*fmt - '0') < 10)
                     prec = prec * 10 + (*fmt++ - '0');
             }
         }
@@ -168,9 +153,11 @@ static int format(struct sink *s, const char *fmt, va_list ap)
             base = 8;
             break;
         case 'c':
-            pad(s, ' ', left ? 0 : width - 1);
-            out(s, va_arg(ap, int));
-            pad(s, ' ', left ? width - 1 : 0);
+            for (k = 1; !left && k < width; k++)
+                OUT(' ');
+            OUT(va_arg(ap, int));
+            for (k = 1; left && k < width; k++)
+                OUT(' ');
             continue;
         case 's':
             str = va_arg(ap, char *);
@@ -178,18 +165,18 @@ static int format(struct sink *s, const char *fmt, va_list ap)
                 str = "(null)";
             for (len = 0; str[len] && (prec < 0 || len < prec); len++)
                 ;
-            if (!left)
-                pad(s, ' ', width - len);
-            for (base = 0; base < len; base++)
-                out(s, str[base]);
-            if (left)
-                pad(s, ' ', width - len);
+            for (k = len; !left && k < width; k++)
+                OUT(' ');
+            for (k = 0; k < len; k++)
+                OUT(str[k]);
+            for (k = len; left && k < width; k++)
+                OUT(' ');
             continue;
         case 0:
             fmt--;
             continue;
         default:
-            out(s, c);
+            OUT(c);
             continue;
         }
         /* digits, least significant first */
@@ -208,32 +195,31 @@ static int format(struct sink *s, const char *fmt, va_list ap)
                 zeros += width - total;
                 total = width;
             }
-            if (!left)
-                pad(s, ' ', width - total);
+            for (k = total; !left && k < width; k++)
+                OUT(' ');
             if (sign)
-                out(s, neg ? '-' : (plus ? '+' : ' '));
+                OUT(neg ? '-' : (plus ? '+' : ' '));
             if (prefix) {
-                out(s, '0');
+                OUT('0');
                 if (base == 16)
-                    out(s, upper ? 'X' : 'x');
+                    OUT(upper ? 'X' : 'x');
             }
-            pad(s, '0', zeros);
+            while (zeros-- > 0)
+                OUT('0');
             while (len > 0)
-                out(s, digits[--len]);
-            if (left)
-                pad(s, ' ', width - total);
+                OUT(digits[--len]);
+            for (k = total; left && k < width; k++)
+                OUT(' ');
         }
     }
-    return s->n;
+    *bufp = buf;
+    return n;
 }
 
 int vprintf(const char *fmt, va_list ap)
 {
-    struct sink s;
-    s.buf = 0;
-    s.room = 0;
-    s.n = 0;
-    return format(&s, fmt, ap);
+    char *none = 0;
+    return format(&none, 0, fmt, ap);
 }
 
 int printf(const char *fmt, ...)
@@ -252,14 +238,10 @@ int fprintf(FILE *f, const char *fmt, ...)
 
 int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap)
 {
-    struct sink s;
-    int n;
-    s.buf = buf;
-    s.room = size;
-    s.n = 0;
-    n = format(&s, fmt, ap);
+    char *end = buf;
+    int n = format(&end, size, fmt, ap);
     if (size > 0)
-        *s.buf = 0;
+        *end = 0;
     return n;
 }
 

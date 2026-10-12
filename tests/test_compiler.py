@@ -212,6 +212,25 @@ static int (*const ops[])(int) = {inc, dbl, inc};
 int main(void) { int i, v = 3; for (i = 0; i < 3; i++) v = ops[i](v); printf("%d\\n", v); return 0; }
 """, "9\n")
 
+    def test_strength_reduced_value_isnt_an_address(self):
+        # k * 7 - 30 becomes a counter of its own, but the loop must still
+        # be ended by the address walk, not by comparing that value
+        self.check("""#include <stdio.h>
+int arr[16];
+int main(void) { int k; for (k = 0; k < 16; k++) arr[k] = k * 7 - 30;
+printf("%d %d\\n", arr[4], arr[15]); return 0; }""", "-2 75\n")
+
+    def test_countdown_loops(self):
+        self.check("""#include <stdio.h>
+int main(void) { int n = 5, s = 0; unsigned u = 3; while (n--) s += n; while (u--) s += 100;
+printf("%d %d %u\\n", s, n, u); return 0; }""", "310 -1 4294967295\n")
+
+    def test_rotates(self):
+        self.check("""#include <stdio.h>
+static unsigned rol(unsigned x, int n) { return x << n | x >> (32 - n); }
+int main(void) { unsigned x = 0x80000001u; printf("%x %x %x\\n", rol(x, 1), x >> 4 | x << 28, rol(x, 31)); return 0; }""",
+                   "3 18000000 c0000000\n")
+
     def test_spill_pressure(self):
         # more live values than registers
         body = "".join(f"int v{i} = x * {i + 3};\n" for i in range(24))

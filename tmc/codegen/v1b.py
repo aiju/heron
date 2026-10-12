@@ -16,7 +16,7 @@ from .target import Target, COND, SWAP, CALLER_SAVED
 from .addr import decompose, fits
 
 ALU = {"add": "ADD", "sub": "SUB", "and": "AND", "or": "OR", "xor": "XOR"}
-SHIFT = {"shl": "LSL", "shr": "LSR", "sar": "ASR"}
+SHIFT = {"shl": "LSL", "shr": "LSR", "sar": "ASR", "rotr": "ROR"}
 UNARY = {"neg": "NEG", "not": "NOT", "sext8": "SXB", "zext8": "ZXB", "sext16": "SXH",
          "zext16": "ZXH"}
 SIZE_KW = {1: "byte ", 2: "half ", 4: ""}
@@ -25,6 +25,7 @@ SIZE_KW = {1: "byte ", 2: "half ", 4: ""}
 class V1B(Target):
     NAME = "v1b"
     SMALL_ADD = (-16, 15)
+    IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR")
 
     @staticmethod
     def free_imm(op, c):

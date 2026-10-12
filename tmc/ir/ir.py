@@ -13,7 +13,7 @@ Values:
     Instr           the result of an instruction
 
 Instructions (`%x = op args`):
-    binary          add sub mul divs divu rems remu and or xor shl shr sar
+    binary          add sub mul divs divu rems remu and or xor shl shr sar rotr
     compare         eq ne lt le gt ge ltu leu gtu geu      -> 0 or 1
     unary           neg not sext8 sext16 zext8 zext16 copy
     load            load.SIZE addr  (SIZE = u8 s8 u16 s16 32), volatile flag
@@ -32,7 +32,7 @@ Shifts take the count modulo 32. Division by zero is undefined.
 M32 = 0xFFFFFFFF
 
 BINOPS = ("add", "sub", "mul", "divs", "divu", "rems", "remu",
-          "and", "or", "xor", "shl", "shr", "sar")
+          "and", "or", "xor", "shl", "shr", "sar", "rotr")
 CMPOPS = ("eq", "ne", "lt", "le", "gt", "ge", "ltu", "leu", "gtu", "geu")
 UNOPS = ("neg", "not", "sext8", "sext16", "zext8", "zext16", "copy")
 COMMUTATIVE = frozenset(("add", "mul", "and", "or", "xor", "eq", "ne"))
