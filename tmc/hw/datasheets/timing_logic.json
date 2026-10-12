@@ -845,6 +845,146 @@
       }
     ]
   },
+  "74HCT299": {
+    "family": "HCT",
+    "function": "8-bit universal shift/storage register, 3-state parallel I/O, async clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT299",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct299.pdf",
+    "datasheet": "TI SCHS178C (Jan 1998, revised May 2003; Harris-derived), covers CD54/74HC299 and CD54/74HCT299; package addendum dated 18 Sep 2026",
+    "availability": "Only one current maker: Texas Instruments. CD74HCT299E (20-pin PDIP) and CD74HCT299M96 (SOIC-20, reel) are 'Active' in TI's package addendum (18 Sep 2026); CD74HCT299M (SOIC tube) is obsolete. Nexperia's 74HC299 page (checked Oct 2026) lists only 74HC299 parts and no 74HCT299. The NXP 74HCT299 in 'alt' is discontinued. No other HCT299 source found.",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "CLK->I/O": {
+        "typ": 19,
+        "max": 56
+      },
+      "CLK->Q0,Q7": {
+        "typ": 19,
+        "max": 56
+      },
+      "/CLR->I/O": {
+        "max": 58
+      },
+      "/CLR->Q0,Q7": {
+        "max": 58
+      },
+      "/OE->I/O enable": {
+        "typ": 13,
+        "max": 40
+      },
+      "/OE->I/O disable": {
+        "typ": 15,
+        "max": 46
+      },
+      "S0,S1->I/O enable_est": {
+        "typ": 13,
+        "max": 40,
+        "basis": "NOT specified in any 299 datasheet found (TI CD74HCT299, NXP 74HCT299, TI CD74ACT299, Fairchild/onsemi 74ACT299): all give only OE->I/O enable/disable. All of them say S0 = S1 = H turns the I/O 3-state buffers off just like a high /OE1 or /OE2 (TI: 'regardless of the status of OE1 and OE2'), so the estimate is set equal to this datasheet's /OE->I/O time. Not a guaranteed bound: S0/S1 may pass through one more gate (mode decode) than /OE, so leave a few ns of margin, e.g. switch S0/S1 to load early in the cycle before the other bus driver turns on."
+      },
+      "S0,S1->I/O disable_est": {
+        "typ": 15,
+        "max": 46,
+        "basis": "NOT specified in any 299 datasheet found (TI CD74HCT299, NXP 74HCT299, TI CD74ACT299, Fairchild/onsemi 74ACT299): all give only OE->I/O enable/disable. All of them say S0 = S1 = H turns the I/O 3-state buffers off just like a high /OE1 or /OE2 (TI: 'regardless of the status of OE1 and OE2'), so the estimate is set equal to this datasheet's /OE->I/O time. Not a guaranteed bound: S0/S1 may pass through one more gate (mode decode) than /OE, so leave a few ns of margin, e.g. switch S0/S1 to load early in the cycle before the other bus driver turns on."
+      }
+    },
+    "checks": {
+      "setup S0,S1->CLK": 34,
+      "hold S0,S1->CLK": 0,
+      "setup DS0,DS7->CLK": 25,
+      "hold DS0,DS7->CLK": 0,
+      "setup I/O->CLK": 25,
+      "hold I/O->CLK": 0,
+      "tw CLK": 25,
+      "tw /CLR": 19,
+      "recovery /CLR->CLK": 5,
+      "fmax_MHz": 20
+    },
+    "pins": {
+      "1": "S0",
+      "2": "/OE1",
+      "3": "/OE2",
+      "4": "I/O6",
+      "5": "I/O4",
+      "6": "I/O2",
+      "7": "I/O0",
+      "8": "Q0",
+      "9": "/MR",
+      "10": "GND",
+      "11": "DS0",
+      "12": "CP",
+      "13": "I/O1",
+      "14": "I/O3",
+      "15": "I/O5",
+      "16": "I/O7",
+      "17": "Q7",
+      "18": "DS7",
+      "19": "S1",
+      "20": "VCC"
+    },
+    "function_table": {
+      "/MR=L": "asynchronous clear: Q0-Q7 = L, overrides S0, S1 and CP",
+      "S1=L S0=L": "hold: register unchanged on the CP rising edge (TI 'Hold (do nothing)')",
+      "S1=L S0=H": "shift right (TI/NXP/Fairchild name) = toward Q7: on CP rising edge DS0 -> Q0, Q0 -> Q1, ..., Q6 -> Q7",
+      "S1=H S0=L": "shift left = toward Q0: on CP rising edge DS7 -> Q7, Q7 -> Q6, ..., Q1 -> Q0",
+      "S1=H S0=H": "parallel load: on CP rising edge I/On -> Qn. The I/O output buffers are off (Z) in this mode whatever /OE1 and /OE2 are, so the I/O pins act as inputs"
+    },
+    "io_outputs": "I/O0-I/O7 drive the register contents only when /OE1 = L and /OE2 = L and NOT (S0 = H and S1 = H). /OE1 = H or /OE2 = H -> Z. S0 = S1 = H -> Z regardless of /OE1, /OE2 (the pins become the parallel-load inputs). Shift, hold, load and clear still work while the I/O pins are Z. Q0 and Q7 are ordinary (non-3-state) serial outputs, always driven, unaffected by /OE1, /OE2, S0 and S1.",
+    "notes": "Datasheet names: CP = CLK, MR (active low, /MR) = /CLR, OE1/OE2 (active low) = /OE (either one high disables), DS0 = serial input for shift right (toward Q7), DS7 = serial input for shift left (toward Q0), Q0/Q7 = serial outputs (other 299 datasheets call them Q0'/Q7' or QA'/QH'). '/' in 'pins' marks an overbar. TI gives one row for 'Clock to I/O Output, Clock to Q0 and Q7' (45 max at 25 C) and one row for 'MR to Output' (all outputs); MR has no 5 V/15 pF typical in the HCT section. The enable/disable typical is printed '10, 13, 15' for tPZL, tPZH/tPLZ, tPHZ (order taken from the HC rows of the same table), so enable typ = tPZH 13 and disable typ = tPHZ 15. Max: tPZH 40, tPZL 38; tPHZ 46, tPLZ 40. The HCT prerequisite table has two setup rows: 'DS0, DS7, I/On, S0, S1 to Clock' = 25 and 'S1, S0 to Clock' = 34; the specific (larger) 34 is used for S0/S1. tw CLK is not split into high and low. Vendor spread: the discontinued NXP part needs 31 ns data and 40 ns S0/S1 setup, but has a faster CLK->output (46). S0,S1->I/O _est arcs: see their basis.",
+    "alt": [
+      {
+        "manufacturer": "NXP Semiconductors",
+        "part_number": "74HCT299",
+        "source": "https://xdevs.com/doc/_Datasheets/Logic_74/74HC_HCT299_3.pdf",
+        "datasheet": "NXP 74HC299; 74HCT299 product data sheet, Rev. 03, 28 Jul 2008 (mirror on xdevs.com; Nexperia no longer publishes an HCT299 sheet, its current 74HC299 Rev. 7, 5 Aug 2024 covers the HC part only)",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF; typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+        "arcs": {
+          "CLK->I/O": {
+            "typ": 19,
+            "typ_4V5_50pF": 22,
+            "max": 46
+          },
+          "CLK->Q0,Q7": {
+            "typ": 19,
+            "typ_4V5_50pF": 22,
+            "max": 46
+          },
+          "/CLR->I/O": {
+            "typ": 23,
+            "typ_4V5_50pF": 27,
+            "max": 58
+          },
+          "/CLR->Q0,Q7": {
+            "typ": 23,
+            "typ_4V5_50pF": 27,
+            "max": 58
+          },
+          "/OE->I/O enable": {
+            "typ_4V5_50pF": 19,
+            "max": 38
+          },
+          "/OE->I/O disable": {
+            "typ_4V5_50pF": 24,
+            "max": 46
+          }
+        },
+        "checks": {
+          "setup S0,S1->CLK": 40,
+          "hold S0,S1->CLK": 0,
+          "setup DS0,DS7->CLK": 31,
+          "hold DS0,DS7->CLK": 0,
+          "setup I/O->CLK": 31,
+          "hold I/O->CLK": 0,
+          "tw CLK": 25,
+          "tw /CLR": 25,
+          "recovery /CLR->CLK": 9,
+          "fmax_MHz": 20
+        },
+        "notes": "Discontinued (no 74HCT299 on nexperia.com, Oct 2026); for reference only. NXP names: DSR = DS0, DSL = DS7, CP = CLK, MR = /CLR, OE1/OE2 = /OE; same pinout and function table as TI. Disable: tPHZ 24/46, tPLZ 20/40 (typ_4V5_50pF/max). MR gives only tPHL. Recovery is printed 10 (25 C), 9 (-40..+85 C), 11 (-40..+125 C)."
+      }
+    ]
+  },
   "74HCT377": {
     "family": "HCT",
     "function": "octal D flip-flop with clock enable",
@@ -1686,6 +1826,149 @@
     },
     "checks": {},
     "notes": "No separate DIR->output spec; treat a DIR change as disable plus enable."
+  },
+  "74ACT299": {
+    "family": "ACT",
+    "function": "8-bit universal shift/storage register, 3-state parallel I/O, async clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT299",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act299.pdf",
+    "checks_source": "https://datasheet4u.com/pdf/1510948/CD74ACT299.pdf",
+    "datasheet": "TI SCHS288A (Dec 1998, revised Dec 2024), covers CD54/74AC299, CD74AC323 and CD54/74ACT299; arcs from its 'Switching Characteristics, ACT Series'. Rev. A dropped the timing-requirements table, so 'checks' come from the previous revision SCHS288 (Harris-derived scan, TI PDF with package addendum dated 3 Mar 2022, table 'Prerequisite for switching: ACT series', p.257), read from the datasheet4u.com mirror in checks_source.",
+    "availability": "Only one current maker: Texas Instruments, and only in SOIC. CD74ACT299M96 (SOIC-20, reel) is 'Active' in TI's package addendum (18 Sep 2026), plus military CD54ACT299F3A (CDIP). No plastic DIP; no SN74ACT299 exists (ti.com link 404s). Fairchild/onsemi 74ACT299 (SC/MTC/PC) is obsolete per DigiKey and other distributors, and DigiKey points to the TI part. onsemi still hosts MC74AC299/D Rev. 8 (Jun 2006), which lists MC74ACT299N/DW, but no orderable MC74ACT299 was found.",
+    "typ_cond": "not given (TI's front page only quotes 'typical propagation delay 6 ns @ VCC = 5 V, 25 C, CL = 50 pF'; see 'alt' for Fairchild typicals)",
+    "max_cond": "max/min: -40..+85 C, VCC 5 V +-0.5 V (i.e. covers 4.5 V), CL 50 pF; checks -40..+85 C, '5 V: min is @ 4.5 V'",
+    "arcs": {
+      "CLK->I/O": {
+        "min": 3.7,
+        "max": 13.2
+      },
+      "CLK->Q0,Q7": {
+        "min": 3.3,
+        "max": 11.7
+      },
+      "/CLR->I/O": {
+        "min": 4.8,
+        "max": 16.9
+      },
+      "/CLR->Q0,Q7": {
+        "min": 3.1,
+        "max": 11.1
+      },
+      "/OE->I/O enable": {
+        "min": 3.8,
+        "max": 13.5
+      },
+      "/OE->I/O disable": {
+        "min": 3.8,
+        "max": 13.5
+      },
+      "S0,S1->I/O enable_est": {
+        "max": 13.5,
+        "basis": "NOT specified in any 299 datasheet found (TI CD74HCT299, NXP 74HCT299, TI CD74ACT299, Fairchild/onsemi 74ACT299): all give only OE->I/O enable/disable. All of them say S0 = S1 = H turns the I/O 3-state buffers off just like a high /OE1 or /OE2 (TI: 'regardless of the status of OE1 and OE2'), so the estimate is set equal to this datasheet's /OE->I/O time. Not a guaranteed bound: S0/S1 may pass through one more gate (mode decode) than /OE, so leave a few ns of margin, e.g. switch S0/S1 to load early in the cycle before the other bus driver turns on."
+      },
+      "S0,S1->I/O disable_est": {
+        "max": 13.5,
+        "basis": "NOT specified in any 299 datasheet found (TI CD74HCT299, NXP 74HCT299, TI CD74ACT299, Fairchild/onsemi 74ACT299): all give only OE->I/O enable/disable. All of them say S0 = S1 = H turns the I/O 3-state buffers off just like a high /OE1 or /OE2 (TI: 'regardless of the status of OE1 and OE2'), so the estimate is set equal to this datasheet's /OE->I/O time. Not a guaranteed bound: S0/S1 may pass through one more gate (mode decode) than /OE, so leave a few ns of margin, e.g. switch S0/S1 to load early in the cycle before the other bus driver turns on."
+      }
+    },
+    "checks": {
+      "setup S0,S1->CLK": 7.9,
+      "hold S0,S1->CLK": 0,
+      "setup DS0,DS7->CLK": 3.9,
+      "hold DS0,DS7->CLK": 0,
+      "setup I/O->CLK": 3.9,
+      "hold I/O->CLK": 0,
+      "tw CLK": 4.8,
+      "tw /CLR": 4.4,
+      "recovery /CLR->CLK": 4.4,
+      "fmax_MHz": 103
+    },
+    "pins": {
+      "1": "S0",
+      "2": "/OE1",
+      "3": "/OE2",
+      "4": "I/O6",
+      "5": "I/O4",
+      "6": "I/O2",
+      "7": "I/O0",
+      "8": "Q0",
+      "9": "/MR",
+      "10": "GND",
+      "11": "DS0",
+      "12": "CP",
+      "13": "I/O1",
+      "14": "I/O3",
+      "15": "I/O5",
+      "16": "I/O7",
+      "17": "Q7",
+      "18": "DS7",
+      "19": "S1",
+      "20": "VCC"
+    },
+    "function_table": {
+      "/MR=L": "asynchronous clear: Q0-Q7 = L, overrides S0, S1 and CP",
+      "S1=L S0=L": "hold: register unchanged on the CP rising edge (TI 'Hold (do nothing)')",
+      "S1=L S0=H": "shift right (TI/NXP/Fairchild name) = toward Q7: on CP rising edge DS0 -> Q0, Q0 -> Q1, ..., Q6 -> Q7",
+      "S1=H S0=L": "shift left = toward Q0: on CP rising edge DS7 -> Q7, Q7 -> Q6, ..., Q1 -> Q0",
+      "S1=H S0=H": "parallel load: on CP rising edge I/On -> Qn. The I/O output buffers are off (Z) in this mode whatever /OE1 and /OE2 are, so the I/O pins act as inputs"
+    },
+    "io_outputs": "I/O0-I/O7 drive the register contents only when /OE1 = L and /OE2 = L and NOT (S0 = H and S1 = H). /OE1 = H or /OE2 = H -> Z. S0 = S1 = H -> Z regardless of /OE1, /OE2 (the pins become the parallel-load inputs). Shift, hold, load and clear still work while the I/O pins are Z. Q0 and Q7 are ordinary (non-3-state) serial outputs, always driven, unaffected by /OE1, /OE2, S0 and S1.",
+    "notes": "Datasheet names: CP = CLK, MR (active low, /MR) = /CLR, OE1/OE2 (active low) = /OE, DS0/DS7 = serial inputs (shift right toward Q7 / shift left toward Q0), Q0/Q7 = serial outputs (Q0'/Q7' elsewhere). The Rev. A pin table misprints S0 and DS0 as 'SO' and 'DSO'. TI gives a single 'Enable and Disable Times' row (tPLZ, tPHZ, tPZL, tPZH) and separate MR->Q0,Q7 and MR->I/On rows; arc 'min' is at 5.5 V. The old TI table's -55..+125 C column: S0/S1 setup 9, data setup 4.5, tw CLK 5.5, tw MR 5, recovery 5, fmax 90 MHz (the 90 MHz on TI's product page). Vendor spread: TI needs 7.9 ns S0/S1 setup and 4.4 ns MR recovery but 0 ns hold, while Fairchild/onsemi need 5.5 ns S0/S1 setup and 1.5 ns recovery but 1.0 ns hold on every input; for a part of unknown origin use the worse of the two (S setup 7.9, DS setup 5.0, I/O setup 4.5, hold 1.0, recovery 4.4). S0,S1->I/O _est arcs: see their basis.",
+    "alt": [
+      {
+        "manufacturer": "Fairchild (now onsemi)",
+        "part_number": "74ACT299",
+        "source": "https://datasheet.octopart.com/74AC299SC-Fairchild-datasheet-15272.pdf",
+        "datasheet": "Fairchild 74AC299/74ACT299 DS009893, July 1988, revised March 2005 (Octopart mirror; onsemi's own copy could not be fetched). onsemi MC74AC299/D Rev. 8 (Jun 2006), https://www.onsemi.com/pdf/datasheet/mc74ac299-d.pdf, gives identical ACT299 min/max limits but no typicals.",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+        "arcs": {
+          "CLK->I/O": {
+            "min": 4.5,
+            "typ": 9.5,
+            "max": 16.5
+          },
+          "CLK->Q0,Q7": {
+            "min": 3.0,
+            "typ": 9.0,
+            "max": 15.0
+          },
+          "/CLR->I/O": {
+            "min": 3.5,
+            "typ": 13.0,
+            "max": 17.5
+          },
+          "/CLR->Q0,Q7": {
+            "min": 4.0,
+            "typ": 14.0,
+            "max": 18.0
+          },
+          "/OE->I/O enable": {
+            "min": 1.5,
+            "typ": 8.0,
+            "max": 13.5
+          },
+          "/OE->I/O disable": {
+            "min": 2.0,
+            "typ": 8.5,
+            "max": 13.5
+          }
+        },
+        "checks": {
+          "setup S0,S1->CLK": 5.5,
+          "hold S0,S1->CLK": 1.0,
+          "setup DS0,DS7->CLK": 5.0,
+          "hold DS0,DS7->CLK": 1.0,
+          "setup I/O->CLK": 4.5,
+          "hold I/O->CLK": 1.0,
+          "tw CLK": 4.5,
+          "tw /CLR": 3.5,
+          "recovery /CLR->CLK": 1.5,
+          "fmax_MHz": 110
+        },
+        "notes": "Obsolete (74ACT299SC/MTC/PC). Same pin names and function table as TI. Per edge (typ/max): CLK->Q0,Q7 tPLH 8.5/14.0, tPHL 9.0/15.0; CLK->I/O tPLH 8.5/13.5, tPHL 9.5/16.5; MR gives tPHL only; enable tPZH 8.0/13.0, tPZL 8.0/13.5; disable tPHZ 8.5/13.5, tPLZ 8.0/12.5. The 25 C typical of MR->Q0,Q7 (14.0) is printed close to its 25 C max (15.0). tw CLK is HIGH or LOW."
+      }
+    ]
   },
   "74ACT377": {
     "family": "ACT",
