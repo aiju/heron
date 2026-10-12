@@ -317,9 +317,8 @@ class Allocator:
                         if v in i.uses:
                             src = remat[v]
                             c = MInstr(src.op, [t] + src.ops[1:], defs=[t], uses=[], flags=src.flags)
-                            c.remat_of = t
-                            t.remat = c
-                            t.no_spill = False
+                            # a temporary that lives for one instruction: spilling
+                            # it again would gain nothing (and never converge)
                             before.append(c)
                         if v in i.defs:
                             raise RuntimeError("rematerialised register is redefined")

@@ -298,6 +298,18 @@ class Target:
                 return j
         return None
 
+    def prefer_second(self, a, b, i):
+        """For a commutative two-address operation on a and b: should the
+        result start as a copy of b rather than a? Yes if only b dies here
+        (the copy then coalesces away), or if both do and b was computed
+        later (it's likelier to sit in the register the result wants)."""
+        da, db = self.dies_here(a, i), self.dies_here(b, i)
+        if da != db:
+            return db
+        pa = self.pos.get(a, -1) if isinstance(a, Instr) else -1
+        pb = self.pos.get(b, -1) if isinstance(b, Instr) else -1
+        return db and pb > pa
+
     def dies_here(self, v, i):
         """True if instruction i is the last use of v (all uses in this
         block, i the last of them)."""

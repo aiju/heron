@@ -181,8 +181,7 @@ class V1A(Target):
             if op in ("add", "and", "or", "xor", "mul"):
                 if isinstance(a, (Const, SymAddr)) and not isinstance(b, (Const, SymAddr)):
                     a, b = b, a
-                elif (not isinstance(b, (Const, SymAddr)) and not self.dies_here(a, i)
-                      and self.dies_here(b, i)):
+                elif not isinstance(b, (Const, SymAddr)) and self.prefer_second(a, b, i):
                     a, b = b, a
             self.move_into(d, a)
             if op == "add" and isinstance(b, Const) and -128 <= b.signed <= 127:

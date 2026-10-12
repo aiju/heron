@@ -239,7 +239,7 @@ class V1B(Target):
                         not (isinstance(b, (Const, SymAddr)) or self.mem_load_ok(b)):
                     a, b = b, a
                 elif (not isinstance(b, (Const, SymAddr)) and not self.mem_load_ok(b)
-                      and not self.dies_here(a, i) and self.dies_here(b, i)):
+                      and self.prefer_second(a, b, i)):
                     a, b = b, a
             self.move_into(d, a)
             e = self.ea(b)
