@@ -8,10 +8,11 @@
   run   FILE.s [--input TEXT] [--trace] [--stats]   (or an executable, or object files)
   dis   FILE.bin [--from ADDR] [--to ADDR]   disassemble a binary image
   test  [NAME...]                            run the program test suite
-  ucode [-o DIR]                             build microcode ROM images
+  ucode [-o DIR] [--doc]                     build microcode ROM images (v1b --doc: listing)
   bench                                      instruction-level benchmark table
   report [--hw]                              write docs/performance.md
   report1                                    write docs/performance-v1.md (draft 1a vs 1b)
+  report1b [--hw]                            write docs/performance-v1b.md (draft 1b hardware)
   cc    FILE.c... [--run]                    compile C (drafts 1a and 1b, see docs/compiler.md)
   hw    ...                                  chip-level tools (see tmc.hw.cli)
 """
@@ -272,7 +273,10 @@ def main(argv=None):
 
     u = sub.add_parser("ucode", help="build microcode ROM images")
     u.add_argument("-o", default="build/ucode")
-    u.set_defaults(fn=lambda args: __import__("tmc.hw.microcode", fromlist=["x"]).cmd_ucode(args))
+    u.add_argument("--doc", action="store_true",
+                   help="v1b: write docs/microcode-v1b.md (selected routines) instead")
+    u.set_defaults(fn=lambda args: __import__(
+        "tmc.hw.ucode_v1b" if args.isa == "v1b" else "tmc.hw.microcode", fromlist=["x"]).cmd_ucode(args))
 
     b = sub.add_parser("bench", help="instruction-level benchmark table")
     b.add_argument("--markdown", action="store_true")
@@ -289,6 +293,12 @@ def main(argv=None):
 
     r1 = sub.add_parser("report1", help="write docs/performance-v1.md (draft 1a vs 1b)")
     r1.set_defaults(fn=lambda args: __import__("tmc.report1", fromlist=["x"]).main())
+    r1b = sub.add_parser("report1b", help="write docs/performance-v1b.md (draft 1b hardware)")
+    r1b.add_argument("--hw", action="store_true",
+                     help="also run the chip-level simulator (programs and clock sweeps; about an hour)")
+    r1b.add_argument("--jobs", type=int, default=4)
+    r1b.set_defaults(fn=lambda args: __import__("tmc.report1b", fromlist=["x"]).main(
+        (["--hw"] if args.hw else []) + ["--jobs", str(args.jobs)]))
 
     cc = sub.add_parser("cc", help="compile C for draft 1a/1b (see tmc/cc)")
     __import__("tmc.cc.__main__", fromlist=["x"]).add_arguments(cc)
@@ -301,7 +311,7 @@ def main(argv=None):
 
     h = sub.add_parser("hw", help="chip-level tools")
     h.add_argument("rest", nargs=argparse.REMAINDER)
-    h.set_defaults(fn=lambda args: __import__("tmc.hw.cli", fromlist=["x"]).main(args.rest))
+    h.set_defaults(fn=lambda args: __import__("tmc.hw.cli", fromlist=["x"]).main(args.rest, args.isa))
 
     args = p.parse_args(argv)
     return args.fn(args) or 0

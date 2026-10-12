@@ -280,13 +280,27 @@ class Case:
         if ce == 1 or oe == 1 or we == 0:
             return (None, NEG, False, None)
         en = True if (ce == 0 and oe == 0 and we == 1) else None
-        t, cause = self.latest(inst, [(f"A{i}", "tAA", d["tAA"]) for i in range(15)]
+        t, cause = self.latest(inst, [(p, "tAA", d["tAA"]) for p in address_pins(inst)]
                                + [("CE", "tACE", d["tACE"]), ("OE", "tOE", d["tOE"])])
         return (None, t, en, cause)
 
     def m_rom(self, inst, pin, d):
         t, cause = self.latest(inst, [(f"A{i}", "tACC", d["tACC"]) for i in range(17)])
         return (self.const.get(inst.conn.get(pin)), t, True, cause)
+
+    def m_sr299(self, inst, pin, d):
+        if pin in ("Q0S", "Q7S"):
+            return self._seq(inst, pin, "CLK->QS")
+        oe1, oe2, s0, s1 = (self.pin(inst, p)[0] for p in ("OE1", "OE2", "S0", "S1"))
+        if oe1 == 1 or oe2 == 1 or (s0 == 1 and s1 == 1):
+            return (None, NEG, False, None)
+        en = True if (oe1 == 0 and oe2 == 0 and (s0 == 0 or s1 == 0)) else None
+        _, tc, _ = self.pin(inst, "CP")
+        t, cause = max(tc, 0) + d["CLK->Q"], (inst.ref, "CLK", "CLK->Q")
+        t2, c2 = self.latest(inst, [(p, "OE->Y en", d["OE->Y en"]) for p in ("OE1", "OE2", "S0", "S1")])
+        if t2 > t:
+            t, cause = t2, c2
+        return (None, t, en, cause)
 
     def m_const(self, inst, pin, d):
         return (int(pin == "HI"), NEG, True, None)
@@ -297,6 +311,9 @@ class Case:
         if pin == "WEWIN":
             return (None, self.ws * self.T, True, ("X_CLK", "WEWIN", "write window opens"))
         return (1, NEG, True, None)             # RESET_n inactive
+
+    def m_iodev32(self, inst, pin, d):
+        return self.m_iodev(inst, pin, d)
 
     def m_iodev(self, inst, pin, d):
         if pin == "IRQ":
@@ -337,9 +354,17 @@ def gate_inputs(inst, out_pin):
     return ins
 
 
-def constants_for(word, extra=None):
+def address_pins(inst):
+    return [p for p, k in inst.type.pins if p[0] == "A" and p[1:].isdigit() and k == "in"]
+
+
+def constants_for(word, extra=None, machine="v0"):
     """Control net values for a microcode word."""
-    nets = cpu_v0.control_nets()
+    if machine == "v1b":
+        from . import cpu_v1b
+        nets = cpu_v1b.control_nets()
+    else:
+        nets = cpu_v0.control_nets()
     c = {}
     for bit, name in nets.items():
         c[name] = (word >> bit) & 1
@@ -349,15 +374,21 @@ def constants_for(word, extra=None):
 
 
 def checks(case, N, we_frac):
-    """List of (required margin, description, endpoint net) for this case.
+    """Timing requirements of this case, as functions of the clock period.
 
-    Each entry is a slack in ns (negative = violation)."""
-    T = case.T
+    Returns a list of (kind, data, description, endpoint net):
+      ("setup", c)   the period must be at least c
+      ("write", w)   an SRAM write: w = (ctrl_t, dW, gd, addr_t, data_t,
+                     tWP, tAS, tAW, tDW); see write_slack()
+    Arrival times don't depend on the period, except for the write window,
+    which opens at ws*T + dW (dW: gates between the clock generator and the
+    strobe gate) and closes at we*T + dW."""
     out = []
+    t0 = case.T
     for inst in N.insts:
         t = inst.type
         d = N.delay[inst.ref]
-        if t.model in ("reg377", "dff74", "dff175", "cnt161", "cnt163"):
+        if t.model in ("reg377", "dff74", "dff175", "cnt161", "cnt163", "sr299"):
             pins = []
             if t.model == "reg377":
                 en = case.pin(inst, "EN")[0]
@@ -371,6 +402,15 @@ def checks(case, N, we_frac):
                     pins.append((f"{s}D", d["setup D"]))
             elif t.model == "dff175":
                 pins += [(f"{i}D", d["setup D"]) for i in range(1, 5)]
+            elif t.model == "sr299":
+                s0, s1 = case.pin(inst, "S0")[0], case.pin(inst, "S1")[0]
+                pins += [("S0", d["setup S"]), ("S1", d["setup S"])]
+                if s0 != 0 and s1 != 1:
+                    pins.append(("DS0", d["setup DS"]))
+                if s1 != 0 and s0 != 1:
+                    pins.append(("DS7", d["setup DS"]))
+                if s0 != 0 and s1 != 0:
+                    pins += [(f"IO{i}", d["setup IO"]) for i in range(8)]
             else:
                 load = case.pin(inst, "LOAD")[0]
                 pins += [("LOAD", d["setup LOAD"]), ("ENP", d["setup EN"]), ("ENT", d["setup EN"])]
@@ -384,80 +424,118 @@ def checks(case, N, we_frac):
                 v, ta, _ = case.pin(inst, p)
                 if ta == NEG:
                     continue
-                out.append((T - (ta + su), f"{inst.ref}.{p} setup", inst.conn[p]))
+                out.append(("setup", ta + su, f"{inst.ref}.{p} setup", inst.conn[p]))
         elif t.model == "sram":
             we_net = inst.conn["WE"]
             drv, out_pin = N.drivers[we_net][0]
             gate_ins = [drv.conn[p] for p in gate_inputs(drv, out_pin)]
             wv = case.net(we_net)[0]
-            if wv == 1 or not any(n == "WEWIN" for n in gate_ins):
+            if wv == 1 or "WEWIN" not in gate_ins:
                 continue                    # no write in this microinstruction
             gd = N.delay[drv.ref]["A->Y"]
-            ctrl_t = max([case.net(n)[1] for n in gate_ins if n != "WEWIN"] + [case.ws * T])
-            t_fall = ctrl_t + gd
-            t_rise = we_frac * T + gd
-            addr_t = max(case.pin(inst, f"A{i}")[1] for i in range(15))
-            data_t = max(case.pin(inst, f"IO{i}")[1] for i in range(8))
-            out.append((t_rise - t_fall - d["tWP"], f"{inst.ref} write pulse width (tWP)", we_net))
-            out.append((t_fall - addr_t - d["tAS"], f"{inst.ref} address setup to write (tAS)",
-                        inst.conn["A0"]))
-            out.append((t_rise - addr_t - d["tAW"], f"{inst.ref} address to end of write (tAW)",
-                        inst.conn["A0"]))
-            worst_io = max(range(8), key=lambda i: case.pin(inst, f"IO{i}")[1])
-            out.append((t_rise - data_t - d["tDW"], f"{inst.ref} data setup to end of write (tDW)",
-                        inst.conn[f"IO{worst_io}"]))
+            dW = case.net("WEWIN")[1] - case.ws * t0
+            ctrl = [case.net(n)[1] for n in gate_ins if n != "WEWIN"]
+            ctrl_t = max(ctrl) if ctrl else NEG
+            addr_t = max(case.pin(inst, p)[1] for p in address_pins(inst))
+            data = [case.pin(inst, f"IO{i}")[1] for i in range(8)]
+            worst_io = max(range(8), key=lambda i: data[i])
+            w = (ctrl_t, dW, gd, addr_t, max(data), d["tWP"], d["tAS"], d["tAW"], d["tDW"])
+            out.append(("write", w, f"{inst.ref} write", inst.conn[f"IO{worst_io}"]))
     return out
 
 
-def unique_words():
-    rom, notes = microcode.built()
-    words = defaultdict(list)
-    for a, w in rom.items():
-        mode_rst = (a >> 15) & 1
-        words[(w, mode_rst)].append(notes[a])
-    return words
+def write_slack(w, T, ws, we):
+    """Worst slack of one SRAM write at period T, and which requirement."""
+    ctrl_t, dW, gd, addr_t, data_t, tWP, tAS, tAW, tDW = w
+    t_fall = max(ctrl_t, ws * T + dW) + gd
+    t_rise = we * T + dW + gd
+    return min((t_rise - t_fall - tWP, "write pulse width (tWP)"),
+               (t_fall - addr_t - tAS, "address setup to write (tAS)"),
+               (t_rise - addr_t - tAW, "address to end of write (tAW)"),
+               (t_rise - data_t - tDW, "data setup to end of write (tDW)"))
 
 
-def analyse(variant=chips.DEFAULT_VARIANT, corner="max", ws=0.5, we=0.875, lo=20.0, hi=2000.0):
-    N = Netlist(cpu_v0.build(), variant, corner)
-    results = []
-    for (w, mrst), labels in unique_words().items():
-        consts = constants_for(w, {"MODERST": mrst})
-
-        def ok(T):
-            c = Case(N, consts, T, ws)
-            return min(s for s, _, _ in checks(c, N, we)) >= 0
-        a, b = lo, hi
-        if not ok(b):
-            raise RuntimeError(f"microinstruction {w:012X} fails even at {hi} ns")
-        while b - a > 0.25:
+def min_period(chk, ws, we, lo=20.0, hi=4000.0):
+    """Shortest period meeting every requirement in chk."""
+    T = max([c for k, c, _, _ in chk if k == "setup"] + [lo])
+    writes = [c for k, c, _, _ in chk if k == "write"]
+    if writes and min(write_slack(w, T, ws, we)[0] for w in writes) < 0:
+        a, b = T, hi
+        while b - a > 0.05:
             mid = (a + b) / 2
-            if ok(mid):
+            if min(write_slack(w, mid, ws, we)[0] for w in writes) >= 0:
                 b = mid
             else:
                 a = mid
-        results.append((b, w, mrst, labels))
-    results.sort(reverse=True)
+        T = b
+    return T
+
+
+def worst_check(chk, T, ws, we):
+    """(slack, description, endpoint net) of the tightest requirement at T."""
+    best = None
+    for k, c, desc, net in chk:
+        if k == "setup":
+            sl, what = T - c, desc
+        else:
+            sl, what = write_slack(c, T, ws, we)
+            what = f"{desc}: {what}"
+        if best is None or sl < best[0]:
+            best = (sl, what, net)
+    return best
+
+
+def unique_words(machine="v0"):
+    """{(control word, extra constants): [labels]} for every distinct microinstruction."""
+    words = defaultdict(list)
+    if machine == "v1b":
+        from . import ucode_v1b
+        mc = ucode_v1b.built()
+        for n in mc.nodes:
+            for irq in (False, True):
+                w = ucode_v1b.pack(mc.word(n, irq))
+                words[(w, ())].append(f"{n.name} @{n.addr:04X}" + (" irq" if irq else ""))
+        return words
+    rom, notes = microcode.built()
+    for a, w in rom.items():
+        mode_rst = (a >> 15) & 1
+        words[(w, (("MODERST", mode_rst),))].append(notes[a])
+    return words
+
+
+def build_netlist(machine):
+    if machine == "v1b":
+        from . import cpu_v1b
+        return cpu_v1b.build()
+    return cpu_v0.build()
+
+
+def analyse(variant=chips.DEFAULT_VARIANT, corner="max", ws=0.5, we=0.875, machine="v0"):
+    N = Netlist(build_netlist(machine), variant, corner)
+    results = []
+    for (w, extra), labels in unique_words(machine).items():
+        consts = constants_for(w, dict(extra), machine)
+        c = Case(N, consts, 1000.0, ws)
+        chk = checks(c, N, we)
+        T = min_period(chk, ws, we)
+        results.append((T, w, extra, labels))
+    results.sort(key=lambda r: -r[0])
     return N, results
 
 
-def report(N, results, ws=0.5, we=0.875, paths=3):
+def report(N, results, ws=0.5, we=0.875, paths=3, machine="v0"):
     lines = []
-    T, w, mrst, labels = results[0]
+    T, w, extra, labels = results[0]
     lines.append(f"minimum clock period: {T:.1f} ns ({1000 / T:.2f} MHz)")
     lines.append("")
     lines.append("slowest microinstructions:")
-    seen = 0
-    for T_, w_, m_, lab in results:
-        names = sorted({l.split(' s')[0] for l in lab})
-        lines.append(f"  {T_:7.1f} ns  {lab[0]:<22} ({len(lab)} ROM addresses; e.g. {', '.join(names[:3])})")
-        seen += 1
-        if seen >= 8:
-            break
+    for T_, w_, e_, lab in results[:8]:
+        names = sorted({l.split(' s')[0].split(' @')[0] for l in lab})
+        lines.append(f"  {T_:7.1f} ns  {lab[0]:<26} ({len(lab)} ROM addresses; e.g. {', '.join(names[:3])})")
     lines.append("")
-    for T_, w_, m_, lab in results[:paths]:
-        c = Case(N, constants_for(w_, {"MODERST": m_}), T_, ws)
-        worst = min(checks(c, N, we))
+    for T_, w_, e_, lab in results[:paths]:
+        c = Case(N, constants_for(w_, dict(e_), machine), T_, ws)
+        worst = worst_check(checks(c, N, we), T_, ws, we)
         lines.append(f"critical check for {lab[0]} at {T_:.1f} ns: {worst[1]} (slack {worst[0]:.1f} ns)")
         for net, t, ref, dn in c.path(worst[2]):
             lines.append(f"    {t:7.1f} ns  {net:<14} {ref:<10} {dn}")
@@ -472,8 +550,10 @@ def report(N, results, ws=0.5, we=0.875, paths=3):
 
 
 def cmd_sta(args):
-    N, results = analyse(args.variant, args.corner)
-    print(f"static timing analysis: {args.variant}, {args.corner} delays, "
+    from . import cli
+    machine = cli.MACHINE
+    N, results = analyse(args.variant, args.corner, machine=machine)
+    print(f"static timing analysis ({machine}): {args.variant}, {args.corner} delays, "
           f"{len(results)} distinct microinstructions")
-    print(report(N, results, paths=args.paths))
+    print(report(N, results, paths=args.paths, machine=machine))
     return 0

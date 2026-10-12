@@ -272,6 +272,47 @@
   "part_number": "IN74ACT21",
   "source": "https://en.integral.by/upload/iblock/eda/IN74ACT21.pdf"
  },
+ "74ACT299": {
+  "checks": {
+   "hold DS": 0,
+   "hold IO": 0,
+   "hold S": 0,
+   "setup DS": 3.9,
+   "setup IO": 3.9,
+   "setup S": 7.9
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 13.2,
+    "typ": 7.9
+   },
+   "CLK->QS": {
+    "max": 11.7,
+    "typ": 7.0
+   },
+   "CLR->Q": {
+    "max": 16.9,
+    "typ": 10.1
+   },
+   "OE->Y dis": {
+    "max": 13.5,
+    "typ": 8.1
+   },
+   "OE->Y en": {
+    "max": 13.5,
+    "typ": 8.1
+   }
+  },
+  "estimated": [
+   "CLK->Q typ",
+   "CLK->QS typ",
+   "CLR->Q typ",
+   "OE->Y en typ",
+   "OE->Y dis typ"
+  ],
+  "part_number": "CD74ACT299",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act299.pdf"
+ },
  "74ACT32": {
   "checks": {},
   "delays": {
@@ -664,6 +705,43 @@
   "part_number": "CD74HCT21",
   "source": "https://www.ti.com/lit/ds/symlink/cd74hct21.pdf"
  },
+ "74HCT299": {
+  "checks": {
+   "hold DS": 0,
+   "hold IO": 0,
+   "hold S": 0,
+   "setup DS": 25,
+   "setup IO": 25,
+   "setup S": 34
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 56,
+    "typ": 19
+   },
+   "CLK->QS": {
+    "max": 56,
+    "typ": 19
+   },
+   "CLR->Q": {
+    "max": 58,
+    "typ": 29.0
+   },
+   "OE->Y dis": {
+    "max": 46,
+    "typ": 15
+   },
+   "OE->Y en": {
+    "max": 40,
+    "typ": 13
+   }
+  },
+  "estimated": [
+   "CLR->Q typ"
+  ],
+  "part_number": "CD74HCT299",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct299.pdf"
+ },
  "74HCT30": {
   "checks": {},
   "delays": {
@@ -935,6 +1013,45 @@
   },
   "estimated": [],
   "source": "https://www.alliancememory.com/wp-content/uploads/AS6C1008_Mar_2023V1.2.pdf (Alliance Memory AS6C1008 v1.2, Mar 2023, p.5)"
+ },
+ "AS6C4008-55": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 50,
+   "tDH": 0,
+   "tDW": 25,
+   "tOH": 10,
+   "tWP": 45,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 55,
+    "typ": 55
+   },
+   "tACE": {
+    "max": 55,
+    "typ": 55
+   },
+   "tCHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tOE": {
+    "max": 30,
+    "typ": 30
+   },
+   "tOHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tWHZ": {
+    "max": 20,
+    "typ": 20
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/AS6C4008.pdf (Alliance Memory AS6C4008 v1.4, Aug 2009, p.4; the file linked from alliancememory.com/as6c4008/ in Oct 2026)"
  },
  "AS6C62256-55": {
   "checks": {

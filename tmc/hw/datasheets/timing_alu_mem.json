@@ -1120,6 +1120,76 @@
     },
     "notes": "Read/write numbers are identical to AS6C62256-55. IMPORTANT: since the July 2021 revision the DC table gives VIH min = 0.7*VCC (3.5 V at 5 V) and VIL max 0.6 V, i.e. NOT TTL-input compatible at 5 V: LS/S/F TTL outputs (VOH min 2.5-2.7 V) do not guarantee a valid high. Drive it from HCT/ACT/AHCT or use pull-ups. Has a second chip enable CE2 (active high)."
   },
+  "AS6C4008-55": {
+    "source": "https://www.alliancememory.com/wp-content/uploads/AS6C4008.pdf (Alliance Memory AS6C4008 v1.4, Aug 2009, p.4; the file linked from alliancememory.com/as6c4008/ in Oct 2026)",
+    "conditions": "Single AC table for the -55 part, VCC 2.7-5.5 V (temperature per grade: C 0..70 C, I -40..85 C). Input pulse 0.2 V to VCC-0.2 V, 3 ns rise/fall, 1.5 V reference, load CL = 30 pF + 1 TTL (IOH/IOL = -2/4 mA). tCLZ/tOLZ/tCHZ/tOHZ/tOW/tWHZ at CL = 5 pF (+/-500 mV).",
+    "availability": "Active (DigiKey Oct 2026): AS6C4008-55PCN, 32-pin 600-mil PDIP, 0..70 C, 1,816 in stock ($12.22), 20-week factory lead time. Alliance's product page also lists AS6C4008-55PIN (PDIP, industrial) and SOP, TSOP-I, TSOP-II, sTSOP and TFBGA versions. Do not confuse with AS6C4008A, which has an EOL page on alliancememory.com.",
+    "params": {
+      "tRC": {
+        "min": 55
+      },
+      "tAA": {
+        "max": 55
+      },
+      "tACE": {
+        "max": 55
+      },
+      "tOE": {
+        "max": 30
+      },
+      "tCLZ": {
+        "min": 10
+      },
+      "tOLZ": {
+        "min": 5
+      },
+      "tCHZ": {
+        "max": 20
+      },
+      "tOHZ": {
+        "max": 20
+      },
+      "tOH": {
+        "min": 10
+      }
+    },
+    "write": {
+      "tWC": {
+        "min": 55
+      },
+      "tAW": {
+        "min": 50
+      },
+      "tCW": {
+        "min": 50
+      },
+      "tAS": {
+        "min": 0
+      },
+      "tWP": {
+        "min": 45
+      },
+      "tWR": {
+        "min": 0
+      },
+      "tDW": {
+        "min": 25
+      },
+      "tDH": {
+        "min": 0
+      },
+      "tOW": {
+        "min": 5
+      },
+      "tWHZ": {
+        "max": 20
+      }
+    },
+    "symbol_map": {
+      "tWR": "write recovery (address hold after end of write); there is no separate tAH"
+    },
+    "notes": "Read/write numbers are identical to AS6C62256-55 and AS6C1008-55, but this sheet's AC test load is 30 pF + 1 TTL (those use 50 pF). Starred params (tCLZ, tOLZ, tCHZ, tOHZ, tOW, tWHZ) are guaranteed by characterization, not production tested. DC levels (v1.4) at VCC 4.5-5.5 V: VIH min 2.4 V, VIL max 0.8 V (TTL-compatible inputs, unlike the 0.7*VCC VIH of the 2021+ AS6C1008 sheet); VOH min 2.4 V at -1 mA, VOL max 0.4 V at 2 mA. Single CE# (no CE2). The 32-pin DIP uses the JEDEC 512Kx8 pinout: pin 1 = A18 and pin 30 = A17 where the AS6C1008 has NC and CE2; every other pin matches the AS6C1008. CE# and WE# must be high during address transitions. In WE-controlled writes with OE low, tWP must exceed tWHZ + tDW. If CE# goes low with or after WE#, the outputs stay in high impedance."
+  },
   "CY7C199D-10": {
     "source": "https://cdn.components.ru/media/PDF/8018143.pdf (Cypress/Infineon CY7C199D datasheet 38-05471 Rev *N, Mar 2019, p.7)",
     "conditions": "VCC = 5 V +/-0.5 V, -40..85 C. Inputs 0-3.0 V, 3 ns transitions, 1.5 V reference, load 30 pF (50 Ohm to 1.5 V); tHZOE/tHZCE/tHZWE at 5 pF (480/255 Ohm), +/-200 mV.",
