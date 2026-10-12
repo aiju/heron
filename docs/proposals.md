@@ -10,6 +10,7 @@ Each proposal has a **status**:
 | **adopted** | It's in draft 1 |
 | **measured** | Evaluated with numbers ([evaluation.md](evaluation.md), [evaluation-v1.md](evaluation-v1.md)) |
 | **recommended** | Suggested for the next draft or hardware round |
+| **decided** | Emily chose it for the next hardware round; not built yet |
 | **open** | Discussed, not decided |
 | **rejected** | Decided against, with the reason, so it doesn't get re-proposed without new evidence |
 
@@ -84,7 +85,22 @@ Chip counts are rough estimates, scaled from the 98-chip draft 0 design.
   instruction-level simulator, ahead of hardware. **open.**
 - **Build in stages on a backplane of cards** (CPU, memory, then MMU and I/O
   cards). Above ~150 chips, only PCBs or a backplane, no breadboards.
-  **open.**
+  **decided**: 4-layer PCBs and a backplane with two connectors per slot
+  ([section 5](#5-memory-system-and-buses)). The CPU needs at least two
+  boards; how to split it is **open**.
+- **A second, heterogeneous CPU: an ECL number cruncher**, designed
+  separately. It shares the system bus and has its own RAM. **decided** in
+  principle. What the bus needs to know from its design:
+  - its word size (32 or 64 bits) and how much RAM it has;
+  - whether it is a bus master (fetching its own data) or only a slave the
+    main CPU feeds;
+  - whether it uses burst transfers.
+
+  It has to compute out of its own RAM, because no hobby backplane can
+  stream operands to it. At ~10 MFLOPS on 64-bit numbers, a streaming
+  vector operation like `y += a*x` would need ~120 MB/s. Dense work is fine
+  over the bus: a 100 × 100 matrix multiply moves 240 KB (~10 ms at
+  25 MB/s) for ~200 ms of computing.
 
 ## 2. Instruction set
 
@@ -238,8 +254,8 @@ so they should be settled before it's final:
 | Overlap the next fetch with the last cycle (draft 0 style) | **measured**, **recommended** | 17–22% fewer cycles than a separate fetch cycle; ~0–2 chips |
 | Wide fetch: 32-bit bus plus two-parcel prefetch buffer | **measured** | ~10% fewer cycles, single-cycle word loads; +10–15 chips. Only D32-wide beats draft 0 on every program. If the datapath must be 16 bits, keep the 32-bit bus: D16-wide is 1.36–1.48× draft 0 |
 | Write results back to the register file in the same cycle | **open** | 33% of draft 0's cycles go to separate write-back (CPI 2.1 → ~1.4), but it needs much faster register-file parts or a slower clock |
-| Pipelined microinstruction register | **open** | ~6 chips; removes ~100 ns of microcode ROM access from every cycle |
-| Fix bus contention when the B bus changes source | **recommended** | Up to 67 ns at worst-case delays in draft 0 |
+| Pipelined microinstruction register | **adopted** in the draft 1b hardware | 15 × 74HCT377; control signals are valid 40 ns after the clock. With it, the 32-bit draft 1b hardware runs at 334 ns against draft 0's 486 ns ([hardware-v1b.md](hardware-v1b.md)) |
+| Fix bus contention when the B bus changes source | **recommended** | Up to 67 ns at worst-case delays in draft 0, 37 ns in the draft 1b hardware |
 | Separate instruction bus (Harvard) for speed | **rejected** | Would save 1.6% of draft 0's cycles; the bottleneck is register write-back |
 | Pipelining, caches | **rejected** for now | Lowest payoff per effort; hazards and forwarding in TTL multiply the debugging |
 | ALU from in-production parts | **open** | 74181/74182 are new-old-stock only. Alternative: 74HC283 adders plus multiplexers for the logic functions |
@@ -249,15 +265,170 @@ so they should be settled before it's final:
 | `.align` that pads code with `NOP`s | **recommended** | Wide-fetch cycles depend on loop alignment by up to 15%; today `.align` pads with zeros, which are `HALT` |
 | Parts availability | **open** | Fast SRAM is no longer made in DIP; the 55 ns flash is PLCC only; no 74ACT30/688 |
 
+**Clocking: variable-length cycles.** **decided.** Each microinstruction
+picks how long its own cycle is. Measured on the draft 1b hardware
+([hardware-v1b.md](hardware-v1b.md)):
+
+- **Why.** A fixed clock runs every cycle at the slowest microinstruction's
+  speed. With HCT + LS181 at worst case:
+  - the fetch-ending cycles (25% of executed cycles) need 309 ns;
+  - the multiply steps (7%) need 334 ns;
+  - the rest average 254 ns, and a quarter of all cycles need only
+    200–219 ns.
+
+  With typical delays or 74ACT the spread is bigger: the memory-bound fetch
+  sets the clock while the logic gets much faster.
+- **Gains** (geometric mean over 18 programs, against a fixed clock; with
+  a 50 MHz master clock every length is a whole number of 20 ns ticks):
+
+  | Scheme | HCT + LS181 worst | HCT + LS181 typical | ACT + F181 worst |
+  |---|---:|---:|---:|
+  | Ideal: every cycle exactly as long as it needs | 1.22× | 1.36× | 1.45× |
+  | 50 MHz master clock (20 ns steps) | 1.17× | 1.29× | 1.35× |
+  | 4 lengths (2-bit field) | 1.16× | 1.28× | 1.35× |
+  | 2 lengths (1-bit field) | 1.07× | 1.19× | 1.28× |
+  | 2 lengths derived from existing fields (fetch and multiply long) | 0.98× | 1.05× | 1.02× |
+
+- **How:**
+  - A 2-bit length class in the microinstruction: a 16th microcode ROM and
+    register, +2 chips. With pipelined microcode it's valid 40 ns into the
+    cycle, long before the shortest cycle (~200 ns) ends.
+  - A 50 MHz master clock and a counter end the cycle; the CPU clock comes
+    from a flip-flop, so it can't glitch. The generator needs 74AC/74F
+    parts, ~5–8 chips; 74HCT can't count at 50 MHz at worst case.
+  - **Jumpers** map each length class to a count, so one microcode image
+    runs on any parts and can be tuned on a real board. **decided.**
+  - **One clock edge for all registers.** Phases only shape strobes: the
+    write window starts a fixed time after the edge and ends a fixed time
+    before the next.
+  - **The timer and cycle counter count real time** (master-clock ticks),
+    not CPU cycles. **decided.**
+  - **Wait states come free:** the same mechanism stretches a cycle for a
+    slow device or the system bus.
+- **Lengths derived from existing fields:** **rejected.** At most 1.05×,
+  because a few ordinary microinstructions need nearly as long as the
+  fetch.
+- **Clocking datapath registers on different phases:** **rejected.** It
+  mostly moves slack between cycles, adds hold-time hazards between phases,
+  and complicates the timing analysis and simulation.
+- **Two 16-bit transfers per cycle on the local memory bus** (32-bit loads
+  and stores in one cycle): **open**, parked. The second halves of 32-bit
+  transfers are 6.7% of all executed cycles (14–15% in `queens` and `fib`).
+
 ## 5. Memory system and buses
 
 | Proposal | Status | Notes |
 |---|---|---|
-| **Bus release**: request/grant, three-state address and control drivers (74HCT257 instead of 74HCT157, gated read/write strobes) | **recommended**, design in now | Shared by DMA, a front panel acting as bus master, and debugging; cheap now, painful to retrofit |
-| **Two memory buses**: CPU-private main RAM plus a shared memory on the system bus for video, display lists, DMA and disk buffers (Amiga chip/fast RAM) | **recommended** once video or DMA arrive | No cycle stealing; arbitration stays off the CPU's critical path. Costs: slower CPU access to shared memory, two kinds of memory in software, a bridge |
-| **Interleaved memory time slots** (Apple II, BBC Micro): the RAM is ~9× faster than the CPU cycle, so give devices their own slots | **open** | DMA and video become free, but the CPU's address must be ready early in the cycle; fits a pipelined-microcode redesign |
+| **Bus release**: request/grant, three-state address and control drivers (74HCT257 instead of 74HCT157, gated read/write strobes) | **recommended**, design in now | Shared by DMA, a front panel acting as bus master, and debugging; cheap now, painful to retrofit. Now part of the system bus below |
+| **Main RAM private to each CPU board**, the system bus for everything else | **recommended** | Half of all executed cycles touch memory. Backplane transceivers each way would add ~50–60 ns to those cycles: ~10% slower overall with HCT, ~19% with ACT (with variable-length cycles). Boot ROM and the clock generator stay on the CPU side too |
+| **Two memory buses**: CPU-private main RAM plus a shared memory on the system bus for video, display lists, DMA and disk buffers (Amiga chip/fast RAM) | **open** | Superseded as the default by slave ports on the CPU boards (below), which let DMA reach main RAM. A fast shared-memory card stays an option for bulk data |
+| **Interleaved memory time slots** (Apple II, BBC Micro): the RAM is ~9× faster than the CPU cycle, so give devices their own slots | **rejected** | Doesn't fit variable-length CPU cycles. Video keeps its own memory on its card instead |
 | Separate instruction and data address spaces (PDP-11/45 style) | **rejected** with the move to 32-bit | Doubled the per-process space on a 16-bit machine for one MMU address bit |
 | Dual-port SRAM | **rejected** | Expensive, small sizes only |
+
+**The system bus.** Shared by the main CPU, the ECL number cruncher
+([section 1](#1-direction-and-ambition)), DMA devices and peripherals.
+
+- **Synchronous, with a 12.5 MHz bus clock** (50 MHz ÷ 4, 80 ns per clock).
+  **recommended**, not decided yet.
+  - A single transfer takes 2 clocks (address, then data): 160 ns. A fast
+    slave has ~120 ns from address to data, enough for buffers, decode and
+    a 15–25 ns SRAM with ACT or FCT parts.
+  - Memory-like slaves can burst one word per clock. Slow cards add wait
+    states in whole clocks.
+  - Simple peripherals see ordinary read and write strobes at least one
+    clock wide and can ignore the clock.
+  - The main CPU's bus cycles line up exactly, since the bus clock comes
+    from its master clock. Only foreign CPUs cross clock domains.
+
+  | Transfer | 16 bits (P1) | 32 bits (P1 + P2) |
+  |---|---:|---:|
+  | Single | 12.5 MB/s | 25 MB/s |
+  | Burst | 25 MB/s | 50 MB/s |
+
+  - Who needs the bandwidth: the number cruncher and DMA. The main CPU
+    makes at most one bus access per ~300 ns microcycle, and peripherals
+    are slow.
+  - 25 MHz would leave 40 ns per clock, about half of it backplane
+    settling, and HCT flip-flops are marginal at 25 MHz at worst case, so
+    every card's bus logic would need AC or ABT parts. 6.25 MHz halves the
+    bandwidth for nothing, since slow cards wait anyway.
+- **A strobe-timed bus without a clock** (8080, Z80, ISA style): **rejected**
+  for the system bus. Every master would have to synchronise WAIT, costing
+  1–2 clocks per transfer, and bursts are awkward.
+- **A fully asynchronous handshake** (Unibus, VME): **rejected.** Every card
+  needs acknowledge logic, and the CPU still needs synchronisers.
+- **Two connectors per slot**, scalable: P1 alone is enough for simple
+  peripherals. **decided.** Two 96-pin DIN 41612 connectors on 6U
+  Eurocards (233 × 160 mm), as VME does: **recommended.**
+  - **P1:**
+    - D0–D15, two byte enables, A1–A31;
+    - read and write strobes, WAIT, bus error;
+    - four interrupt lines;
+    - bus request, grant and BUSY, so a 16-bit DMA card works with P1
+      alone;
+    - slot number (4 pins), reset, the bus clock;
+    - ~25 power and ground pins.
+  - **P2:**
+    - D16–D31, two more byte enables;
+    - burst control;
+    - four more interrupt lines;
+    - LOCK;
+    - user-defined pins, as on VME's P2, for private links between
+      adjacent cards.
+  - **Mixed widths:** a 32-bit slave asserts a "32-bit OK" line on P1.
+    Without it, a 32-bit master does two 16-bit transfers, like the 386's
+    16-bit bus-size input.
+- **Arbitration:** **recommended.**
+  - A central round-robin arbiter, with per-slot request and grant. No CPU
+    owns the bus.
+  - BUSY gives a defined handover between masters.
+  - LOCK is optional, for locked read-modify-write.
+- **Geographic slot regions** (NuBus style). **recommended.**
+  - The bus address space is 32 bits. Each slot has a fixed region selected
+    by the top address bits, which its card compares with its slot number
+    pins. No central decoder.
+  - Replaces the 16 × 16-byte I/O slots ([section 6](#6-io)).
+  - On the draft 1b CPU, MAR bit 31 set now means "system bus" instead of
+    "I/O page", with the low 31 bits as the bus address.
+- **A master port and a slave port on every CPU board.** Other CPUs and DMA
+  reach a CPU's RAM through its slot region. **recommended.**
+  - **Deadlock rule:** a CPU stalled waiting for the bus must let its slave
+    port use its local RAM. Otherwise CPU A, holding the bus while waiting
+    for B's RAM, and B, holding its RAM while waiting for the bus, wait
+    forever.
+  - The main CPU's RAM is still a poor buffer for bulk data (300–600 ns per
+    remote access). Data for the cruncher goes into the cruncher's own RAM
+    through its slave port, or into a fast shared-memory card at full burst
+    speed. **open.**
+- **Synchronisation in hardware**, independent of either CPU's instruction
+  set, since a heterogeneous CPU may lack a locked read-modify-write.
+  **recommended.**
+  - Semaphore registers that return their old value and set themselves in
+    one bus read (test-and-set on read). Sixteen of them is a couple of
+    chips.
+  - Doorbells: a write to a register in a CPU board's region interrupts
+    that CPU.
+  - A per-CPU control register for reset/run and NMI. The main CPU boots
+    the other by loading code into its RAM and releasing its reset.
+- **Interrupts:** eight shared lines (four on P1, four on P2). Each device
+  picks a line with a jumper, and each CPU listens to its own subset through
+  its priority encoder. Doorbells cover CPU-to-CPU signalling.
+  **recommended.**
+- **Bus error:** a timeout when nothing answers, which becomes a trap on the
+  draft 1b CPU (a vector next to address error). **recommended.**
+- **Electrical:** **recommended.**
+  - A 4-layer backplane with a ground plane. The bus clock goes to each slot
+    on its own trace with a series resistor, as PCI does.
+  - Fast cards use 74ACT, 74ABT or 74FCT transceivers; slow cards can use
+    74HCT and wait.
+  - WAIT and BUSY are actively driven: driven high for one clock before
+    release, then held by a weak pull-up, as PCI does. An open-collector
+    pull-up over ~150 pF would take 50–150 ns, more than a clock.
+    Interrupt lines can stay open-collector.
+- **CPU board partitioning:** at least two boards. Where to split, and DIP
+  or SOIC, are **open**. The internal buses (A, B, F, RES) and the 120
+  control lines are what make the split hard.
 
 ## 6. I/O
 
@@ -268,7 +439,9 @@ so they should be settled before it's final:
     registers.
 - **16 slots of 16 bytes**, one 74HCT154 on address bits 7–4. Each slot
   gets a select line, a shared IRQ and reset (Apple II / RC2014 style).
-  **open.**
+  **rejected** in favour of geographic slot regions on the system bus
+  ([section 5](#5-memory-system-and-buses)). The device list below is
+  still the plan for what the system needs.
 
   | Slot | Device |
   |---|---|
@@ -290,11 +463,14 @@ so they should be settled before it's final:
 - **Automatic wait states for I/O** by stretching the clock, decoded early
   from MAR. **recommended.** Every device gets ~2 µs; I/O is rare, so the
   cost is invisible. A per-device READY line is the more fiddly
-  alternative.
+  alternative. With variable-length cycles
+  ([section 4](#4-microarchitecture)) this comes for free, and the system
+  bus adds WAIT.
 - **8-bit peripherals on the low byte lane**, one register per even
   address. **adopted.**
 - **74HCT245 transceivers** between the CPU board and a backplane (~20 ns).
-  **open.**
+  **open.** Fast cards would use 74ACT, 74ABT or 74FCT instead
+  ([section 5](#5-memory-system-and-buses)).
 - **Front panel:**
   - **Through the microcode** (PDP-8 style): the switch register is a B-bus
     source, and a panel-mode bit on a spare microcode address line selects
@@ -744,7 +920,7 @@ Questions raised along the way that only Emily can answer:
 1. What's the fun part: using the finished machine (OS, compiler,
    software), the hardware engineering itself, or period authenticity?
 2. Build budget, roughly in chips or months (100, 200 and 400 chips are
-   different projects)? Breadboard, wire-wrap or PCBs?
+   different projects)?
 3. OS goal: Unix-like (processes, files, a shell), or period-flavoured (a
    BASIC timesharing system, a Forth machine)? Is multi-user protection
    needed, or is unprotected multitasking enough?
@@ -752,13 +928,22 @@ Questions raised along the way that only Emily can answer:
    If graphics: raster or vector?
 5. How many simultaneous terminals? Is a microcontroller inside a
    peripheral acceptable?
-6. A backplane with slots? If yes, write a small bus spec (signals, timing,
-   connector) before the next hardware round.
+6. The system bus speed: 12.5 MHz is proposed ([section 5](#5-memory-system-and-buses)).
+7. What does the ECL number cruncher need from the bus: word size, RAM,
+   bus mastering, bursts?
+8. How to split the CPU over two or more boards, and DIP or SOIC?
 
 Answered so far:
 - 32-bit architecture with a narrow implementation first: yes.
 - 16-bit instruction parcels: yes.
 - Compare RISC-like and CISC-like encodings: done.
+- PCBs: 4-layer.
+- A backplane with slots: yes, with two connectors per slot, P1 enough for
+  simple peripherals.
+- Variable-length cycles from a 50 MHz master clock: yes, with lengths set
+  by jumpers, and the timer counting real time.
+- A second CPU: an ECL number cruncher, designed separately.
+- Ethernet: yes, preferably with a TTL MAC.
 
 ## 16. Offered next steps
 
@@ -776,8 +961,13 @@ Offered in the discussions, not done yet:
   - user opcodes with estimated microcode costs;
   - the D/A split with per-register translation caches and walk counters,
     on bigger workloads.
-- One architecture sketch tying the system decisions together: private and
-  shared memory, bus mastering, slots, the I/O page, interrupts.
+- A system bus spec (`docs/system-bus.md`): pin lists for P1 and P2, and
+  timing in nanoseconds for single, burst and waited transfers and for the
+  handover between masters. Something to hand to the number cruncher's
+  design.
+- Variable-length cycles in the draft 1b netlist: the length field, the
+  clock generator in the Go simulator, timing analysis against each
+  microinstruction's own length, and lengths assigned from the analysis.
 - A chip-level model of the TTL Ethernet MAC with a PHY fixture that replays
   pcap captures, plus a raw-frame program loader on the PC side.
 - A 32-bit netlist estimate through the timing analysis, replacing the ±20%
