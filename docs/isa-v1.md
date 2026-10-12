@@ -194,6 +194,14 @@ byte.
 | `0xFFFFFF0C` | timer flag (drives IRQ) | acknowledge the timer |
 | `0xFFFFFF10` | cycle counter | – |
 
+The timer:
+- The first tick comes one period after the period is written.
+- Writing period 0 stops the timer and clears a pending flag.
+- In the simulator, the timer counts the cycles of the reference
+  configuration (D16-overlap, see [the timing model](timing-model-v1.md)).
+- `HALT` with `I = 1` but no timer running stops the machine, as with
+  `I = 0`, because nothing could ever wake it.
+
 The simulator supplies all input up front, so once it's used up the
 end-of-input bit is set and reads return `−1`. Read the console with a word
 load: a byte load returns `0xFF` at the end of input, which can't be told
