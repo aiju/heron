@@ -26,6 +26,13 @@ def parcels(m, pc):
     return [m.parcel(pc + 2 * i) for i in range(3)]
 
 
+def own_code(r):
+    """Code bytes from the program's own file (no library code)."""
+    path = os.path.relpath(r["path"])
+    return sum(st.size for st in r["image"].stmts
+               if st.kind == "insn" and os.path.abspath(st.where[0]) == os.path.abspath(r["path"]))
+
+
 def geomean(xs):
     xs = [x for x in xs if x > 0]
     return math.exp(sum(math.log(x) for x in xs) / len(xs)) if xs else float("nan")
@@ -100,8 +107,8 @@ def analyse(name, results):
 def profile(r, n=3, config=MAIN):
     """Top routines of one program by cycles: [(name, share)]."""
     m = r["machine"]
-    syms = sorted((addr, s) for s, addr in r["image"].symbols.items()
-                  if "." not in s and not s.startswith("__") and addr < 0x100000)
+    syms = sorted((st.addr, st.label) for st in r["image"].stmts
+                  if st.kind == "label" and "." not in st.label)
     import bisect
     starts = [a for a, _ in syms]
     per = Counter()
@@ -179,19 +186,32 @@ def report(data):
     L.append("## Whole suite")
     L.append("")
     common = [p for p in progs if p in a and p in b and a[p]["ok"] and b[p]["ok"]]
-    L.append(f"Totals over the {len(common)} programs that pass on both.")
+    big = max(common, key=lambda p: a[p]["machine"].cycles_for(MAIN))
+    share = a[big]["machine"].cycles_for(MAIN) / sum(a[p]["machine"].cycles_for(MAIN) for p in common)
+    L.append(f"Over the {len(common)} programs that pass on both. The headline figure is the geometric "
+             f"mean of the per-program ratios, so every program counts equally: `{big}` alone is "
+             f"{100 * share:.0f}% of 1a's cycles and would dominate a plain total.")
     L.append("")
-    L.append("| Configuration | 1a cycles | 1b cycles | 1b / 1a | 1a CPI | 1b CPI | geometric mean of per-program 1b / 1a |")
-    L.append("|---|---:|---:|---:|---:|---:|---:|")
+    L.append(f"| Configuration | geometric mean 1b / 1a | total 1a cycles | total 1b cycles | 1b / 1a | "
+             f"1b / 1a without {big} | 1a CPI | 1b CPI |")
+    L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
     ia = sum(a[p]["instructions"] for p in common)
     ib = sum(b[p]["instructions"] for p in common)
     cyc = {}
     for c in CONFIGS:
         ca = sum(a[p]["machine"].cycles_for(c) for p in common)
         cb = sum(b[p]["machine"].cycles_for(c) for p in common)
+        xa = ca - a[big]["machine"].cycles_for(c)
+        xb = cb - b[big]["machine"].cycles_for(c)
         cyc[c] = (ca, cb)
         g = geomean([b[p]["machine"].cycles_for(c) / a[p]["machine"].cycles_for(c) for p in common])
-        L.append(f"| {c} | {fmt(ca)} | {fmt(cb)} | {cb / ca:.3f} | {ca / ia:.2f} | {cb / ib:.2f} | {g:.3f} |")
+        L.append(f"| {c} | **{g:.3f}** | {fmt(ca)} | {fmt(cb)} | {cb / ca:.3f} | {xb / xa:.3f} | "
+                 f"{ca / ia:.2f} | {cb / ib:.2f} |")
+    L.append("")
+    gi = geomean([b[p]["instructions"] / a[p]["instructions"] for p in common])
+    go = geomean([own_code(b[p]) / own_code(a[p]) for p in common if own_code(a[p])])
+    L.append(f"Geometric means of 1b / 1a: instructions executed {gi:.3f}, program code size "
+             f"(own code, without libraries) {go:.3f}.")
     L.append("")
     ba = sum(a[p]["code_bytes"] for p in common)
     bb = sum(b[p]["code_bytes"] for p in common)
@@ -200,20 +220,27 @@ def report(data):
              f"1a {fmt(ba)} bytes, 1b {fmt(bb)} bytes (1b / 1a = {bb / ba:.3f}).")
     L.append("")
     # speed-up from datapath and fetch
-    L.append("Effect of the hardware choices (total cycles, relative to D16-separate of the same ISA):")
+    L.append("Effect of the hardware choices: cycles relative to D16-separate of the same ISA "
+             "(geometric mean over programs).")
     L.append("")
     L.append("| ISA | " + " | ".join(CONFIGS) + " |")
     L.append("|---|" + "---:|" * len(CONFIGS))
-    for i, name in enumerate(("1a", "1b")):
-        base = cyc["D16-separate"][i]
-        L.append(f"| {name} | " + " | ".join(f"{cyc[c][i] / base:.2f}" for c in CONFIGS) + " |")
+    for name, res in (("1a", a), ("1b", b)):
+        L.append(f"| {name} | " + " | ".join(
+            f"{geomean([res[p]['machine'].cycles_for(c) / res[p]['machine'].cycles_for('D16-separate') for p in common]):.2f}"
+            for c in CONFIGS) + " |")
     L.append("")
 
     # ---- per program ----
     L.append("## Per program")
     L.append("")
+    L.append("Cycles count executed instructions only: time `interrupts` spends asleep in `HALT` "
+             "waiting for timer ticks isn't included.")
+    L.append("")
     L.append(f"Instructions, code size, and cycles in the {MAIN} and D32-wide configurations "
              f"(the cheapest and the most capable that overlap fetches), with run time at {CLOCK / 1e6:g} MHz.")
+    L.append("")
+    L.append("Code bytes are the program's own code; the libraries it includes are extra.")
     L.append("")
     L.append("| Program | 1a instr | 1b instr | 1a code B | 1b code B | 1a cycles " + MAIN +
              " | 1b cycles " + MAIN + " | 1b/1a | 1a D32-wide | 1b D32-wide | 1b/1a | 1a time | 1b time |")
@@ -227,8 +254,8 @@ def report(data):
         ma, mb = ra["machine"], rb["machine"]
         c1a, c1b = ma.cycles_for(MAIN), mb.cycles_for(MAIN)
         w1a, w1b = ma.cycles_for("D32-wide"), mb.cycles_for("D32-wide")
-        L.append(f"| {p} | {fmt(ra['instructions'])} | {fmt(rb['instructions'])} | {ra['code_bytes']} | "
-                 f"{rb['code_bytes']} | {fmt(c1a)} | {fmt(c1b)} | {c1b / c1a:.2f} | {fmt(w1a)} | "
+        L.append(f"| {p} | {fmt(ra['instructions'])} | {fmt(rb['instructions'])} | {own_code(ra)} | "
+                 f"{own_code(rb)} | {fmt(c1a)} | {fmt(c1b)} | {c1b / c1a:.2f} | {fmt(w1a)} | "
                  f"{fmt(w1b)} | {w1b / w1a:.2f} | {fmt_time(c1a)} | {fmt_time(c1b)} |")
     L.append("")
     for name, res in (("1a", a), ("1b", b)):
@@ -253,21 +280,27 @@ def report(data):
              "D16-overlap is draft 0's own organisation with a 32-bit register file; "
              "programs where the work differs (16-bit vs 32-bit arithmetic) still produce identical output.")
     L.append("")
-    L.append("| Program | v0 instr | v0 cycles | v0 code B | 1a cycles D16-overlap | 1b cycles D16-overlap | 1a speed-up | 1b speed-up |")
-    L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
-    tv0 = ta = tb = 0
+    L.append("Speed-up over draft 0 (draft 0 cycles divided by draft 1 cycles; above 1 is faster). "
+             "Code size is the program's own code plus the library routines it includes, for all three.")
+    L.append("")
+    L.append("| Program | v0 instr | v0 cycles | v0 code B | 1a code B | 1b code B | 1a D16-overlap | 1b D16-overlap | 1a D32-overlap | 1b D32-overlap |")
+    L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    sp = {k: [] for k in ("a16", "b16", "a32", "b32")}
     for p in progs:
         r0 = v0.get(p)
         if not r0 or not r0["ok"] or p not in common:
             continue
-        ca, cb = a[p]["machine"].cycles_for(MAIN), b[p]["machine"].cycles_for(MAIN)
-        tv0 += r0["cycles"]
-        ta += ca
-        tb += cb
+        ma, mb = a[p]["machine"], b[p]["machine"]
+        x = {"a16": r0["cycles"] / ma.cycles_for(MAIN), "b16": r0["cycles"] / mb.cycles_for(MAIN),
+             "a32": r0["cycles"] / ma.cycles_for("D32-overlap"), "b32": r0["cycles"] / mb.cycles_for("D32-overlap")}
+        for k in sp:
+            sp[k].append(x[k])
         L.append(f"| {p} | {fmt(r0['instructions'])} | {fmt(r0['cycles'])} | {r0['code_bytes']} | "
-                 f"{fmt(ca)} | {fmt(cb)} | {r0['cycles'] / ca:.2f}× | {r0['cycles'] / cb:.2f}× |")
-    if ta:
-        L.append(f"| **total** | | {fmt(tv0)} | | {fmt(ta)} | {fmt(tb)} | {tv0 / ta:.2f}× | {tv0 / tb:.2f}× |")
+                 f"{a[p]['code_bytes']} | {b[p]['code_bytes']} | " +
+                 " | ".join(f"{x[k]:.2f}×" for k in ("a16", "b16", "a32", "b32")) + " |")
+    if sp["a16"]:
+        L.append("| **geometric mean** | | | | | | " +
+                 " | ".join(f"**{geomean(sp[k]):.2f}×**" for k in ("a16", "b16", "a32", "b32")) + " |")
     L.append("")
 
     # ---- static code ----
