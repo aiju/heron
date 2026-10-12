@@ -303,6 +303,14 @@ class Target:
         result start as a copy of b rather than a? Yes if only b dies here
         (the copy then coalesces away), or if both do and b was computed
         later (it's likelier to sit in the register the result wants)."""
+        # an accumulator (x = x + y around a loop): start from the phi the
+        # result goes back into, so phi, operand and result share a register
+        for u in self.users.get(i, ()):
+            if u.op == "phi":
+                if u is a:
+                    return False
+                if u is b:
+                    return True
         da, db = self.dies_here(a, i), self.dies_here(b, i)
         if da != db:
             return db
@@ -634,13 +642,13 @@ class Target:
         self.fold_constants()
         for b in mf.blocks:
             out = []
-            for i in b.instrs:
+            for k, i in enumerate(b.instrs):
                 # drop CMP r, #c when the previous instruction set N and Z
                 # from r and only the conditions above are tested
                 if (i.op == "CMP" and len(i.ops) == 2 and isinstance(i.ops[1], Imm)
                         and i.ops[1].value in self.NZ_CONDS and out and out[-1].flags == "nz"
                         and out[-1].ops and out[-1].ops[0] is i.ops[0]):
-                    users = self.flag_users(b, len(out))
+                    users = self.flag_users(b, k)
                     conds = self.NZ_CONDS[i.ops[1].value]
                     if users is not None and all(self.cond_of(u) in conds for u in users):
                         for u in users:

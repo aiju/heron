@@ -1013,9 +1013,22 @@ def strength_reduce(func):
                 elif u.op == "add" and u in inside and u is not nxt:
                     base = u.args[1] if u.args[0] is p else u.args[0]
                     cands.append((u, base, 1))
+            # (base + p * k) + inv, with inv invariant too: one candidate
+            # with base + inv as its base (a[k][j] in a loop over k)
+            for a, base, k in list(cands):
+                for u in users.get(a, []):
+                    if u.op == "add" and u in inside and a in u.args:
+                        other = u.args[1] if u.args[0] is a else u.args[0]
+                        if other is not a and invariant(other) and not isinstance(other, Const):
+                            cands.append((u, (base, other), k))
             reduced = {}
             for a, base, k in cands:
-                if base is p or not invariant(base) or k is None:
+                if isinstance(base, tuple):
+                    if not all(invariant(x) for x in base):
+                        continue
+                elif base is p or not invariant(base) or k is None:
+                    continue
+                if k is None:
                     continue
                 if k == 1 and isinstance(base, Const):
                     continue        # p + c: addressing modes take the offset for free
@@ -1025,8 +1038,12 @@ def strength_reduce(func):
                 if not is_addr and a.op != "mul" and not any(
                         isinstance(t, Instr) and t.op == "mul" for t in a.args):
                     continue
-                key = (id(base), k)
+                key = (tuple(id(x) for x in base) if isinstance(base, tuple) else id(base), k)
                 if key not in reduced:
+                    if isinstance(base, tuple):
+                        b2 = Instr("add", list(base))
+                        pre.insert(len(pre.instrs) - 1, b2)
+                        base = b2
                     q = Instr("phi", [], incoming=[])
                     h.insert(0, q)
                     off = Instr("mul", [init, Const(k)])

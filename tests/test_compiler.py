@@ -146,6 +146,29 @@ class Optimizations(unittest.TestCase):
         self.assertNotIn("shl", loop.split("endfor")[0] if "endfor" in loop else "")
 
 
+class InterpretedIR(unittest.TestCase):
+    """The test programs' IR, run by the IR interpreter before and after
+    optimisation: checks the optimiser without either backend."""
+
+    def test_programs(self):
+        import glob
+        import os
+        from tmc.cc.driver import Program
+        from tmc.ir.interp import run
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cc")
+        for path in sorted(glob.glob(os.path.join(here, "*.c"))):
+            name = os.path.basename(path)[:-2]
+            with open(os.path.join(here, "expected", name + ".txt"), "rb") as f:
+                expected = f.read()
+            for opt in (0, 1):
+                p = Program("v1b", opt=opt)
+                p.add_file(path)
+                p.add_library()
+                funcs, data = p.compile()
+                with self.subTest(program=name, opt=opt):
+                    self.assertEqual(run(funcs, data), expected)
+
+
 class CodePatterns(unittest.TestCase):
     STRCPY = "void f(char *d, const char *s) { while ((*d++ = *s++) != 0) ; }"
 

@@ -63,6 +63,7 @@ class Allocator:
         self.initial = set()
         self.worklist_moves = set()
         self.moves = {}
+        self.move_order = {}        # moves are taken in a fixed order, so output is reproducible
         live_in, live_out = liveness(mf)
         for b in mf.blocks:
             w = 10 ** min(b.loop_depth, 5)
@@ -78,6 +79,7 @@ class Allocator:
                 if i.is_copy and len(uses) == 1 and len(defs) == 1:
                     live.discard(uses[0])
                     self.moves[i] = (defs[0], uses[0])
+                    self.move_order[i] = len(self.move_order)
                     self.move_list[defs[0]].add(i)
                     self.move_list[uses[0]].add(i)
                     self.worklist_moves.add(i)
@@ -184,7 +186,7 @@ class Allocator:
         return k < self.K
 
     def coalesce(self):
-        m = min(self.worklist_moves, key=lambda i: id(i))
+        m = min(self.worklist_moves, key=self.move_order.__getitem__)
         self.worklist_moves.remove(m)
         x, y = self.moves[m]
         x, y = self.get_alias(x), self.get_alias(y)
@@ -281,7 +283,7 @@ class Allocator:
 
     def choose(self, n, ok):
         """Prefer the colour of a register n is copied to or from."""
-        for m in self.move_list[n]:
+        for m in sorted(self.move_list[n], key=self.move_order.__getitem__):
             x, y = self.moves[m]
             for other in (x, y):
                 o = self.get_alias(other)
@@ -298,7 +300,7 @@ class Allocator:
         mf = self.mf
         slots = {}
         remat = {}
-        for v in spilled:
+        for v in sorted(spilled, key=lambda r: r.id):
             if v.remat is not None:
                 remat[v] = v.remat
             else:
