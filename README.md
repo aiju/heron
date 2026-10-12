@@ -53,6 +53,9 @@ python3 -m tmc --isa v1b ucode [--doc]           # 1b ROM images and full listin
 python3 -m tmc.hw.check_v1b [--lockstep] [NAME]  # 1b RTL model against the ISA simulator ("exercise" too)
 python3 -m tmc report1b [--hw]                   # regenerate docs/performance-v1b.md (--hw: about 30 minutes)
 
+python3 -m tmc si check                          # backplane signal integrity: check ngspice and models, estimate run times
+python3 -m tmc si sweep --preset quick           # 72 ngspice runs (--preset full: 1,197); see tmc/si/README.md
+
 python3 -m tmc run programs/mandel.s --stats    # draft 0: assemble and run, with an instruction mix
 python3 -m tmc run programs/rpn.s --input '3 4 + 2 *\n'
 python3 -m tmc asm programs/sieve.s -l sieve.lst # assemble with a listing
@@ -67,6 +70,11 @@ python3 -m tmc hw sweep tests/hw/exercise.s      # find the fastest clock that s
 python3 -m tmc report --hw                       # regenerate docs/performance.md (a few minutes)
 (cd hwsim && go test ./...)                      # 74181/74182 model tests
 ```
+
+The signal-integrity tools (`tmc si`) also need numpy and
+[ngspice](https://ngspice.sourceforge.io/), and fetch TI's IBIS models from
+ti.com on first use. The sweeps are meant to run on a fast local machine:
+[tmc/si/README.md](tmc/si/README.md) has the steps.
 
 `--variant` picks the parts (`hct-ls181`, `hct-f181`, `act-f181`) and
 `--corner` the delays (`max` worst case, `typ` typical) for the `hw` commands.
@@ -94,6 +102,8 @@ tmc/hw/chips.py     chip library: pins, timing arcs, parts variants
 tmc/hw/netlist.py   netlist description language (automatic gate packing, driver checks)
 tmc/hw/sta.py       static timing analysis with per-microinstruction case analysis
 tmc/hw/timing.json  delays per part, built from tmc/hw/datasheets by build_timing.py
+tmc/si/             backplane signal integrity: IBIS models in ngspice, field solver, bus/clock/crosstalk/
+                    ground-bounce models, sweeps (tmc/si/README.md)
 hwsim/              Go event-driven simulator: chip models, setup/hold, write timing, bus contention
 programs/           draft 0 programs and library, reference.py (independent expected outputs)
 programs/v1a, v1b/  draft 1 programs and libraries; programs/common/ holds data both use

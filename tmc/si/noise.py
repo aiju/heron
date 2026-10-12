@@ -103,9 +103,10 @@ def ground_bounce(bp, term, family, corner, driver, packages=1, package="dip",
     vpin = next(rlc for name, mn, rlc in comp["pins"].values() if name.upper() == "VCC")
     lines = [f"Vcc vcc 0 {vcc}",
              f"Lcg cgnd 0 {bp.conn_l / n_gnd:.4g}",
-             f"Lcv vcc cvcc {bp.conn_l / n_vcc:.4g}",
-             f"Cbulk cvcc cvx 22u", f"Rbulk cvx cgnd 0.05"]
-    t_edge = bus.T_RISE if falling else bus.T_RISE
+             f"Lcv vcc cvcc {bp.conn_l / n_vcc:.4g}"]
+    # no bulk capacitor: a 22 uF one made ngspice's time step collapse, and
+    # the per-package 100 nF capacitors carry the fast currents anyway
+    t_edge = bus.T_RISE
     quiet_level = 0 if falling else 1
     init = 1 if falling else 0
     dies = {}

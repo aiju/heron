@@ -266,6 +266,10 @@ def main(argv=None):
     r1b.set_defaults(fn=lambda args: __import__("tmc.report1b", fromlist=["x"]).main(
         (["--hw"] if args.hw else []) + ["--jobs", str(args.jobs)]))
 
+    si = sub.add_parser("si", help="backplane signal-integrity simulation (needs ngspice)")
+    si.add_argument("rest", nargs=argparse.REMAINDER)
+    si.set_defaults(fn=lambda args: __import__("tmc.si.cli", fromlist=["x"]).main(args.rest))
+
     h = sub.add_parser("hw", help="chip-level tools")
     h.add_argument("rest", nargs=argparse.REMAINDER)
     h.set_defaults(fn=lambda args: __import__("tmc.hw.cli", fromlist=["x"]).main(args.rest, args.isa))

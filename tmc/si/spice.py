@@ -55,3 +55,14 @@ def run(lines, probes, tstop, maxstep=20e-12, title="si", timeout=300):
         res[p] = data[:, 1 + i]
     _ = names
     return res
+
+
+def version():
+    try:
+        r = subprocess.run(["ngspice", "-v"], capture_output=True, text=True, timeout=30)
+        for line in (r.stdout + r.stderr).splitlines():
+            if "ngspice-" in line:
+                return line.strip(" *")
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
