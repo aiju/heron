@@ -3,6 +3,7 @@
 Each top-level programs/*.s file is a test. Optional metadata lines:
 
     ;! input: "text\\n"         console input (Python string literal)
+    ;! input-file: ../common/x  console input from a file (relative to the program)
     ;! max-cycles: 5000000
 
 Expected console output lives in programs/expected/<name>.txt, written by
@@ -22,8 +23,13 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 PROGRAMS = os.path.join(ROOT, "programs")
 
 
-def program_paths(names=None):
-    paths = sorted(glob.glob(os.path.join(PROGRAMS, "*.s")))
+def program_dir(isa_name=isas.DEFAULT):
+    sub = getattr(isas.get(isa_name), "PROGRAM_DIR", None)
+    return os.path.join(PROGRAMS, sub) if sub else PROGRAMS
+
+
+def program_paths(names=None, isa_name=isas.DEFAULT):
+    paths = sorted(glob.glob(os.path.join(program_dir(isa_name), "*.s")))
     if names:
         paths = [p for p in paths if os.path.basename(p)[:-2] in names]
     return paths
@@ -38,6 +44,9 @@ def metadata(path):
                 key, val = key.strip(), val.strip()
                 if key == "input":
                     meta["input"] = ast.literal_eval(val).encode("latin-1")
+                elif key == "input-file":
+                    with open(os.path.join(os.path.dirname(path), val), "rb") as g:
+                        meta["input"] = g.read()
                 elif key == "max-cycles":
                     meta["max-cycles"] = int(val)
                 else:
@@ -64,6 +73,8 @@ def timing_for(isa_name):
 def run_program(path, isa_name=isas.DEFAULT, timing=True):
     """Assemble and run one program. Returns a result dict."""
     isa = isas.get(isa_name)
+    if getattr(isa, "WIDE", False):
+        return run_program32(path, isa)
     name = os.path.basename(path)[:-2]
     meta = metadata(path)
     res = {"name": name, "path": path, "ok": False, "error": None}
@@ -97,6 +108,42 @@ def run_program(path, isa_name=isas.DEFAULT, timing=True):
     return res
 
 
+def run_program32(path, isa):
+    """run_program for the 32-bit draft 1 ISAs (tmc.sim32)."""
+    from .sim32 import Machine32, SimError as SimError32
+    name = os.path.basename(path)[:-2]
+    meta = metadata(path)
+    res = {"name": name, "path": path, "ok": False, "error": None}
+    try:
+        img = asmcore.assemble_file(isa, path)
+    except asmcore.AsmError as e:
+        res["error"] = f"assembly failed: {e}"
+        return res
+    m = Machine32(isa, img, inp=meta["input"])
+    try:
+        m.run(max_cycles=meta["max-cycles"])
+    except SimError32 as e:
+        res["error"] = str(e)
+    out = bytes(m.dev.out)
+    exp = expected_output(name)
+    res.update(
+        image=img, machine=m, output=out, expected=exp,
+        instructions=m.instructions, cycles=m.cycles,
+        code_bytes=img.code_bytes(), traps=m.traps, min_sp=m.min_sp, irqs=m.irqs,
+    )
+    if res["error"] is None:
+        if m.traps:
+            pc, what = m.traps[0]
+            res["error"] = f"trap at pc {pc:X}: {what}" + (f" (+{len(m.traps) - 1} more)" if len(m.traps) > 1 else "")
+        elif exp is None:
+            res["error"] = "no expected output (run programs/reference.py)"
+        elif out != exp:
+            res["error"] = "output differs from expected"
+        else:
+            res["ok"] = True
+    return res
+
+
 def first_diff(a, b):
     for i, (x, y) in enumerate(zip(a, b)):
         if x != y:
@@ -105,7 +152,7 @@ def first_diff(a, b):
 
 
 def cmd_test(args):
-    paths = program_paths(args.names)
+    paths = program_paths(args.names, args.isa)
     if not paths:
         print("no programs found")
         return 1
@@ -134,7 +181,7 @@ def cmd_test(args):
 
 def cmd_bench(args):
     rows = []
-    for p in program_paths():
+    for p in program_paths(isa_name=args.isa):
         r = run_program(p, args.isa)
         rows.append(r)
     clocks = [1e6, 2e6, 4e6]

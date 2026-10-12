@@ -510,6 +510,427 @@ def matmul():
             f"checksum: {u32(total):08X} {s1:04X} {s2:04X}\n")
 
 
+# --------------------------------------------------------------------------
+# Programs added for draft 1 (32-bit). Their specs are in the docstrings;
+# the assembly versions live in programs/v1a and programs/v1b.
+
+
+SHA_MESSAGES = [
+    b"",
+    b"abc",
+    b"The quick brown fox jumps over the lazy dog",
+    b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",
+]
+
+
+def sha256():
+    """SHA-256 (FIPS 180-4) of four fixed strings and of a generated
+    1000-byte message, byte i = (7*i + 3) & 255. One lowercase hex digest per
+    line, then the digest of the 1000-byte message."""
+    import hashlib
+    out = []
+    for msg in SHA_MESSAGES + [bytes((7 * i + 3) & 0xFF for i in range(1000))]:
+        out.append(hashlib.sha256(msg).hexdigest() + "\n")
+    return "".join(out)
+
+
+def wordfreq():
+    """Word frequencies of programs/common/wordfreq.txt (console input).
+
+    A word is a maximal run of ASCII letters, compared case-insensitively
+    (printed in lower case); everything else separates words. Prints the
+    number of words, the number of distinct words, then the 15 most frequent
+    as "count word", by count descending, ties in alphabetical order."""
+    with open(os.path.join(HERE, "common", "wordfreq.txt"), "rb") as f:
+        text = f.read().decode("latin-1")
+    words, cur = [], []
+    for ch in text:
+        if ("a" <= ch <= "z") or ("A" <= ch <= "Z"):
+            cur.append(ch.lower())
+        elif cur:
+            words.append("".join(cur))
+            cur = []
+    if cur:
+        words.append("".join(cur))
+    counts = {}
+    for w in words:
+        counts[w] = counts.get(w, 0) + 1
+    top = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:15]
+    return (f"words: {len(words)}\ndistinct: {len(counts)}\n" +
+            "".join(f"{n} {w}\n" for w, n in top))
+
+
+# ---- vm: a bytecode interpreter ----
+#
+# A stack machine with 32-bit signed values. Bytecode in
+# programs/common/vm_code.s (generated from VM_SOURCE below), starting at
+# label vm_code; addresses in jumps are byte offsets from vm_code.
+#
+#   00 HALT              stop
+#   01 PUSH i32          push a 32-bit constant (4 bytes, little-endian)
+#   02 PUSHB i8          push a sign-extended byte
+#   03 LOAD g            push global g (0-15)
+#   04 STORE g           pop into global g
+#   05 ADD  06 SUB  07 MUL          a b -> a op b (32-bit wrap-around)
+#   08 DIV  09 MOD                  rounding toward zero; MOD has the sign of a
+#   0A LT   0B EQ                   a b -> 1 if a < b (signed) / a == b, else 0
+#   0C JZ a16  0D JMP a16  0E JNZ a16   JZ/JNZ pop the condition
+#   0F DUP  10 DROP  11 SWAP  12 OVER
+#   13 CALL a16          push the return offset on the return stack, jump
+#   14 RET               pop the return stack
+#   15 PRINT             pop and print as a signed decimal, then a newline
+#
+# The data stack holds up to 64 values and the return stack 32. Globals
+# start at 0.
+
+VM_OPS = {"HALT": 0, "PUSH": 1, "PUSHB": 2, "LOAD": 3, "STORE": 4, "ADD": 5, "SUB": 6,
+          "MUL": 7, "DIV": 8, "MOD": 9, "LT": 10, "EQ": 11, "JZ": 12, "JMP": 13, "JNZ": 14,
+          "DUP": 15, "DROP": 16, "SWAP": 17, "OVER": 18, "CALL": 19, "RET": 20, "PRINT": 21}
+
+VM_SOURCE = """
+; sum of squares 1..100
+        PUSHB 0
+        STORE 0             ; g0 = sum
+        PUSHB 1
+        STORE 1             ; g1 = i
+sq:     LOAD 0
+        LOAD 1
+        DUP
+        MUL
+        ADD
+        STORE 0
+        LOAD 1
+        PUSHB 1
+        ADD
+        DUP
+        STORE 1
+        PUSHB 101
+        LT
+        JNZ sq
+        LOAD 0
+        PRINT
+; primes below 500 by trial division: count and largest
+        PUSHB 0
+        STORE 2             ; g2 = count
+        PUSHB 2
+        STORE 1             ; g1 = n
+pn:     PUSHB 2
+        STORE 3             ; g3 = d
+pd:     LOAD 3
+        DUP
+        MUL
+        LOAD 1
+        SWAP
+        LT                  ; n < d*d ?
+        JNZ prime
+        LOAD 1
+        LOAD 3
+        MOD
+        JZ notp
+        LOAD 3
+        PUSHB 1
+        ADD
+        STORE 3
+        JMP pd
+prime:  LOAD 2
+        PUSHB 1
+        ADD
+        STORE 2
+        LOAD 1
+        STORE 4             ; g4 = last prime
+notp:   LOAD 1
+        PUSHB 1
+        ADD
+        DUP
+        STORE 1
+        PUSH 500
+        LT
+        JNZ pn
+        LOAD 2
+        PRINT
+        LOAD 4
+        PRINT
+; recursive fib(16)
+        PUSHB 16
+        CALL fib
+        PRINT
+; longest Collatz chain for a start below 100: start and length
+        PUSHB 0
+        STORE 5             ; g5 = best length
+        PUSHB 1
+        STORE 1             ; g1 = start
+cs:     LOAD 1
+        PUSHB 0
+        STORE 7             ; g7 = steps
+cl:     DUP
+        PUSHB 1
+        EQ
+        JNZ cdone
+        DUP
+        PUSHB 2
+        MOD
+        JZ ceven
+        PUSHB 3
+        MUL
+        PUSHB 1
+        ADD
+        JMP cnext
+ceven:  PUSHB 2
+        DIV
+cnext:  LOAD 7
+        PUSHB 1
+        ADD
+        STORE 7
+        JMP cl
+cdone:  DROP
+        LOAD 5
+        LOAD 7
+        LT
+        JZ cskip
+        LOAD 7
+        STORE 5
+        LOAD 1
+        STORE 6             ; g6 = best start
+cskip:  LOAD 1
+        PUSHB 1
+        ADD
+        DUP
+        STORE 1
+        PUSHB 100
+        LT
+        JNZ cs
+        LOAD 6
+        PRINT
+        LOAD 5
+        PRINT
+; a negative number and a signed division
+        PUSH -1234567
+        PUSHB 7
+        DIV
+        PRINT
+        PUSH -1234567
+        PUSHB 7
+        MOD
+        PRINT
+        HALT
+
+; fib(n): n -> fib(n), recursively
+fib:    DUP
+        PUSHB 2
+        LT
+        JNZ fret
+        DUP
+        PUSHB 1
+        SUB
+        CALL fib
+        SWAP
+        PUSHB 2
+        SUB
+        CALL fib
+        ADD
+fret:   RET
+"""
+
+
+def vm_assemble(src=VM_SOURCE):
+    """Two-pass assembler for the bytecode above. Returns bytes."""
+    lines = []
+    for raw in src.splitlines():
+        line = raw.split(";")[0].strip()
+        if not line:
+            continue
+        label = None
+        if ":" in line:
+            label, line = line.split(":", 1)
+            line = line.strip()
+        parts = line.split()
+        lines.append((label, parts))
+    sizes = {"PUSH": 5, "PUSHB": 2, "LOAD": 2, "STORE": 2, "JZ": 3, "JMP": 3, "JNZ": 3, "CALL": 3}
+    labels, pc = {}, 0
+    for label, parts in lines:
+        if label:
+            labels[label] = pc
+        if parts:
+            pc += sizes.get(parts[0], 1)
+    out = bytearray()
+    for label, parts in lines:
+        if not parts:
+            continue
+        op = parts[0]
+        out.append(VM_OPS[op])
+        if op == "PUSH":
+            out += (int(parts[1]) & 0xFFFFFFFF).to_bytes(4, "little")
+        elif op == "PUSHB":
+            out.append(int(parts[1]) & 0xFF)
+        elif op in ("LOAD", "STORE"):
+            out.append(int(parts[1]))
+        elif op in ("JZ", "JMP", "JNZ", "CALL"):
+            out += labels[parts[1]].to_bytes(2, "little")
+    return bytes(out)
+
+
+def vm_run(code):
+    stack, rstack, g, out = [], [], [0] * 16, []
+    pc = 0
+    while True:
+        op = code[pc]
+        pc += 1
+        if op == 0:
+            break
+        if op == 1:
+            stack.append(s32(int.from_bytes(code[pc:pc + 4], "little")))
+            pc += 4
+        elif op == 2:
+            stack.append(code[pc] - 256 if code[pc] & 0x80 else code[pc])
+            pc += 1
+        elif op == 3:
+            stack.append(g[code[pc]])
+            pc += 1
+        elif op == 4:
+            g[code[pc]] = stack.pop()
+            pc += 1
+        elif 5 <= op <= 11:
+            b = stack.pop()
+            a = stack.pop()
+            if op == 5: r = s32(a + b)
+            elif op == 6: r = s32(a - b)
+            elif op == 7: r = s32(a * b)
+            elif op == 8: r = tdiv(a, b)[0]
+            elif op == 9: r = tdiv(a, b)[1]
+            elif op == 10: r = 1 if a < b else 0
+            else: r = 1 if a == b else 0
+            stack.append(r)
+        elif op in (12, 13, 14, 19):
+            t = code[pc] | (code[pc + 1] << 8)
+            pc += 2
+            if op == 13:
+                pc = t
+            elif op == 19:
+                rstack.append(pc)
+                pc = t
+            else:
+                c = stack.pop()
+                if (c == 0) == (op == 12):
+                    pc = t
+        elif op == 15: stack.append(stack[-1])
+        elif op == 16: stack.pop()
+        elif op == 17: stack[-1], stack[-2] = stack[-2], stack[-1]
+        elif op == 18: stack.append(stack[-2])
+        elif op == 20: pc = rstack.pop()
+        elif op == 21: out.append(f"{stack.pop()}\n")
+        else:
+            raise ValueError(f"bad opcode {op}")
+        assert len(stack) <= 64 and len(rstack) <= 32
+    return "".join(out)
+
+
+def write_vm_code():
+    code = vm_assemble()
+    lines = ["; Generated by programs/reference.py (VM_SOURCE): bytecode for vm.s.",
+             "; Include it in the data part of the program; it defines vm_code and vm_code_end.",
+             "", "vm_code:"]
+    for i in range(0, len(code), 12):
+        lines.append("        .byte " + ", ".join(f"0x{b:02X}" for b in code[i:i + 12]))
+    lines.append("vm_code_end:")
+    with open(os.path.join(HERE, "common", "vm_code.s"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def vm():
+    """Run the bytecode in programs/common/vm_code.s (see VM_SOURCE)."""
+    write_vm_code()
+    return vm_run(vm_assemble())
+
+
+# ---- lines: drawing into a 1-bit framebuffer ----
+
+FB_W, FB_H = 64, 32
+
+
+def lines():
+    """Draw lines, circles and XOR rectangles into a 64x32 1-bit-per-pixel
+    framebuffer (8 bytes per row, bit 7 of a byte is its leftmost pixel),
+    then print it as 32 rows of '#' and '.', and the number of set pixels.
+
+    plot(x, y): only if 0 <= x < 64 and 0 <= y < 32 (others are clipped).
+    line: Bresenham, all octants:
+        dx = |x1-x0|, sx = x0<x1 ? 1 : -1, dy = -|y1-y0|, sy = y0<y1 ? 1 : -1
+        err = dx + dy
+        loop: plot(x0,y0); stop if x0==x1 and y0==y1; e2 = 2*err
+              if e2 >= dy: err += dy, x0 += sx;  if e2 <= dx: err += dx, y0 += sy
+    circle(xc, yc, r): x = 0, y = r, d = 3 - 2r; while y >= x: plot the 8
+        points (xc±x, yc±y), (xc±y, yc±x); if d > 0: y -= 1, d += 4(x-y) + 10
+        else d += 4x + 6; then x += 1
+    xor_rect(x0, y0, x1, y1): flip every pixel with x0<=x<=x1, y0<=y<=y1.
+    """
+    fb = bytearray(FB_W * FB_H // 8)
+
+    def plot(x, y):
+        if 0 <= x < FB_W and 0 <= y < FB_H:
+            fb[y * 8 + (x >> 3)] |= 0x80 >> (x & 7)
+
+    def line(x0, y0, x1, y1):
+        dx, sx = abs(x1 - x0), 1 if x0 < x1 else -1
+        dy, sy = -abs(y1 - y0), 1 if y0 < y1 else -1
+        err = dx + dy
+        while True:
+            plot(x0, y0)
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 >= dy:
+                err += dy
+                x0 += sx
+            if e2 <= dx:
+                err += dx
+                y0 += sy
+
+    def circle(xc, yc, r):
+        x, y, d = 0, r, 3 - 2 * r
+        while y >= x:
+            for px, py in ((x, y), (y, x)):
+                plot(xc + px, yc + py)
+                plot(xc - px, yc + py)
+                plot(xc + px, yc - py)
+                plot(xc - px, yc - py)
+            if d > 0:
+                y -= 1
+                d += 4 * (x - y) + 10
+            else:
+                d += 4 * x + 6
+            x += 1
+
+    def xor_rect(x0, y0, x1, y1):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                fb[y * 8 + (x >> 3)] ^= 0x80 >> (x & 7)
+
+    for x1, y1 in LINES_STAR:
+        line(32, 16, x1, y1)
+    for x0, y0, x1, y1 in LINES_EXTRA:
+        line(x0, y0, x1, y1)
+    for xc, yc, r in LINES_CIRCLES:
+        circle(xc, yc, r)
+    for rect in LINES_RECTS:
+        xor_rect(*rect)
+    out = []
+    for y in range(FB_H):
+        out.append("".join("#" if fb[y * 8 + (x >> 3)] & (0x80 >> (x & 7)) else "."
+                           for x in range(FB_W)) + "\n")
+    pixels = sum(bin(b).count("1") for b in fb)
+    out.append(f"pixels: {pixels}\n")
+    return "".join(out)
+
+
+# Shapes for lines(), in drawing order. The assembly versions use the same
+# tables, in the same order.
+LINES_STAR = [(0, 0), (16, 0), (40, 0), (63, 0), (63, 9), (63, 31), (50, 31),
+              (20, 31), (0, 31), (0, 22)]                  # lines from (32, 16)
+LINES_EXTRA = [(-10, 5, 20, 40), (70, -3, 45, 12), (5, 3, 5, 3), (60, 28, 2, 28)]
+LINES_CIRCLES = [(32, 16, 12), (10, 10, 6), (56, 24, 9)]   # (xc, yc, r)
+LINES_RECTS = [(40, 2, 60, 12), (2, 20, 20, 29)]           # (x0, y0, x1, y1) inclusive
+
+
 PROGRAMS = {
     "hello": hello,
     "arith": arith,
@@ -527,6 +948,10 @@ PROGRAMS = {
     "monitor": monitor,
     "interrupts": interrupts,
     "matmul": matmul,
+    "sha256": sha256,
+    "wordfreq": wordfreq,
+    "vm": vm,
+    "lines": lines,
 }
 
 

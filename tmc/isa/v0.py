@@ -165,6 +165,11 @@ def assemble(name, ops, ctx):
     if U in MEM_FN:
         if k != "RM":
             ctx.error(f"{U} needs 'reg, [base + offset]'")
+        if ops[1].index is not None:
+            ctx.error("register + register addressing doesn't exist: add the registers "
+                      "first, or use [label + reg] for a static array")
+        if not ops[1].plain():
+            ctx.error("draft 0 has no size keywords or auto-increment: use [base + offset]")
         rd = ops[0].n
         base = ops[1].base.n if ops[1].base else 0
         if ops[1].disp is None:

@@ -4,7 +4,7 @@ The core handles everything that doesn't depend on the instruction set:
 lexing, expressions, labels (including local `.labels`), directives,
 includes, and multi-pass size relaxation. Instructions are handed to the
 ISA module's `assemble(mnemonic, operands, ctx)` hook, which returns a
-list of 16-bit words.
+list of 16-bit words (parcels).
 
 Size relaxation: an ISA hook may choose between a short and a long
 encoding. In the first pass unknown symbols evaluate to 0 (optimistic,
@@ -278,6 +278,14 @@ class Reg:
         return f"Reg({self.name})"
 
 
+class RegRange:
+    """'r8-r11' register range operand (SAVE/RESTORE)."""
+    __slots__ = ("a", "b")
+
+    def __init__(self, a, b):
+        self.a, self.b = a, b
+
+
 class Imm:
     """'#expr' immediate operand."""
     __slots__ = ("expr",)
@@ -287,11 +295,24 @@ class Imm:
 
 
 class Mem:
-    """'[base + disp]' memory operand; base is a Reg or None, disp an expr or None."""
-    __slots__ = ("base", "disp")
+    """'[base + disp]' memory operand.
 
-    def __init__(self, base, disp):
+    base and index are Regs or None, disp an expr or None. The rest is only
+    used by ISAs with richer addressing (draft 1b): an optional size keyword
+    ('byte', 'half' or 'word' before the bracket), the scale of the index
+    register ('[r1 + r2*4]'), and auto-increment ('[r1]+') or auto-decrement
+    ('-[r1]').
+    """
+    __slots__ = ("base", "disp", "index", "scale", "size", "postinc", "predec")
+
+    def __init__(self, base, disp, index=None, scale=1, size=None, postinc=False, predec=False):
         self.base, self.disp = base, disp
+        self.index, self.scale = index, scale
+        self.size, self.postinc, self.predec = size, postinc, predec
+
+    def plain(self):
+        """True for the draft 0 forms: [base + disp] without the extras."""
+        return self.index is None and self.size is None and not self.postinc and not self.predec
 
 
 class Expr:
@@ -327,6 +348,13 @@ class Ctx:
     def long(self):
         """True once this statement has been forced to its long form."""
         return self.stmt.sticky_long
+
+    @property
+    def min_words(self):
+        """Once a statement has grown, its encoding may never get shorter
+        again (so the passes converge): ISAs with several sizes pick a form
+        of at least this many words."""
+        return self.stmt.size // 2 if self.stmt.sticky_long else 0
 
     def value(self, expr):
         """Evaluate an expression. Returns (value, known)."""
@@ -377,6 +405,7 @@ class Assembler:
         self.stmts = []
         self.reg_names = {k.lower(): v for k, v in isa.REGISTERS.items()}
         self.owner = {}       # symbol -> statement that defines it
+        self.mem_top = getattr(isa, "MEM_TOP", 0x10000)
 
     # ---- parsing ---------------------------------------------------------
 
@@ -459,38 +488,97 @@ class Assembler:
             raise AsmError("empty operand")
         if len(toks) == 1 and self.reg(toks[0]):
             return self.reg(toks[0])
+        if len(toks) == 3 and self.reg(toks[0]) and toks[1] == ("op", "-") and self.reg(toks[2]):
+            return RegRange(self.reg(toks[0]), self.reg(toks[2]))
         if toks[0] == ("op", "#"):
             return Imm(parse_expr(toks[1:], scope))
+        size = None
+        if (len(toks) > 1 and toks[0][0] == "id" and toks[0][1].lower() in ("byte", "half", "word")
+                and toks[1] in (("op", "["), ("op", "-"))):
+            size = toks[0][1].lower()
+            toks = toks[1:]
+        predec = postinc = False
+        if len(toks) > 1 and toks[0] == ("op", "-") and toks[1] == ("op", "["):
+            predec = True
+            toks = toks[1:]
+        if len(toks) > 1 and toks[-1] == ("op", "+") and toks[-2] == ("op", "]") and toks[0] == ("op", "["):
+            postinc = True
+            toks = toks[:-1]
         if toks[0] == ("op", "["):
             if toks[-1] != ("op", "]"):
                 raise AsmError("missing ']'")
-            inner = toks[1:-1]
-            regs = [i for i, t in enumerate(inner) if self.reg(t)]
-            base, disp = None, None
-            if len(regs) > 1:
-                raise AsmError("register + register addressing doesn't exist: add the registers "
-                               "first, or use [label + reg] for a static array")
-            if regs and regs[0] == 0:
-                base = self.reg(inner[0])
-                rest = inner[1:]
-                if rest:
-                    if rest[0] not in (("op", "+"), ("op", "-")):
-                        raise AsmError("expected + or - after base register")
-                    disp = parse_expr(rest if rest[0] == ("op", "-") else rest[1:], scope)
-            elif regs and regs[0] == len(inner) - 1 and len(inner) >= 3 and inner[-2] == ("op", "+"):
-                base = self.reg(inner[-1])
-                disp = parse_expr(inner[:-2], scope)
-            elif regs:
-                raise AsmError("register must come first, or last after '+', inside [...]")
-            else:
-                disp = parse_expr(inner, scope) if inner else None
-            return Mem(base, disp)
+            m = self.parse_mem(toks[1:-1], scope)
+            m.size, m.predec, m.postinc = size, predec, postinc
+            if (predec or postinc) and (m.base is None or m.index is not None or m.disp is not None):
+                raise AsmError("auto-increment and auto-decrement need a plain [register]")
+            return m
+        if size or predec:
+            raise AsmError("expected [...] after the size or '-'")
         if len(toks) == 1 and toks[0][0] == "str":
             return Str(toks[0][1])
         for t in toks:
             if self.reg(t):
                 raise AsmError(f"unexpected register in expression: {t[1]}")
         return Expr(parse_expr(toks, scope))
+
+    def parse_mem(self, inner, scope):
+        """Parse the inside of [...]: terms joined by + and -, each a register,
+        'reg*scale' (an index), or part of the displacement expression."""
+        terms, cur, depth = [], [], 0
+        sign = "+"
+        for t in inner:
+            if t in (("op", "("),):
+                depth += 1
+            elif t == ("op", ")"):
+                depth -= 1
+            if depth == 0 and t in (("op", "+"), ("op", "-")) and cur:
+                terms.append((sign, cur))
+                sign, cur = t[1], []
+            else:
+                cur.append(t)
+        if cur:
+            terms.append((sign, cur))
+        regs, disp = [], []
+        for sign, tt in terms:
+            r = self.reg(tt[0])
+            if len(tt) == 1 and r:
+                if sign != "+":
+                    raise AsmError("a register can't be subtracted")
+                regs.append((r, 1, False))
+                continue
+            scaled = None
+            if len(tt) >= 3 and r and tt[1] == ("op", "*"):
+                scaled = (r, tt[2:])
+            elif len(tt) >= 3 and self.reg(tt[-1]) and tt[-2] == ("op", "*"):
+                scaled = (self.reg(tt[-1]), tt[:-2])
+            if scaled:
+                if sign != "+":
+                    raise AsmError("a register can't be subtracted")
+                k = eval_expr(parse_expr(scaled[1], scope), {}, 0)
+                regs.append((scaled[0], k, True))
+                continue
+            for t in tt:
+                if self.reg(t):
+                    raise AsmError(f"unexpected register in address expression: {t[1]}")
+            if disp or sign == "-":
+                disp.append(("op", sign))
+            disp.extend(tt)
+        base = index = None
+        scale = 1
+        if len(regs) > 2:
+            raise AsmError("at most two registers in an address")
+        plain = [r for r in regs if not r[2]]
+        scaled = [r for r in regs if r[2]]
+        if len(scaled) > 1:
+            raise AsmError("only one register can be scaled")
+        if scaled:
+            index, scale = scaled[0][0], scaled[0][1]
+            base = plain[0][0] if plain else None
+        elif len(plain) == 2:
+            base, index = plain[0][0], plain[1][0]
+        elif plain:
+            base = plain[0][0]
+        return Mem(base, parse_expr(disp, scope) if disp else None, index, scale)
 
     # ---- passes ----------------------------------------------------------
 
@@ -561,16 +649,18 @@ class Assembler:
                 buf.append(0)
             st.data = bytes(buf)
             return pc + len(buf)
-        if n == ".word":
-            if pc & 1:
-                raise AsmError(".word at odd address")
+        if n in (".word", ".half", ".long"):
+            size = {".half": 2, ".long": 4}.get(n, getattr(self.isa, "WORD_BYTES", 2))
+            if pc % size:
+                raise AsmError(f"{n} at an address that isn't a multiple of {size} (missing .align?)")
             buf = bytearray()
+            bits = 8 * size
             for v in self.dir_values(st, ops, pc):
                 if isinstance(v, bytes):
-                    raise AsmError(".word doesn't take strings")
-                if self.final_pass and not -32768 <= v <= 65535:
-                    raise AsmError(f".word value {v} out of range")
-                buf += (v & 0xFFFF).to_bytes(2, "little")
+                    raise AsmError(f"{n} doesn't take strings")
+                if self.final_pass and not -(1 << (bits - 1)) <= v < (1 << bits):
+                    raise AsmError(f"{n} value {v} out of range")
+                buf += (v & ((1 << bits) - 1)).to_bytes(size, "little")
             st.data = bytes(buf)
             return pc + len(buf)
         if n in (".global", ".globl", ".title"):
@@ -614,7 +704,7 @@ class Assembler:
                     st.size = len(words) * 2
                     st.words = words
                     pc += st.size
-                if pc > 0x10000:
+                if pc > self.mem_top:
                     raise AsmError("program runs past the end of memory")
             except AsmError as e:
                 e.where = e.where or st.where
@@ -678,16 +768,16 @@ class Image:
             text = sts[-1].text.rstrip()
             body = [st for st in sts if st.kind == "insn" or (st.kind == "dir" and st.data)]
             if not body:
-                lines.append(f"{'':16} {text}")
+                lines.append(f"{'':20} {text}")
                 continue
             st = body[0]
             if st.kind == "insn":
                 hexw = " ".join(f"{w:04X}" for w in st.words)
-                lines.append(f"{st.addr:04X}  {hexw:<10} {text}")
+                lines.append(f"{st.addr:04X}  {hexw:<14} {text}")
             else:
                 d = st.data[:4]
                 hexb = " ".join(f"{b:02X}" for b in d) + (" …" if len(st.data) > 4 else "")
-                lines.append(f"{st.addr:04X}  {hexb:<10} {text}")
+                lines.append(f"{st.addr:04X}  {hexb:<14} {text}")
         return "\n".join(lines) + "\n"
 
 

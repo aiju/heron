@@ -1,0 +1,379 @@
+"""Draft 1 report: cycles, code size and ISA statistics for 1a vs 1b.
+
+Runs every program in programs/v1a and programs/v1b (and the draft 0 suite
+for reference) and writes docs/performance-v1.md.
+
+    python3 -m tmc report1
+"""
+
+import math
+import os
+import re
+from collections import Counter, defaultdict
+
+from . import timing32
+from . import isa as isas
+from .testing import program_paths, run_program, ROOT
+
+ISAS = ["v1a", "v1b"]
+CONFIGS = timing32.CONFIG_NAMES
+MAIN = "D16-overlap"        # the configuration used in the headline tables
+CLOCK = 3e6                 # assumed clock for run times
+REG_RE = re.compile(r"\b(r1[0-5]|r[0-9]|sp)\b")
+
+
+def parcels(m, pc):
+    return [m.parcel(pc + 2 * i) for i in range(3)]
+
+
+def geomean(xs):
+    xs = [x for x in xs if x > 0]
+    return math.exp(sum(math.log(x) for x in xs) / len(xs)) if xs else float("nan")
+
+
+def collect():
+    """Run everything. Returns {isa: {program: result}} plus v0 results."""
+    out = {}
+    for name in ISAS:
+        out[name] = {}
+        for p in program_paths(isa_name=name):
+            r = run_program(p, name)
+            out[name][r["name"]] = r
+    out["v0"] = {}
+    for p in program_paths(isa_name="v0"):
+        r = run_program(p, "v0")
+        out["v0"][r["name"]] = r
+    return out
+
+
+def analyse(name, results):
+    """Per-ISA statistics over all programs."""
+    isa = isas.get(name)
+    st = {
+        "kinds": Counter(), "kind_cycles": Counter(), "static_kinds": Counter(),
+        "parcels_static": Counter(), "parcels_dyn": Counter(), "two_parcel": Counter(),
+        "three_parcel": Counter(), "modes_dyn": Counter(), "modes_static": Counter(),
+        "data_bytes": 0, "instructions": 0, "fetch_bytes": 0, "regs": {},
+    }
+    seen = set()
+    for prog, r in results.items():
+        m = r.get("machine")
+        if m is None:
+            continue
+        st["instructions"] += m.instructions
+        st["data_bytes"] += m.data_bytes
+        pcc = m.pc_cycles(MAIN)
+        for pc, cnt in m.pc_counts.items():
+            ws = parcels(m, pc)
+            k = isa.kind(ws)
+            n = isa.size_of(ws[0])
+            st["kinds"][k] += cnt
+            st["kind_cycles"][k] += pcc[pc]
+            st["parcels_dyn"][n] += cnt
+            st["fetch_bytes"] += 2 * n * cnt
+            if name == "v1b" and 1 <= (ws[0] >> 12) <= 9 or name == "v1b" and (ws[0] >> 12) == 0xB:
+                st["modes_dyn"][isa.mode_class(ws)] += cnt
+        regs = set()
+        for s in r["image"].stmts:
+            if s.kind != "insn":
+                continue
+            text, _ = isa.disassemble(s.words + [0, 0], s.addr)
+            regs.update(REG_RE.findall(text.split(";")[0]))
+            if s.where in seen:
+                continue
+            seen.add(s.where)
+            ws = s.words + [0, 0]
+            k = isa.kind(ws)
+            st["static_kinds"][k] += 1
+            st["parcels_static"][len(s.words)] += 1
+            if len(s.words) == 2:
+                st["two_parcel"][k] += 1
+            elif len(s.words) == 3:
+                st["three_parcel"][k] += 1
+            if name == "v1b" and (1 <= (ws[0] >> 12) <= 9 or (ws[0] >> 12) == 0xB):
+                st["modes_static"][isa.mode_class(ws)] += 1
+        regs.discard("r0")
+        st["regs"][prog] = len(regs)
+    return st
+
+
+def profile(r, n=3, config=MAIN):
+    """Top routines of one program by cycles: [(name, share)]."""
+    m = r["machine"]
+    syms = sorted((addr, s) for s, addr in r["image"].symbols.items()
+                  if "." not in s and not s.startswith("__") and addr < 0x100000)
+    import bisect
+    starts = [a for a, _ in syms]
+    per = Counter()
+    total = 0
+    for pc, cyc in m.pc_cycles(config).items():
+        total += cyc
+        if pc is None:
+            per["<interrupt entry>"] += cyc
+            continue
+        i = bisect.bisect_right(starts, pc) - 1
+        per[syms[i][1] if i >= 0 else "?"] += cyc
+    return [(k, v / total) for k, v in per.most_common(n)]
+
+
+def fmt(n):
+    return f"{n:,}"
+
+
+def pct(a, b):
+    return f"{100 * a / b:.1f}%" if b else "–"
+
+
+def fmt_time(cycles):
+    s = cycles / CLOCK
+    if s < 1:
+        return f"{s * 1e3:.1f} ms"
+    return f"{s:.2f} s"
+
+
+def timing_examples():
+    rows = [
+        ("`ADD r1, r2`", (1, 0, "alu", 1)),
+        ("`CMP r1, r2`", (1, 0, "alu", 0)),
+        ("`ADD r1, #1000` (2 parcels)", (2, 0, "alu", 1)),
+        ("word load `[r2 + 4]`", (1, 0, "ld", "rd", 4, 0)),
+        ("byte load `[r2 + 1]`", (1, 0, "ld", "rd", 1, 0)),
+        ("word store `[r2 + 4]`", (1, 0, "st", "rd", 4, 0)),
+        ("1b `ADD r1, [r2]` (word)", (1, 0, "op", "r", 4, 0, 1)),
+        ("1b `ADD r1, byte [r2 + 8]`", (2, 0, "op", "rd", 1, 0, 1)),
+        ("1b `MOV r1, [r2]+`", (1, 0, "ld", "pi", 4, 0)),
+        ("branch taken", (1, 0, "br", 1, 0)),
+        ("branch not taken", (1, 0, "br", 0, 0)),
+        ("`CALL` (2 parcels)", (2, 0, "call", "rel", 0)),
+        ("`RET`", (1, 0, "ret")),
+        ("`SAVE` of 4 registers", (1, 0, "save", 4)),
+        ("`MULU`, 16-bit multiplier", (1, 0, "mul", 16, 0)),
+        ("`DIVU`", (1, 0, "div", 0)),
+    ]
+    L = ["| Instruction | " + " | ".join(CONFIGS) + " |",
+         "|---|" + "---:|" * len(CONFIGS)]
+    for label, k in rows:
+        L.append(f"| {label} | " + " | ".join(str(timing32.cycles(k, c)) for c in CONFIGS) + " |")
+    return L
+
+
+def report(data):
+    L = []
+    a, b, v0 = data["v1a"], data["v1b"], data["v0"]
+    progs = sorted(set(a) | set(b))
+    L.append("# Draft 1 performance: 1a (load/store) vs 1b (register + addressing mode)")
+    L.append("")
+    L.append("Generated by `python3 -m tmc report1`. Cycle counts come from the timing model in "
+             "[timing-model-v1.md](timing-model-v1.md), applied to every executed instruction of "
+             f"every program. Run times assume a {CLOCK / 1e6:g} MHz clock for every configuration.")
+    L.append("")
+    status = []
+    for name, res in (("1a", a), ("1b", b)):
+        bad = [p for p, r in res.items() if not r["ok"]]
+        status.append(f"{name}: {len(res) - len(bad)}/{len(res)} programs pass" +
+                      (f" (failing: {', '.join(bad)})" if bad else ""))
+    L.append("Test status: " + "; ".join(status) + ".")
+    L.append("")
+
+    # ---- headline ----
+    L.append("## Whole suite")
+    L.append("")
+    common = [p for p in progs if p in a and p in b and a[p]["ok"] and b[p]["ok"]]
+    L.append(f"Totals over the {len(common)} programs that pass on both.")
+    L.append("")
+    L.append("| Configuration | 1a cycles | 1b cycles | 1b / 1a | 1a CPI | 1b CPI | geometric mean of per-program 1b / 1a |")
+    L.append("|---|---:|---:|---:|---:|---:|---:|")
+    ia = sum(a[p]["instructions"] for p in common)
+    ib = sum(b[p]["instructions"] for p in common)
+    cyc = {}
+    for c in CONFIGS:
+        ca = sum(a[p]["machine"].cycles_for(c) for p in common)
+        cb = sum(b[p]["machine"].cycles_for(c) for p in common)
+        cyc[c] = (ca, cb)
+        g = geomean([b[p]["machine"].cycles_for(c) / a[p]["machine"].cycles_for(c) for p in common])
+        L.append(f"| {c} | {fmt(ca)} | {fmt(cb)} | {cb / ca:.3f} | {ca / ia:.2f} | {cb / ib:.2f} | {g:.3f} |")
+    L.append("")
+    ba = sum(a[p]["code_bytes"] for p in common)
+    bb = sum(b[p]["code_bytes"] for p in common)
+    L.append(f"Instructions executed: 1a {fmt(ia)}, 1b {fmt(ib)} (1b / 1a = {ib / ia:.3f}). "
+             f"Code size, summed over programs (library code counted in each program that includes it): "
+             f"1a {fmt(ba)} bytes, 1b {fmt(bb)} bytes (1b / 1a = {bb / ba:.3f}).")
+    L.append("")
+    # speed-up from datapath and fetch
+    L.append("Effect of the hardware choices (total cycles, relative to D16-separate of the same ISA):")
+    L.append("")
+    L.append("| ISA | " + " | ".join(CONFIGS) + " |")
+    L.append("|---|" + "---:|" * len(CONFIGS))
+    for i, name in enumerate(("1a", "1b")):
+        base = cyc["D16-separate"][i]
+        L.append(f"| {name} | " + " | ".join(f"{cyc[c][i] / base:.2f}" for c in CONFIGS) + " |")
+    L.append("")
+
+    # ---- per program ----
+    L.append("## Per program")
+    L.append("")
+    L.append(f"Instructions, code size, and cycles in the {MAIN} and D32-wide configurations "
+             f"(the cheapest and the most capable that overlap fetches), with run time at {CLOCK / 1e6:g} MHz.")
+    L.append("")
+    L.append("| Program | 1a instr | 1b instr | 1a code B | 1b code B | 1a cycles " + MAIN +
+             " | 1b cycles " + MAIN + " | 1b/1a | 1a D32-wide | 1b D32-wide | 1b/1a | 1a time | 1b time |")
+    L.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for p in progs:
+        ra, rb = a.get(p), b.get(p)
+        if not ra or not rb or not ra["ok"] or not rb["ok"]:
+            L.append(f"| {p} | " + ("ok" if ra and ra["ok"] else "fail") + " | " +
+                     ("ok" if rb and rb["ok"] else "fail") + " |" + " |" * 11)
+            continue
+        ma, mb = ra["machine"], rb["machine"]
+        c1a, c1b = ma.cycles_for(MAIN), mb.cycles_for(MAIN)
+        w1a, w1b = ma.cycles_for("D32-wide"), mb.cycles_for("D32-wide")
+        L.append(f"| {p} | {fmt(ra['instructions'])} | {fmt(rb['instructions'])} | {ra['code_bytes']} | "
+                 f"{rb['code_bytes']} | {fmt(c1a)} | {fmt(c1b)} | {c1b / c1a:.2f} | {fmt(w1a)} | "
+                 f"{fmt(w1b)} | {w1b / w1a:.2f} | {fmt_time(c1a)} | {fmt_time(c1b)} |")
+    L.append("")
+    for name, res in (("1a", a), ("1b", b)):
+        L.append(f"<details><summary>All six configurations, draft {name}</summary>")
+        L.append("")
+        L.append("| Program | " + " | ".join(CONFIGS) + " |")
+        L.append("|---|" + "---:|" * len(CONFIGS))
+        for p in progs:
+            r = res.get(p)
+            if not r or not r["ok"]:
+                continue
+            m = r["machine"]
+            L.append(f"| {p} | " + " | ".join(fmt(m.cycles_for(c)) for c in CONFIGS) + " |")
+        L.append("")
+        L.append("</details>")
+        L.append("")
+
+    # ---- against draft 0 ----
+    L.append("## Against draft 0")
+    L.append("")
+    L.append("Draft 0's cycles are exact (from its microcode); draft 1's are from the model. "
+             "D16-overlap is draft 0's own organisation with a 32-bit register file; "
+             "programs where the work differs (16-bit vs 32-bit arithmetic) still produce identical output.")
+    L.append("")
+    L.append("| Program | v0 instr | v0 cycles | v0 code B | 1a cycles D16-overlap | 1b cycles D16-overlap | 1a speed-up | 1b speed-up |")
+    L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+    tv0 = ta = tb = 0
+    for p in progs:
+        r0 = v0.get(p)
+        if not r0 or not r0["ok"] or p not in common:
+            continue
+        ca, cb = a[p]["machine"].cycles_for(MAIN), b[p]["machine"].cycles_for(MAIN)
+        tv0 += r0["cycles"]
+        ta += ca
+        tb += cb
+        L.append(f"| {p} | {fmt(r0['instructions'])} | {fmt(r0['cycles'])} | {r0['code_bytes']} | "
+                 f"{fmt(ca)} | {fmt(cb)} | {r0['cycles'] / ca:.2f}× | {r0['cycles'] / cb:.2f}× |")
+    if ta:
+        L.append(f"| **total** | | {fmt(tv0)} | | {fmt(ta)} | {fmt(tb)} | {tv0 / ta:.2f}× | {tv0 / tb:.2f}× |")
+    L.append("")
+
+    # ---- static code ----
+    sa, sb = analyse("v1a", a), analyse("v1b", b)
+    L.append("## Code size and instruction length")
+    L.append("")
+    L.append("Static counts take each source line once (library code counts once, not once per program).")
+    L.append("")
+    L.append("| | 1a | 1b |")
+    L.append("|---|---:|---:|")
+    for label, key in (("instructions", None),):
+        na, nb = sum(sa["parcels_static"].values()), sum(sb["parcels_static"].values())
+        L.append(f"| instructions in the source | {fmt(na)} | {fmt(nb)} |")
+        pa = sum(k * v for k, v in sa["parcels_static"].items())
+        pb = sum(k * v for k, v in sb["parcels_static"].items())
+        L.append(f"| code bytes | {fmt(2 * pa)} | {fmt(2 * pb)} |")
+        L.append(f"| bytes per instruction | {2 * pa / na:.2f} | {2 * pb / nb:.2f} |")
+        for n in (1, 2, 3):
+            L.append(f"| {n}-parcel instructions | {pct(sa['parcels_static'][n], na)} | {pct(sb['parcels_static'][n], nb)} |")
+    da, db = sum(sa["parcels_dyn"].values()), sum(sb["parcels_dyn"].values())
+    L.append(f"| executed: parcels per instruction | {sum(k * v for k, v in sa['parcels_dyn'].items()) / da:.2f} | "
+             f"{sum(k * v for k, v in sb['parcels_dyn'].items()) / db:.2f} |")
+    L.append(f"| executed: instruction bytes fetched | {fmt(sa['fetch_bytes'])} | {fmt(sb['fetch_bytes'])} |")
+    L.append(f"| executed: data bytes loaded or stored | {fmt(sa['data_bytes'])} | {fmt(sb['data_bytes'])} |")
+    L.append("")
+    for name, s in (("1a", sa), ("1b", sb)):
+        L.append(f"Most common multi-parcel forms in draft {name}: " +
+                 ", ".join(f"`{k}` {v}" for k, v in (s["two_parcel"] + s["three_parcel"]).most_common(8)) + ".")
+        L.append("")
+
+    # ---- instruction mix ----
+    L.append("## Instruction mix")
+    L.append("")
+    L.append(f"Share of executed instructions and of {MAIN} cycles, all programs pooled (top 25 per ISA).")
+    L.append("")
+    ka = sa["kinds"].most_common(25)
+    kb = sb["kinds"].most_common(25)
+    tca, tcb = sum(sa["kind_cycles"].values()), sum(sb["kind_cycles"].values())
+    L.append("| 1a instruction | instr | cycles | 1b instruction | instr | cycles |")
+    L.append("|---|---:|---:|---|---:|---:|")
+    for i in range(max(len(ka), len(kb))):
+        x = ka[i] if i < len(ka) else ("", 0)
+        y = kb[i] if i < len(kb) else ("", 0)
+        L.append(f"| `{x[0]}` | {pct(x[1], sa['instructions'])} | {pct(sa['kind_cycles'][x[0]], tca)} | "
+                 f"`{y[0]}` | {pct(y[1], sb['instructions'])} | {pct(sb['kind_cycles'][y[0]], tcb)} |")
+    L.append("")
+    L.append("Where the time goes: the top routines of each program by cycles.")
+    L.append("")
+    L.append("| Program | 1a | 1b |")
+    L.append("|---|---|---|")
+    for p in progs:
+        if p in common:
+            pa = ", ".join(f"`{k}` {100 * v:.0f}%" for k, v in profile(a[p]))
+            pb = ", ".join(f"`{k}` {100 * v:.0f}%" for k, v in profile(b[p]))
+            L.append(f"| {p} | {pa} | {pb} |")
+    L.append("")
+
+    # ---- 1b modes ----
+    L.append("## Draft 1b: addressing modes")
+    L.append("")
+    L.append("Operand modes of the instructions that take one (`MOV ST LEA ADD SUB CMP AND OR XOR JMP CALL`). "
+             "`b`/`h` mark byte and half operands; `#q` is a constant in the instruction (−16…15).")
+    L.append("")
+    md, ms = sb["modes_dyn"], sb["modes_static"]
+    tdm, tsm = sum(md.values()), sum(ms.values())
+    L.append("| Mode | executed | in the source |")
+    L.append("|---|---:|---:|")
+    for k, v in md.most_common():
+        L.append(f"| `{k}` | {pct(v, tdm)} | {pct(ms[k], tsm)} |")
+    L.append("")
+    alu_mem = sum(v for k, v in sb["kinds"].items()
+                  if k.split()[0] in ("ADD", "SUB", "CMP", "AND", "OR", "XOR") and "[" in k)
+    alu_all = sum(v for k, v in sb["kinds"].items()
+                  if k.split()[0] in ("ADD", "SUB", "CMP", "AND", "OR", "XOR"))
+    L.append(f"ALU instructions with a memory operand: {pct(alu_mem, alu_all)} of executed "
+             f"`ADD SUB CMP AND OR XOR`, {pct(alu_mem, sb['instructions'])} of all executed instructions.")
+    L.append("")
+
+    # ---- registers ----
+    L.append("## Registers used")
+    L.append("")
+    L.append("Distinct registers named in each program, including library code (out of 15 usable).")
+    L.append("")
+    L.append("| Program | 1a | 1b |")
+    L.append("|---|---:|---:|")
+    for p in progs:
+        if p in sa["regs"] and p in sb["regs"]:
+            L.append(f"| {p} | {sa['regs'][p]} | {sb['regs'][p]} |")
+    L.append("")
+
+    L.append("## Timing model examples")
+    L.append("")
+    L += timing_examples()
+    L.append("")
+    return "\n".join(L) + "\n"
+
+
+def main(argv=None):
+    data = collect()
+    text = report(data)
+    path = os.path.join(ROOT, "docs", "performance-v1.md")
+    with open(path, "w") as f:
+        f.write(text)
+    print(f"wrote {path}")
+    for name in ISAS:
+        for p, r in sorted(data[name].items()):
+            if not r["ok"]:
+                print(f"  {name} {p}: {r['error']}")
+    return 0

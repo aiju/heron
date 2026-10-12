@@ -1,0 +1,26 @@
+The machine was built on a kitchen table, one chip at a time. First came the
+clock, a small crystal and a counter, and then the registers, and then the
+ALU, which took a whole weekend and most of a box of wire. When the first
+program ran, it printed a single letter, and the letter was wrong. The second
+program printed the right letter, but only once. The third program printed
+the whole alphabet, and that was the night the machine became a computer.
+
+A computer is not the chips. A computer is the programs, and the programs are
+the people who write them. The machine on the table did not care what it ran.
+It fetched a word, it decoded the word, it did what the word said, and then
+it fetched the next word. It did this a million times a second, and it never
+got bored, and it never asked why.
+
+The people who wrote the programs asked why all the time. Why is the stack so
+small? Why does the carry flag change when I add one? Why is the multiply so
+slow? Each question became a note, and each note became a change, and each
+change made a new machine. The new machine ran the old programs a little
+faster, and the people wrote new programs, and the new programs asked new
+questions.
+
+That is how it goes with machines and with programs. The machine is never
+finished, because the programs are never finished, and the programs are never
+finished, because the people are never finished asking. One day the table
+will be cleared and the machine will go in a box. But the programs will still
+be there, written down, waiting for the next machine to run them, one word at
+a time.

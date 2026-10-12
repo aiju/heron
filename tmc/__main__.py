@@ -7,6 +7,7 @@
   ucode [-o DIR]                             build microcode ROM images
   bench                                      instruction-level benchmark table
   report [--hw]                              write docs/performance.md
+  report1                                    write docs/performance-v1.md (draft 1a vs 1b)
   hw    ...                                  chip-level tools (see tmc.hw.cli)
 """
 
@@ -40,7 +41,8 @@ def cmd_asm(args):
         print(f"warning: {w}", file=sys.stderr)
     out = args.o or args.file.rsplit(".", 1)[0] + ".bin"
     with open(out, "wb") as f:
-        f.write(img.to_bytes())
+        lo, hi = img.extent()
+        f.write(img.to_bytes(max(hi, 0x10000) if getattr(isa, "WIDE", False) else 0x10000))
     if args.l:
         with open(args.l, "w") as f:
             f.write(img.listing())
@@ -60,6 +62,8 @@ def cmd_run(args):
     if args.input_file:
         with open(args.input_file, "rb") as f:
             inp = f.read()
+    if getattr(isa, "WIDE", False):
+        return run32(args, isa, img, inp)
     m = Machine(isa, img, inp=inp, timing=get_timing(args.isa, not args.no_timing))
     if args.trace:
         syms = {v: k for k, v in img.symbols.items()}
@@ -90,8 +94,80 @@ def cmd_run(args):
     return 0
 
 
+def parcels_at(read, pc, n=3):
+    return [read(pc + 2 * i) for i in range(n)]
+
+
+def run32(args, isa, img, inp):
+    """`run` for the 32-bit draft 1 ISAs."""
+    from .sim32 import Machine32, SimError as SimError32
+    from . import timing32
+    from .isa.v1common import Trap
+    if args.input_file is None and args.input is None:
+        from .testing import metadata
+        inp = metadata(args.file)["input"]
+    m = Machine32(isa, img, inp=inp)
+    syms = {v: k for k, v in img.symbols.items() if "." not in k}
+    if args.trace:
+        def tr(m):
+            try:
+                ws = parcels_at(m.parcel, m.pc)
+                text, _ = isa.disassemble(ws, m.pc, syms)
+            except (SimError32, Trap):
+                text = "?"
+            name = syms.get(m.pc)
+            label = f"{name}:" if name else ""
+            print(f"{m.cycles:>9} {m.pc:06X} {label:<10} {text:<34} {m.regs_str()}", file=sys.stderr)
+        m.trace = tr
+    err = None
+    try:
+        m.run(max_cycles=args.max_cycles)
+    except SimError32 as e:
+        err = e
+    sys.stdout.write(m.dev.out.decode("latin-1"))
+    sys.stdout.flush()
+    for pc, what in m.traps[:5]:
+        near = max((a for a in syms if a <= pc), default=None)
+        where = f" ({syms[near]}+{pc - near:#x})" if near is not None else ""
+        print(f"\ntrap at pc {pc:X}{where}: {what}", file=sys.stderr)
+    if err is not None:
+        print(f"\nerror: {err}", file=sys.stderr)
+        print(m.regs_str(), file=sys.stderr)
+        return 1
+    if args.stats or args.regs:
+        print(f"\n--- halted at {m.pc:X}: {m.instructions} instructions, "
+              f"{img.code_bytes()} bytes of code, lowest sp {m.min_sp:X}", file=sys.stderr)
+        print(m.regs_str(), file=sys.stderr)
+    if args.stats:
+        allc = m.all_cycles()
+        print("cycles by configuration:", file=sys.stderr)
+        for cfg in timing32.CONFIG_NAMES:
+            print(f"  {cfg:<14} {allc[cfg]:>10}  CPI {allc[cfg] / max(1, m.instructions):.2f}",
+                  file=sys.stderr)
+        from collections import Counter
+        kinds = Counter()
+        for pc, n in m.pc_counts.items():
+            kinds[isa.kind(parcels_at(m.parcel, pc))] += n
+        print("instruction mix:", file=sys.stderr)
+        for k, n in kinds.most_common():
+            print(f"  {k:<18} {n:>9}  {100 * n / max(1, m.instructions):5.1f}%", file=sys.stderr)
+    return 0
+
+
 def cmd_dis(args):
     isa = isas.get(args.isa)
+    if getattr(isa, "WIDE", False):
+        with open(args.file, "rb") as f:
+            data = f.read() + bytes(6)
+        rd = lambda a: data[a] | (data[a + 1] << 8)
+        a = int(args.start, 0)
+        end = int(args.end, 0) if args.end else len(data) - 6
+        while a < end - 1:
+            ws = parcels_at(rd, a)
+            text, n = isa.disassemble(ws, a)
+            print(f"{a:06X}  {' '.join(f'{w:04X}' for w in ws[:n]):<15} {text}")
+            a += 2 * n
+        return 0
     with open(args.file, "rb") as f:
         data = f.read()
     a = int(args.start, 0)
@@ -155,6 +231,9 @@ def main(argv=None):
     rp.add_argument("--jobs", type=int, default=4)
     rp.set_defaults(fn=lambda args: __import__("tmc.report", fromlist=["x"]).main(
         (["--hw"] if args.hw else []) + ["--jobs", str(args.jobs)]))
+
+    r1 = sub.add_parser("report1", help="write docs/performance-v1.md (draft 1a vs 1b)")
+    r1.set_defaults(fn=lambda args: __import__("tmc.report1", fromlist=["x"]).main())
 
     h = sub.add_parser("hw", help="chip-level tools")
     h.add_argument("rest", nargs=argparse.REMAINDER)
