@@ -1,0 +1,23 @@
+# Studies
+
+Experiments: a design, a measurement, a tool. Each study is a folder, and
+mostly self-contained ([RFC 0000](../reports/0000-rfc-repository-layout.md#studies)).
+
+Each study's README starts with front matter: its status, the studies it
+depends on, and the reports about it.
+
+- **Active:** its tests run in the slow CI, and breakage while someone is
+  working on it is accepted.
+- **Frozen:** nothing runs it any more. Check out its `frozen-at` commit to
+  reproduce its results.
+
+`heron list` shows them all. `heron <study> --help` shows a study's
+commands, and `heron test <study>` runs its unit tests.
+
+| Study | What it is |
+|---|---|
+| [v0_hw](v0_hw/README.md) | Draft 0: a 16-bit ISA and its 98-chip implementation (frozen) |
+| [v1_isa](v1_isa/README.md) | Draft 1: a 32-bit ISA in two encodings, 1a and 1b, and the program suite |
+| [v1b_hw](v1b_hw/README.md) | A 213-chip implementation of draft 1b |
+| [c_compiler](c_compiler/README.md) | A C compiler for drafts 1a and 1b |
+| [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane, in ngspice |

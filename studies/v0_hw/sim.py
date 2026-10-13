@@ -5,7 +5,7 @@ supplies `step(m)`. Cycle counts come from a timing function, normally
 derived from the microcode (microcode.py), so the instruction-level
 simulator and the chip-level simulator should agree cycle for cycle.
 
-I/O page (word registers, see docs/isa-v0.md):
+I/O page (word registers, see isa.md):
   FF00  W: console out (low byte)    R: console in (byte, or 0xFFFF if none)
   FF02  R: bit 0 = console input waiting, bit 1 = end of input
   FF04  W: timer period in cycles (0 = off)

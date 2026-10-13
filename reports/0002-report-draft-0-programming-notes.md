@@ -1,6 +1,18 @@
-# Programming notes: a program suite for ISA draft 0
+---
+number: 2
+type: report
+title: Writing the draft 0 programs
+status: obsolete
+date: 2026-10-11
+context:
+  studies: [v0_hw]
+  commit: e494b0c
+superseded-by: 3
+---
 
-> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](evaluation-v1.md) and [hardware-v1b.md](hardware-v1b.md).
+# Report 0002: Programming notes: a program suite for ISA draft 0
+
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](0004-report-draft-1-evaluation/README.md) and [hardware-v1b.md](../studies/v1b_hw/hardware.md).
 
 This is a first-hand log of writing the library and the 15 test programs in
 `programs/v0/` for ISA draft 0 (`docs/isa-v0.md`). It's meant as evidence for

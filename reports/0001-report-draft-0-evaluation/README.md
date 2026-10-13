@@ -1,6 +1,18 @@
-# Evaluating ISA draft 0
+---
+number: 1
+type: report
+title: Evaluating ISA draft 0
+status: obsolete
+date: 2026-10-11
+context:
+  studies: [v0_hw]
+  commit: e494b0c
+superseded-by: 4
+---
 
-> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](evaluation-v1.md) and [hardware-v1b.md](hardware-v1b.md).
+# Report 0001: Evaluating ISA draft 0
+
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](../0004-report-draft-1-evaluation/README.md) and [hardware-v1b.md](../../studies/v1b_hw/hardware.md).
 
 **Short version:** draft 0 is a sound base. Programs came out right first
 time, the encoding made the hardware unusually simple, and a 98-chip
@@ -14,7 +26,7 @@ turned out to be worth little on the evidence.
 
 ## What was built
 
-1. **Assembler and instruction-level simulator** for [draft 0](isa-v0.md),
+1. **Assembler and instruction-level simulator** for [draft 0](../../studies/v0_hw/isa.md),
    with cycle counts taken from the microcode, so they're exact for the
    hardware below.
 2. **16 programs plus a library**: arithmetic, strings, sieve, sorting,
@@ -23,9 +35,9 @@ turned out to be worth little on the evidence.
    multiply. A separate agent wrote them, working only from the spec, so
    they're a fresh programmer's code rather than mine. Expected outputs come
    from independent Python versions.
-3. **[Programming notes](programming-notes.md)**: a program-by-program log of
+3. **[Programming notes](../0002-report-draft-0-programming-notes.md)**: a program-by-program log of
    what was easy, what went wrong and why.
-4. **[A 7400-series implementation](hardware.md)**: 98 chips, 74HCT logic with
+4. **[A 7400-series implementation](../../studies/v0_hw/hardware.md)**: 98 chips, 74HCT logic with
    74LS181 ALUs, a 48-bit microcode in six flash ROMs.
 5. **A chip-level timing simulator** (Go, event-driven, datasheet pin-to-pin
    delays, setup/hold, SRAM write timing, bus contention). All 16 programs run
@@ -64,7 +76,7 @@ parts.
 
 ## Ease of programming
 
-From the [programming notes](programming-notes.md), plus what I ran into
+From the [programming notes](../0002-report-draft-0-programming-notes.md), plus what I ran into
 writing the hardware test programs:
 
 - **Correct code was easy.** Nearly every program produced correct output the
@@ -171,7 +183,7 @@ the unary group's four free slots for later (e.g. multi-bit shifts).
 
 ## Hardware issues to fix regardless of the ISA
 
-From [hardware.md](hardware.md): bus contention when the B bus changes source
+From [hardware.md](../../studies/v0_hw/hardware.md): bus contention when the B bus changes source
 (up to 67 ns at worst-case delays), ~100 ns of microcode access at the start
 of every cycle (a pipelined microinstruction register would remove most of
 it), and some parts are only available as new-old-stock (74181/74182) or not
@@ -180,7 +192,7 @@ in DIP (fast SRAM, the 55 ns flash).
 ## Questions for the next round
 
 These have since been answered or carried into
-[proposals.md](proposals.md#15-open-questions).
+[proposals.md](../0005-rfc-ideas-direction.md#15-open-questions).
 
 - How much is speed worth in chips? The multiply datapath is about 4 chips;
   a pipelined microcode register about 6 and a redesign of the fetch path.

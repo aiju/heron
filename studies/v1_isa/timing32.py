@@ -1,6 +1,6 @@
 """Cycle estimates for the draft 1 machines, from a model of six hardware
 configurations. One of them, D32-separate, has since been built as the
-draft 1b hardware (docs/hardware-v1b.md); docs/performance-v1b.md compares
+draft 1b hardware (studies/v1b_hw/hardware.md); report 0012 compares
 its cycle counts with this model's.
 
 The instruction-level simulator records, for every executed instruction, a
@@ -28,7 +28,7 @@ Each instruction is described as a few micro-operations, each using some of
 three resources for a number of cycles: the ALU ('A'), the memory bus ('B')
 and the register file port ('R': one read of up to two registers, or one
 write, per cycle). A tiny list scheduler packs them, honouring dependencies,
-the way a microcode writer would. The rules are in docs/timing-model-v1.md.
+the way a microcode writer would. The rules are in timing-model-v1.md.
 """
 
 from functools import lru_cache

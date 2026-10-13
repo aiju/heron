@@ -6,16 +6,16 @@ one program. This is for the draft 1 machines (1a and 1b).
 
 **Short version.**
 
-- `tmc asm -c` assembles a file into an **object file**: sections that the
+- `heron v1_isa asm -c` assembles a file into an **object file**: sections that the
   linker places, a symbol table and relocations. A file that uses `.org`
   (all the existing programs, through `lib/start.s`) still assembles to
   fixed addresses, so nothing changes for it.
-- `tmc ld` **links** object files and libraries into an executable,
-  leaving out every section nothing refers to. `tmc run` runs executables,
+- `heron v1_isa ld` **links** object files and libraries into an executable,
+  leaving out every section nothing refers to. `heron v1_isa run` runs executables,
   and links object files on the way.
 - The C compiler compiles each `.c` file into an object file (one section
   per function and per variable) and links it with the start code and the
-  C library. `tmc cc` takes `.s`, `.o` and `.a` files as well as `.c`.
+  C library. `heron c_compiler cc` takes `.s`, `.o` and `.a` files as well as `.c`.
 - **Addresses the linker fills in are 16 bits by default** ("near"): data
   has to end up below 32 KB. A symbol declared `.far` gets 32-bit fields
   instead. The compiler marks objects bigger than 1 KB far, and the linker
@@ -34,25 +34,25 @@ one program. This is for the draft 1 machines (1a and 1b).
 ## Using it
 
 ```sh
-python3 -m tmc --isa v1b asm -c util.s                  # -> util.o
-python3 -m tmc --isa v1b cc -c prog.c                   # -> prog.o
-python3 -m tmc --isa v1b cc prog.o util.o -o prog.out   # link with the start code and the C library
-python3 -m tmc --isa v1b cc prog.c util.s --run         # all in one go
-python3 -m tmc run prog.out --stats                     # run an executable (the ISA comes from the file)
+heron v1_isa --isa v1b asm -c util.s                  # -> util.o
+heron c_compiler cc --isa v1b -c prog.c                   # -> prog.o
+heron c_compiler cc --isa v1b prog.o util.o -o prog.out   # link with the start code and the C library
+heron c_compiler cc --isa v1b prog.c util.s --run         # all in one go
+heron v1_isa run prog.out --stats                     # run an executable (the ISA comes from the file)
 
-python3 -m tmc ld start.o prog.o util.o -o prog.out --map   # link by hand, and show the layout
-python3 -m tmc ld prog.o ... --bin prog.bin             # also write a raw memory image
-python3 -m tmc ar -o mylib.a a.o b.o                    # a library
-python3 -m tmc objdump -d prog.o                        # sections, symbols, relocations, disassembly
+heron v1_isa ld start.o prog.o util.o -o prog.out --map   # link by hand, and show the layout
+heron v1_isa ld prog.o ... --bin prog.bin             # also write a raw memory image
+heron v1_isa ar -o mylib.a a.o b.o                    # a library
+heron v1_isa objdump -d prog.o                        # sections, symbols, relocations, disassembly
 ```
 
-`tmc cc` without `-c`, `-S` or `--run` writes an executable, `FIRST.out`
+`heron c_compiler cc` without `-c`, `-S` or `--run` writes an executable, `FIRST.out`
 or `-o`. Other options: `--map` (the linker's layout), `--no-lib`,
-`--no-start` (the program brings its own vectors). `tmc ld` options:
+`--no-start` (the program brings its own vectors). `heron v1_isa ld` options:
 `--base ADDR` (where the relocatable sections start), `--entry SYMBOL`
 (keep this and what it uses, besides the vectors), `--no-gc`.
 
-`tmc run FILE.s` and `tmc asm FILE.s` work as before: one file, assembled
+`heron v1_isa run FILE.s` and `heron v1_isa asm FILE.s` work as before: one file, assembled
 straight to a memory image, with every short form the final addresses
 allow.
 
@@ -72,7 +72,7 @@ In an object file each section has its own location counter, starting at
 
 - **Exports:** if a file has no `.global` at all, every label that doesn't
   start with `.` is exported, so the existing library files
-  (`programs/v1b/lib/print.s` and so on) can be linked as they are. Once a
+  (`studies/v1_isa/programs/v1b/lib/print.s` and so on) can be linked as they are. Once a
   file names its exports with `.global`, only those are exported.
 - **`.org`** makes its section absolute: everything in it keeps the address
   it has, as in a whole-program assembly. That's how vectors at address 0
@@ -107,11 +107,11 @@ form when it reaches).
 
 ## Object files
 
-The format is in [tmc/obj.py](../tmc/obj.py): a header, section headers,
+The format is in [obj.py](obj.py): a header, section headers,
 symbols, relocations, a string table and the section contents, all
 little-endian. A library is a list of object files with their names. An
 executable is the same format with every section placed and no
-relocations; `tmc run` loads it, symbols and all, so `--stats` can still
+relocations; `heron v1_isa run` loads it, symbols and all, so `--stats` can still
 profile by routine.
 
 Relocations (S is the symbol's address, A the constant, P the address of
@@ -142,7 +142,7 @@ _main:
 
 ## The linker
 
-[tmc/link.py](../tmc/link.py), about 380 lines.
+[link.py](link.py), about 380 lines.
 
 1. **Symbols.** Every global symbol must be defined once. Libraries are
    searched for symbols still undefined, and a member is loaded whole
@@ -183,7 +183,7 @@ end 0010DC
 
 ## C and assembly together
 
-The C compiler's [calling convention](compiler.md#calling-convention):
+The C compiler's [calling convention](../studies/c_compiler/compiler.md#calling-convention):
 arguments in `r1`–`r4` (a variadic function gets all of them on the
 stack), the result in `r1`, `r1`–`r7` and `HI` caller-saved, `r8`–`r14`
 callee-saved. The hand-written library routines fit it: `print_u32` and
@@ -221,7 +221,7 @@ asm_sum:
 ```
 
 ```sh
-python3 -m tmc --isa v1b cc main.c sum.s programs/v1b/lib/print.s --run
+heron c_compiler cc --isa v1b main.c sum.s studies/v1_isa/programs/v1b/lib/print.s --run
 ```
 
 How the compiler uses all this:
@@ -235,13 +235,13 @@ How the compiler uses all this:
   `MOV r1, #_f` (calls are PC-relative and don't care). Two files can't
   disagree in a dangerous way: a far reference to a near variable works,
   and a near reference to a far one fails to link.
-- **The C library** (`tmc/cc/lib/*.c`) is compiled once per process into
+- **The C library** (`studies/c_compiler/cc/lib/*.c`) is compiled once per process into
   a library of four object files; `lib/start_v1a.s` and `start_v1b.s`
   (vectors, stack, `CALL _main`, `_exit`) are an absolute object file.
 
 ## What it costs
 
-`python3 -m tmc ccbench` before and after (D16-overlap cycles):
+`heron c_compiler bench` before and after (D16-overlap cycles):
 
 - Most programs run 0–0.5% more cycles; wordfreq 0.9% (its three big
   arrays went from near to far), sha256 and strings slightly fewer.
@@ -251,7 +251,7 @@ How the compiler uses all this:
 
 ## Testing
 
-`tests/test_link.py`:
+`studies/v1_isa/tests/test_link.py`:
 
 - the object format and library format round-trip, and every relocation
   kind's range check;

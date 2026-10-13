@@ -1,6 +1,6 @@
 """ISA draft 1a: 32-bit, 16-bit parcels, load/store (RISC-like).
 
-See docs/isa-v1a.md. Shared parts (system/unary/shift groups, branches,
+See isa-v1a.md. Shared parts (system/unary/shift groups, branches,
 semantics) live in v1common.
 """
 
@@ -10,7 +10,6 @@ from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, crosses, 
 
 NAME = "v1a"
 DESCRIPTION = "draft 1a: 32-bit registers, 16-bit parcels, load/store"
-PROGRAM_DIR = "v1a"
 
 REGISTERS = c.REGISTERS
 WIDE = True                     # tells the tools to use sim32

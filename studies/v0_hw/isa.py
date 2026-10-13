@@ -2,7 +2,7 @@
 
 Everything ISA-specific lives here: register names, the assembler hook,
 the disassembler and the instruction semantics used by the simulator.
-See docs/isa-v0.md for the human-readable spec.
+See isa.md for the human-readable spec.
 
 Word layout: op(15:12) a(11:8) b(7:4) c(3:0)
   a = rd (destination) or condition, b = rs (source/base), c = fn or offset.
@@ -12,7 +12,6 @@ from heron.infra.asm import Reg, Imm, Mem, Expr
 
 NAME = "v0"
 DESCRIPTION = "draft 0: 16x16-bit registers, 4-4-4-4 encoding, load/store"
-PROGRAM_DIR = "v0"
 
 REGISTERS = {f"r{i}": i for i in range(16)}
 REGISTERS["sp"] = 15

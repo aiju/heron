@@ -1,6 +1,6 @@
 """ISA draft 1b: 32-bit, 16-bit parcels, register + addressing mode (CISC-like).
 
-See docs/isa-v1b.md. Main format `F D M R`: operation, register, mode,
+See isa-v1b.md. Main format `F D M R`: operation, register, mode,
 register-or-constant for the mode. Shared parts live in v1common.
 """
 
@@ -10,7 +10,6 @@ from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, crosses, 
 
 NAME = "v1b"
 DESCRIPTION = "draft 1b: 32-bit registers, 16-bit parcels, register + addressing mode"
-PROGRAM_DIR = "v1b"
 
 REGISTERS = dict(c.REGISTERS)
 REGISTERS["pc"] = 16            # only meaningful as [pc + label]

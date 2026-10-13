@@ -1,19 +1,19 @@
 # Hardware: a 7400-series implementation of ISA draft 1b
 
-This is a buildable implementation of [ISA draft 1b](isa-v1b.md) (the
-register + addressing-mode encoding of [draft 1](isa-v1.md)), without an MMU
+This is a buildable implementation of [ISA draft 1b](../v1_isa/isa-v1b.md) (the
+register + addressing-mode encoding of [draft 1](../v1_isa/isa-v1.md)), without an MMU
 or floating point. It has a 32-bit datapath, pipelined microcode and a 16-bit
 memory bus, and every instruction ends with a separate fetch cycle.
 It's the configuration the draft 1 timing model calls **D32-separate**, and
 its main job is to check that model's numbers against a real design.
 
-- The netlist is in [`tmc/hw/cpu_v1b.py`](../tmc/hw/cpu_v1b.py).
-- The microcode is in [`tmc/hw/ucode_v1b.py`](../tmc/hw/ucode_v1b.py).
+- The netlist is in [`cpu.py`](cpu.py).
+- The microcode is in [`ucode.py`](ucode.py).
 - A register-transfer model the netlist was built from is in
-  [`tmc/hw/rtl_v1b.py`](../tmc/hw/rtl_v1b.py).
-- [microcode-v1b.md](microcode-v1b.md) lists the microcode for a selection
+  [`rtl.py`](rtl.py).
+- [microcode.md](microcode.md) lists the microcode for a selection
   of instructions, cycle by cycle.
-- Measured performance is in [performance-v1b.md](performance-v1b.md).
+- Measured performance is in [report 0012](../../reports/0012-report-draft-1b-hardware/performance.md).
 
 ## At a glance
 
@@ -227,7 +227,7 @@ file and sets N and Z from it. That's why a register ALU instruction takes 2
 cycles (compute into R; write back and fetch) and `MOV rd, #q` takes 1. A
 fetch overlapped with execution would save a cycle only where an
 instruction's last cycle doesn't use the bus; see
-[performance-v1b.md](performance-v1b.md) for what the timing model expects
+[report 0012](../../reports/0012-report-draft-1b-hardware/performance.md) for what the timing model expects
 that to be worth.
 
 **Control word**: 120 bits in 15 ROMs. The 12-bit `NEXT` field takes the
@@ -273,13 +273,13 @@ signed version works on magnitudes and fixes signs at the end.
 
 Multiplies and divides are 2.4% of the instructions the test programs run,
 but 18% of their cycles, most of it in `mandel`
-([performance-v1b.md](performance-v1b.md) has the per-kind table).
+([report 0012](../../reports/0012-report-draft-1b-hardware/performance.md) has the per-kind table).
 
 ## Cycles per instruction
 
 From the microcode, measured on the RTL model. *Model* is the draft 1 timing
 model's estimate for D32-separate
-([timing-model-v1.md](timing-model-v1.md#examples)).
+([studies/v1_isa/timing-model-v1.md](../v1_isa/timing-model-v1.md#examples)).
 
 | Instruction | Cycles | Model |
 |---|---:|---:|
@@ -305,7 +305,7 @@ model's estimate for D32-separate
 
 Over whole programs the hardware needs 0.91 times the model's cycles
 (geometric mean over 18 programs; per program and per kind of instruction
-in [performance-v1b.md](performance-v1b.md)). The difference has a few
+in [report 0012](../../reports/0012-report-draft-1b-hardware/performance.md)). The difference has a few
 causes, pulling both ways.
 
 **Faster than the model.** The write-back rides in the fetch cycle, which
@@ -327,15 +327,15 @@ register a cycle cheaper: ALU operations, loads, LEA and shifts.
 ## Timing
 
 Delays come from manufacturer datasheets, as for draft 0
-([`tmc/hw/datasheets`](../tmc/hw/datasheets)), at two corners: *max* is the
+([`infra/hw/datasheets`](../../infra/hw/datasheets)), at two corners: *max* is the
 guaranteed worst case (−40…85 °C, 4.5 V, 50 pF), *typ* is 25 °C typical, and
 memories use their guaranteed figures in both. The same two analyses run on
 this netlist:
 
-- **Static timing analysis** ([`sta.py`](../tmc/hw/sta.py)) runs once for
+- **Static timing analysis** ([`sta.py`](../../infra/hw/sta.py)) runs once for
   each of the 3,396 distinct microinstructions (with the control lines at
   their values), and covers every data value.
-- **The event-driven Go simulator** ([`hwsim`](../hwsim)) runs programs and
+- **The event-driven Go simulator** ([`hwsim`](../../infra/hwsim)) runs programs and
   checks setup/hold times, SRAM write timing and bus contention.
 
 | Parts | Worst case | Typical |
@@ -393,7 +393,7 @@ microinstructions:
   contain the fetch path;
 - the rest need less.
 
-[performance-v1b.md](performance-v1b.md) has the full distribution.
+[report 0012](../../reports/0012-report-draft-1b-hardware/performance.md) has the full distribution.
 
 **Getting there.** The first complete netlist needed 498 ns. These changes
 took it to 334 ns, without adding cycles except one extra step for `ASR #8`
@@ -466,7 +466,7 @@ carry chain and the fetch from the slowest memory.
   the biggest difference from the model. An 8-step path for multipliers
   below 2⁸ would be cheap: a byte test like the 16-bit one, and two extra
   cycles to realign the product. It wouldn't help `mandel`, whose operands
-  are fixed-point fractions. ([isa-v1.md](isa-v1.md) now only promises
+  are fixed-point fractions. ([studies/v1_isa/isa-v1.md](../v1_isa/isa-v1.md) now only promises
   that small operands are faster.)
 - **Hold times** aren't analysed (HCT datasheets give no minimum delays), and
   the clock is ideal (no skew), as in draft 0.
@@ -504,20 +504,20 @@ carry chain and the fetch from the slowest memory.
 
 There are three levels, each checked against the one above:
 
-1. The **instruction-level simulator** ([`tmc/sim32.py`](../tmc/sim32.py))
+1. The **instruction-level simulator** ([`studies/v1_isa/sim32.py`](../v1_isa/sim32.py))
    is the ISA reference.
-2. The **RTL model** ([`tmc/hw/rtl_v1b.py`](../tmc/hw/rtl_v1b.py)) executes
+2. The **RTL model** ([`rtl.py`](rtl.py)) executes
    the microcode ROM images one cycle at a time. It models every register,
    bus and multiplexer the netlist has, and checks microcode rules as it
    goes: bus contention, floating buses used, conditions, step modes.
-   `python3 -m tmc.hw.check_v1b` runs all 20 programs on it and compares
+   `heron v1b_hw check` runs all 20 programs on it and compares
    output, registers, flags, PC and all of RAM with the ISA simulator.
    `--lockstep` compares after every instruction.
 3. The **chip-level simulator** runs the netlist.
-   `python3 -m tmc --isa v1b hw run PROG.s` compares everything above plus
+   `heron v1b_hw hw run PROG.s` compares everything above plus
    the cycle of every instruction fetch with the RTL model.
 
-[`tests/hw/exercise_v1b.py`](../tests/hw/exercise_v1b.py) generates the
+[`exercise.py`](exercise.py) generates the
 exercise program (`build/exercise_v1b.s`, 1.5 million cycles). It covers:
 
 - every register-register operation on 20 values and 5 flag combinations;
