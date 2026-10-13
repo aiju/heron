@@ -1,5 +1,7 @@
 # ISA draft 0
 
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](evaluation-v1.md) and [hardware-v1b.md](hardware-v1b.md).
+
 A 16-bit load/store instruction set designed to be built from 7400-series
 logic. Every instruction word is four hex digits, and fields never move:
 the destination register is always the 2nd digit and the source register
@@ -210,7 +212,7 @@ register).
 
 ## Software conventions
 
-These are conventions for the programs in `programs/`, not hardware rules.
+These are conventions for the programs in `programs/v0/`, not hardware rules.
 
 - Arguments go in `r1`–`r4`, results come back in `r1` (and `r2` for a second
   value or the high half of a 32-bit result; a third result goes in `r3`).
