@@ -16,7 +16,9 @@ test = false
 doctest = false
 
 [dependencies]
+hwsim = { path = "../../infra/hwsim" }
 pyo3.workspace = true
+pythonize.workspace = true
 
 [build-dependencies]
 pyo3-build-config.workspace = true

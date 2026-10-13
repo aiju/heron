@@ -1,13 +1,15 @@
 """Chip library: pins, timing arcs and timing checks for every part type.
 
-Behaviour lives in the Go simulator (hwsim/models.go), keyed by `model`.
-This file is the shared description of each part's pins and timing:
+Behaviour lives in the chip-level simulator (infra/hwsim/src/models.rs),
+keyed by `model`. This file is the shared description of each part's pins
+and timing:
   - arcs: (from pins, to pins, delay name);
   - checks: (data pins, clock pin, edge, setup name, hold name) for
     sequential parts.
 The arcs and checks are documentation (only their pin names are checked):
-neither tool reads them. The Go models and static timing analysis (sta.py,
-Case.m_<model>) each encode which named delay applies between which pins.
+neither tool reads them. The simulator's models and static timing analysis
+(sta.py, Case.m_<model>) each encode which named delay applies between
+which pins.
 Both take the delay values per part number from infra/hw/timing.json, via
 delays_for().
 

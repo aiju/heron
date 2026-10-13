@@ -495,7 +495,7 @@ def build():
     return nl
 
 
-# nets the hardware simulator needs (see hwsim/main.go)
+# nets and chips the chip-level simulator needs (see infra/hwsim/src/machine.rs)
 CONFIG = {
     "rf_chips": {"A": [f"U_RFA{k}" for k in range(4)], "B": [f"U_RFB{k}" for k in range(4)]},
     "rf_entries": 32,

@@ -3,7 +3,7 @@
 # in isa/ and tools/, and heron/bindings makes them one Python module.
 [workspace]
 resolver = "3"
-members = ["heron/bindings"]
+members = ["heron/bindings", "infra/hwsim"]
 
 [workspace.package]
 edition = "2024"
@@ -12,6 +12,9 @@ publish = false
 [workspace.dependencies]
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
 pyo3-build-config = "0.29"
+pythonize = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

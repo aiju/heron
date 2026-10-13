@@ -14,7 +14,7 @@ those ([RFC 0000](../reports/0000-rfc-repository-layout.md#infra)).
 | `hw/timing.json`, `hw/datasheets/`, `hw/build_timing.py` | Delays per part, built from the datasheet research |
 | `hw/sta.py` | Static timing analysis with case analysis per microinstruction |
 | `hw/runner.py` | Running a machine on the chip-level simulator, and the `hw` commands (run, test, sweep, bom, sta); what a machine module provides is in its docstring |
-| `hwsim/` | The event-driven chip-level simulator, in Go: chip models, setup and hold, write timing, bus contention |
+| `hwsim/` | The event-driven chip-level simulator, in Rust: chip models, setup and hold, write timing, bus contention. Python runs it as `heron.native.hwsim` (through `hw/runner.py`) |
 | `si/` | Signal-integrity plumbing: IBIS models in ngspice, a 2D field solver, running ngspice |
 
-`(cd infra/hwsim && go test ./...)` runs the Go simulator's tests.
+`cargo test -p hwsim` runs the simulator's tests.
