@@ -8,7 +8,7 @@
   run   FILE.s [--input TEXT] [--trace] [--stats]   (or an executable, or object files)
   dis   FILE.bin [--from ADDR] [--to ADDR]   disassemble a binary image
   test  [NAME...]                            run the program test suite
-  ucode [-o DIR] [--doc]                     build microcode ROM images (v1b --doc: listing)
+  ucode [-o DIR] [--doc]                     build microcode ROM images, v0 and v1b (--doc: listing)
   bench                                      instruction-level benchmark table
   report [--hw]                              write docs/performance.md
   report1                                    write docs/performance-v1.md (draft 1a vs 1b)
@@ -271,12 +271,18 @@ def main(argv=None):
     t.add_argument("-v", action="store_true")
     t.set_defaults(fn=lambda args: __import__("tmc.testing", fromlist=["x"]).cmd_test(args))
 
-    u = sub.add_parser("ucode", help="build microcode ROM images")
-    u.add_argument("-o", default="build/ucode")
+    def cmd_ucode(args):
+        mod = {"v0": "tmc.hw.microcode", "v1b": "tmc.hw.ucode_v1b"}.get(args.isa)
+        if mod is None:
+            print(f"error: no microcode for {args.isa} (the hardware is draft 0 and draft 1b: "
+                  "--isa v0 or --isa v1b)", file=sys.stderr)
+            return 1
+        return __import__(mod, fromlist=["x"]).cmd_ucode(args)
+    u = sub.add_parser("ucode", help="build microcode ROM images (v0 and v1b)")
+    u.add_argument("-o", metavar="DIR", help="output directory (default build/ucode, v1b: build/ucode-v1b)")
     u.add_argument("--doc", action="store_true",
-                   help="v1b: write docs/microcode-v1b.md (selected routines) instead")
-    u.set_defaults(fn=lambda args: __import__(
-        "tmc.hw.ucode_v1b" if args.isa == "v1b" else "tmc.hw.microcode", fromlist=["x"]).cmd_ucode(args))
+                   help="write the listing in docs/ instead (microcode.md, v1b: microcode-v1b.md)")
+    u.set_defaults(fn=cmd_ucode)
 
     b = sub.add_parser("bench", help="instruction-level benchmark table")
     b.add_argument("--markdown", action="store_true")
