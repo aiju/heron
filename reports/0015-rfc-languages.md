@@ -2,7 +2,7 @@
 number: 15
 type: rfc
 title: Languages for the tools, Rust engines with Python bindings
-status: open
+status: accepted
 date: 2026-10-13
 context:
   studies: [v1_isa, v1b_hw, v0_hw, c_compiler]
@@ -102,6 +102,28 @@ the cycle count, and step or trace.
 The draft 0 study is frozen and may keep the subprocess path at its
 `frozen-at` commit; it isn't ported on purpose.
 
+## ISA definitions
+
+An ISA's definition lives in Rust: its encoder, decoder and semantics are
+one implementation. Python reads it through the bindings: the microcode
+and decode-ROM generators, and the studies. A separate data file
+describing the ISA isn't needed; draft 1b's addressing modes and
+extension parcels are too irregular to describe as tables.
+
+## The assembler and linker
+
+The assembler core, the object format and the linker move to Rust too,
+together with the draft 1a and 1b encoders. The studies use them through
+the bindings:
+- `v1_isa`'s command line;
+- the C compiler, which assembles its output and links it with the C
+  library.
+
+The object format stays the same, so object files, executables and
+libraries written before the move still load. The Python versions in
+`infra/` go once the studies' tests pass on the Rust ones. The frozen
+draft 0 study keeps the Python assembler at its `frozen-at` commit.
+
 ## Where the Rust code lives
 
 - **One Cargo workspace,** with `Cargo.toml` at the repository root.
@@ -114,8 +136,9 @@ The draft 0 study is frozen and may keep the subprocess path at its
 
 ## What doesn't change
 
-- The studies' Python code, and `infra/`'s Python for the studies (the
-  assembler core, the netlist language, static timing analysis).
+- The studies' Python code, except where it calls the engines.
+- `infra/`'s netlist language and static timing analysis, which stay
+  Python.
 - The C compiler. It's a study, and compile speed isn't its problem.
 - The machine's own software: C and assembly.
 - **Tools that run on the machine itself** are out of scope. Rust can't
@@ -131,8 +154,17 @@ The draft 0 study is frozen and may keep the subprocess path at its
    on demand, `heron build`, Rust in CI and in the cloud environment.
 2. **The chip-level simulator in Rust,** checked against Go, then Go
    removed.
-3. **The first instruction-level engine** (see open question 2).
-4. **Draft 2's engines** as draft 2 is built.
+3. **Draft 1's instruction-level simulator and timing model in Rust.**
+   They are checked against the Python ones on every program: output,
+   registers, memory, and the cycle counts for all six configurations. The
+   `v1_isa` and `c_compiler` studies, and the `v1b_hw` study's reference
+   runs, then switch to them. Software work (a monitor, an OS, the
+   compiler's output) gets fast simulation before draft 2 exists, and
+   draft 2's simulator starts from it.
+4. **The assembler and linker in Rust,** with the 1a and 1b encoders,
+   checked against the Python assembler: identical images and object
+   files for every program and library.
+5. **Draft 2's engines** as draft 2 is built.
 
 ## Decisions
 
@@ -142,23 +174,8 @@ Emily has decided, in the discussion of this RFC:
   studies;
 - the Go simulator is replaced by Rust;
 - the Rust engines get Python bindings, so studies can use them from
-  Python.
-
-## Open questions
-
-1. **Where does an ISA's definition live?**
-   - **In Rust, recommended:** the encoder, decoder and semantics are one
-     implementation, and Python (the microcode and decode-ROM generators,
-     the studies) reads them through the bindings.
-   - **As a data file** both languages read: worth it only if an encoding
-     turns out regular enough to describe as tables. Draft 1b's addressing
-     modes and extension parcels suggest it won't.
-2. **What's the first instruction-level engine?**
-   - **Port draft 1's simulator now:** software work (a monitor, an OS,
-     the compiler's output) gets fast simulation before draft 2 exists, and
-     it proves the bindings on a real workload. Draft 2 builds on 1a or
-     1b, so most of it carries over.
-   - **Wait for draft 2,** and write its simulator in Rust from the start.
-3. **Should the studies' assembler and linker move to Rust too,** or stay
-   Python until a study needs otherwise? Today's object format is shared
-   with the C compiler study.
+  Python;
+- an ISA's definition lives in Rust, and Python reads it through the
+  bindings;
+- the first instruction-level engine is a port of draft 1's simulator;
+- the studies' assembler and linker move to Rust too.
