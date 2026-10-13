@@ -70,8 +70,7 @@ const PREC: [&[&str]; 6] = [
 ];
 
 /// Deeper nesting, or longer expressions, are refused rather than risking
-/// the stack (Python's recursion limit stopped the Python assembler at
-/// about the same depth).
+/// the stack.
 const MAX_DEPTH: usize = 100;
 const MAX_TOKENS: usize = 4000;
 
@@ -177,10 +176,7 @@ impl Parser<'_> {
                 }
                 Ok(Expr::Sym(mangle(&name, scope)))
             }
-            t => Err(AsmError::new(format!(
-                "unexpected {} in expression",
-                t.repr()
-            ))),
+            t => Err(AsmError::new(format!("unexpected '{t}' in expression"))),
         }
     }
 }
@@ -199,8 +195,8 @@ pub fn parse(toks: &[Tok], scope: Option<&str>) -> Result<Expr, AsmError> {
     let e = p.binary(0)?;
     if p.i != toks.len() {
         return Err(AsmError::new(format!(
-            "junk after expression: {}",
-            toks[p.i].repr()
+            "junk after expression: '{}'",
+            toks[p.i]
         )));
     }
     Ok(e)
@@ -233,30 +229,23 @@ pub fn unary(op: &str, x: i64) -> Result<i64, AsmError> {
     })
 }
 
-/// A binary operator on two numbers, with Python's semantics: `/`
-/// truncates, `%` takes the sign of the divisor, `>>` is arithmetic.
+/// A binary operator on two numbers: `/` and `%` truncate towards zero,
+/// `>>` is arithmetic, and a result that doesn't fit in 64 bits is an
+/// error.
 pub fn binary(op: &str, a: i64, b: i64) -> Result<i64, AsmError> {
+    let shift = || u32::try_from(b).ok().filter(|&b| b < 64);
     let r = match op {
         "+" => a.checked_add(b),
         "-" => a.checked_sub(b),
         "*" => a.checked_mul(b),
         "/" | "%" if b == 0 => return Err(AsmError::new("division by zero")),
         "/" => a.checked_div(b),
-        "%" => a.checked_rem(b).map(|r| {
-            if r != 0 && (r < 0) != (b < 0) {
-                r + b
-            } else {
-                r
-            }
-        }),
-        "<<" | ">>" if b < 0 => return Err(AsmError::new("negative shift count")),
-        "<<" if a == 0 => Some(0),
-        "<<" => (b < 64).then(|| a << b).filter(|r| r >> b == a),
-        ">>" => Some(if b >= 64 {
-            if a < 0 { -1 } else { 0 }
-        } else {
-            a >> b
-        }),
+        "%" => a.checked_rem(b),
+        "<<" | ">>" if shift().is_none() => {
+            return Err(AsmError::new(format!("shift count {b} out of range")));
+        }
+        "<<" => shift().map(|b| a << b).filter(|r| r >> b == a),
+        ">>" => shift().map(|b| a >> b),
         "&" => Some(a & b),
         "|" => Some(a | b),
         "^" => Some(a ^ b),
@@ -316,10 +305,10 @@ mod tests {
         assert_eq!(ev("1 + 2 * 3"), 7);
         assert_eq!(ev("(1 + 2) * 3"), 9);
         assert_eq!(ev("-7 / 2"), -3);
-        assert_eq!(ev("-7 % 2"), 1);
-        assert_eq!(ev("7 % -2"), -1);
+        assert_eq!(ev("-7 % 2"), -1);
+        assert_eq!(ev("7 % -2"), 1);
         assert_eq!(ev("1 << 4 | 1"), 17);
-        assert_eq!(ev("-1 >> 70"), -1);
+        assert_eq!(ev("-8 >> 2"), -2);
         assert_eq!(ev("hi(0x1234) + lo(0x1234)"), 0x46);
         assert_eq!(ev("hi16(0x12345678)"), 0x1234);
         assert_eq!(ev(".x + $"), 0x10A);
@@ -331,12 +320,27 @@ mod tests {
     #[test]
     fn errors() {
         let err = |s: &str| parse(&tokenize(s).unwrap(), None).unwrap_err().msg;
-        assert_eq!(err("1 2"), "junk after expression: 2");
+        assert_eq!(err("1 2"), "junk after expression: '2'");
         assert_eq!(err("(1"), "missing ')'");
         assert_eq!(err(""), "expression expected");
         assert_eq!(err("1 + ,"), "unexpected ',' in expression");
-        assert_eq!(err("\"ab\""), "unexpected [97, 98] in expression");
+        assert_eq!(err("\"ab\""), "unexpected '\"ab\"' in expression");
         let deep = "(".repeat(1000) + "1" + &")".repeat(1000);
         assert_eq!(err(&deep), "expression nested too deeply");
+    }
+
+    #[test]
+    fn overflow() {
+        let err = |s: &str| {
+            let e = parse(&tokenize(s).unwrap(), None).unwrap();
+            match eval(&e, &|_| None, 0) {
+                Err(EvalError::Asm(e)) => e.msg,
+                r => panic!("{r:?}"),
+            }
+        };
+        assert_eq!(err("1 << 64"), "shift count 64 out of range");
+        assert_eq!(err("1 >> -1"), "shift count -1 out of range");
+        assert_eq!(err("3 << 62"), "arithmetic overflow");
+        assert_eq!(err("1 / 0"), "division by zero");
     }
 }

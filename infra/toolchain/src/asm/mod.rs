@@ -22,17 +22,17 @@
 //! exported unless the file lists its exports with `.global` (or hides a
 //! label with `.local`).
 //!
-//! This is a port of the Python assembler (infra/asm.py before RFC 0015),
-//! and keeps its behaviour, Python's arithmetic and messages included.
+//! It replaced the Python assembler (infra/asm.py before RFC 0015): draft
+//! 1's programs, libraries and C compiler output assemble to the same bytes.
 
 mod ctx;
 pub mod expr;
 pub mod lex;
 mod object;
-mod path;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 pub use ctx::Ctx;
@@ -196,7 +196,7 @@ pub enum Operand {
     Mem(Mem),
     /// A bare expression (a branch target, an address).
     Expr(ExprRef),
-    Str(Vec<u32>),
+    Str(Vec<u8>),
 }
 
 impl Operand {
@@ -448,7 +448,7 @@ pub struct Stmt {
     pub words: Vec<u16>,
     /// What a directive puts in memory.
     pub data: Vec<u8>,
-    ops: Vec<Vec<Tok>>,
+    dir: Option<Dir>,
     operands: Vec<Operand>,
     sticky_long: bool,
     scope: Option<String>,
@@ -471,7 +471,7 @@ impl Stmt {
             size: 0,
             words: Vec::new(),
             data: Vec::new(),
-            ops: Vec::new(),
+            dir: None,
             operands: Vec::new(),
             sticky_long: false,
             scope: scope.clone(),
@@ -492,18 +492,42 @@ pub fn is_nobits(section: &str) -> bool {
         .any(|p| section == *p || section.strip_prefix(p).is_some_and(|r| r.starts_with('.')))
 }
 
-/// A data directive's value.
-enum DirVal {
-    Bytes(Vec<u8>),
-    Int(i64),
-    /// An address the linker fills in: base + value.
-    Rel(i64, Base),
+/// A `.byte` operand.
+enum Arg {
+    Str(Vec<u8>),
+    Expr(Expr),
 }
 
-fn to_bytes(cs: &[u32]) -> Result<Vec<u8>, AsmError> {
-    cs.iter()
-        .map(|&c| u8::try_from(c).map_err(|_| AsmError::new("bytes must be in range(0, 256)")))
-        .collect()
+/// A directive, its operands parsed.
+enum Dir {
+    /// `name = value` or `.equ name, value`, the name qualified.
+    Equ(String, Expr),
+    Org(Expr),
+    Align(Expr),
+    /// `.space` or `.fill`: count, fill byte.
+    Space(Expr, Option<Expr>),
+    Byte(Vec<Arg>),
+    /// `.ascii` or `.asciz`: the bytes.
+    Ascii(Vec<u8>),
+    /// `.word`, `.half` or `.long`: the values, and their size in bytes.
+    Data(Vec<Expr>, i64),
+    Title,
+}
+
+/// A path with `dir/..` taken out, as included files are named.
+fn tidy(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::ParentDir
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) =>
+            {
+                out.pop();
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn undefined(name: &str) -> AsmError {
@@ -573,37 +597,31 @@ impl Assembler {
         self.load_in(path, text, &[])
     }
 
-    fn load_in(&mut self, path: &str, text: Option<&str>, seen: &[String]) -> Result<(), Error> {
-        let path = path::abspath(path);
-        if seen.contains(&path) {
+    fn load_in(&mut self, path: &str, text: Option<&str>, seen: &[PathBuf]) -> Result<(), Error> {
+        // a file is the same file however the path to it is written
+        let id = std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
+        if seen.contains(&id) {
             return Err(AsmError::new(format!("recursive include of {path}")).into());
         }
         let mut seen = seen.to_vec();
-        seen.push(path.clone());
+        seen.push(id);
         let owned;
         let text = match text {
             Some(t) => t,
             None => {
-                let bytes = std::fs::read(&path).map_err(|err| Error::Io {
-                    path: path.clone(),
+                owned = std::fs::read_to_string(path).map_err(|err| Error::Io {
+                    path: path.to_string(),
                     err,
                 })?;
-                owned = String::from_utf8(bytes)
-                    .map_err(|_| AsmError::new(format!("{path} isn't UTF-8 text")))?;
                 &owned
             }
         };
         let mut scope = self.stmts.last().and_then(|s| s.scope.clone());
-        let rel = path::relpath(&path);
-        let file: Arc<str> = Arc::from(if rel.starts_with("..") {
-            path.as_str()
-        } else {
-            rel.as_str()
-        });
-        for (i, raw) in lex::split_lines(text).into_iter().enumerate() {
+        let file: Arc<str> = Arc::from(path);
+        for (i, raw) in text.lines().enumerate() {
             let at = (file.clone(), i + 1);
             scope = self
-                .parse_line(raw, &at, scope, &path, &seen)
+                .parse_line(raw, &at, scope, path, &seen)
                 .map_err(|e| e.at(&at))?;
         }
         Ok(())
@@ -615,7 +633,7 @@ impl Assembler {
         at: &Where,
         mut scope: Option<String>,
         path: &str,
-        seen: &[String],
+        seen: &[PathBuf],
     ) -> Result<Option<String>, Error> {
         let all = lex::tokenize(lex::strip_comment(raw))?;
         let mut toks = &all[..];
@@ -642,17 +660,19 @@ impl Assembler {
             && let Tok::Id(name) = &toks[0]
             && toks[1].is_op("=")
         {
+            let name = mangle(name, scope.as_deref());
+            let value = expr::parse(&toks[2..], scope.as_deref())?;
+            self.t.defined.insert(name.clone());
             let mut st = Stmt::new(at, raw, Kind::Dir, &self.cur_section, &scope);
             st.name = ".equ".to_string();
-            st.ops = vec![vec![toks[0].clone()], toks[2..].to_vec()];
-            self.t.defined.insert(mangle(name, scope.as_deref()));
+            st.dir = Some(Dir::Equ(name, value));
             self.stmts.push(st);
             return Ok(scope);
         }
         let Tok::Id(first) = &toks[0] else {
             return Err(AsmError::new(format!(
-                "expected mnemonic or directive, got {}",
-                toks[0].repr()
+                "expected mnemonic or directive, got '{}'",
+                toks[0]
             ))
             .into());
         };
@@ -714,21 +734,26 @@ impl Assembler {
             let (1, Some(Tok::Str(inc))) = (ops.len(), ops.first().and_then(|o| o.first())) else {
                 return Err(AsmError::new(".include needs a quoted file name").into());
             };
-            let inc = to_bytes(inc)?;
-            let inc = String::from_utf8(inc)
+            let inc = String::from_utf8(inc.clone())
                 .map_err(|_| AsmError::new(".include: the file name isn't UTF-8"))?;
-            let inc_path = path::join(&path::dirname(path), &inc);
-            self.load_in(&inc_path, None, seen)?;
+            let dir = Path::new(path).parent().unwrap_or(Path::new(""));
+            let inc_path = tidy(&dir.join(inc));
+            self.load_in(&inc_path.to_string_lossy(), None, seen)?;
             return Ok(match self.stmts.last() {
                 Some(st) => st.scope.clone(),
                 None => scope,
             });
         }
         let mut st = Stmt::new(at, raw, Kind::Dir, &self.cur_section, &scope);
-        st.name = name;
-        if st.name.starts_with('.') {
-            st.ops = ops;
+        if name.starts_with('.') {
+            let dir = self.parse_directive(&name, &ops, scope.as_deref())?;
+            if let Dir::Equ(n, _) = &dir {
+                self.t.defined.insert(n.clone());
+            }
+            st.dir = Some(dir);
+            st.name = name;
         } else {
+            st.name = name;
             st.kind = Kind::Insn;
             st.operands = ops
                 .iter()
@@ -737,6 +762,76 @@ impl Assembler {
         }
         self.stmts.push(st);
         Ok(scope)
+    }
+
+    fn parse_directive(
+        &self,
+        name: &str,
+        ops: &[Vec<Tok>],
+        scope: Option<&str>,
+    ) -> Result<Dir, AsmError> {
+        let err = |msg: String| Err(AsmError::new(msg));
+        let expr = |o: &[Tok]| expr::parse(o, scope);
+        let one = || match ops {
+            [o] => expr(o),
+            _ => Err(AsmError::new(format!("{name} takes one value"))),
+        };
+        Ok(match name {
+            ".equ" => {
+                let [n, v] = ops else {
+                    return err(".equ needs a name and a value".into());
+                };
+                let [Tok::Id(n)] = &n[..] else {
+                    return err(".equ needs a name and a value".into());
+                };
+                Dir::Equ(mangle(n, scope), expr(v)?)
+            }
+            ".org" => Dir::Org(one()?),
+            ".align" => Dir::Align(one()?),
+            ".space" | ".fill" => match ops {
+                [c] => Dir::Space(expr(c)?, None),
+                [c, f] => Dir::Space(expr(c)?, Some(expr(f)?)),
+                _ => return err(format!("{name} needs a count and an optional fill byte")),
+            },
+            ".byte" => Dir::Byte(
+                ops.iter()
+                    .map(|o| match &o[..] {
+                        [Tok::Str(s)] => Ok(Arg::Str(s.clone())),
+                        o => expr(o).map(Arg::Expr),
+                    })
+                    .collect::<Result<_, _>>()?,
+            ),
+            ".ascii" | ".asciz" => {
+                let mut b = Vec::new();
+                for o in ops {
+                    let [Tok::Str(s)] = &o[..] else {
+                        return err(format!("{name} needs strings"));
+                    };
+                    b.extend(s);
+                }
+                if name == ".asciz" {
+                    b.push(0);
+                }
+                Dir::Ascii(b)
+            }
+            ".word" | ".half" | ".long" => {
+                let size = match name {
+                    ".half" => 2,
+                    ".long" => 4,
+                    _ => self.enc.word_bytes(),
+                };
+                let mut values = Vec::new();
+                for o in ops {
+                    if let [Tok::Str(_)] = &o[..] {
+                        return err(format!("{name} doesn't take strings"));
+                    }
+                    values.push(expr(o)?);
+                }
+                Dir::Data(values, size)
+            }
+            ".title" => Dir::Title,
+            _ => return err(format!("unknown directive {name}")),
+        })
     }
 
     fn reg(&self, tok: &Tok) -> Option<Reg> {
@@ -921,105 +1016,72 @@ impl Assembler {
 
     // ---- passes ----------------------------------------------------------
 
-    /// Evaluate each operand of a data directive as an expression or
-    /// string. With `relocs`, an address the linker fills in comes back as
-    /// DirVal::Rel, and is otherwise an error.
-    fn dir_values(
-        &self,
-        i: usize,
-        ops: &[Vec<Tok>],
-        pc: i64,
-        relocs: bool,
-    ) -> Result<Vec<DirVal>, AsmError> {
-        let st = &self.stmts[i];
-        let mut out = Vec::new();
-        for o in ops {
-            if let [Tok::Str(s)] = &o[..] {
-                out.push(DirVal::Bytes(to_bytes(s)?));
-                continue;
-            }
-            let e = expr::parse(o, st.scope.as_deref())?;
-            let r = if self.t.relocatable {
-                self.t.eval_rel(&e, pc, st.section.as_ref())
-            } else {
-                expr::eval(&e, &|n| self.t.symbols.get(n), pc).map(|v| (v, None))
-            };
-            match r {
-                Err(EvalError::Unresolved(name)) => {
-                    if self.t.final_pass {
-                        return Err(undefined(&name));
-                    }
-                    out.push(DirVal::Int(0));
-                }
-                Err(EvalError::Asm(e)) => return Err(e),
-                Ok((v, None)) => out.push(DirVal::Int(v)),
-                Ok((v, Some(base))) => {
-                    if !relocs {
-                        return Err(AsmError::new(format!(
-                            "{} needs a constant, not an address the linker fills in",
-                            st.name
-                        )));
-                    }
-                    out.push(DirVal::Rel(v, base));
-                }
-            }
+    /// An expression's value in this pass: (value, base), base None for a
+    /// constant (see [`Tables::eval_rel`]). None while it uses a symbol that
+    /// isn't defined yet; in the final pass, that's an error.
+    fn value(&self, i: usize, e: &Expr, pc: i64) -> Result<Option<(i64, Option<Base>)>, AsmError> {
+        let r = if self.t.relocatable {
+            self.t.eval_rel(e, pc, self.stmts[i].section.as_ref())
+        } else {
+            expr::eval(e, &|n| self.t.symbols.get(n), pc).map(|v| (v, None))
+        };
+        match r {
+            Ok(v) => Ok(Some(v)),
+            Err(EvalError::Unresolved(name)) if self.t.final_pass => Err(undefined(&name)),
+            Err(EvalError::Unresolved(_)) => Ok(None),
+            Err(EvalError::Asm(e)) => Err(e),
         }
-        Ok(out)
     }
 
-    /// The one number a directive takes.
-    fn dir_value(&self, i: usize, ops: &[Vec<Tok>], pc: i64) -> Result<i64, AsmError> {
-        match &self.dir_values(i, ops, pc, false)?[..] {
-            [DirVal::Int(v)] => Ok(*v),
-            _ => Err(AsmError::new(format!(
-                "{} takes one number",
+    /// A directive's constant operand (0 while it isn't known yet).
+    fn constant(&self, i: usize, e: &Expr, pc: i64) -> Result<i64, AsmError> {
+        match self.value(i, e, pc)? {
+            None => Ok(0),
+            Some((v, None)) => Ok(v),
+            Some((_, Some(_))) => Err(AsmError::new(format!(
+                "{} needs a constant, not an address the linker fills in",
                 self.stmts[i].name
             ))),
         }
     }
 
+    /// A byte-sized value, checked in the final pass.
+    fn byte(&self, i: usize, e: &Expr, pc: i64) -> Result<u8, AsmError> {
+        let v = self.constant(i, e, pc)?;
+        if self.t.final_pass && !(-128..=255).contains(&v) {
+            let name = &self.stmts[i].name;
+            return Err(AsmError::new(format!("{name} value {v} out of range")));
+        }
+        Ok(v as u8)
+    }
+
     fn run_directive(&mut self, i: usize, pc: i64) -> Result<i64, AsmError> {
-        let ops = std::mem::take(&mut self.stmts[i].ops);
-        let r = self.directive(i, &ops, pc);
-        self.stmts[i].ops = ops;
+        let dir = self.stmts[i].dir.take().expect("a directive");
+        let r = self.directive(i, &dir, pc);
+        self.stmts[i].dir = Some(dir);
         r
     }
 
-    fn directive(&mut self, i: usize, ops: &[Vec<Tok>], pc: i64) -> Result<i64, AsmError> {
+    fn directive(&mut self, i: usize, dir: &Dir, pc: i64) -> Result<i64, AsmError> {
         let n = self.stmts[i].name.clone();
         self.stmts[i].data.clear();
-        match n.as_str() {
-            ".equ" => {
-                let (Some(Tok::Id(name)), Some(value)) =
-                    (ops.first().and_then(|o| o.first()), ops.get(1))
-                else {
-                    return Err(AsmError::new(".equ needs a name and a value"));
-                };
-                let scope = self.stmts[i].scope.clone();
-                let name = mangle(name, scope.as_deref());
-                self.define(&name, i)?;
-                let e = expr::parse(value, scope.as_deref())?;
-                let r = if self.t.relocatable {
-                    self.t.eval_rel(&e, pc, self.stmts[i].section.as_ref())
-                } else {
-                    expr::eval(&e, &|n| self.t.symbols.get(n), pc).map(|v| (v, None))
-                };
-                match r {
-                    Ok((v, None)) => self.t.symbols.set(&name, v),
-                    Ok((v, Some(base))) => {
-                        self.t.equ_rel.insert(name, (v, base));
+        match dir {
+            Dir::Equ(name, e) => {
+                self.define(name, i)?;
+                match self.value(i, e, pc)? {
+                    Some((v, None)) => self.t.symbols.set(name, v),
+                    Some((v, Some(base))) => {
+                        self.t.equ_rel.insert(name.clone(), (v, base));
                     }
-                    Err(EvalError::Unresolved(u)) => {
-                        if self.t.final_pass {
-                            return Err(undefined(&u));
-                        }
-                    }
-                    Err(EvalError::Asm(e)) => return Err(e),
+                    None => {}
                 }
                 Ok(pc)
             }
-            ".org" => {
-                let v = self.dir_value(i, ops, pc)?;
+            Dir::Org(e) => {
+                let v = self.constant(i, e, pc)?;
+                if v < 0 {
+                    return Err(AsmError::new(format!(".org to a negative address, {v}")));
+                }
                 if v < pc && self.t.final_pass {
                     let (file, line) = &self.stmts[i].at;
                     self.warnings
@@ -1027,72 +1089,46 @@ impl Assembler {
                 }
                 Ok(v)
             }
-            ".align" => {
-                let v = self.dir_value(i, ops, pc)?;
+            Dir::Align(e) => {
+                let v = self.constant(i, e, pc)?;
                 if v <= 0 {
                     return Err(AsmError::new(".align needs a positive number"));
                 }
                 self.note_align(i, v);
-                let pad = (-pc).rem_euclid(v);
-                self.stmts[i].data = vec![0; usize::try_from(pad).unwrap_or(0)];
+                let pad = (v - pc % v) % v;
+                self.stmts[i].data = vec![0; pad as usize];
                 Ok(pc + pad)
             }
-            ".space" | ".fill" => {
-                let vals = self.dir_values(i, ops, pc, false)?;
-                let (count, fill) = match &vals[..] {
-                    [DirVal::Int(c)] => (*c, 0),
-                    [DirVal::Int(c), DirVal::Int(f), ..] => (*c, *f),
-                    _ => {
-                        return Err(AsmError::new(format!(
-                            "{n} needs a count and an optional fill byte"
-                        )));
-                    }
+            Dir::Space(count, fill) => {
+                let count = self.constant(i, count, pc)?;
+                let fill = match fill {
+                    Some(f) => self.byte(i, f, pc)?,
+                    None => 0,
                 };
-                if count > 1 << 32 {
+                if !(0..=1 << 32).contains(&count) {
                     return Err(AsmError::new(format!("{n} count {count} out of range")));
                 }
-                self.stmts[i].data = vec![(fill & 0xFF) as u8; usize::try_from(count).unwrap_or(0)];
+                self.stmts[i].data = vec![fill; count as usize];
                 Ok(pc + count)
             }
-            ".byte" => {
+            Dir::Byte(args) => {
                 let mut buf = Vec::new();
-                for v in self.dir_values(i, ops, pc, false)? {
-                    match v {
-                        DirVal::Bytes(b) => buf.extend(b),
-                        DirVal::Int(v) => {
-                            if self.t.final_pass && !(-128..=255).contains(&v) {
-                                return Err(AsmError::new(format!(".byte value {v} out of range")));
-                            }
-                            buf.push((v & 0xFF) as u8);
-                        }
-                        DirVal::Rel(..) => unreachable!(),
+                for a in args {
+                    match a {
+                        Arg::Str(b) => buf.extend(b),
+                        Arg::Expr(e) => buf.push(self.byte(i, e, pc)?),
                     }
                 }
                 let len = buf.len() as i64;
                 self.stmts[i].data = buf;
                 Ok(pc + len)
             }
-            ".ascii" | ".asciz" => {
-                let mut buf = Vec::new();
-                for v in self.dir_values(i, ops, pc, false)? {
-                    match v {
-                        DirVal::Bytes(b) => buf.extend(b),
-                        _ => return Err(AsmError::new(format!("{n} needs strings"))),
-                    }
-                }
-                if n == ".asciz" {
-                    buf.push(0);
-                }
-                let len = buf.len() as i64;
-                self.stmts[i].data = buf;
-                Ok(pc + len)
+            Dir::Ascii(b) => {
+                self.stmts[i].data = b.clone();
+                Ok(pc + b.len() as i64)
             }
-            ".word" | ".half" | ".long" => {
-                let size = match n.as_str() {
-                    ".half" => 2,
-                    ".long" => 4,
-                    _ => self.enc.word_bytes(),
-                };
+            Dir::Data(values, size) => {
+                let size = *size;
                 if pc % size != 0 {
                     return Err(AsmError::new(format!(
                         "{n} at an address that isn't a multiple of {size} (missing .align?)"
@@ -1102,13 +1138,11 @@ impl Assembler {
                 self.note_align(i, size);
                 let mut buf = Vec::new();
                 let mut relocs = Vec::new();
-                for v in self.dir_values(i, ops, pc, true)? {
-                    let v = match v {
-                        DirVal::Bytes(_) => {
-                            return Err(AsmError::new(format!("{n} doesn't take strings")));
-                        }
-                        DirVal::Int(v) => v,
-                        DirVal::Rel(v, base) => {
+                for e in values {
+                    let v = match self.value(i, e, pc)? {
+                        None => 0,
+                        Some((v, None)) => v,
+                        Some((v, Some(base))) => {
                             let kind = match size {
                                 4 => crate::obj::ABS32,
                                 2 => crate::obj::ABS16,
@@ -1137,8 +1171,7 @@ impl Assembler {
                 self.stmts[i].relocs = relocs;
                 Ok(pc + len)
             }
-            ".title" => Ok(pc),
-            _ => Err(AsmError::new(format!("unknown directive {n}"))),
+            Dir::Title => Ok(pc),
         }
     }
 
@@ -1309,13 +1342,6 @@ impl Assembler {
     /// The listing: one line per source line that made statements, with
     /// the address and the first parcels or bytes.
     pub fn listing(&self) -> String {
-        fn hex(v: i64) -> String {
-            if v < 0 {
-                format!("-{:03X}", v.unsigned_abs())
-            } else {
-                format!("{v:04X}")
-            }
-        }
         let mut lines = Vec::new();
         let mut groups: Vec<(&Where, Vec<&Stmt>)> = Vec::new();
         for st in &self.stmts {
@@ -1325,7 +1351,7 @@ impl Assembler {
             }
         }
         for (_, sts) in groups {
-            let text = sts[sts.len() - 1].text.trim_end_matches(lex::is_space);
+            let text = sts[sts.len() - 1].text.trim_end();
             let body = sts
                 .iter()
                 .find(|st| st.kind == Kind::Insn || (st.kind == Kind::Dir && !st.data.is_empty()));
@@ -1333,15 +1359,15 @@ impl Assembler {
                 None => lines.push(format!("{:20} {text}", "")),
                 Some(st) if st.kind == Kind::Insn => {
                     let w: Vec<String> = st.words.iter().map(|w| format!("{w:04X}")).collect();
-                    lines.push(format!("{}  {:<14} {text}", hex(st.addr), w.join(" ")));
+                    lines.push(format!("{:04X}  {:<14} {text}", st.addr, w.join(" ")));
                 }
                 Some(st) => {
                     let b: Vec<String> =
                         st.data.iter().take(4).map(|b| format!("{b:02X}")).collect();
                     let more = if st.data.len() > 4 { " …" } else { "" };
                     lines.push(format!(
-                        "{}  {:<14} {text}",
-                        hex(st.addr),
+                        "{:04X}  {:<14} {text}",
+                        st.addr,
                         b.join(" ") + more
                     ));
                 }

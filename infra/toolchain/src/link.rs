@@ -442,12 +442,11 @@ impl Linker {
                 let p = inp.addr[k] + r.offset as u64;
                 match obj::reloc_value(r.kind, s as i64, r.addend as i64, p as i64) {
                     Ok(data) => {
-                        // as Python's c[o:o + n] = data: a field past the
-                        // end grows the section
-                        let c = contents.get_mut(&(i, k)).unwrap();
-                        let o = (r.offset as usize).min(c.len());
-                        let e = (o + data.len()).min(c.len());
-                        c.splice(o..e, data);
+                        // reading the object file checked that the field
+                        // is inside the section
+                        let o = r.offset as usize;
+                        contents.get_mut(&(i, k)).unwrap()[o..o + data.len()]
+                            .copy_from_slice(&data);
                     }
                     Err(e) => {
                         let pc_rel = r.kind == obj::PC16 || r.kind == obj::PC16H;

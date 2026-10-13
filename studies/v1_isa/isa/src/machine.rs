@@ -63,7 +63,7 @@ impl Devices {
         }
     }
 
-    fn read(&mut self, reg: u64, cycles: u64) -> u32 {
+    fn read(&mut self, reg: u32, cycles: u64) -> u32 {
         match reg {
             0x00 => match self.inp.get(self.pos) {
                 Some(&b) => {
@@ -86,7 +86,7 @@ impl Devices {
         }
     }
 
-    fn write(&mut self, reg: u64, value: u32, cycles: u64) {
+    fn write(&mut self, reg: u32, value: u32, cycles: u64) {
         match reg {
             0x00 => self.out.push(value as u8),
             0x08 => {
@@ -216,8 +216,8 @@ impl Machine {
         Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8)
     }
 
-    fn io(&mut self, a: u64, size: u32, value: Option<u32>) -> u32 {
-        let reg = (a - IO_BASE as u64) & !3;
+    fn io(&mut self, a: u32, size: u32, value: Option<u32>) -> u32 {
+        let reg = (a - IO_BASE) & !3;
         let shift = 8 * (a & 3);
         match value {
             None => {
@@ -231,78 +231,76 @@ impl Machine {
         }
     }
 
-    fn bad<T>(&self, a: u64) -> Res<T> {
+    fn bad<T>(&self, a: u32) -> Res<T> {
         Err(Stop::Error(format!(
             "access to unmapped address {a:08X} at pc {:08X}",
             self.pc
         )))
     }
 
-    // Addresses are u64 because SAVE and RESTORE don't wrap them at 32 bits.
-
-    pub fn rd8(&mut self, a: u64) -> Res<u32> {
+    pub fn rd8(&mut self, a: u32) -> Res<u32> {
         self.data_bytes += 1;
-        if a < RAM_SIZE as u64 {
+        if a < RAM_SIZE {
             return Ok(self.mem[a as usize] as u32);
         }
-        if a >= IO_BASE as u64 {
+        if a >= IO_BASE {
             return Ok(self.io(a, 1, None));
         }
         self.bad(a)
     }
 
-    pub fn rd16(&mut self, a: u64) -> Res<u32> {
+    pub fn rd16(&mut self, a: u32) -> Res<u32> {
         self.data_bytes += 2;
         if a & 1 != 0 {
             return misaligned("half read", a);
         }
-        if a < RAM_SIZE as u64 {
+        if a < RAM_SIZE {
             let a = a as usize;
             return Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8);
         }
-        if a >= IO_BASE as u64 {
+        if a >= IO_BASE {
             return Ok(self.io(a, 2, None));
         }
         self.bad(a)
     }
 
-    pub fn rd32(&mut self, a: u64) -> Res<u32> {
+    pub fn rd32(&mut self, a: u32) -> Res<u32> {
         self.data_bytes += 4;
         if a & 3 != 0 {
             return misaligned("word read", a);
         }
-        if a < RAM_SIZE as u64 {
+        if a < RAM_SIZE {
             let a = a as usize;
             return Ok(u32::from_le_bytes(self.mem[a..a + 4].try_into().unwrap()));
         }
-        if a >= IO_BASE as u64 {
+        if a >= IO_BASE {
             return Ok(self.io(a, 4, None));
         }
         self.bad(a)
     }
 
-    pub fn wr8(&mut self, a: u64, v: u32) -> Res<()> {
+    pub fn wr8(&mut self, a: u32, v: u32) -> Res<()> {
         self.data_bytes += 1;
-        if a < RAM_SIZE as u64 {
+        if a < RAM_SIZE {
             if self.code[(a >> 1) as usize] {
                 self.flush();
             }
             self.mem[a as usize] = v as u8;
             return Ok(());
         }
-        if a >= IO_BASE as u64 {
+        if a >= IO_BASE {
             self.io(a, 1, Some(v & 0xFF));
             return Ok(());
         }
         self.bad(a)
     }
 
-    pub fn wr16(&mut self, a: u64, v: u32) -> Res<()> {
+    pub fn wr16(&mut self, a: u32, v: u32) -> Res<()> {
         self.data_bytes += 2;
         if a & 1 != 0 {
             return misaligned("half write", a);
         }
-        if a < RAM_SIZE as u64 {
+        if a < RAM_SIZE {
             if self.code[(a >> 1) as usize] {
                 self.flush();
             }
@@ -310,19 +308,19 @@ impl Machine {
             self.mem[a..a + 2].copy_from_slice(&(v as u16).to_le_bytes());
             return Ok(());
         }
-        if a >= IO_BASE as u64 {
+        if a >= IO_BASE {
             self.io(a, 2, Some(v & 0xFFFF));
             return Ok(());
         }
         self.bad(a)
     }
 
-    pub fn wr32(&mut self, a: u64, v: u32) -> Res<()> {
+    pub fn wr32(&mut self, a: u32, v: u32) -> Res<()> {
         self.data_bytes += 4;
         if a & 3 != 0 {
             return misaligned("word write", a);
         }
-        if a < RAM_SIZE as u64 {
+        if a < RAM_SIZE {
             let p = (a >> 1) as usize;
             if self.code[p] || self.code[p + 1] {
                 self.flush();
@@ -331,7 +329,7 @@ impl Machine {
             self.mem[a..a + 4].copy_from_slice(&v.to_le_bytes());
             return Ok(());
         }
-        if a >= IO_BASE as u64 {
+        if a >= IO_BASE {
             self.io(a, 4, Some(v));
             return Ok(());
         }

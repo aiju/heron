@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use super::{AsmError, Assembler, Base, Kind, Stmt, expr::mangle, is_nobits};
+use super::{AsmError, Assembler, Base, Dir, Kind, Stmt, is_nobits};
 use crate::obj::{self, ObjectFile, Reloc, Section, Symbol};
 
 fn u32_of(v: i64, what: &str) -> Result<u32, AsmError> {
@@ -60,8 +60,8 @@ impl Assembler {
             };
             note(sec, &mut order);
             let buf = content.entry(sec.clone()).or_default();
-            let start = usize::try_from(st.addr)
-                .map_err(|_| AsmError::new("negative address").at(&st.at))?;
+            // addresses are never negative: .org and .space refuse
+            let start = st.addr as usize;
             let end = start + data.len();
             if buf.len() < end {
                 buf.resize(end, 0);
@@ -213,11 +213,8 @@ impl Assembler {
                     value,
                     flags(&st.label),
                 );
-            } else if st.kind == Kind::Dir && st.name == ".equ" {
-                let Some(id) = st.ops.first().and_then(|o| o.first()).and_then(|t| t.id()) else {
-                    continue;
-                };
-                let name = mangle(id, st.scope.as_deref());
+            } else if let Some(Dir::Equ(name, _)) = &st.dir {
+                let name = name.clone();
                 if let Some(v) = self.t.symbols.get(&name) {
                     let f = if self.globals.contains(&name) {
                         flags(&name)
@@ -298,11 +295,9 @@ impl Assembler {
                 });
                 // the field holds nothing until the linker fills it in
                 let target = &mut o.sections[sec as usize - 1];
-                if !target.nobits() {
-                    let n = obj::reloc_size(fx.kind);
-                    let start = (offset as usize).min(target.data.len());
-                    let end = (offset as usize + n).min(target.data.len());
-                    target.data.splice(start..end, std::iter::repeat_n(0, n));
+                let field = offset as usize..offset as usize + obj::reloc_size(fx.kind);
+                if let Some(f) = target.data.get_mut(field) {
+                    f.fill(0);
                 }
             }
         }

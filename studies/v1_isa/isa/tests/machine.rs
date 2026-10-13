@@ -101,3 +101,15 @@ fn timing_keys_cost_what_timing32_says() {
     assert_eq!(cycles(1, 0, Kind::Div { signed: 1 }, "D16-separate"), 70);
     assert_eq!(CONFIGS.len(), 6);
 }
+
+#[test]
+fn restore_wraps_past_the_top_of_memory() {
+    // MOV sp, #-4; RESTORE r1-r2; HALT: r1 comes from the last word of the
+    // I/O page, r2 from address 0 (the program's first two parcels), as a
+    // 32-bit address counter would have it
+    let mut m = machine(&[0x1FD3, 0x0126, HALT]);
+    m.run(1000).unwrap();
+    assert_eq!(m.r[2], 0x0126_1FD3);
+    assert_eq!(m.r[15], 4);
+    assert!(m.halted);
+}

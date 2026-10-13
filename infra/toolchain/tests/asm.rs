@@ -122,7 +122,7 @@ g:      .byte 1, -1, \"ab\", 'c'
         .half 0x1234
         .word 0x5678
         .long 0x9ABCDEF0
-        .asciz \"hi\\n\"
+        .asciz \"h\u{e9}\\n\"
         .fill 3, 0xAA
 K = .x + 1
         .equ L, K * 2
@@ -140,7 +140,8 @@ K = .x + 1
         mem,
         [
             0x00, 0x00, 0xFF, 0x10, 1, 0xFF, b'a', b'b', b'c', 0, 0, 0, 0x34, 0x12, 0x78, 0x56,
-            0xF0, 0xDE, 0xBC, 0x9A, b'h', b'i', b'\n', 0, 0xAA, 0xAA, 0xAA, 0, 0x00, 0x31, 20, 0
+            0xF0, 0xDE, 0xBC, 0x9A, b'h', 0xC3, 0xA9, b'\n', 0, 0xAA, 0xAA, 0xAA, 0x00, 0x31, 20,
+            0
         ]
     );
 }
@@ -166,7 +167,24 @@ fn errors() {
         "t.s:2: x is already defined at t.s:1"
     );
     assert_eq!(error("  .frob 1\n"), "t.s:1: unknown directive .frob");
-    assert_eq!(error("  li r1, #1 2\n"), "t.s:1: junk after expression: 2");
+    assert_eq!(
+        error("  li r1, #1 2\n"),
+        "t.s:1: junk after expression: '2'"
+    );
+    assert_eq!(
+        error("  .org -4\n"),
+        "t.s:1: .org to a negative address, -4"
+    );
+    assert_eq!(
+        error("  .space -1\n"),
+        "t.s:1: .space count -1 out of range"
+    );
+    assert_eq!(
+        error("  .fill 2, 300\n"),
+        "t.s:1: .fill value 300 out of range"
+    );
+    assert_eq!(error("  .ascii 5\n"), "t.s:1: .ascii needs strings");
+    assert_eq!(error("  .align\n"), "t.s:1: .align takes one value");
     assert_eq!(error("  li r1, #1 / 0\n"), "t.s:1: division by zero");
     assert_eq!(
         error("  .byte 1\n  nop\n"),

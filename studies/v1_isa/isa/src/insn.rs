@@ -35,7 +35,7 @@ pub fn trap<T>(vector: u32, fault: bool, why: &str) -> Res<T> {
     }))
 }
 
-pub fn misaligned<T>(what: &str, a: u64) -> Res<T> {
+pub fn misaligned<T>(what: &str, a: u32) -> Res<T> {
     trap(ADDR_VECTOR, true, &format!("misaligned {what} at {a:08X}"))
 }
 
@@ -441,14 +441,14 @@ impl Machine {
 
     pub fn push(&mut self, v: u32) -> Res<()> {
         let sp = self.r[15].wrapping_sub(4);
-        self.wr32(sp as u64, v)?;
+        self.wr32(sp, v)?;
         self.r[15] = sp;
         Ok(())
     }
 
     pub fn pop(&mut self) -> Res<u32> {
         let sp = self.r[15];
-        let v = self.rd32(sp as u64)?;
+        let v = self.rd32(sp)?;
         self.r[15] = sp.wrapping_add(4);
         Ok(v)
     }
@@ -503,7 +503,6 @@ impl Machine {
     }
 
     fn read(&mut self, size: u8, a: u32) -> Res<u32> {
-        let a = a as u64;
         match size {
             4 => self.rd32(a),
             2 => self.rd16(a),
@@ -512,7 +511,6 @@ impl Machine {
     }
 
     fn write(&mut self, size: u8, a: u32, v: u32) -> Res<()> {
-        let a = a as u64;
         match size {
             4 => self.wr32(a, v),
             2 => self.wr16(a, v & 0xFFFF),
@@ -559,9 +557,8 @@ impl Machine {
             }
             Insn::Save { a, cnt } => {
                 let sp = self.r[15].wrapping_sub(4 * cnt as u32);
-                // sp + 4i isn't wrapped: past the top it's in the I/O page
                 for i in 0..cnt {
-                    self.wr32(sp as u64 + 4 * i as u64, r(self, a + i))?;
+                    self.wr32(sp.wrapping_add(4 * i as u32), r(self, a + i))?;
                 }
                 self.r[15] = sp;
                 self.pc = nxt;
@@ -571,7 +568,7 @@ impl Machine {
                 let sp = self.r[15];
                 let mut vals = [0u32; 16];
                 for i in 0..cnt {
-                    vals[i as usize] = self.rd32(sp as u64 + 4 * i as u64)?;
+                    vals[i as usize] = self.rd32(sp.wrapping_add(4 * i as u32))?;
                 }
                 for i in 0..cnt {
                     self.r[(a + i) as usize] = vals[i as usize];
@@ -768,7 +765,7 @@ impl Machine {
             }
             Insn::JeaMem { call, m } => {
                 let (a, x) = self.address(&m, nxt);
-                let t = self.rd32(a as u64)? & !1;
+                let t = self.rd32(a)? & !1;
                 self.post(&m, a);
                 if call {
                     self.push(nxt)?;

@@ -375,9 +375,14 @@ impl ObjectFile {
             });
         }
         for rl in &relocs {
+            let in_section = |rl: &Reloc| {
+                let size = o.sections[rl.section as usize - 1].size as u64;
+                rl.offset as u64 + reloc_size(rl.kind) as u64 <= size
+            };
             if !(1 <= rl.section && rl.section <= ns)
                 || rl.symbol >= nsym
                 || reloc_name(rl.kind).is_none()
+                || !in_section(rl)
             {
                 return Err(ObjError(format!("{name}: bad relocation")));
             }
