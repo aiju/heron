@@ -1,8 +1,11 @@
 """Assembler/disassembler round trip and instruction semantics for ISA v0."""
 
+import io
 import os
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stdout, redirect_stderr
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -148,6 +151,70 @@ class Semantics(unittest.TestCase):
             MVI r8, 2
             HALT""")
         self.assertEqual((m.r[9], m.r[8]), (1, 2))
+        self.assertFalse(m.in_trap)
+
+
+def tmc_run(src, *argv):
+    """python3 -m tmc run on src (written to a file) and argv: (exit status,
+    console output, stderr)."""
+    from tmc.__main__ import main
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "t.s")
+        with open(path, "w") as f:
+            f.write(src)
+        out, err = io.TextIOWrapper(io.BytesIO()), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = main(["run", path, *argv])
+        out.flush()
+        return rc, out.buffer.getvalue(), err.getvalue()
+
+
+class RunCommand(unittest.TestCase):
+    """`tmc run`: exit status 1 unless the program halts normally. A trap
+    the handler returns from is fine; halting in the handler isn't."""
+    VECTORS = "        .org 0\n        JMP  start\n        .org 8\n"
+    MAIN = """
+start:  LI   sp, #0x8000
+        MVI  r1, 'a'
+        STB  r1, [0xFF00]
+        SWI
+        .word 0xB000
+        HALT
+"""
+
+    def test_trap_handled(self):
+        rc, out, err = tmc_run(self.VECTORS + "        RTI\n" + self.MAIN)
+        self.assertEqual((rc, out), (0, b"a"))
+        self.assertIn("illegal instruction B000", err)
+        self.assertNotIn("error", err)
+
+    def test_halt_in_trap_handler(self):
+        for main in (self.MAIN, self.MAIN.replace("SWI", "NOP")):
+            rc, out, err = tmc_run(self.VECTORS + "        HALT\n" + main)
+            self.assertEqual((rc, out), (1, b"a"))
+            self.assertIn("error: halted in a trap handler", err)
+
+    def test_no_trap_handler(self):
+        # nothing at the trap vector: a zero word is HALT
+        rc, _, err = tmc_run("        .org 0\n        JMP  start\n        .org 0x10\n" + self.MAIN)
+        self.assertEqual(rc, 1)
+        self.assertIn("error: halted in a trap handler", err)
+
+    def test_cycle_limit(self):
+        rc, _, err = tmc_run("loop:   BRA  loop\n", "--max-cycles", "1000")
+        self.assertEqual(rc, 1)
+        self.assertIn("error: cycle limit", err)
+
+    def test_input_from_program(self):
+        """Without --input, the program's own `;! input:` line."""
+        from tmc import testing
+        from tmc.__main__ import main
+        path = os.path.join(testing.program_dir("v0"), "rpn.s")
+        out = io.TextIOWrapper(io.BytesIO())
+        with redirect_stdout(out):
+            self.assertEqual(main(["run", path]), 0)
+        out.flush()
+        self.assertEqual(out.buffer.getvalue(), testing.expected_output("rpn"))
 
 
 if __name__ == "__main__":
