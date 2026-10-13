@@ -1,0 +1,11 @@
+# The draft 1 instruction sets in Rust (RFC 0015): decoders and semantics
+# for 1a and 1b, the instruction-level simulator and the timing model.
+# Python uses them through heron/bindings as heron.native.v1.
+[package]
+name = "v1-isa"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

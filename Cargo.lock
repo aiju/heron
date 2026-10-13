@@ -16,6 +16,7 @@ dependencies = [
  "pyo3",
  "pyo3-build-config",
  "pythonize",
+ "v1-isa",
 ]
 
 [[package]]
@@ -202,3 +203,7 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "v1-isa"
+version = "0.1.0"
