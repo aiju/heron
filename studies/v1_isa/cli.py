@@ -93,7 +93,6 @@ def run32(args, isa, img, inp):
     """`run` for the 32-bit draft 1 ISAs."""
     from .sim32 import Machine32, SimError as SimError32
     from . import timing32
-    from .v1common import Trap
     m = Machine32(isa, img, inp=inp)
     syms = {v: k for k, v in img.symbols.items() if "." not in k}
     if args.trace:
@@ -101,7 +100,7 @@ def run32(args, isa, img, inp):
             try:
                 ws = parcels_at(m.parcel, m.pc)
                 text, _ = isa.disassemble(ws, m.pc, syms)
-            except (SimError32, Trap):
+            except SimError32:
                 text = "?"
             name = syms.get(m.pc)
             label = f"{name}:" if name else ""

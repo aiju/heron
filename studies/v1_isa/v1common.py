@@ -1,10 +1,9 @@
-"""Everything drafts 1a and 1b share: semantics, the system, unary and shift
-groups, branches, and the matching assembler and disassembler pieces.
+"""Everything drafts 1a and 1b share in Python: the system, unary and shift
+groups and branches, as the assembler and disassembler need them, and two
+pieces of reference semantics for the draft 1b hardware study.
 
-See isa-v1.md. Instructions are decoded once per address into a
-closure `fn(m) -> timing key` that executes the instruction on a
-sim32.Machine32 and returns the key timing32 turns into cycles:
-(parcels, pc & 2, kind, *params).
+See isa-v1.md. Decoding and executing instructions is Rust
+(studies/v1_isa/isa), which sim32.Machine32 runs.
 """
 
 from heron.infra.asm import AsmError, Reg, RegRange, Imm, Mem, Expr
@@ -25,7 +24,6 @@ ADDR_VECTOR = 0x14
 REGISTERS = {f"r{i}": i for i in range(16)}
 REGISTERS["sp"] = 15
 
-F_V, F_C, F_Z, F_N, F_I = 0, 1, 2, 3, 4
 
 COND = ["EQ", "NE", "CS", "CC", "MI", "PL", "VS", "VC",
         "HI", "LS", "GE", "LT", "GT", "LE", "RA"]
@@ -39,21 +37,6 @@ SHIFT_FN = ["LSL", "LSR", "ASR", "ROR"]
 SYS_FN = ["HALT", "NOP", "JMP", "CALL", "RET", "SAVE", "RESTORE", "RTI",
           "EI", "DI", "MFSR", "MTSR", "SWI", "SET"]
 SR_NAMES = {0: "flags", 1: "hi"}
-
-
-class Trap(Exception):
-    """Raised by an instruction to enter a trap. fault=True saves the
-    faulting instruction's address, False the next instruction's."""
-
-    def __init__(self, vector, fault=True, why=""):
-        super().__init__(why)
-        self.vector = vector
-        self.fault = fault
-        self.why = why
-
-
-def illegal(why="illegal instruction"):
-    raise Trap(ILLEGAL_VECTOR, True, why)
 
 
 def s32(x):
@@ -71,47 +54,19 @@ def sext16(x):
     return x - 0x10000 if x & 0x8000 else x
 
 
-def crosses(a, b):
-    """1 if a and b differ in their upper 16 bits (a 16-bit datapath then
-    needs a second cycle for the address)."""
-    return 1 if (a ^ b) >> 16 else 0
-
-
-def shift_steps(n):
-    """Microcode steps for a shift by n: halves, then bytes, then bits."""
-    return n // 16 + (n % 16) // 8 + n % 8
-
-
 # ==========================================================================
-# Semantics
+# Reference semantics
+#
+# The simulator's semantics are Rust (studies/v1_isa/isa/src/insn.rs).
+# These remain in Python for the draft 1b hardware study, which checks its
+# microcode's shift sequences against shift() and gives its register
+# transfer model the branch conditions of cond_true().
 
 
 def nz(m, res):
     m.n = res >> 31
     m.z = 1 if res == 0 else 0
     return res
-
-
-def add(m, a, b, cin):
-    r = a + b + cin
-    res = r & M32
-    m.c = r >> 32
-    m.v = (((a ^ res) & (b ^ res)) >> 31) & 1
-    m.n = res >> 31
-    m.z = 1 if res == 0 else 0
-    return res
-
-
-def flags_word(m):
-    return (m.v << F_V) | (m.c << F_C) | (m.z << F_Z) | (m.n << F_N) | (m.i << F_I)
-
-
-def set_flags_word(m, x):
-    m.v = (x >> F_V) & 1
-    m.c = (x >> F_C) & 1
-    m.z = (x >> F_Z) & 1
-    m.n = (x >> F_N) & 1
-    m.i = (x >> F_I) & 1
 
 
 def cond_true(m, cc):
@@ -125,146 +80,6 @@ def cond_true(m, cc):
     elif base == 6: t = (m.z ^ 1) & (1 if m.n == m.v else 0)
     else: t = 1
     return t ^ (cc & 1)
-
-
-# Two-operand ALU functions: f(m, a, b) -> result, or None for "no write".
-def _adc(m, a, b):
-    z = m.z
-    r = add(m, a, b, m.c)
-    m.z &= z
-    return r
-
-
-def _sbc(m, a, b):
-    z = m.z
-    r = add(m, a, b ^ M32, m.c)
-    m.z &= z
-    return r
-
-
-def _cmp(m, a, b):
-    add(m, a, b ^ M32, 1)
-    return None
-
-
-def _tst(m, a, b):
-    nz(m, a & b)
-    return None
-
-
-def _mulu(m, a, b):
-    p = a * b
-    m.hi = p >> 32
-    m.c = m.v = 1 if m.hi else 0
-    return nz(m, p & M32)
-
-
-def _muls(m, a, b):
-    p = s32(a) * s32(b)
-    m.hi = (p >> 32) & M32
-    m.c = m.v = 0 if -(1 << 31) <= p < (1 << 31) else 1
-    return nz(m, p & M32)
-
-
-def _divu(m, a, b):
-    if b == 0:
-        raise Trap(DIV_VECTOR, True, "divide by zero")
-    m.hi = a % b
-    m.c = m.v = 0
-    return nz(m, a // b)
-
-
-def _divs(m, a, b):
-    if b == 0:
-        raise Trap(DIV_VECTOR, True, "divide by zero")
-    sa, sb = s32(a), s32(b)
-    m.c = 0
-    if sa == -(1 << 31) and sb == -1:
-        m.hi = 0
-        m.v = 1
-        return nz(m, 0x80000000)
-    q = abs(sa) // abs(sb)
-    if (sa < 0) != (sb < 0):
-        q = -q
-    m.hi = (sa - q * sb) & M32
-    m.v = 0
-    return nz(m, q & M32)
-
-
-def _divul(m, a, b):
-    if b == 0:
-        raise Trap(DIV_VECTOR, True, "divide by zero")
-    if m.hi >= b:
-        m.v = 1
-        return None
-    d = (m.hi << 32) | a
-    m.hi = d % b
-    m.c = m.v = 0
-    return nz(m, d // b)
-
-
-ALU_IMPL = [
-    lambda m, a, b: add(m, a, b, 0),
-    _adc,
-    lambda m, a, b: add(m, a, b ^ M32, 1),
-    _sbc,
-    lambda m, a, b: nz(m, a & b),
-    lambda m, a, b: nz(m, a | b),
-    lambda m, a, b: nz(m, a ^ b),
-    lambda m, a, b: nz(m, a & (b ^ M32)),
-    lambda m, a, b: nz(m, b),
-    _cmp,
-    _tst,
-    _mulu,
-    _muls,
-    _divu,
-    _divs,
-    _divul,
-]
-ALU_WRITES = [True] * 9 + [False, False] + [True] * 5
-
-
-def alu_timing(fn, b):
-    """Timing key tail for an ALU function with second operand b."""
-    if fn == 11:
-        return ("mul", b.bit_length(), 0)
-    if fn == 12:
-        return ("mul", abs(s32(b)).bit_length(), 1)
-    if fn in (13, 15):
-        return ("div", 0)
-    if fn == 14:
-        return ("div", 1)
-    return ("alu", 1 if ALU_WRITES[fn] else 0)
-
-
-def _rlc(m, x):
-    r = ((x << 1) | m.c) & M32
-    m.c = x >> 31
-    m.v = 0
-    return nz(m, r)
-
-
-def _rrc(m, x):
-    r = (x >> 1) | (m.c << 31)
-    m.c = x & 1
-    m.v = 0
-    return nz(m, r)
-
-
-UN_IMPL = [
-    lambda m, x: nz(m, x ^ M32),
-    lambda m, x: add(m, 0, x ^ M32, 1),
-    lambda m, x: nz(m, (x + 1) & M32),
-    lambda m, x: nz(m, (x - 1) & M32),
-    _rlc,
-    _rrc,
-    lambda m, x: nz(m, ((x >> 16) | (x << 16)) & M32),
-    lambda m, x: nz(m, (x & 0xFF) | (0xFFFFFF00 if x & 0x80 else 0)),
-    lambda m, x: nz(m, x & 0xFF),
-    lambda m, x: nz(m, (x & 0xFFFF) | (0xFFFF0000 if x & 0x8000 else 0)),
-    lambda m, x: nz(m, x & 0xFFFF),
-    lambda m, x: nz(m, 32 - x.bit_length()),
-]
 
 
 def shift(m, op, x, n):
@@ -285,288 +100,6 @@ def shift(m, op, x, n):
         m.c = res >> 31
     m.v = 0
     return nz(m, res)
-
-
-def push(m, v):
-    sp = (m.r[15] - 4) & M32
-    m.wr32(sp, v)
-    m.r[15] = sp
-
-
-def pop(m):
-    sp = m.r[15]
-    v = m.rd32(sp)
-    m.r[15] = (sp + 4) & M32
-    return v
-
-
-def enter_interrupt(m, vector, ret_pc):
-    """IRQ or trap: push PC, push flags, disable interrupts, jump to vector."""
-    push(m, ret_pc)
-    push(m, flags_word(m))
-    m.i = 0
-    m.pc = vector
-
-
-# ==========================================================================
-# Shared decoders. Each returns fn(m) -> timing key; n is the length in
-# parcels, nxt the address of the next instruction.
-
-
-def dec_sys(m, pc, w):
-    a, b, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    nxt = (pc + 2) & M32
-    p2 = pc & 2
-    r = m.r
-    if f == 0:
-        def fn(m):
-            m.halted = True
-            m.pc = nxt
-            return (1, p2, "sys")
-    elif f == 1:
-        def fn(m):
-            m.pc = nxt
-            return (1, p2, "sys")
-    elif f == 2:
-        def fn(m):
-            m.pc = r[b] & 0xFFFFFFFE
-            return (1, p2, "jmp", "reg", 0)
-    elif f == 3:
-        def fn(m):
-            t = r[b] & 0xFFFFFFFE
-            push(m, nxt)
-            m.pc = t
-            return (1, p2, "call", "reg", 0)
-    elif f == 4:
-        def fn(m):
-            m.pc = pop(m) & 0xFFFFFFFE
-            return (1, p2, "ret")
-    elif f in (5, 6):
-        if not 1 <= a <= b <= 14:
-            return illegal_fn
-        cnt = b - a + 1
-        if f == 5:
-            def fn(m):
-                sp = (r[15] - 4 * cnt) & M32
-                for i in range(cnt):
-                    m.wr32(sp + 4 * i, r[a + i])
-                r[15] = sp
-                m.pc = nxt
-                return (1, p2, "save", cnt)
-        else:
-            def fn(m):
-                sp = r[15]
-                vals = [m.rd32(sp + 4 * i) for i in range(cnt)]
-                for i in range(cnt):
-                    r[a + i] = vals[i]
-                r[15] = (sp + 4 * cnt) & M32
-                m.pc = nxt
-                return (1, p2, "restore", cnt)
-    elif f == 7:
-        def fn(m):
-            fl = pop(m)
-            set_flags_word(m, fl)
-            m.pc = pop(m) & 0xFFFFFFFE
-            return (1, p2, "rti")
-    elif f in (8, 9):
-        val = 1 if f == 8 else 0
-
-        def fn(m):
-            m.i = val
-            m.pc = nxt
-            return (1, p2, "sys")
-    elif f == 10:
-        if b not in SR_NAMES:
-            return illegal_fn
-
-        def fn(m):
-            v = flags_word(m) if b == 0 else m.hi
-            if a:
-                r[a] = v
-            m.pc = nxt
-            return (1, p2, "alu", 1)
-    elif f == 11:
-        if a not in SR_NAMES:
-            return illegal_fn
-
-        def fn(m):
-            if a == 0:
-                set_flags_word(m, r[b])
-            else:
-                m.hi = r[b]
-            m.pc = nxt
-            return (1, p2, "sys")
-    elif f == 12:
-        def fn(m):
-            m.pc = nxt
-            raise Trap(SWI_VECTOR, False, "SWI")
-    elif f == 13:
-        if b == 15:
-            return illegal_fn
-
-        def fn(m):
-            if a:
-                r[a] = cond_true(m, b)
-            m.pc = nxt
-            return (1, p2, "alu", 1)
-    else:
-        return illegal_fn
-    return fn
-
-
-def illegal_fn(m):
-    illegal()
-
-
-def dec_unary(m, pc, w):
-    d, s, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    if f >= len(UN_FN):
-        return illegal_fn
-    impl = UN_IMPL[f]
-    nxt = (pc + 2) & M32
-    key = (1, pc & 2, "alu", 1)
-    r = m.r
-
-    def fn(m):
-        v = impl(m, r[s])
-        if d:
-            r[d] = v
-        m.pc = nxt
-        return key
-    return fn
-
-
-def dec_shift(m, pc, w):
-    d, s, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    op, t = f & 3, f >> 2
-    nxt = (pc + 2) & M32
-    p2 = pc & 2
-    r = m.r
-    if t == 3:
-        return illegal_fn
-    if t < 2:
-        cnt = s + 16 * t
-        key = (1, p2, "shift", shift_steps(cnt))
-
-        def fn(m):
-            v = shift(m, op, r[d], cnt)
-            if d:
-                r[d] = v
-            m.pc = nxt
-            return key
-    else:
-        def fn(m):
-            cnt = r[s] & 31
-            v = shift(m, op, r[d], cnt)
-            if d:
-                r[d] = v
-            m.pc = nxt
-            return (1, p2, "shift", shift_steps(cnt))
-    return fn
-
-
-def dec_alu_rr(m, pc, w, fn_no, d, s):
-    """rd <- rd op rs for an ALU function number (draft 1a op 1, 1b op F)."""
-    impl = ALU_IMPL[fn_no]
-    nxt = (pc + 2) & M32
-    p2 = pc & 2
-    r = m.r
-    if fn_no in (11, 12, 13, 14, 15):
-        def fn(m):
-            b = r[s]
-            res = impl(m, r[d], b)
-            if res is not None and d:
-                r[d] = res
-            m.pc = nxt
-            return (1, p2) + alu_timing(fn_no, b)
-        return fn
-    key = (1, p2) + alu_timing(fn_no, 0)
-
-    def fn(m):
-        res = impl(m, r[d], r[s])
-        if res is not None and d:
-            r[d] = res
-        m.pc = nxt
-        return key
-    return fn
-
-
-def dec_alu_imm(m, pc, n, fn_no, d, v):
-    """rd <- rd op #v (draft 1a op 8 and the small-immediate forms)."""
-    impl = ALU_IMPL[fn_no]
-    nxt = (pc + 2 * n) & M32
-    key = (n, pc & 2) + alu_timing(fn_no, v)
-    r = m.r
-
-    def fn(m):
-        res = impl(m, r[d], v)
-        if res is not None and d:
-            r[d] = res
-        m.pc = nxt
-        return key
-    return fn
-
-
-def dec_bcc(m, pc, w):
-    cc = (w >> 8) & 15
-    nxt = (pc + 2) & M32
-    target = (nxt + 2 * sext8(w)) & M32
-    p2 = pc & 2
-    x = crosses(nxt, target)
-    if cc == 15:
-        key = (1, p2, "call", "rel", x)
-
-        def fn(m):
-            push(m, nxt)
-            m.pc = target
-            return key
-        return fn
-    k_taken = (1, p2, "br", 1, x)
-    k_not = (1, p2, "br", 0, 0)
-
-    def fn(m):
-        if cond_true(m, cc):
-            m.pc = target
-            return k_taken
-        m.pc = nxt
-        return k_not
-    return fn
-
-
-def dec_jcc(m, pc, w):
-    """Jcc/JMP/CALL with a 16-bit PC-relative or a 32-bit absolute target."""
-    cc, k, z = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    if k > 1 or z:
-        return illegal_fn
-    p2 = pc & 2
-    if k == 0:
-        n = 2
-        nxt = (pc + 4) & M32
-        target = (nxt + 2 * sext16(m.parcel(pc + 2))) & M32
-        how, x = "rel", crosses(nxt, target)
-    else:
-        n = 3
-        nxt = (pc + 6) & M32
-        target = (m.parcel(pc + 2) | (m.parcel(pc + 4) << 16)) & 0xFFFFFFFE
-        how, x = "abs", 0
-    if cc == 15:
-        key = (n, p2, "call", how, x)
-
-        def fn(m):
-            push(m, nxt)
-            m.pc = target
-            return key
-        return fn
-    k_taken = (n, p2, "jmp", how, x)
-    k_not = (n, p2, "br", 0, 0)
-
-    def fn(m):
-        if cc == 14 or cond_true(m, cc):
-            m.pc = target
-            return k_taken
-        m.pc = nxt
-        return k_not
-    return fn
 
 
 # ==========================================================================

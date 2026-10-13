@@ -4,7 +4,8 @@ Draft 1's cycle counts are estimates from a model of a microcoded machine
 like the draft 0 one, made before there was any draft 1 hardware. The
 draft 1b hardware built since checks one of the configurations,
 D32-separate ([report 0012](../../reports/0012-report-draft-1b-hardware/performance.md)). The model lives in
-`timing32.py`. The simulator records what every executed instruction
+`isa/src/timing.rs` (Python reaches it as `timing32.cycles`). The
+simulator records what every executed instruction
 did, and the model turns that into cycles for six machine configurations.
 All six come out of one simulation run.
 

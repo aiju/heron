@@ -1,12 +1,14 @@
 """ISA draft 1b: 32-bit, 16-bit parcels, register + addressing mode (CISC-like).
 
 See isa-v1b.md. Main format `F D M R`: operation, register, mode,
-register-or-constant for the mode. Shared parts live in v1common.
+register-or-constant for the mode. This is the assembler's and
+disassembler's side; decoding and executing is Rust
+(studies/v1_isa/isa/src/v1b.rs). Shared parts live in v1common.
 """
 
 from heron.infra.asm import Reg, Imm, Mem, Expr
 from . import v1common as c
-from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, crosses, nz, ALU_IMPL, R, sym
+from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, R, sym
 
 NAME = "v1b"
 DESCRIPTION = "draft 1b: 32-bit registers, 16-bit parcels, register + addressing mode"
@@ -31,7 +33,6 @@ EA_OPS = {"MOV": OP_MOV, "ST": OP_ST, "LEA": OP_LEA, "ADD": OP_ADD, "SUB": OP_SU
 EA_NAMES = {v: k for k, v in EA_OPS.items()}
 EA_ALU = {OP_MOV: 8, OP_ADD: 0, OP_SUB: 2, OP_CMP: 9, OP_AND: 4, OP_OR: 5, OP_XOR: 6}
 RR_FN = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "DIVU", "DIVS", "DIVUL"]
-RR_ALU = [1, 3, 7, 10, 11, 12, 13, 14, 15]
 
 SIZES = {"byte": 1, "half": 2, "word": 4, None: 4}
 SIZE_NAME = {1: "byte ", 2: "half ", 4: ""}
@@ -114,203 +115,6 @@ def size_of(w):
         k, f = (w >> 4) & 15, w & 15
         return 3 if k == 1 and f == 0 else (2 if k == 0 and f == 0 else 1)
     return 1
-
-
-# ==========================================================================
-# Decoder
-
-
-def _reader(m, size):
-    return m.rd32 if size == 4 else (m.rd16 if size == 2 else m.rd8)
-
-
-def _addr_fn(r, opnd, nxt):
-    """Returns (address function m -> (a, x), post-update function or None)."""
-    _, base, disp, index, scale, size, tk = opnd
-    if tk == "r":
-        return (lambda: (r[base], 0)), None
-    if tk == "rd":
-        def f():
-            b = r[base]
-            a = (b + disp) & M32
-            return a, crosses(b, a)
-        return f, None
-    if tk == "abs":
-        a0 = disp & M32
-        return (lambda: (a0, 0)), None
-    if tk == "pc":
-        a1 = (nxt + disp) & M32
-        x1 = crosses(nxt, a1)
-        return (lambda: (a1, x1)), None
-    if tk == "idx":
-        def f():
-            b = r[base]
-            a = (b + disp + r[index] * scale) & M32
-            return a, crosses(b, a)
-        return f, None
-    if tk == "pi":
-        def post(a):
-            if base:
-                r[base] = (a + size) & M32
-        return (lambda: (r[base], 0)), post
-
-    def f():
-        b = r[base]
-        a = (b - size) & M32
-        return a, crosses(b, a)
-
-    def post(a):
-        if base:
-            r[base] = a
-    return f, post
-
-
-def decode(m, pc):
-    w = m.parcel(pc)
-    op = w >> 12
-    d, M, Rn = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    if op == OP_SYS:
-        return c.dec_sys(m, pc, w), 1
-    if op == OP_UN:
-        return c.dec_unary(m, pc, w), 1
-    if op == OP_SH:
-        return c.dec_shift(m, pc, w), 1
-    if op == OP_BCC:
-        return c.dec_bcc(m, pc, w), 1
-    if op == OP_JCC:
-        k, f = M, Rn
-        n = 3 if k == 1 and f == 0 else (2 if k == 0 and f == 0 else 1)
-        return c.dec_jcc(m, pc, w), n
-    if op == OP_RR:
-        f = w & 15
-        if f >= len(RR_FN):
-            return c.illegal_fn, 1
-        return c.dec_alu_rr(m, pc, w, RR_ALU[f], d, M), 1
-    # EA instructions (ops 1-9 and B)
-    n = 1 + mode_size(M, Rn)
-    ext = [m.parcel(pc + 2 * i) for i in range(1, n)] + [0, 0]
-    opnd, _ = ea_info(M, Rn, ext)
-    if opnd is None:
-        return c.illegal_fn, n
-    nxt = (pc + 2 * n) & M32
-    p2 = pc & 2
-    r = m.r
-    cls = opnd[0]
-
-    if op == OP_JEA:
-        if d > 1 or (cls == "mem" and opnd[5] != 4):
-            return c.illegal_fn, n
-        call = d == 1
-        if cls == "reg":
-            key = (n, p2, "call" if call else "jmp", "reg", 0)
-
-            def fn(m):
-                t = r[Rn] & 0xFFFFFFFE
-                if call:
-                    c.push(m, nxt)
-                m.pc = t
-                return key
-            return fn, n
-        if cls == "imm":
-            t0 = opnd[1] & 0xFFFFFFFE
-            key = (n, p2, "call" if call else "jmp", "abs", 0)
-
-            def fn(m):
-                if call:
-                    c.push(m, nxt)
-                m.pc = t0
-                return key
-            return fn, n
-        addr, post = _addr_fn(r, opnd, nxt)
-        tk = opnd[6]
-        kind = "callm" if call else "jmpm"
-
-        def fn(m):
-            a, x = addr()
-            t = m.rd32(a) & 0xFFFFFFFE
-            if post:
-                post(a)
-            if call:
-                c.push(m, nxt)
-            m.pc = t
-            return (n, p2, kind, tk, x)
-        return fn, n
-
-    if op == OP_ST:
-        if cls != "mem":
-            return c.illegal_fn, n
-        addr, post = _addr_fn(r, opnd, nxt)
-        size, tk = opnd[5], opnd[6]
-        wr = m.wr32 if size == 4 else (m.wr16 if size == 2 else m.wr8)
-        mask = (1 << (8 * size)) - 1
-
-        def fn(m):
-            v = r[d]
-            a, x = addr()
-            wr(a, v & mask)
-            if post:
-                post(a)
-            m.pc = nxt
-            return (n, p2, "st", tk, size, x)
-        return fn, n
-
-    if op == OP_LEA:
-        if cls != "mem" or opnd[6] in ("pi", "pd"):
-            return c.illegal_fn, n
-        addr, _ = _addr_fn(r, opnd, nxt)
-        tk = opnd[6]
-
-        def fn(m):
-            a, x = addr()
-            if d:
-                r[d] = a
-            m.pc = nxt
-            return (n, p2, "lea", tk, x)
-        return fn, n
-
-    # MOV and the ALU operations
-    fno = EA_ALU[op]
-    impl = ALU_IMPL[fno]
-    wb = 1 if c.ALU_WRITES[fno] else 0
-    if cls == "reg":
-        key = (n, p2, "alu", wb)
-
-        def fn(m):
-            res = impl(m, r[d], r[Rn])
-            if res is not None and d:
-                r[d] = res
-            m.pc = nxt
-            return key
-        return fn, n
-    if cls == "imm":
-        return c.dec_alu_imm(m, pc, n, fno, d, opnd[1] & M32), n
-    addr, post = _addr_fn(r, opnd, nxt)
-    size, tk = opnd[5], opnd[6]
-    rd_mem = _reader(m, size)
-    if op == OP_MOV:
-        def fn(m):
-            a, x = addr()
-            v = rd_mem(a)
-            if post:
-                post(a)
-            nz(m, v)
-            if d:
-                r[d] = v
-            m.pc = nxt
-            return (n, p2, "ld", tk, size, x)
-        return fn, n
-
-    def fn(m):
-        a, x = addr()
-        v = rd_mem(a)
-        if post:
-            post(a)
-        res = impl(m, r[d], v)
-        if res is not None and d:
-            r[d] = res
-        m.pc = nxt
-        return (n, p2, "op", tk, size, x, wb)
-    return fn, n
 
 
 # ==========================================================================

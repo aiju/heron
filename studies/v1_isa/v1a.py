@@ -1,12 +1,13 @@
 """ISA draft 1a: 32-bit, 16-bit parcels, load/store (RISC-like).
 
-See isa-v1a.md. Shared parts (system/unary/shift groups, branches,
-semantics) live in v1common.
+See isa-v1a.md. This is the assembler's and disassembler's side; decoding
+and executing is Rust (studies/v1_isa/isa/src/v1a.rs). Shared parts live
+in v1common.
 """
 
 from heron.infra.asm import Imm
 from . import v1common as c
-from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, crosses, nz, ALU_FN, R, sym
+from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, ALU_FN, R, sym
 
 NAME = "v1a"
 DESCRIPTION = "draft 1a: 32-bit registers, 16-bit parcels, load/store"
@@ -30,9 +31,6 @@ MEM_FN = {"LD": (0, 0xA), "ST": (1, 0xB), "LDB": (2, 0xC), "STB": (3, 0xD),
           "LDH": (4, None), "STH": (5, None), "LDSB": (6, None), "LDSH": (7, None),
           "LEA": (8, 0xE)}
 MEM_NAMES = ["LD", "ST", "LDB", "STB", "LDH", "STH", "LDSB", "LDSH", "LEA"]
-# (is load, size in bytes, sign-extend)
-MEM_INFO = {0: ("ld", 4, False), 1: ("st", 4, False), 2: ("ld", 1, False), 3: ("st", 1, False),
-            4: ("ld", 2, False), 5: ("st", 2, False), 6: ("ld", 1, True), 7: ("ld", 2, True)}
 
 
 # ==========================================================================
@@ -159,155 +157,6 @@ def assemble(name, ops, ctx):
 
 # ==========================================================================
 # Decoder (for the simulator)
-
-
-def decode(m, pc):
-    w = m.parcel(pc)
-    op = w >> 12
-    d, s, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    if op == OP_SYS:
-        return c.dec_sys(m, pc, w), 1
-    if op == OP_ALU:
-        return c.dec_alu_rr(m, pc, w, f, d, s), 1
-    if op == OP_UN:
-        return c.dec_unary(m, pc, w), 1
-    if op == OP_BCC:
-        return c.dec_bcc(m, pc, w), 1
-    if OP_LD <= op <= OP_STB:
-        return _dec_short(m, pc, w), 1
-    if op == OP_ALUI:
-        if s > 3:
-            return c.illegal_fn, 1
-        n = 3 if s == 3 else 2
-        e0 = m.parcel(pc + 2)
-        if s == 0:
-            v = sext16(e0) & M32
-        elif s == 1:
-            v = e0
-        elif s == 2:
-            v = e0 << 16
-        else:
-            v = e0 | (m.parcel(pc + 4) << 16)
-        return c.dec_alu_imm(m, pc, n, f, d, v), n
-    if op == OP_JCC:
-        fn = c.dec_jcc(m, pc, w)
-        return fn, (3 if s == 1 else 2) if s <= 1 and f == 0 else 1
-    if op == OP_MEML:
-        return _dec_long(m, pc, w)
-    if op == OP_SH:
-        return c.dec_shift(m, pc, w), 1
-    if op == OP_MVI:
-        return c.dec_alu_imm(m, pc, 1, 8, d, sext8(w) & M32), 1
-    if op == OP_ADDI:
-        return _dec_addi(m, pc, d, sext8(w)), 1
-    if op == OP_CMPI:
-        return c.dec_alu_imm(m, pc, 1, 9, d, sext8(w) & M32), 1
-    return c.illegal_fn, 1
-
-
-def _dec_addi(m, pc, d, v):
-    nxt = (pc + 2) & M32
-    key = (1, pc & 2, "alu", 1)
-    r = m.r
-
-    def fn(m):
-        res = nz(m, (r[d] + v) & M32)
-        if d:
-            r[d] = res
-        m.pc = nxt
-        return key
-    return fn
-
-
-def _access(m, kind, size, signed, d, a, r):
-    """Do one load or store for register d at address a."""
-    if kind == "ld":
-        if size == 4:
-            v = m.rd32(a)
-        elif size == 2:
-            v = m.rd16(a)
-            if signed and v & 0x8000:
-                v |= 0xFFFF0000
-        else:
-            v = m.rd8(a)
-            if signed and v & 0x80:
-                v |= 0xFFFFFF00
-        nz(m, v)
-        if d:
-            r[d] = v
-    elif size == 4:
-        m.wr32(a, r[d])
-    elif size == 2:
-        m.wr16(a, r[d] & 0xFFFF)
-    else:
-        m.wr8(a, r[d] & 0xFF)
-
-
-def _dec_short(m, pc, w):
-    op = w >> 12
-    d, s, o = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    word = op in (OP_LD, OP_ST)
-    off = 4 * o if word else o
-    size = 4 if word else 1
-    kind = "ld" if op in (OP_LD, OP_LDB) else "st"
-    nxt = (pc + 2) & M32
-    p2 = pc & 2
-    r = m.r
-
-    def fn(m):
-        base = r[s]
-        a = (base + off) & M32
-        _access(m, kind, size, False, d, a, r)
-        m.pc = nxt
-        return (1, p2, kind, "rd", size, crosses(base, a))
-    return fn
-
-
-def _dec_long(m, pc, w):
-    d, s, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
-    if f == 0xF:
-        return c.illegal_fn, 1
-    p2 = pc & 2
-    r = m.r
-    if f >= 0xA:
-        n = 3
-        disp = m.parcel(pc + 2) | (m.parcel(pc + 4) << 16)
-        fn16 = [0, 1, 2, 3, 8][f - 0xA]
-        ea = "abs" if s == 0 else "rd32"
-    else:
-        n = 2
-        disp = sext16(m.parcel(pc + 2)) & M32
-        fn16 = f
-        ea = "abs" if s == 0 else "rd"
-    nxt = (pc + 2 * n) & M32
-    if fn16 == 9:                       # PC-relative LEA
-        v = (nxt + disp) & M32
-        key = (n, p2, "lea", "pc", crosses(nxt, v))
-
-        def fn(m):
-            if d:
-                r[d] = v
-            m.pc = nxt
-            return key
-        return fn, n
-    if fn16 == 8:                       # LEA
-        def fn(m):
-            base = r[s]
-            a = (base + disp) & M32
-            if d:
-                r[d] = a
-            m.pc = nxt
-            return (n, p2, "lea", ea, crosses(base, a) if ea == "rd" else 0)
-        return fn, n
-    kind, size, signed = MEM_INFO[fn16]
-
-    def fn(m):
-        base = r[s]
-        a = (base + disp) & M32
-        _access(m, kind, size, signed, d, a, r)
-        m.pc = nxt
-        return (n, p2, kind, ea, size, crosses(base, a) if ea == "rd" else 0)
-    return fn, n
 
 
 # ==========================================================================
