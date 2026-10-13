@@ -1,9 +1,8 @@
 """Program test suite and instruction-level benchmark table.
 
-Every .s file directly in an ISA's program directory is a test: see
-program_dir(), programs/<PROGRAM_DIR> (programs/v1a, programs/v1b) or
-programs/ for an ISA module without PROGRAM_DIR. The libraries the tests
-include are in lib/ below it. Optional metadata lines:
+Every .s file directly in an ISA's program directory, programs/<PROGRAM_DIR>
+(programs/v0, programs/v1a, programs/v1b), is a test. The libraries the
+tests include are in lib/ below it. Optional metadata lines:
 
     ;! input: "text\\n"         console input (Python string literal)
     ;! input-file: ../common/x  console input from a file (relative to the program)
