@@ -1,7 +1,9 @@
 # Programming notes: a program suite for ISA draft 0
 
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](evaluation-v1.md) and [hardware-v1b.md](hardware-v1b.md).
+
 This is a first-hand log of writing the library and the 15 test programs in
-`programs/` for ISA draft 0 (`docs/isa-v0.md`). It's meant as evidence for
+`programs/v0/` for ISA draft 0 (`docs/isa-v0.md`). It's meant as evidence for
 deciding what to change in the ISA, so it records what actually happened,
 including where things went fine.
 
@@ -44,7 +46,7 @@ instruction's cycles to the enclosing label.
 
 ## What was written
 
-Library (`programs/lib/`), each file self-contained (no file includes or
+Library (`programs/v0/lib/`), each file self-contained (no file includes or
 calls another, so any subset can be included without duplicate labels):
 
 | File | Routines |

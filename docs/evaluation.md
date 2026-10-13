@@ -1,5 +1,7 @@
 # Evaluating ISA draft 0
 
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](evaluation-v1.md) and [hardware-v1b.md](hardware-v1b.md).
+
 **Short version:** draft 0 is a sound base. Programs came out right first
 time, the encoding made the hardware unusually simple, and a 98-chip
 implementation runs every test program at 2 MHz with worst-case parts
@@ -176,6 +178,9 @@ it), and some parts are only available as new-old-stock (74181/74182) or not
 in DIP (fast SRAM, the 55 ns flash).
 
 ## Questions for the next round
+
+These have since been answered or carried into
+[proposals.md](proposals.md#15-open-questions).
 
 - How much is speed worth in chips? The multiply datapath is about 4 chips;
   a pipelined microcode register about 6 and a redesign of the fetch path.
