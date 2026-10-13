@@ -399,6 +399,8 @@ loads (`LDH`/`LD` with offsets and an `ADDI` per record, against 1b's
   `strcmp("\xE9t\xE9", ...)` line), although `tmc test strings` passes.
   Workaround: `PYTHONIOENCODING=latin-1`. (Fix: write the bytes to
   `sys.stdout.buffer`.)
+
+  *Since fixed: `run` writes the output bytes unchanged.*
 - No assembler or simulator bugs found otherwise: every encoding I checked
   in the listings matched the specs, and the shortest-form selection
   (absolute I/O addresses, `[r2 + 0]`, constants 0-15, `MVI` vs op 8) did
