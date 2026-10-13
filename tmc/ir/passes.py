@@ -1142,7 +1142,9 @@ def hoist_constants(func, free_imm):
                 pre.insert(len(pre.instrs) - 1, cp)
                 made[key] = cp
             return made[key]
-        for b in body:
+        # in block order: body is a set, and the order of the copies shapes
+        # the code (iterating the set would depend on memory addresses)
+        for b in [b for b in func.blocks if b in body]:
             for i in b.instrs:
                 op = i.op
                 if op == "store":
