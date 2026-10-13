@@ -20,7 +20,6 @@ from .regalloc import Allocator
 
 ARG_REGS = PHYS[1:5]
 CALLER_SAVED = PHYS[1:8]
-CALLEE_SAVED = PHYS[8:15]
 
 COND = {"eq": "EQ", "ne": "NE", "lt": "LT", "le": "LE", "gt": "GT", "ge": "GE",
         "ltu": "LO", "leu": "LS", "gtu": "HI", "geu": "HS"}
@@ -32,8 +31,10 @@ SWAP = {"EQ": "EQ", "NE": "NE", "LT": "GT", "GT": "LT", "LE": "GE", "GE": "LE",
 
 
 def split_critical_edges(func):
-    """Like tmc.ir.cfg.split_critical_edges, but places each new block right
-    after its predecessor (so the copies in it don't need an extra jump)."""
+    """Put a block on every edge from a block with several successors to a
+    block with phis and several predecessors (the phi copies need somewhere
+    to go), right after its predecessor (so the copies in it don't need an
+    extra jump)."""
     func.compute_preds()
     order = []
     for b in list(func.blocks):
@@ -61,7 +62,6 @@ def split_critical_edges(func):
 
 
 class Target:
-    NAME = "?"
     FOLD_LOADS = True       # loads can be operands of other instructions
     ALLOC_ORDER = PHYS[1:15]
     SMALL_ADD = (-16, 15)        # add constants that fit the one-parcel form
@@ -120,7 +120,6 @@ class Target:
         for b in f.blocks:
             for p in b.phis():
                 self.vregs[p] = VReg()
-        self.block_of_use = {}
         # parameters
         self.blk = self.mblocks[f.entry]
         nreg = 0 if f.variadic else 4
@@ -228,7 +227,7 @@ class Target:
         for x in ops:
             if isinstance(x, Mem):
                 uses.extend(x.regs())
-                if x.postinc or x.predec:
+                if x.postinc:
                     defs.append(x.base)
         mi = MInstr(op, ops, defs, uses, **kw)
         self.blk.instrs.append(mi)
@@ -541,7 +540,7 @@ class Target:
         used = set()
         for b in mf.blocks:
             for i in b.instrs:
-                if i.op in ("BSR", "CALL") or (i.op == "BSR"):
+                if i.op in ("BSR", "CALL"):
                     continue
                 for r in i.defs:
                     if r.is_phys and 8 <= r.n <= 14:
@@ -624,17 +623,13 @@ class Target:
                 if (prev is not None and prev.op == "MOV" and len(prev.ops) == 2
                         and isinstance(prev.ops[1], Imm) and i.op in self.IMM_OPS
                         and len(i.ops) == 2 and i.ops[1] is prev.ops[0]
-                        and i.ops[0] is not prev.ops[0] and prev.ops[0] not in after[k]
-                        and self.imm_ok(i.op, prev.ops[1].value)):
+                        and i.ops[0] is not prev.ops[0] and prev.ops[0] not in after[k]):
                     t = prev.ops[0]
                     out[-1] = MInstr(i.op, [i.ops[0], prev.ops[1]], i.defs,
                                      [r for r in i.uses if r is not t], flags=i.flags)
                     continue
                 out.append(i)
             b.instrs = out
-
-    def imm_ok(self, op, value):
-        return True
 
     def peephole(self):
         """Target-independent clean-ups on the allocated code."""
@@ -704,16 +699,11 @@ class Target:
             d += self.mf.frame_offset(m.frame)
         return d
 
-    def layout(self):
-        """Block order: the IR order, but a block that is only reached by
-        falling through stays after its predecessor."""
-        return self.mf.blocks
-
     def emit_text(self):
         mf = self.mf
         lines = [f"{mf.name}:"]
         lines += self.prologue()
-        blocks = self.layout()
+        blocks = mf.blocks
         targets = set()
         for b in blocks:
             for i in b.instrs:

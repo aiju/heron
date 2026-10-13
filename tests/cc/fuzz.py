@@ -74,7 +74,7 @@ class Gen:
             if self.pure:
                 return self.pick([self.var(), self.var(), self.const()])
             return self.pick([self.var(), self.var(), self.const(), f"arr[{self.r.randint(0, 15)}]",
-                              f"s.{self.pick('abcd')}", f"*p", f"p[{self.r.randint(-2, 2)}]"])
+                              f"s.{self.pick('abcd')}", "*p", f"p[{self.r.randint(-2, 2)}]"])
         if r < 0.65:
             op = self.pick(["+", "-", "*", "&", "|", "^", "<<", ">>", "<", ">", "<=", ">=",
                             "==", "!=", "&&", "||", "+", "-", "*"])
@@ -110,7 +110,7 @@ class Gen:
         if r < 0.7:
             s = f"{ind}if ({self.expr()}) {{\n" + self.block(depth + 1) + f"{ind}}}"
             if self.r.random() < 0.5:
-                s += f" else {{\n" + self.block(depth + 1) + f"{ind}}}"
+                s += " else {\n" + self.block(depth + 1) + f"{ind}}}"
             return s + "\n"
         if r < 0.8:
             v = f"i{depth}"

@@ -46,10 +46,6 @@ CMP_SWAP = {"eq": "eq", "ne": "ne", "lt": "gt", "le": "ge", "gt": "lt", "ge": "l
 CMP_NEG = {"eq": "ne", "ne": "eq", "lt": "ge", "le": "gt", "gt": "le", "ge": "lt",
            "ltu": "geu", "leu": "gtu", "gtu": "leu", "geu": "ltu"}
 
-LOAD_KINDS = {"u8": (1, False), "s8": (1, True), "u16": (2, False), "s16": (2, True),
-              "32": (4, False)}
-
-
 def s32(x):
     x &= M32
     return x - (1 << 32) if x & 0x80000000 else x
@@ -62,9 +58,6 @@ def s32(x):
 class Value:
     __slots__ = ()
 
-    def is_const(self, v=None):
-        return False
-
 
 class Const(Value):
     __slots__ = ("value",)
@@ -75,9 +68,6 @@ class Const(Value):
     @property
     def signed(self):
         return s32(self.value)
-
-    def is_const(self, v=None):
-        return v is None or self.value == (v & M32)
 
     def __eq__(self, other):
         return isinstance(other, Const) and other.value == self.value

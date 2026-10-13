@@ -67,10 +67,10 @@ class Mem:
     int; sym a symbol name added to disp; frame a Frame added to disp (base
     is then sp). size 1, 2 or 4 (draft 1b prints it, 1a puts it in the
     mnemonic)."""
-    __slots__ = ("base", "index", "scale", "disp", "sym", "frame", "size", "postinc", "predec")
+    __slots__ = ("base", "index", "scale", "disp", "sym", "frame", "size", "postinc")
 
     def __init__(self, base=None, disp=0, sym=None, index=None, scale=1, frame=None, size=4,
-                 postinc=False, predec=False):
+                 postinc=False):
         self.base = base
         self.index = index
         self.scale = scale
@@ -79,7 +79,6 @@ class Mem:
         self.frame = frame
         self.size = size
         self.postinc = postinc
-        self.predec = predec
 
     def regs(self):
         out = []
@@ -91,7 +90,7 @@ class Mem:
 
     def copy(self, **kw):
         m = Mem(self.base, self.disp, self.sym, self.index, self.scale, self.frame, self.size,
-                self.postinc, self.predec)
+                self.postinc)
         for k, v in kw.items():
             setattr(m, k, v)
         return m

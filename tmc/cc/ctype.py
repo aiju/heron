@@ -89,10 +89,6 @@ class Type:
         return self.kind in ("char", "short", "int", "long")
 
     @property
-    def is_arith(self):
-        return self.is_integer
-
-    @property
     def is_pointer(self):
         return self.kind == "ptr"
 

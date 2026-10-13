@@ -109,15 +109,6 @@ class DomTree:
                         r = self.idom[r]
         return df
 
-    def preorder(self):
-        out = []
-        stack = [self.rpo[0]]
-        while stack:
-            b = stack.pop()
-            out.append(b)
-            stack.extend(reversed(self.children[b]))
-        return out
-
 
 def natural_loops(dom):
     """header -> set of blocks, for every loop (back edges to the same header
@@ -147,29 +138,6 @@ def compute_loop_depth(func, dom=None):
         for b in body:
             b.loop_depth += 1
     return dom
-
-
-def split_critical_edges(func):
-    """Put a block on every edge from a block with several successors to a
-    block with several predecessors (phi copies need somewhere to go)."""
-    func.compute_preds()
-    for b in list(func.blocks):
-        t = b.terminator
-        if t is None or not t.targets or len(set(t.targets)) < 2:
-            continue
-        for n, s in enumerate(t.targets):
-            if len(s.preds) < 2:
-                continue
-            mid = func.new_block("crit")
-            j = Instr("jmp", [], targets=[s])
-            mid.append(j)
-            # every edge b -> s through this slot gets the same new block
-            for k in range(n, len(t.targets)):
-                if t.targets[k] is s:
-                    t.targets[k] = mid
-            for p in s.phis():
-                p.incoming = [mid if blk is b else blk for blk in p.incoming]
-    func.compute_preds()
 
 
 class VerifyError(Exception):

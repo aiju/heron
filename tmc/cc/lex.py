@@ -38,9 +38,6 @@ class Token:
         t.origin = self.origin
         return t
 
-    def is_(self, text):
-        return self.text == text and self.kind in ("punct", "id")
-
     def __repr__(self):
         return f"Token({self.kind}, {self.text!r}, {self.line})"
 
