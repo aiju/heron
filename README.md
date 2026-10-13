@@ -1,7 +1,8 @@
-# ttl-minicomputer
+# Heron
 
 Design exploration for a minicomputer to be built from 7400-series logic
-chips. There have been two rounds so far:
+chips. It started out as `ttl-minicomputer` in a playground repository; the
+history came along. There have been two rounds so far:
 
 - **Draft 0:** a 16-bit instruction set, evaluated end to end. That covers an
   assembler and simulator, a suite of real programs, notes on writing them,

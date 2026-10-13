@@ -1,4 +1,16 @@
-# generated: ROM images, netlist JSON, simulator binary and run files
+# generated: ROM images, netlist JSON, simulator binary and run files, IBIS
+# downloads and simulation scratch
 build/
 # "go build" inside hwsim/ (the tools build into build/hwsim)
 hwsim/hwsim
+
+# Python and environments
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets
+.env
+
+# OS clutter
+.DS_Store

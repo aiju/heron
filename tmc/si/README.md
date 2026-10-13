@@ -33,7 +33,7 @@ as they are.
 - Internet access to www.ti.com once, for the IBIS models. If the download
   fails with a certificate error (python.org builds on macOS), run
   "Install Certificates.command" from the Python folder in Applications, or
-  fetch them by hand into `ttl-minicomputer/build/ibis/` (each zip holds the
+  fetch them by hand into `build/ibis/` (each zip holds the
   one `.ibs` file named):
 
   | URL | File |
@@ -46,13 +46,12 @@ as they are.
 
 ### Steps
 
-All commands run in `ttl-minicomputer/`, on the branch
-`claude/bold-gauss-jnla4n`:
+All commands run at the top of the repository, on whichever branch the
+request names (`main` if none):
 
 ```sh
-git fetch origin claude/bold-gauss-jnla4n
-git checkout claude/bold-gauss-jnla4n && git pull
-cd ttl-minicomputer
+git fetch origin
+git checkout main && git pull
 ```
 
 1. **Check the setup:** `python3 -m tmc si check`. It takes a minute or two,
@@ -83,7 +82,7 @@ cd ttl-minicomputer
    `docs/bus-si/full.json`.
 4. **Commit and push** only `docs/bus-si/*.json` (`build/` is ignored), with
    a message that says which preset ran and on what machine, then
-   `git push origin claude/bold-gauss-jnla4n`.
+   push the branch.
 
 ### If something goes wrong
 
