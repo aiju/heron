@@ -18,19 +18,20 @@ Value prim_error;
 
 /* ---- the method cache ------------------------------------------------------- */
 
+/* Three arrays rather than an array of entries: (class ^ selector) & 0xFFC
+   is then the byte offset of the entry in each, with no shift (the
+   hand-written interpreter's probe is an XOR, an AND and two compares). */
 #define CACHE_SIZE 1024
-typedef struct CacheEntry {
-    Value cls, sel, method, pad;
-} CacheEntry;
 #ifdef EGRET_ASM
-extern CacheEntry mcache[CACHE_SIZE];   /* in interp_v1b.s, where 16-bit addresses reach it */
+/* in interp_v1b.s, where 16-bit addresses reach them */
+extern Value mcache_cls[CACHE_SIZE], mcache_sel[CACHE_SIZE], mcache_method[CACHE_SIZE];
 #else
-static CacheEntry mcache[CACHE_SIZE];
+static Value mcache_cls[CACHE_SIZE], mcache_sel[CACHE_SIZE], mcache_method[CACHE_SIZE];
 #endif
 
 static int cache_used;
 
-void interp_flush_cache(void) { memset(mcache, 0, sizeof mcache); }
+void interp_flush_cache(void) { memset(mcache_cls, 0, sizeof mcache_cls); }
 
 /* A method for sel was added or replaced: drop the entries for sel. */
 void interp_flush_sel(Value sel)
@@ -39,24 +40,23 @@ void interp_flush_sel(Value sel)
     if (!cache_used)
         return;
     for (i = 0; i < CACHE_SIZE; i++)
-        if (mcache[i].sel == sel)
-            mcache[i].cls = 0;
+        if (mcache_sel[i] == sel)
+            mcache_cls[i] = 0;
 }
 
-/* the entry's byte offset is (cls ^ sel) & 0x3FF0: one XOR and one AND */
-#define CACHE_INDEX(cls, sel) ((((cls) ^ (sel)) >> 4) & (CACHE_SIZE - 1))
+#define CACHE_INDEX(cls, sel) ((((cls) ^ (sel)) >> 2) & (CACHE_SIZE - 1))
 
 static Value lookup(Value cls, Value sel)
 {
-    CacheEntry *e = &mcache[CACHE_INDEX(cls, sel)];
+    unsigned i = CACHE_INDEX(cls, sel);
     Value m;
     COUNT(cache_misses);
     m = class_lookup(cls, sel);
     if (m) {
         cache_used = 1;
-        e->cls = cls;
-        e->sel = sel;
-        e->method = m;
+        mcache_cls[i] = cls;
+        mcache_sel[i] = sel;
+        mcache_method[i] = m;
     }
     return m;
 }
@@ -326,10 +326,10 @@ static int interpret(Value m, int argc, Value *result, int flags)
             rcv = sp[-argc];
             cls = CLASS_OF(rcv);
         lookup: {
-            CacheEntry *e = &mcache[CACHE_INDEX(cls, sel)];
+            unsigned ci = CACHE_INDEX(cls, sel);
             COUNT(sends);
-            if (e->cls == cls && e->sel == sel)
-                m = e->method;
+            if (mcache_cls[ci] == cls && mcache_sel[ci] == sel)
+                m = mcache_method[ci];
             else if ((m = lookup(cls, sel)) == 0)
                 goto not_understood;
         }
@@ -387,9 +387,9 @@ static int interpret(Value m, int argc, Value *result, int flags)
                     cls = CLASSW(rcv);
                     sel = sym_init;
                     {
-                        CacheEntry *e = &mcache[CACHE_INDEX(cls, sel)];
-                        if (e->cls == cls && e->sel == sel)
-                            m = e->method;
+                        unsigned ci = CACHE_INDEX(cls, sel);
+                        if (mcache_cls[ci] == cls && mcache_sel[ci] == sel)
+                            m = mcache_method[ci];
                         else if ((m = lookup(cls, sel)) == 0)
                             goto not_understood;
                     }

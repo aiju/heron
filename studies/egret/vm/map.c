@@ -29,6 +29,10 @@ unsigned value_hash(Value v)
         return str_hash(v);
     if (is_bigint(v))
         return big_hash(v);
+    if (!OBJHASH(v)) {
+        extern unsigned next_hash(void);
+        HDRW(v) |= next_hash() << 2;
+    }
     return OBJHASH(v) * 2654435761u;
 }
 

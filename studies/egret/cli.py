@@ -3,11 +3,12 @@
   run    FILE.eg [--host] [--input-file F] [--stats] [--max-cycles N]
                      run a program on the simulated draft 1b machine (or,
                      with --host, on the host build of the VM)
-  test   [NAME...] [--heron] [--update]
+  test   [NAME...] [--heron [--variant asm|c|both]] [--update]
                      the programs against their expected output, on the
-                     host (--heron: also on the simulator; --update: write
-                     the expected output of the programs that have no
-                     suite counterpart, from the host)
+                     host (--heron: also on the simulator, with the
+                     hand-written interpreter loop, the C one, or both;
+                     --update: write the expected output of the programs
+                     that have no suite counterpart, from the host)
   bench  [NAME...] [--write]
                      cycles of every program on draft 1b, and where they go
                      (--write: the generated part of the report)
@@ -34,7 +35,7 @@ def cmd_run(args):
         out, status = build.run_host(src, inp)
         sys.stdout.buffer.write(out)
         return status
-    out, m = build.run_heron(src, inp, max_cycles=args.max_cycles)
+    out, m = build.run_heron(src, inp, max_cycles=args.max_cycles, variant=args.variant)
     sys.stdout.buffer.write(out)
     sys.stdout.flush()
     if not m.halted:
@@ -59,10 +60,11 @@ def cmd_test(args):
         ok = out == prog.expected()
         line = f"{name:<14} host {'ok' if ok else 'FAILED'}"
         if args.heron:
-            hout, m = build.run_heron(prog.source, prog.input)
-            hok = hout == prog.expected()
-            line += f"   heron {'ok' if hok else 'FAILED'}  {m.cycles:>12,} cycles"
-            ok = ok and hok
+            for variant in (build.VARIANTS if args.variant == "both" else [args.variant]):
+                hout, m = build.run_heron(prog.source, prog.input, variant=variant)
+                hok = hout == prog.expected()
+                line += f"   {variant} {'ok' if hok else 'FAILED'} {m.cycles:>12,}"
+                ok = ok and hok
         print(line)
         if not ok:
             bad += 1
@@ -79,10 +81,14 @@ def main(argv=None):
     r.add_argument("--input-file", help="the program's input")
     r.add_argument("--stats", action="store_true", help="cycles, and where they go")
     r.add_argument("--max-cycles", type=int, default=build.MAX_CYCLES)
+    r.add_argument("--variant", choices=build.VARIANTS, default="asm",
+                   help="the hand-written interpreter loop (asm) or the C one")
     r.set_defaults(fn=cmd_run)
     t = sub.add_parser("test", help="the programs against their expected output")
     t.add_argument("names", nargs="*")
     t.add_argument("--heron", action="store_true", help="also on the simulator")
+    t.add_argument("--variant", choices=["asm", "c", "both"], default="both",
+                   help="with --heron: the VM with the hand-written interpreter loop, the C one, or both")
     t.add_argument("--update", action="store_true", help="write the expected output of Egret's own programs")
     t.set_defaults(fn=cmd_test)
     b = sub.add_parser("bench", help="cycles on draft 1b")

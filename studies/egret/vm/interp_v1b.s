@@ -24,12 +24,14 @@
 ;       MOV  r1, byte [r8]+
 ;       JMP  [r13 + r1*4]
 
-        .global _asm_run, _mcache
+        .global _asm_run, _mcache_cls, _mcache_sel, _mcache_method
         .far optable
 
         .section .bss.egret_mcache
-        .align 16
-_mcache: .space 16 * 1024       ; 1024 x (class, selector, method, -)
+        .align 4                ; the method cache (interp.c): three arrays
+_mcache_cls: .space 4 * 1024
+_mcache_sel: .space 4 * 1024
+_mcache_method: .space 4 * 1024
 
         .section .text.egret_interp
 
@@ -276,14 +278,14 @@ send:   NOT  r4, r7
         RRC  r2, r1             ; a SmallInt?
         BCS  .int
         MOV  r2, [r1]           ; its class
-.probe: MOV  r3, r2             ; the cache entry: (class ^ selector) & 0x3FF0
+.probe: MOV  r3, r2             ; the cache entry: (class ^ selector) & 0xFFC
         XOR  r3, r6
-        AND  r3, #0x3FF0
-        CMP  r2, [r3 + _mcache]
+        AND  r3, #0xFFC
+        CMP  r2, [r3 + _mcache_cls]
         BNE  .miss
-        CMP  r6, [r3 + _mcache + 4]
+        CMP  r6, [r3 + _mcache_sel]
         BNE  .miss
-        MOV  r3, [r3 + _mcache + 8]
+        MOV  r3, [r3 + _mcache_method]
         CMP  r7, [r3 + 8 + 4*M_ARITY]
         BNE  .notplain
 ; Call Egret method r3 with its frame at r4.
@@ -347,13 +349,65 @@ send:   NOT  r4, r7
         BNE  exit
         BRA  reload
 
-.special:                       ; a block's call
+.special:
         CMP  r3, [_egret_blockcall]
-        BNE  .miss
-        MOV  r1, [r4]
+        BNE  .new
+        MOV  r1, [r4]           ; a block's call
         MOV  r3, [r1 + 8 + 4*CL_METHOD]
         CMP  r7, [r3 + 8 + 4*M_ARITY]
         BEQ  .call
+        BRA  .miss
+.new:   MOV  r1, [r3 + 8 + 4*M_PRIM]
+        CMP  r1, #PR_NEW
+        BNE  .miss
+        ; new (or call) of a class of plain objects, when its init is in
+        ; the cache: make the object, then call init on it, in a frame
+        ; that returns the object. Nothing changes before the checks pass,
+        ; so the slow path can start over.
+        MOV  r1, [r4]           ; the class
+        MOV  r2, [r1 + 8 + 4*C_KIND]
+        CMP  r2, #1             ; K_OBJECT, as a SmallInt
+        BNE  .miss
+        MOV  r2, [_sym_init]
+        MOV  r3, r1
+        XOR  r3, r2
+        AND  r3, #0xFFC
+        CMP  r1, [r3 + _mcache_cls]
+        BNE  .miss
+        CMP  r2, [r3 + _mcache_sel]
+        BNE  .miss
+        MOV  r3, [r3 + _mcache_method]
+        CMP  r7, [r3 + 8 + 4*M_ARITY]
+        BNE  .miss
+        LEA  r2, [r10 - 4]
+        ST   r2, [_vm_sp]
+        PUSH r3
+        PUSH r4
+        MOV  r2, [r1 + 8 + 4*C_NIVARS]
+        ASR  r2, #1
+        CALL _alloc_obj
+        POP  r4
+        POP  r3
+        ST   r1, [r4]           ; the object in place of the class
+        ST   r8, [r11 + FR_IP]
+        LEA  r11, [r11 + FRAME_SIZE]
+        CMP  r11, [_egret_frames_end]
+        BHS  .newover
+        ST   r4, [r11 + FR_BP]
+        ST   r3, [r11 + FR_METHOD]
+        ST   r0, [r11 + FR_SERIAL]
+        MOV  r1, #FR_CONSTRUCT
+        ST   r1, [r11 + FR_FLAGS]
+        MOV  r9, r4
+        MOV  r1, [r3 + 8 + 4*M_NLOCALS]
+        BEQ  .go
+        CMP  r10, [_egret_vstack_end]
+        BLO  .clear
+        ; too deep: C raises the error (the object has been made, but
+        ; the error unwinds past it)
+        MOV  r9, [r11 - FRAME_SIZE + FR_BP]
+.newover:
+        LEA  r11, [r11 - FRAME_SIZE]
         BRA  .miss
 
 op_return:

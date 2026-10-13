@@ -23,6 +23,7 @@ from . import build
 CONFIGS = ["D16-overlap", "D32-separate", "D32-wide"]
 
 GROUPS = [
+    ("C slow path", r"_(step|egret_step|egret_raise|egret_prim_failed)$"),
     ("collector", r"_(gc|forward|obj_bytes)$"),
     ("allocation", r"_(alloc_obj|alloc_bytes|next_hash|perm_obj|perm_bytes|make_list|list_push|"
                    r"make_string|make_string_c|make_range|make_error|make_error_v|push_root|pop_roots)$"),
@@ -58,13 +59,18 @@ class Layout:
     interpreter, bytecode."""
 
     def __init__(self, img):
-        from .vm_ops import OPCODES
         self.img = img
         syms = img.symbols
         funcs = sorted((a, n) for n, a in syms.items() if n.startswith("_") and "." not in n
                        and a < syms["__end"])
         self.starts = [a for a, _ in funcs]
         self.names = [n for _, n in funcs]
+        self.asm = "_asm_run" in syms
+        if self.asm:
+            self._asm_layout()
+            self.interp_lo = self.interp_hi = 0
+            return
+        from .vm_ops import OPCODES
         self.interp_lo = syms["_interpret"]
         self.interp_hi = self.starts[self.starts.index(self.interp_lo) + 1]
         # the blocks of the interpreter, from its local labels
@@ -74,6 +80,58 @@ class Layout:
         self.block_names = ["entry"] + [n.split(".")[1] for _, n in blocks]
         self.succ = self._successors()
         self.block_op = self._attribute(OPCODES)
+
+    # the hand-written loop: its labels say what each instruction is for
+    ASM_PARTS = [
+        (r"^send(\.int|\.probe)?$", "send: lookup"),
+        (r"^send\.(call|clear|go|overflow2?)$", "send: frame"),
+        (r"^send\.(notplain|failed)$", "send: primitive"),
+        (r"^send\.special$", "send: block"),
+        (r"^send\.miss$", "send: miss"),
+        (r"^op_send$", "SEND"),
+        (r"^binop_slow$", "send: operator"),
+        (r"^op_at_put\.slow$", "send: operator"),
+        (r"^push_(true|false)$", "booleans"),
+        (r"^(save|slow|reload|op_slow|exit|_asm_run)$", "to C and back"),
+    ]
+
+    def _asm_layout(self):
+        from heron.infra import isas
+        syms = self.img.symbols
+        lo = syms["_asm_run"]
+        hi = syms["optable"]
+        labels = sorted((a, n) for n, a in syms.items()
+                        if lo <= a < hi and not re.match(r"^[A-Z_0-9]+$", n) and not n.startswith("_mcache"))
+        labels = [(a, n) for a, n in labels if n == "_asm_run" or not n.startswith("_")]
+        self.asm_lo, self.asm_hi = lo, hi
+        self.asm_starts = [a for a, _ in labels]
+        self.asm_names = [n for _, n in labels]
+        # the dispatches: MOV r1, byte [r8]+ then JMP [r13 + r1*4]
+        isa = isas.get("v1b")
+        mem = self.img.mem
+        def parcel(a):
+            return mem.get(a, 0) | mem.get(a + 1, 0) << 8
+        self.dispatch_pcs = set()
+        pc, prev = lo, None
+        while pc < hi:
+            text, n = isa.disassemble([parcel(pc), parcel(pc + 2), parcel(pc + 4)], pc, {})
+            norm = " ".join(text.split())
+            if norm == "JMP [r13 + r1*4]" and prev is not None:
+                self.dispatch_pcs.update((prev[0], pc))
+            prev = (pc, norm) if norm == "MOV r1, byte [r8]+" else None
+            pc += 2 * n
+
+    def asm_part(self, pc):
+        if pc in self.dispatch_pcs:
+            return "dispatch"
+        k = bisect.bisect_right(self.asm_starts, pc) - 1
+        name = self.asm_names[k] if k >= 0 else "?"
+        for pat, part in self.ASM_PARTS:
+            if re.match(pat, name):
+                return part
+        if name.startswith("op_"):
+            return name[3:].split(".")[0].upper()
+        return name
 
     def _successors(self):
         """Each block's successors, from the disassembly: branch targets and
@@ -177,6 +235,8 @@ class Layout:
 
     def where(self, pc):
         """(group, detail) for an address"""
+        if self.asm and self.asm_lo <= pc < self.asm_hi:
+            return "interpreter", self.asm_part(pc)
         if self.interp_lo <= pc < self.interp_hi:
             b = bisect.bisect_right(self.block_starts, pc) - 1
             return "interpreter", self.block_op[b]
@@ -187,18 +247,21 @@ class Layout:
 _empty = {}
 
 
-def empty_cycles(config):
+def empty_cycles(config, variant="asm"):
     """Per-address cycles of the empty program: start-up."""
-    if config not in _empty:
-        m = build.machine(b"")
-        _empty.update({c: m.pc_cycles(c) for c in CONFIGS})
-        _empty["machine"] = m
-    return _empty[config]
+    if (variant, config) not in _empty:
+        m = build.machine(b"", variant=variant)
+        _empty.update({(variant, c): m.pc_cycles(c) for c in CONFIGS})
+    return _empty[(variant, config)]
+
+
+def variant_of(m):
+    return "asm" if "_asm_run" in m.image.symbols else "c"
 
 
 def own_cycles(m, config):
     """A run's cycles per address, start-up taken out."""
-    base = empty_cycles(config)
+    base = empty_cycles(config, variant_of(m))
     out = Counter(m.pc_cycles(config))
     out.subtract(base)
     return {pc: c for pc, c in out.items() if c and pc is not None}

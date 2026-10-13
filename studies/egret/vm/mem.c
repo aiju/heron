@@ -54,10 +54,12 @@ void mem_init(void)
     vm_sp = vstack - 1;
 }
 
-static unsigned next_hash(void)
+/* Identity hashes are handed out when first asked for (value_hash), so
+   allocation doesn't pay for them; 0 means none yet. */
+unsigned next_hash(void)
 {
     hash_seed = hash_seed * 1103515245 + 12345;
-    return (hash_seed >> 16) & 0x3FF;
+    return ((hash_seed >> 16) & 0x3FF) | 1;
 }
 
 static unsigned obj_bytes(Value o)
@@ -82,7 +84,7 @@ Value alloc_obj(Value cls, unsigned nfields)
 #endif
     f = P(o);
     f[0] = cls;
-    f[1] = HDR(nfields, next_hash(), 0);
+    f[1] = HDR(nfields, 0, 0);
     end = f + 2 + nfields;
     for (f += 2; f < end; f++)
         *f = NIL;
@@ -102,7 +104,7 @@ Value alloc_bytes(Value cls, unsigned nbytes)
     alloc_words += bytes >> 2;
 #endif
     P(o)[0] = cls;
-    P(o)[1] = HDR(nbytes, next_hash(), 1);
+    P(o)[1] = HDR(nbytes, 0, 1);
     memset(BYTES(o), 0, (nbytes + 3) & ~3u);
     return o;
 }
@@ -115,7 +117,7 @@ Value perm_obj(Value cls, unsigned nfields)
         fatal("out of permanent space");
     perm_hp += bytes;
     P(o)[0] = cls;
-    P(o)[1] = HDR(nfields, next_hash(), 0);
+    P(o)[1] = HDR(nfields, 0, 0);
     for (i = 0; i < nfields; i++)
         F(o, i) = NIL;
     return o;
@@ -129,7 +131,7 @@ Value perm_bytes(Value cls, unsigned nbytes)
         fatal("out of permanent space");
     perm_hp += bytes;
     P(o)[0] = cls;
-    P(o)[1] = HDR(nbytes, next_hash(), 1);
+    P(o)[1] = HDR(nbytes, 0, 1);
     memset(BYTES(o), 0, (nbytes + 3) & ~3u);
     return o;
 }
