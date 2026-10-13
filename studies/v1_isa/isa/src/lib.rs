@@ -7,7 +7,11 @@
 //! records a timing key ([`key`]); the timing model ([`timing`]) turns a
 //! key into cycles for each configuration, so one run gives the cycle
 //! counts for all of them.
+//!
+//! [`asm`] holds the encoders the assembler core (infra/toolchain) calls
+//! for 1a and 1b, as the Python ISA modules' `assemble` hooks did.
 
+pub mod asm;
 pub mod insn;
 pub mod key;
 pub mod machine;

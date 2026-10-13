@@ -54,3 +54,40 @@ class V1(unittest.TestCase):
         m = native.v1.Machine("v1b", bytes([0xF7, 0x11, 0, 0, 0x20, 0]))
         with self.assertRaisesRegex(native.v1.SimError, "unmapped address 00200000"):
             m.run()
+
+
+@unittest.skipUnless(shutil.which("cargo"), "needs cargo (https://rustup.rs)")
+class Toolchain(unittest.TestCase):
+    """The assembler's bindings; heron.infra.asm wraps them, and the v1_isa
+    and c_compiler studies assemble and link real programs."""
+
+    SRC = "        .org 0\nstart:  MOV r1, #5\n        BRA start\n"
+
+    def test_image(self):
+        a = native.toolchain.Assembler("v1b", False)
+        a.load("t.s", self.SRC)
+        out = a.assemble()
+        self.assertEqual(out["mem"], [(0, bytes([0x15, 0x11, 0xFE, 0xEE]))])
+        self.assertEqual(out["symbols"], [("start", 0)])
+        kinds = [(k, name, label, addr, words) for k, name, label, addr, _, words, *_ in a.stmts()]
+        self.assertEqual(kinds, [("dir", ".org", None, 0, []), ("label", None, "start", 0, []),
+                                 ("insn", "mov", None, 0, [0x1115]), ("insn", "bra", None, 2, [0xEEFE])])
+        self.assertIn("0002  EEFE                   BRA start", a.listing())
+
+    def test_object(self):
+        a = native.toolchain.Assembler("v1a", True)
+        a.load("t.s", "f:      CALL g\n")
+        isa, flags, entry, secs, syms, relocs = a.assemble_object("t.o")
+        self.assertEqual((isa, [s[0] for s in secs], [s[0] for s in syms]), ("v1a", [".text"], [".text", "f", "g"]))
+        self.assertEqual(relocs, [(1, 2, 5, 2, -2)])
+
+    def test_errors(self):
+        a = native.toolchain.Assembler("v1b", False)
+        a.load("t.s", "        MOV r1, #undefined\n")
+        with self.assertRaises(native.toolchain.AsmFailed) as cm:
+            a.assemble()
+        self.assertEqual(cm.exception.args, ("undefined symbol undefined", ("t.s", 1)))
+        with self.assertRaises(FileNotFoundError):
+            native.toolchain.Assembler("v1b", False).load(os.path.join(ROOT, "nowhere.s"))
+        with self.assertRaisesRegex(ValueError, "no assembler for ISA v9"):
+            native.toolchain.Assembler("v9", False)

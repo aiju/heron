@@ -1,6 +1,8 @@
 //! The toolchain (infra/toolchain) for Python: heron.native.toolchain.
-//! infra/obj.py and infra/link.py keep their classes, and call these to
-//! read and write files and to link.
+//! infra/obj.py, infra/link.py and infra/asm.py keep their classes, and
+//! call these to read and write files, to link and to assemble. The
+//! assembler finds an ISA's encoder by its name; the ISAs that have one
+//! are draft 1a and 1b (studies/v1_isa/isa).
 //!
 //! An object file crosses as a tuple (isa, flags, entry, sections,
 //! symbols, relocs), with sections (name, flags, addr, size, align, data,
@@ -17,6 +19,12 @@ pyo3::create_exception!(
 );
 pyo3::create_exception!(
     toolchain,
+    AsmFailed,
+    pyo3::exceptions::PyException,
+    "Assembly failed: args are (message, (file, line) or None)."
+);
+pyo3::create_exception!(
+    toolchain,
     LinkFailed,
     pyo3::exceptions::PyException,
     "The link failed: args[0] lists why."
@@ -24,14 +32,15 @@ pyo3::create_exception!(
 
 #[pymodule]
 pub mod toolchain {
-    use pyo3::exceptions::PyValueError;
+    use pyo3::exceptions::{PyOSError, PyValueError};
     use pyo3::prelude::*;
-    use pyo3::types::PyBytes;
+    use pyo3::types::{PyBytes, PyDict};
+    use toolchain::asm::{self, AsmError, Assembler as Engine};
     use toolchain::link::Linker;
     use toolchain::obj::{self, ObjectFile, Reloc, Section, Symbol};
 
     #[pymodule_export]
-    use super::{LinkFailed, ObjError};
+    use super::{AsmFailed, LinkFailed, ObjError};
 
     type PySection = (String, u32, u32, u32, u32, Vec<u8>, u32);
     type PySymbol = (String, u32, u32, u32);
@@ -190,5 +199,130 @@ pub mod toolchain {
         d.set_item("end", out.end)?;
         d.set_item("map", out.map)?;
         Ok(d)
+    }
+
+    fn asm_err(e: AsmError) -> PyErr {
+        AsmFailed::new_err((e.msg, e.at.map(|(file, line)| (file.to_string(), line))))
+    }
+
+    /// An assembler for one ISA (by name), making an image or, with
+    /// `relocatable`, an object file. AsmFailed for errors in the source,
+    /// OSError for files that can't be read.
+    #[pyclass(module = "heron._native.toolchain")]
+    struct Assembler {
+        a: Engine,
+    }
+
+    #[pymethods]
+    impl Assembler {
+        #[new]
+        fn new(isa: &str, relocatable: bool) -> PyResult<Self> {
+            let enc = v1_isa::asm::encoder(isa)
+                .ok_or_else(|| PyValueError::new_err(format!("no assembler for ISA {isa}")))?;
+            Ok(Assembler {
+                a: Engine::new(enc, relocatable),
+            })
+        }
+
+        /// Read a source file (or take its text); `path` names it in
+        /// messages and is where .include looks.
+        #[pyo3(signature = (path, text=None))]
+        fn load(&mut self, py: Python<'_>, path: &str, text: Option<&str>) -> PyResult<()> {
+            match self.a.load(path, text) {
+                Ok(()) => Ok(()),
+                Err(asm::Error::Asm(e)) => Err(asm_err(e)),
+                Err(asm::Error::Io { path, err }) => Err(match err.raw_os_error() {
+                    Some(errno) => {
+                        let strerror = py.import("os")?.call_method1("strerror", (errno,))?;
+                        PyOSError::new_err((errno, strerror.unbind(), path))
+                    }
+                    None => PyOSError::new_err(format!("{path}: {err}")),
+                }),
+            }
+        }
+
+        /// Assemble an image: a dict with mem [(address, bytes)] in runs of
+        /// consecutive bytes, and symbols [(name, value)] in the order they
+        /// were defined.
+        fn assemble<'py>(&mut self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+            let img = self.a.assemble().map_err(asm_err)?;
+            let mut runs: Vec<(i64, Vec<u8>)> = Vec::new();
+            for (&a, &b) in &img.mem {
+                match runs.last_mut() {
+                    Some((start, bytes)) if *start + bytes.len() as i64 == a => bytes.push(b),
+                    _ => runs.push((a, vec![b])),
+                }
+            }
+            let d = PyDict::new(py);
+            let mem: Vec<(i64, Bound<'py, PyBytes>)> = runs
+                .iter()
+                .map(|(a, b)| (*a, PyBytes::new(py, b)))
+                .collect();
+            d.set_item("mem", mem)?;
+            d.set_item("symbols", img.symbols)?;
+            Ok(d)
+        }
+
+        /// Assemble an object file; returns its contents, as read_object does.
+        fn assemble_object(&mut self, name: &str) -> PyResult<PyObject> {
+            Ok(to_py(self.a.assemble_object(name).map_err(asm_err)?))
+        }
+
+        /// The statements: (kind, name, label, addr, size, words, data,
+        /// (file, line), text), with name None for a label and label None
+        /// for the others.
+        #[allow(clippy::type_complexity)]
+        fn stmts<'py>(
+            &self,
+            py: Python<'py>,
+        ) -> PyResult<
+            Vec<(
+                &'static str,
+                Option<String>,
+                Option<String>,
+                i64,
+                i64,
+                Vec<u16>,
+                Bound<'py, PyBytes>,
+                (String, usize),
+                String,
+            )>,
+        > {
+            Ok(self
+                .a
+                .stmts()
+                .iter()
+                .map(|st| {
+                    let label = st.kind == asm::Kind::Label;
+                    (
+                        st.kind.name(),
+                        (!label).then(|| st.name.clone()),
+                        label.then(|| st.label.clone()),
+                        st.addr,
+                        st.size,
+                        st.words.clone(),
+                        PyBytes::new(py, &st.data),
+                        (st.at.0.to_string(), st.at.1),
+                        st.text.clone(),
+                    )
+                })
+                .collect())
+        }
+
+        /// The listing, as text.
+        fn listing(&self) -> String {
+            self.a.listing()
+        }
+
+        #[getter]
+        fn warnings(&self) -> Vec<String> {
+            self.a.warnings.clone()
+        }
+
+        /// The symbols, (name, value) in the order they were defined.
+        #[getter]
+        fn symbols(&self) -> Vec<(String, i64)> {
+            self.a.symbols().to_vec()
+        }
     }
 }
