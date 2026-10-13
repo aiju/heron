@@ -114,9 +114,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.
-- `(cd infra/hwsim && go test ./...)`: the chip-level simulator.
-- **Slow runs:** the chip-level runs (`heron v1b_hw hw test`,
-  `heron v1b_hw report --hw`) take 30–60 minutes for the full set.
+- **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
+  about 5 for every program, and `heron v1b_hw report --hw` longer.
 - **Never in a cloud session:** the signal-integrity sweeps take over an
   hour on a fast laptop and are meant for a local machine
   ([studies/bus_si](studies/bus_si/README.md)).
@@ -127,8 +126,8 @@ Git history is permanent, so a big file stays in every clone even after
 it's been deleted.
 
 - Never commit build output or downloads. `build/` holds ROM images,
-  netlists, cargo's output and the engines' Python module, the simulator
-  binary, simulation scratch and the IBIS models from ti.com.
+  netlists, cargo's output and the engines' Python module, simulation
+  scratch and the IBIS models from ti.com.
 - Don't commit anything that can be regenerated quickly from the code. The
   signal-integrity results in report 0013 are the exception, since they
   take hours to produce.

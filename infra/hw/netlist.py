@@ -123,7 +123,7 @@ class Netlist:
             raise ValueError("netlist errors:\n  " + "\n  ".join(errors[:40]))
 
     def export(self, variant=chips.DEFAULT_VARIANT, corner="max", extra=None):
-        """JSON-able dict for the Go simulator."""
+        """JSON-able dict for the chip-level simulator (infra/hwsim)."""
         timing = chips.load_timing()
         net_ids = {}
         for inst in self.instances:

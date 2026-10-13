@@ -49,9 +49,8 @@ with `Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
 ## Running things
 
-Needs Python 3.10+, Rust (stable, from [rustup](https://rustup.rs)) and
-Go 1.24+ (for the chip-level simulator, until it's ported to Rust). No other
-dependencies; the signal-integrity tools also need numpy and
+Needs Python 3.10+ and Rust (stable, from [rustup](https://rustup.rs)). No
+other dependencies; the signal-integrity tools also need numpy and
 [ngspice](https://ngspice.sourceforge.io/), and are meant for a local
 machine ([studies/bus_si](studies/bus_si/README.md)).
 
@@ -76,7 +75,6 @@ heron v1_isa --isa v1a test               # every 1a program against its expecte
 heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a: 1a) and run it
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # the 1b hardware at chip level
 heron v1b_hw hw sta                       # static timing analysis of the 1b netlist
-(cd infra/hwsim && go test ./...)         # the chip-level simulator's tests
 ```
 
 Each study's README lists its commands, and `heron <study> --help` shows
