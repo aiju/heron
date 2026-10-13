@@ -405,11 +405,11 @@ come from ngspice simulations of the backplane
 - **Two connectors per slot**: P1 alone is enough for simple peripherals.
   **decided.** Two 96-pin DIN 41612 connectors on 6U Eurocards (233 × 160
   mm), as VME does: **recommended.**
-  - **P1:** D0–D15, A1–A30, BE0–1, START, WRITE, RD, WR, WAIT, BERR, REQ,
-    GNT, BUSY, SEL, PRESENT, slot number, BCLK, CLKSRC, RESET, IRQ0–3, and
-    26 power and ground pins.
-  - **P2:** D16–D31, BE2–3, W32 ("32-bit slave"), LOCK, IRQ4–7, the burst
-    lines, about 16 power and ground pins and about 53 user-defined pins.
+  - **P1:** D0–D15, A1–A31, BE0–1, START, WRITE, LOCK, RD, WR, WAIT, BERR,
+    REQ, GNT, BUSY, SEL, PRESENT, slot number, BCLK, CLKSRC, RESET, IRQ0–3,
+    and 24 power and ground pins.
+  - **P2:** D16–D31, BE2–3, W32 ("32-bit slave"), IRQ4–7, the burst lines,
+    about 16 power and ground pins and about 54 user-defined pins.
   - Full lists in [system-bus.md, section 3](system-bus.md#3-signals); the
     pin-by-pin assignment is still to do.
 - **Mixed widths.** **recommended.** A 32-bit slave asserts W32. Without it
@@ -418,7 +418,7 @@ come from ngspice simulations of the backplane
 - **Simple peripherals on the system bus** (the "simple slave" profile).
   **recommended.** A simple card needs:
   - no clock, no address comparator and no WAIT logic;
-  - a per-slot SEL line, decoded on the backplane from A30–A27, like the
+  - a per-slot SEL line, decoded on the backplane from A31–A28, like the
     Apple II's per-slot select lines;
   - read and write strobes from every master, with a whole clock of
     address and data setup and hold;
@@ -426,23 +426,34 @@ come from ngspice simulations of the backplane
     loaded at boot (16 entries, ~3 chips per master).
 
   A UART card is a 16C550, a 74HCT245 and a 74HCT14, all 74HCT.
+- **Other CPUs as masters**: a Z80, a 68000 or 68020, or the cruncher.
+  **recommended** as the pattern, with details in
+  [system-bus.md, section 11](system-bus.md#11-other-cpus-as-masters).
+  - A small bridge on the CPU's card holds the CPU (Z80 WAIT, 68000 DTACK),
+    synchronises the request to the bus clock and runs an ordinary
+    transfer.
+  - About 4–6 bus clocks per access and 15–20 chips.
+  - The 68000's BERR and the 68020's dynamic bus sizing map directly onto
+    the bus's BERR and W32. Its big-endian byte order needs a swap option.
 - **A separate I/O bus** for simple peripherals behind a bridge card: **open**,
   as the fallback if simple cards multiply, need odd timing (6800-style E
   clock, Z80 peripherals) or load the bus too much
-  ([system-bus.md, section 11](system-bus.md#11-alternative-a-separate-io-bus)).
+  ([system-bus.md, section 12](system-bus.md#12-alternative-a-separate-io-bus)).
 - **Arbitration:** **recommended.**
   - A central round-robin arbiter on the backplane, with per-slot REQ and
     GNT. No CPU owns the bus.
   - The bus parks on the last master while nobody else asks.
   - BUSY gives a clean handover: about one clock.
-  - LOCK is optional, for locked read-modify-write.
+  - LOCK is optional, for locked read-modify-write. It's on P1, so 16-bit
+    masters (the draft 1b CPU, a 68000) can use it.
 - **Geographic slot regions** (NuBus style). **recommended.**
-  - The bus address is 31 bits. A30–A27 select one of 16 slots, 128 MB
-    each.
+  - The bus address is 32 bits. A31–A28 select one of 16 slots, 256 MB
+    each. **decided** (the full 32 bits).
   - The backplane decodes them into each slot's SEL line, so no card needs
     a comparator.
-  - On the draft 1b CPU, MAR bit 31 set means "system bus", and the low 31
-    bits are the bus address.
+  - On the draft 1b CPU, MAR bit 31 set means "system bus". MAR bits 30–27
+    give the slot and bits 26–0 the address within it, so it reaches the
+    first 128 MB of every slot with plain wiring.
   - Replaces the 16 × 16-byte I/O slots ([section 6](#6-io)).
 - **Bus errors from the backplane.** **recommended.**
   - Every card grounds a PRESENT pin.
@@ -1038,6 +1049,7 @@ Answered so far:
 - Simple, dumb peripherals must be possible.
 - The master clock stays 50 MHz (20 ns ticks).
 - Bursts: an optional feature for now.
+- Bus addresses: the full 32 bits.
 
 ## 16. Offered next steps
 

@@ -26,8 +26,9 @@ out.
 8. [Interrupts, reset and synchronisation](#8-interrupts-reset-and-synchronisation)
 9. [Electrical rules](#9-electrical-rules)
 10. [The main CPU board on the bus](#10-the-main-cpu-board-on-the-bus)
-11. [Alternative: a separate I/O bus](#11-alternative-a-separate-io-bus)
-12. [Open questions](#12-open-questions)
+11. [Other CPUs as masters](#11-other-cpus-as-masters)
+12. [Alternative: a separate I/O bus](#12-alternative-a-separate-io-bus)
+13. [Open questions](#13-open-questions)
 
 ## 1. Summary
 
@@ -35,7 +36,7 @@ out.
 |---|---|
 | Timing | **Synchronous**: one bus clock, every signal sampled on its rising edge. **decided** |
 | Bus clock | The main CPU's 50 MHz master clock ÷ 3 (16.7 MHz, 60 ns) or ÷ 4 (12.5 MHz, 80 ns), set by a jumper on the CPU board. Cards are designed for ÷ 3. **recommended** |
-| Address | 31 bits (2 GB). 16 slot regions of 128 MB, selected by A30–A27 |
+| Address | 32 bits (4 GB). 16 slot regions of 256 MB, selected by A31–A28 |
 | Data | 16 bits on P1 (D0–D15), 32 bits with P2. Masters handle 16-bit slaves themselves |
 | Transfers | An address clock, then a data clock: 2 clocks (120 ns at ÷ 3). Wait states in whole clocks |
 | Bursts | One word per clock after the first: **optional** ([section 7](#7-bursts-optional)) |
@@ -113,10 +114,11 @@ below are given without a suffix, and "asserted" means active.
 | Signal | Pins | Type | Driven by | Meaning |
 |---|---:|---|---|---|
 | D0–D15 | 16 | bused, 3-state | master in write data clocks, slave in read data clocks | data |
-| A1–A30 | 30 | bused, 3-state | bus owner | address; A30–A27 select the slot |
+| A1–A31 | 31 | bused, 3-state | bus owner | address; A31–A28 select the slot |
 | BE0, BE1 | 2 | bused, 3-state | bus owner | byte enables within the halfword A1 selects |
 | START | 1 | bused, 3-state | bus owner | asserted for the address clock of each transfer |
 | WRITE | 1 | bused, 3-state | bus owner | asserted for a write, valid with START |
+| LOCK | 1 | bused, 3-state | bus owner | keep the bus across a read-modify-write |
 | RD, WR | 2 | bused, 3-state, slow edges | bus owner | strobes for simple slaves |
 | WAIT | 1 | bused, shared | addressed slave | add a data clock |
 | BERR | 1 | bused, shared | bus monitor on the backplane | end the transfer with an error |
@@ -124,13 +126,13 @@ below are given without a suffix, and "asserted" means active.
 | REQ | 1 | radial | master | bus request to the arbiter |
 | GNT | 1 | radial | arbiter | bus grant |
 | BUSY | 1 | bused, shared | bus owner | the bus is owned |
-| SEL | 1 | radial | slot decoder on the backplane | A30–A27 match this slot |
+| SEL | 1 | radial | slot decoder on the backplane | A31–A28 match this slot |
 | GA0–GA3 | 4 | strapped | backplane | slot number |
 | BCLK | 1 | radial | clock buffer on the backplane | bus clock |
 | CLKSRC | 1 | slot 0 only | main CPU board | clock into the backplane buffer; not connected at other slots |
 | RESET | 1 | bused, OC, slow edges | backplane power-on reset, main CPU | system reset |
 | IRQ0–IRQ3 | 4 | bused, OC | any card | interrupt requests |
-| +5 V, ground | 26 | | | |
+| +5 V, ground | 24 | | | |
 
 ### P2: the upper half and extras
 
@@ -139,11 +141,10 @@ below are given without a suffix, and "asserted" means active.
 | D16–D31 | 16 | bused, 3-state | as D0–D15 | upper halfword |
 | BE2, BE3 | 2 | bused, 3-state | bus owner | byte enables of the upper halfword in a 32-bit transfer |
 | W32 | 1 | bused, shared | addressed slave | "I'm a 32-bit slave": the whole word moved |
-| LOCK | 1 | bused, 3-state | bus owner | keep the bus across a read-modify-write |
 | IRQ4–IRQ7 | 4 | bused, OC | any card | interrupt requests |
 | BURST, BACK, BFIX | 3 | bused | owner, slave | burst control, **optional** ([section 7](#7-bursts-optional)) |
 | +5 V, ground | ~16 | | | |
-| user-defined | ~53 | | | private links between neighbouring cards, as on VME's P2 |
+| user-defined | ~54 | | | private links between neighbouring cards, as on VME's P2 |
 
 ### Pin assignment rules
 
@@ -521,6 +522,12 @@ With 8 slots, every delay is about half.
 
 ## 10. The main CPU board on the bus
 
+**Addresses.** On the draft 1b CPU, MAR bit 31 set means "system bus". MAR
+bits 30–27 drive A31–A28, the slot number; A27 is 0; and MAR bits 26–0
+drive A26–A0. So the CPU reaches the first 128 MB of every slot, with
+plain wiring. A later CPU with an MMU can produce full 32-bit bus
+addresses.
+
 The draft 1b CPU's cycles are whole numbers of 20 ns ticks of the 50 MHz
 master clock ([proposals.md, section 4](proposals.md#4-microarchitecture)).
 The bus clock is the same clock divided by N, so the CPU always knows the
@@ -576,7 +583,69 @@ bus clock. **recommended.**
   RAM in about 180–320 ns, instead of 300–600 ns with whole-cycle stealing.
   The CPU's RAM becomes usable as a DMA buffer.
 
-## 11. Alternative: a separate I/O bus
+## 11. Other CPUs as masters
+
+A CPU with its own bus timing, like a Z80, a 68000 or the ECL cruncher, can
+be a master through a small **bridge** on its card. **recommended** as the
+way to attach them. The bridge turns the CPU's own bus cycles into bus
+transfers:
+
+1. The CPU starts a cycle in an address window mapped to the system bus.
+2. The bridge holds the CPU: WAIT on a Z80, DTACK withheld on a 68000.
+3. It synchronises the request to BCLK with two flip-flops (1–2 clocks),
+   requests the bus unless it's parked there, and runs an ordinary transfer:
+   strobes, wait-state table, lane steering.
+4. It releases the CPU, with read data latched.
+
+**Cost:**
+
+- About 4–6 bus clocks per access: 250–400 ns at ÷ 3. That's a few wait
+  states to a 4–8 MHz CPU.
+- About 15–20 chips: the synchroniser and a small state machine, a bank
+  register for the window, transceivers, lane steering and the wait-state
+  table. A GAL or two would shrink that a lot.
+
+**Z80:**
+
+- 8-bit data and 16-bit addresses. A window, say the top 16 KB of memory,
+  or a range of I/O ports, maps to the bus through a bank register that
+  supplies A31–A14. So it can reach anywhere, 16 KB at a time.
+- Little-endian like the bus. A byte goes on D0–D7 or D8–D15 according to
+  its address bit 0, so the card steers the lanes with two transceivers. It
+  is a P1-only master doing single transfers.
+- WAIT must reach the Z80 before the falling clock edge in T2, about 60 ns
+  after the address is valid at 8 MHz. The window decode needs 74ACT or 74F
+  gates.
+- Interrupts: one bus IRQ line into INT, mode 1 or with a vector from the
+  card.
+- Optional: other masters can reach the Z80's RAM by taking its local bus
+  with BUSREQ/BUSACK.
+
+**68000:**
+
+- Its asynchronous bus fits best: the bridge just withholds DTACK until the
+  transfer is done.
+- 16-bit data and 24-bit addresses. A window, say the top 8 MB, maps
+  through a bank register. It is a P1-only master.
+- BERR goes straight to the 68000's own BERR input, so bus errors become
+  68000 exceptions.
+- TAS (an indivisible read-modify-write) maps onto LOCK, which is on P1 so
+  16-bit masters can use it.
+- **Byte order.** The 68000 is big-endian: a byte at an even address
+  travels on D8–D15.
+  - Wiring its D8–D15 to the bus's D0–D7 makes bytes at the same address
+    match, but 16-bit words look byte-swapped to the 68000, as with ISA
+    cards on an Atari.
+  - Straight wiring makes words match, but byte addresses differ in bit 0.
+
+  A swap bit in the bank register can pick per window: swapped for
+  peripherals and text, straight for 16-bit data.
+- Interrupts: a priority encoder from the bus IRQ lines to IPL0–IPL2.
+- A 68020 or 68030 is a 32-bit master. Its dynamic bus sizing (DSACK0/1)
+  maps directly onto W32: with W32 it's a 32-bit port, without it 16-bit.
+- Optional: other masters can reach its RAM through BR/BG/BGACK.
+
+## 12. Alternative: a separate I/O bus
 
 **open.** Instead of putting simple slaves on the system bus, a bridge card
 would run a slow, separate I/O bus for them:
@@ -598,7 +667,7 @@ fallback if simple cards multiply, need odd timing, or load the bus too
 much. Some of P2's user-defined pins could carry it to a group of
 neighbouring slots.
 
-## 12. Open questions
+## 13. Open questions
 
 1. Design cards for ÷ 3 or ÷ 4? The CPU board's jumper allows both; ÷ 3 is
    recommended.
