@@ -36,8 +36,7 @@ Chip counts are rough estimates, scaled from the 98-chip draft 0 design.
     registers.
 - **16 slots of 16 bytes**, one 74HCT154 on address bits 7–4. Each slot
   gets a select line, a shared IRQ and reset (Apple II / RC2014 style).
-  **rejected** in favour of cards on the system bus, which the backplane's
-  address map places in memory
+  **rejected** in favour of slots on the system bus, selected by A31–A28
   ([section 5](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)). The device list below is
   still the plan for what the system needs.
 
@@ -59,8 +58,8 @@ Chip counts are rough estimates, scaled from the 98-chip draft 0 design.
   One gate. Otherwise a decode glitch is a phantom read, e.g. a lost UART
   character.
 - **Automatic wait states for I/O** by stretching the clock, decoded early
-  from MAR. **recommended.** On the system bus this becomes the
-  backplane's address map, which holds each page's wait states ([section 5](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)). Every device gets ~2 µs; I/O is rare, so the
+  from MAR. **recommended.** On the system bus the backplane does this,
+  from class straps on each card ([section 5](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)). Every device gets ~2 µs; I/O is rare, so the
   cost is invisible. A per-device READY line is the more fiddly
   alternative. With variable-length cycles
   ([section 4](0007-rfc-ideas-microarchitecture.md#4-microarchitecture)) this comes for free, and the system

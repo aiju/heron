@@ -53,27 +53,22 @@ simulations of the backplane
     (80 ns), set by a jumper on the CPU board.
   - Where it comes from is open too: the CPU board, which keeps the CPU in
     phase with it, or an oscillator on the backplane.
-  - At 60 ns a transfer to a fast slave is an address clock and a data
+  - At 60 ns a transfer to a fast card is an address clock and a data
     clock: 120 ns. Wait states come in whole clocks.
   - Two fast cards (ABT or FCT-T) need about 33 ns for a one-clock path,
     including up to 11 ns of backplane settling at 16 slots (simulated) and
-    3 ns of clock skew.
-  - The longest one-clock path is the backplane's address lookup, about
-    48 ns. Much below 60 ns wouldn't help anyway: a slave's SRAM path would
-    need a wait state.
+    3 ns of clock skew. The strobes' slow edges, which masters sample, are
+    the tightest at about 45–55 ns.
 
   | At 60 ns | |
   |---|---:|
-  | 32-bit single transfers | 33 MB/s |
-  | 32-bit bursts (optional) | 67 MB/s |
-  | Simple-peripheral transfer | 180 ns at the least, 300 ns for a 74HCT UART card |
+  | 32-bit transfers | 33 MB/s |
+  | Transfer to a simple card | 360 ns (4 data clocks and a recovery clock) |
 
-- **Bursts: an optional feature.** **decided.**
-  - Pins reserved on P2 (BURST, BACK, BFIX).
-  - At most 16 words, within an aligned 16-word block.
-  - The map says which pages take bursts; on other pages a master falls
-    back to single transfers.
-  - BFIX keeps the address fixed, for FIFOs.
+- **Bursts.** **rejected** (Emily, 2026-10-13): no burst transfers. They
+  would need an address counter on every card that takes them, and more
+  state on the backplane. They had been optional: BURST, BACK and BFIX on
+  P2, up to 16 words in an aligned block, 67 MB/s.
 - **A strobe-timed bus without a clock** (8080, Z80, ISA style):
   **rejected**, again after the simulations.
   - Its read and write strobes would be multidrop lines, driven by whichever
@@ -93,10 +88,10 @@ simulations of the backplane
     2026-10-13). 6U Eurocards (233 × 160 mm) were proposed, and the
     simulations assumed them.
   - **P1:** D0–D15, A1–A31, BE0–1, START, WRITE, LOCK, RD, WR, RDY, WAIT,
-    BERR, BUSY, REQ, GNT, SEL, PRESENT, BCLK, RESET, IRQ0–3, four reserved
-    pins, and 24 power and ground pins.
-  - **P2:** D16–D31, BE2–3, W32, the burst lines, IRQ4–7, the slot number,
-    CLKSRC, about 16 power and ground pins and about 49 user-defined pins.
+    BERR, BUSY, CLASS0–1, REQ, GNT, SEL, BCLK, RESET, IRQ0–3, three
+    reserved pins, and 24 power and ground pins.
+  - **P2:** D16–D31, BE2–3, W32, IRQ4–7, the slot number, CLKSRC, about 16
+    power and ground pins and about 52 user-defined pins.
   - Full lists in [RFC 0014, section 3](0014-rfc-system-bus.md#3-signals); the
     pin-by-pin assignment is still to do.
 - **Full-width and half-width slots** (Emily's idea). **open**, until the
@@ -105,52 +100,71 @@ simulations of the backplane
     two P1-only cards stacked, with a second P1 where a full column has its
     P2. For example, 4 full columns and 4 half columns give 12 slots in
     8 columns.
-  - Half cards are exactly the simple-slave profile: 16 bits wide, no
-    bursts, IRQ0–IRQ3 only. The map marks their pages as 16-bit.
+  - Half cards are exactly the simple cards, and fast 16-bit cards: 16 bits
+    wide, IRQ0–IRQ3 only.
   - Eurocards fit it: 6U is two 3U heights plus a gap for a middle rail.
     The rail also keeps full cards out of half columns, so a P2 never meets
     a lower P1.
   - To check: P1 then runs through both connector rows, as one chain with
     an unloaded hop of about 133 mm between them, which needs simulating.
     BCLK needs length matching to the lower slots.
-- **An address map in RAM on the backplane.** **decided** (Emily,
+- **Geographic slot regions** (NuBus style). **decided** (Emily,
   2026-10-13).
-  - **What it maps:** each 128 KB page of the 32-bit address space
-    (**recommended**) to a slot, with the page's data clocks, recovery
-    clocks, width, and whether it takes bursts.
-  - **What the backplane does with it:** it times every transfer from the
-    entry. It drives the slot's SEL line and the read and write strobes,
-    and RDY, which marks the end of a transfer for every card.
-  - **What it saves:** masters need no wait-state tables, and cards never
-    compare addresses.
-  - **Cost:** two 32K × 8 SRAMs and about 15 more chips.
-  - **Programming:** software writes the map at boot, from the cards' IDs
-    ([RFC 0014, section 5.1](0014-rfc-system-bus.md#51-the-address-map)).
-  - **What it replaces:** the geographic slot regions and the per-master
-    wait-state tables.
-- **Geographic slot regions** (NuBus style). **rejected**: replaced by the
-  address map (Emily, 2026-10-13). A31–A28 selected one of 16 slots, 256 MB
-  each, decoded on the backplane into each slot's SEL line.
+  - A31–A28 select one of 16 slots, 256 MB each. The backplane decodes them
+    into each slot's SEL line, so no card needs a comparator.
+  - On the draft 1b CPU, MAR bit 31 set means "system bus". MAR bits 30–27
+    give the slot and bits 26–0 the address within it, so it reaches the
+    first 128 MB of every slot with plain wiring.
+  - Replaces the 16 × 16-byte I/O slots ([section 6](0009-rfc-ideas-io.md#6-io)).
+- **Card classes, strapped on the card.** **decided** (Emily, 2026-10-13).
+  - **What a card says:** two class pins, tied to ground or left open, say
+    what's in a slot. The choices are: nothing, a simple card, a fast 16-bit
+    card, or a fast 32-bit card.
+  - **What the backplane does with it:** it reads the addressed slot's
+    class during the address clock and times the transfer. A simple card
+    gets the read or write strobe for N data clocks (set by jumpers on the
+    backplane, the same for every simple card), then a recovery clock. A
+    fast card gets one data clock unless it holds WAIT. RDY marks the end of
+    a transfer for every card.
+  - **What it saves:** there's no boot software, and masters need no
+    wait-state tables or strobe logic.
+  - **Cost:** about 8 chips on the backplane
+    ([RFC 0014, section 5.1](0014-rfc-system-bus.md#51-slots-and-card-classes)).
+- **An address map and timing table in RAM on the backplane**, with each
+  128 KB page mapped to a slot with its own timing and width. **rejected**
+  (Emily, 2026-10-13), the same day it was decided, in favour of slots in
+  the address and class straps.
+  - Nothing answered until software had written it, and a bad map made every
+    card unreachable.
+  - Its lookup was the longest path on the bus.
+  - It bought flexibility this machine doesn't need: contiguous memory
+    across cards, and timing per page.
 - **Per-slot wait-state tables in every master**, loaded at boot (16
-  entries, ~3 chips per master). **rejected**: replaced by the address map
+  entries, ~3 chips per master). **rejected**: replaced by the class straps
   (Emily, 2026-10-13).
 - **Mixed widths.** **recommended.**
-  - Halfwords and bytes always travel on D0–D15. A word moves on D0–D31
-    when the map says the page is 32 bits wide (W32), and in two transfers
+  - Halfwords and bytes always travel on D0–D15. A word moves on D0–D31 to
+    a fast 32-bit card (W32, from its class), and in two transfers
     otherwise.
-  - 32-bit slaves need one swap transceiver; 16-bit slaves need nothing.
-    So masters that use only P1 can use 32-bit slaves.
-- **Simple peripherals on the system bus** (the "simple slave" profile).
+  - 32-bit cards need one swap transceiver; 16-bit cards need nothing. So
+    masters that use only P1 can use 32-bit cards.
+- **Simple peripherals on the system bus** (the "simple card" profile).
   **decided** (Emily, 2026-10-13). A simple card needs:
   - no clock, no address comparator and no WAIT logic;
   - a per-slot SEL line from the backplane, like the Apple II's per-slot
     select lines;
   - read and write strobes from the backplane, with the address stable a
-    whole clock before them and recovery clocks after them;
-  - its wait states and recovery from the backplane's map.
+    whole clock before them and a clock after them;
+  - its class straps and an ID.
 
-  A UART card is a 16C550, a 74HCT245 and a 74HCT14, all 74HCT, plus its
-  card ID.
+  A UART card is a 16C550, a 74HCT245, a 74HCT14 and a 74HCT541 for its
+  ID, all 74HCT.
+- **Per-slot strobes**, radial RD and WR from the backplane to each slot
+  instead of bused ones. **open.** Clean point-to-point edges, so no RC
+  networks or Schmitt triggers, and a card never sees another's strobe;
+  about two more backplane chips and 32 more radial traces.
+- **Card IDs.** **decided** (Emily, 2026-10-13): every card has one. The
+  format and place are **open**.
 - **Other CPUs as masters**: a Z80, a 68000 or a 68020.
   **recommended** as the pattern, with details in
   [RFC 0014, section 11](0014-rfc-system-bus.md#11-other-cpus-as-masters).
@@ -167,30 +181,30 @@ simulations of the backplane
   (6800-style E clock, Z80 peripherals) or loaded the bus too much
   ([RFC 0014, section 12](0014-rfc-system-bus.md#12-rejected-a-separate-io-bus)).
 - **Arbitration:** **recommended.**
-  - A central round-robin arbiter on the backplane, with per-slot REQ and
-    GNT. No CPU owns the bus.
+  - A central arbiter on the backplane, with per-slot REQ and GNT. No CPU
+    owns the bus.
+  - Fixed priority by slot number, with the main CPU lowest, about 5 chips.
+    Round robin is fairer, at about twice the logic: **open**.
   - The bus parks on the last master while nobody else asks.
   - A handover leaves a clock in which nobody drives the owner's lines, and
     BUSY, driven by the backplane, shows whether a transfer is under way.
   - LOCK is optional, for locked read-modify-write. It's on P1, so 16-bit
     masters (the draft 1b CPU, a 68000) can use it.
 - **Bus errors from the backplane.** **recommended.**
-  - The backplane asserts BERR for an unmapped page, and when a slave's
-    WAIT lasts 256 clocks. On the draft 1b CPU that's a trap next to
-    address error.
-  - Every card grounds a PRESENT pin, and software maps only slots with a
-    card in them.
+  - The backplane asserts BERR for an empty slot (both class pins open), and
+    when a card's WAIT lasts 256 clocks. On the draft 1b CPU that's a trap
+    next to address error.
   - A claim line driven by the slaves was considered and dropped: simple
     cards could only release it, and a pull-up restores it too slowly.
 - **A master port and a slave port on every CPU board.** Other CPUs and DMA
-  reach a CPU's RAM through its window on the bus. **recommended.**
+  reach a CPU's RAM through its slot region on the bus. **recommended.**
   - **Deadlock rule:** a CPU stalled waiting for the bus must let its slave
     port use its local RAM. Otherwise CPU A, holding the bus while waiting
     for B's RAM, and B, holding its RAM while waiting for the bus, wait
     forever.
   - With tick-level RAM sharing (the table above), the main CPU's RAM is a
     reasonable DMA buffer. A fast shared-memory card is still better for
-    bulk data at full burst speed. **open.**
+    bulk data. **open.**
 - **Synchronisation in hardware**, independent of any CPU's instruction
   set, since a heterogeneous CPU may lack a locked read-modify-write.
   **recommended.**
@@ -198,7 +212,7 @@ simulations of the backplane
     one bus read (test-and-set on read). Sixteen of them is a couple of
     chips. Whether they go on the main CPU board or the backplane is
     **open**.
-  - Doorbells: a write to a register in a CPU board's window interrupts
+  - Doorbells: a write to a register in a CPU board's region interrupts
     that CPU.
   - A per-CPU control register for reset/run and NMI. One CPU can boot
     another by loading code into its RAM and releasing its reset.
@@ -210,9 +224,9 @@ simulations of the backplane
   - **Backplane:** 4 layers, 0.2 mm traces (67.5 Ω bare; about 26 Ω loaded
     with 16 cards).
   - **Active parts on the backplane:** **decided** (Emily, 2026-10-13).
-    - The address map and transfer timing, the arbiter, the bus monitor,
-      the clock buffer and the power-on reset.
-    - About 45 chips in plain 74-series, or about 25 with GALs. Whether
+    - Slot decoding, the class straps and transfer timing, the arbiter, the
+      bus monitor, the clock buffer and the power-on reset.
+    - About 23 chips in plain 74-series, or about 12 with GALs. Whether
       PLDs are allowed is **open**.
     - A system-controller card in slot 0 was the alternative.
   - **No −5.2 V on the backplane:** **decided** (Emily, 2026-10-13). A
@@ -227,12 +241,12 @@ simulations of the backplane
     - With ABT, the peak drops from 6.0 to 4.4 V and the dip below ground
       from −0.9 to −0.45 V.
     - About 9–11 ns of settling at 16 slots, half that at 8.
-  - **Bus drivers:** 74ABT or 74FCT-T on synchronous cards and the
-    backplane. 74ACT isn't recommended (7 V overshoot, −1.4 V undershoot).
-    74HCT only on simple slaves.
+  - **Bus drivers:** 74ABT or 74FCT-T on fast cards and the backplane.
+    74ACT isn't recommended (7 V overshoot, −1.4 V undershoot). 74HCT only
+    on simple cards.
   - **RD, WR and RESET:** also 33 Ω + 220 pF at both backplane ends, for
     monotonic edges, at the cost of 20–30 ns slower edges. Schmitt-trigger
-    receivers on simple slaves. RD and WR are driven only by the backplane.
+    receivers on simple cards. RD and WR are driven only by the backplane.
   - **The bus clock:** radial from an ABT buffer on the backplane, through
     56–68 Ω series resistors. Clean at every slot in every simulated case;
     0.8 ns skew without length matching. The buffers' own skew needs a
@@ -241,9 +255,9 @@ simulations of the backplane
     connector. Two switching neighbours put 1–2 V spikes on a quiet line
     through the contacts. That's harmless on lines sampled at a clock edge.
   - **Who drives what:**
-    - WAIT is the only line slaves share. It's actively driven both ways,
+    - WAIT is the only line cards share. It's actively driven both ways,
       and held by a weak pull-up when idle, as in PCI.
-    - RDY, BUSY, BERR, W32, BACK and the strobes come from the backplane.
+    - RDY, BUSY, BERR, W32 and the strobes come from the backplane.
     - The owner's control lines have pull-ups too.
     - Interrupt lines stay open-collector.
   - **Ground bounce: not known yet.** The simulation model needs fixing.

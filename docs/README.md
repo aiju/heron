@@ -34,10 +34,12 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 - Simple, dumb peripherals must be possible, and they go on the system bus:
   there's no separate I/O bus.
 - Bus addresses are the full 32 bits.
-- Burst transfers are optional.
+- Addresses carry the slot: A31–A28 select one of 16 slots.
+- Each card says what it is, and so how it's timed, with class straps that
+  the backplane reads. A fast card holds WAIT when it needs longer.
+- No burst transfers.
+- Every card has an ID.
 - The backplane carries active logic.
-- Which slot answers an address, and with how many wait states, is held in
-  RAM on the backplane.
 - No −5.2 V on the backplane.
 
 **Beyond the CPU**

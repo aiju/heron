@@ -179,9 +179,12 @@ Questions raised along the way that only Emily can answer:
 7. How to split the system into cards (the CPU needs at least two), the
    card size, and DIP or SOIC? These wait until the design is closer to
    completion. Two 96-pin connectors per slot are decided.
-8. May the design use PLDs (GALs)? The backplane's logic is about 45 chips
-   without them and about 25 with them
+8. May the design use PLDs (GALs)? The backplane's logic is about 23 chips
+   without them and about 12 with them
    ([RFC 0014](0014-rfc-system-bus.md#9-electrical-rules)).
+9. The system bus's open details: per-slot or bused strobes, the simple
+   cards' speed, fixed-priority or round-robin arbitration, and the card
+   IDs' format ([RFC 0014](0014-rfc-system-bus.md#13-open-questions)).
 
 Answered so far:
 - 32-bit architecture with a narrow implementation first: yes.
@@ -200,14 +203,17 @@ Answered so far:
   signal-integrity simulations and stays rejected.
 - Simple, dumb peripherals must be possible.
 - The master clock stays 50 MHz (20 ns ticks).
-- Bursts: an optional feature for now.
+- Bursts: none (they had been an optional feature).
 - Bus addresses: the full 32 bits.
 - The bus clock isn't decided yet: a variable for now, with 60 ns as the
   starting point.
 - Simple peripherals go on the system bus; no separate I/O bus.
 - Active parts on the backplane: yes.
-- The address-to-slot and address-to-wait-state mappings are held in RAM on
-  the backplane.
+- Addresses carry the slot (A31–A28), and each card's timing comes from
+  class straps on the card, read by the backplane; fast cards hold WAIT
+  when they need longer. This replaced, the same day, an address map and
+  timing table in RAM on the backplane.
+- Every card has an ID.
 - No −5.2 V on the backplane; it may carry a higher voltage.
 
 ## 16. Offered next steps
