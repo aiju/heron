@@ -60,6 +60,28 @@ class Format(unittest.TestCase):
         self.assertEqual([n for n, _ in members], ["a.o", "b.o"])
         self.assertEqual(members[1][1].to_bytes(), o.to_bytes())
 
+    def test_truncated(self):
+        o = assemble("v1a", "        .global f\nf: LD r1, [x]\n RET\n .data\nx: .word f, 3\n")
+        obj, lib = o.to_bytes(), O.archive_bytes([("a.o", o), ("b.o", o)])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "t")
+            for data, read in ((obj, O.read_object), (lib, O.read_archive)):
+                for n in range(len(data)):
+                    with open(path, "wb") as f:
+                        f.write(data[:n])
+                    with self.assertRaises(O.ObjError, msg=f"{read.__name__}, {n} bytes"):
+                        read(path)
+                # and the commands say so
+                with open(path, "wb") as f:
+                    f.write(data[:-1])
+                cmds = [("objdump", path), ("ld", path), ("run", path)]
+                if read is O.read_archive:
+                    cmds.append(("ar", "-t", path))
+                for cmd in cmds:
+                    rc, _, err = tmc(*cmd)
+                    self.assertEqual(rc, 1, cmd)
+                    self.assertRegex(err, r"^error: .*: truncated (object file|library)\n", cmd)
+
     def test_relocation_ranges(self):
         self.assertEqual(O.reloc_value(O.ABS16S, 0x7FFC, 2, 0), b"\xfe\x7f")
         self.assertEqual(O.reloc_value(O.ABS16S, 0xFFFFFF00, 0, 0), b"\x00\xff")   # the I/O page
