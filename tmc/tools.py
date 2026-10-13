@@ -96,7 +96,7 @@ def cmd_ld(args):
         isa_name = pick_isa(args.isa if args.isa_given else None, args.files)
         img, ln = link_files(isa_name, args.files, base=args.base, gc=not args.no_gc,
                              entry=args.entry)
-    except (L.LinkError, O.ObjError, asmcore.AsmError) as e:
+    except (L.LinkError, O.ObjError, asmcore.AsmError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     out = args.o or os.path.splitext(args.files[0])[0] + ".out"
