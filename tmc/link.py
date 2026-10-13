@@ -1,6 +1,6 @@
 """The linker: object files and libraries in, an executable out.
 
-    python3 -m tmc ld start.o prog.o -l libc.a -o prog.out
+    python3 -m tmc ld start.o prog.o libc.a -o prog.out
 
 Symbols: every global symbol must be defined once. A library (archive) is
 searched for symbols that are still undefined, and a member is loaded when

@@ -11,7 +11,7 @@ on a simulator error, at the cycle limit, or when it halts in a trap handler.
   asm   -c FILE.s [-o FILE.o]                assemble into an object file (draft 1)
   ld    FILE.o... [-o PROG.out]              link (see tmc/link.py)
   objdump FILE.o [-d]                        show an object file, executable or library
-  ar    -o LIB.a FILE.o...                   make a library
+  ar    -o LIB.a FILE.o... | -t LIB.a        make a library, or list one
   run   FILE.s [--input TEXT] [--trace] [--stats]   (or an executable, or object files)
   dis   FILE.bin [--from ADDR] [--to ADDR]   disassemble a binary image
   test  [NAME...]                            run the program test suite
@@ -20,8 +20,11 @@ on a simulator error, at the cycle limit, or when it halts in a trap handler.
   report [--hw]                              write docs/performance.md
   report1                                    write docs/performance-v1.md (draft 1a vs 1b)
   report1b [--hw]                            write docs/performance-v1b.md (draft 1b hardware)
+  analyze                                    draft 0 ISA usage statistics over all programs
   cc    FILE.c... [--run]                    compile C (drafts 1a and 1b, see docs/compiler.md)
+  ccbench [--write]                          compiled C against the hand-written programs
   hw    ...                                  chip-level tools (see tmc.hw.cli)
+  si    ...                                  backplane signal integrity (see tmc/si/README.md)
 """
 
 import argparse

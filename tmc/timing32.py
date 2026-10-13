@@ -1,4 +1,7 @@
-"""Cycle estimates for the draft 1 machines (no hardware design yet).
+"""Cycle estimates for the draft 1 machines, from a model of six hardware
+configurations. One of them, D32-separate, has since been built as the
+draft 1b hardware (docs/hardware-v1b.md); docs/performance-v1b.md compares
+its cycle counts with this model's.
 
 The instruction-level simulator records, for every executed instruction, a
 *timing key*: how many parcels it has, where it sits in memory, and an
