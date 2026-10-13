@@ -321,7 +321,8 @@ def empty_cycles(config, variant="asm"):
 
 
 def variant_of(m):
-    return "asm" if "_asm_run" in m.image.symbols else "c"
+    syms = m.image.symbols
+    return "jit" if "_jit_run" in syms else "asm" if "_asm_run" in syms else "c"
 
 
 def own_cycles(m, config, base_machine=None):

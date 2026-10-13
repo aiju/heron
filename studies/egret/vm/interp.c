@@ -49,6 +49,15 @@ void interp_flush_sel(Value sel)
 static Value lookup(Value cls, Value sel);
 Value egret_lookup(Value cls, Value sel) { return lookup(cls, sel); }
 
+/* the method cache, then the classes */
+Value egret_find(Value cls, Value sel)
+{
+    unsigned i = CACHE_INDEX(cls, sel);
+    if (mcache_cls[i] == cls && mcache_sel[i] == sel)
+        return mcache_method[i];
+    return lookup(cls, sel);
+}
+
 static Value lookup(Value cls, Value sel)
 {
     unsigned i = CACHE_INDEX(cls, sel);
@@ -1029,7 +1038,12 @@ step_out:
 
 #ifdef EGRET_ASM
 /* the assembly interpreter's slow path: one bytecode in C */
+#ifdef EGRET_SLOWCOUNT
+unsigned egret_slowcount[256];
+int egret_step(VMState *st) { egret_slowcount[*st->ip]++; return step(st, 0, 0, 0, 0); }
+#else
 int egret_step(VMState *st) { return step(st, 0, 0, 0, 0); }
+#endif
 
 /* raise err at the bytecode before st->ip */
 int egret_raise(VMState *st, Value err) { return step(st, 0, 0, 0, err); }

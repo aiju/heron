@@ -26,7 +26,8 @@
 #include "compiler.h"
 
 /* the assembly side (jit_v1b.s) */
-extern char jit_glue_slow[], jit_glue_send_miss[], jit_glue_prim_failed[];
+extern char jit_glue_slow[], jit_glue_send_miss[], jit_glue_prim_failed[], jit_glue_gsend_miss[],
+    jit_glue_redo[];
 extern Value mcache_cls[], mcache_sel[], mcache_method[];
 extern Frame *egret_frames_end;
 extern Value *egret_vstack_end;
@@ -199,6 +200,7 @@ typedef struct Site {
     Value class_at, target_at;      /* the patchable constants */
     Value start;                    /* the first instruction */
     Value super;                    /* for a super send, the class to look in */
+    Value misses;                   /* how often it was bound */
 } Site;
 /* in chunks in the permanent space, each made before the code that uses it */
 #define SITE_CHUNK 256
@@ -242,16 +244,18 @@ void jit_flush_ics(void)
 /* A branch to code that sends the bytecode at ip to C: undo what the fast
    path did to the stack (adjust bytes), set r8 and go. */
 /* Out-of-line code, after the method's body: a slow path (undo what the
-   fast path did to the stack, set r8, go to C), a SmallInt receiver's
-   class for a send, or a send's inline cache miss. */
-enum { SK_SLOW, SK_INT, SK_MISS, SK_OVER, SK_OVER2 };
+   fast path did to the stack, set r8, go to C), an operator's send when
+   its fast path doesn't apply, a SmallInt receiver's class for a send, or
+   a send's inline cache miss. */
+enum { SK_SLOW, SK_SEND, SK_INT, SK_MISS, SK_OVER, SK_OVER2 };
 typedef struct Stub {
     Value ip;
+    Value konst;                    /* SK_SEND: a constant operand to push, or 0 */
     unsigned short branch;          /* the Jcc's displacement parcel */
-    unsigned short back;            /* SK_INT: where to go on */
+    unsigned short back;            /* SK_INT: where to go on; SK_SEND: where it starts */
     unsigned short site;            /* SK_MISS */
     unsigned char kind;
-    unsigned char adjust;           /* SK_SLOW: bytes to put back on the stack */
+    unsigned char adjust;           /* SK_SLOW, SK_SEND: bytes to put back on the stack */
 } Stub;
 #define MAX_STUBS 1536
 static Stub stubs[MAX_STUBS];
@@ -268,18 +272,46 @@ static Stub *stub(int kind, int c)
     return s;
 }
 
-static void to_slow(int c, Value ip, int adjust)
+static int is_operator(int op) { return op >= OP_ADD && op <= OP_SHR; }
+
+/* the slow path of the bytecode at ip: an operator sends its selector,
+   anything else goes to C */
+static Stub *to_slow(int c, Value ip, int adjust)
 {
-    Stub *s = stub(SK_SLOW, c);
+    Stub *s = stub(is_operator(*BP(ip)) ? SK_SEND : SK_SLOW, c);
     s->ip = ip;
     s->adjust = adjust;
+    s->konst = 0;
+    return s;
 }
+
+/* the slow path of PUSH_INT k fused with the operator at ip: push k and
+   send the operator */
+static void to_send_k(int c, Value ip, int adjust, Value k)
+{
+    to_slow(c, ip, adjust)->konst = k;
+}
+
+static void branch_to(int c, unsigned target);
+static unsigned char *bc_start;
+static Value gsend(int argc);
+extern Value egret_special[];
+extern Value egret_find(Value cls, Value sel);
+#define OP_ENTRY 4                  /* bytes from gsend's entry for operators to the plain one */
 
 static void emit_stubs(void)
 {
     int i;
+    /* (the sends add stubs as they go) */
     for (i = 0; i < nstubs; i++) {
-        Stub *s = &stubs[i];
+        Stub *s = &stubs[i], *t = i ? s - 1 : 0;
+        if (s->kind == SK_SEND && t && t->kind == SK_SEND && t->ip == s->ip
+            && t->adjust == s->adjust && t->konst == s->konst) {
+            /* a template's slow paths share one send */
+            s->back = t->back;
+            patch_fwd(s->branch, code_base + 2 * s->back);
+            continue;
+        }
         patch_fwd(s->branch, here());
         switch (s->kind) {
         case SK_SLOW:
@@ -288,12 +320,29 @@ static void emit_stubs(void)
             ea_k32(MOV, R8, s->ip);
             jcc_abs(RA, ADDR(jit_glue_slow));
             break;
+        case SK_SEND: {
+            /* the operands back on the stack, the selector in r6 and the
+               bytecode in r7, for a send through the method cache (gsend) */
+            unsigned char *p = BP(s->ip);
+            s->back = ncode;
+            if (s->adjust)
+                ea_k(ADD, R10, s->adjust);
+            if (s->konst) {
+                ea_k(MOV, R1, s->konst);
+                ea_pi(ST, R1, R10);
+            }
+            ea_k(MOV, R6, egret_special[p[0]]);
+            ea_k32(MOV, R7, s->ip);
+            jcc_abs(LINK, gsend(p[0] == OP_AT_PUT ? 2 : 1) - OP_ENTRY);
+            branch_to(RA, p + 1 - bc_start);
+            break;
+        }
         case SK_INT:
             ea_abs(MOV, R2, ADDR(&cls_Int));
             jcc_to(RA, code_base + 2 * s->back);
             break;
         case SK_MISS:
-            ea_k32(MOV, R8, s->ip);
+            ea_k32(MOV, R8, s->ip);         /* the send's bytecode */
             ea_k(MOV, R6, s->site);
             jcc_abs(RA, ADDR(jit_glue_send_miss));
             break;
@@ -312,8 +361,7 @@ static void emit_stubs(void)
             ea_m(MOV, R1, R1, 0);
             ea_m(ST, R1, R4, 0);
             patch_fwd(plain, here());
-            ea_k(SUB, R8, 3);
-            jcc_abs(RA, ADDR(jit_glue_slow));
+            jcc_abs(RA, ADDR(jit_glue_redo));
             break;
         }
         }
@@ -406,14 +454,19 @@ static int opcode_len(unsigned char *p)
 
 #define W16(p) ((SValue)(short)((p)[0] | (p)[1] << 8))
 
-/* a send: the inline cache; super != 0 for a super send */
-static void send_site(Value ip, int argc, Value super)
+/* the send of the bytecode at p (a SEND, SEND_SUPER or an operator): the
+   inline cache; super != 0 for a super send */
+static void send_site(unsigned char *p, int argc, Value super)
 {
+    Value ip = V(p);
     Site *s;
     Stub *st, *to_int = 0;
+    if (!site_chunks[nsites / SITE_CHUNK])
+        fatal("jit: more send sites than reserved");
     s = SITE(nsites);
     s->start = here();
     s->super = super;
+    s->misses = 0;
     ea_m(LEA, R4, R10, -4 * (argc + 1));    /* the receiver: the callee's bp */
     if (super) {
         ea_k32(MOV, R2, super);
@@ -427,9 +480,9 @@ static void send_site(Value ip, int argc, Value super)
         to_int->back = ncode;
     s->class_at = ea_k32(CMP, R2, 0);
     st = stub(SK_MISS, NE);
-    st->ip = ip + 3;
+    st->ip = ip;
     st->site = nsites;
-    ea_k32(MOV, R8, ip + 3);
+    ea_k32(MOV, R8, ip + opcode_len(p));
     s->target_at = jcc_abs(LINK, 0);
     nsites++;
 }
@@ -453,7 +506,7 @@ static const int true_cond[] = { LT, LE, GT, GE };
 
 static unsigned char *deferred;         /* bytecode offset: compiled out of line */
 static unsigned char *jtarget;          /* bytecode offset: a jump goes there */
-static unsigned char *bc_start, *bc_end;
+static unsigned char *bc_end;
 
 static int covers(unsigned char *q)
 {
@@ -547,9 +600,9 @@ static int fused(unsigned char *p)
         SValue k = (signed char)p[1];
         ea_m(MOV, R1, R10, -4);
         un(RRC, R3, R1);
-        to_slow(LO, ip, 0);
+        to_send_k(LO, V(q), 0, const_of(p));
         ea_k(op == OP_ADD ? ADD : SUB, R1, 2 * k);
-        to_slow(VS, ip, 0);
+        to_send_k(VS, V(q), 0, const_of(p));
         ea_m(ST, R1, R10, -4);
         deferred[q - bc_start] = 1;
         return len + 1;
@@ -557,7 +610,7 @@ static int fused(unsigned char *p)
     if (op >= OP_LT && op <= OP_GE) {
         ea_pd(MOV, R1, R10);
         un(RRC, R3, R1);
-        to_slow(LO, ip, 4);
+        to_send_k(LO, V(q), 4, const_of(p));
         ea_k(CMP, R1, const_of(p));
         deferred[q - bc_start] = 1;
         return len + 1 + compare_result(op - OP_LT, is_cjump(q + 1) ? q + 1 : 0);
@@ -673,14 +726,14 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
         break;
 
     case OP_SEND:
-        send_site(ip, p[2], 0);
+        send_site(p, p[2], 0);
         break;
     case OP_SEND_SUPER: {
         Value super = F(F(m, M_OWNER), C_SUPER);
         if (super == NIL)
             go_slow(ip);
         else
-            send_site(ip, p[2], super);
+            send_site(p, p[2], super);
         break;
     }
 
@@ -761,8 +814,7 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
         ea_m(LEA, R3, R2, -FALSE_V);
         ea_k(CMP, R3, TRUE_V - FALSE_V);
         f3 = jcc_fwd(LS);
-        ea_k(ADD, R10, 8);
-        go_slow(ip);
+        to_slow(RA, ip, 8);
         patch_fwd(t, here());
         ea_k(MOV, R1, TRUE_V);
         done = jcc_fwd(RA);
@@ -943,8 +995,6 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
         ea_m(LEA, R10, R9, 4);
         ea_m(LEA, R11, R11, -(SValue)sizeof(Frame));
         ea_m(MOV, R9, R11, 4);
-        ea_m(MOV, R2, R11, 8);
-        ea_m(MOV, R12, R2, FLD(M_LITSP));
         ea_m(JEA, 0, R11, 20);          /* JMP [r11 + nip] */
         patch_fwd(flags, here());
         ea_k(CMP, R2, FR_CONSTRUCT);
@@ -975,13 +1025,11 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
 static void prologue(Value m)
 {
     unsigned nl = F(m, M_NLOCALS), i;
-    unsigned to_push;
     /* entry - 4: for new, the frame returns the receiver */
     ea_k(MOV, R5, FR_CONSTRUCT);
-    to_push = jcc_fwd(RA);
+    put(0xE000 | RA << 8 | 1);                  /* BRA over the next */
     /* entry */
     ea_k(MOV, R5, 0);
-    patch_fwd(to_push, here());
     pop(R1);                                    /* where the caller goes on */
     ea_m(ST, R1, R11, 20);                      /* Frame.nip */
     ea_m(ST, R8, R11, 0);                       /* Frame.ip */
@@ -1000,7 +1048,6 @@ static void prologue(Value m)
         for (i = 0; i < nl; i++)
             ea_pi(ST, R14, R10);
     }
-    ea_k32(MOV, R12, F(m, M_LITSP));
 }
 
 /* Compiles m: its native code and map in the permanent space, and
@@ -1015,6 +1062,8 @@ void jit_compile(Value m)
     Value map;
     if (F(m, M_NATIVE))
         return;
+    gsend(1);                           /* (not while the code is being made) */
+    gsend(2);
     end = start + n;
     for (p = start; p < end; p += opcode_len(p))
         nsends += p[0] == OP_SEND || p[0] == OP_SEND_SUPER;
@@ -1166,8 +1215,7 @@ static Value block_stub(int argc)
     patch_fwd(slow1, here());
     patch_fwd(slow2, here());
     pop(R1);
-    ea_k(SUB, R8, 3);                           /* C makes the send */
-    jcc_abs(RA, ADDR(jit_glue_slow));
+    jcc_abs(RA, ADDR(jit_glue_redo));           /* C makes the send */
     return block_stubs[argc] = finish_stub();
 }
 
@@ -1214,40 +1262,143 @@ static Value new_stub(int argc)
     for (i = 0; i < 5; i++)
         patch_fwd(s[i], here());
     pop(R1);
-    ea_k(SUB, R8, 3);
-    jcc_abs(RA, ADDR(jit_glue_slow));
+    jcc_abs(RA, ADDR(jit_glue_redo));
     return new_stubs[argc] = finish_stub();
+}
+
+/* A send through the method cache, rather than an inline cache of its own,
+   as the asm loop makes them: an operator's when its fast path doesn't
+   apply (so that a method's operators cost little to compile), and a send
+   that saw too many classes. r6 is the selector, r7 the bytecode, r8 the
+   bytecode after it (the entry OP_ENTRY bytes before sets it, for an
+   operator), the return address on the stack. A miss, or a method not
+   yet compiled, goes to jit_gsend_miss. */
+static Value gsend_stubs[16];
+static Value gsend(int argc)
+{
+    unsigned to_int, probe, m1, m2, m3, m4, ok;
+    if (gsend_stubs[argc])
+        return gsend_stubs[argc];
+    begin_stub();
+    ea_m(LEA, R8, R7, 1);
+    ea_m(LEA, R4, R10, -4 * (argc + 1));
+    ea_m(MOV, R1, R4, 0);
+    un(RRC, R2, R1);
+    to_int = jcc_fwd(HS);
+    ea_m(MOV, R2, R1, 0);
+    probe = ncode;
+    ea_r(MOV, R3, R2);
+    ea_r(XOR, R3, R6);
+    ea_k(AND, R3, 0xFFC);
+    ea_m(CMP, R2, R3, ADDR(mcache_cls));
+    m1 = jcc_fwd(NE);
+    ea_m(CMP, R6, R3, ADDR(mcache_sel));
+    m2 = jcc_fwd(NE);
+    ea_m(MOV, R3, R3, ADDR(mcache_method));
+    ea_m(MOV, R1, R3, FLD(M_ARITY));
+    ea_k(CMP, R1, argc);
+    ok = jcc_fwd(EQ);
+    ea_k(CMP, R1, ARITY_PRIM + argc);
+    m3 = jcc_fwd(NE);
+    patch_fwd(ok, here());
+    ea_m(MOV, R1, R3, FLD(M_NATIVE));
+    m4 = jcc_fwd(EQ);
+    jmp_r(R1);
+    patch_fwd(to_int, here());
+    ea_abs(MOV, R2, ADDR(&cls_Int));
+    jcc_to(RA, code_base + 2 * probe);
+    patch_fwd(m1, here());
+    patch_fwd(m2, here());
+    patch_fwd(m3, here());
+    patch_fwd(m4, here());
+    jcc_abs(RA, ADDR(jit_glue_gsend_miss));
+    return gsend_stubs[argc] = finish_stub() + OP_ENTRY;
+}
+
+/* what native code calls for m, sent with argc arguments, or 0 */
+static Value native_target(Value m, int argc)
+{
+    if (F(m, M_ARITY) == (Value)argc) {
+        jit_compile(m);
+        return F(m, M_NATIVE);
+    }
+    if (F(m, M_ARITY) == ARITY_PRIM + (Value)argc)
+        return prim_stub(m);
+    if (m == egret_blockcall && argc < 16)
+        return block_stub(argc);
+    if (F(m, M_PRIM) == PR_NEW && argc < 16)
+        return new_stub(argc);
+    return 0;
+}
+
+/* gsend missed: ip is the send's bytecode (st->ip the one after). Fill
+   the method cache and return what to call, with its bp in jit_bp; or 0,
+   with st->ip at the send for C to make it. */
+Value jit_bp;
+Value jit_gsend_miss(VMStateHead *st, unsigned char *ip)
+{
+    Value sel, m, target = 0;
+    int argc;
+    if (ip[0] == OP_SEND) {
+        sel = st->lits[ip[1]];
+        argc = ip[2];
+    } else {
+        sel = egret_special[ip[0]];
+        argc = ip[0] == OP_AT_PUT ? 2 : 1;
+    }
+    m = egret_find(CLASS_OF(st->sp[-argc]), sel);
+    if (m)
+        target = native_target(m, argc);
+    if (!target) {
+        st->ip = ip;
+        return 0;
+    }
+    jit_bp = V(st->sp - argc);
+    return target;
+}
+
+/* A send native code can't make (st->ip is the bytecode after it): back
+   up to the send, for C to make it. */
+void jit_back_up(VMStateHead *st)
+{
+    unsigned char *p = BYTES(F(st->fp->method, M_CODE)), *q;
+    while ((q = p + opcode_len(p)) < st->ip)
+        p = q;
+    st->ip = p;
 }
 
 /* ---- the inline caches' misses ----------------------------------------------------- */
 
-extern Value egret_lookup(Value cls, Value sel);
 
-/* The send at st->ip (the SEND bytecode) missed its inline cache: bind the
+/* a site that was bound this often sends through the method cache */
+#define MEGAMORPHIC 3
+
+/* The send at st->ip (a SEND bytecode) missed its inline cache: bind the
    site to what the send finds, and return the site's address to run it
-   again; or 0, and the glue has C make the send. */
+   again; or 0, and the glue has C make the send. A site that keeps
+   missing goes megamorphic: its class check becomes a branch over it, and
+   it calls a stub of its own that sends through the method cache. */
 Value jit_send_miss(VMStateHead *st, int si)
 {
     Site *s = SITE(si);
     unsigned char *ip = st->ip;
-    Value sel = st->lits[ip[1]], cls, m, target = 0, rcv;
+    Value sel = st->lits[ip[1]], cls, m, target;
     int argc = ip[2];
-    rcv = st->sp[-argc];
-    cls = s->super ? s->super : CLASS_OF(rcv);
-    m = egret_lookup(cls, sel);
-    if (!m)
-        return 0;
-    if (F(m, M_ARITY) == (Value)argc) {
-        jit_compile(m);
-        target = F(m, M_NATIVE);
-    } else if (F(m, M_ARITY) == ARITY_PRIM + (Value)argc) {
-        target = prim_stub(m);
-    } else if (m == egret_blockcall && argc < 16) {
-        target = block_stub(argc);
-    } else if (F(m, M_PRIM) == PR_NEW && argc < 16) {
-        target = new_stub(argc);
+    cls = s->super ? s->super : CLASS_OF(st->sp[-argc]);
+    if (++s->misses >= MEGAMORPHIC && !s->super && argc < 16) {
+        Value mega, g = gsend(argc);
+        begin_stub();
+        ea_k(MOV, R6, sel);
+        ea_k32(MOV, R7, V(ip));
+        jcc_abs(RA, g);
+        mega = finish_stub();
+        /* CMP r2, #class (3 parcels); Jcc NE miss (2): BRA over them */
+        ((unsigned short *)BP(s->class_at))[-1] = 0xE000 | RA << 8 | 4;
+        patch32(s->target_at, mega);
+        return s->start;
     }
-    if (!target)
+    m = egret_find(cls, sel);
+    if (!m || !(target = native_target(m, argc)))
         return 0;
     patch32(s->class_at, cls);
     patch32(s->target_at, target);
