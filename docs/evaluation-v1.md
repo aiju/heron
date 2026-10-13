@@ -351,7 +351,7 @@ From the five writers' notes:
   against the Python references.** Compiled code was expected to lean more
   on stack frames and memory operands, which would favour 1b. The C
   compiler has since measured it: compiled code gains less from 1b, not
-  more. 1b saves 2% of the cycles in compiled C, against 7.5% for the
+  more. 1b saves 6% of the cycles in compiled C, against 7.5% for the
   hand-written versions of the same 15 programs
   ([compiler.md](compiler.md#1a-against-1b-for-compiled-code)).
 - **The writers knew which program they were comparing**, and were asked to
