@@ -2,11 +2,14 @@
 
 Behaviour lives in the Go simulator (hwsim/models.go), keyed by `model`.
 This file is the shared description of each part's pins and timing:
-  - arcs: (from pins, to pins, delay name). The simulator uses the delay
-    names; static timing analysis walks the arcs.
+  - arcs: (from pins, to pins, delay name);
   - checks: (data pins, clock pin, edge, setup name, hold name) for
     sequential parts.
-Delay values per part number come from tmc/hw/timing.json.
+The arcs and checks are documentation (only their pin names are checked):
+neither tool reads them. The Go models and static timing analysis (sta.py,
+Case.m_<model>) each encode which named delay applies between which pins.
+Both take the delay values per part number from tmc/hw/timing.json, via
+delays_for().
 
 Pin kinds: 'in', 'out', 'tri' (three-state output), 'io' (bidirectional).
 """

@@ -51,8 +51,7 @@ class Case:
         self.T = T
         self.ws = ws
         self.memo = {}
-        self.busy = set()
-        self.loops = set()
+        self.busy = {}                  # nets being evaluated, in order (a dict for speed)
 
     # (value, arrival, cause) for a net; cause = (inst ref, input net, delay name) for path tracing
     def net(self, n):
@@ -63,9 +62,10 @@ class Case:
         if n == "VCC":
             return (1, NEG, None)
         if n in self.busy:
-            self.loops.add(n)
-            return (None, NEG, None)
-        self.busy.add(n)
+            loop = list(self.busy)[list(self.busy).index(n):] + [n]
+            raise ValueError("combinational loop (each net depends on the next), which static "
+                             "timing analysis can't handle: " + " -> ".join(loop))
+        self.busy[n] = True
         drivers = self.N.drivers.get(n, [])
         best = None
         for inst, pin in drivers:
@@ -78,7 +78,7 @@ class Case:
                 # several possibly-enabled drivers: value unknown, latest arrival
                 bt = best[1]
                 best = (None, max(bt, t), cause if t > bt else best[2], None)
-        self.busy.discard(n)
+        del self.busy[n]
         if best is None:
             res = (None, NEG, None)        # floating
         else:
