@@ -230,7 +230,10 @@ static Value p_pow(Value *args, int argc)
 
 static Value p_neg(Value *args, int argc)
 {
-    Value r = int_neg(A0);
+    Value r;
+    if (IS_INT(A0) && A0 != MKINT(INT_MIN31))
+        return MKINT(-INT(A0));
+    r = int_neg(A0);
     return r ? r : too_big();
 }
 

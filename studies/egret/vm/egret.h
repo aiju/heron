@@ -28,7 +28,7 @@ typedef int SValue;
      VSTACK   the value stack: receivers, arguments, locals, temporaries
      FRAMES   the frame stack: one record per active method or block
      SEMI     the heap: two semispaces, copied by a Cheney collector
-     0xF0000  the C stack, up to the top of RAM */
+     0xF4000  the C stack, up to the top of RAM */
 
 #ifdef __HERON__
 #define MEMBASE ((char *)0)
@@ -42,17 +42,17 @@ extern char egret_ram[];
 #define V(p)  ((Value)((char *)(p) - MEMBASE))       /* back to an address */
 
 #define RAM_SIZE   0x100000
-#define INPUT_LO   0x28000      /* the program's source and input, as read */
-#define INPUT_HI   0x30000
-#define PERM_LO    0x30000
-#define PERM_HI    0x5C000
-#define SCRATCH_LO 0x5C000
-#define SCRATCH_HI 0x64000
-#define VSTACK_LO  0x64000
-#define VSTACK_HI  0x6C000
-#define FRAMES_LO  0x6C000
-#define FRAMES_HI  0x70000
-#define SEMI_LO    0x70000
+#define INPUT_LO   0x30000      /* the program's source and input, as read */
+#define INPUT_HI   0x38000
+#define PERM_LO    0x38000
+#define PERM_HI    0x60000
+#define SCRATCH_LO 0x60000
+#define SCRATCH_HI 0x68000
+#define VSTACK_LO  0x68000
+#define VSTACK_HI  0x70000
+#define FRAMES_LO  0x70000
+#define FRAMES_HI  0x74000
+#define SEMI_LO    0x74000
 #define SEMI_SIZE  0x40000
 #define SEMI_HI    (SEMI_LO + 2 * SEMI_SIZE)
 
@@ -122,6 +122,8 @@ enum {
     M_NLOCALS,      /* raw: locals to clear on entry */
     M_ARITY,        /* raw: nargs for an Egret method without *rest, 0x100 + nargs
                        for a C primitive without *rest, ARITY_SLOW for anything else */
+    M_NATIVE,       /* raw: the native code's entry (jit.c), or 0 */
+    M_NMAP,         /* raw: the native code's map, bytecode offset -> native address */
     METHOD_FIELDS
 };
 #define ARITY_PRIM 0x100
@@ -156,6 +158,7 @@ typedef struct Frame {
     Value serial;   /* 0, or a number unique to this activation once a block
                        made in it needs to find it again (non-local return) */
     Value flags;    /* FR_ */
+    Value nip;      /* with native code (jit.c): where the frame's native code goes on */
 } Frame;
 #define FR_CONSTRUCT 1  /* new: return the receiver, not the result of init */
 #define FR_BASE      2  /* the interpreter returns to C after this frame */
@@ -302,7 +305,7 @@ unsigned cycles(void);
 /* statistics, for the study's measurements */
 typedef struct Stats {
     unsigned bytecodes, sends, cache_misses, prim_calls, block_calls,
-        int_fast, int_slow, frames_max, nlr;
+        int_fast, int_slow, frames_max, nlr, code_bytes, methods, native_bytes;
 } Stats;
 extern Stats stats;
 

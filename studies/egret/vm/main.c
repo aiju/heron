@@ -19,6 +19,7 @@ extern const unsigned prelude_len;
 const unsigned char *input_data;
 unsigned input_len, input_pos;
 static int repl;
+static int check_only;          /* #!check: compile the program, don't run it */
 
 /* ---- the platform ------------------------------------------------------------- */
 
@@ -135,6 +136,8 @@ static int run_source(const char *src, unsigned len, const char *name)
         }
         if (compile_errors)
             return 0;
+        if (check_only)
+            return 1;
         for (i = 0; i < n; i++)
             if (!run_toplevel(F(statements, i)))
                 return 0;
@@ -186,14 +189,16 @@ int main(void)
         }
     if (n >= 6 && memcmp(in, "#!repl", 6) == 0)
         repl = 1;
+    if (n >= 7 && memcmp(in, "#!check", 7) == 0)
+        check_only = 1;
     i = run_source((const char *)in, src_len, "program");
     out_flush();
 #if defined(EGRET_STATS) && !defined(__HERON__)
     fprintf(stderr, "stats: bytecodes %u sends %u misses %u prims %u blocks %u int_fast %u int_slow %u "
-            "frames_max %u nlr %u allocs %u alloc_words %u gcs %u gc_words %u\n",
+            "frames_max %u nlr %u allocs %u alloc_words %u gcs %u gc_words %u perm %u code %u methods %u\n",
             stats.bytecodes, stats.sends, stats.cache_misses, stats.prim_calls, stats.block_calls,
             stats.int_fast, stats.int_slow, stats.frames_max, stats.nlr, alloc_count, alloc_words,
-            gc_count, gc_words);
+            gc_count, gc_words, perm_hp - PERM_LO, stats.code_bytes, stats.methods);
 #endif
     return i ? 0 : 1;
 }

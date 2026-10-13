@@ -24,7 +24,7 @@
 ;       MOV  r1, byte [r8]+
 ;       JMP  [r13 + r1*4]
 
-        .global _asm_run, _mcache_cls, _mcache_sel, _mcache_method
+        .global _asm_run, _mcache_cls, _mcache_sel, _mcache_method, _egret_save
         .far optable
 
         .section .bss.egret_mcache
@@ -54,6 +54,7 @@ exit:   POP  r2
 ; ---- the slow path -------------------------------------------------------------
 
 ; save: the registers into egret_st (returns it in r1)
+_egret_save:
 save:   MOV  r1, [_egret_st]
         LEA  r2, [r10 - 4]
         ST   r2, [r1 + VS_SP]
@@ -272,23 +273,34 @@ op_send:                        ; SEND literal argc
         MOV  r5, #3
 ; Send selector r6 with argc r7 arguments; r5 is the length of the
 ; bytecode, to go back over on the slow path.
+;@rcv
 send:   NOT  r4, r7
         LEA  r4, [r10 + r4*4]   ; the receiver's slot: the new frame's bp
         MOV  r1, [r4]
+;@end
+;@classof
         RRC  r2, r1             ; a SmallInt?
         BCS  .int
         MOV  r2, [r1]           ; its class
+;@end
+;@hash
 .probe: MOV  r3, r2             ; the cache entry: (class ^ selector) & 0xFFC
         XOR  r3, r6
         AND  r3, #0xFFC
+;@end
+;@probe
         CMP  r2, [r3 + _mcache_cls]
         BNE  .miss
         CMP  r6, [r3 + _mcache_sel]
         BNE  .miss
         MOV  r3, [r3 + _mcache_method]
+;@end
+;@arity
         CMP  r7, [r3 + 8 + 4*M_ARITY]
         BNE  .notplain
+;@end
 ; Call Egret method r3 with its frame at r4.
+;@frame
 .call:  ST   r8, [r11 + FR_IP]  ; where the caller goes on
         LEA  r11, [r11 + FRAME_SIZE]
         CMP  r11, [_egret_frames_end]
@@ -300,18 +312,25 @@ send:   NOT  r4, r7
         MOV  r9, r4
         MOV  r1, [r3 + 8 + 4*M_NLOCALS]
         BEQ  .go
+;@end
+;@clear
         CMP  r10, [_egret_vstack_end]
         BHS  .overflow2
 .clear: ST   r14, [r10]+
         DEC  r1
         BNE  .clear
+;@end
+;@enter
 .go:    MOV  r12, [r3 + 8 + 4*M_LITSP]
         MOV  r8, [r3 + 8 + 4*M_CODEP]
+;@end
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
+;@classof
 .int:   MOV  r2, [_cls_Int]
         BRA  .probe
+;@end
 
 .overflow2:
         MOV  r9, [r11 - FRAME_SIZE + FR_BP]
@@ -326,6 +345,7 @@ send:   NOT  r4, r7
         CMP  r1, r7
         BNE  .special
         ; a C primitive: prim_table[prim](bp, argc)
+;@primcall
         LEA  r1, [r10 - 4]
         ST   r1, [_vm_sp]       ; the stack's top, for the collector
         MOV  r1, [r3 + 8 + 4*M_PRIM]
@@ -340,6 +360,7 @@ send:   NOT  r4, r7
         BEQ  .failed
         ST   r1, [r4]           ; the result in place of the receiver
         LEA  r10, [r4 + 4]
+;@end
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 .failed:
@@ -403,17 +424,38 @@ send:   NOT  r4, r7
         BEQ  .go
         CMP  r10, [_egret_vstack_end]
         BLO  .clear
-        ; too deep: C raises the error (the object has been made, but
-        ; the error unwinds past it)
+        ; too deep: put the class back, and C starts the new over and
+        ; raises the error
         MOV  r9, [r11 - FRAME_SIZE + FR_BP]
 .newover:
         LEA  r11, [r11 - FRAME_SIZE]
+        MOV  r1, [r4]
+        MOV  r1, [r1]
+        ST   r1, [r4]
         BRA  .miss
 
+op_send_super:                  ; SEND_SUPER literal argc: look up from above the method's owner
+        MOV  r1, byte [r8]+
+        MOV  r6, [r12 + r1*4]
+        MOV  r7, byte [r8]+
+        MOV  r5, #3
+        NOT  r4, r7
+        LEA  r4, [r10 + r4*4]
+        MOV  r2, [r11 + FR_METHOD]
+        MOV  r2, [r2 + 8 + 4*M_OWNER]
+        MOV  r2, [r2 + 8 + 4*C_SUPER]
+        CMP  r2, r14            ; no superclass: C says so
+        BNE  send.probe
+        SUB  r8, r5
+        BRA  slow
+
 op_return:
+;@retcheck
         MOV  r1, -[r10]
         MOV  r2, [r11 + FR_FLAGS]
         BNE  .flags
+;@end
+;@ret
 .ret:   ST   r1, [r9]           ; the result in the receiver's slot
         LEA  r10, [r9 + 4]
         LEA  r11, [r11 - FRAME_SIZE]
@@ -421,6 +463,7 @@ op_return:
         MOV  r2, [r11 + FR_METHOD]
         MOV  r12, [r2 + 8 + 4*M_LITSP]
         MOV  r8, [r11 + FR_IP]
+;@end
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 .flags: CMP  r2, #FR_CONSTRUCT  ; new: the receiver, not init's result
@@ -446,51 +489,65 @@ binop_slow:
 
 op_add: MOV  r2, -[r10]         ; b
         MOV  r1, -[r10]         ; a
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
+;@tagadd
         DEC  r2                 ; (2x + 1) + 2y, overflow in V
         ADD  r1, r2
         BVS  binop_slow
+;@end
         ST   r1, [r10]+
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_sub: MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
+;@tagsub
         DEC  r2
         SUB  r1, r2
         BVS  binop_slow
+;@end
         ST   r1, [r10]+
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_mul: MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
+;@tagmul
         ASR  r1, #1             ; x * 2y, too big for 32 bits in V
         DEC  r2
         MULS r1, r2
         BVS  binop_slow
         INC  r1
+;@end
         ST   r1, [r10]+
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_div: MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
         CMP  r2, #1             ; by 0
         BEQ  binop_slow
         CMP  r2, #-1            ; by -1: -2^30 / -1 is too big
@@ -511,10 +568,12 @@ op_div: MOV  r2, -[r10]
 
 op_mod: MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
         CMP  r2, #1
         BEQ  binop_slow
         CMP  r2, #-1
@@ -537,12 +596,16 @@ op_mod: MOV  r2, -[r10]
 ; the comparisons: SmallInts compare as they are
 op_lt:  MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
+;@cmpbr
         CMP  r1, r2
         BGE  push_false
+;@end
 push_true:
         MOV  r1, #TRUE_V
         ST   r1, [r10]+
@@ -556,32 +619,44 @@ push_false:
 
 op_le:  MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
+;@cmpbr
         CMP  r1, r2
         BGT  push_false
+;@end
         BRA  push_true
 
 op_gt:  MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
+;@cmpbr
         CMP  r1, r2
         BLE  push_false
+;@end
         BRA  push_true
 
 op_ge:  MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
+;@cmpbr
         CMP  r1, r2
         BLT  push_false
+;@end
         BRA  push_true
 
 op_eq:  MOV  r2, -[r10]
@@ -603,10 +678,12 @@ op_eq:  MOV  r2, -[r10]
 op_band:
         MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
         AND  r1, r2
         ST   r1, [r10]+
         MOV  r1, byte [r8]+
@@ -614,10 +691,12 @@ op_band:
 
 op_bor: MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
         OR   r1, r2
         ST   r1, [r10]+
         MOV  r1, byte [r8]+
@@ -626,10 +705,12 @@ op_bor: MOV  r2, -[r10]
 op_bxor:
         MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
         XOR  r1, r2
         OR   r1, #1
         ST   r1, [r10]+
@@ -638,10 +719,12 @@ op_bxor:
 
 op_shl: MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
         ASR  r2, #1             ; the count, 0 to 30 here
         CMP  r2, #30
         BHI  binop_slow
@@ -659,10 +742,12 @@ op_shl: MOV  r2, -[r10]
 
 op_shr: MOV  r2, -[r10]
         MOV  r1, -[r10]
+;@tag2
         MOV  r3, r1
         AND  r3, r2
         AND  r3, #1
         BEQ  binop_slow
+;@end
         ASR  r2, #1
         CMP  r2, #31
         BHI  binop_slow
@@ -724,18 +809,22 @@ op_not: MOV  r1, -[r10]
 ; ---- jumps ---------------------------------------------------------------------
 
 op_jump:                        ; a signed 16-bit offset, little-endian
+;@jumpoff
         MOV  r1, byte [r8 + 1]
         SXB  r1
         LSL  r1, #8
         OR   r1, byte [r8]
         LEA  r8, [r8 + r1 + 2]
+;@end
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_jump_false:
         MOV  r1, -[r10]
+;@truthy
         OR   r1, #8
         CMP  r1, r14
+;@end
         BEQ  op_jump
         LEA  r8, [r8 + 2]
         MOV  r1, byte [r8]+
@@ -743,8 +832,10 @@ op_jump_false:
 
 op_jump_true:
         MOV  r1, -[r10]
+;@truthy
         OR   r1, #8
         CMP  r1, r14
+;@end
         BNE  op_jump
         LEA  r8, [r8 + 2]
         MOV  r1, byte [r8]+
@@ -752,8 +843,10 @@ op_jump_true:
 
 op_jump_false_or_pop:
         MOV  r1, [r10 - 4]
+;@truthy
         OR   r1, #8
         CMP  r1, r14
+;@end
         BEQ  op_jump
         SUB  r10, #4
         LEA  r8, [r8 + 2]
@@ -762,8 +855,10 @@ op_jump_false_or_pop:
 
 op_jump_true_or_pop:
         MOV  r1, [r10 - 4]
+;@truthy
         OR   r1, #8
         CMP  r1, r14
+;@end
         BNE  op_jump
         SUB  r10, #4
         LEA  r8, [r8 + 2]

@@ -687,6 +687,10 @@ static Value gen_function(Func *f)
     F(m, M_SEL) = f->sel;
     /* super starts above the owner: the metaclass, for a class method */
     F(m, M_OWNER) = !f->owner || f->owner == NIL ? NIL : f->class_side ? CLASSW(f->owner) : f->owner;
+#ifdef EGRET_STATS
+    stats.code_bytes += ncode;
+    stats.methods++;
+#endif
     c = perm_bytes(cls_Array, ncode);
     memcpy(BYTES(c), code, ncode);
     F(m, M_CODE) = c;

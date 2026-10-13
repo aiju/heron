@@ -203,6 +203,12 @@ void class_add_method(Value cls, Value sel, Value m)
         F(cls, C_NMETHODS) = MKINT(n + 1);
     table_put(t, sel, m);
     interp_flush_sel(sel);
+#ifdef EGRET_JIT
+    {
+        extern void jit_flush_ics(void);
+        jit_flush_ics();
+    }
+#endif
 }
 
 Value class_name(Value cls) { return F(cls, C_NAME); }
@@ -213,6 +219,8 @@ void method_finish(Value m)
     F(m, M_CODEP) = F(m, M_CODE) ? V(BYTES(F(m, M_CODE))) : 0;
     F(m, M_LITSP) = F(m, M_LITS) ? V(&F(F(m, M_LITS), 0)) : 0;
     F(m, M_NLOCALS) = MI_NLOCALS(info);
+    F(m, M_NATIVE) = 0;
+    F(m, M_NMAP) = 0;
     if (info & MF_REST)
         F(m, M_ARITY) = ARITY_SLOW;
     else if (!prim)

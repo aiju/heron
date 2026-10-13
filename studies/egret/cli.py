@@ -60,7 +60,7 @@ def cmd_test(args):
         ok = out == prog.expected()
         line = f"{name:<14} host {'ok' if ok else 'FAILED'}"
         if args.heron:
-            for variant in (build.VARIANTS if args.variant == "both" else [args.variant]):
+            for variant in ({"both": ["asm", "c"], "all": build.VARIANTS}.get(args.variant) or [args.variant]):
                 hout, m = build.run_heron(prog.source, prog.input, variant=variant)
                 hok = hout == prog.expected()
                 line += f"   {variant} {'ok' if hok else 'FAILED'} {m.cycles:>12,}"
@@ -87,8 +87,8 @@ def main(argv=None):
     t = sub.add_parser("test", help="the programs against their expected output")
     t.add_argument("names", nargs="*")
     t.add_argument("--heron", action="store_true", help="also on the simulator")
-    t.add_argument("--variant", choices=["asm", "c", "both"], default="both",
-                   help="with --heron: the VM with the hand-written interpreter loop, the C one, or both")
+    t.add_argument("--variant", choices=list(build.VARIANTS) + ["both", "all"], default="all",
+                   help="with --heron: the VM with the hand-written interpreter loop (asm), the C one (c), native code (jit), the first two (both) or all three (all)")
     t.add_argument("--update", action="store_true", help="write the expected output of Egret's own programs")
     t.set_defaults(fn=cmd_test)
     b = sub.add_parser("bench", help="cycles on draft 1b")

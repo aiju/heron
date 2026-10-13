@@ -2,6 +2,8 @@
 ; fixed addresses (false, nil and true, whose addresses the VM compares
 ; against), setjmp and longjmp. In place of the C compiler's start code.
 
+        .far _main
+
         .org 0x00
         JMP  __start            ; reset
         .org 0x04
@@ -22,7 +24,11 @@
 
 __start:
         LI   sp, #0x100000      ; top of RAM
-        CALL _main
+        CALL #_main             ; a 32-bit address: main can be more than 64 KB on
+        HALT
+
+; The rest with the other code, where 16-bit calls from C reach it
+        .section .text.egret_rt
 _exit:
 _abort: HALT
 

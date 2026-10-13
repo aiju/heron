@@ -26,7 +26,7 @@ VM = os.path.join(HERE, "vm")
 PRELUDE = os.path.join(HERE, "lib", "prelude.eg")
 BUILD = os.path.join(ROOT, "build", "egret")
 SOURCES = ["mem.c", "object.c", "map.c", "bigint.c", "lex.c", "parse.c", "compile.c",
-           "interp.c", "prims.c", "main.c"]
+           "interp.c", "prims.c", "jit.c", "main.c"]
 MAX_CYCLES = 2_000_000_000
 
 
@@ -108,7 +108,7 @@ def _compiler_files():
             if p.endswith((".py", ".c", ".h", ".s")) and "/tests/" not in p]
 
 
-VARIANTS = ("asm", "c")
+VARIANTS = ("asm", "c", "jit")
 
 
 def heron(isa="v1b", defines=None, variant="asm"):
@@ -132,8 +132,10 @@ def compile_heron(isa="v1b", defines=None, variant="asm"):
     pre = prelude_c()
     p = driver.Program(isa)
     defs = dict(defines or {})
-    if variant == "asm":
+    if variant in ("asm", "jit"):
         defs["EGRET_ASM"] = "1"
+    if variant == "jit":
+        defs["EGRET_JIT"] = "1"
     for s in SOURCES:
         p.add_file(os.path.join(VM, s), [VM], defs)
     p.add_file(pre, [VM])
@@ -147,8 +149,11 @@ def compile_heron(isa="v1b", defines=None, variant="asm"):
         if tables:
             text = "        .far " + ", ".join(tables) + "\n" + text
         objs.append(driver.assemble(isa, text, os.path.basename(u.path)[:-2] + ".o"))
-    if variant == "asm":
+    if variant in ("asm", "jit"):
         objs.append(driver.assemble(isa, asm_interpreter(isa), f"interp_{isa}.o"))
+    if variant == "jit":
+        with open(os.path.join(VM, f"jit_{isa}.s")) as f:
+            objs.append(driver.assemble(isa, asm_layout() + f.read(), f"jit_{isa}.o"))
     with open(os.path.join(VM, f"rt_{isa}.s")) as f:
         objs.insert(0, driver.assemble(isa, f.read(), f"rt_{isa}.o"))
     return L.link(objs, [driver.library(isa)[0]], isa)
@@ -230,11 +235,30 @@ def asm_layout():
     return "\n".join(lines) + "\n"
 
 
+def mark_idioms(src):
+    """The ;@name ... ;@end comments around the instruction sequences that
+    isa.py costs become labels .R_name_N and .R_end_N."""
+    out, n, open_ = [], 0, None
+    for line in src.split("\n"):
+        m = re.match(r"^;@(\w+)\s*$", line)
+        if m and m.group(1) != "end":
+            n += 1
+            open_ = n
+            out.append(f".R_{m.group(1)}_{n}:")
+        elif m:
+            out.append(f".R_end_{open_}:")
+            open_ = None
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def asm_interpreter(isa="v1b"):
     """interp_v1b.s with its constants in front and its dispatch table after."""
     from .vm_ops import OPCODES
     with open(os.path.join(VM, f"interp_{isa}.s")) as f:
         src = f.read()
+    src = mark_idioms(src)
     have = set(re.findall(r"^(op_\w+):", src, re.M))
     table = ["", "        .align 4", "optable:"]
     for op in OPCODES:

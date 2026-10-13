@@ -46,6 +46,9 @@ void interp_flush_sel(Value sel)
 
 #define CACHE_INDEX(cls, sel) ((((cls) ^ (sel)) >> 2) & (CACHE_SIZE - 1))
 
+static Value lookup(Value cls, Value sel);
+Value egret_lookup(Value cls, Value sel) { return lookup(cls, sel); }
+
 static Value lookup(Value cls, Value sel)
 {
     unsigned i = CACHE_INDEX(cls, sel);
@@ -203,6 +206,11 @@ enum { STEP_CONTINUE, STEP_RETURNED, STEP_ERROR };
 #ifdef EGRET_ASM
 VMState *egret_st;          /* the running assembly interpreter's */
 int egret_raise(VMState *st, Value err);
+#endif
+#ifdef EGRET_JIT
+Value jit_resume_addr(Value method, unsigned char *ip);
+int jit_run(VMState *st);
+#define asm_run jit_run
 #endif
 
 #define FIELD(o, i) (P(o)[2 + (i)])
@@ -430,8 +438,12 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 err = make_string_c("stack overflow (recursion too deep)");
                 goto raise_msg;
             }
-            if (fp >= base)
+            if (fp >= base) {
                 fp->ip = V(ip);
+#ifdef EGRET_JIT
+                fp->nip = jit_resume_addr(fp->method, ip);
+#endif
+            }
             fp++;
             bp = sp - argc;
             fp->bp = V(bp);

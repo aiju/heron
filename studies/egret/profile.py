@@ -87,6 +87,8 @@ class Layout:
         (r"^send\.(call|clear|go|overflow2?)$", "send: frame"),
         (r"^send\.(notplain|failed)$", "send: primitive"),
         (r"^send\.special$", "send: block"),
+        (r"^send\.(new|newover)$", "send: new"),
+        (r"^op_send_super$", "SEND_SUPER"),
         (r"^send\.miss$", "send: miss"),
         (r"^op_send$", "SEND"),
         (r"^binop_slow$", "send: operator"),
@@ -102,7 +104,8 @@ class Layout:
         hi = syms["optable"]
         labels = sorted((a, n) for n, a in syms.items()
                         if lo <= a < hi and not re.match(r"^[A-Z_0-9]+$", n) and not n.startswith("_mcache"))
-        labels = [(a, n) for a, n in labels if n == "_asm_run" or not n.startswith("_")]
+        labels = [(a, n) for a, n in labels if (n == "_asm_run" or not n.startswith("_"))
+                  and ".R_" not in n]
         self.asm_lo, self.asm_hi = lo, hi
         self.asm_starts = [a for a, _ in labels]
         self.asm_names = [n for _, n in labels]
@@ -259,19 +262,19 @@ def variant_of(m):
     return "asm" if "_asm_run" in m.image.symbols else "c"
 
 
-def own_cycles(m, config):
-    """A run's cycles per address, start-up taken out."""
-    base = empty_cycles(config, variant_of(m))
+def own_cycles(m, config, base_machine=None):
+    """A run's cycles per address, start-up (or base_machine's run) taken out."""
+    base = base_machine.pc_cycles(config) if base_machine else empty_cycles(config, variant_of(m))
     out = Counter(m.pc_cycles(config))
     out.subtract(base)
     return {pc: c for pc, c in out.items() if c and pc is not None}
 
 
-def breakdown(m, config, layout=None):
+def breakdown(m, config, layout=None, base_machine=None):
     """{group: cycles}, {(group, detail): cycles}"""
     layout = layout or Layout(m.image)
     groups, details = Counter(), Counter()
-    for pc, c in own_cycles(m, config).items():
+    for pc, c in own_cycles(m, config, base_machine).items():
         g, d = layout.where(pc)
         groups[g] += c
         details[(g, d)] += c
