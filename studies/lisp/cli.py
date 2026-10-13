@@ -6,7 +6,7 @@
   test   [NAME...] [-c] [-v] [--features F]   the programs and tests against their
                                          expected output
   build  [-l FILE.lst]                   assemble the runtime (and write a listing)
-  report [--write] [NAME...]             the measurements behind report 0016
+  report [--write] [NAME...]             the measurements behind report 0018
                                          (--write: its performance.md)
 """
 
@@ -98,9 +98,9 @@ def main(argv=None):
     b.add_argument("-l", help="write a listing")
     b.add_argument("--features")
     b.set_defaults(fn=cmd_build)
-    rp = sub.add_parser("report", help="the measurements behind report 0016")
+    rp = sub.add_parser("report", help="the measurements behind report 0018")
     rp.add_argument("names", nargs="*")
-    rp.add_argument("--write", action="store_true", help="write reports/0016-report-lisp/performance.md")
+    rp.add_argument("--write", action="store_true", help="write reports/0018-report-lisp/performance.md")
     rp.set_defaults(fn=cmd_report)
     args = p.parse_args(argv)
     return args.fn(args) or 0

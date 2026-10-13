@@ -80,7 +80,7 @@ The engines are Rust, everything else is Python
 
 Change the generator and rerun it rather than editing the output by hand:
 
-- the `performance.md` in reports 0001, 0004, 0011, 0012 and 0016:
+- the `performance.md` in reports 0001, 0004, 0011, 0012 and 0018:
   - `heron v0_hw report`
   - `heron v1_isa report`
   - `heron c_compiler bench --write`

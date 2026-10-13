@@ -124,7 +124,7 @@ slower clock.
 - I/O from supervisor mode only.
 
 **Guard pages:** an unmapped page below a stack or after a heap turns a
-limit check into a page fault. The Lisp ([report 0016](0016-report-lisp.md))
+limit check into a page fault. The Lisp ([report 0018](0018-report-lisp.md))
 checks the stack limit at every function entry and the heap limit at every
 `cons`; guard pages would save 5.0% and 1.8% of its compiled cycles (up to
 7.2% and 5.2%). Pairs are 8-byte aligned, so `cons`'s first store is the

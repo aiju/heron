@@ -3,7 +3,7 @@
 An experiment, not a proposal for draft 1b as it stands: draft 1b plus
 one addressing mode, to measure what checking integer tags in hardware
 is worth to the Lisp. The findings are in
-[report 0016](../../reports/0016-report-lisp.md).
+[report 0018](../../reports/0018-report-lisp.md).
 
 Everything not mentioned here is draft 1b
 ([isa-v1b.md](../v1_isa/isa-v1b.md)). The instruction-level simulator runs

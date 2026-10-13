@@ -131,7 +131,7 @@ From [report 0004](0004-report-draft-1-evaluation.md):
 
 ### 2.6 For Lisp
 
-From the Lisp study ([report 0016](0016-report-lisp.md)): a dynamically
+From the Lisp study ([report 0018](0018-report-lisp.md)): a dynamically
 typed, garbage-collected language on 1b, interpreted and compiled. Shares
 are of compiled cycles, on 12 benchmarks.
 

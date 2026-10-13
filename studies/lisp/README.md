@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v1_isa]
-reports: [16]
+reports: [18]
 ---
 
 # A Lisp for draft 1b
@@ -12,7 +12,7 @@ collector, written in 1b assembly, and a compiler to 1b code, written in
 the Lisp and running on the machine. It's an experiment, not a product:
 the point is to see what a Lisp needs from the instruction set and the
 system, and what changes would help it. The findings are in
-[report 0016](../../reports/0016-report-lisp.md).
+[report 0018](../../reports/0018-report-lisp.md).
 
 | File | What's in it |
 |---|---|
@@ -25,7 +25,7 @@ system, and what changes would help it. The findings are in
 | `compiler.lisp` | The compiler |
 | `build.py` | Assembles the runtime, with the tables it generates (static symbols, primitives) |
 | `machine.py` | Runs programs on the simulator; makes the saved images |
-| `measure.py`, `whatif.py`, `report.py` | Measurements: cycles, profiles, what ISA and system changes would save, the tables of report 0016 |
+| `measure.py`, `whatif.py`, `report.py` | Measurements: cycles, profiles, what ISA and system changes would save, the tables of report 0018 |
 | `reference.py` | An independent reference interpreter in Python, which writes the expected output |
 | `programs/` | Benchmarks: Gabriel-style programs (tak, deriv, boyer, ...) and their expected output |
 | `tests/lisp/` | Tests of every part of the language, with expected output |
@@ -37,7 +37,7 @@ heron lisp run -c --features tagged studies/lisp/programs/tak.lisp  # ... with v
 heron lisp ref studies/lisp/programs/tak.lisp                     # run on the reference interpreter
 heron lisp test                                                   # every program and test against its expected output
 heron lisp test -c                                                # the same, compiled (also --features tagged)
-heron lisp report --write                                         # the tables of report 0016 (about 2 minutes)
+heron lisp report --write                                         # the tables of report 0018 (about 2 minutes)
 heron test lisp                                                   # the study's unit tests
 python3 studies/lisp/reference.py --write-expected                # rewrite the expected output
 ```
