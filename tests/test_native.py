@@ -44,6 +44,15 @@ class V1(unittest.TestCase):
         keys = [(pc, k, n) for pc, k, n in m.pc_keys()]
         self.assertEqual(keys[0], (0, (1, 0, "alu", 1), 1))
 
+    def test_resume(self):
+        # MOV r1, #5; HALT; ADD r1, #3; HALT, in draft 1b: a HALT as a marker
+        m = native.v1.Machine("v1b", bytes([0x15, 0x11, 0, 0, 0x13, 0x41, 0, 0]))
+        m.run()
+        self.assertEqual((m.r[1], m.pc, m.instructions), (5, 4, 2))
+        m.resume()
+        m.run()
+        self.assertEqual((m.r[1], m.pc, m.instructions, m.halted), (8, 8, 4, True))
+
     def test_timing(self):
         self.assertEqual(native.v1.cycles((1, 0, "alu", 1), "D16-overlap"), 3)
         with self.assertRaisesRegex(ValueError, "not a timing key"):

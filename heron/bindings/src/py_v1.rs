@@ -134,6 +134,13 @@ pub mod v1 {
             }
         }
 
+        /// Carry on after a HALT: `run` then continues with the next
+        /// instruction. A program can use HALT to mark a point for the
+        /// tools to look at its state, cycles so far included.
+        fn resume(&mut self) {
+            self.m.halted = false;
+        }
+
         /// The 16-bit parcel at an address.
         fn parcel(&self, addr: u32) -> PyResult<u32> {
             self.m.parcel(addr).map_err(|e| match e {

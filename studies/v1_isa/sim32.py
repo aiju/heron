@@ -72,6 +72,12 @@ class Machine32:
                 raise SimError(f"cycle limit of {max_cycles} reached at pc={self.pc:08X}")
         return self
 
+    def resume(self):
+        """Carry on after a HALT (a program can use one to mark a point
+        for the tools); run() then continues with the next instruction."""
+        self._mem = None
+        self._m.resume()
+
     def parcel(self, addr):
         return self._m.parcel(addr)
 
