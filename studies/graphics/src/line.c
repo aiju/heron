@@ -25,8 +25,7 @@ static void rop_masks(int rop, unsigned c, unsigned *ka, unsigned *kx)
     }
 }
 
-#ifndef GFX_ASM
-void line_run(const LineJob *j)
+void line_run_c(const LineJob *j)
 {
     unsigned char *p = j->p;
     unsigned m = j->m, ka = j->ka, kx = j->kx;
@@ -100,7 +99,6 @@ void line_run(const LineJob *j)
         }
     }
 }
-#endif
 
 /* u is the major axis, stepping by one; v the minor one. With xmajor, u
    is x; otherwise u is y and v is x. */

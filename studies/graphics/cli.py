@@ -107,7 +107,21 @@ def cmd_expected(args):
 
 
 def cmd_selftest(args):
-    return subprocess.run([build.selftest_binary()]).returncode
+    """On the host (the C kernels, if gcc is there), then on the simulator
+    for both ISAs (the assembly kernels)."""
+    from heron.studies.c_compiler.cc import driver
+    fails = 0
+    if not args.machine_only:
+        r = subprocess.run([build.selftest_binary()], capture_output=True, text=True)
+        print(f"host (C kernels): {r.stdout.strip()}")
+        fails += r.returncode != 0
+    for isa in build.ISAS:
+        m = driver.run_image(build.selftest_image(isa, args.iters), isa, max_cycles=20_000_000_000)
+        out = bytes(m.dev.out).decode(errors="replace").strip()
+        ok = m.error is None and not m.traps and out == "all good"
+        print(f"{isa} (assembly kernels): {out or m.error or m.traps}")
+        fails += not ok
+    return 1 if fails else 0
 
 
 def main(argv=None):
@@ -129,7 +143,9 @@ def main(argv=None):
     t.set_defaults(fn=cmd_test)
     e = sub.add_parser("expected", help="rewrite expected/ with the host build (gcc)")
     e.set_defaults(fn=cmd_expected)
-    s = sub.add_parser("selftest", help="the word-level code against pixel references (gcc)")
+    s = sub.add_parser("selftest", help="the word-level code against pixel references")
+    s.add_argument("--iters", type=int, default=200, help="iterations per depth on the simulator")
+    s.add_argument("--machine-only", action="store_true", help="not on the host (no gcc needed)")
     s.set_defaults(fn=cmd_selftest)
     b = sub.add_parser("bench", help="report 0019's tables")
     b.add_argument("--write", action="store_true")

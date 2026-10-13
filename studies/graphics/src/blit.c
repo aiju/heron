@@ -16,7 +16,6 @@
 
 #include "gfx.h"
 
-#ifndef GFX_ASM
 static unsigned merge(unsigned d, unsigned v, unsigned m, int rop)
 {
     switch (rop) {
@@ -27,7 +26,7 @@ static unsigned merge(unsigned d, unsigned v, unsigned m, int rop)
     }
 }
 
-void blit_rows(const BlitJob *j)
+void blit_rows_c(const BlitJob *j)
 {
     unsigned *d = j->d, *s = j->s, lo, hi, out, m;
     int h, k, n = j->n, rs = j->rs, ls = j->ls;
@@ -65,7 +64,6 @@ void blit_rows(const BlitJob *j)
         s = (unsigned *)((unsigned char *)s + j->spitch);
     }
 }
-#endif
 
 void gfx_blit(Surface *dst, int dx, int dy, const Surface *src, int sx, int sy,
               int w, int h, int rop)

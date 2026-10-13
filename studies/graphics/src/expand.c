@@ -20,8 +20,7 @@ static void edges(int dx, int w, int d, int *n, unsigned *lmask, unsigned *rmask
         *lmask &= *rmask;
 }
 
-#ifndef GFX_ASM
-void expand_rows(const ExpandJob *j)
+void expand_rows_c(const ExpandJob *j)
 {
     unsigned *d = j->d, c = 0, m, e, lo, hi, fg = j->fg, bg = j->bg;
     const unsigned *s = j->s;
@@ -62,7 +61,6 @@ void expand_rows(const ExpandJob *j)
         s = (const unsigned *)((const unsigned char *)s + j->spitch);
     }
 }
-#endif
 
 void gfx_expand(Surface *dst, int dx, int dy, const Surface *src, int sx, int sy,
                 int w, int h, unsigned fg, unsigned bg, int opaque)
@@ -97,8 +95,7 @@ void gfx_expand(Surface *dst, int dx, int dy, const Surface *src, int sx, int sy
 
 /* ---- coverage through a ramp ---- */
 
-#ifndef GFX_ASM
-void ramp_rows(const RampJob *j)
+void ramp_rows_c(const RampJob *j)
 {
     unsigned *d = j->d, v, m, cv, pm;
     const unsigned char *c = j->c, *ramp = j->ramp;
@@ -131,7 +128,6 @@ void ramp_rows(const RampJob *j)
         c += j->cpitch;
     }
 }
-#endif
 
 void gfx_ramp(Surface *dst, int dx, int dy, const unsigned char *cov, int cpitch,
               int w, int h, const unsigned char *ramp)

@@ -157,8 +157,8 @@ void font_ttf(Font *f, TTF *t, int size, int aa);
    w x h, enough for the glyph): returns the glyph's box (benchmarks) */
 int ttf_render(TTF *t, int gi, int size, int aa, unsigned char *buf, int bufsize, Glyph *g);
 
-/* ---- kernels: the inner loops, in C here and in assembly for each ISA
-   (asm/v1a, asm/v1b) when built with GFX_ASM ---- */
+/* ---- kernels: the inner loops, in C and in assembly for each ISA
+   (asm/v1a, asm/v1b) ---- */
 
 /* fill: h rows from word p, pitch bytes apart; in each, the first word
    under lmask, then n whole words, then one under rmask (none if rmask
@@ -222,11 +222,27 @@ typedef struct {
     int n, e, inc, dec, ystep, dir, depth;
 } LineJob;
 
+/* The C kernels are always there, as NAME_c; with GFX_ASM the library
+   calls the assembly ones, which may hand the cases they don't cover
+   to the C ones. */
+void fill_rows_c(const FillJob *j);
+void line_run_c(const LineJob *j);
+void blit_rows_c(const BlitJob *j);
+void expand_rows_c(const ExpandJob *j);
+void ramp_rows_c(const RampJob *j);
+#ifdef GFX_ASM
 void fill_rows(const FillJob *j);
 void line_run(const LineJob *j);
 void blit_rows(const BlitJob *j);
 void expand_rows(const ExpandJob *j);
 void ramp_rows(const RampJob *j);
+#else
+#define fill_rows fill_rows_c
+#define line_run line_run_c
+#define blit_rows blit_rows_c
+#define expand_rows expand_rows_c
+#define ramp_rows ramp_rows_c
+#endif
 
 /* the expansion tables, built by gfx_tables() (gfx.c) */
 extern unsigned gfx_x2[256];    /* 8 bits to 8 2-bit pixels (16 bits) */

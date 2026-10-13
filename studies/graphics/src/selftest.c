@@ -1,11 +1,16 @@
-/* Host-only checks of the word-level code against pixel-at-a-time
-   references: fills, blits (overlapping too) and expansion, at random
-   positions and sizes, at every depth. Built and run by heron graphics
-   selftest (needs gcc). */
+/* Checks of the word-level code against pixel-at-a-time references:
+   fills, blits (overlapping too), expansion, ramps and clipped lines, at
+   random positions and sizes, at every depth. heron graphics selftest
+   runs it on the host with gcc (the C kernels), and on the simulator for
+   both ISAs with the assembly kernels, with fewer iterations. */
 
 #include <stdio.h>
 #include <string.h>
 #include "gfx.h"
+
+#ifndef ITERS
+#define ITERS 3000
+#endif
 
 #define W 200
 #define H 40
@@ -85,7 +90,7 @@ int main(void)
         gfx_init(&a, a_mem, W, H, PITCH, d);
         gfx_init(&b, b_mem, W, H, PITCH, d);
         gfx_init(&src, src_mem, W, H, PITCH, 0);
-        for (it = 0; it < 3000; it++) {
+        for (it = 0; it < ITERS; it++) {
             randomize(&a);
             memcpy(b.bits, a.bits, PITCH * H);
             x0 = rnd() % W; y0 = rnd() % H;

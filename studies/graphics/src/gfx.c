@@ -187,8 +187,7 @@ void gfx_frame(Surface *s, int x0, int y0, int x1, int y1, int t, unsigned color
 
 /* ---- the fill kernel ---- */
 
-#ifndef GFX_ASM
-void fill_rows(const FillJob *j)
+void fill_rows_c(const FillJob *j)
 {
     unsigned *row = j->p, *p;
     unsigned pat = j->pat, lm = j->lmask, rm = j->rmask;
@@ -241,4 +240,3 @@ void fill_rows(const FillJob *j)
         break;
     }
 }
-#endif

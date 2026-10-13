@@ -63,6 +63,26 @@ def image(isa, kernels=False):
         raise BuildError(f"{isa}{' with kernels' if kernels else ''}: {e}") from None
 
 
+@functools.lru_cache(maxsize=None)
+def selftest_image(isa, iters=200):
+    """src/selftest.c with the assembly kernels, for the machine."""
+    from heron.studies.c_compiler.cc import driver
+    from heron.studies.c_compiler.cc.lex import CompileError
+    from heron.infra.objtools import assemble_object
+    from heron.infra import asm as asmcore
+    defines = {"GFX_ASM": "1", "ITERS": str(iters)}
+    try:
+        p = driver.Program(isa)
+        for f in ("selftest.c", "gfx.c", "blit.c", "expand.c", "line.c"):
+            p.add_file(os.path.join(SRC, f), [SRC], defines)
+        for path in asm_files(isa, True):
+            p.add_object(assemble_object(isa, path))
+        p.add_library()
+        return p.link()
+    except (CompileError, asmcore.AsmError) as e:
+        raise BuildError(f"selftest for {isa}: {e}") from None
+
+
 def host_binary():
     """Build the host reference with gcc; returns its path."""
     gcc = shutil.which("gcc")
