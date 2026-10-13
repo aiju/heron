@@ -1,15 +1,15 @@
 ---
-number: 10
+number: 0
 type: rfc
 title: Repository layout, studies, reports and RFCs
 status: open
 date: 2026-10-13
 context:
   commit: 852df5e (main, after the cleanup in PR #9)
-discussion: https://github.com/aiju/heron/issues/10
+discussion: https://github.com/aiju/heron/pull/11
 ---
 
-# RFC 0010: Repository layout, studies, reports and RFCs
+# RFC 0000: Repository layout, studies, reports and RFCs
 
 ## Summary
 
@@ -59,14 +59,19 @@ exist at first. Draft 2 fills them.
   them (see [Studies](#studies)).
 - Nothing depends on `reports/`. Reports cite code by study and commit.
 
-### How a design moves between them
+### Where work happens
 
-1. A design starts as one or more studies, for example the candidates for
-   draft 2.
-2. When Emily picks one (by accepting an RFC), it is copied into the root
-   folders. The study stays as the record and becomes frozen.
-3. When the current design is replaced, it moves into `studies/` as a
-   frozen study.
+This isn't a rule to be dogmatic about. Usually:
+
+- New design ideas start as studies, for example the candidates for
+  draft 2.
+- When Emily picks one, it becomes the current design in the root (see
+  open question 2 on moving or copying it).
+- When the current design is replaced, it becomes a frozen study.
+
+But work can happen in the root directly when that's the natural place for
+it, for example a change to the current design that doesn't need an
+experiment first.
 
 ## infra/
 
@@ -107,9 +112,9 @@ self-contained.
   After that, the README says what the study is and how to run it.
 - **Documentation:** a study's own documentation (an ISA spec, a hardware
   description) lives in the study. Its findings are reports.
-- **Command line:** each study has its own, for example
-  `python3 -m heron.studies.v1b_hw run fib.s`. There is no `--isa`; a
-  study knows its machine.
+- **Command line:** each study has its own, reached through the `heron`
+  command (see [Python packaging](#python-packaging)), for example
+  `heron v1b_hw run fib.s`. There is no `--isa`; a study knows its machine.
 - **Active vs frozen:**
   - **Active:** its tests run in the slow CI (see [CI](#ci)). Breakage
     while someone is working on it is accepted.
@@ -125,6 +130,9 @@ self-contained.
   decisions. If it suggests one, it points to an RFC.
 - **RFC:** proposes something and invites decisions: a design choice, a
   process, a set of ideas. Once the decision is made, the RFC records it.
+  An RFC can include findings that support it; an ISA RFC might include
+  measurements of the ISA, for example. Whether those findings deserve a
+  report of their own is a judgement call.
 
 Reports and RFCs share one numbering space.
 
@@ -138,24 +146,10 @@ Reports and RFCs share one numbering space.
 
 ### Numbers
 
-**Proposed:** a document's number is the number of a GitHub issue opened
-for it, titled "Report: …" or "RFC: …".
-
-- GitHub hands out issue numbers atomically, so parallel sessions can't
-  collide.
-- The issue is the document's discussion thread. It is closed when the
-  document leaves `draft` or `open`.
-- Gaps in the sequence (other issues and PRs use numbers too) don't matter.
-- **Without GitHub access:** use `XXXX`, and allocate the number when the
-  PR is opened.
-- **A unit test** checks that numbers are unique and the front matter is
-  valid.
-
-This RFC is numbered that way: issue #10.
-
-**Alternative:** a counter file in `reports/`. Two PRs that take the same
-number then conflict when the second merges. It is simpler and works
-offline, but the loser renumbers, and there is no discussion thread.
+For now, a new document takes the next free number. A unit test checks
+that numbers are unique and the front matter is valid. If two PRs take the
+same number, the one merged second renumbers. How parallel sessions should
+allocate numbers is still open (open question 3).
 
 ### Front matter
 
@@ -171,7 +165,7 @@ context:
   commit: 1a2b3c4           # on main: the code the results came from
 depends-on: [44]            # reports and RFCs this one builds on
 superseded-by: 51           # only once obsolete
-discussion: https://github.com/aiju/heron/issues/46
+discussion: https://github.com/aiju/heron/pull/52   # optional: where it was discussed
 ---
 ```
 
@@ -210,6 +204,15 @@ updates the report and its `commit`.
 **Index:** `reports/README.md` lists every report and RFC with its status.
 It is generated from the front matter.
 
+### Ideas RFCs
+
+An ideas RFC (`NNNN-rfc-ideas-<area>.md`) is a scratchpad for one area. It
+holds ideas not yet worth an RFC of their own, each with a status.
+
+- An idea worth pursuing gets its own RFC, linked from the list.
+- When a scratchpad gets stale, it is marked `obsolete` and a new one
+  starts with whatever is still live.
+
 ## docs/
 
 - **Reference for the current design:** what it is and how to use it.
@@ -236,6 +239,15 @@ It is generated from the front matter.
   environment's setup script). After that, imports work from any directory.
 - **Folder names:** every folder below these is a valid Python identifier.
 - **Go:** the chip-level simulator stays a Go module, in `infra/hwsim/`.
+- **The `heron` command:** `[project.scripts]` installs a `heron` command
+  that runs a tool or a study by name:
+  - `heron v1b_hw run fib.s`;
+  - `heron c_compiler cc prog.c --run`;
+  - `heron list` shows what there is, with each study's status.
+
+  Each study and tool provides a `main(argv)` in its `__main__.py`, so
+  `python3 -m heron.studies.v1b_hw` works too. Names of studies and tools
+  must not clash.
 
 Which languages the tools should be written in is a separate question for a
 separate RFC.
@@ -260,24 +272,23 @@ Where today's content goes:
 | `tmc/testing.py` (the harness parts) | `infra/` |
 | `tmc/si/`: IBIS, ngspice, field solver | `infra/si/` |
 | `tmc/si/`: the bus, clock, crosstalk and ground-bounce models and the sweeps | `studies/bus_si/` |
-| `programs/reference.py`, `expected/`, `common/` | `studies/benchmarks/`: the program suite's reference implementations, expected output and input data, shared by every draft |
+| `programs/reference.py`, `expected/`, `common/` | `tests/programs/`: the program suite's reference implementations, expected output and input data, shared by every draft (see open question 1) |
 | Draft 0: `tmc/isa/v0.py`, `sim.py`, `hw/microcode.py`, `hw/cpu_v0.py`, `report.py`, `analyze.py`, `programs/v0`, its tests; `isa-v0.md`, `hardware.md` | `studies/v0_hw/`, frozen |
 | `tmc/isa/v1a.py`, `v1b.py`, `v1common.py`, `sim32.py`, `timing32.py`, `report1.py`, `programs/v1a`, `programs/v1b`, their tests; `isa-v1*.md`, `timing-model-v1.md` | `studies/v1_isa/` |
 | `tmc/hw/ucode_v1b.py`, `rtl_v1b.py`, `cpu_v1b.py`, `check_v1b.py`, `report1b.py`, `tests/hw/exercise_v1b.py`; `hardware-v1b.md` | `studies/v1b_hw/` (depends on `v1_isa`) |
 | `tmc/cc`, `tmc/ir`, `tmc/codegen`, the C library, `programs/c`, `tests/cc` and the compiler tests; how the compiler works (`compiler.md`), `linking.md` | `studies/c_compiler/` (depends on `v1_isa`) |
 | `docs/evaluation.md`, `programming-notes.md`, `performance.md`, `microcode.md` | Reports on draft 0. The generated ones become report folders. |
-| `docs/notes-v1/*` | Five reports, one per writer |
+| `docs/notes-v1/*` | One report on writing the draft 1 programs, from all five writers' notes |
 | `docs/evaluation-v1.md`, `performance-v1.md` | A report on 1a vs 1b. Its recommendation for draft 2 moves to an RFC on what draft 2 builds on. |
 | `docs/performance-v1b.md`, `microcode-v1b.md` | Report folders, generated by `v1b_hw` |
 | `compiler.md`'s results, `compiler-performance.md` | A report on the compiler's code quality and on 1a vs 1b for compiled code |
-| `docs/proposals.md` | One RFC per section (instruction set, microarchitecture, memory and buses, I/O, video, networking, OS, MMU, and so on), keeping each item's status. "Answered so far" becomes accepted items. |
+| `docs/proposals.md` | One ideas RFC per section (instruction set, microarchitecture, memory and buses, I/O, video, networking, OS, MMU, and so on), keeping each item's status. The decisions in "Answered so far" go into `docs/overview.md`, which links the RFCs for why. |
 | The variable-length clocking measurements | A report (the analysis code was never committed). The scheme itself, which is decided, goes in `docs/clocking.md`. |
 | `docs/system-bus.md` | An open RFC; `docs/system-bus.md` again once accepted |
 | `docs/bus-si/*.json` | The folder of the SI results report |
 
-Existing documents get their numbers the same way new ones do: one issue
-each, closed at once. They are numbered in the order they were first
-written, so the draft 0 evaluation comes first.
+Existing documents are numbered from 0001 in the order they were first
+written, so the draft 0 evaluation is 0001.
 
 The work goes in three stages, each a PR with the tests passing:
 
@@ -292,8 +303,8 @@ The work goes in three stages, each a PR with the tests passing:
 ## AGENTS.md, in short
 
 - **Where things go:** the table in [Summary](#summary).
-- **Write findings as a report** and proposals as an RFC, with a number
-  from a new issue.
+- **Write findings as a report** and proposals as an RFC, with the next
+  free number. Small ideas go in the area's ideas RFC.
 - **Never set `accepted` or `rejected`.**
 - **`docs/` is reference for the current design only.**
 - **Studies:** a study lists what it depends on, and `infra/` never
@@ -301,12 +312,43 @@ The work goes in three stages, each a PR with the tests passing:
 
 ## Open questions
 
-1. **Numbers:** from GitHub issues, as proposed, or a counter file?
-2. **Loose ideas:** where do ideas go before they're worth an RFC? GitHub
-   issues, or one "ideas" RFC per area?
-3. **Command line:** should a top-level `heron` command dispatch to the
-   studies and tools, or is `python3 -m heron.studies.<name>` enough?
-4. **The benchmark suite:** is a `benchmarks` study the right home for the
-   suite every draft shares (reference implementations, expected output,
-   input data)?
-5. **Graduating a study:** copy it to the root, as proposed, or move it?
+1. **Where does the program suite live?** Today it's in `programs/`:
+   - **The programs:** 20, each defined by what it prints (`expected/`).
+   - **Reference implementations:** independent, in Python, producing that
+     output (`reference.py`).
+   - **Input:** shared console input (`common/`).
+
+   Every draft's assembly versions (16 for draft 0, 20 each for 1a and 1b)
+   and the 15 C versions are checked against the same expected output.
+   Draft 2 will be measured with it too. The options:
+
+   - **`tests/programs/` in the root (recommended).**
+     - It is independent of any design, and draft 2 will use it, so it is
+       naturally the current design's test suite.
+     - The studies use it as well. That is an exception to "a study
+       depends only on `infra/` and other studies", but frozen studies are
+       pinned to a commit anyway.
+     - Each draft's assembly versions stay in that draft's study.
+   - **A study of its own, `studies/benchmarks/`,** that the others depend
+     on. This keeps the dependency rule intact for studies, but the current
+     design would then depend on a study, or need a copy.
+   - **Inside `studies/v1_isa/`,** where most of it was written. Then the
+     frozen `v0_hw` and the `c_compiler` study would depend on `v1_isa`
+     just for test data.
+2. **When a study's design becomes current, move it to the root or copy
+   it?**
+   - **Move (recommended).**
+     - There is one copy of the code, and `git log --follow` carries its
+       history on.
+     - Nothing is lost: git keeps the study as it was, and reports cite
+       commits.
+     - The study's folder keeps only its README, with `status: moved`, and
+       says where the code went and in which commit.
+   - **Copy.**
+     - The study stays readable in the tree next to the current design.
+     - But a frozen study isn't kept working, so the copy only helps for
+       browsing.
+     - Two near-identical copies mean grep finds both, and changes can
+       land in the wrong one.
+3. **Numbers:** how should parallel sessions allocate them? For now they
+   take the next free number; see [Numbers](#numbers).
