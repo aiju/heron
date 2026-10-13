@@ -1,0 +1,16 @@
+# The fast checks (RFC 0000): the repository's own tests, on every pull
+# request and every push to main. Studies run in slow.yml.
+name: fast
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  repository:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python3 -m heron test

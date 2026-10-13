@@ -1,0 +1,25 @@
+# The slow checks (RFC 0000): every active study's tests and program suites,
+# the compiler bench, the chip-level simulator and static timing. Started by
+# hand from the Actions tab; failures are reported, not blocking. Frozen
+# studies and the signal-integrity sweeps never run here.
+name: slow
+on:
+  workflow_dispatch:
+jobs:
+  studies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - run: python3 -m heron test --active
+      - run: python3 -m heron v1_isa test
+      - run: python3 -m heron v1_isa --isa v1a test
+      - run: python3 -m heron c_compiler bench
+      - run: go test ./...
+        working-directory: infra/hwsim
+      - run: python3 -m heron v1b_hw hw sta

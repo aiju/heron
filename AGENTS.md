@@ -1,10 +1,11 @@
 # Agent instructions
 
 Heron is the design of a minicomputer built from 7400-series logic: the
-instruction sets, a CPU implementation with its microcode and chip-level
-netlist, simulators and timing analysis, a C compiler, the system bus, and
+instruction sets, CPU implementations with their microcode and chip-level
+netlists, simulators and timing analysis, a C compiler, the system bus, and
 the design discussions behind them. [README.md](README.md) has the layout
-and how to run everything.
+and how to run everything; [RFC 0000](reports/0000-rfc-repository-layout.md)
+has the reasons.
 
 ## Git
 
@@ -13,42 +14,91 @@ and how to run everything.
 - Keep each pull request to one topic: the bus spec, the compiler, the CPU
   netlist and so on.
 
-## Documents
+## Where things go
 
-- [docs/proposals.md](docs/proposals.md) holds every design idea with a
-  status: adopted, measured, recommended, decided, open or rejected.
-  - Only Emily decides. Record a choice as **decided** only when she has
-    made it.
-  - A rejected idea keeps its reason, so it isn't proposed again without
-    new evidence.
-- Some files are generated. Change the generator and rerun it rather than
-  editing the output by hand:
-  - `docs/performance*.md` and `docs/compiler-performance.md` (the README
-    says which command writes which);
-  - `docs/microcode.md` and `docs/microcode-v1b.md` (`python3 -m tmc ucode
-    --doc`, with `--isa v1b` for the second);
-  - `programs/expected/` and `programs/common/vm_code.s`
-    (`python3 programs/reference.py`);
-  - `tests/cc/expected/` (`python3 tests/cc/gen_expected.py`, which needs
-    gcc);
-  - `tmc/hw/timing.json` (`python3 -m tmc.hw.build_timing`, from
-    `tmc/hw/datasheets/`).
-- When you add a document or a command, add it to the README.
+| What | Where |
+|---|---|
+| The current design, as reference: what it is, not why or what else was considered | `docs/` (and, from draft 2, `isa/`, `hw/`, `sw/`, `tools/`) |
+| An experiment: a design, a measurement, a tool | its own folder in `studies/` |
+| Code any design can reuse, with no opcodes, microcode fields or memory map in it | `infra/` |
+| What you did and found | a report in `reports/` |
+| A proposal, or anything that needs Emily to decide | an RFC in `reports/` |
+| A small idea, not yet worth an RFC | the area's ideas RFC (0005–0010) |
+
+- **Dependencies:** `infra/` never imports a study. A study may use other
+  studies, and lists them in the front matter of its README.
+- **Frozen studies:** don't fix a frozen study unless asked. Its code may
+  stop working as `infra/` changes; its README says which commit it last
+  ran at.
+- **Working in the root:** where work happens isn't dogma. Work in the
+  root when that's the natural place.
+
+## Reports and RFCs
+
+- **Files:** `reports/NNNN-report-slug.md` or `reports/NNNN-rfc-slug.md`,
+  or a folder of that name with a `README.md` and data or generated files.
+- **Numbers:** a new document takes the next free number. Reports and RFCs
+  share one numbering space. If another PR took the same number first,
+  renumber yours.
+- **Front matter:** every report and RFC starts with YAML front matter
+  (number, type, title, status, date, context with the studies and a
+  commit on `main`). Copy it from an existing one.
+- **Statuses:**
+  - reports are `draft`, `current` or `obsolete`;
+  - RFCs are `draft`, `open`, `accepted`, `rejected` or `obsolete`;
+  - set `superseded-by` when something replaces a document.
+- **Who decides:** only Emily decides. Never set `accepted` or `rejected`
+  unless she has made that choice. A rejected idea keeps its reason, so it
+  isn't proposed again without new evidence.
+- **Reports are snapshots:** once a report is `current`, don't rewrite its
+  text. Only its status, `superseded-by` and clearly marked errata change.
+- **RFCs may carry findings:** an RFC can include the findings behind it.
+  Whether they deserve a report of their own is a judgement call.
+- **The index:** after adding a report or changing a status, run
+  `python3 -m heron reports`. It rewrites `reports/README.md` and checks
+  the front matter.
+
+## Generated files
+
+Change the generator and rerun it rather than editing the output by hand:
+
+- the `performance.md` in reports 0001, 0004, 0011 and 0012:
+  - `heron v0_hw report`
+  - `heron v1_isa report`
+  - `heron c_compiler bench --write`
+  - `heron v1b_hw report`
+- `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
+  `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
+- `studies/v1_isa/programs/expected/` and
+  `studies/v1_isa/programs/common/vm_code.s`:
+  `python3 studies/v1_isa/programs/reference.py`;
+- `studies/c_compiler/tests/cc/expected/`:
+  `python3 studies/c_compiler/tests/cc/gen_expected.py` (needs gcc);
+- `infra/hw/timing.json`: `python3 -m heron.infra.hw.build_timing`, from
+  `infra/hw/datasheets/`;
+- `studies/v0_hw/baseline.json`: `baseline.write()` in that study (it's
+  frozen, so this shouldn't be needed);
+- `reports/README.md`: `heron reports`.
 
 ## Checking changes
 
-- `python3 -m unittest discover tests`: assembler, ISA, compiler and linker
-  tests.
-- `python3 -m tmc test` and `python3 -m tmc --isa v1b test`: the programs
+Run commands from the repository root as `python3 -m heron ...` (or as
+`heron` after `pip install -e .`).
+
+- `heron test`: the repository's own tests (front matter, the index, links,
+  infra's dependencies).
+- `heron test v1_isa c_compiler v1b_hw v0_hw`: a study's unit tests. Run
+  the ones for the studies you touched, or `--active` for every active one.
+- `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
   against their expected output.
-- `python3 -m tmc ccbench`: the C versions of the programs, compiled for
-  both draft 1 encodings, against the same expected output.
-- `(cd hwsim && go test ./...)`: the Go simulator's chip models.
-- The chip-level and signal-integrity runs are slow. The full hardware
-  report takes about half an hour.
-- The signal-integrity sweeps take over an hour on a fast laptop. Don't run
-  them in a cloud session: they are meant for a local machine
-  ([tmc/si/README.md](tmc/si/README.md)).
+- `heron c_compiler bench`: the C versions of the programs on both
+  encodings.
+- `(cd infra/hwsim && go test ./...)`: the chip-level simulator.
+- **Slow runs:** the chip-level runs (`heron v1b_hw hw test`,
+  `heron v1b_hw report --hw`) take 30–60 minutes for the full set.
+- **Never in a cloud session:** the signal-integrity sweeps take over an
+  hour on a fast laptop and are meant for a local machine
+  ([studies/bus_si](studies/bus_si/README.md)).
 
 ## Big files
 
@@ -59,7 +109,7 @@ it's been deleted.
   netlists, the simulator binary, simulation scratch and the IBIS models
   from ti.com.
 - Don't commit anything that can be regenerated quickly from the code. The
-  signal-integrity results in `docs/bus-si/` are the exception, since they
+  signal-integrity results in report 0013 are the exception, since they
   take hours to produce.
 - Keep every file under 10 MB, and check `git diff --cached --stat` before
   committing.
