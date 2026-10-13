@@ -12,6 +12,7 @@ from ..asm import AsmError, Reg, Imm, Mem, Expr
 
 NAME = "v0"
 DESCRIPTION = "draft 0: 16x16-bit registers, 4-4-4-4 encoding, load/store"
+PROGRAM_DIR = "v0"
 
 REGISTERS = {f"r{i}": i for i in range(16)}
 REGISTERS["sp"] = 15

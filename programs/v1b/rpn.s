@@ -1,13 +1,13 @@
-; rpn: a signed 16-bit RPN calculator (draft 1b). Each input line is
-; evaluated on its own: numbers are pushed, + - * / work on the top two.
-; After each line the stack is printed bottom to top, or the first error.
+; rpn: a signed 16-bit RPN calculator. Each input line is evaluated on its
+; own: numbers are pushed, + - * / work on the top two. After each line
+; the stack is printed bottom to top, or the first error.
 ;
 ; Numbers are decimal with an optional '-' and wrap mod 2^16, like the
 ; arithmetic. Division rounds toward zero; -32768 / -1 wraps to -32768.
 ; The calculator stack holds 16-bit values sign-extended to 32 bits, so the
 ; 32-bit ADD, SUB, MULS and DIVS give the right 16-bit result after an SXH.
 
-;! input: "3 4 +\n5 1 2 + 4 * + 3 -\n2 3 4 * +\n-7 2 /\n7 -2 /\n-7 -2 /\n100 7 / 100 7 * -\n1 2 3\n1 +\n9 -\n5 0 /\n5 5 5 - /\n32767 1 +\n-32768 -1 /\n300 300 *\n-300 300 *\n70000 1 +\n12 abc +\n4x 1\n--5\n-\n\t 42   -1  \n\n1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16\n1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17\n2 3 * 4 5 * + 6 /"
+;! input-file: ../common/rpn.txt
 
         .include "lib/start.s"
 
