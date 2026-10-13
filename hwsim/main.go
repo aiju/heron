@@ -19,8 +19,6 @@ type Config struct {
 	Netlist     string              `json:"netlist"`
 	Roms        map[string]string   `json:"roms"`
 	RamImage    string              `json:"ram_image"`
-	RamLo       string              `json:"ram_lo"`
-	RamHi       string              `json:"ram_hi"`
 	RamDump     string              `json:"ram_dump"`
 	ZeroRegs    bool                `json:"zero_regs"`
 	PeriodPS    int64               `json:"period_ps"`
@@ -100,7 +98,7 @@ func main() {
 		cfg.RFEntries = 16
 	}
 	if cfg.RAMChips == nil {
-		cfg.RAMChips = []string{cfg.RamLo, cfg.RamHi}
+		cfg.RAMChips = []string{"U_RAML", "U_RAMH"}
 	}
 	if cfg.RAMBits == 0 {
 		cfg.RAMBits = 15
@@ -392,8 +390,8 @@ func main() {
 	}
 }
 
-// buildWithMemories builds the simulator, handing preloaded contents to
-// memory models before their Init runs.
+// Build builds the simulator, handing preloaded contents to memory models
+// before their Init runs.
 func (s *Sim) Build(nl *NetlistJSON, pre map[string][]byte) {
 	s.Nets = make([]Net, len(nl.Nets))
 	for i, n := range nl.Nets {

@@ -323,8 +323,3 @@ def build():
     nl.finish()
     nl.check()
     return nl
-
-
-# Nets the simulator watches at the end of every cycle.
-PROBES = ["uHALT_n", "uEND_n", "uLDIR_n", "MODERST", "MODEIRQ", "IFLAG", "NFLAG", "ZFLAG", "CFLAG",
-          "VFLAG"] + bus("ADDR", 16) + bus("DBUS", 16) + bus("PC", 15, 1) + bus("STEP", 4)
