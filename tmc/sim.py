@@ -90,6 +90,7 @@ class Machine:
         self.kind_cycles = Counter()
         self.irqs = 0
         self.illegals = []
+        self.in_trap = False    # SWI or an illegal instruction trapped, and no RTI since
         self.min_sp = 0x10000
         self.io_base = isa.IO_BASE
         self.trace = None
@@ -128,6 +129,7 @@ class Machine:
 
     def illegal(self, w):
         self.illegals.append((self.pc, w))
+        self.in_trap = True
 
     # ---- execution ------------------------------------------------------
 
@@ -174,7 +176,13 @@ class Machine:
                 self.dev.tick(self.cycles)
             self.halted = False
             i_before = 1
-        enabled = self.i if k == "RTI" else i_before
+        if k == "RTI":
+            enabled = self.i
+            self.in_trap = False
+        else:
+            enabled = i_before
+            if k == "SWI":
+                self.in_trap = True
         if enabled and self.dev.irq() and not self.halted:
             self.irqs += 1
             self.isa.enter_interrupt(self, self.isa.IRQ_VECTOR)

@@ -3,6 +3,10 @@
 --isa defaults to v0, except for cc (v1b). run and ld take the ISA from
 object files and executables; an --isa that disagrees with them is an error.
 
+run takes console input from a .s file's `;! input:` line unless --input or
+--input-file is given. It exits with 1 unless the program halts normally:
+on a simulator error, at the cycle limit, or when it halts in a trap handler.
+
   asm   FILE.s [-o FILE.bin] [-l FILE.lst]   assemble
   asm   -c FILE.s [-o FILE.o]                assemble into an object file (draft 1)
   ld    FILE.o... [-o PROG.out]              link (see tmc/link.py)
@@ -85,10 +89,16 @@ def cmd_run(args):
         return 1
     isa = isas.get(args.isa)
     args.file = args.files[0]
-    inp = args.input.encode().decode("unicode_escape").encode("latin-1") if args.input else b""
     if args.input_file:
         with open(args.input_file, "rb") as f:
             inp = f.read()
+    elif args.input is not None:
+        inp = args.input.encode().decode("unicode_escape").encode("latin-1")
+    elif args.file.endswith(".s"):
+        from .testing import metadata
+        inp = metadata(args.file)["input"]      # the program's own ;! input: line, if any
+    else:
+        inp = b""
     if getattr(isa, "WIDE", False):
         return run32(args, isa, img, inp)
     m = Machine(isa, img, inp=inp, timing=get_timing(args.isa, not args.no_timing))
@@ -101,14 +111,20 @@ def cmd_run(args):
             text, _ = isa.disassemble(w, nxt, m.pc, syms)
             print(f"{m.cycles:>9} {m.pc:04X}  {text:<26} {m.regs_str()}", file=sys.stderr)
         m.trace = tr
+    err = None
     try:
         m.run(max_cycles=args.max_cycles)
     except SimError as e:
-        sys.stdout.write(m.dev.out.decode("latin-1"))
-        print(f"\nerror: {e}", file=sys.stderr)
-        return 1
-    sys.stdout.write(m.dev.out.decode("latin-1"))
+        err = e
     sys.stdout.flush()
+    sys.stdout.buffer.write(bytes(m.dev.out))     # as bytes: the console is 8-bit
+    sys.stdout.buffer.flush()
+    if err is not None:
+        print(f"\nerror: {err}", file=sys.stderr)
+        return 1
+    for pc, w in m.illegals[:5]:
+        print(f"\nillegal instruction {w:04X} (trap returns to {pc:04X})", file=sys.stderr)
+    status = halt_status(m)
     if args.stats or args.regs:
         print(f"\n--- halted at {m.pc:04X}: {m.instructions} instructions, {m.cycles} cycles"
               f" (CPI {m.cycles / max(1, m.instructions):.2f})", file=sys.stderr)
@@ -118,6 +134,17 @@ def cmd_run(args):
         for k, n in m.kinds.most_common():
             print(f"  {k:<14} {n:>9}  {100 * n / max(1, m.instructions):5.1f}%"
                   f"  {m.kind_cycles[k]:>10} cycles", file=sys.stderr)
+    return status
+
+
+def halt_status(m):
+    """Exit status once the machine has halted: 1 if it halted in a trap
+    handler (a trap, SWI included, and no RTI since): the program's fatal
+    error handler, or no handler at all, since a zero vector is HALT.
+    Traps a handler returns from are fine."""
+    if m.in_trap:
+        print("\nerror: halted in a trap handler", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -130,9 +157,6 @@ def run32(args, isa, img, inp):
     from .sim32 import Machine32, SimError as SimError32
     from . import timing32
     from .isa.v1common import Trap
-    if args.input_file is None and args.input is None and args.file.endswith(".s"):
-        from .testing import metadata
-        inp = metadata(args.file)["input"]
     m = Machine32(isa, img, inp=inp)
     syms = {v: k for k, v in img.symbols.items() if "." not in k}
     if args.trace:
@@ -162,6 +186,7 @@ def run32(args, isa, img, inp):
         print(f"\nerror: {err}", file=sys.stderr)
         print(m.regs_str(), file=sys.stderr)
         return 1
+    status = halt_status(m)
     if args.stats or args.regs:
         print(f"\n--- halted at {m.pc:X}: {m.instructions} instructions, "
               f"{img.code_bytes()} bytes of code, lowest sp {m.min_sp:X}", file=sys.stderr)
@@ -199,7 +224,7 @@ def run32(args, isa, img, inp):
         print(f"cycles by routine ({ref}):", file=sys.stderr)
         for k, c in per.most_common(12):
             print(f"  {k:<24} {c:>10}  {100 * c / total:5.1f}%", file=sys.stderr)
-    return 0
+    return status
 
 
 def cmd_dis(args):
@@ -258,7 +283,8 @@ def main(argv=None):
     r = sub.add_parser("run", help="assemble and run on the instruction-level simulator")
     r.add_argument("files", nargs="+", metavar="file",
                    help="a .s file, an executable, or object files to link")
-    r.add_argument("--input", help="console input (escapes allowed)")
+    r.add_argument("--input", help="console input (escapes allowed; default: the program's "
+                                   "';! input:' line)")
     r.add_argument("--input-file")
     r.add_argument("--trace", action="store_true")
     r.add_argument("--stats", action="store_true")

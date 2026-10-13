@@ -1,6 +1,10 @@
 """Draft 1a/1b: assembler/disassembler round trip, semantics, timing model."""
 
+import io
+import os
+import tempfile
 import unittest
+from contextlib import redirect_stdout, redirect_stderr
 
 from tmc import asm, isa as isas, timing32
 from tmc.sim32 import Machine32
@@ -137,6 +141,7 @@ class Semantics(unittest.TestCase):
             self.assertEqual(m.r[14], 0x7E)
             self.assertEqual(m.r[2], 0)
             self.assertEqual(m.traps[0][1], "divide by zero")
+            self.assertTrue(m.in_trap)          # the handler halted
 
     def test_shifts(self):
         for m in self.both("""
@@ -302,6 +307,71 @@ class Timing(unittest.TestCase):
         # extension parcels: one bus cycle each, unless already buffered
         self.assertEqual(cyc((2, 0, "alu", 1), "D32-overlap"), 3)
         self.assertEqual(cyc((2, 0, "alu", 1), "D32-wide"), 2)
+
+
+def tmc_run(isa, src, *argv):
+    """python3 -m tmc --isa ISA run on src (written to a file) and argv:
+    (exit status, console output, stderr)."""
+    from tmc.__main__ import main
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "t.s")
+        with open(path, "w") as f:
+            f.write(src)
+        out, err = io.TextIOWrapper(io.BytesIO()), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = main(["--isa", isa, "run", path, *argv])
+        out.flush()
+        return rc, out.buffer.getvalue(), err.getvalue()
+
+
+class RunCommand(unittest.TestCase):
+    """`tmc run`: exit status 1 unless the program halts normally. A trap
+    the handler returns from is fine; halting in the handler isn't."""
+    PROG = """
+        .org 0
+        JMP  start
+        .org 0x0C
+        RTI                     ; SWI: returns to the next instruction
+        .org 0x10
+        DIVIDE_HANDLER
+        .org 0x18
+skip:   ST   r1, -[sp]          ; skip the faulting instruction
+        MOV  r1, [sp + 8]
+        ADD  r1, #2
+        ST   r1, [sp + 8]
+        MOV  r1, [sp]+
+        RTI
+start:  LI   sp, #0x100000
+        MOV  r1, #97
+        ST   r1, byte [0xFFFFFF00]
+        SWI  #1
+        DIVU r1, r0
+        HALT
+"""
+
+    def test_trap_handled(self):
+        rc, out, err = tmc_run("v1b", self.PROG.replace("DIVIDE_HANDLER", "JMP  skip"))
+        self.assertEqual((rc, out), (0, b"a"))
+        self.assertIn("divide by zero", err)
+        self.assertNotIn("error", err)
+
+    def test_halt_in_trap_handler(self):
+        rc, out, err = tmc_run("v1b", self.PROG.replace("DIVIDE_HANDLER", "HALT"))
+        self.assertEqual((rc, out), (1, b"a"))
+        self.assertIn("error: halted in a trap handler", err)
+
+    def test_no_trap_handler(self):
+        # nothing at the SWI vector: a zero parcel is HALT
+        for isa in ("v1a", "v1b"):
+            rc, _, err = tmc_run(isa, "        .org 0\n        JMP  start\n        .org 0x18\n"
+                                      "start:  SWI  #1\n        HALT\n")
+            self.assertEqual(rc, 1, isa)
+            self.assertIn("error: halted in a trap handler", err)
+
+    def test_cycle_limit(self):
+        rc, _, err = tmc_run("v1b", "loop:   BRA  loop\n", "--max-cycles", "1000")
+        self.assertEqual(rc, 1)
+        self.assertIn("error: cycle limit", err)
 
 
 if __name__ == "__main__":

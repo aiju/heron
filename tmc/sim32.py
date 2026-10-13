@@ -95,7 +95,8 @@ class Machine32:
         self._ref = {}
         self.cache = {}                 # pc -> (fn, parcels)
         self.code = bytearray(RAM_SIZE >> 1)   # parcels covered by cached instructions
-        self.traps = []                 # (pc, what)
+        self.traps = []                 # (pc, what), all but SWI
+        self.in_trap = False            # a trap (SWI too) was taken, and no RTI since
         self.irqs = 0
         self.min_sp = M32
         self.trace = None
@@ -229,6 +230,7 @@ class Machine32:
             what = t.why or TRAP_NAMES.get(t.vector, "trap")
             if t.vector != SWI_VECTOR:
                 self.traps.append((pc, what))
+            self.in_trap = True
             ret = pc if t.fault else self.pc
             enter_interrupt(self, t.vector, ret)
             key = (n, pc & 2, "trap")
@@ -247,7 +249,11 @@ class Machine32:
                 dev.tick(self.cycles)
             self.halted = False
             i_before = 1
-        enabled = self.i if key[2] == "rti" else i_before
+        if key[2] == "rti":
+            enabled = self.i
+            self.in_trap = False
+        else:
+            enabled = i_before
         if enabled and dev.irq() and not self.halted:
             self.irqs += 1
             enter_interrupt(self, IRQ_VECTOR, self.pc)
