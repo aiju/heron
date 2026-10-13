@@ -300,6 +300,10 @@ def main(argv=None):
     r1b.set_defaults(fn=lambda args: __import__("tmc.report1b", fromlist=["x"]).main(
         (["--hw"] if args.hw else []) + ["--jobs", str(args.jobs)]))
 
+    si = sub.add_parser("si", help="backplane signal-integrity simulation (needs ngspice)")
+    si.add_argument("rest", nargs=argparse.REMAINDER)
+    si.set_defaults(fn=lambda args: __import__("tmc.si.cli", fromlist=["x"]).main(args.rest))
+
     cc = sub.add_parser("cc", help="compile C for draft 1a/1b (see tmc/cc)")
     __import__("tmc.cc.__main__", fromlist=["x"]).add_arguments(cc)
     cc.set_defaults(fn=lambda args: __import__("tmc.cc.__main__", fromlist=["x"]).run(args, args.isa))
