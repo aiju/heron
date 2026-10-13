@@ -78,8 +78,9 @@ Chip counts are rough estimates, scaled from the 98-chip draft 0 design.
 - **Build in stages on a backplane of cards** (CPU, memory, then MMU and I/O
   cards). Above ~150 chips, only PCBs or a backplane, no breadboards.
   **decided**: 4-layer PCBs and a backplane with two 96-pin connectors per
-  slot ([section 5](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)). The card size is **open**. The CPU needs
-  at least two boards; how to split it is **open**.
+  slot ([section 5](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)). The CPU needs at least two boards. The card
+  size and how to split the system into cards wait until the design is
+  closer to completion (Emily, 2026-10-13).
 - **A second, heterogeneous CPU: an ECL number cruncher**, designed
   separately, sharing the system bus and with its own RAM. It had been
   **decided** in principle; now **deprioritised** (Emily, 2026-10-13): it
@@ -175,9 +176,10 @@ Questions raised along the way that only Emily can answer:
    peripheral acceptable?
 6. The bus clock: its period (60 ns for now) and where it comes from, the
    CPU board or an oscillator on the backplane?
-7. How to split the CPU over two or more boards, and DIP or SOIC?
-8. The card size? Two 96-pin connectors per slot are decided.
-9. May the design use PLDs (GALs)? The backplane's logic is about 45 chips
+7. How to split the system into cards (the CPU needs at least two), the
+   card size, and DIP or SOIC? These wait until the design is closer to
+   completion. Two 96-pin connectors per slot are decided.
+8. May the design use PLDs (GALs)? The backplane's logic is about 45 chips
    without them and about 25 with them
    ([RFC 0014](0014-rfc-system-bus.md#9-electrical-rules)).
 
@@ -187,7 +189,8 @@ Answered so far:
 - Compare RISC-like and CISC-like encodings: done.
 - PCBs: 4-layer.
 - A backplane with slots: yes, with two 96-pin connectors per slot, P1
-  enough for simple peripherals. The card size is still open.
+  enough for simple peripherals. The card size and the split into cards
+  wait until the design is closer to completion.
 - Variable-length cycles from a 50 MHz master clock: yes, with lengths set
   by jumpers, and the timer counting real time.
 - A second CPU, an ECL number cruncher: deprioritised, it may not happen

@@ -89,8 +89,9 @@ simulations of the backplane
 - **Two 96-pin connectors per slot**, with P1 alone enough for simple
   peripherals. **decided.**
   - DIN 41612, as VME uses: **recommended.**
-  - The card size is **open** (Emily, 2026-10-13). 6U Eurocards
-    (233 × 160 mm) were proposed, and the simulations assumed them.
+  - The card size waits until the design is closer to completion (Emily,
+    2026-10-13). 6U Eurocards (233 × 160 mm) were proposed, and the
+    simulations assumed them.
   - **P1:** D0–D15, A1–A31, BE0–1, START, WRITE, LOCK, RD, WR, RDY, WAIT,
     BERR, BUSY, REQ, GNT, SEL, PRESENT, BCLK, RESET, IRQ0–3, four reserved
     pins, and 24 power and ground pins.
@@ -98,6 +99,20 @@ simulations of the backplane
     CLKSRC, about 16 power and ground pins and about 49 user-defined pins.
   - Full lists in [RFC 0014, section 3](0014-rfc-system-bus.md#3-signals); the
     pin-by-pin assignment is still to do.
+- **Full-width and half-width slots** (Emily's idea). **open**, until the
+  card size is settled.
+  - Some columns of the backplane take full cards on P1 and P2. Others take
+    two P1-only cards stacked, with a second P1 where a full column has its
+    P2. For example, 4 full columns and 4 half columns give 12 slots in
+    8 columns.
+  - Half cards are exactly the simple-slave profile: 16 bits wide, no
+    bursts, IRQ0–IRQ3 only. The map marks their pages as 16-bit.
+  - Eurocards fit it: 6U is two 3U heights plus a gap for a middle rail.
+    The rail also keeps full cards out of half columns, so a P2 never meets
+    a lower P1.
+  - To check: P1 then runs through both connector rows, as one chain with
+    an unloaded hop of about 133 mm between them, which needs simulating.
+    BCLK needs length matching to the lower slots.
 - **An address map in RAM on the backplane.** **decided** (Emily,
   2026-10-13).
   - **What it maps:** each 128 KB page of the 32-bit address space
@@ -235,5 +250,6 @@ simulations of the backplane
     Until then, decouple every bus chip and prefer SOIC or flow-through
     parts for wide drivers.
 - **CPU board partitioning:** at least two boards. Where to split, and DIP
-  or SOIC, are **open**. The internal buses (A, B, F, RES) and the 120
+  or SOIC, are **open**, and wait until the design is closer to completion
+  (Emily, 2026-10-13). The internal buses (A, B, F, RES) and the 120
   control lines are what make the split hard.

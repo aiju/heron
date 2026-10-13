@@ -50,8 +50,9 @@ first draft:
   - LOCK and slave ports ([section 6](#6-arbitration)).
 - **Simple peripherals** go on the system bus; the separate I/O bus is
   rejected ([section 12](#12-rejected-a-separate-io-bus)).
-- **Cards:** the card size is open; two 96-pin connectors per slot are
-  decided.
+- **Cards:** two 96-pin connectors per slot are decided. The card size,
+  and how the system splits into cards, wait until the design is closer to
+  completion. Nothing in the protocol depends on them.
 - **The backplane** carries active logic (decided), and no −5.2 V. The ECL
   number cruncher is deprioritised, so the bus no longer plans around it.
 
@@ -85,7 +86,7 @@ first draft:
 | Bursts | One word per clock after the first: **optional** ([section 7](#7-bursts-optional)) |
 | Masters | Any slot. A round-robin arbiter on the backplane; the bus stays with the last master while nobody else asks |
 | Backplane | Active logic: the address map and transfer timing, the arbiter, the bus monitor, the clock buffer and the power-on reset. **decided** |
-| Cards | Two 96-pin connectors per slot (DIN 41612, as simulated), up to 16 slots. P1 alone is enough for a simple peripheral. **decided**. The card size is **open** |
+| Cards | Two 96-pin connectors per slot (DIN 41612, as simulated), up to 16 slots. P1 alone is enough for a simple peripheral. **decided**. The card size, and how the system splits into cards, wait until the design is closer to completion |
 | Simple peripherals | On the system bus. **decided**. The backplane gives each one a select line, read and write strobes and its wait states, so a card needs no clock, no address comparator and no WAIT logic |
 
 Peak rates at T = 60 ns:
@@ -856,8 +857,8 @@ they barely change: 18 / 26 ns for ABT.
   The simulation follows the waveforms through the edge and the V-I tables
   for the levels.
 - **Card size.** The simulations assumed 6U cards at a 20.32 mm pitch with
-  25 mm stubs. A different pitch or stub length needs the affected cases
-  rerun.
+  25 mm stubs. Once the card size and the backplane's layout are settled,
+  the affected cases need rerunning.
 - **Power.** No −5.2 V on the backplane. A higher supply voltage, such as
   +12 V, may come: **open**.
 
@@ -1022,7 +1023,10 @@ peripherals:
 
 1. The bus clock period (60 ns for now), and whether the clock comes from
    the main CPU board or an oscillator on the backplane.
-2. The card size. Two 96-pin connectors are decided.
+2. The card size and how the system splits into cards. These wait until
+   the design is closer to completion. Two 96-pin connectors are decided.
+   One idea for then, full-width and half-width slots, is in
+   [RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses).
 3. May the design use PLDs (GALs)? The backplane's logic is about 45 chips
    without them and about 25 with them, and the bridges shrink too.
 4. A higher supply voltage on the backplane: which one, and on which pins.
@@ -1052,8 +1056,9 @@ Emily has decided:
 
 And on 2026-10-13:
 
-- two 96-pin connectors per slot. The card size is still to be decided
-  (6U Eurocards had been marked as decided);
+- two 96-pin connectors per slot. The card size, and how the system is
+  split into cards, wait until the design is closer to completion (6U
+  Eurocards had been marked as decided);
 - the bus clock isn't decided: it is a variable for now, with 60 ns as the
   starting point;
 - the mapping from addresses to slots, and from addresses to wait states,
