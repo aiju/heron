@@ -126,7 +126,12 @@ def add_ld_arguments(p):
 
 def cmd_ar(args):
     if args.t:
-        for name, o in O.read_archive(args.t):
+        try:
+            members = O.read_archive(args.t)
+        except (O.ObjError, OSError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        for name, o in members:
             globs = [s.name for s in o.symbols if s.is_global and s.defined]
             print(f"{name}: {' '.join(globs)}")
         return 0

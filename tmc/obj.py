@@ -209,6 +209,8 @@ class ObjectFile:
             pos += nstr
         except struct.error:
             raise ObjError(f"{name}: truncated object file")
+        if len(strtab) != nstr:
+            raise ObjError(f"{name}: truncated object file")
 
         def s(off):
             return strtab[off:strtab.index(b"\0", off)].decode("utf-8")
@@ -264,15 +266,20 @@ def read_archive(path):
         buf = f.read()
     if buf[:4] != AR_MAGIC:
         raise ObjError(f"{path}: not a library")
-    (n,) = struct.unpack_from("<I", buf, 4)
-    pos = 8
     out = []
-    for _ in range(n):
-        (ln,) = struct.unpack_from("<I", buf, pos)
-        name = buf[pos + 4:pos + 4 + ln].decode("utf-8")
-        pos += 4 + ln
-        (size,) = struct.unpack_from("<I", buf, pos)
-        pos += 4
-        out.append((name, ObjectFile.from_bytes(buf[pos:pos + size], f"{path}({name})")))
-        pos += size
+    try:
+        (n,) = struct.unpack_from("<I", buf, 4)
+        pos = 8
+        for _ in range(n):
+            (ln,) = struct.unpack_from("<I", buf, pos)
+            name = buf[pos + 4:pos + 4 + ln].decode("utf-8")
+            pos += 4 + ln
+            (size,) = struct.unpack_from("<I", buf, pos)
+            pos += 4
+            if pos + size > len(buf):
+                raise ObjError(f"{path}: truncated library")
+            out.append((name, ObjectFile.from_bytes(buf[pos:pos + size], f"{path}({name})")))
+            pos += size
+    except (struct.error, UnicodeDecodeError):
+        raise ObjError(f"{path}: truncated library")
     return out
