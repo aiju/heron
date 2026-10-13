@@ -313,7 +313,7 @@ class Program:
         for u in self.units:
             for f in u.module.functions:
                 for i in f.instructions():
-                    if i.op == "memcpy" and i.size > 64:
+                    if i.op == "memcpy" and i.size > target_for(self.isa).INLINE_COPY:
                         roots.append("memcpy")
         live = set()
         work = [r for r in roots if r in objs]
@@ -373,12 +373,12 @@ def compile_files(paths, isa, opt=1, include=(), defines=None, library=True, ver
 
 
 def compile_to_ir(paths, isa, opt=1, include=(), defines=None):
+    """The C files' IR, optimised as the backend gets it."""
     p = Program(isa, opt)
     for path in paths:
         p.add_file(path, include, defines)
     for u in p.units:
-        for f in u.module.functions:
-            optimize(f, opt)
+        optimize_unit(u, isa, opt)
     return "\n".join(str(u.module) for u in p.units)
 
 

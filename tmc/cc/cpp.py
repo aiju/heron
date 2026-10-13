@@ -285,7 +285,7 @@ class Preprocessor:
         if not vals:
             raise CompileError("#if with no expression", where)
         p = IfParser(vals, where)
-        v = p.expr()
+        v, _ = p.expr()
         if p.i != len(vals):
             raise CompileError("junk at the end of #if", vals[p.i])
         return v != 0
@@ -497,8 +497,29 @@ def paste(a, b):
     return t
 
 
+def div_trunc(a, b):
+    """C's / and % on ints (b != 0): the quotient rounds toward zero."""
+    q = abs(a) // abs(b)
+    if (a < 0) != (b < 0):
+        q = -q
+    return q, a - q * b
+
+
+def wrap32(v, unsigned):
+    """v as a 32-bit long or unsigned long."""
+    v &= 0xFFFFFFFF
+    if not unsigned and v & 0x80000000:
+        v -= 1 << 32
+    return v
+
+
 class IfParser:
-    """Constant expressions in #if (as unbounded ints; good enough)."""
+    """Constant expressions in #if, with C's arithmetic in long and unsigned
+    long (32 bits, as in the compiler; there's no long long): every value is
+    (v, unsigned), with v in its type's range, and an operation on a signed
+    and an unsigned value is unsigned. Division by zero is an error, except
+    in an operand that isn't evaluated (after && or || has decided, or the
+    arm of ?: not taken)."""
 
     BIN = [["||"], ["&&"], ["|"], ["^"], ["&"], ["==", "!="], ["<", ">", "<=", ">="],
            ["<<", ">>"], ["+", "-"], ["*", "/", "%"]]
@@ -507,6 +528,7 @@ class IfParser:
         self.toks = toks
         self.i = 0
         self.where = where
+        self.skip = 0           # > 0 inside an operand that isn't evaluated
 
     def peek(self):
         return self.toks[self.i].text if self.i < len(self.toks) else None
@@ -522,11 +544,17 @@ class IfParser:
         c = self.binary(0)
         if self.peek() == "?":
             self.take()
+            taken = c[0] != 0
+            self.skip += not taken
             a = self.expr()
+            self.skip -= not taken
             if self.take().text != ":":
                 raise CompileError("expected ':' in #if", self.where)
+            self.skip += taken
             b = self.expr()
-            return a if c else b
+            self.skip -= taken
+            u = a[1] or b[1]
+            return wrap32((a if taken else b)[0], u), u
         return c
 
     def binary(self, level):
@@ -535,25 +563,38 @@ class IfParser:
         v = self.binary(level + 1)
         while self.peek() in self.BIN[level]:
             op = self.take().text
-            if op == "||":
+            if op in ("||", "&&"):
+                decided = (v[0] != 0) == (op == "||")
+                self.skip += decided
                 r = self.binary(level + 1)
-                v = int(bool(v) or bool(r))
+                self.skip -= decided
+                if op == "||":
+                    v = int(v[0] != 0 or r[0] != 0), False
+                else:
+                    v = int(v[0] != 0 and r[0] != 0), False
                 continue
-            if op == "&&":
-                r = self.binary(level + 1)
-                v = int(bool(v) and bool(r))
-                continue
-            r = self.binary(level + 1)
-            if op in ("/", "%") and r == 0:
-                raise CompileError("division by zero in #if", self.where)
-            v = {"|": lambda: v | r, "^": lambda: v ^ r, "&": lambda: v & r,
-                 "==": lambda: int(v == r), "!=": lambda: int(v != r),
-                 "<": lambda: int(v < r), ">": lambda: int(v > r),
-                 "<=": lambda: int(v <= r), ">=": lambda: int(v >= r),
-                 "<<": lambda: v << r, ">>": lambda: v >> r,
-                 "+": lambda: v + r, "-": lambda: v - r, "*": lambda: v * r,
-                 "/": lambda: int(v / r), "%": lambda: v % r}[op]()
+            v = self.apply(op, v, self.binary(level + 1))
         return v
+
+    def apply(self, op, a, b):
+        (x, xu), (y, yu) = a, b
+        if op in ("<<", ">>"):
+            # the left operand's type; as in the compiler, the count is taken modulo 32
+            return wrap32(x << (y & 31) if op == "<<" else x >> (y & 31), xu), xu
+        u = xu or yu
+        x, y = wrap32(x, u), wrap32(y, u)
+        if op in ("==", "!=", "<", ">", "<=", ">="):
+            return int({"==": x == y, "!=": x != y, "<": x < y, ">": x > y,
+                        "<=": x <= y, ">=": x >= y}[op]), False
+        if op in ("/", "%"):
+            if y == 0:
+                if self.skip:
+                    return 0, u
+                raise CompileError("division by zero in #if", self.where)
+            q, r = div_trunc(x, y)
+            return wrap32(q if op == "/" else r, u), u
+        v = {"|": x | y, "^": x ^ y, "&": x & y, "+": x + y, "-": x - y, "*": x * y}[op]
+        return wrap32(v, u), u
 
     def unary(self):
         t = self.take()
@@ -562,18 +603,18 @@ class IfParser:
             if self.take().text != ")":
                 raise CompileError("missing ')' in #if", t)
             return v
-        if t.text == "-":
-            return -self.unary()
-        if t.text == "+":
-            return self.unary()
+        if t.text in ("-", "+", "~"):
+            v, u = self.unary()
+            return wrap32({"-": -v, "+": v, "~": ~v}[t.text], u), u
         if t.text == "!":
-            return int(not self.unary())
-        if t.text == "~":
-            return ~self.unary()
+            return int(self.unary()[0] == 0), False
         if t.kind == "num":
-            return parse_int(t)[0]
+            # long if it fits, else unsigned long (C89's rules with a 32-bit long)
+            v, u, _, _ = parse_int(t)
+            u = u or v >= 1 << 31
+            return wrap32(v, u), u
         if t.kind == "char":
-            return char_value(t)
+            return wrap32(char_value(t), False), False
         raise CompileError(f"unexpected {t.text!r} in #if", t)
 
 

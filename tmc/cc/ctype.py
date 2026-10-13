@@ -1,6 +1,7 @@
 """C types for the 32-bit target: char 8, short 16, int and long 32,
 pointers 32 bits. Plain char is unsigned (the machine's byte loads
-zero-extend)."""
+zero-extend). _Bool is an unsigned char that only ever holds 0 or 1:
+converting a value to it gives 1 for anything but 0."""
 
 
 class StructInfo:
@@ -33,12 +34,13 @@ class Member:
 
 class Type:
     """kind: void char short int long ptr array func struct.
-    Integer kinds have `unsigned`; ptr and array have `base`; array has
-    `length` (None if unknown); func has `ret`, `params` (list of types or
-    None if unprototyped) and `variadic`; struct has `info`."""
+    Integer kinds have `unsigned` (and `is_bool` for _Bool, a char); ptr
+    and array have `base`; array has `length` (None if unknown); func has
+    `ret`, `params` (list of types or None if unprototyped) and `variadic`;
+    struct has `info`."""
 
     __slots__ = ("kind", "unsigned", "base", "length", "ret", "params", "variadic",
-                 "info", "const", "volatile", "is_enum", "explicit_signed", "pnames")
+                 "info", "const", "volatile", "is_enum", "explicit_signed", "is_bool", "pnames")
 
     def __init__(self, kind, unsigned=False, base=None, length=None, ret=None, params=None,
                  variadic=False, info=None):
@@ -54,13 +56,14 @@ class Type:
         self.volatile = False
         self.is_enum = False
         self.explicit_signed = False
+        self.is_bool = False
         self.pnames = None          # func: parameter names and tokens, from the declarator
 
     def copy(self):
         t = Type(self.kind, self.unsigned, self.base, self.length, self.ret, self.params,
                  self.variadic, self.info)
-        t.const, t.volatile, t.is_enum, t.explicit_signed = \
-            self.const, self.volatile, self.is_enum, self.explicit_signed
+        t.const, t.volatile, t.is_enum, t.explicit_signed, t.is_bool = \
+            self.const, self.volatile, self.is_enum, self.explicit_signed, self.is_bool
         t.pnames = self.pnames
         return t
 
@@ -176,7 +179,8 @@ def same_type(a, b, quals=True):
         return False
     k = a.kind
     if k in ("char", "short", "int", "long"):
-        return a.unsigned == b.unsigned and (k != "char" or a.explicit_signed == b.explicit_signed)
+        return a.unsigned == b.unsigned and (k != "char" or (a.explicit_signed, a.is_bool)
+                                             == (b.explicit_signed, b.is_bool))
     if k == "ptr":
         return same_type(a.base, b.base)
     if k == "array":
@@ -196,6 +200,8 @@ def same_type(a, b, quals=True):
 def type_name(t, inner=""):
     q = ("const " if t.const else "") + ("volatile " if t.volatile else "")
     k = t.kind
+    if t.is_bool:
+        return f"{q}_Bool{' ' + inner if inner else ''}"
     if k in ("char", "short", "int", "long"):
         sign = "unsigned " if t.unsigned else ("signed " if k == "char" and t.explicit_signed else "")
         return f"{q}{sign}{k}{' ' + inner if inner else ''}"
@@ -229,6 +235,9 @@ SCHAR = Type("char")
 SCHAR.explicit_signed = True
 UCHAR = Type("char", unsigned=True)
 UCHAR.explicit_signed = True        # 'unsigned char', distinct spelling from plain char
+BOOL = Type("char", unsigned=True)
+BOOL.explicit_signed = True
+BOOL.is_bool = True
 SHORT = Type("short")
 USHORT = Type("short", unsigned=True)
 INT = Type("int")

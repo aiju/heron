@@ -7,9 +7,8 @@ import unittest
 
 from tmc.cc.cpp import Preprocessor
 from tmc.cc.lex import CompileError
-from tmc.cc.driver import compile_unit, build, run_image
-from tmc.ir.passes import optimize
-from tmc.ir.cfg import verify
+from tmc.cc.driver import compile_unit, optimize_unit, build, run_image
+from tmc.ir.cfg import DomTree, natural_loops
 
 
 def pp(src):
@@ -17,13 +16,15 @@ def pp(src):
     return " ".join(t.text for t in toks if t.kind != "eof")
 
 
-def ir_of(src, name="f", isa="v1b"):
+def optimized(src, name="f", isa="v1b"):
+    """Function name of src, optimised as the backend for isa gets it."""
     u = compile_unit("t.c", isa, text=src)
-    for f in u.module.functions:
-        optimize(f)
-        verify(f)
-    f = u.module.function(name)
-    return str(f)
+    optimize_unit(u, isa, 1, verify_ir=True)
+    return u.module.function(name)
+
+
+def ir_of(src, name="f", isa="v1b"):
+    return str(optimized(src, name, isa))
 
 
 def asm_of(src, isa, func="f"):
@@ -89,6 +90,30 @@ yes3
 """
         self.assertEqual(pp(src), "yes1 yes2 yes3")
 
+    def test_if_arithmetic(self):
+        # C's arithmetic in 32-bit long and unsigned long: / and % round
+        # toward zero, and a signed operand meeting an unsigned one is
+        # converted to unsigned
+        src = """
+#if -7 / 2 == -3 && -7 % 2 == -1 && 7 % -2 == 1
+yes1
+#endif
+#if -1 > 0u && 0xFFFFFFFF == -1 && (0u - 1) >> 31 == 1 && (1 ? -1 : 0u) > 0
+yes2
+#endif
+#if -16 >> 2 == -4 && 2147483648 > 0 && 0xFFFFFFFF + 1 == 0
+yes3
+#endif
+#if 0 && 1 / 0 || 1 || 1 % 0 || (0 ? 1 / 0 : 1)
+yes4
+#endif
+"""
+        self.assertEqual(pp(src), "yes1 yes2 yes3 yes4")
+        with self.assertRaises(CompileError):
+            pp("#if 1 / 0\n#endif\n")
+        with self.assertRaises(CompileError):
+            pp("#if 0 || 1 % (2 - 2)\n#endif\n")
+
     def test_variadic(self):
         self.assertEqual(pp("#define P(f, ...) g(f, ## __VA_ARGS__)\nP(1) P(1, 2, 3)"),
                          "g ( 1 ) g ( 1 , 2 , 3 )")
@@ -107,6 +132,7 @@ class Diagnostics(unittest.TestCase):
         self.assertIn("struct", self.error("struct s { int a; } v; int f(void) { return v + 1; }"))
         self.assertIn("lvalue", self.error("int f(void) { 3 = 4; return 0; }"))
         self.assertIn("argument", self.error("int g(int a); int f(void) { return g(1, 2); }"))
+        self.assertIn("_Bool", self.error("unsigned _Bool b;"))
 
     def test_unsupported(self):
         self.assertIn("floating", self.error("float x;"))
@@ -141,9 +167,14 @@ class Optimizations(unittest.TestCase):
         self.assertIn("ltu", ir)        # the loop tests the pointer
 
     def test_loop_invariant_motion(self):
-        ir = ir_of("int g[8][8]; int f(int r) { int c, s = 0; for (c = 0; c < 8; c++) s += g[r][c]; return s; }")
-        loop = ir.split("for")[1] if "for" in ir else ir
-        self.assertNotIn("shl", loop.split("endfor")[0] if "endfor" in loop else "")
+        # g[r] (r * 32, a shift) is computed once, before the loop
+        f = optimized("int g[8][8]; int f(int r) { int c, s = 0; for (c = 0; c < 8; c++) s += g[r][c]; return s; }")
+        loops = natural_loops(DomTree(f))
+        self.assertEqual(len(loops), 1)
+        body = next(iter(loops.values()))
+        self.assertIn("load", [i.op for b in body for i in b.instrs])
+        self.assertNotIn("shl", [i.op for b in body for i in b.instrs])
+        self.assertIn("shl", [i.op for b in f.blocks if b not in body for i in b.instrs])
 
 
 class InterpretedIR(unittest.TestCase):

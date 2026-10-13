@@ -12,7 +12,8 @@ backends only see words:
   where the arguments go.
 
 Values of narrow types (char, short) are kept sign- or zero-extended to 32
-bits according to their type.
+bits according to their type, and a _Bool is 0 or 1 (converting to it
+compares with 0).
 """
 
 from ..ir import ir
@@ -371,6 +372,12 @@ class FuncGen:
         """Convert value v from type src to type dst."""
         if dst.is_void:
             return Undef
+        if dst.is_bool:
+            if src.is_bool:
+                return v
+            if isinstance(v, Const):
+                return Const(int(v.value != 0))
+            return self.b.binop("ne", v, Const(0))
         if not dst.is_integer or dst.size == 4:
             return v
         dsize, dsigned = dst.size, dst.signed
@@ -685,6 +692,8 @@ class IRGen:
             label, v = self.eval_addr(e.e)
             if label is None:
                 return None, norm(v, e.ty) if e.ty.is_integer else v
+            if e.ty.is_bool:
+                return None, 1          # an address is never null
             return label, v
         if isinstance(e, N.Decay):
             return self.lvalue_addr(e.e)
