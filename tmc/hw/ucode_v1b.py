@@ -932,16 +932,53 @@ def _plan_cache_path():
     return os.path.join(os.path.dirname(__file__), "..", "..", "build", "shiftplans-v1b.json")
 
 
+def _planner_source():
+    """Everything plan_shift()'s results depend on, as text: the source of
+    every function in this module it reaches by name, directly or through
+    other functions, and the values of the tables they read; cached_plan();
+    and the whole of tmc/isa/v1common.py (the reference semantics) and
+    tmc/hw/rtl_v1b.py (the ALU model). Editing anything else here, the
+    routines or the listings, keeps the cached plans."""
+    import inspect
+    import types
+    from . import rtl_v1b
+    g = globals()
+    parts = [inspect.getsource(cached_plan), inspect.getsource(c), inspect.getsource(rtl_v1b)]
+    todo, seen = ["plan_shift"], set()
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in g:
+            continue                    # builtins, attribute names, locals
+        seen.add(name)
+        obj = g[name]
+        if isinstance(obj, types.ModuleType):
+            parts.append(inspect.getsource(obj) if obj.__name__.startswith("tmc.") else obj.__name__)
+            continue
+        if not isinstance(obj, (types.FunctionType, type)):
+            parts.append(f"{name} = {obj!r}")
+            continue
+        parts.append(inspect.getsource(obj))
+        funcs = [obj] if isinstance(obj, types.FunctionType) else \
+            [getattr(v, "__func__", v) for v in vars(obj).values()]
+        codes = [f.__code__ for f in funcs if isinstance(f, types.FunctionType)]
+        while codes:                    # nested functions and lambdas too
+            co = codes.pop()
+            todo += co.co_names
+            codes += [k for k in co.co_consts if isinstance(k, types.CodeType)]
+    return "\n".join(parts)
+
+
 def cached_plan(kind, n):
     """plan_shift() is a search (seconds per shift); plans are cached in
-    build/, keyed by a hash of this file so they're redone when it changes."""
+    build/, keyed by a hash of everything they depend on (_planner_source()),
+    so they're redone when any of it changes."""
     global _PLAN_CACHE
     import hashlib
     import json
     import os
     path = _plan_cache_path()
-    tag = hashlib.sha1(open(__file__, "rb").read()).hexdigest()
     if _PLAN_CACHE is None:
+        tag = hashlib.sha1(_planner_source().encode()).hexdigest()
         _PLAN_CACHE = {"tag": tag, "plans": {}}
         try:
             with open(path) as f:

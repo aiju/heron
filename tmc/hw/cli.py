@@ -44,7 +44,12 @@ def ensure_hwsim():
 
 
 def py_sources():
-    return glob.glob(os.path.join(ROOT, "tmc", "hw", "*.py")) + [chips.TIMING_PATH]
+    """What the ROM images and netlists are built from: this package, the
+    timing data, and the ISA tables the draft 1b microcode and decode ROM
+    use (the draft 0 ROMs don't depend on tmc/isa/v0.py)."""
+    isa = os.path.join(ROOT, "tmc", "isa")
+    return glob.glob(os.path.join(ROOT, "tmc", "hw", "*.py")) + [chips.TIMING_PATH] + \
+        [os.path.join(isa, "v1b.py"), os.path.join(isa, "v1common.py")]
 
 
 def cpu_module(machine=None):
