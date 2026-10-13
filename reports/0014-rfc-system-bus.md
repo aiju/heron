@@ -1,12 +1,24 @@
-# System bus
+---
+number: 14
+type: rfc
+title: System bus
+status: open
+date: 2026-10-12
+context:
+  studies: [bus_si, v1b_hw]
+  commit: e494b0c
+---
+
+# RFC 0014: System bus
 
 A draft specification of the backplane bus shared by the main CPU, the ECL
 number cruncher, DMA devices and peripherals. The reasoning behind it is in
-[proposals.md](proposals.md) (sections 4 and 5).
+[RFC 0007](0007-rfc-ideas-microarchitecture.md) and
+[RFC 0008](0008-rfc-ideas-memory-and-buses.md).
 
 The electrical numbers come from ngspice simulations of the backplane with
-TI's IBIS models ([tmc/si/README.md](../tmc/si/README.md); results in
-[bus-si/full.json](bus-si/full.json)). The datasheet delays in the timing
+TI's IBIS models ([studies/bus_si/README.md](../studies/bus_si/README.md); results in
+[report 0013](0013-report-bus-si/full.json)). The datasheet delays in the timing
 budgets are rough worst-case figures and need checking against the parts
 actually used.
 
@@ -529,7 +541,7 @@ plain wiring. A later CPU with an MMU can produce full 32-bit bus
 addresses.
 
 The draft 1b CPU's cycles are whole numbers of 20 ns ticks of the 50 MHz
-master clock ([proposals.md, section 4](proposals.md#4-microarchitecture)).
+master clock ([RFC 0007, section 4](0007-rfc-ideas-microarchitecture.md#4-microarchitecture)).
 The bus clock is the same clock divided by N, so the CPU always knows the
 phase of the next bus clock edge and needs no synchroniser.
 

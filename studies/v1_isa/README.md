@@ -15,3 +15,26 @@ Python reference implementations.
 
 It depends on `v0_hw` only for `baseline.json`, draft 0's numbers, which
 report 0004 compares against.
+
+| File | What's in it |
+|---|---|
+| [isa-v1.md](isa-v1.md) | The common machine: registers, flags, memory, I/O, interrupts, shared instruction groups |
+| [isa-v1a.md](isa-v1a.md), [isa-v1b.md](isa-v1b.md) | The two encodings |
+| [timing-model-v1.md](timing-model-v1.md) | How cycle counts are estimated for six hardware configurations |
+| `v1common.py`, `v1a.py`, `v1b.py` | The ISAs: encoders, disassemblers, semantics |
+| `sim32.py`, `timing32.py` | The instruction-level simulator and the timing model |
+| `programs/v1a/`, `programs/v1b/` | The 20 programs and their libraries, in each encoding |
+| `programs/reference.py`, `programs/expected/`, `programs/common/` | The program suite: independent reference implementations, the expected output every draft (and the C versions) is checked against, and shared input |
+
+Reports: [0003](../../reports/0003-report-draft-1-programming-notes/README.md)
+(writing the programs) and
+[0004](../../reports/0004-report-draft-1-evaluation/README.md) (1a against 1b,
+with the generated performance tables).
+
+```sh
+heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # cycles for all six configurations, mix, profile
+heron v1_isa --isa v1a test                   # every 1a program against its expected output
+heron v1_isa asm -c util.s                    # an object file; ld links, objdump shows them, ar makes libraries
+heron v1_isa report                           # report 0004's generated tables (under a minute)
+python3 studies/v1_isa/programs/reference.py  # rewrite the expected output
+```

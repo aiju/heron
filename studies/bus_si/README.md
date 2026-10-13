@@ -6,7 +6,9 @@ reports: [13, 14]
 
 # Backplane signal-integrity simulation
 
-Simulates the proposed system bus ([docs/system-bus.md](../../docs/system-bus.md);
+The results are [report 0013](../../reports/0013-report-bus-si/README.md).
+
+Simulates the proposed system bus ([RFC 0014](../../reports/0014-rfc-system-bus.md);
 its section 9 has the electrical rules that came out of these runs) in
 ngspice: one bus line along a 6U backplane with 8 or 16 slots, each slot a
 DIN 41612 contact, a card stub and a '245 transceiver. The transceivers are
@@ -15,13 +17,13 @@ converted to ngspice behavioural sources.
 
 | File | What it does |
 |---|---|
-| `ibis.py` | Downloads the IBIS files from ti.com into `build/ibis/`, parses them, derives the switching coefficients, writes ngspice sources |
-| `fields.py` | 2D field solver for the backplane trace's L and C (checked against the closed-form Hammerstad formula) |
+| `infra/si/ibis.py` | Downloads the IBIS files from ti.com into `build/ibis/`, parses them, derives the switching coefficients, writes ngspice sources |
+| `infra/si/fields.py` | 2D field solver for the backplane trace's L and C (checked against the closed-form Hammerstad formula) |
 | `bus.py` | The backplane model, terminations, the radial clock tree, settle-time measurements |
 | `noise.py` | Crosstalk between neighbouring lines, and ground bounce from many outputs switching at once |
-| `spice.py` | Runs ngspice in batch mode |
+| `infra/si/spice.py` | Runs ngspice in batch mode |
 | `sweep.py` | The `quick` and `full` presets; runs jobs in parallel, resumably |
-| `cli.py` | `python3 -m tmc si check` and `python3 -m tmc si sweep` |
+| `cli.py` | `heron bus_si check` and `heron bus_si sweep` |
 
 ## Running the sweeps on your own machine
 
@@ -33,7 +35,7 @@ as they are.
 
 - Python 3.10+ with numpy (`pip install numpy`). Nothing else in Python.
 - **ngspice** on the PATH. The models were tested with ngspice 42; the
-  committed results in `docs/bus-si/` came from ngspice 47. Any recent one
+  committed results in report 0013 came from ngspice 47. Any recent one
   should do.
   - macOS: `brew install ngspice`
   - Debian/Ubuntu: `sudo apt install ngspice`
@@ -63,7 +65,7 @@ git fetch origin
 git checkout main && git pull
 ```
 
-1. **Check the setup:** `python3 -m tmc si check`. It takes a minute or two,
+1. **Check the setup:** `heron bus_si check`. It takes a minute or two,
    most of it the field solver (cached afterwards in `build/`). It should
    print:
    - the ngspice version and the five IBIS models;
@@ -74,7 +76,7 @@ git checkout main && git pull
      estimates for both presets.
 
    If anything here fails, stop and report the output.
-2. **Quick sweep:** `python3 -m tmc si sweep --preset quick`. That's 72 jobs:
+2. **Quick sweep:** `heron bus_si sweep --preset quick`. That's 72 jobs:
    - 36 bus-line runs: ABT, FCT and HCT drivers; no termination, VME-style
      330/470 Ω, or 33 Ω + 220 pF; the driver at the end or middle slot;
      slow and fast corners;
@@ -83,13 +85,13 @@ git checkout main && git pull
 
    It uses every core by default (`-j N` to change that) and prints progress
    and an estimate of the time left. At the end it writes
-   `docs/bus-si/quick.json`, including how long the run took.
+   `reports/0013-report-bus-si/quick.json`, including how long the run took.
 3. **Full sweep** (only if the quick one went fine and its time looks
-   reasonable for 1,197 jobs): `python3 -m tmc si sweep --preset full`. That's
+   reasonable for 1,197 jobs): `heron bus_si sweep --preset full`. That's
    8 and 16 slots, all five families, seven terminations, every driver
    position, more crosstalk and ground-bounce cases. It writes
-   `docs/bus-si/full.json`.
-4. **Commit and push** only `docs/bus-si/*.json` (`build/` is ignored), with
+   `reports/0013-report-bus-si/full.json`.
+4. **Commit and push** only `reports/0013-report-bus-si/*.json` (`build/` is ignored), with
    a message that says which preset ran and on what machine, then
    push the branch.
 
@@ -105,7 +107,7 @@ git checkout main && git pull
   `--retry-errors` runs them again. To look at one, run it on its own:
 
   ```sh
-  python3 -c "from tmc.si import sweep; print(sweep.run_job(('line', 16, 'vme', 'abt', 'min', 0)))"
+  python3 -c "from heron.studies.bus_si import sweep; print(sweep.run_job(('line', 16, 'vme', 'abt', 'min', 0)))"
   ```
 
   using the job tuple from the error message.
@@ -123,9 +125,9 @@ git checkout main && git pull
   (`wall_minutes_last_run`, `cpu_minutes`).
 - The number of errors, with the job and message for each.
 
-For now, section 9 of [docs/system-bus.md](../../docs/system-bus.md)
-summarises the results; a fuller write-up (`docs/bus-si.md`) is still to
-come (see [docs/proposals.md](../../docs/proposals.md)).
+For now, section 9 of [RFC 0014](../../reports/0014-rfc-system-bus.md)
+summarises the results, and [report 0013](../../reports/0013-report-bus-si/README.md)
+holds them; a fuller write-up is still to come.
 
 ## The model, in short
 

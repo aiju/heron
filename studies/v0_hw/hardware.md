@@ -1,14 +1,14 @@
 # Hardware: a 7400-series implementation of ISA draft 0
 
-> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](evaluation-v1.md) and [hardware-v1b.md](hardware-v1b.md).
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [report 0004](../../reports/0004-report-draft-1-evaluation/README.md) and [studies/v1b_hw/hardware.md](../v1b_hw/hardware.md).
 
-This is a first-cut, buildable implementation of [ISA draft 0](isa-v0.md):
+This is a first-cut, buildable implementation of [ISA draft 0](isa.md):
 98 chips including memory, microcoded, one bus cycle per clock. Its main job
 at this stage is to put real numbers on the ISA: how many clock cycles each
 instruction needs and how fast the clock can go. The netlist is in
-[`tmc/hw/cpu_v0.py`](../tmc/hw/cpu_v0.py), the microcode in
-[`tmc/hw/microcode.py`](../tmc/hw/microcode.py), and measured performance is
-in [performance.md](performance.md).
+[`cpu.py`](cpu.py), the microcode in
+[`microcode.py`](microcode.py), and measured performance is
+in [report 0001](../../reports/0001-report-draft-0-evaluation/performance.md).
 
 ## At a glance
 
@@ -159,21 +159,21 @@ From the microcode (and cross-checked by the chip-level simulator):
 ## Timing
 
 Delays come from manufacturer datasheets (collected in
-[`tmc/hw/datasheets`](../tmc/hw/datasheets), mapped by
-[`build_timing.py`](../tmc/hw/build_timing.py)). Two corners: *max* is the
+[`infra/hw/datasheets`](../../infra/hw/datasheets), mapped by
+[`build_timing.py`](../../infra/hw/build_timing.py)). Two corners: *max* is the
 guaranteed worst case (−40…85 °C, 4.5 V, 50 pF for HCT/ACT); *typ* is the
 25 °C typical. Memories only have guaranteed figures, so they use them in
 both corners.
 
 Two independent analyses:
 
-- **Static timing analysis** ([`sta.py`](../tmc/hw/sta.py)) runs once per
+- **Static timing analysis** ([`sta.py`](../../infra/hw/sta.py)) runs once per
   distinct microinstruction, with the control lines set to that
   microinstruction's values. Known values cut paths that can't happen: a
   disabled bus driver, an unselected mux input, a gate with a controlling
   input. Data stays unknown, so the result covers every data value, including
   full carry propagation.
-- **Event-driven simulation** (the Go simulator in [`hwsim`](../hwsim))
+- **Event-driven simulation** (the Go simulator in [`hwsim`](../../infra/hwsim))
   runs real programs with every chip modelled at the pin level, checks setup
   and hold times, SRAM write timing and bus contention, and compares the final
   state with the instruction-level simulator. A binary search on the clock
@@ -235,10 +235,10 @@ path is nearly as long without it.
 
 ## Verifying the hardware model
 
-`python3 -m tmc hw run PROG.s` runs a program on the chip-level simulator and
+`heron v0_hw hw run PROG.s` runs a program on the chip-level simulator and
 compares the console output, all registers (both register-file copies), the
 flags, the PC, all of RAM, the cycle count and the cycle-by-cycle sequence of
-instruction fetches with the instruction-level simulator. `tests/hw/exercise.s`
+instruction fetches with the instruction-level simulator. `exercise.s`
 runs every instruction class, every condition code against every flag
 combination, every trap and both forms of every load and store, and matches
 cycle-exactly. Programs that use interrupts are compared on results only,

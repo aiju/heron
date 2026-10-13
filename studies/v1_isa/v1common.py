@@ -1,7 +1,7 @@
 """Everything drafts 1a and 1b share: semantics, the system, unary and shift
 groups, branches, and the matching assembler and disassembler pieces.
 
-See docs/isa-v1.md. Instructions are decoded once per address into a
+See isa-v1.md. Instructions are decoded once per address into a
 closure `fn(m) -> timing key` that executes the instruction on a
 sim32.Machine32 and returns the key timing32 turns into cycles:
 (parcels, pc & 2, kind, *params).
