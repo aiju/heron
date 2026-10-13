@@ -38,7 +38,7 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 The current design's own `isa/`, `hw/`, `sw/` and `tools/` folders come
 with draft 2.
 
-**Start here:** [report 0004](reports/0004-report-draft-1-evaluation/README.md)
+**Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
 (draft 1a against 1b, and the hardware options), then the
 [ideas RFCs](reports/README.md) and [RFC 0014](reports/0014-rfc-system-bus.md)
 (the system bus).

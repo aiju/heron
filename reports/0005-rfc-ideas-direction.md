@@ -19,7 +19,7 @@ had there:
 | Status | Meaning |
 |---|---|
 | **adopted** | It's in draft 1 |
-| **measured** | Evaluated with numbers ([report 0001](0001-report-draft-0-evaluation/README.md), [report 0004](0004-report-draft-1-evaluation/README.md)) |
+| **measured** | Evaluated with numbers ([report 0001](0001-report-draft-0-evaluation.md), [report 0004](0004-report-draft-1-evaluation.md)) |
 | **recommended** | Suggested for the next draft or hardware round |
 | **decided** | Emily chose it for the next hardware round; not built yet |
 | **open** | Discussed, not decided |
@@ -218,7 +218,7 @@ Offered in the discussions, not done yet:
 - The pin-by-pin assignment of P1 and P2, following the rules in
   [RFC 0014](0014-rfc-system-bus.md), and timing diagrams for its transfers.
 - A fuller write-up of the bus signal-integrity results from
-  the sweep data in [report 0013](0013-report-bus-si/). Before that:
+  the sweep data in [report 0013](0013-report-bus-si.md). Before that:
   - fix the ground-bounce model;
   - speed up the crosstalk model;
   - rerun the 68 jobs that failed.

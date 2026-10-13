@@ -59,25 +59,30 @@ def studies():
 
 
 def reports():
-    """[(path, front matter)] for every report and RFC, by number."""
+    """[(path, front matter)] for every report and RFC, by number. A report
+    is NNNN-type-slug.md; a folder NNNN-type-slug/ next to it holds its
+    files."""
     out = []
     for name in sorted(os.listdir(REPORTS)):
-        if not REPORT_RE.match(name):
-            continue
-        path = os.path.join(REPORTS, name)
-        if os.path.isdir(path):
-            path = os.path.join(path, "README.md")
-        out.append((path, front_matter(path)))
+        if REPORT_RE.match(name) and name.endswith(".md"):
+            path = os.path.join(REPORTS, name)
+            out.append((path, front_matter(path)))
     return out
 
 
 def problems():
     """What's wrong with the reports' and studies' front matter: [message]."""
     msgs = []
+    for name in sorted(os.listdir(REPORTS)):
+        path = os.path.join(REPORTS, name)
+        if os.path.isdir(path) and not os.path.exists(path + ".md"):
+            msgs.append(f"reports/{name}/: no {name}.md next to it (a folder holds a report's files)")
+        elif not os.path.isdir(path) and name != "README.md" and not (REPORT_RE.match(name) and name.endswith(".md")):
+            msgs.append(f"reports/{name}: not named NNNN-report-slug.md or NNNN-rfc-slug.md")
     seen = {}
     for path, fm in reports():
         rel = os.path.relpath(path, ROOT)
-        name = os.path.basename(os.path.dirname(path)) if path.endswith("README.md") else os.path.basename(path)
+        name = os.path.basename(path)
         m = REPORT_RE.match(name)
         if fm is None:
             msgs.append(f"{rel}: no front matter")
@@ -113,8 +118,7 @@ def index():
              "[RFC 0000](0000-rfc-repository-layout.md).", "",
              "| Number | Type | Title | Status |", "|---:|---|---|---|"]
     for path, fm in reports():
-        rel = os.path.relpath(path, REPORTS)
-        link = os.path.dirname(rel) + "/" if rel.endswith("README.md") else rel
+        link = os.path.relpath(path, REPORTS)
         status = fm["status"] + (f" (see {fm['superseded-by']:04d})" if fm.get("superseded-by") else "")
         lines.append(f"| {fm['number']:04d} | {fm['type']} | [{fm['title']}]({link}) | {status} |")
     return "\n".join(lines) + "\n"

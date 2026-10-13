@@ -30,7 +30,7 @@ output (`studies/v1_isa/programs/expected/`).
 | `programs/` | The 16 test programs and their library |
 | `baseline.json` | Draft 0's results, for the later drafts' reports |
 
-Reports: [0001](../../reports/0001-report-draft-0-evaluation/README.md) (the
+Reports: [0001](../../reports/0001-report-draft-0-evaluation.md) (the
 evaluation, with the generated performance tables) and
 [0002](../../reports/0002-report-draft-0-programming-notes.md) (writing the
 programs).

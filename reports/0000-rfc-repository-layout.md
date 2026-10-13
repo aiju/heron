@@ -144,9 +144,10 @@ Reports and RFCs share one numbering space.
 
 - **Name:** `reports/NNNN-report-slug.md` or `reports/NNNN-rfc-slug.md`,
   with a four-digit number.
-- **Folder form:** a folder with the same name, holding a `README.md` plus
-  data or generated files. Examples are the SI sweep results, or a
-  performance report a study generates.
+- **A report's files:** data or generated files that go with a report live
+  in a folder with the same name next to it: `reports/NNNN-report-slug/`
+  beside `reports/NNNN-report-slug.md`. Examples are the SI sweep results,
+  or the performance tables a study generates.
 
 ### Numbers
 
@@ -201,9 +202,9 @@ stays `open` while any item is.
 text isn't rewritten. Only its status, `superseded-by` and clearly marked
 errata change.
 
-The exception is a generated report: a folder whose README names the
-command that writes it. While its study is active, rerunning the command
-updates the report and its `commit`.
+The exception is generated files in a report's folder: the report names
+the command that writes them. While its study is active, rerunning the
+command updates them and the report's `commit`.
 
 **Index:** `reports/README.md` lists every report and RFC with its status.
 It is generated from the front matter.
@@ -297,7 +298,7 @@ documents, then README, AGENTS.md and CI. Where everything went:
 | `docs/linking.md` | `infra/linking.md` |
 | `docs/evaluation.md`, `performance.md` | Report 0001 (obsolete, superseded by 0004) |
 | `docs/programming-notes.md` | Report 0002 (obsolete) |
-| `docs/notes-v1/*` | Report 0003, one folder with the five writers' notes |
+| `docs/notes-v1/*` | Report 0003, with the five writers' notes in its folder |
 | `docs/evaluation-v1.md`, `performance-v1.md` | Report 0004 |
 | `docs/proposals.md` | Ideas RFCs 0005–0010, one per area, each item keeping its status; the decisions in "Answered so far" are in `docs/README.md` |
 | `compiler.md`'s results, `compiler-performance.md` | Report 0011 |
@@ -329,7 +330,7 @@ Emily has decided, in the discussion of this RFC:
 - active and frozen studies, with only a slow, hand-started CI for
   studies, and some breakage accepted while work is under way;
 - the statuses, and ideas RFCs as per-area scratchpads;
-- report folders for generated tables and data;
+- report folders for generated tables and data, next to the report's `.md`;
 - one `heron` package, and a top-level `heron` command;
 - the C compiler is a study;
 - the program suite lives in `studies/v1_isa` for now;

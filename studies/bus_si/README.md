@@ -6,7 +6,7 @@ reports: [13, 14]
 
 # Backplane signal-integrity simulation
 
-The results are [report 0013](../../reports/0013-report-bus-si/README.md).
+The results are [report 0013](../../reports/0013-report-bus-si.md).
 
 Simulates the proposed system bus ([RFC 0014](../../reports/0014-rfc-system-bus.md);
 its section 9 has the electrical rules that came out of these runs) in
@@ -126,7 +126,7 @@ git checkout main && git pull
 - The number of errors, with the job and message for each.
 
 For now, section 9 of [RFC 0014](../../reports/0014-rfc-system-bus.md)
-summarises the results, and [report 0013](../../reports/0013-report-bus-si/README.md)
+summarises the results, and [report 0013](../../reports/0013-report-bus-si.md)
 holds them; a fuller write-up is still to come.
 
 ## The model, in short

@@ -26,9 +26,9 @@ report 0004 compares against.
 | `programs/v1a/`, `programs/v1b/` | The 20 programs and their libraries, in each encoding |
 | `programs/reference.py`, `programs/expected/`, `programs/common/` | The program suite: independent reference implementations, the expected output every draft (and the C versions) is checked against, and shared input |
 
-Reports: [0003](../../reports/0003-report-draft-1-programming-notes/README.md)
+Reports: [0003](../../reports/0003-report-draft-1-programming-notes.md)
 (writing the programs) and
-[0004](../../reports/0004-report-draft-1-evaluation/README.md) (1a against 1b,
+[0004](../../reports/0004-report-draft-1-evaluation.md) (1a against 1b,
 with the generated performance tables).
 
 ```sh
