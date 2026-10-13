@@ -17,6 +17,7 @@ doctest = false
 
 [dependencies]
 hwsim = { path = "../../infra/hwsim" }
+toolchain = { path = "../../infra/toolchain" }
 v1-isa = { path = "../../studies/v1_isa/isa" }
 pyo3.workspace = true
 pythonize.workspace = true

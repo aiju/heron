@@ -5,6 +5,7 @@
 use pyo3::prelude::*;
 
 mod py_hwsim;
+mod py_toolchain;
 mod py_v1;
 
 #[pymodule(name = "_native")]
@@ -13,6 +14,8 @@ mod native {
 
     #[pymodule_export]
     use crate::py_hwsim::hwsim;
+    #[pymodule_export]
+    use crate::py_toolchain::toolchain;
     #[pymodule_export]
     use crate::py_v1::v1;
 
