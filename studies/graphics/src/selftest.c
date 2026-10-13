@@ -97,7 +97,22 @@ int main(void)
             w = rnd() % (W - x0) + 1; h = rnd() % (H - y0) + 1;
             rop = rnd() % 4;
             c = rnd() & gfx_maxcolor(d);
-            switch (it % 5) {
+            switch (it % 6) {
+            case 5:                         /* a span, clipped to a random rectangle */
+                gfx_clip(&a, x0, y0, x0 + w, y0 + h);
+                gfx_clip(&b, x0, y0, x0 + w, y0 + h);
+                {
+                    int sy = (int)(rnd() % (H + 4)) - 2, sx0 = (int)(rnd() % (W + 20)) - 10;
+                    int sx1 = sx0 + (int)(rnd() % W);
+                    gfx_span(&a, sy, sx0, sx1, gfx_pat(d, c), rop);
+                    for (x = sx0; x < sx1; x++)
+                        if (x >= b.cx0 && x < b.cx1 && sy >= b.cy0 && sy < b.cy1)
+                            gfx_pixel(&b, x, sy, rop_pixel(d, gfx_get(&b, x, sy), c, rop), GFX_COPY);
+                }
+                gfx_noclip(&a);
+                gfx_noclip(&b);
+                fails += !same(&a, &b, "span", d, it);
+                break;
             case 4:                         /* a line, clipped to a random rectangle */
                 gfx_clip(&a, x0, y0, x0 + w, y0 + h);
                 gfx_clip(&b, x0, y0, x0 + w, y0 + h);

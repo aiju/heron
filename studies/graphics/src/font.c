@@ -60,10 +60,14 @@ int font_draw(Surface *s, Font *f, int x, int y, const char *str, unsigned fg,
               const unsigned char *ramp)
 {
     ExpandJob j;
+    RampJob rj;
     Glyph *g;
     Surface gs;
     unsigned char *row = s->bits + y * s->pitch;
     int c, d = s->depth, gx, gy, bit, lead, last;
+    rj.dpitch = s->pitch;
+    rj.ramp = ramp;
+    rj.depth = d;
     j.dpitch = s->pitch;
     j.spitch = f->strike.pitch;
     j.fg = gfx_pat(d, fg);
@@ -79,7 +83,19 @@ int font_draw(Surface *s, Font *f, int x, int y, const char *str, unsigned fg,
         if (!g->w)
             continue;
         if (f->aa) {
-            gfx_ramp(s, gx, gy, g->bits, g->w, g->w, g->h, ramp);
+            if (gx >= s->cx0 && gy >= s->cy0 && gx + g->w <= s->cx1 && gy + g->h <= s->cy1) {
+                bit = gx << d;
+                rj.d = (unsigned *)(row + g->yoff * s->pitch) + (bit >> 5);
+                rj.lead = (bit & 31) >> d;
+                rj.n = (((bit & 31) + (g->w << d) - 1) >> 5);
+                rj.c = g->bits;
+                rj.cpitch = g->w;
+                rj.w = g->w;
+                rj.h = g->h;
+                ramp_rows(&rj);
+            } else {
+                gfx_ramp(s, gx, gy, g->bits, g->w, g->w, g->h, ramp);
+            }
             continue;
         }
         if (gx >= s->cx0 && gy >= s->cy0 && gx + g->w <= s->cx1 && gy + g->h <= s->cy1 && g->w <= 32) {

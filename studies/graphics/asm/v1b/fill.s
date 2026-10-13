@@ -19,6 +19,7 @@ _fill_rows:
         MOV  r5, [r1 + 12]      ; r5: lmask
         MOV  r7, [r1 + 20]      ; r7: rmask
         MOV  r6, [r1 + 16]      ; r6: whole words
+        MOV  r12, [r1 + 4]      ; r12: the pitch
         MOV  r3, [r1 + 28]      ; the rop
         BNE  .rmw
 ; COPY: the edges as (v & ~m) | (pat & m)
@@ -57,7 +58,7 @@ _fill_rows:
         BIC  r3, r7
         OR   r3, r10
         ST   r3, [r13]
-.cnext: ADD  r2, [r1 + 4]
+.cnext: ADD  r2, r12
         DEC  r4
         BNE  .crow
 .done:  RESTORE r8-r14
@@ -88,7 +89,7 @@ _fill_rows:
         MOV  r3, [r13]
         XOR  r3, r10
         ST   r3, [r13]
-.xnext: ADD  r2, [r1 + 4]
+.xnext: ADD  r2, r12
         DEC  r4
         BNE  .xrow
         BRA  .done
@@ -113,7 +114,7 @@ _fill_rows:
         MOV  r3, [r13]
         OR   r3, r10
         ST   r3, [r13]
-.onext: ADD  r2, [r1 + 4]
+.onext: ADD  r2, r12
         DEC  r4
         BNE  .orow
         BRA  .done
@@ -138,7 +139,7 @@ _fill_rows:
         MOV  r3, [r13]
         BIC  r3, r10
         ST   r3, [r13]
-.anext: ADD  r2, [r1 + 4]
+.anext: ADD  r2, r12
         DEC  r4
         BNE  .arow
         BRA  .done

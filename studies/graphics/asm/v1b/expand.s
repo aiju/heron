@@ -51,6 +51,8 @@ _expand_rows:
         BNE  .general
         NEG  r9                 ; r9: the lead
         MOV  r10, [r1 + 56]     ; r10: the mask
+        MOV  r12, [r1 + 8]      ; r12, r1: the pitches
+        MOV  r1, [r1 + 12]
         LEA  r5, [pc + .fasts]
         JMP  [r5 + r6*4]
 
@@ -60,7 +62,7 @@ _expand_rows:
 .tables:
         .word 0, _gfx_x2, _gfx_x4, _gfx_x8
 
-; ---- the fast path, a loop per depth ----
+; ---- the fast path, a loop per depth; r12/r1 the pitches ----
 
 .f0:    MOV  r11, [r3]
         LSL  r11, r9
@@ -71,8 +73,8 @@ _expand_rows:
         AND  r11, r8
         OR   r6, r11
         ST   r6, [r2]
-.f0n:   ADD  r2, [r1 + 8]
-        ADD  r3, [r1 + 12]
+.f0n:   ADD  r2, r12
+        ADD  r3, r1
         DEC  r4
         BNE  .f0
 .out:   RESTORE r8-r14
@@ -99,8 +101,8 @@ _expand_rows:
 .f1z:   ADD  r14, #4
         LSR  r11, #8
         BNE  .f1l
-.f1n:   ADD  r2, [r1 + 8]
-        ADD  r3, [r1 + 12]
+.f1n:   ADD  r2, r12
+        ADD  r3, r1
         DEC  r4
         BNE  .f1
         BRA  .out
@@ -121,8 +123,8 @@ _expand_rows:
 .f2z:   ADD  r14, #4
         LSR  r11, #8
         BNE  .f2l
-.f2n:   ADD  r2, [r1 + 8]
-        ADD  r3, [r1 + 12]
+.f2n:   ADD  r2, r12
+        ADD  r3, r1
         DEC  r4
         BNE  .f2
         BRA  .out
@@ -134,25 +136,26 @@ _expand_rows:
         MOV  r14, r2
 .f3l:   ZXB  r13, r11
         LEA  r13, [r7 + r13*8]
-        MOV  r5, [r13]
+        MOV  r5, [r13]+
         BEQ  .f3a
         MOV  r6, [r14]
         BIC  r6, r5
         AND  r5, r8
         OR   r6, r5
         ST   r6, [r14]
-.f3a:   MOV  r5, [r13 + 4]
+.f3a:   ADD  r14, #4
+        MOV  r5, [r13]
         BEQ  .f3b
-        MOV  r6, [r14 + 4]
+        MOV  r6, [r14]
         BIC  r6, r5
         AND  r5, r8
         OR   r6, r5
-        ST   r6, [r14 + 4]
-.f3b:   ADD  r14, #8
+        ST   r6, [r14]
+.f3b:   ADD  r14, #4
         LSR  r11, #8
         BNE  .f3l
-.f3n:   ADD  r2, [r1 + 8]
-        ADD  r3, [r1 + 12]
+.f3n:   ADD  r2, r12
+        ADD  r3, r1
         DEC  r4
         BNE  .f3
         BRA  .out
@@ -272,21 +275,22 @@ _expand_rows:
 
 .emit3: ZXB  r13, r11
         LEA  r13, [r7 + r13*8]
-        MOV  r5, [r13]
+        MOV  r5, [r13]+
         BEQ  .e3a
         MOV  r6, [r14]
         BIC  r6, r5
         AND  r5, r8
         OR   r6, r5
         ST   r6, [r14]
-.e3a:   MOV  r5, [r13 + 4]
+.e3a:   ADD  r14, #4
+        MOV  r5, [r13]
         BEQ  .e3b
-        MOV  r6, [r14 + 4]
+        MOV  r6, [r14]
         BIC  r6, r5
         AND  r5, r8
         OR   r6, r5
-        ST   r6, [r14 + 4]
-.e3b:   ADD  r14, #8
+        ST   r6, [r14]
+.e3b:   ADD  r14, #4
         LSR  r11, #8
         BNE  .emit3
         RET

@@ -115,11 +115,12 @@ def cmd_selftest(args):
         r = subprocess.run([build.selftest_binary()], capture_output=True, text=True)
         print(f"host (C kernels): {r.stdout.strip()}")
         fails += r.returncode != 0
-    for isa in build.ISAS:
-        m = driver.run_image(build.selftest_image(isa, args.iters), isa, max_cycles=20_000_000_000)
+    for isa, stm in (("v1a", False), ("v1b", False), ("v1b", True)):
+        m = driver.run_image(build.selftest_image(isa, args.iters, stm), isa, max_cycles=20_000_000_000)
         out = bytes(m.dev.out).decode(errors="replace").strip()
         ok = m.error is None and not m.traps and out == "all good"
-        print(f"{isa} (assembly kernels): {out or m.error or m.traps}")
+        what = "the store-multiple experiment" if stm else "assembly kernels"
+        print(f"{isa} ({what}): {out or m.error or m.traps}")
         fails += not ok
     return 1 if fails else 0
 

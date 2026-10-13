@@ -44,7 +44,9 @@ void gfx_pixel(Surface *s, int x, int y, unsigned color, int rop);
 unsigned gfx_get(const Surface *s, int x, int y);
 void gfx_fill(Surface *s, int x0, int y0, int x1, int y1, unsigned color, int rop);
 void gfx_fill_rect(Surface *s, const Rect *r, unsigned color, int rop);
-void gfx_span(Surface *s, int y, int x0, int x1, unsigned pat, int rop);  /* pat: gfx_pat's */
+/* one row, with the colour already a word of pixels (gfx_pat's): the
+   spans of polygons and ellipses; a kernel (below) */
+void gfx_span_c(Surface *s, int y, int x0, int x1, unsigned pat, int rop);
 /* pat: 8 rows of words as gfx_pat makes them; the pattern repeats every
    32/bpp pixels across and 8 rows down, fixed to the surface */
 void gfx_fill_pat(Surface *s, int x0, int y0, int x1, int y1, const unsigned *pat, int rop);
@@ -237,18 +239,28 @@ void line_run_c(const LineJob *j);
 void blit_rows_c(const BlitJob *j);
 void expand_rows_c(const ExpandJob *j);
 void ramp_rows_c(const RampJob *j);
+#ifdef GFX_STM
+/* the store-multiple experiment (asm/v1b/stm): these hand what they
+   don't cover to the assembly kernels */
+void fill_rows_stm(const FillJob *j);
+void blit_rows_stm(const BlitJob *j);
+#define fill_rows fill_rows_stm
+#define blit_rows blit_rows_stm
+#endif
 #ifdef GFX_ASM
 void fill_rows(const FillJob *j);
 void line_run(const LineJob *j);
 void blit_rows(const BlitJob *j);
 void expand_rows(const ExpandJob *j);
 void ramp_rows(const RampJob *j);
+void gfx_span(Surface *s, int y, int x0, int x1, unsigned pat, int rop);
 #else
 #define fill_rows fill_rows_c
 #define line_run line_run_c
 #define blit_rows blit_rows_c
 #define expand_rows expand_rows_c
 #define ramp_rows ramp_rows_c
+#define gfx_span gfx_span_c
 #endif
 
 /* the expansion tables, built by gfx_tables() (gfx.c) */

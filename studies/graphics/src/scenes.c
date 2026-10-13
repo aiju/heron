@@ -94,6 +94,7 @@ static void scene_prims(Surface *s)
     int n, i, k, m = gfx_maxcolor(s->depth), xy[40];
     unsigned pat[8];
 
+    mark("_");
     gfx_fill(s, 0, 0, SCREEN_W, SCREEN_H, m, GFX_COPY);
     mark_n("clear", SCREEN_W * SCREEN_H);
 

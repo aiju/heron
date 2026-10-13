@@ -150,8 +150,9 @@ void gfx_fill(Surface *s, int x0, int y0, int x1, int y1, unsigned color, int ro
 }
 
 /* One row, with the colour already a word of pixels (gfx_pat): the spans
-   of polygons and ellipses. */
-void gfx_span(Surface *s, int y, int x0, int x1, unsigned pat, int rop)
+   of polygons and ellipses. A kernel: asm/ISA/span.s does it all in one,
+   the clipping and the masks too. */
+void gfx_span_c(Surface *s, int y, int x0, int x1, unsigned pat, int rop)
 {
     FillJob j;
     if (y < s->cy0 || y >= s->cy1)
