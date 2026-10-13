@@ -6,6 +6,8 @@
                               (--active: every active study's)
   heron reports [--check]     rewrite reports/README.md, the index (--check:
                               only check the front matter)
+  heron build                 build the Rust engines' Python module, which is
+                              otherwise built when first used (heron/native.py)
   heron <study> ...           a study's own command line, for example
                               heron v1_isa run studies/v1_isa/programs/v1b/hello.s
 """
@@ -13,6 +15,7 @@
 import argparse
 import importlib
 import os
+import subprocess
 import sys
 import unittest
 
@@ -64,6 +67,19 @@ def cmd_reports(check):
     return 0
 
 
+def cmd_build():
+    from . import native
+    try:
+        path = native.build()
+    except subprocess.CalledProcessError:
+        return 1  # cargo has said what went wrong
+    except RuntimeError as e:
+        print(f"heron build: {e}", file=sys.stderr)
+        return 1
+    print(f"built {os.path.relpath(path)}")
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0] in ("-h", "--help"):
@@ -82,6 +98,8 @@ def main(argv=None):
         return cmd_test(a.names, a.active, a.v)
     if cmd == "reports":
         return cmd_reports("--check" in rest)
+    if cmd == "build":
+        return cmd_build()
     if os.path.isdir(os.path.join(ROOT, "studies", cmd)):
         return importlib.import_module(f"heron.studies.{cmd}.cli").main(rest) or 0
     print(f"heron: no command or study {cmd!r}; heron --help lists them", file=sys.stderr)

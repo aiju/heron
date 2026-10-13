@@ -1,0 +1,25 @@
+# The Python bindings for the Rust engines (RFC 0015): one extension module,
+# heron._native, which heron/native.py builds on demand and loads. Each
+# engine is a crate of its own; this one only wraps them.
+[package]
+name = "heron-bindings"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+# The module links against the Python that loads it, so a Rust test binary
+# can't link it. The engines are tested in their own crates, the bindings
+# from Python (tests/test_native.py).
+test = false
+doctest = false
+
+[dependencies]
+pyo3.workspace = true
+
+[build-dependencies]
+pyo3-build-config.workspace = true
+
+[lints]
+workspace = true

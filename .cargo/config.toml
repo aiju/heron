@@ -1,0 +1,9 @@
+# Cargo's output goes to build/cargo, with everything else that's generated.
+[build]
+target-dir = "build/cargo"
+
+# PyO3 builds Python extension modules: they don't link libpython, the
+# Python that loads them provides it. (So a Rust test or binary can't use
+# PyO3; only heron/bindings does, and it has none.)
+[env]
+PYO3_BUILD_EXTENSION_MODULE = "1"
