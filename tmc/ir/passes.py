@@ -9,7 +9,7 @@ fixed point.
 
 from .ir import (Instr, Const, SymAddr, Param, Slot, Undef, M32, s32,
                  BINOPS, CMPOPS, UNOPS, COMMUTATIVE, PURE, CMP_SWAP, CMP_NEG)
-from .cfg import DomTree, remove_unreachable, reverse_postorder
+from .cfg import DomTree, natural_loops, remove_unreachable
 from .ssa import mem2reg
 
 
@@ -832,24 +832,6 @@ def cleanup_cfg(func):
 # Loop-invariant code motion
 
 
-def natural_loops(func, dom):
-    """header -> set of blocks, for every loop (back edges to the same header
-    merged)."""
-    loops = {}
-    for b in dom.rpo:
-        for h in b.succs:
-            if h in dom.pre and dom.dominates(h, b):
-                body = loops.setdefault(h, {h})
-                work = [b]
-                while work:
-                    x = work.pop()
-                    if x in body:
-                        continue
-                    body.add(x)
-                    work.extend(p for p in x.preds if p in dom.pre)
-    return loops
-
-
 def make_preheader(func, h, body):
     """A block that is the loop's only entry and jumps straight to the
     header, made if needed. None if the loop can't have one."""
@@ -884,7 +866,7 @@ def hoistable(i):
 
 def licm(func):
     dom = DomTree(func)
-    loops = natural_loops(func, dom)
+    loops = natural_loops(dom)
     changed = False
     # inner loops first, so code can move out level by level
     for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
@@ -977,7 +959,7 @@ def strength_reduce(func):
     is then only used to end the loop, compare the pointer against
     base + limit * k instead and let the counter go."""
     dom = DomTree(func)
-    loops = natural_loops(func, dom)
+    loops = natural_loops(dom)
     changed = False
     for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
         pre = make_preheader(func, h, body)
@@ -1142,7 +1124,7 @@ def hoist_constants(func, free_imm):
     register before the loop instead. Runs last: the simplifier would fold
     the copies away again."""
     dom = DomTree(func)
-    loops = natural_loops(func, dom)
+    loops = natural_loops(dom)
     changed = False
     for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
         if any(i.op == "call" for b in body for i in b.instrs):

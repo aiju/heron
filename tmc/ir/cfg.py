@@ -119,16 +119,14 @@ class DomTree:
         return out
 
 
-def compute_loop_depth(func, dom=None):
-    """Set block.loop_depth from the natural loops (back edges to a dominator)."""
-    dom = dom or DomTree(func)
-    for b in func.blocks:
-        b.loop_depth = 0
+def natural_loops(dom):
+    """header -> set of blocks, for every loop (back edges to the same header
+    merged)."""
+    loops = {}
     for b in dom.rpo:
-        for s in b.succs:
-            if s in dom.pre and dom.dominates(s, b):
-                # natural loop of back edge b -> s
-                body = {s}
+        for h in b.succs:
+            if h in dom.pre and dom.dominates(h, b):
+                body = loops.setdefault(h, {h})
                 work = [b]
                 while work:
                     x = work.pop()
@@ -136,8 +134,18 @@ def compute_loop_depth(func, dom=None):
                         continue
                     body.add(x)
                     work.extend(p for p in x.preds if p in dom.pre)
-                for x in body:
-                    x.loop_depth += 1
+    return loops
+
+
+def compute_loop_depth(func, dom=None):
+    """Set block.loop_depth: the number of natural loops that contain the
+    block (a loop with several back edges counts once)."""
+    dom = dom or DomTree(func)
+    for b in func.blocks:
+        b.loop_depth = 0
+    for body in natural_loops(dom).values():
+        for b in body:
+            b.loop_depth += 1
     return dom
 
 

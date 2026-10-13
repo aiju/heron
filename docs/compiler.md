@@ -21,10 +21,10 @@ instruction set.
   compiler makes from a program runs in about **1.2× the cycles** of the
   hand-written assembly versions (geometric mean over the programs that
   don't spend most of their time in the C library; 1.0–1.6× each).
-  Whole programs take about 1.9× as long, mostly because printf is slower
+  Whole programs take about 1.85× as long, mostly because printf is slower
   than the assembly versions' special-purpose print routines.
-- **For the ISA decision:** compiled code gains much less from 1b than
-  hand-written code does: 1b takes **2% fewer cycles than 1a** for compiled
+- **For the ISA decision:** compiled code gains less from 1b than
+  hand-written code does: 1b takes **6% fewer cycles than 1a** for compiled
   C, against 7.5% for the hand-written programs (D16-overlap). The compiler
   uses 1b's auto-increment and memory operands, but loses on its 4-bit
   constants. See [the 1a/1b section](#1a-against-1b-for-compiled-code).
@@ -373,7 +373,7 @@ Cycles on D16-overlap, compiled C relative to the hand-written assembly
 
 | | 1a | 1b |
 |---|---:|---:|
-| Whole programs | 1.83 | 1.93 |
+| Whole programs | 1.83 | 1.87 |
 | The program's own code, without the C library | 1.22 | 1.22 |
 
 The second row leaves out programs that spend more than half their time in
@@ -393,9 +393,9 @@ the C library (arith, bignum, hello, strings), which mostly measure printf.
 
 | | asm: 1b / 1a | C: 1b / 1a |
 |---|---:|---:|
-| D16-overlap | 0.925 | 0.978 |
-| D32-overlap | 0.936 | 0.987 |
-| D32-wide | 0.921 | 0.971 |
+| D16-overlap | 0.925 | 0.943 |
+| D32-overlap | 0.936 | 0.950 |
+| D32-wide | 0.921 | 0.938 |
 
 The [draft 1 evaluation](evaluation-v1.md) expected compiled code to favour
 1b more than hand-written code, through stack frames and memory operands.
@@ -403,7 +403,7 @@ It's the other way round here:
 
 - **Auto-increment still pays,** when strength reduction turns an array
   loop into a pointer walk (`MOV r5, [r3]+` in `dot` above, `ST r4, byte
-  [r3]+` in `copy`; sieve, sort and life take 0.85–0.87× of their 1a
+  [r3]+` in `copy`; sieve, sort and life take 0.84–0.87× of their 1a
   cycles on 1b). It mostly appears in loops that step one pointer by the
   access size.
 - **Memory operands are used, but save little:** 30% of the compiled 1b
@@ -415,10 +415,10 @@ It's the other way round here:
   compiled 1b operands are 16- or 32-bit constants against 1.0% in the
   hand-written code. Character tests (`c >= 'a'`), masks and hash
   multipliers all need an extension parcel, or a register (and so a
-  callee-saved register across calls). Seven of the fifteen programs come
-  out slightly slower on 1b than on 1a.
+  callee-saved register across calls). Three of the fifteen programs
+  (bignum, bst and queens) come out a fraction slower on 1b than on 1a.
 
-So for a compiler, 1b's lead shrinks to a few per cent, and its 4-bit
+So for a compiler, 1b's lead shrinks (6% rather than 7.5%), and its 4-bit
 constants weigh more heavily. That supports the evaluation's recommendation:
 1a with auto-increment loads and stores would keep most of what the compiler
 gets from 1b.
