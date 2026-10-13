@@ -8,14 +8,12 @@ tmc.sim32.Machine32 and returns the key tmc.timing32 turns into cycles:
 """
 
 from ..asm import AsmError, Reg, RegRange, Imm, Mem, Expr
-from ..obj import ABS32, ABS16S, PC16, PC16H
+from ..obj import ABS32, ABS16S, PC16, PC16H     # v1a and v1b use ABS16S and PC16 as c.*
 
 M32 = 0xFFFFFFFF
 RAM_SIZE = 0x100000
 IO_BASE = 0xFFFFFF00
 MEM_TOP = RAM_SIZE          # the assembler refuses to place anything above this
-WORD_BYTES = 4
-WIDE = True                 # tells the tools to use tmc.sim32
 
 RESET_VECTOR = 0x00
 IRQ_VECTOR = 0x04
@@ -315,7 +313,7 @@ def enter_interrupt(m, vector, ret_pc):
 # parcels, nxt the address of the next instruction.
 
 
-def dec_sys(m, pc, w, n):
+def dec_sys(m, pc, w):
     a, b, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
     nxt = (pc + 2) & M32
     p2 = pc & 2
@@ -345,7 +343,7 @@ def dec_sys(m, pc, w, n):
             return (1, p2, "ret")
     elif f in (5, 6):
         if not 1 <= a <= b <= 14:
-            return _illegal_fn
+            return illegal_fn
         cnt = b - a + 1
         if f == 5:
             def fn(m):
@@ -379,7 +377,7 @@ def dec_sys(m, pc, w, n):
             return (1, p2, "sys")
     elif f == 10:
         if b not in SR_NAMES:
-            return _illegal_fn
+            return illegal_fn
 
         def fn(m):
             v = flags_word(m) if b == 0 else m.hi
@@ -389,7 +387,7 @@ def dec_sys(m, pc, w, n):
             return (1, p2, "alu", 1)
     elif f == 11:
         if a not in SR_NAMES:
-            return _illegal_fn
+            return illegal_fn
 
         def fn(m):
             if a == 0:
@@ -404,7 +402,7 @@ def dec_sys(m, pc, w, n):
             raise Trap(SWI_VECTOR, False, "SWI")
     elif f == 13:
         if b == 15:
-            return _illegal_fn
+            return illegal_fn
 
         def fn(m):
             if a:
@@ -412,18 +410,18 @@ def dec_sys(m, pc, w, n):
             m.pc = nxt
             return (1, p2, "alu", 1)
     else:
-        return _illegal_fn
+        return illegal_fn
     return fn
 
 
-def _illegal_fn(m):
+def illegal_fn(m):
     illegal()
 
 
 def dec_unary(m, pc, w):
     d, s, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
     if f >= len(UN_FN):
-        return _illegal_fn
+        return illegal_fn
     impl = UN_IMPL[f]
     nxt = (pc + 2) & M32
     key = (1, pc & 2, "alu", 1)
@@ -445,7 +443,7 @@ def dec_shift(m, pc, w):
     p2 = pc & 2
     r = m.r
     if t == 3:
-        return _illegal_fn
+        return illegal_fn
     if t < 2:
         cnt = s + 16 * t
         key = (1, p2, "shift", shift_steps(cnt))
@@ -539,7 +537,7 @@ def dec_jcc(m, pc, w):
     """Jcc/JMP/CALL with a 16-bit PC-relative or a 32-bit absolute target."""
     cc, k, z = (w >> 8) & 15, (w >> 4) & 15, w & 15
     if k > 1 or z:
-        return _illegal_fn
+        return illegal_fn
     p2 = pc & 2
     if k == 0:
         n = 2

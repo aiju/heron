@@ -9,7 +9,7 @@ for reference) and writes docs/performance-v1.md.
 import math
 import os
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 
 from . import timing32
 from . import isa as isas
@@ -28,7 +28,6 @@ def parcels(m, pc):
 
 def own_code(r):
     """Code bytes from the program's own file (no library code)."""
-    path = os.path.relpath(r["path"])
     return sum(st.size for st in r["image"].stmts
                if st.kind == "insn" and os.path.abspath(st.where[0]) == os.path.abspath(r["path"]))
 
@@ -446,15 +445,14 @@ def report(data):
     L.append("")
     L.append("| | 1a | 1b |")
     L.append("|---|---:|---:|")
-    for label, key in (("instructions", None),):
-        na, nb = sum(sa["parcels_static"].values()), sum(sb["parcels_static"].values())
-        L.append(f"| instructions in the source | {fmt(na)} | {fmt(nb)} |")
-        pa = sum(k * v for k, v in sa["parcels_static"].items())
-        pb = sum(k * v for k, v in sb["parcels_static"].items())
-        L.append(f"| code bytes | {fmt(2 * pa)} | {fmt(2 * pb)} |")
-        L.append(f"| bytes per instruction | {2 * pa / na:.2f} | {2 * pb / nb:.2f} |")
-        for n in (1, 2, 3):
-            L.append(f"| {n}-parcel instructions | {pct(sa['parcels_static'][n], na)} | {pct(sb['parcels_static'][n], nb)} |")
+    na, nb = sum(sa["parcels_static"].values()), sum(sb["parcels_static"].values())
+    L.append(f"| instructions in the source | {fmt(na)} | {fmt(nb)} |")
+    pa = sum(k * v for k, v in sa["parcels_static"].items())
+    pb = sum(k * v for k, v in sb["parcels_static"].items())
+    L.append(f"| code bytes | {fmt(2 * pa)} | {fmt(2 * pb)} |")
+    L.append(f"| bytes per instruction | {2 * pa / na:.2f} | {2 * pb / nb:.2f} |")
+    for n in (1, 2, 3):
+        L.append(f"| {n}-parcel instructions | {pct(sa['parcels_static'][n], na)} | {pct(sb['parcels_static'][n], nb)} |")
     da, db = sum(sa["parcels_dyn"].values()), sum(sb["parcels_dyn"].values())
     L.append(f"| executed: parcels per instruction | {sum(k * v for k, v in sa['parcels_dyn'].items()) / da:.2f} | "
              f"{sum(k * v for k, v in sb['parcels_dyn'].items()) / db:.2f} |")
