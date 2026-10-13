@@ -519,23 +519,6 @@ def timing_function(isa_name="v0"):
     return cycles
 
 
-def cycle_table():
-    """Rows of (instruction, cycles) for documentation."""
-    from ..isa import v0
-    rows = []
-    seen = set()
-    for w in range(0x10000):
-        k = v0.kind(w)
-        op, fn = w >> 12, w & 15
-        link = int(((w >> 8) & 15) == 15)
-        key = (k, link if op in (3, 9) else 0)
-        if key in seen or k == "illegal":
-            continue
-        seen.add(key)
-        rows.append((k, 1 if (op, fn) == (0, 0) else sequence_length(op, fn, link)))
-    return rows
-
-
 def listing():
     rom, notes = built()
     lines = []

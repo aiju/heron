@@ -165,8 +165,8 @@ def run_hw(img, period_ns, variant=chips.DEFAULT_VARIANT, corner="max", seed=1, 
     with open(stem + ".ram", "wb") as f:
         f.write(img.to_bytes(0x100000 if machine == "v1b" else 0x10000))
     cfg = {
-        "netlist": netlist, "roms": roms, "ram_image": stem + ".ram", "ram_lo": "U_RAML", "ram_hi": "U_RAMH",
-        "ram_dump": stem + ".dump", "period_ps": int(round(period_ns * 1000)), "seed": seed,
+        "netlist": netlist, "roms": roms, "ram_image": stem + ".ram", "ram_dump": stem + ".dump",
+        "period_ps": int(round(period_ns * 1000)), "seed": seed,
         "we_start": we[0], "we_end": we[1],
         "max_cycles": max_cycles, "input": inp.decode("latin-1"), "fetch_trace": fetch_trace,
         "zero_regs": zero_regs,

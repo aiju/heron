@@ -99,7 +99,6 @@ def _layout():
 
 _pos = _layout()
 CONTROL_BITS = sum(w for _, w, _ in FIELDS)
-WIDTH = {name: w for name, w, _ in FIELDS}
 
 # encodings
 SEQ_NEXT, SEQ_DECODE, SEQ_DISPATCH = 0, 1, 2
@@ -1598,16 +1597,6 @@ def rom_images():
         dimgs[0][a] = v & 0xFF
         dimgs[1][a] = v >> 8
     return imgs, dimgs
-
-
-def describe_word(f):
-    """Short text for a field dict (for listings)."""
-    parts = []
-    for name, (_, w, _) in _pos.items():
-        v = f.get(name, 0)
-        if v and name not in ("NEXT",):
-            parts.append(name if w == 1 else f"{name}={v}")
-    return " ".join(parts)
 
 
 # --------------------------------------------------------------------------

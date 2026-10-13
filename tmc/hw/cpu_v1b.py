@@ -507,5 +507,4 @@ CONFIG = {
     "halt_net": "uHALT",
     "halt_level": 1,
     "start": "first_fetch",
-    "io_model": "iodev32",
 }

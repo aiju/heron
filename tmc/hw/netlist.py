@@ -9,7 +9,6 @@ pin must be connected (tie unused inputs to a rail); outputs may be left
 open. `check()` verifies that every net has a sensible set of drivers.
 """
 
-import json
 from collections import defaultdict
 
 from . import chips
@@ -157,8 +156,3 @@ class Netlist:
                 continue
             counts[chips.part_number(variant, inst.type.name, inst.role)].append(inst.ref)
         return dict(sorted(counts.items()))
-
-
-def save(nl, path, **kw):
-    with open(path, "w") as f:
-        json.dump(nl.export(**kw), f)
