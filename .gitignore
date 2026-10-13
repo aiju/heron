@@ -1,8 +1,8 @@
 # generated: ROM images, netlist JSON, simulator binary and run files, IBIS
 # downloads and simulation scratch
 build/
-# "go build" inside hwsim/ (the tools build into build/hwsim)
-hwsim/hwsim
+# "go build" inside infra/hwsim/ (the tools build into build/hwsim)
+infra/hwsim/hwsim
 
 # Claude Code worktrees
 .claude/worktrees/

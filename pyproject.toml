@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heron"
+version = "0"
+description = "A minicomputer built from 7400-series logic: designs, studies and tools"
+requires-python = ">=3.10"
+
+[project.scripts]
+heron = "heron.__main__:main"
+
+[tool.setuptools]
+# heron/__init__.py puts the repository root on the package's path, so the
+# top-level folders (infra/, studies/, ...) are its subpackages.
+packages = ["heron"]

@@ -1,0 +1,102 @@
+{
+ "about": "Draft 0's results, saved so the draft 1 reports don't have to run the frozen draft 0 code. programs: per program, the instruction-level simulator's counts, with cycle counts from the microcode. period_ns: the worst-case clock period (74HCT with 74LS181, maximum delays) from static timing analysis. Written by baseline.write().",
+ "programs": {
+  "arith": {
+   "ok": true,
+   "instructions": 42306,
+   "cycles": 91155,
+   "code_bytes": 942
+  },
+  "bignum": {
+   "ok": true,
+   "instructions": 75365,
+   "cycles": 147257,
+   "code_bytes": 670
+  },
+  "bst": {
+   "ok": true,
+   "instructions": 13629,
+   "cycles": 31447,
+   "code_bytes": 636
+  },
+  "crc": {
+   "ok": true,
+   "instructions": 78724,
+   "cycles": 163651,
+   "code_bytes": 552
+  },
+  "fib": {
+   "ok": true,
+   "instructions": 117896,
+   "cycles": 288164,
+   "code_bytes": 514
+  },
+  "hello": {
+   "ok": true,
+   "instructions": 78,
+   "cycles": 186,
+   "code_bytes": 68
+  },
+  "interrupts": {
+   "ok": true,
+   "instructions": 82122,
+   "cycles": 200920,
+   "code_bytes": 720
+  },
+  "life": {
+   "ok": true,
+   "instructions": 336545,
+   "cycles": 791905,
+   "code_bytes": 944
+  },
+  "mandel": {
+   "ok": true,
+   "instructions": 1231114,
+   "cycles": 2476985,
+   "code_bytes": 422
+  },
+  "matmul": {
+   "ok": true,
+   "instructions": 49875,
+   "cycles": 102037,
+   "code_bytes": 818
+  },
+  "monitor": {
+   "ok": true,
+   "instructions": 18624,
+   "cycles": 41043,
+   "code_bytes": 1056
+  },
+  "queens": {
+   "ok": true,
+   "instructions": 85167,
+   "cycles": 202841,
+   "code_bytes": 582
+  },
+  "rpn": {
+   "ok": true,
+   "instructions": 18993,
+   "cycles": 39473,
+   "code_bytes": 820
+  },
+  "sieve": {
+   "ok": true,
+   "instructions": 87376,
+   "cycles": 185274,
+   "code_bytes": 776
+  },
+  "sort": {
+   "ok": true,
+   "instructions": 44794,
+   "cycles": 93601,
+   "code_bytes": 772
+  },
+  "strings": {
+   "ok": true,
+   "instructions": 8936,
+   "cycles": 20045,
+   "code_bytes": 1162
+  }
+ },
+ "period_ns": 486.0
+}
