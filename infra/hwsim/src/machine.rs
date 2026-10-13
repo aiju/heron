@@ -233,7 +233,7 @@ pub fn run(
     let ram_size = 1usize << cfg.ram_bits;
     if let Some(img) = ram {
         let (mut lo, mut hi) = (vec![0; ram_size], vec![0; ram_size]);
-        for (i, w) in img.chunks_exact(2).take(ram_size).enumerate() {
+        for (i, w) in img.as_chunks::<2>().0.iter().take(ram_size).enumerate() {
             lo[i] = w[0];
             hi[i] = w[1];
         }

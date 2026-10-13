@@ -464,8 +464,7 @@ impl Sim {
     fn resolve(&mut self, n: u32) {
         let Sim { state, topo, chips } = self;
         let drivers = &topo.drivers[n as usize];
-        let v;
-        if drivers.len() == 1 {
+        let v = if drivers.len() == 1 {
             let o = &state.outs[drivers[0] as usize];
             let net = &mut state.nets[n as usize];
             if !o.en {
@@ -473,7 +472,7 @@ impl Sim {
                 return;
             }
             net.float = false;
-            v = o.val;
+            o.val
         } else {
             let (mut cnt, mut conflict, mut val) = (0, false, 0);
             for &d in drivers {
@@ -504,8 +503,8 @@ impl Sim {
                 return;
             }
             net.float = false;
-            v = val;
-        }
+            val
+        };
         let net = &mut state.nets[n as usize];
         if v == net.val {
             return;
