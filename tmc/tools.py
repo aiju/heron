@@ -32,17 +32,18 @@ def file_isa(path):
 
 
 def pick_isa(requested, paths):
-    """The ISA for a set of inputs: what the object files say; --isa only
-    matters for assembly source (and must agree if given)."""
+    """The ISA for a set of inputs: what the object files say. `requested`
+    is --isa, or None if it wasn't given; it only matters for assembly
+    source, and must agree with the object files if given."""
     found = {i for i in (file_isa(p) for p in paths) if i}
     if len(found) > 1:
         raise L.LinkError(f"the files are for different ISAs: {', '.join(sorted(found))}")
     if found:
         isa = found.pop()
-        if requested not in (isas.DEFAULT, isa):
+        if requested not in (None, isa):
             raise L.LinkError(f"the object files are for {isa}, not {requested}")
         return isa
-    return requested
+    return requested or isas.DEFAULT
 
 
 def link_files(isa_name, paths, **kw):
@@ -67,8 +68,10 @@ def link_files(isa_name, paths, **kw):
 
 def load_program(isa_name, paths):
     """What `run` runs: one .s file (assembled as an image, as always), an
-    executable, or object files to link. Returns (image, isa name)."""
+    executable, or object files to link. isa_name is --isa, or None if it
+    wasn't given (see pick_isa). Returns (image, isa name)."""
     if len(paths) == 1 and file_isa(paths[0]) is None:
+        isa_name = isa_name or isas.DEFAULT
         return asmcore.assemble_file(isas.get(isa_name), paths[0]), isa_name
     isa_name = pick_isa(isa_name, paths)
     if len(paths) == 1:
@@ -90,7 +93,7 @@ def write_binary(img, isa, path):
 
 def cmd_ld(args):
     try:
-        isa_name = pick_isa(args.isa, args.files)
+        isa_name = pick_isa(args.isa if args.isa_given else None, args.files)
         img, ln = link_files(isa_name, args.files, base=args.base, gc=not args.no_gc,
                              entry=args.entry)
     except (L.LinkError, O.ObjError, asmcore.AsmError) as e:
