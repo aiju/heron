@@ -28,6 +28,7 @@ experiment, or a numbered record of what was found or decided.
 | `infra/` | Reusable code that doesn't depend on any one design |
 | `studies/` | Experiments, one folder each, mostly self-contained |
 | `reports/` | Numbered reports and RFCs |
+| `heron/` | The `heron` package and command (see [Python packaging](#python-packaging)) |
 | `build/` | Generated output, ignored by git (as now) |
 
 There is no current design yet, so `isa/`, `hw/`, `sw/` and `tools/` don't
@@ -65,8 +66,9 @@ This isn't a rule to be dogmatic about. Usually:
 
 - New design ideas start as studies, for example the candidates for
   draft 2.
-- When Emily picks one, it becomes the current design in the root (see
-  open question 2 on moving or copying it).
+- When Emily picks one, it moves to the root. The study's folder keeps
+  only its README, with `status: moved`, saying where the code went and in
+  which commit.
 - When the current design is replaced, it becomes a frozen study.
 
 But work can happen in the root directly when that's the natural place for
@@ -102,7 +104,7 @@ self-contained.
 
   ```yaml
   ---
-  status: active          # or frozen
+  status: active          # or frozen, or moved
   depends-on: [v1_isa]    # other studies; infra is implied
   frozen-at: 1a2b3c4      # frozen only: the last commit on main where it ran
   reports: [12, 31]       # its reports
@@ -114,13 +116,15 @@ self-contained.
   description) lives in the study. Its findings are reports.
 - **Command line:** each study has its own, reached through the `heron`
   command (see [Python packaging](#python-packaging)), for example
-  `heron v1b_hw run fib.s`. There is no `--isa`; a study knows its machine.
+  `heron v1b_hw hw run fib.s`. There is no `--isa` across machines; a study knows its machine.
 - **Active vs frozen:**
   - **Active:** its tests run in the slow CI (see [CI](#ci)). Breakage
     while someone is working on it is accepted.
   - **Frozen:** no tests run. To reproduce its results, check out
     `frozen-at`. Its code may stop working as `infra/` changes, and that is
     accepted. Fixing it makes it active again.
+  - **Moved:** its design became the current one and moved to the root;
+    only the README is left.
 
 ## Reports and RFCs
 
@@ -149,7 +153,7 @@ Reports and RFCs share one numbering space.
 For now, a new document takes the next free number. A unit test checks
 that numbers are unique and the front matter is valid. If two PRs take the
 same number, the one merged second renumbers. How parallel sessions should
-allocate numbers is still open (open question 3).
+allocate numbers is still open (see [Open questions](#open-questions)).
 
 ### Front matter
 
@@ -224,30 +228,41 @@ holds ideas not yet worth an RFC of their own, each with a status.
 
 ## Python packaging
 
-- **One distribution:** `pyproject.toml` declares one distribution,
-  `heron`, mapped onto the folders:
+- **One package, `heron`, spanning the folders:** the top-level folders are
+  its subpackages.
 
   | Import | Folder |
   |---|---|
   | `heron.infra` | `infra/` |
   | `heron.studies` | `studies/` |
-  | `heron.isa` | `isa/` |
-  | `heron.hw` | `hw/` |
-  | `heron.tools` | `tools/` |
+  | `heron.tests` | `tests/` |
+  | `heron.isa`, `heron.hw`, `heron.tools` | `isa/`, `hw/`, `tools/` (from draft 2) |
 
-- **Install once:** `pip install -e .` once per checkout (and in the cloud
-  environment's setup script). After that, imports work from any directory.
+  A small `heron/` folder at the root holds the package itself. Its
+  `__init__.py` adds the repository root to the package's path, so a plain
+  checkout works from the root with `python3 -m heron ...` and nothing to
+  install.
+- **Installing is optional:** `pip install -e .` (with `pyproject.toml`)
+  makes the imports work from any directory and installs a `heron`
+  command.
 - **Folder names:** every folder below these is a valid Python identifier.
 - **Go:** the chip-level simulator stays a Go module, in `infra/hwsim/`.
-- **The `heron` command:** `[project.scripts]` installs a `heron` command
-  that runs a tool or a study by name:
-  - `heron v1b_hw run fib.s`;
-  - `heron c_compiler cc prog.c --run`;
-  - `heron list` shows what there is, with each study's status.
+- **The `heron` command** runs a study by name, and has a few commands of
+  its own:
+  - `heron v1b_hw hw run fib.s`, `heron c_compiler cc prog.c --run`;
+  - `heron list`: the studies, with their status and dependencies;
+  - `heron test [study...]`: unit tests;
+  - `heron reports`: the index.
 
-  Each study and tool provides a `main(argv)` in its `__main__.py`, so
+  Each study has a `cli.py` with `main(argv)`, so
   `python3 -m heron.studies.v1b_hw` works too. Names of studies and tools
   must not clash.
+- **ISAs register themselves:** object files and command lines name ISAs,
+  so the study that defines one registers it with `heron.infra.isas` when
+  it is imported. `infra/` never has to know which studies exist.
+- **Machines are modules:** the chip-level tools (`heron.infra.hw.runner`,
+  `heron.infra.hw.sta`) take a *machine* module from the study that
+  describes it (`studies/v0_hw/machine.py`, `studies/v1b_hw/machine.py`).
 
 Which languages the tools should be written in is a separate question for a
 separate RFC.
@@ -262,43 +277,39 @@ separate RFC.
 
 ## Migration
 
-Where today's content goes:
+Done in three stages, each a commit with the tests passing: the code, the
+documents, then README, AGENTS.md and CI. Where everything went:
 
-| Today | Becomes |
+| Before | After |
 |---|---|
-| `tmc/asm.py`, `obj.py`, `link.py`, the ld/objdump/ar tools | `infra/asm/` |
-| `tmc/hw/netlist.py`, `chips.py`, `sta.py`, `timing.json`, `datasheets/`, `build_timing.py` | `infra/netlist/` |
+| `tmc/asm.py`, `obj.py`, `link.py`, `tools.py` | `infra/asm.py`, `obj.py`, `link.py`, `objtools.py` |
+| `tmc/isa/__init__.py` | `infra/isas.py`, a registry |
+| `tmc/testing.py` | `infra/programs.py` (the shared parts) and a `testing.py` per study |
+| `tmc/hw/netlist.py`, `chips.py`, `sta.py`, `build_timing.py`, `timing.json`, `datasheets/` | `infra/hw/` |
+| `tmc/hw/cli.py` | `infra/hw/runner.py`, taking a machine module |
 | `hwsim/` | `infra/hwsim/` |
-| `tmc/testing.py` (the harness parts) | `infra/` |
 | `tmc/si/`: IBIS, ngspice, field solver | `infra/si/` |
-| `tmc/si/`: the bus, clock, crosstalk and ground-bounce models and the sweeps | `studies/bus_si/` |
-| `programs/reference.py`, `expected/`, `common/` | `tests/programs/`: the program suite's reference implementations, expected output and input data, shared by every draft (see open question 1) |
-| Draft 0: `tmc/isa/v0.py`, `sim.py`, `hw/microcode.py`, `hw/cpu_v0.py`, `report.py`, `analyze.py`, `programs/v0`, its tests; `isa-v0.md`, `hardware.md` | `studies/v0_hw/`, frozen |
-| `tmc/isa/v1a.py`, `v1b.py`, `v1common.py`, `sim32.py`, `timing32.py`, `report1.py`, `programs/v1a`, `programs/v1b`, their tests; `isa-v1*.md`, `timing-model-v1.md` | `studies/v1_isa/` |
-| `tmc/hw/ucode_v1b.py`, `rtl_v1b.py`, `cpu_v1b.py`, `check_v1b.py`, `report1b.py`, `tests/hw/exercise_v1b.py`; `hardware-v1b.md` | `studies/v1b_hw/` (depends on `v1_isa`) |
-| `tmc/cc`, `tmc/ir`, `tmc/codegen`, the C library, `programs/c`, `tests/cc` and the compiler tests; how the compiler works (`compiler.md`), `linking.md` | `studies/c_compiler/` (depends on `v1_isa`) |
-| `docs/evaluation.md`, `programming-notes.md`, `performance.md`, `microcode.md` | Reports on draft 0. The generated ones become report folders. |
-| `docs/notes-v1/*` | One report on writing the draft 1 programs, from all five writers' notes |
-| `docs/evaluation-v1.md`, `performance-v1.md` | A report on 1a vs 1b. Its recommendation for draft 2 moves to an RFC on what draft 2 builds on. |
-| `docs/performance-v1b.md`, `microcode-v1b.md` | Report folders, generated by `v1b_hw` |
-| `compiler.md`'s results, `compiler-performance.md` | A report on the compiler's code quality and on 1a vs 1b for compiled code |
-| `docs/proposals.md` | One ideas RFC per section (instruction set, microarchitecture, memory and buses, I/O, video, networking, OS, MMU, and so on), keeping each item's status. The decisions in "Answered so far" go into `docs/overview.md`, which links the RFCs for why. |
-| The variable-length clocking measurements | A report (the analysis code was never committed). The scheme itself, which is decided, goes in `docs/clocking.md`. |
-| `docs/system-bus.md` | An open RFC; `docs/system-bus.md` again once accepted |
-| `docs/bus-si/*.json` | The folder of the SI results report |
+| `tmc/si/`: the bus, crosstalk and ground-bounce models, the sweeps | `studies/bus_si/` |
+| Draft 0: `tmc/isa/v0.py`, `sim.py`, `hw/microcode.py`, `hw/cpu_v0.py`, `report.py`, `analyze.py`, `programs/v0/`, its tests; `isa-v0.md`, `hardware.md`, `microcode.md` | `studies/v0_hw/`, frozen, plus `baseline.json` (its results, which the draft 1 reports compare against) |
+| `tmc/isa/v1a.py`, `v1b.py`, `v1common.py`, `sim32.py`, `timing32.py`, `report1.py`, `programs/v1a/`, `programs/v1b/`, the program suite (`reference.py`, `expected/`, `common/`), its tests; `isa-v1*.md`, `timing-model-v1.md` | `studies/v1_isa/` |
+| `tmc/hw/ucode_v1b.py`, `rtl_v1b.py`, `cpu_v1b.py`, `check_v1b.py`, `report1b.py`, `tests/hw/exercise_v1b.py`; `hardware-v1b.md`, `microcode-v1b.md` | `studies/v1b_hw/` |
+| `tmc/cc`, `tmc/ir`, `tmc/codegen`, the C library, `programs/c/`, `tests/cc/`, the compiler tests; `compiler.md` | `studies/c_compiler/` |
+| `docs/linking.md` | `infra/linking.md` |
+| `docs/evaluation.md`, `performance.md` | Report 0001 (obsolete, superseded by 0004) |
+| `docs/programming-notes.md` | Report 0002 (obsolete) |
+| `docs/notes-v1/*` | Report 0003, one folder with the five writers' notes |
+| `docs/evaluation-v1.md`, `performance-v1.md` | Report 0004 |
+| `docs/proposals.md` | Ideas RFCs 0005–0010, one per area, each item keeping its status; the decisions in "Answered so far" are in `docs/README.md` |
+| `compiler.md`'s results, `compiler-performance.md` | Report 0011 |
+| `docs/performance-v1b.md` | Report 0012 |
+| `docs/bus-si/*.json` | Report 0013 |
+| `docs/system-bus.md` | RFC 0014, open |
+| The clocking scheme (decided) | `docs/clocking.md`; its measurements stay in RFC 0007 |
 
-Existing documents are numbered from 0001 in the order they were first
-written, so the draft 0 evaluation is 0001.
-
-The work goes in three stages, each a PR with the tests passing:
-
-1. **Code:** `pyproject.toml`, `tmc` renamed `heron`, then `infra/` and
-   the studies, each with its own command line.
-2. **Documents:** reports and RFCs with front matter, the index generator
-   and the front-matter test. `docs/` keeps only the current design: for
-   now an overview of what's been decided, plus the clocking scheme.
-3. **Rules and CI:** AGENTS.md and README.md rewritten for the new layout,
-   and the fast and slow CI workflows.
+Existing documents were numbered from 0001 in the order they were first
+written. The program suite stays with the draft 1 study (`studies/v1_isa`)
+for now, so draft 0 and the compiler depend on it for their expected
+output.
 
 ## AGENTS.md, in short
 
@@ -310,45 +321,22 @@ The work goes in three stages, each a PR with the tests passing:
 - **Studies:** a study lists what it depends on, and `infra/` never
   depends on a study. Don't fix a frozen study unless asked.
 
+## Decisions
+
+Emily has decided, in the discussion of this RFC:
+
+- the layout above, with the names `studies/`, `infra/` and `tests/`;
+- active and frozen studies, with only a slow, hand-started CI for
+  studies, and some breakage accepted while work is under way;
+- the statuses, and ideas RFCs as per-area scratchpads;
+- report folders for generated tables and data;
+- one `heron` package, and a top-level `heron` command;
+- the C compiler is a study;
+- the program suite lives in `studies/v1_isa` for now;
+- a study whose design becomes current is moved to the root, not copied;
+- for now, a new document takes the next free number.
+
 ## Open questions
 
-1. **Where does the program suite live?** Today it's in `programs/`:
-   - **The programs:** 20, each defined by what it prints (`expected/`).
-   - **Reference implementations:** independent, in Python, producing that
-     output (`reference.py`).
-   - **Input:** shared console input (`common/`).
-
-   Every draft's assembly versions (16 for draft 0, 20 each for 1a and 1b)
-   and the 15 C versions are checked against the same expected output.
-   Draft 2 will be measured with it too. The options:
-
-   - **`tests/programs/` in the root (recommended).**
-     - It is independent of any design, and draft 2 will use it, so it is
-       naturally the current design's test suite.
-     - The studies use it as well. That is an exception to "a study
-       depends only on `infra/` and other studies", but frozen studies are
-       pinned to a commit anyway.
-     - Each draft's assembly versions stay in that draft's study.
-   - **A study of its own, `studies/benchmarks/`,** that the others depend
-     on. This keeps the dependency rule intact for studies, but the current
-     design would then depend on a study, or need a copy.
-   - **Inside `studies/v1_isa/`,** where most of it was written. Then the
-     frozen `v0_hw` and the `c_compiler` study would depend on `v1_isa`
-     just for test data.
-2. **When a study's design becomes current, move it to the root or copy
-   it?**
-   - **Move (recommended).**
-     - There is one copy of the code, and `git log --follow` carries its
-       history on.
-     - Nothing is lost: git keeps the study as it was, and reports cite
-       commits.
-     - The study's folder keeps only its README, with `status: moved`, and
-       says where the code went and in which commit.
-   - **Copy.**
-     - The study stays readable in the tree next to the current design.
-     - But a frozen study isn't kept working, so the copy only helps for
-       browsing.
-     - Two near-identical copies mean grep finds both, and changes can
-       land in the wrong one.
-3. **Numbers:** how should parallel sessions allocate them? For now they
-   take the next free number; see [Numbers](#numbers).
+1. **Numbers:** how should parallel sessions allocate them, so two PRs
+   don't take the same one?
