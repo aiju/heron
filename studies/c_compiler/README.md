@@ -13,7 +13,7 @@ assembly through the object files and linker in `infra/`.
 It depends on `v1_isa` for the ISAs, the simulator and the program suite.
 
 How it works, what it supports and how to use it: [compiler.md](compiler.md).
-How good its code is: [report 0011](../../reports/0011-report-c-compiler/README.md).
+How good its code is: [report 0011](../../reports/0011-report-c-compiler.md).
 Object files and linking C with assembly: [infra/linking.md](../../infra/linking.md).
 
 ```sh

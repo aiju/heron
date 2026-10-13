@@ -19,7 +19,7 @@ had there:
 | Status | Meaning |
 |---|---|
 | **adopted** | It's in draft 1 |
-| **measured** | Evaluated with numbers ([report 0001](0001-report-draft-0-evaluation/README.md), [report 0004](0004-report-draft-1-evaluation/README.md)) |
+| **measured** | Evaluated with numbers ([report 0001](0001-report-draft-0-evaluation.md), [report 0004](0004-report-draft-1-evaluation.md)) |
 | **recommended** | Suggested for the next draft or hardware round |
 | **decided** | Emily chose it for the next hardware round; not built yet |
 | **open** | Discussed, not decided |

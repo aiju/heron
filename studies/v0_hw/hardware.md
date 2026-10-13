@@ -1,6 +1,6 @@
 # Hardware: a 7400-series implementation of ISA draft 0
 
-> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [report 0004](../../reports/0004-report-draft-1-evaluation/README.md) and [studies/v1b_hw/hardware.md](../v1b_hw/hardware.md).
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [report 0004](../../reports/0004-report-draft-1-evaluation.md) and [studies/v1b_hw/hardware.md](../v1b_hw/hardware.md).
 
 This is a first-cut, buildable implementation of [ISA draft 0](isa.md):
 98 chips including memory, microcoded, one bus cycle per clock. Its main job

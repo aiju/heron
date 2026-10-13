@@ -23,7 +23,7 @@ for `baseline.json`, which its report compares against.
 | `cpu.py`, `machine.py` | The chip-level netlist, and the machine the hardware tools run |
 | `check.py`, `exercise.py` | The RTL model against the instruction-level simulator; a generated program that exercises every instruction class |
 
-Report: [0012](../../reports/0012-report-draft-1b-hardware/README.md).
+Report: [0012](../../reports/0012-report-draft-1b-hardware.md).
 
 ```sh
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # on the chip-level simulator

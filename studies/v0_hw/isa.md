@@ -1,6 +1,6 @@
 # ISA draft 0
 
-> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [report 0004](../../reports/0004-report-draft-1-evaluation/README.md) and [studies/v1b_hw/hardware.md](../v1b_hw/hardware.md).
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [report 0004](../../reports/0004-report-draft-1-evaluation.md) and [studies/v1b_hw/hardware.md](../v1b_hw/hardware.md).
 
 A 16-bit load/store instruction set designed to be built from 7400-series
 logic. Every instruction word is four hex digits, and fields never move:

@@ -35,8 +35,9 @@ has the reasons.
 
 ## Reports and RFCs
 
-- **Files:** `reports/NNNN-report-slug.md` or `reports/NNNN-rfc-slug.md`,
-  or a folder of that name with a `README.md` and data or generated files.
+- **Files:** `reports/NNNN-report-slug.md` or `reports/NNNN-rfc-slug.md`.
+  Data or generated files that go with one live in a folder of the same
+  name next to it (`reports/NNNN-report-slug/`).
 - **Numbers:** a new document takes the next free number. Reports and RFCs
   share one numbering space. If another PR took the same number first,
   renumber yours.
