@@ -2,8 +2,8 @@
 
 Each finished job is appended to build/si/<preset>.jsonl as it completes, so
 an interrupted sweep picks up where it stopped. At the end the results are
-written, compactly, to docs/bus-si/<preset>.json, which is what the report
-reads and what gets committed.
+written, compactly, to docs/bus-si/<preset>.json, which gets committed. No
+tool reads them yet: docs/system-bus.md (section 9) summarises them by hand.
 """
 
 import json
@@ -139,7 +139,8 @@ def ibis_check(family, corner):
         lines = [f"Vcc vcc 0 {m.vcc(corner)}"] + src
         lines += ibis.buffer("d", family, corner, "pad", "vcc", "0", ku, kd)
         lines += [f"Rf pad fx {w['R']}", f"Vf fx 0 {w['V'][c]}"]
-        r = spice.run(lines, ["v(pad)"], t0 + w["t"][-1], maxstep=10e-12)
+        r = spice.run(lines, ["v(pad)"], t0 + w["t"][-1], maxstep=10e-12,
+                      title=f"ibis {family} {corner} {w['edge']} {w['V'][c]} V")
         sim = np.interp(w["t"], r["time"] - t0, r["v(pad)"])
         tgt = w["v"][:, c]
         mid = (tgt[0] + tgt[-1]) / 2
@@ -189,7 +190,10 @@ def _worker(job):
     try:
         res, err = _clean(run_job(job)), None
     except Exception as e:                      # noqa: BLE001 - keep the sweep going
-        res, err = None, f"{type(e).__name__}: {str(e)[-400:]}"
+        msg = str(e)
+        if len(msg) > 400:                      # what went wrong, and the end of ngspice's log
+            msg = msg[:150] + " [...] " + msg[-250:]
+        res, err = None, f"{type(e).__name__}: {msg}"
     return {"job": list(job), "result": res, "error": err, "seconds": round(time.time() - t0, 2)}
 
 

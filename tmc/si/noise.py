@@ -66,7 +66,8 @@ def crosstalk(bp, term, family, corner, driver, victim_level, k_conn=K_CONN):
         lines += [f"Kav{k} Lac{k} Lvc{k} {k_conn}", f"Kvb{k} Lvc{k} Lbc{k} {k_conn}",
                   f"Kab{k} Lac{k} Lbc{k} {k_conn * K_CONN_NEXT / K_CONN:.3g}"]
     probes = [f"v({d})" for d in dies["v"].values()]
-    r = spice.run(lines, probes, bus.T_STOP, title=f"xtalk {family} {term.name} {corner}")
+    title = f"xtalk {family} {term.name} {corner} slot {driver} victim {victim_level} k {k_conn}"
+    r = spice.run(lines, probes, bus.T_STOP, title=title)
     t = r["time"]
     late = t > bus.T_RISE
     res = {}
@@ -132,7 +133,8 @@ def ground_bounce(bp, term, family, corner, driver, packages=1, package="dip",
     probes = [f"v({d})" for k, d in qd.items() if k != driver] + \
              ["v(gd0)", "v(cgnd)", f"v(vd0,gd0)", f"v({dies['s00'][driver]})"]
     tstop = 60e-9
-    r = spice.run(lines, probes, tstop, title=f"sso {family} {package} x{packages}")
+    title = f"sso {family} {term.name} {corner} {package} x{packages} {'falling' if falling else 'rising'}"
+    r = spice.run(lines, probes, tstop, title=title)
     t = r["time"]
     late = t > t_edge
     worst = None
