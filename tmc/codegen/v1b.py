@@ -10,8 +10,8 @@ What it tries to use:
 - CALL/JMP through memory, and JMP [table + r*4] for dense switches.
 """
 
-from ..ir.ir import Instr, Const, SymAddr, Param, Slot, s32
-from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr
+from ..ir.ir import Instr, Const, SymAddr, Param
+from .mir import R0, SP, VReg, Imm, Mem, Frame, Label, MInstr
 from .target import Target, COND, SWAP, CALLER_SAVED
 from .addr import decompose, fits
 
@@ -23,7 +23,6 @@ SIZE_KW = {1: "byte ", 2: "half ", 4: ""}
 
 
 class V1B(Target):
-    NAME = "v1b"
     SMALL_ADD = (-16, 15)
     IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR")
 
@@ -154,8 +153,6 @@ class V1B(Target):
         kw = SIZE_KW[m.size]
         if m.postinc:
             return f"{kw}[{self.fmt(m.base)}]+"
-        if m.predec:
-            return f"{kw}-[{self.fmt(m.base)}]"
         d = self.mem_disp(m)
         if m.index is not None:
             ds = f" + {d}" if d > 0 else (f" - {-d}" if d < 0 else "")
@@ -298,7 +295,8 @@ class V1B(Target):
 
     def try_lea(self, i, d):
         """An add that one LEA can do, without a copy: [r + d16],
-        [r + rx*s + d8], [sp + slot], [label + r]."""
+        [r + rx*s + d8], [sp + slot], [label + r]. Returns False, having
+        emitted nothing, when another instruction does it better."""
         a, b = i.args
         if self.mem_load_ok(a) or self.mem_load_ok(b):
             return False
@@ -308,23 +306,19 @@ class V1B(Target):
             if len(terms) == 1 and terms[0][1] == 1:
                 lo, hi = self.SMALL_ADD
                 if lo <= p.disp <= hi and self.dies_here(terms[0][0], i):
-                    return self.undo(p, i, d)
+                    return False
             if len(terms) == 2 and all(s == 1 for _, s in terms) and p.disp == 0:
                 if self.dies_here(terms[0][0], i) or self.dies_here(terms[1][0], i):
-                    return self.undo(p, i, d)
+                    return False
             if not terms:
-                return self.undo(p, i, d)
+                return False
         if p.sym is not None and not terms:
-            return self.undo(p, i, d)
+            return False
         if not self.encodable(p):
             return False
         m = self.encode(p, 4)
         self.emit("LEA", [d, m], defs=[d])
         return True
-
-    def undo(self, p, i, d):
-        """try_lea decided against LEA; nothing has been emitted yet."""
-        return False
 
     def sel_unop(self, i):
         a = i.args[0]

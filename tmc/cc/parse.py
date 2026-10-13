@@ -11,7 +11,7 @@ designated initializers.
 """
 
 import re
-from .lex import CompileError, Token, unescape
+from .lex import CompileError, unescape
 from .cpp import parse_int, char_value, div_trunc
 from . import ctype as T
 from .ctype import Type, StructInfo, pointer_to, array_of, func_type
@@ -213,7 +213,6 @@ class Parser:
         return self.tu
 
     def external_declaration(self):
-        start = self.peek()
         spec = self.decl_specifiers()
         if self.accept(";"):
             return
@@ -1080,7 +1079,7 @@ class Parser:
                     self.warn(f"assignment from incompatible pointer type ({e.ty} to {ty})", tok)
             elif e.ty.is_integer:
                 if not self.is_null(e):
-                    self.warn(f"assignment makes a pointer from an integer", tok)
+                    self.warn("assignment makes a pointer from an integer", tok)
             else:
                 self.error(f"can't convert {e.ty} to {ty}", tok)
         elif ty.is_integer:
@@ -1486,7 +1485,6 @@ class Parser:
                 if self.at("("):
                     self.warn(f"implicit declaration of function {t.text}", t)
                     ty = func_type(T.INT, None)
-                    g = self.scope
                     self.declare_function(t.text, ty, None, t)
                     sym = self.tu.funcs[t.text]
                 else:
@@ -1570,7 +1568,6 @@ def eval_int(e):
             raise NotConstant()
         a = eval_int(e.l)
         b = eval_int(e.r)
-        ty = e.l.ty
         if op in ("==", "!=", "<", ">", "<=", ">="):
             return int({"==": a == b, "!=": a != b, "<": a < b, ">": a > b,
                         "<=": a <= b, ">=": a >= b}[op])

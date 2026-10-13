@@ -362,16 +362,6 @@ def format_data(d, symname):
     return "\n".join(lines)
 
 
-def compile_files(paths, isa, opt=1, include=(), defines=None, library=True, verify_ir=False,
-                  program=None):
-    p = program or Program(isa, opt, verify_ir)
-    for path in paths:
-        p.add_file(path, include, defines)
-    if library:
-        p.add_library()
-    return p.assembly(), p.warnings
-
-
 def compile_to_ir(paths, isa, opt=1, include=(), defines=None):
     """The C files' IR, optimised as the backend gets it."""
     p = Program(isa, opt)

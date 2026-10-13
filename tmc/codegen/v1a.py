@@ -7,13 +7,12 @@ three-address adds, sign-extending loads, and a table jump for dense
 switches.
 """
 
-from ..ir.ir import Instr, Const, SymAddr, Param, Slot
-from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr
-from .target import Target, COND, SWAP, CALLER_SAVED
+from ..ir.ir import Const, SymAddr
+from .mir import R0, SP, VReg, Imm, Mem, Frame, Label, MInstr
+from .target import Target, COND, SWAP
 from .addr import decompose, fits
 
-ALU = {"add": "ADD", "sub": "SUB", "and": "AND", "or": "OR", "xor": "XOR", "mul": "MULS",
-       "divs": "DIVS", "divu": "DIVU"}
+ALU = {"add": "ADD", "sub": "SUB", "and": "AND", "or": "OR", "xor": "XOR", "mul": "MULS"}
 SHIFT = {"shl": "LSL", "shr": "LSR", "sar": "ASR", "rotr": "ROR"}
 UNARY = {"neg": "NEG", "not": "NOT", "sext8": "SXB", "zext8": "ZXB", "sext16": "SXH",
          "zext16": "ZXH"}
@@ -23,7 +22,6 @@ STORES = {1: "STB", 2: "STH", 4: "ST"}
 
 
 class V1A(Target):
-    NAME = "v1a"
     FOLD_LOADS = False      # load/store: no memory operands
     IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR", "BIC", "TST", "MULU", "MULS",
                "DIVU", "DIVS", "ADC", "SBC")

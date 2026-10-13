@@ -1,10 +1,15 @@
 """Target-independent optimisations on SSA form.
 
-Nothing clever: constant folding and algebraic simplification (including
-strength reduction of multiplies and divides by powers of two), global value
-numbering over the dominator tree, redundant load elimination within a block,
-dead code elimination and control-flow cleanup. `optimize` runs them to a
-fixed point.
+Nothing clever. `optimize` runs, per function: mem2reg (tmc.ir.ssa), and
+at level 0 nothing else; then constant folding and algebraic simplification
+(including strength reduction of multiplies and divides by powers of two),
+global value numbering over the dominator tree, redundant load elimination
+within a block, dead code elimination and control-flow cleanup, to a fixed
+point; loop-invariant code motion and the fixed point again; strength
+reduction of induction variables (with linear function test replacement)
+and the fixed point again; given the target's free_imm, constants it can't
+take as cheap immediates loaded into registers before loops; and last,
+sinking steps like p + 1 below p's last use.
 """
 
 from .ir import (Instr, Const, SymAddr, Param, Slot, Undef, M32, s32,
@@ -1077,8 +1082,6 @@ def strength_reduce(func):
             op = UNSIGNED_CMP[cmp.op]
             cmp.op = op
             cmp.args = [qn, end] if cmp.args[0] is nxt else [end, qn]
-        if changed:
-            dom = DomTree(func)
     return changed
 
 
@@ -1100,11 +1103,9 @@ def sink(func):
             regs = [a for a in i.args if isinstance(a, (Instr, Param))]
             if i.op in PURE and i.op not in ("phi", "vastart") and len(regs) == 1:
                 x = regs[0]
-                first = len(instrs) - 1
                 last_x = None
                 for n in range(k + 1, len(instrs)):
                     if i in instrs[n].args:
-                        first = n
                         break
                     if x in instrs[n].args:
                         last_x = n
@@ -1123,9 +1124,7 @@ def hoist_constants(func, free_imm):
     immediate (free_imm(op, value) says, per target) is loaded into a
     register before the loop instead. Runs last: the simplifier would fold
     the copies away again."""
-    dom = DomTree(func)
-    loops = natural_loops(dom)
-    changed = False
+    loops = natural_loops(DomTree(func))
     for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
         if any(i.op == "call" for b in body for i in b.instrs):
             continue        # across a call the constant would need a callee-saved register
@@ -1159,10 +1158,6 @@ def hoist_constants(func, free_imm):
                             continue        # displacements and LEA take any constant
                         if isinstance(v, (Const, SymAddr)) and not free_imm(op, v):
                             i.args[k] = reg_for(v)
-        changed |= bool(made)
-        if made:
-            dom = DomTree(func)
-    return changed
 
 
 # --------------------------------------------------------------------------

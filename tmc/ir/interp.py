@@ -3,11 +3,12 @@ IR before and after a pass and compare what it prints.
 
 Memory is one flat little-endian bytearray: globals from 0x1000, the stack
 growing down from the top; the console register of the I/O page works (no
-input). Calls to functions the module doesn't define go to a few built-ins
-(putchar, printf); everything else is an error.
+input). The program brings the C library; exit and abort, which the start
+code provides, end it, and a call to any other function it doesn't define
+is an error.
 """
 
-from .ir import Instr, Const, SymAddr, Param, Slot, Undef, M32, s32
+from .ir import Const, SymAddr, Slot, Undef, M32
 from .passes import fold_binop, fold_unop
 
 
@@ -166,51 +167,9 @@ class Interpreter:
                 else:
                     env[i] = fold_unop(op, a[0]) & M32
 
-    def cstring(self, a):
-        out = bytearray()
-        while self.mem[a]:
-            out.append(self.mem[a])
-            a += 1
-        return bytes(out)
-
     def builtin(self, name, args):
         if name in ("exit", "abort"):
             raise Exit()
-        if name == "putchar":
-            self.out.append(args[0] & 0xFF)
-            return args[0] & 0xFF
-        if name == "printf":
-            fmt = self.cstring(args[0]).decode("latin-1")
-            vals = list(args[1:])
-            out = []
-            k = 0
-            while k < len(fmt):
-                ch = fmt[k]
-                if ch != "%":
-                    out.append(ch)
-                    k += 1
-                    continue
-                k += 1
-                spec = fmt[k]
-                k += 1
-                if spec == "%":
-                    out.append("%")
-                    continue
-                v = vals.pop(0)
-                if spec in "di":
-                    out.append(str(s32(v)))
-                elif spec == "u":
-                    out.append(str(v))
-                elif spec == "x":
-                    out.append(f"{v:x}")
-                elif spec == "c":
-                    out.append(chr(v & 0xFF))
-                elif spec == "s":
-                    out.append(self.cstring(v).decode("latin-1"))
-                else:
-                    raise InterpError(f"printf %{spec} not supported here")
-            self.out += "".join(out).encode("latin-1")
-            return len(out)
         raise InterpError(f"no function {name}")
 
 
