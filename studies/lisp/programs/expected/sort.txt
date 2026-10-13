@@ -1,0 +1,6 @@
+first ten: (676066 225565 602036 401111 260214 26945 1013672 964315 538058 711205)
+merge sort: checksum 560388, sorted t, length 1000, least 712, greatest 1048239
+quicksort: checksum 560388, sorted t, length 1000, least 712, greatest 1048239
+vector quicksort: checksum 560388, sorted t, length 1000, least 712, greatest 1048239
+all the same: t
+the input is unchanged: t

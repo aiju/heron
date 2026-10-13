@@ -1,0 +1,10 @@
+word counts: ((follows . 1) (hill . 1) (runs . 1) (while . 1) (sleeps . 1) (and . 2) (dog . 3) (lazy . 1) (over . 2) (jumps . 1) (fox . 3) (brown . 2) (quick . 2) (the . 7))
+name counts: (("follows" . 1) ("hill" . 1) ("runs" . 1) ("while" . 1) ("sleeps" . 1) ("and" . 2) ("dog" . 3) ("lazy" . 1) ("over" . 2) ("jumps" . 1) ("fox" . 3) ("brown" . 2) ("quick" . 2) ("the" . 7))
+character sums: (321 541 552 333 559 444 321 448 314 307 321 314 652 537 321 333 456 444 321 425 307 321 541 314 774 321 552 333)
+vowels: (1 2 1 1 1 2 1 1 1 1 1 1 2 2 1 1 1 2 1 1 1 1 2 1 2 1 1 1)
+longest: "follows" follows
+round trip: t
+tags: (g1 g2 g3 g4 g5 g6 g1 g7 g8 g9 g1 g8 g10 g11 g1 g4 g12 g6 g1 g13 g9 g1 g2 g8 g14 g1 g3 g4)
+strings: ("plain" "with \"quotes\"" "back\\slash" "new\nline")
+(plain with "quotes" back\slash)
+equal strings: (t nil t)

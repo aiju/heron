@@ -1,0 +1,101 @@
+cons: (1 . 2)
+cons onto a list: (1 2 3)
+cons onto nil: (1)
+car: a
+cdr: (b c)
+cdr of a 1-list: nil
+cdr of a dotted pair: b
+set-car! returns the value: x
+set-cdr! returns the value: (y z)
+after both: (x y z)
+caar: 1
+cadr: (3 4)
+cdar: (2)
+cddr: (5 6 7)
+caddr: 5
+cdddr: (6 7)
+cadddr: 6
+list: (1 two "three" (4))
+empty list: nil
+list of nils: (nil nil)
+length: 3
+length nil: 0
+length of nested: 2
+append: (1 2 3 4 5)
+append nothing: nil
+append one: (1 2)
+append with nil: (1 2)
+append onto an atom: (1 2 . 3)
+append returns an atom: a
+append shares the last list: t
+append copies the others: (1 2)
+reverse: (4 3 2 1)
+reverse nil: nil
+reverse nested: ((3 4) (1 2))
+list-tail: (c d)
+list-tail 0: (a b c d)
+list-tail to the end: nil
+list-ref: c
+list-ref 0: a
+last-pair: (3)
+last-pair dotted: (2 . 3)
+last-pair of one: (1)
+memq: (c d)
+memq missing: nil
+memq integers: (3 4)
+memq nil: (nil b)
+memq a list: nil
+member a list: ((1) (2))
+member a string: ("b" "c")
+member missing: nil
+assq: (b . 2)
+assq missing: nil
+assq a list key: nil
+assoc a list key: ((c) . 3)
+assoc a string key: ("d" . 4)
+assq an integer key: (2 . two)
+assq empty: nil
+map: (1 4 9 16)
+map car: (a b)
+map nil: nil
+map a primitive: ((1) (2) (3))
+map in order: 1 2 3 (2 3 4)
+for-each: a b c nil
+for-each nil: nil
+map on 200: 20100
+reverse 200: 0
+append 200 and 200: 400
+member at the end of 200: ((0))
+eq? symbols: t
+eq? different symbols: nil
+eq? integers: t
+eq? negative integers: t
+eq? nil (): t
+eq? lists: nil
+eq? same list: t
+eq? strings: nil
+eq? same string: t
+eq? primitives: t
+eq? 1 and t: nil
+equal? lists: t
+equal? different lists: nil
+equal? strings: t
+equal? different strings: nil
+equal? integers: t
+equal? vectors: nil
+equal? same vector: t
+equal? nil: t
+equal? symbol and string: nil
+not: (t nil nil t)
+null?: (t nil nil)
+pair?: (t nil nil t)
+atom?: (nil t t t t)
+symbol?: (t nil t nil nil)
+number?: (t t nil nil)
+integer?: (t nil)
+string?: (t nil nil)
+vector?: (t nil nil)
+procedure?: (t t nil nil)
+list?: (t t nil nil nil)
+eof-object?: (nil nil nil)
+done: lists

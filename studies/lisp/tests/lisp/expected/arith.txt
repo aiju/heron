@@ -1,0 +1,130 @@
+largest: 1073741823
+smallest: -1073741824
+plus sign: 5
+minus zero: 0
+plus zero: 0
+leading zeros: 7
+negative leading zeros: -12
+many leading zeros: 1
++: 3
++ none: 0
++ one: 5
++ negative: -2
++ to the largest: 1073741823
++ to the smallest: -1073741824
++ largest and smallest: -1
+-: 7
+- one: -5
+- several: 4
+- of the largest: -1073741823
+- to the smallest: -1073741824
+- to the largest: -1073741823
+*: 42
+* none: 1
+* one: 9
+* negative: -42
+* two negatives: 42
+* zero: 0
+* to the smallest: -1073741824
+* near the largest: 1073741823
+* the smallest by 1: -1073741824
+* the largest by -1: -1073741823
+(+ 1073741823 1)
+error: overflow
+(+ -1073741824 -1)
+error: overflow
+(+ max-fix max-fix)
+error: overflow
+(+ 1073741823 1 -1)
+error: overflow
+(- -1073741824 1)
+error: overflow
+(- -1073741824)
+error: overflow
+(- max-fix -1)
+error: overflow
+(- 0 min-fix)
+error: overflow
+(* 32768 32768)
+error: overflow
+(* -32768 -32768)
+error: overflow
+(* min-fix -1)
+error: overflow
+(* 2 3 178956971)
+error: overflow
+(quotient -1073741824 -1)
+error: overflow
+(abs -1073741824)
+error: overflow
+(ash 1 30)
+error: overflow
+(ash 1 31)
+error: overflow
+(ash 1 100)
+error: overflow
+(ash -1 31)
+error: overflow
+(ash 3 29)
+error: overflow
+(ash max-fix 1)
+error: overflow
+1073741824
+error: overflow
+-1073741825
+error: overflow
+99999999999999999999
+error: overflow
+still running: yes
+quotient: (3 -3 -3 3)
+remainder: (2 -2 2 -2)
+modulo: (2 3 -3 -2)
+exact: (3 0 0 0)
+small by large: (0 -3 4 -4)
+zero dividend: (0 0 0)
+smallest by -1: (0 0)
+smallest by 1: (-1073741824 0)
+smallest by 2: (-536870912 0 0)
+largest by -2: (-536870911 1 -1)
+smallest by largest: (-1 -1 1073741822)
+largest by smallest: (0 1073741823 -1)
+=: (t nil t t)
+<: (t nil nil t t)
+>: (nil t nil t)
+<=: (t nil t)
+>=: (nil t t)
+zero?: (t nil nil t)
+abs: (5 5 0 1073741823 1073741823)
+min: (1 1 -3 -1073741824)
+max: (2 2 3 1073741823)
+logand: 8
+logior: 14
+logxor: 6
+logand -1: 255
+logand negatives: -8
+logior negative: -5
+logxor negative: -6
+logxor -1 largest: -1073741824
+logxor smallest -1: 1073741823
+logand smallest: -1073741824
+logior smallest largest: -1
+logand smallest largest: 0
+ash left: 1024
+ash 0: 5
+ash to bit 29: 536870912
+ash -1 to the smallest: -1073741824
+ash 0 far: 0
+ash negative left: -48
+ash right: 128
+ash right rounds down: 3
+ash right negative: -4
+ash right -1: -1
+ash right far: 0
+ash right far negative: -1
+ash smallest right 30: -1
+ash largest right 29: 1
+sum to 46340: 1073720970
+12!: 479001600
+(fact 13)
+error: overflow
+done: arith
