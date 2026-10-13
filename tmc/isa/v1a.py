@@ -4,17 +4,17 @@ See docs/isa-v1a.md. Shared parts (system/unary/shift groups, branches,
 semantics) live in v1common.
 """
 
-from ..asm import Reg, Imm, Mem, Expr
+from ..asm import Imm
 from . import v1common as c
 from .v1common import (M32, W, kinds, norm32, as_signed, sext8, sext16, crosses, nz,
-                       ALU_FN, ALU_IMPL, R, sym)
+                       ALU_FN, R, sym)
 
 NAME = "v1a"
 DESCRIPTION = "draft 1a: 32-bit registers, 16-bit parcels, load/store"
 PROGRAM_DIR = "v1a"
 
 REGISTERS = c.REGISTERS
-WIDE = True
+WIDE = True                     # tells the tools to use tmc.sim32
 WORD_BYTES = 4
 MEM_TOP = c.MEM_TOP
 IO_BASE = c.IO_BASE
@@ -163,16 +163,12 @@ def assemble(name, ops, ctx):
 # Decoder (for the simulator)
 
 
-def _illegal(m):
-    c.illegal()
-
-
 def decode(m, pc):
     w = m.parcel(pc)
     op = w >> 12
     d, s, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
     if op == OP_SYS:
-        return c.dec_sys(m, pc, w, 1), 1
+        return c.dec_sys(m, pc, w), 1
     if op == OP_ALU:
         return c.dec_alu_rr(m, pc, w, f, d, s), 1
     if op == OP_UN:
@@ -183,7 +179,7 @@ def decode(m, pc):
         return _dec_short(m, pc, w), 1
     if op == OP_ALUI:
         if s > 3:
-            return _illegal, 1
+            return c.illegal_fn, 1
         n = 3 if s == 3 else 2
         e0 = m.parcel(pc + 2)
         if s == 0:
@@ -208,7 +204,7 @@ def decode(m, pc):
         return _dec_addi(m, pc, d, sext8(w)), 1
     if op == OP_CMPI:
         return c.dec_alu_imm(m, pc, 1, 9, d, sext8(w) & M32), 1
-    return _illegal, 1
+    return c.illegal_fn, 1
 
 
 def _dec_addi(m, pc, d, v):
@@ -272,7 +268,7 @@ def _dec_short(m, pc, w):
 def _dec_long(m, pc, w):
     d, s, f = (w >> 8) & 15, (w >> 4) & 15, w & 15
     if f == 0xF:
-        return _illegal, 1
+        return c.illegal_fn, 1
     p2 = pc & 2
     r = m.r
     if f >= 0xA:

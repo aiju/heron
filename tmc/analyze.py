@@ -82,7 +82,6 @@ def analyse_program(path, isa, timing, st):
     for st_ in img.stmts:
         if st_.kind == "label" and "." not in st_.label and "lib" + os.sep in st_.where[0]:
             lib_syms.add(st_.label)
-    prev = {"w": None}
     window = []          # last few decoded instructions: (kind, op, a, b, c, word, ext)
 
     def tr(m):
@@ -241,7 +240,6 @@ def markdown(st):
                  "implementation the long forms cost no extra cycles, only code space.")
         L.append("")
     if st.calls:
-        allc = sum(st.prog_cycles.values())
         rows = []
         for fn, n in st.calls_to.most_common(5):
             c = st.lib_cycles.get(fn) or sum(v for (p, f), v in st.func_cycles.items() if f == fn)

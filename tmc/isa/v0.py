@@ -8,7 +8,7 @@ Word layout: op(15:12) a(11:8) b(7:4) c(3:0)
   a = rd (destination) or condition, b = rs (source/base), c = fn or offset.
 """
 
-from ..asm import AsmError, Reg, Imm, Mem, Expr
+from ..asm import Reg, Imm, Mem, Expr
 
 NAME = "v0"
 DESCRIPTION = "draft 0: 16x16-bit registers, 4-4-4-4 encoding, load/store"

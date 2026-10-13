@@ -34,10 +34,6 @@ from .sim import Machine, SimError
 CC_ISA = "v1b"      # cc's default ISA, as for python3 -m tmc.cc (there's no C compiler for v0)
 
 
-def load_image(isa, path):
-    return asmcore.assemble_file(isa, path)
-
-
 def get_timing(isa_name, enabled=True):
     if not enabled:
         return None
@@ -46,6 +42,7 @@ def get_timing(isa_name, enabled=True):
 
 
 def cmd_asm(args):
+    from .tools import write_binary
     isa = isas.get(args.isa)
     if args.c:
         from .tools import assemble_object
@@ -60,16 +57,14 @@ def cmd_asm(args):
         o.write(out)
         return 0
     try:
-        img = load_image(isa, args.file)
+        img = asmcore.assemble_file(isa, args.file)
     except asmcore.AsmError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     for w in img.warnings:
         print(f"warning: {w}", file=sys.stderr)
     out = args.o or args.file.rsplit(".", 1)[0] + ".bin"
-    with open(out, "wb") as f:
-        lo, hi = img.extent()
-        f.write(img.to_bytes(max(hi, 0x10000) if getattr(isa, "WIDE", False) else 0x10000))
+    write_binary(img, isa, out)
     if args.l:
         with open(args.l, "w") as f:
             f.write(img.listing())

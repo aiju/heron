@@ -7,7 +7,7 @@ register-or-constant for the mode. Shared parts live in v1common.
 from ..asm import Reg, Imm, Mem, Expr
 from . import v1common as c
 from .v1common import (M32, W, kinds, norm32, as_signed, sext8, sext16, crosses, nz,
-                       ALU_FN, ALU_IMPL, R, sym)
+                       ALU_IMPL, R, sym)
 
 NAME = "v1b"
 DESCRIPTION = "draft 1b: 32-bit registers, 16-bit parcels, register + addressing mode"
@@ -15,7 +15,7 @@ PROGRAM_DIR = "v1b"
 
 REGISTERS = dict(c.REGISTERS)
 REGISTERS["pc"] = 16            # only meaningful as [pc + label]
-WIDE = True
+WIDE = True                     # tells the tools to use tmc.sim32
 WORD_BYTES = 4
 MEM_TOP = c.MEM_TOP
 IO_BASE = c.IO_BASE
@@ -122,10 +122,6 @@ def size_of(w):
 # Decoder
 
 
-def _illegal(m):
-    c.illegal()
-
-
 def _reader(m, size):
     return m.rd32 if size == 4 else (m.rd16 if size == 2 else m.rd8)
 
@@ -176,7 +172,7 @@ def decode(m, pc):
     op = w >> 12
     d, M, Rn = (w >> 8) & 15, (w >> 4) & 15, w & 15
     if op == OP_SYS:
-        return c.dec_sys(m, pc, w, 1), 1
+        return c.dec_sys(m, pc, w), 1
     if op == OP_UN:
         return c.dec_unary(m, pc, w), 1
     if op == OP_SH:
@@ -190,14 +186,14 @@ def decode(m, pc):
     if op == OP_RR:
         f = w & 15
         if f >= len(RR_FN):
-            return _illegal, 1
+            return c.illegal_fn, 1
         return c.dec_alu_rr(m, pc, w, RR_ALU[f], d, M), 1
     # EA instructions (ops 1-9 and B)
     n = 1 + mode_size(M, Rn)
     ext = [m.parcel(pc + 2 * i) for i in range(1, n)] + [0, 0]
     opnd, _ = ea_info(M, Rn, ext)
     if opnd is None:
-        return _illegal, n
+        return c.illegal_fn, n
     nxt = (pc + 2 * n) & M32
     p2 = pc & 2
     r = m.r
@@ -205,7 +201,7 @@ def decode(m, pc):
 
     if op == OP_JEA:
         if d > 1 or (cls == "mem" and opnd[5] != 4):
-            return _illegal, n
+            return c.illegal_fn, n
         call = d == 1
         if cls == "reg":
             key = (n, p2, "call" if call else "jmp", "reg", 0)
@@ -244,7 +240,7 @@ def decode(m, pc):
 
     if op == OP_ST:
         if cls != "mem":
-            return _illegal, n
+            return c.illegal_fn, n
         addr, post = _addr_fn(r, opnd, nxt)
         size, tk = opnd[5], opnd[6]
         wr = m.wr32 if size == 4 else (m.wr16 if size == 2 else m.wr8)
@@ -262,7 +258,7 @@ def decode(m, pc):
 
     if op == OP_LEA:
         if cls != "mem" or opnd[6] in ("pi", "pd"):
-            return _illegal, n
+            return c.illegal_fn, n
         addr, _ = _addr_fn(r, opnd, nxt)
         tk = opnd[6]
 
@@ -571,7 +567,7 @@ def mode_class(ws):
 
 def kind(ws):
     w = ws[0]
-    op, d, M, Rn = w >> 12, (w >> 8) & 15, (w >> 4) & 15, w & 15
+    op, d = w >> 12, (w >> 8) & 15
     if op == OP_SYS:
         if (w & 15) < len(c.SYS_FN):
             k = c.SYS_FN[w & 15]

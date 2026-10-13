@@ -923,7 +923,7 @@ class Assembler:
                 buf += (v & ((1 << bits) - 1)).to_bytes(size, "little")
             st.data = bytes(buf)
             return pc + len(buf)
-        if n in (".global", ".globl", ".title"):
+        if n == ".title":
             return pc
         raise AsmError(f"unknown directive {n}")
 
@@ -986,7 +986,7 @@ class Assembler:
         ctx = Ctx(self, st)
         try:
             return self.isa.assemble(st.name, st.operands, ctx), ctx
-        except AsmError as e:
+        except AsmError:
             if ctx.pending:
                 # the stand-in value for a linker-filled operand didn't fit
                 ctx.check_fixed()
