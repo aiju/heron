@@ -51,7 +51,7 @@ def cmd_asm(args):
         from .tools import assemble_object
         try:
             o = assemble_object(args.isa, args.file)
-        except asmcore.AsmError as e:
+        except (asmcore.AsmError, OSError) as e:
             print(f"error: {e}", file=sys.stderr)
             return 1
         for w in o.warnings:
@@ -61,7 +61,7 @@ def cmd_asm(args):
         return 0
     try:
         img = asmcore.assemble_file(isa, args.file)
-    except asmcore.AsmError as e:
+    except (asmcore.AsmError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     for w in img.warnings:
@@ -82,7 +82,7 @@ def cmd_run(args):
     from .obj import ObjError
     try:
         img, args.isa = load_program(args.isa if args.isa_given else None, args.files)
-    except (asmcore.AsmError, LinkError, ObjError) as e:
+    except (asmcore.AsmError, LinkError, ObjError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     isa = isas.get(args.isa)

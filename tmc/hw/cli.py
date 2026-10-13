@@ -278,7 +278,8 @@ def summarize(hw):
     return "\n".join(lines)
 
 
-def decode_trace(path, out=sys.stdout):
+def decode_trace(path, out=None):
+    out = out or sys.stdout             # sys.stdout now, not when this module was imported
     if MACHINE == "v1b":
         from . import ucode_v1b as mc
     else:
