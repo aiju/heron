@@ -155,37 +155,41 @@ class String
   def space? = self == " " or self == "\n" or self == "\t" or self == "\r"
 end
 
-class List
+# What every collection can do, given `for x in self` (that is, an iter
+# that returns a List or a Range). List, Map (its keys) and Range inherit
+# these; List has faster versions of some.
+class Collection
   def to_s = self.inspect
-  def inspect = "[" + self.map { |x| x.inspect }.join(", ") + "]"
   def empty? = self.size == 0
-  def first = self[0]
-  def last = self[-1]
 
   def each(body)
-    i = 0
-    while i < self.size
-      body(self[i])
-      i += 1
+    for x in self
+      body(x)
     end
     self
   end
 
   def each_with_index(body)
     i = 0
-    while i < self.size
-      body(self[i], i)
+    for x in self
+      body(x, i)
       i += 1
     end
     self
   end
 
+  def to_list
+    out = []
+    for x in self
+      out.push(x)
+    end
+    out
+  end
+
   def map(f)
-    out = List.new(self.size)
-    i = 0
-    while i < self.size
-      out[i] = f(self[i])
-      i += 1
+    out = []
+    for x in self
+      out.push(f(x))
     end
     out
   end
@@ -244,6 +248,71 @@ class List
     n
   end
 
+  def contains?(item)
+    for x in self
+      if x == item then return true end
+    end
+    false
+  end
+
+  def min
+    best = nil
+    for x in self
+      if best == nil or x < best then best = x end
+    end
+    best
+  end
+
+  def max
+    best = nil
+    for x in self
+      if best == nil or x > best then best = x end
+    end
+    best
+  end
+
+  def uniq
+    seen = Map.new
+    out = []
+    for x in self
+      if not seen.has?(x)
+        seen[x] = true
+        out.push(x)
+      end
+    end
+    out
+  end
+
+  def sort = self.to_list.sort_with { |a, b| a < b }
+  def sort_by(key) = self.to_list.sort_with { |a, b| key(a) < key(b) }
+  def sort_with(before) = self.to_list.sort_with(before)
+end
+
+class List
+  def inspect = "[" + self.map { |x| x.inspect }.join(", ") + "]"
+  def first = self[0]
+  def last = self[-1]
+  def to_list = self
+
+  def each(body)
+    i = 0
+    while i < self.size
+      body(self[i])
+      i += 1
+    end
+    self
+  end
+
+  def map(f)
+    out = List.new(self.size)
+    i = 0
+    while i < self.size
+      out[i] = f(self[i])
+      i += 1
+    end
+    out
+  end
+
   def index(item)
     i = 0
     while i < self.size
@@ -251,24 +320,6 @@ class List
       i += 1
     end
     nil
-  end
-
-  def contains?(item) = self.index(item) != nil
-
-  def min
-    best = self[0]
-    for x in self
-      if x < best then best = x end
-    end
-    best
-  end
-
-  def max
-    best = self[0]
-    for x in self
-      if x > best then best = x end
-    end
-    best
   end
 
   def ==(other)
@@ -284,18 +335,6 @@ class List
 
   def take(n) = self[0..(n - 1)]
   def drop(n) = self[n..(self.size - 1)]
-
-  def uniq
-    seen = Map.new
-    out = []
-    for x in self
-      if not seen.has?(x)
-        seen[x] = true
-        out.push(x)
-      end
-    end
-    out
-  end
 
   # a stable merge sort: before(a, b) says a goes first
   def sort_with(before)
@@ -342,13 +381,9 @@ class List
     end
     a
   end
-
-  def sort = self.sort_with { |a, b| a < b }
-  def sort_by(key) = self.sort_with { |a, b| key(a) < key(b) }
 end
 
 class Map
-  def to_s = self.inspect
   def inspect
     if self.size == 0 then return "[:]" end
     parts = []
@@ -357,7 +392,6 @@ class Map
     end
     "[" + parts.join(", ") + "]"
   end
-  def empty? = self.size == 0
   def each(body)
     for k in self.keys
       body(k, self[k])
@@ -368,30 +402,7 @@ class Map
 end
 
 class Range
-  def to_s = self.inspect
   def inspect = self.first.to_s + ".." + self.last.to_s
   def size = if self.last < self.first then 0 else self.last - self.first + 1 end
   def contains?(x) = x >= self.first and x <= self.last
-  def each(body)
-    for i in self
-      body(i)
-    end
-    self
-  end
-  def to_list
-    out = []
-    for i in self
-      out.push(i)
-    end
-    out
-  end
-  def map(f) = self.to_list.map(f)
-  def select(f) = self.to_list.select(f)
-  def reduce(acc, f)
-    for i in self
-      acc = f(acc, i)
-    end
-    acc
-  end
-  def sum = self.reduce(0) { |a, x| a + x }
 end

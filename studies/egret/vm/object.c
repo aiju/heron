@@ -352,9 +352,13 @@ void boot_classes(void)
     cls_Nil = core_class("Nil", cls_Object, K_NIL);
     cls_Bool = core_class("Bool", cls_Object, K_BOOL);
     cls_Int = core_class("Int", cls_Object, K_INT);
-    cls_List = core_class("List", cls_Object, K_LIST);
-    cls_Map = core_class("Map", cls_Object, K_MAP);
-    cls_Range = core_class("Range", cls_Object, K_RANGE);
+    {
+        /* the generic collection methods live in the prelude, on Collection */
+        Value coll = core_class("Collection", cls_Object, K_OBJECT);
+        cls_List = core_class("List", coll, K_LIST);
+        cls_Map = core_class("Map", coll, K_MAP);
+        cls_Range = core_class("Range", coll, K_RANGE);
+    }
     cls_Block = core_class("Block", cls_Object, K_BLOCK);
     cls_Method = core_class("Method", cls_Object, K_METHOD);
     cls_Box = core_class("Box", cls_Object, K_BOX);

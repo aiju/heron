@@ -1,0 +1,9 @@
+square: area 1, perimeter 4
+rect: area 6, perimeter 10
+triangle: area 54, perimeter 36
+circle: area 50, perimeter 25
+ring: area 141, perimeter 55
+group of 2: area 16, perimeter 20
+total area 64360, total perimeter 31860
+biggest: ring: area 302, perimeter 74
+["Square": 10, "Rect": 10, "Triangle": 10, "Circle": 10, "Ring": 10, "Group": 10]

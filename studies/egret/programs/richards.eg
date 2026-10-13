@@ -1,0 +1,302 @@
+# richards: Martin Richards' simulation of an operating system's task
+# scheduler, the classic benchmark for object languages (this follows the
+# version in Google's Octane suite). Six tasks of four kinds pass packets
+# around; the counts at the end check the run.
+
+ID_IDLE = 0
+ID_WORKER = 1
+ID_HANDLER_A = 2
+ID_HANDLER_B = 3
+ID_DEVICE_A = 4
+ID_DEVICE_B = 5
+NUMBER_OF_IDS = 6
+KIND_DEVICE = 0
+KIND_WORK = 1
+DATA_SIZE = 4
+
+STATE_RUNNING = 0
+STATE_RUNNABLE = 1
+STATE_SUSPENDED = 2
+STATE_HELD = 4
+STATE_SUSPENDED_RUNNABLE = 3
+STATE_NOT_HELD = ~4
+
+class Scheduler
+  def init
+    @queue_count = 0
+    @hold_count = 0
+    @blocks = List.new(NUMBER_OF_IDS)
+    @list = nil
+    @current_tcb = nil
+    @current_id = nil
+  end
+
+  attr queue_count, hold_count
+
+  def add_idle_task(id, priority, queue, count)
+    self.add_running_task(id, priority, queue, IdleTask(self, 1, count))
+  end
+
+  def add_worker_task(id, priority, queue)
+    self.add_task(id, priority, queue, WorkerTask(self, ID_HANDLER_A, 0))
+  end
+
+  def add_handler_task(id, priority, queue)
+    self.add_task(id, priority, queue, HandlerTask(self))
+  end
+
+  def add_device_task(id, priority, queue)
+    self.add_task(id, priority, queue, DeviceTask(self))
+  end
+
+  def add_running_task(id, priority, queue, task)
+    self.add_task(id, priority, queue, task)
+    @current_tcb.set_running
+  end
+
+  def add_task(id, priority, queue, task)
+    @current_tcb = TaskControlBlock(@list, id, priority, queue, task)
+    @list = @current_tcb
+    @blocks[id] = @current_tcb
+  end
+
+  def schedule
+    @current_tcb = @list
+    while @current_tcb != nil
+      if @current_tcb.held_or_suspended?
+        @current_tcb = @current_tcb.link
+      else
+        @current_id = @current_tcb.id
+        @current_tcb = @current_tcb.run
+      end
+    end
+  end
+
+  def release(id)
+    tcb = @blocks[id]
+    if tcb == nil then return tcb end
+    tcb.mark_as_not_held
+    if tcb.priority > @current_tcb.priority then tcb else @current_tcb end
+  end
+
+  def hold_current
+    @hold_count += 1
+    @current_tcb.mark_as_held
+    @current_tcb.link
+  end
+
+  def suspend_current
+    @current_tcb.mark_as_suspended
+    @current_tcb
+  end
+
+  def queue(packet)
+    t = @blocks[packet.id]
+    if t == nil then return t end
+    @queue_count += 1
+    packet.link = nil
+    packet.id = @current_id
+    t.check_priority_add(@current_tcb, packet)
+  end
+end
+
+class TaskControlBlock
+  def init(link, id, priority, queue, task)
+    @link = link
+    @id = id
+    @priority = priority
+    @queue = queue
+    @task = task
+    @state = if queue == nil then STATE_SUSPENDED else STATE_SUSPENDED_RUNNABLE end
+  end
+
+  attr link, id, priority
+
+  def set_running
+    @state = STATE_RUNNING
+  end
+  def mark_as_not_held
+    @state = @state & STATE_NOT_HELD
+  end
+  def mark_as_held
+    @state = @state | STATE_HELD
+  end
+  def held_or_suspended? = (@state & STATE_HELD) != 0 or @state == STATE_SUSPENDED
+  def mark_as_suspended
+    @state = @state | STATE_SUSPENDED
+  end
+  def mark_as_runnable
+    @state = @state | STATE_RUNNABLE
+  end
+
+  def run
+    packet = nil
+    if @state == STATE_SUSPENDED_RUNNABLE
+      packet = @queue
+      @queue = packet.link
+      @state = if @queue == nil then STATE_RUNNING else STATE_RUNNABLE end
+    end
+    @task.run(packet)
+  end
+
+  def check_priority_add(task, packet)
+    if @queue == nil
+      @queue = packet
+      self.mark_as_runnable
+      if @priority > task.priority then return self end
+    else
+      @queue = packet.add_to(@queue)
+    end
+    task
+  end
+end
+
+class IdleTask
+  def init(scheduler, v1, count)
+    @scheduler = scheduler
+    @v1 = v1
+    @count = count
+  end
+
+  def run(packet)
+    @count -= 1
+    if @count == 0 then return @scheduler.hold_current end
+    if (@v1 & 1) == 0
+      @v1 = @v1 >> 1
+      @scheduler.release(ID_DEVICE_A)
+    else
+      @v1 = (@v1 >> 1) ^ 0xD008
+      @scheduler.release(ID_DEVICE_B)
+    end
+  end
+end
+
+class DeviceTask
+  def init(scheduler)
+    @scheduler = scheduler
+    @v1 = nil
+  end
+
+  def run(packet)
+    if packet == nil
+      if @v1 == nil then return @scheduler.suspend_current end
+      v = @v1
+      @v1 = nil
+      return @scheduler.queue(v)
+    end
+    @v1 = packet
+    @scheduler.hold_current
+  end
+end
+
+class WorkerTask
+  def init(scheduler, v1, v2)
+    @scheduler = scheduler
+    @v1 = v1
+    @v2 = v2
+  end
+
+  def run(packet)
+    if packet == nil then return @scheduler.suspend_current end
+    @v1 = if @v1 == ID_HANDLER_A then ID_HANDLER_B else ID_HANDLER_A end
+    packet.id = @v1
+    packet.a1 = 0
+    for i in 0..<DATA_SIZE
+      @v2 += 1
+      if @v2 > 26 then @v2 = 1 end
+      packet.a2[i] = @v2
+    end
+    @scheduler.queue(packet)
+  end
+end
+
+class HandlerTask
+  def init(scheduler)
+    @scheduler = scheduler
+    @v1 = nil
+    @v2 = nil
+  end
+
+  def run(packet)
+    if packet != nil
+      if packet.kind == KIND_WORK
+        @v1 = packet.add_to(@v1)
+      else
+        @v2 = packet.add_to(@v2)
+      end
+    end
+    if @v1 != nil
+      count = @v1.a1
+      if count < DATA_SIZE
+        if @v2 != nil
+          v = @v2
+          @v2 = @v2.link
+          v.a1 = @v1.a2[count]
+          @v1.a1 = count + 1
+          return @scheduler.queue(v)
+        end
+      else
+        v = @v1
+        @v1 = @v1.link
+        return @scheduler.queue(v)
+      end
+    end
+    @scheduler.suspend_current
+  end
+end
+
+class Packet
+  def init(link, id, kind)
+    @link = link
+    @id = id
+    @kind = kind
+    @a1 = 0
+    @a2 = List.new(DATA_SIZE, 0)
+  end
+
+  attr link, id, kind, a1, a2
+  def link=(v)
+    @link = v
+  end
+  def id=(v)
+    @id = v
+  end
+  def a1=(v)
+    @a1 = v
+  end
+
+  def add_to(queue)
+    @link = nil
+    if queue == nil then return self end
+    nxt = queue
+    while (peek = nxt.link) != nil
+      nxt = peek
+    end
+    nxt.link = self
+    queue
+  end
+end
+
+def run_richards(count)
+  scheduler = Scheduler()
+  scheduler.add_idle_task(ID_IDLE, 0, nil, count)
+  queue = Packet(nil, ID_WORKER, KIND_WORK)
+  queue = Packet(queue, ID_WORKER, KIND_WORK)
+  scheduler.add_worker_task(ID_WORKER, 1000, queue)
+  queue = Packet(nil, ID_DEVICE_A, KIND_DEVICE)
+  queue = Packet(queue, ID_DEVICE_A, KIND_DEVICE)
+  queue = Packet(queue, ID_DEVICE_A, KIND_DEVICE)
+  scheduler.add_handler_task(ID_HANDLER_A, 2000, queue)
+  queue = Packet(nil, ID_DEVICE_B, KIND_DEVICE)
+  queue = Packet(queue, ID_DEVICE_B, KIND_DEVICE)
+  queue = Packet(queue, ID_DEVICE_B, KIND_DEVICE)
+  scheduler.add_handler_task(ID_HANDLER_B, 3000, queue)
+  scheduler.add_device_task(ID_DEVICE_A, 4000, nil)
+  scheduler.add_device_task(ID_DEVICE_B, 5000, nil)
+  scheduler.schedule
+  scheduler
+end
+
+s = run_richards(1000)
+print("queue count: {s.queue_count} (expected 2322)")
+print("hold count: {s.hold_count} (expected 928)")
