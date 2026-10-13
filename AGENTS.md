@@ -21,10 +21,18 @@ and how to run everything.
     made it.
   - A rejected idea keeps its reason, so it isn't proposed again without
     new evidence.
-- Some documents are generated, as the README's table says. Change the
-  generator and rerun it rather than editing the output by hand:
-  - `docs/performance*.md` and `docs/compiler-performance.md`;
-  - `docs/microcode-v1b.md`.
+- Some files are generated. Change the generator and rerun it rather than
+  editing the output by hand:
+  - `docs/performance*.md` and `docs/compiler-performance.md` (the README
+    says which command writes which);
+  - `docs/microcode.md` and `docs/microcode-v1b.md` (`python3 -m tmc ucode
+    --doc`, with `--isa v1b` for the second);
+  - `programs/expected/` and `programs/common/vm_code.s`
+    (`python3 programs/reference.py`);
+  - `tests/cc/expected/` (`python3 tests/cc/gen_expected.py`, which needs
+    gcc);
+  - `tmc/hw/timing.json` (`python3 -m tmc.hw.build_timing`, from
+    `tmc/hw/datasheets/`).
 - When you add a document or a command, add it to the README.
 
 ## Checking changes
@@ -33,6 +41,8 @@ and how to run everything.
   tests.
 - `python3 -m tmc test` and `python3 -m tmc --isa v1b test`: the programs
   against their expected output.
+- `python3 -m tmc ccbench`: the C versions of the programs, compiled for
+  both draft 1 encodings, against the same expected output.
 - `(cd hwsim && go test ./...)`: the Go simulator's chip models.
 - The chip-level and signal-integrity runs are slow. The full hardware
   report takes about half an hour.
