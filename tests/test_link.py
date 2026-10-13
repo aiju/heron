@@ -346,5 +346,50 @@ class CAndAssembly(unittest.TestCase):
             self.assertIn("pc16h", text)
 
 
+def tmc(*argv):
+    """python3 -m tmc ARGV, in this process: (exit status, stdout, stderr)."""
+    from tmc.__main__ import main
+    out = io.TextIOWrapper(io.BytesIO(), encoding="latin-1")
+    err = io.StringIO()
+    with redirect_stdout(out), redirect_stderr(err):
+        try:
+            rc = main(list(argv))
+        except SystemExit as e:     # argparse errors
+            rc = e.code
+    out.flush()
+    return rc, out.buffer.getvalue().decode("latin-1"), err.getvalue()
+
+
+class CommandLineISA(unittest.TestCase):
+    PROG = "        .org 0\n        JMP  start\n        .org 0x18\nstart:  HALT\n"
+
+    def test_unknown_isa(self):
+        for isa in ("v9", "v1common"):
+            rc, _, err = tmc("--isa", isa, "test")
+            self.assertEqual(rc, 2)
+            self.assertIn("invalid choice", err)
+
+    def test_isa_must_agree_with_object_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            o, out = os.path.join(d, "p.o"), os.path.join(d, "p.out")
+            assemble("v1b", self.PROG).write(o)
+            self.assertEqual(tmc("ld", o, "-o", out)[0], 0)      # the ISA comes from the file
+            self.assertEqual(tmc("--isa", "v1b", "ld", o, "-o", out)[0], 0)
+            self.assertEqual(tmc("run", out)[0], 0)
+            for isa in ("v0", "v1a"):
+                for cmd in (("ld", o, "-o", out), ("run", out)):
+                    rc, _, err = tmc("--isa", isa, *cmd)
+                    self.assertEqual(rc, 1)
+                    self.assertIn(f"error: the object files are for v1b, not {isa}", err)
+
+    def test_cc_defaults_to_v1b(self):
+        with tempfile.TemporaryDirectory() as d:
+            c, o = os.path.join(d, "t.c"), os.path.join(d, "t.o")
+            with open(c, "w") as f:
+                f.write("int main() { return 0; }\n")
+            self.assertEqual(tmc("cc", "-c", c, "-o", o)[0], 0)
+            self.assertEqual(O.read_object(o).isa, "v1b")
+
+
 if __name__ == "__main__":
     unittest.main()

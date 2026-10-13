@@ -2,6 +2,7 @@
 
 import importlib
 
+NAMES = ("v0", "v1a", "v1b")    # the ISAs (v1common is code 1a and 1b share)
 DEFAULT = "v0"
 
 

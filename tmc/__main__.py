@@ -1,4 +1,7 @@
-"""Command line: python3 -m tmc <command> ...
+"""Command line: python3 -m tmc [--isa v0|v1a|v1b] <command> ...
+
+--isa defaults to v0, except for cc (v1b). run and ld take the ISA from
+object files and executables; an --isa that disagrees with them is an error.
 
   asm   FILE.s [-o FILE.bin] [-l FILE.lst]   assemble
   asm   -c FILE.s [-o FILE.o]                assemble into an object file (draft 1)
@@ -23,6 +26,8 @@ import sys
 from . import asm as asmcore
 from . import isa as isas
 from .sim import Machine, SimError
+
+CC_ISA = "v1b"      # cc's default ISA, as for python3 -m tmc.cc (there's no C compiler for v0)
 
 
 def load_image(isa, path):
@@ -74,7 +79,7 @@ def cmd_run(args):
     from .link import LinkError
     from .obj import ObjError
     try:
-        img, args.isa = load_program(args.isa, args.files)
+        img, args.isa = load_program(args.isa if args.isa_given else None, args.files)
     except (asmcore.AsmError, LinkError, ObjError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -227,7 +232,9 @@ def cmd_dis(args):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="tmc", description="TTL minicomputer tools")
-    p.add_argument("--isa", default=isas.DEFAULT, help="ISA revision (default %(default)s)")
+    p.add_argument("--isa", choices=isas.NAMES,
+                   help=f"ISA revision (default {isas.DEFAULT}, {CC_ISA} for cc; run and ld "
+                        "take it from object files)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     a = sub.add_parser("asm", help="assemble a source file")
@@ -324,6 +331,11 @@ def main(argv=None):
     h.set_defaults(fn=lambda args: __import__("tmc.hw.cli", fromlist=["x"]).main(args.rest, args.isa))
 
     args = p.parse_args(argv)
+    # Commands that read object files take the ISA from them, so remember
+    # whether --isa was given: if it was, it has to agree.
+    args.isa_given = args.isa is not None
+    if args.isa is None:
+        args.isa = CC_ISA if args.cmd == "cc" else isas.DEFAULT
     return args.fn(args) or 0
 
 
