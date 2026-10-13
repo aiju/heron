@@ -1,5 +1,5 @@
-; monitor: a tiny memory monitor driven by console input (draft 1a). All
-; numbers are hex.
+; monitor: a tiny memory monitor driven by console input. All numbers are
+; hex.
 ;
 ;   w ADDR WORD...        write 16-bit words from ADDR on
 ;   b ADDR BYTE...        write bytes
@@ -18,7 +18,7 @@
 ; the RAM above 64 KB instead of wrapping round to 0000, where this program
 ; lives; the addresses printed by d do wrap.)
 
-;! input: "f 8000 80 2E\nw 8000 1234 ABCD 0 ffff\nb 8008 48 65 6C 6C 6F\ns 8010 Hello, monitor!\nd 8000 30\nc 8010 8021 7\nd 8020 10\nc 8000 8002 6\nd 8000 10\nr 8000\nr 8011\nx 1234\nd 8000\nw 8000 12G4\nd 8000 3 4\nb 8000\n\n  d   803E   5  \nb 8050 0 1 7F 80 FF 41 61 20 7E\nd 8050 9\nf 8060 5 41\nd 805E 8\nc 8061 8060 4\nd 8060 5\nw 8070 10000 BEEF\nr 8070\nd 8070 0\nr 8072"
+;! input-file: ../common/monitor.txt
 
         .include "lib/start.s"
 

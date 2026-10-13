@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Reference implementations of the test programs.
 
-Computes the exact console output each program in programs/*.s should
-produce and writes it to programs/expected/<name>.txt. This is meant as an
-independent check: it never runs the simulator or reads the assembly, it
-just does the same job in plain Python (emulating the programs' integer
-arithmetic where the exact bits matter, as in mandel).
+Computes the exact console output each test program should produce and
+writes it to programs/expected/<name>.txt, which every draft's version of
+the program (programs/v0, programs/v1a, programs/v1b) and its C version
+(programs/c) is checked against. This is meant as an independent check: it
+never runs the simulator or reads the assembly, it just does the same job in
+plain Python (emulating the programs' integer arithmetic where the exact
+bits matter, as in mandel). Console input comes from the same files in
+programs/common/ that the programs read. It also writes
+programs/common/vm_code.s, the bytecode vm.s runs.
 
     python3 programs/reference.py          # regenerate everything
     python3 programs/reference.py sort     # just one
@@ -343,14 +347,10 @@ def bignum():
     return "".join(f"{n}! = {math.factorial(n)}\n" for n in (10, 20, 30, 40, 52))
 
 
-# Console input of rpn.s (its ";! input:" line). Kept here rather than read from
-# the .s file so this script never looks at the assembly; if the two drift
-# apart, the test fails.
-RPN_INPUT = ("3 4 +\n5 1 2 + 4 * + 3 -\n2 3 4 * +\n-7 2 /\n7 -2 /\n-7 -2 /\n"
-             "100 7 / 100 7 * -\n1 2 3\n1 +\n9 -\n5 0 /\n5 5 5 - /\n32767 1 +\n"
-             "-32768 -1 /\n300 300 *\n-300 300 *\n70000 1 +\n12 abc +\n4x 1\n--5\n-\n"
-             "\t 42   -1  \n\n1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16\n"
-             "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17\n2 3 * 4 5 * + 6 /")
+def console_input(name):
+    """The console input in programs/common/NAME.txt, as the programs get it."""
+    with open(os.path.join(HERE, "common", name + ".txt"), "rb") as f:
+        return f.read().decode("latin-1")
 
 
 def lines_of(text):
@@ -363,7 +363,7 @@ def lines_of(text):
 
 def rpn():
     out = []
-    for line in lines_of(RPN_INPUT):
+    for line in lines_of(console_input("rpn")):
         assert len(line) < 80
         stack, err = [], None
         for tok in line.replace("\t", " ").split():
@@ -405,15 +405,6 @@ def rpn():
     return "".join(out)
 
 
-# Console input of monitor.s (its ";! input:" line), see RPN_INPUT.
-MONITOR_INPUT = ("f 8000 80 2E\nw 8000 1234 ABCD 0 ffff\nb 8008 48 65 6C 6C 6F\n"
-                 "s 8010 Hello, monitor!\nd 8000 30\nc 8010 8021 7\nd 8020 10\n"
-                 "c 8000 8002 6\nd 8000 10\nr 8000\nr 8011\nx 1234\nd 8000\n"
-                 "w 8000 12G4\nd 8000 3 4\nb 8000\n\n  d   803E   5  \n"
-                 "b 8050 0 1 7F 80 FF 41 61 20 7E\nd 8050 9\nf 8060 5 41\nd 805E 8\n"
-                 "c 8061 8060 4\nd 8060 5\nw 8070 10000 BEEF\nr 8070\nd 8070 0\nr 8072")
-
-
 def monitor():
     mem = bytearray(0x10000)
     out = []
@@ -423,7 +414,7 @@ def monitor():
             raise ValueError
         return int(tok, 16) & 0xFFFF
 
-    for line in lines_of(MONITOR_INPUT):
+    for line in lines_of(console_input("monitor")):
         out.append(f"> {line}\n")
         body = line.lstrip(" \t")
         if not body:
@@ -541,8 +532,7 @@ def wordfreq():
     (printed in lower case); everything else separates words. Prints the
     number of words, the number of distinct words, then the 15 most frequent
     as "count word", by count descending, ties in alphabetical order."""
-    with open(os.path.join(HERE, "common", "wordfreq.txt"), "rb") as f:
-        text = f.read().decode("latin-1")
+    text = console_input("wordfreq")
     words, cur = [], []
     for ch in text:
         if ("a" <= ch <= "z") or ("A" <= ch <= "Z"):

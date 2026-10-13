@@ -24,8 +24,7 @@ PROGRAMS = os.path.join(ROOT, "programs")
 
 
 def program_dir(isa_name=isas.DEFAULT):
-    sub = getattr(isas.get(isa_name), "PROGRAM_DIR", None)
-    return os.path.join(PROGRAMS, sub) if sub else PROGRAMS
+    return os.path.join(PROGRAMS, isas.get(isa_name).PROGRAM_DIR)
 
 
 def program_paths(names=None, isa_name=isas.DEFAULT):

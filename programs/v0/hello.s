@@ -1,4 +1,4 @@
-; Hello world: the smallest complete program.
+; hello: the smallest complete program.
 
         .include "lib/start.s"
 

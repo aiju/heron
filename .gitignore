@@ -4,6 +4,9 @@ build/
 # "go build" inside hwsim/ (the tools build into build/hwsim)
 hwsim/hwsim
 
+# Claude Code worktrees
+.claude/worktrees/
+
 # Python and environments
 __pycache__/
 *.pyc
