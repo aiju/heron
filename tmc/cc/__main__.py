@@ -2,6 +2,7 @@
 
     python3 -m tmc.cc [--isa v1a|v1b] FILE... [-o OUT] [-c | -S | --run] [--stats]
                       [--emit-ir] [-O0] [-I DIR] [-D NAME[=VALUE]] [--input TEXT]
+                      [--input-file FILE] [--max-cycles N]
 
 FILEs are C (.c), assembly (.s), object files (.o) and libraries (.a). Without
 -c, -S or --run, everything is compiled and linked with the start code and
@@ -24,8 +25,9 @@ def add_arguments(p):
     p.add_argument("--stats", action="store_true", help="with --run: cycles, code size, profile")
     p.add_argument("--map", action="store_true", help="print where the linker put everything")
     p.add_argument("--input", help="with --run: console input (escapes allowed)")
-    p.add_argument("--input-file")
-    p.add_argument("--max-cycles", type=int, default=500_000_000)
+    p.add_argument("--input-file", help="with --run: console input from a file")
+    p.add_argument("--max-cycles", type=int, default=500_000_000,
+                   help="with --run: stop after this many cycles (default 500 million)")
     p.add_argument("--emit-ir", action="store_true", help="print the optimised IR and stop")
     p.add_argument("-O", dest="opt", type=int, default=1, help="0: only mem2reg, 1: optimise (default)")
     p.add_argument("-I", dest="include", action="append", default=[])
