@@ -1,4 +1,5 @@
-"""Draft 1a/1b: assembler/disassembler round trip, semantics, timing model."""
+"""Draft 1a/1b: assembler/disassembler round trip, semantics, timing model,
+and `tmc run`."""
 
 import io
 import os

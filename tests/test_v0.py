@@ -1,13 +1,11 @@
-"""Assembler/disassembler round trip and instruction semantics for ISA v0."""
+"""Draft 0: assembler/disassembler round trip, instruction semantics, and
+`tmc run`."""
 
 import io
 import os
-import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tmc import asm
 from tmc.isa import v0
