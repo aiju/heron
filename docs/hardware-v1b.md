@@ -189,8 +189,10 @@ the polarity bit, so taken and not-taken cost the same.
 **Pipelined microcode.** The microcode ROMs are always addressed with the
 address of the *next* microinstruction, Y. Their outputs are clocked into
 the microinstruction register (uIR) at every edge, so control signals are
-valid 40 ns after the clock instead of a ROM access after it. Y is chosen
-during the cycle by six 74HCT153s:
+valid 40 ns after the clock instead of a ROM access after it. They don't
+glitch while a ROM's address changes, as draft 0's did: every ROM output
+goes into a register, or (the decode ROM's routine address) through Y into
+the microcode ROMs. Y is chosen during the cycle by six 74HCT153s:
 
 | Sequencing | Y |
 |---|---|
@@ -468,8 +470,6 @@ carry chain and the fetch from the slowest memory.
   say "put the smaller factor second; small operands are faster".
 - **Hold times** aren't analysed (HCT datasheets give no minimum delays), and
   the clock is ideal (no skew), as in draft 0.
-- **Microcode ROM outputs glitch** while their address changes. Write
-  strobes are qualified by the write window, so this can't cause writes.
 - **A misaligned read still reads the RAM** (the result is thrown away).
   Only the I/O device, whose reads have side effects, is protected.
 - **The I/O page is decoded from MAR bit 31 alone**: everything at
