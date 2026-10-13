@@ -155,8 +155,8 @@ def add_ar_arguments(p):
 # ---- tmc objdump -----------------------------------------------------------------
 
 
-def dump(o, disasm=False, out=sys.stdout):
-    w = out.write
+def dump(o, disasm=False, out=None):
+    w = (out or sys.stdout).write       # sys.stdout now, not when this module was imported
     kind = "executable" if o.executable else "object file"
     w(f"{o.name}: {kind} for {o.isa}\n\nsections:\n")
     for k, s in enumerate(o.sections, 1):
