@@ -22,9 +22,26 @@ Value prim_error;
 typedef struct CacheEntry {
     Value cls, sel, method, pad;
 } CacheEntry;
+#ifdef EGRET_ASM
+extern CacheEntry mcache[CACHE_SIZE];   /* in interp_v1b.s, where 16-bit addresses reach it */
+#else
 static CacheEntry mcache[CACHE_SIZE];
+#endif
+
+static int cache_used;
 
 void interp_flush_cache(void) { memset(mcache, 0, sizeof mcache); }
+
+/* A method for sel was added or replaced: drop the entries for sel. */
+void interp_flush_sel(Value sel)
+{
+    int i;
+    if (!cache_used)
+        return;
+    for (i = 0; i < CACHE_SIZE; i++)
+        if (mcache[i].sel == sel)
+            mcache[i].cls = 0;
+}
 
 /* the entry's byte offset is (cls ^ sel) & 0x3FF0: one XOR and one AND */
 #define CACHE_INDEX(cls, sel) ((((cls) ^ (sel)) >> 4) & (CACHE_SIZE - 1))
@@ -36,6 +53,7 @@ static Value lookup(Value cls, Value sel)
     COUNT(cache_misses);
     m = class_lookup(cls, sel);
     if (m) {
+        cache_used = 1;
         e->cls = cls;
         e->sel = sel;
         e->method = m;
@@ -45,9 +63,10 @@ static Value lookup(Value cls, Value sel)
 
 /* ---- frames, handlers --------------------------------------------------------- */
 
-static Frame *frames, *frames_end;
-static Value *vstack_end;
-static unsigned serial_counter;
+static Frame *frames;
+Frame *egret_frames_end;        /* no frame at or above this */
+Value *egret_vstack_end;        /* no frame starts with the stack at or above this */
+Value egret_serial = MKINT(0);  /* the last serial handed out */
 static Frame *vm_fp;            /* the frame below the next interpreter's base */
 
 typedef struct Handler {
@@ -60,18 +79,18 @@ static Handler handlers[MAX_HANDLERS];
 static int nhandlers;
 
 /* the selectors of the bytecodes with fast paths */
-static Value special[NOPCODES];
-#define special_sel(op) (special[op])
+Value egret_special[NOPCODES];
+#define special_sel(op) (egret_special[op])
 
 void interp_init(void)
 {
     static const char *const names[] = { "+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "[]", "[]=", "&", "|", "^", "<<", ">>" };
     int i;
     for (i = 0; i <= OP_SHR - OP_ADD; i++)
-        special[OP_ADD + i] = intern_c(names[i]);
+        egret_special[OP_ADD + i] = intern_c(names[i]);
     frames = (Frame *)P(FRAMES_LO);
-    frames_end = (Frame *)P(FRAMES_HI) - 1;
-    vstack_end = P(VSTACK_HI) - 64;
+    egret_frames_end = (Frame *)P(FRAMES_HI) - 2;
+    egret_vstack_end = P(VSTACK_HI) - 512;     /* room for 255 locals and the expressions */
     vm_fp = frames;
     vm_fp->method = 0;
     interp_flush_cache();
@@ -166,6 +185,26 @@ static void report(Value err, Frame *fp, unsigned char *ip, Frame *base)
 
 /* ---- the interpreter ----------------------------------------------------------- */
 
+/* The registers of the interpreter, for the assembly interpreter's slow
+   path (its offsets are in interp_v1b.s, through build.py) */
+typedef struct VMState {
+    Value *sp;              /* the top of the value stack: the last value pushed */
+    Value *bp;
+    Frame *fp;
+    unsigned char *ip;
+    Value *lits;
+    Frame *base;
+    int base_handlers;
+    Value *entry_sp;
+    Value result;
+    Value method;
+} VMState;
+enum { STEP_CONTINUE, STEP_RETURNED, STEP_ERROR };
+#ifdef EGRET_ASM
+VMState *egret_st;          /* the running assembly interpreter's */
+int egret_raise(VMState *st, Value err);
+#endif
+
 #define FIELD(o, i) (P(o)[2 + (i)])
 #define LITS(m) (&FIELD(FIELD(m, M_LITS), 0))
 #define CODE(m) (BYTES(FIELD(m, M_CODE)))
@@ -173,7 +212,43 @@ static void report(Value err, Frame *fp, unsigned char *ip, Frame *base)
 
 /* Runs method m on the receiver and argc arguments at the top of the value
    stack, until it returns. 1 and its result, or 0 after an uncaught error
-   (which it reports). */
+   (which it reports).
+
+   Built with EGRET_ASM, the same loop is the assembly interpreter's slow
+   path instead (vm/interp_v1b.s): step() runs one bytecode, the one at
+   st->ip, or with m set, calls m (the first frame); it works on the
+   registers in st and says what happened (STEP_ below). */
+#ifdef EGRET_ASM
+#define NEXT goto step_out
+#define EXIT_RETURNED(v) do { st->result = (v); vm_sp = sp - 1; return STEP_RETURNED; } while (0)
+#define EXIT_ERROR() do { vm_sp = entry_sp; nhandlers = base_handlers; return STEP_ERROR; } while (0)
+static int step(VMState *st, Value m, int argc, int flags, Value raise_err)
+{
+    Value *sp = st->sp, *bp = st->bp;
+    Frame *fp = st->fp, *base = st->base;
+    unsigned char *ip = st->ip;
+    Value *lits = st->lits;
+    Value method = st->method;
+    Value sel, rcv, cls, info, err, retval;
+    int base_handlers = st->base_handlers;
+    int frame_flags = flags | FR_BASE;
+    Value *entry_sp = st->entry_sp;
+    unsigned op;
+
+    if (raise_err) {
+        err = raise_err;
+        goto raise;
+    }
+    if (m) {
+        bp = sp - argc;
+        rcv = bp[0];
+        goto invoke;
+    }
+    frame_flags = 0;
+#else
+#define NEXT continue
+#define EXIT_RETURNED(v) do { *result = (v); vm_sp = sp - 1; return 1; } while (0)
+#define EXIT_ERROR() do { vm_sp = entry_sp; nhandlers = base_handlers; return 0; } while (0)
 static int interpret(Value m, int argc, Value *result, int flags)
 {
     Value *sp = vm_sp, *bp;
@@ -192,6 +267,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
     bp = sp - argc;
     rcv = bp[0];
     goto invoke;
+#endif
 
     for (;;) {
 #ifdef EGRET_STATS
@@ -205,43 +281,42 @@ static int interpret(Value m, int argc, Value *result, int flags)
         }
 #endif
         switch (op) {
-        case OP_PUSH_NIL: *++sp = NIL; continue;
-        case OP_PUSH_TRUE: *++sp = TRUE_V; continue;
-        case OP_PUSH_FALSE: *++sp = FALSE_V; continue;
-        case OP_PUSH_SELF: *++sp = bp[0]; continue;
-        case OP_PUSH_BSELF: *++sp = FIELD(bp[0], CL_SELF); continue;
-        case OP_PUSH_INT: *++sp = MKINT((signed char)*ip); ip++; continue;
-        case OP_PUSH_LIT: *++sp = lits[*ip++]; continue;
-        case OP_PUSH_LOCAL: *++sp = bp[*ip++]; continue;
-        case OP_STORE_LOCAL: bp[*ip++] = *sp; continue;
-        case OP_POP_LOCAL: bp[*ip++] = *sp--; continue;
-        case OP_PUSH_BOXED: *++sp = FIELD(bp[*ip++], 0); continue;
-        case OP_STORE_BOXED: FIELD(bp[*ip++], 0) = *sp; continue;
-        case OP_PUSH_CAPT: *++sp = FIELD(bp[0], CL_CAPT + *ip++); continue;
-        case OP_STORE_CAPT: FIELD(bp[0], CL_CAPT + *ip++) = *sp; continue;
-        case OP_PUSH_CAPT_BOXED: *++sp = FIELD(FIELD(bp[0], CL_CAPT + *ip++), 0); continue;
-        case OP_STORE_CAPT_BOXED: FIELD(FIELD(bp[0], CL_CAPT + *ip++), 0) = *sp; continue;
-        case OP_PUSH_IVAR: *++sp = FIELD(bp[0], *ip++); continue;
-        case OP_STORE_IVAR: FIELD(bp[0], *ip++) = *sp; continue;
-        case OP_PUSH_BIVAR: *++sp = FIELD(FIELD(bp[0], CL_SELF), *ip++); continue;
-        case OP_STORE_BIVAR: FIELD(FIELD(bp[0], CL_SELF), *ip++) = *sp; continue;
+        case OP_PUSH_NIL: *++sp = NIL; NEXT;
+        case OP_PUSH_TRUE: *++sp = TRUE_V; NEXT;
+        case OP_PUSH_FALSE: *++sp = FALSE_V; NEXT;
+        case OP_PUSH_SELF: *++sp = bp[0]; NEXT;
+        case OP_PUSH_BSELF: *++sp = FIELD(bp[0], CL_SELF); NEXT;
+        case OP_PUSH_INT: *++sp = MKINT((signed char)*ip); ip++; NEXT;
+        case OP_PUSH_LIT: *++sp = lits[*ip++]; NEXT;
+        case OP_PUSH_LOCAL: *++sp = bp[*ip++]; NEXT;
+        case OP_STORE_LOCAL: bp[*ip++] = *sp; NEXT;
+        case OP_POP_LOCAL: bp[*ip++] = *sp--; NEXT;
+        case OP_PUSH_BOXED: *++sp = FIELD(bp[*ip++], 0); NEXT;
+        case OP_STORE_BOXED: FIELD(bp[*ip++], 0) = *sp; NEXT;
+        case OP_PUSH_CAPT: *++sp = FIELD(bp[0], CL_CAPT + *ip++); NEXT;
+        case OP_STORE_CAPT: FIELD(bp[0], CL_CAPT + *ip++) = *sp; NEXT;
+        case OP_PUSH_CAPT_BOXED: *++sp = FIELD(FIELD(bp[0], CL_CAPT + *ip++), 0); NEXT;
+        case OP_STORE_CAPT_BOXED: FIELD(FIELD(bp[0], CL_CAPT + *ip++), 0) = *sp; NEXT;
+        case OP_PUSH_IVAR: *++sp = FIELD(bp[0], *ip++); NEXT;
+        case OP_STORE_IVAR: FIELD(bp[0], *ip++) = *sp; NEXT;
+        case OP_PUSH_BIVAR: *++sp = FIELD(FIELD(bp[0], CL_SELF), *ip++); NEXT;
+        case OP_STORE_BIVAR: FIELD(FIELD(bp[0], CL_SELF), *ip++) = *sp; NEXT;
         case OP_PUSH_GLOBAL: {
-            Value v = globals[ip[0] | ip[1] << 8];
+            Value v = *P(lits[*ip]);
             if (!v) {
                 vm_sp = sp;
-                err = msg3("", global_names[ip[0] | ip[1] << 8], " isn't defined");
+                err = msg3("", global_names[(Value *)P(lits[*ip]) - globals], " isn't defined");
                 goto raise_msg;
             }
-            ip += 2;
+            ip++;
             *++sp = v;
-            continue;
+            NEXT;
         }
         case OP_STORE_GLOBAL:
-            globals[ip[0] | ip[1] << 8] = *sp;
-            ip += 2;
-            continue;
-        case OP_POP: sp--; continue;
-        case OP_DUP: sp[1] = sp[0]; sp++; continue;
+            *P(lits[*ip++]) = *sp;
+            NEXT;
+        case OP_POP: sp--; NEXT;
+        case OP_DUP: sp[1] = sp[0]; sp++; NEXT;
 
         case OP_SEND:
             sel = lits[ip[0]];
@@ -294,11 +369,9 @@ static int interpret(Value m, int argc, Value *result, int flags)
                     *sp = r;
                     if (frame_flags & FR_BASE) {
                         /* a primitive called straight from C */
-                        *result = r;
-                        vm_sp = sp - 1;
-                        return 1;
+                        EXIT_RETURNED(r);
                     }
-                    continue;
+                    NEXT;
                 }
                 switch (p) {
                 case PR_NEW:
@@ -352,7 +425,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 }
             }
             /* push a frame for an Egret method */
-            if (fp >= frames_end || sp + MI_NLOCALS(info) >= vstack_end) {
+            if (fp >= egret_frames_end || sp >= egret_vstack_end) {
                 vm_sp = sp;
                 err = make_string_c("stack overflow (recursion too deep)");
                 goto raise_msg;
@@ -378,7 +451,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             if ((unsigned)(fp - frames) > stats.frames_max)
                 stats.frames_max = fp - frames;
 #endif
-            continue;
+            NEXT;
 
         not_understood: {
             /* does_not_understand(name, args), or an error */
@@ -464,7 +537,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 if ((SValue)((r ^ a) & (r ^ (b - 1))) >= 0) {
                     *--sp = r;
                     COUNT(int_fast);
-                    continue;
+                    NEXT;
                 }
             }
             static_sel:
@@ -480,7 +553,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 if ((SValue)((a ^ (b - 1)) & (a ^ r)) >= 0) {
                     *--sp = r;
                     COUNT(int_fast);
-                    continue;
+                    NEXT;
                 }
             }
             goto static_sel;
@@ -492,7 +565,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 if ((unsigned)(x + 0x4000) < 0x8000 && (unsigned)(y + 0x4000) < 0x8000) {
                     *--sp = MKINT(x * y);
                     COUNT(int_fast);
-                    continue;
+                    NEXT;
                 }
             }
             goto static_sel;
@@ -508,7 +581,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 }
                 *--sp = MKINT(op == OP_DIV ? q : r);
                 COUNT(int_fast);
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -516,7 +589,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1) {
                 *--sp = (SValue)a < (SValue)b ? TRUE_V : FALSE_V;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -524,7 +597,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1) {
                 *--sp = (SValue)a <= (SValue)b ? TRUE_V : FALSE_V;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -532,7 +605,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1) {
                 *--sp = (SValue)a > (SValue)b ? TRUE_V : FALSE_V;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -540,7 +613,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1) {
                 *--sp = (SValue)a >= (SValue)b ? TRUE_V : FALSE_V;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -548,14 +621,14 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a == b) {
                 *--sp = TRUE_V;
-                continue;
+                NEXT;
             }
             if (((a | b) & 1) || a - FALSE_V <= TRUE_V - FALSE_V || b - FALSE_V <= TRUE_V - FALSE_V) {
                 /* a SmallInt and something else (only a big integer could
                    be equal, and big integers are never SmallInt-sized), or
                    nil, true or false, which are equal only to themselves */
                 *--sp = FALSE_V;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -563,7 +636,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1) {
                 *--sp = a & b;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -571,7 +644,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1) {
                 *--sp = a | b;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -579,7 +652,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1) {
                 *--sp = (a ^ b) | 1;
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -589,7 +662,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 SValue x = INT(a), n = INT(b), y = (SValue)((unsigned)x << n);
                 if ((y >> n) == x && FITS31(y)) {
                     *--sp = MKINT(y);
-                    continue;
+                    NEXT;
                 }
             }
             goto static_sel;
@@ -598,7 +671,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             Value b = sp[0], a = sp[-1];
             if (a & b & 1 && b <= MKINT(31)) {
                 *--sp = MKINT(INT(a) >> INT(b));
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -607,7 +680,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             if (IS_INT(i) && !IS_INT(a) && CLASSW(a) == cls_List
                 && (unsigned)INT(i) < (unsigned)INT(FIELD(a, L_SIZE))) {
                 *--sp = FIELD(FIELD(a, L_ITEMS), INT(i));
-                continue;
+                NEXT;
             }
             goto static_sel;
         }
@@ -618,7 +691,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 FIELD(FIELD(a, L_ITEMS), INT(i)) = v;
                 sp -= 2;
                 *sp = v;
-                continue;
+                NEXT;
             }
             sel = special_sel(op);
             argc = 2;
@@ -626,38 +699,38 @@ static int interpret(Value m, int argc, Value *result, int flags)
         }
         case OP_NOT:
             *sp = FALSY(*sp) ? TRUE_V : FALSE_V;
-            continue;
+            NEXT;
 
         /* ---- jumps ---- */
         case OP_JUMP:
             ip += 2 + W16(ip);
-            continue;
+            NEXT;
         case OP_JUMP_FALSE:
             if (FALSY(*sp))
                 ip += W16(ip);
             ip += 2;
             sp--;
-            continue;
+            NEXT;
         case OP_JUMP_TRUE:
             if (!FALSY(*sp))
                 ip += W16(ip);
             ip += 2;
             sp--;
-            continue;
+            NEXT;
         case OP_JUMP_FALSE_OR_POP:
             if (FALSY(*sp))
                 ip += W16(ip);
             else
                 sp--;
             ip += 2;
-            continue;
+            NEXT;
         case OP_JUMP_TRUE_OR_POP:
             if (!FALSY(*sp))
                 ip += W16(ip);
             else
                 sp--;
             ip += 2;
-            continue;
+            NEXT;
 
         /* ---- blocks and returns ---- */
         case OP_CLOSURE: {
@@ -673,9 +746,9 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 FIELD(c, CL_SERIAL) = FIELD(outer, CL_SERIAL);
             } else {
                 FIELD(c, CL_SELF) = bp[0];
-                FIELD(c, CL_HOME) = MKINT(fp - frames);
+                FIELD(c, CL_HOME) = V(fp);
                 if (!fp->serial)
-                    fp->serial = MKINT(++serial_counter);
+                    fp->serial = egret_serial += 2;
                 FIELD(c, CL_SERIAL) = fp->serial;
             }
             for (i = 0; i < n; i++) {
@@ -684,7 +757,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             }
             ip += 2 + 2 * n;
             *++sp = c;
-            continue;
+            NEXT;
         }
         case OP_RETURN: {
             unsigned fl;
@@ -696,21 +769,18 @@ static int interpret(Value m, int argc, Value *result, int flags)
             sp = bp;
             *sp = retval;
             fp--;
-            if (fl & FR_BASE) {
-                *result = retval;
-                vm_sp = sp - 1;
-                return 1;
-            }
+            if (fl & FR_BASE)
+                EXIT_RETURNED(retval);
             bp = P(fp->bp);
             method = fp->method;
             lits = LITS(method);
             ip = BP(fp->ip);
-            continue;
+            NEXT;
         }
         case OP_RETURN_NLR: {
             Value c = bp[0];
             retval = *sp;
-            Frame *home = frames + INT(FIELD(c, CL_HOME));
+            Frame *home = (Frame *)P(FIELD(c, CL_HOME));
             COUNT(nlr);
             if (home < base || home > fp || FIELD(c, CL_SERIAL) != home->serial) {
                 vm_sp = sp;
@@ -735,7 +805,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             FIELD(l, L_SIZE) = MKINT(n);
             sp -= n;
             *++sp = l;
-            continue;
+            NEXT;
         }
         case OP_MAKE_MAP: {
             int n = *ip++, i;
@@ -748,7 +818,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             pop_roots(1);
             sp -= 2 * n;
             *++sp = mp;
-            continue;
+            NEXT;
         }
         case OP_MAKE_RANGE: {
             Value a = sp[-1], b = sp[0];
@@ -759,7 +829,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             }
             vm_sp = sp;
             *--sp = make_range(INT(a), INT(b) - *ip++);
-            continue;
+            NEXT;
         }
         case OP_CONCAT: {
             int n = *ip++, i;
@@ -785,7 +855,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             }
             sp -= n;
             *++sp = s;
-            continue;
+            NEXT;
         }
         case OP_MAKE_BOX: {
             Value b;
@@ -793,7 +863,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             b = alloc_obj(cls_Box, 1);
             FIELD(b, 0) = bp[*ip];
             bp[*ip++] = b;
-            continue;
+            NEXT;
         }
 
         /* ---- for loops ---- */
@@ -809,19 +879,19 @@ static int interpret(Value m, int argc, Value *result, int flags)
             bp[slot + 1] = ip[1] ? b - 2 : b;
             sp -= 2;
             ip += 2;
-            continue;
+            NEXT;
         }
         case OP_RANGE_NEXT: {
             unsigned slot = ip[0];
             Value i = bp[slot] + 2;
             if ((SValue)i > (SValue)bp[slot + 1]) {
                 ip += 3 + W16(ip + 1);
-                continue;
+                NEXT;
             }
             bp[slot] = i;
             *++sp = i;
             ip += 3;
-            continue;
+            NEXT;
         }
         case OP_ITER_PREP: {
             Value it = *sp--;
@@ -837,7 +907,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 err = make_string_c("for: iter must give a List or a Range");
                 goto raise_msg;
             }
-            continue;
+            NEXT;
         }
         case OP_ITER_NEXT: {
             unsigned slot = ip[0];
@@ -846,7 +916,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 Value i = bp[slot + 1];
                 if (INT(i) >= INT(FIELD(it, L_SIZE))) {
                     ip += 3 + W16(ip + 1);
-                    continue;
+                    NEXT;
                 }
                 *++sp = FIELD(FIELD(it, L_ITEMS), INT(i));
                 bp[slot + 1] = i + 2;
@@ -854,13 +924,13 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 Value i = bp[slot + 1] + 2;
                 if ((SValue)i > (SValue)FIELD(it, R_LAST)) {
                     ip += 3 + W16(ip + 1);
-                    continue;
+                    NEXT;
                 }
                 bp[slot + 1] = i;
                 *++sp = i;
             }
             ip += 3;
-            continue;
+            NEXT;
         }
         case OP_INC_LOCAL: {
             Value v = bp[ip[0]];
@@ -870,11 +940,11 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 if (step >= 0 ? (SValue)r >= (SValue)v : (SValue)r < (SValue)v) {
                     bp[ip[0]] = r;
                     ip += 9;
-                    continue;
+                    NEXT;
                 }
             }
             ip += 2;
-            continue;
+            NEXT;
         }
 
         /* ---- exceptions ---- */
@@ -889,10 +959,10 @@ static int interpret(Value m, int argc, Value *result, int flags)
             handlers[nhandlers].ip = ip + 2 + W16(ip);
             nhandlers++;
             ip += 2;
-            continue;
+            NEXT;
         case OP_END_TRY:
             nhandlers--;
-            continue;
+            NEXT;
 
         case OP_HALT:
         default:
@@ -916,7 +986,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             sp = h->sp;
             ip = h->ip;
             *++sp = err;
-            continue;
+            NEXT;
         }
         if (fp < base) {
             /* failed before the first frame: a primitive called from C */
@@ -927,15 +997,68 @@ static int interpret(Value m, int argc, Value *result, int flags)
             if (!IS_INT(msg) && CLASSW(msg) == cls_String)
                 out_bytes(BYTES(msg), SIZE(msg));
             out_char('\n');
-            vm_sp = entry_sp;
-            return 0;
+            EXIT_ERROR();
         }
         report(err, fp, ip, base);
-        vm_sp = entry_sp;
-        nhandlers = base_handlers;
-        return 0;
+        EXIT_ERROR();
     }
+#ifdef EGRET_ASM
+step_out:
+    st->sp = sp;
+    st->bp = bp;
+    st->fp = fp;
+    st->ip = ip;
+    st->lits = lits;
+    st->method = method;
+    vm_sp = sp;
+    return STEP_CONTINUE;
+#endif
 }
+
+#ifdef EGRET_ASM
+/* the assembly interpreter's slow path: one bytecode in C */
+int egret_step(VMState *st) { return step(st, 0, 0, 0, 0); }
+
+/* raise err at the bytecode before st->ip */
+int egret_raise(VMState *st, Value err) { return step(st, 0, 0, 0, err); }
+
+/* a primitive the assembly interpreter called failed: raise its error */
+int egret_prim_failed(VMState *st)
+{
+    Value *sp = st->sp;
+    Value err = prim_error;
+    prim_error = NIL;
+    vm_sp = sp;
+    if (!IS_INT(err) && CLASSW(err) == cls_String)
+        err = make_error_v(err);
+    return egret_raise(st, err);
+}
+
+int asm_run(VMState *st);
+
+static int interpret(Value m, int argc, Value *result, int flags)
+{
+    VMState st;
+    int r;
+    st.sp = vm_sp;
+    st.bp = 0;
+    st.fp = vm_fp;
+    st.base = vm_fp + 1;
+    st.ip = 0;
+    st.lits = 0;
+    st.method = 0;
+    st.base_handlers = nhandlers;
+    st.entry_sp = vm_sp - argc - 1;
+    r = step(&st, m, argc, flags, 0);
+    if (r == STEP_CONTINUE)
+        r = asm_run(&st);
+    if (r == STEP_RETURNED) {
+        *result = st.result;
+        return 1;
+    }
+    return 0;
+}
+#endif
 
 int run_toplevel(Value method)
 {

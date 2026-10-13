@@ -143,8 +143,7 @@ static void load(Node *t)
         emit2(t->var->boxed ? OP_PUSH_CAPT_BOXED : OP_PUSH_CAPT, t->capt->index);
         break;
     case N_GLOBAL:
-        emit(OP_PUSH_GLOBAL);
-        emitw(t->n);
+        emit2(OP_PUSH_GLOBAL, lit(V(&globals[t->n])));
         break;
     case N_IVAR:
         emit2(gf->is_block ? OP_PUSH_BIVAR : OP_PUSH_IVAR, t->n);
@@ -171,8 +170,7 @@ static void store(Node *t, int want)
         emit2(t->var->boxed ? OP_STORE_CAPT_BOXED : OP_STORE_CAPT, t->capt->index);
         break;
     case N_GLOBAL:
-        emit(OP_STORE_GLOBAL);
-        emitw(t->n);
+        emit2(OP_STORE_GLOBAL, lit(V(&globals[t->n])));
         break;
     case N_IVAR:
         emit2(gf->is_block ? OP_STORE_BIVAR : OP_STORE_IVAR, t->n);

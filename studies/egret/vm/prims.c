@@ -1043,6 +1043,7 @@ static const PrimDef defs[] = {
 };
 
 PrimFn prim_table[MAX_PRIMS];
+Value egret_blockcall;
 static int nprim = PR_FIRST_C;
 
 static Value find_class(const char *name)
@@ -1084,4 +1085,5 @@ void prims_init(void)
         method_finish(m);
         class_add_method(cls, F(m, M_SEL), m);
     }
+    egret_blockcall = class_lookup(cls_Block, sym_call);
 }

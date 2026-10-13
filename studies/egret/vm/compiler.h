@@ -24,7 +24,7 @@ enum {
     OP_PUSH_CAPT_BOXED, OP_STORE_CAPT_BOXED,/* b: a captured Box */
     OP_PUSH_IVAR, OP_STORE_IVAR,            /* b: of self */
     OP_PUSH_BIVAR, OP_STORE_BIVAR,          /* b: of a block's self */
-    OP_PUSH_GLOBAL, OP_STORE_GLOBAL,        /* w */
+    OP_PUSH_GLOBAL, OP_STORE_GLOBAL,        /* b: a literal, the global's cell address */
     OP_POP, OP_DUP,
     OP_SEND,            /* b: selector literal, b: argument count */
     OP_SEND_SUPER,      /* b, b */

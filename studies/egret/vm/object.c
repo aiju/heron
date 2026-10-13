@@ -8,7 +8,7 @@ Value cls_Object, cls_Class, cls_Nil, cls_Bool, cls_Int, cls_String,
     cls_Box, cls_Error;
 Value main_obj;
 
-Value globals[MAX_GLOBALS];
+Value *globals;
 Value global_names[MAX_GLOBALS];
 int nglobals;
 
@@ -185,7 +185,7 @@ static void table_put(Value t, Value sel, Value m)
     F(t, 2 * i + 1) = m;
 }
 
-void interp_flush_cache(void);
+void interp_flush_sel(Value sel);
 
 void class_add_method(Value cls, Value sel, Value m)
 {
@@ -202,7 +202,7 @@ void class_add_method(Value cls, Value sel, Value m)
     if (!class_lookup_here(cls, sel))
         F(cls, C_NMETHODS) = MKINT(n + 1);
     table_put(t, sel, m);
-    interp_flush_cache();
+    interp_flush_sel(sel);
 }
 
 Value class_name(Value cls) { return F(cls, C_NAME); }
@@ -285,6 +285,8 @@ static Value core_class(const char *name, Value super, int kind)
 void boot_classes(void)
 {
     Value obj_meta, class_meta;
+    globals = &F(perm_obj(0, MAX_GLOBALS), 0);
+    memset(globals, 0, 4 * MAX_GLOBALS);
     /* bootstrap: Object, Class and Array exist before any metaclass */
     cls_Array = perm_obj(0, CLASS_FIELDS);
     CLASSW(cls_Array) = 0;

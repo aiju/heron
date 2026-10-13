@@ -159,12 +159,19 @@ again:
             p++;
         if (p < lx->end && (*p == '?' || *p == '!') && !(p + 1 < lx->end && p[1] == '='))
             p++;
+        static Value kwsyms[T_WHILE - T_AND + 1];
+        Value sym;
         lx->p = p;
         lx->tlen = p - lx->tstart;
-        for (i = 0; keywords[i]; i++)
-            if (strlen(keywords[i]) == lx->tlen && memcmp(keywords[i], lx->tstart, lx->tlen) == 0)
-                return T_AND + i;
-        lx->tval = intern(lx->tstart, lx->tlen);
+        if (!kwsyms[0])
+            for (i = 0; keywords[i]; i++)
+                kwsyms[i] = intern_c(keywords[i]);
+        sym = intern(lx->tstart, lx->tlen);
+        if (*lx->tstart >= 'a' && *lx->tstart <= 'w')
+            for (i = 0; i <= T_WHILE - T_AND; i++)
+                if (kwsyms[i] == sym)
+                    return T_AND + i;
+        lx->tval = sym;
         return T_IDENT;
     }
     if (c == '@' && p < lx->end && is_alpha(*p)) {

@@ -132,7 +132,8 @@ enum {
 #define MF_BLOCK   0x20000      /* it's a block */
 void method_finish(Value m);    /* fills in the raw fields from the others */
 
-/* closures */
+/* closures: CL_HOME is the home frame record's address (raw), CL_SERIAL
+   its serial (a SmallInt) */
 enum { CL_METHOD, CL_SELF, CL_HOME, CL_SERIAL, CL_CAPT };
 
 /* lists, ranges and maps */
@@ -167,7 +168,7 @@ extern Value cls_Object, cls_Class, cls_Nil, cls_Bool, cls_Int, cls_String,
 extern Value main_obj;
 
 #define MAX_GLOBALS 1024
-extern Value globals[MAX_GLOBALS];
+extern Value *globals;          /* in the permanent space, so a global's cell has an address */
 extern Value global_names[MAX_GLOBALS];
 extern int nglobals;
 int global_index(Value name);   /* finds or makes a global */
