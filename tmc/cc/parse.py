@@ -12,7 +12,7 @@ designated initializers.
 
 import re
 from .lex import CompileError, Token, unescape
-from .cpp import parse_int, char_value
+from .cpp import parse_int, char_value, div_trunc
 from . import ctype as T
 from .ctype import Type, StructInfo, pointer_to, array_of, func_type
 from . import tree as N
@@ -31,7 +31,10 @@ ASSIGN_OPS = {"=", "+=", "-=", "*=", "/=", "%=", "<<=", ">>=", "&=", "^=", "|="}
 
 
 def norm(v, ty):
-    """Wrap an int to a value of integer (or pointer) type ty."""
+    """Convert an int to a value of integer (or pointer) type ty: wrap it
+    around, or for _Bool, 1 for anything but 0."""
+    if ty.is_bool:
+        return int(v != 0)
     bits = 8 * ty.size if ty.is_integer else 32
     v &= (1 << bits) - 1
     if ty.is_integer and not ty.unsigned and v >> (bits - 1):
@@ -440,7 +443,9 @@ class Parser:
         if key == ("void",) and not signed and not unsigned:
             return T.VOID
         if key == ("_Bool",):
-            return T.UCHAR
+            if signed or unsigned:
+                self.error("_Bool can't be signed or unsigned", tok)
+            return T.BOOL
         if key == ("char",):
             return T.UCHAR if unsigned else (T.SCHAR if signed else T.CHAR)
         if key in (("short",), ("int", "short")):
@@ -1572,10 +1577,8 @@ def eval_int(e):
         if op in ("/", "%"):
             if b == 0:
                 raise NotConstant()
-            q = abs(a) // abs(b)
-            if (a < 0) != (b < 0):
-                q = -q
-            return norm(q if op == "/" else a - q * b, e.ty)
+            q, r = div_trunc(a, b)
+            return norm(q if op == "/" else r, e.ty)
         if op == "<<":
             return norm(a << (b & 31), e.ty)
         if op == ">>":
