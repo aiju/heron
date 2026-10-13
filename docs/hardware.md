@@ -1,5 +1,7 @@
 # Hardware: a 7400-series implementation of ISA draft 0
 
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](evaluation-v1.md) and [hardware-v1b.md](hardware-v1b.md).
+
 This is a first-cut, buildable implementation of [ISA draft 0](isa-v0.md):
 98 chips including memory, microcoded, one bus cycle per clock. Its main job
 at this stage is to put real numbers on the ISA: how many clock cycles each
@@ -192,7 +194,7 @@ ops with a 16-bit immediate), worst-case delays, HCT + LS181:
  351.0  result bus                      74HCT153
  423.0  "result is zero"                74HCT688 + 74HCT32
  466.0  Z flag next value               74HCT153
- 486.2  setup of the flag flip-flop     74HCT175
+ 486.0  setup of the flag flip-flop     74HCT175
 ```
 
 Almost every slow microinstruction ends at the Z flag: ALU, then result mux,
