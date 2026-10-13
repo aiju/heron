@@ -1,0 +1,10 @@
+# bignum: exact factorials up to 52!, printing 10!, 20!, 30!, 40! and 52!.
+# Egret's integers grow as needed, so this is just a loop.
+
+f = 1
+for n in 1..52
+  f *= n
+  if (n % 10 == 0 and n <= 40) or n == 52
+    print("{n}! = {f}")
+  end
+end

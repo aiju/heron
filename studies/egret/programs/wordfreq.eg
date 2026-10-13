@@ -1,0 +1,38 @@
+# wordfreq: word frequencies of the text after __END__ (the console input).
+# A word is a maximal run of ASCII letters, compared case-insensitively.
+# Prints the number of words, the number of distinct words, and the 15 most
+# frequent as "count word", by count descending, ties in alphabetical order.
+#! input: ../../v1_isa/programs/common/wordfreq.txt
+
+def words_of(text)
+  words = []
+  start = -1
+  i = 0
+  n = text.size
+  while i < n
+    c = text.byte_at(i) | 32
+    if c >= 97 and c <= 122
+      if start < 0 then start = i end
+    elif start >= 0
+      words.push(text[start..(i - 1)].lower)
+      start = -1
+    end
+    i += 1
+  end
+  if start >= 0 then words.push(text[start..(n - 1)].lower) end
+  words
+end
+
+counts = Map.new
+words = words_of(read_all())
+for w in words
+  counts[w] = counts.get(w, 0) + 1
+end
+ranked = counts.keys.sort_with { |a, b|
+  if counts[a] != counts[b] then counts[a] > counts[b] else a < b end
+}
+print("words: {words.size}")
+print("distinct: {ranked.size}")
+for w in ranked.take(15)
+  print("{counts[w]} {w}")
+end

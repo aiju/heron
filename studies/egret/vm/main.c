@@ -1,0 +1,192 @@
+/* Start-up: the core classes, the primitives, the prelude, then the
+   program from the console. And the platform: output, input, the cycle
+   counter. */
+
+#include "egret.h"
+
+#ifdef __HERON__
+#include <heron.h>
+extern char _end[];
+#else
+#include <stdio.h>
+#include <stdlib.h>
+char egret_ram[RAM_SIZE] __attribute__((aligned(16)));
+#endif
+
+extern const char prelude_src[];
+extern const unsigned prelude_len;
+
+const unsigned char *input_data;
+unsigned input_len, input_pos;
+static int repl;
+
+/* ---- the platform ------------------------------------------------------------- */
+
+void out_char(int c)
+{
+#ifdef __HERON__
+    HERON_CONSOLE = c;
+#else
+    putchar(c);
+#endif
+}
+
+void out_str(const char *s)
+{
+    while (*s)
+        out_char(*s++);
+}
+
+void out_bytes(const unsigned char *s, unsigned n)
+{
+    while (n--)
+        out_char(*s++);
+}
+
+void out_int(SValue n)
+{
+    char buf[12], *p = buf + sizeof buf;
+    unsigned u = n < 0 ? 0u - (unsigned)n : (unsigned)n;
+    *--p = 0;
+    do {
+        *--p = '0' + u % 10;
+        u /= 10;
+    } while (u);
+    if (n < 0)
+        *--p = '-';
+    out_str(p);
+}
+
+void out_flush(void)
+{
+#ifndef __HERON__
+    fflush(stdout);
+#endif
+}
+
+void fatal(const char *msg)
+{
+    if (msg) {
+        out_str("fatal: ");
+        out_str(msg);
+        out_char('\n');
+    }
+    out_flush();
+#ifdef __HERON__
+    exit(msg ? 1 : 0);
+#else
+    exit(msg ? 3 : 0);
+#endif
+}
+
+unsigned cycles(void)
+{
+#ifdef __HERON__
+    return HERON_CYCLES;
+#else
+    return 0;
+#endif
+}
+
+/* the console input, into INPUT */
+static unsigned read_input(void)
+{
+    unsigned char *buf = BP(INPUT_LO);
+    unsigned n = 0, max = INPUT_HI - INPUT_LO;
+#ifdef __HERON__
+    for (;;) {
+        unsigned c = HERON_CONSOLE;
+        if (c == 0xFFFFFFFF)
+            break;
+        if (n >= max)
+            fatal("the program and its input are too big");
+        buf[n++] = c;
+    }
+#else
+    int c;
+    while ((c = getchar()) != EOF) {
+        if (n >= max)
+            fatal("the program and its input are too big");
+        buf[n++] = c;
+    }
+#endif
+    return n;
+}
+
+/* ---- running source -------------------------------------------------------------- */
+
+/* Compiles the source, then runs it. A script is compiled whole before
+   any of it runs, so a syntax error stops it before it starts; at the
+   REPL each statement runs as soon as it's compiled. */
+#define MAX_STATEMENTS 2048
+
+static int run_source(const char *src, unsigned len, const char *name)
+{
+    Value m, statements = 0;
+    int n = 0, i;
+    compile_source(src, len, name);
+    if (!repl) {
+        while ((m = compile_next()) != 0) {
+            if (!statements)
+                statements = perm_obj(cls_Array, MAX_STATEMENTS);
+            if (n >= MAX_STATEMENTS)
+                fatal("too many top-level statements");
+            F(statements, n++) = m;
+        }
+        if (compile_errors)
+            return 0;
+        for (i = 0; i < n; i++)
+            if (!run_toplevel(F(statements, i)))
+                return 0;
+        return 1;
+    }
+    while ((m = compile_next()) != 0) {
+        Value r, s;
+        if (!run_toplevel(m))
+            continue;
+        /* run_toplevel left the result just above the stack */
+        r = vm_sp[1];
+        if (r != NIL) {
+            s = send0(r, sym_inspect);
+            if (s && !IS_INT(s) && CLASSW(s) == cls_String) {
+                out_str("=> ");
+                out_bytes(BYTES(s), SIZE(s));
+                out_char('\n');
+            }
+        }
+    }
+    return compile_errors == 0;
+}
+
+int main(void)
+{
+    unsigned n, src_len, i;
+    const unsigned char *in;
+#ifdef __HERON__
+    if ((unsigned)_end > INPUT_LO)
+        fatal("the VM is too big for its memory map");
+#endif
+    mem_init();
+    boot_classes();
+    interp_init();
+    prims_init();
+    if (!run_source(prelude_src, prelude_len, "prelude"))
+        fatal("the prelude failed");
+    n = read_input();
+    in = BP(INPUT_LO);
+    /* the program ends at a line __END__; what follows is its input */
+    src_len = n;
+    for (i = 0; i + 7 <= n; i++)
+        if ((i == 0 || in[i - 1] == '\n') && memcmp(in + i, "__END__", 7) == 0
+            && (i + 7 == n || in[i + 7] == '\n')) {
+            src_len = i;
+            input_data = in + (i + 8 <= n ? i + 8 : n);
+            input_len = in + n - input_data;
+            break;
+        }
+    if (n >= 6 && memcmp(in, "#!repl", 6) == 0)
+        repl = 1;
+    i = run_source((const char *)in, src_len, "program");
+    out_flush();
+    return i ? 0 : 1;
+}

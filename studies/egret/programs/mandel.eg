@@ -1,0 +1,29 @@
+# mandel: an ASCII Mandelbrot set, 48 x 20 characters, at most 16
+# iterations per point, in 8.8 fixed point (1.0 = 256).
+
+Palette = " .,,::;;--==++*#@"
+
+def iterations(cx, cy)
+  x = 0
+  y = 0
+  it = 0
+  while it < 16
+    if x >= 512 or x <= -512 or y >= 512 or y <= -512 then return it end
+    xx = (x * x) >> 8
+    yy = (y * y) >> 8
+    if xx + yy > 1024 then return it end
+    y = 2 * ((x * y) >> 8) + cy
+    x = xx - yy + cx
+    it += 1
+  end
+  it
+end
+
+for row in 0..<20
+  cy = -295 + row * 31
+  line = ""
+  for col in 0..<48
+    line += Palette[iterations(-563 + col * 16, cy)]
+  end
+  print(line)
+end
