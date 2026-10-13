@@ -18,7 +18,7 @@ card's transceiver is a receiver (its outputs in three-state).
 
 import json
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -305,7 +305,7 @@ def ref_delay(family, corner, package="dip"):
               f"Cl p 0 {cref:.4g}"]
     if rref:
         lines += [f"Rl p vr {rref}", f"Vr vr 0 {vref}"]
-    r = spice.run(lines, ["v(p)"], 120e-9)
+    r = spice.run(lines, ["v(p)"], 120e-9, title=f"ref {family} {corner}")
     t, v = r["time"], r["v(p)"]
     rise = settle(t, v, t0, t1, True, vmeas, vmeas)
     fall = settle(t, v, t1, 120e-9, False, vmeas, vmeas)
@@ -332,7 +332,8 @@ def run_line(bp, term, family, corner, driver, recv=None, keep=False):
     lines, dies = line_netlist(bp, term, family, corner, driver, [T_RISE, T_FALL], recv=recv)
     lines = [f"Vcc vcc 0 {vcc}"] + lines
     probes = [f"v({d})" for d in dies.values()]
-    r = spice.run(lines, probes, T_STOP, title=f"{family} {term.name} {corner} slot {driver}")
+    r = spice.run(lines, probes, T_STOP,
+                  title=f"line {bp.slots} slots {family} {term.name} {corner} slot {driver}")
     t = r["time"]
     vil, vih = ibis.thresholds(recv or family)
     res = {"slots": {}}

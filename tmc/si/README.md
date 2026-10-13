@@ -1,6 +1,7 @@
 # Backplane signal-integrity simulation
 
-Simulates the proposed system bus (see `docs/proposals.md`, section 5) in
+Simulates the proposed system bus ([docs/system-bus.md](../../docs/system-bus.md);
+its section 9 has the electrical rules that came out of these runs) in
 ngspice: one bus line along a 6U backplane with 8 or 16 slots, each slot a
 DIN 41612 contact, a card stub and a '245 transceiver. The transceivers are
 TI's IBIS models (74ABT245B, 74ACT245, 74FCT245T, 74AHCT245, 74HCT245),
@@ -25,7 +26,9 @@ as they are.
 ### What's needed
 
 - Python 3.10+ with numpy (`pip install numpy`). Nothing else in Python.
-- **ngspice** on the PATH. Tested with ngspice 42; any recent one should do.
+- **ngspice** on the PATH. The models were tested with ngspice 42; the
+  committed results in `docs/bus-si/` came from ngspice 47. Any recent one
+  should do.
   - macOS: `brew install ngspice`
   - Debian/Ubuntu: `sudo apt install ngspice`
   - Fedora: `sudo dnf install ngspice`
@@ -89,8 +92,10 @@ git checkout main && git pull
 - **Stopping and resuming.** A sweep can be stopped with Ctrl-C at any
   time. Every finished job is in `build/si/<preset>.jsonl`, so running the
   same command again carries on from there.
-- **Errors in a few jobs.** Usually a timeout: a run that takes more than
-  5 minutes is killed. They're listed as they happen and counted at the end.
+- **Errors in a few jobs.** Usually a timeout (a run that takes more than
+  5 minutes is killed), or ngspice giving up part way through ("Timestep
+  too small", reported as "ngspice stopped at … ns"). They're listed as
+  they happen and counted at the end.
   `--retry-errors` runs them again. To look at one, run it on its own:
 
   ```sh
@@ -103,7 +108,7 @@ git checkout main && git pull
   output.
 - **Don't change the models, presets or thresholds** to make a run pass.
   Report what failed instead, so the results stay comparable with the ones
-  from the cloud VM.
+  already committed.
 
 ### What to report back
 
@@ -112,7 +117,9 @@ git checkout main && git pull
   (`wall_minutes_last_run`, `cpu_minutes`).
 - The number of errors, with the job and message for each.
 
-`docs/bus-si.md` will be written from these results later.
+For now, section 9 of [docs/system-bus.md](../../docs/system-bus.md)
+summarises the results; a fuller write-up (`docs/bus-si.md`) is still to
+come (see [docs/proposals.md](../../docs/proposals.md)).
 
 ## The model, in short
 
