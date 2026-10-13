@@ -62,7 +62,8 @@ def shorter(key):
 SCENARIOS = {
     "short-pair": "car, cdr, set-car! and set-cdr! ([R - 1], [R + 3]) in one parcel",
     "heap-limit-reg": "the heap limit in a register: CMP r14, r instead of CMP r14, [limit]",
-    "stack-limit-hw": "the stack limit checked by hardware: no CMP sp, [limit] and branch",
+    "heap-guard": "a full heap caught by a page fault (a guard page): cons has no CMP r14, [limit] and branch",
+    "stack-limit-hw": "the stack limit checked by hardware (a guard page): no CMP sp, [limit] and branch",
     "unbound-free": "unbound globals caught without a check: no CMP r, #1 and branch",
     "argc-free": "the argument count checked without instructions: no CMP r2, #n and branch",
     "no-align-traps": "no alignment traps: car, cdr and calls check their argument's tag",
@@ -76,6 +77,7 @@ def analyse(counts, mem, image, compiled=True):
     sym = image.symbols
     code_base = sym["gen_end"]
     limits = {sym["cons_limit"], sym["heap_limit"]}
+    cons_limit = sym["cons_limit"]
     stack_limit = sym["stack_limit"]
     out = Counter()
     by_pc = {}
@@ -88,13 +90,16 @@ def analyse(counts, mem, image, compiled=True):
         for key, n in keys:
             kind = key[2]
             here = cyc(key)
+            # without the traps, a pair's (low bits 01) or an other object's
+            # (11) tag is checked first: MOV r9, R; AND r9, #3; CMP r9, #k; BNE
+            check = 2 * cyc(ALU_W) + cyc(ALU_NW) + cyc(BR_NOT)
             # car and cdr: a memory operand at [R - 1] or [R + 3]
             if 1 <= op <= 9 and mode == 3 and d16 in (-1, 3):
                 out["short-pair"] += n * (here - cyc(shorter(key)))
-                out["no-align-traps"] -= n * (3 * cyc(ALU_W) + cyc(ALU_NW) + cyc(BR_NOT))
+                out["no-align-traps"] -= n * check
             # a call through the call slot: CALL/JMP [R + 1], or MOV r, [R + 1]
             if mode == 3 and d16 == 1 and (op == 0xB or op == 1):
-                out["no-align-traps"] -= n * (2 * cyc(ALU_W) + cyc(ALU_NW) + cyc(BR_NOT))
+                out["no-align-traps"] -= n * check
                 if op == 0xB and kind in ("callm", "jmpm"):
                     load = (2, key[1], "ld", "rd", 4, 0)
                     jump = (1, key[1], "call" if kind == "callm" else "jmp", "reg", 0)
@@ -102,6 +107,9 @@ def analyse(counts, mem, image, compiled=True):
             # the heap limit: CMP r14, [abs]
             if op == 6 and d == 14 and mode == 0xF and r == 4 and d16 in limits:
                 out["heap-limit-reg"] += n * (here - cyc(ALU_NW))
+            # a pair's allocation: CMP r14, [cons_limit] and the branch after it
+            if op == 6 and d == 14 and mode == 0xF and r == 4 and d16 == cons_limit:
+                out["heap-guard"] += n * here + branch_after(by_pc, pc + 4)
             # the stack limit: CMP sp, [stack_limit] and the branch after it
             if op == 6 and d == 15 and mode == 0xF and r == 4 and d16 == stack_limit:
                 out["stack-limit-hw"] += n * here
@@ -115,18 +123,17 @@ def analyse(counts, mem, image, compiled=True):
     return out
 
 
+def tagged_count(counts, mem):
+    """How many instructions with a tagged operand (v1bx mode E) ran."""
+    n = 0
+    for (pc, key), k in counts.items():
+        if pc is not None and k:
+            op, d, mode, r, d16 = decode(mem, pc)
+            if 1 <= op <= 9 and mode == 0xE:
+                n += k
+    return n
+
+
 def branch_after(by_pc, pc):
     """The cycles of the branch at pc."""
     return sum(n * cyc(key) for key, n in by_pc.get(pc, []) if key[2] in ("br", "jmp"))
-
-
-def compiled_counts(text, features=()):
-    """(counts, run) for a compiled program's measured windows."""
-    c = measure.measure(text, features, compiled=True)
-    return measure.window_counts(text, features, c["run"]), c["run"], c["cycles"]
-
-
-def interpreted_counts(text, features=()):
-    i = measure.measure(text, features)
-    run = i["run"]
-    return Counter({(pc, k): n for pc, k, n in run.machine._m.pc_keys()}), run, i["cycles"]

@@ -6,6 +6,8 @@
   test   [NAME...] [-c] [-v] [--features F]   the programs and tests against their
                                          expected output
   build  [-l FILE.lst]                   assemble the runtime (and write a listing)
+  report [--write] [NAME...]             the measurements behind report 0016
+                                         (--write: its performance.md)
 """
 
 import argparse
@@ -65,6 +67,11 @@ def cmd_build(args):
     return 0
 
 
+def cmd_report(args):
+    from . import report
+    return report.main((["--write"] if args.write else []) + args.names)
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     p = argparse.ArgumentParser(prog="heron lisp", description="A Lisp for draft 1b")
@@ -91,5 +98,9 @@ def main(argv=None):
     b.add_argument("-l", help="write a listing")
     b.add_argument("--features")
     b.set_defaults(fn=cmd_build)
+    rp = sub.add_parser("report", help="the measurements behind report 0016")
+    rp.add_argument("names", nargs="*")
+    rp.add_argument("--write", action="store_true", help="write reports/0016-report-lisp/performance.md")
+    rp.set_defaults(fn=cmd_report)
     args = p.parse_args(argv)
     return args.fn(args) or 0

@@ -89,8 +89,8 @@ _CORES = {}
 def core(features=()):
     """The saved image with the compiler compiled by itself and the prelude
     compiled: a machine booted from it compiles a program straight away.
-    Made once per set of features and kept in build/lisp/ (it takes a
-    minute to make), next to a hash of what it was made from."""
+    Made once per set of features and kept in build/lisp/ (it takes 20
+    seconds to make), named by a hash of what it was made from."""
     key = tuple(sorted(features))
     if key in _CORES:
         return _CORES[key]

@@ -105,12 +105,20 @@ def window_counts(text, features, run):
     return total
 
 
-def profile(text, features=(), compiled=True, run=None):
+def run_counts(run):
+    """Counter of (pc, timing key) -> executions over a whole run."""
+    return Counter({(pc, k): n for pc, k, n in run.machine._m.pc_keys()})
+
+
+def profile(text, features=(), compiled=True, run=None, counts=None):
     """Where the cycles go: Counter of category -> cycles. Compiled code by
     its category ('code:var', ...), the runtime by routine ('rt:cons', ...).
-    Interpreted programs: by runtime routine only, over the whole run."""
+    Compiled programs: over their windows; interpreted ones: over the whole
+    run. counts: the run's counts, if they have been taken already."""
     if run is None:
         run = machine.run(text, features, compiled=compiled, reference=CONFIG)
+    if counts is None:
+        counts = window_counts(text, features, run) if compiled else run_counts(run)
     img = run.image
     labels = sorted((st.addr, st.label) for st in img.stmts
                     if st.kind == "label" and "." not in st.label)
@@ -118,10 +126,6 @@ def profile(text, features=(), compiled=True, run=None):
     code_base = img.symbols["gen_end"]
     catmap = img.symbols["CATMAP"]
     mem = run.machine.mem
-    if compiled:
-        counts = window_counts(text, features, run)
-    else:
-        counts = Counter({(pc, k): n for pc, k, n in run.machine._m.pc_keys()})
     out = Counter()
     for (pc, key), n in counts.items():
         if n == 0:
