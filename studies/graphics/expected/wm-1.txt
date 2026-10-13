@@ -1,0 +1,12 @@
+_ 0 35b9ef0c
+wm.glyphs 95 35b9ef0c
+wm.paint 0 cfc1abe0
+wm.raise 0 45b94b36
+wm.move 8 9fd65033
+wm.outline 8 9fd65033
+wm.scroll.covered 4 9e7b10fb
+wm.raise.term 0 a430376d
+wm.scroll 4 3ccc5b7d
+wm.cursor 20 a2835a64
+wm.close 0 770102c4
+wm.repaint 0 770102c4

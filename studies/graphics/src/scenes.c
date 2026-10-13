@@ -6,6 +6,7 @@
 #include <string.h>
 #include "scenes.h"
 #include "theme.h"
+#include "wm.h"
 
 unsigned fb_mem[SCREEN_W * SCREEN_H / 4];
 
@@ -290,6 +291,226 @@ static void scene_text(Surface *s)
     mark("_");
 }
 
+/* ---- the window manager ---- */
+
+#define TL 16                           /* terminal lines */
+
+typedef struct {
+    char line[TL][81];
+    int top;                            /* the ring's first line */
+} Term;
+
+static Term term_buf;
+static Font doc;
+static unsigned char doc_ramp[65];
+
+static void term_print(Term *t, const char *str)
+{
+    char *p = t->line[t->top];
+    int n = 0;
+    while (str[n] && n < 80) {
+        p[n] = str[n];
+        n++;
+    }
+    p[n] = 0;
+    t->top = (t->top + 1) % TL;
+}
+
+static void paint_term(Window *w, Surface *s, const Rect *c)
+{
+    Term *t = w->data;
+    int i, y;
+    gfx_fill(s, s->cx0, s->cy0, s->cx1, s->cy1, c_black, GFX_COPY);
+    for (i = 0, y = c->y0 + 3; i < TL; i++, y += mono.height)
+        if (y < s->cy1 && y + mono.height > s->cy0)
+            font_draw(s, &mono, c->x0 + 4, y + mono.ascent, t->line[(t->top + i) % TL], c_white, 0);
+}
+
+static const char *const doc_text[] = {
+    "Heron is a minicomputer built from",
+    "7400-series logic. Its screen is a",
+    "plain bitmap in memory, at 1, 2, 4",
+    "or 8 bits per pixel, and everything",
+    "on it is drawn by the CPU: the fills",
+    "and copies, the lines and curves,",
+    "and this text, from a TrueType font",
+    "rasterised on the machine itself and",
+    "kept in a cache, one bitmap per",
+    "character and size.",
+    "",
+    "Windows are drawn through their",
+    "visible regions; nothing is kept",
+    "off the screen.",
+};
+
+static void paint_doc(Window *w, Surface *s, const Rect *c)
+{
+    int i, y;
+    gfx_fill(s, s->cx0, s->cy0, s->cx1, s->cy1, c_window, GFX_COPY);
+    for (i = 0, y = c->y0 + 4; i < 14; i++, y += doc.height + 1)
+        if (y < s->cy1 && y + doc.height > s->cy0)
+            font_draw(s, &doc, c->x0 + 6, y + doc.ascent, doc_text[i], c_text, doc_ramp);
+}
+
+static void paint_drawing(Window *w, Surface *s, const Rect *c)
+{
+    static const int star5[10] = { 0, -40, 23, 32, -38, -12, 38, -12, -23, 32 };
+    unsigned pat[8];
+    int i, xy[10], x = c->x0, y = c->y0;
+    gfx_fill(s, s->cx0, s->cy0, s->cx1, s->cy1, c_window, GFX_COPY);
+    for (i = 0; i < 8; i++)
+        pat[i] = gfx_pat(s->depth, i & 1 ? c_accent : c_window) & (i & 2 ? 0x0F0F0F0F : ~0u);
+    gfx_fill_pat(s, x + 10, y + 120, x + 110, y + 170, pat, GFX_COPY);
+    for (i = 0; i <= 12; i++)
+        gfx_line(s, x + 10, y + 10, x + 250, y + 10 + i * 12, s->depth < 2 ? c_text : 1 + i % 14, GFX_COPY);
+    for (i = 0; i < 5; i++)
+        xy[2 * i] = x + 190 + star5[2 * i], xy[2 * i + 1] = y + 130 + star5[2 * i + 1];
+    gfx_poly(s, xy, 5, c_accent, GFX_COPY, GFX_NONZERO);
+    gfx_ellipse(s, x + 60, y + 70, 40, 25, c_text, GFX_COPY);
+    gfx_fill_ellipse(s, x + 60, y + 70, 20, 12, c_shadow, GFX_COPY);
+}
+
+/* sin of 0, 6, ..., 90 degrees, times 1000 */
+static const short sin6[16] = { 0, 105, 208, 309, 407, 500, 588, 669, 743, 809, 866, 914, 951,
+                                978, 995, 1000 };
+
+static void hand(int k, int len, int *dx, int *dy)     /* k: minutes, 0 at the top */
+{
+    int q = k / 15 % 4, r = k % 15, sn, cs;
+    sn = sin6[r];
+    cs = sin6[15 - r];
+    switch (q) {
+    case 0: *dx = sn; *dy = -cs; break;
+    case 1: *dx = cs; *dy = sn; break;
+    case 2: *dx = -sn; *dy = cs; break;
+    default: *dx = -cs; *dy = -sn; break;
+    }
+    *dx = *dx * len / 1000;
+    *dy = *dy * len / 1000;
+}
+
+static void paint_clock(Window *w, Surface *s, const Rect *c)
+{
+    int cx = (c->x0 + c->x1) / 2, cy = (c->y0 + c->y1) / 2, k, dx, dy, ex, ey;
+    gfx_fill(s, s->cx0, s->cy0, s->cx1, s->cy1, c_window, GFX_COPY);
+    gfx_ellipse(s, cx, cy, 56, 56, c_frame, GFX_COPY);
+    for (k = 0; k < 60; k += 5) {
+        hand(k, 54, &dx, &dy);
+        hand(k, k % 15 ? 48 : 44, &ex, &ey);
+        gfx_line(s, cx + ex, cy + ey, cx + dx, cy + dy, c_frame, GFX_COPY);
+    }
+    hand(51, 30, &dx, &dy);                 /* ten past ten */
+    gfx_line(s, cx, cy, cx + dx, cy + dy, c_text, GFX_COPY);
+    gfx_line(s, cx + 1, cy, cx + dx + 1, cy + dy, c_text, GFX_COPY);
+    hand(10, 46, &dx, &dy);
+    gfx_line(s, cx, cy, cx + dx, cy + dy, c_text, GFX_COPY);
+    hand(36, 50, &dx, &dy);
+    gfx_line(s, cx, cy, cx + dx, cy + dy, c_accent, GFX_COPY);
+    gfx_fill_ellipse(s, cx, cy, 3, 3, c_accent, GFX_COPY);
+}
+
+static void scene_wm(Surface *s)
+{
+    Window *wt, *wd, *wdr, *wc;
+    Rect r;
+    int i, cx = 300, cy = 220;
+    char line[64];
+
+    font_bitmap(&sans, font_sans12);
+    font_bitmap(&mono, font_mono12);
+    ttf_open(&tt, ttf_sans);
+    font_ttf(&doc, &tt, 13, s->depth > 0);
+    theme_ramp(s->depth, c_text, c_window, doc_ramp);
+    for (i = 0; i < TL; i++)
+        term_print(&term_buf, i < TL - 4 ? term[i % 12] : "");
+    wm_init(s, &sans);
+    wt = wm_open(100, 24, 100 + 570, 24 + TL * 15 + 6 + TITLE_H + 3, "Terminal", paint_term, &term_buf);
+    wd = wm_open(330, 170, 610, 430, "Readme", paint_doc, 0);
+    wdr = wm_open(70, 220, 340, 460, "Drawing", paint_drawing, 0);
+    wc = wm_open(470, 10, 600, 160, "Clock", paint_clock, 0);
+    wt->frame.x1 = 100 + 570 > SCREEN_W ? SCREEN_W - 10 : wt->frame.x1;
+    wt->frame.x0 = wt->frame.x1 - 570;
+    mark("_");
+
+    for (i = 32; i < 127; i++)
+        font_glyph(&doc, i);
+    mark_n("wm.glyphs", 95);
+
+    wm_paint_all();
+    cursor_show(cx, cy);
+    mark("wm.paint");
+
+    cursor_hide();
+    wm_raise(wd);
+    cursor_show(cx, cy);
+    mark("wm.raise");
+
+    for (i = 0; i < 8; i++) {               /* drag the top window */
+        cursor_hide();
+        wm_move(wd, -12, -9);
+        cx -= 12;
+        cy -= 9;
+        cursor_show(cx, cy);
+    }
+    mark_n("wm.move", 8);
+
+    r = wd->frame;                          /* dragging an outline instead */
+    cursor_hide();
+    wm_outline(&r);
+    for (i = 0; i < 8; i++) {
+        wm_outline(&r);
+        r.x0 += 12; r.x1 += 12; r.y0 += 9; r.y1 += 9;
+        wm_outline(&r);
+    }
+    wm_outline(&r);
+    cursor_show(cx, cy);
+    mark_n("wm.outline", 8);
+
+    for (i = 0; i < 4; i++) {               /* the terminal scrolls, partly covered */
+        cursor_hide();
+        strcpy(line, "$ echo scrolled under the other windows: 0");
+        line[strlen(line) - 1] = '0' + i;
+        term_print(&term_buf, line);
+        wm_scroll(wt, 15);
+        cursor_show(cx, cy);
+    }
+    mark_n("wm.scroll.covered", 4);
+
+    cursor_hide();
+    wm_raise(wt);
+    cursor_show(cx, cy);
+    mark("wm.raise.term");
+
+    for (i = 0; i < 4; i++) {               /* and on top */
+        cursor_hide();
+        strcpy(line, "$ echo scrolled on top: 0");
+        line[strlen(line) - 1] = '0' + i;
+        term_print(&term_buf, line);
+        wm_scroll(wt, 15);
+        cursor_show(cx, cy);
+    }
+    mark_n("wm.scroll", 4);
+
+    for (i = 0; i < 20; i++) {
+        cx += 13;
+        cy += 7;
+        cursor_move(cx, cy);
+    }
+    mark_n("wm.cursor", 20);
+
+    cursor_hide();
+    wm_close(wt);
+    cursor_show(cx, cy);
+    mark("wm.close");
+
+    cursor_hide();
+    wm_paint_all();
+    cursor_show(cx, cy);
+    mark("wm.repaint");
+    (void)wdr;
+    (void)wc;
+}
+
 int run_scene(const char *name, int depth)
 {
     gfx_tables();
@@ -299,6 +520,8 @@ int run_scene(const char *name, int depth)
         scene_prims(&screen);
     else if (strcmp(name, "text") == 0)
         scene_text(&screen);
+    else if (strcmp(name, "wm") == 0)
+        scene_wm(&screen);
     else
         return -1;
     return 0;
