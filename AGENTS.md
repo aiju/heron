@@ -21,6 +21,7 @@ has the reasons.
 | The current design, as reference: what it is, not why or what else was considered | `docs/` (and, from draft 2, `isa/`, `hw/`, `sw/`, `tools/`) |
 | An experiment: a design, a measurement, a tool | its own folder in `studies/` |
 | Code any design can reuse, with no opcodes, microcode fields or memory map in it | `infra/` |
+| An engine: a simulator, an assembler or linker | a Rust crate, in the folder it belongs to ([RFC 0015](reports/0015-rfc-languages.md#where-the-rust-code-lives)) |
 | What you did and found | a report in `reports/` |
 | A proposal, or anything that needs Emily to decide | an RFC in `reports/` |
 | A small idea, not yet worth an RFC | the area's ideas RFC (0005–0010) |
@@ -32,6 +33,22 @@ has the reasons.
   ran at.
 - **Working in the root:** where work happens isn't dogma. Work in the
   root when that's the natural place.
+
+## Rust
+
+The engines are Rust, everything else is Python
+([RFC 0015](reports/0015-rfc-languages.md)).
+
+- **The workspace:** every crate is a member of the one workspace in the
+  root `Cargo.toml`; add new crates to its `members`. `Cargo.lock` is
+  committed. Cargo's output goes to `build/cargo/`.
+- **The bindings:** `heron/bindings` is the only crate that uses PyO3. It
+  wraps the engines as one Python module, which Python code imports as
+  `heron.native`. An engine crate is plain Rust, with its own Rust API and
+  tests; it doesn't know about Python.
+- **Lints:** crates take the workspace's lints (`[lints] workspace = true`).
+  Unsafe code is denied; where it's really needed, allow it locally and say
+  why.
 
 ## Reports and RFCs
 
@@ -94,9 +111,11 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   against their expected output.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
-- `(cd infra/hwsim && go test ./...)`: the chip-level simulator.
-- **Slow runs:** the chip-level runs (`heron v1b_hw hw test`,
-  `heron v1b_hw report --hw`) take 30–60 minutes for the full set.
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
+  `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
+  which builds the engines' Python module and tests it.
+- **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
+  about 5 for every program, and `heron v1b_hw report --hw` longer.
 - **Never in a cloud session:** the signal-integrity sweeps take over an
   hour on a fast laptop and are meant for a local machine
   ([studies/bus_si](studies/bus_si/README.md)).
@@ -107,8 +126,8 @@ Git history is permanent, so a big file stays in every clone even after
 it's been deleted.
 
 - Never commit build output or downloads. `build/` holds ROM images,
-  netlists, the simulator binary, simulation scratch and the IBIS models
-  from ti.com.
+  netlists, cargo's output and the engines' Python module, simulation
+  scratch and the IBIS models from ti.com.
 - Don't commit anything that can be regenerated quickly from the code. The
   signal-integrity results in report 0013 are the exception, since they
   take hours to produce.

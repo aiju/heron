@@ -1,0 +1,14 @@
+# The event-driven chip-level timing simulator (RFC 0015). Python uses it
+# through heron/bindings as heron.native.hwsim.
+[package]
+name = "hwsim"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_bytes.workspace = true
+
+[lints]
+workspace = true

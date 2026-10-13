@@ -1,5 +1,6 @@
-# The fast checks (RFC 0000): the repository's own tests, on every pull
-# request and every push to main. Studies run in slow.yml.
+# The fast checks (RFC 0000): the repository's own tests and the Rust
+# workspace, on every pull request and every push to main. Studies run in
+# slow.yml.
 name: fast
 on:
   push:
@@ -13,4 +14,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - id: rust
+        name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+          echo "rustc=$(rustc -V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            build/cargo/
+          key: cargo-${{ runner.os }}-${{ steps.rust.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ steps.rust.outputs.rustc }}-
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      # Builds the engines' Python module, and tests it (tests/test_native.py).
       - run: python3 -m heron test

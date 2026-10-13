@@ -82,7 +82,7 @@ Reusable code that doesn't depend on any one design:
 - the assembler and linker core and the object format;
 - the netlist language, the chip library and its timing data;
 - static timing analysis;
-- the event-driven chip-level simulator (Go);
+- the event-driven chip-level simulator (Go; Rust since [RFC 0015](0015-rfc-languages.md));
 - the program test harness;
 - the IBIS and ngspice plumbing.
 
@@ -248,6 +248,7 @@ holds ideas not yet worth an RFC of their own, each with a status.
   command.
 - **Folder names:** every folder below these is a valid Python identifier.
 - **Go:** the chip-level simulator stays a Go module, in `infra/hwsim/`.
+  (Since [RFC 0015](0015-rfc-languages.md) it's a Rust crate there.)
 - **The `heron` command** runs a study by name, and has a few commands of
   its own:
   - `heron v1b_hw hw run fib.s`, `heron c_compiler cc prog.c --run`;

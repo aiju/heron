@@ -1,0 +1,15 @@
+# The draft 1 instruction sets in Rust (RFC 0015): decoders and semantics
+# for 1a and 1b, the instruction-level simulator, the timing model, and
+# the encoders the assembler (infra/toolchain) uses.
+# Python uses them through heron/bindings as heron.native.v1.
+[package]
+name = "v1-isa"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+toolchain = { path = "../../../infra/toolchain" }
+
+[lints]
+workspace = true

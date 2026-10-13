@@ -107,7 +107,8 @@ form when it reaches).
 
 ## Object files
 
-The format is in [obj.py](obj.py): a header, section headers,
+The format is in [obj.py](obj.py)'s docstring (the code that reads and
+writes it is Rust, [obj.rs](toolchain/src/obj.rs)): a header, section headers,
 symbols, relocations, a string table and the section contents, all
 little-endian. A library is a list of object files with their names. An
 executable is the same format with every section placed and no
@@ -142,7 +143,8 @@ _main:
 
 ## The linker
 
-[link.py](link.py), about 380 lines.
+[link.rs](toolchain/src/link.rs), in Rust, about 600 lines;
+[link.py](link.py) is its Python interface.
 
 1. **Symbols.** Every global symbol must be defined once. Libraries are
    searched for symbols still undefined, and a member is loaded whole
