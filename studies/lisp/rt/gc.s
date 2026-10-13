@@ -130,6 +130,9 @@ gc:     ST   r9, [gc_save]
         ST   r1, [heap_limit]
         SUB  r1, #8
         ST   r1, [cons_limit]
+.if gcverify
+        BSR  gc_verify
+.endif
         RESTORE r1-r8
         MOV  r9, [gc_save]
         MOV  r10, [gc_save + 4]
@@ -218,3 +221,69 @@ fwd:    MOV  r2, r1
         AND  r1, #7
         OR   r1, r3
         RET
+
+.if gcverify
+; gc_verify: after a collection, every pointer in the new half, on the
+; stack and in symbol space must point below the heap or into what the new
+; half holds. A debugging aid (the gcverify feature).
+gc_verify:
+        MOV  r12, [cur_start]
+.obj:   CMP  r12, r14
+        BHS  .roots
+        MOV  r1, [r12]
+        MOV  r2, r1
+        AND  r2, #7
+        CMP  r2, #5
+        BEQ  .hdr
+        BSR  .check
+        MOV  r1, [r12 + 4]
+        BSR  .check
+        ADD  r12, #8
+        BRA  .obj
+.hdr:   BSR  objsize
+        MOV  r7, r12
+        ADD  r12, r2
+        CMP  r3, #0
+        BNE  .obj
+        MOV  r6, r1
+        LSR  r6, #8
+        LSL  r6, #2
+        ADD  r6, r7
+        ADD  r6, #4
+        ADD  r7, #4
+.f:     CMP  r7, r6
+        BHS  .obj
+        MOV  r1, [r7]+
+        BSR  .check
+        BRA  .f
+.roots: MOV  r7, sp
+.s:     CMP  r7, #STACK_TOP
+        BHS  .sym
+        MOV  r1, [r7]+
+        BSR  .check
+        BRA  .s
+.sym:   MOV  r7, #SYM_BASE
+.y:     CMP  r7, [sym_free]
+        BHS  .ok
+        MOV  r1, [r7]+
+        BSR  .check
+        BRA  .y
+.ok:    RET
+.check: MOV  r2, r1
+        AND  r2, #5
+        CMP  r2, #1
+        BNE  .fine
+        MOV  r2, r1
+        AND  r2, #-8
+        CMP  r2, #HEAP_A
+        BLO  .fine
+        CMP  r2, [cur_start]
+        BLO  .bad
+        CMP  r2, r14
+        BHS  .bad
+.fine:  RET
+.bad:   LEA  r1, [msg_dangling]
+        BRA  fatal
+msg_dangling:   .asciz "dangling pointer after a collection"
+        .align 2
+.endif

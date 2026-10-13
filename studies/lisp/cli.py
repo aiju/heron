@@ -1,8 +1,9 @@
 """The Lisp study's command line: heron lisp <command> ...
 
-  run    PROG.lisp [--stats] [--profile] [--input-file F]   run a program on the 1b simulator
+  run    PROG.lisp [-c] [--stats] [--profile] [--input-file F]   run a program on the 1b
+                                         simulator (-c: compiled)
   ref    PROG.lisp                       run it on the reference interpreter
-  test   [NAME...] [-v]                  the programs and tests against their expected output
+  test   [NAME...] [-c] [-v]             the programs and tests against their expected output
   build  [-l FILE.lst]                   assemble the runtime (and write a listing)
 """
 
@@ -20,7 +21,7 @@ def cmd_run(args):
         with open(args.input_file, "rb") as f:
             text += f.read()
     features = [f for f in (args.features or "").split(",") if f]
-    r = machine.run(text, features, max_cycles=args.max_cycles)
+    r = machine.run(text, features, max_cycles=args.max_cycles, compiled=args.compiled)
     sys.stdout.buffer.write(r.output)
     sys.stdout.flush()
     m = r.machine
@@ -48,7 +49,7 @@ def cmd_ref(args):
 
 def cmd_test(args):
     from . import testing
-    return testing.run_suite(args.names, verbose=args.v)
+    return testing.run_suite(args.names, verbose=args.v, compiled=args.compiled)
 
 
 def cmd_build(args):
@@ -73,6 +74,7 @@ def main(argv=None):
     r.add_argument("--input-file", help="more console input, after the program")
     r.add_argument("--features", help="ISA experiments to build the runtime with (comma-separated)")
     r.add_argument("--max-cycles", type=int, default=5_000_000_000)
+    r.add_argument("-c", "--compiled", action="store_true", help="load the compiler first: compile the program")
     r.set_defaults(fn=cmd_run)
     f = sub.add_parser("ref", help="run a program on the reference interpreter")
     f.add_argument("file")
@@ -80,6 +82,7 @@ def main(argv=None):
     t = sub.add_parser("test", help="the programs and tests against their expected output")
     t.add_argument("names", nargs="*")
     t.add_argument("-v", action="store_true", help="show where the output differs")
+    t.add_argument("-c", "--compiled", action="store_true", help="compile the programs")
     t.set_defaults(fn=cmd_test)
     b = sub.add_parser("build", help="assemble the runtime")
     b.add_argument("-l", help="write a listing")

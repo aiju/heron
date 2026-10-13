@@ -798,9 +798,9 @@ p_mkvec:
         ADD  r2, #8 + 7
         AND  r2, #-8
         BSR  alloc
-        MOV  r5, r3
+        MOV  r5, r3             ; size: the elements and the call slot
         LSL  r5, #7
-        OR   r5, #B_VEC
+        ADD  r5, #1 << 8 | B_VEC
         ST   r5, [r1]
         LEA  r5, [not_proc]
         ST   r5, [r1 + 4]
@@ -825,7 +825,8 @@ vec_index:
         BNE  nn4
         MOV  r1, [r3 - 3]
         LSR  r1, #7
-        AND  r1, #-2            ; the length, as a fixnum
+        AND  r1, #-2
+        SUB  r1, #2             ; the length (less the call slot), as a fixnum
         CMP  r4, r1
         BHS  range4
         RET
@@ -854,6 +855,7 @@ p_veclen:
         MOV  r1, [r3 - 3]
         LSR  r1, #7
         AND  r1, #-2
+        SUB  r1, #2
         RET
 
 ; ---- control and the system

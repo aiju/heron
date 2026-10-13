@@ -17,7 +17,7 @@ A value is a 32-bit word whose low bits are its tag:
 | `...0` | integer (fixnum) | The value shifted left one place: 31 bits, −2³⁰ to 2³⁰ − 1. Adding and subtracting work on the tagged words directly, and the V flag is the overflow check. |
 | `..001` | pair | The cell is at p − 1: the car at `[p - 1]`, the cdr at `[p + 3]`. |
 | `..011` | other object | At p − 3: a header word, the *call slot* (a code address), then the fields. |
-| `..101` | header | Only ever an object's first word: `size << 8 \| type << 3 \| 5`. |
+| `..101` | header | Only ever an object's first word: `size << 8 \| type << 3 \| 5`, where size is the number of words after the header (for a string, its bytes). |
 | `..111` | forwarding pointer | Only in the old half of the heap, while the collector runs. |
 
 Objects are 8-byte aligned. `nil` is a static object (in `r13` at all

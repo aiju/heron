@@ -29,7 +29,7 @@ BUILD = os.path.join(ROOT, "build", "lisp")
 ISA = "v1b"
 
 # The runtime's sources, in the order they're assembled.
-RT_FILES = ["start.s", "gc.s", "read.s", "print.s", "eval.s", "prims.s"]
+RT_FILES = ["start.s", "gc.s", "read.s", "print.s", "eval.s", "prims.s", "code.s"]
 
 # Special forms: (name, handler). A special form's symbol holds 4 * its
 # index here; sf_table maps the index to the handler.
@@ -68,20 +68,38 @@ PRIMS = [
     ("apply", "p_apply"), ("eval", "p_eval"), ("error", "p_error"), ("read", "p_read"),
     ("write", "p_write"), ("display", "p_display"), ("newline", "p_newline"),
     ("write-char", "p_writechar"), ("gc", "p_gc"),
+    # for the compiler (code.s)
+    ("%code-alloc", "p_codealloc"), ("%code-free", "p_codefree"), ("%poke16", "p_poke16"),
+    ("%make-closure", "p_mkclosure"), ("%closure-set!", "p_closet"),
+    ("%static-closure", "p_staticclo"),
+    ("%address", "p_address"), ("%static-copy", "p_staticcopy"),
+    ("%macro", "p_macro"), ("%special?", "p_specialp"), ("%set-macro!", "p_setmacro"),
+]
+
+# Runtime routines compiled code calls: the symbol %rt:NAME holds the
+# routine's address (an integer).
+EXPORTS = [
+    ("cons", "cons"), ("alloc", "alloc"), ("gc", "gc"), ("rest", "rt_rest"),
+    ("num2", "rt_num2"), ("notnum", "err_notnum"), ("overflow", "err_overflow"),
+    ("unbound", "err_unbound"), ("argc", "err_argc"), ("notproc", "err_notproc"),
+    ("notvec", "err_notvec"), ("range", "err_range"), ("syntax", "err_syntax"),
+    ("div0", "err_div0"), ("notpair", "err_notpair"), ("stack", "err_stack"),
+    ("cons-limit", "cons_limit"), ("heap-limit", "heap_limit"), ("stack-limit", "stack_limit"),
+    ("nil", "NILV"), ("t", "S_t + 3"),
 ]
 
 # Other symbols the runtime refers to: (name, label).
 SYMBOLS = [
     ("t", "S_t"), ("quasiquote", "S_quasiquote"), ("unquote", "S_unquote"),
     ("unquote-splicing", "S_unquote_splicing"), ("begin", "S_begin"),
-    ("%named-let", "S_named_let"),
+    ("%named-let", "S_named_let"), ("%toplevel", "S_toplevel"),
 ]
 
 
 def mangle(name):
     """An assembler label for a symbol's name."""
     subst = {"-": "_", "!": "X", "?": "P", "*": "S", "+": "plus", "<": "lt", ">": "gt",
-             "=": "eq", "/": "sl", "%": "pc"}
+             "=": "eq", "/": "sl", "%": "pc", ":": "_c_"}
     return "S_" + "".join(subst.get(c, c) for c in name)
 
 
@@ -101,6 +119,8 @@ def symbol_table():
         add(name, label)
     for name, r in PRIMS:
         add(name)[3] = r
+    for name, label in EXPORTS:
+        add("%rt:" + name).append(label)
     labels = [s[1] for s in out]
     assert len(set(labels)) == len(labels), "two symbols mangle to the same label"
     return out
@@ -123,11 +143,11 @@ def generate():
         out.append(f"SF_{mangle(name)[2:].upper()} = {4 * i}")
     out.append(f"SF_MACRO = {4 * (len(SPECIAL) + 1)}")
     out += ["", "; ---- primitive objects", "        .align 8"]
-    for name, label, sf, prim in syms:
+    for name, label, sf, prim, *exp in syms:
         if prim:
             out.append(f"P{label[1:]}: .word H_PRIM, {prim}, {label} + 3, 0")
     out += ["", "; ---- the static symbols' names"]
-    for name, label, sf, prim in syms:
+    for name, label, sf, prim, *exp in syms:
         b = name.encode()
         out.append(f"        .align 8")
         out.append(f"N{label[1:]}: .word {len(b)} << 8 | T_STR << 3 | 5, not_proc")
@@ -142,8 +162,10 @@ def generate():
     out.append(f"        .word {MACRO_HANDLER}")
     out += ["; ---- the static symbols, at the bottom of symbol space", "        .org SYM_BASE",
             "sym_static:"]
-    for name, label, sf, prim in syms:
+    for name, label, sf, prim, *exp in syms:
         value = f"P{label[1:]} + 3" if prim else "UNB"
+        if exp:
+            value = f"({exp[0]}) << 1"
         if name == "t":
             value = "S_t + 3"
         special = f"SF_{mangle(name)[2:].upper()}" if sf else "0"

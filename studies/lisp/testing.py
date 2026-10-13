@@ -30,12 +30,12 @@ def expected(path):
         return f.read()
 
 
-def run_program(path, features=()):
+def run_program(path, features=(), compiled=False):
     """Run one program: (Run, problem or None)."""
     from . import machine
     with open(path, "rb") as f:
         text = f.read()
-    r = machine.run(text, features)
+    r = machine.run(text, features, compiled=compiled)
     exp = expected(path)
     if r.error:
         return r, r.error
@@ -46,7 +46,7 @@ def run_program(path, features=()):
     return r, None
 
 
-def run_suite(names=None, features=(), verbose=False):
+def run_suite(names=None, features=(), verbose=False, compiled=False):
     paths = program_paths(names)
     if not paths:
         print("no programs found")
@@ -55,7 +55,7 @@ def run_suite(names=None, features=(), verbose=False):
     print(f"{'program':<14} {'result':<6} {'instructions':>13} {'cycles':>14} {'GCs':>4} {'secs':>6}")
     for p in paths:
         t = time.time()
-        r, problem = run_program(p, features)
+        r, problem = run_program(p, features, compiled)
         m = r.machine
         print(f"{os.path.basename(p)[:-5]:<14} {'ok' if problem is None else 'FAIL':<6} "
               f"{m.instructions:>13,} {m.cycles_for('D32-separate'):>14,} "

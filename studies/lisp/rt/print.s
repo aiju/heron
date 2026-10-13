@@ -137,6 +137,7 @@ pr_list:
 ; pr_vec: #(...)
 pr_vec: MOV  r2, [r1 - 3]
         LSR  r2, #8
+        SUB  r2, #1             ; (the call slot counts in the size)
         PUSH r2                 ; elements left
         LEA  r2, [r1 + VEC_ELTS]
         PUSH r2                 ; the next element's address (not in the heap's

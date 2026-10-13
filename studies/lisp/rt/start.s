@@ -32,20 +32,20 @@
 ; ---- memory map
 SYM_BASE    = 0x0410            ; symbol space: the static symbols, then new ones
 SYM_END     = 0x8000
-CONST_BASE  = 0x18000           ; constant space: names of new symbols, compiled constants
-CONST_END   = 0x20000
-CCODE_BASE  = 0x20000           ; compiled code
-CCODE_END   = 0x38000
-HEAP_A      = 0x38000           ; the two halves of the heap
-HEAP_B      = 0x94000
-HEAP_SIZE   = 0x5C000
+CONST_BASE  = 0x8000            ; constant space: names of new symbols, compiled constants
+CONST_END   = 0xC000
+RT_BASE     = 0xC000            ; the runtime's code, then compiled code
+CCODE_END   = 0x30000
+HEAP_A      = 0x30000           ; the two halves of the heap
+HEAP_B      = 0x90000
+HEAP_SIZE   = 0x60000
 STACK_TOP   = 0x100000
 STACK_LIMIT = 0xF0800           ; below this, eval reports a stack overflow
 
 ; ---- object types and headers: size << 8 | type << 3 | 5
 T_SYM   = 0                     ; [hdr][call][value][name][special][macro][next][plist]
 T_STR   = 1                     ; [hdr][call][bytes...]; size = bytes
-T_VEC   = 2                     ; [hdr][call][elements...]
+T_VEC   = 2                     ; [hdr][call][elements...]; size = elements + 1
 T_PRIM  = 3                     ; [hdr][code][name][0]
 T_CLO   = 4                     ; compiled closure: [hdr][code][free variables...]
 T_FUN   = 5                     ; interpreted closure: [hdr][interp_entry][params][body][env][shape]
@@ -141,7 +141,7 @@ nil_obj:        .word 1 << 8 | T_NIL << 3 | 5, not_proc
 eof_obj:        .word 1 << 8 | T_EOF << 3 | 5, not_proc
 
 ; ---- start-up
-        .org 0x8000
+        .org RT_BASE
 boot:   LI   sp, #STACK_TOP
         MOV  r13, #NILV
         MOV  r1, #HEAP_A
@@ -160,7 +160,7 @@ boot:   LI   sp, #STACK_TOP
         ST   r1, [sym_free]
         MOV  r1, #CONST_BASE
         ST   r1, [const_free]
-        MOV  r1, #CCODE_BASE
+        MOV  r1, #gen_end        ; compiled code goes after the runtime
         ST   r1, [code_free]
         BSR  intern_static
         MOV  r1, #prelude_text
@@ -174,8 +174,18 @@ tl_loop:
         BSR  read
         CMP  r1, #EOFV
         BEQ  .eof
+        MOV  r2, [S_toplevel + 3 + SYM_VALUE]
+        CMP  r2, #UNB
+        BNE  .hook
         MOV  r2, r13
         BSR  eval
+        BRA  tl_loop
+.hook:  MOV  r3, r1             ; (%toplevel form): the compiler's, once loaded
+        MOV  r4, r13
+        BSR  cons
+        MOV  r2, r1
+        MOV  r1, [S_toplevel + 3 + SYM_VALUE]
+        BSR  apply_list
         BRA  tl_loop
 .eof:   MOV  r1, [in_phase]
         BNE  .halt

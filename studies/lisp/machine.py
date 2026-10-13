@@ -8,9 +8,18 @@ kept for the process.
 from heron.infra import isas
 from heron.studies.v1_isa.sim32 import Machine32, SimError
 
+import os
+
 from . import build
 
 _IMAGES = {}
+COMPILER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "compiler.lisp")
+
+
+def compiler_text():
+    """The compiler's source: a program that starts with it is compiled."""
+    with open(COMPILER, "rb") as f:
+        return f.read()
 
 
 def image(features=()):
@@ -46,8 +55,11 @@ class Run:
         }
 
 
-def run(text, features=(), max_cycles=2_000_000_000, trace=None):
-    """Run a program (bytes) to the end: a Run."""
+def run(text, features=(), max_cycles=4_000_000_000, trace=None, compiled=False):
+    """Run a program (bytes) to the end: a Run. compiled: load the compiler
+    first, so the program is compiled form by form."""
+    if compiled:
+        text = compiler_text() + b"\n" + text
     img = image(features)
     m = Machine32(isas.get(build.ISA), img, inp=text)
     if trace is not None:
