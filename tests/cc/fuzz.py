@@ -2,8 +2,10 @@
 
 Generates small random C programs (integer arithmetic of every width,
 arrays, pointers, structs, loops, switches, calls, many live values) that
-avoid undefined behaviour, compiles each with gcc -fwrapv -funsigned-char
-and with tmc for drafts 1a and 1b, and compares the output.
+avoid undefined behaviour other than signed overflow, compiles each with
+gcc -fwrapv -funsigned-char and with tmc for drafts 1a and 1b, and compares
+the output. tmc's optimiser assumes signed arithmetic doesn't overflow, so
+a difference in a program that overflows isn't necessarily a bug.
 
     python3 tests/cc/fuzz.py [--count N] [--seed S] [--keep DIR]
 """
