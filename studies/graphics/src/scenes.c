@@ -3,6 +3,7 @@
    are made before the phase that draws them, so the phases measure only
    the drawing; mark_n's count is the work done (pixels, glyphs, ...). */
 
+#include <string.h>
 #include "scenes.h"
 #include "theme.h"
 
@@ -182,14 +183,123 @@ static void scene_prims(Surface *s)
     mark_n("icon.opaque", 100);
 }
 
+/* ---- text ---- */
+
+extern const unsigned char font_sans12[], font_mono12[], ttf_sans[];
+
+static const char *const para[] = {
+    "Herons are long-legged, long-necked freshwater and coastal birds. They hunt",
+    "by standing still in shallow water and striking at fish with their bills,",
+    "and fly with their necks drawn back in an S. The grey heron is common across",
+    "Europe and Asia; it nests in colonies, high in trees, and returns to the same",
+    "heronry year after year. This machine has no fish to catch, only pixels:",
+    "every character on this screen was drawn by its CPU, a bit at a time where",
+    "the bits don't line up with its words, through tables where they do.",
+    "1234567890 !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~ ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+};
+
+static const char *const term[] = {
+    "$ ls -l /usr/src/gfx",
+    "-rw-r--r--  1 emily  staff   6130 Oct 13 22:41 blit.c",
+    "-rw-r--r--  1 emily  staff   3952 Oct 13 22:41 ellipse.c",
+    "-rw-r--r--  1 emily  staff   7804 Oct 13 22:41 expand.c",
+    "-rw-r--r--  1 emily  staff   7261 Oct 13 22:41 gfx.c",
+    "$ cc -O -o wm wm.c gfx.c font.c ttf.c raster.c",
+    "$ ./wm &",
+    "[1] 4711",
+    "$ for i in 1 2 3; do echo \"line $i of the terminal, 80 columns wide\"; done",
+    "line 1 of the terminal, 80 columns wide",
+    "line 2 of the terminal, 80 columns wide",
+    "line 3 of the terminal, 80 columns wide",
+};
+
+static const char sample[] = "The quick brown fox jumps over the lazy dog";
+static const char sample2[] = "Sphinx of black quartz, judge my vow.";
+static const char alnum[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+static Font sans, mono;
+static TTF tt;
+
+/* a phase name with a number on the end */
+static const char *numbered(const char *prefix, int n)
+{
+    static char buf[32];
+    char *p = buf;
+    while (*prefix)
+        *p++ = *prefix++;
+    if (n >= 10)
+        *p++ = '0' + n / 10;
+    *p++ = '0' + n % 10;
+    *p = 0;
+    return buf;
+}
+
+static void scene_text(Surface *s)
+{
+    static unsigned gbuf[16384 / 4];
+    static Font big[3];
+    static const int sizes[3] = { 12, 24, 48 };
+    unsigned char ramp[65];
+    Glyph g;
+    int i, k, n, y, aa;
+
+    font_bitmap(&sans, font_sans12);
+    font_bitmap(&mono, font_mono12);
+    ttf_open(&tt, ttf_sans);
+    theme_ramp(s->depth, c_text, c_window, ramp);
+    gfx_fill(s, 0, 0, SCREEN_W, SCREEN_H, c_window, GFX_COPY);
+    mark("_");
+
+    /* a paragraph in the proportional bitmap font */
+    for (i = n = 0, y = 4 + sans.ascent; i < 8; i++, y += sans.height) {
+        font_draw(s, &sans, 8, y, para[i], c_text, 0);
+        n += strlen(para[i]);
+    }
+    mark_n("text.sans12", n);
+
+    /* a terminal: the text on black, a line cleared before it's drawn */
+    for (i = n = 0, y = 130; i < 12; i++, y += mono.height) {
+        gfx_fill(s, 4, y, 4 + 80 * 7, y + mono.height, c_black, GFX_COPY);
+        font_draw(s, &mono, 4, y + mono.ascent, term[i], c_white, 0);
+        n += strlen(term[i]);
+    }
+    mark_n("text.mono12", n);
+
+    /* outline glyphs, rasterised and thrown away: what the cache saves */
+    for (aa = 0; aa < 2; aa++)
+        for (k = 0; k < 3; k++) {
+            for (i = 0; alnum[i]; i++)
+                ttf_render(&tt, ttf_glyph_index(&tt, alnum[i]), sizes[k], aa,
+                           (unsigned char *)gbuf, sizeof gbuf, &g);
+            mark_n(numbered(aa ? "raster.aa." : "raster.mono.", sizes[k]), 62);
+        }
+
+    /* outline text through the cache: anti-aliased where there are greys */
+    aa = s->depth > 0;
+    for (k = 0, y = 330; k < 3; k++) {
+        font_ttf(&big[k], &tt, sizes[k], aa);
+        y += big[k].ascent;
+        n = strlen(sample);
+        font_draw(s, &big[k], 8, y, sample, c_text, ramp);
+        mark_n(numbered("ttf.first.", sizes[k]), n);
+        font_draw(s, &big[k], 8, y, sample, c_text, ramp);
+        mark_n(numbered("ttf.cached.", sizes[k]), n);
+        y += big[k].descent;
+    }
+    font_draw(s, &big[0], 360, 330 + big[0].ascent, sample2, c_text, ramp);
+    mark("_");
+}
+
 int run_scene(const char *name, int depth)
 {
     gfx_tables();
     gfx_init(&screen, fb_mem, SCREEN_W, SCREEN_H, (SCREEN_W << depth) >> 3, depth);
     theme_init(depth);
-    if (name[0] == 'p') {
+    if (strcmp(name, "prims") == 0)
         scene_prims(&screen);
-        return 0;
-    }
-    return -1;
+    else if (strcmp(name, "text") == 0)
+        scene_text(&screen);
+    else
+        return -1;
+    return 0;
 }
