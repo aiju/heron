@@ -1,22 +1,19 @@
 """ISA draft 1b: 32-bit, 16-bit parcels, register + addressing mode (CISC-like).
 
 See isa-v1b.md. Main format `F D M R`: operation, register, mode,
-register-or-constant for the mode. This is the assembler's and
-disassembler's side; decoding and executing is Rust
-(studies/v1_isa/isa/src/v1b.rs). Shared parts live in v1common.
+register-or-constant for the mode. This is the disassembler's side;
+decoding and executing is Rust (studies/v1_isa/isa/src/v1b.rs), and so is
+the encoder the assembler uses (studies/v1_isa/isa/src/asm/v1b.rs). Shared
+parts live in v1common.
 """
 
-from heron.infra.asm import Reg, Imm, Mem, Expr
 from . import v1common as c
-from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, R, sym
+from .v1common import M32, sext8, sext16, R, sym
 
 NAME = "v1b"
 DESCRIPTION = "draft 1b: 32-bit registers, 16-bit parcels, register + addressing mode"
 
-REGISTERS = dict(c.REGISTERS)
-REGISTERS["pc"] = 16            # only meaningful as [pc + label]
 WIDE = True                     # tells the tools to use sim32
-WORD_BYTES = 4
 MEM_TOP = c.MEM_TOP
 IO_BASE = c.IO_BASE
 RESET_VECTOR = c.RESET_VECTOR
@@ -25,18 +22,14 @@ IRQ_VECTOR = c.IRQ_VECTOR
 OP_SYS, OP_MOV, OP_ST, OP_LEA = 0x0, 0x1, 0x2, 0x3
 OP_ADD, OP_SUB, OP_CMP, OP_AND, OP_OR, OP_XOR = 0x4, 0x5, 0x6, 0x7, 0x8, 0x9
 OP_JCC, OP_JEA, OP_UN, OP_SH, OP_BCC, OP_RR = 0xA, 0xB, 0xC, 0xD, 0xE, 0xF
-OPMAP = {"un": OP_UN, "sh": OP_SH, "bcc": OP_BCC, "jcc": OP_JCC}
 
-# EA instructions: op -> ALU function number
+# EA instructions: name -> opcode
 EA_OPS = {"MOV": OP_MOV, "ST": OP_ST, "LEA": OP_LEA, "ADD": OP_ADD, "SUB": OP_SUB,
           "CMP": OP_CMP, "AND": OP_AND, "OR": OP_OR, "XOR": OP_XOR}
 EA_NAMES = {v: k for k, v in EA_OPS.items()}
-EA_ALU = {OP_MOV: 8, OP_ADD: 0, OP_SUB: 2, OP_CMP: 9, OP_AND: 4, OP_OR: 5, OP_XOR: 6}
 RR_FN = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "DIVU", "DIVS", "DIVUL"]
 
-SIZES = {"byte": 1, "half": 2, "word": 4, None: 4}
 SIZE_NAME = {1: "byte ", 2: "half ", 4: ""}
-SCALE_CODE = {1: 0, 2: 1, 4: 2, 8: 3}
 
 
 # ==========================================================================
@@ -115,158 +108,6 @@ def size_of(w):
         k, f = (w >> 4) & 15, w & 15
         return 3 if k == 1 and f == 0 else (2 if k == 0 and f == 0 else 1)
     return 1
-
-
-# ==========================================================================
-# Assembler hook
-
-
-def _imm_mode(ctx, expr, min_ext, n_before=1):
-    """Encode a constant operand. Returns (M, R, ext parcels)."""
-    v, known = ctx.value(expr)
-    if known:
-        v = norm32(v)
-    sv = as_signed(v)
-    if min_ext == 0:
-        if 0 <= sv <= 15:
-            return 1, sv, []
-        if -16 <= sv <= -1:
-            return 0xD, -sv - 1, []
-    if min_ext <= 1:
-        if -32768 <= sv <= 32767:
-            ctx.fix(n_before, c.ABS16S, expr)
-            return 0xF, 0, [v & 0xFFFF]
-        if v <= 0xFFFF:
-            return 0xF, 1, [v]
-        if v & 0xFFFF == 0:
-            return 0xF, 2, [v >> 16]
-    ctx.fix(n_before, c.ABS32, expr)
-    return 0xF, 3, [v & 0xFFFF, v >> 16]
-
-
-def _mem_mode(ctx, mem, min_ext, n_before=1):
-    """Encode a memory operand. Returns (M, R, ext parcels)."""
-    size = SIZES[mem.size]
-    if mem.base is not None and mem.base.n == 16:            # [pc + label]
-        if mem.index is not None or mem.postinc or mem.predec:
-            ctx.error("[pc + ...] takes only a label")
-        target, known = (ctx.target(mem.disp) if mem.disp is not None else (0, True))
-        off = target - (ctx.pc + 2 * (n_before + 1))
-        if known and not -32768 <= off <= 32767:
-            ctx.error("PC-relative target out of range (±32 KB)")
-        if mem.disp is not None:
-            ctx.fix(n_before, c.PC16, mem.disp, ctx.pc + 2 * (n_before + 1))
-        return 0xF, {4: 0xA, 1: 0xB, 2: 0xC}[size], [off & 0xFFFF]
-    if mem.postinc or mem.predec:
-        if mem.postinc:
-            if size == 4:
-                return 6, mem.base.n, []
-            if size == 1:
-                return 0xA, mem.base.n, []
-            ctx.error("there is no half [r]+ mode")
-        if size != 4:
-            ctx.error("-[r] only exists for words")
-        return 7, mem.base.n, []
-    if mem.index is not None:
-        if mem.scale not in SCALE_CODE:
-            ctx.error("index scale must be 1, 2, 4 or 8")
-        if mem.index.n > 15:
-            ctx.error("bad index register")
-        d8, known = (ctx.value(mem.disp) if mem.disp is not None else (0, True))
-        if known and not -128 <= as_signed(norm32(d8)) <= 127:
-            ctx.error("the indexed mode's displacement must fit in 8 bits")
-        base = mem.base.n if mem.base is not None else 0
-        z = {1: 0, 2: 1, 4: 2}[size]
-        e = (mem.index.n << 12) | (SCALE_CODE[mem.scale] << 10) | (z << 8) | (d8 & 0xFF)
-        return 5, base, [e]
-    disp, known = (ctx.value(mem.disp) if mem.disp is not None else (0, True))
-    if known:
-        disp = norm32(disp)
-    sd = as_signed(disp)
-    if mem.base is None:                                     # absolute
-        if min_ext <= 1 and (not known or -32768 <= sd <= 32767):
-            if mem.disp is not None:
-                ctx.fix(n_before, c.ABS16S, mem.disp)
-            return 0xF, {4: 4, 1: 5, 2: 6}[size], [disp & 0xFFFF]
-        off = disp - (ctx.pc + 2 * (n_before + 1))
-        if min_ext <= 1 and known and ctx.abs_pc and -32768 <= off <= 32767:
-            return 0xF, {4: 0xA, 1: 0xB, 2: 0xC}[size], [off & 0xFFFF]
-        ctx.fix(n_before, c.ABS32, mem.disp)
-        return 0xF, {4: 7, 1: 8, 2: 9}[size], [disp & 0xFFFF, disp >> 16]
-    b = mem.base.n
-    if known and not -32768 <= sd <= 32767:
-        ctx.error("displacement doesn't fit in 16 bits: compute the address in a register")
-    if min_ext == 0 and known and sd == 0:
-        return {4: 2, 1: 8, 2: 0xB}[size], b, []
-    if min_ext == 0 and known and b == 15 and size == 4 and 0 <= sd <= 60 and sd % 4 == 0:
-        return 4, sd // 4, []
-    if mem.disp is not None:
-        ctx.fix(n_before, c.ABS16S, mem.disp)
-    return {4: 3, 1: 9, 2: 0xC}[size], b, [disp & 0xFFFF]
-
-
-def _ea(ctx, op, n_before=1):
-    min_ext = max(0, ctx.min_words - n_before)
-    if isinstance(op, Reg):
-        if op.n > 15:
-            ctx.error("pc can only be used as [pc + label]")
-        return 0, op.n, []
-    if isinstance(op, Imm):
-        return _imm_mode(ctx, op.expr, min_ext, n_before)
-    if isinstance(op, Mem):
-        return _mem_mode(ctx, op, min_ext, n_before)
-    ctx.error("expected a register, #constant or [memory] operand")
-
-
-def assemble(name, ops, ctx):
-    U = name.upper()
-    k = kinds(ops)
-
-    if U == "PUSH":
-        if k != "R":
-            ctx.error("PUSH needs one register")
-        return assemble("ST", [ops[0], Mem(Reg(15, "sp"), None, predec=True)], ctx)
-    if U == "POP":
-        if k != "R":
-            ctx.error("POP needs one register")
-        return assemble("MOV", [ops[0], Mem(Reg(15, "sp"), None, postinc=True)], ctx)
-    if U == "LI":
-        if k not in ("RE", "RI"):
-            ctx.error("LI needs 'rd, value'")
-        return assemble("MOV", [ops[0], Imm(ops[1].expr)], ctx)
-    if U in ("JMP", "CALL") and k in ("M", "I"):
-        M, Rn, ext = _ea(ctx, ops[0])
-        if isinstance(ops[0], Mem) and SIZES[ops[0].size] != 4:
-            ctx.error(f"{U} through memory needs a word")
-        return [W(OP_JEA, 1 if U == "CALL" else 0, M, Rn)] + ext
-
-    out = c.asm_common(U, ops, ctx, OPMAP)
-    if out is not None:
-        return out
-
-    if U in EA_OPS:
-        if len(ops) != 2 or not isinstance(ops[0], Reg):
-            ctx.error(f"{U} needs 'rd, operand'")
-        rd = c.reg_operand(ctx, ops[0])
-        src = ops[1]
-        if U == "LEA" and isinstance(src, Expr):
-            src = Mem(None, src.expr)
-        if isinstance(src, Expr):
-            ctx.error(f"{U}: write #value for a constant or [address] for memory")
-        M, Rn, ext = _ea(ctx, src)
-        if U == "ST" and M in (0, 1, 0xD) or (U == "ST" and M == 0xF and Rn <= 3):
-            ctx.error("ST needs a memory operand")
-        if U == "LEA" and (M in (0, 1, 0xD, 6, 7, 0xA) or (M == 0xF and Rn <= 3)):
-            ctx.error("LEA needs a memory operand without auto-increment")
-        return [W(EA_OPS[U], rd, M, Rn)] + ext
-
-    if U in RR_FN:
-        if k != "RR":
-            ctx.error(f"{U} only works on two registers in draft 1b")
-        return [W(OP_RR, ops[0].n, ops[1].n, RR_FN.index(U))]
-    if U in ("MVI", "ADDI", "CMPI"):
-        ctx.error(f"draft 1b has no {U}: use MOV/ADD/CMP with #value")
-    ctx.error(f"unknown instruction {name}")
 
 
 # ==========================================================================

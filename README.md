@@ -38,9 +38,9 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 The current design's own `isa/`, `hw/`, `sw/` and `tools/` folders come
 with draft 2.
 
-The tools are Python, except the engines (simulators, the assembler and
-linker), which are being moved to Rust: crates in one Cargo workspace,
-with `Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
+The tools are Python, except the engines (the simulators, the assembler
+and the linker), which are Rust: crates in one Cargo workspace, with
+`Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
 **Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
 (draft 1a against 1b, and the hardware options), then the

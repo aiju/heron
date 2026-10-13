@@ -1,20 +1,18 @@
 """ISA draft 1a: 32-bit, 16-bit parcels, load/store (RISC-like).
 
-See isa-v1a.md. This is the assembler's and disassembler's side; decoding
-and executing is Rust (studies/v1_isa/isa/src/v1a.rs). Shared parts live
-in v1common.
+See isa-v1a.md. This is the disassembler's side; decoding and executing
+is Rust (studies/v1_isa/isa/src/v1a.rs), and so is the encoder the
+assembler uses (studies/v1_isa/isa/src/asm/v1a.rs). Shared parts live in
+v1common.
 """
 
-from heron.infra.asm import Imm
 from . import v1common as c
-from .v1common import M32, W, kinds, norm32, as_signed, sext8, sext16, ALU_FN, R, sym
+from .v1common import M32, as_signed, sext8, sext16, ALU_FN, R, sym
 
 NAME = "v1a"
 DESCRIPTION = "draft 1a: 32-bit registers, 16-bit parcels, load/store"
 
-REGISTERS = c.REGISTERS
 WIDE = True                     # tells the tools to use sim32
-WORD_BYTES = 4
 MEM_TOP = c.MEM_TOP
 IO_BASE = c.IO_BASE
 RESET_VECTOR = c.RESET_VECTOR
@@ -24,139 +22,9 @@ OP_SYS, OP_ALU, OP_UN, OP_BCC = 0x0, 0x1, 0x2, 0x3
 OP_LD, OP_ST, OP_LDB, OP_STB = 0x4, 0x5, 0x6, 0x7
 OP_ALUI, OP_JCC, OP_MEML, OP_SH = 0x8, 0x9, 0xA, 0xB
 OP_MVI, OP_ADDI, OP_CMPI = 0xC, 0xD, 0xE
-OPMAP = {"un": OP_UN, "sh": OP_SH, "bcc": OP_BCC, "jcc": OP_JCC}
 
-# long memory functions (op A): name -> (fn with disp16, fn with disp32 or None)
-MEM_FN = {"LD": (0, 0xA), "ST": (1, 0xB), "LDB": (2, 0xC), "STB": (3, 0xD),
-          "LDH": (4, None), "STH": (5, None), "LDSB": (6, None), "LDSH": (7, None),
-          "LEA": (8, 0xE)}
+# long memory functions (op A) with a 16-bit displacement, by number
 MEM_NAMES = ["LD", "ST", "LDB", "STB", "LDH", "STH", "LDSB", "LDSH", "LEA"]
-
-
-# ==========================================================================
-# Assembler hook
-
-
-def _imm_kind(v, min_words):
-    """Pick op 8's immediate kind for a 32-bit pattern v."""
-    sv = as_signed(v)
-    if min_words <= 2:
-        if -32768 <= sv <= 32767:
-            return 0
-        if v <= 0xFFFF:
-            return 1
-        if v & 0xFFFF == 0:
-            return 2
-    return 3
-
-
-def _imm_parcels(k, v):
-    if k == 0 or k == 1:
-        return [v & 0xFFFF]
-    if k == 2:
-        return [v >> 16]
-    return [v & 0xFFFF, v >> 16]
-
-
-def assemble(name, ops, ctx):
-    U = name.upper()
-    k = kinds(ops)
-
-    if U == "PUSH":
-        return c.asm_common("SAVE", ops, ctx, OPMAP)
-    if U == "POP":
-        return c.asm_common("RESTORE", ops, ctx, OPMAP)
-
-    out = c.asm_common(U, ops, ctx, OPMAP)
-    if out is not None:
-        return out
-
-    # ---- two-operand ALU ----
-    if U in ALU_FN:
-        fn = ALU_FN.index(U)
-        if k == "RR":
-            return [W(OP_ALU, ops[0].n, ops[1].n, fn)]
-        if k == "RI":
-            rd = ops[0].n
-            v, known = ctx.value(ops[1].expr)
-            if known:
-                v = norm32(v)
-            sv = as_signed(v)
-            short = {"MOV": OP_MVI, "CMP": OP_CMPI}.get(U)
-            if short is not None and ctx.min_words <= 1 and -128 <= sv <= 127:
-                return [W(short, rd) | (sv & 0xFF)]
-            kind = _imm_kind(v, ctx.min_words)
-            if kind in (0, 3):
-                ctx.fix(1, c.ABS16S if kind == 0 else c.ABS32, ops[1].expr)
-            return [W(OP_ALUI, rd, kind, fn)] + _imm_parcels(kind, v)
-        ctx.error(f"{U} needs 'rd, rs' or 'rd, #imm'")
-    if U == "LI":
-        if k not in ("RE", "RI"):
-            ctx.error("LI needs 'rd, value'")
-        return assemble("MOV", [ops[0], Imm(ops[1].expr)], ctx)
-    if U in ("MVI", "ADDI", "CMPI"):
-        if k not in ("RE", "RI"):
-            ctx.error(f"{U} needs 'rd, imm8'")
-        v, known = ctx.value(ops[1].expr)
-        if known:
-            v = as_signed(norm32(v))
-            if not -128 <= v <= 127:
-                ctx.error(f"value {v} doesn't fit in a signed 8-bit immediate (-128..127)")
-        op = {"MVI": OP_MVI, "ADDI": OP_ADDI, "CMPI": OP_CMPI}[U]
-        return [W(op, ops[0].n) | (v & 0xFF)]
-
-    # ---- loads, stores, LEA ----
-    if U in MEM_FN:
-        if U == "LEA" and k == "RE":
-            # PC-relative: rd <- PC + disp16
-            target, known = ctx.target(ops[1].expr)
-            off = target - (ctx.pc + 4)
-            if ctx.min_words <= 2 and (not known or -32768 <= off <= 32767):
-                ctx.fix(1, c.PC16, ops[1].expr, ctx.pc + 4)
-                return [W(OP_MEML, ops[0].n, 0, 9), off & 0xFFFF]
-            t, known = ctx.value(ops[1].expr)
-            t = norm32(t) if known else 0
-            ctx.fix(1, c.ABS32, ops[1].expr)
-            return [W(OP_MEML, ops[0].n, 0, 0xE), t & 0xFFFF, t >> 16]
-        if k != "RM":
-            ctx.error(f"{U} needs 'reg, [base + offset]'")
-        mem = ops[1]
-        if mem.index is not None:
-            ctx.error("draft 1a has no register + register addressing: add the registers first, "
-                      "or use [label + reg] for a static array")
-        if not mem.plain():
-            ctx.error("draft 1a has no size keywords or auto-increment: the size is in the mnemonic")
-        rd = ops[0].n
-        base = mem.base.n if mem.base else 0
-        if mem.base is not None and mem.base.n > 15:
-            ctx.error("bad base register")
-        if mem.disp is None:
-            disp, known = 0, True
-        else:
-            disp, known = ctx.value(mem.disp)
-        if known:
-            disp = norm32(disp)
-        sd = as_signed(disp)
-        if ctx.min_words <= 1 and known:
-            if U in ("LD", "ST") and 0 <= sd <= 60 and sd % 4 == 0:
-                return [W(OP_LD if U == "LD" else OP_ST, rd, base, sd // 4)]
-            if U in ("LDB", "STB") and 0 <= sd <= 15:
-                return [W(OP_LDB if U == "LDB" else OP_STB, rd, base, sd)]
-        f16, f32 = MEM_FN[U]
-        if ctx.min_words <= 2 and (not known or -32768 <= sd <= 32767):
-            if mem.disp is not None:
-                ctx.fix(1, c.ABS16S, mem.disp)
-            return [W(OP_MEML, rd, base, f16), disp & 0xFFFF]
-        if f32 is None:
-            ctx.error(f"{U} only has a 16-bit displacement: put the address in a register")
-        ctx.fix(1, c.ABS32, mem.disp)
-        return [W(OP_MEML, rd, base, f32), disp & 0xFFFF, disp >> 16]
-
-    ctx.error(f"unknown instruction {name}")
-
-
-# ==========================================================================
-# Decoder (for the simulator)
 
 
 # ==========================================================================
