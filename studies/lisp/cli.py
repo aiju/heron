@@ -3,7 +3,8 @@
   run    PROG.lisp [-c] [--stats] [--profile] [--input-file F]   run a program on the 1b
                                          simulator (-c: compiled)
   ref    PROG.lisp                       run it on the reference interpreter
-  test   [NAME...] [-c] [-v]             the programs and tests against their expected output
+  test   [NAME...] [-c] [-v] [--features F]   the programs and tests against their
+                                         expected output
   build  [-l FILE.lst]                   assemble the runtime (and write a listing)
 """
 
@@ -49,7 +50,8 @@ def cmd_ref(args):
 
 def cmd_test(args):
     from . import testing
-    return testing.run_suite(args.names, verbose=args.v, compiled=args.compiled)
+    features = [f for f in (args.features or "").split(",") if f]
+    return testing.run_suite(args.names, features, verbose=args.v, compiled=args.compiled)
 
 
 def cmd_build(args):
@@ -83,6 +85,7 @@ def main(argv=None):
     t.add_argument("names", nargs="*")
     t.add_argument("-v", action="store_true", help="show where the output differs")
     t.add_argument("-c", "--compiled", action="store_true", help="compile the programs")
+    t.add_argument("--features", help="ISA experiments (comma-separated; isa.md)")
     t.set_defaults(fn=cmd_test)
     b = sub.add_parser("build", help="assemble the runtime")
     b.add_argument("-l", help="write a listing")

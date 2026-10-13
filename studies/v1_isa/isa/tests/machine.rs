@@ -113,3 +113,28 @@ fn restore_wraps_past_the_top_of_memory() {
     assert_eq!(m.r[15], 4);
     assert!(m.halted);
 }
+
+#[test]
+fn tagged_operands_check_tags_and_overflow() {
+    // v1bx: MOV sp, #0x8000; MOV r1, #4; MOV r2, #6; ADD r1, r2 (tagged);
+    // ADD r1, r3 (tagged, r3 = 1: an odd word traps). The trap vector
+    // (0x18) is zero: HALT.
+    let image: Vec<u8> = [0x1FF1u16, 0x8000, 0x1114, 0x1216, 0x41E2, 0x1311, 0x41E3]
+        .iter()
+        .flat_map(|p| p.to_le_bytes())
+        .collect();
+    let mut m = Machine::new(
+        Isa::V1bx,
+        &image,
+        b"",
+        Config::named("D16-overlap").unwrap(),
+    );
+    m.run(1000).unwrap();
+    assert_eq!(m.r[1], 10);
+    assert_eq!(m.traps, [(12, "tag check".to_string())]);
+    assert_eq!(m.pc, 0x1A);
+    // in 1b, mode E is illegal
+    let mut m = machine(&[0x1FF1, 0x8000, 0x41E2]);
+    m.run(1000).unwrap();
+    assert_eq!(m.traps, [(4, "illegal instruction".to_string())]);
+}

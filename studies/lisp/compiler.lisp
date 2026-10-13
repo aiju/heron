@@ -19,6 +19,10 @@
 ; ======================================================================
 ; Utilities
 
+; cc:*options* (defined before this file is loaded) lists the features:
+;   tagged   v1bx's tagged register mode does the integer checks
+(define (cc:option? x) (memq x cc:*options*))
+
 (define cc:*fail* nil)
 (define (cc:fail why)
   (if (not cc:*fail*) (set! cc:*fail* why))
@@ -113,6 +117,7 @@
                     (* (cdr (assq s '((1 . 0) (2 . 1) (4 . 2) (8 . 3)))) 1024)
                     (* (cdr (assq z '((byte . 0) (half . 1) (word . 2)))) 256)
                     (logand d 255)))))
+    ((tag) (list 14 (cadr o)))           ; v1bx: a tagged register (isa.md)
     ((pcrel)
      (if labels
          (list 15 10 (cc:u16 (- (cc:label-addr (cadr o) labels) pc)))
@@ -171,7 +176,7 @@
 ; parcels an instruction with this operand takes (without encoding it)
 (define (cc:ea-size o)
   (case (car o)
-    ((reg pinc pdec bpinc) 1)
+    ((reg pinc pdec bpinc tag) 1)
     ((imm) (- (length (cc:ea-imm (cadr o) (caddr o))) 1))
     ((mem) (- (length (cc:ea o nil 0)) 1))
     ((byte half) (if (= (caddr o) 0) 1 2))
@@ -905,11 +910,21 @@
     (cc:e 'alloc '(lea 1 (mem 14 -7)))))
 
 (define (cc:check-num r)               ; r is a fixnum, else "not a number"
+  (if (cc:option? 'tagged)
+      (cc:e 'type (list 'mov 9 (list 'tag r)))
+      (cc:check-num-sw r)))
+
+(define (cc:check-num-sw r)
   (cc:e 'type (list 'mov 9 (list 'reg r)))
   (cc:e 'type '(and 9 (imm 0 1)))
   (cc:e 'type (list 'b 'ne (if (= r 1) (cc:err-stub 'notnum) (cc:err3-stub 'notnum)))))
 
 (define (cc:check-num2)                ; r1 and r3
+  (if (cc:option? 'tagged)
+      (cc:e 'type '(cmp 1 (tag 3)))
+      (cc:check-num2-sw)))
+
+(define (cc:check-num2-sw)
   (cc:e 'type '(mov 9 (reg 1)))
   (cc:e 'type '(or 9 (reg 3)))
   (cc:e 'type '(and 9 (imm 0 1)))
@@ -923,6 +938,12 @@
 ; two number operands: r1, and either a constant (returned as an operand)
 ; or r3 (returns (reg 3)); both checked
 (define (cc:num-args args)
+  (cond ((cc:option? 'tagged)          ; checked by the instruction itself
+         (cc:args-into args '(1 3))
+         '(tag 3))
+        (t (cc:num-args-sw args))))
+
+(define (cc:num-args-sw args)
   (if (cc:small-const? (cadr args))
       (begin (cc:g (car args) nil) (cc:check-num 1) (cc:fix (cadr (cadr args))))
       (begin (cc:args-into args '(1 3)) (cc:check-num2) '(reg 3))))
@@ -942,7 +963,7 @@
     ((+)
      (let ((o (cc:num-args args)))
        (cc:e 'arith (list 'add 1 o))
-       (cc:e 'overflow (list 'b 'vs (cc:err-stub 'overflow)))))
+       (unless (eq? (car o) 'tag) (cc:e 'overflow (list 'b 'vs (cc:err-stub 'overflow))))))
     ((-)
      (if (null? (cdr args))
          (begin (cc:g (car args) nil) (cc:check-num 1)
@@ -950,7 +971,7 @@
                 (cc:e 'overflow (list 'b 'vs (cc:err-stub 'overflow))))
          (let ((o (cc:num-args args)))
            (cc:e 'arith (list 'sub 1 o))
-           (cc:e 'overflow (list 'b 'vs (cc:err-stub 'overflow))))))
+           (unless (eq? (car o) 'tag) (cc:e 'overflow (list 'b 'vs (cc:err-stub 'overflow)))))))
     ((*)
      (cc:args-into args '(1 3))
      (cc:check-num2)
@@ -995,6 +1016,11 @@
   (cc:e 'bounds '(cmp 3 (reg 9)))
   (cc:e 'bounds (list 'b 'hs (cc:err3-stub 'range))))
 
+; an expression that cc:test compiles to branches without making a value
+(define (cc:testable? n)
+  (and (eq? (car n) 'prim)
+       (memq (cadr n) '(not null? eq? pair? atom? number? integer? symbol? zero? = < > <= >=))))
+
 ; predicates and comparisons for their value: t or nil
 (define (cc:g-bool name args)
   (let ((false (cc:label)) (end (cc:label)))
@@ -1009,9 +1035,16 @@
 (define (cc:test-prim name args false)
   (case name
     ((not null?)
-     (cc:g (car args) nil)
-     (cc:e 'test '(cmp 1 (reg 13)))
-     (cc:e 'test (list 'b 'ne false)))
+     (if (cc:testable? (car args))
+         ; (not test): the test, with its outcomes swapped
+         (let ((true (cc:label)))
+           (cc:test (car args) true)
+           (cc:e 'test (list 'b 'ra false))
+           (cc:emit-label true))
+         (begin
+           (cc:g (car args) nil)
+           (cc:e 'test '(cmp 1 (reg 13)))
+           (cc:e 'test (list 'b 'ne false)))))
     ((eq?)
      (if (cc:simple? (cadr args))
          (begin (cc:g (car args) nil)
@@ -1044,8 +1077,9 @@
      (cc:e 'test (list 'b 'ne false)))
     ((zero?)
      (cc:g (car args) nil)
-     (cc:check-num 1)
-     (cc:e 'test '(cmp 1 (imm 0 0)))
+     (if (cc:option? 'tagged)
+         (cc:e 'arith '(cmp 1 (tag 0)))
+         (begin (cc:check-num 1) (cc:e 'test '(cmp 1 (imm 0 0)))))
      (cc:e 'test (list 'b 'ne false)))
     ((= < > <= >=)
      (let ((o (cc:num-args args)))

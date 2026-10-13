@@ -30,6 +30,9 @@ CATEGORIES = ["other", "var", "global", "unbound", "const", "call", "entry", "re
               "temp", "type", "pred", "arith", "overflow", "test", "alloc", "access",
               "bounds", "stub"]
 
+# the collector's routines: its cycles are reported apart from the program's
+GC_ROUTINES = {"rt:gc", "rt:fwd", "rt:fwd_range", "rt:objsize"}
+
 _EMPTY = {}
 
 
@@ -57,6 +60,12 @@ def windows(run):
             out.append((begin, w))
             begin = None
     return out
+
+
+def split(prof):
+    """(mutator, collector) cycles of a profile."""
+    gc = sum(v for k, v in prof.items() if k in GC_ROUTINES)
+    return sum(prof.values()) - gc, gc
 
 
 def measure(text, features=(), compiled=False):

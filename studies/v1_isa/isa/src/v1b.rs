@@ -4,7 +4,7 @@
 
 use crate::insn::{self, Insn, MemOp, Res, sext8, sext16};
 use crate::key::Ea;
-use crate::machine::Machine;
+use crate::machine::{Isa, Machine};
 
 const OP_SYS: u32 = 0x0;
 const OP_MOV: u32 = 0x1;
@@ -27,11 +27,13 @@ fn ea_alu(op: u32) -> u8 {
 /// MULU, MULS, DIVU, DIVS, DIVUL.
 const RR_ALU: [u8; 9] = [1, 3, 7, 10, 11, 12, 13, 14, 15];
 
-/// An operand: a register, an immediate, or memory.
+/// An operand: a register, an immediate, or memory; or, in v1bx, a
+/// tagged register.
 enum Operand {
     Reg(u8),
     Imm(u32),
     Mem(MemOp),
+    Tagged(u8),
 }
 
 /// Extra parcels a mode needs, from the first parcel alone.
@@ -147,11 +149,23 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
         ext[(i - 1) as usize] = parcel(pc.wrapping_add(2 * i))?;
     }
     let nxt = pc.wrapping_add(2 * n);
-    let Some(opnd) = operand(mode, rn, ext, nxt) else {
+    let opnd = if mode == 0xE && m.isa == Isa::V1bx {
+        Some(Operand::Tagged(rn as u8))
+    } else {
+        operand(mode, rn, ext, nxt)
+    };
+    let Some(opnd) = opnd else {
         return Ok((Insn::Illegal, n));
     };
     let d = d as u8;
     let insn = match (op, opnd) {
+        // a tagged register: MOV and the ALU operations only
+        (OP_MOV | 4..=9, Operand::Tagged(r)) => Insn::AluTag {
+            f: ea_alu(op),
+            d,
+            rn: r,
+        },
+        (_, Operand::Tagged(_)) => Insn::Illegal,
         (OP_JEA, _) if d > 1 => Insn::Illegal,
         (OP_JEA, Operand::Reg(r)) => Insn::JeaReg {
             call: d == 1,

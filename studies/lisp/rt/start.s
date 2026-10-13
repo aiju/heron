@@ -88,19 +88,29 @@ UNB     = 1                     ; an unbound global's value (never a Lisp value)
 IO_CONS = 0xFFFFFF00
 IO_CYC  = 0xFFFFFF10
 
-; ---- vectors
+; ---- vectors: each jumps through a word (the runtime is too far away
+; for a jump that fits the vector's 4 bytes)
         .org 0x00
-        JMP  boot               ; reset
+        JMP  [vec_reset]
         .org 0x04
         RTI                     ; IRQ (unused)
         .org 0x08
-        JMP  trap_illegal
+        JMP  [vec_illegal]
         .org 0x0C
-        JMP  trap_swi
+        JMP  [vec_swi]
         .org 0x10
-        JMP  trap_div
+        JMP  [vec_div]
         .org 0x14
-        JMP  trap_addr
+        JMP  [vec_addr]
+        .org 0x18
+        JMP  [vec_tag]          ; v1bx: a tagged operand's check (isa.md)
+        .org 0x20
+vec_reset:      .word boot
+vec_illegal:    .word trap_illegal
+vec_swi:        .word trap_swi
+vec_div:        .word trap_div
+vec_addr:       .word trap_addr
+vec_tag:        .word trap_tag
 
 ; ---- variables (in the first 32K, so a 16-bit absolute address reaches them)
         .org 0x100
@@ -278,6 +288,38 @@ trap_addr:
         BEQ  err_notpair
 .other: LEA  r1, [msg_addr]
         BRA  fatal
+
+; A tagged operand's check failed (v1bx): an operand isn't an integer, or
+; a tagged ADD or SUB overflowed. On entry [sp] = the flags, [sp + 4] =
+; the instruction's address.
+trap_tag:
+        SAVE r1-r14
+        MOV  r5, [sp + 60]
+        MOV  r6, half [r5]
+        MOV  r7, r6             ; d
+        LSR  r7, #8
+        AND  r7, #15
+        MOV  r8, r6             ; R
+        AND  r8, #15
+        LSR  r6, #12            ; the operation
+        CMP  r6, #1             ; MOV checks only its source
+        BEQ  .src
+        MOV  r1, r7
+        BSR  .reg
+        MOV  r9, r1
+        AND  r9, #1
+        BNE  err_notnum
+.src:   MOV  r1, r8
+        BSR  .reg
+        MOV  r9, r1
+        AND  r9, #1
+        BNE  err_notnum
+        BRA  err_overflow       ; both integers: an ADD or SUB overflowed
+.reg:   CMP  r1, #0             ; r1 = a register number -> its value then
+        BEQ  .ret
+        LSL  r1, #2
+        MOV  r1, [sp + r1]      ; (sp + 4: past the return address, - 4: r1 at 0)
+.ret:   RET
 
 trap_illegal:
         LEA  r1, [msg_illegal]
