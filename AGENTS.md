@@ -80,11 +80,12 @@ The engines are Rust, everything else is Python
 
 Change the generator and rerun it rather than editing the output by hand:
 
-- the `performance.md` in reports 0001, 0004, 0011 and 0012:
+- the `performance.md` in reports 0001, 0004, 0011, 0012 and 0016:
   - `heron v0_hw report`
   - `heron v1_isa report`
   - `heron c_compiler bench --write`
   - `heron v1b_hw report`
+  - `heron lisp report --write`
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and
@@ -111,6 +112,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   against their expected output.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
+- `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
+  tests, interpreted and compiled (`-c --features tagged`: on v1bx).
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.

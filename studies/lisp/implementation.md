@@ -1,8 +1,9 @@
 # The implementation on draft 1b
 
 How the Lisp of [language.md](language.md) runs on the draft 1b machine
-([isa-v1b.md](../v1_isa/isa-v1b.md)). Everything here is 1b assembly in
-`rt/`, plus the prelude in Lisp. It runs on the instruction-level
+([isa-v1b.md](../v1_isa/isa-v1b.md)). The runtime is 1b assembly in
+`rt/`, plus the prelude in Lisp; the compiler, in Lisp, has its own
+document ([compiler.md](compiler.md)). It runs on the instruction-level
 simulator, with the timing model costing it for the hardware
 configurations ([timing-model-v1.md](../v1_isa/timing-model-v1.md)); the
 numbers this study quotes are for D32-separate, the configuration the
@@ -54,14 +55,14 @@ Object types:
 
 | Address | What |
 |---|---|
-| `0x00000` | vectors |
+| `0x00000` | vectors, and the words they jump through |
 | `0x00100` | the runtime's variables, then jump tables (16-bit addresses reach them) |
 | `0x00400` | `nil` and the end-of-file object, then **symbol space**: the static symbols the build generates, then the ones the reader interns. Symbols never move, and 16-bit addresses reach them. |
-| `0x08000` | the runtime's code, the static data, the prelude's text |
-| `0x18000` | **constant space**: names of interned symbols (never moves) |
-| `0x20000` | compiled code |
-| `0x38000`, `0x94000` | the two halves of the heap, 368 KB each |
-| `0xF0000`–`0xFFFFF` | the stack (64 KB) |
+| `0x08000` | **constant space**: names of interned symbols, and what the compiler needs to stay put: static closures and copies of quoted constants. Never moves, and the collector doesn't scan it. |
+| `0x10000` | the runtime's code, its static data and the prelude's text, then **code space**: compiled code, up to `0x26000` |
+| `0x26000` | the category map: a byte per parcel of code space, saying what it's for ([compiler.md](compiler.md#categories)) |
+| `0x30000`, `0x90000` | the two halves of the heap, 384 KB each |
+| `0xF0000`–`0xFFFFF` | the stack (64 KB); the stack limit is at `0xF0800` |
 
 ## The garbage collector
 
@@ -117,3 +118,28 @@ one convention:
   (nil), `r14` (the heap pointer) and `sp` are.
 
 A procedure checks its own number of arguments.
+
+## The top level and errors
+
+The top level reads a form, evaluates it and reads the next, without
+printing the value (programs print what they want to). If the symbol
+`%toplevel` is bound to a procedure, the top level calls it on each form
+instead of evaluating it; that's how the compiler takes over.
+
+An error prints `error: message: irritants` ([language.md](language.md))
+and returns to the top level, which drops the stack and goes on with the
+next form. The traps are errors too: an address error from `car`, `cdr` or
+a call, and (in v1bx, [isa.md](isa.md)) a tag check.
+
+The prelude is text in the image, read at start-up as if it came before
+the console input. `(%reload-prelude)` reads it again, so that once the
+compiler is loaded the prelude is compiled.
+
+## Measuring
+
+The runtime keeps counters for the tools (collections, bytes allocated and
+copied), and `(%run-begin)` and `(%run-end)` log the simulator's cycle
+counter, so the tools can tell compiled code's running from the compiling
+around it (measure.py). `(%save-image)` stops the machine for the tools to
+copy memory: the saved image the compiled runs start from
+([compiler.md](compiler.md#the-saved-image)).
