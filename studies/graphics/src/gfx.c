@@ -38,20 +38,24 @@ int gfx_maxcolor(int depth)
     return (1 << (1 << depth)) - 1;
 }
 
-unsigned gfx_pat(int depth, unsigned color)
+/* the colour in every pixel of a word; depth 4 (16-bit pixels) too, for
+   patterns of pairs */
+unsigned gfx_pat(int depth, unsigned c)
 {
-    int bpp = 1 << depth;
-    color &= gfx_maxcolor(depth);
-    while (bpp < 32) {
-        color |= color << bpp;
-        bpp += bpp;
+    switch (depth) {
+    case 0: return -(c & 1);
+    case 1: c &= 3; c |= c << 2; c |= c << 4; break;
+    case 2: c &= 15; c |= c << 4; break;
+    case 3: c &= 255; break;
+    default: c &= 0xFFFF; return c | c << 16;
     }
-    return color;
+    c |= c << 8;
+    return c | c << 16;
 }
 
 /* ---- the expansion tables ---- */
 
-unsigned gfx_x2[256], gfx_x4[256], gfx_x8[16];
+unsigned gfx_x2[256], gfx_x4[256], gfx_x8[512];
 
 void gfx_tables(void)
 {
@@ -65,13 +69,15 @@ void gfx_tables(void)
             }
         gfx_x2[i] = a;
         gfx_x4[i] = b;
-    }
-    for (i = 0; i < 16; i++) {
-        unsigned c = 0;
-        for (k = 0; k < 4; k++)
+        a = b = 0;
+        for (k = 0; k < 4; k++) {
             if (i & (1 << k))
-                c |= 255u << (8 * k);
-        gfx_x8[i] = c;
+                a |= 255u << (8 * k);
+            if (i & (16 << k))
+                b |= 255u << (8 * k);
+        }
+        gfx_x8[2 * i] = a;
+        gfx_x8[2 * i + 1] = b;
     }
 }
 
@@ -139,6 +145,24 @@ void gfx_fill(Surface *s, int x0, int y0, int x1, int y1, unsigned color, int ro
     fill_setup(&j, s, x0, y0, x1);
     j.h = y1 - y0;
     j.pat = gfx_pat(s->depth, color);
+    j.rop = rop;
+    fill_rows(&j);
+}
+
+/* One row, with the colour already a word of pixels (gfx_pat): the spans
+   of polygons and ellipses. */
+void gfx_span(Surface *s, int y, int x0, int x1, unsigned pat, int rop)
+{
+    FillJob j;
+    if (y < s->cy0 || y >= s->cy1)
+        return;
+    if (x0 < s->cx0) x0 = s->cx0;
+    if (x1 > s->cx1) x1 = s->cx1;
+    if (x0 >= x1)
+        return;
+    fill_setup(&j, s, x0, y, x1);
+    j.h = 1;
+    j.pat = pat;
     j.rop = rop;
     fill_rows(&j);
 }

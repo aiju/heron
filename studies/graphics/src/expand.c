@@ -1,12 +1,15 @@
 /* Drawing 1-bit images in colour (gfx_expand), and anti-aliased coverage
    through a ramp of pixel values (gfx_ramp).
 
-   gfx_expand works a destination word at a time. The source bits are
-   read 32 at a time, lined up with the destination words (a funnel
-   shift, as in blit.c), and each destination word takes 32/bpp of them:
-   at 1 bit per pixel the source word is the mask, at 2, 4 and 8 a table
-   lookup turns 8, 8 or 4 source bits into a word of 2-, 4- or 8-bit
-   pixels. The mask then picks between the colours. */
+   gfx_expand reads the source bits 32 at a time, lined up with the
+   destination words (a funnel shift, as in blit.c), and each 32 bits
+   cover 1, 2, 4 or 8 destination words: at 1 bit per pixel the source
+   word is the mask, at 2, 4 and 8 a table lookup turns 8 source bits into
+   16, 32 or 64 bits of 2-, 4- or 8-bit pixels. The mask picks between the
+   colours. Drawing transparently (a glyph, say), the source bits outside
+   the rectangle are cleared, so no destination edge masks are needed,
+   words with nothing to draw are skipped, and a row stops when its bits
+   run out. */
 
 #include "gfx.h"
 
@@ -20,42 +23,76 @@ static void edges(int dx, int w, int d, int *n, unsigned *lmask, unsigned *rmask
         *lmask &= *rmask;
 }
 
+/* a destination word under a mask: fg where the mask is set */
+#define PUT(p, m) (*(p) = (*(p) & ~(m)) | (fg & (m)))
+
 void expand_rows_c(const ExpandJob *j)
 {
-    unsigned *d = j->d, c = 0, m, e, lo, hi, fg = j->fg, bg = j->bg;
+    unsigned *d = j->d, *p, c, m, e, lo, hi, fg = j->fg, bg = j->bg;
     const unsigned *s = j->s;
-    int h, k, rd, dep = j->depth, per = (1 << dep) - 1, n = j->n;
-    int soff = j->soff, rs, ls;
-    if (soff >= 0) {
-        rs = soff;
-        ls = 32 - soff;
-    } else {
-        ls = -soff;
-        rs = 32 + soff;
-    }
+    int h, k, rd, dep = j->depth, n = j->n, rs = j->soff & 31, pre = j->soff >= 0, b;
     for (h = j->h; h > 0; h--) {
         rd = 0;
-        lo = 0;
-        if (soff > 0)
-            lo = s[rd++];
-        for (k = 0; k <= n; k++) {
-            if ((k & per) == 0) {
+        lo = pre ? s[rd++] : 0;
+        if (j->opaque) {
+            /* every word, between the destination masks */
+            for (k = 0; k <= n; k++) {
+                if ((k & ((1 << dep) - 1)) == 0) {
+                    hi = rd <= j->slast ? s[rd] : 0;
+                    rd++;
+                    c = rs ? (lo >> rs) | (hi << (32 - rs)) : lo;
+                    lo = hi;
+                }
+                switch (dep) {
+                case 0: m = c; break;
+                case 1: m = gfx_x2[c & 255] | (gfx_x2[(c >> 8) & 255] << 16); c >>= 16; break;
+                case 2: m = gfx_x4[c & 255]; c >>= 8; break;
+                default: m = gfx_x8[2 * (c & 255) + (k & 1)]; if (k & 1) c >>= 8; break;
+                }
+                e = k == 0 ? j->lmask : k == n ? j->rmask : ~0u;
+                d[k] = (d[k] & ~e) | ((bg ^ ((fg ^ bg) & m)) & e);
+            }
+        } else {
+            /* the chunks, masked to the rectangle; a chunk's words until
+               its bits run out, and only the words with something in */
+            p = d;
+            for (k = 0; k < j->nch; k++, p += 1 << dep) {
                 hi = rd <= j->slast ? s[rd] : 0;
                 rd++;
-                c = soff == 0 ? hi : (lo >> rs) | (hi << ls);
+                c = lo >> rs;           /* glyph rows have many zero words: skip their shifts */
+                if (rs && hi)
+                    c |= hi << (32 - rs);
                 lo = hi;
+                if (k == 0)
+                    c &= j->cfirst;
+                if (k == j->nch - 1)
+                    c &= j->clast;
+                switch (dep) {
+                case 0:
+                    if (c)
+                        PUT(p, c);
+                    break;
+                case 1:
+                    for (e = 0; c; e++, c >>= 16)
+                        if ((m = gfx_x2[c & 255] | (gfx_x2[(c >> 8) & 255] << 16)) != 0)
+                            PUT(p + e, m);
+                    break;
+                case 2:
+                    for (e = 0; c; e++, c >>= 8)
+                        if ((m = gfx_x4[c & 255]) != 0)
+                            PUT(p + e, m);
+                    break;
+                default:
+                    for (e = 0; c; e += 2, c >>= 8) {
+                        b = 2 * (c & 255);
+                        if ((m = gfx_x8[b]) != 0)
+                            PUT(p + e, m);
+                        if ((m = gfx_x8[b + 1]) != 0)
+                            PUT(p + e + 1, m);
+                    }
+                    break;
+                }
             }
-            switch (dep) {
-            case 0: m = c; break;
-            case 1: m = gfx_x2[c & 255] | (gfx_x2[(c >> 8) & 255] << 16); c >>= 16; break;
-            case 2: m = gfx_x4[c & 255]; c >>= 8; break;
-            default: m = gfx_x8[c & 15]; c >>= 4; break;
-            }
-            e = k == 0 ? j->lmask : k == n ? j->rmask : ~0u;
-            if (j->opaque)
-                d[k] = (d[k] & ~e) | ((bg ^ ((fg ^ bg) & m)) & e);
-            else
-                d[k] = (d[k] & ~(m & e)) | (fg & m & e);
         }
         d = (unsigned *)((unsigned char *)d + j->dpitch);
         s = (const unsigned *)((const unsigned char *)s + j->spitch);
@@ -66,7 +103,7 @@ void gfx_expand(Surface *dst, int dx, int dy, const Surface *src, int sx, int sy
                 int w, int h, unsigned fg, unsigned bg, int opaque)
 {
     ExpandJob j;
-    int d = dst->depth, t, sbit;
+    int d = dst->depth, t, sbit, lead;
     if (dx < dst->cx0) { t = dst->cx0 - dx; dx += t; sx += t; w -= t; }
     if (dy < dst->cy0) { t = dst->cy0 - dy; dy += t; sy += t; h -= t; }
     if (dx + w > dst->cx1) w = dst->cx1 - dx;
@@ -81,8 +118,14 @@ void gfx_expand(Surface *dst, int dx, int dy, const Surface *src, int sx, int sy
     j.d = (unsigned *)(dst->bits + dy * dst->pitch) + ((dx << d) >> 5);
     j.s = (const unsigned *)(src->bits + sy * src->pitch) + (sx >> 5);
     sbit = sx & 31;
-    j.soff = sbit - (((dx << d) & 31) >> d);
+    lead = ((dx << d) & 31) >> d;
+    j.soff = sbit - lead;
     j.slast = (sbit + w - 1) >> 5;
+    j.cfirst = ~0u << lead;
+    j.clast = ~0u >> (31 - ((lead + w - 1) & 31));
+    j.nch = ((lead + w - 1) >> 5) + 1;
+    if (j.nch == 1)
+        j.cfirst &= j.clast;
     j.dpitch = dst->pitch;
     j.spitch = src->pitch;
     j.h = h;

@@ -53,25 +53,60 @@ int font_width(Font *f, const char *s)
     return w;
 }
 
+/* Glyphs entirely inside the clip rectangle, which is most of them, go
+   straight to the kernel, with the job's constant parts set once per
+   string; the others through gfx_expand, which clips. */
 int font_draw(Surface *s, Font *f, int x, int y, const char *str, unsigned fg,
               const unsigned char *ramp)
 {
+    ExpandJob j;
     Glyph *g;
     Surface gs;
-    int c;
+    unsigned char *row = s->bits + y * s->pitch;
+    int c, d = s->depth, gx, gy, bit, lead, last;
+    j.dpitch = s->pitch;
+    j.spitch = f->strike.pitch;
+    j.fg = gfx_pat(d, fg);
+    j.bg = 0;
+    j.opaque = 0;
+    j.depth = d;
+    j.slast = 0;
     while ((c = (unsigned char)*str++) != 0) {
         g = f->get(f, c);
-        if (g->w) {
-            if (!f->ttf)
-                gfx_expand(s, x + g->xoff, y + g->yoff, &f->strike, g->sx, 0, g->w, g->h, fg, 0, 0);
-            else if (f->aa)
-                gfx_ramp(s, x + g->xoff, y + g->yoff, g->bits, g->w, g->w, g->h, ramp);
-            else {
-                gfx_init(&gs, g->bits, g->w, g->h, ((g->w + 31) >> 5) << 2, 0);
-                gfx_expand(s, x + g->xoff, y + g->yoff, &gs, 0, 0, g->w, g->h, fg, 0, 0);
-            }
-        }
+        gx = x + g->xoff;
+        gy = y + g->yoff;
         x += g->adv;
+        if (!g->w)
+            continue;
+        if (f->aa) {
+            gfx_ramp(s, gx, gy, g->bits, g->w, g->w, g->h, ramp);
+            continue;
+        }
+        if (gx >= s->cx0 && gy >= s->cy0 && gx + g->w <= s->cx1 && gy + g->h <= s->cy1 && g->w <= 32) {
+            bit = gx << d;
+            lead = (bit & 31) >> d;
+            last = lead + g->w - 1;
+            j.d = (unsigned *)(row + g->yoff * s->pitch) + (bit >> 5);
+            if (f->ttf) {
+                j.s = (const unsigned *)g->bits;
+                j.spitch = 4;
+            } else {
+                j.s = (const unsigned *)f->strike.bits + (g->sx >> 5);
+            }
+            j.h = g->h;
+            j.soff = -lead;
+            j.nch = (last >> 5) + 1;
+            j.cfirst = ~0u << lead;
+            j.clast = ~0u >> (31 - (last & 31));
+            if (j.nch == 1)
+                j.cfirst &= j.clast;
+            expand_rows(&j);
+        } else if (f->ttf) {
+            gfx_init(&gs, g->bits, g->w, g->h, ((g->w + 31) >> 5) << 2, 0);
+            gfx_expand(s, gx, gy, &gs, 0, 0, g->w, g->h, fg, 0, 0);
+        } else {
+            gfx_expand(s, gx, gy, &f->strike, g->sx, 0, g->w, g->h, fg, 0, 0);
+        }
     }
     return x;
 }

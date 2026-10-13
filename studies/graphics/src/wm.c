@@ -34,6 +34,15 @@ static int isect(Rect *a, const Rect *b)  /* a = a within b; is anything left? *
     return a->x0 < a->x1 && a->y0 < a->y1;
 }
 
+/* only the rectangles in use: a Region is 64 of them */
+static void rgn_copy(Region *to, const Region *from)
+{
+    int i;
+    for (i = 0; i < from->n; i++)
+        to->r[i] = from->r[i];
+    to->n = from->n;
+}
+
 void rgn_rect(Region *g, const Rect *r)
 {
     g->n = 0;
@@ -70,7 +79,7 @@ void rgn_sub(Region *g, const Rect *c)
         add(&out, c->x1, y0, a.x1, y1);
         add(&out, a.x0, y1, a.x1, a.y1);
     }
-    *g = out;
+    rgn_copy(g, &out);
 }
 
 void rgn_and(Region *g, const Rect *r)
@@ -339,7 +348,7 @@ void wm_scroll(Window *w, int dy)
         gfx_blit(scr, cp[i].x0, cp[i].y0, scr, cp[i].x0, cp[i].y0 + dy,
                  cp[i].x1 - cp[i].x0, cp[i].y1 - cp[i].y0, GFX_COPY);
     /* and the rest is painted */
-    left = vis;
+    rgn_copy(&left, &vis);
     for (i = 0; i < n; i++)
         rgn_sub(&left, &cp[i]);
     for (i = 0; i < left.n; i++)

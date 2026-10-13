@@ -74,30 +74,32 @@ static int clamp(int r)
 
 void gfx_fill_ellipse(Surface *s, int xc, int yc, int a, int b, unsigned color, int rop)
 {
+    unsigned pat = gfx_pat(s->depth, color);
     int dy;
     a = clamp(a);
     b = clamp(b);
     reach(a, b);
-    gfx_fill(s, xc - ext[0], yc, xc + ext[0] + 1, yc + 1, color, rop);
+    gfx_span(s, yc, xc - ext[0], xc + ext[0] + 1, pat, rop);
     for (dy = 1; dy <= b; dy++) {
-        gfx_fill(s, xc - ext[dy], yc - dy, xc + ext[dy] + 1, yc - dy + 1, color, rop);
-        gfx_fill(s, xc - ext[dy], yc + dy, xc + ext[dy] + 1, yc + dy + 1, color, rop);
+        gfx_span(s, yc - dy, xc - ext[dy], xc + ext[dy] + 1, pat, rop);
+        gfx_span(s, yc + dy, xc - ext[dy], xc + ext[dy] + 1, pat, rop);
     }
 }
 
 /* One row of the outline, at y: from in to out on both sides. */
-static void outline_row(Surface *s, int xc, int y, int in, int out, unsigned color, int rop)
+static void outline_row(Surface *s, int xc, int y, int in, int out, unsigned pat, int rop)
 {
     if (in == 0) {
-        gfx_fill(s, xc - out, y, xc + out + 1, y + 1, color, rop);
+        gfx_span(s, y, xc - out, xc + out + 1, pat, rop);
     } else {
-        gfx_fill(s, xc - out, y, xc - in + 1, y + 1, color, rop);
-        gfx_fill(s, xc + in, y, xc + out + 1, y + 1, color, rop);
+        gfx_span(s, y, xc - out, xc - in + 1, pat, rop);
+        gfx_span(s, y, xc + in, xc + out + 1, pat, rop);
     }
 }
 
 void gfx_ellipse(Surface *s, int xc, int yc, int a, int b, unsigned color, int rop)
 {
+    unsigned pat = gfx_pat(s->depth, color);
     int dy, in;
     a = clamp(a);
     b = clamp(b);
@@ -106,8 +108,8 @@ void gfx_ellipse(Surface *s, int xc, int yc, int a, int b, unsigned color, int r
         in = dy < b ? ext[dy + 1] + 1 : 0;
         if (in > ext[dy])
             in = ext[dy];
-        outline_row(s, xc, yc - dy, in, ext[dy], color, rop);
+        outline_row(s, xc, yc - dy, in, ext[dy], pat, rop);
         if (dy > 0)
-            outline_row(s, xc, yc + dy, in, ext[dy], color, rop);
+            outline_row(s, xc, yc + dy, in, ext[dy], pat, rop);
     }
 }

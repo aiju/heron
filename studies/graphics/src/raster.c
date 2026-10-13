@@ -160,21 +160,21 @@ static void sweep(Raster *r, int S, int klo, int khi, int rule, SpanFn span, voi
 
 typedef struct {
     Surface *s;
-    unsigned color;
+    unsigned pat;
     int rop;
 } Solid;
 
 static void solid_span(void *ctx, int y, int xa, int xb)
 {
     Solid *c = ctx;
-    gfx_fill(c->s, (xa + 127) >> 8, y, (xb + 127) >> 8, y + 1, c->color, c->rop);
+    gfx_span(c->s, y, (xa + 127) >> 8, (xb + 127) >> 8, c->pat, c->rop);
 }
 
 void rs_fill(Raster *r, Surface *s, unsigned color, int rop, int rule)
 {
     Solid c;
     c.s = s;
-    c.color = color;
+    c.pat = gfx_pat(s->depth, color);
     c.rop = rop;
     sweep(r, 256, s->cy0, s->cy1, rule, solid_span, &c);
 }

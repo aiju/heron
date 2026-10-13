@@ -44,6 +44,7 @@ void gfx_pixel(Surface *s, int x, int y, unsigned color, int rop);
 unsigned gfx_get(const Surface *s, int x, int y);
 void gfx_fill(Surface *s, int x0, int y0, int x1, int y1, unsigned color, int rop);
 void gfx_fill_rect(Surface *s, const Rect *r, unsigned color, int rop);
+void gfx_span(Surface *s, int y, int x0, int x1, unsigned pat, int rop);  /* pat: gfx_pat's */
 /* pat: 8 rows of words as gfx_pat makes them; the pattern repeats every
    32/bpp pixels across and 8 rows down, fixed to the surface */
 void gfx_fill_pat(Surface *s, int x0, int y0, int x1, int y1, const unsigned *pat, int rop);
@@ -187,10 +188,14 @@ typedef struct {
     int back, rop;
 } BlitJob;
 
-/* expand: h rows; per row, n + 1 destination words from d under
-   lmask/rmask as for blit, from source words at s: destination word 0's
-   first pixel is source bit soff of s[0] (-32 < soff < 32), and source
-   words after s[slast] (or before s[0]) count as 0 */
+/* expand: h rows from destination word d and source word s. Source
+   bit soff of s[0] (-32 < soff < 32) lines up with the first pixel of
+   d[0], and source words after s[slast] (or before s[0]) count as 0.
+   The source is read in 32-bit chunks, lined up that way: nch of them
+   per row, the first under cfirst and the last under clast, which clear
+   the bits outside the rectangle. A transparent expansion needs nothing
+   else; an opaque one also uses the destination masks: n + 1 words, the
+   first under lmask and the last under rmask, as for blit. */
 typedef struct {
     unsigned *d;
     const unsigned *s;
@@ -199,6 +204,8 @@ typedef struct {
     int soff, slast;
     unsigned fg, bg;            /* as words of pixels */
     int opaque, depth;
+    unsigned cfirst, clast;
+    int nch;
 } ExpandJob;
 
 /* ramp: h rows of w pixels from coverage bytes c (cpitch apart), into
@@ -247,7 +254,7 @@ void ramp_rows(const RampJob *j);
 /* the expansion tables, built by gfx_tables() (gfx.c) */
 extern unsigned gfx_x2[256];    /* 8 bits to 8 2-bit pixels (16 bits) */
 extern unsigned gfx_x4[256];    /* 8 bits to 8 4-bit pixels (32 bits) */
-extern unsigned gfx_x8[16];     /* 4 bits to 4 8-bit pixels (32 bits) */
+extern unsigned gfx_x8[512];    /* 8 bits to 8 8-bit pixels (2 words, at 2i and 2i + 1) */
 void gfx_tables(void);
 
 #endif
