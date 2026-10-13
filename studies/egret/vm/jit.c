@@ -244,7 +244,7 @@ void jit_flush_ics(void)
 /* Out-of-line code, after the method's body: a slow path (undo what the
    fast path did to the stack, set r8, go to C), a SmallInt receiver's
    class for a send, or a send's inline cache miss. */
-enum { SK_SLOW, SK_INT, SK_MISS };
+enum { SK_SLOW, SK_INT, SK_MISS, SK_OVER, SK_OVER2 };
 typedef struct Stub {
     Value ip;
     unsigned short branch;          /* the Jcc's displacement parcel */
@@ -297,6 +297,25 @@ static void emit_stubs(void)
             ea_k(MOV, R6, s->site);
             jcc_abs(RA, ADDR(jit_glue_send_miss));
             break;
+        case SK_OVER2:
+            /* the value stack is too deep: the frame was pushed */
+            ea_m(MOV, R9, R11, 4 - (SValue)sizeof(Frame));
+            /* fall through */
+        case SK_OVER: {
+            /* the frame stack is too deep: undo, put back a new's class,
+               and let C make the send again (and raise) */
+            unsigned plain;
+            ea_m(LEA, R11, R11, -(SValue)sizeof(Frame));
+            ea_k(CMP, R5, FR_CONSTRUCT);
+            plain = jcc_fwd(NE);
+            ea_m(MOV, R1, R4, 0);
+            ea_m(MOV, R1, R1, 0);
+            ea_m(ST, R1, R4, 0);
+            patch_fwd(plain, here());
+            ea_k(SUB, R8, 3);
+            jcc_abs(RA, ADDR(jit_glue_slow));
+            break;
+        }
         }
     }
 }
@@ -418,6 +437,133 @@ static void send_site(Value ip, int argc, Value super)
 static Value lit_of(Value *lits, unsigned char *p) { return lits[p[1]]; }
 
 Value jit_closure(Value *bp, Frame *fp, unsigned char *ip);
+
+static const int false_cond[] = { GE, GT, LE, LT };   /* LT LE GT GE false */
+static const int true_cond[] = { LT, LE, GT, GE };
+
+/* ---- fused bytecodes ----------------------------------------------------------
+
+   Some short sequences compile better together: a constant operand
+   (PUSH_INT k; ADD is an ADD #2k), a comparison and the conditional jump
+   that tests it (compare and branch, no boolean), == against nil, true,
+   false or a SmallInt (an identity compare). The bytecodes a fused
+   sequence covers after its first still get their own code, out of line,
+   in case the C side comes back in at one of them (the map points there);
+   a sequence is only fused if nothing jumps into its middle. */
+
+static unsigned char *deferred;         /* bytecode offset: compiled out of line */
+static unsigned char *jtarget;          /* bytecode offset: a jump goes there */
+static unsigned char *bc_start, *bc_end;
+
+static int covers(unsigned char *q)
+{
+    return q < bc_end && !jtarget[q - bc_start];
+}
+
+static int is_cjump(unsigned char *q)
+{
+    return covers(q) && (q[0] == OP_JUMP_FALSE || q[0] == OP_JUMP_TRUE);
+}
+
+/* the flags say how x compares with y; the comparison k (0-3 for LT LE GT
+   GE) is followed by the conditional jump at q, or not (q = 0): branch,
+   or push the boolean. Returns the bytes taken (the jump's, or 0). */
+static int compare_result(int k, unsigned char *q)
+{
+    if (q) {
+        unsigned target = (q - bc_start) + 3 + W16(q + 1);
+        branch_to(q[0] == OP_JUMP_FALSE ? false_cond[k] : true_cond[k], target);
+        deferred[q - bc_start] = 1;
+        return 3;
+    }
+    push_bool(false_cond[k]);
+    return 0;
+}
+
+/* identity: the flags of CMP; EQ, then maybe NOT, then maybe a jump */
+static int identity_result(unsigned char *q)
+{
+    int invert = 0, taken = 0;
+    if (covers(q) && q[0] == OP_NOT) {
+        deferred[q - bc_start] = 1;
+        invert = 1;
+        q += 1;
+        taken = 1;
+    }
+    if (is_cjump(q)) {
+        unsigned target = (q - bc_start) + 3 + W16(q + 1);
+        int jump_if_equal = (q[0] == OP_JUMP_TRUE) != invert;
+        branch_to(jump_if_equal ? EQ : NE, target);
+        deferred[q - bc_start] = 1;
+        return taken + 3;
+    }
+    push_bool(invert ? EQ : NE);
+    return taken;
+}
+
+/* p is PUSH_INT, PUSH_NIL, PUSH_TRUE or PUSH_FALSE: the constant as a value */
+static Value const_of(unsigned char *p)
+{
+    switch (p[0]) {
+    case OP_PUSH_INT: return MKINT((signed char)p[1]);
+    case OP_PUSH_NIL: return NIL;
+    case OP_PUSH_TRUE: return TRUE_V;
+    }
+    return FALSE_V;
+}
+
+/* Compile a fused sequence starting at p, if there's one; the bytes it
+   took, or 0. */
+static int fused(unsigned char *p)
+{
+    Value ip = V(p);
+    int len = p[0] == OP_PUSH_INT ? 2 : 1;
+    unsigned char *q = p + len;
+    int op;
+    if (p[0] >= OP_LT && p[0] <= OP_GE && is_cjump(p + 1)) {
+        pop2();
+        tag2(ip);
+        ea_r(CMP, R1, R2);
+        return 1 + compare_result(p[0] - OP_LT, p + 1);
+    }
+    if (p[0] != OP_PUSH_INT && p[0] != OP_PUSH_NIL && p[0] != OP_PUSH_TRUE && p[0] != OP_PUSH_FALSE)
+        return 0;
+    if (!covers(q))
+        return 0;
+    op = q[0];
+    if (op == OP_EQ) {
+        /* x == constant: a SmallInt or nil, true or false is equal only to itself */
+        ea_pd(MOV, R1, R10);
+        if (p[0] == OP_PUSH_NIL)
+            ea_r(CMP, R1, R14);
+        else
+            ea_k(CMP, R1, const_of(p));
+        deferred[q - bc_start] = 1;
+        return len + 1 + identity_result(q + 1);
+    }
+    if (p[0] != OP_PUSH_INT)
+        return 0;
+    if (op == OP_ADD || op == OP_SUB) {
+        SValue k = (signed char)p[1];
+        ea_m(MOV, R1, R10, -4);
+        un(RRC, R3, R1);
+        to_slow(LO, ip, 0);
+        ea_k(op == OP_ADD ? ADD : SUB, R1, 2 * k);
+        to_slow(VS, ip, 0);
+        ea_m(ST, R1, R10, -4);
+        deferred[q - bc_start] = 1;
+        return len + 1;
+    }
+    if (op >= OP_LT && op <= OP_GE) {
+        ea_pd(MOV, R1, R10);
+        un(RRC, R3, R1);
+        to_slow(LO, ip, 4);
+        ea_k(CMP, R1, const_of(p));
+        deferred[q - bc_start] = 1;
+        return len + 1 + compare_result(op - OP_LT, is_cjump(q + 1) ? q + 1 : 0);
+    }
+    return 0;
+}
 
 /* the body of one bytecode at p (offset off); returns its length */
 static int template(Value m, Value *lits, unsigned char *start, unsigned char *p)
@@ -594,25 +740,12 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
         ea_pi(ST, R1, R10);
         break;
     }
-    case OP_LT: case OP_LE: case OP_GT: case OP_GE: {
-        /* followed by a conditional jump: compare and branch, with no
-           boolean (the jump's own code is still there, for a slow path
-           that comes back with the boolean on the stack) */
-        static const int false_cond[] = { GE, GT, LE, LT };
-        static const int true_cond[] = { LT, LE, GT, GE };
-        int k = op - OP_LT;
+    case OP_LT: case OP_LE: case OP_GT: case OP_GE:
         pop2();
         tag2(ip);
         ea_r(CMP, R1, R2);
-        if (p[1] == OP_JUMP_FALSE || p[1] == OP_JUMP_TRUE) {
-            unsigned tgt = next + 3 + W16(p + 2);
-            branch_to(p[1] == OP_JUMP_FALSE ? false_cond[k] : true_cond[k], tgt);
-            branch_to(RA, next + 3);
-        } else {
-            push_bool(false_cond[k]);
-        }
+        push_bool(false_cond[op - OP_LT]);
         break;
-    }
     case OP_EQ: {
         unsigned t, f1, f2, f3, done;
         pop2();
@@ -841,7 +974,7 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
 
 static void prologue(Value m)
 {
-    unsigned over, over2 = 0, nl = F(m, M_NLOCALS), i;
+    unsigned nl = F(m, M_NLOCALS), i;
     unsigned to_push;
     /* entry - 4: for new, the frame returns the receiver */
     ea_k(MOV, R5, FR_CONSTRUCT);
@@ -854,7 +987,7 @@ static void prologue(Value m)
     ea_m(ST, R8, R11, 0);                       /* Frame.ip */
     ea_m(LEA, R11, R11, sizeof(Frame));
     ea_abs(CMP, R11, ADDR(&egret_frames_end));
-    over = jcc_fwd(HS);
+    stub(SK_OVER, HS);
     ea_m(ST, R4, R11, 4);
     ea_k32(MOV, R1, m);
     ea_m(ST, R1, R11, 8);
@@ -863,32 +996,11 @@ static void prologue(Value m)
     ea_r(MOV, R9, R4);
     if (nl) {
         ea_abs(CMP, R10, ADDR(&egret_vstack_end));
-        over2 = jcc_fwd(HS);
+        stub(SK_OVER2, HS);
         for (i = 0; i < nl; i++)
             ea_pi(ST, R14, R10);
     }
     ea_k32(MOV, R12, F(m, M_LITSP));
-    {
-        unsigned body = jcc_fwd(RA);
-        /* too deep: undo, and let C make the send again (and raise) */
-        if (over2) {
-            patch_fwd(over2, here());
-            ea_m(MOV, R9, R11, 4 - (SValue)sizeof(Frame));
-        }
-        patch_fwd(over, here());
-        ea_m(LEA, R11, R11, -(SValue)sizeof(Frame));
-        ea_k(CMP, R5, FR_CONSTRUCT);            /* new: put the class back */
-        {
-            unsigned plain = jcc_fwd(NE);
-            ea_m(MOV, R1, R4, 0);
-            ea_m(MOV, R1, R1, 0);
-            ea_m(ST, R1, R4, 0);
-            patch_fwd(plain, here());
-        }
-        ea_k(SUB, R8, 3);
-        jcc_abs(RA, ADDR(jit_glue_slow));
-        patch_fwd(body, here());
-    }
 }
 
 /* Compiles m: its native code and map in the permanent space, and
@@ -909,16 +1021,58 @@ void jit_compile(Value m)
     reserve_sites(nsends);
     mark = scratch_mark();
     native_at = (unsigned short *)scratch_alloc(2 * n);
+    deferred = (unsigned char *)scratch_alloc(n + 1);
+    jtarget = (unsigned char *)scratch_alloc(n + 1);
+    bc_start = start;
+    bc_end = end;
     nfixes = 0;
     nstubs = 0;
     for (i = 0; i < n; i++)
         native_at[i] = 0xFFFF;
+    /* where jumps go (and INC_LOCAL's fast path) */
+    for (p = start; p < end; p += opcode_len(p)) {
+        unsigned next = p - start + opcode_len(p), t = 0xFFFF;
+        switch (p[0]) {
+        case OP_JUMP: case OP_JUMP_FALSE: case OP_JUMP_TRUE: case OP_JUMP_FALSE_OR_POP:
+        case OP_JUMP_TRUE_OR_POP: case OP_TRY:
+            t = next + W16(p + 1);
+            break;
+        case OP_RANGE_NEXT: case OP_ITER_NEXT:
+            t = next + W16(p + 2);
+            break;
+        case OP_INC_LOCAL:
+            t = next + 7;
+            break;
+        }
+        if (t < n)
+            jtarget[t] = 1;
+    }
     begin_code();
     prologue(m);
     for (p = start; p < end;) {
+        int k;
+        if (deferred[p - start]) {
+            p += opcode_len(p);
+            continue;
+        }
         native_at[p - start] = ncode;
-        p += template(m, lits, start, p);
+        k = fused(p);
+        p += k ? k : template(m, lits, start, p);
     }
+    /* the bytecodes fused sequences covered, on their own, out of line */
+    for (p = start; p < end;) {
+        unsigned char *q;
+        if (!deferred[p - start]) {
+            p += opcode_len(p);
+            continue;
+        }
+        native_at[p - start] = ncode;
+        q = p + template(m, lits, start, p);
+        if (q < end && !deferred[q - start])
+            branch_to(RA, q - start);
+        p = q;
+    }
+    F(m, M_NSTUBS) = here();
     emit_stubs();
     for (i = 0; i < (unsigned)nfixes; i++) {
         unsigned t = native_at[fixes[i].target];

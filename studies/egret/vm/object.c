@@ -221,6 +221,7 @@ void method_finish(Value m)
     F(m, M_NLOCALS) = MI_NLOCALS(info);
     F(m, M_NATIVE) = 0;
     F(m, M_NMAP) = 0;
+    F(m, M_NSTUBS) = 0;
     if (info & MF_REST)
         F(m, M_ARITY) = ARITY_SLOW;
     else if (!prim)

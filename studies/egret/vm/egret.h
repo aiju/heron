@@ -124,6 +124,7 @@ enum {
                        for a C primitive without *rest, ARITY_SLOW for anything else */
     M_NATIVE,       /* raw: the native code's entry (jit.c), or 0 */
     M_NMAP,         /* raw: the native code's map, bytecode offset -> native address */
+    M_NSTUBS,       /* raw: where the native code's out-of-line part starts */
     METHOD_FIELDS
 };
 #define ARITY_PRIM 0x100

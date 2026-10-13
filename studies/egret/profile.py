@@ -24,6 +24,12 @@ CONFIGS = ["D16-overlap", "D32-separate", "D32-wide"]
 
 GROUPS = [
     ("C slow path", r"_(step|egret_step|egret_raise|egret_prim_failed)$"),
+    ("JIT compiler", r"_(jit_compile|put|ea_\w+|un|shk|shr|rr|ret|jmp_r|call_r|mfhi|push|pop|"
+                     r"jcc_\w+|patch_fwd|patch32|stub|to_slow|emit_stubs|go_slow|branch_to|pop2|tag2|"
+                     r"push_bool|opcode_len|send_site|lit_of|template|prologue|begin_code|end_code|"
+                     r"reserve_sites|finish_stub|begin_stub|prim_stub|block_stub|new_stub|"
+                     r"jit_flush_ics|here)$"),
+    ("JIT glue", r"_(jit_resume|jit_resume_addr|jit_send_miss|jit_closure|jit_run)$"),
     ("collector", r"_(gc|forward|obj_bytes)$"),
     ("allocation", r"_(alloc_obj|alloc_bytes|next_hash|perm_obj|perm_bytes|make_list|list_push|"
                    r"make_string|make_string_c|make_range|make_error|make_error_v|push_root|pop_roots)$"),
@@ -58,9 +64,12 @@ class Layout:
     """What every code address of the VM is: function, and in the
     interpreter, bytecode."""
 
-    def __init__(self, img):
+    def __init__(self, img, m=None):
         self.img = img
         syms = img.symbols
+        self.native = None
+        if m is not None and "_jit_run" in syms:
+            self._native_layout(m)
         funcs = sorted((a, n) for n, a in syms.items() if n.startswith("_") and "." not in n
                        and a < syms["__end"])
         self.starts = [a for a, _ in funcs]
@@ -123,6 +132,57 @@ class Layout:
                 self.dispatch_pcs.update((prev[0], pc))
             prev = (pc, norm) if norm == "MOV r1, byte [r8]+" else None
             pc += 2 * n
+
+    def _native_layout(self, m):
+        """the native code the run made: every method's, from its map"""
+        from .build import _enums, VM
+        import os
+        egret = open(os.path.join(VM, "egret.h")).read()
+        comp = open(os.path.join(VM, "compiler.h")).read()
+        en, ops = _enums(egret), _enums(comp)
+        opname = {v: k[3:] for k, v in ops.items() if k.startswith("OP_")}
+        mem = m.mem
+        syms = self.img.symbols
+        def word(a):
+            return int.from_bytes(mem[a:a + 4], "little")
+        def half(a):
+            return mem[a] | mem[a + 1] << 8
+        lo, hi = en.get("PERM_LO", 0x38000), word(syms["_perm_hp"])
+        import re as _re
+        hdr = open(os.path.join(VM, "egret.h")).read()
+        lo = int(_re.search(r"#define PERM_LO\s+(0x[0-9A-Fa-f]+)", hdr).group(1), 16)
+        self.perm_lo, self.perm_hi = lo, hi
+        cls_method = word(syms["_cls_Method"])
+        starts = []                 # (address, label)
+        a = lo
+        while a < hi:
+            h = word(a + 4)
+            size, isbytes = h >> 12, h & 1
+            if word(a) == cls_method and not isbytes:
+                f = lambda i: word(a + 8 + 4 * i)
+                native = f(en["M_NATIVE"])
+                if native:
+                    base = native - 4
+                    code = f(en["M_CODE"])
+                    n = word(code + 4) >> 12
+                    bc = code + 8
+                    nmap = f(en["M_NMAP"])
+                    starts.append((base, "prologue"))
+                    for k in range(n):
+                        at = half(nmap + 2 * k)
+                        if at != 0xFFFF:
+                            starts.append((base + 2 * at, opname.get(mem[bc + k], "?")))
+                    starts.append((f(en["M_NSTUBS"]), "stubs"))
+                    cend = base - 8 + 8 + ((word(base - 8 + 4) >> 12) + 3 & ~3)
+                    starts.append((cend, "other native"))
+            a += 8 + ((size + 3) & ~3 if isbytes else 4 * size)
+        starts.sort()
+        self.native = [s for s, _ in starts]
+        self.native_names = [n for _, n in starts]
+
+    def native_part(self, pc):
+        k = bisect.bisect_right(self.native, pc) - 1
+        return self.native_names[k] if k >= 0 else "other native"
 
     def asm_part(self, pc):
         if pc in self.dispatch_pcs:
@@ -238,6 +298,8 @@ class Layout:
 
     def where(self, pc):
         """(group, detail) for an address"""
+        if self.native is not None and self.perm_lo <= pc < self.perm_hi:
+            return "native code", self.native_part(pc)
         if self.asm and self.asm_lo <= pc < self.asm_hi:
             return "interpreter", self.asm_part(pc)
         if self.interp_lo <= pc < self.interp_hi:
@@ -272,7 +334,7 @@ def own_cycles(m, config, base_machine=None):
 
 def breakdown(m, config, layout=None, base_machine=None):
     """{group: cycles}, {(group, detail): cycles}"""
-    layout = layout or Layout(m.image)
+    layout = layout or Layout(m.image, m)
     groups, details = Counter(), Counter()
     for pc, c in own_cycles(m, config, base_machine).items():
         g, d = layout.where(pc)
@@ -282,7 +344,7 @@ def breakdown(m, config, layout=None, base_machine=None):
 
 
 def print_stats(m, f):
-    layout = Layout(m.image)
+    layout = Layout(m.image, m)
     for config in ["D32-separate"]:
         groups, details = breakdown(m, config, layout)
         total = sum(groups.values())
