@@ -101,6 +101,15 @@ p_staticclo:
         OR   r1, #3
         RET
 
+; (%closure-set-code! c address): set a compiled closure's code
+p_closetcode:
+        CMP  r2, #2
+        BNE  err_argc
+        ASR  r4, #1
+        ST   r4, [r3 + CALL_SLOT]
+        MOV  r1, r3
+        RET
+
 ; (%closure-set! c i v): set free variable i of a compiled closure
 p_closet:
         CMP  r2, #3
@@ -293,6 +302,83 @@ p_setmacro:
         ST   r1, [r3 + SYM_SPECIAL]
         MOV  r1, r3
         RET
+
+; (%poke8 address value): store a byte (the compiler's category map)
+p_poke8:
+        CMP  r2, #2
+        BNE  err_argc
+        MOV  r1, r3
+        OR   r1, r4
+        AND  r1, #1
+        BNE  .bad
+        ASR  r3, #1
+        ASR  r4, #1
+        ST   r4, byte [r3]
+        MOV  r1, r13
+        RET
+.bad:   MOV  r1, r3
+        AND  r1, #1
+        BNE  nn3
+        BRA  nn4
+
+; (%run-begin), (%run-end): mark when compiled code starts and stops
+; running, in mark_log: the cycle counter (as the simulator's reference
+; configuration counts it), with bit 0 set at a start. For the tools.
+p_runbegin:
+        CMP  r2, #0
+        BNE  err_argc
+        MOV  r1, #1
+        ST   r1, [running]
+        MOV  r1, [IO_CYC]
+        OR   r1, #1
+        BSR  mark
+        BRA  ret_nil
+
+p_runend:
+        CMP  r2, #0
+        BNE  err_argc
+        BSR  run_end
+        BRA  ret_nil
+
+run_end:
+        ST   r0, [running]
+        MOV  r1, [IO_CYC]
+        AND  r1, #-2
+mark:   MOV  r2, [marks]
+        CMP  r2, #MARKS_MAX
+        BHS  .full
+        LEA  r3, [mark_log]
+        ST   r1, [r3 + r2]
+        ADD  r2, #4
+        ST   r2, [marks]
+.full:  RET
+
+MARKS_MAX = 4096
+        .align 4
+mark_log:
+        .space MARKS_MAX
+
+; (%reload-prelude): read the prelude again, then go on with the console
+; (once the compiler is loaded: it compiles the prelude)
+p_reload:
+        CMP  r2, #0
+        BNE  err_argc
+        LEA  r1, [prelude_text]
+        ST   r1, [in_ptr]
+        MOV  r1, #2
+        ST   r1, [in_phase]
+        BRA  ret_nil
+
+; (%save-image): stop the machine so the tools can take a copy of memory
+; to start later runs from (machine.py, core)
+p_saveimage:
+        CMP  r2, #0
+        BNE  err_argc
+        ST   r14, [saved_hp]
+        MOV  r1, #1
+        ST   r1, [resume]
+        HALT
+        BRA  ret_nil
 
 ; ---- routines compiled code calls
 

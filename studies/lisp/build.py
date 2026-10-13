@@ -71,7 +71,9 @@ PRIMS = [
     # for the compiler (code.s)
     ("%code-alloc", "p_codealloc"), ("%code-free", "p_codefree"), ("%poke16", "p_poke16"),
     ("%make-closure", "p_mkclosure"), ("%closure-set!", "p_closet"),
-    ("%static-closure", "p_staticclo"),
+    ("%static-closure", "p_staticclo"), ("%closure-set-code!", "p_closetcode"), ("%poke8", "p_poke8"),
+    ("%run-begin", "p_runbegin"), ("%run-end", "p_runend"), ("%reload-prelude", "p_reload"),
+    ("%save-image", "p_saveimage"),
     ("%address", "p_address"), ("%static-copy", "p_staticcopy"),
     ("%macro", "p_macro"), ("%special?", "p_specialp"), ("%set-macro!", "p_setmacro"),
 ]
@@ -85,7 +87,8 @@ EXPORTS = [
     ("notvec", "err_notvec"), ("range", "err_range"), ("syntax", "err_syntax"),
     ("div0", "err_div0"), ("notpair", "err_notpair"), ("stack", "err_stack"),
     ("cons-limit", "cons_limit"), ("heap-limit", "heap_limit"), ("stack-limit", "stack_limit"),
-    ("nil", "NILV"), ("t", "S_t + 3"),
+    ("nil", "NILV"), ("t", "S_t + 3"), ("catmap", "CATMAP"), ("catmap-end", "CATMAP_END"),
+    ("code-base", "gen_end"),
 ]
 
 # Other symbols the runtime refers to: (name, label).

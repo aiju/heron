@@ -33,9 +33,11 @@
 SYM_BASE    = 0x0410            ; symbol space: the static symbols, then new ones
 SYM_END     = 0x8000
 CONST_BASE  = 0x8000            ; constant space: names of new symbols, compiled constants
-CONST_END   = 0xC000
-RT_BASE     = 0xC000            ; the runtime's code, then compiled code
-CCODE_END   = 0x30000
+CONST_END   = 0x10000
+RT_BASE     = 0x10000           ; the runtime's code, then compiled code
+CCODE_END   = 0x26000
+CATMAP      = 0x26000           ; a byte per parcel of compiled code: what it's for
+CATMAP_END  = 0x30000           ; (the compiler fills it in, for the profiles)
 HEAP_A      = 0x30000           ; the two halves of the heap
 HEAP_B      = 0x90000
 HEAP_SIZE   = 0x60000
@@ -114,7 +116,7 @@ code_free:      .word 0
 top_sp:         .word 0         ; sp at the top level, where errors return to
 stack_limit:    .word STACK_LIMIT
 in_ptr:         .word 0         ; reading the prelude from memory while nonzero
-in_phase:       .word 0         ; 0: the prelude, 1: the console
+in_phase:       .word 0         ; 0: the prelude, 1: the console, 2: the prelude again
 peek_ch:        .word -2        ; a character read ahead, or -2
 gensym_n:       .word 0
 print_mode:     .word 0         ; 0: display, 1: write
@@ -123,6 +125,10 @@ gc_count:       .word 0         ; collections
 gc_copied:      .word 0         ; bytes copied by all collections
 gc_alloc:       .word 0         ; bytes allocated before the current half was started
 gc_save:        .word 0, 0, 0, 0    ; r9-r12 during a collection
+running:        .word 0         ; compiled code is running (between %run-begin and %run-end)
+resume:         .word 0         ; set in a saved image: start where it was saved
+saved_hp:       .word 0         ; the heap pointer, in a saved image
+marks:          .word 0         ; entries in mark_log
 ; the root block: Lisp values the collector updates
 roots:
 root_a:         .word 0
@@ -144,6 +150,8 @@ eof_obj:        .word 1 << 8 | T_EOF << 3 | 5, not_proc
         .org RT_BASE
 boot:   LI   sp, #STACK_TOP
         MOV  r13, #NILV
+        MOV  r1, [resume]
+        BNE  warm
         MOV  r1, #HEAP_A
         ST   r1, [cur_start]
         MOV  r14, r1
@@ -165,6 +173,24 @@ boot:   LI   sp, #STACK_TOP
         BSR  intern_static
         MOV  r1, #prelude_text
         ST   r1, [in_ptr]
+        BRA  toplevel
+
+; A saved image starting: everything is in memory but the heap pointer,
+; and the console is read from its beginning. The statistics start again.
+warm:   MOV  r14, [saved_hp]
+        ST   r0, [in_ptr]
+        MOV  r1, #1
+        ST   r1, [in_phase]
+        MOV  r1, #-2
+        ST   r1, [peek_ch]
+        ST   r0, [running]
+        ST   r0, [marks]
+        ST   r0, [gc_count]
+        ST   r0, [gc_copied]
+        MOV  r1, [cur_start]
+        SUB  r1, r14
+        ST   r1, [gc_alloc]
+        BRA  toplevel
 
 ; The top level: read a form, evaluate it, until the end of the input;
 ; first the prelude, then the console.
@@ -188,14 +214,19 @@ tl_loop:
         BSR  apply_list
         BRA  tl_loop
 .eof:   MOV  r1, [in_phase]
-        BNE  .halt
-        MOV  r1, #1
+        CMP  r1, #1
+        BEQ  .halt
+        MOV  r1, #1                ; the prelude is done: on to the console
         ST   r1, [in_phase]
         BRA  tl_loop
 .halt:  HALT
 
 ; Abandon the top-level form after an error.
-abort:  MOV  sp, [top_sp]
+abort:  MOV  r1, [running]      ; (close the measured window)
+        BEQ  .notrun
+        BSR  run_end
+.notrun:
+        MOV  sp, [top_sp]
         MOV  r13, #NILV
         MOV  r1, [in_phase]
         BEQ  fatal_prelude

@@ -7,7 +7,9 @@ kept for the process.
 
 from heron.infra import isas
 from heron.studies.v1_isa.sim32 import Machine32, SimError
+from heron.studies.v1_isa.timing32 import REFERENCE
 
+import hashlib
 import os
 
 from . import build
@@ -16,10 +18,18 @@ _IMAGES = {}
 COMPILER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "compiler.lisp")
 
 
-def compiler_text():
-    """The compiler's source: a program that starts with it is compiled."""
+# Switching the top level to the compiler; it compiles the prelude again.
+ACTIVATE = b"\n(define %toplevel cc:toplevel)\n"
+RELOAD = b"\n(%reload-prelude)\n"
+
+
+def compiler_text(bootstrap=False):
+    """What a program is preceded by to be compiled: the compiler's source,
+    then the switch to it. bootstrap: the compiler's source once more after
+    that, so the compiler compiles itself before anything else."""
     with open(COMPILER, "rb") as f:
-        return f.read()
+        src = f.read()
+    return src + ACTIVATE + (src if bootstrap else b"") + RELOAD
 
 
 def image(features=()):
@@ -49,19 +59,64 @@ class Run:
         cur = self.word("cur_start")
         return {
             "gc_count": self.word("gc_count"),
-            "allocated": self.word("gc_alloc") + hp - cur,
+            "allocated": (self.word("gc_alloc") + hp - cur) & 0xFFFFFFFF,
             "copied": self.word("gc_copied"),
             "symbols": (self.word("sym_free") - self.image.symbols["sym_static"]) // 32,
         }
 
 
-def run(text, features=(), max_cycles=4_000_000_000, trace=None, compiled=False):
-    """Run a program (bytes) to the end: a Run. compiled: load the compiler
-    first, so the program is compiled form by form."""
-    if compiled:
-        text = compiler_text() + b"\n" + text
+class Core:
+    """A saved image: all of memory, as the machine left it at (%save-image).
+    Booting from it skips start-up; the runtime goes on where it was."""
+
+    def __init__(self, data):
+        self.mem = {a: b for a, b in enumerate(data) if b}
+
+
+_CORES = {}
+
+
+def core(features=()):
+    """The saved image with the compiler compiled by itself and the prelude
+    compiled: a machine booted from it compiles a program straight away.
+    Made once per set of features and kept in build/lisp/ (it takes a
+    minute to make), next to a hash of what it was made from."""
+    key = tuple(sorted(features))
+    if key in _CORES:
+        return _CORES[key]
     img = image(features)
-    m = Machine32(isas.get(build.ISA), img, inp=text)
+    h = hashlib.sha256(repr(sorted(img.mem.items())).encode() + compiler_text(True)).hexdigest()[:16]
+    path = os.path.join(build.BUILD, f"core-{'-'.join(key) or 'base'}-{h}.bin")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            data = f.read()
+    else:
+        m = Machine32(isas.get(build.ISA), img, inp=compiler_text(True) + b"\n(%save-image)\n")
+        m.run(max_cycles=20_000_000_000)
+        if m.traps or b"error" in bytes(m.dev.out):
+            raise RuntimeError("making the image failed: " + bytes(m.dev.out).decode(errors="replace"))
+        data = bytes(m.mem)
+        os.makedirs(build.BUILD, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(data)
+    _CORES[key] = Core(data)
+    return _CORES[key]
+
+
+def start(text, features=(), compiled=False, reference=REFERENCE):
+    """A machine about to run a program (bytes): the image's symbols, and the
+    machine. compiled: compile the program, starting from the saved image
+    with the compiler (core). reference: the configuration whose cycles the
+    machine's cycle counter counts."""
+    img = image(features)
+    boot = core(features) if compiled else img
+    return img, Machine32(isas.get(build.ISA), boot, inp=text, reference=reference)
+
+
+def run(text, features=(), max_cycles=4_000_000_000, trace=None, compiled=False,
+        reference=REFERENCE):
+    """Run a program (bytes) to the end: a Run."""
+    img, m = start(text, features, compiled, reference)
     if trace is not None:
         m.trace = trace
     err = None
