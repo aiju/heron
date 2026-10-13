@@ -744,7 +744,7 @@ class Assembler:
     def dir_values(self, st, ops, pc, relocs=None):
         """Evaluate each operand of a data directive as an expression or
         string. With `relocs` (a list), an address the linker fills in comes
-        back as Reloc(value, base), and is otherwise an error."""
+        back as RelValue(value, base), and is otherwise an error."""
         out = []
         for o in ops:
             if len(o) == 1 and o[0][0] == "str":

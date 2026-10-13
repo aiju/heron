@@ -1,13 +1,18 @@
 """Program test suite and instruction-level benchmark table.
 
-Each top-level programs/*.s file is a test. Optional metadata lines:
+Every .s file directly in an ISA's program directory is a test: see
+program_dir(), programs/<PROGRAM_DIR> (programs/v1a, programs/v1b) or
+programs/ for an ISA module without PROGRAM_DIR. The libraries the tests
+include are in lib/ below it. Optional metadata lines:
 
     ;! input: "text\\n"         console input (Python string literal)
     ;! input-file: ../common/x  console input from a file (relative to the program)
     ;! max-cycles: 5000000
 
 Expected console output lives in programs/expected/<name>.txt, written by
-programs/reference.py from independent Python implementations.
+programs/reference.py from independent Python implementations. It's shared:
+a program has the same output in every draft, and so does its C version in
+programs/c/ (see tmc/cc/bench.py).
 """
 
 import ast
