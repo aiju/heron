@@ -1,0 +1,1725 @@
+{
+ "74182": {
+  "checks": {},
+  "delays": {},
+  "estimated": [],
+  "source": "TI 'The TTL Data Book for Design Engineers', 2nd ed. 1981, p.7-284 (scan: https://faculty-web.msoe.edu/johnsontimoj/CE3101/files3101/The_TTL_Data_Book_For_Design_Engineers_2ed_1981.pdf, PDF page 541)"
+ },
+ "74ACT00": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 9.5,
+    "typ": 5.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT00",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act00.pdf"
+ },
+ "74ACT02": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 11.1,
+    "typ": 6.7
+   }
+  },
+  "estimated": [
+   "A->Y typ"
+  ],
+  "part_number": "CD74ACT02",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act02.pdf"
+ },
+ "74ACT04": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 9,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT04",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act04.pdf"
+ },
+ "74ACT08": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 10,
+    "typ": 6.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT08",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act08.pdf"
+ },
+ "74ACT10": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 10,
+    "typ": 6.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT10",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act10.pdf"
+ },
+ "74ACT138": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 11.5,
+    "typ": 7.0
+   },
+   "G->Y": {
+    "max": 13.0,
+    "typ": 8.0
+   }
+  },
+  "estimated": [],
+  "part_number": "74ACT138",
+  "source": "https://www.onsemi.com/pdf/datasheet/74act138-d.pdf"
+ },
+ "74ACT151": {
+  "checks": {},
+  "delays": {
+   "D->W": {
+    "max": 15.4,
+    "typ": 9.2
+   },
+   "D->Y": {
+    "max": 14.1,
+    "typ": 8.5
+   },
+   "G->Y": {
+    "max": 12.3,
+    "typ": 7.4
+   },
+   "S->W": {
+    "max": 19.6,
+    "typ": 11.8
+   },
+   "S->Y": {
+    "max": 18.4,
+    "typ": 11.0
+   }
+  },
+  "estimated": [
+   "D->Y typ",
+   "D->W typ",
+   "S->Y typ",
+   "S->W typ",
+   "G->Y typ"
+  ],
+  "part_number": "CD74ACT151",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act151.pdf"
+ },
+ "74ACT153": {
+  "checks": {},
+  "delays": {
+   "C->Y": {
+    "max": 16.4,
+    "typ": 9.8
+   },
+   "G->Y": {
+    "max": 11.5,
+    "typ": 6.9
+   },
+   "S->Y": {
+    "max": 20.0,
+    "typ": 12.0
+   }
+  },
+  "estimated": [
+   "C->Y typ",
+   "S->Y typ",
+   "G->Y typ"
+  ],
+  "part_number": "CD74ACT153",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act153.pdf"
+ },
+ "74ACT157": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 8.6,
+    "typ": 5.2
+   },
+   "G->Y": {
+    "max": 12.3,
+    "typ": 7.4
+   },
+   "S->Y": {
+    "max": 13.2,
+    "typ": 7.9
+   }
+  },
+  "estimated": [
+   "A->Y typ",
+   "S->Y typ",
+   "G->Y typ"
+  ],
+  "part_number": "CD74ACT157",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act157.pdf"
+ },
+ "74ACT161": {
+  "checks": {
+   "hold EN": 0,
+   "hold LOAD": 0,
+   "hold data": 0,
+   "setup EN": 5.3,
+   "setup LOAD": 5.3,
+   "setup data": 4.4
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 15.0,
+    "typ": 9.0
+   },
+   "CLK->RCO": {
+    "max": 15.2,
+    "typ": 9.1
+   },
+   "CLR->Q": {
+    "max": 15.0,
+    "typ": 9.0
+   },
+   "ENT->RCO": {
+    "max": 9.8,
+    "typ": 5.9
+   }
+  },
+  "estimated": [
+   "CLK->Q typ",
+   "CLK->RCO typ",
+   "ENT->RCO typ",
+   "CLR->Q typ",
+   "hold LOAD",
+   "setup EN"
+  ],
+  "part_number": "CD74ACT161",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act161.pdf"
+ },
+ "74ACT163": {
+  "checks": {
+   "hold CLR": 0,
+   "hold EN": 0,
+   "hold LOAD": 0,
+   "hold data": 0,
+   "setup CLR": 6.6,
+   "setup EN": 5.3,
+   "setup LOAD": 6.6,
+   "setup data": 4.4
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 15.0,
+    "typ": 9.0
+   },
+   "CLK->RCO": {
+    "max": 15.2,
+    "typ": 9.1
+   },
+   "ENT->RCO": {
+    "max": 9.8,
+    "typ": 5.9
+   }
+  },
+  "estimated": [
+   "CLK->Q typ",
+   "CLK->RCO typ",
+   "ENT->RCO typ"
+  ],
+  "part_number": "CD74ACT163",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act163.pdf"
+ },
+ "74ACT175": {
+  "checks": {
+   "hold D": 2,
+   "setup D": 2
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 10.5,
+    "typ": 6.3
+   },
+   "CLR->Q": {
+    "max": 11.8,
+    "typ": 7.1
+   }
+  },
+  "estimated": [
+   "CLK->Q typ",
+   "CLR->Q typ"
+  ],
+  "part_number": "CD74ACT175",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act175.pdf"
+ },
+ "74ACT21": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 10.0,
+    "typ": 6.0
+   }
+  },
+  "estimated": [
+   "A->Y typ"
+  ],
+  "part_number": "IN74ACT21",
+  "source": "https://en.integral.by/upload/iblock/eda/IN74ACT21.pdf"
+ },
+ "74ACT299": {
+  "checks": {
+   "hold DS": 0,
+   "hold IO": 0,
+   "hold S": 0,
+   "setup DS": 3.9,
+   "setup IO": 3.9,
+   "setup S": 7.9
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 13.2,
+    "typ": 7.9
+   },
+   "CLK->QS": {
+    "max": 11.7,
+    "typ": 7.0
+   },
+   "CLR->Q": {
+    "max": 16.9,
+    "typ": 10.1
+   },
+   "OE->Y dis": {
+    "max": 13.5,
+    "typ": 8.1
+   },
+   "OE->Y en": {
+    "max": 13.5,
+    "typ": 8.1
+   }
+  },
+  "estimated": [
+   "CLK->Q typ",
+   "CLK->QS typ",
+   "CLR->Q typ",
+   "OE->Y en typ",
+   "OE->Y dis typ"
+  ],
+  "part_number": "CD74ACT299",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act299.pdf"
+ },
+ "74ACT32": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 10,
+    "typ": 6.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT32",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act32.pdf"
+ },
+ "74ACT377": {
+  "checks": {
+   "hold D": 1.0,
+   "hold EN": 1.0,
+   "setup D": 5.5,
+   "setup EN": 5.5
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 11,
+    "typ": 6.6
+   }
+  },
+  "estimated": [
+   "CLK->Q typ"
+  ],
+  "part_number": "MC74ACT377",
+  "source": "https://www.onsemi.com/pdf/datasheet/mc74ac377-d.pdf"
+ },
+ "74ACT541": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 7.5,
+    "typ": 5.5
+   },
+   "OE->Y dis": {
+    "max": 8.0,
+    "typ": 5.5
+   },
+   "OE->Y en": {
+    "max": 9.5,
+    "typ": 6.5
+   }
+  },
+  "estimated": [],
+  "part_number": "74ACT541",
+  "source": "https://www.onsemi.com/pdf/datasheet/74act541-d.pdf"
+ },
+ "74ACT74": {
+  "checks": {
+   "hold D": 1,
+   "setup D": 3.5
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 13,
+    "typ": 7.5
+   },
+   "PRE/CLR->Q": {
+    "max": 11.5,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT74",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act74.pdf"
+ },
+ "74ACT86": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 10.5,
+    "typ": 8.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT86",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act86.pdf"
+ },
+ "74F181": {
+  "checks": {},
+  "delays": {
+   "AB->AEQB": {
+    "max": 29.0,
+    "typ": 18.5
+   },
+   "AB->CN4": {
+    "max": 15.0,
+    "typ": 10.8
+   },
+   "AB->F": {
+    "max": 13.0,
+    "typ": 9.4
+   },
+   "AB->F logic": {
+    "max": 11.0,
+    "typ": 6.0
+   },
+   "AB->G": {
+    "max": 10.5,
+    "typ": 7.3
+   },
+   "AB->P": {
+    "max": 9.5,
+    "typ": 6.5
+   },
+   "CN->CN4": {
+    "max": 9.5,
+    "typ": 6.4
+   },
+   "CN->F": {
+    "max": 9.5,
+    "typ": 6.7
+   },
+   "M->F": {
+    "max": 10.0,
+    "typ": 7.2
+   },
+   "S->F": {
+    "max": 13.0,
+    "typ": 9.4
+   }
+  },
+  "estimated": [
+   "M->F",
+   "S->F"
+  ],
+  "source": "https://dmf.unisalento.it/~panareo/Elettronica_Digitale/Data%20sheet/74f181.pdf (National Semiconductor 54F/74F181, Aug 1995, TL/F/9491, p.6). Fairchild's later DS009491 is the same datasheet lineage (Fairchild took over National's logic line); its numbers were not separately verified."
+ },
+ "74F182": {
+  "checks": {},
+  "delays": {
+   "CN->CN": {
+    "max": 10.0,
+    "typ": 6.8
+   },
+   "P->P": {
+    "max": 8.5,
+    "typ": 5.7
+   },
+   "PG->CN": {
+    "max": 9.5,
+    "typ": 6.5
+   },
+   "PG->G": {
+    "max": 11.5,
+    "typ": 8.3
+   }
+  },
+  "estimated": [],
+  "source": "https://dmf.unisalento.it/~panareo/Elettronica_Digitale/Data%20sheet/74f182.pdf (Fairchild DS009492, Apr 1988, rev. Sep 2000, p.6)"
+ },
+ "74HCT00": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 24,
+    "typ": 12
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT00",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT00.pdf"
+ },
+ "74HCT02": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 24,
+    "typ": 11
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT02",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT02.pdf"
+ },
+ "74HCT04": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 24,
+    "typ": 10
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT04",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf"
+ },
+ "74HCT08": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 30,
+    "typ": 14
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT08",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT08.pdf"
+ },
+ "74HCT10": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 30,
+    "typ": 14
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT10",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT10.pdf"
+ },
+ "74HCT138": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 44,
+    "typ": 20
+   },
+   "G->Y": {
+    "max": 50,
+    "typ": 19
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT138",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT138.pdf"
+ },
+ "74HCT151": {
+  "checks": {},
+  "delays": {
+   "D->W": {
+    "max": 48,
+    "typ": 22
+   },
+   "D->Y": {
+    "max": 48,
+    "typ": 22
+   },
+   "G->Y": {
+    "max": 45,
+    "typ": 21
+   },
+   "S->W": {
+    "max": 54,
+    "typ": 25
+   },
+   "S->Y": {
+    "max": 51,
+    "typ": 23
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT151",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT151.pdf"
+ },
+ "74HCT153": {
+  "checks": {},
+  "delays": {
+   "C->Y": {
+    "max": 43,
+    "typ": 19
+   },
+   "G->Y": {
+    "max": 34,
+    "typ": 14
+   },
+   "S->Y": {
+    "max": 43,
+    "typ": 20
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT153",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT153.pdf"
+ },
+ "74HCT157": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 34,
+    "typ": 16
+   },
+   "G->Y": {
+    "max": 33,
+    "typ": 15
+   },
+   "S->Y": {
+    "max": 46,
+    "typ": 22
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT157",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT157.pdf"
+ },
+ "74HCT161": {
+  "checks": {
+   "hold EN": 3,
+   "hold LOAD": 3,
+   "hold data": 5,
+   "setup EN": 16,
+   "setup LOAD": 15,
+   "setup data": 13
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 49,
+    "typ": 16
+   },
+   "CLK->RCO": {
+    "max": 53,
+    "typ": 18
+   },
+   "CLR->Q": {
+    "max": 63,
+    "typ": 31.5
+   },
+   "ENT->RCO": {
+    "max": 40,
+    "typ": 13
+   }
+  },
+  "estimated": [
+   "CLR->Q typ"
+  ],
+  "part_number": "CD74HCT161",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct161.pdf"
+ },
+ "74HCT163": {
+  "checks": {
+   "hold CLR": 0,
+   "hold EN": 0,
+   "hold LOAD": 0,
+   "hold data": 0,
+   "setup CLR": 25,
+   "setup EN": 50,
+   "setup LOAD": 25,
+   "setup data": 25
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 49,
+    "typ": 23
+   },
+   "CLK->RCO": {
+    "max": 61,
+    "typ": 29
+   },
+   "ENT->RCO": {
+    "max": 44,
+    "typ": 17
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT163",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT163.pdf"
+ },
+ "74HCT175": {
+  "checks": {
+   "hold D": 5,
+   "setup D": 20
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 41,
+    "typ": 19
+   },
+   "CLR->Q": {
+    "max": 48,
+    "typ": 22
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT175",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT175.pdf"
+ },
+ "74HCT21": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 34,
+    "typ": 11
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT21",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct21.pdf"
+ },
+ "74HCT299": {
+  "checks": {
+   "hold DS": 0,
+   "hold IO": 0,
+   "hold S": 0,
+   "setup DS": 25,
+   "setup IO": 25,
+   "setup S": 34
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 56,
+    "typ": 19
+   },
+   "CLK->QS": {
+    "max": 56,
+    "typ": 19
+   },
+   "CLR->Q": {
+    "max": 58,
+    "typ": 29.0
+   },
+   "OE->Y dis": {
+    "max": 46,
+    "typ": 15
+   },
+   "OE->Y en": {
+    "max": 40,
+    "typ": 13
+   }
+  },
+  "estimated": [
+   "CLR->Q typ"
+  ],
+  "part_number": "CD74HCT299",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct299.pdf"
+ },
+ "74HCT30": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 35,
+    "typ": 16
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT30",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT30.pdf"
+ },
+ "74HCT32": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 30,
+    "typ": 11
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT32",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT32.pdf"
+ },
+ "74HCT377": {
+  "checks": {
+   "hold D": 2,
+   "hold EN": 3,
+   "setup D": 15,
+   "setup EN": 28
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 40,
+    "typ": 17
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT377",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT377.pdf"
+ },
+ "74HCT541": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 35,
+    "typ": 15
+   },
+   "OE->Y dis": {
+    "max": 44,
+    "typ": 21
+   },
+   "OE->Y en": {
+    "max": 44,
+    "typ": 21
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT541",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT541.pdf"
+ },
+ "74HCT688": {
+  "checks": {},
+  "delays": {
+   "G->PEQ": {
+    "max": 30,
+    "typ": 9
+   },
+   "P->PEQ": {
+    "max": 42,
+    "typ": 14
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT688",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct688.pdf"
+ },
+ "74HCT74": {
+  "checks": {
+   "hold D": 3,
+   "setup D": 15
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 44,
+    "typ": 18
+   },
+   "PRE/CLR->Q": {
+    "max": 50,
+    "typ": 24
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT74",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT74.pdf"
+ },
+ "74HCT86": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 40,
+    "typ": 17
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT86",
+  "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT86.pdf"
+ },
+ "74LS181": {
+  "checks": {},
+  "delays": {
+   "AB->AEQB": {
+    "max": 62,
+    "typ": 41
+   },
+   "AB->CN4": {
+    "max": 41,
+    "typ": 27
+   },
+   "AB->F": {
+    "max": 41,
+    "typ": 27
+   },
+   "AB->F logic": {
+    "max": 38,
+    "typ": 26
+   },
+   "AB->G": {
+    "max": 32,
+    "typ": 21
+   },
+   "AB->P": {
+    "max": 33,
+    "typ": 22
+   },
+   "CN->CN4": {
+    "max": 27,
+    "typ": 18
+   },
+   "CN->F": {
+    "max": 26,
+    "typ": 17
+   },
+   "M->F": {
+    "max": 32,
+    "typ": 21
+   },
+   "S->F": {
+    "max": 41,
+    "typ": 27
+   }
+  },
+  "estimated": [
+   "AB->F",
+   "M->F",
+   "S->F"
+  ],
+  "source": "https://www.ti.com/lit/ds/symlink/sn54ls181.pdf (TI SDLS136, Dec 1972, rev. Mar 1988, p.7; package addendum dated 14-Jun-2026)"
+ },
+ "74S181": {
+  "checks": {},
+  "delays": {
+   "AB->AEQB": {
+    "max": 30,
+    "typ": 20
+   },
+   "AB->CN4": {
+    "max": 23,
+    "typ": 15.5
+   },
+   "AB->F": {
+    "max": 23,
+    "typ": 15.5
+   },
+   "AB->F logic": {
+    "max": 22,
+    "typ": 14
+   },
+   "AB->G": {
+    "max": 15,
+    "typ": 10.5
+   },
+   "AB->P": {
+    "max": 15,
+    "typ": 10.5
+   },
+   "CN->CN4": {
+    "max": 10.5,
+    "typ": 7
+   },
+   "CN->F": {
+    "max": 12,
+    "typ": 7
+   },
+   "M->F": {
+    "max": 16.5,
+    "typ": 11
+   },
+   "S->F": {
+    "max": 23,
+    "typ": 15.5
+   }
+  },
+  "estimated": [
+   "AB->F",
+   "M->F",
+   "S->F"
+  ],
+  "source": "https://www.ti.com/lit/ds/symlink/sn54ls181.pdf (TI SDLS136, same document as LS181, p.9)"
+ },
+ "74S182": {
+  "checks": {},
+  "delays": {
+   "CN->CN": {
+    "max": 10.5,
+    "typ": 7
+   },
+   "P->P": {
+    "max": 10,
+    "typ": 6.5
+   },
+   "PG->CN": {
+    "max": 7,
+    "typ": 4.5
+   },
+   "PG->G": {
+    "max": 10.5,
+    "typ": 7
+   }
+  },
+  "estimated": [],
+  "source": "https://www.ti.com/lit/ds/symlink/sn54s182.pdf (TI SDLS206, Dec 1972, rev. Mar 1988, p.4; package addendum 18-Sep-2026)"
+ },
+ "AS6C1008-55": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 50,
+   "tDH": 0,
+   "tDW": 25,
+   "tOH": 10,
+   "tWP": 45,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 55,
+    "typ": 55
+   },
+   "tACE": {
+    "max": 55,
+    "typ": 55
+   },
+   "tCHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tOE": {
+    "max": 30,
+    "typ": 30
+   },
+   "tOHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tWHZ": {
+    "max": 20,
+    "typ": 20
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/AS6C1008_Mar_2023V1.2.pdf (Alliance Memory AS6C1008 v1.2, Mar 2023, p.5)"
+ },
+ "AS6C4008-55": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 50,
+   "tDH": 0,
+   "tDW": 25,
+   "tOH": 10,
+   "tWP": 45,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 55,
+    "typ": 55
+   },
+   "tACE": {
+    "max": 55,
+    "typ": 55
+   },
+   "tCHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tOE": {
+    "max": 30,
+    "typ": 30
+   },
+   "tOHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tWHZ": {
+    "max": 20,
+    "typ": 20
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/AS6C4008.pdf (Alliance Memory AS6C4008 v1.4, Aug 2009, p.4; the file linked from alliancememory.com/as6c4008/ in Oct 2026)"
+ },
+ "AS6C62256-55": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 50,
+   "tDH": 0,
+   "tDW": 25,
+   "tOH": 10,
+   "tWP": 45,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 55,
+    "typ": 55
+   },
+   "tACE": {
+    "max": 55,
+    "typ": 55
+   },
+   "tCHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tOE": {
+    "max": 30,
+    "typ": 30
+   },
+   "tOHZ": {
+    "max": 20,
+    "typ": 20
+   },
+   "tWHZ": {
+    "max": 20,
+    "typ": 20
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/AS6C62256-23-March-2016-rev1.2.pdf (Alliance Memory AS6C62256 rev 1.2, Mar 2016, p.4)"
+ },
+ "AS7C256A-10": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 8,
+   "tDH": 0,
+   "tDW": 5,
+   "tOH": 3,
+   "tWP": 7,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 10,
+    "typ": 10
+   },
+   "tACE": {
+    "max": 10,
+    "typ": 10
+   },
+   "tCHZ": {
+    "max": 3,
+    "typ": 3
+   },
+   "tOE": {
+    "max": 5,
+    "typ": 5
+   },
+   "tOHZ": {
+    "max": 3,
+    "typ": 3
+   },
+   "tWHZ": {
+    "max": 5,
+    "typ": 5
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)"
+ },
+ "AS7C256A-12": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 8,
+   "tDH": 0,
+   "tDW": 6,
+   "tOH": 3,
+   "tWP": 8,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 12,
+    "typ": 12
+   },
+   "tACE": {
+    "max": 12,
+    "typ": 12
+   },
+   "tCHZ": {
+    "max": 3,
+    "typ": 3
+   },
+   "tOE": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOHZ": {
+    "max": 3,
+    "typ": 3
+   },
+   "tWHZ": {
+    "max": 6,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)"
+ },
+ "AS7C256A-15": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 10,
+   "tDH": 0,
+   "tDW": 8,
+   "tOH": 3,
+   "tWP": 9,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 15,
+    "typ": 15
+   },
+   "tACE": {
+    "max": 15,
+    "typ": 15
+   },
+   "tCHZ": {
+    "max": 4,
+    "typ": 4
+   },
+   "tOE": {
+    "max": 7,
+    "typ": 7
+   },
+   "tOHZ": {
+    "max": 4,
+    "typ": 4
+   },
+   "tWHZ": {
+    "max": 7,
+    "typ": 7
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)"
+ },
+ "AS7C256A-20": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 12,
+   "tDH": 0,
+   "tDW": 10,
+   "tOH": 3,
+   "tWP": 12,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 20,
+    "typ": 20
+   },
+   "tACE": {
+    "max": 20,
+    "typ": 20
+   },
+   "tCHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tOE": {
+    "max": 8,
+    "typ": 8
+   },
+   "tOHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tWHZ": {
+    "max": 8,
+    "typ": 8
+   }
+  },
+  "estimated": [],
+  "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)"
+ },
+ "AT28C256-15": {
+  "checks": {
+   "tAH": 50,
+   "tAS": 0,
+   "tDH": 0,
+   "tOH": 0,
+   "tWP": 100
+  },
+  "delays": {
+   "tACC": {
+    "max": 150,
+    "typ": 150
+   },
+   "tCE": {
+    "max": 150,
+    "typ": 150
+   },
+   "tDF": {
+    "max": 50,
+    "typ": 50
+   },
+   "tOE": {
+    "max": 70,
+    "typ": 70
+   }
+  },
+  "estimated": [],
+  "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/AT28C256-Industrial-Grade-256-Kbit-Paged-Parallel-EEPROM-Data-Sheet-DS20006386.pdf (Microchip DS20006386B, 2022, Tables 6-2, 6-3, 6-4). Older Atmel doc0006M (12/2009) gives identical -15 values."
+ },
+ "CY7C199C-12": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 9,
+   "tDH": 0,
+   "tDW": 8,
+   "tOH": 3,
+   "tWP": 8
+  },
+  "delays": {
+   "tAA": {
+    "max": 12,
+    "typ": 12
+   },
+   "tACE": {
+    "max": 12,
+    "typ": 12
+   },
+   "tCHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tOE": {
+    "max": 5,
+    "typ": 5
+   },
+   "tOHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tWHZ": {
+    "max": 7,
+    "typ": 7
+   }
+  },
+  "estimated": [],
+  "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240124/FE8B8C70B0BB4A35668C1DF7B1991CB3.pdf (Cypress CY7C199C 38-05408 Rev *C, Aug 2006, p.5; Rev *B Nov 2004 gives the same values and adds a 25 ns grade)"
+ },
+ "CY7C199C-15": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 10,
+   "tDH": 0,
+   "tDW": 9,
+   "tOH": 3,
+   "tWP": 9
+  },
+  "delays": {
+   "tAA": {
+    "max": 15,
+    "typ": 15
+   },
+   "tACE": {
+    "max": 15,
+    "typ": 15
+   },
+   "tCHZ": {
+    "max": 7,
+    "typ": 7
+   },
+   "tOE": {
+    "max": 7,
+    "typ": 7
+   },
+   "tOHZ": {
+    "max": 7,
+    "typ": 7
+   },
+   "tWHZ": {
+    "max": 7,
+    "typ": 7
+   }
+  },
+  "estimated": [],
+  "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240124/FE8B8C70B0BB4A35668C1DF7B1991CB3.pdf (Cypress CY7C199C 38-05408 Rev *C, Aug 2006, p.5; Rev *B Nov 2004 gives the same values and adds a 25 ns grade)"
+ },
+ "CY7C199C-20": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 15,
+   "tDH": 0,
+   "tDW": 10,
+   "tOH": 3,
+   "tWP": 15
+  },
+  "delays": {
+   "tAA": {
+    "max": 20,
+    "typ": 20
+   },
+   "tACE": {
+    "max": 20,
+    "typ": 20
+   },
+   "tCHZ": {
+    "max": 9,
+    "typ": 9
+   },
+   "tOE": {
+    "max": 9,
+    "typ": 9
+   },
+   "tOHZ": {
+    "max": 9,
+    "typ": 9
+   },
+   "tWHZ": {
+    "max": 10,
+    "typ": 10
+   }
+  },
+  "estimated": [],
+  "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240124/FE8B8C70B0BB4A35668C1DF7B1991CB3.pdf (Cypress CY7C199C 38-05408 Rev *C, Aug 2006, p.5; Rev *B Nov 2004 gives the same values and adds a 25 ns grade)"
+ },
+ "CY7C199D-10": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 7,
+   "tDH": 0,
+   "tDW": 6,
+   "tOH": 3,
+   "tWP": 7
+  },
+  "delays": {
+   "tAA": {
+    "max": 10,
+    "typ": 10
+   },
+   "tACE": {
+    "max": 10,
+    "typ": 10
+   },
+   "tCHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tOE": {
+    "max": 5,
+    "typ": 5
+   },
+   "tOHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tWHZ": {
+    "max": 5,
+    "typ": 5
+   }
+  },
+  "estimated": [],
+  "source": "https://cdn.components.ru/media/PDF/8018143.pdf (Cypress/Infineon CY7C199D datasheet 38-05471 Rev *N, Mar 2019, p.7)"
+ },
+ "IDT71256SA12": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 9,
+   "tDH": 0,
+   "tDW": 6,
+   "tOH": 3,
+   "tWP": 8,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 12,
+    "typ": 12
+   },
+   "tACE": {
+    "max": 12,
+    "typ": 12
+   },
+   "tCHZ": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOE": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOHZ": {
+    "max": 6,
+    "typ": 6
+   },
+   "tWHZ": {
+    "max": 6,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)"
+ },
+ "IDT71256SA15": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 10,
+   "tDH": 0,
+   "tDW": 7,
+   "tOH": 3,
+   "tWP": 10,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 15,
+    "typ": 15
+   },
+   "tACE": {
+    "max": 15,
+    "typ": 15
+   },
+   "tCHZ": {
+    "max": 7,
+    "typ": 7
+   },
+   "tOE": {
+    "max": 7,
+    "typ": 7
+   },
+   "tOHZ": {
+    "max": 6,
+    "typ": 6
+   },
+   "tWHZ": {
+    "max": 6,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)"
+ },
+ "IDT71256SA20": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 15,
+   "tDH": 0,
+   "tDW": 11,
+   "tOH": 3,
+   "tWP": 15,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 20,
+    "typ": 20
+   },
+   "tACE": {
+    "max": 20,
+    "typ": 20
+   },
+   "tCHZ": {
+    "max": 10,
+    "typ": 10
+   },
+   "tOE": {
+    "max": 10,
+    "typ": 10
+   },
+   "tOHZ": {
+    "max": 8,
+    "typ": 8
+   },
+   "tWHZ": {
+    "max": 10,
+    "typ": 10
+   }
+  },
+  "estimated": [],
+  "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)"
+ },
+ "IDT71256SA25": {
+  "checks": {
+   "tAS": 0,
+   "tAW": 20,
+   "tDH": 0,
+   "tDW": 13,
+   "tOH": 3,
+   "tWP": 20,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 25,
+    "typ": 25
+   },
+   "tACE": {
+    "max": 25,
+    "typ": 25
+   },
+   "tCHZ": {
+    "max": 11,
+    "typ": 11
+   },
+   "tOE": {
+    "max": 11,
+    "typ": 11
+   },
+   "tOHZ": {
+    "max": 10,
+    "typ": 10
+   },
+   "tWHZ": {
+    "max": 11,
+    "typ": 11
+   }
+  },
+  "estimated": [],
+  "source": "https://www.farnell.com/datasheets/2914052.pdf (IDT/Renesas 71256SA, DSC-2948/11 Nov 2014 content, (c)2019 Renesas, p.4)"
+ },
+ "IS61C256AL-10": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 9,
+   "tDH": 0,
+   "tDW": 7,
+   "tOH": 2,
+   "tWP": 9
+  },
+  "delays": {
+   "tAA": {
+    "max": 10,
+    "typ": 10
+   },
+   "tACE": {
+    "max": 10,
+    "typ": 10
+   },
+   "tCHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tOE": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOHZ": {
+    "max": 5,
+    "typ": 5
+   },
+   "tWHZ": {
+    "max": 6,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "source": "https://static.chipdip.ru/lib/137/DOC012137217.pdf (ISSI IS61C256AL Rev. C1, Jan 2020, p.4-5)"
+ },
+ "IS61C256AL-12": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 10,
+   "tDH": 0,
+   "tDW": 7,
+   "tOH": 2,
+   "tWP": 9
+  },
+  "delays": {
+   "tAA": {
+    "max": 12,
+    "typ": 12
+   },
+   "tACE": {
+    "max": 12,
+    "typ": 12
+   },
+   "tCHZ": {
+    "max": 7,
+    "typ": 7
+   },
+   "tOE": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOHZ": {
+    "max": 6,
+    "typ": 6
+   },
+   "tWHZ": {
+    "max": 6,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "source": "https://static.chipdip.ru/lib/137/DOC012137217.pdf (ISSI IS61C256AL Rev. C1, Jan 2020, p.4-5)"
+ },
+ "SST39SF010A-55": {
+  "checks": {
+   "tOH": 0
+  },
+  "delays": {
+   "tACC": {
+    "max": 55,
+    "typ": 55
+   },
+   "tCE": {
+    "max": 55,
+    "typ": 55
+   },
+   "tDF": {
+    "max": 20,
+    "typ": 20
+   },
+   "tOE": {
+    "max": 35,
+    "typ": 35
+   }
+  },
+  "estimated": [],
+  "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)"
+ },
+ "SST39SF010A-70": {
+  "checks": {
+   "tOH": 0
+  },
+  "delays": {
+   "tACC": {
+    "max": 70,
+    "typ": 70
+   },
+   "tCE": {
+    "max": 70,
+    "typ": 70
+   },
+   "tDF": {
+    "max": 25,
+    "typ": 25
+   },
+   "tOE": {
+    "max": 35,
+    "typ": 35
+   }
+  },
+  "estimated": [],
+  "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)"
+ },
+ "_about": "Build infra/hw/timing.json from the datasheet research in infra/hw/datasheets/. Generated by infra/hw/build_timing.py."
+}
