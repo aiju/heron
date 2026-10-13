@@ -461,13 +461,13 @@ carry chain and the fetch from the slowest memory.
   break-before-make dead time at the start of each cycle, or ACT buffers,
   would fix it.
 - **Multiply time** isn't proportional to the multiplier's significant bits,
-  as [isa-v1.md](isa-v1.md) suggests and the timing model assumed. It takes
-  16 or 32 steps, and `MULS` only takes the fast path when *both* operands
-  fit in 16 signed bits. This is the biggest difference from the model. An
-  8-step path for multipliers below 2⁸ would be cheap: a byte test like the
-  16-bit one, and two extra cycles to realign the product. It wouldn't help
-  `mandel`, whose operands are fixed-point fractions. The ISA text should
-  say "put the smaller factor second; small operands are faster".
+  as the timing model assumed. It takes 16 or 32 steps, and `MULS` only
+  takes the fast path when *both* operands fit in 16 signed bits. This is
+  the biggest difference from the model. An 8-step path for multipliers
+  below 2⁸ would be cheap: a byte test like the 16-bit one, and two extra
+  cycles to realign the product. It wouldn't help `mandel`, whose operands
+  are fixed-point fractions. ([isa-v1.md](isa-v1.md) now only promises
+  that small operands are faster.)
 - **Hold times** aren't analysed (HCT datasheets give no minimum delays), and
   the clock is ideal (no skew), as in draft 0.
 - **A misaligned read still reads the RAM** (the result is thrown away).
