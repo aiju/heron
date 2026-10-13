@@ -503,6 +503,8 @@ Smaller points:
   cycles by kind or by routine** (draft 0's did). I wrote a small profiler
   over `Machine32.pc_keys` and `timing32.cycles` to get the breakdowns
   quoted here; it would be worth adding to `run --stats`.
+
+  *Since fixed: `run --stats` prints cycles by kind and by routine.*
 - **Wide-fetch results depend on alignment** (see the caution above), and
   there is no way to align a loop head without executing padding, since
   `.align` pads code with zero bytes (`HALT`). An `.align` that pads code

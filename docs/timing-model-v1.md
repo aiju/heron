@@ -1,10 +1,12 @@
 # Draft 1 timing model
 
-There's no hardware design for draft 1 yet, so its cycle counts are
-estimates from a model of a microcoded machine like the draft 0 one. The
-model lives in `tmc/timing32.py`. The simulator records what every executed
-instruction did, and the model turns that into cycles for six machine
-configurations. All six come out of one simulation run.
+Draft 1's cycle counts are estimates from a model of a microcoded machine
+like the draft 0 one, made before there was any draft 1 hardware. The
+draft 1b hardware built since checks one of the configurations,
+D32-separate ([performance-v1b.md](performance-v1b.md)). The model lives in
+`tmc/timing32.py`. The simulator records what every executed instruction
+did, and the model turns that into cycles for six machine configurations.
+All six come out of one simulation run.
 
 ## The configurations
 

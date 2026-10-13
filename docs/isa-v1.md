@@ -98,8 +98,10 @@ can take an immediate or memory operand. `src` is the second operand.
 | `DIVUL` | `rd ← HI:rd ÷ src`, `HI ← remainder`, unsigned 64/32 divide |
 
 - Dividing by zero is a *divide error* trap (registers unchanged).
-- A multiply takes time in proportion to the number of significant bits of
-  the *second* operand (`src`), so put the smaller factor there.
+- Multiply time depends on the implementation, but small operands are
+  faster, so put the smaller factor second (`src`). The timing model charges
+  by the significant bits of `src`; the draft 1b hardware takes 16 or 32
+  steps ([hardware-v1b.md](hardware-v1b.md)).
 - `DIVS` of `−2^31 ÷ −1` gives `−2^31`, remainder 0, and sets V.
 - `DIVUL` with `HI ≥ src` would overflow: it sets V and leaves `rd`, `HI`
   and the other flags unchanged. Chained `DIVUL`s (remainder left in `HI` for the next word)

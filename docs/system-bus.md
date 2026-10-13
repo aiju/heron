@@ -494,7 +494,7 @@ sampled at a clock edge, as they're quiet again by then. It's why RD, WR,
 RESET and BCLK get ground pins either side.
 
 **Simulated settling, 16 slots,** worst case over driver positions, both
-corners and all receivers. "Added delay" is on top of the datasheet
+corners and the receivers on every other card. "Added delay" is on top of the datasheet
 propagation delay:
 
 | Driver, termination | Added delay, rise / fall | Peak / lowest voltage | Extra threshold crossings |
@@ -514,8 +514,8 @@ With 8 slots, every delay is about half.
   it's fixed: decouple every bus chip, and prefer SOIC or flow-through
   parts (such as the 74ABT16245, with many ground pins) for wide drivers.
 - **Gaps in the sweep.** 39 of the 840 bus-line runs failed, mostly with
-  series resistors on 16 slots, which have 12–15 of 16 driver positions
-  covered.
+  series resistors on 16 slots. Every driver position still has at least
+  one corner covered: 12–15 of the 16 position and corner runs finished.
 - **Driver models.** TI's ABT, FCT and HCT models disagree with themselves.
   The simulation follows the waveforms through the edge and the V-I tables
   for the levels.
