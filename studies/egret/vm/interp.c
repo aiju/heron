@@ -26,7 +26,8 @@ static CacheEntry mcache[CACHE_SIZE];
 
 void interp_flush_cache(void) { memset(mcache, 0, sizeof mcache); }
 
-#define CACHE_INDEX(cls, sel) ((((cls) >> 3) ^ ((sel) >> 2)) & (CACHE_SIZE - 1))
+/* the entry's byte offset is (cls ^ sel) & 0x3FF0: one XOR and one AND */
+#define CACHE_INDEX(cls, sel) ((((cls) ^ (sel)) >> 4) & (CACHE_SIZE - 1))
 
 static Value lookup(Value cls, Value sel)
 {
@@ -64,9 +65,9 @@ static Value special[NOPCODES];
 
 void interp_init(void)
 {
-    static const char *const names[] = { "+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "[]", "[]=" };
+    static const char *const names[] = { "+", "-", "*", "/", "%", "<", "<=", ">", ">=", "==", "[]", "[]=", "&", "|", "^", "<<", ">>" };
     int i;
-    for (i = 0; i <= OP_AT_PUT - OP_ADD; i++)
+    for (i = 0; i <= OP_SHR - OP_ADD; i++)
         special[OP_ADD + i] = intern_c(names[i]);
     frames = (Frame *)P(FRAMES_LO);
     frames_end = (Frame *)P(FRAMES_HI) - 1;
@@ -362,7 +363,8 @@ static int interpret(Value m, int argc, Value *result, int flags)
             bp = sp - argc;
             fp->bp = V(bp);
             fp->method = m;
-            fp->serial = (++serial_counter << 2) | frame_flags;
+            fp->serial = 0;
+            fp->flags = frame_flags;
             frame_flags = 0;
             {
                 unsigned n = MI_NLOCALS(info);
@@ -548,10 +550,54 @@ static int interpret(Value m, int argc, Value *result, int flags)
                 *--sp = TRUE_V;
                 continue;
             }
-            if ((a | b) & 1) {
-                /* a SmallInt and something else: only a big integer could
-                   be equal, and big integers are never SmallInt-sized */
+            if (((a | b) & 1) || a - FALSE_V <= TRUE_V - FALSE_V || b - FALSE_V <= TRUE_V - FALSE_V) {
+                /* a SmallInt and something else (only a big integer could
+                   be equal, and big integers are never SmallInt-sized), or
+                   nil, true or false, which are equal only to themselves */
                 *--sp = FALSE_V;
+                continue;
+            }
+            goto static_sel;
+        }
+        case OP_BAND: {
+            Value b = sp[0], a = sp[-1];
+            if (a & b & 1) {
+                *--sp = a & b;
+                continue;
+            }
+            goto static_sel;
+        }
+        case OP_BOR: {
+            Value b = sp[0], a = sp[-1];
+            if (a & b & 1) {
+                *--sp = a | b;
+                continue;
+            }
+            goto static_sel;
+        }
+        case OP_BXOR: {
+            Value b = sp[0], a = sp[-1];
+            if (a & b & 1) {
+                *--sp = (a ^ b) | 1;
+                continue;
+            }
+            goto static_sel;
+        }
+        case OP_SHL: {
+            Value b = sp[0], a = sp[-1];
+            if (a & b & 1 && b <= MKINT(30)) {
+                SValue x = INT(a), n = INT(b), y = (SValue)((unsigned)x << n);
+                if ((y >> n) == x && FITS31(y)) {
+                    *--sp = MKINT(y);
+                    continue;
+                }
+            }
+            goto static_sel;
+        }
+        case OP_SHR: {
+            Value b = sp[0], a = sp[-1];
+            if (a & b & 1 && b <= MKINT(31)) {
+                *--sp = MKINT(INT(a) >> INT(b));
                 continue;
             }
             goto static_sel;
@@ -628,7 +674,9 @@ static int interpret(Value m, int argc, Value *result, int flags)
             } else {
                 FIELD(c, CL_SELF) = bp[0];
                 FIELD(c, CL_HOME) = MKINT(fp - frames);
-                FIELD(c, CL_SERIAL) = MKINT(fp->serial >> 2);
+                if (!fp->serial)
+                    fp->serial = MKINT(++serial_counter);
+                FIELD(c, CL_SERIAL) = fp->serial;
             }
             for (i = 0; i < n; i++) {
                 unsigned k = ip[2 + 2 * i], x = ip[3 + 2 * i];
@@ -642,7 +690,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             unsigned fl;
             retval = *sp;
         do_return:
-            fl = fp->serial & 3;
+            fl = fp->flags;
             if (fl & FR_CONSTRUCT)
                 retval = bp[0];
             sp = bp;
@@ -664,7 +712,7 @@ static int interpret(Value m, int argc, Value *result, int flags)
             retval = *sp;
             Frame *home = frames + INT(FIELD(c, CL_HOME));
             COUNT(nlr);
-            if (home < base || home > fp || FIELD(c, CL_SERIAL) != MKINT(home->serial >> 2)) {
+            if (home < base || home > fp || FIELD(c, CL_SERIAL) != home->serial) {
                 vm_sp = sp;
                 err = make_string_c("return from a block whose method has already returned");
                 goto raise_msg;

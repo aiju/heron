@@ -31,6 +31,7 @@ enum {
     /* sends with a fast path for SmallInts (or Lists, for AT and AT_PUT) */
     OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MOD, OP_LT, OP_LE, OP_GT, OP_GE,
     OP_EQ, OP_AT, OP_AT_PUT,
+    OP_BAND, OP_BOR, OP_BXOR, OP_SHL, OP_SHR,
     OP_NOT,
     OP_JUMP,            /* w */
     OP_JUMP_FALSE, OP_JUMP_TRUE,            /* w: pop the condition */

@@ -217,7 +217,12 @@ static void binop(int op, int line)
     case T_GT: emit(OP_GT); return;
     case T_GE: emit(OP_GE); return;
     case T_EQ: emit(OP_EQ); return;
-    case T_POW: case T_AMP: case T_PIPE: case T_CARET: case T_SHL: case T_SHR: case T_CMP:
+    case T_AMP: emit(OP_BAND); return;
+    case T_PIPE: emit(OP_BOR); return;
+    case T_CARET: emit(OP_BXOR); return;
+    case T_SHL: emit(OP_SHL); return;
+    case T_SHR: emit(OP_SHR); return;
+    case T_POW: case T_CMP:
         send(intern_c(tok_name(op)), 1);
         return;
     }
@@ -698,6 +703,7 @@ static Value gen_function(Func *f)
     memcpy(BYTES(ln), lines, 4 * nlines);
     F(m, M_LINES) = ln;
     F(m, M_LINE) = f->line;
+    method_finish(m);
     return m;
 }
 

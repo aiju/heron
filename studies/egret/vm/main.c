@@ -188,5 +188,12 @@ int main(void)
         repl = 1;
     i = run_source((const char *)in, src_len, "program");
     out_flush();
+#if defined(EGRET_STATS) && !defined(__HERON__)
+    fprintf(stderr, "stats: bytecodes %u sends %u misses %u prims %u blocks %u int_fast %u int_slow %u "
+            "frames_max %u nlr %u allocs %u alloc_words %u gcs %u gc_words %u\n",
+            stats.bytecodes, stats.sends, stats.cache_misses, stats.prim_calls, stats.block_calls,
+            stats.int_fast, stats.int_slow, stats.frames_max, stats.nlr, alloc_count, alloc_words,
+            gc_count, gc_words);
+#endif
     return i ? 0 : 1;
 }

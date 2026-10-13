@@ -207,6 +207,22 @@ void class_add_method(Value cls, Value sel, Value m)
 
 Value class_name(Value cls) { return F(cls, C_NAME); }
 
+void method_finish(Value m)
+{
+    Value info = F(m, M_INFO), prim = F(m, M_PRIM);
+    F(m, M_CODEP) = F(m, M_CODE) ? V(BYTES(F(m, M_CODE))) : 0;
+    F(m, M_LITSP) = F(m, M_LITS) ? V(&F(F(m, M_LITS), 0)) : 0;
+    F(m, M_NLOCALS) = MI_NLOCALS(info);
+    if (info & MF_REST)
+        F(m, M_ARITY) = ARITY_SLOW;
+    else if (!prim)
+        F(m, M_ARITY) = MI_NARGS(info);
+    else if (prim >= PR_FIRST_C)
+        F(m, M_ARITY) = ARITY_PRIM + MI_NARGS(info);
+    else
+        F(m, M_ARITY) = ARITY_SLOW;
+}
+
 static Value new_class_obj(Value meta, Value name, Value super, int kind)
 {
     Value c = perm_obj(meta, CLASS_FIELDS);

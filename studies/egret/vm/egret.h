@@ -116,12 +116,21 @@ enum {
     M_PRIM,         /* raw: primitive number, 0 if none */
     M_LINES,        /* line table (a byte object), or 0 */
     M_LINE,         /* raw: first source line */
+    /* the same again, ready for the interpreter's fast paths */
+    M_CODEP,        /* raw: the address of the first bytecode */
+    M_LITSP,        /* raw: the address of the first literal */
+    M_NLOCALS,      /* raw: locals to clear on entry */
+    M_ARITY,        /* raw: nargs for an Egret method without *rest, 0x100 + nargs
+                       for a C primitive without *rest, ARITY_SLOW for anything else */
     METHOD_FIELDS
 };
+#define ARITY_PRIM 0x100
+#define ARITY_SLOW 0xFFFF
 #define MI_NARGS(i)   ((i) & 0xFF)
 #define MI_NLOCALS(i) (((i) >> 8) & 0xFF)
 #define MF_REST    0x10000      /* the last parameter takes the extra arguments as a List */
 #define MF_BLOCK   0x20000      /* it's a block */
+void method_finish(Value m);    /* fills in the raw fields from the others */
 
 /* closures */
 enum { CL_METHOD, CL_SELF, CL_HOME, CL_SERIAL, CL_CAPT };
@@ -143,7 +152,9 @@ typedef struct Frame {
     Value ip;       /* where the frame continues (saved when it calls) */
     Value bp;       /* its receiver slot in the value stack; args, then locals follow */
     Value method;
-    Value serial;   /* serial << 2 | FR_ flags; a block's home check uses the serial */
+    Value serial;   /* 0, or a number unique to this activation once a block
+                       made in it needs to find it again (non-local return) */
+    Value flags;    /* FR_ */
 } Frame;
 #define FR_CONSTRUCT 1  /* new: return the receiver, not the result of init */
 #define FR_BASE      2  /* the interpreter returns to C after this frame */

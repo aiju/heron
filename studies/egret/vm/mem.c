@@ -76,8 +76,10 @@ Value alloc_obj(Value cls, unsigned nfields)
         gc(bytes);
     o = hp;
     hp += bytes;
+#ifdef EGRET_STATS
     alloc_count++;
     alloc_words += bytes >> 2;
+#endif
     f = P(o);
     f[0] = cls;
     f[1] = HDR(nfields, next_hash(), 0);
@@ -95,8 +97,10 @@ Value alloc_bytes(Value cls, unsigned nbytes)
         gc(bytes);
     o = hp;
     hp += bytes;
+#ifdef EGRET_STATS
     alloc_count++;
     alloc_words += bytes >> 2;
+#endif
     P(o)[0] = cls;
     P(o)[1] = HDR(nbytes, next_hash(), 1);
     memset(BYTES(o), 0, (nbytes + 3) & ~3u);

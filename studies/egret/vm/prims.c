@@ -1081,6 +1081,7 @@ void prims_init(void)
         F(m, M_PRIM) = prim;
         F(m, M_LINES) = 0;
         F(m, M_LINE) = 0;
+        method_finish(m);
         class_add_method(cls, F(m, M_SEL), m);
     }
 }
