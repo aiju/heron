@@ -1,18 +1,19 @@
 """Egret's command line: heron egret <command> ...
 
-  run    FILE.eg [--host] [--input-file F] [--stats] [--max-cycles N]
+  run    FILE.eg [--host] [--variant asm|c|jit] [--input-file F] [--stats] [--max-cycles N]
                      run a program on the simulated draft 1b machine (or,
                      with --host, on the host build of the VM)
-  test   [NAME...] [--heron [--variant asm|c|both]] [--update]
+  test   [NAME...] [--heron [--variant asm|c|jit|both|all]] [--update]
                      the programs against their expected output, on the
                      host (--heron: also on the simulator, with the
-                     hand-written interpreter loop, the C one, or both;
-                     --update: write the expected output of the programs
-                     that have no suite counterpart, from the host)
+                     hand-written interpreter loop, the C one, the JIT,
+                     the first two or all three; --update: write the
+                     expected output of the programs that have no suite
+                     counterpart, from the host)
   bench  [NAME...] [--write]
                      cycles of every program on draft 1b, and where they go
                      (--write: the generated part of the report)
-  build              build both VMs
+  build              build the VM for the host and every build for 1b
 
 A program's input (gets, read_all) follows a line __END__ in the console
 input; `run` and `test` take it from --input-file, or from the program's
@@ -82,7 +83,7 @@ def main(argv=None):
     r.add_argument("--stats", action="store_true", help="cycles, and where they go")
     r.add_argument("--max-cycles", type=int, default=build.MAX_CYCLES)
     r.add_argument("--variant", choices=build.VARIANTS, default="asm",
-                   help="the hand-written interpreter loop (asm) or the C one")
+                   help="the hand-written interpreter loop (asm), the C one (c) or the JIT (jit)")
     r.set_defaults(fn=cmd_run)
     t = sub.add_parser("test", help="the programs against their expected output")
     t.add_argument("names", nargs="*")
@@ -95,7 +96,7 @@ def main(argv=None):
     b.add_argument("names", nargs="*")
     b.add_argument("--write", action="store_true", help="write the generated part of the report")
     b.set_defaults(fn=lambda a: __import__("heron.studies.egret.bench", fromlist=["x"]).main(a))
-    bl = sub.add_parser("build", help="build both VMs")
-    bl.set_defaults(fn=lambda a: (print(build.host()), print(build.heron().obj.name), 0)[-1])
+    bl = sub.add_parser("build", help="build the VM for the host and for 1b")
+    bl.set_defaults(fn=lambda a: (print(build.host()), [build.heron(variant=v) for v in build.VARIANTS], 0)[-1])
     args = p.parse_args(argv)
     return args.fn(args) or 0

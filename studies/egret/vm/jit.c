@@ -43,12 +43,11 @@ static unsigned short *code;
 static unsigned ncode, maxcode;
 static Value code_base;                  /* where the code is */
 
-static void put(unsigned w)
-{
-    if (ncode >= maxcode)
-        fatal("jit: out of permanent space for native code");
-    code[ncode++] = w & 0xFFFF;
-}
+static void code_full(void) { fatal("jit: out of permanent space for native code"); }
+
+/* a macro, not a function: the C compiler doesn't inline, and a call
+   cost more than the store (put was a third of compiling) */
+#define put(w) do { if (ncode >= maxcode) code_full(); code[ncode++] = (w); } while (0)
 
 static void begin_code(void)
 {

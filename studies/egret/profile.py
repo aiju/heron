@@ -28,14 +28,15 @@ GROUPS = [
                      r"jcc_\w+|patch_fwd|patch32|stub|to_slow|emit_stubs|go_slow|branch_to|pop2|tag2|"
                      r"push_bool|opcode_len|send_site|lit_of|template|prologue|begin_code|end_code|"
                      r"reserve_sites|finish_stub|begin_stub|prim_stub|block_stub|new_stub|"
-                     r"jit_flush_ics|here)$"),
-    ("JIT glue", r"_(jit_resume|jit_resume_addr|jit_send_miss|jit_closure|jit_run)$"),
+                     r"jit_flush_ics|here|gsend|to_send_k|is_operator|native_target)$"),
+    ("JIT glue", r"_(jit_resume|jit_resume_addr|jit_send_miss|jit_gsend_miss|jit_back_up|jit_closure|"
+                 r"jit_run|jit_glue_\w+)$"),
     ("collector", r"_(gc|forward|obj_bytes)$"),
     ("allocation", r"_(alloc_obj|alloc_bytes|next_hash|perm_obj|perm_bytes|make_list|list_push|"
                    r"make_string|make_string_c|make_range|make_error|make_error_v|push_root|pop_roots)$"),
     ("big integers", r"_(int_\w+|mag_\w+|unpack|pack|trim|add_signed|bitwise|too_big|big_hash|is_bigint)$"),
     ("maps", r"_(map_\w+|find|rebuild|new_index|value_eq|value_hash|str_hash|str_eq)$"),
-    ("method lookup", r"_(lookup|class_lookup|class_lookup_here|interp_flush_cache)$"),
+    ("method lookup", r"_(lookup|egret_lookup|egret_find|class_lookup|class_lookup_here|interp_flush_cache)$"),
     ("compiler", r"_(lex_\w+|token|skip_string|peek_chain|continues|ends_operand|is_\w+|intern|intern_c|"
                  r"compile_\w+|gen\w*|emit\w*|lit|set_line|load|store|send|binop|patch\w*|jump_\w+|"
                  r"node|next|accept|expect|skip_nl|new_func|new_var|find_var|resolve|name_ref|define_target|"
@@ -154,6 +155,7 @@ class Layout:
         self.perm_lo, self.perm_hi = lo, hi
         cls_method = word(syms["_cls_Method"])
         starts = []                 # (address, label)
+        self.native_methods = self.native_bytes = self.native_bc_bytes = 0
         a = lo
         while a < hi:
             h = word(a + 4)
@@ -173,8 +175,12 @@ class Layout:
                         if at != 0xFFFF:
                             starts.append((base + 2 * at, opname.get(mem[bc + k], "?")))
                     starts.append((f(en["M_NSTUBS"]), "stubs"))
-                    cend = base - 8 + 8 + ((word(base - 8 + 4) >> 12) + 3 & ~3)
-                    starts.append((cend, "other native"))
+                    nbytes = word(base - 8 + 4) >> 12
+                    cend = base + ((nbytes + 3) & ~3)
+                    self.native_methods += 1
+                    self.native_bytes += nbytes
+                    self.native_bc_bytes += n
+                    starts.append((cend, "shared stubs"))
             a += 8 + ((size + 3) & ~3 if isbytes else 4 * size)
         starts.sort()
         self.native = [s for s, _ in starts]
@@ -182,7 +188,7 @@ class Layout:
 
     def native_part(self, pc):
         k = bisect.bisect_right(self.native, pc) - 1
-        return self.native_names[k] if k >= 0 else "other native"
+        return self.native_names[k] if k >= 0 else "shared stubs"
 
     def asm_part(self, pc):
         if pc in self.dispatch_pcs:
