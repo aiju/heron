@@ -300,7 +300,7 @@ def report(progs, sta_rows, hw, v0, mstats, args_hw):
                  "console output, registers, flags, PC, all of RAM and (for programs without "
                  "interrupts) the cycle of every instruction fetch with the instruction-level "
                  f"simulator and the RTL model's cycle counts. Longest bus contention seen: "
-                 f"{worst_cont:.0f} ns (see [hardware-v1b.md](hardware-v1b.md#known-issues)).")
+                 f"{worst_cont:.0f} ns (see [hardware-v1b.md](hardware-v1b.md#known-issues-and-what-a-second-iteration-would-change)).")
         L.append("")
 
     # ---- per class
