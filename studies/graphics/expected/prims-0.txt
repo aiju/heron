@@ -17,8 +17,10 @@ _ 0 39f596fa
 line.clipped 100 a2733437
 line.horizontal 60000 f761b9d5
 line.vertical 44000 afba7909
+_ 0 2062fa5f
 ellipse 40 fe9054b7
 ellipse.fill 40 3591b111
+_ 0 2062fa5f
 polygon 20 a5829b2c
 _ 0 5bff8ec1
 blit.aligned 65536 fa5d6326

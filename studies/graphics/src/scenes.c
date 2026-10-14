@@ -141,6 +141,7 @@ static void scene_prims(Surface *s)
     mark_n("line.vertical", 100 * 440);
 
     gfx_fill(s, 0, 0, SCREEN_W, SCREEN_H, 0, GFX_COPY);
+    mark("_");
     for (i = 0; i < 40; i++)
         gfx_ellipse(s, 320 + (i % 8) * 20 - 70, 240 + (i / 8) * 20 - 40, 10 + i * 5, 8 + i * 4,
                     (i & m) | 1, GFX_COPY);
@@ -151,6 +152,7 @@ static void scene_prims(Surface *s)
     mark_n("ellipse.fill", 40);
 
     gfx_fill(s, 0, 0, SCREEN_W, SCREEN_H, 0, GFX_COPY);
+    mark("_");
     for (k = 0; k < 20; k++) {
         /* even k: a pentagram, even-odd (a hollow middle); odd k: the
            star's outline, non-zero */

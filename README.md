@@ -17,6 +17,9 @@ So far there has been:
   datapath and pipelined microcode, running every program at 3 MHz in the
   chip-level simulator.
 - **A C compiler** for drafts 1a and 1b, with object files and a linker.
+- **Graphics on draft 1:** a graphics library for screens of 1 to 8 bits
+  per pixel, bitmap and TrueType fonts and the graphics side of a window
+  manager, in C and assembly for 1a and 1b.
 - **The system bus:** a draft specification, with signal-integrity
   simulations of the backplane.
 
@@ -30,7 +33,7 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 |---|---|
 | [docs/](docs/README.md) | The current design: what has been decided, as reference |
 | [reports/](reports/README.md) | Numbered reports (what was done and found) and RFCs (proposals that need decisions) |
-| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, the bus signal integrity |
+| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, the bus signal integrity, graphics |
 | [infra/](infra/README.md) | Reusable code: assembler and linker core, netlist language, static timing analysis, the chip-level simulator |
 | `heron/` | The `heron` command, the glue that makes the folders importable as `heron.*`, and `bindings/`, the crate that makes the Rust engines a Python module (`heron.native`) |
 | `tests/` | Tests of the repository itself |

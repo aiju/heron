@@ -21,3 +21,4 @@ commands, and `heron test <study>` runs its unit tests.
 | [v1b_hw](v1b_hw/README.md) | A 213-chip implementation of draft 1b |
 | [c_compiler](c_compiler/README.md) | A C compiler for drafts 1a and 1b |
 | [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane, in ngspice |
+| [graphics](graphics/README.md) | Graphics on draft 1: a library, bitmap and TrueType fonts, and a window manager, in C and assembly for 1a and 1b |

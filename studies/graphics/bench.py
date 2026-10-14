@@ -166,7 +166,7 @@ DESCR = {
     "text.sans12": "a paragraph, proportional bitmap font", "text.mono12": "a terminal, 12 lines",
     "ttf.cached.12": "TrueType at 12 px, from the glyph cache", "ttf.cached.24": "the same, 24 px",
     "ttf.cached.48": "the same, 48 px", "ttf.first.12": "TrueType at 12 px, rasterising every glyph",
-    "wm.glyphs": "rasterise the 95 glyphs of the document font (13 px)",
+    "wm.glyphs": "rasterise a glyph of the document font (13 px), of 95",
     "wm.paint": "draw the desktop and four windows", "wm.raise": "raise the bottom window",
     "wm.move": "move the top window 12 right, 9 down", "wm.outline": "drag an XOR outline one step",
     "wm.scroll.covered": "scroll the terminal one line, half covered",
@@ -418,7 +418,7 @@ def inner_loops():
          [(alu, 1), (lea, 1), (ld_pi, 1), (nbr, 2), (ld_s, 3), (alu, 6), (st_s, 2), (alu, 2),
           ((1, 0, "shift", 1), 1), (br, 1)], 2,
          "ZXB, LEA, LSR, BNE; a word: MOV, BEQ, MOV, BIC, AND, OR, ST, ADD"),
-        ("the same with a merge under mask (d = d & ~m | c & m)",
+        ("the same with a merge under mask (d = (d & ~m) or (c & m))",
          [(alu, 1), (lea, 1), (ld_pi, 1), (nbr, 2), (ld_s, 3), (alu, 2), (st_s, 2), (alu, 2),
           ((1, 0, "shift", 1), 1), (br, 1)], 2,
          "ZXB, LEA, LSR, BNE; a word: MOV, BEQ, MOV, MRG, ST, ADD"),
@@ -437,6 +437,27 @@ and both builds, at every depth.
 """
 
 
+# screenshots for the report: (file, scene, depth, the phase after which)
+SHOTS = [("wm-1.png", "wm", 0, "wm.paint"), ("wm-8.png", "wm", 3, "wm.paint"),
+         ("text-2.png", "text", 1, "ttf.cached.48"), ("text-8.png", "text", 3, "ttf.cached.48")]
+
+
+def screenshots():
+    from . import png
+    folder = os.path.dirname(DOC)
+    img = build.image("v1b", True)
+    for fn, scene, d, after in SHOTS:
+        shot = {}
+
+        def keep(name, scr, after=after, shot=shot):
+            if name == after:
+                shot["screen"] = scr
+        runmod.run(img, "v1b", scene, d, screens=keep)
+        path = os.path.join(folder, fn)
+        png.write(path, shot["screen"], runmod.SCREEN_W, runmod.SCREEN_H, d)
+        print(f"wrote {os.path.relpath(path)}")
+
+
 def main(write=False):
     runs = collect()
     text = HEADER + report(runs)
@@ -446,4 +467,5 @@ def main(write=False):
         with open(DOC, "w") as f:
             f.write(text)
         print(f"wrote {os.path.relpath(DOC)}")
+        screenshots()
     return 0
