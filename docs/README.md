@@ -4,9 +4,10 @@ Heron's current design is what this folder describes: only what has been
 decided, as reference. Why it was decided, and what else was considered,
 is in the RFCs and reports it links to ([the index](../reports/README.md)).
 
-There's no complete current design yet. Draft 2 comes next; which of the
-draft 1 encodings, 1a or 1b, it builds on is still open
-([RFC 0006](../reports/0006-rfc-ideas-isa.md#23-recommended-for-draft-2)).
+There's no complete current design yet. Draft 2 comes next. Which of the
+draft 1 encodings, 1a or 1b, it builds on isn't decided; 1b is Emily's
+preference, and most of the work since draft 1 has been on 1b
+([RFC 0006](../reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 [draft 1](../studies/v1_isa/README.md) and
 [the draft 1b hardware](../studies/v1b_hw/README.md).

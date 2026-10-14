@@ -37,6 +37,13 @@ context:
 stores, and probably a jump through a table. Build it with a 32-bit datapath
 if the chip budget allows, or at least a 32-bit bus.
 
+> **Erratum (2026-10-14).** The recommendation to base draft 2 on 1a is
+> withdrawn: it was based on faulty numbers (Emily). 1b is her
+> preference, and most of the work since this report has been on 1b.
+> [RFC 0006](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)
+> has where the question stands. The hardware recommendations are
+> unaffected.
+
 **Since then, draft 1b has been built** as a chip-level netlist in the
 D32-separate configuration. See [hardware-v1b.md](../studies/v1b_hw/hardware.md) and
 [performance-v1b.md](0012-report-draft-1b-hardware/performance.md).
@@ -306,6 +313,9 @@ From the five writers' notes:
     register exactly once.
 
 ## Recommendations for draft 2
+
+> **Erratum (2026-10-14):** recommendation 1 is withdrawn; see the
+> erratum at the top.
 
 1. **Start from 1a.** 1b's lead is real, but most of it is auto-increment
    and table dispatch, which fit 1a's spare encoding space. 1b's

@@ -966,7 +966,7 @@ Answered by report 0022, waiting for Emily to adopt them or not
 
 - **Full-width and half-width slots** (Emily's idea): some columns take
   full cards on P1 and P2, others two P1-only cards stacked. It waits for
-  the card size ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)).
+  the card size ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#full-width-and-half-width-slots)).
 - **A slower simple-card class:** a third strap selecting a second N, and
   a setup clock before the strobe for devices like a CF card at PIO mode 0.
 - **Round-robin arbitration.**

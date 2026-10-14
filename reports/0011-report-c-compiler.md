@@ -88,3 +88,8 @@ constants weigh more heavily. That supports the evaluation's recommendation:
 1a with auto-increment loads and stores would keep most of what the compiler
 gets from 1b.
 
+> **Erratum (2026-10-14).** The evaluation's recommendation of 1a is
+> withdrawn ([report 0004](0004-report-draft-1-evaluation.md)); 1b is
+> Emily's preference. The finding here stands: auto-increment is most of
+> what compiled code gains from 1b.
+

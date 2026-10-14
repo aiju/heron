@@ -3,36 +3,37 @@ number: 6
 type: rfc
 title: Instruction set ideas
 status: open
-date: 2026-10-12
+date: 2026-10-14
 context:
-  studies: [v1_isa, v1b_hw, lisp, c_compiler, kernel]
-  commit: e494b0c
+  studies: [v1_isa, v1b_hw, c_compiler, lisp, egret, graphics, kernel]
+  commit: 2f81658
 ---
 
 # RFC 0006: Instruction set ideas
 
-An ideas RFC: a scratchpad of ideas for one area, each with its own status
-([RFC 0000](0000-rfc-repository-layout.md#ideas-rfcs)). It was split out of
-`docs/proposals.md` in the restructure, so the items keep the statuses they
-had there:
+An ideas RFC: a scratchpad of instruction-set ideas, each with its own
+status ([RFC 0000](0000-rfc-repository-layout.md#ideas-rfcs)). The
+evidence is in the reports each item links to.
 
 | Status | Meaning |
 |---|---|
 | **adopted** | It's in draft 1 |
-| **measured** | Evaluated with numbers ([report 0001](0001-report-draft-0-evaluation.md), [report 0004](0004-report-draft-1-evaluation.md)) |
-| **recommended** | Suggested for the next draft or hardware round |
-| **decided** | Emily chose it for the next hardware round; not built yet |
+| **measured** | It has numbers behind it |
+| **recommended** | Suggested for draft 2 |
+| **decided** | Emily chose it; not built yet |
 | **open** | Discussed, not decided |
-| **rejected** | Decided against, with the reason, so it doesn't get re-proposed without new evidence |
+| **not recommended** | The evidence is against it; Emily hasn't decided |
+| **rejected** | Decided against, with the reason, so it isn't proposed again without new evidence |
 
-Chip counts are rough estimates, scaled from the 98-chip draft 0 design.
+Cycle shares come from the draft 1 timing model
+([timing-model-v1.md](../studies/v1_isa/timing-model-v1.md)) unless they
+say otherwise.
 
-## 2. Instruction set
+## 1. Adopted in draft 1
 
-### 2.1 Adopted in draft 1
-
-These came from the draft 0 evaluation; draft 1 has them
-([studies/v1_isa/isa-v1.md](../studies/v1_isa/isa-v1.md)):
+These came from the draft 0 evaluation
+([report 0001](0001-report-draft-0-evaluation.md)); draft 1 has them
+([isa-v1.md](../studies/v1_isa/isa-v1.md)):
 
 | Proposal | Evidence or reason |
 |---|---|
@@ -52,9 +53,9 @@ These came from the draft 0 evaluation; draft 1 has them
 | Jumps and calls with 16-bit PC-relative displacements, 32-bit absolute form | Absolute 32-bit targets would be 3 parcels |
 | Vectors 4 bytes apart: reset, IRQ, illegal, SWI, divide error, address error | |
 | Word accesses 4-aligned, halfwords 2-aligned; misaligned accesses trap | |
-| One escape opcode kept free (1a op F) | Future growth, floating point |
+| One escape opcode kept free (1a's op F) | Future growth, floating point. 1b has no whole opcode left ([3.1](#31-room-left-in-1bs-encoding)) |
 
-### 2.2 1a vs 1b
+## 2. 1a against 1b, and the base for draft 2
 
 **measured.** Both encodings were specified, built and measured on 20
 programs ([report 0004](0004-report-draft-1-evaluation.md)).
@@ -69,83 +70,73 @@ programs ([report 0004](0004-report-draft-1-evaluation.md)).
   - PC-relative and absolute addresses, 16/32-bit constants.
   - At most one memory operand per instruction, which keeps faults
     restartable. Size is part of the mode. Indirect `JMP`/`CALL [mem]`.
-- **Result:**
-  - 1b is 7–10% faster, runs 13% fewer instructions and has 3% less code.
-  - The gain is concentrated in the VM (−24%), Life (−16%) and pointer
-    walking. Register-bound programs are within 3%.
-  - Most of the gain is auto-increment. 1b's 4-bit constants cost it code
-    size, and its encoding is full.
-- **Before 1b, measured on draft 0:**
-  - 4.5% of draft 0 instructions were a load whose value fed the next ALU
-    op; 97% of those loads were bytes, so memory operands need
-    zero-extending byte forms.
-  - Memory-destination operations were 0.4%, all in fib. **rejected.**
 
-### 2.3 Recommended for draft 2
+Every study since has compared the two or used 1b:
 
-From [report 0004](0004-report-draft-1-evaluation.md):
+| Workload | Cycles, 1b / 1a | Where 1b gains, or doesn't | Report |
+|---|---:|---|---|
+| The 20 hand-written programs | 0.90–0.93 | Auto-increment above all; the VM's table dispatch (−24%) and Life's memory operands (−16%). Register-bound programs are within 3% | [0004](0004-report-draft-1-evaluation.md) |
+| The 15 programs in compiled C | 0.94–0.95 | Auto-increment in pointer loops. Memory operands save a cycle each; 4-bit constants cost the compiler more than a person | [0011](0011-report-c-compiler.md) |
+| Graphics: assembly kernels / compiled C | 0.95 / 0.97 | Copies (−30% along rows) and anti-aliased text, by auto-increment; the rest is the same | [0019](0019-report-graphics.md) |
+| Egret's interpreter | 1b only | Auto-increment is 21–37% of the loop's instructions, `JMP [r + r*4]` 7–14% | [0017](0017-report-egret.md) |
+| The Lisp | 1b only | `CALL [r1 + 1]` through a code word, one-parcel stack slots, auto-increment for pushes, pops and `cons` | [0018](0018-report-lisp.md) |
+| Kernel routines | 0.93 unrolled | 1b is 1–3 cycles faster calling through tables, and PC-relative data is free. 1a's one-parcel `[r + 4o]` would suit control-block fields | [0020](0020-report-operating-system.md#the-rest) |
 
-- **Base draft 2 on 1a.** **recommended.**
-- **Post-increment and pre-decrement loads and stores** in 1a's op F: byte
-  and word `[r]+`, word `-[r]` (pushes), byte `-[r]` (backwards loops), half
-  if it fits. **recommended.** Estimated to recover at least 60% of the gap
-  to 1b, and it fixes the "`ADDI` sets Z" ordering problem.
-- **Jump through a table** (`JMP [table + r*4]`) in a free system function.
-  **recommended.** The VM's dispatch is 9 cycles in 1b against 18 in 1a.
-  Matters for interpreters and command dispatch.
-- **Memory increment** (`INC [mem]`, `ADD [mem], r`). **recommended.**
-  Counters, interrupt handlers; fib's call counter was 30% of its time.
-- **Three-operand add** (`ADD rd, rs, rt`), like 1b's `LEA [rA + rB*s]`, if
-  an encoding turns up. **open.**
+- **Base draft 2 on 1b.** **open**: Emily's preference, and where most of
+  the work since draft 1 has gone: the 213-chip hardware
+  ([report 0012](0012-report-draft-1b-hardware.md)), the Lisp, Egret, the
+  graphics kernels and the kernel study's v1bs. Section 3 collects what a
+  1b-based draft 2 would change.
+- **Base draft 2 on 1a.** Report 0004 recommended it. That recommendation
+  is withdrawn: it was based on faulty numbers (Emily, 2026-10-14).
+  Section 4 keeps the additions 1a would want, in case.
 
-### 2.4 More instruction ideas, not yet decided
+## 3. For a draft 2 built on 1b
 
-| Idea | Cost | Notes | Status |
-|---|---|---|---|
-| Shifts and rotates with a separate destination (`ROR rd, rs, #n`) | microcode | `MOV` was 25–27% of sha256's instructions | **recommended** |
-| Multiply-accumulate into `HI:LO` (`MULA`), fixed-point multiply (multiply, then shift by n) | microcode | Multiply was 50% of mandel; audio, graphics, DSP | **open** |
-| Bit-field extract/insert; byte reverse (`REV`) | microcode | Protocols, file formats, graphics; SHA needed big-endian loads | **open** |
-| Packed byte arithmetic `ADD.B4` by gating carries at byte boundaries | 1–2 chips | Pixel arithmetic, zero-byte search. Saturation and per-lane flags cost much more | **open** |
-| Zero-overhead loops (`LOOP count, end`) | ~10 chips (PC comparator) | DSP style; saves ~5 cycles per iteration in tight loops; modest here | **open** |
-| `SKIPcc` (PDP-8 skips, Thumb-2 `IT`) | microcode | Branch-free min/max and conditional moves | **open** |
-| Interruptible block move/fill/compare (like `REP MOVS`; progress in registers) | microcode | Page copies, screen clears; ~2 bus cycles per halfword against ~14 for a loop | **open** |
-| Block I/O instruction (Z80 `INIR` style, interruptible) | microcode | ~5–6 cycles per word against ~12–15 for a software loop | **open** |
-| Atomic exchange / test-and-set | microcode + bus lock | Only once DMA or a second CPU shares data structures | **open** |
-| Popcount, find-first-set | microcode | Scheduler and allocator bitmaps | **open** |
-| Tagged add, subtract and compare that trap unless both operands are SmallInts (SPARC's `TADDccTV`) | opcode or mode, trap vector | Dynamic languages: 2–3% of an interpreter's run, 5.5% of compiled code's and 16–18% of numeric programs' ([report 0017](0017-report-egret.md)) | **measured** |
-| For dynamic languages: load a tagged value's class, three-operand `XOR`, unaligned 16-bit loads, a call that leaves the return address in a register, `CHK` | microcode | About 1% or less each, interpreted or compiled ([report 0017](0017-report-egret.md)) | **measured** |
-| A 12-bit `BSR` (±4 KB, SuperH style) in op B | opcode | Saves ~9% of code size and no cycles; op B went to the shift group instead | **rejected** |
+### 3.1 Room left in 1b's encoding
 
-### 2.5 Rejected, with the evidence
+Every opcode of the `F D M R` format is taken
+([isa-v1b.md](../studies/v1_isa/isa-v1b.md)). What's left:
 
-| Proposal | Why not |
-|---|---|
-| Three-operand ALU throughout | `MOV`+op pairs were 1% of draft 0 instructions (12% in queens); doesn't fit 16-bit nibble fields |
-| Compare-and-branch | `CMP`;`Bcc` is 5.4% of instructions, but a fused form needs an extension word: 2 parcels either way, ~1 cycle saved |
-| `DBNZ` (decrement and branch) | 2.3% of instructions; needs a whole major opcode |
-| Wider branch offsets | 95% of executed branches fit a 6-bit offset, 100% fit 8 bits; the assembler relaxes the rest |
-| Link register instead of pushing the return address | ~2% of cycles, gives up a register |
-| ARM-style conditional execution | No spare bits |
-| 16-bit ALU ops alongside 32-bit (68000 `.W`/`.L`) | Doubles the ALU encodings and bakes the narrow implementation into the ISA |
-| Decimal (BCD) arithmetic | No use |
-| Separate I/O instructions (`IN`/`OUT`) | No opcode space; memory-mapped I/O works with every addressing mode |
-| Register + register addressing in a load/store ISA | Not worth a major opcode; `[label + reg]` covered static arrays in 16-bit space (see the 1b indexed mode for the alternative) |
+- **Mode E,** the one reserved mode. The Lisp's v1bx uses it for a tagged
+  register operand ([section 6](#6-for-dynamic-languages)).
+- **Mode F's R = D–F,** three special operands.
+- **The indexed mode's size z = 3.**
+- **Op B, `B k M R`:** k = 0 and 1 are `JMP ea` and `CALL ea`; the other
+  14 values are free, each with every mode.
+- **Op F's register functions 9–E,** six of them.
+- **The unary group's functions C–F,** four.
+- **The shift group's count kind 3,** four forms (one per shift).
+- **The system group's functions E–F.** v1bs takes them for `MFUR` and
+  `MTUR` ([report 0020](0020-report-operating-system.md)).
+- **Modes an instruction can't use,** which trap today: `ST` with a
+  register or a constant, `LEA` with a register, a constant or an
+  auto-increment mode.
 
-### 2.6 For Lisp
+That is room for register-only and `ea`-taking instructions, but not for
+a new one-parcel addressing mode or wider one-parcel constants, which
+need bits in `F D M R` itself.
 
-From the Lisp study ([report 0018](0018-report-lisp.md)): a dynamically
-typed, garbage-collected language on 1b, interpreted and compiled. Shares
-are of compiled cycles, on 12 benchmarks.
+### 3.2 1b's gaps
 
-| Proposal | Evidence | Status |
+From [report 0004](0004-report-draft-1-evaluation.md), the program
+writers' notes ([report 0003](0003-report-draft-1-programming-notes.md))
+and the later studies:
+
+| Gap | What it costs | Status |
 |---|---|---|
-| Keep misaligned-access traps **precise** (the saved PC is the faulting instruction's, nothing changed) in draft 2 | Tagged pointers make `car`, `cdr` and calls type-check themselves through the trap; checking in software would cost 16% compiled (up to 35%) and 19% interpreted | **recommended** |
-| A tagged register operand: `MOV`, `ADD`, `SUB`, `CMP`, ... that trap unless both operands have bit 0 clear, and `ADD`/`SUB` that trap on overflow (1b's reserved mode E; in 1a, op F) | Built as v1bx ([isa.md](../studies/lisp/isa.md)): −6.4% geometric mean, up to −16% (fib); −5.6% if it costs a cycle more. About one chip | **measured**, open |
-| Keep a memory-indirect call (`CALL [r + d]`) in draft 2 | Calls go through a code word in every object; a load and `CALL r` would cost 1.3% (up to 2.5%) | **measured**, open |
-| One-parcel `[r - 1]` and `[r + 3]` (the pair offsets) | Saves 1.1% compiled, 1.7% interpreted; not worth the encoding space | **measured** |
-| Guard pages for the stack and heap limits | In [RFC 0010](0010-rfc-ideas-os.md#11-mmu): 5.0% and 1.8% | **open** |
+| Constants are 4 bits in one parcel: characters, masks, 16–255 take an extension parcel | 13% of hand-written operands are 16-bit constants that 1a mostly fits in one parcel; 5.6% of compiled operands are 16- or 32-bit constants ([report 0011](0011-report-c-compiler.md)). One-parcel 8-bit constants have no room in `F D M R` | **open** |
+| No one-parcel `[r + small offset]` | Struct fields: bst's `inorder` and `height` are 3–5% slower than on 1a; a cycle per control-block field in kernel code ([report 0020](0020-report-operating-system.md#the-rest)) | **open** |
+| No immediate `TST`/`BIC`/`MUL`/`DIV` (op F is register-only) | Constants need registers, and so callee-saved registers across calls | **open** |
+| No byte or half auto-decrement, no half auto-increment | Backwards loops (`memmove`, `reverse`) | **open** |
+| The indexed mode's displacement is 8 bits | A table's address needs a register of its own ([report 0019](0019-report-graphics.md#smaller-things)) | **open** |
+| `[label + reg]` reaches only ±32 KB | 1b has no 32-bit displacement form | **open** |
+| `POP` is `MOV r, [sp]+`, which sets N and Z | It can't sit between a test and its branch; `RESTORE r-r` can ([3.4](#34-which-movs-set-the-flags)) | **open** |
+| No store-immediate | Zero is stored as `ST r0, ea` ([3.3](#33-r0-as-a-general-register)); `CLR ea` in op B would replace it | **open** |
+| No memory increment (`INC [mem]`, `ADD [mem], r`) | fib's call counter is 30% of its time; a timer interrupt handler is a load, an add and a store. Memory-destination ALU operations in general were 0.4% of draft 0's instructions ([section 7](#7-not-recommended-and-rejected)) | **recommended** ([report 0004](0004-report-draft-1-evaluation.md#recommendations-for-draft-2)) |
+| `CALL [r]+` and `CALL -[r]` move the register before pushing the return address, so a fault on the push can't be restarted | Found by the kernel study ([report 0020](0020-report-operating-system.md#what-was-hard)). The microcode should push first, or draft 2 drops the form (crc uses it) | **recommended** |
 
-### 2.7 `r0` as a general register
+### 3.3 `r0` as a general register
 
 **measured**, open. Only for a draft 2 built on 1b. In draft 1, `r0` reads
 as zero in both encodings. In 1a it carries its weight: `[r0 + disp]` is
@@ -196,7 +187,7 @@ to make `r0` a 15th general register.
   - [Report 0004](0004-report-draft-1-evaluation.md) found no hand-written
     program short of registers either.
 - **Replacing it:**
-  - Op B (`JMP`/`CALL ea`) has 14 unused values of `d`. One could be
+  - Op B (`JMP`/`CALL ea`) has 14 unused values of `k`. One could be
     `CLR ea`, which stores zero at any size, in any mode.
   - `ADC`/`SBC`, `MTSR` and `MTUR` would still need a zero from a register,
     or new forms. For example, the unary group has four free functions,
@@ -210,7 +201,7 @@ to make `r0` a 15th general register.
   Only worth it if a 1b-based draft 2 wants the register or the encoding
   space for something else.
 
-### 2.8 Which `MOV`s set the flags
+### 3.4 Which `MOV`s set the flags
 
 **measured**, open. Stores could be written as `MOV` too: `MOV [r2], r1`
 for `ST r1, [r2]`, and `MOV -[sp], r1` for a push. Loads, stores, register
@@ -279,16 +270,15 @@ set N and Z (C and V unchanged); stores don't.
     after a load would then compare with zero instead of reading a stale
     V. No measured program needs it: it would only save 62 executions of
     a `CMP r, #0` in compiled C. It would remove the same trap as the
-    `INC`/`DEC`/`TST` wish in
-    [section 14](#14-wishes-from-the-program-writers), and nothing branches
-    on V after a move.
+    `INC`/`DEC`/`TST` wish in [section 5](#5-more-instruction-ideas), and
+    nothing branches on V after a move.
 - **The syntax itself:**
   - In 1b it's an assembler and disassembler change only.
   - 1a's loads and stores would take 1b's size keywords, plus one more for
     sign-extending loads (`sbyte`, say).
   - `MOV [x], #c` would be the natural thing to write, and neither
     encoding has it. With `r0 = 0`, `MOV [x], #0` can assemble to
-    `ST r0, [x]` (2.7).
+    `ST r0, [x]` ([3.3](#33-r0-as-a-general-register)).
 - **The question:** is one rule for loads and stores worth its price?
   - "Never" costs about 2–3% in hand-written string code.
   - "Always" costs about 1% in the 1b hardware.
@@ -297,10 +287,106 @@ set N and Z (C and V unchanged); stores don't.
 
 Measured at `b6ffcfd` with scripts that aren't committed.
 
-## 3. Floating point
+## 4. If draft 2 builds on 1a after all
 
-**open**, and nothing needed yet. These decisions touch the base ISA,
-so they should be settled before it's final:
+**open**, and moot if draft 2 builds on 1b. What 1a would want, from
+[report 0004](0004-report-draft-1-evaluation.md#recommendations-for-draft-2)
+and the later studies:
+
+- **Post-increment and pre-decrement loads and stores** in op F: byte and
+  word `[r]+`, word `-[r]` (pushes), byte `-[r]` (backwards loops), half
+  if it fits. Estimated to recover at least 60% of the gap to 1b, and it
+  removes the "`ADDI` sets Z" ordering problem from pointer loops. It is
+  most of 1b's lead in graphics too
+  ([report 0019](0019-report-graphics.md#auto-increment-for-1a)).
+- **A jump through a table** (`JMP [table + r*4]`) in a free system
+  function. The VM's dispatch is 9 cycles in 1b against 18 in 1a; Egret's
+  interpreter dispatches this way on every bytecode
+  ([report 0017](0017-report-egret.md#isa-changes-for-the-interpreter)).
+- **A memory-indirect call** (`CALL [rs + d]`): the Lisp calls through a
+  code word in every object (1.3% over a load and `CALL r`,
+  [report 0018](0018-report-lisp.md#for-draft-2)), and an import table
+  becomes one instruction ([report 0020](0020-report-operating-system.md#dynamic-linking)).
+- **Tagged arithmetic** in op F ([section 6](#6-for-dynamic-languages)).
+- **Three-operand add** (`ADD rd, rs, rt`), like 1b's `LEA [rA + rB*s]`,
+  if an encoding turns up.
+- **From the program writers:**
+  - one-parcel `LDH`/`STH`, and one-parcel `AND`/`BIC`/`XOR` immediates;
+  - a longer reach for the short byte offsets: 0–15 is too short for a
+    34-byte Life row;
+  - an `ADDI` that leaves Z alone, or a one-parcel `LEA`, to step a
+    pointer between a load and the branch that tests it.
+- **The system extensions** of v1bs fit 1a as well: special registers,
+  flag bits and two system-group functions
+  ([studies/kernel/system.md](../studies/kernel/system.md)).
+
+## 5. More instruction ideas
+
+| Idea | Cost | Notes | Status |
+|---|---|---|---|
+| Load- and store-multiple through any register, with writeback (68000 `MOVEM`, ARM `LDM`/`STM`) | microcode: `SAVE`/`RESTORE` with the base register from the instruction | Graphics: a copied word 9.2 → 5.1 cycles, a filled one 4.6 → 2.9; emulated through `sp`, clearing an 8-bit screen −29% ([report 0019](0019-report-graphics.md#a-load--and-store-multiple)). Zeroing a page −41%, copying one −37% ([report 0020](0020-report-operating-system.md#zeroing-and-copying)). Also `memcpy` and context switches | **recommended** |
+| Interruptible block move/fill/compare (like `REP MOVS`; progress in registers) | microcode | Page copies, screen clears; ~2 bus cycles per halfword against ~14 for a loop. A block fill and copy would reach the bus's limit, about 2× an unrolled loop ([report 0020](0020-report-operating-system.md#zeroing-and-copying)) | **open** |
+| Shifts and rotates with a separate destination (`ROR rd, rs, #n`) | microcode | `MOV` was 25–27% of sha256's instructions | **recommended** |
+| A funnel shift, `rd = (rd:rs) >> n`, the count in a register or `HI` | microcode, and a barrel shifter ([RFC 0007](0007-rfc-ideas-microarchitecture.md#1-datapath-and-fetch)) | A word of a bit-aligned copy 26.5 → 13.5 cycles ([report 0019](0019-report-graphics.md#a-funnel-shift-or-a-barrel-shifter)). The shift group's free count kind has room for it | **open** |
+| Rotate left, or rotates that go the shorter way | microcode | `ROR #29` is 7 steps where a rotate left by 3 would be 3; `ROR #27` is 11 cycles | **open** |
+| A merge under a mask, `d = (d & ~m) \| (c & m)`, with the mask in `HI` or a fixed register | microcode | Every masked edge and glyph word: 20% off the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) | **open** |
+| Multiply-accumulate into `HI:LO` (`MULA`), fixed-point multiply (multiply, then shift by n) | microcode | Multiply was 50% of mandel; audio, graphics, DSP | **open** |
+| Bit-field extract/insert; byte reverse (`REV`) | microcode | Protocols, file formats, graphics; SHA needed big-endian loads | **open** |
+| Packed byte arithmetic `ADD.B4` by gating carries at byte boundaries | 1–2 chips | Pixel arithmetic, zero-byte search. Saturation and per-lane flags cost much more | **open** |
+| Zero-overhead loops (`LOOP count, end`) | ~10 chips (PC comparator) | DSP style; saves ~5 cycles per iteration in tight loops; modest here | **open** |
+| `SKIPcc` (PDP-8 skips, Thumb-2 `IT`) | microcode | Branch-free min/max and conditional moves | **open** |
+| Block I/O instruction (Z80 `INIR` style, interruptible) | microcode | ~5–6 cycles per word against ~12–15 for a software loop ([RFC 0009](0009-rfc-ideas-io.md#2-channels-and-dma)) | **open** |
+| Atomic exchange / test-and-set | microcode + bus `LOCK` | On one CPU, restartable sequences need no hardware ([report 0020](0020-report-operating-system.md#the-rest)); between CPUs the bus has `LOCK` and semaphore registers ([RFC 0014](0014-rfc-system-bus.md#73-locked-sequences)) | **open** |
+| Popcount, find-first-set | microcode | Scheduler and allocator bitmaps; `CLZ` (draft 1) already finds the kernel study's highest ready priority | **open** |
+| `V` updated (or defined) by `INC`/`DEC`/`TST` | microcode | Signed branches after them test a stale V ([report 0003](0003-report-draft-1-programming-notes.md)) | **open** |
+| System extensions: supervisor mode, register banks, `MFUR`/`MTUR`, XL/XS, a vectored `SWI` | special registers, flag bits, two system functions | Built and measured as v1bs ([RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)) | **recommended** |
+
+## 6. For dynamic languages
+
+From the Lisp ([report 0018](0018-report-lisp.md)) and Egret
+([report 0017](0017-report-egret.md)), both on 1b, interpreted and
+compiled on the machine.
+
+| Proposal | Evidence | Status |
+|---|---|---|
+| Keep misaligned-access traps **precise** (the saved PC is the faulting instruction's, nothing changed) and decodable | Tagged pointers make the Lisp's `car`, `cdr` and calls type-check themselves through the trap; checking in software would cost 16% compiled (up to 35%) and 19% interpreted. Draft 1's restartability rules already give it | **recommended** |
+| Tagged arithmetic: `ADD`, `SUB`, `CMP` (and `MOV`) that trap unless both operands are integers, `ADD`/`SUB` trapping on overflow too (SPARC's `TADDccTV`) | The Lisp built it as v1bx, a tagged register operand in 1b's mode E ([isa.md](../studies/lisp/isa.md)): −6.4% of compiled cycles (geometric mean), up to −16% (fib); −5.6% if it costs a cycle more; about one chip. Egret's JIT: −5.5% on average, 16–18% in the numeric programs; its interpreter only 2–3%. The two tag integers differently (the Lisp with bit 0 clear, Egret as 2n + 1); hardware fixes one, and the Lisp's adds directly | **measured**, open |
+| Keep a memory-indirect call (`CALL [r + d]`) | The Lisp calls through a code word in every object; a load and `CALL r` would cost 1.3% (up to 2.5%). 1b has it | **measured**, open |
+| Guard pages for the stack and heap limits | The Lisp: 5.0% and 1.8% of compiled cycles ([RFC 0010](0010-rfc-ideas-os.md#3-mmu)) | **open** |
+| One-parcel `[r - 1]` and `[r + 3]` (the Lisp's pair offsets); the heap limit in a register | 1.1% and 0.9%: not worth the encoding space or a register | **not recommended** |
+| Egret's smaller ones: load a value's class, three-operand `XOR`, unaligned 16-bit loads, a call that leaves the return address in a register, `CHK` | About 1% or less each, interpreted or compiled | **not recommended** |
+
+What would help these languages more is software: direct threading saves
+11% of Egret's interpreter, and its JIT would gain most from keeping the
+top of the stack in registers and compiling only what runs often
+([report 0017](0017-report-egret.md#what-this-suggests)); the Lisp's
+compiler has no register allocation
+([report 0018](0018-report-lisp.md#interpreted-and-compiled)).
+
+## 7. Not recommended and rejected
+
+| Proposal | Status | Why not |
+|---|---|---|
+| Three-operand ALU throughout | **rejected** | `MOV`+op pairs were 1% of draft 0 instructions (12% in queens); doesn't fit 16-bit nibble fields |
+| Compare-and-branch | **rejected** | `CMP`;`Bcc` is 5.4% of instructions, but a fused form needs an extension word: 2 parcels either way, ~1 cycle saved |
+| `DBNZ` (decrement and branch) | **rejected** | 2.3% of instructions; needs a whole major opcode |
+| Wider branch offsets | **rejected** | 95% of executed branches fit a 6-bit offset, 100% fit 8 bits; the assembler relaxes the rest |
+| A 12-bit `BSR` (±4 KB, SuperH style) in 1a's op B | **rejected** | Saves ~9% of code size and no cycles; op B went to the shift group instead |
+| Link register instead of pushing the return address | **rejected** | ~2% of cycles, gives up a register. Egret's JIT confirms it: 0.7% on average ([report 0017](0017-report-egret.md#changes-for-compiled-code)) |
+| ARM-style conditional execution | **rejected** | No spare bits |
+| 16-bit ALU ops alongside 32-bit (68000 `.W`/`.L`) | **rejected** | Doubles the ALU encodings and bakes the narrow implementation into the ISA |
+| Decimal (BCD) arithmetic | **rejected** | No use |
+| Separate I/O instructions (`IN`/`OUT`) | **rejected** | No opcode space; memory-mapped I/O works with every addressing mode |
+| Register + register addressing in a load/store ISA | **rejected** | Not worth a major opcode; `[label + reg]` covered static arrays in 16-bit space (1b's indexed mode is the alternative) |
+| Memory-destination ALU operations in general | **rejected** | 0.4% of draft 0's instructions, all in fib. A memory increment alone is still recommended ([3.2](#32-1bs-gaps)) |
+
+## 8. Floating point
+
+**open**, and nothing needed yet: the C compiler has no floating point,
+and software floating point in its library would come first
+([compiler.md](../studies/c_compiler/compiler.md#limitations-and-next-steps)).
+These decisions touch the base ISA, so they should be settled before it's
+final:
 
 - **Leave a hole:** one escape opcode with a 16-bit *command word* (like the
   68000's "line F" and the 68881, or the 8086's `ESC` and the 8087). It
@@ -310,6 +396,9 @@ so they should be settled before it's final:
   - Before hardware exists, a trap handler emulates FP in software; same
     binaries throughout.
   - `FFFF` must stay illegal, so erased memory still traps.
+  - 1a's op F is free for it. 1b has no whole opcode left, but op B's
+    free values ([3.1](#31-room-left-in-1bs-encoding)) could carry a
+    command word, with an `ea` for loads and stores.
 - **FP registers:** a separate file, e.g. 16 × 64-bit, in the spare
   register-file SRAM. Nearly free in hardware, and doesn't take integer
   registers. The alternative, floats in integer registers (RISC-V's Zfinx),
@@ -339,26 +428,27 @@ so they should be settled before it's final:
   - reserved bits in the status word (must be written as 0);
   - reserved vectors and special-register numbers.
 
-## 14. Wishes from the program writers
+## 9. The assembler, the library and the compiler
 
-From [report 0003](0003-report-draft-1-programming-notes.md), not covered above:
+Wishes from the program writers
+([report 0003](0003-report-draft-1-programming-notes.md)) and the later
+studies that are about the tools, not the ISA. All **open**.
 
-| Wish | ISA | Notes |
-|---|---|---|
-| One-parcel 8-bit constants | 1b | Character constants cost 2 parcels; no room in the `F D M R` encoding |
-| Byte and half auto-decrement, half auto-increment | 1b | Backwards loops (`memmove`, `reverse`) |
-| Indexed mode with more than 8 bits of displacement | 1b | A table base needs its own register |
-| `[label + reg]` for labels beyond ±32 KB | both | 1b has no 32-bit displacement form |
-| One-parcel `[r + small offset]` | 1b | Struct fields cost an extension parcel |
-| Immediate `TST`/`BIC`/`MUL`/`DIV` | 1b | Constants needed registers |
-| `POP` that leaves the flags alone | 1b | `MOV [sp]+` sets N and Z; `RESTORE r-r` doesn't (2.8) |
-| Longer reach for the short byte offsets | 1a | 0–15 is too short for a 34-byte Life row |
-| `MOV`/`MVI` that don't set flags, or an explicit flag-setting bit (ARM's S bit) | both | A constant can't be loaded between a compare and its branch; measured in 2.8 |
-| V updated (or defined) by `INC`/`DEC`/`TST` | both | Signed branches after them test a stale V |
-| Assembler macros, `.rept` | tools | sha256's rounds |
-| Library constants not polluting the global namespace (`CONSOLE`, `PR_OUT`) | library | Programs couldn't reuse the names |
-| `strcmp` setting flags from its result | library | Every call was followed by `TST` |
-| Accept `MVI r, 0x80` when only the low byte matters | tools | Had to write −128 |
-
-Tooling items already done in this round: per-kind and per-routine cycles in
-`run --stats`; raw-byte output from `heron v1_isa run`.
+- **Assembler macros and `.rept`** (sha256's rounds). Still missing.
+- **`.align` that pads code with `NOP`s,** so hot loops can be aligned:
+  wide-fetch cycles depend on loop alignment by up to 15%, and `.align`
+  pads with zeros, which are `HALT`
+  ([report 0004](0004-report-draft-1-evaluation.md#the-hardware-configurations)).
+  **recommended.**
+- **Library constants that don't pollute the global namespace**
+  (`CONSOLE`, `PR_OUT`): programs couldn't reuse the names.
+- **`strcmp` documented as setting the flags from its result:** every call
+  was followed by `TST`.
+- **Accept `MVI r, 0x80`** when only the low byte matters; today it has to
+  be written as −128.
+- **The C compiler's next steps** are in
+  [compiler.md](../studies/c_compiler/compiler.md#limitations-and-next-steps):
+  `long long`, software floating point, linker relaxation,
+  shrink-wrapping, and an interrupt-handler attribute. A kernel in C also
+  wants intrinsics for `CLZ`, the special registers and `MFUR`/`MTUR`
+  ([report 0020](0020-report-operating-system.md#the-rest)).
