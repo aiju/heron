@@ -1,0 +1,9 @@
+(nqueens 1) = 1
+(nqueens 2) = 0
+(nqueens 3) = 0
+(nqueens 4) = 2
+(nqueens 5) = 10
+(nqueens 6) = 4
+(nqueens 7) = 40
+(nqueens 8) = 92
+first solution for 8: (1 5 8 6 3 7 2 4)

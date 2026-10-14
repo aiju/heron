@@ -1,0 +1,83 @@
+integers: (0 1 -1 1 42 -42 7 0)
+integer?: (t t t nil nil nil nil nil nil nil)
+symbols: (+ - 1+ -1a a1 +- 1-2 --1 ...)
+punctuation in symbols: (set-car! <= a->b *x* %y $z & ^ ~ ! ? @ #foo a.b .. .5 \x |y|)
+case-sensitive: (nil t MiXeD)
+nil reads as nil: (t nil t)
+() reads as nil: (nil (nil) (nil) nil)
+t is a symbol: (t t)
+high bytes: (café naïve)
+quote: (quote x)
+quasiquote: (quasiquote x)
+unquote: (a (unquote b))
+unquote-splicing: (a (unquote-splicing b))
+all of them: (quasiquote (a (unquote b) (unquote-splicing c) (quote d)))
+quote of a list: (quote (1 2))
+nested quotes: (quote (quote a))
+space after a quote: x
+comma, space, @: ((unquote @x))
+car of a quote form: quote
+comments: (1 2 3)
+a comment ends a token: (a b)
+after a comment: ok
+dotted pair: (1 . 2)
+dotted list: (1 2 . 3)
+dot then a list: (1 2 3)
+dot then nil: (1)
+dot then (): (1)
+dot then a quote: (1 quote x)
+dot then a string: (1 . "s")
+dot before a parenthesis: (1 2)
+a symbol starting with a dot: (a .b)
+nested dotted: ((1 . 2) (3 . 4) . 5)
+dotted with spaces: (1 . 2)
+escapes: "a\"b\\c\nd"
+displayed: a"b\c
+d
+length with escapes: 7
+codes of escapes: (10 92 34)
+another escaped character is itself: "qt"
+empty string: ""
+a newline in a string: "line1\nline2"
+a string with ; and parentheses: "a ; b ( c ) 'd"
+high bytes in a string: "café"
+a tab is printed as it is: "a	b"
+a string: (a "s" b)
+a quote: (a (quote b))
+parentheses: (a (b) c)
+a comma: (a (unquote b))
+a backquote: (a (quasiquote b))
+newlines and tabs: (a b)
+nested lists: (1 (2 (3 (4))) ((5)))
+a quote form: (quote x)
+quote forms inside: (a (quote b) (quasiquote c) (unquote d))
+negative integers: (-1 -1073741824)
+a vector: #("s" (1 . "2") #(in))
+an empty vector: #()
+a list holding a vector: (1 #("s" (1 . "2") #(in)))
+procedures: (#<procedure> #<procedure>)
+display: (a (b . c) #(s (1 . 2) #(in)) sym 12 q"uote)
+display a string with a newline: x
+y
+write: ("a" ("b" . "c") sym 12)
+write-char: Hi!
+read a symbol: hello
+read a list: (1 (2 "three") . four)
+read a quote: (quote x)
+read a string: "s\"t"
+read an integer: -123
+read nil: nil
+read two: (first second)
+read until end: (1 2 (3 4) "five")
+read past a comment: (x y)
+read evaluates nothing: (car 5)
+eval what was read: 3
+read of a stray )
+error: unexpected )
+read of a literal out of range
+error: overflow
+carrying on
+done: reader
+the end of the input: #<eof>
+eof-object?: t
+read again: t

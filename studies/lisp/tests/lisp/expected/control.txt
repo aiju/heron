@@ -1,0 +1,49 @@
+apply: 6
+apply to nil: 0
+apply list to nil: nil
+apply a lambda: 7
+apply a varargs lambda: (1 2 3)
+apply a dotted lambda: (1 (2 3))
+apply + to 1000: 500500
+apply list to 1000: 1000
+apply a varargs lambda to 1000: (1 2 998)
+apply with 8 parameters: (8 7 6 5 4 3 2 1)
+apply with 7: 8
+apply max: 9
+apply apply: 3
+apply car: x
+apply in map: (2 12 1)
+apply a rest list: 6
+recursion through apply: 55
+the list is not changed: (1 2 3)
+eval: 3
+eval a quoted symbol: sym
+eval sees the global scope: global
+eval in a procedure: global
+eval a define: defined-by-eval
+it is defined: 42
+eval built code: 42
+eval a lambda: 25
+eval an integer: 5
+eval a string: "s"
+eval nil: nil
+eval t: t
+eval a macro call: w
+eval eval: 4
+eval a quasiquote: 9
+an error inside eval
+error: not a pair: 5
+an unbound variable inside eval
+error: unbound variable: local
+gc: nil
+allocate a lot: done
+data survives: (1 "two" three #(4 4) #<procedure>)
+a closure survives: kept
+a list of 1000 survives: (1000 (999 998001) (0 0))
+write: "w" returns: nil
+display: d returns: nil
+newline:
+returns: nil
+write-char: A returns: nil
+a byte at a time: bytes
+done: control

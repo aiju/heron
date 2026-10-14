@@ -6,7 +6,7 @@
 //! key or stops with a trap or an error.
 
 use crate::key::{Ea, How, Key, Kind};
-use crate::machine::{ADDR_VECTOR, DIV_VECTOR, ILLEGAL_VECTOR, Machine, SWI_VECTOR};
+use crate::machine::{ADDR_VECTOR, DIV_VECTOR, ILLEGAL_VECTOR, Machine, SWI_VECTOR, TAG_VECTOR};
 
 /// An instruction trapping: `fault` saves the faulting instruction's
 /// address, otherwise the next instruction's.
@@ -222,6 +222,15 @@ pub enum Insn {
         f: u8,
         d: u8,
         m: MemOp,
+    },
+    // ---- v1bx
+    /// MOV or an ALU operation on a tagged register: as on a register,
+    /// but it traps (TAG_VECTOR) unless both operands (MOV: the source)
+    /// have bit 0 clear, and ADD and SUB trap on overflow
+    AluTag {
+        f: u8,
+        d: u8,
+        rn: u8,
     },
 }
 
@@ -816,6 +825,27 @@ impl Machine {
                     ea: m.ea,
                     size: m.size,
                     x,
+                })
+            }
+            Insn::AluTag { f, d, rn } => {
+                let (a, b) = (r(self, d), r(self, rn));
+                if (if f == ALU_MOV { b } else { a | b }) & 1 != 0 {
+                    return trap(TAG_VECTOR, true, "tag check");
+                }
+                let ov = match f {
+                    0 => (a as i32).checked_add(b as i32).is_none(),
+                    2 => (a as i32).checked_sub(b as i32).is_none(),
+                    _ => false,
+                };
+                if ov {
+                    return trap(TAG_VECTOR, true, "tagged overflow");
+                }
+                if let Some(v) = self.alu(f, a, b)? {
+                    self.set_reg(d, v);
+                }
+                self.pc = nxt;
+                key(Kind::Alu {
+                    wb: alu_writes(f) as u8,
                 })
             }
             Insn::AluMem { f, d, m } => {

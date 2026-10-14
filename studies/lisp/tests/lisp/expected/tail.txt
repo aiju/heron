@@ -1,0 +1,19 @@
+named let: 100000
+if: 10000
+cond: 100000
+and and or: 100000
+or: reached
+begin: 10000
+let body: 10000
+let* body: 10000
+letrec body: 10000
+when: 10000
+unless: 10000
+case: 10000
+a lambda's body: 10000
+mutual recursion, even: t
+mutual recursion, odd: t
+letrec mutual recursion: 15000
+passing closures: 1
+a varargs procedure: (1)
+building and walking a list of 5000: 12502500
