@@ -11,52 +11,52 @@ time; and that as time at 3 MHz.
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Start the VM and compile the prelude (408 lines) | 4,931,859 | 1,644 ms |
-| Compile the desktop (1812 lines of Egret) and open its first windows | 31,270,317 | 10,423 ms |
-| Paint the first windows | 3,520,770 | 1,174 ms |
+| Start the VM and compile the prelude (408 lines) | 4,932,037 | 1,644 ms |
+| Compile the desktop (1834 lines of Egret) and open its first windows | 31,720,233 | 10,573 ms |
+| Paint the first windows | 3,503,618 | 1,168 ms |
 
 ## Idle
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
 | The event loop, a second with nothing to do | 186,000 | 62 ms |
-| The same with the clock moving its hands | 542,836 | 181 ms |
+| The same with the clock moving its hands | 543,424 | 181 ms |
 
 ## Workspace
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Type a character | 51,071 | 17 ms |
-| Delete it | 34,386 | 11 ms |
-| Return, with the lines below it redrawn | 453,654 | 151 ms |
-| Print it: `3 + 4 * 5` | 157,157 | 52 ms |
-| Print it: `2 ** 100` | 196,351 | 65 ms |
-| Scroll to the end (Ctrl-End) | 1,273,509 | 425 ms |
+| Type a character | 51,349 | 17 ms |
+| Delete it | 34,470 | 11 ms |
+| Return, with the lines below it redrawn | 453,682 | 151 ms |
+| Print it: `3 + 4 * 5` | 172,267 | 57 ms |
+| Print it: `2 ** 100` | 206,463 | 69 ms |
+| Scroll to the end (Ctrl-End) | 1,273,704 | 425 ms |
 
 ## Windows
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Open the desktop menu and close it (Escape) | 740,084 | 247 ms |
-| Drag the Workspace by 100 pixels (8 steps of its outline) and move it | 893,114 | 298 ms |
-| Raise the Transcript from behind the Workspace | 565,333 | 188 ms |
-| Close the Workspace (and paint the desktop under it) | 273,195 | 91 ms |
+| Open the desktop menu and close it (Escape) | 739,186 | 246 ms |
+| Drag the Workspace by 100 pixels (8 steps of its outline) and move it | 892,174 | 297 ms |
+| Raise the Transcript from behind the Workspace | 576,289 | 192 ms |
+| Close the Workspace (and paint the desktop under it) | 273,301 | 91 ms |
 
 ## Opening
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Transcript | 228,100 | 76 ms |
-| Browser | 1,747,343 | 582 ms |
-| Paint | 352,347 | 117 ms |
-| About | 8,222,752 | 2,741 ms |
+| Transcript | 241,119 | 80 ms |
+| Browser | 1,761,246 | 587 ms |
+| Paint | 364,346 | 121 ms |
+| About | 8,236,581 | 2,746 ms |
 
 ## Browser
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Pick a class (Clock) | 527,841 | 176 ms |
-| Pick a method and show its source (paint) | 1,899,583 | 633 ms |
+| Pick a class (Clock) | 524,364 | 175 ms |
+| Pick a method and show its source (paint) | 1,921,114 | 640 ms |
 
 ## Running
 
@@ -64,8 +64,8 @@ time; and that as time at 3 MHz.
 |---|---:|
 | Life, generations a second (the glider gun) | 3.0 |
 | The Mandelbrot set, 160 x 120, up to 32 steps | 107.1 s |
-| The simulator on the host, natively: million cycles a second | 111 |
-| ... and million instructions a second | 27 |
+| The simulator on the host, natively: million cycles a second | 117 |
+| ... and million instructions a second | 28 |
 
 ## Where the cycles go
 
@@ -75,13 +75,13 @@ after it (the idle loop's included), by the kind of function they were in.
 | | an idle second | typing a character | print it: `2 ** 100` | opening the Browser |
 |---|---:|---:|---:|---:|
 | Egret's interpreter (the assembly loop) | 69% | 54% | 35% | 40% |
-| its slow path, in C | 0% | 10% | 6% | 3% |
+| its slow path, in C | 0% | 10% | 6% | 4% |
 | allocation and collection | 13% | 8% | 6% | 5% |
 | drawing (the graphics library) | 0% | 12% | 28% | 41% |
 | the window manager | 6% | 4% | 1% | 2% |
 | Egret's primitives (prims.c, gui_prims.c) | 10% | 7% | 6% | 4% |
 | the rest of the VM and the C library | 1% | 5% | 17% | 5% |
-| all, at 3 MHz | 62 ms | 33 ms | 182 ms | 1,017 ms |
+| all, at 3 MHz | 62 ms | 33 ms | 187 ms | 1,019 ms |
 
 ## Sizes
 
@@ -89,11 +89,11 @@ after it (the idle loop's included), by the kind of function they were in.
 |---|---:|
 | The image: the VM, the graphics library and kernels, the fonts, the GUI's C | 310 KB |
 | ... of which code | 63 KB |
-| Egret's permanent space used once the desktop is up (classes, methods, symbols) | 118 of 192 KB |
+| Egret's permanent space used once the desktop is up (classes, methods, symbols) | 119 of 192 KB |
 | Egret's heap in use then | 37 of 152 KB |
 | `lib/gui.eg`, lines of Egret | 582 |
 | `lib/widgets.eg`, lines of Egret | 388 |
-| `lib/apps.eg`, lines of Egret | 794 |
+| `lib/apps.eg`, lines of Egret | 816 |
 | `lib/desktop.eg`, lines of Egret | 48 |
 | `src/gui.h`, lines | 83 |
 | `src/gui_map.h`, lines | 29 |

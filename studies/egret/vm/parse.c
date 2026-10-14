@@ -15,6 +15,7 @@ static Func *fn;                /* the function being parsed */
 static Func *all_funcs;         /* every function of the current method */
 static Value cur_class;         /* the class being defined, or 0 */
 static int class_is_new;        /* ... by this class statement (so it can take ivars) */
+static int new_class_global = -1;   /* the global a new class went in, until its statement compiles */
 static int no_do;               /* parsing a condition: `do` doesn't start a block */
 static ejmp_buf err_jmp;
 int compile_errors;
@@ -1069,6 +1070,7 @@ static void parse_class(void)
         cls = make_class(name, super, K_OBJECT);
         globals[g] = cls;
         class_is_new = 1;
+        new_class_global = g;
     }
     cur_class = cls;
     mark = scratch_mark();
@@ -1111,6 +1113,12 @@ Value compile_next(void)
     Value m;
     lx = &main_lexer;
     if (ejsetjmp(err_jmp)) {
+        /* a class this statement made is forgotten: left half made, it
+           couldn't be given its instance variables when the statement is
+           tried again */
+        if (new_class_global >= 0)
+            globals[new_class_global] = 0;
+        new_class_global = -1;
         scratch_release(mark);
         fn = 0;
         cur_class = 0;
@@ -1125,6 +1133,7 @@ Value compile_next(void)
             return 0;
         if (TOK == T_CLASS) {
             parse_class();
+            new_class_global = -1;
         } else if (TOK == T_DEF) {
             cur_class = cls_Object;
             class_is_new = 0;

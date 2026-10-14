@@ -20,14 +20,36 @@ class Workspace < TextWindow
     end
   end
 
-  # Run the selection, or the line the cursor is on. Print it puts the
-  # value after the code, selected (so typing replaces it), and an error
-  # goes there either way.
+  def indented?(i) = @lines[i].size == 0 or @lines[i][0] == " "
+
+  # What Ctrl-D runs with nothing selected, as [first row, last row]: the
+  # line the cursor is on, or, if that's in a class or a def that ends
+  # with an `end` of its own, all of it.
+  def statement_at(r)
+    s = r
+    while s > 0 and (self.indented?(s) or @lines[s].strip == "end")
+      s -= 1
+    end
+    first = @lines[s]
+    if first.starts_with?("class ") or first.starts_with?("def ")
+      e = s + 1
+      while e < @lines.size and self.indented?(e)
+        e += 1
+      end
+      if e < @lines.size and e >= r and @lines[e].strip == "end" then return [s, e] end
+    end
+    [r, r]
+  end
+
+  # Run the selection, or the statement the cursor is in. Print it puts
+  # the value after the code, selected (so typing replaces it), and an
+  # error goes there either way.
   def do_it(show)
     s = self.selection
     if s == nil
-      code = @lines[@row]
-      at = [@row, @lines[@row].size]
+      rows = self.statement_at(@row)
+      code = @lines[rows[0]..rows[1]].join("\n")
+      at = [rows[1], @lines[rows[1]].size]
     else
       code = self.selected_text
       at = [s[2], s[3]]

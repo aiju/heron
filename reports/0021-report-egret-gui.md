@@ -32,10 +32,10 @@ by Egret a slice at a time while the desktop went on, and the clock.
 ## Short version
 
 - **It works, and at 3 MHz it's usable.** A keystroke in the Workspace
-  takes 17 ms of the machine's time, printing `3 + 4 * 5` 52 ms (compiling
+  takes 17 ms of the machine's time, printing `3 + 4 * 5` 57 ms (compiling
   it on the machine included), opening the menu 250 ms, dragging a window
   300 ms, and opening the Browser 0.6 s. Booting takes 13 s: 1.6 s for
-  the prelude, 10.4 s to compile the desktop, 1.2 s to paint it. Life runs
+  the prelude, 10.6 s to compile the desktop, 1.2 s to paint it. Life runs
   at 3 generations a second; the Mandelbrot set takes 107 s. At 4× (12
   MHz) it all feels quick.
 - **Most of the time is Egret's, not the drawing's.** For small things,
@@ -97,15 +97,15 @@ loop would have spent in the same time (all of them in
 |---|---:|
 | Type a character in the Workspace | 17 ms |
 | Return, with the lines below it redrawn | 151 ms |
-| Print it: `3 + 4 * 5` | 52 ms |
-| Print it: `2 ** 100` | 65 ms |
-| Open the desktop menu and close it | 247 ms |
-| Drag a window by 100 pixels and move it | 298 ms |
+| Print it: `3 + 4 * 5` | 57 ms |
+| Print it: `2 ** 100` | 69 ms |
+| Open the desktop menu and close it | 246 ms |
+| Drag a window by 100 pixels and move it | 297 ms |
 | Close a window, and paint the desktop under it | 91 ms |
-| Open the Browser | 582 ms |
-| Pick a method in the Browser and show its source | 633 ms |
-| Open About (TrueType at 30 pixels, rasterised the first time) | 2,741 ms |
-| Boot: the prelude, the desktop's 1,800 lines, the first paint | 13.2 s |
+| Open the Browser | 587 ms |
+| Pick a method in the Browser and show its source | 640 ms |
+| Open About (TrueType at 30 pixels, rasterised the first time) | 2,746 ms |
+| Boot: the prelude, the desktop's 1,800 lines, the first paint | 13.4 s |
 
 - **The first second is the budget.** Typing keeps up with a fast typist;
   everything that redraws a window's worth of text takes a few hundred
@@ -125,7 +125,7 @@ wait after it, idle loop included:
 | | an idle second | a keystroke | print it | open the Browser |
 |---|---:|---:|---:|---:|
 | Egret's interpreter (the assembly loop) | 69% | 54% | 35% | 40% |
-| its slow path, in C | 0% | 10% | 6% | 3% |
+| its slow path, in C | 0% | 10% | 6% | 4% |
 | allocation and collection | 13% | 8% | 6% | 5% |
 | drawing (the graphics library) | 0% | 12% | 28% | 41% |
 | the window manager | 6% | 4% | 1% | 2% |

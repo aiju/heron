@@ -42,7 +42,8 @@ The browser version needs Rust's WebAssembly target:
   it. The box closes it, as does Ctrl-W.
 - **In a Workspace**, put the cursor on a line (or select some lines) and
   press Ctrl-D to do it or Ctrl-P to print it: the value goes after the
-  code, selected. Errors go there too, and to the Transcript. Ctrl-A,
+  code, selected. With the cursor anywhere in a `class` or a block `def`,
+  it does the whole of it. Errors go there too, and to the Transcript. Ctrl-A,
   Ctrl-C, Ctrl-X and Ctrl-V work, with a clipboard of the machine's own.
   Meta (Cmd) works as Ctrl.
 - **In the Browser**, pick a class, then a method, to see its source;
@@ -135,6 +136,11 @@ changes outside the study need doing properly or taking out:
   `gui_map.h`, 256 primitives), `prims.c` (a second table of primitives;
   `PrimDef` moved to `egret.h`) and `main.c` (output copied to the
   Transcript). Egret's own builds don't define it, and its tests pass.
+- `studies/egret/vm/parse.c`: a fix, not a hook, which could go to `main`
+  on its own. A class statement that failed to compile left its class
+  defined but empty, and since a class can't be given instance variables
+  after its first statement, the corrected class then failed too. Now
+  the failed statement's new class is forgotten.
 - `Cargo.toml`: the new crate, `studies/egret_gui/web`, is a workspace
   member, so `cargo test` and clippy build it (as a native library).
 - The graphics study's sources are patched at build time
