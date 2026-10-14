@@ -19,7 +19,7 @@ from heron import ROOT, native
 from . import build, run
 
 MHZ = 3.0
-REPORT_DIR = os.path.join(ROOT, "reports", "0022-report-egret-gui")
+REPORT_DIR = os.path.join(ROOT, "reports", "0021-report-egret-gui")
 
 
 def busy(s):
@@ -114,9 +114,10 @@ def measure(log=print):
         q.cost(lambda: (u.click(550, 300, dt=0.2), u.key("escape")), 1))
     row("Windows", "Drag the Workspace by 100 pixels (8 steps of its outline) and move it",
         q.cost(lambda: u.drag(200, 50, 300, 150), 2))
-    row("Windows", "Raise the Transcript from behind it",
+    row("Windows", "Raise the Transcript from behind the Workspace",
         q.cost(lambda: u.click(250, 361), 2))
-    row("Windows", "Close the Workspace (and paint the desktop under it)", q.cost(lambda: u.click(40, 50), 2))
+    # (the Workspace is at (130, 140) now, partly under the Transcript)
+    row("Windows", "Close the Workspace (and paint the desktop under it)", q.cost(lambda: u.click(140, 150), 2))
 
     # the applications, opened from a Workspace (its line, compiled and run)
     for name, code, settle in [("Transcript", "Transcript()", 3), ("Browser", "Browser()", 4),
@@ -150,6 +151,7 @@ def measure(log=print):
     st.workspace_do("print(\"stats \" + gui_stats().inspect)", 1)
     mem = [int(x) for x in re.search(r"stats \[([\d, ]+)\]", st.s.output).group(1).split(",")]
     return {"rows": rows, "life": gens / 30, "mandel": secs, "image": build.image(), "host": speed,
+            "profiles": profiles(),
             "mem": mem,
             "lines": {f: open(os.path.join(build.LIB, f)).read().count("\n") for f in build.DESKTOP},
             "c_lines": {os.path.basename(f): open(f).read().count("\n")
@@ -173,6 +175,20 @@ def tables(r):
             f"| The Mandelbrot set, 160 x 120, up to 32 steps | {r['mandel']:.1f} s |",
             f"| The simulator on the host, natively: million cycles a second | {r['host'][0]:.0f} |",
             f"| ... and million instructions a second | {r['host'][1]:.0f} |", ""]
+    out += ["## Where the cycles go", "",
+            "Each column is all the cycles from the event to the end of a short wait",
+            "after it (the idle loop's included), by the kind of function they were in.", ""]
+    profs = r["profiles"]
+    out.append("| | " + " | ".join(w for w, _ in profs) + " |")
+    out.append("|---|" + "---:|" * len(profs))
+    for k in KINDS:
+        cells = []
+        for _, d in profs:
+            tot = sum(d.values())
+            cells.append(f"{100 * d[k] / tot:.0f}%")
+        out.append(f"| {k} | " + " | ".join(cells) + " |")
+    out.append("| all, at 3 MHz | " + " | ".join(f"{ms(sum(d.values())):,.0f} ms" for _, d in profs) + " |")
+    out.append("")
     img = r["image"]
     out += ["## Sizes", "", "| | |", "|---|---:|",
             f"| The image: the VM, the graphics library and kernels, the fonts, the GUI's C | {img.extent()[1] // 1024} KB |",
@@ -186,9 +202,149 @@ def tables(r):
     return "\n".join(out) + "\n"
 
 
+# ---- where the cycles go: functions by kind
+
+GWM_STATIC = {"isect", "empty", "rgn_copy", "rgn_rect", "add", "rgn_sub", "unite", "content_of",
+              "title_of", "close_of", "level", "visible_in", "draw_frame", "paint_part",
+              "paint_desktop", "repaint", "set_title", "repaint_title", "clamp"}
+KINDS = ["Egret's interpreter (the assembly loop)", "its slow path, in C",
+         "allocation and collection", "drawing (the graphics library)", "the window manager",
+         "Egret's primitives (prims.c, gui_prims.c)", "the rest of the VM and the C library"]
+
+
+def kind(name):
+    if not name.startswith("_"):
+        return KINDS[0]
+    n = name[1:]
+    if n in ("step", "egret_step", "egret_raise", "egret_prim_failed", "asm_run"):
+        return KINDS[1]
+    if n.startswith(("alloc_", "gc", "forward", "scan", "copy_obj")) or n in (
+            "make_list", "make_string", "list_push", "push_root", "pop_roots"):
+        return KINDS[2]
+    if n.startswith(("gfx_", "font_", "ttf_", "rs_", "theme_", "bitmap_get")) or n.endswith("_rows") \
+            or n in ("line_run", "span_run"):
+        return KINDS[3]
+    if n.startswith("gwm_") or n in GWM_STATIC:
+        return KINDS[4]
+    if n.startswith("p_") or n in ("int_list", "cstr", "ints", "window_ok", "ramp_for", "font_arg"):
+        return KINDS[5]
+    return KINDS[6]
+
+
+class Profile:
+    """Cycles by kind of function, for what happens between two points."""
+
+    def __init__(self, s):
+        import bisect
+        img = build.image()
+        syms = sorted((v, k) for k, v in img.symbols.items()
+                      if not k.startswith(".") and "." not in k[1:] and v < run.RAM_SIZE)
+        self.addrs = [v for v, _ in syms]
+        self.names = [k for _, k in syms]
+        self.bisect = bisect.bisect_right
+        self.s = s
+
+    def snap(self):
+        return self.s.m.pc_cycles(native.v1.reference())
+
+    def by_kind(self, a, b):
+        out = dict.fromkeys(KINDS, 0)
+        for pc, v in b.items():
+            d = v - a.get(pc, 0)
+            if not d:
+                continue
+            if pc is None:
+                out[KINDS[6]] += d
+                continue
+            i = self.bisect(self.addrs, pc) - 1
+            out[kind(self.names[i]) if i >= 0 else KINDS[6]] += d
+        return out
+
+
+def profiles():
+    """[(what, {kind: cycles})] for a few things, idle included."""
+    out = []
+    p = Probe()
+    f = Profile(p.s)
+    a = f.snap()
+    p.s.run(1)
+    out.append(("an idle second", f.by_kind(a, f.snap())))
+    p.s.click(60, 120)
+    p.s.run(1)
+    a = f.snap()
+    p.s.key("x")
+    p.s.run(0.2)
+    out.append(("typing a character", f.by_kind(a, f.snap())))
+    p.s.click(100, 152)                         # 2 ** 100
+    p.s.run(1)
+    a = f.snap()
+    p.s.key("p", ["ctrl"])
+    p.s.run(0.5)
+    out.append(("print it: `2 ** 100`", f.by_kind(a, f.snap())))
+    q = Probe()
+    f = Profile(q.s)
+    a = f.snap()
+    menu(q.s, "Browser")
+    q.s.run(2)
+    out.append(("opening the Browser", f.by_kind(a, f.snap())))
+    return out
+
+
+# the middles of the desktop menu's items, from its top
+MENU = {"Workspace": 11, "Transcript": 29, "Browser": 47, "Clock": 72, "Life": 90,
+        "Mandelbrot": 108, "Paint": 126, "About": 151}
+
+
+def menu(s, item, x=550, y=300):
+    """Open the desktop menu at (x, y), which must be on the desktop, and
+    choose an item (the menu opens there if it fits on the screen)."""
+    s.click(x, y, dt=0.2)
+    s.click(x + 30, y + MENU[item], dt=1)
+
+
+def screenshots(out=REPORT_DIR, log=print):
+    """The report's pictures: the desktop at 8 and 1 bits per pixel with
+    some things done in it, and the Browser."""
+    paths = []
+    for depth in (3, 0):
+        s = run.Session(depth=depth).boot()
+        s.run(3)
+        for y in (136, 152, 168):               # print it: three lines of the Workspace
+            s.click(240, y)
+            s.key("end")
+            s.key("p", ["ctrl"])
+            s.run(1)
+        s.click(100, 200)                       # do it: print("Hello from the Workspace")
+        s.key("d", ["ctrl"])
+        s.run(1)
+        menu(s, "Mandelbrot")
+        s.drag(130, 71, 530, 191)               # out to the right
+        while "Mandelbrot: drawn" not in s.output and s.seconds < 1000:
+            s.run(5)
+        s.run(2)
+        paths.append(os.path.join(out, f"desktop-{1 << depth}.png"))
+        s.png(paths[-1])
+    s = run.Session().boot()
+    s.run(3)
+    menu(s, "Life")                             # at (54, 62)
+    s.drag(150, 71, 414, 250)                   # to the bottom right
+    s.run(2)
+    menu(s, "Browser", 450, 190)                # at (78, 84)
+    s.click(124, 217)                           # Clock
+    s.run(1)
+    s.click(324, 157)                           # paint
+    s.run(6)
+    paths.append(os.path.join(out, "browser.png"))
+    s.png(paths[-1])
+    for p in paths:
+        log(f"wrote {os.path.relpath(p)}")
+    return paths
+
+
 def write(r):
     os.makedirs(REPORT_DIR, exist_ok=True)
     path = os.path.join(REPORT_DIR, "performance.md")
     with open(path, "w") as f:
         f.write(tables(r))
+    screenshots()
     return path

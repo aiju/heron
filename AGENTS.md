@@ -98,8 +98,8 @@ The engines are Rust, everything else is Python
 
 Change the generator and rerun it rather than editing the output by hand:
 
-- the `performance.md` in reports 0001, 0004, 0011, 0012, 0018, 0019 and
-  0020:
+- the `performance.md` in reports 0001, 0004, 0011, 0012, 0018, 0019,
+  0020 and 0021:
   - `heron v0_hw report`
   - `heron v1_isa report`
   - `heron c_compiler bench --write`
@@ -107,6 +107,7 @@ Change the generator and rerun it rather than editing the output by hand:
   - `heron lisp report --write`
   - `heron graphics bench --write` (also the screenshots next to it)
   - `heron kernel report --write`
+  - `heron egret_gui bench --write` (also the screenshots next to it)
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and

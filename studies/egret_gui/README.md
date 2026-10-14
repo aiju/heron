@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [egret, graphics, c_compiler, v1_isa]
-reports: []
+reports: [21]
 ---
 
 # A graphical desktop for Egret
@@ -14,7 +14,8 @@ you type Egret and run it, a Transcript, a class browser, and a few demos
 that the machine compiles when it boots, like any other Egret program.
 The pixels are the [graphics study](../graphics/README.md)'s library and
 assembly kernels. It runs in a browser, as WebAssembly, at the machine's
-own 3 MHz or faster.
+own 3 MHz or faster. What it costs, and what it says about the machine:
+[report 0021](../../reports/0021-report-egret-gui.md).
 
 To make it work, the simulator got a display, a keyboard and a mouse,
 and Egret's VM a few hooks. Both are hacks, outside this folder: see
@@ -26,6 +27,7 @@ heron egret_gui serve                 # build the browser version and serve it o
 heron egret_gui web [-o DIR]          # the same as static files (default build/egret_gui/web/)
 heron egret_gui shot --do "click 550 300; wait 1" -o desk.png   # without a browser: do things, save the screen
 heron egret_gui shot --depth 0        # at 1 bit per pixel
+heron egret_gui bench [--write]       # report 0021's tables (--write: the file, and its screenshots)
 heron test egret_gui                  # the unit tests
 ```
 
@@ -68,6 +70,7 @@ The browser version needs Rust's WebAssembly target:
 | `run.py` | A session without a browser: input events by the clock, the screen as PNG |
 | `snapshot.py` | The machine's state as bytes, for the browser to start from |
 | `web/` | The browser version: `index.html`, `app.js`, and the simulator crate for WebAssembly |
+| `bench.py` | What things cost on the machine: report 0021's tables and screenshots |
 | `web.py`, `cli.py` | Putting the site together; the command line |
 
 **The devices** (`studies/v1_isa/isa/src/display.rs`). The frame buffer

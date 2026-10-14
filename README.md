@@ -26,6 +26,9 @@ So far there has been:
   operating system, measured with a small message-passing kernel on 1b
   with proposed system extensions, and what the operating system could
   be.
+- **A desktop for Egret:** a Smalltalk-style desktop written in Egret,
+  with windows, a mouse and a Workspace, on a simulated 1b with a
+  display, keyboard and mouse added, in the browser as WebAssembly.
 
 Draft 2 is next. Which of 1a and 1b it builds on is still open.
 
