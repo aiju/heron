@@ -36,7 +36,7 @@ estimates unless they come from that netlist.
 
 | Proposal | Status | Notes |
 |---|---|---|
-| 32-bit datapath (D32) instead of 16-bit (D16) | **measured**, **adopted** in the draft 1b hardware | ~22% fewer cycles; ~25–35 more chips. Draft 1 starts paying off here: 1.6–1.7× draft 0 overall with overlapped fetch. On a 16-bit datapath draft 1 is slower than draft 0 on everything but multiply and divide |
+| 32-bit datapath (D32) instead of 16-bit (D16) | **measured**, **adopted** in the draft 1b hardware | ~22% fewer cycles; ~25–35 more chips. Draft 1 starts paying off here: 1.6–1.7× draft 0 overall with overlapped fetch. On a 16-bit datapath and bus, draft 1 is slower than draft 0 on everything but multiply and divide |
 | Overlap the next fetch with the last cycle (draft 0 style) | **measured**, **recommended** | 17–22% fewer cycles than a separate fetch cycle; ~0–2 chips. The draft 1b hardware already writes back in its fetch cycle, so against it the model expects 12%. It needs the decode ROM's input, the opcode on the data bus, at a different time in each instruction ([hardware.md](../studies/v1b_hw/hardware.md#known-issues-and-what-a-second-iteration-would-change)) |
 | Wide fetch: 32-bit bus plus two-parcel prefetch buffer | **measured**, **recommended** | ~10% fewer cycles than overlap, single-cycle word loads; +10–15 chips. Only D32-wide beats draft 0 on every program. Graphics takes 0.67 of D16-overlap's cycles on it, more than all the ISA ideas together ([report 0019](0019-report-graphics.md#and-the-hardware)); the operating system's paths take 53–68% of D32-separate's ([report 0020](0020-report-operating-system.md#the-paths-measured)). If the datapath must be 16 bits, keep the 32-bit bus: D16-wide is 1.36–1.48× draft 0 |
 | Two 16-bit transfers per cycle on the local memory bus (32-bit loads and stores in one cycle) | **open**, parked | The second halves of 32-bit transfers are 6.7% of all executed cycles (14–15% in queens and fib) |
@@ -57,9 +57,11 @@ estimates unless they come from that netlist.
 ## 2. Clocking: variable-length cycles
 
 **decided** ([docs/clocking.md](../docs/clocking.md)). Each
-microinstruction picks how long its own cycle is. Measured on the draft 1b
-hardware ([hardware.md](../studies/v1b_hw/hardware.md)); not yet built
-into its netlist ([RFC 0005](0005-rfc-ideas-direction.md#5-next-steps)).
+microinstruction picks how long its own cycle is. Measured from the draft
+1b hardware's timing analysis
+([hardware.md](../studies/v1b_hw/hardware.md#timing)) over the programs;
+this RFC is where the numbers are recorded. Not yet built into the
+netlist ([RFC 0005](0005-rfc-ideas-direction.md#5-next-steps)).
 
 - **Why.** A fixed clock runs every cycle at the slowest microinstruction's
   speed. With HCT + LS181 at worst case:

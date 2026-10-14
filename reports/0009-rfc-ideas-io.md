@@ -187,8 +187,9 @@ first, TCP/IP later. **decided**: Ethernet, preferably with a MAC built
 from TTL ([docs/README.md](../docs/README.md)).
 
 - **10 Mbit/s.** **recommended.**
-  - 10BASE-T carries 1.25 MB/s. An unrolled word-copy loop on the draft 1b
-    hardware moves about 1.2 MB/s at 3 MHz (9.5 cycles per 32-bit word,
+  - 10BASE-T carries 1.25 MB/s. An unrolled word-copy loop moves about
+    1.2 MB/s at 3 MHz in the draft 1b hardware's configuration (9.5 cycles
+    per 32-bit word in the timing model,
     [report 0020](0020-report-operating-system.md#zeroing-and-copying)),
     so the CPU can roughly keep up. At 100 Mbit/s the link would mostly
     wait for the CPU.

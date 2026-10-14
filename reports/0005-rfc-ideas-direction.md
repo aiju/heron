@@ -130,8 +130,9 @@ Chip counts are rough estimates unless they come from a netlist.
 ## 2. What the measurements point to
 
 The largest effects measured so far, across the studies, and where each
-is proposed. All are on the draft 1 timing model, D32-separate unless
-they say otherwise.
+is proposed. All are on the draft 1 timing model: the graphics figures on
+D16-overlap, the Lisp's, Egret's and the operating system's on
+D32-separate. One is an estimate, and says so.
 
 | Idea | Measured | Proposed in |
 |---|---|---|
@@ -145,7 +146,7 @@ they say otherwise.
 | Guard pages | −5.0% and −1.8% of the Lisp's compiled cycles | [RFC 0010, 3](0010-rfc-ideas-os.md#3-mmu) |
 | A funnel shift; a barrel shifter | A word of a bit-aligned copy 26.5 → 13.5 cycles; a barrel shifter alone −4.4% over graphics | [RFC 0006, 5](0006-rfc-ideas-isa.md#5-more-instruction-ideas), [RFC 0007, 1](0007-rfc-ideas-microarchitecture.md#1-datapath-and-fetch) |
 | A merge under a mask | −20% of the glyph loop | [RFC 0006, 5](0006-rfc-ideas-isa.md#5-more-instruction-ideas) |
-| A vectored `SWI` | A null system call 39 → ~23 cycles | [RFC 0010, 2](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system) |
+| A vectored `SWI` | A null system call 39 → ~23 cycles (estimated) | [RFC 0010, 2](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system) |
 | Devices that buffer, and DMA | An interrupt to a user-level driver costs 500–640 cycles: 17% of the machine for a terminal at 9,600 baud without a FIFO | [RFC 0009](0009-rfc-ideas-io.md#2-channels-and-dma) |
 | 1b rather than 1a | 3–10% fewer cycles; more for interpreters and copies | [RFC 0006, 2](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2) |
 | Direct threading (software) | −11% of Egret's interpreter | [report 0017](0017-report-egret.md#isa-changes-for-the-interpreter) |
@@ -169,8 +170,8 @@ From "what would you like in an ISA". All **open**.
     queens' cycles).
   - An overflow trap spills old frames after 256 or 2048.
   - ~3–4 chips.
-  - The same spare address lines give register banks per thread and per
-    interrupt level, which the kernel study measured
+  - The same spare address lines give register banks per thread, which
+    the kernel study measured, and per interrupt level, which it proposes
     ([RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)).
     Windows and banks would share them.
 - **Packed byte arithmetic** by carry gating
@@ -250,10 +251,12 @@ Questions that only Emily can answer:
    the video card shrinks by about a third), a RAMDAC, a microcontroller
    inside a peripheral (a terminal multiplexer), or a single-chip Ethernet
    controller for bring-up?
-9. The system bus's open questions: the bus clock, the slot bits, the card
-   size and how the system splits into cards, DIP or SOIC, a slower simple
-   class, arbitration, card IDs, and more
-   ([RFC 0014, section 14](0014-rfc-system-bus.md#14-open-questions)).
+9. The card size, how the system splits into cards (the CPU needs at
+   least two), and DIP or SOIC. These wait until the design is closer to
+   completion.
+10. The system bus's open questions: the bus clock, the slot bits, a
+    slower simple class, arbitration, card IDs, and more
+    ([RFC 0014, section 14](0014-rfc-system-bus.md#14-open-questions)).
 
 Answered so far: what's decided is in [docs/README.md](../docs/README.md),
 and the bus decisions in
@@ -293,7 +296,8 @@ Offered in the discussions and the reports, not done yet:
   analysis.
 - **The pin-by-pin assignment of P1 and P2,** following the rules in
   [RFC 0014](0014-rfc-system-bus.md#pin-assignment-rules); report 0022's
-  reference assignment is a start.
+  reference assignment is a start. Then timing diagrams for the bus's
+  transfers.
 - **A chip-level model of the TTL Ethernet MAC** with a PHY fixture that
   replays pcap captures, plus a raw-frame program loader on the PC side.
 - **Software:** direct threading for Egret's interpreter; register

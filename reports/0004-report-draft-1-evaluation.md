@@ -41,8 +41,10 @@ if the chip budget allows, or at least a 32-bit bus.
 > withdrawn: it was based on faulty numbers (Emily). 1b is her
 > preference, and most of the work since this report has been on 1b.
 > [RFC 0006](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)
-> has where the question stands. The hardware recommendations are
-> unaffected.
+> has where the question stands. 1b's encoding also has more room left
+> than this report says: op A alone has about 4,064 free encodings
+> ([RFC 0006, 3.1](0006-rfc-ideas-isa.md#31-room-left-in-1bs-encoding)).
+> The hardware recommendations are unaffected.
 
 **Since then, draft 1b has been built** as a chip-level netlist in the
 D32-separate configuration. See [hardware-v1b.md](../studies/v1b_hw/hardware.md) and

@@ -82,20 +82,22 @@ affordable, and anything that copies data is not.
 
 ## 2. What the CPU gives the operating system
 
-All built in v1bs and measured in
-[report 0020](0020-report-operating-system.md#part-1-what-the-hardware-should-give)
-unless they say otherwise. None needs a new opcode except a block move
+From [report 0020](0020-report-operating-system.md#part-1-what-the-hardware-should-give),
+which built the supervisor mode, the register banks and the cross-mode
+loads and stores (section 3) in v1bs and measured them; the rows marked
+**measured** are those. The rest are its estimates and older ideas. None
+needs a new opcode except a block move
 ([RFC 0006](0006-rfc-ideas-isa.md#5-more-instruction-ideas)); the rest are
 special registers, flag bits, address lines and microcode.
 
 | Feature | Cost | What it buys | Status |
 |---|---|---|---|
 | **Supervisor mode:** an S bit in the flags word, saved by traps and `RTI`; `HALT`, `EI`, `DI`, `RTI` and the system registers trap in user mode, and user `MTF` changes only N, Z, C and V; a supervisor `sp` the trap switches to before it pushes; fault address and reason; privilege and page-fault vectors | ~5 chips, microcode; the mode can be a spare microcode address line | Protection at all | **measured**, **recommended** |
-| **S writable only by traps and `RTI`**, out of `MTSR`'s reach | gates | The nucleus once fell into user mode by writing the flags back without S (the 68000 has the same trap) | **recommended** |
+| **S writable only by traps and `RTI`**, out of `MTSR`'s reach | gates | v1bs lets `MTSR flags` set S, and the nucleus once fell into user mode by writing the flags back without it (the 68000 has the same trap) | **recommended** |
 | **Register banks** in the register file's spare SRAM (15 address lines, draft 1b uses 5), with `MFUR`/`MTUR` to reach the user's bank | ~4–6 chips | A call and reply −25% with half banks, a preemption −41% with full banks, and no saving on system calls. Selectable policy, or half banks for message passing. `r0` must be zero in every bank, in logic; the reset routine's constants pinned to one bank | **measured**, **recommended** |
-| **A vectored `SWI`:** the decode ROM sends `SWI #n` to its own entry | decode ROM | A null system call 39 → ~23 cycles; 16 of the 39 are dispatch | **recommended** |
-| **Restartable instructions:** nothing is committed before the last memory access | microcode | Demand paging, guard pages, copy-on-write. One 1b form breaks it, `CALL [r]+` ([RFC 0006](0006-rfc-ideas-isa.md#32-1bs-gaps)) | **adopted** in draft 1's rules |
-| **Relocation** by position-independent code (PC-relative addressing) | – | Programs load anywhere; with the map, every process can also start at the same address | **adopted** |
+| **A vectored `SWI`:** the decode ROM sends `SWI #n` to its own entry | decode ROM | 16 of a null system call's 39 cycles are dispatch; vectored, about 23 (an estimate; v1bs latches the number in `fsr` instead) | **recommended** |
+| **Restartable instructions:** nothing is committed before the last memory access (the 68000 couldn't restart after bus errors, and the 68010 had to fix it) | microcode | Demand paging, guard pages, copy-on-write. One 1b form breaks it, `CALL [r]+` ([RFC 0006](0006-rfc-ideas-isa.md#32-1bs-gaps)) | **adopted** in draft 1's rules |
+| **Relocation** by position-independent code (PC-relative addressing), or a relocating loader | – | Programs load anywhere; with the map, every process can also start at the same address | **adopted** (PC-relative modes) |
 | **A trace bit** (trap after every instruction), with `SWI` as a breakpoint and the breakpoint register of [RFC 0005](0005-rfc-ideas-direction.md#3-big-ideas) | microcode | A `ptrace`-style debugger; the trace bit lives in the flags word, so it's per thread | **recommended** |
 | **Prioritised, vectored interrupts**, ideally a bank per level | ~3–4 chips ([RFC 0009](0009-rfc-ideas-io.md#1-io)) | Interrupts go straight to their handler, which saves nothing | **recommended** |
 | **A one-shot timer and a microsecond counter** | ~4–6 chips ([RFC 0009](0009-rfc-ideas-io.md#1-io)) | Tickless scheduling, timeouts | **recommended** |

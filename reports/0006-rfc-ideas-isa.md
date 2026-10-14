@@ -70,6 +70,9 @@ programs ([report 0004](0004-report-draft-1-evaluation.md)).
   - PC-relative and absolute addresses, 16/32-bit constants.
   - At most one memory operand per instruction, which keeps faults
     restartable. Size is part of the mode. Indirect `JMP`/`CALL [mem]`.
+  - Before 1b, measured on draft 0: 4.5% of draft 0's instructions were a
+    load whose value fed the next ALU operation, and 97% of those loads
+    were bytes, so memory operands need zero-extending byte forms.
 
 Every study since has compared the two or used 1b:
 
@@ -79,13 +82,13 @@ Every study since has compared the two or used 1b:
 | The 15 programs in compiled C | 0.94–0.95 | Auto-increment in pointer loops. Memory operands save a cycle each; 4-bit constants cost the compiler more than a person | [0011](0011-report-c-compiler.md) |
 | Graphics: assembly kernels / compiled C | 0.95 / 0.97 | Copies (−30% along rows) and anti-aliased text, by auto-increment; the rest is the same | [0019](0019-report-graphics.md) |
 | Egret's interpreter | 1b only | Auto-increment is 21–37% of the loop's instructions, `JMP [r + r*4]` 7–14% | [0017](0017-report-egret.md) |
-| The Lisp | 1b only | `CALL [r1 + 1]` through a code word, one-parcel stack slots, auto-increment for pushes, pops and `cons` | [0018](0018-report-lisp.md) |
+| The Lisp | 1b only | `CALL [r1 + 1]` through a code word, auto-increment for pushes, pops and `cons`; its stack slots are one parcel in both |  [0018](0018-report-lisp.md) |
 | Kernel routines | 0.93 unrolled | 1b is 1–3 cycles faster calling through tables, and PC-relative data is free. 1a's one-parcel `[r + 4o]` would suit control-block fields | [0020](0020-report-operating-system.md#the-rest) |
 
 - **Base draft 2 on 1b.** **open**: Emily's preference, and where most of
   the work since draft 1 has gone: the 213-chip hardware
-  ([report 0012](0012-report-draft-1b-hardware.md)), the Lisp, Egret, the
-  graphics kernels and the kernel study's v1bs. Section 3 collects what a
+  ([report 0012](0012-report-draft-1b-hardware.md)), the Lisp, Egret and
+  the kernel study's v1bs. Section 3 collects what a
   1b-based draft 2 would change.
 - **Base draft 2 on 1a.** Report 0004 recommended it. That recommendation
   is withdrawn: it was based on faulty numbers (Emily, 2026-10-14).
@@ -98,6 +101,13 @@ Every study since has compared the two or used 1b:
 Every opcode of the `F D M R` format is taken
 ([isa-v1b.md](../studies/v1_isa/isa-v1b.md)). What's left:
 
+- **Op A, `A c k R`:** the long jumps and calls use only k = 0 and 1 with
+  R = 0, and everything else traps, so about 4,064 encodings are free:
+  nearly a whole opcode. With `c` as a register, k = 8–F and R give each
+  register a 7-bit field, enough for one one-parcel instruction with a
+  constant up to 127 (`MOV rd, #'a'`, say), with k = 2–7 left over.
+  Report 0004 counted only the modes and special forms when it called
+  1b's encoding full.
 - **Mode E,** the one reserved mode. The Lisp's v1bx uses it for a tagged
   register operand ([section 6](#6-for-dynamic-languages)).
 - **Mode F's R = D–F,** three special operands.
@@ -113,9 +123,11 @@ Every opcode of the `F D M R` format is taken
   register or a constant, `LEA` with a register, a constant or an
   auto-increment mode.
 
-That is room for register-only and `ea`-taking instructions, but not for
-a new one-parcel addressing mode or wider one-parcel constants, which
-need bits in `F D M R` itself.
+That is room for register-only and `ea`-taking instructions, and for one
+or two one-parcel forms with a short constant in op A. A new addressing
+mode for every instruction has only mode E, which the Lisp's tagged
+operand wants too; wider constants for every ALU instruction would need
+bits in `F D M R` itself.
 
 ### 3.2 1b's gaps
 
@@ -125,7 +137,7 @@ and the later studies:
 
 | Gap | What it costs | Status |
 |---|---|---|
-| Constants are 4 bits in one parcel: characters, masks, 16–255 take an extension parcel | 13% of hand-written operands are 16-bit constants that 1a mostly fits in one parcel; 5.6% of compiled operands are 16- or 32-bit constants ([report 0011](0011-report-c-compiler.md)). One-parcel 8-bit constants have no room in `F D M R` | **open** |
+| Constants are 4 bits in one parcel: characters, masks, 16–255 take an extension parcel | 13% of 1b's operands in the hand-written source are 16-bit constants that 1a mostly fits in one parcel. Executed, 5.6% of compiled 1b operands are 16- or 32-bit constants, against 1.0% in the hand-written code ([report 0011](0011-report-c-compiler.md)). One-parcel 8-bit constants for every instruction have no room in `F D M R`; op A has room for one form with a 7-bit constant ([3.1](#31-room-left-in-1bs-encoding)) | **open** |
 | No one-parcel `[r + small offset]` | Struct fields: bst's `inorder` and `height` are 3–5% slower than on 1a; a cycle per control-block field in kernel code ([report 0020](0020-report-operating-system.md#the-rest)) | **open** |
 | No immediate `TST`/`BIC`/`MUL`/`DIV` (op F is register-only) | Constants need registers, and so callee-saved registers across calls | **open** |
 | No byte or half auto-decrement, no half auto-increment | Backwards loops (`memmove`, `reverse`) | **open** |
@@ -261,6 +273,9 @@ set N and Z (C and V unchanged); stores don't.
     - **The cost:** one more cycle for those stores is +0.9% (from report
       0012's cycle counts), up to +2% in vm and sort. A second N/Z source
       instead would be about 5 chips.
+- **Or a flag-setting bit** on each move (ARM's S bit), which the program
+  writers suggested as the alternative to a fixed rule. Neither encoding
+  has a spare bit for it.
 - **Whichever rule is chosen:**
   - `RESTORE r-r` already pops without touching the flags, in 1b too.
   - bst's insert walk relies on moves leaving C alone
@@ -328,7 +343,7 @@ and the later studies:
 | Interruptible block move/fill/compare (like `REP MOVS`; progress in registers) | microcode | Page copies, screen clears; ~2 bus cycles per halfword against ~14 for a loop. A block fill and copy would reach the bus's limit, about 2× an unrolled loop ([report 0020](0020-report-operating-system.md#zeroing-and-copying)) | **open** |
 | Shifts and rotates with a separate destination (`ROR rd, rs, #n`) | microcode | `MOV` was 25–27% of sha256's instructions | **recommended** |
 | A funnel shift, `rd = (rd:rs) >> n`, the count in a register or `HI` | microcode, and a barrel shifter ([RFC 0007](0007-rfc-ideas-microarchitecture.md#1-datapath-and-fetch)) | A word of a bit-aligned copy 26.5 → 13.5 cycles ([report 0019](0019-report-graphics.md#a-funnel-shift-or-a-barrel-shifter)). The shift group's free count kind has room for it | **open** |
-| Rotate left, or rotates that go the shorter way | microcode | `ROR #29` is 7 steps where a rotate left by 3 would be 3; `ROR #27` is 11 cycles | **open** |
+| Rotate left, or rotates that go the shorter way | microcode | In the timing model `ROR #29` is 7 steps where a rotate left by 3 would be 3, and `ROR #27` 11 cycles on D16-overlap. The draft 1b hardware rotates by any count in 2–5 cycles, so this matters mainly on a narrower datapath | **open** |
 | A merge under a mask, `d = (d & ~m) \| (c & m)`, with the mask in `HI` or a fixed register | microcode | Every masked edge and glyph word: 20% off the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) | **open** |
 | Multiply-accumulate into `HI:LO` (`MULA`), fixed-point multiply (multiply, then shift by n) | microcode | Multiply was 50% of mandel; audio, graphics, DSP | **open** |
 | Bit-field extract/insert; byte reverse (`REV`) | microcode | Protocols, file formats, graphics; SHA needed big-endian loads | **open** |
@@ -339,7 +354,7 @@ and the later studies:
 | Atomic exchange / test-and-set | microcode + bus `LOCK` | On one CPU, restartable sequences need no hardware ([report 0020](0020-report-operating-system.md#the-rest)); between CPUs the bus has `LOCK` and semaphore registers ([RFC 0014](0014-rfc-system-bus.md#73-locked-sequences)) | **open** |
 | Popcount, find-first-set | microcode | Scheduler and allocator bitmaps; `CLZ` (draft 1) already finds the kernel study's highest ready priority | **open** |
 | `V` updated (or defined) by `INC`/`DEC`/`TST` | microcode | Signed branches after them test a stale V ([report 0003](0003-report-draft-1-programming-notes.md)) | **open** |
-| System extensions: supervisor mode, register banks, `MFUR`/`MTUR`, XL/XS, a vectored `SWI` | special registers, flag bits, two system functions | Built and measured as v1bs ([RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)) | **recommended** |
+| System extensions: supervisor mode, register banks, `MFUR`/`MTUR`, XL/XS; a vectored `SWI` | special registers, flag bits, two system functions; the decode ROM | Built and measured as v1bs, except the vectored `SWI`, which is an estimate ([RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)) | **recommended** |
 
 ## 6. For dynamic languages
 

@@ -702,9 +702,9 @@ offer, for this design.
 
 ## 13. Against RFC 0009
 
-Where this RFC differs from
-[RFC 0009, section 3](0009-rfc-ideas-io.md#3-video), which keeps the
-ideas set aside here:
+Where this RFC differs from RFC 0009's video notes. Since this RFC,
+[RFC 0009, section 3](0009-rfc-ideas-io.md#3-video) keeps only the ones
+set aside here, as alternatives:
 
 | RFC 0009 | Here | Why |
 |---|---|---|
