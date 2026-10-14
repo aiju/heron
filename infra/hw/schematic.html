@@ -52,7 +52,7 @@ nav.sheets button.on { background: var(--accent); color: var(--paper); }
 nav.sheets button.on span { color: var(--paper); }
 #picker { display: none; }
 main.canvas { position: relative; min-width: 0; min-height: 0; background: var(--paper); overflow: hidden; }
-main.canvas svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+main.canvas svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
 main.canvas svg.drag { cursor: grabbing; }
 .status { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); background: var(--paper); padding: 2px 6px; border-radius: 4px; pointer-events: none; }
 .overview { position: absolute; inset: 0; overflow: auto; padding: 24px max(16px, env(safe-area-inset-right, 0px)) 40px max(16px, env(safe-area-inset-left, 0px)); }
@@ -75,6 +75,10 @@ aside.info .hint b { color: var(--fg); font-weight: 600; }
 aside.info ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
 aside.info li button, a.net { border: 0; background: none; padding: 3px 4px; margin: 0 -4px; border-radius: 4px; color: var(--fg); font: inherit; text-align: left; cursor: pointer; width: 100%; display: grid; gap: 1px; }
 aside.info li button:hover { background: var(--accent-soft); }
+aside.info li button.cur { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--sel); }
+aside.info .walk { display: flex; align-items: center; gap: 8px; margin: 2px 0 4px; }
+aside.info .walk span { flex: 1; color: var(--muted); font-size: 12.5px; }
+aside.info .walk b { color: var(--fg); font-weight: 600; font-family: var(--f-mono); }
 aside.info li .p { font-family: var(--f-mono); font-size: 12.5px; }
 aside.info li .q { color: var(--muted); font-size: 11.5px; }
 table.pins { border-collapse: collapse; width: 100%; font-size: 12.5px; }
@@ -112,6 +116,9 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
 .flag.on text { fill: var(--sel); }
 .sym.on rect.box, .sym.on path.g { stroke: var(--sel); stroke-width: 2; }
 .port.on { stroke: var(--sel); stroke-width: 3; }
+.here { fill: none; stroke: var(--sel); stroke-width: 2.4; pointer-events: none; }
+@media (prefers-reduced-motion: no-preference) { .here { animation: here 0.6s ease-out 2; } }
+@keyframes here { from { stroke-width: 9; opacity: 0.3; } to { stroke-width: 2.4; opacity: 1; } }
 @media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(300px, 1fr) auto; }
   nav.sheets { display: none; }
@@ -321,7 +328,9 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
       el("path", { d: `M${x0},${y} L${x0 + 6},${y - 7} H${x0 + w} V${y + 7} H${x0 + 6} Z` }, g);
       el("text", { x: x0 + 9, y: y + 3.5 }, g).textContent = p.off;
     }
-    if (!p.rail) g.onclick = (ev) => { ev.stopPropagation(); selectNets(p.nets, { sym: s.id, port: k }); };
+    if (p.rail) return;
+    g.onclick = (ev) => { ev.stopPropagation(); selectNets(p.nets); };
+    g.ondblclick = (ev) => { ev.stopPropagation(); step(p.nets, ev.shiftKey ? -1 : 1, `${s.id}|${k}`); };
   }
   function draw(sheet, lay) {
     view.innerHTML = "";
@@ -335,7 +344,8 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
         const pts = [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint].map((q) => `${q.x},${q.y}`).join(" ");
         el("polyline", { points: pts, class: "w" + (bus ? " bus" : ""), "data-w": i }, wires);
         const hit = el("polyline", { points: pts, class: "hit", "data-w": i }, wires);
-        hit.onclick = (ev) => { ev.stopPropagation(); selectNets(w.nets, { wire: i }); };
+        hit.onclick = (ev) => { ev.stopPropagation(); selectNets(w.nets); };
+        hit.ondblclick = (ev) => { ev.stopPropagation(); step(w.nets, ev.shiftKey ? -1 : 1); };
         const t = el("title", {}, hit);
         t.textContent = w.nets.length > 1 ? `${w.nets.length} nets: ${w.nets.slice(0, 6).join(", ")}${w.nets.length > 6 ? " …" : ""}` : w.nets[0];
         if (bus) {
@@ -412,7 +422,10 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
     if (ptrs.size === 0) { last = null; svg.classList.remove("drag"); }
   };
   svg.addEventListener("pointerup", up); svg.addEventListener("pointercancel", up);
-  svg.addEventListener("click", (e) => { if (moved) { moved = false; e.stopPropagation(); return; } clearSel(); }, true);
+  svg.addEventListener("click", (e) => {
+    if (moved) { moved = false; e.stopPropagation(); return; }
+    if (!e.target.closest(".hit, .flag:not(.rail), .sym")) clearSel();
+  }, true);
   $("zin").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(1.3, r.width / 2, r.height / 2); };
   $("zout").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(1 / 1.3, r.width / 2, r.height / 2); };
   $("zfit").onclick = fit;
@@ -433,7 +446,7 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
       const lay = await layout(sheet);
       if (current !== sheet) return;
       draw(sheet, lay);
-      $("status").textContent = `${sheet.chips} chips · ${sheet.symbols.length} symbols · ${sheet.wires.length} wires`;
+      sheetStatus();
       fit();
       if (then) then(); else restyle();     // a selected net stays selected from sheet to sheet
     } catch (err) {
@@ -441,8 +454,13 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
     }
   }
 
+  function sheetStatus() {
+    const s = current;
+    $("status").textContent = s ? `${s.chips} chips · ${s.symbols.length} symbols · ${s.wires.length} wires` : "";
+  }
+
   // ---- selection ------------------------------------------------------------------
-  function clearSel() { sel = null; restyle(); infoHint(); }
+  function clearSel() { unwalk(); sel = null; restyle(); infoHint(); }
   function restyle() {
     const on = new Set(sel && sel.nets ? sel.nets : []);
     svg.classList.toggle("dim", on.size > 0);
@@ -471,14 +489,32 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
     };
     if (current && current.id === s.sheet) run(); else show(s.sheet, run);
   }
-  function selectNets(nets, ctx) {
+  function selectNets(nets) {
+    if (walk && walk.key !== nets.join(" ")) unwalk();
     sel = { nets, sheet: current && current.id, sym: null };
     restyle();
     const info = $("info");
     info.innerHTML = "";
+    const ends = endsOf(nets);
+    const walkRow = () => {
+      if (ends.length < 2) return;
+      const row = h("div", { class: "walk" });
+      const prev = h("button", { class: "tool", "aria-label": "Previous end" }, "‹");
+      const next = h("button", { class: "tool", "aria-label": "Next end" }, "›");
+      prev.onclick = () => step(nets, -1);
+      next.onclick = () => step(nets, 1);
+      let text = `Step through its ${ends.length} ends, or double-click it`;
+      if (walk) {
+        const x = walk.ends[walk.i], sy = M.symbols[x.e[0]];
+        text = `<b>${walk.i + 1}</b> of ${ends.length}: <b>${esc(local(sy.ref, cardOf(sy.ref)))} ${esc(endPin(x.e, nets))}</b>, ${x.drives ? "driver" : "receiver"}`;
+      }
+      row.append(prev, h("span", { "aria-live": "polite" }, text), next);
+      info.appendChild(row);
+    };
     if (nets.length > 1) {
       info.appendChild(h("h2", {}, `${nets.length} nets`));
       info.appendChild(h("div", { class: "sub" }, "A bus: numbered nets drawn as one wire."));
+      walkRow();
       const ul = h("ul");
       nets.forEach((n) => { const li = h("li"); const b = h("button", {}, `<span class="p">${esc(n)}</span>`); b.onclick = () => selectNets([n]); li.appendChild(b); ul.appendChild(li); });
       info.appendChild(ul);
@@ -491,24 +527,80 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
     if (d.pulled) tags.push("pulled up");
     if (d.tied) tags.push(`tied to ${d.tied}`);
     info.appendChild(h("div", { class: "sub" }, tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")));
-    const list = (title, ends) => {
-      if (!ends.length) return;
-      info.appendChild(h("h3", {}, `${title} (${ends.length})`));
+    walkRow();
+    const list = (title, some) => {
+      if (!some.length) return;
+      info.appendChild(h("h3", {}, `${title} (${some.length})`));
       const ul = h("ul");
-      ends.forEach((e) => {
-        const L = endLabel(e);
+      some.forEach((x) => {
+        const L = endLabel(x.e);
         const li = h("li");
-        const b = h("button", {}, `<span class="p">${esc(L.text)}</span><span class="q">${esc(L.where)} · ${esc(L.s.part)}</span>`);
-        b.onclick = () => goTo(e[0], [n]);
+        const b = h("button", { "data-end": endKey(x.e) }, `<span class="p">${esc(L.text)}</span><span class="q">${esc(L.where)} · ${esc(L.s.part)}</span>`);
+        if (walk && walk.ends[walk.i] && endKey(walk.ends[walk.i].e) === endKey(x.e)) b.classList.add("cur");
+        b.onclick = () => { walk = { key: nets.join(" "), nets, ends, i: ends.indexOf(x) }; visit(); };
         li.appendChild(b); ul.appendChild(li);
       });
       info.appendChild(ul);
     };
-    const drv = d.drivers, ld = d.loads.filter((e) => !drv.some((x) => x[0] === e[0] && x[2] === e[2]));
-    list("Driven by", drv);
-    list("Goes to", ld);
+    list("Driven by", ends.filter((x) => x.drives));
+    list("Goes to", ends.filter((x) => !x.drives));
+  }
+
+  // ---- stepping through a net's ends ------------------------------------------------
+  // Double-clicking a wire or a label (or the panel's arrows) visits the net's
+  // ends in turn, across sheets and cards: its drivers first, then each
+  // receiver. Shift steps back.
+  let walk = null;
+  const endKey = (e) => `${e[0]}|${e[1]}`;
+  const endPin = (e, nets) => (nets.length > 1 ? M.symbols[e[0]].ports[e[1]].pin : e[2]);
+  function endsOf(nets) {
+    const out = [], seen = new Set();
+    for (const drives of [true, false]) {
+      for (const n of nets) {
+        for (const e of (M.nets[n] || { drivers: [], loads: [] })[drives ? "drivers" : "loads"]) {
+          if (!seen.has(endKey(e))) { seen.add(endKey(e)); out.push({ e, drives }); }
+        }
+      }
+    }
+    return out;
+  }
+  function step(nets, dir, from) {
+    const key = nets.join(" ");
+    if (walk && walk.key === key) {
+      walk.i = (walk.i + dir + walk.ends.length) % walk.ends.length;
+    } else {
+      const ends = endsOf(nets);
+      if (!ends.length) return;
+      let i = dir > 0 ? 0 : ends.length - 1;
+      if (from && ends.length > 1 && endKey(ends[i].e) === from) i = (i + dir + ends.length) % ends.length;
+      walk = { key, nets, ends, i };
+    }
+    visit();
+  }
+  function visit() {
+    const w = walk, x = w.ends[w.i], s = M.symbols[x.e[0]], p = s.ports[x.e[1]];
+    const run = () => {
+      if (walk !== w) return;
+      selectNets(w.nets);
+      sel.sheet = s.sheet;
+      const c = layouts[s.sheet].children.find((y) => y.id === x.e[0]);
+      if (!c) return;
+      const px = c.x + p.x, py = c.y + p.y;
+      view.querySelectorAll(".here").forEach((m) => m.remove());
+      el("circle", { cx: px, cy: py, r: 9, class: "here" }, view);
+      center(px, py);
+      $("status").textContent = `${w.nets.length > 1 ? w.nets.length + " nets" : w.nets[0]} · ${w.i + 1} of ${w.ends.length}: ${local(s.ref, cardOf(s.ref))} ${endPin(x.e, w.nets)}, ${x.drives ? "driver" : "receiver"}`;
+    };
+    if (current && current.id === s.sheet) run(); else show(s.sheet, run);
+  }
+  function unwalk() {
+    if (!walk) return;
+    walk = null;
+    view.querySelectorAll(".here").forEach((m) => m.remove());
+    sheetStatus();
   }
   function selectSymbol(id) {
+    unwalk();
     const s = M.symbols[id];
     sel = { nets: [], sheet: s.sheet, sym: id };
     restyle();
@@ -538,7 +630,7 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
   function infoHint() {
     const info = $("info");
     info.innerHTML = `<h3>How to read it</h3><p class="hint">Each sheet is one section of the design. Gates are drawn one by one, so a 74F00 package can appear on several sheets; other chips are boxes with inputs on the left and outputs on the right.</p>
-      <p class="hint"><b>Thick wires</b> are buses: numbered nets that run together, with their count. <b>Labels</b> at a pin lead off the sheet; click one, or a wire, to see every end of the net, across sheets and cards. Click a chip for its pins.</p>
+      <p class="hint"><b>Thick wires</b> are buses: numbered nets that run together, with their count. <b>Labels</b> at a pin lead off the sheet; click one, or a wire, to see every end of the net, across sheets and cards. <b>Double-click</b> a wire or label to step through its ends, the driver first, then each receiver; shift steps back. Click a chip for its pins.</p>
       <p class="hint">Drag to pan, scroll or pinch to zoom. Rails and pull-ups aren't drawn: a pin tied to one says GND or VCC.</p>`;
   }
 
@@ -550,7 +642,7 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
     if (s.kind === "gate" && s.sec !== 1 && index.some((x) => x.ref === s.ref)) continue;
     index.push({ k: "chip", ref: s.ref, text: `${s.ref} ${s.part}`, label: `${s.ref} · ${s.part}`, go: () => { goTo(id, []); selectSymbol(id); } });
   }
-  for (const n in M.nets) index.push({ k: "net", text: n, label: n, go: () => { const d = M.nets[n]; const e = d.drivers[0] || d.loads[0]; if (e) goTo(e[0], [n]); selectNets([n]); } });
+  for (const n in M.nets) index.push({ k: "net", text: n, label: n, go: () => { unwalk(); selectNets([n]); step([n], 1); } });
   for (const s of M.sheets) index.push({ k: "sheet", text: sheetTitle(s), label: sheetTitle(s), go: () => show(s.id) });
   let hits = [], hi = 0;
   function search() {
