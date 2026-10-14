@@ -24,4 +24,5 @@ commands, and `heron test <study>` runs its unit tests.
 | [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane, in ngspice |
 | [egret](egret/README.md) | Egret, a small object language, interpreted and compiled on draft 1b |
 | [graphics](graphics/README.md) | Graphics on draft 1: a library, bitmap and TrueType fonts, and a window manager, in C and assembly for 1a and 1b |
+| [kernel](kernel/README.md) | An operating system for Heron: system extensions to 1b, a benchmark nucleus that measures an OS's hot paths, and page statistics for the MMU |
 | [egret_gui](egret_gui/README.md) | A Smalltalk-style desktop for Egret on draft 1b, with a display, keyboard and mouse for the simulator, in the browser as WebAssembly |

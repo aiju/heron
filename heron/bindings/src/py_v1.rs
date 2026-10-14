@@ -366,5 +366,79 @@ pub mod v1 {
             }
             Ok(out)
         }
+
+        /// v1bs's system state (studies/v1_isa/isa/src/sys.rs) as a dict,
+        /// or None for the other ISAs.
+        #[getter]
+        fn sys<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
+            let Some(s) = self.m.sys.as_deref() else {
+                return Ok(None);
+            };
+            let d = PyDict::new(py);
+            d.set_item("s", s.s)?;
+            d.set_item("xl", s.xl)?;
+            d.set_item("xs", s.xs)?;
+            d.set_item("other_sp", s.other_sp)?;
+            d.set_item("sysctl", s.sysctl)?;
+            d.set_item("bank", s.bank)?;
+            d.set_item("ctx", s.ctx)?;
+            d.set_item("far", s.far)?;
+            d.set_item("fsr", s.fsr)?;
+            d.set_item("page_faults", s.page_faults)?;
+            d.set_item("map_writes", s.map_writes)?;
+            d.set_item("mode_switches", s.mode_switches)?;
+            Ok(Some(d))
+        }
+
+        /// A map entry of v1bs: context, virtual page number.
+        fn map_entry(&self, ctx: usize, vpn: usize) -> PyResult<u32> {
+            let s = self
+                .m
+                .sys
+                .as_deref()
+                .ok_or_else(|| PyValueError::new_err("not a v1bs machine"))?;
+            Ok(s.map[ctx * v1_isa::sys::PAGES + vpn])
+        }
+
+        /// A v1bs register bank: r0-r15 and HI.
+        fn bank(&self, n: usize) -> PyResult<Vec<u32>> {
+            let s = self
+                .m
+                .sys
+                .as_deref()
+                .ok_or_else(|| PyValueError::new_err("not a v1bs machine"))?;
+            Ok(s.banks[n].to_vec())
+        }
+
+        /// Start counting page references, with pages of 2^shift bytes
+        /// (studies/v1_isa/isa/src/pages.rs).
+        fn start_page_stats(&mut self, shift: u32) {
+            self.m.start_page_stats(shift);
+        }
+
+        /// The page reference statistics, or None: for each of "fetch",
+        /// "data" and "both", the references, first touches, pages and
+        /// the LRU stack-distance histogram, and the misses of
+        /// direct-mapped caches.
+        fn page_stats<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
+            let Some(p) = self.m.pages.as_deref() else {
+                return Ok(None);
+            };
+            let d = PyDict::new(py);
+            d.set_item("shift", p.shift)?;
+            d.set_item("stores", p.stores)?;
+            d.set_item("fetch_page_changes", p.fetch_page_changes)?;
+            d.set_item("direct_sizes", v1_isa::pages::DIRECT_SIZES.to_vec())?;
+            for (name, l) in [("fetch", &p.fetch), ("data", &p.data), ("both", &p.both)] {
+                let e = PyDict::new(py);
+                e.set_item("refs", l.refs)?;
+                e.set_item("cold", l.cold)?;
+                e.set_item("pages", l.pages())?;
+                e.set_item("hist", l.hist.clone())?;
+                e.set_item("direct", l.direct_misses())?;
+                d.set_item(name, e)?;
+            }
+            Ok(Some(d))
+        }
     }
 }

@@ -16,6 +16,8 @@ use crate::display::{Display, VRAM_BASE, VRAM_SIZE};
 
 use crate::insn::{Insn, Res, Stop, misaligned};
 use crate::key::{Key, Kind};
+use crate::pages::PageStats;
+use crate::sys::{Acc, PAGE_VECTOR, PRIV_VECTOR, Sys};
 use crate::timing::Config;
 use crate::{v1a, v1b};
 
@@ -38,6 +40,8 @@ pub enum Isa {
     /// 1b with the experimental extensions of the Lisp study
     /// (studies/lisp/isa.md): the reserved mode E is a tagged register.
     V1bx,
+    /// 1b with the system extensions of the kernel study (sys.rs).
+    V1bs,
 }
 
 impl Isa {
@@ -46,6 +50,7 @@ impl Isa {
             "v1a" => Some(Isa::V1a),
             "v1b" => Some(Isa::V1b),
             "v1bx" => Some(Isa::V1bx),
+            "v1bs" => Some(Isa::V1bs),
             _ => None,
         }
     }
@@ -114,11 +119,14 @@ impl Devices {
     }
 }
 
-/// What a decoded address holds: the instruction and its length.
+/// What a decoded address holds: the instruction and its length. The
+/// cache is by physical address; `vpc` is the address it was decoded at,
+/// which relative targets were worked out from.
 #[derive(Clone, Copy)]
 struct Decoded {
     insn: Insn,
     n: u32,
+    vpc: u32,
 }
 
 /// Executions of one (instruction address, timing key), with the key's
@@ -155,6 +163,10 @@ pub struct Machine {
     pub irqs: u64,
     pub min_sp: u32,
     pub data_bytes: u64,
+    /// v1bs's system state (sys.rs); None for the other ISAs.
+    pub sys: Option<Box<Sys>>,
+    /// Page reference statistics, when a tool has turned them on.
+    pub pages: Option<Box<PageStats>>,
     reference: Config,
     ref_cache: HashMap<Key, u32>,
     /// Decoded instructions: decoded[slot[pc / 2]].
@@ -203,6 +215,8 @@ impl Machine {
             irqs: 0,
             min_sp: u32::MAX,
             data_bytes: 0,
+            sys: (isa == Isa::V1bs).then(|| Box::new(Sys::new())),
+            pages: None,
             reference,
             ref_cache: HashMap::new(),
             slot: vec![NONE; half],
@@ -217,8 +231,10 @@ impl Machine {
 
     // ---- memory
 
-    /// The 16-bit parcel at an address, for instruction fetch.
+    /// The 16-bit parcel at an address, for instruction fetch (through
+    /// the map in v1bs user mode).
     pub fn parcel(&self, addr: u32) -> Res<u32> {
+        let addr = self.fetch_phys(addr)?;
         if addr as u64 + 1 >= RAM_SIZE as u64 {
             return Err(Stop::Error(format!(
                 "instruction fetch from {addr:08X}, outside RAM"
@@ -258,6 +274,7 @@ impl Machine {
 
     pub fn rd8(&mut self, a: u32) -> Res<u32> {
         self.data_bytes += 1;
+        let a = self.data_phys(a, Acc::Load)?;
         if a < RAM_SIZE {
             return Ok(self.mem[a as usize] as u32);
         }
@@ -275,6 +292,7 @@ impl Machine {
         if a & 1 != 0 {
             return misaligned("half read", a);
         }
+        let a = self.data_phys(a, Acc::Load)?;
         if a < RAM_SIZE {
             let a = a as usize;
             return Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8);
@@ -294,6 +312,7 @@ impl Machine {
         if a & 3 != 0 {
             return misaligned("word read", a);
         }
+        let a = self.data_phys(a, Acc::Load)?;
         if a < RAM_SIZE {
             let a = a as usize;
             return Ok(u32::from_le_bytes(self.mem[a..a + 4].try_into().unwrap()));
@@ -310,6 +329,7 @@ impl Machine {
 
     pub fn wr8(&mut self, a: u32, v: u32) -> Res<()> {
         self.data_bytes += 1;
+        let a = self.data_phys(a, Acc::Store)?;
         if a < RAM_SIZE {
             if self.code[(a >> 1) as usize] {
                 self.flush();
@@ -334,6 +354,7 @@ impl Machine {
         if a & 1 != 0 {
             return misaligned("half write", a);
         }
+        let a = self.data_phys(a, Acc::Store)?;
         if a < RAM_SIZE {
             if self.code[(a >> 1) as usize] {
                 self.flush();
@@ -359,6 +380,7 @@ impl Machine {
         if a & 3 != 0 {
             return misaligned("word write", a);
         }
+        let a = self.data_phys(a, Acc::Store)?;
         if a < RAM_SIZE {
             let p = (a >> 1) as usize;
             if self.code[p] || self.code[p + 1] {
@@ -389,19 +411,47 @@ impl Machine {
 
     // ---- execution
 
-    fn decode(&mut self, pc: u32) -> Res<Decoded> {
+    /// Decode the instruction at pc, whose first parcel is at physical
+    /// address ppc, and remember it. In v1bs an instruction that straddles
+    /// a page boundary isn't remembered: its pages may be mapped apart.
+    fn decode(&mut self, pc: u32, ppc: u32) -> Res<Decoded> {
         let (insn, n) = match self.isa {
             Isa::V1a => v1a::decode(self, pc)?,
-            Isa::V1b | Isa::V1bx => v1b::decode(self, pc)?,
+            Isa::V1b | Isa::V1bx | Isa::V1bs => v1b::decode(self, pc)?,
         };
-        let d = Decoded { insn, n };
-        self.slot[(pc >> 1) as usize] = self.decoded.len() as u32;
-        self.decoded.push(d);
+        let d = Decoded { insn, n, vpc: pc };
+        let last = pc.wrapping_add(2 * (n - 1));
+        if self.sys.is_some() && (last ^ pc) >> crate::sys::PAGE_SHIFT != 0 {
+            return Ok(d);
+        }
+        let s = (ppc >> 1) as usize;
+        if self.slot[s] == NONE {
+            self.slot[s] = self.decoded.len() as u32;
+            self.decoded.push(d);
+        } else {
+            self.decoded[self.slot[s] as usize] = d;
+        }
         let half = RAM_SIZE >> 1;
         for i in 0..n {
-            self.code[(((pc >> 1) + i) & (half - 1)) as usize] = true;
+            self.code[(((ppc >> 1) + i) & (half - 1)) as usize] = true;
         }
         Ok(d)
+    }
+
+    /// The instruction at pc and the physical address of its first parcel.
+    fn fetch(&mut self, pc: u32) -> Res<(Decoded, u32)> {
+        if pc & 1 != 0 {
+            return Err(Stop::Error(format!("odd PC {pc:08X}")));
+        }
+        let ppc = self.fetch_phys(pc)?;
+        let s = self.slot.get((ppc >> 1) as usize).copied().unwrap_or(NONE);
+        if s != NONE && ppc < RAM_SIZE {
+            let d = self.decoded[s as usize];
+            if d.vpc == pc {
+                return Ok((d, ppc));
+            }
+        }
+        Ok((self.decode(pc, ppc)?, ppc))
     }
 
     fn ref_cycles(&mut self, key: Key) -> u32 {
@@ -439,38 +489,28 @@ impl Machine {
     /// Execute one instruction, and take an interrupt if one is due.
     pub fn step(&mut self) -> Result<(), String> {
         let pc = self.pc;
-        let s = self.slot.get((pc >> 1) as usize).copied().unwrap_or(NONE);
-        let d = if s != NONE && pc & 1 == 0 && pc < RAM_SIZE {
-            self.decoded[s as usize]
-        } else {
-            if pc & 1 != 0 {
-                return Err(format!("odd PC {pc:08X}"));
-            }
-            self.decode(pc).map_err(|e| match e {
-                Stop::Error(e) => e,
-                Stop::Trap(t) => t.why, // decoders don't trap
-            })?
-        };
+        if let Some(p) = self.pages.as_deref_mut() {
+            p.fetch(pc);
+        }
         let mut i_before = self.i;
-        let key = match self.exec(d.insn, pc, d.n) {
-            Ok(key) => key,
+        // the key, and the (physical) address its cycles are counted at; a
+        // fetch that faults is counted at the page-fault vector
+        let (key, at) = match self.fetch(pc) {
             Err(Stop::Error(e)) => return Err(e),
             Err(Stop::Trap(t)) => {
-                if t.vector != SWI_VECTOR {
-                    let what = if t.why.is_empty() {
-                        trap_name(t.vector).to_string()
-                    } else {
-                        t.why.clone()
-                    };
-                    self.traps.push((pc, what));
-                }
-                self.in_trap = true;
-                let ret = if t.fault { pc } else { self.pc };
-                self.enter(t.vector, ret)?;
-                Key::new(d.n, pc, Kind::Trap)
+                self.take_trap(pc, t)?;
+                (Key::new(1, pc, Kind::Trap), PAGE_VECTOR)
             }
+            Ok((d, ppc)) => match self.exec(d.insn, pc, d.n) {
+                Ok(key) => (key, ppc),
+                Err(Stop::Error(e)) => return Err(e),
+                Err(Stop::Trap(t)) => {
+                    self.take_trap(pc, t)?;
+                    (Key::new(d.n, pc, Kind::Trap), ppc)
+                }
+            },
         };
-        self.cycles += self.count(pc, key) as u64;
+        self.cycles += self.count(at, key) as u64;
         self.instructions += 1;
         let sp = self.r[15];
         if sp < self.min_sp && sp != 0 {
@@ -509,6 +549,31 @@ impl Machine {
             self.dev.tick(self.cycles);
         }
         Ok(())
+    }
+
+    /// Take a trap raised by the instruction at pc.
+    fn take_trap(&mut self, pc: u32, t: crate::insn::Trap) -> Result<(), String> {
+        if let Some((far, fsr)) = t.page {
+            let sys = self.sys.as_mut().unwrap();
+            sys.far = far;
+            sys.fsr = fsr;
+            sys.page_faults += 1;
+        } else if t.vector != SWI_VECTOR {
+            let what = if t.why.is_empty() {
+                trap_name(t.vector).to_string()
+            } else {
+                t.why.clone()
+            };
+            self.traps.push((pc, what));
+        }
+        self.in_trap = true;
+        let ret = if t.fault { pc } else { self.pc };
+        self.enter(t.vector, ret)
+    }
+
+    /// Turn on page reference statistics, with pages of 2^shift bytes.
+    pub fn start_page_stats(&mut self, shift: u32) {
+        self.pages = Some(Box::new(PageStats::new(shift)));
     }
 
     /// Enter an interrupt or trap; failing to (an unmapped or misaligned
@@ -609,6 +674,8 @@ pub fn trap_name(vector: u32) -> &'static str {
         DIV_VECTOR => "divide error",
         ADDR_VECTOR => "address error",
         IRQ_VECTOR => "IRQ",
+        PRIV_VECTOR => "privilege violation",
+        PAGE_VECTOR => "page fault",
         _ => "trap",
     }
 }

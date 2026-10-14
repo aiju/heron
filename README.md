@@ -22,6 +22,10 @@ So far there has been:
   manager, in C and assembly for 1a and 1b.
 - **The system bus:** a draft specification, with signal-integrity
   simulations of the backplane.
+- **An operating system study:** what the hardware should give an
+  operating system, measured with a small message-passing kernel on 1b
+  with proposed system extensions, and what the operating system could
+  be.
 
 Draft 2 is next. Which of 1a and 1b it builds on is still open.
 
@@ -33,7 +37,7 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 |---|---|
 | [docs/](docs/README.md) | The current design: what has been decided, as reference |
 | [reports/](reports/README.md) | Numbered reports (what was done and found) and RFCs (proposals that need decisions) |
-| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, a Lisp, the bus signal integrity, graphics |
+| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, a Lisp, the bus signal integrity, graphics, an operating system |
 | [infra/](infra/README.md) | Reusable code: assembler and linker core, netlist language, static timing analysis, the chip-level simulator |
 | `heron/` | The `heron` command, the glue that makes the folders importable as `heron.*`, and `bindings/`, the crate that makes the Rust engines a Python module (`heron.native`) |
 | `tests/` | Tests of the repository itself |

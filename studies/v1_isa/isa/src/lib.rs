@@ -16,6 +16,8 @@ pub mod display;
 pub mod insn;
 pub mod key;
 pub mod machine;
+pub mod pages;
+pub mod sys;
 pub mod timing;
 pub mod v1a;
 pub mod v1b;
