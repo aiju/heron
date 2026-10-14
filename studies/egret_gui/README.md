@@ -50,7 +50,10 @@ The browser version needs Rust's WebAssembly target:
   Double-click a class to open all of it in a Workspace, or a method for
   just that (or right-click for the same): change it, and with the cursor
   in it press Ctrl-D to redefine it in the running system. Objects that
-  exist already use the new methods from their next send. The Browser
+  exist already use the new methods from their next send, and the open
+  windows of a class a Workspace has run a `class` statement for are
+  repainted at once (Clock keeps its colours in `face_color` and the
+  like, to try it on). The Browser
   remembers what the Workspaces changed, so a class opened again shows
   your version. A class can't take new instance variables once it exists
   (that's Egret), and running a class with a different superclass leaves

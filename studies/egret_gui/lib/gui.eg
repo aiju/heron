@@ -571,13 +571,34 @@ class Desktop
     if r.is_a?(String) then return [false, r.strip] end
     record_edits(code)                  # for the Browser (apps.eg)
     result = nil
+    ok = true
     try
       for sel in r
         result = self.send(sel)
       end
     catch err
-      return [false, err.to_s]
+      ok = false
+      result = err.to_s
     end
-    [true, result]
+    # the windows whose classes the code changed show the change now, not
+    # the next time they're uncovered
+    self.repaint_classes(classes_named_in(code))
+    [ok, result]
+  end
+
+  # repaint the windows of these classes (by name), and of their subclasses
+  def repaint_classes(names)
+    if names.size == 0 then return nil end
+    for w in @windows.values
+      c = w.class
+      while c != nil
+        if names.contains?(c.name)
+          w.invalidate
+          c = nil
+        else
+          c = c.superclass
+        end
+      end
+    end
   end
 end

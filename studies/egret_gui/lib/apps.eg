@@ -137,17 +137,24 @@ class Clock < Window
   end
   def resizable? = false
 
+  # its colours: change one here, do the class again, and it's repainted
+  def back_color = PAL.window
+  def face_color = PAL.white
+  def ink_color = PAL.black
+  def second_color = PAL.red
+
   def paint
     cx = self.width / 2
     cy = self.height / 2
     r = cx.min(cy) - 6
-    self.fill_oval(cx, cy, r, r, PAL.white)
-    self.oval(cx, cy, r, r, PAL.black)
+    self.fill(0, 0, self.width, self.height, self.back_color)
+    self.fill_oval(cx, cy, r, r, self.face_color)
+    self.oval(cx, cy, r, r, self.ink_color)
     i = 0
     while i < 60
       inner = if i % 5 == 0 then r - 8 else r - 3 end
       self.line(cx + sin60(i) * inner / 1000, cy - cos60(i) * inner / 1000,
-                cx + sin60(i) * (r - 1) / 1000, cy - cos60(i) * (r - 1) / 1000, PAL.black)
+                cx + sin60(i) * (r - 1) / 1000, cy - cos60(i) * (r - 1) / 1000, self.ink_color)
       i += 1
     end
     if @shown != nil then self.hands(@shown, false) end
@@ -163,6 +170,7 @@ class Clock < Window
     self.poly([tip[0], tip[1], cx + side[0], cy + side[1], tail[0], tail[1], cx - side[0], cy - side[1]], c)
   end
 
+  # the hands at time t, or (erase) the face where they were
   def hands(t, erase)
     cx = self.width / 2
     cy = self.height / 2
@@ -170,12 +178,13 @@ class Clock < Window
     h = t / 3600 % 12
     m = t / 60 % 60
     s = t % 60
-    ink = if erase then PAL.white else PAL.black end
+    face = self.face_color
+    ink = if erase then face else self.ink_color end
+    red = if erase then face else self.second_color end
     self.hand(h * 5 + m / 12, r * 5 / 10, 4, ink)
     self.hand(m, r * 8 / 10, 3, ink)
-    self.line(cx, cy, cx + sin60(s) * (r - 10) / 1000, cy - cos60(s) * (r - 10) / 1000,
-              if erase then PAL.white else PAL.red end)
-    self.fill_oval(cx, cy, 2, 2, if erase then PAL.white else PAL.red end)
+    self.line(cx, cy, cx + sin60(s) * (r - 10) / 1000, cy - cos60(s) * (r - 10) / 1000, red)
+    self.fill_oval(cx, cy, 2, 2, red)
   end
 
   def tick(ticks)
@@ -717,6 +726,22 @@ def defs_in(lines)
     else
       i += 1
     end
+  end
+  out
+end
+
+# the classes a piece of code has class statements for (in any form,
+# `class Clock; def face_color = PAL.yellow; end` too)
+def classes_named_in(code)
+  out = []
+  words = code.replace(";", " ").replace("\n", " ").split(" ")
+  i = 0
+  while i < words.size - 1
+    if words[i] == "class"
+      n = class_name_of("class " + words[i + 1])
+      if n.size > 0 and not out.contains?(n) then out.push(n) end
+    end
+    i += 1
   end
   out
 end
