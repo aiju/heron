@@ -1,5 +1,5 @@
 """The I/O card: a simple card (RFC 0014 section 6) with a 16C550 UART,
-an 82C54 timer and a CompactFlash card. See cards.md.
+an 82C54 timer and a CompactFlash card. See design.md.
 
 Its registers, as offsets in its slot (decoded from A2-A8 only, so they
 repeat through the slot; in slot 15 the top 256 bytes, 0xFFFFFF00 up, are

@@ -2639,7 +2639,7 @@ impl Vector {
             .collect::<Result<Vec<_>, _>>()?;
         let script = preload.unwrap_or(&[]).to_vec();
         let size = n_out + conds;
-        if size == 0 || script.len() % size != 0 {
+        if size == 0 || !script.len().is_multiple_of(size) {
             return Err(Error(format!(
                 "{}: the script isn't a whole number of {size}-byte steps",
                 s.info.reference

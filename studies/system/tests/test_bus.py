@@ -137,7 +137,9 @@ class Arbitration(unittest.TestCase):
         return grants, starts
 
     def test_request_on_idle_bus(self):
-        # parked on slot 0; slot 7 asks: 3 clocks to its first address clock
+        # parked on slot 0; slot 7 asks: 4 clocks to its first address
+        # clock (RFC 0014 section 7.2 says 3; the arbiter registers REQ
+        # before it acts on it)
         m0 = bfm.Master("M0", 0, clock=True)
         m0.wait_reset()
         m7 = bfm.Master("M7", 7)
@@ -151,7 +153,7 @@ class Arbitration(unittest.TestCase):
         r0, r7 = out.record("M0"), out.record("M7")
         req = next(e for e, x in enumerate(r7) if x["REQ_n"] == 0)
         start = next(e for e, x in enumerate(r7) if x["START_n"] == 0)
-        self.assertEqual(start - req, 3)
+        self.assertEqual(start - req, 4)
         grants, _ = self.check_rules({0: r0, 7: r7})
         # parked on slot 0 before and after
         self.assertEqual(grants[req], [0])
@@ -195,7 +197,7 @@ class Arbitration(unittest.TestCase):
         m0.request()
         m0.lock()
         m0.read(MEM + 0x40, lock=True)
-        m0.idle(3, LOCK_n=0)
+        m0.idle(3)
         m0.write(MEM + 0x40, 0x1111, lock=True)
         m0.step(LOCK_n=1)
         m0.release()
@@ -232,9 +234,8 @@ class Monitor(unittest.TestCase):
         out = bfm.run([m0, s9], clocks=300, cards=("MEM",))
         ph = phases(out.record("M0"))
         _, first = ph[0]
-        waits = sum(1 for x in first if x["WAIT_n"] == 0)
-        self.assertEqual(first[-1]["BERR_n"], 0)
-        self.assertEqual(waits, 256)
+        # WAIT in 256 clocks, then BERR in the next (which still has WAIT)
+        self.assertEqual(status(first, "WAIT_n", "BERR_n"), [(0, 1)] * 256 + [(0, 0)])
         self.assertTrue(all(x["DPH_n"] == 0 for x in first))
         _, second = ph[1]
         self.assertEqual(status(second, "RDY_n", "BERR_n"), [(0, 1)])

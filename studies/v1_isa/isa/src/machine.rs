@@ -629,12 +629,13 @@ impl Machine {
     /// page's timer).
     fn bus_interrupts(&mut self, key: Key, mut i_before: u8) -> Result<(), String> {
         let bus = self.bus.as_mut().expect("a bus");
-        if self.halted && self.i != 0 {
-            if let Some(c) = bus.wait_irq(self.cycles) {
-                self.cycles = self.cycles.max(c);
-                self.halted = false;
-                i_before = 1;
-            }
+        if self.halted
+            && self.i != 0
+            && let Some(c) = bus.wait_irq(self.cycles)
+        {
+            self.cycles = self.cycles.max(c);
+            self.halted = false;
+            i_before = 1;
         }
         let enabled = if key.kind == Kind::Rti {
             self.in_trap = false;

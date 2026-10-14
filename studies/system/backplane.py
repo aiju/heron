@@ -1,7 +1,7 @@
 """The backplane's logic (RFC 0014 sections 5, 7 and 13.9): slot decode,
 the class straps, transfer timing, the arbiter, the bus monitor, the clock
 driver, the power-on reset and the pull-ups. Every register is clocked by
-the bus clock at the edge that ends a clock; see backplane.md for the
+the bus clock at the edge that ends a clock; see design.md for the
 design and its timing.
 
 Its nets that are bus lines have the bus's names (bus.py): D0, START_n,
@@ -158,11 +158,18 @@ def build(n_simple=7, por_ps=2_000_000):
            A8="GND", Y1="DPH_n", Y2="RDY_n", Y3="BERR_n", Y4="W32_n")
 
     # ---- the arbiter ---------------------------------------------------------
+    # REQ is sampled into a register at every edge: from REQ to the grant
+    # registers is about 42 ns, more than a clock leaves after a master's
+    # REQ arrives
+    for h in range(2):
+        r = nl.add("574", f"U_RQ{h}", part=ABT + "574", CLK="CK", OE="GND")
+        for i in range(8):
+            r[f"D{i + 1}"], r[f"Q{i + 1}"] = f"REQ_n.{8 * h + i}", f"RQ_n.{8 * h + i}"
     # Q: the highest slot requesting, or 0 (parking) if none does
     nl.add("148", "U_PE1", part=F + "148", EI="GND", A0="PH0", A1="PH1", A2="PH2", GS="GSH_n",
-           EO="EOH", **{f"I{i}": f"REQ_n.{8 + i}" for i in range(8)})
+           EO="EOH", **{f"I{i}": f"RQ_n.{8 + i}" for i in range(8)})
     nl.add("148", "U_PE0", part=F + "148", EI="EOH", A0="PL0", A1="PL1", A2="PL2", GS="GSL_n",
-           **{f"I{i}": f"REQ_n.{i}" for i in range(8)})
+           **{f"I{i}": f"RQ_n.{i}" for i in range(8)})
     Q = ["Q0", "Q1", "Q2", "Q3"]
     for i in range(3):
         gf("00", [f"PH{i}", f"PL{i}"], Q[i])

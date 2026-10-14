@@ -70,8 +70,8 @@ class Script:
                            "delay_ps": DELAY_PS})
         for i, s in enumerate(self.outs):
             v[f"O{i}"] = f"BUS.{s}"
-        for i, s in enumerate(self.ins):
-            v[f"I{i}"] = f"BUS.{s}"
+        for i in range(48):
+            v[f"I{i}"] = f"BUS.{self.ins[i]}" if i < len(self.ins) else "GND"
         if clock:
             nl.add("osc", "U_OSC", part="oscillator", OUT="BUS.CLKSRC",
                    params={"period_ps": PERIOD_PS})
@@ -106,7 +106,9 @@ class Master(Script):
     def lock(self):
         """An idle clock with LOCK asserted, before a locked sequence (RFC
         0014 section 7.3)."""
-        self.step(**self.own(), LOCK_n=0)
+        d = self.own()
+        d["LOCK_n"] = 0
+        self.step(**d)
 
     def transfer(self, addr, write=False, data=0, size=2, end="rdy", lock=False):
         """An address clock, then the data phase until it ends: RDY without
@@ -119,7 +121,8 @@ class Master(Script):
         d = dict(self.own(), **a)
         d.update(WRITE_n=0 if write else 1, LOCK_n=0 if lock else 1,
                  **{f"BE{i}_n": be[i] for i in range(4)})
-        self.step(START_n=0, **d)
+        d["START_n"] = 0
+        self.step(**d)
         dd = {f"D{i}": (data >> i) & 1 if write else Z for i in range(16)}
         until = {"RDY_n": 0, "WAIT_n": 1} if end == "rdy" else {"BERR_n": 0}
         self.step(until=until, START_n=1, **dd)
