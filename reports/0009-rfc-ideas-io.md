@@ -108,6 +108,9 @@ cycles per 512-byte sector. Terminals cost ~5% of the CPU each.
 
 ## 8. Video
 
+A fuller proposal, with costs for each feature, is
+[RFC 0016](0016-rfc-video.md). The items below keep their statuses.
+
 **First question: what's the screen for?** A console (~30 chips) or
 graphics (address space and drawing speed bite). Minicomputers mostly used
 serial terminals; built-in video is home-computer territory. **open.**
