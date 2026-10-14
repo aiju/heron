@@ -74,6 +74,7 @@ heron list                                # the studies, with their status
 heron test                                # the repository's own tests
 heron test v1_isa c_compiler              # a study's unit tests (--active: every active study's)
 heron reports                             # rewrite reports/README.md from the front matter
+heron reports reserve rfc slug "Title"    # reserve the next number: push a stub to main
 heron build                               # build the Rust engines' Python module
 cargo test                                # the Rust crates' tests
 

@@ -11,6 +11,9 @@ has the reasons.
 
 - Start from the latest `main`, work on a branch, and open a pull request
   against `main` when the work is done. Leave merging to Emily.
+- **The one push to `main`:** reserving a report's or RFC's number pushes
+  its stub straight to `main` ([below](#reports-and-rfcs)). Nothing else
+  goes to `main` except through a pull request.
 - Keep each pull request to one topic: the bus spec, the compiler, the CPU
   netlist and so on.
 
@@ -55,9 +58,22 @@ The engines are Rust, everything else is Python
 - **Files:** `reports/NNNN-report-slug.md` or `reports/NNNN-rfc-slug.md`.
   Data or generated files that go with one live in a folder of the same
   name next to it (`reports/NNNN-report-slug/`).
-- **Numbers:** a new document takes the next free number. Reports and RFCs
-  share one numbering space. If another PR took the same number first,
-  renumber yours.
+- **Numbers:** reports and RFCs share one numbering space. Before writing
+  one, reserve its number:
+
+  ```sh
+  heron reports reserve report graphics "Graphics on draft 1"   # or rfc
+  ```
+
+  This pushes a stub (front matter, status `draft`) and the index straight
+  to `main`. The push only succeeds if `main` hasn't moved, so the number
+  is yours; if it has moved, it tries the next one. Then merge
+  `origin/main` into your branch and write over the stub, changing the
+  title or status as you go. Don't create the file on your branch before
+  the merge: that's an add/add conflict.
+- **If the push to `main` is refused:** take the next free number on your
+  branch, say so in the PR, and renumber if another PR takes it first.
+- **A reservation you won't use:** remove its stub in your PR.
 - **Front matter:** every report and RFC starts with YAML front matter
   (number, type, title, status, date, context with the studies and a
   commit on `main`). Copy it from an existing one.
@@ -74,7 +90,9 @@ The engines are Rust, everything else is Python
   Whether they deserve a report of their own is a judgement call.
 - **The index:** after adding a report or changing a status, run
   `python3 -m heron reports`. It rewrites `reports/README.md` and checks
-  the front matter.
+  the front matter. Git merges the index by keeping both sides' lines
+  (`.gitattributes`), so merging `main` never stops on it; run
+  `heron reports` after the merge to clean up what that leaves.
 
 ## Generated files
 
