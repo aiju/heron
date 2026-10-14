@@ -114,8 +114,18 @@ def compile_image():
     return L.link(objs, [driver.library(ISA)[0]], ISA)
 
 
+def console_input(depth=3, source=None):
+    """What the VM reads from the console: the screen's depth, then the
+    desktop's source (or another program's)."""
+    if source is None:
+        source = desktop_source()
+    if isinstance(source, str):
+        source = source.encode()
+    return f"SCREEN_DEPTH = {depth}\n".encode() + source
+
+
 def desktop_source():
-    """The desktop's Egret source, as the console input."""
+    """The desktop's Egret source."""
     out = []
     for name in DESKTOP:
         path = os.path.join(LIB, name)

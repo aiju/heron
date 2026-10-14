@@ -1,0 +1,178 @@
+<title>Heron Egret Desktop</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Barlow:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* A front panel under a monitor: the screen is the page, the panel's
+     silkscreened labels and readouts run the machine. */
+  :root {
+    --panel: #e4e6e1;       /* anodised panel */
+    --bezel: #2b302e;       /* around the screen */
+    --ink: #1e2422;         /* silkscreen and text */
+    --ink-soft: #5b625e;
+    --line: #c3c8c1;
+    --amber: #d98a1e;       /* the LEDs */
+    --amber-off: #cfc3ad;
+    --well: #f3f4f1;        /* the console's paper */
+    --switch: #fbfbf9;
+    --accent: #0b5f87;      /* the desktop's own blue */
+    --font-label: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Barlow", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --panel: #1b1f1e; --bezel: #0c0e0e; --ink: #e2e6e1; --ink-soft: #9aa29d; --line: #343a38;
+      --amber: #f0a43a; --amber-off: #4a3f30; --well: #121514; --switch: #262b2a; --accent: #4fa3cc;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --panel: #1b1f1e; --bezel: #0c0e0e; --ink: #e2e6e1; --ink-soft: #9aa29d; --line: #343a38;
+    --amber: #f0a43a; --amber-off: #4a3f30; --well: #121514; --switch: #262b2a; --accent: #4fa3cc;
+    color-scheme: dark;
+  }
+  html, body { background: var(--panel); color: var(--ink); }
+  body {
+    font: 15px/1.5 var(--font-body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 20px 32px;
+  }
+  .machine { max-width: 1312px; margin: 0 auto; display: grid; gap: 18px; }
+
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+  h1 {
+    margin: 0; font: 600 26px/1.1 var(--font-label); letter-spacing: 0.06em; text-transform: uppercase;
+    text-wrap: balance;
+  }
+  h1 small { font-weight: 500; color: var(--ink-soft); letter-spacing: 0.08em; }
+  header p { margin: 0; color: var(--ink-soft); max-width: 62ch; }
+
+  .bezel {
+    background: var(--bezel); border-radius: 10px; padding: clamp(8px, 1.6vw, 18px);
+    display: grid; place-items: center;
+  }
+  canvas#screen {
+    display: block; width: 100%; max-width: 1280px; aspect-ratio: 4 / 3; height: auto;
+    background: #000; image-rendering: pixelated; cursor: default; outline: none;
+    border-radius: 2px;
+  }
+  canvas#screen:focus-visible { box-shadow: 0 0 0 3px var(--amber); }
+
+  .panel {
+    display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end;
+    border-top: 1px solid var(--line); padding-top: 14px;
+  }
+  .group { display: grid; gap: 6px; min-width: 0; }
+  .label {
+    font: 500 12px/1 var(--font-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft);
+  }
+  .switches { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .switches button {
+    font: 500 14px/1 var(--font-label); letter-spacing: 0.06em; color: var(--ink);
+    background: var(--switch); border: 0; border-right: 1px solid var(--line);
+    padding: 9px 12px; cursor: pointer; display: grid; gap: 3px; justify-items: center;
+  }
+  .switches button:last-child { border-right: 0; }
+  .switches button span { font: 400 11px/1 var(--font-mono); color: var(--ink-soft); }
+  .switches button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+  .switches button[aria-pressed="true"] span { color: var(--panel); opacity: 0.75; }
+  button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+  .readouts { display: flex; flex-wrap: wrap; gap: 4px 22px; }
+  .readout { display: grid; gap: 6px; }
+  .readout output {
+    font: 500 18px/1 var(--font-mono); font-variant-numeric: tabular-nums; min-width: 7ch;
+  }
+  .led {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--amber-off); display: inline-block;
+    vertical-align: 1px; margin-right: 6px; transition: background 120ms;
+  }
+  .led.on { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  .actions button {
+    font: 500 14px/1 var(--font-label); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--ink); background: var(--switch); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 14px; cursor: pointer;
+  }
+  .actions button:hover, .switches button:hover { border-color: var(--ink-soft); }
+
+  .lower { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); gap: 18px 28px; }
+  @media (max-width: 760px) { .lower { grid-template-columns: minmax(0, 1fr); } }
+  .console {
+    margin: 0; background: var(--well); border: 1px solid var(--line); border-radius: 6px;
+    font: 13px/1.45 var(--font-mono); padding: 10px 12px; height: 11.5em; overflow: auto;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .lower > .group { align-content: start; }
+  .help { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; color: var(--ink-soft); }
+  .help b { color: var(--ink); font-weight: 500; }
+  kbd {
+    font: 12px var(--font-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px;
+    padding: 0 4px; background: var(--switch); color: var(--ink);
+  }
+  .status { color: var(--ink-soft); font: 13px var(--font-mono); min-height: 1.5em; margin: 0; }
+  .status.error { color: #c0392b; }
+  @media (prefers-reduced-motion: reduce) { .led { transition: none; } }
+</style>
+
+<main class="machine">
+  <header>
+    <h1>Heron <small>· Egret desktop</small></h1>
+    <p>A Smalltalk-style desktop written in Egret, running on a simulated Heron draft 1b minicomputer, cycle by cycle, at the speed you choose.</p>
+  </header>
+
+  <div class="bezel">
+    <canvas id="screen" width="640" height="480" tabindex="0" aria-label="The Heron's screen. Click it to use the mouse and keyboard."></canvas>
+  </div>
+
+  <section class="panel" aria-label="Front panel">
+    <div class="group">
+      <span class="label" id="speed-label">Clock</span>
+      <div class="switches" role="group" aria-labelledby="speed-label" id="speeds">
+        <button type="button" data-speed="1" aria-pressed="true">1×<span>3 MHz</span></button>
+        <button type="button" data-speed="4" aria-pressed="false">4×<span>12 MHz</span></button>
+        <button type="button" data-speed="16" aria-pressed="false">16×<span>48 MHz</span></button>
+        <button type="button" data-speed="0" aria-pressed="false">Max<span>flat out</span></button>
+      </div>
+    </div>
+    <div class="group">
+      <span class="label" id="depth-label">Screen</span>
+      <div class="switches" role="group" aria-labelledby="depth-label" id="depths">
+        <button type="button" data-depth="3" aria-pressed="true">8-bit<span>256 colours</span></button>
+        <button type="button" data-depth="0" aria-pressed="false">1-bit<span>black &amp; white</span></button>
+      </div>
+    </div>
+    <div class="readouts">
+      <div class="readout"><span class="label"><span class="led" id="led-run"></span>Running at</span><output id="mhz">–</output></div>
+      <div class="readout"><span class="label">Machine time</span><output id="mtime">–</output></div>
+      <div class="readout"><span class="label">Busy</span><output id="busy">–</output></div>
+    </div>
+    <div class="actions">
+      <button type="button" id="restart">Restart</button>
+      <button type="button" id="coldboot">Cold boot</button>
+    </div>
+  </section>
+
+  <p class="status" id="status" role="status">Loading the machine…</p>
+
+  <section class="lower">
+    <div class="group">
+      <span class="label">Console · the serial port at FFFF FF00</span>
+      <pre class="console" id="console"></pre>
+    </div>
+    <div class="group">
+      <span class="label">Using it</span>
+      <ul class="help">
+        <li><b>Click the desktop</b> for the menu: Workspace, Transcript, the demos.</li>
+        <li><b>Drag a title bar</b> to move a window; its corner resizes it; the box closes it.</li>
+        <li><b>In a Workspace</b>, select some Egret (or put the cursor on a line) and press <kbd>Ctrl</kbd>+<kbd>D</kbd> to do it, <kbd>Ctrl</kbd>+<kbd>P</kbd> to print it.</li>
+        <li><b>Restart</b> starts from the desktop as it is once it's up; <b>Cold boot</b> starts the machine from nothing, compiling the whole desktop as it boots.</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<script src="app.js"></script>

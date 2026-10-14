@@ -39,12 +39,8 @@ class Session:
     """The machine running the desktop (or another program, `source`)."""
 
     def __init__(self, source=None, depth=3, time_of_day=10 * 3600 + 8 * 60):
-        if source is None:
-            source = build.desktop_source()
-        if isinstance(source, str):
-            source = source.encode()
-        source = f"SCREEN_DEPTH = {depth}\n".encode() + source
-        self.m = native.v1.Machine("v1b", ram_image(build.image()), source)
+        inp = build.console_input(depth, source)
+        self.m = native.v1.Machine("v1b", ram_image(build.image()), inp)
         self.m.time_of_day = time_of_day
         self.mouse = (0, 0)
         self.buttons = 0

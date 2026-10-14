@@ -1,0 +1,253 @@
+// The Heron in the browser: heron.wasm is the draft 1 simulator
+// (web/src/lib.rs); the snapshots are the machine with the desktop up
+// (booted-D.bin) or about to boot (cold-D.bin), D the screen's depth.
+// This runs the machine by the clock, shows its screen, and hands it
+// the keyboard and mouse as events (studies/v1_isa/isa/src/display.rs).
+"use strict";
+
+(() => {
+  const CLOCK_HZ = 3_000_000;
+  const SLICE_MS = 12;          // host time per frame at most
+  const STEPS = 40_000;         // instructions per call into the module
+  const KEYS = {
+    Backspace: 8, Tab: 9, Enter: 13, Escape: 27, Delete: 127,
+    ArrowLeft: 0x100, ArrowRight: 0x101, ArrowUp: 0x102, ArrowDown: 0x103,
+    Home: 0x104, End: 0x105, PageUp: 0x106, PageDown: 0x107,
+  };
+  const POINTERS = ["default", "text", "crosshair", "wait", "move", "pointer", "none"];
+  const $ = (id) => document.getElementById(id);
+  const canvas = $("screen");
+  const ctx = canvas.getContext("2d");
+  const consoleEl = $("console");
+
+  let wasm = null;
+  let speed = 1;                // 0: flat out
+  let depth = 3;
+  let running = false;
+  let budget = 0;
+  let last = 0;
+  let outPos = 0;
+  let busyMs = 0;
+  let buttons = 0;
+  let stats = { t: 0, cycles: 0, idle: 0 };
+  const snapshots = {};
+
+  function status(text, error = false) {
+    $("status").textContent = text;
+    $("status").classList.toggle("error", error);
+  }
+
+  function text(ptr, len) {
+    return new TextDecoder("latin1").decode(new Uint8Array(wasm.memory.buffer, ptr, len));
+  }
+
+  async function fetchBytes(name, inflate) {
+    const r = await fetch(name);
+    if (!r.ok) throw new Error(`couldn't load ${name} (${r.status})`);
+    if (!inflate) return new Uint8Array(await r.arrayBuffer());
+    const s = r.body.pipeThrough(new DecompressionStream("deflate"));
+    return new Uint8Array(await new Response(s).arrayBuffer());
+  }
+
+  async function snapshot(kind, d) {
+    const name = `${kind}-${d}.bin`;
+    if (!snapshots[name]) snapshots[name] = await fetchBytes(name, true);
+    return snapshots[name];
+  }
+
+  async function start(kind) {
+    running = false;
+    status(kind === "cold" ? "Cold boot: the machine compiles the prelude and the desktop first…" : "Starting…");
+    const snap = await snapshot(kind, depth);
+    const p = wasm.input_buffer(snap.length);
+    new Uint8Array(wasm.memory.buffer, p, snap.length).set(snap);
+    if (!wasm.load()) {
+      status(text(wasm.error_ptr(), wasm.error_len()), true);
+      return;
+    }
+    consoleEl.textContent = "";
+    outPos = 0;
+    budget = 0;
+    stats = { t: performance.now(), cycles: wasm.cycles(), idle: wasm.idle_cycles() };
+    setTime();
+    running = true;
+    status(kind === "cold" ? "Booting…" : "Running.");
+    canvas.focus({ preventScroll: true });
+  }
+
+  function setTime() {
+    const d = new Date();
+    wasm.set_time_of_day(d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds());
+  }
+
+  // ---- running
+
+  function frame(now) {
+    const dt = Math.min(now - last, 100);
+    last = now;
+    if (wasm && running) {
+      const t0 = performance.now();
+      let st = 0;
+      if (speed === 0) {
+        while (performance.now() - t0 < SLICE_MS && st === 0) st = wasm.run(1e9, STEPS);
+      } else {
+        budget += dt / 1000 * CLOCK_HZ * speed;
+        while (budget > 0 && performance.now() - t0 < SLICE_MS && st === 0) {
+          const c = wasm.cycles();
+          st = wasm.run(budget, STEPS);
+          budget -= wasm.cycles() - c;
+        }
+        // behind (the host is too slow for this speed): don't catch up later
+        budget = Math.min(budget, CLOCK_HZ * speed / 30);
+      }
+      if (st === 1) {
+        running = false;
+        status("The machine halted. The console says why.", true);
+      } else if (st === 2) {
+        running = false;
+        status("The simulation stopped: " + text(wasm.error_ptr(), wasm.error_len()), true);
+      }
+      busyMs = wasm.idled() ? 0 : busyMs + dt;
+      const ptr = busyMs > 400 ? "wait" : POINTERS[wasm.pointer()] || "default";
+      if (canvas.style.cursor !== ptr) canvas.style.cursor = ptr;
+    }
+    if (wasm) {
+      draw();
+      output();
+      readouts(now);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function draw() {
+    const p = wasm.screen();
+    if (!p) return;
+    const w = wasm.width(), h = wasm.height();
+    const px = new Uint8ClampedArray(wasm.memory.buffer, p, w * h * 4);
+    ctx.putImageData(new ImageData(px, w, h), 0, 0);
+  }
+
+  function output() {
+    const n = wasm.output_len();
+    if (n <= outPos) return;
+    const s = text(wasm.output_ptr() + outPos, n - outPos);
+    outPos = n;
+    const atEnd = consoleEl.scrollTop + consoleEl.clientHeight >= consoleEl.scrollHeight - 4;
+    consoleEl.textContent += s;
+    if (consoleEl.textContent.length > 20000) consoleEl.textContent = consoleEl.textContent.slice(-16000);
+    if (atEnd) consoleEl.scrollTop = consoleEl.scrollHeight;
+    if (s.includes("ready\n")) status("Running. Click the desktop for the menu.");
+  }
+
+  function readouts(now) {
+    if (now - stats.t < 500) return;
+    const c = wasm.cycles(), idle = wasm.idle_cycles();
+    const dc = c - stats.cycles, di = idle - stats.idle, secs = (now - stats.t) / 1000;
+    $("mhz").textContent = running ? (dc / secs / 1e6).toFixed(1) + " MHz" : "stopped";
+    $("busy").textContent = dc > 0 ? Math.round(100 * (1 - di / dc)) + "%" : "–";
+    const t = c / CLOCK_HZ;
+    $("mtime").textContent = `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+    $("led-run").classList.toggle("on", running && dc > di);
+    stats = { t: now, cycles: c, idle };
+    setTime();
+  }
+
+  // ---- input
+
+  function at(e) {
+    const r = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(639, Math.floor((e.clientX - r.left) * 640 / r.width)));
+    const y = Math.max(0, Math.min(479, Math.floor((e.clientY - r.top) * 480 / r.height)));
+    return [x, y];
+  }
+
+  function mods(e) {
+    return (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
+  }
+
+  const BUTTON = [0, 2, 1];     // the browser's left, middle, right to the machine's
+
+  function event(kind, value) {
+    if (wasm && running) wasm.push_event(((kind << 28) | value) >>> 0);
+  }
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!wasm) return;
+    const [x, y] = at(e);
+    wasm.set_mouse(x, y, buttons | mods(e) << 8);
+  });
+  canvas.addEventListener("pointerdown", (e) => {
+    if (!wasm) return;
+    canvas.focus({ preventScroll: true });
+    canvas.setPointerCapture(e.pointerId);
+    const [x, y] = at(e), b = BUTTON[e.button] ?? 0;
+    buttons |= 1 << b;
+    wasm.set_mouse(x, y, buttons | mods(e) << 8);
+    event(3, (b << 24) | (y << 12) | x);
+    e.preventDefault();
+  });
+  canvas.addEventListener("pointerup", (e) => {
+    if (!wasm) return;
+    const [x, y] = at(e), b = BUTTON[e.button] ?? 0;
+    buttons &= ~(1 << b);
+    wasm.set_mouse(x, y, buttons | mods(e) << 8);
+    event(4, (b << 24) | (y << 12) | x);
+  });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("wheel", (e) => {
+    event(5, (e.deltaY > 0 ? 1 : -1) & 0xFFFF);
+    e.preventDefault();
+  }, { passive: false });
+
+  function key(kind, e) {
+    let code = KEYS[e.key];
+    if (code === undefined && e.key.length === 1 && e.key.charCodeAt(0) < 128) code = e.key.charCodeAt(0);
+    if (code === undefined) return;
+    event(kind, (mods(e) << 16) | code);
+    e.preventDefault();
+  }
+  canvas.addEventListener("keydown", (e) => key(1, e));
+  canvas.addEventListener("keyup", (e) => key(2, e));
+
+  // ---- the panel
+
+  function press(group, button) {
+    for (const b of group.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b === button));
+  }
+  $("speeds").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    speed = Number(b.dataset.speed);
+    budget = 0;
+    press($("speeds"), b);
+    canvas.focus({ preventScroll: true });
+  });
+  $("depths").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b || Number(b.dataset.depth) === depth) return;
+    depth = Number(b.dataset.depth);
+    press($("depths"), b);
+    start("booted").catch(fail);
+  });
+  $("restart").addEventListener("click", () => start("booted").catch(fail));
+  $("coldboot").addEventListener("click", () => start("cold").catch(fail));
+
+  function fail(err) {
+    running = false;
+    status(String(err && err.message || err), true);
+  }
+
+  // ---- start
+
+  (async () => {
+    try {
+      const bytes = await fetchBytes("heron.wasm", false);
+      const { instance } = await WebAssembly.instantiate(bytes, {});
+      wasm = instance.exports;
+      await start("booted");
+    } catch (err) {
+      fail(err);
+    }
+  })();
+  requestAnimationFrame((t) => { last = t; frame(t); });
+})();
