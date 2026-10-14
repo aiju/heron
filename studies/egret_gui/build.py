@@ -24,7 +24,7 @@ GFX_ASM = os.path.join(GFX, "asm", "v1b")
 BUILD = os.path.join(ROOT, "build", "egret_gui")
 ISA = "v1b"
 
-OURS = ["gui_prims.c", "gwm.c"]
+OURS = ["gui_prims.c", "gwm.c", "splash.c"]
 GFX_LIB = ["theme.c", "gfx.c", "line.c", "ellipse.c", "raster.c", "blit.c", "expand.c",
            "font.c", "ttf.c"]
 # the desktop, in the order it's compiled

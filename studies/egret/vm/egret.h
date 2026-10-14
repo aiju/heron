@@ -289,6 +289,8 @@ typedef struct PrimDef {
 #ifdef EGRET_GUI
 const PrimDef *gui_prim_defs(void);     /* studies/egret_gui's (HACK: see its README) */
 void gui_out_char(int c);
+void gui_boot(const unsigned char *input, unsigned n);  /* the splash: its first line, then all of it */
+int gui_compiling(const char *source, int line);       /* its progress bar: the next line to call at */
 #endif
 /* (sized here too: the C compiler gives an array declared with [] the
    size of its declaration, not of its definition) */

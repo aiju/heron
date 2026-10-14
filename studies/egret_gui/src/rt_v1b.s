@@ -27,22 +27,12 @@ __start:
         CALL #_main             ; a 32-bit address: main can be more than 64 KB on
         HALT
 
-; The rest with the other code, where 16-bit calls from C reach it
-        .section .text.egret_rt
-_exit:
-_abort: HALT
+; (the handlers next to their vectors: the rest of the code may be more
+; than 64 KB on)
 
 ; the timer's tick: acknowledge it, and that's all (gui_wait was waiting)
 __irq:  ST   r0, [0xFFFFFF0C]
         RTI
-
-; void gui_wait(void): sleep until the next tick (the simulator skips the
-; cycles in between); returns at once if a tick came while we were busy
-_gui_wait:
-        EI
-        HALT
-        DI
-        RET
 
 __trap: LEA  r1, [trap_msg]
 .loop:  MOV  r2, byte [r1]+
@@ -52,6 +42,19 @@ __trap: LEA  r1, [trap_msg]
 .done:  HALT
 trap_msg: .asciz "TRAP\n"
         .align 2
+
+; The rest with the other code, where 16-bit calls from C reach it
+        .section .text.egret_rt
+_exit:
+_abort: HALT
+
+; void gui_wait(void): sleep until the next tick (the simulator skips the
+; cycles in between); returns at once if a tick came while we were busy
+_gui_wait:
+        EI
+        HALT
+        DI
+        RET
 
 ; int ejsetjmp(ejmp_buf b): b = r8-r14, sp, the return address
 _ejsetjmp:

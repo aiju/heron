@@ -35,8 +35,9 @@ by Egret a slice at a time while the desktop went on, and the clock.
 - **It works, and at 3 MHz it's usable.** A keystroke in the Workspace
   takes 22 ms of the machine's time, printing `3 + 4 * 5` 59 ms (compiling
   it on the machine included), opening the menu 250 ms, dragging a window
-  300 ms, and opening the Browser 0.7 s. Booting takes 22 s: 1.6 s for
-  the prelude, 19 s to compile the desktop, 1.3 s to paint it. Life runs
+  300 ms, and opening the Browser 0.7 s. Booting takes 25 s: 4 s to
+  draw the splash and compile the prelude, 19.6 s to compile the
+  desktop, 1.3 s to paint it. Life runs
   at 3 generations a second; the Mandelbrot set takes 108 s. Gadgets'
   table runs at 25 frames a second of its 30, a frame with a few balls
   moving taking 37 ms. At 4× (12 MHz) it all feels quick.
@@ -85,6 +86,14 @@ by Egret a slice at a time while the desktop went on, and the clock.
   changed and compiled again into the running desktop; objects that exist
   already use the new methods from their next send. The Browser keeps the
   source of what the Workspaces compiled, so a class shows its changes.
+- **A cold boot has a splash.** Egret compiles a program whole before it
+  runs any of it, so for the 20 s the desktop takes to compile, C draws
+  a heron and an egret (450 bytes of vector paths, filled anti-aliased
+  by the graphics study's scan converter, 2.2 s of drawing at 3 MHz),
+  and the lexer moves a progress bar as it reads.
+
+  ![The splash, during a cold boot](0021-report-egret-gui/splash.png)
+
 - **Idle costs the host nothing.** The desktop waits for the timer with
   `EI; HALT; DI`, and the simulator skips the cycles to the next tick.
   The browser counts cycles against the clock to run the machine at the
@@ -113,7 +122,7 @@ loop would have spent in the same time (all of them in
 | Pick a method in the Browser and show its source (the first time: it indexes the source's lines) | 1,239 ms |
 | A frame of Gadgets' table, with two to five balls moving | 37 ms |
 | Open About (TrueType at 30 pixels, rasterised the first time) | 2,752 ms |
-| Boot: the prelude, the desktop's 3,400 lines, the first paint | 21.9 s |
+| Boot: the splash, the prelude, the desktop's 3,400 lines, the first paint | 24.9 s |
 
 - **The first second is the budget.** Typing keeps up with a fast typist;
   everything that redraws a window's worth of text takes a few hundred

@@ -38,6 +38,8 @@
 #define BACKING_SIZE 0x78000
 
 void gui_wait(void);              /* EI; HALT; DI: sleep until the next tick (rt_v1b.s) */
+void gui_setup(int depth);        /* the screen, palette, fonts, window manager, timer */
+unsigned gui_nearest(int r, int g, int b);   /* the colour at the screen's depth */
 void *gui_alloc(unsigned n);      /* the font cache's malloc */
 
 /* ---- the window manager (gwm.c) ----

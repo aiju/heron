@@ -24,8 +24,15 @@ const char *tok_name(int t) { return t >= 0 && t < NTOKENS ? names[t] : "?"; }
 
 void fatal_at(Lexer *lx, int line, const char *msg);
 
+#ifdef EGRET_GUI
+static int gui_line;            /* the line to tell the splash at next */
+#endif
+
 void lex_init(Lexer *lx, const char *src, unsigned len, int line, const char *file)
 {
+#ifdef EGRET_GUI
+    gui_line = 0;
+#endif
     memset(lx, 0, sizeof *lx);
     lx->src = lx->p = src;
     lx->end = src + len;
@@ -140,6 +147,10 @@ again:
     }
     lx->tstart = p;
     lx->tline = lx->line;
+#ifdef EGRET_GUI
+    if (lx->line >= gui_line)   /* the splash's progress bar (HACK: see studies/egret_gui) */
+        gui_line = gui_compiling(lx->file, lx->line);
+#endif
     if (p >= lx->end) {
         lx->p = p;
         return T_EOF;

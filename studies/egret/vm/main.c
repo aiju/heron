@@ -92,11 +92,12 @@ unsigned cycles(void)
 #endif
 }
 
-/* the console input, into INPUT */
-static unsigned read_input(void)
+/* the console input, into INPUT, after the n bytes read already; with
+   line, only up to the end of a line */
+static unsigned read_input(unsigned n, int line)
 {
     unsigned char *buf = BP(INPUT_LO);
-    unsigned n = 0, max = INPUT_HI - INPUT_LO;
+    unsigned max = INPUT_HI - INPUT_LO;
 #ifdef __HERON__
     for (;;) {
         unsigned c = HERON_CONSOLE;
@@ -105,6 +106,8 @@ static unsigned read_input(void)
         if (n >= max)
             fatal("the program and its input are too big");
         buf[n++] = c;
+        if (line && c == '\n')
+            break;
     }
 #else
     int c;
@@ -112,6 +115,8 @@ static unsigned read_input(void)
         if (n >= max)
             fatal("the program and its input are too big");
         buf[n++] = c;
+        if (line && c == '\n')
+            break;
     }
 #endif
     return n;
@@ -176,9 +181,19 @@ int main(void)
     boot_classes();
     interp_init();
     prims_init();
+#ifdef EGRET_GUI
+    /* the input first: its first line says how to draw the splash, and
+       all of it how long the progress bar is */
+    n = read_input(0, 1);
+    gui_boot(BP(INPUT_LO), n);
+    n = read_input(n, 0);
+    gui_boot(BP(INPUT_LO), n);
+#endif
     if (!run_source(prelude_src, prelude_len, "prelude"))
         fatal("the prelude failed");
-    n = read_input();
+#ifndef EGRET_GUI
+    n = read_input(0, 0);
+#endif
     in = BP(INPUT_LO);
     /* the program ends at a line __END__; what follows is its input */
     src_len = n;

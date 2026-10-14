@@ -77,7 +77,7 @@ def measure(log=print):
     s = run.Session(source='print("ready")')
     s.m.run_until(10 ** 10)                     # it halts when it's done
     vm = s.cycles
-    row("Booting", "Start the VM and compile the prelude (408 lines)", vm)
+    row("Booting", "Start the VM, draw the splash, read the source, compile the prelude (408 lines)", vm)
     s = run.Session().boot()
     lines = sum(open(os.path.join(build.LIB, f)).read().count("\n") for f in build.DESKTOP)
     row("Booting", f"Compile the desktop ({lines} lines of Egret) and open its first windows",
@@ -319,7 +319,7 @@ def menu(s, item, x=550, y=300):
 
 def screenshots(out=REPORT_DIR, log=print):
     """The report's pictures: the desktop at 8 and 1 bits per pixel with
-    some things done in it, the Browser, and Gadgets."""
+    some things done in it, the Browser, Gadgets, and the splash."""
     paths = []
     for depth in (3, 0):
         s = run.Session(depth=depth).boot()
@@ -367,6 +367,11 @@ def screenshots(out=REPORT_DIR, log=print):
     s.click(470, 300)                           # on the table
     s.run(1.2)
     paths.append(os.path.join(out, "gadgets.png"))
+    s.png(paths[-1])
+    # the splash, a few seconds into a cold boot
+    s = run.Session()
+    s.run(6)
+    paths.append(os.path.join(out, "splash.png"))
     s.png(paths[-1])
     for p in paths:
         log(f"wrote {os.path.relpath(p)}")

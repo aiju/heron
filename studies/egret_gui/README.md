@@ -78,7 +78,7 @@ The browser version needs Rust's WebAssembly target:
   a tick, so Gadgets gets smoother rather than faster (flat out, the
   timer is set as for 48 MHz). Restart starts from a
   snapshot of the desktop just booted; Cold boot starts from nothing and
-  shows the machine compiling the desktop (22 s at 3 MHz). An infinite
+  shows the machine compiling the desktop (25 s at 3 MHz), under a splash. An infinite
   loop in a Workspace hangs the desktop: Restart is the way out.
 
 ## How it works
@@ -92,6 +92,7 @@ The browser version needs Rust's WebAssembly target:
 | `lib/desktop.eg` | The menu, the first windows, and `DESK.run` |
 | `src/gwm.c` | The window manager: the graphics study's `wm.c`, with updates for Egret to paint instead of paint functions |
 | `src/gui_prims.c` | Egret's primitives for the screen, events, windows, drawing, fonts, the Workspace's compiler and the Browser |
+| `src/splash.c` | The splash at a cold boot: a heron and an egret, 450 bytes of vector paths, and a progress bar |
 | `src/gui.h`, `src/gui_map.h` | The devices, and Egret's memory map for this build |
 | `src/rt_v1b.s` | Egret's start code, with a timer interrupt and `gui_wait` |
 | `build.py` | The image: Egret's VM, the graphics library and kernels, the fonts, `src/` |
@@ -119,6 +120,17 @@ Whatever of a window comes into view is erased and becomes the window's
 pending update, as on the classic Mac OS. Egret gets it as an event and
 paints it with the window's clip cut down to it. Egret can also draw in
 a window at any time, in the window's coordinates, clipped to what shows.
+
+**The splash.** Egret compiles a program whole before it runs any of
+it, so the desktop can't draw anything while it compiles. So C does: the
+VM reads the input's first line (`SCREEN_DEPTH = d`) before the prelude,
+`gui_boot` draws a heron and an egret, and the lexer calls
+`gui_compiling` to move a progress bar as it reads the lines. The birds are paths
+of lines and cubic Béziers (`splash.c`), flattened and filled
+anti-aliased with the graphics study's scan converter, the edges
+blended with what's under them; at 1 bit a pixel the edges are black,
+which draws them in outline. The desktop's own `gui_init` paints over
+it.
 
 **Running code from the Workspace.** `gui_compile` compiles each
 top-level statement into a method of Object with a name of its own
@@ -177,7 +189,9 @@ changes outside the study need doing properly or taking out:
 - `studies/egret/vm`: `EGRET_GUI` hooks in `egret.h` (the memory map from
   `gui_map.h`, 256 primitives), `prims.c` (a second table of primitives;
   `PrimDef` moved to `egret.h`) and `main.c` (output copied to the
-  Transcript). Egret's own builds don't define it, and its tests pass.
+  Transcript; the input read before the prelude, its first line first,
+  for the splash) and `lex.c` (the splash's progress bar told of the
+  lines read). Egret's own builds don't define it, and its tests pass.
 - `studies/egret/vm/parse.c`: a fix, not a hook, which could go to `main`
   on its own. A class statement that failed to compile left its class
   defined but empty, and since a class can't be given instance variables

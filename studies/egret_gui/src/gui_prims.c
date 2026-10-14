@@ -131,11 +131,12 @@ static Value p_output(Value *args, int argc)
 
 /* ---- the screen and the clock ---- */
 
-static Value p_init(Value *args, int argc)
+/* the screen at a depth, the palette and theme, the fonts, the window
+   manager (which paints the desktop), and the timer */
+void gui_setup(int d)
 {
     int r, g, b, c;
-    NEED_INTS(1, 1);
-    depth = I(1) & 3;
+    depth = d & 3;
     GUI_MODE = depth;
     GUI_PAL_INDEX = 0;
     for (c = 0; c < 1 << (1 << depth); c++) {
@@ -152,6 +153,12 @@ static Value p_init(Value *args, int argc)
     }
     gwm_init(depth);
     HERON_TIMER = CLOCK_HZ / TICK_HZ;
+}
+
+static Value p_init(Value *args, int argc)
+{
+    NEED_INTS(1, 1);
+    gui_setup(I(1));
     return NIL;
 }
 
@@ -250,23 +257,27 @@ static Value p_event(Value *args, int argc)
    colours every frame, and a search is 256 distances */
 static int clamp255(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
-static Value p_rgb(Value *args, int argc)
+unsigned gui_nearest(int r, int g, int b)
 {
     static unsigned key[64], val[64];
     unsigned k, h;
-    int r, g, b;
-    NEED_INTS(1, 3);
-    NEED_INIT();
-    r = clamp255(I(1)); g = clamp255(I(2)); b = clamp255(I(3));
+    r = clamp255(r); g = clamp255(g); b = clamp255(b);
     if (depth == 0)
-        return MKINT(r + g + b >= 3 * 128);
+        return r + g + b >= 3 * 128;
     k = 1u << 24 | (unsigned)r << 16 | (unsigned)g << 8 | (unsigned)b;
     h = (k ^ k >> 6 ^ k >> 12 ^ k >> 18) & 63;
     if (key[h] != k) {
         key[h] = k;
         val[h] = theme_nearest(depth, r, g, b);
     }
-    return MKINT(val[h]);
+    return val[h];
+}
+
+static Value p_rgb(Value *args, int argc)
+{
+    NEED_INTS(1, 3);
+    NEED_INIT();
+    return MKINT(gui_nearest(I(1), I(2), I(3)));
 }
 
 /* the theme's colours: black white desk desk2 frame title title_text
