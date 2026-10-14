@@ -113,6 +113,33 @@ impl Devices {
     }
 }
 
+/// Everything outside the CPU's own RAM, for a machine on the system bus
+/// (studies/system) instead of the simulator's I/O page. Accesses go to
+/// it as the 16-bit CPU card makes them: transfers of a halfword, a word
+/// being two (the low half first), with byte enables.
+pub trait Bus: Send + Sync {
+    /// Where an address is the CPU's own RAM: its offset in RAM, or None
+    /// for an address on the bus.
+    fn local(&self, a: u32) -> Option<u32>;
+    /// One transfer at an even address: `be` bit 0 enables the low byte,
+    /// bit 1 the high byte. A read returns the halfword, a write `data`'s
+    /// enabled bytes; None is a bus error (an empty slot, a timeout).
+    fn transfer(&mut self, a: u32, write: bool, be: u8, data: u16, cycles: u64) -> Option<u16>;
+    /// Whether an interrupt is requested, `cycles` into the run.
+    fn irq(&mut self, cycles: u64) -> bool;
+    /// HALT with interrupts on: the cycle count at which one is next
+    /// requested, or None if none ever will be.
+    fn wait_irq(&mut self, cycles: u64) -> Option<u64>;
+    /// What a device holds at the end, by name ("uart", "cf", "mem").
+    fn dump(&self, what: &str) -> Option<Vec<u8>>;
+}
+
+/// Where a data address goes.
+enum Place {
+    Ram(u32),
+    Bus,
+}
+
 /// What a decoded address holds: the instruction and its length. The
 /// cache is by physical address; `vpc` is the address it was decoded at,
 /// which relative targets were worked out from.
@@ -161,6 +188,8 @@ pub struct Machine {
     pub sys: Option<Box<Sys>>,
     /// Page reference statistics, when a tool has turned them on.
     pub pages: Option<Box<PageStats>>,
+    /// The system bus, instead of the I/O page (see [`Bus`]).
+    pub bus: Option<Box<dyn Bus>>,
     reference: Config,
     ref_cache: HashMap<Key, u32>,
     /// Decoded instructions: decoded[slot[pc / 2]].
@@ -211,6 +240,7 @@ impl Machine {
             data_bytes: 0,
             sys: (isa == Isa::V1bs).then(|| Box::new(Sys::new())),
             pages: None,
+            bus: None,
             reference,
             ref_cache: HashMap::new(),
             slot: vec![NONE; half],
@@ -253,6 +283,60 @@ impl Machine {
         }
     }
 
+    /// Where a (physical) data address goes: without a bus, RAM as it is.
+    fn place(&self, a: u32) -> Place {
+        match &self.bus {
+            None => Place::Ram(a),
+            Some(b) => match b.local(a) {
+                Some(l) => Place::Ram(l & (RAM_SIZE - 1)),
+                None => Place::Bus,
+            },
+        }
+    }
+
+    fn bus_error<T>(a: u32) -> Res<T> {
+        crate::insn::trap(ADDR_VECTOR, true, &format!("bus error at {a:08X}"))
+    }
+
+    /// A read of `size` bytes on the bus: halfword transfers.
+    fn bus_read(&mut self, a: u32, size: u32) -> Res<u32> {
+        let cycles = self.cycles;
+        let bus = self.bus.as_mut().expect("a bus");
+        let mut v = 0u32;
+        for h in 0..size.div_ceil(2) {
+            let be = if size == 1 { 1 << (a & 1) } else { 3 };
+            match bus.transfer((a & !1) + 2 * h, false, be, 0, cycles) {
+                Some(d) => v |= (d as u32) << (16 * h),
+                None => return Self::bus_error(a),
+            }
+        }
+        if size == 1 {
+            v = (v >> (8 * (a & 1))) & 0xFF;
+        }
+        Ok(v)
+    }
+
+    /// A write of `size` bytes on the bus. A byte goes out on both lanes,
+    /// as the CPU's store data does.
+    fn bus_write(&mut self, a: u32, size: u32, v: u32) -> Res<()> {
+        let cycles = self.cycles;
+        let bus = self.bus.as_mut().expect("a bus");
+        for h in 0..size.div_ceil(2) {
+            let (be, d) = if size == 1 {
+                (1 << (a & 1), (v & 0xFF) as u16 * 0x101)
+            } else {
+                (3, (v >> (16 * h)) as u16)
+            };
+            if bus
+                .transfer((a & !1) + 2 * h, true, be, d, cycles)
+                .is_none()
+            {
+                return Self::bus_error(a);
+            }
+        }
+        Ok(())
+    }
+
     fn bad<T>(&self, a: u32) -> Res<T> {
         Err(Stop::Error(format!(
             "access to unmapped address {a:08X} at pc {:08X}",
@@ -263,6 +347,10 @@ impl Machine {
     pub fn rd8(&mut self, a: u32) -> Res<u32> {
         self.data_bytes += 1;
         let a = self.data_phys(a, Acc::Load)?;
+        let a = match self.place(a) {
+            Place::Ram(l) => l,
+            Place::Bus => return self.bus_read(a, 1),
+        };
         if a < RAM_SIZE {
             return Ok(self.mem[a as usize] as u32);
         }
@@ -278,6 +366,10 @@ impl Machine {
             return misaligned("half read", a);
         }
         let a = self.data_phys(a, Acc::Load)?;
+        let a = match self.place(a) {
+            Place::Ram(l) => l,
+            Place::Bus => return self.bus_read(a, 2),
+        };
         if a < RAM_SIZE {
             let a = a as usize;
             return Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8);
@@ -294,6 +386,10 @@ impl Machine {
             return misaligned("word read", a);
         }
         let a = self.data_phys(a, Acc::Load)?;
+        let a = match self.place(a) {
+            Place::Ram(l) => l,
+            Place::Bus => return self.bus_read(a, 4),
+        };
         if a < RAM_SIZE {
             let a = a as usize;
             return Ok(u32::from_le_bytes(self.mem[a..a + 4].try_into().unwrap()));
@@ -307,6 +403,10 @@ impl Machine {
     pub fn wr8(&mut self, a: u32, v: u32) -> Res<()> {
         self.data_bytes += 1;
         let a = self.data_phys(a, Acc::Store)?;
+        let a = match self.place(a) {
+            Place::Ram(l) => l,
+            Place::Bus => return self.bus_write(a, 1, v),
+        };
         if a < RAM_SIZE {
             if self.code[(a >> 1) as usize] {
                 self.flush();
@@ -327,6 +427,10 @@ impl Machine {
             return misaligned("half write", a);
         }
         let a = self.data_phys(a, Acc::Store)?;
+        let a = match self.place(a) {
+            Place::Ram(l) => l,
+            Place::Bus => return self.bus_write(a, 2, v),
+        };
         if a < RAM_SIZE {
             if self.code[(a >> 1) as usize] {
                 self.flush();
@@ -348,6 +452,10 @@ impl Machine {
             return misaligned("word write", a);
         }
         let a = self.data_phys(a, Acc::Store)?;
+        let a = match self.place(a) {
+            Place::Ram(l) => l,
+            Place::Bus => return self.bus_write(a, 4, v),
+        };
         if a < RAM_SIZE {
             let p = (a >> 1) as usize;
             if self.code[p] || self.code[p + 1] {
@@ -478,6 +586,9 @@ impl Machine {
         if sp < self.min_sp && sp != 0 {
             self.min_sp = sp;
         }
+        if self.bus.is_some() {
+            return self.bus_interrupts(key, i_before);
+        }
         if self.dev.timer_period != 0 {
             self.dev.tick(self.cycles);
         }
@@ -509,6 +620,42 @@ impl Machine {
             };
             self.cycles += self.ref_cycles(k) as u64;
             self.dev.tick(self.cycles);
+        }
+        Ok(())
+    }
+
+    /// After an instruction on a system bus machine: wait in HALT for an
+    /// interrupt, and take one if it's due (the same rules as the I/O
+    /// page's timer).
+    fn bus_interrupts(&mut self, key: Key, mut i_before: u8) -> Result<(), String> {
+        let bus = self.bus.as_mut().expect("a bus");
+        if self.halted && self.i != 0 {
+            if let Some(c) = bus.wait_irq(self.cycles) {
+                self.cycles = self.cycles.max(c);
+                self.halted = false;
+                i_before = 1;
+            }
+        }
+        let enabled = if key.kind == Kind::Rti {
+            self.in_trap = false;
+            self.i
+        } else {
+            i_before
+        };
+        let bus = self.bus.as_mut().expect("a bus");
+        if enabled != 0 && !self.halted && bus.irq(self.cycles) {
+            self.irqs += 1;
+            self.enter(IRQ_VECTOR, self.pc)?;
+            if self.irq_count == 0 {
+                self.order.push(None);
+            }
+            self.irq_count += 1;
+            let k = Key {
+                n: 1,
+                p2: 0,
+                kind: Kind::Irq,
+            };
+            self.cycles += self.ref_cycles(k) as u64;
         }
         Ok(())
     }

@@ -1,0 +1,11 @@
+# Register-level models of the I/O devices (a 16550 UART, an 8254 timer, a
+# CompactFlash card), shared by the chip-level simulator and the
+# instruction-level system model.
+[package]
+name = "devices"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

@@ -1,5 +1,15 @@
 """Chip-level netlist of the draft 1b CPU (plus 1 MB RAM and the I/O page).
 
+build() is the CPU as studied in report 0012: a fixed clock from a test
+fixture, and the I/O page as a fixture. build(card=True) is the core of the
+CPU card on the system bus (studies/system/cpucard.py), which adds its own
+clock generator, bus interface and interrupt inputs: there the MAR holds
+all 32 address bits, the RAM is only slot 0's region (the slot bits
+MAR[31:28] all 0), anything else goes on the bus, and a bus error (net
+BUSERR, from the bus interface) traps like a misaligned access.
+build(card=True, stub=True) is that core with the test fixtures in place
+of the card's parts, for static timing analysis.
+
 Buses
   ABUS  ALU A input   <- RF copy A, PC, R, R x 2 (+ shift-in), the bridge from B
   BBUS  ALU B input   <- RF copy B, R, T (by byte lane), 2 x T.lo, the
@@ -32,7 +42,7 @@ def control_nets():
     return nets
 
 
-def build():
+def build(card=False, stub=False):
     nl = Netlist()
     g = nl.gate
     U = control_nets()
@@ -42,14 +52,17 @@ def build():
     DBUS, ADDR, IR = bus("DBUS", 16), bus("ADDR", 20), bus("IR", 16)
     RQ, TQ = bus("RQ", 32), bus("TQ", 32)
     PC = ["GND"] + bus("PC", 31, 1)              # PC bit 0 is always 0
-    MAR = bus("MAR", 20) + ["MAR31"]             # bits 0-19 and 31 (I/O select)
+    MAR = bus("MAR", 32) if card else bus("MAR", 20) + ["MAR31"]   # 0-19 and 31 (I/O select)
     Y = bus("Y", uc.Y_BITS)
     DEC = bus("DEC", 16)
     LC = bus("LC", 8)
 
     # ---- fixtures: clock/reset generator, rails --------------------------------
-    nl.add("clockgen", "X_CLK", CLK="CLK", WEWIN="WEWIN0", RESET="RESET_n")
+    if not card or stub:
+        nl.add("clockgen", "X_CLK", CLK="CLK", WEWIN="WEWIN0", RESET="RESET_n")
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
+    if stub:
+        nl.add("const", "X_STUB", LO="BUSERR")
     g("04", ["RESET_n"], "RESET")
     g("08", ["WEWIN0", "RESET_n"], "WEWIN")       # no writes while reset is held
 
@@ -100,7 +113,11 @@ def build():
     # It turns the Y multiplexer off (Y = 0) and selects a fault page.
     g("08", [u["SIZE0"], MAR[1]], "MIS1")
     g("32", [MAR[0], "MIS1"], "MIS2")
-    g("08", [u["SIZE1"], "MIS2"], "FAULT")
+    if card:
+        g("08", [u["SIZE1"], "MIS2"], "MISF")
+        g("32", ["MISF", "BUSERR"], "FAULT")
+    else:
+        g("08", [u["SIZE1"], "MIS2"], "FAULT")
     g("04", ["FAULT"], "FAULT_n")
     g("08", ["FAULT", "LEN0"], "FLEN0")
     g("08", ["FAULT", "LEN1"], "FLEN1")
@@ -120,7 +137,7 @@ def build():
             m[f"{sec + 1}Y"] = Y[i]
 
     # interrupt request: synchronise, then pending = request & I (next value)
-    nl.add("74", "U_IRQ", **{"1D": "IRQ", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n",
+    nl.add("74", "U_IRQ", nocheck=card, **{"1D": "IRQ", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n",
                              "1Q": "IRQS",
                              "2D": "IRQP_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "RESET_n",
                              "2Q": "IRQP"})
@@ -312,21 +329,23 @@ def build():
             t[f"D{i + 1}"], t[f"Q{i + 1}"] = DBUS[8 * (k % 2) + i], TQ[8 * k + i]
 
     # ---- MAR (bits 0-19 and 31) from the result bus or straight from the A bus ---------
-    MARIN = bus("MARIN", 21)
-    msrc = [(RES[i], ABUS[i]) for i in range(20)] + [(RES[31], ABUS[31])]
-    for k in range(6):
+    nmar = len(MAR)
+    MARIN = bus("MARIN", nmar)
+    msrc = [(RES[i], ABUS[i]) for i in range(nmar)] if card else \
+        [(RES[i], ABUS[i]) for i in range(20)] + [(RES[31], ABUS[31])]
+    for k in range((nmar + 3) // 4):
         m = nl.add("157", f"U_MARM{k}", S=u["MARSRC"], G="GND")
         for j in range(4):
             i = 4 * k + j
-            if i < 21:
+            if i < nmar:
                 m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = msrc[i][0], msrc[i][1], MARIN[i]
             else:
                 m[f"{j + 1}A"], m[f"{j + 1}B"] = "GND", "GND"
-    for k in range(3):
+    for k in range((nmar + 7) // 8):
         r = nl.add("377", f"U_MAR{k}", CLK="CLK", EN=u["LDMAR_n"])
         for j in range(8):
             i = 8 * k + j
-            if i < 21:
+            if i < nmar:
                 r[f"D{j + 1}"], r[f"Q{j + 1}"] = MARIN[i], MAR[i]
             else:
                 r[f"D{j + 1}"] = "GND"
@@ -367,14 +386,27 @@ def build():
     # the I/O page is anything with MAR[31] set (decoded from MAR, not the address
     # mux). A misaligned access still reads the RAM (the data is ignored) but
     # never selects the I/O device, whose reads have side effects.
-    g("08", [u["ADDRMAR"], "MAR31"], "RAMOFF")
-    g("10", [u["ADDRMAR"], "MAR31", "FAULT_n"], "IOSEL_n")
+    if card:
+        # the RAM is slot 0's region; any other slot is the bus's. The slot
+        # bits are decoded with 74F gates, so that RAMOFF is there before
+        # the write window opens: the RAM must not see a write for the bus.
+        g("32", ["MAR28", "MAR29"], "MS01", part="74F32")
+        g("32", ["MAR30", "MAR31"], "MS23", part="74F32")
+        g("32", ["MS01", "MS23"], "MARBUS", part="74F32")
+        g("08", [u["ADDRMAR"], "MARBUS"], "RAMOFF")
+        g("04", ["RAMOFF"], "RAMOFF_n")
+    else:
+        g("08", [u["ADDRMAR"], "MAR31"], "RAMOFF")
+        g("10", [u["ADDRMAR"], "MAR31", "FAULT_n"], "IOSEL_n")
     g("04", [u["SIZE1"]], "SIZE1_n")
     g("08", [u["SIZE0"], "SIZE1_n"], "BYTE")           # SIZE 1: one byte lane
     g("04", [ADDR[0]], "ADDR0_n")
     g("00", ["BYTE", ADDR[0]], "LOEN")
     g("00", ["BYTE", "ADDR0_n"], "HIEN")
-    g("08", [u["MEMWR"], "FAULT_n"], "MWOK")
+    if card:
+        g("11", [u["MEMWR"], "FAULT_n", "RAMOFF_n"], "MWOK")    # a write to this RAM
+    else:
+        g("08", [u["MEMWR"], "FAULT_n"], "MWOK")
     g("10", ["MWOK", "WEWIN", "LOEN"], "WEL_n")
     g("10", ["MWOK", "WEWIN", "HIEN"], "WEH_n")
     for half, we in ((0, "WEL_n"), (1, "WEH_n")):
@@ -383,12 +415,15 @@ def build():
             ram[f"A{i}"] = ADDR[i + 1]
         for i in range(8):
             ram[f"IO{i}"] = DBUS[8 * half + i]
-    io = nl.add("iodev32", "X_IO", CLK="CLK", IOSEL="IOSEL_n", RD=u["MEMRD_n"], WEL="WEL_n",
-                WEH="WEH_n", IRQ="IRQ")
-    for i in range(8):
-        io[f"A{i}"] = ADDR[i]
-    for i in range(16):
-        io[f"D{i}"] = DBUS[i]
+    if not card:
+        io = nl.add("iodev32", "X_IO", CLK="CLK", IOSEL="IOSEL_n", RD=u["MEMRD_n"], WEL="WEL_n",
+                    WEH="WEH_n", IRQ="IRQ")
+        for i in range(8):
+            io[f"A{i}"] = ADDR[i]
+        for i in range(16):
+            io[f"D{i}"] = DBUS[i]
+    elif stub:
+        nl.add("const", "X_STUB2", LO="IRQ")
 
     # store data: result bus low half (DSRC 11), high half (10), or low byte on
     # both lanes (01). The two enables of each 541 decode it, so the drivers
@@ -490,6 +525,8 @@ def build():
     # for each polarity); conditional PC loads (Bcc) apply the polarity here
     g("86", ["CONDT_n", CC[0]], "BCOND_n")
 
+    if card and not stub:
+        return nl              # studies/system/cpucard.py adds the rest
     nl.finish()
     nl.check()
     return nl

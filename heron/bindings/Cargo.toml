@@ -19,6 +19,7 @@ doctest = false
 hwsim = { path = "../../infra/hwsim" }
 sisim = { path = "../../infra/sisim" }
 toolchain = { path = "../../infra/toolchain" }
+system-model = { path = "../../studies/system/model" }
 v1-isa = { path = "../../studies/v1_isa/isa" }
 pyo3.workspace = true
 pythonize.workspace = true

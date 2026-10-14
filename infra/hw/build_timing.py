@@ -13,6 +13,12 @@ the simulator's models, and picks one value per corner:
 
 Memories only have guaranteed maxima, so both corners use them.
 
+timing_bus.json (the parts of the cards on the system bus: 74F, 74ABT,
+devices) already uses these delay names, so its entries are taken as they
+are: max and typ per delay (typ estimated from max where missing), checks.
+A part the other files already have keeps their numbers (74HCT245, 74HCT20),
+so adding the bus parts doesn't move earlier designs' results.
+
 Run: python3 -m heron.infra.hw.build_timing
 """
 
@@ -86,7 +92,7 @@ SRAM_DELAYS = ["tAA", "tACE", "tOE", "tOHZ", "tCHZ", "tWHZ"]
 SRAM_CHECKS = ["tAS", "tAW", "tWP", "tDW", "tDH", "tWR", "tAH"]
 ROM_DELAYS = ["tACC", "tCE", "tOE", "tDF"]
 
-TYP_FRACTION = {"HCT": 0.5, "ACT": 0.6}
+TYP_FRACTION = {"HCT": 0.5, "ACT": 0.6, "F": 0.6, "ABT": 0.6}
 
 
 def arc_value(arc, corner, family):
@@ -193,6 +199,28 @@ def build():
                     checks[n] = p["min"]
             out[part] = {"delays": delays, "checks": checks, "source": entry.get("source"),
                          "estimated": []}
+    bus_path = os.path.join(DS, "timing_bus.json")
+    if os.path.exists(bus_path):
+        for part, entry in json.load(open(bus_path)).items():
+            if part.startswith("_") or part in out:
+                continue
+            fam = entry.get("family", "")
+            delays, est = {}, list(entry.get("estimated", []))
+            for name, arc in entry.get("delays", {}).items():
+                vals = {}
+                for corner in ("typ", "max"):
+                    v, e = arc_value(arc, corner, fam)
+                    if v is not None:
+                        vals[corner] = v
+                        if e:
+                            est.append(f"{name} typ")
+                if "min" in arc:
+                    vals["min"] = arc["min"]
+                if vals:
+                    delays[name] = vals
+            out[part] = {"delays": delays, "checks": dict(entry.get("checks", {})),
+                         "source": entry.get("source"), "part_number": entry.get("part_number"),
+                         "estimated": est}
     return out
 
 
