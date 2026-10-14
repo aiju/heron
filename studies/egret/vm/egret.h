@@ -41,6 +41,9 @@ extern char egret_ram[];
 #define BP(v) ((unsigned char *)(MEMBASE + (v)))    /* the bytes at address v */
 #define V(p)  ((Value)((char *)(p) - MEMBASE))       /* back to an address */
 
+#ifdef EGRET_GUI
+#include "gui_map.h"            /* studies/egret_gui's map (HACK: see its README) */
+#else
 #define RAM_SIZE   0x100000
 #define INPUT_LO   0x30000      /* the program's source and input, as read */
 #define INPUT_HI   0x38000
@@ -55,6 +58,7 @@ extern char egret_ram[];
 #define SEMI_LO    0x74000
 #define SEMI_SIZE  0x40000
 #define SEMI_HI    (SEMI_LO + 2 * SEMI_SIZE)
+#endif
 
 /* ---- values ---------------------------------------------------------------
 
@@ -275,9 +279,24 @@ extern Value prim_error;         /* a message String, or an Error to raise */
 Value prim_fail(const char *msg);
 Value prim_fail_v(Value err);
 void prims_init(void);
+typedef struct PrimDef {
+    const char *cls;            /* a class's name; "Name class" for its metaclass */
+    const char *sel;
+    int nargs;                  /* -1 - n: n or more */
+    PrimFn fn;
+    int special;
+} PrimDef;
+#ifdef EGRET_GUI
+const PrimDef *gui_prim_defs(void);     /* studies/egret_gui's (HACK: see its README) */
+void gui_out_char(int c);
+#endif
 /* (sized here too: the C compiler gives an array declared with [] the
    size of its declaration, not of its definition) */
+#ifdef EGRET_GUI
+#define MAX_PRIMS 256
+#else
 #define MAX_PRIMS 160
+#endif
 extern PrimFn prim_table[MAX_PRIMS];
 /* the primitives the interpreter itself carries out */
 enum { PR_NONE, PR_NEW, PR_CALL, PR_RAISE, PR_SEND, PR_FIRST_C };

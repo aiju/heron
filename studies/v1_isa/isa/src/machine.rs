@@ -8,8 +8,11 @@
 //!   +08  R/W: timer period in cycles (0 = off)
 //!   +0C  R: timer flag                    W: acknowledge
 //!   +10  R: cycle counter
+//!   +20  on: the display, keyboard and mouse (display.rs)
 
 use std::collections::HashMap;
+
+use crate::display::{Display, VRAM_BASE, VRAM_SIZE};
 
 use crate::insn::{Insn, Res, Stop, misaligned};
 use crate::key::{Key, Kind};
@@ -57,6 +60,7 @@ pub struct Devices {
     pub timer_period: u64,
     pub timer_next: u64,
     pub timer_flag: u32,
+    pub display: Display,
 }
 
 impl Devices {
@@ -88,6 +92,7 @@ impl Devices {
             0x08 => self.timer_period as u32,
             0x0C => self.timer_flag,
             0x10 => cycles as u32,
+            0x20.. => self.display.read(reg),
             _ => 0,
         }
     }
@@ -103,6 +108,7 @@ impl Devices {
                 }
             }
             0x0C => self.timer_flag = 0,
+            0x20.. => self.display.write(reg, value),
             _ => {}
         }
     }
@@ -237,6 +243,12 @@ impl Machine {
         }
     }
 
+    /// The offset in VRAM of an address in the frame buffer's window.
+    fn vram(&self, a: u32) -> Option<usize> {
+        let v = a.wrapping_sub(VRAM_BASE);
+        (v < VRAM_SIZE).then_some(v as usize)
+    }
+
     fn bad<T>(&self, a: u32) -> Res<T> {
         Err(Stop::Error(format!(
             "access to unmapped address {a:08X} at pc {:08X}",
@@ -251,6 +263,9 @@ impl Machine {
         }
         if a >= IO_BASE {
             return Ok(self.io(a, 1, None));
+        }
+        if let Some(v) = self.vram(a) {
+            return Ok(self.dev.display.vram[v] as u32);
         }
         self.bad(a)
     }
@@ -267,6 +282,10 @@ impl Machine {
         if a >= IO_BASE {
             return Ok(self.io(a, 2, None));
         }
+        if let Some(v) = self.vram(a) {
+            let m = &self.dev.display.vram;
+            return Ok(m[v] as u32 | (m[v + 1] as u32) << 8);
+        }
         self.bad(a)
     }
 
@@ -282,6 +301,10 @@ impl Machine {
         if a >= IO_BASE {
             return Ok(self.io(a, 4, None));
         }
+        if let Some(v) = self.vram(a) {
+            let m = &self.dev.display.vram;
+            return Ok(u32::from_le_bytes(m[v..v + 4].try_into().unwrap()));
+        }
         self.bad(a)
     }
 
@@ -296,6 +319,11 @@ impl Machine {
         }
         if a >= IO_BASE {
             self.io(a, 1, Some(v & 0xFF));
+            return Ok(());
+        }
+        if let Some(x) = self.vram(a) {
+            self.dev.display.vram[x] = v as u8;
+            self.dev.display.dirty = true;
             return Ok(());
         }
         self.bad(a)
@@ -318,6 +346,11 @@ impl Machine {
             self.io(a, 2, Some(v & 0xFFFF));
             return Ok(());
         }
+        if let Some(x) = self.vram(a) {
+            self.dev.display.vram[x..x + 2].copy_from_slice(&(v as u16).to_le_bytes());
+            self.dev.display.dirty = true;
+            return Ok(());
+        }
         self.bad(a)
     }
 
@@ -337,6 +370,11 @@ impl Machine {
         }
         if a >= IO_BASE {
             self.io(a, 4, Some(v));
+            return Ok(());
+        }
+        if let Some(x) = self.vram(a) {
+            self.dev.display.vram[x..x + 4].copy_from_slice(&v.to_le_bytes());
+            self.dev.display.dirty = true;
             return Ok(());
         }
         self.bad(a)
@@ -502,6 +540,20 @@ impl Machine {
                     self.pc
                 ));
             }
+        }
+        Ok(self.halted)
+    }
+
+    /// Run until the cycle count reaches `until`, HALT, or `steps`
+    /// instructions, whichever comes first. Returns whether the machine
+    /// halted. (For running in step with a clock, as the display's
+    /// frontend does.)
+    pub fn run_until(&mut self, until: u64, steps: u64) -> Result<bool, String> {
+        for _ in 0..steps {
+            if self.halted || self.cycles >= until {
+                break;
+            }
+            self.step()?;
         }
         Ok(self.halted)
     }

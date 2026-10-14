@@ -930,14 +930,6 @@ static Value p_block_arity(Value *args, int argc)
 
 /* ---- the table -------------------------------------------------------------------- */
 
-typedef struct PrimDef {
-    const char *cls;            /* a class's name; "Name class" for its metaclass */
-    const char *sel;
-    int nargs;                  /* -1 - n: n or more */
-    PrimFn fn;
-    int special;
-} PrimDef;
-
 static const PrimDef defs[] = {
     { "Object", "same?", 1, p_identical, 0 },
     { "Object", "==", 1, p_identical, 0 },
@@ -1059,15 +1051,9 @@ static Value find_class(const char *name)
     return meta ? CLASSW(c) : c;
 }
 
-void prims_init(void)
+static void install(const PrimDef *d)
 {
-    const PrimDef *d;
-    int i;
-    for (i = 0; i < 256; i++) {
-        char c = i;
-        chars[i] = perm_string(&c, 1);
-    }
-    for (d = defs; d->cls; d++) {
+    for (; d->cls; d++) {
         Value cls = find_class(d->cls), m;
         int prim = d->special;
         if (!prim) {
@@ -1088,5 +1074,18 @@ void prims_init(void)
         method_finish(m);
         class_add_method(cls, F(m, M_SEL), m);
     }
+}
+
+void prims_init(void)
+{
+    int i;
+    for (i = 0; i < 256; i++) {
+        char c = i;
+        chars[i] = perm_string(&c, 1);
+    }
+    install(defs);
+#ifdef EGRET_GUI
+    install(gui_prim_defs());
+#endif
     egret_blockcall = class_lookup(cls_Block, sym_call);
 }

@@ -25,6 +25,9 @@ static int check_only;          /* #!check: compile the program, don't run it */
 
 void out_char(int c)
 {
+#ifdef EGRET_GUI
+    gui_out_char(c);            /* the Transcript's copy (HACK: see studies/egret_gui) */
+#endif
 #ifdef __HERON__
     HERON_CONSOLE = c;
 #else

@@ -248,6 +248,93 @@ pub mod v1 {
             PyBytes::new(py, &self.m.dev.out)
         }
 
+        // ---- the display, keyboard and mouse (v1_isa/isa/src/display.rs)
+
+        /// Run until the cycle count reaches `until` or the machine
+        /// halts, for at most `steps` instructions; returns whether it
+        /// halted.
+        #[pyo3(signature = (until, steps=u64::MAX))]
+        fn run_until(&mut self, py: Python<'_>, until: u64, steps: u64) -> PyResult<bool> {
+            let m = &mut self.m;
+            py.detach(|| m.run_until(until, steps))
+                .map_err(SimError::new_err)
+        }
+
+        /// All of VRAM.
+        #[getter]
+        fn vram<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+            PyBytes::new(py, &self.m.dev.display.vram)
+        }
+        #[setter]
+        fn set_vram(&mut self, v: &[u8]) {
+            let d = &mut self.m.dev.display;
+            let n = v.len().min(d.vram.len());
+            d.vram[..n].copy_from_slice(&v[..n]);
+        }
+        /// The screen as RGB bytes, 640 x 480 x 3.
+        fn screen_rgb<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+            let px = self.m.dev.display.rgb();
+            let mut out = Vec::with_capacity(px.len() * 3);
+            for p in px {
+                out.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, p as u8]);
+            }
+            PyBytes::new(py, &out)
+        }
+        /// log2 of the bits per pixel.
+        #[getter]
+        fn depth(&self) -> u32 {
+            self.m.dev.display.depth
+        }
+        #[setter]
+        fn set_depth(&mut self, v: u32) {
+            self.m.dev.display.depth = v & 3;
+        }
+        #[getter]
+        fn palette(&self) -> Vec<u32> {
+            self.m.dev.display.palette.to_vec()
+        }
+        #[setter]
+        fn set_palette(&mut self, v: Vec<u32>) {
+            for (i, c) in v.iter().take(256).enumerate() {
+                self.m.dev.display.palette[i] = *c;
+            }
+        }
+        /// Queue an input event (display.rs has the format).
+        fn push_event(&mut self, e: u32) {
+            self.m.dev.display.push_event(e);
+        }
+        /// Where the mouse is, and its buttons and the modifiers.
+        fn set_mouse(&mut self, x: u32, y: u32, buttons: u32) {
+            let d = &mut self.m.dev.display;
+            d.mouse_x = x;
+            d.mouse_y = y;
+            d.buttons = buttons;
+        }
+        /// The mouse pointer's shape (display.rs).
+        #[getter]
+        fn pointer(&self) -> u32 {
+            self.m.dev.display.pointer
+        }
+        #[setter]
+        fn set_time_of_day(&mut self, s: u32) {
+            self.m.dev.display.time_of_day = s;
+        }
+        /// The timer's state, (period, next tick, flag), for snapshots.
+        #[getter]
+        fn timer(&self) -> (u64, u64, u32) {
+            let d = &self.m.dev;
+            (d.timer_period, d.timer_next, d.timer_flag)
+        }
+        #[setter]
+        fn set_timer(&mut self, t: (u64, u64, u32)) {
+            let d = &mut self.m.dev;
+            (d.timer_period, d.timer_next, d.timer_flag) = t;
+        }
+        #[setter]
+        fn set_cycles(&mut self, v: u64) {
+            self.m.cycles = v;
+        }
+
         /// Executions per (instruction address, timing key): [(pc, key,
         /// count)], with pc None for interrupt entries.
         fn pc_keys<'py>(&self, py: Python<'py>) -> PyResult<Vec<PcKey<'py>>> {
