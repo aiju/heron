@@ -41,6 +41,7 @@ class Session:
     def __init__(self, source=None, depth=3, time_of_day=10 * 3600 + 8 * 60):
         inp = build.console_input(depth, source)
         self.m = native.v1.Machine("v1b", ram_image(build.image()), inp)
+        self.time_of_day = time_of_day
         self.m.time_of_day = time_of_day
         self.mouse = (0, 0)
         self.buttons = 0
@@ -59,8 +60,12 @@ class Session:
         """Run for a while of machine time."""
         if cycles is None:
             cycles = int(seconds * CLOCK_HZ)
-        if self.m.run_until(self.m.cycles + cycles):
-            raise Halted(f"the machine halted at {self.m.pc:08X}:\n{self.output}")
+        end = self.m.cycles + cycles
+        while self.m.cycles < end:
+            # the time of day goes with the machine's (the browser sets it from the host's)
+            self.m.time_of_day = self.time_of_day + self.m.cycles // CLOCK_HZ
+            if self.m.run_until(min(end, self.m.cycles + CLOCK_HZ)):
+                raise Halted(f"the machine halted at {self.m.pc:08X}:\n{self.output}")
         return self
 
     def boot(self, limit=60.0):

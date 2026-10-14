@@ -698,6 +698,19 @@ static Value p_compile(Value *args, int argc)
     return l;
 }
 
+/* [permanent space used, its size, heap used, a semispace's size,
+   collections so far] */
+static Value p_stats(Value *args, int argc)
+{
+    int v[5];
+    v[0] = perm_hp - PERM_LO;
+    v[1] = PERM_HI - PERM_LO;
+    v[2] = SEMI_SIZE - (hlimit - hp);
+    v[3] = SEMI_SIZE;
+    v[4] = gc_count;
+    return int_list(5, v);
+}
+
 /* ---- the table ---- */
 
 static const PrimDef defs[] = {
@@ -739,6 +752,7 @@ static const PrimDef defs[] = {
     { "Object", "gui_save", 4, p_save, 0 },
     { "Object", "gui_restore", 0, p_restore, 0 },
     { "Object", "gui_compile", 1, p_compile, 0 },
+    { "Object", "gui_stats", 0, p_stats, 0 },
     { 0, 0, 0, 0, 0 }
 };
 

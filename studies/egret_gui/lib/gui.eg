@@ -1,0 +1,558 @@
+# The desktop's core: colours and fonts, windows, menus, and the event
+# loop. The C side (src/gui_prims.c) draws and keeps the windows'
+# stacking and frames; everything with behaviour is here.
+#
+# Coordinates in a window are its content's, from (0, 0) at the top left.
+# Colours are pixel values at the screen's depth: PAL has them by name.
+
+UI = 0                  # DejaVu Sans, 12 pixels, a bitmap font
+MONO = 1                # DejaVu Sans Mono, 12 pixels
+
+# key codes (studies/v1_isa/isa/src/display.rs) and modifiers
+K_BACKSPACE = 8
+K_TAB = 9
+K_RETURN = 13
+K_ESCAPE = 27
+K_DELETE = 127
+K_LEFT = 256
+K_RIGHT = 257
+K_UP = 258
+K_DOWN = 259
+K_HOME = 260
+K_END = 261
+K_PAGEUP = 262
+K_PAGEDOWN = 263
+M_SHIFT = 1
+M_CTRL = 2
+M_ALT = 4
+M_META = 8
+M_COMMAND = 10          # control or meta: either works for shortcuts
+
+# pointer shapes
+P_ARROW = 0
+P_TEXT = 1
+P_CROSS = 2
+P_BUSY = 3
+P_MOVE = 4
+P_HAND = 5
+
+class Palette
+  def init(depth)
+    @depth = depth
+    t = gui_theme()
+    @black = t[0]
+    @white = t[1]
+    @frame = t[4]
+    @title = t[5]
+    @window = t[8]
+    @text = t[9]
+    @accent = t[10]
+    @shadow = t[11]
+    if depth == 0
+      @grey = @black
+      @light = @white
+      @select = @black
+      @select_text = @white
+      @red = @black
+      @green = @black
+      @blue = @black
+      @yellow = @white
+      @menu_hi = @black
+      @menu_hi_text = @white
+    else
+      @grey = gui_rgb(128, 128, 128)
+      @light = gui_rgb(224, 224, 224)
+      @select = gui_rgb(175, 215, 255)
+      @select_text = @black
+      @red = gui_rgb(215, 0, 0)
+      @green = gui_rgb(0, 175, 0)
+      @blue = gui_rgb(0, 95, 215)
+      @yellow = gui_rgb(255, 215, 0)
+      @menu_hi = @title
+      @menu_hi_text = @white
+    end
+  end
+  attr depth, black, white, frame, title, window, text, accent, shadow, grey, light
+  attr select, select_text, red, green, blue, yellow, menu_hi, menu_hi_text
+  def color? = @depth > 0
+  def rgb(r, g, b) = gui_rgb(r, g, b)
+end
+
+# ---- windows -------------------------------------------------------------
+
+class Window
+  def init(title, x, y, w, h)
+    @title = title
+    if @bg == nil then @bg = PAL.window end
+    @id = gui_open(x, y, w, h, title, @bg)
+    if @id == nil then raise("too many windows") end
+    @w = w
+    @h = h
+    DESK.add(self)
+  end
+  attr id, title, bg
+  def width = @w
+  def height = @h
+  def to_s = "<{self.class.name} {@title.inspect}>"
+  def inspect = self.to_s
+
+  def set_title(t)
+    @title = t
+    gui_set_title(@id, t)
+  end
+  def raise_to_top = gui_raise(@id)
+  def move_to(x, y) = gui_move(@id, x, y)
+  def top? = gui_top() == @id
+
+  def close
+    self.closing
+    DESK.remove(self)
+    gui_close(@id)
+  end
+
+  # where the content is on the screen: [x, y, w, h]
+  def screen_rect = gui_content(@id)
+
+  # ---- drawing
+  def fill(x, y, w, h, c) = gui_fill(@id, x, y, w, h, c, 0)
+  def invert(x, y, w, h) = gui_fill(@id, x, y, w, h, if gui_depth() == 3 then 255 else 1 end, 1)
+  def box(x, y, w, h, c) = gui_box(@id, x, y, w, h, c)
+  def line(x0, y0, x1, y1, c) = gui_line(@id, x0, y0, x1, y1, c, 0)
+  def oval(cx, cy, a, b, c) = gui_oval(@id, cx, cy, a, b, c, false)
+  def fill_oval(cx, cy, a, b, c) = gui_oval(@id, cx, cy, a, b, c, true)
+  def poly(points, c) = gui_poly(@id, points, c)
+  def pixels(x, y, row) = gui_pixels(@id, x, y, row)
+  # text with its baseline at y; returns the x after it
+  def text(x, y, s, c) = gui_text(@id, x, y, s, c, @bg, UI)
+  def text_in(font, x, y, s, c, bg) = gui_text(@id, x, y, s, c, bg, font)
+  def clear = self.fill(0, 0, @w, @h, @bg)
+  def invalidate = gui_invalidate(@id)
+  def invalidate_rect(x, y, w, h) = gui_invalidate(@id, x, y, w, h)
+  # move what's in a rectangle up by dy (down if negative); what comes
+  # into view gets painted
+  def scroll(x, y, w, h, dy) = gui_scroll(@id, x, y, w, h, dy)
+
+  # ---- what a window does: override these
+  def paint = nil                       # draw it all: the clip keeps it to what's needed
+  def mouse_down(x, y, button) = nil
+  def mouse_drag(x, y) = nil            # the button's still down
+  def mouse_up(x, y, button) = nil
+  def double_click(x, y) = nil
+  def wheel(delta) = nil
+  def key(code, mods) = nil
+  def tick(ticks) = nil                 # every 60th of a second, for windows in DESK.ticking
+  def closing = nil
+  def pointer_at(x, y) = P_ARROW
+  def menu_items = nil                  # a right-click menu: [[label, block], ...]
+
+  def resize_to(w, h)
+    gui_resize(@id, w, h)
+    r = gui_content(@id)
+    @w = r[2]
+    @h = r[3]
+    self.resized
+  end
+  def resized = nil
+  def resizable? = true
+end
+
+# ---- menus ---------------------------------------------------------------
+
+# A pop-up menu on the screen: items are [label, block] pairs, or "-" for
+# a line. Open with the button down: release on an item to choose it. A
+# quick click leaves it open for a second click.
+class Menu
+  def init(items)
+    @items = items
+    @w = 60
+    for it in items
+      if it != "-" then @w = @w.max(gui_text_width(it[0], UI) + 28) end
+    end
+    @h = 4
+    for it in items
+      @h += if it == "-" then 7 else 18 end
+    end
+  end
+
+  def item_at(px, py)
+    if px < @x or px >= @x + @w then return nil end
+    y = @y + 2
+    i = 0
+    while i < @items.size
+      ih = if @items[i] == "-" then 7 else 18 end
+      if py >= y and py < y + ih
+        return if @items[i] == "-" then nil else i end
+      end
+      y += ih
+      i += 1
+    end
+    nil
+  end
+
+  def item_y(i)
+    y = @y + 2
+    k = 0
+    while k < i
+      y += if @items[k] == "-" then 7 else 18 end
+      k += 1
+    end
+    y
+  end
+
+  def draw_item(i, hi)
+    it = @items[i]
+    y = self.item_y(i)
+    bg = if hi then PAL.menu_hi else PAL.white end
+    fg = if hi then PAL.menu_hi_text else PAL.black end
+    gui_fill(0, @x + 1, y, @w - 2, 18, bg, 0)
+    gui_text(0, @x + 14, y + 13, it[0], fg, bg, UI)
+  end
+
+  def draw
+    gui_fill(0, @x + 3, @y + 3, @w, @h, PAL.shadow, 0)
+    gui_fill(0, @x, @y, @w, @h, PAL.white, 0)
+    gui_box(0, @x, @y, @w, @h, PAL.black)
+    i = 0
+    while i < @items.size
+      if @items[i] == "-"
+        y = self.item_y(i)
+        gui_fill(0, @x + 1, y + 3, @w - 2, 1, PAL.grey, 0)
+      else
+        self.draw_item(i, false)
+      end
+      i += 1
+    end
+  end
+
+  # Show it at (x, y) and track the mouse; returns the chosen item's
+  # block, or nil
+  def popup(x, y)
+    @x = x.min(640 - @w - 4)
+    @y = y.min(480 - @h - 4)
+    gui_save(@x, @y, @w + 3, @h + 3)
+    self.draw
+    gui_pointer(P_ARROW)
+    hi = nil
+    chosen = nil
+    start = gui_ticks()
+    sticky = false                      # the button went up without choosing
+    while true
+      m = gui_mouse()
+      i = self.item_at(m[0], m[1])
+      if i != hi
+        if hi != nil then self.draw_item(hi, false) end
+        if i != nil then self.draw_item(i, true) end
+        hi = i
+      end
+      e = gui_event()
+      if e != nil
+        # a click counts where it happened, not where the mouse is now
+        if e[0] == 3 or e[0] == 4 then i = self.item_at(e[2], e[3]) end
+        if e[0] == 4                    # the button went up
+          if i != nil
+            chosen = i
+            break
+          end
+          if sticky or gui_ticks() - start > 15 then break end
+          sticky = true                 # a quick click: stay open
+        elif e[0] == 3 and sticky       # a second click
+          chosen = i
+          break
+        elif e[0] == 1 and e[1] == K_ESCAPE
+          break
+        elif e[0] == 8
+          DESK.dispatch(e)
+        end
+      else
+        gui_wait()
+      end
+    end
+    gui_restore()
+    if chosen == nil then nil else @items[chosen][1] end
+  end
+end
+
+# ---- the desktop -----------------------------------------------------------
+
+class Desktop
+  def init
+    @windows = Map.new                  # id -> window
+    @ticking = []
+    @tracking = nil                     # the window a button went down in
+    @last_click = [0, 0, -100]          # x, y, tick
+    @pointer = -1
+    @next_x = 30
+    @next_y = 40
+    @menu_items = []
+  end
+  attr windows, ticking
+
+  def add(w)
+    @windows[w.id] = w
+  end
+  def remove(w)
+    @windows.delete(w.id)
+    self.stop_ticks(w)
+    if @tracking == w then @tracking = nil end
+  end
+  def window(id) = @windows[id]
+  def top = if gui_top() == nil then nil else @windows[gui_top()] end
+  def find(cls) = @windows.values.find { |w| w.is_a?(cls) }
+
+  def start_ticks(w)
+    if not @ticking.contains?(w) then @ticking.push(w) end
+  end
+  def stop_ticks(w)
+    i = @ticking.index(w)
+    if i != nil then @ticking.delete_at(i) end
+  end
+
+  # somewhere for a new window of this size
+  def place(w, h)
+    if @next_x + w > 630 or @next_y + h > 470
+      @next_x = 30
+      @next_y = 40
+    end
+    p = [@next_x, @next_y]
+    @next_x += 24
+    @next_y += 22
+    p
+  end
+
+  # the desktop's menu: [label, block] pairs (desktop.eg fills it in)
+  def add_menu(label, block) = @menu_items.push([label, block])
+  def add_menu_line = @menu_items.push("-")
+
+  # ---- the event loop
+
+  def run
+    gui_pointer(P_ARROW)
+    print("Egret desktop ready")
+    while true
+      e = gui_event()
+      if e == nil
+        self.idle
+        gui_wait()
+      else
+        self.dispatch(e)
+      end
+    end
+  end
+
+  # one event, with any error in its handling reported, not fatal
+  def dispatch(e)
+    try
+      self.handle(e)
+    catch err
+      self.report(err)
+    end
+  end
+
+  def report(err)
+    print("error: " + err.to_s)
+    t = self.find(Transcript)
+    if t != nil then t.raise_to_top end
+  end
+
+  def handle(e)
+    kind = e[0]
+    if kind == 8
+      self.update(e)
+    elif kind == 1
+      self.key_down(e[1], e[2])
+    elif kind == 3
+      self.button_down(e[1], e[2], e[3])
+    elif kind == 4
+      self.button_up(e[1], e[2], e[3])
+    elif kind == 5
+      m = gui_mouse()
+      h = gui_hit(m[0], m[1])
+      if h != nil and @windows[h[0]] != nil then @windows[h[0]].wheel(e[1]) end
+    end
+  end
+
+  def update(e)
+    w = @windows[e[1]]
+    if w == nil then return nil end
+    gui_clip(w.id, e[2], e[3], e[4] - e[2], e[5] - e[3])
+    try
+      w.paint
+    catch err
+      gui_clip(w.id)
+      raise(err)
+    end
+    gui_clip(w.id)
+  end
+
+  def key_down(code, mods)
+    w = self.top
+    if code == 119 and mods & M_COMMAND != 0     # command-W
+      if w != nil then w.close end
+      return nil
+    end
+    if w != nil then w.key(code, mods) end
+  end
+
+  def local(w, x, y)
+    r = w.screen_rect
+    [x - r[0], y - r[1]]
+  end
+
+  def button_down(b, x, y)
+    h = gui_hit(x, y)
+    if h == nil
+      self.desktop_menu(x, y)
+      return nil
+    end
+    w = @windows[h[0]]
+    if w == nil then return nil end
+    part = h[1]
+    if part == 3
+      w.close
+    elif part == 2
+      self.drag_window(w, x, y)
+    elif part == 4 and w.resizable?
+      self.resize_window(w, x, y)
+    else
+      if not w.top? then w.raise_to_top end
+      p = self.local(w, x, y)
+      if b == 1 and w.menu_items != nil
+        block = Menu(w.menu_items).popup(x, y)
+        if block != nil then block() end
+        return nil
+      end
+      t = gui_ticks()
+      if t - @last_click[2] < 25 and (x - @last_click[0]).abs < 4 and (y - @last_click[1]).abs < 4
+        @last_click = [x, y, -100]
+        w.double_click(p[0], p[1])
+        return nil
+      end
+      @last_click = [x, y, t]
+      @tracking = w
+      @track_at = p
+      w.mouse_down(p[0], p[1], b)
+    end
+  end
+
+  def button_up(b, x, y)
+    w = @tracking
+    if w == nil then return nil end
+    @tracking = nil
+    p = self.local(w, x, y)
+    w.mouse_up(p[0], p[1], b)
+  end
+
+  def idle
+    out = gui_output()
+    if out != nil
+      t = self.find(Transcript)
+      if t != nil then t.append(out) end
+    end
+    m = gui_mouse()
+    if @tracking != nil
+      p = self.local(@tracking, m[0], m[1])
+      if p != @track_at
+        @track_at = p
+        self.safely { @tracking.mouse_drag(p[0], p[1]) }
+      end
+    end
+    h = gui_hit(m[0], m[1])
+    ptr = P_ARROW
+    if h != nil and h[1] == 1 and @windows[h[0]] != nil
+      w = @windows[h[0]]
+      p = self.local(w, m[0], m[1])
+      ptr = w.pointer_at(p[0], p[1])
+    end
+    if ptr != @pointer
+      gui_pointer(ptr)
+      @pointer = ptr
+    end
+    if @ticking.size > 0
+      t = gui_ticks()
+      for w in @ticking.copy
+        self.safely { w.tick(t) }
+      end
+    end
+  end
+
+  def safely(body)
+    try
+      body()
+    catch err
+      self.report(err)
+    end
+  end
+
+  def desktop_menu(x, y)
+    block = Menu(@menu_items).popup(x, y)
+    if block != nil then block() end
+  end
+
+  # drag a window's outline; move the window where it's let go
+  def drag_window(w, x0, y0)
+    if not w.top? then w.raise_to_top end
+    f = gui_frame(w.id)
+    fw = f[2] - f[0]
+    fh = f[3] - f[1]
+    dx = 0
+    dy = 0
+    gui_outline(f[0], f[1], fw, fh)
+    gui_pointer(P_MOVE)
+    while gui_mouse()[2] & 1 != 0
+      m = gui_mouse()
+      nx = (m[0] - x0).max(-f[0]).min(640 - f[2])
+      ny = (m[1] - y0).max(-f[1]).min(480 - f[3])
+      if nx != dx or ny != dy
+        gui_outline(f[0] + dx, f[1] + dy, fw, fh)
+        dx = nx
+        dy = ny
+        gui_outline(f[0] + dx, f[1] + dy, fw, fh)
+      end
+      gui_wait()
+    end
+    gui_outline(f[0] + dx, f[1] + dy, fw, fh)
+    @pointer = -1
+    if dx != 0 or dy != 0 then w.move_to(f[0] + dx, f[1] + dy) end
+  end
+
+  def resize_window(w, x0, y0)
+    if not w.top? then w.raise_to_top end
+    f = gui_frame(w.id)
+    nw = f[2] - f[0]
+    nh = f[3] - f[1]
+    ow = nw
+    oh = nh
+    gui_outline(f[0], f[1], nw, nh)
+    while gui_mouse()[2] & 1 != 0
+      m = gui_mouse()
+      ww = (ow + m[0] - x0).max(100).min(640 - f[0])
+      hh = (oh + m[1] - y0).max(60).min(480 - f[1])
+      if ww != nw or hh != nh
+        gui_outline(f[0], f[1], nw, nh)
+        nw = ww
+        nh = hh
+        gui_outline(f[0], f[1], nw, nh)
+      end
+      gui_wait()
+    end
+    gui_outline(f[0], f[1], nw, nh)
+    if nw != ow or nh != oh then w.resize_to(nw - 2, nh - 21) end
+  end
+
+  # ---- running code from the Workspace
+
+  # [true, value] or [false, what went wrong]
+  def evaluate(code)
+    r = gui_compile(code)
+    if r.is_a?(String) then return [false, r.strip] end
+    result = nil
+    try
+      for sel in r
+        result = self.send(sel)
+      end
+    catch err
+      return [false, err.to_s]
+    end
+    [true, result]
+  end
+end

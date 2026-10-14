@@ -1,0 +1,47 @@
+# Starting the desktop: the screen, the menu, the first windows, and the
+# event loop, which never returns.
+
+WELCOME = "# Welcome to Egret on the Heron. Put the cursor on a line
+# and press Ctrl-D to do it, or Ctrl-P to print its value.
+# Select several lines to run them together.
+
+3 + 4 * 5
+2 ** 100
+(1..10).map \{ |n| n * n \}
+\"Heron\".reverse.upper
+print(\"Hello from the Workspace\")
+Clock(480, 210)
+
+class Greeter
+  def init(name)
+    @name = name
+  end
+  def greet = \"Hello, \{@name\}!\"
+end
+Greeter(\"Heron\").greet
+
+w = Window(\"Doodle\", 330, 60, 200, 120)
+w.fill_oval(100, 60, 70, 40, PAL.red)
+w.text(64, 64, \"Egret was here\", PAL.white)
+"
+
+gui_init(SCREEN_DEPTH)
+PAL = Palette(SCREEN_DEPTH)
+DESK = Desktop()
+
+DESK.add_menu("Workspace", { Workspace(WELCOME) })
+DESK.add_menu("Transcript", {
+  t = DESK.find(Transcript)
+  if t == nil then Transcript() else t.raise_to_top end })
+DESK.add_menu_line
+DESK.add_menu("Clock", { Clock(500, 10) })
+DESK.add_menu("Life", { Life() })
+DESK.add_menu("Mandelbrot", { Mandel() })
+DESK.add_menu("Paint", { Paint() })
+DESK.add_menu_line
+DESK.add_menu("About this Heron", { About() })
+
+Transcript()
+Workspace(WELCOME)
+Clock(500, 10)
+DESK.run
