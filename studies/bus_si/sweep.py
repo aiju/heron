@@ -6,7 +6,7 @@ build/si/<preset>-<engine>.jsonl as it completes, so a stopped sweep picks
 up where it was, and infra/si/runner.py kills any job that overruns its
 deadline. At the end the results are written, compactly, to
 <preset>.json: in report 0013's folder for ngspice (the committed
-originals), in report 0021's for the native engine.
+originals), in report 0022's for the native engine.
 """
 
 import json
@@ -22,7 +22,7 @@ from . import bus, noise
 WORK = os.path.join(BUILD, "si")
 # results: report 0013's committed ngspice files; the native engine's go to
 # build/ (they take minutes to remake), and `heron bus_si report` writes
-# report 0021's tables from them
+# report 0022's tables from them
 OUT = {"ngspice": os.path.join(ROOT, "reports", "0013-report-bus-si"),
        "native": os.path.join(BUILD, "si", "results")}
 
@@ -219,7 +219,7 @@ def timeout_for(name):
 
 
 def all_presets():
-    """Every preset: report 0013's, then report 0021's."""
+    """Every preset: report 0013's, then report 0022's."""
     from . import revised
     return list(PRESETS) + list(revised.PRESETS)
 

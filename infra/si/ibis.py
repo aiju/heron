@@ -31,7 +31,7 @@ BUILD = os.path.join(_BUILD, "ibis")
 # part -> where to get it, which model is the bus-side pin (the output for
 # drivers that aren't transceivers, with `input` naming the input model),
 # and its package components. The '245s are the bus transceivers of report
-# 0013; the rest came in for report 0021.
+# 0013; the rest came in for report 0022.
 PARTS = {
     "abt": dict(name="74ABT245B", code="scbm052", file="sn74abt245b.ibs",
                 model="ABT245B_BIO", packages={"dip": "ABT245B_N", "soic": "ABT245B_DW"},

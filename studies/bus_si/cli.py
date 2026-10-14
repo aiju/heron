@@ -46,7 +46,7 @@ def cmd_check(args):
 
 
 def cmd_report(args):
-    """Run report 0021's sweeps (resuming any that stopped) and write its
+    """Run report 0022's sweeps (resuming any that stopped) and write its
     tables."""
     import subprocess
     import sys
@@ -80,7 +80,7 @@ def main(argv=None):
     s.add_argument("--limit", type=int, help="run at most this many jobs")
     s.set_defaults(fn=lambda a: sweep.run(a.preset, a.jobs, a.dry_run, a.retry_errors, a.limit, a.engine,
                                           a.timeout, a.budget * 60 if a.budget else None))
-    r = sub.add_parser("report", help="run report 0021's sweeps and write its tables (results.md)")
+    r = sub.add_parser("report", help="run report 0022's sweeps and write its tables (results.md)")
     r.add_argument("-j", "--jobs", type=int, help="parallel runs (default: all cores)")
     r.add_argument("--timeout", type=float, help="kill a job after this many seconds")
     r.add_argument("--budget", type=float, help="start no new jobs after this many minutes, per preset")

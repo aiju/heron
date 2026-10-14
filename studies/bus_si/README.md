@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: []
-reports: [13, 14, 21]
+reports: [13, 14, 22]
 ---
 
 # Backplane signal-integrity simulation
@@ -10,7 +10,7 @@ Simulates the system bus ([RFC 0014](../../reports/0014-rfc-system-bus.md))
 on its backplane: bused and radial lines, card loading, ground bounce,
 crosstalk and the clock tree, with TI's IBIS models of the parts. The
 results are [report 0013](../../reports/0013-report-bus-si.md) (the first
-round, in ngspice) and [report 0021](../../reports/0021-report-bus-si-revised.md)
+round, in ngspice) and [report 0022](../../reports/0022-report-bus-si-revised.md)
 (the revised bus's questions, on the native engine).
 
 ## Running it
@@ -22,7 +22,7 @@ cross-check the engine (`--engine ngspice`).
 
 ```sh
 heron bus_si check                         # the engines and models, one timed run
-heron bus_si report                        # every report 0021 sweep, then its tables (~15 min on 4 cores)
+heron bus_si report                        # every report 0022 sweep, then its tables (~15 min on 4 cores)
 heron bus_si sweep --preset loading        # one preset (heron bus_si sweep --help lists them)
 heron bus_si sweep --preset full --engine ngspice   # report 0013's sweep on ngspice
 heron bus_si compare A.json B.json         # two runs of a preset, job by job
@@ -39,7 +39,7 @@ heron test bus_si                          # the study's unit tests
   children, recorded as a timeout, and the worker replaced. A heartbeat
   line every 30 s gives the oldest running job's age.
 - **Results** go to `build/si/results/<preset>.json`; `heron bus_si
-  report` turns them into `reports/0021-report-bus-si-revised/results.md`.
+  report` turns them into `reports/0022-report-bus-si-revised/results.md`.
   Report 0013's ngspice results stay in its folder.
 
 ## The engine
@@ -69,8 +69,8 @@ the 68 jobs ngspice couldn't finish.
 | `gb.py` | Ground bounce of a whole card: packages, rails, decoupling, planes, the connector, 16 or 32 lines; the datasheet VOLP test |
 | `xt.py` | Crosstalk onto SEL and WRITE at a simple card, against the 74HCT132's thresholds |
 | `floating.py` | WAIT and CLASS held only by their pull-ups, between switching neighbours |
-| `sweep.py`, `revised.py` | The presets: report 0013's, then report 0021's |
-| `summary.py`, `compare.py` | Report 0021's tables; comparing two runs |
+| `sweep.py`, `revised.py` | The presets: report 0013's, then report 0022's |
+| `summary.py`, `compare.py` | Report 0022's tables; comparing two runs |
 
 ### What's assumed
 

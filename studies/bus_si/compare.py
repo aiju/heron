@@ -2,7 +2,7 @@
 report 0013's ngspice results.
 
     python3 -m heron bus_si compare reports/0013-report-bus-si/full.json \\
-        reports/0021-report-bus-si-revised/full.json
+        reports/0022-report-bus-si-revised/full.json
 """
 
 import json

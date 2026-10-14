@@ -1,5 +1,5 @@
 ---
-number: 21
+number: 22
 type: report
 title: Signal integrity of the revised bus
 status: current
@@ -9,7 +9,7 @@ context:
   commit: 8828750
 ---
 
-# Report 0021: Signal integrity of the revised bus
+# Report 0022: Signal integrity of the revised bus
 
 The signal-integrity work [RFC 0014](0014-rfc-system-bus.md) asks for in
 its 2026-10-14 revision (section 17, "Signal-integrity work to do"): ground
@@ -18,7 +18,7 @@ backplane's own lines, WAIT, report 0013's failed jobs, the connector, the
 geometry and a faster clock. Every item has an answer here, from the
 [bus_si study](../studies/bus_si/README.md) on a simulator of its own.
 
-All the numbers are in the [tables](0021-report-bus-si-revised/results.md),
+All the numbers are in the [tables](0022-report-bus-si-revised/results.md),
 which `heron bus_si report` regenerates (about 15 minutes on four cores).
 Corners are IBIS's: `min` is slow (4.5 V, hot), `max` fast (5.5 V, cold).
 What follows suggests changes to the RFC; making them is for Emily.
@@ -101,7 +101,7 @@ Three changes to what's modelled, beyond report 0013's single bus line:
   pins are. With 25 mm contacts the model reproduces the one measurement
   found, TE's crosstalk figures for a standard DIN 41612 connector: 23.0%
   near end and 21.3% far end, against 23.3% and 20.0% measured
-  ([tables](0021-report-bus-si-revised/results.md#the-connector-against-tes-measurement)).
+  ([tables](0022-report-bus-si-revised/results.md#the-connector-against-tes-measurement)).
 - **Supply currents calibrated against datasheets.** Classic IBIS files
   don't say what a driver draws from its own rails. Taken as they are,
   they put the datasheet's ground-bounce test (VOLP) at two to three times
