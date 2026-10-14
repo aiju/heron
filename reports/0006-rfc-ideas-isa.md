@@ -5,7 +5,7 @@ title: Instruction set ideas
 status: open
 date: 2026-10-12
 context:
-  studies: [v1_isa, v1b_hw, lisp]
+  studies: [v1_isa, v1b_hw, lisp, c_compiler, kernel]
   commit: e494b0c
 ---
 
@@ -145,6 +145,158 @@ are of compiled cycles, on 12 benchmarks.
 | One-parcel `[r - 1]` and `[r + 3]` (the pair offsets) | Saves 1.1% compiled, 1.7% interpreted; not worth the encoding space | **measured** |
 | Guard pages for the stack and heap limits | In [RFC 0010](0010-rfc-ideas-os.md#11-mmu): 5.0% and 1.8% | **open** |
 
+### 2.7 `r0` as a general register
+
+**measured**, open. Only for a draft 2 built on 1b. In draft 1, `r0` reads
+as zero in both encodings. In 1a it carries its weight: `[r0 + disp]` is
+1a's only absolute address. 1b's encoding already covers the usual reasons
+for a zero register: `#0` is a one-parcel constant (mode 1), absolute
+addresses have their own modes (F4–F9) and `NEG` is a unary op. The idea is
+to make `r0` a 15th general register.
+
+- **What `r0` does in 1b now.** Every use in the 1b code (the programs,
+  compiled C, the kernel and the Lisp runtime) is one of these:
+  - **Storing zero:** `ST r0, ea`, since 1b has no store-immediate. That's
+    13 of the 16 uses in the hand-written programs, 16 of the 24 in
+    compiled C (the other 8 are `MOV rX, r0`, the same as `MOV rX, #0`),
+    and 52 in the kernel and the Lisp runtime.
+  - **A zero for instructions that only take registers:** `ADC r5, r0`
+    (bignum), `SBC r6, r0` (sort), `MTHI r0` before a `DIVUL` chain, the
+    kernel's `MTUR r1, r0` and `MTSR mapd, r0`, and the Lisp's
+    `CMP.T r1, r0`.
+  - **A zero in the hardware:** `NEG` and the multiply and divide routines
+    read `r0` onto the A bus. A hidden register-file entry that the reset
+    routine zeroes, like the loop constants at 24 and 25, would do the same.
+  - **Unused:** `MOV r0, ea` tests a memory operand without a scratch
+    register.
+
+  Executed, it's 0.99% of the hand-written programs' instructions, and 92%
+  of that is one store in sieve's inner loop.
+- **What it costs:**
+  - one register: 14 general registers instead of 15;
+  - 5 OR gates, a microinstruction bit (`WR0`) and a reset step in the 1b
+    hardware;
+  - encodings: with `R = r0`, modes 2, 6, 7, 8, A and B are useless, and
+    3, 9 and C duplicate the absolute modes.
+- **Measured** on the 15 C programs for 1b, with the compiler patched two
+  ways at `b6ffcfd` (not committed). The table gives cycles in the
+  programs' own code, geometric means, D16-overlap / D32-overlap:
+
+  | Change | Cycles | Where |
+  |---|---:|---|
+  | No zero register: a 0 needed in a register is a fresh `MOV rX, #0` | +1.3% / +1.1% | sieve +19% / +16%, bst +1% |
+  | One register fewer (r14 not allocated), an upper bound on what a 15th is worth | +0.5% / +0.7% | sha256 +6% / +11%, wordfreq +0.8% |
+
+  - The other programs barely change.
+  - Sieve's cost is the compiler's: it puts the `MOV` inside the inner
+    loop rather than hoisting it, and the loop has registers to spare.
+  - The C library is left out because of a layout effect. Its size moves
+    sieve's byte array on or off a word boundary, which changes `memset`'s
+    time by 3.6×.
+  - [Report 0004](0004-report-draft-1-evaluation.md) found no hand-written
+    program short of registers either.
+- **Replacing it:**
+  - Op B (`JMP`/`CALL ea`) has 14 unused values of `d`. One could be
+    `CLR ea`, which stores zero at any size, in any mode.
+  - `ADC`/`SBC`, `MTSR` and `MTUR` would still need a zero from a register,
+    or new forms. For example, the unary group has four free functions,
+    room for an add-carry.
+- **Against:**
+  - It's about 1% either way, so performance doesn't decide it.
+  - `r0 = 0` is part of the common draft 1 machine, and 1a needs it.
+  - The kernel and the Lisp rely on it.
+  - It keeps the compiler simple: a zero never needs a register of its own.
+
+  Only worth it if a 1b-based draft 2 wants the register or the encoding
+  space for something else.
+
+### 2.8 Which `MOV`s set the flags
+
+**measured**, open. Stores could be written as `MOV` too: `MOV [r2], r1`
+for `ST r1, [r2]`, and `MOV -[sp], r1` for a push. Loads, stores, register
+copies and constants would then share one mnemonic, and its flag rule has to
+read well for all of them. In draft 1, loads, `MOV`, `MVI` and 1b's `POP`
+set N and Z (C and V unchanged); stores don't.
+
+- **Whose N and Z get read.** These are traces of every program in both
+  encodings. Each cell says how often a move's N and Z were read before
+  something overwrote them:
+
+  | Move | Hand-written, 1a / 1b | Compiled C, 1a / 1b |
+  |---|---|---|
+  | Constant (`MVI`, `MOV r, #c`) | 0 of 9.4k / 0 of 9.7k | 0 of 22k / 0 of 32k |
+  | Register copy | 21 of 103k / 21 of 86k | 0 of 137k / 0 of 123k |
+  | 1b `POP` (`MOV r, [sp]+`) | – / 0 of 33k | – |
+  | Load | 13.8k of 506k / 13.8k of 263k | 5.7k of 190k / 9.4k of 72k |
+
+  - The 21 are one place in lines: `MOV r8, r3; BEQ`.
+  - Every read is `EQ`, `NE`, `MI` or `PL`. Nothing branches on a signed
+    condition after a move.
+  - The loads whose flags are read are:
+    - string loops (`MOV r2, byte [r1]+; BNE`);
+    - the console's end-of-input test (`BMI`);
+    - lookups that test for an empty table entry or a null link.
+- **Four possible rules for a unified `MOV`:**
+  - **Never sets the flags** (x86, Z80). Loads need a `TST` wherever their
+    flags are read:
+    - hand-written code, estimated as one `TST` per read: +2.7% / +3.1%
+      (1a / 1b) on D16-overlap and +1.6% / +1.8% on D32-overlap, geometric
+      means, up to +13% in strings;
+    - compiled C, measured with the compiler keeping its `CMP r, #0` after
+      moves and loads: +0.4–0.7% in the programs' own code, up to +7.5% in
+      strings. Code grows by 28 bytes across all 15 programs, plus up to 26
+      bytes of library.
+  - **Sets N and Z when the destination is a register** (draft 1's rule,
+    and the 6502's). No measured cost:
+    - A constant can't be loaded between a compare and its branch.
+    - It can nearly always be loaded before the compare instead. In
+      `line`, `MOV r5, #1` can go above the `SUB` that sets the flags. That
+      saves the `BRA` that
+      [report 0003](0003-report-draft-1-programming-notes.md) put down to
+      this rule.
+  - **Sets N and Z when the source is memory** (loads only). No measured
+    cost. With copies and constants not setting the flags, the compiled C
+    doesn't change at all. Hand-written code loses only the 21 reads above.
+  - **Always sets N and Z, stores included** (PDP-11, VAX, 68000):
+    - **Software:** one idiom has to change. `lib/print.s` pushes a digit
+      between the `DIVU` and the branch on its quotient; pushing with
+      `SAVE r3-r3` would leave the flags alone. Compiled C never keeps the
+      flags live across a store.
+    - **1b hardware:** N and Z come from the B bus, and flags can't change
+      in a checked memory cycle, or traps would stop being precise. So a
+      store can only set them in its last cycle. A plain store's B bus is
+      free then, but a push or an `[r]+` store needs it to write back the
+      address register.
+    - **The cost:** one more cycle for those stores is +0.9% (from report
+      0012's cycle counts), up to +2% in vm and sort. A second N/Z source
+      instead would be about 5 chips.
+- **Whichever rule is chosen:**
+  - `RESTORE r-r` already pops without touching the flags, in 1b too.
+  - bst's insert walk relies on moves leaving C alone
+    (`MOV r3, r4; BCC`). All four rules keep that; a 68000-style move,
+    which clears C, would not.
+  - Loads could also clear V, as on the PDP-11 and VAX. A signed branch
+    after a load would then compare with zero instead of reading a stale
+    V. No measured program needs it: it would only save 62 executions of
+    a `CMP r, #0` in compiled C. It would remove the same trap as the
+    `INC`/`DEC`/`TST` wish in
+    [section 14](#14-wishes-from-the-program-writers), and nothing branches
+    on V after a move.
+- **The syntax itself:**
+  - In 1b it's an assembler and disassembler change only.
+  - 1a's loads and stores would take 1b's size keywords, plus one more for
+    sign-extending loads (`sbyte`, say).
+  - `MOV [x], #c` would be the natural thing to write, and neither
+    encoding has it. With `r0 = 0`, `MOV [x], #0` can assemble to
+    `ST r0, [x]` (2.7).
+- **The question:** is one rule for loads and stores worth its price?
+  - "Never" costs about 2–3% in hand-written string code.
+  - "Always" costs about 1% in the 1b hardware.
+  - Without one rule, draft 1's rule reads as "a `MOV` into a register sets
+    N and Z".
+
+Measured at `b6ffcfd` with scripts that aren't committed.
+
 ## 3. Floating point
 
 **open**, and nothing needed yet. These decisions touch the base ISA,
@@ -199,9 +351,9 @@ From [report 0003](0003-report-draft-1-programming-notes.md), not covered above:
 | `[label + reg]` for labels beyond ±32 KB | both | 1b has no 32-bit displacement form |
 | One-parcel `[r + small offset]` | 1b | Struct fields cost an extension parcel |
 | Immediate `TST`/`BIC`/`MUL`/`DIV` | 1b | Constants needed registers |
-| `POP` that leaves the flags alone | 1b | `MOV [sp]+` sets N and Z |
+| `POP` that leaves the flags alone | 1b | `MOV [sp]+` sets N and Z; `RESTORE r-r` doesn't (2.8) |
 | Longer reach for the short byte offsets | 1a | 0–15 is too short for a 34-byte Life row |
-| `MOV`/`MVI` that don't set flags, or an explicit flag-setting bit (ARM's S bit) | both | A constant can't be loaded between a compare and its branch |
+| `MOV`/`MVI` that don't set flags, or an explicit flag-setting bit (ARM's S bit) | both | A constant can't be loaded between a compare and its branch; measured in 2.8 |
 | V updated (or defined) by `INC`/`DEC`/`TST` | both | Signed branches after them test a stale V |
 | Assembler macros, `.rept` | tools | sha256's rounds |
 | Library constants not polluting the global namespace (`CONSOLE`, `PR_OUT`) | library | Programs couldn't reuse the names |
