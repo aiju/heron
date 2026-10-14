@@ -314,7 +314,7 @@ def screenshots(out=REPORT_DIR, log=print):
             s.key("end")
             s.key("p", ["ctrl"])
             s.run(1)
-        s.click(100, 216)                       # do it: print("Hello from the Workspace")
+        s.click(100, 232)                       # do it: print("Hello from the Workspace"), below the map's result, which wraps
         s.key("d", ["ctrl"])
         s.run(1)
         menu(s, "Mandelbrot")
