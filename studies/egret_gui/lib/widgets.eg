@@ -195,7 +195,10 @@ class TextWindow < Window
 
   def delete_selection
     s = self.selection
-    if s == nil then return false end
+    if s == nil
+      @anchor = nil                     # (a click leaves one, for dragging)
+      return false
+    end
     @lines[s[0]] = left_of(@lines[s[0]], s[1]) + right_of(@lines[s[2]], s[3])
     k = s[2] - s[0]
     while k > 0
@@ -317,9 +320,14 @@ class TextWindow < Window
     end
   end
 
-  # command keys (control or meta): a, c, x, v
+  # command keys (control or meta): a, c, x, v, and home and end for the
+  # start and the end of the text
   def command(code, mods)
-    if code == 97
+    if code == K_HOME
+      self.goto(0, 0, mods & M_SHIFT != 0)
+    elif code == K_END
+      self.goto(@lines.size - 1, @lines[@lines.size - 1].size, mods & M_SHIFT != 0)
+    elif code == 97
       self.select_all
     elif code == 99
       if self.selection != nil then CLIPBOARD = self.selected_text end
@@ -350,6 +358,9 @@ class TextWindow < Window
     end
     if p[0] != @row or p[1] != @col then self.goto(p[0], p[1], true) end
   end
+
+  # (where it's let go counts, if the drags fell behind)
+  def mouse_up(x, y, b) = self.mouse_drag(x, y)
 
   def double_click(x, y)
     p = self.pos_at(x, y)

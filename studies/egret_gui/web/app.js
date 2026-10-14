@@ -193,6 +193,8 @@
     wasm.set_mouse(x, y, buttons | mods(e) << 8);
     event(4, (b << 24) | (y << 12) | x);
   });
+  // (the browser's own focusing on mousedown would scroll the page)
+  canvas.addEventListener("mousedown", (e) => e.preventDefault());
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("wheel", (e) => {
     event(5, (e.deltaY > 0 ? 1 : -1) & 0xFFFF);

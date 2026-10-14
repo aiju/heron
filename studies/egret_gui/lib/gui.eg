@@ -427,10 +427,12 @@ class Desktop
         w.double_click(p[0], p[1])
         return nil
       end
-      @last_click = [x, y, t]
       @tracking = w
       @track_at = p
       w.mouse_down(p[0], p[1], b)
+      # (from when it's been dealt with: at 3 MHz that can take a while,
+      # and the second click is already waiting)
+      @last_click = [x, y, gui_ticks()]
     end
   end
 

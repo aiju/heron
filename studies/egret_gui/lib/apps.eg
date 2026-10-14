@@ -545,6 +545,220 @@ class Paint < Window
                                 self.invalidate }]]
 end
 
+# ---- the Browser: classes, their methods, and the methods' source ----------------
+
+# a scrolling list of strings in part of a window
+class ListPane
+  def init(win, x, y, w, h)
+    @win = win
+    @x = x
+    @y = y
+    @w = w
+    @h = h
+    @items = []
+    @top = 0
+    @sel = nil
+  end
+  attr items, sel
+
+  def set_items(items)
+    @items = items
+    @top = 0
+    @sel = nil
+    self.draw
+  end
+
+  def rows = @h / 15
+  def chars = (@w - 8) / 7
+  def hit?(px, py) = px >= @x and px < @x + @w and py >= @y and py < @y + @h
+
+  def draw
+    i = 0
+    while i < self.rows
+      self.draw_row(@top + i)
+      i += 1
+    end
+    @win.fill(@x, @y + self.rows * 15, @w, @h - self.rows * 15, PAL.white)
+  end
+
+  def draw_row(k)
+    if k < @top or k >= @top + self.rows then return nil end
+    y = @y + (k - @top) * 15
+    on = k == @sel
+    bg = if on then PAL.select else PAL.white end
+    @win.fill(@x, y, @w, 15, bg)
+    if k < @items.size
+      gui_text(@win.id, @x + 4, y + 12, short(@items[k], self.chars),
+               if on then PAL.select_text else PAL.black end, bg, MONO)
+    end
+  end
+
+  def select(k)
+    old = @sel
+    @sel = k
+    if old != nil then self.draw_row(old) end
+    self.draw_row(k)
+  end
+
+  # the row clicked, or nil
+  def click(px, py)
+    k = @top + (py - @y) / 15
+    if k >= @items.size then return nil end
+    self.select(k)
+    k
+  end
+
+  def wheel(d)
+    t = (@top + 3 * d).max(0).min((@items.size - self.rows).max(0))
+    if t != @top
+      @top = t
+      self.draw
+    end
+  end
+end
+
+# the source of a method from line `line` of a source: the def, the lines
+# indented under it, and its end
+def method_source(which, line, sel)
+  lines = gui_source_lines(which, line, 80)
+  if lines.size == 0 or not lines[0].contains?("def " + sel.to_s) then return nil end
+  indent = 0
+  while indent < lines[0].size and lines[0][indent] == " "
+    indent += 1
+  end
+  out = [lines[0]]
+  i = 1
+  while i < lines.size
+    l = lines[i]
+    k = 0
+    while k < l.size and l[k] == " "
+      k += 1
+    end
+    if l.strip.size > 0 and k <= indent
+      if l.strip == "end" and k == indent then out.push(l) end
+      break
+    end
+    out.push(l)
+    i += 1
+  end
+  out
+end
+
+class Browser < Window
+  def init
+    @classes = gui_globals().select { |g| g[1].is_a?(Class) }.map { |g| g[1] }.sort_by { |c| c.name }
+    @cls = nil
+    @methods = []
+    @source = []
+    @stop = 0
+    p = DESK.place(460, 330)
+    super("Browser", p[0], p[1], 460, 330)
+    @left = ListPane(self, 0, 0, 150, 165)
+    @right = ListPane(self, 151, 0, 309, 165)
+    @left.set_items(@classes.map { |c| c.name })
+  end
+  def resizable? = false
+
+  def src_y = 186
+  def src_rows = (self.height - self.src_y - 2) / 15
+
+  def paint
+    @left.draw
+    @right.draw
+    self.fill(150, 0, 1, 165, PAL.grey)
+    self.fill(0, 165, self.width, 1, PAL.grey)
+    self.draw_info
+    self.draw_source
+  end
+
+  def draw_info
+    self.fill(0, 166, self.width, 20, PAL.light)
+    if @cls == nil
+      s = "{@classes.size} classes: pick one"
+    else
+      sup = if @cls.superclass == nil then "" else " < " + @cls.superclass.name end
+      iv = @cls.ivars
+      s = @cls.name + sup + if iv.size > 0 then "   @" + iv.join(", @") else "" end
+    end
+    self.text(4, 180, short(s, 70), PAL.black)
+  end
+
+  def draw_source
+    i = 0
+    while i < self.src_rows
+      y = self.src_y + i * 15
+      self.fill(0, y, self.width, 15, PAL.white)
+      k = @stop + i
+      if k < @source.size then gui_text(@id, 4, y + 12, @source[k], PAL.black, PAL.white, MONO) end
+      i += 1
+    end
+  end
+
+  def pick_class(k)
+    @cls = @classes[k]
+    @methods = gui_methods(@cls).sort_by { |m| m[0].to_s }
+    @right.set_items(@methods.map { |m|
+      m[0].to_s + if m[3] == 0 then "  (primitive)" elif m[3] == 2 then "  (workspace)" else "" end })
+    @source = []
+    @stop = 0
+    self.draw_info
+    self.draw_source
+  end
+
+  def source_of(m)
+    if m[3] == 0 then return ["# {m[0]} is a primitive, written in C (vm/prims.c", "# or src/gui_prims.c)."] end
+    if m[3] == 2 then return ["# {m[0]} was defined in a Workspace."] end
+    src = method_source(1, m[2], m[0])
+    if src == nil then src = method_source(0, m[2], m[0]) end
+    if src == nil then ["# (no source for {m[0]}: line {m[2]})"] else src end
+  end
+
+  def pick_method(k)
+    @source = self.source_of(@methods[k])
+    @stop = 0
+    self.draw_source
+  end
+
+  def mouse_down(x, y, b)
+    if @left.hit?(x, y)
+      k = @left.click(x, y)
+      if k != nil then self.pick_class(k) end
+    elif @right.hit?(x, y)
+      k = @right.click(x, y)
+      if k != nil then self.pick_method(k) end
+    end
+  end
+
+  # a method into a Workspace, to change and run again
+  def double_click(x, y)
+    if @right.hit?(x, y) and @right.sel != nil
+      code = "class " + @cls.name + "\n" + @source.join("\n") + "\nend\n"
+      w = Workspace("# Change it, select it all (Ctrl-A) and do it (Ctrl-D):\n" + code)
+      w.set_title(@cls.name + "#" + @methods[@right.sel][0].to_s)
+    else
+      self.mouse_down(x, y, 0)
+    end
+  end
+
+  def wheel(d)
+    m = gui_mouse()
+    r = self.screen_rect
+    x = m[0] - r[0]
+    y = m[1] - r[1]
+    if @left.hit?(x, y)
+      @left.wheel(d)
+    elif @right.hit?(x, y)
+      @right.wheel(d)
+    else
+      t = (@stop + 3 * d).max(0).min((@source.size - self.src_rows).max(0))
+      if t != @stop
+        @stop = t
+        self.draw_source
+      end
+    end
+  end
+end
+
 # ---- About ------------------------------------------------------------------------------
 
 class About < Window

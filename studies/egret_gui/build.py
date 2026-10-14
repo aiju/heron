@@ -106,12 +106,18 @@ def compile_image():
     objs = _assemble_units(p)
     with open(os.path.join(SRC, "rt_v1b.s")) as f:
         objs.insert(0, driver.assemble(ISA, f.read(), "rt_v1b.o"))
+    # The code is more than 64 KB, as far as a 16-bit relative call
+    # reaches, and everything calls memset and memcpy: the C library goes
+    # in the middle (as objects, so the linker keeps only what's used),
+    # after the VM and before the GUI and the graphics.
+    middle = 1 + len(egret.SOURCES) + 1
+    objs[middle:middle] = [o for _, o in driver.library(ISA)[0]]
     objs.append(driver.assemble(ISA, egret.asm_interpreter(ISA), "interp_v1b.o"))
     for path in sorted(glob.glob(os.path.join(GFX_ASM, "*.s"))):
         if os.path.basename(path) != "mark.s":
             objs.append(assemble_object(ISA, path))
     objs.append(driver.assemble(ISA, fonts.data_asm(), "fonts.o"))
-    return L.link(objs, [driver.library(ISA)[0]], ISA)
+    return L.link(objs, [], ISA)
 
 
 def console_input(depth=3, source=None):

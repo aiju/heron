@@ -24,6 +24,7 @@ Font fonts[MAXFONTS];
 int nfonts;
 static TTF ttf;
 static int depth = -1;
+static Value ws_start;          /* perm_hp when the Workspace first compiled */
 
 /* ---- helpers ---- */
 
@@ -670,6 +671,8 @@ static Value p_compile(Value *args, int argc)
     if (n >= MAXSRC)
         return prim_fail("too much source");
     memcpy(src, BYTES(args[1]), n);
+    if (!ws_start)
+        ws_start = perm_hp;
     compile_source(src, n, "workspace");
     while ((m = compile_next()) != 0) {
         if (k >= MAXSTMT)
@@ -695,6 +698,103 @@ static Value p_compile(Value *args, int argc)
     for (i = 0; i < k; i++)
         ITEMS(l)[i] = sels[i];
     F(l, L_SIZE) = MKINT(k);
+    return l;
+}
+
+/* ---- for the Browser ---- */
+
+extern const char prelude_src[];
+extern const unsigned prelude_len;
+
+/* [name, value] for every global that has a value */
+static Value p_globals(Value *args, int argc)
+{
+    Value l = make_list(nglobals), pair;
+    int i, n = 0;
+    push_root(&l);
+    for (i = 0; i < nglobals; i++) {
+        if (!globals[i])
+            continue;
+        pair = make_list(2);
+        ITEMS(pair)[0] = global_names[i];
+        ITEMS(pair)[1] = globals[i];
+        F(pair, L_SIZE) = MKINT(2);
+        ITEMS(l)[n++] = pair;
+    }
+    F(l, L_SIZE) = MKINT(n);
+    pop_roots(1);
+    return l;
+}
+
+/* a class's own methods: [selector, arguments, line, kind], kind 0 for a
+   primitive, 1 for one compiled from the source the machine booted with,
+   2 for one compiled in a Workspace */
+static Value p_methods(Value *args, int argc)
+{
+    Value t, l, e, m;
+    unsigned cap, i;
+    int n = 0;
+    if (IS_INT(args[1]) || !is_kind(args[1], K_CLASS))
+        return prim_fail("not a class");
+    cap = SIZE(F(args[1], C_METHODS)) / 2;
+    l = make_list(cap);
+    push_root(&l);
+    for (i = 0; i < cap; i++) {
+        t = F(args[1], C_METHODS);
+        if (!F(t, 2 * i))
+            continue;
+        e = make_list(4);
+        t = F(args[1], C_METHODS);
+        m = F(t, 2 * i + 1);
+        ITEMS(e)[0] = F(t, 2 * i);
+        ITEMS(e)[1] = MKINT(MI_NARGS(F(m, M_INFO)));
+        ITEMS(e)[2] = MKINT(F(m, M_LINE));
+        ITEMS(e)[3] = MKINT(F(m, M_CODE) == 0 ? 0 : ws_start && m >= ws_start ? 2 : 1);
+        F(e, L_SIZE) = MKINT(4);
+        ITEMS(l)[n++] = e;
+    }
+    F(l, L_SIZE) = MKINT(n);
+    pop_roots(1);
+    return l;
+}
+
+/* gui_source_lines(which, first, count): lines first.. (from 1) of the
+   prelude (0) or of what the machine booted with (1) */
+static Value p_source_lines(Value *args, int argc)
+{
+    const char *src, *p, *end, *q;
+    unsigned len;
+    int line = 1, first, count, n = 0;
+    Value l, str;
+    NEED_INTS(1, 3);
+    if (I(1) == 0) {
+        src = prelude_src;
+        len = prelude_len;
+    } else {
+        src = (const char *)BP(INPUT_LO);
+        for (len = 0; len < INPUT_HI - INPUT_LO && src[len]; len++)
+            ;
+    }
+    first = I(2);
+    count = I(3);
+    if (count < 0 || count > 200)
+        return prim_fail("up to 200 lines");
+    p = src;
+    end = src + len;
+    while (p < end && line < first)
+        if (*p++ == '\n')
+            line++;
+    l = make_list(count);
+    push_root(&l);
+    while (p < end && n < count) {
+        for (q = p; q < end && *q != '\n'; q++)
+            ;
+        str = make_string(p, q - p);
+        ITEMS(l)[n++] = str;
+        p = q + 1;
+    }
+    F(l, L_SIZE) = MKINT(n);
+    pop_roots(1);
     return l;
 }
 
@@ -753,6 +853,9 @@ static const PrimDef defs[] = {
     { "Object", "gui_restore", 0, p_restore, 0 },
     { "Object", "gui_compile", 1, p_compile, 0 },
     { "Object", "gui_stats", 0, p_stats, 0 },
+    { "Object", "gui_globals", 0, p_globals, 0 },
+    { "Object", "gui_methods", 1, p_methods, 0 },
+    { "Object", "gui_source_lines", 3, p_source_lines, 0 },
     { 0, 0, 0, 0, 0 }
 };
 
