@@ -2,7 +2,7 @@
 
 The research files keep each datasheet's own arc names and conditions.
 This script maps them onto the delay names used by infra/hw/chips.py and
-the Go models, and picks one value per corner:
+the simulator's models, and picks one value per corner:
 
   max  datasheet maximum (-40..85 C, 4.5 V, 50 pF for HCT/ACT; the 74F
        commercial-range maximum; for 74LS/74S the 25 C maximum, which is

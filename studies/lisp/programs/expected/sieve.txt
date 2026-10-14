@@ -1,0 +1,4 @@
+primes below 10000: 1229
+the first ten: (2 3 5 7 11 13 17 19 23 29)
+the last five: (9931 9941 9949 9967 9973)
+their sum: 5736396

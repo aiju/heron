@@ -1,0 +1,11 @@
+# The ISA-independent toolchain (RFC 0015): the object format, the linker
+# and the assembler core. An ISA supplies its encoder (for draft 1:
+# studies/v1_isa/isa). Python uses it through heron/bindings.
+[package]
+name = "toolchain"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

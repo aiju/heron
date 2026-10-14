@@ -60,6 +60,14 @@ class Repository(unittest.TestCase):
                 for n, line in enumerate(f, 1):
                     if re.match(r"\s*(from|import)\s+heron\.studies", line):
                         bad.append(f"{os.path.relpath(path, ROOT)}:{n}: {line.strip()}")
+        # and infra's crates don't depend on a study's
+        for path in tracked("infra/*Cargo.toml"):
+            with open(path) as f:
+                for n, line in enumerate(f, 1):
+                    for dep in re.findall(r'path\s*=\s*"([^"]+)"', line):
+                        target = os.path.normpath(os.path.join(os.path.dirname(path), dep))
+                        if os.path.relpath(target, ROOT).startswith("studies"):
+                            bad.append(f"{os.path.relpath(path, ROOT)}:{n}: {line.strip()}")
         self.assertEqual(bad, [])
 
 

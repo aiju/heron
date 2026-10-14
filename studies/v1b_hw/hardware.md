@@ -335,7 +335,7 @@ this netlist:
 - **Static timing analysis** ([`sta.py`](../../infra/hw/sta.py)) runs once for
   each of the 3,396 distinct microinstructions (with the control lines at
   their values), and covers every data value.
-- **The event-driven Go simulator** ([`hwsim`](../../infra/hwsim)) runs programs and
+- **The event-driven chip-level simulator** ([`hwsim`](../../infra/hwsim)) runs programs and
   checks setup/hold times, SRAM write timing and bus contention.
 
 | Parts | Worst case | Typical |

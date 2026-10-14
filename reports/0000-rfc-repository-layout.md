@@ -82,7 +82,7 @@ Reusable code that doesn't depend on any one design:
 - the assembler and linker core and the object format;
 - the netlist language, the chip library and its timing data;
 - static timing analysis;
-- the event-driven chip-level simulator (Go);
+- the event-driven chip-level simulator (Go; Rust since [RFC 0015](0015-rfc-languages.md));
 - the program test harness;
 - the IBIS and ngspice plumbing.
 
@@ -151,10 +151,28 @@ Reports and RFCs share one numbering space.
 
 ### Numbers
 
-For now, a new document takes the next free number. A unit test checks
-that numbers are unique and the front matter is valid. If two PRs take the
-same number, the one merged second renumbers. How parallel sessions should
-allocate numbers is still open (see [Open questions](#open-questions)).
+A new document's number is reserved on `main` before the document is
+written. `heron reports reserve report slug "Title"` (or `rfc`) pushes a
+stub straight to `main`: front matter with status `draft`, a line saying
+which branch it's being written on, and the regenerated index. A push only
+succeeds if `main` hasn't moved since it was fetched, so a number that
+reaches `main` is the reserving session's alone; if `main` has moved, the
+command tries the next number. The session then merges `main` into its
+branch and writes the document over the stub.
+
+- **Why on `main`:** parallel sessions see each other's numbers as soon as
+  they're taken, and not only when a PR is merged. Before this, two PRs
+  sometimes took the same number, and the second one renumbered.
+- **Why a stub, not just a row in the index:** the index is generated from
+  the front matter, and a test checks it. A row with no document behind it
+  would fail that test and its links, and the next `heron reports` would
+  remove it.
+- **The exception to PRs:** this is the only thing pushed to `main` other
+  than through a PR.
+- **If the push is refused** for any reason but `main` having moved, the
+  session takes the next free number on its branch and renumbers if
+  another PR takes it first. A unit test checks that numbers are unique
+  and the front matter is valid.
 
 ### Front matter
 
@@ -207,7 +225,11 @@ the command that writes them. While its study is active, rerunning the
 command updates them and the report's `commit`.
 
 **Index:** `reports/README.md` lists every report and RFC with its status.
-It is generated from the front matter.
+It is generated from the front matter. Every PR that adds a report or
+changes a status changes it, so it was where most merge conflicts were.
+`.gitattributes` merges it with git's `union` driver, which keeps both
+sides' lines; the test that the index is current catches whatever that
+gets wrong, and `heron reports` fixes it.
 
 ### Ideas RFCs
 
@@ -248,6 +270,7 @@ holds ideas not yet worth an RFC of their own, each with a status.
   command.
 - **Folder names:** every folder below these is a valid Python identifier.
 - **Go:** the chip-level simulator stays a Go module, in `infra/hwsim/`.
+  (Since [RFC 0015](0015-rfc-languages.md) it's a Rust crate there.)
 - **The `heron` command** runs a study by name, and has a few commands of
   its own:
   - `heron v1b_hw hw run fib.s`, `heron c_compiler cc prog.c --run`;
@@ -315,8 +338,8 @@ output.
 ## AGENTS.md, in short
 
 - **Where things go:** the table in [Summary](#summary).
-- **Write findings as a report** and proposals as an RFC, with the next
-  free number. Small ideas go in the area's ideas RFC.
+- **Write findings as a report** and proposals as an RFC, with a number
+  reserved on `main`. Small ideas go in the area's ideas RFC.
 - **Never set `accepted` or `rejected`.**
 - **`docs/` is reference for the current design only.**
 - **Studies:** a study lists what it depends on, and `infra/` never
@@ -335,9 +358,12 @@ Emily has decided, in the discussion of this RFC:
 - the C compiler is a study;
 - the program suite lives in `studies/v1_isa` for now;
 - a study whose design becomes current is moved to the root, not copied;
-- for now, a new document takes the next free number.
+- a new document's number is reserved by pushing its stub to `main`, and
+  the index merges with git's `union` driver (2026-10-14, replacing "for
+  now, a new document takes the next free number").
 
 ## Open questions
 
 1. **Numbers:** how should parallel sessions allocate them, so two PRs
-   don't take the same one?
+   don't take the same one? *Answered:* by reserving them on `main`
+   ([Numbers](#numbers)).

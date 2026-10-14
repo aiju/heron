@@ -1,8 +1,6 @@
-# generated: ROM images, netlist JSON, simulator binary and run files, IBIS
-# downloads and simulation scratch
+# generated: ROM images, netlist JSON, cargo's output and the engines' Python
+# module, IBIS downloads and simulation scratch
 build/
-# "go build" inside infra/hwsim/ (the tools build into build/hwsim)
-infra/hwsim/hwsim
 
 # Claude Code worktrees
 .claude/worktrees/

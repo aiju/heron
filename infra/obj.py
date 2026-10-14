@@ -25,12 +25,17 @@ the section. Relocation `symbol` is an index into the symbol table.
 Archive:
 
     "TMA1", u32 count, count x {u32 name length, name, u32 size, object file}
+
+Reading and writing the files is Rust (infra/toolchain/src/obj.rs, through
+heron.native.toolchain); the classes here hold their contents for Python.
 """
 
-import struct
+from heron import native
 
 MAGIC = b"TMO1"
 AR_MAGIC = b"TMA1"
+
+# The constants are the file format's, as in infra/toolchain/src/obj.rs.
 
 # file flags
 EXEC = 1
@@ -61,42 +66,13 @@ RELOC_SIZE = {ABS32: 4, ABS16: 2, ABS16S: 2, PC16: 2, PC16H: 2}
 
 M32 = 0xFFFFFFFF
 
-
-class ObjError(Exception):
-    pass
-
-
-def s32(v):
-    v &= M32
-    return v - (1 << 32) if v >> 31 else v
+ObjError = native.toolchain.ObjError
 
 
 def reloc_value(kind, s, a, p):
     """The bytes to store for a relocation, or raise ValueError with the
     reason it doesn't fit."""
-    v = s + a
-    if kind == ABS32:
-        return (v & M32).to_bytes(4, "little")
-    if kind == ABS16:
-        if not (-32768 <= s32(v) <= 32767 or 0 <= (v & M32) <= 0xFFFF):
-            raise ValueError(f"{v & M32:#x} doesn't fit in 16 bits")
-        return (v & 0xFFFF).to_bytes(2, "little")
-    if kind == ABS16S:
-        if not -32768 <= s32(v) <= 32767:
-            raise ValueError(f"{v & M32:#x} is out of reach of 16-bit addresses (0-0x7FFF)")
-        return (v & 0xFFFF).to_bytes(2, "little")
-    off = s32(v - p)
-    if kind == PC16:
-        if not -32768 <= off <= 32767:
-            raise ValueError(f"{v & M32:#x} is {off:+d} bytes away, more than ±32 KB")
-        return (off & 0xFFFF).to_bytes(2, "little")
-    if kind == PC16H:
-        if off & 1:
-            raise ValueError(f"{v & M32:#x} is at an odd address")
-        if not -65536 <= off <= 65534:
-            raise ValueError(f"{v & M32:#x} is {off:+d} bytes away, more than ±64 KB")
-        return ((off >> 1) & 0xFFFF).to_bytes(2, "little")
-    raise ValueError(f"unknown relocation kind {kind}")
+    return native.toolchain.reloc_value(kind, s, a, p)
 
 
 class Section:
@@ -171,64 +147,29 @@ class ObjectFile:
             return None
         return self.sections[sym.section - 1]
 
-    def to_bytes(self):
-        strtab = bytearray(b"\0")
-        offsets = {"": 0}
+    def contents(self):
+        """The object file as heron.native.toolchain passes it."""
+        return (self.isa, self.flags, self.entry,
+                [(s.name, s.flags, s.addr, s.size, s.align, bytes(s.data), s.code) for s in self.sections],
+                [(s.name, s.section, s.value & M32, s.flags) for s in self.symbols],
+                [(r.section, r.offset, r.kind, r.symbol, r.addend) for r in self.relocs])
 
-        def s(name):
-            if name not in offsets:
-                offsets[name] = len(strtab)
-                strtab.extend(name.encode("utf-8") + b"\0")
-            return offsets[name]
-        isa = s(self.isa)
-        secs = b"".join(struct.pack("<6I", s(x.name), x.flags, x.addr, x.size, x.align, x.code)
-                        for x in self.sections)
-        syms = b"".join(struct.pack("<4I", s(x.name), x.section, x.value & M32, x.flags)
-                        for x in self.symbols)
-        rels = b"".join(struct.pack("<4Ii", r.section, r.offset, r.kind, r.symbol, r.addend)
-                        for r in self.relocs)
-        head = MAGIC + struct.pack("<7I", self.flags, isa, self.entry, len(self.sections),
-                                   len(self.symbols), len(self.relocs), len(strtab))
-        data = b"".join(x.data for x in self.sections if not x.nobits)
-        return head + secs + syms + rels + bytes(strtab) + data
+    @classmethod
+    def from_contents(cls, contents, name="?"):
+        isa, flags, entry, secs, syms, rels = contents
+        o = cls(isa, flags, entry, name)
+        o.sections = [Section(n, fl, addr, size, align, bytes(data), code)
+                      for n, fl, addr, size, align, data, code in secs]
+        o.symbols = [Symbol(*s) for s in syms]
+        o.relocs = [Reloc(*r) for r in rels]
+        return o
+
+    def to_bytes(self):
+        return bytes(native.toolchain.write_object(self.contents()))
 
     @classmethod
     def from_bytes(cls, buf, name="?"):
-        if buf[:4] != MAGIC:
-            raise ObjError(f"{name}: not an object file")
-        try:
-            flags, isa, entry, ns, nsym, nrel, nstr = struct.unpack_from("<7I", buf, 4)
-            pos = 32
-            raw_secs = [struct.unpack_from("<6I", buf, pos + 24 * k) for k in range(ns)]
-            pos += 24 * ns
-            raw_syms = [struct.unpack_from("<4I", buf, pos + 16 * k) for k in range(nsym)]
-            pos += 16 * nsym
-            raw_rels = [struct.unpack_from("<4Ii", buf, pos + 20 * k) for k in range(nrel)]
-            pos += 20 * nrel
-            strtab = bytes(buf[pos:pos + nstr])
-            pos += nstr
-        except struct.error:
-            raise ObjError(f"{name}: truncated object file")
-        if len(strtab) != nstr:
-            raise ObjError(f"{name}: truncated object file")
-
-        def s(off):
-            return strtab[off:strtab.index(b"\0", off)].decode("utf-8")
-        o = cls(s(isa), flags, entry, name)
-        for nm, fl, addr, size, align, code in raw_secs:
-            sec = Section(s(nm), fl, addr, size, align, b"", code)
-            if not sec.nobits:
-                sec.data = bytes(buf[pos:pos + size])
-                if len(sec.data) != size:
-                    raise ObjError(f"{name}: truncated object file")
-                pos += size
-            o.sections.append(sec)
-        o.symbols = [Symbol(s(nm), sec, val, fl) for nm, sec, val, fl in raw_syms]
-        o.relocs = [Reloc(*r) for r in raw_rels]
-        for r in o.relocs:
-            if not 1 <= r.section <= ns or not 0 <= r.symbol < nsym or r.kind not in RELOC_NAMES:
-                raise ObjError(f"{name}: bad relocation")
-        return o
+        return cls.from_contents(native.toolchain.read_object(bytes(buf), name), name)
 
     def write(self, path):
         with open(path, "wb") as f:
@@ -252,34 +193,12 @@ def read_object(path):
 
 def archive_bytes(members):
     """members: [(name, ObjectFile)]"""
-    out = bytearray(AR_MAGIC + struct.pack("<I", len(members)))
-    for name, o in members:
-        nm = name.encode("utf-8")
-        data = o.to_bytes()
-        out += struct.pack("<I", len(nm)) + nm + struct.pack("<I", len(data)) + data
-    return bytes(out)
+    return bytes(native.toolchain.write_archive([(name, o.to_bytes()) for name, o in members]))
 
 
 def read_archive(path):
     """[(member name, ObjectFile)]"""
     with open(path, "rb") as f:
         buf = f.read()
-    if buf[:4] != AR_MAGIC:
-        raise ObjError(f"{path}: not a library")
-    out = []
-    try:
-        (n,) = struct.unpack_from("<I", buf, 4)
-        pos = 8
-        for _ in range(n):
-            (ln,) = struct.unpack_from("<I", buf, pos)
-            name = buf[pos + 4:pos + 4 + ln].decode("utf-8")
-            pos += 4 + ln
-            (size,) = struct.unpack_from("<I", buf, pos)
-            pos += 4
-            if pos + size > len(buf):
-                raise ObjError(f"{path}: truncated library")
-            out.append((name, ObjectFile.from_bytes(buf[pos:pos + size], f"{path}({name})")))
-            pos += size
-    except (struct.error, UnicodeDecodeError):
-        raise ObjError(f"{path}: truncated library")
-    return out
+    return [(name, ObjectFile.from_contents(c, f"{path}({name})"))
+            for name, c in native.toolchain.read_archive(buf, path)]

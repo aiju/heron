@@ -1,0 +1,16 @@
+_ 0 aa069491
+text.sans12 585 50397b3c
+text.mono12 489 9e1685c7
+raster.mono.12 62 9e1685c7
+raster.mono.24 62 9e1685c7
+raster.mono.48 62 9e1685c7
+raster.aa.12 62 9e1685c7
+raster.aa.24 62 9e1685c7
+raster.aa.48 62 9e1685c7
+ttf.first.12 43 90c2172c
+ttf.cached.12 43 90c2172c
+ttf.first.24 43 3ba700e3
+ttf.cached.24 43 3ba700e3
+ttf.first.48 43 479a33c2
+ttf.cached.48 43 479a33c2
+_ 0 87017d4d

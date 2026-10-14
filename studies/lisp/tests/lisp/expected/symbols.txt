@@ -1,0 +1,55 @@
+symbol->string: "hello"
+symbol->string of t: "t"
+symbol->string of punctuation: "set-car!"
+string->symbol: abc
+string->symbol is interned: t
+a round trip: t
+string->symbol of t: t
+a symbol with a space: a b
+string-length: (0 3 3)
+string-ref: (97 99 65 32)
+string-ref of a high byte: 195
+string=?: (t nil t nil nil)
+string=? of a symbol's name: t
+string=? is case-sensitive: nil
+the codes of a string: (76 105 115 112 33)
+write-char of those: Lisp!
+gensyms: (g1 g2)
+a gensym is a symbol: t
+gensyms differ: nil
+a gensym is not interned: nil
+its name: "g1"
+its name interned: t
+a third: g3
+a gensym bound by eval: 25
+a gensym as a global: global
+a gensym's properties: v
+a gensym is equal? to itself only: (t nil)
+get with nothing: nil
+put returns the value: red
+get: red
+two properties: (red 150)
+put replaces: (green 150)
+other symbols unaffected: nil
+an integer key: three
+keys compare with eq?: nil
+the same list as key: same-list
+a nil value: nil
+a property of t: 1
+the value and the properties are separate: (its-value 150)
+properties set: 3
+50 integer keys: (0 49 2401 nil)
+make-vector: #(0 0 0 0 0)
+vector-length: 5
+vector-set! returns the value: two
+vector-ref: two
+after vector-set!: #("zero" 0 two 0 (4))
+first and last: ("zero" (4))
+an empty vector: #()
+its length: 0
+the fill is shared: t
+filled: #(0 1 4 9 16 25 36 49 64 81)
+a vector of vectors: #(#(0 0) #(1 1))
+a large vector: (10000 1 last)
+a vector is eq? to itself: t
+done: symbols

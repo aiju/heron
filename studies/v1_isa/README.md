@@ -21,8 +21,9 @@ report 0004 compares against.
 | [isa-v1.md](isa-v1.md) | The common machine: registers, flags, memory, I/O, interrupts, shared instruction groups |
 | [isa-v1a.md](isa-v1a.md), [isa-v1b.md](isa-v1b.md) | The two encodings |
 | [timing-model-v1.md](timing-model-v1.md) | How cycle counts are estimated for six hardware configurations |
-| `v1common.py`, `v1a.py`, `v1b.py` | The ISAs: encoders, disassemblers, semantics |
-| `sim32.py`, `timing32.py` | The instruction-level simulator and the timing model |
+| `isa/` | The ISAs' decoders and semantics, the instruction-level simulator, the timing model and the encoders the assembler uses, in Rust ([RFC 0015](../../reports/0015-rfc-languages.md)). Also two variants other studies use, v1bx for the Lisp ([isa.md](../lisp/isa.md)) and v1bs for the kernel study ([system.md](../kernel/system.md), `sys.rs`), and page reference counters (`pages.rs`) |
+| `v1common.py`, `v1a.py`, `v1b.py` | The ISAs' disassemblers, and what the tools need to know about them |
+| `sim32.py`, `timing32.py` | The simulator and the timing model as the studies use them, running the Rust ones |
 | `programs/v1a/`, `programs/v1b/` | The 20 programs and their libraries, in each encoding |
 | `programs/reference.py`, `programs/expected/`, `programs/common/` | The program suite: independent reference implementations, the expected output every draft (and the C versions) is checked against, and shared input |
 
@@ -35,6 +36,7 @@ with the generated performance tables).
 heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # cycles for all six configurations, mix, profile
 heron v1_isa --isa v1a test                   # every 1a program against its expected output
 heron v1_isa asm -c util.s                    # an object file; ld links, objdump shows them, ar makes libraries
-heron v1_isa report                           # report 0004's generated tables (under a minute)
+heron v1_isa report                           # report 0004's generated tables (seconds)
+cargo test -p v1-isa                          # the Rust simulator's and encoders' own tests
 python3 studies/v1_isa/programs/reference.py  # rewrite the expected output
 ```

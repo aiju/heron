@@ -1,0 +1,71 @@
+# matmul: C = A * B for 8 x 8 matrices of random numbers -2048..2047
+# (xorshift16 seeded with 2024: A's elements in row order, then B's), with
+# 32-bit sums. Prints row 3 of C, the trace, and checksums.
+
+N = 8
+
+class Matrix
+  def init(n)
+    @n = n
+    @rows = List.new(n).map { |_| List.new(n, 0) }
+  end
+  attr rows
+  def [](i) = @rows[i]
+  def *(other)
+    c = Matrix(@n)
+    for i in 0..<@n
+      a = @rows[i]
+      ci = c[i]
+      for j in 0..<@n
+        sum = 0
+        for k in 0..<@n
+          sum += a[k] * other.rows[k][j]
+        end
+        ci[j] = sum
+      end
+    end
+    c
+  end
+  def trace = (0..<@n).reduce(0) { |t, i| t + @rows[i][i] }
+end
+
+X = 2024
+def rnd
+  x = X
+  x = x ^ ((x << 7) & 0xffff)
+  x = x ^ (x >> 9)
+  x = x ^ ((x << 8) & 0xffff)
+  X = x
+  (x >> 4) - 2048
+end
+
+def fill(m)
+  for row in m.rows
+    for j in 0..<N
+      row[j] = rnd()
+    end
+  end
+  m
+end
+
+def hex(n, w) = n.to_s(16).upper.zfill(w)
+
+a = fill(Matrix(N))
+b = fill(Matrix(N))
+c = a * b
+print("row 3: " + c[3].map { |v| v.to_s }.join(" "))
+print("trace: {c.trace}")
+total = 0
+s1 = 0
+s2 = 0
+for row in c.rows
+  for v in row
+    u = v & 0xffffffff
+    total = (total + u) & 0xffffffff
+    s1 = (s1 + (u & 0xffff)) & 0xffff
+    s2 = (s2 + s1) & 0xffff
+    s1 = (s1 + (u >> 16)) & 0xffff
+    s2 = (s2 + s1) & 0xffff
+  end
+end
+print("checksum: {hex(total, 8)} {hex(s1, 4)} {hex(s2, 4)}")

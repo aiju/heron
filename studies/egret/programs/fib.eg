@@ -1,0 +1,21 @@
+# fib: recursive fib(18), counting the calls, then fib(0) to fib(46)
+# iteratively (fib(46) doesn't fit a SmallInt: it becomes a big integer).
+
+Calls = 0
+
+def fib(n)
+  Calls += 1
+  if n < 2 then return n end
+  fib(n - 1) + fib(n - 2)
+end
+
+f = fib(18)
+print("recursive fib(18) = {f} ({Calls} calls)")
+a = 0
+b = 1
+for n in 0..46
+  print("fib({n}) = {a}")
+  t = a + b
+  a = b
+  b = t
+end

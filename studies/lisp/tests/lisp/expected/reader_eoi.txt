@@ -1,0 +1,2 @@
+before
+error: unexpected end of input

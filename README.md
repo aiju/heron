@@ -17,8 +17,15 @@ So far there has been:
   datapath and pipelined microcode, running every program at 3 MHz in the
   chip-level simulator.
 - **A C compiler** for drafts 1a and 1b, with object files and a linker.
+- **Graphics on draft 1:** a graphics library for screens of 1 to 8 bits
+  per pixel, bitmap and TrueType fonts and the graphics side of a window
+  manager, in C and assembly for 1a and 1b.
 - **The system bus:** a draft specification, with signal-integrity
-  simulations of the backplane.
+  simulations of the backplane on a simulator of our own.
+- **An operating system study:** what the hardware should give an
+  operating system, measured with a small message-passing kernel on 1b
+  with proposed system extensions, and what the operating system could
+  be.
 
 Draft 2 is next. Which of 1a and 1b it builds on is still open.
 
@@ -30,13 +37,17 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 |---|---|
 | [docs/](docs/README.md) | The current design: what has been decided, as reference |
 | [reports/](reports/README.md) | Numbered reports (what was done and found) and RFCs (proposals that need decisions) |
-| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, the bus signal integrity |
+| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, a Lisp, the bus signal integrity, graphics, an operating system |
 | [infra/](infra/README.md) | Reusable code: assembler and linker core, netlist language, static timing analysis, the chip-level simulator |
-| `heron/` | The `heron` command, and the glue that makes the folders importable as `heron.*` |
+| `heron/` | The `heron` command, the glue that makes the folders importable as `heron.*`, and `bindings/`, the crate that makes the Rust engines a Python module (`heron.native`) |
 | `tests/` | Tests of the repository itself |
 
 The current design's own `isa/`, `hw/`, `sw/` and `tools/` folders come
 with draft 2.
+
+The tools are Python, except the engines (the simulators, the assembler
+and the linker), which are Rust: crates in one Cargo workspace, with
+`Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
 **Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
 (draft 1a against 1b, and the hardware options), then the
@@ -45,10 +56,14 @@ with draft 2.
 
 ## Running things
 
-Needs Python 3.10+ and Go 1.24+ (for the chip-level simulator). No other
-dependencies; the signal-integrity tools also need numpy and
-[ngspice](https://ngspice.sourceforge.io/), and are meant for a local
-machine ([studies/bus_si](studies/bus_si/README.md)).
+Needs Python 3.10+ and Rust (stable, from [rustup](https://rustup.rs)). No
+other dependencies; the signal-integrity tools also need numpy, and
+[ngspice](https://ngspice.sourceforge.io/) only to cross-check their own
+engine ([studies/bus_si](studies/bus_si/README.md)).
+
+The Rust engines' Python module is built into `build/` the first time it's
+used, and again whenever the Rust sources change; `heron build` builds it
+explicitly.
 
 Run `python3 -m heron` from the repository root, or `pip install -e .`
 once (in a virtual environment) to get a `heron` command that works from
@@ -59,13 +74,16 @@ heron list                                # the studies, with their status
 heron test                                # the repository's own tests
 heron test v1_isa c_compiler              # a study's unit tests (--active: every active study's)
 heron reports                             # rewrite reports/README.md from the front matter
+heron reports reserve rfc slug "Title"    # reserve the next number: push a stub to main
+heron build                               # build the Rust engines' Python module
+cargo test                                # the Rust crates' tests
 
 heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # draft 1b: cycles for six configurations, mix, profile
 heron v1_isa --isa v1a test               # every 1a program against its expected output
 heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a: 1a) and run it
+heron lisp run -c studies/lisp/programs/tak.lisp --stats      # compile Lisp on the 1b simulator and run it
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # the 1b hardware at chip level
 heron v1b_hw hw sta                       # static timing analysis of the 1b netlist
-(cd infra/hwsim && go test ./...)         # the chip-level simulator's tests
 ```
 
 Each study's README lists its commands, and `heron <study> --help` shows

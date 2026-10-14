@@ -71,10 +71,22 @@ def trace_buses():
     }
 
 
+class Reference:
+    """What the hardware is checked against: the instruction-level
+    simulator's run (`isa_run`: its console output and interrupts) and the
+    RTL model's (`rtl`: registers, memory, and the cycle of every fetch)."""
+
+    def __init__(self, m, r):
+        self.isa_run, self.rtl = m, r
+        self.dev, self.irqs = m.dev, m.irqs
+        self.cycles = r.cycles
+        self.fetch_log = [(c, a & 0xFFFFF, w) for c, a, w in r.fetch_log]
+
+
 def run_isa(path, inp=b""):
     """Assemble and run on the instruction-level simulator and on the RTL
     model, which is the reference for cycle counts and fetches: returns
-    (image, machine) where machine.rtl is the RTL run."""
+    (image, Reference)."""
     from .rtl import RTL
     img = asmcore.assemble_file(v1b, path)
     m = Machine32(v1b, img, inp=inp)
@@ -82,10 +94,7 @@ def run_isa(path, inp=b""):
     r = RTL(img, inp=inp)
     r.fetch_log = []
     r.run(max_cycles=200_000_000)
-    m.rtl = r
-    m.cycles = r.cycles
-    m.fetch_log = [(c, a & 0xFFFFF, w) for c, a, w in r.fetch_log]
-    return img, m
+    return img, Reference(m, r)
 
 
 def compare(m, hw, check_cycles=True):

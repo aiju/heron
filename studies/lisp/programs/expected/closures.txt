@@ -1,0 +1,14 @@
+sum of squares of multiples of 3 below 200: 882189
+fold-right cons copies: t
+fold-left builds in reverse: (9 8 7 6 5 4 3 2 1 0)
+composed (2 * (x * 2 + 10)) over 0..9: (20 24 28 32 36 40 44 48 52 56)
+composed over 200, 20 times: 83600
+curried adders applied to 100: (100 101 102 103 104 105 106 107 108 109)
+counts: (302 303 328 280 300 303 309 289 279 307)
+total: 3000
+after a reset: 0
+100 thunks from a do loop, summed: 328350
+from a named let: (0 1 2 3 4)
+account: (150 120 insufficient 120)
+memoized (fib 40): 102334155
+Church numerals 3+4, 3*4, (3*4)*(3+4): (7 12 84)

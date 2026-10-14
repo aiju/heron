@@ -16,7 +16,8 @@ these tools. A machine module has:
   UCODE_DIR     directory under build/ for its ROM images
   NETLIST_TAG   prefix for its netlist files in build/ ("" or "v1b-")
   RAM_BYTES     size of the RAM image handed to the simulator
-  CONFIG        extra settings for the Go simulator (see infra/hwsim/main.go)
+  CONFIG        the simulator's settings for this machine: the nets and chips
+                its run loop needs (see infra/hwsim/src/machine.rs)
   ucode         module with unpack() and _pos, to decode microcode in traces
   build()       the netlist (heron.infra.hw.netlist.Netlist)
   control_nets()  {control word bit: net name}
@@ -34,28 +35,15 @@ import argparse
 import glob
 import json
 import os
-import subprocess
 import sys
-import time
 
-from heron import BUILD
+from heron import BUILD, native
 from heron.infra.programs import metadata
 from . import chips
-
-HWSIM_SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hwsim")
-HWSIM = os.path.join(BUILD, "hwsim")
 
 
 def newest(paths):
     return max(os.path.getmtime(p) for p in paths)
-
-
-def ensure_hwsim():
-    srcs = glob.glob(os.path.join(HWSIM_SRC, "*.go"))
-    if not os.path.exists(HWSIM) or os.path.getmtime(HWSIM) < newest(srcs):
-        os.makedirs(BUILD, exist_ok=True)
-        subprocess.run(["go", "build", "-o", HWSIM, "."], cwd=HWSIM_SRC, check=True)
-    return HWSIM
 
 
 def infra_sources():
@@ -84,46 +72,35 @@ def ensure_netlist(machine, variant, corner):
     if not os.path.exists(path) or os.path.getmtime(path) < newest(machine.sources()):
         os.makedirs(BUILD, exist_ok=True)
         nl = machine.build()
-        with open(path, "w") as f:
+        tmp = f"{path}.{os.getpid()}"          # runs in parallel may build it at once
+        with open(tmp, "w") as f:
             json.dump(nl.export(variant=variant, corner=corner), f)
+        os.replace(tmp, path)
     return path
 
 
 def run_hw(machine, img, period_ns, variant=chips.DEFAULT_VARIANT, corner="max", seed=1, inp=b"",
-           max_cycles=10_000_000, trace=None, fetch_trace=200_000, tag="run", we=(0.5, 0.875),
-           zero_regs=True):
-    ensure_hwsim()
-    roms = ensure_ucode(machine)
-    netlist = ensure_netlist(machine, variant, corner)
-    work = os.path.join(BUILD, "runs")
-    os.makedirs(work, exist_ok=True)
-    stem = os.path.join(work, f"{tag}-{os.getpid()}-{time.time_ns()}")
-    with open(stem + ".ram", "wb") as f:
-        f.write(img.to_bytes(machine.RAM_BYTES))
+           max_cycles=10_000_000, trace=None, fetch_trace=200_000, we=(0.5, 0.875), zero_regs=True):
+    """Run a program image on the chip-level simulator. Returns its outcome
+    (infra/hwsim/src/machine.rs): cycles, registers, RAM, the console
+    output, fetches, timing violations, bus contention, and with
+    trace=(first, last) cycle the trace lines."""
+    roms = {}
+    for ref, path in ensure_ucode(machine).items():
+        with open(path, "rb") as f:
+            roms[ref] = f.read()
+    with open(ensure_netlist(machine, variant, corner)) as f:
+        netlist = json.load(f)
     cfg = {
-        "netlist": netlist, "roms": roms, "ram_image": stem + ".ram", "ram_dump": stem + ".dump",
         "period_ps": int(round(period_ns * 1000)), "seed": seed,
         "we_start": we[0], "we_end": we[1],
-        "max_cycles": max_cycles, "input": inp.decode("latin-1"), "fetch_trace": fetch_trace,
+        "max_cycles": max_cycles, "input": inp, "fetch_trace": fetch_trace,
         "zero_regs": zero_regs,
-        "out": stem + ".json",
     }
     cfg.update(machine.CONFIG)
     if trace:
-        cfg.update(trace_from=trace[0], trace_to=trace[1], trace_file=stem + ".trace",
-                   trace_buses=machine.trace_buses())
-    with open(stem + ".cfg", "w") as f:
-        json.dump(cfg, f)
-    subprocess.run([HWSIM, stem + ".cfg"], check=True)
-    with open(stem + ".json") as f:
-        res = json.load(f)
-    with open(stem + ".dump", "rb") as f:
-        res["ram"] = f.read()
-    res["output"] = bytes(res["output"])
-    res["trace_file"] = stem + ".trace" if trace else None
-    for ext in (".ram", ".cfg", ".json", ".dump"):
-        os.remove(stem + ext)
-    return res
+        cfg.update(trace_from=trace[0], trace_to=trace[1], trace_buses=machine.trace_buses())
+    return native.hwsim.run(netlist, cfg, roms, img.to_bytes(machine.RAM_BYTES))
 
 
 def summarize(hw):
@@ -140,10 +117,10 @@ def summarize(hw):
     return "\n".join(lines)
 
 
-def decode_trace(machine, path, out=None):
+def decode_trace(machine, lines, out=None):
     out = out or sys.stdout             # sys.stdout now, not when this module was imported
     mc = machine.ucode
-    for line in open(path):
+    for line in lines:
         parts = line.split()
         fields = dict(p.split("=") for p in parts[1:])
         u = mc.unpack(int(fields.pop("U"), 16))
@@ -178,7 +155,7 @@ def cmd_run(machine, args):
     else:
         print("  matches the ISA simulator" + (" (cycle-exact)" if not uses_irq else ""))
     if trace:
-        decode_trace(machine, hw["trace_file"])
+        decode_trace(machine, hw["trace"])
     return 1 if diffs or hw["violation_total"] else 0
 
 
