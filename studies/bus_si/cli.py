@@ -52,7 +52,7 @@ def main(argv=None):
     c.add_argument("-j", "--jobs", type=int)
     c.set_defaults(fn=cmd_check)
     s = sub.add_parser("sweep", help="run a preset sweep (resumes an interrupted one)")
-    s.add_argument("--preset", choices=list(sweep.PRESETS), default="quick")
+    s.add_argument("--preset", choices=sweep.all_presets(), default="quick")
     s.add_argument("--engine", choices=engine.ENGINES, default="native",
                    help="native (default) or ngspice, for cross-checks")
     s.add_argument("-j", "--jobs", type=int, help="parallel runs (default: all cores)")

@@ -157,9 +157,19 @@ class Model:
             return np.zeros_like(x)
         return np.interp(x, t[0], t[1])
 
-    def coefficients(self, edge, corner, dt=5e-12):
-        """(t, Ku, Kd) for a 'rising' or 'falling' edge at the die pad."""
-        key = (edge, corner)
+    def coefficients(self, edge, corner, dt=5e-12, overlap=True):
+        """(t, Ku, Kd) for a 'rising' or 'falling' edge at the die pad.
+
+        A fit from one waveform has to assume how the transistor that turns
+        off does so. With `overlap` (report 0013's models) it's Kd = 1 - Ku,
+        so both are half on mid-edge and a crowbar current runs from Vcc to
+        ground: 40-200 mA in these files, more than the load current. That
+        doesn't change the output, but it does change what the package's
+        power pins carry. Without it, the transistor that turns off does so
+        at once (break before make), and the one that turns on is fitted to
+        the same waveform: the same output, no crowbar current. The truth is
+        in between; ground bounce is run both ways."""
+        key = (edge, corner, overlap)
         if key in self._k:
             return self._k[key]
         c = CORNERS[corner]
@@ -180,7 +190,7 @@ class Model:
             rhs.append(b)
         start = (0.0, 1.0) if edge == "rising" else (1.0, 0.0)
         method = None
-        if len(wfs) >= 2:
+        if len(wfs) >= 2 and overlap:
             (a11, a12), (a21, a22) = rows[0], rows[1]
             det = a11 * a22 - a12 * a21
             scale = np.abs(a11 * a22) + np.abs(a12 * a21) + 1e-30
@@ -209,17 +219,26 @@ class Model:
             want = 0.0 if edge == "rising" else vcc
             j = min(range(len(wfs)), key=lambda i: abs(wfs[i]["V"][c] - want))
             (a1, a2), b = rows[j], rhs[j]
-            den = np.where(np.abs(a1 - a2) > 1e-6, a1 - a2, 1e-6)
-            ku = np.clip((b - a2) / den, -0.1, 1.2)
-            on = ku if edge == "rising" else 1 - ku
+            if overlap:
+                den = np.where(np.abs(a1 - a2) > 1e-6, a1 - a2, 1e-6)
+                ku = np.clip((b - a2) / den, -0.1, 1.2)
+                on = ku if edge == "rising" else 1 - ku
+            else:
+                # only the transistor turning on: b = K·a
+                a = a1 if edge == "rising" else a2
+                on = np.clip(b / np.where(np.abs(a) > 1e-9, a, 1e-9), -0.1, 1.2)
             v = np.interp(t, wfs[j]["t"], wfs[j]["v"][:, c])
             frac = np.abs(v - v[0]) / max(abs(v[-1] - v[0]), 1e-9)
             i90 = int(np.argmax(frac >= 0.9))
             ramp = np.clip((t - t[i90]) / 0.5e-9, 0, 1)
             on = np.where(t <= t[i90], on, on[i90] + (1 - on[i90]) * ramp)
-            ku = on if edge == "rising" else 1 - on
-            kd = 1 - ku
-            method = "one waveform"
+            if overlap:
+                ku = on if edge == "rising" else 1 - on
+                kd = 1 - ku
+                method = "one waveform"
+            else:
+                ku, kd = (on, np.zeros_like(on)) if edge == "rising" else (np.zeros_like(on), on)
+                method = "one waveform, no overlap"
         self.method = getattr(self, "method", {})
         self.method[key] = method
         res = (t, np.clip(ku, -0.3, 1.5), np.clip(kd, -0.3, 1.5))
@@ -290,7 +309,9 @@ def parse(path):
             order = np.argsort(a[:, 0])
             model.tables[section] = (a[order, 0], a[order, 1:4])
         elif section == "waveform":
-            wf["t"] = a[:, 0]
+            # tables start at t = 0; a few files carry a large offset
+            # (CDC329A: 110 ns). FCT's 10 ps is left alone.
+            wf["t"] = a[:, 0] - (a[0, 0] if a[0, 0] > 1e-9 else 0.0)
             wf["v"] = a[:, 1:4]
             model.waveforms.append(wf)
         rows = []
@@ -468,11 +489,23 @@ def _thin(x, y, maxpts):
     return sorted(set(keep))
 
 
-def buffer(name, family, corner, pad, vcc, gnd, ku=None, kd=None, model=None):
+def supply_scale(vnom, alpha, vt=1.0, points=24):
+    """A driver's strength against its own rail-to-rail voltage, relative
+    to its nominal supply: ((V − vt)/(vnom − vt))^alpha, 0 below vt. The
+    shape of a transistor's drive against its gate voltage; classic IBIS
+    has none, which is why it overstates ground bounce (IBIS 5 adds
+    [ISSO] tables for this). (x, y) points over 0 to 2·vnom."""
+    v = np.linspace(0.0, 2 * vnom, points)
+    s = np.clip((v - vt) / (vnom - vt), 0.0, None) ** alpha
+    return list(zip(v, s))
+
+
+def buffer(name, family, corner, pad, vcc, gnd, ku=None, kd=None, model=None, supply=None):
     """Netlist lines for one buffer at die node `pad`, with rails `vcc` and
     `gnd`. `ku`/`kd` name nodes carrying the switching coefficients (as
     voltages); None means three-state (a receiver). `model` picks another
-    of the part's models (its input model, say)."""
+    of the part's models (its input model, say). `supply` (supply_scale's
+    table) makes the driver's strength follow V(vcc, gnd)."""
     m, _ = load(family, model)
     out = [f"* {name}: {PARTS[family]['name']} {m.name} ({corner})"]
     out.append(f"C{name}c {pad} {gnd} {m.ccomp(corner):.4g}")
@@ -493,23 +526,27 @@ def buffer(name, family, corner, pad, vcc, gnd, ku=None, kd=None, model=None):
         else:
             arg, n1, n2 = f"V({vcc},{pad})", pad, vcc
         expr = _pwl(arg, v, i)
+        if coef is not None and supply is not None:
+            xs, ys = zip(*supply)
+            expr = f"{_pwl(f'V({vcc},{gnd})', xs, ys)}*{expr}"
         if coef is not None:
             expr = f"V({coef})*{expr}"
         out.append(f"B{name}{kind[:3]}{kind[-2:]} {n1} {n2} I = {expr}")
     return out
 
 
-def coefficient_sources(name, family, corner, edges, t0=0.0, initial=0, maxpts=80):
+def coefficient_sources(name, family, corner, edges, t0=0.0, initial=0, maxpts=80, overlap=True):
     """Voltage sources {name}_ku / {name}_kd carrying Ku and Kd for a driver
     that starts at logic level `initial` and switches at each time in
-    `edges` (the start of the IBIS waveform)."""
+    `edges` (the start of the IBIS waveform). `overlap`: see
+    Model.coefficients."""
     m, _ = load(family)
     level = initial
     ku_pts = [(0.0, float(level)), ]
     kd_pts = [(0.0, float(1 - level))]
     for te in edges:
         edge = "rising" if level == 0 else "falling"
-        t, ku, kd = m.coefficients(edge, corner)
+        t, ku, kd = m.coefficients(edge, corner, overlap=overlap)
         keep = sorted(set(_thin(t, ku, maxpts)) | set(_thin(t, kd, maxpts)))
         for i in keep:
             ku_pts.append((te + t[i], ku[i]))

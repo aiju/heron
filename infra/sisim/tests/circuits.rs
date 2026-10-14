@@ -229,6 +229,7 @@ fn a_linear_table_is_a_resistor() {
             y: 0,
             coef: Some(vec![(0.0, 0.0), (1e-9, 0.0), (1.001e-9, 1.0)]),
             table: vec![(-1.0, -0.01), (1.0, 0.01)],
+            supply: None,
         }],
         ..Default::default()
     };
@@ -246,4 +247,46 @@ fn rejects_a_line_shorter_than_the_step() {
         ..Default::default()
     };
     assert!(run(&net, &opts(5e-12, 1e-9, vec![]), &mut || false).is_err());
+}
+
+#[test]
+fn a_supply_factor_scales_a_table() {
+    // a 100 ohm table resistor whose current is scaled by s(V(3)) = V(3)/2:
+    // with node 3 at 4 V it is 50 ohm, against 100 ohm in series from 1 V
+    for (vs, want) in [(2.0, 0.5), (4.0, 1.0 / 3.0)] {
+        let net = Netlist {
+            nodes: 4,
+            fixed: vec![
+                Fixed {
+                    node: 1,
+                    wave: vec![(0.0, 1.0)],
+                },
+                Fixed {
+                    node: 3,
+                    wave: vec![(0.0, vs)],
+                },
+            ],
+            resistors: vec![r(1, 2, 100.0)],
+            tables: vec![Table {
+                a: 2,
+                b: 0,
+                x: 2,
+                y: 0,
+                coef: None,
+                table: vec![(-1.0, -0.01), (1.0, 0.01)],
+                supply: Some(sisim::Supply {
+                    p: 3,
+                    q: 0,
+                    table: vec![(0.0, 0.0), (4.0, 2.0)],
+                }),
+            }],
+            ..Default::default()
+        };
+        let out = run(&net, &opts(1e-12, 1e-10, vec![(2, 0)]), &mut || false).unwrap();
+        assert!(
+            (out.data.last().unwrap() - want).abs() < 1e-6,
+            "{vs}: {:?}",
+            out.data.last()
+        );
+    }
 }

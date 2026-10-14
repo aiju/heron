@@ -27,8 +27,12 @@ const VT: f64 = 0.025865;
 /// Newton iterations allowed for the DC operating point.
 const DC_ITERATIONS: usize = 500;
 
-/// Nonlinear elements, by index, with the nodes they touch: [a, b, x, y].
-type Touches = Vec<(usize, [usize; 4])>;
+/// A nonlinear element, by index, with the nodes it touches: [a, b, x, y]
+/// (for a supply factor, [a, b, p, q]).
+type Touch = (usize, [usize; 4]);
+type Touches = Vec<Touch>;
+/// Tables, their supply factors, and diodes.
+type Nonlinear<'a> = (&'a [Touch], &'a [Touch], &'a [Touch]);
 
 /// Where one entry of an element's stamp goes in a piece.
 #[derive(Debug, Clone, Copy)]
@@ -57,6 +61,8 @@ struct Piece {
     base: Vec<f64>,
     known: Vec<(usize, usize, f64)>,
     tables: Vec<NonlinearRef>,
+    /// the supply factors of tables that have one: rows a, b × columns p, q
+    supplies: Vec<NonlinearRef>,
     diodes: Vec<NonlinearRef>,
     factored: bool,
     rhs0: Vec<f64>,
@@ -75,8 +81,7 @@ impl Piece {
         id: usize,
         nodes: Vec<usize>,
         stamps: &[(usize, usize, f64)],
-        tables: &[(usize, [usize; 4])],
-        diodes: &[(usize, [usize; 4])],
+        (tables, supplies, diodes): Nonlinear,
         ctx: &Ctx,
     ) -> Piece {
         let local = |n: usize| match ctx.loc[n] {
@@ -96,8 +101,13 @@ impl Piece {
                 .collect()
         };
         let my_tables = mine(tables);
+        let my_supplies = mine(supplies);
         let my_diodes = mine(diodes);
-        for (_, n) in my_tables.iter().chain(my_diodes.iter()) {
+        for (_, n) in my_tables
+            .iter()
+            .chain(my_supplies.iter())
+            .chain(my_diodes.iter())
+        {
             for &r in &n[0..2] {
                 for &c in &n[2..4] {
                     if let (Some(i), Some(j)) = (local(r), local(c)) {
@@ -141,6 +151,7 @@ impl Piece {
                 .collect()
         };
         let tables = refs(&my_tables, &lu);
+        let supplies = refs(&my_supplies, &lu);
         let diodes = refs(&my_diodes, &lu);
         let n = nodes.len();
         Piece {
@@ -149,6 +160,7 @@ impl Piece {
             base,
             known,
             tables,
+            supplies,
             diodes,
             factored: false,
             rhs0: vec![0.0; n],
@@ -157,7 +169,7 @@ impl Piece {
     }
 
     fn linear(&self) -> bool {
-        self.tables.is_empty() && self.diodes.is_empty()
+        self.tables.is_empty() && self.supplies.is_empty() && self.diodes.is_empty()
     }
 
     /// The 2-norm of the KCL residual, A·v − rhs, of the assembled (not yet
@@ -334,7 +346,8 @@ struct Sim<'a> {
     opt: &'a Options,
     known: Vec<bool>,
     fixed: Vec<(usize, Pwl)>,
-    tables: Vec<(Pwl, Option<Pwl>)>,
+    /// each table, its coefficient and its supply factor
+    tables: Vec<(Pwl, Option<Pwl>, Option<Pwl>)>,
     groups: Vec<InductorGroup>,
     lines: Vec<LineState>,
     v: Vec<f64>,
@@ -386,7 +399,10 @@ impl<'a> Sim<'a> {
                     && k.l1 != k.l2
                     && k.k.abs() < 1.0
             })
-            && net.tables.iter().all(|t| nodes(&[t.a, t.b, t.x, t.y]))
+            && net.tables.iter().all(|t| {
+                nodes(&[t.a, t.b, t.x, t.y])
+                    && t.supply.as_ref().is_none_or(|sp| nodes(&[sp.p, sp.q]))
+            })
             && net
                 .diodes
                 .iter()
@@ -448,7 +464,14 @@ impl<'a> Sim<'a> {
                 }
                 None => None,
             };
-            tables.push((tab, coef));
+            let supply = match &t.supply {
+                Some(sp) => Some(
+                    Pwl::new(&sp.table)
+                        .map_err(|e| Error(format!("table {i} supply factor: {e}")))?,
+                ),
+                None => None,
+            };
+            tables.push((tab, coef, supply));
         }
         // coupled inductors: groups, and (dt/1.5)·L⁻¹ for each
         let ni = net.inductors.len();
@@ -609,14 +632,22 @@ impl<'a> Sim<'a> {
         s
     }
 
-    /// The nodes each nonlinear element touches: [a, b, x, y].
-    fn nonlinear_nodes(&self) -> (Touches, Touches) {
+    /// The nodes each nonlinear element touches: tables [a, b, x, y],
+    /// their supply factors [a, b, p, q], diodes [a, b, a, b].
+    fn nonlinear_nodes(&self) -> (Touches, Touches, Touches) {
         let t = self
             .net
             .tables
             .iter()
             .enumerate()
             .map(|(i, t)| (i, [t.a, t.b, t.x, t.y]))
+            .collect();
+        let s = self
+            .net
+            .tables
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| t.supply.as_ref().map(|sp| (i, [t.a, t.b, sp.p, sp.q])))
             .collect();
         let d = self
             .net
@@ -625,7 +656,7 @@ impl<'a> Sim<'a> {
             .enumerate()
             .map(|(i, d)| (i, [d.a, d.b, d.a, d.b]))
             .collect();
-        (t, d)
+        (t, s, d)
     }
 
     /// Split the unknown nodes into pieces: one piece (DC), or one per
@@ -636,7 +667,7 @@ impl<'a> Sim<'a> {
         stamps: &[(usize, usize, f64)],
     ) -> (Vec<Piece>, Vec<Option<(usize, usize)>>) {
         let n = self.net.nodes;
-        let (tables, diodes) = self.nonlinear_nodes();
+        let (tables, supplies, diodes) = self.nonlinear_nodes();
         let mut sets = Sets((0..n).collect());
         if mode == Mode::Tran {
             for &(r, c, _) in stamps {
@@ -644,7 +675,7 @@ impl<'a> Sim<'a> {
                     sets.join(r, c);
                 }
             }
-            for (_, nn) in tables.iter().chain(diodes.iter()) {
+            for (_, nn) in tables.iter().chain(supplies.iter()).chain(diodes.iter()) {
                 let u: Vec<usize> = nn.iter().copied().filter(|&x| !self.known[x]).collect();
                 for w in u.windows(2) {
                     sets.join(w[0], w[1]);
@@ -670,7 +701,7 @@ impl<'a> Sim<'a> {
         let pieces = members
             .into_iter()
             .enumerate()
-            .map(|(id, nodes)| Piece::new(id, nodes, stamps, &tables, &diodes, &ctx))
+            .map(|(id, nodes)| Piece::new(id, nodes, stamps, (&tables, &supplies, &diodes), &ctx))
             .collect();
         (pieces, loc)
     }
@@ -857,14 +888,39 @@ impl<'a> Sim<'a> {
                 rhs[i] += j;
             }
         };
+        // with a supply factor, I = c·s(vs)·f(vx): the derivative in vx
+        // goes in the table's own stamp, the one in vs in its supply stamp,
+        // and the rest of the linearisation in the table's current
+        let mut supply_g = 0;
         for r in &piece.tables {
             let el = &self.net.tables[r.idx];
-            let (tab, coef) = &self.tables[r.idx];
+            let (tab, coef, supply) = &self.tables[r.idx];
             let c = coef.as_ref().map_or(1.0, |p| p.at(t));
             let vx = v[el.x] - v[el.y];
             let (i, s) = tab.eval(vx);
-            let g = c * s;
-            stamp(&mut piece.lu.vals, &mut piece.rhs, r, g, c * i - g * vx);
+            let (sv, sd, vs) = match (supply, &el.supply) {
+                (Some(f), Some(sp)) => {
+                    let vs = v[sp.p] - v[sp.q];
+                    let (a, b) = f.eval(vs);
+                    (a, b, vs)
+                }
+                _ => (1.0, 0.0, 0.0),
+            };
+            let g = c * sv * s;
+            let gs = c * sd * i;
+            stamp(
+                &mut piece.lu.vals,
+                &mut piece.rhs,
+                r,
+                g,
+                c * sv * i - g * vx - gs * vs,
+            );
+            if supply.is_some() {
+                let sr = &piece.supplies[supply_g];
+                debug_assert_eq!(sr.idx, r.idx);
+                stamp(&mut piece.lu.vals, &mut piece.rhs, sr, gs, 0.0);
+                supply_g += 1;
+            }
         }
         for r in &piece.diodes {
             let d = &self.net.diodes[r.idx];

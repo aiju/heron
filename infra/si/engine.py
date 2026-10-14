@@ -12,8 +12,8 @@ returns the same thing, and runs the netlist on one of:
 Set the engine with `use(name)` or the HERON_SI_ENGINE environment
 variable. The native engine reads this subset of SPICE: R, C, L, K, T
 (lossless), D (with a .model), V to ground (a value or PWL), and B current
-sources of the form `I = [V(coef)*]pwl(V(a[,b]), x, y, ...)`, which is what
-ibis.buffer writes. Anything else is an error, not a guess.
+sources of the form `I = [V(coef)*][pwl(V(p[,q]), ...)*]pwl(V(a[,b]), x,
+y, ...)`, which is what ibis.buffer writes. Anything else is an error, not a guess.
 """
 
 import os
@@ -104,9 +104,10 @@ def value(s):
 
 
 _PWL_SRC = re.compile(r"^pwl\s*\((.*)\)\s*$", re.I)
-_BEXPR = re.compile(
-    r"^I\s*=\s*(?:V\(\s*([\w.]+)\s*\)\s*\*\s*)?pwl\(\s*V\(\s*([\w.]+)\s*(?:,\s*([\w.]+)\s*)?\)\s*,(.*)\)\s*$",
-    re.I)
+# I = [V(coef)*][pwl(V(p,q), ...)*]pwl(V(x[,y]), ...): a coefficient, a
+# supply factor and the table
+_PWL = r"pwl\(\s*V\(\s*([\w.]+)\s*(?:,\s*([\w.]+)\s*)?\)\s*,([^()]*)\)"
+_BEXPR = re.compile(r"^I\s*=\s*(?:V\(\s*([\w.]+)\s*\)\s*\*\s*)?(?:" + _PWL + r"\s*\*\s*)?" + _PWL + r"\s*$", re.I)
 _PROBE = re.compile(r"^v\(\s*([\w.]+)\s*(?:,\s*([\w.]+)\s*)?\)$", re.I)
 
 
@@ -244,9 +245,16 @@ class Netlist:
         m = _BEXPR.match(tok[3].strip())
         if not m:
             raise ValueError(f"the native engine can't read this B source: {ln[:100]}")
-        coef_node, x, y, pts = m.groups()
-        nums = [value(v) for v in pts.replace(",", " ").split()]
-        table = _increasing([(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)], 1e-9)
+        coef_node, sp, sq, spts, x, y, pts = m.groups()
+
+        def points(text):
+            nums = [value(v) for v in text.replace(",", " ").split()]
+            return _increasing([(nums[i], nums[i + 1]) for i in range(0, len(nums) - 1, 2)], 1e-9)
+
+        table = points(pts)
+        supply = None
+        if sp:
+            supply = {"p": self.node(sp), "q": self.node(sq or "0"), "table": points(spts)}
         coef = None
         if coef_node:
             n = self.nodes.get(coef_node.lower())
@@ -254,7 +262,8 @@ class Netlist:
                 raise ValueError(f"a B source's coefficient must be a node held by a voltage source: {ln[:100]}")
             coef = self.fixed[n]
         self.tables.append({"a": self.node(tok[1]), "b": self.node(tok[2]),
-                            "x": self.node(x), "y": self.node(y or "0"), "coef": coef, "table": table})
+                            "x": self.node(x), "y": self.node(y or "0"), "coef": coef, "table": table,
+                            "supply": supply})
 
     def _diode(self, tok):
         kind, p = self.models[tok[3].lower()]

@@ -142,7 +142,7 @@ def ibis_check(family, corner):
         rows.append({"edge": w["edge"], "fixture": w["V"][c], "dv": dv, "dt50": dt})
         worst_v = max(worst_v, dv)
         worst_t = max(worst_t, abs(dt))
-    return {"method": {e: m.method.get((e, corner)) for e in ("rising", "falling")},
+    return {"method": {e: m.method.get((e, corner, True)) for e in ("rising", "falling")},
             "dv": worst_v, "dt50": worst_t, "rows": rows}
 
 
@@ -196,11 +196,23 @@ def timeout_for(name):
     return 120 if name == "native" else 300
 
 
+def all_presets():
+    """Every preset: report 0013's, then report 0021's."""
+    from . import revised
+    return list(PRESETS) + list(revised.PRESETS)
+
+
 def run(preset, jobs_n=None, dry_run=False, retry_errors=False, limit=None, engine_name=None,
         timeout=None, budget=None):
+    from . import revised
     engine_name = engine_name or engine.current()
     engine.use(engine_name)
-    todo = jobs(preset)
+    if preset in PRESETS:
+        todo, fn, cost = jobs(preset), run_job, _cost
+    else:
+        todo, fn, cost = revised.jobs(preset), revised.run_job, revised.cost
+        if engine_name != "native":
+            raise SystemExit(f"preset {preset} is for the native engine")
     kinds = {}
     for j in todo:
         kinds[j[0]] = kinds.get(j[0], 0) + 1
@@ -223,8 +235,8 @@ def run(preset, jobs_n=None, dry_run=False, retry_errors=False, limit=None, engi
         done = runner.load(log, retry_errors)
         sel = [j for j in todo if runner.key(j) not in done][:limit]
     recs, n_err, wall, complete = runner.run(
-        sel, run_job, log, workers=jobs_n, timeout=timeout or timeout_for(engine_name),
-        budget=budget, retry_errors=retry_errors, setup=_setup, cost=_cost)
+        sel, fn, log, workers=jobs_n, timeout=timeout or timeout_for(engine_name),
+        budget=budget, retry_errors=retry_errors, setup=_setup, cost=cost)
     done = runner.load(log)
     recs = [done[runner.key(j)] for j in todo if runner.key(j) in done]
     cpu = sum(r["seconds"] for r in recs)

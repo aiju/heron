@@ -106,7 +106,8 @@ pub struct Line {
     pub delay: Vec<f64>,
 }
 
-/// A behavioural current from `a` to `b`: coef(t) · table(V(x) − V(y)).
+/// A behavioural current from `a` to `b`: coef(t) · table(V(x) − V(y)),
+/// times `supply`'s factor if there is one.
 /// The table is piecewise linear, extended along its end segments; the
 /// coefficient is piecewise linear in time (1 if absent). An IBIS buffer
 /// is four of these and a capacitor.
@@ -118,6 +119,19 @@ pub struct Table {
     pub y: usize,
     #[serde(default)]
     pub coef: Option<Vec<(f64, f64)>>,
+    pub table: Vec<(f64, f64)>,
+    /// A factor on the current from a voltage elsewhere: for a driver,
+    /// how its strength follows its own rails (what IBIS's [ISSO] tables
+    /// describe), so that ground bounce limits itself.
+    #[serde(default)]
+    pub supply: Option<Supply>,
+}
+
+/// The factor supply(V(p) − V(q)) on a [`Table`]'s current.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Supply {
+    pub p: usize,
+    pub q: usize,
     pub table: Vec<(f64, f64)>,
 }
 
