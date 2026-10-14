@@ -2,11 +2,12 @@
 number: 13
 type: report
 title: Signal integrity of the backplane bus, quick and full sweeps
-status: current
+status: obsolete
 date: 2026-10-12
 context:
   studies: [bus_si]
   commit: e494b0c
+superseded-by: 22
 ---
 
 # Report 0013: Signal integrity of the backplane bus, quick and full sweeps
