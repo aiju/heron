@@ -210,6 +210,93 @@ to make `r0` a 15th general register.
   Only worth it if a 1b-based draft 2 wants the register or the encoding
   space for something else.
 
+### 2.8 Which `MOV`s set the flags
+
+**measured**, open. Stores could be written as `MOV` too: `MOV [r2], r1`
+for `ST r1, [r2]`, and `MOV -[sp], r1` for a push. Loads, stores, register
+copies and constants would then share one mnemonic, and its flag rule has to
+read well for all of them. In draft 1, loads, `MOV`, `MVI` and 1b's `POP`
+set N and Z (C and V unchanged); stores don't.
+
+- **Whose N and Z get read.** These are traces of every program in both
+  encodings. Each cell says how often a move's N and Z were read before
+  something overwrote them:
+
+  | Move | Hand-written, 1a / 1b | Compiled C, 1a / 1b |
+  |---|---|---|
+  | Constant (`MVI`, `MOV r, #c`) | 0 of 9.4k / 0 of 9.7k | 0 of 22k / 0 of 32k |
+  | Register copy | 21 of 103k / 21 of 86k | 0 of 137k / 0 of 123k |
+  | 1b `POP` (`MOV r, [sp]+`) | – / 0 of 33k | – |
+  | Load | 13.8k of 506k / 13.8k of 263k | 5.7k of 190k / 9.4k of 72k |
+
+  - The 21 are one place in lines: `MOV r8, r3; BEQ`.
+  - Every read is `EQ`, `NE`, `MI` or `PL`. Nothing branches on a signed
+    condition after a move.
+  - The loads whose flags are read are:
+    - string loops (`MOV r2, byte [r1]+; BNE`);
+    - the console's end-of-input test (`BMI`);
+    - lookups that test for an empty table entry or a null link.
+- **Four possible rules for a unified `MOV`:**
+  - **Never sets the flags** (x86, Z80). Loads need a `TST` wherever their
+    flags are read:
+    - hand-written code, estimated as one `TST` per read: +2.7% / +3.1%
+      (1a / 1b) on D16-overlap and +1.6% / +1.8% on D32-overlap, geometric
+      means, up to +13% in strings;
+    - compiled C, measured with the compiler keeping its `CMP r, #0` after
+      moves and loads: +0.4–0.7% in the programs' own code, up to +7.5% in
+      strings. Code grows by 28 bytes across all 15 programs, plus up to 26
+      bytes of library.
+  - **Sets N and Z when the destination is a register** (draft 1's rule,
+    and the 6502's). No measured cost:
+    - A constant can't be loaded between a compare and its branch.
+    - It can nearly always be loaded before the compare instead. In
+      `line`, `MOV r5, #1` can go above the `SUB` that sets the flags. That
+      saves the `BRA` that
+      [report 0003](0003-report-draft-1-programming-notes.md) put down to
+      this rule.
+  - **Sets N and Z when the source is memory** (loads only). No measured
+    cost. With copies and constants not setting the flags, the compiled C
+    doesn't change at all. Hand-written code loses only the 21 reads above.
+  - **Always sets N and Z, stores included** (PDP-11, VAX, 68000):
+    - **Software:** one idiom has to change. `lib/print.s` pushes a digit
+      between the `DIVU` and the branch on its quotient; pushing with
+      `SAVE r3-r3` would leave the flags alone. Compiled C never keeps the
+      flags live across a store.
+    - **1b hardware:** N and Z come from the B bus, and flags can't change
+      in a checked memory cycle, or traps would stop being precise. So a
+      store can only set them in its last cycle. A plain store's B bus is
+      free then, but a push or an `[r]+` store needs it to write back the
+      address register.
+    - **The cost:** one more cycle for those stores is +0.9% (from report
+      0012's cycle counts), up to +2% in vm and sort. A second N/Z source
+      instead would be about 5 chips.
+- **Whichever rule is chosen:**
+  - `RESTORE r-r` already pops without touching the flags, in 1b too.
+  - bst's insert walk relies on moves leaving C alone
+    (`MOV r3, r4; BCC`). All four rules keep that; a 68000-style move,
+    which clears C, would not.
+  - Loads could also clear V, as on the PDP-11 and VAX. A signed branch
+    after a load would then compare with zero instead of reading a stale
+    V. No measured program needs it: it would only save 62 executions of
+    a `CMP r, #0` in compiled C. It would remove the same trap as the
+    `INC`/`DEC`/`TST` wish in
+    [section 14](#14-wishes-from-the-program-writers), and nothing branches
+    on V after a move.
+- **The syntax itself:**
+  - In 1b it's an assembler and disassembler change only.
+  - 1a's loads and stores would take 1b's size keywords, plus one more for
+    sign-extending loads (`sbyte`, say).
+  - `MOV [x], #c` would be the natural thing to write, and neither
+    encoding has it. With `r0 = 0`, `MOV [x], #0` can assemble to
+    `ST r0, [x]` (2.7).
+- **The question:** is one rule for loads and stores worth its price?
+  - "Never" costs about 2–3% in hand-written string code.
+  - "Always" costs about 1% in the 1b hardware.
+  - Without one rule, draft 1's rule reads as "a `MOV` into a register sets
+    N and Z".
+
+Measured at `b6ffcfd` with scripts that aren't committed.
+
 ## 3. Floating point
 
 **open**, and nothing needed yet. These decisions touch the base ISA,
@@ -264,9 +351,9 @@ From [report 0003](0003-report-draft-1-programming-notes.md), not covered above:
 | `[label + reg]` for labels beyond ±32 KB | both | 1b has no 32-bit displacement form |
 | One-parcel `[r + small offset]` | 1b | Struct fields cost an extension parcel |
 | Immediate `TST`/`BIC`/`MUL`/`DIV` | 1b | Constants needed registers |
-| `POP` that leaves the flags alone | 1b | `MOV [sp]+` sets N and Z |
+| `POP` that leaves the flags alone | 1b | `MOV [sp]+` sets N and Z; `RESTORE r-r` doesn't (2.8) |
 | Longer reach for the short byte offsets | 1a | 0–15 is too short for a 34-byte Life row |
-| `MOV`/`MVI` that don't set flags, or an explicit flag-setting bit (ARM's S bit) | both | A constant can't be loaded between a compare and its branch |
+| `MOV`/`MVI` that don't set flags, or an explicit flag-setting bit (ARM's S bit) | both | A constant can't be loaded between a compare and its branch; measured in 2.8 |
 | V updated (or defined) by `INC`/`DEC`/`TST` | both | Signed branches after them test a stale V |
 | Assembler macros, `.rept` | tools | sha256's rounds |
 | Library constants not polluting the global namespace (`CONSOLE`, `PR_OUT`) | library | Programs couldn't reuse the names |
