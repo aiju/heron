@@ -80,12 +80,13 @@ The engines are Rust, everything else is Python
 
 Change the generator and rerun it rather than editing the output by hand:
 
-- the `performance.md` in reports 0001, 0004, 0011, 0012 and 0018:
+- the `performance.md` in reports 0001, 0004, 0011, 0012, 0018 and 0019:
   - `heron v0_hw report`
   - `heron v1_isa report`
   - `heron c_compiler bench --write`
   - `heron v1b_hw report`
   - `heron lisp report --write`
+  - `heron graphics bench --write` (also the screenshots next to it)
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and
@@ -93,6 +94,10 @@ Change the generator and rerun it rather than editing the output by hand:
   `python3 studies/v1_isa/programs/reference.py`;
 - `studies/c_compiler/tests/cc/expected/`:
   `python3 studies/c_compiler/tests/cc/gen_expected.py` (needs gcc);
+- `studies/graphics/expected/`: `heron graphics expected` (needs gcc);
+- `studies/graphics/fonts/sans.ttf`, `sans12.txt` and `mono12.txt`:
+  `python3 studies/graphics/fonts/make_fonts.py` (needs the DejaVu fonts
+  and Pillow);
 - `infra/hw/timing.json`: `python3 -m heron.infra.hw.build_timing`, from
   `infra/hw/datasheets/`;
 - `studies/v0_hw/baseline.json`: `baseline.write()` in that study (it's
@@ -106,7 +111,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v0_hw`: a study's unit tests. Run
+- `heron test v1_isa c_compiler v1b_hw v0_hw graphics`: a study's unit tests. Run
   the ones for the studies you touched, or `--active` for every active one.
 - `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
   against their expected output.
@@ -114,6 +119,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
   tests, interpreted and compiled (`-c --features tagged`: on v1bx).
+- `heron graphics test` and `heron graphics selftest`: the graphics
+  scenes against the host reference, and the kernels against pixel
+  references.
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.
