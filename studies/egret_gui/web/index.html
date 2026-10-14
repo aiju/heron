@@ -54,9 +54,8 @@
     display: grid; place-items: center;
   }
   canvas#screen {
-    /* as big as fits: the width, and the window's height less the panel */
-    display: block; width: 100%; max-width: min(1280px, calc((100vh - 230px) * 4 / 3));
-    min-width: min(100%, 320px); aspect-ratio: 4 / 3; height: auto;
+    /* app.js sizes it to a whole number of device pixels per machine pixel */
+    display: block; width: 100%; max-width: 100%; aspect-ratio: 4 / 3; height: auto;
     background: #000; image-rendering: pixelated; cursor: default; outline: none;
     border-radius: 2px;
   }

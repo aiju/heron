@@ -131,7 +131,8 @@
     if (!p) return;
     const w = wasm.width(), h = wasm.height();
     const px = new Uint8ClampedArray(wasm.memory.buffer, p, w * h * 4);
-    ctx.putImageData(new ImageData(px, w, h), 0, 0);
+    shownCtx.putImageData(new ImageData(px, w, h), 0, 0);
+    blit();
   }
 
   function output() {
@@ -158,6 +159,46 @@
     stats = { t: now, cycles: c, idle };
     setTime();
   }
+
+  // ---- the screen's size: as big as fits (the width, and the window's
+  // height less the panel). Scaled by a fraction with nearest-neighbour,
+  // some machine pixels would come out two device pixels wide and some
+  // three, and the 12-pixel fonts would look ragged. So the screen is
+  // drawn into the canvas at a whole number of pixels to a machine pixel
+  // (nearest-neighbour, all the same size), and the browser scales that
+  // down smoothly to what fits: only the pixels' edges soften. At a whole
+  // number of device pixels it's exact.
+
+  const shown = document.createElement("canvas");   // the machine's screen, 1:1
+  shown.width = 640;
+  shown.height = 480;
+  const shownCtx = shown.getContext("2d");
+
+  function fit() {
+    const dpr = window.devicePixelRatio || 1;
+    const box = canvas.parentElement;
+    const cs = getComputedStyle(box);
+    const w = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const h = Math.max(240, window.innerHeight - 230);
+    let s = Math.min(w * dpr / 640, h * dpr / 480);   // device pixels to a machine pixel
+    if (Math.abs(s - Math.round(s)) < 0.02) s = Math.round(s);
+    const k = Math.max(1, Math.min(4, Math.ceil(s)));
+    if (canvas.width !== 640 * k) {
+      canvas.width = 640 * k;
+      canvas.height = 480 * k;
+    }
+    canvas.style.width = `${640 * s / dpr}px`;
+    canvas.style.imageRendering = s === k ? "pixelated" : "auto";
+    blit();
+  }
+
+  function blit() {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(shown, 0, 0, canvas.width, canvas.height);
+  }
+
+  fit();
+  window.addEventListener("resize", fit);
 
   // ---- input
 
