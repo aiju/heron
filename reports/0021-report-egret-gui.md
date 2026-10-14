@@ -14,7 +14,7 @@ context:
 A demo more than a measurement: a small Smalltalk-style desktop for
 [Egret](0017-report-egret.md) on the simulated draft 1b machine, with
 overlapping windows, a mouse, a keyboard, a Workspace to run Egret in, a
-Transcript, a class browser, and a few demos. The desktop is 2,000 lines
+Transcript, a class browser, and a few demos. The desktop is 2,200 lines
 of Egret that the machine compiles as it boots. The pixels are the
 [graphics study](0019-report-graphics.md)'s library and kernels. It runs
 in a browser as WebAssembly, at the machine's 3 MHz or faster
@@ -32,10 +32,10 @@ by Egret a slice at a time while the desktop went on, and the clock.
 ## Short version
 
 - **It works, and at 3 MHz it's usable.** A keystroke in the Workspace
-  takes 17 ms of the machine's time, printing `3 + 4 * 5` 60 ms (compiling
+  takes 21 ms of the machine's time, printing `3 + 4 * 5` 55 ms (compiling
   it on the machine included), opening the menu 250 ms, dragging a window
-  300 ms, and opening the Browser 0.6 s. Booting takes 14 s: 1.6 s for
-  the prelude, 11.4 s to compile the desktop, 1.4 s to paint it. Life runs
+  300 ms, and opening the Browser 0.6 s. Booting takes 16 s: 1.6 s for
+  the prelude, 12.5 s to compile the desktop, 1.4 s to paint it. Life runs
   at 3 generations a second; the Mandelbrot set takes 107 s. At 4× (12
   MHz) it all feels quick.
 - **Most of the time is Egret's, not the drawing's.** For small things,
@@ -63,7 +63,7 @@ by Egret a slice at a time while the desktop went on, and the clock.
 | The devices | A frame buffer in 512 KB of VRAM outside RAM (640 × 480 at 1–8 bits per pixel, a 256-colour palette), a queue of input events, the mouse's position and buttons, the time of day, and the pointer's shape | 190 lines of Rust |
 | The window manager | The graphics study's `wm.c`, reworked so that whatever of a window comes into view is erased and handed to Egret as an update, as on the classic Mac OS | 590 lines of C |
 | Egret's primitives | Events, windows, drawing, fonts, the Workspace's compiler, the Browser's view of classes and source | 950 lines of C |
-| The desktop | Windows, menus, the event loop, a text editor, and the applications: Workspace, Transcript, Browser, Clock, Life, Mandelbrot, Paint, About | 2,000 lines of Egret |
+| The desktop | Windows, menus, the event loop, a text editor (word wrap, a scroll bar), and the applications: Workspace, Transcript, Browser, Clock, Life, Mandelbrot, Paint, About | 2,200 lines of Egret |
 | The browser version | The simulator as WebAssembly, a page that runs it by the clock, snapshots of the machine | 320 lines of Rust, 260 of JavaScript |
 
 - **C does the pixels and the stacking.** It draws frames, title bars and
@@ -97,17 +97,17 @@ loop would have spent in the same time (all of them in
 
 | | at 3 MHz |
 |---|---:|
-| Type a character in the Workspace | 17 ms |
-| Return, with the lines below it redrawn | 151 ms |
-| Print it: `3 + 4 * 5` | 60 ms |
-| Print it: `2 ** 100` | 72 ms |
+| Type a character in the Workspace | 21 ms |
+| Return, with the lines below it redrawn | 183 ms |
+| Print it: `3 + 4 * 5` | 55 ms |
+| Print it: `2 ** 100` | 68 ms |
 | Open the desktop menu and close it | 246 ms |
 | Drag a window by 100 pixels and move it | 297 ms |
-| Close a window, and paint the desktop under it | 92 ms |
-| Open the Browser | 587 ms |
-| Pick a method in the Browser and show its source (the first time: it indexes the source's lines) | 808 ms |
-| Open About (TrueType at 30 pixels, rasterised the first time) | 2,749 ms |
-| Boot: the prelude, the desktop's 2,000 lines, the first paint | 14.4 s |
+| Close a window, and paint the desktop under it | 113 ms |
+| Open the Browser | 586 ms |
+| Pick a method in the Browser and show its source (the first time: it indexes the source's lines) | 879 ms |
+| Open About (TrueType at 30 pixels, rasterised the first time) | 2,748 ms |
+| Boot: the prelude, the desktop's 2,200 lines, the first paint | 15.6 s |
 
 - **The first second is the budget.** Typing keeps up with a fast typist;
   everything that redraws a window's worth of text takes a few hundred
@@ -126,13 +126,13 @@ wait after it, idle loop included:
 
 | | an idle second | a keystroke | print it | open the Browser |
 |---|---:|---:|---:|---:|
-| Egret's interpreter (the assembly loop) | 69% | 53% | 35% | 40% |
-| its slow path, in C | 0% | 10% | 7% | 3% |
-| allocation and collection | 13% | 8% | 6% | 5% |
-| drawing (the graphics library) | 0% | 12% | 27% | 41% |
-| the window manager | 6% | 4% | 1% | 2% |
-| Egret's primitives | 10% | 7% | 6% | 4% |
-| the rest of the VM and the C library | 1% | 5% | 17% | 5% |
+| Egret's interpreter (the assembly loop) | 69% | 56% | 32% | 40% |
+| its slow path, in C | 0% | 10% | 6% | 3% |
+| allocation and collection | 13% | 8% | 5% | 5% |
+| drawing (the graphics library) | 0% | 10% | 36% | 41% |
+| the window manager | 6% | 4% | 2% | 2% |
+| Egret's primitives | 10% | 7% | 4% | 4% |
+| the rest of the VM and the C library | 1% | 5% | 15% | 5% |
 
 - **GUI code is made of small objects.** Points, rectangles and events are
   lists, and a list literal, string interpolation, `try` and `for` all go
@@ -144,7 +144,7 @@ wait after it, idle loop included:
   and working out the pointer's shape, every tick. Doing that only when
   the mouse has moved brought it to 3,100 cycles, 6% of the machine.
 - **Print it is the compiler as much as the code.** A Workspace line goes
-  through the same compiler as a program (17% of the cycles are the rest
+  through the same compiler as a program (15% of the cycles are the rest
   of the VM, mostly the compiler and, for `2 ** 100`, big integers), then
   the result is drawn into the line.
 

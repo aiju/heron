@@ -82,24 +82,25 @@ end
 
 class Transcript < TextWindow
   def init
-    super("Transcript", 8, 352, 392, 118, "")
+    super("Transcript", 8, 350, 392, 108, "")
     @editable = false
   end
 
   def append(s)
     first = @lines.size - 1
     more = self.split_lines(s)
-    @lines[first] = @lines[first] + more[0]
+    self.set_line(first, @lines[first] + more[0])
     i = 1
     while i < more.size
-      @lines.push(more[i])
+      self.insert_line(@lines.size, more[i])
       i += 1
     end
     if @lines.size > 300
       k = @lines.size - 200
       @lines = @lines[k..(@lines.size - 1)]
+      self.rewrap
       first = 0
-      @top = (@top - k).max(0)
+      @top = 0
       self.invalidate
     end
     @anchor = nil
@@ -107,6 +108,7 @@ class Transcript < TextWindow
     @col = @lines[@row].size
     self.ensure_visible
     self.redraw_from(first)
+    self.draw_scrollbar
   end
 
   def menu_items = [

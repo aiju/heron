@@ -66,7 +66,7 @@ The browser version needs Rust's WebAssembly target:
 | File | What's in it |
 |---|---|
 | `lib/gui.eg` | Colours, windows, menus, the desktop and its event loop |
-| `lib/widgets.eg` | A window of editable text |
+| `lib/widgets.eg` | A window of editable text, wrapped at spaces, with a scroll bar |
 | `lib/apps.eg` | Workspace, Transcript, Clock, Life, Mandelbrot, Paint, Browser, About |
 | `lib/desktop.eg` | The menu, the first windows, and `DESK.run` |
 | `src/gwm.c` | The window manager: the graphics study's `wm.c`, with updates for Egret to paint instead of paint functions |

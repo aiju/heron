@@ -1,9 +1,10 @@
 # Starting the desktop: the screen, the menu, the first windows, and the
 # event loop, which never returns.
 
-WELCOME = "# Welcome to Egret on the Heron. Put the cursor on a line
-# and press Ctrl-D to do it, or Ctrl-P to print its value.
-# In a class, Ctrl-D does the whole class. Or select some lines.
+WELCOME = "# Welcome to Egret on the Heron. Put the cursor on
+# a line and press Ctrl-D to do it, or Ctrl-P to
+# print its value. In a class, Ctrl-D does the
+# whole class. Or select some lines first.
 
 3 + 4 * 5
 2 ** 100

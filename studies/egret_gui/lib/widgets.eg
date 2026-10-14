@@ -1,9 +1,16 @@
-# A window of editable text in DejaVu Sans Mono: lines, a cursor, a
-# selection, the keyboard and the mouse, and as little drawing as it can
-# get away with (a keystroke redraws one line). The Workspace and the
-# Transcript are made of it.
+# A window of editable text in DejaVu Sans Mono: lines, wrapped at spaces
+# to the window's width, a cursor, a selection, a scroll bar, the keyboard
+# and the mouse, and as little drawing as it can get away with (a
+# keystroke redraws one line). The Workspace and the Transcript are made
+# of it.
+#
+# The text is lines (@lines); @row and @col are the cursor's line and
+# column in them. On the screen a line is one or more rows: @wrap[i] has
+# the columns line i's rows start at, @first[i] the row its first one is,
+# counting from the top of the text. @top is the first row on show.
 
 CLIPBOARD = ""
+SB_W = 12                               # the scroll bar's width
 
 def left_of(s, n) = if n <= 0 then "" else s[0..(n - 1)] end
 def right_of(s, n) = if n >= s.size then "" else s[n..(s.size - 1)] end
@@ -15,8 +22,8 @@ class TextWindow < Window
     @lines = self.split_lines(text)
     @row = 0
     @col = 0
-    @anchor = nil                       # where the selection started: [row, col]
-    @top = 0                            # the first line on show
+    @anchor = nil                       # where the selection started: [line, column]
+    @top = 0
     @editable = true
     @cw = gui_text_width("M", MONO)
     info = gui_font_info(MONO)
@@ -24,7 +31,10 @@ class TextWindow < Window
     @lh = info[2] + 1
     @mx = 4                             # the margins
     @my = 3
+    @in_bar = false                     # a button went down in the scroll bar
+    @grab = nil                         # ... on its thumb: where
     super(title, x, y, w, h)
+    self.rewrap
   end
   attr row, col
 
@@ -41,25 +51,130 @@ class TextWindow < Window
     @col = 0
     @anchor = nil
     @top = 0
+    self.rewrap
     self.invalidate
   end
   def line_count = @lines.size
 
+  # ---- the layout: lines wrapped into rows
+
+  def text_width = self.width - SB_W
+  def cols = ((self.text_width - 2 * @mx) / @cw).max(8)
+
+  # the columns where a line's rows start: after the last space that fits,
+  # or where the row's full if it has none
+  def wrap_of(s)
+    c = @wrapc
+    n = s.size
+    if n <= c then return [0] end
+    out = [0]
+    start = 0
+    while n - start > c
+      k = start + c
+      while k > start and s.byte_at(k) != 32
+        k -= 1
+      end
+      start = if k > start then k + 1 else start + c end
+      if start >= n then break end
+      out.push(start)
+    end
+    out
+  end
+
+  def rewrap
+    @wrapc = self.cols
+    @wrap = @lines.map { |s| self.wrap_of(s) }
+    @first = List.new(@lines.size)
+    self.refirst(0)
+  end
+
+  # @first from line i on, and @nrows, the rows in all
+  def refirst(i)
+    n = @lines.size
+    r = if i == 0 then 0 else @first[i - 1] + @wrap[i - 1].size end
+    while i < n
+      @first[i] = r
+      r += @wrap[i].size
+      i += 1
+    end
+    @nrows = r
+  end
+
+  # Change, add and remove lines, keeping the layout. set_line says
+  # whether the rows after the line moved.
+  def set_line(i, s)
+    @lines[i] = s
+    w = self.wrap_of(s)
+    moved = w.size != @wrap[i].size
+    @wrap[i] = w
+    if moved then self.refirst(i + 1) end
+    moved
+  end
+
+  def insert_line(i, s)
+    @lines.insert(i, s)
+    @wrap.insert(i, self.wrap_of(s))
+    @first.insert(i, 0)
+    self.refirst(i)
+  end
+
+  def delete_line(i)
+    @lines.delete_at(i)
+    @wrap.delete_at(i)
+    @first.delete_at(i)
+    self.refirst(i)
+  end
+
+  # which of line i's rows column c is on (a column where a row starts
+  # belongs to that row)
+  def row_in(i, c)
+    w = @wrap[i]
+    j = w.size - 1
+    while j > 0 and w[j] > c
+      j -= 1
+    end
+    j
+  end
+  def row_of(i, c) = @first[i] + self.row_in(i, c)
+
+  # where row j of line i ends (the column after it)
+  def row_end(i, j) = if j + 1 < @wrap[i].size then @wrap[i][j + 1] else @lines[i].size end
+  # the last column the cursor can be at on it: before the break, if the
+  # line goes on
+  def row_last(i, j)
+    e = self.row_end(i, j)
+    if j + 1 < @wrap[i].size then (e - 1).max(@wrap[i][j]) else e end
+  end
+
+  # the line row r belongs to
+  def line_at_row(r)
+    lo = 0
+    hi = @lines.size - 1
+    while lo < hi
+      mid = (lo + hi + 1) / 2
+      if @first[mid] <= r then lo = mid else hi = mid - 1 end
+    end
+    lo
+  end
+
   # ---- geometry
 
   def rows_shown = ((self.height - 2 * @my) / @lh).max(1)
-  def line_y(i) = @my + (i - @top) * @lh
-  def shown?(i) = i >= @top and i < @top + self.rows_shown + 1
+  def row_y(r) = @my + (r - @top) * @lh
+  def row_shown?(r) = r >= @top and r <= @top + self.rows_shown
 
+  # [line, column] at a point
   def pos_at(x, y)
-    r = (@top + (y - @my) / @lh).max(0).min(@lines.size - 1)
-    c = ((x - @mx + @cw / 2) / @cw).max(0).min(@lines[r].size)
-    [r, c]
+    r = (@top + (y - @my) / @lh).max(0).min(@nrows - 1)
+    i = self.line_at_row(r)
+    j = r - @first[i]
+    a = @wrap[i][j]
+    [i, (a + (x - @mx + @cw / 2) / @cw).max(a).min(self.row_last(i, j))]
   end
 
-  def pointer_at(x, y) = P_TEXT
+  def pointer_at(x, y) = if x >= self.text_width then P_ARROW else P_TEXT end
 
-  # ---- the selection: [r0, c0, r1, c1] in order, or nil
+  # ---- the selection: [l0, c0, l1, c1] in order, or nil
 
   def selection
     if @anchor == nil then return nil end
@@ -90,79 +205,126 @@ class TextWindow < Window
     @anchor = [0, 0]
     @row = @lines.size - 1
     @col = @lines[@row].size
-    self.redraw_from(@top)
+    self.draw_rows(@top, @top + self.rows_shown)
   end
 
   # ---- drawing
 
   def paint
-    i = @top
-    last = (@top + self.rows_shown).min(@lines.size - 1)
-    while i <= last
-      self.draw_line(i)
-      i += 1
+    self.draw_rows(@top, @top + self.rows_shown)
+    self.draw_scrollbar
+  end
+
+  # rows r0 to r1, and below the last line, nothing
+  def draw_rows(r0, r1)
+    r = r0.max(@top)
+    r1 = r1.min(@top + self.rows_shown)
+    i = self.line_at_row(r.min(@nrows - 1))
+    while r <= r1
+      if r >= @nrows
+        self.fill(0, self.row_y(r), self.text_width, @lh, @bg)
+      else
+        while @first[i] + @wrap[i].size <= r
+          i += 1
+        end
+        self.draw_row(i, r - @first[i])
+      end
+      r += 1
     end
   end
 
+  # all of line i's rows that are on show
   def draw_line(i)
-    if not self.shown?(i) then return nil end
-    y = self.line_y(i)
-    self.fill(0, y, self.width, @lh, @bg)
     if i >= @lines.size then return nil end
+    j = 0
+    n = @wrap[i].size
+    while j < n
+      if self.row_shown?(@first[i] + j) then self.draw_row(i, j) end
+      j += 1
+    end
+  end
+
+  def draw_row(i, j)
+    y = self.row_y(@first[i] + j)
+    tw = self.text_width
+    self.fill(0, y, tw, @lh, @bg)
     s = @lines[i]
+    a = @wrap[i][j]
+    e = self.row_end(i, j)
+    piece = if e > a then s[a..(e - 1)] else "" end
     base = y + @ascent
     sel = self.selection
     if sel != nil and i >= sel[0] and i <= sel[2]
-      a = if i == sel[0] then sel[1] else 0 end
-      b = if i == sel[2] then sel[3] else s.size + 1 end
-      self.fill(@mx + a * @cw, y, (b - a) * @cw, @lh, PAL.select)
-      gui_text(@id, @mx, base, s, PAL.text, PAL.select, MONO)
-      if not PAL.color?
-        gui_text(@id, @mx + a * @cw, base, s[a..(b - 1)], PAL.select_text, PAL.select, MONO)
+      sa = if i == sel[0] then sel[1] else 0 end
+      sb = if i == sel[2] then sel[3] else s.size + 1 end
+      # a line's end, selected, shows as a cell on its last row
+      ha = sa.max(a)
+      hb = sb.min(if j + 1 < @wrap[i].size then e else e + 1 end)
+      if hb > ha then self.fill(@mx + (ha - a) * @cw, y, ((hb - ha) * @cw).min(tw - @mx), @lh, PAL.select) end
+      gui_text(@id, @mx, base, piece, PAL.text, PAL.select, MONO)
+      if not PAL.color? and hb > ha and ha < s.size
+        gui_text(@id, @mx + (ha - a) * @cw, base, s[ha..(hb - 1)], PAL.select_text, PAL.select, MONO)
       end
     else
-      gui_text(@id, @mx, base, s, PAL.text, @bg, MONO)
-      if i == @row and @editable
-        self.fill(@mx + @col * @cw - 1, y, 2, @lh, PAL.accent)
+      gui_text(@id, @mx, base, piece, PAL.text, @bg, MONO)
+      if i == @row and @editable and self.row_in(i, @col) == j
+        self.fill((@mx + (@col - a) * @cw - 1).min(tw - 3), y, 2, @lh, PAL.accent)
       end
     end
   end
 
-  # the lines from i to the bottom, and what's below the last
+  # line i's rows and everything below them
   def redraw_from(i)
-    i = i.max(@top)
-    last = @top + self.rows_shown
-    while i <= last
-      self.draw_line(i)
-      i += 1
-    end
+    i = i.min(@lines.size - 1)
+    self.draw_rows(@first[i], @top + self.rows_shown)
+  end
+
+  # ---- the scroll bar: rows scroll until the last is at the bottom
+
+  def max_top = (@nrows - self.rows_shown).max(0)
+
+  # the thumb's [y, height]
+  def thumb
+    h = self.height - 4
+    th = (h * self.rows_shown / @nrows.max(1)).max(12).min(h)
+    [2 + (h - th) * @top.min(self.max_top) / self.max_top.max(1), th]
+  end
+
+  def draw_scrollbar
+    x = self.text_width
+    self.fill(x, 0, 1, self.height, PAL.grey)
+    self.fill(x + 1, 0, SB_W - 1, self.height, PAL.light)
+    t = self.thumb
+    self.fill(x + 3, t[0], SB_W - 5, t[1], PAL.grey)
   end
 
   def scroll_to(t)
-    t = t.max(0).min((@lines.size - 1).max(0))
+    t = t.max(0).min(self.max_top)
     d = t - @top
     if d == 0 then return nil end
     @top = t
     shown = self.rows_shown
     if d.abs >= shown
-      self.invalidate
+      self.invalidate_rect(0, 0, self.text_width, self.height)
     else
-      self.scroll(0, @my, self.width, shown * @lh + @lh, d * @lh)
+      self.scroll(0, @my, self.text_width, shown * @lh + @lh, d * @lh)
     end
+    self.draw_scrollbar
   end
 
   def ensure_visible
     shown = self.rows_shown
-    if @row < @top
-      self.scroll_to(@row)
-    elif @row >= @top + shown
-      self.scroll_to(@row - shown + 1)
+    r = self.row_of(@row, @col)
+    if r < @top
+      self.scroll_to(r)
+    elif r >= @top + shown
+      self.scroll_to(r - shown + 1)
     end
   end
 
   # move the cursor (extending the selection if `extend`), redrawing
-  # what changes
-  def goto(r, c, extend)
+  # the lines that change
+  def goto(l, c, extend)
     old_sel = self.selection
     old_row = @row
     if extend
@@ -170,11 +332,11 @@ class TextWindow < Window
     else
       @anchor = nil
     end
-    @row = r
+    @row = l
     @col = c
     new_sel = self.selection
-    lo = old_row.min(r)
-    hi = old_row.max(r)
+    lo = old_row.min(l)
+    hi = old_row.max(l)
     if old_sel != nil
       lo = lo.min(old_sel[0])
       hi = hi.max(old_sel[2])
@@ -191,7 +353,29 @@ class TextWindow < Window
     end
   end
 
+  # up or down by rows, keeping the column within the row
+  def move_rows(d, extend)
+    r = self.row_of(@row, @col)
+    off = @col - @wrap[@row][r - @first[@row]]
+    t = (r + d).max(0).min(@nrows - 1)
+    if t == r then return nil end
+    i = self.line_at_row(t)
+    j = t - @first[i]
+    self.goto(i, (@wrap[i][j] + off).min(self.row_last(i, j)), extend)
+  end
+
   # ---- editing
+
+  # after changing line i: just it, or it and what's below if rows moved
+  def changed(i, moved)
+    self.ensure_visible
+    if moved
+      self.redraw_from(i)
+      self.draw_scrollbar
+    else
+      self.draw_line(i)
+    end
+  end
 
   def delete_selection
     s = self.selection
@@ -199,10 +383,10 @@ class TextWindow < Window
       @anchor = nil                     # (a click leaves one, for dragging)
       return false
     end
-    @lines[s[0]] = left_of(@lines[s[0]], s[1]) + right_of(@lines[s[2]], s[3])
+    self.set_line(s[0], left_of(@lines[s[0]], s[1]) + right_of(@lines[s[2]], s[3]))
     k = s[2] - s[0]
     while k > 0
-      @lines.delete_at(s[0] + 1)
+      self.delete_line(s[0] + 1)
       k -= 1
     end
     @row = s[0]
@@ -212,55 +396,57 @@ class TextWindow < Window
   end
 
   def insert(str)
-    many = self.delete_selection
+    moved = self.delete_selection
     start = @row
-    for ch in str.chars
-      if ch == "\n"
-        line = @lines[@row]
-        @lines[@row] = left_of(line, @col)
-        @lines.insert(@row + 1, right_of(line, @col))
-        @row += 1
-        @col = 0
-        many = true
-      else
-        line = @lines[@row]
-        @lines[@row] = left_of(line, @col) + ch + right_of(line, @col)
-        @col += 1
+    parts = self.split_lines(str)
+    line = @lines[@row]
+    head = left_of(line, @col)
+    tail = right_of(line, @col)
+    if parts.size == 1
+      if self.set_line(@row, head + parts[0] + tail) then moved = true end
+      @col += parts[0].size
+    else
+      self.set_line(@row, head + parts[0])
+      k = 1
+      while k < parts.size - 1
+        self.insert_line(@row + k, parts[k])
+        k += 1
       end
+      self.insert_line(@row + k, parts[k] + tail)
+      @row += k
+      @col = parts[k].size
+      moved = true
     end
-    self.ensure_visible
-    if many then self.redraw_from(start) else self.draw_line(@row) end
+    self.changed(start, moved)
   end
 
   def backspace
     if self.delete_selection
-      self.redraw_from(@row)
+      self.changed(@row, true)
     elif @col > 0
       line = @lines[@row]
-      @lines[@row] = left_of(line, @col - 1) + right_of(line, @col)
+      moved = self.set_line(@row, left_of(line, @col - 1) + right_of(line, @col))
       @col -= 1
-      self.draw_line(@row)
+      self.changed(@row, moved)
     elif @row > 0
       @col = @lines[@row - 1].size
-      @lines[@row - 1] = @lines[@row - 1] + @lines[@row]
-      @lines.delete_at(@row)
+      self.set_line(@row - 1, @lines[@row - 1] + @lines[@row])
+      self.delete_line(@row)
       @row -= 1
-      self.ensure_visible
-      self.redraw_from(@row)
+      self.changed(@row, true)
     end
   end
 
   def delete_forward
     if self.delete_selection
-      self.redraw_from(@row)
+      self.changed(@row, true)
     elif @col < @lines[@row].size
       line = @lines[@row]
-      @lines[@row] = left_of(line, @col) + right_of(line, @col + 1)
-      self.draw_line(@row)
+      self.changed(@row, self.set_line(@row, left_of(line, @col) + right_of(line, @col + 1)))
     elif @row < @lines.size - 1
-      @lines[@row] = @lines[@row] + @lines[@row + 1]
-      @lines.delete_at(@row + 1)
-      self.redraw_from(@row)
+      self.set_line(@row, @lines[@row] + @lines[@row + 1])
+      self.delete_line(@row + 1)
+      self.changed(@row, true)
     end
   end
 
@@ -292,19 +478,17 @@ class TextWindow < Window
         self.goto(@row + 1, 0, shift)
       end
     elif code == K_UP
-      if @row > 0 then self.goto(@row - 1, @col.min(@lines[@row - 1].size), shift) end
+      self.move_rows(-1, shift)
     elif code == K_DOWN
-      if @row < @lines.size - 1 then self.goto(@row + 1, @col.min(@lines[@row + 1].size), shift) end
+      self.move_rows(1, shift)
     elif code == K_HOME
       self.goto(@row, 0, shift)
     elif code == K_END
       self.goto(@row, @lines[@row].size, shift)
     elif code == K_PAGEUP
-      r = (@row - self.rows_shown).max(0)
-      self.goto(r, @col.min(@lines[r].size), shift)
+      self.move_rows(-self.rows_shown, shift)
     elif code == K_PAGEDOWN
-      r = (@row + self.rows_shown).min(@lines.size - 1)
-      self.goto(r, @col.min(@lines[r].size), shift)
+      self.move_rows(self.rows_shown, shift)
     elif not @editable
       nil
     elif code == K_RETURN
@@ -335,34 +519,67 @@ class TextWindow < Window
       if self.selection != nil
         CLIPBOARD = self.selected_text
         self.delete_selection
-        self.redraw_from(@row)
+        self.changed(@row, true)
       end
     elif code == 118 and @editable
       self.insert(CLIPBOARD)
     end
   end
 
+  # ---- the mouse
+
   def mouse_down(x, y, b)
+    @in_bar = x >= self.text_width
+    @grab = nil
+    if @in_bar
+      t = self.thumb
+      if y >= t[0] and y < t[0] + t[1]
+        @grab = y - t[0]
+      elif y < t[0]
+        self.scroll_to(@top - self.rows_shown)
+      else
+        self.scroll_to(@top + self.rows_shown)
+      end
+      return nil
+    end
     p = self.pos_at(x, y)
     self.goto(p[0], p[1], false)
     @anchor = [p[0], p[1]]
   end
 
   def mouse_drag(x, y)
+    if @in_bar
+      if @grab != nil
+        t = self.thumb
+        span = self.height - 4 - t[1]
+        self.scroll_to(if span > 0 then (y - @grab - 2) * self.max_top / span else 0 end)
+      end
+      return nil
+    end
     p = self.pos_at(x, y)
     if y < 0 and @top > 0
-      p = [@top - 1, 0]
-    elif y > self.height and @top + self.rows_shown < @lines.size
+      i = self.line_at_row(@top - 1)
+      p = [i, @wrap[i][@top - 1 - @first[i]]]
+    elif y > self.height and @top + self.rows_shown < @nrows
       r = @top + self.rows_shown
-      p = [r, @lines[r].size]
+      i = self.line_at_row(r)
+      p = [i, self.row_last(i, r - @first[i])]
     end
     if p[0] != @row or p[1] != @col then self.goto(p[0], p[1], true) end
   end
 
   # (where it's let go counts, if the drags fell behind)
-  def mouse_up(x, y, b) = self.mouse_drag(x, y)
+  def mouse_up(x, y, b)
+    self.mouse_drag(x, y)
+    @in_bar = false
+    @grab = nil
+  end
 
   def double_click(x, y)
+    if x >= self.text_width
+      self.mouse_down(x, y, 0)
+      return nil
+    end
     p = self.pos_at(x, y)
     line = @lines[p[0]]
     a = p[1]
@@ -383,6 +600,7 @@ class TextWindow < Window
   end
 
   def resized
-    @top = @top.min((@lines.size - 1).max(0))
+    self.rewrap
+    @top = @top.min(self.max_top)
   end
 end

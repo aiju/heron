@@ -94,15 +94,15 @@ def measure(log=print):
 
     # the Workspace
     t = p.s
-    t.click(60, 120)                            # a blank line
+    t.click(60, 136)                            # a blank line
     t.run(1)
     row("Workspace", "Type a character", p.cost(lambda: t.key("x"), 0.5))
     row("Workspace", "Delete it", p.cost(lambda: t.key("backspace"), 0.5))
     row("Workspace", "Return, with the lines below it redrawn", p.cost(lambda: t.key("return"), 1))
-    t.click(100, 136)                           # 3 + 4 * 5
+    t.click(100, 152)                           # 3 + 4 * 5
     t.run(1)
     row("Workspace", "Print it: `3 + 4 * 5`", p.cost(lambda: t.key("p", ["ctrl"]), 1))
-    t.click(100, 152)                           # 2 ** 100
+    t.click(100, 168)                           # 2 ** 100
     t.run(1)
     row("Workspace", "Print it: `2 ** 100`", p.cost(lambda: t.key("p", ["ctrl"]), 1))
     row("Workspace", "Scroll to the end (Ctrl-End)", p.cost(lambda: t.key("end", ["ctrl"]), 1))
@@ -269,13 +269,13 @@ def profiles():
     a = f.snap()
     p.s.run(1)
     out.append(("an idle second", f.by_kind(a, f.snap())))
-    p.s.click(60, 120)
+    p.s.click(60, 136)
     p.s.run(1)
     a = f.snap()
     p.s.key("x")
     p.s.run(0.2)
     out.append(("typing a character", f.by_kind(a, f.snap())))
-    p.s.click(100, 152)                         # 2 ** 100
+    p.s.click(100, 168)                         # 2 ** 100
     p.s.run(1)
     a = f.snap()
     p.s.key("p", ["ctrl"])
@@ -309,12 +309,12 @@ def screenshots(out=REPORT_DIR, log=print):
     for depth in (3, 0):
         s = run.Session(depth=depth).boot()
         s.run(3)
-        for y in (136, 152, 168):               # print it: three lines of the Workspace
+        for y in (152, 168, 184):               # print it: three lines of the Workspace
             s.click(240, y)
             s.key("end")
             s.key("p", ["ctrl"])
             s.run(1)
-        s.click(100, 200)                       # do it: print("Hello from the Workspace")
+        s.click(100, 216)                       # do it: print("Hello from the Workspace")
         s.key("d", ["ctrl"])
         s.run(1)
         menu(s, "Mandelbrot")
