@@ -21,7 +21,7 @@ So far there has been:
   per pixel, bitmap and TrueType fonts and the graphics side of a window
   manager, in C and assembly for 1a and 1b.
 - **The system bus:** a draft specification, with signal-integrity
-  simulations of the backplane.
+  simulations of the backplane on a simulator of our own.
 
 Draft 2 is next. Which of 1a and 1b it builds on is still open.
 
@@ -53,9 +53,9 @@ and the linker), which are Rust: crates in one Cargo workspace, with
 ## Running things
 
 Needs Python 3.10+ and Rust (stable, from [rustup](https://rustup.rs)). No
-other dependencies; the signal-integrity tools also need numpy and
-[ngspice](https://ngspice.sourceforge.io/), and are meant for a local
-machine ([studies/bus_si](studies/bus_si/README.md)).
+other dependencies; the signal-integrity tools also need numpy, and
+[ngspice](https://ngspice.sourceforge.io/) only to cross-check their own
+engine ([studies/bus_si](studies/bus_si/README.md)).
 
 The Rust engines' Python module is built into `build/` the first time it's
 used, and again whenever the Rust sources change; `heron build` builds it

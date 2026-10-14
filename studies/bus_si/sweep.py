@@ -20,8 +20,11 @@ from heron.infra.si import engine, ibis, runner, spice
 from . import bus, noise
 
 WORK = os.path.join(BUILD, "si")
+# results: report 0013's committed ngspice files; the native engine's go to
+# build/ (they take minutes to remake), and `heron bus_si report` writes
+# report 0021's tables from them
 OUT = {"ngspice": os.path.join(ROOT, "reports", "0013-report-bus-si"),
-       "native": os.path.join(ROOT, "reports", "0021-report-bus-si-revised")}
+       "native": os.path.join(BUILD, "si", "results")}
 
 FAMILIES = ibis.BUS_FAMILIES
 ALL_TERMS = list(bus.TERMS)
@@ -183,6 +186,25 @@ def _cost(job):
     return {"xtalk": 4, "clock": 1}.get(kind, 0.3)
 
 
+def _recorded(fn, job):
+    """Run a job, and note how many native runs and steps it took and how
+    many steps Newton's method didn't converge in."""
+    engine.reset_totals()
+    res = fn(job)
+    if isinstance(res, dict) and engine.current() == "native":
+        res = dict(res, engine=dict(engine.totals))
+    return res
+
+
+def run_job_recorded(job):
+    return _recorded(run_job, job)
+
+
+def revised_job_recorded(job):
+    from . import revised
+    return _recorded(revised.run_job, job)
+
+
 def _setup():
     # the IBIS files and the field solver, once per worker (cached on disk)
     for f in FAMILIES:
@@ -208,9 +230,9 @@ def run(preset, jobs_n=None, dry_run=False, retry_errors=False, limit=None, engi
     engine_name = engine_name or engine.current()
     engine.use(engine_name)
     if preset in PRESETS:
-        todo, fn, cost = jobs(preset), run_job, _cost
+        todo, fn, cost = jobs(preset), run_job_recorded, _cost
     else:
-        todo, fn, cost = revised.jobs(preset), revised.run_job, revised.cost
+        todo, fn, cost = revised.jobs(preset), revised_job_recorded, revised.cost
         if engine_name != "native":
             raise SystemExit(f"preset {preset} is for the native engine")
     kinds = {}

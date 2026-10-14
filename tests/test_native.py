@@ -104,24 +104,29 @@ class Toolchain(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("cargo"), "needs cargo (https://rustup.rs)")
 class Sisim(unittest.TestCase):
-    """The signal-integrity simulator's bindings, through infra/si/engine.py,
-    which turns SPICE netlists into its input."""
+    """The signal-integrity simulator's bindings (the bus_si study runs it
+    through infra/si/engine.py, which needs numpy)."""
 
     def test_open_line(self):
-        from heron.infra.si import engine
+        import struct
         # a 1 V step through 50 ohm into 1 ns of open 50 ohm line
-        lines = ["V1 s 0 PWL(0 0 1p 1)", "R1 s a 50", "T1 a 0 b 0 Z0=50 TD=1n"]
-        r = engine.run_native(lines, ["v(a)", "v(b)"], 3e-9)
-        at = lambda p, t: float(r[p][abs(r["time"] - t).argmin()])
-        self.assertAlmostEqual(at("v(a)", 1.5e-9), 0.5, places=4)
-        self.assertAlmostEqual(at("v(b)", 1.5e-9), 1.0, places=4)
-        self.assertAlmostEqual(at("v(a)", 2.5e-9), 1.0, places=4)
+        net = {"nodes": 4, "fixed": [{"node": 1, "wave": [[0, 0], [1e-12, 1]]}],
+               "resistors": [{"a": 1, "b": 2, "r": 50.0}],
+               "lines": [{"end1": [2], "ref1": 0, "end2": [3], "ref2": 0, "tv": [[1.0]], "z": [50.0],
+                          "delay": [1e-9]}]}
+        out = native.sisim.run(net, {"dt": 5e-12, "tstop": 3e-9, "probes": [[2, 0], [3, 0]]})
+        t = struct.unpack(f"<{len(out['time']) // 8}d", out["time"])
+        v = struct.unpack(f"<{len(out['data']) // 8}d", out["data"])
+        at = lambda p, x: v[2 * min(range(len(t)), key=lambda i: abs(t[i] - x)) + p]
+        self.assertAlmostEqual(at(0, 1.5e-9), 0.5, places=4)
+        self.assertAlmostEqual(at(1, 1.5e-9), 1.0, places=4)
+        self.assertAlmostEqual(at(0, 2.5e-9), 1.0, places=4)
+        self.assertEqual(out["stats"]["nonconverged"], 0)
 
-    def test_unsupported(self):
-        from heron.infra.si import engine
-        with self.assertRaisesRegex(ValueError, "doesn't take this element"):
-            engine.run_native(["X1 a b sub"], ["v(a)"], 1e-9)
+    def test_errors(self):
         with self.assertRaisesRegex(RuntimeError, "shorter than the time step"):
             native.sisim.run({"nodes": 3, "lines": [{"end1": [1], "ref1": 0, "end2": [2], "ref2": 0,
                                                       "tv": [[1.0]], "z": [50.0], "delay": [1e-12]}]},
                              {"dt": 5e-12, "tstop": 1e-9, "probes": []})
+        with self.assertRaisesRegex(ValueError, "missing field"):
+            native.sisim.run({"nodes": 3, "resistors": [{"a": 1, "b": 2}]}, {"dt": 5e-12, "tstop": 1e-9, "probes": []})

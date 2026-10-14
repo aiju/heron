@@ -32,8 +32,15 @@ _engine = os.environ.get("HERON_SI_ENGINE", "native")
 DT = float(os.environ.get("HERON_SI_DT", "5e-12"))
 
 # Statistics of the last native run in this process (steps, Newton
-# iterations, steps that didn't converge, wall-clock seconds).
+# iterations, steps that didn't converge, wall-clock seconds), and totals
+# since reset_totals().
 last_stats = {}
+totals = {"runs": 0, "steps": 0, "nonconverged": 0}
+
+
+def reset_totals():
+    for k in totals:
+        totals[k] = 0
 
 
 def use(name):
@@ -76,6 +83,9 @@ def run_native(lines, probes, tstop, title="si", timeout=300, dt=None):
     except (RuntimeError, ValueError) as e:
         raise RuntimeError(f"sisim failed ({title}): {e}") from None
     last_stats = dict(out["stats"])
+    totals["runs"] += 1
+    totals["steps"] += last_stats["steps"]
+    totals["nonconverged"] += last_stats["nonconverged"]
     t = np.frombuffer(out["time"], dtype="<f8")
     data = np.frombuffer(out["data"], dtype="<f8").reshape(len(t), len(probes))
     res = {"time": t}

@@ -102,6 +102,7 @@ Change the generator and rerun it rather than editing the output by hand:
   `infra/hw/datasheets/`;
 - `studies/v0_hw/baseline.json`: `baseline.write()` in that study (it's
   frozen, so this shouldn't be needed);
+- `reports/0021-report-bus-si-revised/results.md`: `heron bus_si report`;
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -111,7 +112,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v0_hw graphics`: a study's unit tests. Run
+- `heron test v1_isa c_compiler v1b_hw v0_hw graphics bus_si`: a study's unit tests. Run
   the ones for the studies you touched, or `--active` for every active one.
 - `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
   against their expected output.
@@ -127,8 +128,10 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   which builds the engines' Python module and tests it.
 - **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
   about 5 for every program, and `heron v1b_hw report --hw` longer.
-- **Never in a cloud session:** the signal-integrity sweeps take over an
-  hour on a fast laptop and are meant for a local machine
+- **Signal integrity:** `heron bus_si report` runs report 0021's sweeps
+  on the native engine, about 30 minutes on four cores; a single preset
+  takes seconds to minutes. Run long ones in the background: they resume
+  where they stopped, and no job can hang
   ([studies/bus_si](studies/bus_si/README.md)).
 
 ## Big files

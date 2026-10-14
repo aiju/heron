@@ -16,7 +16,8 @@ those ([RFC 0000](../reports/0000-rfc-repository-layout.md#infra)).
 | `hw/sta.py` | Static timing analysis with case analysis per microinstruction |
 | `hw/runner.py` | Running a machine on the chip-level simulator, and the `hw` commands (run, test, sweep, bom, sta); what a machine module provides is in its docstring |
 | `hwsim/` | The event-driven chip-level simulator, in Rust: chip models, setup and hold, write timing, bus contention. Python runs it as `heron.native.hwsim` (through `hw/runner.py`) |
-| `si/` | Signal-integrity plumbing: IBIS models in ngspice, a 2D field solver, running ngspice |
+| `si/` | Signal-integrity plumbing: IBIS models as behavioural sources, a 2D field solver for traces and a pin-field model for connectors, the SPICE-netlist front end to the simulators (`engine.py`), ngspice, and a runner for sweeps that kills jobs past their deadline |
+| `sisim/` | The fixed-step transient simulator for signal integrity, in Rust: lossless and coupled lines, IBIS tables, diodes. Python runs it as `heron.native.sisim` (through `si/engine.py`) |
 
-`cargo test -p hwsim` and `cargo test -p toolchain` run the Rust crates'
-tests.
+`cargo test -p hwsim`, `cargo test -p sisim` and `cargo test -p toolchain`
+run the Rust crates' tests.

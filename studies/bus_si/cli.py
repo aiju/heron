@@ -4,7 +4,7 @@ import argparse
 import os
 import time
 
-from . import bus, compare, sweep
+from . import bus, compare, summary, sweep
 from heron.infra.si import engine, ibis, spice
 
 
@@ -45,6 +45,22 @@ def cmd_check(args):
     return 0
 
 
+def cmd_report(args):
+    """Run report 0021's sweeps (resuming any that stopped) and write its
+    tables."""
+    import subprocess
+    import sys
+    if not args.tables_only:
+        for p in summary.PRESETS:
+            sweep.run(p, args.jobs, timeout=args.timeout, budget=args.budget * 60 if args.budget else None)
+        # the time-step check: the quick preset again at half the step
+        env = dict(os.environ, HERON_SI_DT="2.5e-12")
+        subprocess.run([sys.executable, "-m", "heron", "bus_si", "sweep", "--preset", "quick"]
+                       + (["-j", str(args.jobs)] if args.jobs else []), env=env, check=True)
+    print("wrote", summary.write())
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="heron bus_si", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -64,6 +80,12 @@ def main(argv=None):
     s.add_argument("--limit", type=int, help="run at most this many jobs")
     s.set_defaults(fn=lambda a: sweep.run(a.preset, a.jobs, a.dry_run, a.retry_errors, a.limit, a.engine,
                                           a.timeout, a.budget * 60 if a.budget else None))
+    r = sub.add_parser("report", help="run report 0021's sweeps and write its tables (results.md)")
+    r.add_argument("-j", "--jobs", type=int, help="parallel runs (default: all cores)")
+    r.add_argument("--timeout", type=float, help="kill a job after this many seconds")
+    r.add_argument("--budget", type=float, help="start no new jobs after this many minutes, per preset")
+    r.add_argument("--tables-only", action="store_true", help="only write the tables from the results there are")
+    r.set_defaults(fn=cmd_report)
     k = sub.add_parser("compare", help="compare two results files of a preset, job by job")
     k.add_argument("a")
     k.add_argument("b")
