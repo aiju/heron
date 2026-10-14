@@ -1,0 +1,3 @@
+results: (t nil)
+size of the chain, before and after rewriting: (111 8497)
+rewriting (reverse (append (append a b) (empty))): (append (reverse b) (reverse a))

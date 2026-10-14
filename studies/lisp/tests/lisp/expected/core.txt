@@ -1,0 +1,101 @@
+integer: 42
+negative: -7
+string: "text"
+nil: nil
+empty list: nil
+t: t
+vector evaluates to itself: #(0 0)
+procedure evaluates to itself: #<procedure>
+quote symbol: foo
+quote list: (a b c)
+quote of quote: (quote a)
+quote form: (1 (2 (3)) . 4)
+quoted integer: 5
+quoted nil: nil
+if true: yes
+if false: no
+if 0 is true: yes
+if () is false: no
+if empty string is true: yes
+if without else: nil
+if only the branch taken: ok
+define returns the name: x
+x: 10
+define a procedure: square
+square: 49
+define inside a body: done
+it set the global: 5
+define with a local y: local-y
+global y: set-by-define
+no parameters: none
+rest parameters: (1 2 3)
+dotted parameters: (1 2 (3 4))
+redefine: 11
+set! returns the value: 1
+counter: 1
+set! a parameter: 42
+global untouched: 1
+set! a let variable: 5
+set! global from a body: 3
+w: 3
+lambda: 7
+no parameters: none
+rest only: (1 2 3)
+rest only, no arguments: nil
+dotted: (1 2 (3 4 5))
+dotted, empty rest: (1 2 nil)
+value of the last body form: 3
+empty body: nil
+a closure prints as: #<procedure>
+a primitive prints as: #<procedure>
+8 parameters: (8 7 6 5 4 3 2 1)
+varargs with 9: (1 8 (2 3 4 5 6 7 8 9))
+rest only with 9: (1 2 3 4 5 6 7 8 9)
+7 parameters: 14
+list of 10: (1 2 3 4 5 6 7 8 9 10)
++ of 10: 55
+* of 7: 5040
+- of 8: 72
+append of 7: (1 2 3 4 5 6 7)
+lambda as operator of 12: 13
+begin: 3
+empty begin: nil
+begin in order: abc
+let: 3
+let with no bindings: 5
+let with empty body: nil
+let inits see the outer scope: (1 outer)
+nested let shadows: (2 1)
+let* sees earlier bindings: (1 2)
+let* shadowing: 20
+let* closure keeps its binding: (2 1)
+let* with no bindings: empty
+letrec: (t t nil)
+letrec value: 5
+named let: (4 3 2 1 0)
+named let inits see the outer scope: outer-loop
+named let name is local: outer-loop
+named let, no bindings: once
+cond: b
+cond default: default
+cond no match: nil
+cond test value: (c d)
+cond several forms: xy
+cond empty: nil
+cond stops at the first: first
+and: 3
+and empty: t
+and stops at nil: nil
+or: 2
+or empty: nil
+or all nil: nil
+or last value: (x)
+closures over a loop variable: (2 1 0)
+counters: (3 1 4)
+shared captured variable: (120 unknown)
+curried: 7
+compose: 2
+two closures, one variable: second
+operator, then operands, left to right: #<procedure> 1 2 3
+let inits left to right: p q (p q)
+done: core

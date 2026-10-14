@@ -1,0 +1,45 @@
+# closures: collections through blocks, the Smalltalk way: map, select,
+# reduce, sort_by and friends, with blocks that capture variables, blocks
+# that return from their method, and counters made of closures.
+
+def primes_up_to(n) = (2..n).select { |k| (2..k.sqrt).all? { |d| k % d != 0 } }
+
+def make_counter
+  count = 0
+  [{ count += 1 }, { count }]
+end
+
+def first_square_over(xs, limit)
+  xs.each { |x| if x * x > limit then return x end }
+  nil
+end
+
+def compose(f, g) = { |x| f(g(x)) }
+
+ps = primes_up_to(400)
+print("primes up to 400: {ps.size}, the last five {ps.drop(ps.size - 5)}")
+words = "the quick brown fox jumps over the lazy dog and the cat".split
+by_length = words.sort_by { |w| w.size }
+print(by_length.join(" "))
+lengths = Map.new
+words.each { |w| lengths[w.size] = lengths.get(w.size, []) + [w] }
+print(lengths)
+counters = (1..10).map { |i| make_counter() }
+counters.each_with_index { |c, i|
+  (i + 1).times { |k| c[0]() }
+}
+print(counters.map { |c| c[1]() })
+inc = { |x| x + 1 }
+double = { |x| x * 2 }
+f = compose(inc, double)
+g = compose(double, inc)
+print((1..10).map(f), (1..10).map(g))
+total = 0
+for round in 1..30
+  xs = (1..100).map { |i| (i * 37 + round) % 101 }
+  ys = xs.select { |x| x % 3 == 0 }.map { |x| x * x }.sort
+  total += ys.reduce(0) { |a, y| a + y } + first_square_over(xs, 5000)
+end
+print("total: {total}")
+uniq = (1..200).map { |i| i * i % 17 }.uniq.sort
+print(uniq)

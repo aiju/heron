@@ -25,11 +25,16 @@ pub const ILLEGAL_VECTOR: u32 = 0x08;
 pub const SWI_VECTOR: u32 = 0x0C;
 pub const DIV_VECTOR: u32 = 0x10;
 pub const ADDR_VECTOR: u32 = 0x14;
+/// v1bx only: a tagged operand's check failed (studies/lisp).
+pub const TAG_VECTOR: u32 = 0x18;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Isa {
     V1a,
     V1b,
+    /// 1b with the experimental extensions of the Lisp study
+    /// (studies/lisp/isa.md): the reserved mode E is a tagged register.
+    V1bx,
 }
 
 impl Isa {
@@ -37,6 +42,7 @@ impl Isa {
         match name {
             "v1a" => Some(Isa::V1a),
             "v1b" => Some(Isa::V1b),
+            "v1bx" => Some(Isa::V1bx),
             _ => None,
         }
     }
@@ -348,7 +354,7 @@ impl Machine {
     fn decode(&mut self, pc: u32) -> Res<Decoded> {
         let (insn, n) = match self.isa {
             Isa::V1a => v1a::decode(self, pc)?,
-            Isa::V1b => v1b::decode(self, pc)?,
+            Isa::V1b | Isa::V1bx => v1b::decode(self, pc)?,
         };
         let d = Decoded { insn, n };
         self.slot[(pc >> 1) as usize] = self.decoded.len() as u32;

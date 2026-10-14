@@ -1,0 +1,86 @@
+# bst: insert 100 random keys (xorshift16 seeded with 0xBEEF) into a binary
+# search tree, walk it in order printing every 10th key and checking the
+# order, and print the tree's height. Equal keys go right.
+
+class Node
+  def init(key)
+    @key = key
+    @left = nil
+    @right = nil
+  end
+  attr key, left, right
+  def left=(n)
+    @left = n
+  end
+  def right=(n)
+    @right = n
+  end
+end
+
+class Tree
+  def init
+    @root = nil
+    @visited = 0
+    @last = 0
+    @ordered = true
+    @shown = []
+  end
+
+  attr visited, ordered, shown
+
+  def insert(key)
+    n = Node(key)
+    if @root == nil
+      @root = n
+      return nil
+    end
+    t = @root
+    while true
+      if key < t.key
+        if t.left == nil
+          t.left = n
+          return nil
+        end
+        t = t.left
+      else
+        if t.right == nil
+          t.right = n
+          return nil
+        end
+        t = t.right
+      end
+    end
+  end
+
+  def walk = self.walk_from(@root)
+
+  def walk_from(n)
+    if n == nil then return nil end
+    self.walk_from(n.left)
+    if @visited % 10 == 0 then @shown.push(n.key) end
+    if @visited > 0 and n.key < @last then @ordered = false end
+    @last = n.key
+    @visited += 1
+    self.walk_from(n.right)
+  end
+
+  def height = self.height_of(@root)
+
+  def height_of(n)
+    if n == nil then return 0 end
+    1 + self.height_of(n.left).max(self.height_of(n.right))
+  end
+end
+
+tree = Tree()
+x = 0xbeef
+100.times { |i|
+  x = x ^ ((x << 7) & 0xffff)
+  x = x ^ (x >> 9)
+  x = x ^ ((x << 8) & 0xffff)
+  tree.insert(x)
+}
+tree.walk
+print("every 10th key in order: " + tree.shown.map { |k| k.to_s }.join(" "))
+print("visited {tree.visited} nodes, in order: {if tree.ordered then "yes" else "no" end}")
+print("height: {tree.height}")

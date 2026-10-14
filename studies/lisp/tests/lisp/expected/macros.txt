@@ -1,0 +1,69 @@
+no unquotes: (1 2 3)
+an atom: foo
+an integer: 7
+unquote: (x is 5)
+unquote an expression: (sum 6 10)
+unquote alone: 5
+splice: (start a b c end)
+splice at the start: (a b c end)
+splice at the end: (start a b c)
+splice alone: (a b c)
+splice nil: (start end)
+splice an expression: (1 4 9 4)
+two splices: (a b c a b c)
+nested lists: ((a 5) (b a b c) (c (d 5)))
+dotted tail: (1 . 5)
+dotted tail, list: (1 2 a b c)
+quote inside: (quote 5)
+quoted symbol inside: (a (quote b) 5)
+unquote a list: ((a b c))
+unquote a string: ("s" "t")
+build code: (lambda (v) (+ v 3))
+and run it: 7
+splicing copies: (2 3)
+unquotes left to right: abc(1 2 3)
+defmacro returns the name: my-if
+my-if true: yes
+my-if false: no
+operands are not evaluated: (car 5)
+dotted parameters: (a 1 2 3)
+dotted, no rest: (a)
+rest parameter: (1 (2) three)
+rest parameter, none: nil
+a macro expanding to a macro: 3
+and false: nil
+expands to let: 7
+an expander calling a procedure: 81
+a macro inside a procedure: (5 10 17)
+while: (4 3 2 1 0)
+while in a procedure: ((1 2 3) (1 2))
+optional macro argument: 16
+swap! with a gensym: (2 1)
+expands to a lambda call: 16
+a macro in tail position: 10000
+when true: 3
+when false: nil
+when, no body: nil
+unless false: 3
+unless true: nil
+when runs the body in order: abc
+do: (4 3 2 1 0)
+do, no result: nil
+do, several results: 3
+do with a body: 0 1 2 3 
+do, a variable without a step: same
+do, the body changes a stepless variable: 6
+do, steps see the old values: (55 89)
+do, inits see the outer scope: outer
+do, closures capture each iteration: (2 1 0)
+do, no variables: 3
+do, 100000 times: 100000
+nested do: (((1 1) (1 0)) ((0 1) (0 0)))
+case: (small medium letter other other nothing)
+case, no match: nil
+case, several forms: two
+case evaluates the key once: 1
+case on a computed key: six
+case, large integers: million
+case, no clauses: nil
+done: macros

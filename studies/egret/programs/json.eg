@@ -1,0 +1,187 @@
+# json: turn a nested structure of Maps, Lists, strings and numbers into
+# JSON text and parse it back, a hundred times: string building, character
+# dispatch, recursion and hash tables.
+
+class JsonWriter
+  def init
+    @parts = []
+  end
+
+  def write(v)
+    if v == nil then @parts.push("null")
+    elif v == true then @parts.push("true")
+    elif v == false then @parts.push("false")
+    elif v.is_a?(Int) then @parts.push(v.to_s)
+    elif v.is_a?(String) then self.write_string(v)
+    elif v.is_a?(List)
+      @parts.push("[")
+      v.each_with_index { |x, i|
+        if i > 0 then @parts.push(",") end
+        self.write(x)
+      }
+      @parts.push("]")
+    elif v.is_a?(Map)
+      @parts.push("\{")
+      first = true
+      for k in v.keys
+        if not first then @parts.push(",") end
+        first = false
+        self.write_string(k)
+        @parts.push(":")
+        self.write(v[k])
+      end
+      @parts.push("}")
+    else
+      raise("can't write {v.class} as JSON")
+    end
+    self
+  end
+
+  def write_string(s)
+    @parts.push("\"")
+    for c in s.chars
+      if c == "\"" then @parts.push("\\\"")
+      elif c == "\\" then @parts.push("\\\\")
+      elif c == "\n" then @parts.push("\\n")
+      else @parts.push(c)
+      end
+    end
+    @parts.push("\"")
+  end
+
+  def text = @parts.join("")
+end
+
+class JsonParser
+  def init(text)
+    @text = text
+    @pos = 0
+  end
+
+  def peek = @text.byte_at(@pos)
+
+  def skip_space
+    while @pos < @text.size and (self.peek == 32 or self.peek == 10)
+      @pos += 1
+    end
+  end
+
+  def expect(c)
+    if self.peek != c then raise("expected {c.chr} at {@pos}") end
+    @pos += 1
+  end
+
+  def parse
+    self.skip_space
+    c = self.peek
+    if c == 123 then return self.parse_object end
+    if c == 91 then return self.parse_array end
+    if c == 34 then return self.parse_string end
+    if c == 110 then
+      @pos += 4
+      return nil
+    end
+    if c == 116 then
+      @pos += 4
+      return true
+    end
+    if c == 102 then
+      @pos += 5
+      return false
+    end
+    self.parse_number
+  end
+
+  def parse_object
+    m = Map.new
+    self.expect(123)
+    self.skip_space
+    if self.peek == 125
+      @pos += 1
+      return m
+    end
+    while true
+      self.skip_space
+      k = self.parse_string
+      self.skip_space
+      self.expect(58)
+      m[k] = self.parse
+      self.skip_space
+      if self.peek == 44 then @pos += 1 else break end
+    end
+    self.expect(125)
+    m
+  end
+
+  def parse_array
+    a = []
+    self.expect(91)
+    self.skip_space
+    if self.peek == 93
+      @pos += 1
+      return a
+    end
+    while true
+      a.push(self.parse)
+      self.skip_space
+      if self.peek == 44 then @pos += 1 else break end
+    end
+    self.expect(93)
+    a
+  end
+
+  def parse_string
+    self.expect(34)
+    parts = []
+    start = @pos
+    while self.peek != 34
+      if self.peek == 92
+        parts.push(@text[start..(@pos - 1)])
+        @pos += 1
+        e = self.peek
+        parts.push(if e == 110 then "\n" else e.chr end)
+        @pos += 1
+        start = @pos
+      else
+        @pos += 1
+      end
+    end
+    parts.push(@text[start..(@pos - 1)])
+    @pos += 1
+    parts.join("")
+  end
+
+  def parse_number
+    neg = false
+    if self.peek == 45
+      neg = true
+      @pos += 1
+    end
+    n = 0
+    while @pos < @text.size and self.peek >= 48 and self.peek <= 57
+      n = n * 10 + self.peek - 48
+      @pos += 1
+    end
+    if neg then -n else n end
+  end
+end
+
+def make_record(i)
+  ["id": i, "name": "item {i}", "tags": ["t{i % 3}", "t{i % 5}"],
+   "price": i * 37 % 1000, "stock": ["warehouse": i % 4, "shelf": "A{i % 10}"],
+   "active": i % 2 == 0, "note": if i % 7 == 0 then "say \"hi\"\nbye" else nil end]
+end
+
+data = ["records": (1..20).map { |i| make_record(i) }, "count": 20, "version": "1.0"]
+text = JsonWriter().write(data).text
+print(text.size, "characters")
+print(text[0..120])
+same = 0
+for round in 1..10
+  back = JsonParser(text).parse
+  again = JsonWriter().write(back).text
+  if again == text then same += 1 end
+end
+print("round trips that came back the same: {same}")
+r = JsonParser(text).parse["records"][6]
+print(r["name"], r["tags"], r["stock"]["shelf"], r["note"].inspect)

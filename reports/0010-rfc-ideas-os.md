@@ -5,7 +5,7 @@ title: Operating system and MMU ideas
 status: open
 date: 2026-10-12
 context:
-  studies: [v1_isa, v1b_hw]
+  studies: [v1_isa, v1b_hw, lisp]
   commit: e494b0c
 ---
 
@@ -122,6 +122,15 @@ slower clock.
   reason;
 - vectors: page fault, privilege violation;
 - I/O from supervisor mode only.
+
+**Guard pages:** an unmapped page below a stack or after a heap turns a
+limit check into a page fault. The Lisp ([report 0018](0018-report-lisp.md))
+checks the stack limit at every function entry and the heap limit at every
+`cons`; guard pages would save 5.0% and 1.8% of its compiled cycles (up to
+7.2% and 5.2%). Pairs are 8-byte aligned, so `cons`'s first store is the
+one that faults, and the handler can collect and restart it. Comes free
+with the flat page map; protection regions would do for the stack alone.
+**open.**
 
 **Staging:**
 1. A socket for the map chips plus a bypass jumper on the first boards.

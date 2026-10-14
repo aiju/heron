@@ -1,0 +1,7 @@
+primes up to 400: 78, the last five [373, 379, 383, 389, 397]
+the fox the dog and the cat over lazy quick brown jumps
+[3: ["the", "fox", "the", "dog", "and", "the", "cat"], 5: ["quick", "brown", "jumps"], 4: ["over", "lazy"]]
+[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+[3, 5, 7, 9, 11, 13, 15, 17, 19, 21] [4, 6, 8, 10, 12, 14, 16, 18, 20, 22]
+total: 3381942
+[0, 1, 2, 4, 8, 9, 13, 15, 16]

@@ -5,7 +5,7 @@ title: Instruction set ideas
 status: open
 date: 2026-10-12
 context:
-  studies: [v1_isa, v1b_hw]
+  studies: [v1_isa, v1b_hw, lisp]
   commit: e494b0c
 ---
 
@@ -112,6 +112,8 @@ From [report 0004](0004-report-draft-1-evaluation.md):
 | Block I/O instruction (Z80 `INIR` style, interruptible) | microcode | ~5–6 cycles per word against ~12–15 for a software loop | **open** |
 | Atomic exchange / test-and-set | microcode + bus lock | Only once DMA or a second CPU shares data structures | **open** |
 | Popcount, find-first-set | microcode | Scheduler and allocator bitmaps | **open** |
+| Tagged add, subtract and compare that trap unless both operands are SmallInts (SPARC's `TADDccTV`) | opcode or mode, trap vector | Dynamic languages: 2–3% of an interpreter's run, 5.5% of compiled code's and 16–18% of numeric programs' ([report 0017](0017-report-egret.md)) | **measured** |
+| For dynamic languages: load a tagged value's class, three-operand `XOR`, unaligned 16-bit loads, a call that leaves the return address in a register, `CHK` | microcode | About 1% or less each, interpreted or compiled ([report 0017](0017-report-egret.md)) | **measured** |
 | A 12-bit `BSR` (±4 KB, SuperH style) in op B | opcode | Saves ~9% of code size and no cycles; op B went to the shift group instead | **rejected** |
 
 ### 2.5 Rejected, with the evidence
@@ -128,6 +130,20 @@ From [report 0004](0004-report-draft-1-evaluation.md):
 | Decimal (BCD) arithmetic | No use |
 | Separate I/O instructions (`IN`/`OUT`) | No opcode space; memory-mapped I/O works with every addressing mode |
 | Register + register addressing in a load/store ISA | Not worth a major opcode; `[label + reg]` covered static arrays in 16-bit space (see the 1b indexed mode for the alternative) |
+
+### 2.6 For Lisp
+
+From the Lisp study ([report 0018](0018-report-lisp.md)): a dynamically
+typed, garbage-collected language on 1b, interpreted and compiled. Shares
+are of compiled cycles, on 12 benchmarks.
+
+| Proposal | Evidence | Status |
+|---|---|---|
+| Keep misaligned-access traps **precise** (the saved PC is the faulting instruction's, nothing changed) in draft 2 | Tagged pointers make `car`, `cdr` and calls type-check themselves through the trap; checking in software would cost 16% compiled (up to 35%) and 19% interpreted | **recommended** |
+| A tagged register operand: `MOV`, `ADD`, `SUB`, `CMP`, ... that trap unless both operands have bit 0 clear, and `ADD`/`SUB` that trap on overflow (1b's reserved mode E; in 1a, op F) | Built as v1bx ([isa.md](../studies/lisp/isa.md)): −6.4% geometric mean, up to −16% (fib); −5.6% if it costs a cycle more. About one chip | **measured**, open |
+| Keep a memory-indirect call (`CALL [r + d]`) in draft 2 | Calls go through a code word in every object; a load and `CALL r` would cost 1.3% (up to 2.5%) | **measured**, open |
+| One-parcel `[r - 1]` and `[r + 3]` (the pair offsets) | Saves 1.1% compiled, 1.7% interpreted; not worth the encoding space | **measured** |
+| Guard pages for the stack and heap limits | In [RFC 0010](0010-rfc-ideas-os.md#11-mmu): 5.0% and 1.8% | **open** |
 
 ## 3. Floating point
 

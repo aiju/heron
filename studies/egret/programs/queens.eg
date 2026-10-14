@@ -1,0 +1,49 @@
+# queens: count the solutions of the 8 queens problem by backtracking with
+# bitmasks (bit i = column i), and print the first solution found. The same
+# algorithm as the C and assembly versions: x & -x picks the lowest free
+# square.
+
+class Queens
+  def init(n)
+    @n = n
+    @count = 0
+    @cur = List.new(n, 0)
+    @first = nil
+  end
+
+  attr count, first
+
+  def solve(row, free, left, right)
+    if free == 0
+      @count += 1
+      if @count == 1 then @first = @cur.copy end
+      return nil
+    end
+    squares = free & ~left & ~right
+    while squares != 0
+      bit = squares & -squares
+      squares = squares & ~bit
+      @cur[row] = bit
+      self.solve(row + 1, free & ~bit, (left | bit) << 1, (right | bit) >> 1)
+    end
+  end
+end
+
+q = Queens(8)
+q.solve(0, 255, 0, 0)
+print("solutions: {q.count}")
+cols = q.first.map { |bit|
+  c = 0
+  while bit & (1 << c) == 0
+    c += 1
+  end
+  c
+}
+write("first:")
+for c in cols
+  write(" {c + 1}")
+end
+write("\n")
+for c in cols
+  print((0..7).map { |k| if k == c then "Q" else "." end }.join(" "))
+end

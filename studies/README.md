@@ -20,5 +20,7 @@ commands, and `heron test <study>` runs its unit tests.
 | [v1_isa](v1_isa/README.md) | Draft 1: a 32-bit ISA in two encodings, 1a and 1b, and the program suite |
 | [v1b_hw](v1b_hw/README.md) | A 213-chip implementation of draft 1b |
 | [c_compiler](c_compiler/README.md) | A C compiler for drafts 1a and 1b |
+| [lisp](lisp/README.md) | A Lisp for draft 1b: interpreter, compiler and collector on the machine, and what it wants from the ISA |
 | [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane, in ngspice |
+| [egret](egret/README.md) | Egret, a small object language, interpreted and compiled on draft 1b |
 | [graphics](graphics/README.md) | Graphics on draft 1: a library, bitmap and TrueType fonts, and a window manager, in C and assembly for 1a and 1b |

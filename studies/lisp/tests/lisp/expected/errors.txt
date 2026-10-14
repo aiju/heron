@@ -1,0 +1,304 @@
+car of an integer
+error: not a pair: 5
+cdr of a symbol
+error: not a pair: a
+car of nil
+error: not a pair: nil
+car of a string
+error: not a pair: "str"
+set-car! of nil
+error: not a pair: nil
+set-cdr! of a vector
+error: not a pair: #(0)
+cadr of a 1-list
+error: not a pair: nil
+caddr of a 2-list
+error: not a pair: nil
+cdar of a list of atoms
+error: not a pair: 1
+cadddr of a dotted list
+error: not a pair: 3
+list-ref past the end
+error: not a pair: nil
+last-pair of nil
+error: not a pair: nil
+length of a dotted list
+error: not a list: (1 2 . 3)
+length of an integer
+error: not a list: 5
+reverse of a dotted list
+error: not a list: (1 . 2)
+append of a dotted list
+error: not a list: (1 . 2)
+append with an atom in the middle
+error: not a list: 2
+apply to a dotted list
+error: not a list: (1 2 . 3)
+apply to an integer
+error: not a list: 5
+map over a dotted list
+error: not a list: ((1) . 5)
+for-each over an integer
+error: not a list: 7
+memq in a dotted list
+error: not a list: (a b . c)
++ with a symbol
+error: not a number: a
++ with a symbol first
+error: not a number: a
+- of a string
+error: not a number: "s"
+* with nil
+error: not a number: nil
+< with a symbol
+error: not a number: x
+> with a symbol first
+error: not a number: y
+= with a string
+error: not a number: "1"
+zero? of a symbol
+error: not a number: z
+abs of a list
+error: not a number: (1)
+min with a symbol
+error: not a number: m
+quotient of a symbol
+error: not a number: q
+remainder by a symbol
+error: not a number: r
+modulo of a symbol by zero
+error: not a number: m
+logand with a symbol
+error: not a number: b
+logior with a symbol first
+error: not a number: a
+logxor with nil
+error: not a number: nil
+ash of a symbol
+error: not a number: n
+ash by a symbol
+error: not a number: k
+vector-ref with a symbol index
+error: not a number: k
+make-vector of a symbol size
+error: not a number: n
+string-ref with a symbol index
+error: not a number: k
+write-char of a symbol
+error: not a number: c
+list-tail by a symbol
+error: not a number: k
+an integer as operator
+error: not a procedure: 5
+a quoted symbol as operator
+error: not a procedure: foo
+a string as operator
+error: not a procedure: "str"
+nil as operator
+error: not a procedure: nil
+a computed operator
+error: not a procedure: 1
+apply an integer
+error: not a procedure: 5
+map an integer
+error: not a procedure: 5
+symbol->string of a string
+error: not a symbol: "abc"
+symbol->string of nil
+error: not a symbol: nil
+get on a string
+error: not a symbol: "x"
+put on an integer
+error: not a symbol: 5
+string-length of a symbol
+error: not a string: abc
+string->symbol of an integer
+error: not a string: 5
+string-ref of a symbol
+error: not a string: abc
+string=? with a symbol second
+error: not a string: a
+string=? with a symbol first
+error: not a string: a
+vector-ref of a list
+error: not a vector: (1 2)
+vector-set! of a string
+error: not a vector: "s"
+vector-length of nil
+error: not a vector: nil
+a variable
+error: unbound variable: undefined-thing
+an operator
+error: unbound variable: undefined-function
+else is not special
+error: unbound variable: else
+out of scope
+error: unbound variable: b
+a parameter is not visible in the caller
+error: unbound variable: param
+car of nothing
+error: wrong number of arguments
+car of two
+error: wrong number of arguments
+cons of one
+error: wrong number of arguments
+- of nothing
+error: wrong number of arguments
+< of three
+error: wrong number of arguments
+= of one
+error: wrong number of arguments
+abs of two
+error: wrong number of arguments
+min of one
+error: wrong number of arguments
+newline of one
+error: wrong number of arguments
+a lambda given too few
+error: wrong number of arguments
+a lambda given too many
+error: wrong number of arguments
+a dotted lambda given too few
+error: wrong number of arguments
+a define given too many
+error: wrong number of arguments
+error of nothing
+error: wrong number of arguments
+apply car to two
+error: wrong number of arguments
+a macro given too few
+error: wrong number of arguments
+when of nothing
+error: wrong number of arguments
+quotient
+error: division by zero
+remainder
+error: division by zero
+modulo
+error: division by zero
+zero by zero
+error: division by zero
+vector-ref at the length
+error: index out of range: 3
+vector-ref at -1
+error: index out of range: -1
+vector-set! past the end
+error: index out of range: 5
+vector-ref of an empty vector
+error: index out of range: 0
+string-ref at the length
+error: index out of range: 3
+string-ref of an empty string
+error: index out of range: 0
+string-ref at -1
+error: index out of range: -1
+make-vector of -1
+error: index out of range: -1
+a sum
+error: overflow
+a literal
+error: overflow
+if of nothing
+error: bad syntax: (if)
+if of one
+error: bad syntax: (if t)
+if of four
+error: bad syntax: (if t 1 2 3)
+quote of nothing
+error: bad syntax: (quote)
+quote of two
+error: bad syntax: (quote 1 2)
+define of nothing
+error: bad syntax: (define)
+define without a value
+error: bad syntax: (define x)
+define of an integer
+error: bad syntax: (define 5 1)
+define of two values
+error: bad syntax: (define x 1 2)
+define with an integer parameter
+error: bad syntax: (define (g 1) 1)
+set! without a value
+error: bad syntax: (set! x)
+set! of an integer
+error: bad syntax: (set! 5 1)
+lambda of nothing
+error: bad syntax: (lambda)
+lambda with an integer parameter
+error: bad syntax: (lambda (1) 1)
+lambda with an integer rest
+error: bad syntax: (lambda (a . 5) 1)
+let binding without a value
+error: bad syntax: (let ((x)) x)
+let binding an integer
+error: bad syntax: (let ((1 2)) 1)
+let binding with two values
+error: bad syntax: (let ((x 1 2)) x)
+named let without bindings
+error: bad syntax: (let x)
+let of nothing
+error: bad syntax: (let)
+let* binding a bare symbol
+error: bad syntax: (let* (x) x)
+letrec binding with two values
+error: bad syntax: (letrec ((x 1 2)) x)
+cond with an atom clause
+error: bad syntax: (cond 5)
+cond with an empty clause
+error: bad syntax: (cond nil)
+defmacro of nothing
+error: bad syntax: (defmacro)
+defmacro of an integer
+error: bad syntax: (defmacro 5 (x) x)
+a stray )
+error: unexpected )
+a quote of )
+error: unexpected )
+still reading
+a message and irritants
+error: my message: (1 2) foo
+a message alone
+error: no irritants
+irritants are written
+error: a string irritant: "s\"q"
+several irritants
+error: several: 1 -2 three "four" (5 . 6) nil t
+a procedure irritant
+error: a procedure: #<procedure>
+from inside a function
+error: negative: -3
+and when there's no error: 3
+the first of two bad arguments
+error: not a number: a
+the vector before the index
+error: not a vector: 5
+the string before the index
+error: not a string: 5
+the type before division by zero
+error: not a number: a
+an operand's own error comes first
+error: not a pair: nil
+operator and operands are evaluated before the operator is checked
+operator operand
+error: not a procedure: 5
+an operand's error before a bad operator
+error: not a pair: nil
+an unbound operator before the operands
+error: unbound variable: undefined-fn
+operands are evaluated before the arity check
+evaluated
+error: wrong number of arguments
+an error in the middle of a begin
+error: not a pair: 5
+state after an error: during
+a define whose value fails
+error: not a pair: 5
+leaves the variable unbound
+error: unbound variable: z
+an error 50 calls deep
+error: not a pair: bottom
+the error line follows the output on the same line
+partial output error: not a pair: 5
+carrying on: yes
+an unterminated list
+error: unexpected end of input

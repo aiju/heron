@@ -1,0 +1,36 @@
+# trees: the "binary trees" benchmark from the Computer Language Benchmarks
+# Game, scaled down: build complete binary trees bottom-up, count their
+# nodes, and throw them away. Almost every operation allocates, so this
+# measures allocation and the collector.
+
+class Tree
+  def init(left, right)
+    @left = left
+    @right = right
+  end
+
+  def check = if @left == nil then 1 else 1 + @left.check + @right.check end
+end
+
+def bottom_up(depth)
+  if depth == 0 then return Tree(nil, nil) end
+  Tree(bottom_up(depth - 1), bottom_up(depth - 1))
+end
+
+MIN_DEPTH = 4
+MAX_DEPTH = 10
+
+stretch = MAX_DEPTH + 1
+print("stretch tree of depth {stretch}\t check: {bottom_up(stretch).check}")
+long_lived = bottom_up(MAX_DEPTH)
+depth = MIN_DEPTH
+while depth <= MAX_DEPTH
+  iterations = 1 << (MAX_DEPTH - depth + MIN_DEPTH)
+  check = 0
+  for i in 1..iterations
+    check += bottom_up(depth).check
+  end
+  print("{iterations}\t trees of depth {depth}\t check: {check}")
+  depth += 2
+end
+print("long lived tree of depth {MAX_DEPTH}\t check: {long_lived.check}")
