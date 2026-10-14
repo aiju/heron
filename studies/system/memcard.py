@@ -7,6 +7,9 @@ section 12's example). See cards.md for the design and its timing.
   the first and writes the SRAMs during it, so the master's data is still
   there when the write ends. Writing in one clock would need the write to
   end before the clock edge; this card has no faster clock to time that.
+  WAIT comes from a register set in the address clock, when A28-A31 match
+  the card's slot number (GA0-GA3): WAIT from SEL would come too late for
+  the backplane and the master to act on in the same clock.
 - Halfwords and bytes travel on D0-D15 (A1 picks the half); words on
   D0-D31. The swap between D0-D15 and the upper half happens on the card,
   behind the bus transceivers, so each bus line sees one transceiver pin.
@@ -33,14 +36,25 @@ def build(card_id=CARD_ID):
     nl.add("clkdrv", "U_CK", part="CDC341", A="BUS.BCLK", Y1="MCK")
     nl.add("541", "U_IN", part=ABT + "541", OE1="GND", OE2="GND",
            A1="BUS.START_n", A2="BUS.WRITE_n", A3="BUS.SEL", A4="BUS.BE0_n", A5="BUS.BE1_n",
-           A6="BUS.BE2_n", A7="BUS.BE3_n", A8="GND",
+           A6="BUS.BE2_n", A7="BUS.BE3_n", A8="BUS.A1",
            Y1="STB_n", Y2="WRB_n", Y3="SELB", Y4="BEB0_n", Y5="BEB1_n", Y6="BEB2_n",
-           Y7="BEB3_n")
+           Y7="BEB3_n", Y8="A1B")
+    # the byte lanes, decoded in the address clock and registered with the
+    # address, so they are steady before W1 and SEL can start a write
+    # strobe: 0 and 1 hold A1 = 0's half (and a word's low half), 2 and 3
+    # A1 = 1's half (and a word's high half; BE2 or BE3 only in a word)
+    gf("04", ["A1B"], "A1B_n")
+    gf("02", ["A1B", "BEB0_n"], "LN0_D")
+    gf("02", ["A1B", "BEB1_n"], "LN1_D")
+    gf("32", ["A1B_n", "BEB0_n"], "LN2A_n")
+    gf("00", ["LN2A_n", "BEB2_n"], "LN2_D")
+    gf("32", ["A1B_n", "BEB1_n"], "LN3A_n")
+    gf("00", ["LN3A_n", "BEB3_n"], "LN3_D")
     # registered at the end of every address clock (START low)
-    src = [f"BUS.A{i}" for i in range(1, 21)] + ["BUS.A27", "BEB0_n", "BEB1_n", "BEB2_n",
-                                                 "BEB3_n", "WRB_n"]
-    dst = [f"RA{i}" for i in range(1, 21)] + ["RA27", "RBE0_n", "RBE1_n", "RBE2_n", "RBE3_n",
-                                              "RWR_n"]
+    src = (["A1B"] + [f"BUS.A{i}" for i in range(2, 21)] + ["BUS.A27", "LN0_D", "LN1_D", "LN2_D",
+                                                          "LN3_D", "BEB2_n", "BEB3_n", "WRB_n"])
+    dst = ([f"RA{i}" for i in range(1, 21)] + ["RA27", "LN0", "LN1", "LN2", "LN3", "RBE2_n",
+                                               "RBE3_n", "RWR_n"])
     for k in range(4):
         r = nl.add("377", f"U_AR{k}", part=ABT + "377", CLK="MCK", EN="STB_n")
         for i in range(8):
@@ -53,31 +67,33 @@ def build(card_id=CARD_ID):
     gf("04", ["RA1"], "RA1_n")
     gf("04", ["RWR_n"], "WRT")                          # a write
     gf("00", ["RBE2_n", "RBE3_n"], "WORD")              # BE2 or BE3: a word
-    for i in range(4):
-        gf("04", [f"RBE{i}_n"], f"BE{i}")
     gf("04", ["SELB"], "SELB_n")
-    # byte lanes: 0 and 1 hold A1 = 0's half (and a word's low half), 2 and 3
-    # A1 = 1's half (and a word's high half)
-    gf("08", ["RA1_n", "BE0"], "LN0")
-    gf("08", ["RA1_n", "BE1"], "LN1")
-    gf("00", ["RA1", "BE0"], "LN2A_n")
-    gf("00", ["WORD", "BE2"], "LN2B_n")
-    gf("00", ["LN2A_n", "LN2B_n"], "LN2")
-    gf("00", ["RA1", "BE1"], "LN3A_n")
-    gf("00", ["WORD", "BE3"], "LN3B_n")
-    gf("00", ["LN3A_n", "LN3B_n"], "LN3")
-    # a write's first data clock: WAIT, and the write strobes
-    gf("11", ["SELB", "WRT", "WQ_n"], "WQ_D")
+    # a write's first data clock (W1): WAIT, and the write strobes. W1 is a
+    # register, set by an address clock that writes to this slot (A28-A31
+    # against the slot number, GA0-GA3), so WAIT starts and ends a
+    # register's delay after the clock edge, not after SEL
+    nl.add("521", "U_SLT", part=F + "521", G="GND", PEQ="MINE_n",
+           **{f"P{i}": (f"BUS.A{28 + i}" if i < 4 else "GND") for i in range(8)},
+           **{f"Q{i}": (f"BUS.GA{i}" if i < 4 else "GND") for i in range(8)})
+    gf("27", ["STB_n", "MINE_n", "WRB_n"], "W1_D")
+    # RESET holds W1 clear, so no write strobe comes out of power-up's
+    # random state
+    g("14", ["BUS.RESET_n"], "RSTP", part="74HCT14")
+    g("14", ["RSTP"], "RST_n", part="74HCT14")
     nl.add("74", "U_WQ", part=F + "74",
-           **{"1D": "WQ_D", "1CLK": "MCK", "1PRE": "VCC", "1CLR": "VCC", "1Q": "WQ",
-              "1QN": "WQ_n",
+           **{"1D": "W1_D", "1CLK": "MCK", "1PRE": "VCC", "1CLR": "RST_n", "1Q": "W1",
+              "1QN": "W1_n",
               "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
-    gf("20", ["SELB", "WRT", "WQ_n"], "WAITV_n")
+    # WAIT: driven while SEL is asserted (RFC 0014 section 5.3), and from W1
+    # itself in the first data clock, since SEL comes too late for WAIT. Both
+    # drivers follow W1, so they never disagree; the first lets go after W1
+    # ends, once it has driven WAIT inactive.
     nl.add("125", "U_WT", part=ABT + "125",
-           **{"1OE": "SELB_n", "1A": "WAITV_n", "1Y": "BUS.WAIT_n",
-              "2OE": "VCC", "2A": "GND", "3OE": "VCC", "3A": "GND", "4OE": "VCC", "4A": "GND"})
+           **{"1OE": "W1_n", "1A": "W1_n", "1Y": "BUS.WAIT_n",
+              "2OE": "SELB_n", "2A": "W1_n", "2Y": "BUS.WAIT_n",
+              "3OE": "VCC", "3A": "GND", "4OE": "VCC", "4A": "GND"})
     for i in range(4):
-        gf("20", ["SELB", "WRT", "WQ_n", f"LN{i}"], f"WE{i}_n")
+        gf("20", ["SELB", "W1", f"LN{i}", "VCC"], f"WE{i}_n")
     # SRAM outputs: lanes 0-1 for A1 = 0, lanes 2-3 for A1 = 1 or a word
     gf("00", ["RWR_n", "RA1_n"], "OE01_n")
     gf("32", ["RA1", "WORD"], "HI")

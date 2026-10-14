@@ -8,6 +8,9 @@
 ;
 ; Nothing printed depends on how many cycles anything takes: only on the
 ; results of the work and on tick differences measured race-free.
+;
+; The tick count itself does, so it isn't compared with the model's.
+;! timing-dependent: ticks
 
 ; Own vector table (lib/start.s has RTI at the IRQ vector): 4 bytes per
 ; vector, room for a two-parcel JMP.

@@ -100,7 +100,7 @@ def preloads(img, inp=b"", cf_image=None):
     for k in range(4):
         pre[f"MEM.U_RAM{k}"] = bytes(512 * 1024)
     pre["IO.U_UART"] = inp + programs.EOT
-    pre["IO.U_CF"] = cf_image if cf_image is not None else bytes(512 * 2048)
+    pre["IO.U_CF"] = cf_image if cf_image is not None else programs.cf_disk()
     return {k: bytes(v) for k, v in pre.items()}
 
 

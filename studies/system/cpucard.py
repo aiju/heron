@@ -149,10 +149,13 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
               "1Q": "HOLD", "1QN": "HOLD_n",
               "2J": "BRQ_J", "2K": "BRQ_K", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
               "2Q": "BRQ", "2QN": "BRQ_n"})
+    # MID: from tick 4 to the cycle's edge. The bus read latch drives the
+    # data bus only then, once the RAM has let go of it
     nl.add("109", "U_DONE", part=F + "109",
            **{"1J": "DONEM_J", "1K": "DONEM_K", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
               "1Q": "DONEM", "1QN": "DONEM_n",
-              "2J": "GND", "2K": "VCC", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+              "2J": "H3", "2K": "T2_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC",
+              "2Q": "MID"})
 
     # ---- which accesses go on the bus (CPU side, fast parts: the clock
     # generator reads BUSACC at least 5 ticks, 100 ns, into the cycle) ------
@@ -163,7 +166,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
     gf("00", [u["MEMRD_n"], "MEMWR_n"], "MEMACC")
     gf("21", ["MEMACC", u["ADDRMAR"], "MARBUS", "MISF_n"], "BUSACC")
     g("08", ["BUSACC", "EQ"], "BUSERR", part=HCT + "08")   # into FAULT (cpu.py)
-    g("00", ["BUSACC", "MEMWR_n"], "BUSRD_n", part=HCT + "00")
+    gf("20", ["BUSACC", "MEMWR_n", "MID", "VCC"], "BUSRD_n")
 
     # ---- the bus interface (bus clock) ------------------------------------------
     nl.add("clkdrv", "U_KBCK", part="CDC341", A="BUS.BCLK", Y1="BCK")
@@ -180,8 +183,11 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
     # owner's lines, WQ we drive write data, DQB done, EQ it ended with
     # BERR, E1Q/E2Q a bus error's delay before done, RQ the request
     gf("08", ["BQ", "AQ_n"], "BD")                        # our data/recovery clocks
-    gf("20", ["GNTP", "BRQ", "DQB_n", "BQ_n"], "STN_n")   # start an address clock
-    gf("21", ["GNTP", "BRQ", "DQB_n", "BQ_n"], "STN")
+    # start an address clock: granted, asked, not done, and no transfer
+    # under way or bus error waiting to become done
+    gf("11", ["BQ_n", "E1Q_n", "E2Q_n"], "FREE")
+    gf("20", ["GNTP", "BRQ", "DQB_n", "FREE"], "STN_n")
+    gf("21", ["GNTP", "BRQ", "DQB_n", "FREE"], "STN")
     gf("20", ["BD", "RDYB_n", "BERRB_n"], "KT1_n")        # not ready yet: carry on
     gf("20", ["BD", "WAITP", "BERRB_n"], "KT2_n")         # WAIT: carry on
     gf("20", ["KT1_n", "KT2_n", "AQ_n", "STN_n"], "BQ_D")
@@ -203,7 +209,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
               "3D": "OQ_D", "3Q": "OQ", "3QN": "OQ_n", "4D": "WQ_D", "4Q": "WQ", "4QN": "WQ_n"})
     nl.add("175", "U_KFS1", part=F + "175", CLK="BCK", CLR="RESET_n",
            **{"1D": "DQB_D", "1Q": "DQB", "1QN": "DQB_n", "2D": "EQ_D", "2Q": "EQ",
-              "3D": "E1Q_D", "3Q": "E1Q", "4D": "E1Q", "4QN": "E2Q_n"})
+              "3D": "E1Q_D", "3Q": "E1Q", "3QN": "E1Q_n", "4D": "E1Q", "4QN": "E2Q_n"})
     nl.add("74", "U_KFS2", part=F + "74",
            **{"1D": "REQQ_D", "1CLK": "BCK", "1PRE": "VCC", "1CLR": "RESET_n", "1QN": "REQQ_n",
               "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})

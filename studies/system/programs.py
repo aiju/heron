@@ -24,6 +24,7 @@ from heron.studies.v1_isa.v1common import RAM_SIZE
 HERE = os.path.dirname(os.path.abspath(__file__))
 SW = os.path.join(HERE, "sw", "v1b")
 EOT = b"\x04"
+CF_SECTORS = 2048                      # a 1 MB CF card
 
 
 def program_paths(names=None):
@@ -76,6 +77,19 @@ def ram_image(img):
     return bytes(mem)
 
 
+def cf_disk(sectors=CF_SECTORS):
+    """The CF card every program starts with: sector n holds the text
+    "sector n" (NUL-terminated), then the bytes (n + i) mod 256 up to its
+    end, so a program can check what it reads."""
+    out = bytearray()
+    for n in range(sectors):
+        sec = bytearray((n + i) & 0xFF for i in range(512))
+        text = f"sector {n}".encode() + b"\0"
+        sec[:len(text)] = text
+        out += sec
+    return bytes(out)
+
+
 def run_isa(path, cf_image=None, ns_per_cycle=300.0, max_cycles=200_000_000):
     """Run a program on the instruction-level model of the system:
     (image, machine). The machine's bus_dump("uart") is what the
@@ -84,7 +98,7 @@ def run_isa(path, cf_image=None, ns_per_cycle=300.0, max_cycles=200_000_000):
     m = native.v1.Machine("v1b", ram_image(img), b"", REFERENCE,
                           system={"uart_in": metadata(path)["input"] + EOT,
                                   "cf_image": cf_image if cf_image is not None
-                                  else bytes(512 * 2048),
+                                  else cf_disk(),
                                   "ns_per_cycle": ns_per_cycle})
     m.run(max_cycles)
     return img, m

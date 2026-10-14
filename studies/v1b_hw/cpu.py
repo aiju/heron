@@ -393,8 +393,8 @@ def build(card=False, stub=False):
         g("32", ["MAR28", "MAR29"], "MS01", part="74F32")
         g("32", ["MAR30", "MAR31"], "MS23", part="74F32")
         g("32", ["MS01", "MS23"], "MARBUS", part="74F32")
-        g("08", [u["ADDRMAR"], "MARBUS"], "RAMOFF")
-        g("04", ["RAMOFF"], "RAMOFF_n")
+        g("08", [u["ADDRMAR"], "MARBUS"], "RAMOFF", part="74F08")
+        g("04", ["RAMOFF"], "RAMOFF_n", part="74F04")
     else:
         g("08", [u["ADDRMAR"], "MAR31"], "RAMOFF")
         g("10", [u["ADDRMAR"], "MAR31", "FAULT_n"], "IOSEL_n")

@@ -346,6 +346,11 @@ T("cf", "cf",
 
 T("const", "const", [("LO", "out"), ("HI", "out")], family="fixture", desc="GND and VCC")
 
+T("vector", "vector", [("CLK", "in")] + [(f"O{i}", "tri") for i in range(64)]
+  + [(f"I{i}", "in") for i in range(48)], family="fixture",
+  desc="a script played against CLK and a record of its inputs (params outs, ins, "
+       "delay_ps; the script is its preload, the record its dump): a test's bus master")
+
 T("clockgen", "clockgen", [("CLK", "out"), ("WEWIN", "out"), ("RESET", "out")],
   family="fixture", desc="clock, write window and reset (oscillator + phase logic)")
 

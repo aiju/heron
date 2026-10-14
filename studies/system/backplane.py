@@ -89,13 +89,14 @@ def build(n_simple=7, por_ps=2_000_000):
     nl.add("163", "U_CNT", part=F + "163", CLK="CK", CLR="VCC", LOAD="STG_n", ENP="DQ", ENT="VCC",
            RCO="LAST", **{p: ("VCC" if (load >> i) & 1 else "GND") for i, p in enumerate("ABCD")})
     gf("04", ["LAST"], "LAST_n")
-    # the bus monitor: clocks of a fast transfer with WAIT asserted
+    # the bus monitor: a fast transfer's data clocks (one more than the
+    # clocks it held WAIT in; WAIT itself comes too late for the counter's
+    # enables), 256 at most
     gf("08", ["DQ", "CLS1_n"], "FD")                      # a fast card's data clock
-    gf("04", ["WTB_n"], "WT")
-    nl.add("163", "U_MON0", part=F + "163", CLK="CK", CLR="FD", LOAD="VCC", ENP="WT", ENT="VCC",
-           A="GND", B="GND", C="GND", D="GND", RCO="MON4")
-    nl.add("163", "U_MON1", part=F + "163", CLK="CK", CLR="FD", LOAD="VCC", ENP="WT", ENT="MON4",
-           A="GND", B="GND", C="GND", D="GND", RCO="MON8")
+    nl.add("163", "U_MON0", part=F + "163", CLK="CK", CLR="FD", LOAD="VCC", ENP="VCC",
+           ENT="VCC", A="GND", B="GND", C="GND", D="GND", RCO="MON4")
+    nl.add("163", "U_MON1", part=F + "163", CLK="CK", CLR="FD", LOAD="VCC", ENP="VCC",
+           ENT="MON4", A="GND", B="GND", C="GND", D="GND", RCO="MON8")
     # does the next clock carry data? X: yes unless the transfer ends at
     # this edge for a reason known early; Y: a fast card's WAIT is off
     gf("11", ["DQ", "CLS1_n", "TQ_n"], "TF")              # fast, carries on if WAIT
@@ -129,14 +130,31 @@ def build(n_simple=7, por_ps=2_000_000):
         for i in range(8):
             d[f"Y{i}"] = f"SD_n.{8 * h + i}"
             r[f"D{i + 1}"], r[f"Q{i + 1}"] = f"SD_n.{8 * h + i}", f"SEL.{8 * h + i}"
-    # DPH, RDY, BERR, W32 from the registered state, through one driver
-    gf("08", ["CLS1", "CLS0"], "EMPTY")
-    gf("32", ["EMPTY", "TQ"], "BERRC")
-    gf("00", ["DQ", "BERRC"], "BERRI_n")
-    gf("02", ["FD", "RQ"], "RDYI_n")
-    gf("20", ["DQ", "CLS1_n", "CLS0_n"], "W32I_n")
+    # RDY and BERR end a master's transfer, so they come straight from a
+    # register (U_RG): its inputs are what they will be in the next clock.
+    # RDY: in a fast card's data clocks and a simple card's recovery clock.
+    # From an address clock the next is the first data clock, and RDY is
+    # the live class (CL1 low: fast); otherwise a fast card's data clocks
+    # go on while it holds WAIT. U_RM picks with WAIT and STG as selects,
+    # so neither the class nor WAIT goes through more than the multiplexer.
+    gf("02", ["TF", "RQ_D"], "RW_n")                      # next, with WAIT
+    gf("04", ["RQ_D"], "RQ_D_n")                          # next, without
+    # BERR: in the first data clock for an empty slot (EB, from the live
+    # class), or in the data clock after the monitor's count runs out with
+    # WAIT still held (TB)
+    gf("00", ["MON8", "TF"], "TW_n")
+    nl.add("153", "U_RM", part=F + "153", A="WTB_n", B="STG", **{"1G": "GND", "2G": "GND"},
+           **{"1C0": "RW_n", "1C1": "RQ_D_n", "1C2": "CL1", "1C3": "CL1", "1Y": "RDY_D_n",
+              "2C0": "TW_n", "2C1": "VCC", "2C2": "VCC", "2C3": "VCC", "2Y": "TB_D_n"})
+    gf("20", ["STG", "CL1", "CL0", "VCC"], "EB_D_n")
+    nl.add("574", "U_RG", part=ABT + "574", CLK="CK", OE="GND",
+           D1="RDY_D_n", Q1="RDYR_n", D2="EB_D_n", Q2="EBR_n", D3="TB_D_n", Q3="TBR_n",
+           **{f"D{i}": "GND" for i in range(4, 9)})
+    gf("08", ["EBR_n", "TBR_n"], "BERRI_n")
+    # DPH and W32 are only sampled, not decided on at once: from the state
+    gf("20", ["DQ", "CLS1_n", "CLS0_n", "VCC"], "W32I_n")
     nl.add("541", "U_OUT", part=ABT + "541", OE1="GND", OE2="GND",
-           A1="DQ_n", A2="RDYI_n", A3="BERRI_n", A4="W32I_n", A5="GND", A6="GND", A7="GND",
+           A1="DQ_n", A2="RDYR_n", A3="BERRI_n", A4="W32I_n", A5="GND", A6="GND", A7="GND",
            A8="GND", Y1="DPH_n", Y2="RDY_n", Y3="BERR_n", Y4="W32_n")
 
     # ---- the arbiter ---------------------------------------------------------

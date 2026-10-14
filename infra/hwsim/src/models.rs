@@ -153,6 +153,7 @@ pub enum Model {
     Uart(Box<Uart16550>),
     Timer(Box<I8254>),
     Cf(Box<CompactFlash>),
+    Vector(Vector),
 }
 
 impl Model {
@@ -211,6 +212,7 @@ impl Model {
             "uart16550" => Model::Uart(Box::new(Uart16550::new(s, preload)?)),
             "i8254" => Model::Timer(Box::new(I8254::new(s)?)),
             "cf" => Model::Cf(Box::new(CompactFlash::new(s, preload)?)),
+            "vector" => Model::Vector(Vector::new(s, preload)?),
             _ => {
                 return Err(Error(format!(
                     "{}: unknown model {:?}",
@@ -260,6 +262,17 @@ impl Model {
             Model::Uart(m) => m.init(cx, c),
             Model::Timer(m) => m.init(cx, c),
             Model::Cf(m) => m.init(cx, c),
+            Model::Vector(m) => m.init(cx, c),
+        }
+    }
+
+    /// Put an image into a RAM again (a loader's doing, after power-up);
+    /// other chips keep what they have.
+    pub fn reload(&mut self, image: &[u8]) {
+        if let Model::Sram(m) = self {
+            let n = image.len().min(m.mem.len());
+            m.mem[..n].copy_from_slice(&image[..n]);
+            m.mem[n..].fill(0);
         }
     }
 
@@ -271,6 +284,7 @@ impl Model {
             Model::IoDev(m) => Some(m.output.clone()),
             Model::Uart(m) => Some(m.core.tx_out.clone()),
             Model::Cf(m) => Some(m.core.image().to_vec()),
+            Model::Vector(m) => Some(m.log.clone()),
             _ => None,
         }
     }
@@ -307,6 +321,7 @@ impl Model {
             Model::Uart(m) => m.eval(cx, c, pin),
             Model::Timer(m) => m.eval(cx, c, pin),
             Model::Cf(m) => m.eval(cx, c, pin),
+            Model::Vector(m) => m.eval(cx, c, pin),
         }
     }
 }
@@ -2588,5 +2603,111 @@ impl Sr299 {
         } else if self.is_io[pin] && !self.driving {
             cx.check_hold(c, pin, self.last_edge, self.h_io, "IO");
         }
+    }
+}
+
+/// A test fixture that plays a script against a clock: a test's bus
+/// master. At every rising edge of CLK it records its inputs I0.. (as they
+/// were just before the edge); then, if the current step's conditions held
+/// in what it recorded, it moves to the next step and drives its outputs
+/// O0.. with it after `delay_ps`. The script is the preload, a step being
+/// `outs` bytes (0, 1, or 2 to let go of the pin) and then `conds` bytes,
+/// each 0 for none or 1 + 2k + v for "input k was v"; after its last step
+/// the outputs stay. The record is the dump: `ins` bytes per edge.
+pub struct Vector {
+    clk: usize,
+    outs: Vec<usize>,
+    ins: Vec<usize>,
+    conds: usize,
+    script: Vec<u8>,
+    step: usize,
+    delay: Time,
+    prev: u8,
+    pub log: Vec<u8>,
+}
+
+impl Vector {
+    fn new(s: &Spec, preload: Option<&[u8]>) -> Result<Vector, Error> {
+        let n_out = s.param("outs")? as usize;
+        let n_in = s.param("ins")? as usize;
+        let conds = s.param_or("conds", 0) as usize;
+        let outs = (0..n_out)
+            .map(|i| s.pin(&format!("O{i}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ins = (0..n_in)
+            .map(|i| s.pin(&format!("I{i}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let script = preload.unwrap_or(&[]).to_vec();
+        let size = n_out + conds;
+        if size == 0 || script.len() % size != 0 {
+            return Err(Error(format!(
+                "{}: the script isn't a whole number of {size}-byte steps",
+                s.info.reference
+            )));
+        }
+        if let Some(&b) = script
+            .chunks(size)
+            .flat_map(|st| &st[n_out..])
+            .find(|&&b| b != 0 && (b as usize - 1) / 2 >= n_in)
+        {
+            return Err(Error(format!(
+                "{}: condition {b} names an input it doesn't have",
+                s.info.reference
+            )));
+        }
+        Ok(Vector {
+            clk: s.pin("CLK")?,
+            outs,
+            ins,
+            conds,
+            script,
+            step: 0,
+            delay: s.param_or("delay_ps", 1).max(1),
+            prev: 0,
+            log: Vec::new(),
+        })
+    }
+
+    fn size(&self) -> usize {
+        self.outs.len() + self.conds
+    }
+
+    fn steps(&self) -> usize {
+        self.script.len() / self.size()
+    }
+
+    fn drive(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        let at = self.step * self.size();
+        for (i, &p) in self.outs.iter().enumerate() {
+            let v = self.script[at + i];
+            cx.drive(c, p, (v == 1) as u8, v < 2, d);
+        }
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        if self.steps() > 0 {
+            self.drive(cx, c, 0);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin != self.clk {
+            return;
+        }
+        let v = cx.input(c, self.clk);
+        if v == 1 && self.prev == 0 {
+            let seen: Vec<u8> = self.ins.iter().map(|&p| cx.input(c, p)).collect();
+            let at = self.step * self.size() + self.outs.len();
+            let met = self.step >= self.steps()
+                || self.script[at..at + self.conds]
+                    .iter()
+                    .all(|&b| b == 0 || seen[(b as usize - 1) / 2] == (b - 1) % 2);
+            self.log.extend_from_slice(&seen);
+            if met && self.step + 1 < self.steps() {
+                self.step += 1;
+                self.drive(cx, c, self.delay);
+            }
+        }
+        self.prev = v;
     }
 }

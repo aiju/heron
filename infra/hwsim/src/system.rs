@@ -9,7 +9,8 @@
 //!
 //! Memories and devices start from preloaded contents (ROM and RAM images,
 //! a UART's input, a disk image), and the run returns what the chips it
-//! names hold at the end.
+//! names hold at the end. RAM images are loaded again when reset ends, so
+//! writes from power-up's random state don't count.
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -206,6 +207,14 @@ pub fn run_system(
         } else if reset_ps.is_none() && reset_seen {
             reset_ps = Some(t);
             sim.state.check_on = true;
+            // RAM images go in now, as a loader would put them there:
+            // power-up's random state can write to a RAM before reset
+            // reaches its control logic
+            for (r, img) in &pre {
+                if let Some(i) = sim.chip(r) {
+                    sim.chips[i].model.reload(img);
+                }
+            }
         }
         let cycle = prog_start.map_or(-1, |(e, _)| edges - e - 1);
         sim.state.cycle = cycle;
