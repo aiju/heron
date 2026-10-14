@@ -16,6 +16,7 @@ dependencies = [
  "pyo3",
  "pyo3-build-config",
  "pythonize",
+ "sisim",
  "toolchain",
  "v1-isa",
 ]
@@ -169,6 +170,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "sisim"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
