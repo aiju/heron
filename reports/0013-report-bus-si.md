@@ -31,3 +31,11 @@ is numerically unreliable, so those results shouldn't be relied on yet.
 
 The sweeps write these files (`heron bus_si sweep --preset quick|full`);
 the bus_si study's README says how to run them on a local machine.
+
+> **Erratum (2026-10-14).** [Report 0021](0021-report-bus-si-revised.md)
+> reran the `full` preset on a simulator of the study's own. All 68 failed
+> jobs ran, and none changes a worst case here. The ground-bounce (`sso`)
+> results here are unphysical in the FCT and ACT cases; report 0021's
+> section 2 supersedes them. The sweeps now run in a cloud session too,
+> and the instructions above for running them on a local machine are out
+> of date: the study's README has the current ones.

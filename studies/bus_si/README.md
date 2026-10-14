@@ -22,7 +22,7 @@ cross-check the engine (`--engine ngspice`).
 
 ```sh
 heron bus_si check                         # the engines and models, one timed run
-heron bus_si report                        # every report 0021 sweep, then its tables (~30 min on 4 cores)
+heron bus_si report                        # every report 0021 sweep, then its tables (~15 min on 4 cores)
 heron bus_si sweep --preset loading        # one preset (heron bus_si sweep --help lists them)
 heron bus_si sweep --preset full --engine ngspice   # report 0013's sweep on ngspice
 heron bus_si compare A.json B.json         # two runs of a preset, job by job
