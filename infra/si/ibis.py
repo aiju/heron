@@ -28,25 +28,53 @@ from heron import BUILD as _BUILD
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILD = os.path.join(_BUILD, "ibis")
 
-# family -> where to get it, which model is the bus-side I/O pin, and the
-# DIP and SOIC package components
+# part -> where to get it, which model is the bus-side pin (the output for
+# drivers that aren't transceivers, with `input` naming the input model),
+# and its package components. The '245s are the bus transceivers of report
+# 0013; the rest came in for report 0021.
 PARTS = {
     "abt": dict(name="74ABT245B", code="scbm052", file="sn74abt245b.ibs",
-                model="ABT245B_BIO", dip="ABT245B_N", soic="ABT245B_DW",
+                model="ABT245B_BIO", packages={"dip": "ABT245B_N", "soic": "ABT245B_DW"},
                 sha256="9246237eaf28f90b71af787f2939bcc7a3f908c3245cccce03192fbe1ae51924"),
     "act": dict(name="74ACT245", code="SCAM044", file="sn74act245.ibs",
-                model="ACT245_IO", dip="ACT245_N", soic="ACT245_DW",
+                model="ACT245_IO", packages={"dip": "ACT245_N", "soic": "ACT245_DW"},
                 sha256="7b665f636266f35735dd1ae162e063fcc53c00a3296758501b4c41e113be31d6"),
     "fct": dict(name="74FCT245T", code="SCCM001", file="cy74fct245t.ibs",
-                model="FCT245T_IO", dip="FCT245T_P", soic="FCT245T_SO",
+                model="FCT245T_IO", packages={"dip": "FCT245T_P", "soic": "FCT245T_SO"},
                 sha256="38f531773efef5c6a0d84eee9935ce582a5993a17285d2db7ab791ed2c29bb1f"),
     "ahct": dict(name="74AHCT245", code="SCLM076", file="sn74ahct245.ibs",
-                 model="AHCT245_IO", dip="AHCT245_N", soic="AHCT245_DW",
+                 model="AHCT245_IO", packages={"dip": "AHCT245_N", "soic": "AHCT245_DW"},
                  sha256="46db38822ee2426183543f8ab7b48d5f6f4950360ecf296ce0dea28468ea0792"),
     "hct": dict(name="74HCT245", code="SCLM097", file="sn74hct245.ibs",
-                model="HCT245_IO", dip="HCT245_N", soic="HCT245_DW",
+                model="HCT245_IO", packages={"dip": "HCT245_N", "soic": "HCT245_DW"},
                 sha256="a1f2739882cd857c87e6fba3072ff754941143122325268ec93428db3236914e"),
+    # 16-bit flow-through transceiver; an old file with ramps but no V-T waveforms
+    "abt16245": dict(name="74ABT16245A", code="SCBM006", file="abt16245a.ibs",
+                     model="ABT16245A_I_O", packages={"tssop": "ABT16245A_DGG", "ssop": "ABT16245A_DL"},
+                     sha256="36eaa6f1cc75b0bfb20fc157a8e2d9ec599db5a738f8ec237e8aa016d1d46d3a"),
+    # octal transceiver with 25 ohm series resistors on its B port
+    "abt2245": dict(name="74ABT2245", code="SCBM061", file="sn74abt2245.ibs",
+                    model="ABT2245_BIO", packages={"dip": "ABT2245_N", "soic": "ABT2245_DW"},
+                    sha256="2f9f00717bbdbd3329a11e961f53ca1d921dba075544fa5192653116b0410bcc"),
+    # a registered output (for SEL and GNT) and a buffer (per-card clock)
+    # (its C_comp of 1.4 pF min and 52 pF max is implausible: typ is used)
+    "abt273": dict(name="74ABT273", code="SCBM081", file="sn74abt273.ibs", ccomp_typ=True,
+                   model="ABT273_OUT", input="ABT273_CLK", packages={"dip": "ABT273_N", "soic": "ABT273_DW"},
+                   sha256="f119839b2fb0ee99d28f5a28a6a59a47063a33ccf174b6cf4e3598c3f810ef32"),
+    "abt244": dict(name="74ABT244A", code="SCBM092", file="sn74abt244a.ibs",
+                   model="ABT244A_OUT", input="ABT244A_IN", packages={"dip": "ABT244A_N", "soic": "ABT244A_DW"},
+                   sha256="8303cfd57562acad670e33e46943245c96b77241b4c38d5fa1fe8ccee737cff2"),
+    # 5 V clock drivers, 1 to 6 (one package each, no per-pin values)
+    "cdc329a": dict(name="CDC329A", code="SCAM016", file="cdc329a.ibs",
+                    model="CDC329_OUT", input="CDC329_IN", packages={"ssop": "CDC329A(CLOCK_DRIVER)"},
+                    sha256="b87e27bbeb472b343d7ad42f2ebe575d77c20d6be5b2340ecb662f1f88fa6644"),
+    "cdc391": dict(name="CDC391", code="SCAM017", file="cdc391.ibs",
+                   model="CDC391_OUT", input="CDC391_IN", packages={"ssop": "CDC391(5.0V_CLOCK_DRIVER)"},
+                   sha256="4e43da0e2a11c837901b24f8b8e32081d2150d154b206e62e3b0560ccc2503ba"),
 }
+
+# the families report 0013's sweeps cover
+BUS_FAMILIES = ["abt", "act", "fct", "ahct", "hct"]
 
 CORNERS = {"typ": 0, "min": 1, "max": 2}
 
@@ -101,10 +129,16 @@ class Model:
         self.params = {}            # Vinl, Vinh, C_comp, Vcc, ...
         self.tables = {}            # pulldown, pullup, gnd_clamp, power_clamp: (V, I[3])
         self.waveforms = []         # dicts: edge, R, V (per corner), t, v[3]
+        self.ramp = {}              # rising/falling: [(dV, dt)] per corner; R_load
         self._k = {}
 
     def vcc(self, corner):
         return self.params["Vcc"][CORNERS[corner]]
+
+    def _ramp_waveforms(self, edge):
+        if edge not in self.ramp:
+            raise ValueError(f"{self.name}: no {edge} waveforms and no ramp")
+        return _ramp_waveforms_impl(self, edge)
 
     def ccomp(self, corner):
         return self.params["C_comp"][CORNERS[corner]]
@@ -131,7 +165,7 @@ class Model:
         c = CORNERS[corner]
         vcc = self.vcc(corner)
         cc = self.ccomp(corner)
-        wfs = [w for w in self.waveforms if w["edge"] == edge]
+        wfs = [w for w in self.waveforms if w["edge"] == edge] or self._ramp_waveforms(edge)
         tend = max(w["t"][-1] for w in wfs)
         t = np.arange(0.0, tend + dt / 2, dt)
         rows, rhs = [], []
@@ -193,6 +227,49 @@ class Model:
         return res
 
 
+def _dc_level(model, kind_on, corner, rf, vf):
+    """The pad voltage with one transistor fully on into a fixture."""
+    vcc = model.vcc(corner)
+    lo, hi = -1.0, vcc + 1.0
+    for _ in range(60):
+        v = (lo + hi) / 2
+        i = (vf - v) / rf                       # into the pad
+        if kind_on == "pullup":
+            cur = model._current("pullup", np.array([vcc - v]), corner)[0]
+        else:
+            cur = model._current("pulldown", np.array([v]), corner)[0]
+        cur += model._current("gnd_clamp", np.array([v]), corner)[0] \
+            + model._current("power_clamp", np.array([vcc - v]), corner)[0]
+        # cur is the buffer's current into the pad; balance against the fixture
+        if cur > i:
+            hi = v
+        else:
+            lo = v
+    return (lo + hi) / 2
+
+
+def _ramp_waveforms_impl(model, edge):
+    """A V-T waveform made from [Ramp]: a straight 0-100% edge taking
+    dt/0.6 (dt is its 20-80% time) into R_load, to ground for a rising edge
+    and to Vcc for a falling one, between the DC levels the V-I tables
+    give. What converters do with ramp-only files."""
+    r = model.ramp.get("R_load") or 50.0
+    rows = model.ramp[edge]
+    vfix = [0.0] * 3 if edge == "rising" else [model.params["Vcc"][c] for c in range(3)]
+    tend = max(dt for _, dt in rows) / 0.6 * 1.5 + 1e-9
+    t = np.linspace(0.0, tend, 400)
+    v = np.zeros((len(t), 3))
+    for c, name in enumerate(("typ", "min", "max")):
+        dv, dt = rows[c]
+        full = dt / 0.6
+        lo = _dc_level(model, "pulldown", name, r, vfix[c])
+        hi = _dc_level(model, "pullup", name, r, vfix[c])
+        a, b = (lo, hi) if edge == "rising" else (hi, lo)
+        t0 = 0.2e-9
+        v[:, c] = a + (b - a) * np.clip((t - t0) / full, 0, 1)
+    return [{"edge": edge, "R": r, "V": vfix, "t": t, "v": v, "from_ramp": True}]
+
+
 def parse(path):
     """{model name: Model}, {component name: {'pkg': (R, L, C), 'pins': {...}}}."""
     models, comps = {}, {}
@@ -208,6 +285,8 @@ def parse(path):
             return
         a = np.array(rows)
         if section in ("pulldown", "pullup", "gnd_clamp", "power_clamp"):
+            # a few files hold nonsense far outside the rails (CDC329A: 1e23 A)
+            a[:, 1:4] = np.clip(a[:, 1:4], -100.0, 100.0)
             order = np.argsort(a[:, 0])
             model.tables[section] = (a[order, 0], a[order, 1:4])
         elif section == "waveform":
@@ -250,11 +329,28 @@ def parse(path):
                     model.params["Vcc"] = _triple(arg)
                 elif model is not None and kw == "ramp":
                     section = "ramp"
+                    model.ramp = {}
                 elif kw == "end":
                     break
                 continue
             s = line.strip()
-            if model is not None and section is None or section == "ramp":
+            if section == "ramp" and model is not None:
+                f2 = s.split()
+                if f2[0].lower() in ("dv/dt_r", "dv/dt_f"):
+                    vals = []
+                    for x in f2[1:4]:
+                        dv, _, dt = x.partition("/")
+                        vals.append((num(dv), num(dt)) if dt else None)
+                    while len(vals) < 3:
+                        vals.append(None)
+                    vals = [v if v is not None and None not in v else vals[0] for v in vals]
+                    model.ramp["rising" if f2[0].lower().endswith("r") else "falling"] = vals
+                    continue
+                m = re.match(r"^R_load\s*=\s*(\S+)", s, re.I)
+                if m:
+                    model.ramp["R_load"] = num(m.group(1))
+                continue
+            if model is not None and section is None:
                 m = re.match(r"^(\w+)\s*=\s*(\S+)", s)
                 if m and model is not None:
                     model.params[m.group(1)] = num(m.group(2))
@@ -301,13 +397,27 @@ def parse(path):
 _cache = {}
 
 
-def load(family):
-    """(Model, component dict for 'dip' and 'soic') for a family."""
+def _parsed(family):
     if family not in _cache:
-        p = PARTS[family]
-        models, comps = parse(fetch(family))
-        _cache[family] = (models[p["model"]], {"dip": comps[p["dip"]], "soic": comps[p["soic"]]})
+        _cache[family] = parse(fetch(family))
     return _cache[family]
+
+
+def load(family, model=None):
+    """(Model, {package: component}) for a part: its bus-side model, or the
+    named one (e.g. PARTS[family]['input'])."""
+    p = PARTS[family]
+    models, comps = _parsed(family)
+    m = models[model or p["model"]]
+    if p.get("ccomp_typ") and "C_comp" in m.params:
+        m.params["C_comp"] = [m.params["C_comp"][0]] * 3
+    return m, {k: comps[v] for k, v in p["packages"].items()}
+
+
+def input_model(family):
+    """The name of the part's input model (its bus-side model for the
+    transceivers)."""
+    return PARTS[family].get("input", PARTS[family]["model"])
 
 
 def pin_rlc(family, package, corner="typ", signal=None, model=None):
@@ -358,11 +468,12 @@ def _thin(x, y, maxpts):
     return sorted(set(keep))
 
 
-def buffer(name, family, corner, pad, vcc, gnd, ku=None, kd=None):
+def buffer(name, family, corner, pad, vcc, gnd, ku=None, kd=None, model=None):
     """Netlist lines for one buffer at die node `pad`, with rails `vcc` and
     `gnd`. `ku`/`kd` name nodes carrying the switching coefficients (as
-    voltages); None means three-state (a receiver)."""
-    m, _ = load(family)
+    voltages); None means three-state (a receiver). `model` picks another
+    of the part's models (its input model, say)."""
+    m, _ = load(family, model)
     out = [f"* {name}: {PARTS[family]['name']} {m.name} ({corner})"]
     out.append(f"C{name}c {pad} {gnd} {m.ccomp(corner):.4g}")
     # input leakage, which is what holds a bipolar (ABT) high level at

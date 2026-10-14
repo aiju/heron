@@ -1,0 +1,14 @@
+# The fixed-step transient simulator for the signal-integrity studies
+# (RFC 0015). Python uses it through heron/bindings as heron.native.sisim,
+# by way of infra/si/engine.py, which turns SPICE netlists into its input.
+[package]
+name = "sisim"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

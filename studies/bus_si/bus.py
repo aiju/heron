@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from heron.infra.si import fields, ibis, spice
+from heron.infra.si import engine, fields, ibis
 
 CACHE = os.path.join(ibis.BUILD, "..", "si-fields.json")
 
@@ -305,7 +305,7 @@ def ref_delay(family, corner, package="dip"):
               f"Cl p 0 {cref:.4g}"]
     if rref:
         lines += [f"Rl p vr {rref}", f"Vr vr 0 {vref}"]
-    r = spice.run(lines, ["v(p)"], 120e-9, title=f"ref {family} {corner}")
+    r = engine.run(lines, ["v(p)"], 120e-9, title=f"ref {family} {corner}")
     t, v = r["time"], r["v(p)"]
     rise = settle(t, v, t0, t1, True, vmeas, vmeas)
     fall = settle(t, v, t1, 120e-9, False, vmeas, vmeas)
@@ -332,7 +332,7 @@ def run_line(bp, term, family, corner, driver, recv=None, keep=False):
     lines, dies = line_netlist(bp, term, family, corner, driver, [T_RISE, T_FALL], recv=recv)
     lines = [f"Vcc vcc 0 {vcc}"] + lines
     probes = [f"v({d})" for d in dies.values()]
-    r = spice.run(lines, probes, T_STOP,
+    r = engine.run(lines, probes, T_STOP,
                   title=f"line {bp.slots} slots {family} {term.name} {corner} slot {driver}")
     t = r["time"]
     vil, vih = ibis.thresholds(recv or family)
@@ -413,7 +413,7 @@ def run_clock(bp, family, corner, recv, rseries, matched=True):
     lines, dies = clock_netlist(bp, family, corner, recv, rseries, clock_lengths(bp, matched),
                                 [T_RISE, T_FALL])
     lines = [f"Vcc vcc 0 {m.vcc(corner)}"] + lines
-    r = spice.run(lines, [f"v({d})" for d in dies.values()], T_STOP,
+    r = engine.run(lines, [f"v({d})" for d in dies.values()], T_STOP,
                   title=f"clock {family} {corner} R={rseries}")
     t = r["time"]
     out = {"time": t, "v": {}, "rise": {}, "fall": {}}

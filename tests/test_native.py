@@ -100,3 +100,28 @@ class Toolchain(unittest.TestCase):
             native.toolchain.Assembler("v1b", False).load(os.path.join(ROOT, "nowhere.s"))
         with self.assertRaisesRegex(ValueError, "no assembler for ISA v9"):
             native.toolchain.Assembler("v9", False)
+
+
+@unittest.skipUnless(shutil.which("cargo"), "needs cargo (https://rustup.rs)")
+class Sisim(unittest.TestCase):
+    """The signal-integrity simulator's bindings, through infra/si/engine.py,
+    which turns SPICE netlists into its input."""
+
+    def test_open_line(self):
+        from heron.infra.si import engine
+        # a 1 V step through 50 ohm into 1 ns of open 50 ohm line
+        lines = ["V1 s 0 PWL(0 0 1p 1)", "R1 s a 50", "T1 a 0 b 0 Z0=50 TD=1n"]
+        r = engine.run_native(lines, ["v(a)", "v(b)"], 3e-9)
+        at = lambda p, t: float(r[p][abs(r["time"] - t).argmin()])
+        self.assertAlmostEqual(at("v(a)", 1.5e-9), 0.5, places=4)
+        self.assertAlmostEqual(at("v(b)", 1.5e-9), 1.0, places=4)
+        self.assertAlmostEqual(at("v(a)", 2.5e-9), 1.0, places=4)
+
+    def test_unsupported(self):
+        from heron.infra.si import engine
+        with self.assertRaisesRegex(ValueError, "doesn't take this element"):
+            engine.run_native(["X1 a b sub"], ["v(a)"], 1e-9)
+        with self.assertRaisesRegex(RuntimeError, "shorter than the time step"):
+            native.sisim.run({"nodes": 3, "lines": [{"end1": [1], "ref1": 0, "end2": [2], "ref2": 0,
+                                                      "tv": [[1.0]], "z": [50.0], "delay": [1e-12]}]},
+                             {"dt": 5e-12, "tstop": 1e-9, "probes": []})

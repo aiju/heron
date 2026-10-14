@@ -4,7 +4,7 @@ from many outputs on one card switching at once."""
 import numpy as np
 
 from . import bus
-from heron.infra.si import ibis, spice
+from heron.infra.si import engine, ibis
 
 # coupling between neighbouring DIN 41612 contacts (2.54 mm apart, ~20 mm
 # long). Estimated from partial inductances: about 0.45 with no ground pin
@@ -68,7 +68,7 @@ def crosstalk(bp, term, family, corner, driver, victim_level, k_conn=K_CONN):
                   f"Kab{k} Lac{k} Lbc{k} {k_conn * K_CONN_NEXT / K_CONN:.3g}"]
     probes = [f"v({d})" for d in dies["v"].values()]
     title = f"xtalk {family} {term.name} {corner} slot {driver} victim {victim_level} k {k_conn}"
-    r = spice.run(lines, probes, bus.T_STOP, title=title)
+    r = engine.run(lines, probes, bus.T_STOP, title=title)
     t = r["time"]
     late = t > bus.T_RISE
     res = {}
@@ -135,7 +135,7 @@ def ground_bounce(bp, term, family, corner, driver, packages=1, package="dip",
              ["v(gd0)", "v(cgnd)", f"v(vd0,gd0)", f"v({dies['s00'][driver]})"]
     tstop = 60e-9
     title = f"sso {family} {term.name} {corner} {package} x{packages} {'falling' if falling else 'rising'}"
-    r = spice.run(lines, probes, tstop, title=title)
+    r = engine.run(lines, probes, tstop, title=title)
     t = r["time"]
     late = t > t_edge
     worst = None

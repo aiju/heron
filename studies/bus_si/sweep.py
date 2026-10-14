@@ -1,29 +1,29 @@
-"""Signal-integrity sweeps: many ngspice runs in parallel.
+"""Signal-integrity sweeps: many simulator runs in parallel.
 
-Each finished job is appended to build/si/<preset>.jsonl as it completes, so
-an interrupted sweep picks up where it stopped. At the end the results are
-written, compactly, to <preset>.json in report 0013's folder, which gets
-committed. No tool reads them yet: the system bus RFC (0014, section 9)
-summarises them by hand.
+The presets here are report 0013's: `quick` and `full`. They run on
+either engine (infra/si/engine.py). Each finished job is appended to
+build/si/<preset>-<engine>.jsonl as it completes, so a stopped sweep picks
+up where it was, and infra/si/runner.py kills any job that overruns its
+deadline. At the end the results are written, compactly, to
+<preset>.json: in report 0013's folder for ngspice (the committed
+originals), in report 0021's for the native engine.
 """
 
 import json
-import math
 import os
-import time
-from multiprocessing import Pool
 
 import numpy as np
 
 from heron import BUILD, ROOT
-from heron.infra.si import ibis, spice
+from heron.infra.si import engine, ibis, runner, spice
 
 from . import bus, noise
 
 WORK = os.path.join(BUILD, "si")
-OUT = os.path.join(ROOT, "reports", "0013-report-bus-si")
+OUT = {"ngspice": os.path.join(ROOT, "reports", "0013-report-bus-si"),
+       "native": os.path.join(ROOT, "reports", "0021-report-bus-si-revised")}
 
-FAMILIES = list(ibis.PARTS)
+FAMILIES = ibis.BUS_FAMILIES
 ALL_TERMS = list(bus.TERMS)
 
 
@@ -113,20 +113,6 @@ def jobs(preset):
     return out
 
 
-def _clean(x):
-    """JSON-friendly, rounded."""
-    if isinstance(x, dict):
-        return {str(k): _clean(v) for k, v in x.items()}
-    if isinstance(x, (list, tuple)):
-        return [_clean(v) for v in x]
-    if isinstance(x, (np.floating, float)):
-        x = float(x)
-        return None if math.isnan(x) else round(x, 13) if abs(x) < 1e-6 else round(x, 4)
-    if isinstance(x, np.integer):
-        return int(x)
-    return x
-
-
 def ibis_check(family, corner):
     """Drive each IBIS reference fixture with the converted model and
     compare: the worst voltage error, and the error in the time of the
@@ -141,7 +127,7 @@ def ibis_check(family, corner):
         lines = [f"Vcc vcc 0 {m.vcc(corner)}"] + src
         lines += ibis.buffer("d", family, corner, "pad", "vcc", "0", ku, kd)
         lines += [f"Rf pad fx {w['R']}", f"Vf fx 0 {w['V'][c]}"]
-        r = spice.run(lines, ["v(pad)"], t0 + w["t"][-1], maxstep=10e-12,
+        r = engine.run(lines, ["v(pad)"], t0 + w["t"][-1], maxstep=10e-12,
                       title=f"ibis {family} {corner} {w['edge']} {w['V'][c]} V")
         sim = np.interp(w["t"], r["time"] - t0, r["v(pad)"])
         tgt = w["v"][:, c]
@@ -187,22 +173,6 @@ def run_job(job):
     raise ValueError(kind)
 
 
-def _worker(job):
-    t0 = time.time()
-    try:
-        res, err = _clean(run_job(job)), None
-    except Exception as e:                      # noqa: BLE001 - keep the sweep going
-        msg = str(e)
-        if len(msg) > 400:                      # what went wrong, and the end of ngspice's log
-            msg = msg[:150] + " [...] " + msg[-250:]
-        res, err = None, f"{type(e).__name__}: {msg}"
-    return {"job": list(job), "result": res, "error": err, "seconds": round(time.time() - t0, 2)}
-
-
-def _key(job):
-    return json.dumps(list(job))
-
-
 def _cost(job):
     """Rough relative run time, for scheduling."""
     kind = job[0]
@@ -213,67 +183,58 @@ def _cost(job):
     return {"xtalk": 4, "clock": 1}.get(kind, 0.3)
 
 
-def run(preset, jobs_n=None, dry_run=False, retry_errors=False, limit=None):
+def _setup():
+    # the IBIS files and the field solver, once per worker (cached on disk)
+    for f in FAMILIES:
+        ibis.load(f)
+    bus.trace_params()
+
+
+def timeout_for(name):
+    """Per-job deadline (s): a native run takes seconds, an ngspice one
+    normally under a minute."""
+    return 120 if name == "native" else 300
+
+
+def run(preset, jobs_n=None, dry_run=False, retry_errors=False, limit=None, engine_name=None,
+        timeout=None, budget=None):
+    engine_name = engine_name or engine.current()
+    engine.use(engine_name)
     todo = jobs(preset)
-    os.makedirs(WORK, exist_ok=True)
-    log = os.path.join(WORK, f"{preset}.jsonl")
-    done = {}
-    if os.path.exists(log):
-        with open(log) as f:
-            for line in f:
-                try:
-                    rec = json.loads(line)
-                except ValueError:
-                    continue
-                if rec["error"] and retry_errors:
-                    continue
-                done[_key(rec["job"])] = rec
-    pending = [j for j in todo if _key(list(j)) not in done]
-    # longest first, so the slow crosstalk and ground-bounce runs overlap
-    # with the many short ones instead of trailing at the end
-    pending.sort(key=_cost, reverse=True)
-    if limit:
-        pending = pending[:limit]
     kinds = {}
     for j in todo:
         kinds[j[0]] = kinds.get(j[0], 0) + 1
-    print(f"preset {preset}: {len(todo)} jobs ({', '.join(f'{v} {k}' for k, v in kinds.items())}), "
-          f"{len(todo) - len(pending)} already done, {len(pending)} to run")
+    print(f"preset {preset} on {engine_name}: {len(todo)} jobs "
+          f"({', '.join(f'{v} {k}' for k, v in kinds.items())})")
+    # a run at another time step (HERON_SI_DT) is kept apart
+    tag = f"{preset}-{engine_name}" + ("" if engine_name == "ngspice" or engine.DT == 5e-12
+                                      else f"-dt{engine.DT * 1e12:g}ps")
+    log = os.path.join(WORK, f"{tag}.jsonl")
     if dry_run:
+        done = runner.load(log, retry_errors)
+        print(f"{sum(1 for j in todo if runner.key(j) in done)} already done")
         return 0
-    if not spice.have_ngspice():
+    if engine_name == "ngspice" and not spice.have_ngspice():
         raise SystemExit("ngspice not found on PATH")
-    jobs_n = jobs_n or os.cpu_count() or 4
-    # everything the workers share, done once up front: the IBIS downloads
-    # and the field solver (about a minute, cached in build/)
-    for f in FAMILIES:
-        ibis.load(f)
-    print("trace:", {k: v for k, v in bus.trace_params().items() if k in ("z0", "tpd")})
-    t0 = time.time()
-    n_err = 0
-    with open(log, "a") as f, Pool(jobs_n) as pool:
-        for i, rec in enumerate(pool.imap_unordered(_worker, pending), 1):
-            f.write(json.dumps(rec) + "\n")
-            f.flush()
-            done[_key(rec["job"])] = rec
-            if rec["error"]:
-                n_err += 1
-                print(f"  error in {rec['job']}: {rec['error'][:200]}")
-            if i % 10 == 0 or i == len(pending):
-                el = time.time() - t0
-                print(f"  {i}/{len(pending)} done, {el / 60:.1f} min, "
-                      f"~{el / i * (len(pending) - i) / 60:.1f} min to go", flush=True)
-    wall = time.time() - t0
-    recs = [done[_key(list(j))] for j in todo if _key(list(j)) in done]
+    _setup()                                    # download and solve once, before the workers fork
+    print("trace:", {k: v for k, v in bus.trace_params().items() if k in ("z0", "tpd")}, flush=True)
+    sel = todo
+    if limit:
+        done = runner.load(log, retry_errors)
+        sel = [j for j in todo if runner.key(j) not in done][:limit]
+    recs, n_err, wall, complete = runner.run(
+        sel, run_job, log, workers=jobs_n, timeout=timeout or timeout_for(engine_name),
+        budget=budget, retry_errors=retry_errors, setup=_setup, cost=_cost)
+    done = runner.load(log)
+    recs = [done[runner.key(j)] for j in todo if runner.key(j) in done]
     cpu = sum(r["seconds"] for r in recs)
-    os.makedirs(OUT, exist_ok=True)
-    out = os.path.join(OUT, f"{preset}.json")
+    out_dir = OUT[engine_name]
+    os.makedirs(out_dir, exist_ok=True)
+    out = os.path.join(out_dir, f"{preset}.json" if tag == f"{preset}-{engine_name}" else f"{tag}.json")
     with open(out, "w") as f:
-        json.dump({"preset": preset, "jobs": len(todo), "complete": len(recs),
+        json.dump({"preset": preset, "engine": engine.version(), "jobs": len(todo), "complete": len(recs),
                    "errors": sum(1 for r in recs if r["error"]),
-                   "wall_minutes_last_run": round(wall / 60, 1), "workers": jobs_n,
-                   "cpu_minutes": round(cpu / 60, 1),
-                   "ngspice": spice.version(), "records": recs}, f, separators=(",", ":"))
-    print(f"{len(pending)} jobs in {wall / 60:.1f} min on {jobs_n} workers "
-          f"({cpu / 60:.1f} CPU-min in all records), {n_err} errors; wrote {out}")
-    return 1 if n_err else 0
+                   "wall_minutes_last_run": round(wall / 60, 1), "workers": jobs_n or os.cpu_count(),
+                   "cpu_minutes": round(cpu / 60, 1), "records": recs}, f, separators=(",", ":"))
+    print(f"wrote {out} ({len(recs)} of {len(todo)} jobs, {sum(1 for r in recs if r['error'])} errors)")
+    return 1 if n_err or not complete else 0
