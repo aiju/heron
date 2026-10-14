@@ -1,0 +1,2 @@
+# hello: the smallest program
+print("Hello, world!")

@@ -112,6 +112,8 @@ From [report 0004](0004-report-draft-1-evaluation.md):
 | Block I/O instruction (Z80 `INIR` style, interruptible) | microcode | ~5–6 cycles per word against ~12–15 for a software loop | **open** |
 | Atomic exchange / test-and-set | microcode + bus lock | Only once DMA or a second CPU shares data structures | **open** |
 | Popcount, find-first-set | microcode | Scheduler and allocator bitmaps | **open** |
+| Tagged add, subtract and compare that trap unless both operands are SmallInts (SPARC's `TADDccTV`) | opcode or mode, trap vector | Dynamic languages: 2–3% of an interpreter's run, 5.5% of compiled code's and 16–18% of numeric programs' ([report 0017](0017-report-egret.md)) | **measured** |
+| For dynamic languages: load a tagged value's class, three-operand `XOR`, unaligned 16-bit loads, a call that leaves the return address in a register, `CHK` | microcode | About 1% or less each, interpreted or compiled ([report 0017](0017-report-egret.md)) | **measured** |
 | A 12-bit `BSR` (±4 KB, SuperH style) in op B | opcode | Saves ~9% of code size and no cycles; op B went to the shift group instead | **rejected** |
 
 ### 2.5 Rejected, with the evidence

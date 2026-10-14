@@ -1,0 +1,4 @@
+2476 characters
+{"records":[{"id":1,"name":"item 1","tags":["t1","t1"],"price":37,"stock":{"warehouse":1,"shelf":"A1"},"active":false,"no
+round trips that came back the same: 10
+item 7 ["t1", "t2"] A7 "say \"hi\"\nbye"

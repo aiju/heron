@@ -1,0 +1,36 @@
+# sieve: the Sieve of Eratosthenes, primes below 8192. Prints how many there
+# are and the last ten. Flags are 0 or 1, as in the C and assembly versions.
+
+N = 8192
+
+def sieve(n)
+  flags = List.new(n, 1)
+  flags[0] = 0
+  flags[1] = 0
+  i = 2
+  while i * i < n
+    if flags[i] == 1
+      j = i * i
+      while j < n
+        flags[j] = 0
+        j += i
+      end
+    end
+    i += 1
+  end
+  flags
+end
+
+flags = sieve(N)
+count = 0
+for f in flags
+  count += f
+end
+print("primes below 8192: {count}")
+last = []
+i = N - 1
+while last.size < 10
+  if flags[i] == 1 then last.insert(0, i) end
+  i -= 1
+end
+print("last ten: " + last.map { |p| p.to_s }.join(" "))
