@@ -57,6 +57,7 @@ def build(card=False, stub=False):
     DEC = bus("DEC", 16)
     LC = bus("LC", 8)
 
+    nl.section("Reset")
     # ---- fixtures: clock/reset generator, rails --------------------------------
     if not card or stub:
         nl.add("clockgen", "X_CLK", CLK="CLK", WEWIN="WEWIN0", RESET="RESET_n")
@@ -66,6 +67,7 @@ def build(card=False, stub=False):
     g("04", ["RESET_n"], "RESET")
     g("08", ["WEWIN0", "RESET_n"], "WEWIN")       # no writes while reset is held
 
+    nl.section("Control store")
     # ---- control store: ROMs addressed by the next address, uIR ------------------
     # address {FAULT & LEN, FAULT, IRQP, Y}: see ucode.py
     upper = {uc.IRQP_BIT: "IRQP", uc.FAULT_BIT: "FAULT", uc.FAULT_BIT + 1: "FLEN0",
@@ -82,6 +84,7 @@ def build(card=False, stub=False):
             if 8 * k + i in U:
                 r[f"Q{i + 1}"] = U[8 * k + i]
 
+    nl.section("Decode")
     # decode ROM: first parcel on the data bus (or GOIRQ) -> routine address, length
     for k in range(2):
         rom = nl.add("flash", f"U_DEC{k}", CE="GND", OE="GND", WE="VCC")
@@ -91,6 +94,7 @@ def build(card=False, stub=False):
         for i in range(8):
             rom[f"D{i}"] = DEC[8 * k + i]
 
+    nl.section("Instruction register")
     # IR, and the instruction length (for address-error entry) beside it
     for half in (0, 1):
         r = nl.add("377", f"U_IR{half}", CLK="CLK", EN=u["LDIR_n"])
@@ -102,6 +106,7 @@ def build(card=False, stub=False):
     for i in range(3, 9):
         irx[f"D{i}"] = "GND"
 
+    nl.section("Next address")
     # next-address multiplexer: 0 NEXT (bit 0: the condition), 1 decode, 2 dispatch
     # (bit 0: DBUS[7:0] != 0)
     nl.add("688", "U_DZ", G="GND", PEQ="DZ_n",
@@ -109,6 +114,7 @@ def build(card=False, stub=False):
     nl.add("151", "U_CONDM", A=u["COND0"], B=u["COND1"], C=u["COND2"], G="GND", Y="CONDY",
            D0=u["NEXT0"], D1="TC", D2=RQ[31], D3="CLQ", D4="CONDT", D5="MQ31", D6="TC4",
            D7="CONDT_n")
+    nl.section("Faults")
     # misaligned access: word (SIZE 3) at MAR[1:0] != 0, half (SIZE 2) at MAR[0] = 1.
     # It turns the Y multiplexer off (Y = 0) and selects a fault page.
     g("08", [u["SIZE0"], MAR[1]], "MIS1")
@@ -122,6 +128,7 @@ def build(card=False, stub=False):
     g("08", ["FAULT", "LEN0"], "FLEN0")
     g("08", ["FAULT", "LEN1"], "FLEN1")
     g("32", ["RESET", "FAULT"], "YOFF")
+    nl.section("Next address")
     for k in range((uc.Y_BITS + 1) // 2):
         m = nl.add("153", f"U_YM{k}", A=u["SEQ0"], B=u["SEQ1"], **{"1G": "YOFF", "2G": "YOFF"})
         for sec in (0, 1):
@@ -136,6 +143,7 @@ def build(card=False, stub=False):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = Y[i]
 
+    nl.section("Interrupt request")
     # interrupt request: synchronise, then pending = request & I (next value)
     nl.add("74", "U_IRQ", nocheck=card, **{"1D": "IRQ", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n",
                              "1Q": "IRQS",
@@ -143,6 +151,7 @@ def build(card=False, stub=False):
                              "2Q": "IRQP"})
     g("08", ["IRQS", "INEXT"], "IRQP_D")
 
+    nl.section("Register file")
     # ---- register file: two copies of 32 x 32 bits ------------------------------
     # SX: the s register field, loaded with IR[7:4] at every fetch and with the
     # index register number (DBUS[15:12]) when the indexed mode's extension
@@ -184,6 +193,7 @@ def build(card=False, stub=False):
     g("32", ["RFNZ", u["WR0"]], "RFWOK")
     g("10", [u["RFWE"], "WEWIN", "RFWOK"], "RFWE_n")
 
+    nl.section("A bus")
     # ---- A bus drivers: PC, R, R x 2 + SINA, bridge from B ------------------------
     nl.add("153", "U_SINA", A=u["SINA0"], B=u["SINA1"],
            **{"1G": "GND", "2G": "VCC", "1C0": "GND", "1C1": RQ[31], "1C2": "CFLAG",
@@ -196,6 +206,7 @@ def build(card=False, stub=False):
             for i in range(8):
                 b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[8 * k + i], ABUS[8 * k + i]
 
+    nl.section("B bus")
     # ---- B bus drivers -----------------------------------------------------------
     for k in range(4):
         b = nl.add("541", f"U_BR{k}", OE1=u["BR_n"], OE2="GND")
@@ -218,6 +229,7 @@ def build(card=False, stub=False):
         b = nl.add("541", f"U_BTX{k}", OE1=u["BT2_n"], OE2="GND")
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = T2[8 * k + i], BBUS[8 * k + i]
+    nl.section("Immediate unit")
     # immediate unit: byte 0 = V8 (branch offset x 2, constant, fill, LC), fill above
     nl.add("151", "U_FILLM", A=u["FSEL0"], B=u["FSEL1"], C=u["FSEL2"], G="GND", Y="FILL",
            D0="GND", D1="VCC", D2=IR[7], D3=TQ[7], D4=TQ[15], D5=ABUS[31], D6=ABUS[15], D7="SGNQ")
@@ -240,6 +252,7 @@ def build(card=False, stub=False):
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], dst[i]
 
+    nl.section("MQ")
     # MQ: 4 x 74HCT299 on the B bus. Chip k holds bits 8k..8k+7 with I/O n =
     # bit 8k+7-n, so the 299's shift toward Q7 is a right shift of MQ (DS0
     # in at the top) and its shift toward Q0 a left shift (DS7 in at the bottom).
@@ -253,6 +266,7 @@ def build(card=False, stub=False):
         sr["DS0"] = F[0] if k == 3 else mqs(8 * (k + 1))
         sr["DS7"] = "QBIT" if k == 0 else mqs(8 * (k - 1) + 7)
 
+    nl.section("Loop counter")
     # ---- loop counter ------------------------------------------------------------
     nl.add("161", "U_LC0", CLK="CLK", CLR="VCC", LOAD=u["LDLC_n"], ENP=u["LCINC"], ENT="VCC",
            A=RES[0], B=RES[1], C=RES[2], D=RES[3], QA=LC[0], QB=LC[1], QC=LC[2], QD=LC[3],
@@ -261,6 +275,7 @@ def build(card=False, stub=False):
            A=RES[4], B=RES[5], C=RES[6], D=RES[7], QA=LC[4], QB=LC[5], QC=LC[6], QD=LC[7],
            RCO="TC")
 
+    nl.section("ALU control")
     # ---- ALU control: multiply/divide steps take over the function ----------------
     # MS (step select) 0: S from the uIR; 1 add if MQ[0] (S = 1001 or 0000);
     # 2 subtract if MQ[0] (0110 or 0000); 3 add if S33, else subtract (divide)
@@ -278,6 +293,7 @@ def build(card=False, stub=False):
     nl.add("151", "U_CINM", A=u["CIN0"], B=u["CIN1"], C=u["CIN2"], G="GND", W="CIN_n",
            D0="GND", D1="VCC", D2="CFLAG", D3=ABUS[31], D4="MQ31", D5="SGNQ", D6="MQ0", D7="S33_n")
 
+    nl.section("ALU")
     # ---- ALU: 8 x 74181, two-level carry lookahead (3 x 74182) ----------------------
     cn = ["CIN_n", "C4_n", "C8_n", "C12_n", "C16_n", "C20_n", "C24_n", "C28_n"]
     for k in range(8):
@@ -299,6 +315,7 @@ def build(card=False, stub=False):
     g("86", [ABUS[31], "VT1"], "VT2")
     g("86", [ABUS[31], F[31]], "VT3")                  # OVF = VT2 & VT3, see U_FV
 
+    nl.section("Result multiplexer")
     # ---- result multiplexer: F, F >> 1, ror 8, ror 16; bytes can be cleared ----------
     g("04", [u["MQM1"]], "MQM1_n")
     g("08", [u["MQM0"], "MQM1_n"], "MULSTEP")                # MQ shifts right
@@ -320,6 +337,7 @@ def build(card=False, stub=False):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = RES[i]
 
+    nl.section("R and T")
     # ---- R, T ------------------------------------------------------------------------
     for k in range(4):
         r = nl.add("377", f"U_R{k}", CLK="CLK", EN=u["LDR_n"])
@@ -328,6 +346,7 @@ def build(card=False, stub=False):
             r[f"D{i + 1}"], r[f"Q{i + 1}"] = RES[8 * k + i], RQ[8 * k + i]
             t[f"D{i + 1}"], t[f"Q{i + 1}"] = DBUS[8 * (k % 2) + i], TQ[8 * k + i]
 
+    nl.section("MAR")
     # ---- MAR (bits 0-19 and 31) from the result bus or straight from the A bus ---------
     nmar = len(MAR)
     MARIN = bus("MARIN", nmar)
@@ -350,6 +369,7 @@ def build(card=False, stub=False):
             else:
                 r[f"D{j + 1}"] = "GND"
 
+    nl.section("PC")
     # ---- PC: 8 x 74HCT161 (bits 1-31), +2 on every read at the PC ------------------------
     g("02", [u["MEMRD_n"], u["ADDRMAR"]], "PCINC")
     rco = [f"PCRCO{s}" for s in range(8)]
@@ -375,6 +395,7 @@ def build(card=False, stub=False):
     g("00", [u["PCCOND"], "BCOND_n"], "CONDOK")
     g("00", [u["LDPC"], "CONDOK"], "PCLOAD_n")
 
+    nl.section("Memory")
     # ---- address multiplexer and memory --------------------------------------------------
     g("32", [MAR[1], u["HIWORD"]], "MAR1H")
     asrc = [("GND", MAR[0]), (PC[1], "MAR1H")] + [(PC[i], MAR[i]) for i in range(2, 20)]
@@ -425,6 +446,7 @@ def build(card=False, stub=False):
     elif stub:
         nl.add("const", "X_STUB2", LO="IRQ")
 
+    nl.section("Store data")
     # store data: result bus low half (DSRC 11), high half (10), or low byte on
     # both lanes (01). The two enables of each 541 decode it, so the drivers
     # turn off quickly when the next cycle's RAM read turns on.
@@ -439,6 +461,7 @@ def build(card=False, stub=False):
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], dst[i]
 
+    nl.section("Flags")
     # ---- flags ---------------------------------------------------------------------------
     for k in range(4):
         nl.add("688", f"U_Z{k}", G="GND", PEQ=f"ZB{k}_n",
@@ -480,6 +503,7 @@ def build(card=False, stub=False):
                                "1Q": "IFLAG", "1QN": "IFLAG_n",
                                "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
 
+    nl.section("Condition latches")
     # condition latch CL, sign latch SGN, divide sign S33
     # CLSRC 4 and 5 AND the test with CL: the multiplexer is disabled if CL is 0
     g("08", [u["CLSRC2"], "CL_n"], "CLOFF")
@@ -511,6 +535,7 @@ def build(card=False, stub=False):
                               "1Q": "S33Q", "1QN": "S33_n",
                               "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
 
+    nl.section("Branch condition")
     # ---- branch condition (ARM encoding): cc from IR[11:8], or IR[7:4] for SETcc -------
     CC = bus("CC", 4)
     m = nl.add("157", "U_CCM", S=u["CCB"], G="GND")

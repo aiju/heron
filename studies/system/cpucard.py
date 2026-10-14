@@ -52,10 +52,12 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
     def gf(typ, ins, out):
         return g(typ, ins, out, part=F + typ)
 
+    nl.section("Reset")
     # ---- reset from the bus, through a Schmitt trigger ------------------------
     g("14", ["BUS.RESET_n"], "RSTI", part=HCT + "14")
     g("14", ["RSTI"], "RESET_n", part=HCT + "14")
 
+    nl.section("Clock generator")
     # ---- the clock generator ---------------------------------------------------
     nl.add("osc", "U_OSC", part="oscillator 50 MHz", OUT="MCLK",
            params={"period_ps": TICK_PS, "phase_ps": TICK_PS})
@@ -74,6 +76,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
         else:
             ph[f"{i + 1}D"] = "GND"
 
+    nl.section("Length class")
     # the length class (the 16th microcode ROM) picks the counter's preload
     rom = nl.add("flash", "U_UC15", CE="GND", OE="GND", WE="VCC")
     from heron.studies.v1b_hw import ucode as uc
@@ -94,6 +97,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
             for c in range(4):
                 m[f"{sec + 1}C{c}"] = "VCC" if (pre[c] >> bit) & 1 else "GND"
             m[f"{sec + 1}Y"] = f"PSEL{bit}"
+    nl.section("Clock generator")
     # the tick counter (74ACT163: the 74F163's 11.5 ns setups don't fit a
     # 20 ns tick): cleared at the cycle's edge, counts 0-3 (the head),
     # loads P, counts to 15, then two tail ticks T1, T2. Every path in this
@@ -130,6 +134,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
               "2J": "TCRCO", "2K": "T2_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC",
               "2QN": "TAIL_n"})
     gf("08", ["LATE", "TAIL_n"], "WEWIN0")
+    nl.section("Bus hold and crossings")
     # a bus access: hold the count a tick after bit 3 of the count is seen
     # (Q3R: from count 9, or from tick 5 for a short class) until the
     # transfer is done; that leaves at least 6 ticks after it (the class of
@@ -157,6 +162,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
               "2J": "H3", "2K": "T2_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC",
               "2Q": "MID"})
 
+    nl.section("Bus access decode")
     # ---- which accesses go on the bus (CPU side, fast parts: the clock
     # generator reads BUSACC at least 5 ticks, 100 ns, into the cycle) ------
     gf("08", [u["SIZE0"], "MAR1"], "MISF1")
@@ -168,6 +174,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
     g("08", ["BUSACC", "EQ"], "BUSERR", part=HCT + "08")   # into FAULT (cpu.py)
     gf("20", ["BUSACC", "MEMWR_n", "MID", "VCC"], "BUSRD_n")
 
+    nl.section("Bus interface: state")
     # ---- the bus interface (bus clock) ------------------------------------------
     nl.add("clkdrv", "U_KBCK", part="CDC341", A="BUS.BCLK", Y1="BCK")
     nl.add("541", "U_KBI", part=ABT + "541", OE1="GND", OE2="GND",
@@ -213,6 +220,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
     nl.add("74", "U_KFS2", part=F + "74",
            **{"1D": "REQQ_D", "1CLK": "BCK", "1PRE": "VCC", "1CLR": "RESET_n", "1QN": "REQQ_n",
               "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+    nl.section("Bus interface: address")
     # the owner's lines: START, LOCK (never used), and REQ
     nl.add("125", "U_KBO", part=ABT + "125",
            **{"1OE": "OQ_n", "1A": "AQ_n", "1Y": "BUS.START_n",
@@ -233,6 +241,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
                 rg[f"D{i + 1}"], rg[f"Q{i + 1}"] = src[j]
             else:
                 rg[f"D{i + 1}"] = "GND"
+    nl.section("Bus interface: data")
     # data: D0-D15 <-> BD through the transceivers; writes from DBUS, reads
     # registered at the end of each clock with DPH and not WAIT
     gf("20", ["BD", "MEMWR_n", "DPHP", "WAITB_n"], "RLE_n")
@@ -247,6 +256,7 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
             w[f"A{i + 1}"], w[f"Y{i + 1}"] = f"DBUS{j}", f"BD{j}"
             rl[f"D{i + 1}"], rl[f"Q{i + 1}"] = f"BD{j}", f"DBUS{j}"
 
+    nl.section("Interrupts")
     # ---- interrupts: any of IRQ0-IRQ2 ---------------------------------------
     g("10", ["IRQB0_n", "IRQB1_n", "IRQB2_n"], "IRQ", part=HCT + "10")
 

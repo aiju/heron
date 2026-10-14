@@ -18,6 +18,11 @@ line takes to settle after the chip drives it.
 `include` copies another netlist into this one under a prefix, joining
 the nets it names to this netlist's: that is how cards go into slots of a
 backplane.
+
+`section(name)` names the part of the design that the chips and gates
+added after it belong to, until the next call: the sheets of a schematic
+(schematic.py). Gates are recorded one by one in `gates`, since a package
+can serve several sections. Neither goes into the simulator's export.
 """
 
 from collections import defaultdict
@@ -44,6 +49,7 @@ class Instance:
         self.nocheck = nocheck
         self.extra = {}             # delay name -> extra ps
         self.conn = {}
+        self.section = nl.current_section if nl else None
 
     def part_number(self, variant=chips.DEFAULT_VARIANT):
         return chips.part_number(variant, self.type.name, self.role, self.part)
@@ -65,12 +71,31 @@ class Instance:
         return self
 
 
+class Gate:
+    """One gate of a package: the package's reference, the section number
+    in it, the gate type, its input pins and output pin, and the part of
+    the design it belongs to."""
+
+    def __init__(self, ref, sec, typ, inputs, output, section):
+        self.ref, self.sec, self.typ = ref, sec, typ
+        self.inputs, self.output, self.section = list(inputs), output, section
+
+
 class Netlist:
     def __init__(self):
         self.instances = []
         self.refs = {}
         self.gate_pool = defaultdict(list)   # type -> [(instance, next free section)]
         self.counters = defaultdict(int)
+        self.current_section = None
+        self.gates = []          # every gate placed: Gate (package, section, inputs, output)
+        self.sections = []       # (prefix of an included netlist or "", name), in order
+
+    def section(self, name):
+        """What follows belongs to this part of the design."""
+        self.current_section = name
+        if ("", name) not in self.sections:
+            self.sections.append(("", name))
 
     def add(self, typ, ref=None, role=None, part=None, params=None, nocheck=False, **pins):
         if ref is None:
@@ -106,6 +131,7 @@ class Netlist:
         for p, n in zip(names, inputs):
             inst[p] = n
         inst[out] = output
+        self.gates.append(Gate(inst.ref, sec, typ, names, out, self.current_section))
         return inst
 
     def finish(self):
@@ -218,7 +244,16 @@ class Netlist:
                            inst.nocheck)
             new.extra = dict(inst.extra)
             new.conn = {p: rename(n) for p, n in inst.conn.items()}
+            new.section = inst.section
+            new.card = prefix
             self.instances.append(new)
             self.refs[ref] = new
             copies[inst.ref] = new
+        for g in other.gates:
+            self.gates.append(Gate(f"{prefix}.{g.ref}", g.sec, g.typ, g.inputs, g.output,
+                                   g.section))
+        for p, name in other.sections:
+            key = (f"{prefix}.{p}" if p else prefix, name)
+            if key not in self.sections:
+                self.sections.append(key)
         return copies

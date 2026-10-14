@@ -13,6 +13,7 @@ those ([RFC 0000](../reports/0000-rfc-repository-layout.md#infra)).
 | `programs.py` | Running test programs against their expected output: metadata lines, the results table |
 | `hw/netlist.py`, `hw/chips.py` | The netlist description language and the chip library: pins, parts variants |
 | `hw/timing.json`, `hw/datasheets/`, `hw/build_timing.py` | Delays per part, built from the datasheet research |
+| `hw/schematic.py`, `hw/schematic.html` | A netlist as a schematic in one HTML page: a sheet for each section (`nl.section`), laid out in the browser by ELK; nets followed across sheets and cards |
 | `hw/sta.py` | Static timing analysis with case analysis per microinstruction |
 | `hw/runner.py` | Running a machine on the chip-level simulator, and the `hw` commands (run, test, sweep, bom, sta); what a machine module provides is in its docstring |
 | `hwsim/` | The event-driven chip-level simulator, in Rust: chip models, setup and hold, write timing, bus contention. Python runs it as `heron.native.hwsim` (through `hw/runner.py`). Its system runner plays a whole system from power-up, with oscillators, the power-on reset, pull-ups and open-collector outputs as parts; its `vector` fixture plays a script against a clock, for bus-functional tests |

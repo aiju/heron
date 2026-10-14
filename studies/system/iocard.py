@@ -35,6 +35,7 @@ def build(card_id=CARD_ID, cf_sectors=2048):
     def gh(typ, ins, out):
         return g(typ, ins, out, part=HCT + typ)
 
+    nl.section("Strobes and data")
     # the strobes: one Schmitt NAND from SEL (RFC 0014 section 6)
     gh("132", ["BUS.WRITE_n", "VCC"], "WRT")
     gh("132", ["BUS.SEL", "BUS.WRITE_n"], "RD_n")
@@ -51,6 +52,7 @@ def build(card_id=CARD_ID, cf_sectors=2048):
     for i in range(8):
         b[f"A{i + 1}"] = "VCC" if (card_id >> i) & 1 else "GND"
         b[f"Y{i + 1}"] = f"BUS.D{8 + i}"
+    nl.section("UART")
     # the UART decodes its own select (A7, A6, not A5)
     nl.add("osc", "U_UOSC", part=f"oscillator {UART_HZ / 1e6:g} MHz", OUT="UCLK",
            params={"period_ps": round(1e12 / UART_HZ)})
@@ -60,6 +62,7 @@ def build(card_id=CARD_ID, cf_sectors=2048):
         u[f"A{i}"] = f"BUS.A{i + 2}"
     for i in range(8):
         u[f"D{i}"] = f"CD{i}"
+    nl.section("CF card")
     # the CF card: CS0 is A6 low, CS1 A7 low
     cf = nl.add("cf", "U_CF", CS0="BUS.A6", CS1="BUS.A7", IORD="RD_n", IOWR="WR_n",
                 RESET="RSTN", INTRQ="CFINT", WAKE="CF_WAKE", params={"sectors": cf_sectors})
@@ -67,6 +70,7 @@ def build(card_id=CARD_ID, cf_sectors=2048):
         cf[f"A{i}"] = f"BUS.A{i + 2}"
     for i in range(8):
         cf[f"D{i}"] = f"CD{i}"
+    nl.section("Timer")
     # the timer at A7 A6 A5 and A8; its acknowledge with A8 low
     g("11", ["BUS.A7", "BUS.A6", "BUS.A5"], "T765", part=ACT + "11")
     g("00", ["T765", "BUS.A8"], "TCS_n", part=ACT + "00")
@@ -83,6 +87,7 @@ def build(card_id=CARD_ID, cf_sectors=2048):
     nl.add("74", "U_TFF", part=HCT + "74",
            **{"1D": "VCC", "1CLK": "TOUT0", "1PRE": "VCC", "1CLR": "TCLR_n", "1Q": "TFLAG",
               "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+    nl.section("Interrupts")
     # interrupts: open collector
     gh("05", ["UINTR"], "BUS.IRQ0_n")
     gh("05", ["CFINT"], "BUS.IRQ1_n")

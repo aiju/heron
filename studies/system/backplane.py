@@ -28,6 +28,7 @@ def build(n_simple=7, por_ps=2_000_000):
     def gf(typ, ins, out):
         return g(typ, ins, out, part=F + typ)
 
+    nl.section("Clock and reset")
     # ---- clock driver: CLKSRC (from slot 0) to every slot and the logic ----
     for k in range(3):
         d = nl.add("clkdrv", f"U_CD{k}", part="CDC341", A="CLKSRC")
@@ -53,6 +54,7 @@ def build(n_simple=7, por_ps=2_000_000):
     g("14", ["RESET_n"], "RST", part="74HCT14")            # Schmitt-trigger input
     g("14", ["RST"], "RST_n", part="74HCT14")
 
+    nl.section("Slot and class lookup")
     # ---- bused inputs, through one buffer (the loading rule) ----------------
     nl.add("541", "U_IN", part=ABT + "541", OE1="GND", OE2="GND",
            A1="A28", A2="A29", A3="A30", A4="A31", A5="START_n", A6="WAIT_n", A7="LOCK_n",
@@ -71,6 +73,7 @@ def build(n_simple=7, por_ps=2_000_000):
            **{"1A": "C0L", "1B": "C0H", "1Y": "CL0", "2A": "C1L", "2B": "C1H", "2Y": "CL1",
               "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
 
+    nl.section("Transfer timing")
     # ---- transfer timing -----------------------------------------------------
     # state: DQ (a data-phase clock), RQ (a simple card's recovery clock),
     # TQ (the bus monitor's timeout), and the slot and class of the transfer
@@ -117,6 +120,7 @@ def build(n_simple=7, por_ps=2_000_000):
            **{"1D": "MON8", "1CLK": "CK", "1PRE": "VCC", "1CLR": "RST_n", "1Q": "TQ",
               "1QN": "TQ_n",
               "2D": "GTD", "2CLK": "CK", "2PRE": "RST_n", "2CLR": "VCC", "2Q": "GRANTED"})
+    nl.section("SEL")
     # SEL: the slot carried on (or the live one, when starting), decoded
     # into registers, so it never glitches
     SN = ["SN0", "SN1", "SN2", "SN3"]
@@ -130,6 +134,7 @@ def build(n_simple=7, por_ps=2_000_000):
         for i in range(8):
             d[f"Y{i}"] = f"SD_n.{8 * h + i}"
             r[f"D{i + 1}"], r[f"Q{i + 1}"] = f"SD_n.{8 * h + i}", f"SEL.{8 * h + i}"
+    nl.section("Status outputs")
     # RDY and BERR end a master's transfer, so they come straight from a
     # register (U_RG): its inputs are what they will be in the next clock.
     # RDY: in a fast card's data clocks and a simple card's recovery clock.
@@ -157,6 +162,7 @@ def build(n_simple=7, por_ps=2_000_000):
            A1="DQ_n", A2="RDYR_n", A3="BERRI_n", A4="W32I_n", A5="GND", A6="GND", A7="GND",
            A8="GND", Y1="DPH_n", Y2="RDY_n", Y3="BERR_n", Y4="W32_n")
 
+    nl.section("Arbiter")
     # ---- the arbiter ---------------------------------------------------------
     # REQ is sampled into a register at every edge: from REQ to the grant
     # registers is about 42 ns, more than a clock leaves after a master's

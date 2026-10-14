@@ -9,6 +9,9 @@
   bom    [--card NAME]   the parts list, per card
   lengths                the length classes: what each microinstruction
                          needs, and the jumpers for every set of parts
+  schematic [--out FILE] [--fragment]
+                         the schematic viewer (build/system/schematic.html),
+                         a page with every card's sheets
 """
 
 import argparse
@@ -159,6 +162,24 @@ def cmd_lengths(args):
     return 0
 
 
+CARDS = {"BP": "Backplane", "CPU": "CPU card, slot 0", "MEM": "Memory card, slot 1",
+         "IO": "I/O card, slot 15"}
+
+
+def cmd_schematic(args):
+    from heron import BUILD
+    from heron.infra.hw import schematic
+    from . import machine
+    out = args.out or os.path.join(BUILD, "system", "schematic.html")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    html = schematic.page(machine.build(), "Heron draft 1b system", CARDS,
+                          standalone=not args.fragment)
+    with open(out, "w") as f:
+        f.write(html)
+    print(f"{out}: {len(html) // 1024} KB")
+    return 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
     p = argparse.ArgumentParser(prog="heron system", description="The system on the bus")
@@ -177,5 +198,10 @@ def main(argv=None):
     b.add_argument("--card")
     b.set_defaults(fn=cmd_bom)
     sub.add_parser("lengths", help="the length classes").set_defaults(fn=cmd_lengths)
+    sc = sub.add_parser("schematic", help="the schematic viewer")
+    sc.add_argument("--out", help="where to write it (default build/system/schematic.html)")
+    sc.add_argument("--fragment", action="store_true",
+                    help="without the document around it, for a page host that adds it")
+    sc.set_defaults(fn=cmd_schematic)
     args = p.parse_args(argv)
     return args.fn(args) or 0

@@ -41,5 +41,6 @@ heron system run studies/v1_isa/programs/v1b/fib.s   # a program on the whole sy
 heron system test [NAMES] [--jobs 4]   # the suite at chip level (about 8 minutes); --isa: on the model only
 heron system bom [--card CPU]          # the parts list
 heron system lengths                   # the length classes and their jumpers
+heron system schematic                 # the netlists as a schematic to browse, in build/system/schematic.html
 heron test system                      # the unit tests: the bus against RFC 0014 with scripted masters, hello at chip level
 ```
