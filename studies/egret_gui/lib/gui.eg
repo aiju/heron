@@ -281,6 +281,8 @@ class Desktop
     @tracking = nil                     # the window a button went down in
     @last_click = [0, 0, -100]          # x, y, tick
     @pointer = -1
+    @mx = -1
+    @my = -1
     @next_x = 30
     @next_y = 40
     @menu_items = []
@@ -444,6 +446,9 @@ class Desktop
     w.mouse_up(p[0], p[1], b)
   end
 
+  # Between events, every tick: the Transcript's output, the mouse (for a
+  # drag in a window, and the pointer's shape), and the windows that tick.
+  # Kept cheap: it's what an idle desktop costs.
   def idle
     out = gui_output()
     if out != nil
@@ -451,29 +456,45 @@ class Desktop
       if t != nil then t.append(out) end
     end
     m = gui_mouse()
+    if m[0] != @mx or m[1] != @my
+      @mx = m[0]
+      @my = m[1]
+      self.mouse_moved(m[0], m[1])
+    end
+    n = @ticking.size
+    if n > 0
+      t = gui_ticks()
+      i = 0
+      while i < n and i < @ticking.size
+        w = @ticking[i]
+        try
+          w.tick(t)
+        catch err
+          self.report(err)
+        end
+        i += 1
+      end
+    end
+  end
+
+  def mouse_moved(x, y)
     if @tracking != nil
-      p = self.local(@tracking, m[0], m[1])
+      p = self.local(@tracking, x, y)
       if p != @track_at
         @track_at = p
         self.safely { @tracking.mouse_drag(p[0], p[1]) }
       end
     end
-    h = gui_hit(m[0], m[1])
+    h = gui_hit(x, y)
     ptr = P_ARROW
     if h != nil and h[1] == 1 and @windows[h[0]] != nil
       w = @windows[h[0]]
-      p = self.local(w, m[0], m[1])
+      p = self.local(w, x, y)
       ptr = w.pointer_at(p[0], p[1])
     end
     if ptr != @pointer
       gui_pointer(ptr)
       @pointer = ptr
-    end
-    if @ticking.size > 0
-      t = gui_ticks()
-      for w in @ticking.copy
-        self.safely { w.tick(t) }
-      end
     end
   end
 
@@ -514,6 +535,7 @@ class Desktop
     end
     gui_outline(f[0] + dx, f[1] + dy, fw, fh)
     @pointer = -1
+    @mx = -1
     if dx != 0 or dy != 0 then w.move_to(f[0] + dx, f[1] + dy) end
   end
 

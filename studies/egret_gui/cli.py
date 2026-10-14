@@ -9,6 +9,8 @@
                      WebAssembly, and snapshots of the machine
   serve  [--port N] [--source F.eg]
                      build the browser version and serve it on localhost
+  bench  [--write]   what the desktop costs on the machine (--write: the
+                     report's performance.md)
   test               the study's unit tests (heron test egret_gui)
 
 Actions for shot, separated by ';': `click X Y`, `drag X0 Y0 X1 Y1`,
@@ -81,6 +83,15 @@ def cmd_serve(args):
     return 0
 
 
+def cmd_bench(args):
+    from . import bench
+    r = bench.measure()
+    print(bench.tables(r))
+    if args.write:
+        print(f"wrote {os.path.relpath(bench.write(r))}")
+    return 0
+
+
 def cmd_test(args):
     from heron.__main__ import cmd_test as test
     return test(["egret_gui"], False, args.verbose)
@@ -104,6 +115,9 @@ def main(argv=None):
     s.add_argument("--port", type=int, default=8000)
     s.add_argument("--source")
     s.set_defaults(fn=cmd_serve)
+    s = sub.add_parser("bench")
+    s.add_argument("--write", action="store_true")
+    s.set_defaults(fn=cmd_bench)
     s = sub.add_parser("test")
     s.add_argument("-v", "--verbose", action="store_true")
     s.set_defaults(fn=cmd_test)

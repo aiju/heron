@@ -193,6 +193,7 @@ class Life < Window
     DESK.start_ticks(self)
   end
   def resizable? = false
+  def generation = @gen
 
   def gun
     self.clear_cells
@@ -430,7 +431,10 @@ class Mandel < Window
         @row = []
         @next += 1
         if @next % 8 == 0 or @next == @order.size then self.status end
-        if @next >= @order.size then return nil end
+        if @next >= @order.size
+          print("Mandelbrot: drawn in {(gui_ticks() - @started) / 6 / 10}.{(gui_ticks() - @started) / 6 % 10} s")
+          return nil
+        end
       end
     end
   end
