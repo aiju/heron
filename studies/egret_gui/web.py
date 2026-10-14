@@ -3,6 +3,7 @@ put together with the snapshots into a folder of static files,
 build/egret_gui/web/, which any web server can serve.
 """
 
+import base64
 import os
 import shutil
 import subprocess
@@ -74,7 +75,9 @@ def site(out=SITE, depths=DEPTHS, source=None, log=print):
     shutil.copyfile(os.path.join(WEB, "app.js"), os.path.join(out, "app.js"))
     for d in depths:
         log(f"booting the desktop at {1 << d} bit{'s' if d else ''} per pixel for the snapshot")
-        cold, booted = _snapshots(d, source)
-        shutil.copyfile(cold, os.path.join(out, f"cold-{d}.bin"))
-        shutil.copyfile(booted, os.path.join(out, f"booted-{d}.bin"))
+        for kind, path in zip(("cold", "booted"), _snapshots(d, source)):
+            # as base64 text: wherever the site is served from takes that
+            # (claude.ai's artifacts don't serve raw binary files)
+            with open(path, "rb") as f, open(os.path.join(out, f"{kind}-{d}.txt"), "w") as g:
+                g.write(base64.b64encode(f.read()).decode())
     return out

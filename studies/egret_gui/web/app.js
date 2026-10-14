@@ -1,6 +1,6 @@
 // The Heron in the browser: heron.wasm is the draft 1 simulator
 // (web/src/lib.rs); the snapshots are the machine with the desktop up
-// (booted-D.bin) or about to boot (cold-D.bin), D the screen's depth.
+// (booted-D.txt) or about to boot (cold-D.txt), D the screen's depth.
 // This runs the machine by the clock, shows its screen, and hands it
 // the keyboard and mouse as events (studies/v1_isa/isa/src/display.rs).
 "use strict";
@@ -41,17 +41,24 @@
     return new TextDecoder("latin1").decode(new Uint8Array(wasm.memory.buffer, ptr, len));
   }
 
-  async function fetchBytes(name, inflate) {
+  async function fetchBytes(name) {
     const r = await fetch(name);
     if (!r.ok) throw new Error(`couldn't load ${name} (${r.status})`);
-    if (!inflate) return new Uint8Array(await r.arrayBuffer());
-    const s = r.body.pipeThrough(new DecompressionStream("deflate"));
-    return new Uint8Array(await new Response(s).arrayBuffer());
+    return new Uint8Array(await r.arrayBuffer());
   }
 
+  // a snapshot is zlib-compressed and then base64 text
   async function snapshot(kind, d) {
-    const name = `${kind}-${d}.bin`;
-    if (!snapshots[name]) snapshots[name] = await fetchBytes(name, true);
+    const name = `${kind}-${d}.txt`;
+    if (!snapshots[name]) {
+      const r = await fetch(name);
+      if (!r.ok) throw new Error(`couldn't load ${name} (${r.status})`);
+      const bin = atob((await r.text()).trim());
+      const z = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) z[i] = bin.charCodeAt(i);
+      const s = new Blob([z]).stream().pipeThrough(new DecompressionStream("deflate"));
+      snapshots[name] = new Uint8Array(await new Response(s).arrayBuffer());
+    }
     return snapshots[name];
   }
 
@@ -243,7 +250,7 @@
 
   (async () => {
     try {
-      const bytes = await fetchBytes("heron.wasm", false);
+      const bytes = await fetchBytes("heron.wasm");
       const { instance } = await WebAssembly.instantiate(bytes, {});
       wasm = instance.exports;
       await start("booted");
