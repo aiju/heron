@@ -80,13 +80,15 @@ The engines are Rust, everything else is Python
 
 Change the generator and rerun it rather than editing the output by hand:
 
-- the `performance.md` in reports 0001, 0004, 0011, 0012, 0018 and 0019:
+- the `performance.md` in reports 0001, 0004, 0011, 0012, 0018, 0019 and
+  0020:
   - `heron v0_hw report`
   - `heron v1_isa report`
   - `heron c_compiler bench --write`
   - `heron v1b_hw report`
   - `heron lisp report --write`
   - `heron graphics bench --write` (also the screenshots next to it)
+  - `heron kernel report --write`
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and
@@ -111,8 +113,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v0_hw graphics`: a study's unit tests. Run
-  the ones for the studies you touched, or `--active` for every active one.
+- `heron test v1_isa c_compiler v1b_hw v0_hw graphics kernel`: a study's unit
+  tests. Run the ones for the studies you touched, or `--active` for every
+  active one.
 - `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
   against their expected output.
 - `heron c_compiler bench`: the C versions of the programs on both

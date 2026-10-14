@@ -15,6 +15,8 @@ pub struct Trap {
     pub vector: u32,
     pub fault: bool,
     pub why: String,
+    /// A page fault's address and fault status (v1bs).
+    pub page: Option<(u32, u32)>,
 }
 
 /// Why an instruction didn't finish.
@@ -32,6 +34,7 @@ pub fn trap<T>(vector: u32, fault: bool, why: &str) -> Res<T> {
         vector,
         fault,
         why: why.into(),
+        page: None,
     }))
 }
 
@@ -121,7 +124,20 @@ pub enum Insn {
         a: u8,
         b: u8,
     },
-    Swi,
+    /// v1bs: rd <- the user's rs
+    Mfur {
+        a: u8,
+        b: u8,
+    },
+    /// v1bs: the user's rd <- rs
+    Mtur {
+        a: u8,
+        b: u8,
+    },
+    /// SWI #n (v1bs latches n into fsr)
+    Swi {
+        n: u8,
+    },
     Set {
         a: u8,
         cc: u8,
@@ -284,14 +300,24 @@ impl Machine {
             | (self.z as u32) << 2
             | (self.n as u32) << 3
             | (self.i as u32) << 4
+            | self.sys.as_ref().map_or(0, |s| s.flag_bits())
     }
 
+    /// Set the flags from a flags word. In v1bs user mode only N, Z, C and
+    /// V change; in supervisor mode S, XL and XS do too (clearing S enters
+    /// user mode).
     pub fn set_flags_word(&mut self, x: u32) {
         self.v = (x & 1) as u8;
         self.c = ((x >> 1) & 1) as u8;
         self.z = ((x >> 2) & 1) as u8;
         self.n = ((x >> 3) & 1) as u8;
+        if self.user_mode() {
+            return;
+        }
         self.i = ((x >> 4) & 1) as u8;
+        if self.sys.is_some() {
+            self.set_system_flags(x);
+        }
     }
 
     pub fn cond_true(&self, cc: u8) -> bool {
@@ -465,8 +491,12 @@ impl Machine {
     /// An interrupt or trap: push the PC and the flags, disable interrupts,
     /// jump to the vector.
     pub fn enter_interrupt(&mut self, vector: u32, ret: u32) -> Res<()> {
+        let fl = self.flags_word();
+        if self.sys.is_some() {
+            self.to_supervisor();
+        }
         self.push(ret)?;
-        self.push(self.flags_word())?;
+        self.push(fl)?;
         self.i = 0;
         self.pc = vector;
         Ok(())
@@ -536,6 +566,7 @@ impl Machine {
         Ok(match insn {
             Insn::Illegal => return trap(ILLEGAL_VECTOR, true, "illegal instruction"),
             Insn::Halt => {
+                self.privileged()?;
                 self.halted = true;
                 self.pc = nxt;
                 key(Kind::Sys)
@@ -587,33 +618,66 @@ impl Machine {
                 key(Kind::Restore { n: cnt })
             }
             Insn::Rti => {
-                let fl = self.pop()?;
-                self.set_flags_word(fl);
-                self.pc = self.pop()? & !1;
+                self.privileged()?;
+                if let Some(sys) = self.sys.as_deref_mut() {
+                    // the stack accesses are the supervisor's own, whatever
+                    // XL and XS were; the popped word sets them, and the mode
+                    sys.xl = 0;
+                    sys.xs = 0;
+                    let fl = self.pop()?;
+                    let ret = self.pop()?;
+                    self.set_flags_word(fl);
+                    self.pc = ret & !1;
+                } else {
+                    let fl = self.pop()?;
+                    self.set_flags_word(fl);
+                    self.pc = self.pop()? & !1;
+                }
                 key(Kind::Rti)
             }
             Insn::SetI { val } => {
+                self.privileged()?;
                 self.i = val;
                 self.pc = nxt;
                 key(Kind::Sys)
             }
             Insn::Mfsr { a, b } => {
-                let v = if b == 0 { self.flags_word() } else { self.hi };
+                let v = match b {
+                    0 => self.flags_word(),
+                    1 => self.hi,
+                    _ => self.read_sr(b)?,
+                };
                 self.set_reg(a, v);
                 self.pc = nxt;
                 key(Kind::Alu { wb: 1 })
             }
             Insn::Mtsr { a, b } => {
-                if a == 0 {
-                    self.set_flags_word(r(self, b));
-                } else {
-                    self.hi = r(self, b);
+                match a {
+                    0 => self.set_flags_word(r(self, b)),
+                    1 => self.hi = r(self, b),
+                    _ => self.write_sr(a, r(self, b))?,
                 }
                 self.pc = nxt;
                 key(Kind::Sys)
             }
-            Insn::Swi => {
+            Insn::Mfur { a, b } => {
+                self.privileged()?;
+                let v = self.user_reg(b)?;
+                self.set_reg(a, v);
                 self.pc = nxt;
+                key(Kind::Alu { wb: 1 })
+            }
+            Insn::Mtur { a, b } => {
+                self.privileged()?;
+                self.set_user_reg(a, r(self, b))?;
+                self.pc = nxt;
+                key(Kind::Alu { wb: 1 })
+            }
+            Insn::Swi { n } => {
+                self.pc = nxt;
+                if let Some(sys) = self.sys.as_deref_mut() {
+                    sys.fsr = n as u32;
+                }
                 return trap(SWI_VECTOR, false, "SWI");
             }
             Insn::Set { a, cc } => {
@@ -892,10 +956,13 @@ pub fn dec_sys(w: u32) -> Insn {
         7 => Insn::Rti,
         8 => Insn::SetI { val: 1 },
         9 => Insn::SetI { val: 0 },
-        10 if b <= 1 => Insn::Mfsr { a, b },
-        11 if a <= 1 => Insn::Mtsr { a, b },
-        12 => Insn::Swi,
+        // numbers above 1 and MFUR/MTUR are v1bs's; the others trap on them
+        10 => Insn::Mfsr { a, b },
+        11 => Insn::Mtsr { a, b },
+        12 => Insn::Swi { n: (a << 4) | b },
         13 if b != 15 => Insn::Set { a, cc: b },
+        14 => Insn::Mfur { a, b },
+        15 => Insn::Mtur { a, b },
         _ => Insn::Illegal,
     }
 }
