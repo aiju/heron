@@ -44,7 +44,6 @@ PIN = 14                # pitch of a chip's pins
 HEAD = 30               # a chip's title
 CHIP_W = 150
 GATE_W = 46
-CHAR = 6.6              # width of a character of the 11 px labels
 
 
 def _card(ref):
@@ -236,10 +235,6 @@ def model(nl, title, cards=None, variant=chips.DEFAULT_VARIANT):
                 vals = {tied.get(n, n) for n in rails}
                 p["off"] = vals.pop() if len(vals) == 1 else "rails"
                 p["rail"] = True
-            p["label_w"] = round(len(p.get("off", "")) * CHAR + 12) if "off" in p else 0
-    for s in drawn.values():
-        s["ml"] = max([p["label_w"] for p in s["ports"] if p["side"] == "W"] + [0])
-        s["mr"] = max([p["label_w"] for p in s["ports"] if p["side"] == "E"] + [0])
 
     sheets = defaultdict(list)
     for s in drawn.values():

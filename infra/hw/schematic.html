@@ -241,12 +241,14 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
       return {
         id, width: s.w, height: s.h,
         layoutOptions: {
-          "elk.portConstraints": "FIXED_POS",
-          "elk.margins": `[top=${s.kind === "gate" ? 12 : 4},left=${s.ml + 4},bottom=4,right=${s.mr + 4}]`,
+          "elk.portConstraints": "FIXED_POS", "elk.portLabels.placement": "OUTSIDE",
+          "elk.nodeLabels.placement": "[H_LEFT, V_TOP, OUTSIDE]",
         },
+        labels: s.kind === "gate" ? [{ text: s.ref, width: s.ref_w, height: 12 }] : [],
         ports: s.ports.map((p, k) => ({
           id: `${id}|${k}`, x: p.x, y: p.y, width: 0, height: 0,
           layoutOptions: { "elk.port.side": p.side === "W" ? "WEST" : "EAST" },
+          labels: p.label_w ? [{ text: p.off, width: p.label_w, height: 14 }] : [],
         })),
       };
     });
@@ -260,7 +262,7 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
         "elk.layered.spacing.nodeNodeBetweenLayers": "64", "elk.spacing.nodeNode": "26",
         "elk.spacing.edgeEdge": "7", "elk.spacing.edgeNode": "12",
         "elk.layered.spacing.edgeEdgeBetweenLayers": "7", "elk.layered.spacing.edgeNodeBetweenLayers": "12",
-        "elk.layered.mergeEdges": "true", "elk.padding": "[top=40,left=40,bottom=40,right=40]",
+        "elk.layered.mergeEdges": "true", "elk.spacing.labelPortHorizontal": "0", "elk.spacing.labelPortVertical": "0", "elk.padding": "[top=40,left=40,bottom=40,right=40]",
         "elk.spacing.componentComponent": "90",
         "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
         "elk.layered.crossingMinimization.thoroughness": "12",
@@ -268,9 +270,31 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
       children, edges,
     };
   }
+  // A label's flag: a 4 px gap from the pin, a 6 px point, then the text
+  // with 4 px either side. Labels are measured in the font they're drawn
+  // in, once it has loaded (or failed to), so the flags fit; the layout
+  // gets them as port labels, so it leaves room for them. (Layered ELK
+  // ignores node margins.)
+  const fontReady = Promise.race([document.fonts ? document.fonts.load('10.5px "IBM Plex Mono"', "LN0–2") : null,
+    new Promise((r) => setTimeout(r, 2500))]).catch(() => {});
+  let measurer = null;
+  function textW(text, size) {
+    if (!measurer) measurer = document.createElement("canvas").getContext("2d");
+    measurer.font = `${size}px ${getComputedStyle(document.documentElement).getPropertyValue("--f-mono")}`;
+    return Math.ceil(measurer.measureText(text).width);
+  }
+  function measure(sheet) {
+    for (const id of sheet.symbols) {
+      const s = M.symbols[id];
+      for (const p of s.ports) p.label_w = p.off ? textW(p.off, 10.5) + 18 : 0;
+      if (s.kind === "gate") s.ref_w = textW(local(s.ref, cardOf(s.ref)), 9) + 10;
+    }
+  }
   async function layout(sheet) {
     if (layouts[sheet.id]) return layouts[sheet.id];
     if (!elk) throw new Error("The layout library didn't load, so sheets can't be drawn.");
+    await fontReady;
+    measure(sheet);
     const res = await elk.layout(graphFor(sheet));
     layouts[sheet.id] = res;
     return res;
@@ -317,16 +341,15 @@ svg.dim .w:not(.on), svg.dim .jn:not(.on) { opacity: var(--dim); }
   }
   function flag(parent, s, p, k, nx, ny) {
     if (!p.off) return;
-    const w = p.label_w - 6, x = nx + p.x, y = ny + p.y;
+    const w = p.label_w, x = nx + p.x, y = ny + p.y;     // see measure()
     const g = el("g", { class: "flag" + (p.rail ? " rail" : ""), "data-sym": s.id, "data-port": k }, parent);
     if (p.side === "W") {
-      const x0 = x - 4 - w;
+      const x0 = x - w;
       el("path", { d: `M${x0},${y - 7} H${x - 10} L${x - 4},${y} L${x - 10},${y + 7} H${x0} Z` }, g);
       el("text", { x: x0 + 4, y: y + 3.5 }, g).textContent = p.off;
     } else {
-      const x0 = x + 4;
-      el("path", { d: `M${x0},${y} L${x0 + 6},${y - 7} H${x0 + w} V${y + 7} H${x0 + 6} Z` }, g);
-      el("text", { x: x0 + 9, y: y + 3.5 }, g).textContent = p.off;
+      el("path", { d: `M${x + 4},${y} L${x + 10},${y - 7} H${x + w} V${y + 7} H${x + 10} Z` }, g);
+      el("text", { x: x + 14, y: y + 3.5 }, g).textContent = p.off;
     }
     if (p.rail) return;
     g.onclick = (ev) => { ev.stopPropagation(); selectNets(p.nets); };
