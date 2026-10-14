@@ -8,8 +8,8 @@
 
 /* ---- the devices (studies/v1_isa/isa/src/display.rs) ---- */
 
-#define VRAM ((unsigned char *)0x01000000)       /* 512 KB, outside RAM */
-#define VRAM_SIZE 0x80000
+#define VRAM ((unsigned char *)0x01000000)       /* 1 MB, outside RAM */
+#define VRAM_SIZE 0x100000
 #define SCREEN_W 640
 #define SCREEN_H 480
 
@@ -26,13 +26,16 @@
 #define TICK_HZ 60
 #define CLOCK_HZ 3000000          /* the timer counts the reference configuration's cycles */
 
-/* VRAM past the screen: the font cache, the save-under for menus, and
-   where the lines of the source start (for the Browser) */
+/* VRAM past the screen: the font cache, the save-under for menus, where
+   the lines of the source start (for the Browser), and a window's two
+   layers (for Gadgets) */
 #define FONT_ARENA (VRAM + 0x4B000)
 #define FONT_ARENA_END (VRAM + 0x60000)
 #define SAVE_UNDER (VRAM + 0x60000)
 #define SAVE_UNDER_SIZE 0x1C000
-#define LINE_INDEX ((unsigned short *)(VRAM + 0x7C000))   /* 16 KB */
+#define LINE_INDEX ((unsigned *)(VRAM + 0x80000))          /* 32 KB */
+#define BACKING (VRAM + 0x88000)
+#define BACKING_SIZE 0x78000
 
 void gui_wait(void);              /* EI; HALT; DI: sleep until the next tick (rt_v1b.s) */
 void *gui_alloc(unsigned n);      /* the font cache's malloc */

@@ -154,6 +154,16 @@ class Window
   end
   def resized = nil
   def resizable? = true
+
+  # a Workspace has changed these classes (by name): if one is this
+  # window's, or a superclass's, it's painted again to show the change
+  def classes_changed(names)
+    c = self.class
+    while c != nil
+      if names.contains?(c.name) then return self.invalidate end
+      c = c.superclass
+    end
+  end
 end
 
 # ---- menus ---------------------------------------------------------------
@@ -224,8 +234,8 @@ class Menu
     end
   end
 
-  # Show it at (x, y) and track the mouse; returns the chosen item's
-  # block, or nil
+  # Show it at (x, y), where the button went down, and track the mouse;
+  # returns the chosen item's block, or nil
   def popup(x, y)
     @x = x.min(640 - @w - 4)
     @y = y.min(480 - @h - 4)
@@ -249,12 +259,14 @@ class Menu
         # a click counts where it happened, not where the mouse is now
         if e[0] == 3 or e[0] == 4 then i = self.item_at(e[2], e[3]) end
         if e[0] == 4                    # the button went up
-          if i != nil
+          # a quick click where it went down (on an item, if the menu had
+          # to move to fit) leaves it open; otherwise this is the choice
+          if not sticky and gui_ticks() - start <= 15 and (e[2] - x).abs < 4 and (e[3] - y).abs < 4
+            sticky = true
+          else
             chosen = i
             break
           end
-          if sticky or gui_ticks() - start > 15 then break end
-          sticky = true                 # a quick click: stay open
         elif e[0] == 3 and sticky       # a second click
           chosen = i
           break
@@ -582,23 +594,12 @@ class Desktop
     end
     # the windows whose classes the code changed show the change now, not
     # the next time they're uncovered
-    self.repaint_classes(classes_named_in(code))
-    [ok, result]
-  end
-
-  # repaint the windows of these classes (by name), and of their subclasses
-  def repaint_classes(names)
-    if names.size == 0 then return nil end
-    for w in @windows.values
-      c = w.class
-      while c != nil
-        if names.contains?(c.name)
-          w.invalidate
-          c = nil
-        else
-          c = c.superclass
-        end
+    names = classes_named_in(code)
+    if names.size > 0
+      for w in @windows.values
+        w.classes_changed(names)
       end
     end
+    [ok, result]
   end
 end

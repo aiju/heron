@@ -14,8 +14,9 @@ context:
 A demo more than a measurement: a small Smalltalk-style desktop for
 [Egret](0017-report-egret.md) on the simulated draft 1b machine, with
 overlapping windows, a mouse, a keyboard, a Workspace to run Egret in, a
-Transcript, a class browser, and a few demos. The desktop is 2,300 lines
-of Egret that the machine compiles as it boots. The pixels are the
+Transcript, a class browser, a few demos, and Gadgets, a playground of
+parts with cartoon physics where a new class is a new part. The desktop
+is 3,400 lines of Egret that the machine compiles as it boots. The pixels are the
 [graphics study](0019-report-graphics.md)'s library and kernels. It runs
 in a browser as WebAssembly, at the machine's 3 MHz or faster
 ([studies/egret_gui](../studies/egret_gui/README.md)). The study's
@@ -34,10 +35,11 @@ by Egret a slice at a time while the desktop went on, and the clock.
 - **It works, and at 3 MHz it's usable.** A keystroke in the Workspace
   takes 22 ms of the machine's time, printing `3 + 4 * 5` 59 ms (compiling
   it on the machine included), opening the menu 250 ms, dragging a window
-  300 ms, and opening the Browser 0.6 s. Booting takes 16 s: 1.6 s for
-  the prelude, 12.7 s to compile the desktop, 1.5 s to paint it. Life runs
-  at 3 generations a second; the Mandelbrot set takes 107 s. At 4× (12
-  MHz) it all feels quick.
+  300 ms, and opening the Browser 0.7 s. Booting takes 22 s: 1.6 s for
+  the prelude, 19 s to compile the desktop, 1.3 s to paint it. Life runs
+  at 3 generations a second; the Mandelbrot set takes 108 s. Gadgets'
+  table runs at 25 frames a second of its 30, a frame with a few balls
+  moving taking 37 ms. At 4× (12 MHz) it all feels quick.
 - **Most of the time is Egret's, not the drawing's.** For small things,
   the interpreter takes half the cycles and drawing a tenth. Only the big
   repaints (opening the Browser: 41%) are mostly drawing, and that's text.
@@ -47,11 +49,12 @@ by Egret a slice at a time while the desktop went on, and the clock.
   as a queue of events, somewhere to sleep until the next tick (`HALT`
   and the timer, which it had), and memory: the VM, the graphics library
   and the fonts take 310 KB of the 1 MB before Egret has an object, and
-  Egret's heap shrank from two 256 KB semispaces to two 152 KB ones.
-- **The code passed 64 KB,** as far as a 16-bit relative call reaches, and
-  the C library at the end of it went out of reach. Linking the library
-  in the middle fixed it here; a bigger program needs long calls or a
-  smarter linker.
+  Egret's heap shrank from two 256 KB semispaces to two 120 KB ones.
+- **The code passed 64 KB,** as far as a 16-bit relative call reaches.
+  First the C library at the end went out of reach, then the VM's
+  allocator from the interpreter, then the graphics library from the
+  window manager. An order of linking where every call reaches fixed it
+  here; a bigger program needs long calls or a smarter linker.
 - **The simulator runs in a browser unchanged.** The Rust crate compiles to
   WebAssembly as it is, and runs at 55–65 MHz in Chromium (about 20 times
   the real machine), against 120–150 MHz natively.
@@ -60,10 +63,11 @@ by Egret a slice at a time while the desktop went on, and the clock.
 
 | Part | What it is | Size |
 |---|---|---:|
-| The devices | A frame buffer in 512 KB of VRAM outside RAM (640 × 480 at 1–8 bits per pixel, a 256-colour palette), a queue of input events, the mouse's position and buttons, the time of day, and the pointer's shape | 190 lines of Rust |
+| The devices | A frame buffer in 1 MB of VRAM outside RAM (640 × 480 at 1–8 bits per pixel, a 256-colour palette), a queue of input events, the mouse's position and buttons, the time of day, and the pointer's shape | 190 lines of Rust |
 | The window manager | The graphics study's `wm.c`, reworked so that whatever of a window comes into view is erased and handed to Egret as an update, as on the classic Mac OS | 590 lines of C |
-| Egret's primitives | Events, windows, drawing, fonts, the Workspace's compiler, the Browser's view of classes and source | 950 lines of C |
-| The desktop | Windows, menus, the event loop, a text editor (word wrap, a scroll bar), and the applications: Workspace, Transcript, Browser, Clock, Life, Mandelbrot, Paint, About | 2,300 lines of Egret |
+| Egret's primitives | Events, windows, drawing, offscreen layers, fonts, the Workspace's compiler, the Browser's view of classes and source | 1,080 lines of C |
+| The desktop | Windows, menus, the event loop, a text editor (word wrap, a scroll bar), and the applications: Workspace, Transcript, Browser, Clock, Life, Mandelbrot, Paint, About | 2,260 lines of Egret |
+| Gadgets | Parts with cartoon physics on a table, after The Incredible Machine: balls, bricks, ramps, a trampoline, a bucket, a dropper; a bin of every subclass of `Part` | 1,160 lines of Egret |
 | The browser version | The simulator as WebAssembly, a page that runs it by the clock, snapshots of the machine | 320 lines of Rust, 260 of JavaScript |
 
 - **C does the pixels and the stacking.** It draws frames, title bars and
@@ -84,7 +88,8 @@ by Egret a slice at a time while the desktop went on, and the clock.
 - **Idle costs the host nothing.** The desktop waits for the timer with
   `EI; HALT; DI`, and the simulator skips the cycles to the next tick.
   The browser counts cycles against the clock to run the machine at the
-  speed chosen, and shows how busy it is.
+  speed chosen, programs its timer for 60 ticks a second at that speed
+  (as a faster Heron would be), and shows how busy it is.
 
 ![The Browser, with a method's source; Life behind](0021-report-egret-gui/browser.png)
 ![The desktop at 1 bit per pixel](0021-report-egret-gui/desktop-1.png)
@@ -97,17 +102,18 @@ loop would have spent in the same time (all of them in
 
 | | at 3 MHz |
 |---|---:|
-| Type a character in the Workspace | 22 ms |
+| Type a character in the Workspace | 21 ms |
 | Return, with the lines below it redrawn | 183 ms |
-| Print it: `3 + 4 * 5` | 59 ms |
-| Print it: `2 ** 100` | 75 ms |
-| Open the desktop menu and close it | 246 ms |
+| Print it: `3 + 4 * 5` | 57 ms |
+| Print it: `2 ** 100` | 73 ms |
+| Open the desktop menu and close it | 250 ms |
 | Drag a window by 100 pixels and move it | 297 ms |
 | Close a window, and paint the desktop under it | 112 ms |
-| Open the Browser | 591 ms |
-| Pick a method in the Browser and show its source (the first time: it indexes the source's lines) | 890 ms |
+| Open the Browser | 686 ms |
+| Pick a method in the Browser and show its source (the first time: it indexes the source's lines) | 1,239 ms |
+| A frame of Gadgets' table, with two to five balls moving | 37 ms |
 | Open About (TrueType at 30 pixels, rasterised the first time) | 2,752 ms |
-| Boot: the prelude, the desktop's 2,300 lines, the first paint | 15.8 s |
+| Boot: the prelude, the desktop's 3,400 lines, the first paint | 21.9 s |
 
 - **The first second is the budget.** Typing keeps up with a fast typist;
   everything that redraws a window's worth of text takes a few hundred
@@ -118,6 +124,38 @@ loop would have spent in the same time (all of them in
   Mandelbrot set work a slice at a time from the timer's tick (the
   Mandelbrot set 13 ms of cycles a tick), so the desktop stays usable
   while they run. A loop that never returns in a Workspace hangs it.
+
+## Gadgets
+
+![Gadgets, with a Balloon made in the Workspace and put on the table](0021-report-egret-gui/gadgets.png)
+
+Gadgets is the demo for live coding. Every part is an object of a
+subclass of `Part`, which draws it, finds the balls that touch it and
+says what they do (a trampoline sends a ball up as high every time; a
+bucket counts what falls in), and the bin holds every such class. So
+the Workspace changes the physics as it runs: a new colour, a lower
+gravity or a bouncier ball takes effect from the next frame, and a new
+class (above, a `Balloon` with negative gravity, five lines) is a new
+part in the bin.
+
+- **A ball costs about 45,000 cycles a frame:** some 20,000 of physics
+  (its step, the still parts near it, found through a grid, and the other
+  balls) and 25,000 of drawing it. So at 3 MHz the table keeps up with
+  three or four balls, and slows down past that; a late frame is done
+  with the next and drawn once for both.
+- **Calling a primitive costs 2,000 to 3,000 cycles before it draws
+  anything** (a 1 × 1 fill takes 2,400), so drawing is counted in calls,
+  not pixels: a ball is an oval and two copies. The first version
+  searched the palette for every `PAL.rgb` (45% of a frame) and drew the
+  ramps under a moving ball again every frame (a polygon, 34,000
+  cycles).
+- **It draws offscreen.** VRAM past the screen holds two layers of the
+  table: the parts that stay still, and the picture. A ball is rubbed
+  out by copying from the first to the second, drawn there, and the
+  rectangle copied to the screen, so nothing is drawn twice and the
+  screen never shows a ball half drawn. The window is kept on a word
+  boundary of the screen, as the Macintosh kept its windows: otherwise
+  every word of a copy is shifted, and a shift takes a step per bit.
 
 ## Where the cycles go
 
@@ -152,15 +190,18 @@ wait after it, idle loop included:
 
 - **Memory is the first limit.** The VM, the graphics library and kernels
   and the fonts are 310 KB, against 140 KB for Egret alone. Egret's map had
-  to move up (console input at 0x50000 instead of 0x30000) and its
-  semispaces to shrink to 152 KB. After booting, the desktop uses 118 KB
-  of its 192 KB of permanent space and 37 KB of heap; every Workspace line
-  done adds a method that's never collected. A desktop on the real
-  machine wants 2 MB or more.
+  to move up (console input at 0x50000 instead of 0x30000, and 96 KB of
+  it for the desktop's source) and its semispaces to shrink to 120 KB.
+  After booting, the desktop uses 173 KB of its 224 KB of permanent space
+  and 44 KB of heap; every Workspace line done adds a method that's never
+  collected, and running out of permanent space stops the machine. A
+  desktop on the real machine wants 2 MB or more.
 - **A separate frame buffer suits it,** as [RFC 0016](0016-rfc-video.md)
   recommends: the screen takes none of the RAM. Here the VRAM past the
-  screen also holds the font cache and what's under a menu, which is a
-  hack: real VRAM reads are slow ([RFC 0016, section 4.5](0016-rfc-video.md#45-how-the-cpu-reaches-it)).
+  screen also holds the font cache, what's under a menu and Gadgets'
+  layers, which is a hack: real VRAM reads are slow ([RFC 0016, section 4.5](0016-rfc-video.md#45-how-the-cpu-reaches-it)).
+  Copies within VRAM, which Gadgets lives on, are what a blitter on the
+  card would do.
 - **The pointer is drawn by the browser,** like a hardware cursor, which
   RFC 0016 doesn't recommend. It saved the window manager from hiding a
   software cursor around everything it draws. That bookkeeping, not the

@@ -90,6 +90,21 @@ class Desktop(unittest.TestCase):
         self.assertNotIn("error", self.s.output)
         self.assertEqual(len(self.s.output.splitlines()), 1)
 
+    def test_gadgets(self):
+        # the table runs (out of the Workspace's way): balls go down the
+        # ramps and off the trampoline into the bucket; and a new class of
+        # part goes in the bin
+        workspace_do(self.s, "G = Gadgets(); G.run; G.move_to(300, 420)")
+        self.s.run(20)
+        workspace_do(self.s, 'print("caught", G.statics.find { |p| p.is_a?(Bucket) }.count)')
+        workspace_do(self.s, "class Balloon < Ball; def gravity = -30; end")
+        workspace_do(self.s, 'print("bin", G.kinds.last.name)')
+        self.assertNotIn("error", self.s.output)
+        self.assertNotIn("stopped", self.s.output)
+        caught = int(self.s.output.split("caught ")[1].split()[0])
+        self.assertGreater(caught, 0)
+        self.assertIn("bin Balloon", self.s.output)
+
 
 class Snapshots(unittest.TestCase):
     def test_one_bit_boots(self):

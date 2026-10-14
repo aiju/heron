@@ -29,7 +29,7 @@
 use std::collections::VecDeque;
 
 pub const VRAM_BASE: u32 = 0x0100_0000;
-pub const VRAM_SIZE: u32 = 0x8_0000;
+pub const VRAM_SIZE: u32 = 0x10_0000;
 pub const WIDTH: u32 = 640;
 pub const HEIGHT: u32 = 480;
 const MAX_EVENTS: usize = 256;

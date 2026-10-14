@@ -28,7 +28,7 @@ OURS = ["gui_prims.c", "gwm.c"]
 GFX_LIB = ["theme.c", "gfx.c", "line.c", "ellipse.c", "raster.c", "blit.c", "expand.c",
            "font.c", "ttf.c"]
 # the desktop, in the order it's compiled
-DESKTOP = ["gui.eg", "widgets.eg", "apps.eg", "desktop.eg"]
+DESKTOP = ["gui.eg", "widgets.eg", "apps.eg", "gadgets.eg", "desktop.eg"]
 
 
 def _inputs():
@@ -89,33 +89,39 @@ def compile_image():
     from heron.infra.objtools import assemble_object
     from heron.studies.c_compiler.cc import driver
     from heron.studies.graphics import fonts
-    p = driver.Program(ISA)
     vm = {"EGRET_ASM": "1", "EGRET_GUI": "1"}
     inc = [SRC, egret.VM, GFX_SRC]
-    for s in egret.SOURCES:
-        p.add_file(os.path.join(egret.VM, s), inc, vm)
-    p.add_file(egret.prelude_c(), [egret.VM])
-    for s in OURS:
-        p.add_file(os.path.join(SRC, s), inc, vm)
     # the font cache goes in VRAM (gui_alloc), not the C heap, which would
     # grow into Egret's memory
     gfx = {"GFX_ASM": "1", "malloc": "gui_alloc", "calloc": "gui_calloc"}
+    # The code is more than 64 KB, as far as a 16-bit relative call
+    # reaches, so the order matters. The graphics library and its kernels,
+    # then the GUI, which calls them; the C library, which everything
+    # calls (as objects, so the linker keeps only what's used); the start
+    # code (its vectors are where they say) and the VM, which the GUI
+    # calls and which calls the GUI back; and the
+    # interpreter, which calls the VM. Its method cache, near data that it
+    # reaches with 32-bit addresses, goes last, after the near data the C
+    # code needs below 32 KB.
+    g = driver.Program(ISA)
     for s in GFX_LIB:
         path = os.path.join(GFX_SRC, s)
-        p.add_file(path, [GFX_SRC], gfx, text=_shrunk(path))
-    objs = _assemble_units(p)
+        g.add_file(path, [GFX_SRC], gfx, text=_shrunk(path))
+    kernels = [assemble_object(ISA, path) for path in sorted(glob.glob(os.path.join(GFX_ASM, "*.s")))
+               if os.path.basename(path) != "mark.s"]
+    v = driver.Program(ISA)
+    for s in egret.SOURCES:
+        v.add_file(os.path.join(egret.VM, s), inc, vm)
+    v.add_file(egret.prelude_c(), [egret.VM])
+    ours = driver.Program(ISA)
+    for s in OURS:
+        ours.add_file(os.path.join(SRC, s), inc, vm)
     with open(os.path.join(SRC, "rt_v1b.s")) as f:
-        objs.insert(0, driver.assemble(ISA, f.read(), "rt_v1b.o"))
-    # The code is more than 64 KB, as far as a 16-bit relative call
-    # reaches, and everything calls memset and memcpy: the C library goes
-    # in the middle (as objects, so the linker keeps only what's used),
-    # after the VM and before the GUI and the graphics.
-    middle = 1 + len(egret.SOURCES) + 1
-    objs[middle:middle] = [o for _, o in driver.library(ISA)[0]]
+        rt = driver.assemble(ISA, f.read(), "rt_v1b.o")
+    objs = _assemble_units(g) + kernels + _assemble_units(ours)
+    objs += [o for _, o in driver.library(ISA)[0]]
+    objs += [rt] + _assemble_units(v)
     objs.append(driver.assemble(ISA, egret.asm_interpreter(ISA), "interp_v1b.o"))
-    for path in sorted(glob.glob(os.path.join(GFX_ASM, "*.s"))):
-        if os.path.basename(path) != "mark.s":
-            objs.append(assemble_object(ISA, path))
     objs.append(driver.assemble(ISA, fonts.data_asm(), "fonts.o"))
     return L.link(objs, [], ISA)
 

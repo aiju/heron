@@ -1,0 +1,1156 @@
+# Gadgets: a table of parts with cartoon physics, after The Incredible
+# Machine. Every part is an object of a subclass of Part, and the parts
+# bin shows every such class, so a new class is a new part. A part is
+# drawn by `draw`, a ball near it calls its `touch`, and it reacts with
+# `hit`; balls move in `step`. Change any of these in a Workspace and the
+# parts on the table use the change from the next frame.
+#
+# Moving parts keep their position and speed in 256ths of a pixel, the
+# speed per frame. A frame is every other tick: 30 a second, if the
+# machine keeps up, and slow motion if it doesn't. Bounce and gravity
+# are percentages.
+
+FIX = 256
+GRAVITY = 64            # at 100%: a quarter of a pixel a frame faster, every frame
+MAX_SPEED = 1792        # 7 pixels a frame: any faster and balls go through things
+PW = 380                # the table
+PH = 300
+CELL = 36               # the bin's cells, two across, right of the table
+TABLE = nil             # the Gadgets window, while it's open
+
+class Part
+  # ---- what it is: change these
+  def size = [48, 12]
+  def color = PAL.grey
+  def bounce = 80                       # how much of a ball's speed it gives back
+  def friction = 2                      # how much of the speed rubbing along it takes
+  def moves? = false
+  def draw(g) = g.fill(@x, @y, @w, @h, self.color)
+  def icon(g) = self.draw(g)            # in the bin, clipped to the cell
+  def step(g) = nil                     # every frame, while it runs
+  def reset = nil                       # back to how it was before it ran
+  # a ball hit it: (nx, ny) is the way out (x 1024) and pen how far in
+  def hit(b, nx, ny, pen) = b.bounce_off(nx, ny, pen, self.bounce, self.friction)
+
+  # ---- where it is: a box, (@x, @y) its top left and @w by @h, made
+  # centred on (x, y)
+  def init(x, y)
+    s = self.size
+    @w = s[0]
+    @h = s[1]
+    @x = x - @w / 2
+    @y = y - @h / 2
+  end
+  attr x, y, w, h
+  def to_s = "<{self.class.name}>"
+  def inspect = self.to_s
+  def near?(x0, y0, x1, y1) = x1 >= @x and x0 < @x + @w and y1 >= @y and y0 < @y + @h
+  def under?(px, py) = px >= @x and px < @x + @w and py >= @y and py < @y + @h
+  def centre = [@x + @w / 2, @y + @h / 2]
+  def move_to(cx, cy)
+    @x = cx - @w / 2
+    @y = cy - @h / 2
+  end
+
+  # A ball near it: the nearest point of the box to the ball's centre is
+  # on a side (straight out) or a corner (out from the corner); if that's
+  # inside the ball, it's a hit.
+  def touch(b)
+    cx = b.fx
+    cy = b.fy
+    x0 = @x * FIX
+    y0 = @y * FIX
+    x1 = x0 + @w * FIX
+    y1 = y0 + @h * FIX
+    r = b.radius * FIX
+    dx = if cx < x0 then cx - x0 elif cx > x1 then cx - x1 else 0 end
+    dy = if cy < y0 then cy - y0 elif cy > y1 then cy - y1 else 0 end
+    if dx == 0 and dy == 0
+      self.inside(b, cx - x0, x1 - cx, cy - y0, y1 - cy, r)
+    elif dx == 0
+      if dy.abs < r then self.hit(b, 0, if dy < 0 then -1024 else 1024 end, r - dy.abs) end
+    elif dy == 0
+      if dx.abs < r then self.hit(b, if dx < 0 then -1024 else 1024 end, 0, r - dx.abs) end
+    else
+      d2 = dx * dx + dy * dy
+      if d2 < r * r
+        d = d2.sqrt.max(1)
+        self.hit(b, dx * 1024 / d, dy * 1024 / d, r - d)
+      end
+    end
+  end
+
+  # the ball's centre is inside the box: out by the nearest side
+  def inside(b, left, right, top, bottom, r)
+    m = left.min(right).min(top).min(bottom)
+    if m == top
+      self.hit(b, 0, -1024, top + r)
+    elif m == bottom
+      self.hit(b, 0, 1024, bottom + r)
+    elif m == left
+      self.hit(b, -1024, 0, left + r)
+    else
+      self.hit(b, 1024, 0, right + r)
+    end
+  end
+end
+
+# ---- balls ----------------------------------------------------------------------
+
+class Ball < Part
+  # ---- what it is: change these
+  def radius = 7
+  def color = PAL.red
+  def gravity = 100
+  def bounce = 75
+  def mass = 2
+  def draw(g)
+    r = self.radius
+    g.fill_oval(@x + r, @y + r, r, r, self.color)
+  end
+
+  # ---- how it moves: in 256ths of a pixel, (@fx, @fy) its centre
+  def init(x, y)
+    @fx = x * FIX
+    @fy = y * FIX
+    @vx = 0
+    @vy = 0
+    @lx = @fx
+    @ly = @fy
+    @ox = nil                           # where it was last drawn
+    @home = nil
+    super(x, y)
+  end
+  attr fx, fy, vx, vy, lx, ly
+  def vx=(v)
+    @vx = v
+  end
+  def vy=(v)
+    @vy = v
+  end
+  def moves? = true
+  def size = [2 * self.radius + 1, 2 * self.radius + 1]
+
+  # gravity, and on
+  def step(g)
+    @lx = @fx
+    @ly = @fy
+    @vy += GRAVITY * self.gravity / 100
+    if @vx > MAX_SPEED then @vx = MAX_SPEED elif @vx < -MAX_SPEED then @vx = -MAX_SPEED end
+    if @vy > MAX_SPEED then @vy = MAX_SPEED elif @vy < -MAX_SPEED then @vy = -MAX_SPEED end
+    @fx += @vx
+    @fy += @vy
+  end
+
+  # Out of a surface whose way out is (nx, ny), by pen; then the speed
+  # into it turned round, less what doesn't bounce (all of it, slowly, so
+  # a ball comes to rest), and less some for friction along it
+  def bounce_off(nx, ny, pen, bounce, friction)
+    @fx += nx * pen / 1024
+    @fy += ny * pen / 1024
+    vn = (@vx * nx + @vy * ny) / 1024
+    if vn >= 0 then return nil end
+    k = if vn > -2 * GRAVITY then -vn else -vn * (100 + bounce * self.bounce / 100) / 100 end
+    @vx += nx * k / 1024 - @vx * friction / 100
+    @vy += ny * k / 1024 - @vy * friction / 100
+    if @vx.abs < 6 then @vx = 0 end
+  end
+
+  def shift(dx, dy)
+    @fx += dx
+    @fy += dy
+  end
+  def push(dvx, dvy)
+    @vx += dvx
+    @vy += dvy
+  end
+
+  # Another ball: they push apart and bounce off each other, by their masses
+  def touch(b)
+    dx = @fx - b.fx
+    dy = @fy - b.fy
+    rr = (self.radius + b.radius) * FIX
+    if dx.abs >= rr or dy.abs >= rr then return nil end
+    d2 = dx * dx + dy * dy
+    if d2 >= rr * rr then return nil end
+    d = d2.sqrt.max(1)
+    nx = dx * 1024 / d
+    ny = dy * 1024 / d
+    m1 = self.mass
+    m2 = b.mass
+    if m1 + m2 == 0
+      m1 = 1
+      m2 = 1
+    end
+    m = (m1 + m2) * 1024
+    pen = rr - d
+    self.shift(nx * pen * m2 / m, ny * pen * m2 / m)
+    b.shift(-nx * pen * m1 / m, -ny * pen * m1 / m)
+    vn = ((@vx - b.vx) * nx + (@vy - b.vy) * ny) / 1024
+    if vn >= 0 then return nil end
+    j = -vn * (100 + self.bounce * b.bounce / 100) / 100
+    self.push(nx * j * m2 / m, ny * j * m2 / m)
+    b.push(-nx * j * m1 / m, -ny * j * m1 / m)
+  end
+
+  # after a frame: where it is in pixels; true if that's off the table
+  def settle
+    r = self.radius
+    @x = @fx / FIX - r
+    @y = @fy / FIX - r
+    @w = 2 * r + 1
+    @h = @w
+    @y > PH or @y < -300 or @x >= PW or @x + @w <= 0
+  end
+  # where it was drawn and where it is now, together: [x, y, w, h], or
+  # nil if it hasn't moved
+  def span
+    if @ox == nil then return [@x, @y, @w, @h] end
+    if @ox == @x and @oy == @y and @ow == @w then return nil end
+    x0 = if @ox < @x then @ox else @x end
+    y0 = if @oy < @y then @oy else @y end
+    x1 = if @ox + @ow > @x + @w then @ox + @ow else @x + @w end
+    y1 = if @oy + @ow > @y + @h then @oy + @ow else @y + @h end
+    [x0, y0, x1 - x0, y1 - y0]
+  end
+  def drawn = if @ox == nil then nil else [@ox, @oy, @ow, @ow] end
+  def show(g)
+    self.draw(g)
+    @ox = @x
+    @oy = @y
+    @ow = @w
+  end
+
+  def move_to(cx, cy)
+    @fx = cx * FIX
+    @fy = cy * FIX
+    @lx = @fx
+    @ly = @fy
+    @vx = 0
+    @vy = 0
+    self.settle
+  end
+  def throw(vx, vy)
+    @vx = vx
+    @vy = vy
+  end
+
+  def save = @home = [@fx, @fy]
+  def reset
+    if @home != nil
+      @fx = @home[0]
+      @fy = @home[1]
+    end
+    @vx = 0
+    @vy = 0
+    @lx = @fx
+    @ly = @fy
+    @ox = nil
+    self.settle
+  end
+end
+
+class BowlingBall < Ball
+  def radius = 10
+  def color = if PAL.color? then PAL.rgb(40, 40, 70) else PAL.black end
+  def bounce = 30
+  def mass = 6
+  def draw(g)
+    r = self.radius
+    g.fill_oval(@x + r, @y + r, r, r, self.color)
+    g.fill(@x + r - 3, @y + r - 4, 2, 2, PAL.white)
+    g.fill(@x + r + 1, @y + r - 4, 2, 2, PAL.white)
+  end
+end
+
+# ---- things to bounce off ------------------------------------------------------------
+
+class Brick < Part
+  def color = if PAL.color? then PAL.rgb(178, 74, 44) else PAL.black end
+  def draw(g)
+    g.fill(@x, @y, @w, @h, self.color)
+    g.fill(@x, @y + @h / 2, @w, 1, PAL.light)
+    g.fill(@x + @w / 2, @y, 1, @h / 2, PAL.light)
+    g.fill(@x + @w / 4, @y + @h / 2, 1, @h - @h / 2, PAL.light)
+    g.fill(@x + @w * 3 / 4, @y + @h / 2, 1, @h - @h / 2, PAL.light)
+  end
+end
+
+# a plank from (@ax, @ay) to (@bx, @by): drag an end to move it
+class Ramp < Part
+  def init(x, y)
+    @ax = x - 40
+    @ay = y - 14
+    @bx = x + 40
+    @by = y + 14
+    self.shape
+  end
+  def thick = 2                         # half its thickness
+  def color = if PAL.color? then PAL.rgb(150, 100, 50) else PAL.black end
+  def bounce = 50
+
+  # its length, its direction (ux, uy) x 1024, and the box around it
+  def shape
+    dx = @bx - @ax
+    dy = @by - @ay
+    @len = (dx * dx + dy * dy).sqrt.max(1)
+    @ux = dx * 1024 / @len
+    @uy = dy * 1024 / @len
+    t = self.thick + 1
+    @x = @ax.min(@bx) - t
+    @y = @ay.min(@by) - t
+    @w = (@bx - @ax).abs + 2 * t + 1
+    @h = (@by - @ay).abs + 2 * t + 1
+  end
+
+  def draw(g)
+    t = self.thick
+    nx = -@uy * t / 1024
+    ny = @ux * t / 1024
+    g.poly([@ax + nx, @ay + ny, @bx + nx, @by + ny, @bx - nx, @by - ny, @ax - nx, @ay - ny], self.color)
+  end
+
+  # A ball near it: how far along (t) and how far off the line (d) its
+  # centre is. Off an end, the end is a point to hit; along it, it's hit
+  # on the side the ball came from.
+  def touch(b)
+    r = (b.radius + self.thick) * FIX
+    px = b.fx - @ax * FIX
+    py = b.fy - @ay * FIX
+    t = (px * @ux + py * @uy) / 1024
+    if t < 0 or t > @len * FIX
+      ex = if t < 0 then px else px - (@bx - @ax) * FIX end
+      ey = if t < 0 then py else py - (@by - @ay) * FIX end
+      d2 = ex * ex + ey * ey
+      if d2 >= r * r then return nil end
+      d = d2.sqrt.max(1)
+      return self.hit(b, ex * 1024 / d, ey * 1024 / d, r - d)
+    end
+    d = (py * @ux - px * @uy) / 1024
+    if d.abs >= r then return nil end
+    was = ((b.ly - @ay * FIX) * @ux - (b.lx - @ax * FIX) * @uy) / 1024
+    if was < 0 then self.hit(b, @uy, -@ux, r + d) else self.hit(b, -@uy, @ux, r - d) end
+  end
+
+  def under?(px, py)
+    dx = px - @ax
+    dy = py - @ay
+    t = (dx * @ux + dy * @uy) / 1024
+    t >= -3 and t <= @len + 3 and ((dy * @ux - dx * @uy) / 1024).abs <= self.thick + 3
+  end
+  def centre = [(@ax + @bx) / 2, (@ay + @by) / 2]
+  def move_to(cx, cy)
+    c = self.centre
+    @ax += cx - c[0]
+    @bx += cx - c[0]
+    @ay += cy - c[1]
+    @by += cy - c[1]
+    self.shape
+  end
+  # which end is at (px, py): 0, 1, or nil
+  def end_at(px, py)
+    if (px - @ax).abs <= 6 and (py - @ay).abs <= 6 then 0
+    elif (px - @bx).abs <= 6 and (py - @by).abs <= 6 then 1
+    else nil end
+  end
+  def set_end(i, px, py)
+    if i == 0
+      @ax = px
+      @ay = py
+    else
+      @bx = px
+      @by = py
+    end
+    self.shape
+  end
+  def flip
+    y = @ay
+    @ay = @by
+    @by = y
+    self.shape
+  end
+end
+
+# sends a ball up as high every time
+class Trampoline < Part
+  def size = [44, 12]
+  def color = PAL.green
+  def launch = 1700                     # the speed up it gives a ball
+  def draw(g)
+    g.fill(@x, @y, @w, 4, self.color)
+    g.fill(@x + 2, @y + 4, 3, @h - 4, PAL.black)
+    g.fill(@x + @w - 5, @y + 4, 3, @h - 4, PAL.black)
+  end
+  def hit(b, nx, ny, pen)
+    if ny < -700 and b.vy > 0
+      b.bounce_off(nx, ny, pen, 0, 0)
+      b.vy = -self.launch
+    else
+      super(b, nx, ny, pen)
+    end
+  end
+end
+
+# catches balls, and counts them
+class Bucket < Part
+  def init(x, y)
+    @count = 0
+    super(x, y)
+  end
+  def size = [34, 28]
+  def color = PAL.blue
+  def reset = @count = 0
+  attr count
+  def draw(g)
+    c = self.color
+    g.fill(@x, @y, 3, @h, c)
+    g.fill(@x + @w - 3, @y, 3, @h, c)
+    g.fill(@x, @y + @h - 3, @w, 3, c)
+    if @count > 0
+      s = @count.to_s
+      g.text(@x + (@w - gui_text_width(s, UI)) / 2, @y + @h - 8, s, c)
+    end
+  end
+  # over the opening, a ball falls in; anywhere else it's the rim
+  def touch(b)
+    r = b.radius
+    cx = b.fx / FIX
+    if cx - r >= @x + 2 and cx + r <= @x + @w - 2
+      if b.fy / FIX > @y + @h / 2 then self.caught(b) end
+    else
+      super(b)
+    end
+  end
+  def caught(b)
+    @count += 1
+    TABLE.remove(b)
+    TABLE.refresh(@x, @y, @w, @h)
+  end
+end
+
+# drops a ball every so often
+class Dropper < Part
+  def init(x, y)
+    @n = 0
+    super(x, y)
+  end
+  def size = [26, 22]
+  def color = PAL.grey
+  def every = 70                        # frames between balls
+  def makes = Ball
+  def reset = @n = 0
+  def draw(g)
+    g.poly([@x, @y, @x + @w, @y, @x + @w / 2 + 4, @y + @h - 6, @x + @w / 2 - 4, @y + @h - 6], self.color)
+    g.fill(@x + @w / 2 - 4, @y + @h - 6, 9, 6, self.color)
+  end
+  def step(g)
+    @n += 1
+    if @n % self.every == 1 then g.spawn(self.makes.new(@x + @w / 2, @y + @h + 9)) end
+  end
+end
+
+# ---- the table --------------------------------------------------------------------------
+
+# Where a window's frame goes for its content to start on a word of the
+# screen: copying to it from a layer then doesn't shift every word (a
+# shift takes a step a bit). The Macintosh lined its windows up for the
+# same reason.
+def word_aligned(x)
+  a = 32 >> gui_depth()                 # pixels to a word
+  (x + 1 + a / 2) / a * a - 1
+end
+
+# whether a kind of part has a step of its own (not Part's, which does
+# nothing): the table asks only those
+def steps?(cls)
+  c = cls
+  while c != nil and c != Part
+    if gui_methods(c).any? { |m| m[0] == :step } then return true end
+    c = c.superclass
+  end
+  false
+end
+
+# the classes of parts: Part's subclasses, in the order they were made
+def part_classes
+  out = []
+  for g in gui_globals()
+    c = g[1]
+    if c.is_a?(Class) and c != Part
+      k = c.superclass
+      while k != nil and k != Part
+        k = k.superclass
+      end
+      if k == Part then out.push(c) end
+    end
+  end
+  out
+end
+
+NEW_PART = "# A new part: press Ctrl-D with the cursor in the class, and it
+# joins the parts bin. A part can have: size, color, draw(g) (inside
+# its size), bounce, friction, step(g), touch(ball), hit(ball, nx, ny,
+# pen); a ball: radius, gravity, mass. Part and Ball have the rest.
+
+class Balloon < Ball
+  def radius = 9
+  def color = PAL.yellow
+  def gravity = -30
+end
+"
+
+
+BACK = 1                # the window's layers (gui_layers): the still parts,
+FRONT = 2               # and the picture, composed there and copied to the screen
+GRID = 64               # the table's cells, for finding the still parts near a ball
+GRID_COLS = 6           # (PW / GRID, rounded up)
+REACH = 16              # how far into the next cell a ball can reach
+
+# The table. It's drawn offscreen in two layers: BACK has the still parts,
+# and FRONT the balls on them. A ball that moves is rubbed out in FRONT by
+# copying from BACK, without drawing what was under it again, and drawn
+# where it is; then what changed is copied to the screen, so it never
+# shows a ball half drawn.
+class Gadgets < Window
+  def init
+    @statics = []
+    @movers = []
+    @layout = []                        # what was put on the table, to reset to
+    @dead = []                          # taken off during a frame
+    @rubbed = []                        # rectangles to rub out, after a frame
+    @grid = nil                         # still parts by cell (make_grid)
+    @acting = []                        # still parts with a step of their own
+    @running = false
+    @fresh = true                       # as it was put: Run saves it first
+    @in_frame = false
+    @next = 0                           # the tick the next frame is due
+    @frames = 0
+    @run_frames = 0                     # all of them, ever
+    @cycles = 0                         # in the frames since the last status
+    @ticks = 0
+    @ms = 0
+    @speed = 0
+    @kinds = part_classes()
+    @picked = nil
+    @hover = nil
+    @drag = nil
+    @error = nil
+    @bg = if PAL.color? then PAL.rgb(215, 235, 255) else PAL.white end
+    super("Gadgets", word_aligned(174), 24, PW + 2 * CELL + 6, PH + 16)
+    TABLE = self
+    @backed = false
+    self.demo
+  end
+  def resizable? = false
+  def closing = TABLE = nil
+  def move_to(x, y) = super(word_aligned(x), y)
+  attr statics, movers, kinds, run_frames
+
+  def parts = @statics + @movers
+
+  # ---- what's on it
+
+  def add(p)
+    if p.moves?
+      @movers.push(p)
+      p.settle
+    else
+      @statics.push(p)
+      @grid = nil
+    end
+  end
+
+  # a part put on the table (not dropped by a Dropper): Reset keeps it
+  def place(p)
+    self.add(p)
+    @layout.push(p)
+    if p.moves?
+      p.save
+      self.moved(p)
+    else
+      self.refresh(p.x, p.y, p.w, p.h)
+    end
+  end
+
+  # a ball from a dropper, if there aren't too many already
+  def spawn(b)
+    if @movers.size < 12 then self.add(b) end
+  end
+
+  def remove(p)
+    if @in_frame
+      if not @dead.contains?(p) then @dead.push(p) end
+      return nil
+    end
+    self.take_off(p)
+    self.hide(p)
+  end
+
+  def take_off(p)
+    for l in [@statics, @movers, @layout]
+      i = l.index(p)
+      if i != nil then l.delete_at(i) end
+    end
+    if not p.moves? then @grid = nil end
+  end
+
+  def clear
+    @statics = []
+    @movers = []
+    @layout = []
+    @grid = nil
+    self.stop
+    @fresh = true
+    @backed = false
+    self.invalidate
+  end
+
+  # the table it starts with
+  def demo
+    @statics = []
+    @movers = []
+    @layout = []
+    a = Ramp.new(0, 0)
+    a.set_end(0, 30, 56)
+    a.set_end(1, 200, 96)
+    b = Ramp.new(0, 0)
+    b.set_end(0, 360, 120)
+    b.set_end(1, 220, 168)
+    for p in [Dropper.new(50, 16), a, b, Trampoline.new(165, 266), Bucket.new(66, 268),
+              Brick.new(260, 230), BowlingBall.new(345, 110)]
+      self.add(p)
+      @layout.push(p)
+      if p.moves? then p.save end
+    end
+    @grid = nil
+    @fresh = true
+    @running = false
+    DESK.stop_ticks(self)
+    @backed = false
+    self.invalidate
+  end
+
+  # ---- running
+
+  def run
+    if @fresh
+      for p in @movers
+        p.save
+      end
+      @fresh = false
+    end
+    @running = true
+    DESK.start_ticks(self)
+    @error = nil
+    @next = 0
+    @frames = 0
+    @cycles = 0
+    @ticks = gui_ticks()
+    self.draw_buttons
+    self.status
+  end
+
+  def stop
+    @running = false
+    DESK.stop_ticks(self)
+    self.draw_buttons
+    self.status
+  end
+
+  def reset
+    @running = false
+    DESK.stop_ticks(self)
+    @statics = @layout.reject { |p| p.moves? }
+    @movers = @layout.select { |p| p.moves? }
+    for p in @layout
+      p.reset
+    end
+    @grid = nil
+    @fresh = true
+    @error = nil
+    @backed = false
+    self.invalidate
+  end
+
+  # Frames are due every other tick. One that's late is done with the
+  # next, and drawn once for both; any later than that is slow motion.
+  def tick(t)
+    if not @running or t < @next then return nil end
+    start = clock()
+    was = @frames
+    try
+      self.physics
+      @frames += 1
+      if t >= @next + 2 and @running
+        self.physics
+        @frames += 1
+      end
+      @run_frames += @frames - was
+      self.draw_moved
+    catch err
+      self.broke(err)
+    end
+    @next = t + 2
+    @cycles += clock() - start
+    if t - @ticks >= 60 or @error != nil
+      @ms = @cycles / @frames.max(1) * 50 / (3 * gui_tick_cycles())   # (1000 / 60 = 50 / 3)
+      @speed = @frames * 200 / (t - @ticks).max(1)      # of 30 frames a second
+      @frames = 0
+      @cycles = 0
+      @ticks = t
+      self.status
+    end
+  end
+
+  # something went wrong in a part's code: stop, and say so
+  def broke(err)
+    @in_frame = false
+    @dead = []
+    @rubbed = []
+    gui_draw_to(@id, 0)
+    gui_clip(@id)
+    @running = false
+    DESK.stop_ticks(self)
+    @error = err.to_s
+    print("Gadgets stopped: " + @error)
+    self.draw_buttons
+    self.status
+  end
+
+  # One frame of physics: every part's step (the balls fall, the droppers
+  # drop), then each ball against the still parts near it, the balls
+  # after it, and the table's sides; then what fell off, or was taken
+  # off, is gone.
+  def physics
+    @in_frame = true
+    if @grid == nil then self.make_grid end
+    statics = @statics
+    movers = @movers
+    held = if @drag == nil then nil else @drag[0] end
+    acting = @acting
+    i = 0
+    while i < acting.size
+      acting[i].step(self)
+      i += 1
+    end
+    n = movers.size
+    i = 0
+    while i < n
+      if movers[i] != held then movers[i].step(self) end
+      i += 1
+    end
+    # where the balls are, in pixels, for the tests
+    n = movers.size
+    xs = List.new(n)
+    ys = List.new(n)
+    rs = List.new(n)
+    i = 0
+    while i < n
+      b = movers[i]
+      xs[i] = b.fx / FIX
+      ys[i] = b.fy / FIX
+      rs[i] = b.radius
+      i += 1
+    end
+    grid = @grid
+    i = 0
+    while i < n
+      b = movers[i]
+      if b != held
+        cx = xs[i]
+        cy = ys[i]
+        r = rs[i]
+        if cx >= 0 and cx < PW and cy >= 0 and cy < PH
+          near = grid[cy / GRID * GRID_COLS + cx / GRID]
+          k = 0
+          while k < near.size
+            p = near[k]
+            if p.near?(cx - r, cy - r, cx + r, cy + r) then p.touch(b) end
+            k += 1
+          end
+        end
+        j = i + 1
+        while j < n
+          rr = r + rs[j]
+          dx = xs[j] - cx
+          dy = ys[j] - cy
+          if dx < rr and dx > -rr and dy < rr and dy > -rr and movers[j] != held then movers[j].touch(b) end
+          j += 1
+        end
+        if cx < r
+          b.bounce_off(1024, 0, (r - cx) * FIX, 100, 0)
+        elif cx >= PW - r
+          b.bounce_off(-1024, 0, (cx + r - PW + 1) * FIX, 100, 0)
+        end
+      end
+      i += 1
+    end
+    @in_frame = false
+    for p in @dead
+      self.take_off(p)
+      if p.moves? then self.rub_out(p) else self.refresh(p.x, p.y, p.w, p.h) end
+    end
+    @dead = []
+    i = 0
+    while i < movers.size
+      b = movers[i]
+      if b.settle
+        self.take_off(b)
+        self.rub_out(b)
+      else
+        i += 1
+      end
+    end
+  end
+
+  def rub_out(b)
+    d = b.drawn
+    if d != nil then @rubbed.push(d) end
+  end
+
+  # For each cell of the table, the still parts that reach into it, give
+  # or take how far a ball reaches
+  def make_grid
+    rows = (PH + GRID - 1) / GRID
+    g = List.new(rows * GRID_COLS)
+    k = 0
+    while k < g.size
+      g[k] = []
+      k += 1
+    end
+    for p in @statics
+      c0 = ((p.x - REACH) / GRID).max(0)
+      c1 = ((p.x + p.w + REACH) / GRID).min(GRID_COLS - 1)
+      r0 = ((p.y - REACH) / GRID).max(0)
+      r1 = ((p.y + p.h + REACH) / GRID).min(rows - 1)
+      r = r0
+      while r <= r1
+        c = c0
+        while c <= c1
+          g[r * GRID_COLS + c].push(p)
+          c += 1
+        end
+        r += 1
+      end
+    end
+    @grid = g
+    @acting = @statics.select { |p| steps?(p.class) }
+  end
+
+  # ---- drawing
+
+  # The balls that moved, rubbed out where they were drawn and drawn where
+  # they are, with any other ball they were over; and then to the screen
+  def draw_moved
+    movers = @movers
+    rubbed = @rubbed                    # in FRONT, from BACK; then to the screen
+    n = movers.size
+    moved = List.new(n)
+    i = 0
+    while i < n
+      d = movers[i].span
+      if d != nil
+        rubbed.push(d)
+        moved[i] = true
+      end
+      i += 1
+    end
+    if rubbed.size == 0 then return nil end
+    gui_draw_to(@id, FRONT)
+    k = 0
+    while k < rubbed.size
+      d = rubbed[k]
+      gui_copy(@id, BACK, FRONT, d[0], d[1], d[2], d[3])
+      k += 1
+    end
+    i = 0
+    while i < n
+      b = movers[i]
+      if moved[i] or rubbed.any? { |d| b.near?(d[0], d[1], d[0] + d[2], d[1] + d[3]) }
+        b.show(self)
+      end
+      i += 1
+    end
+    gui_draw_to(@id, 0)
+    k = 0
+    while k < rubbed.size
+      d = rubbed[k]
+      gui_copy(@id, FRONT, 0, d[0], d[1], d[2], d[3])
+      k += 1
+    end
+    @rubbed = []
+  end
+
+  # Part of the table drawn again: the still parts in BACK, then FRONT
+  # from that and the balls there, then the screen
+  def refresh(x, y, w, h)
+    x1 = (x + w).min(PW)
+    y1 = (y + h).min(PH)
+    x = x.max(0)
+    y = y.max(0)
+    if x1 <= x or y1 <= y then return nil end
+    w = x1 - x
+    h = y1 - y
+    if not @backed
+      @backed = gui_layers(@id, PW, PH)
+      x = 0
+      y = 0
+      w = PW
+      h = PH
+    end
+    gui_draw_to(@id, BACK)
+    try
+      gui_clip(@id, x, y, w, h)
+      self.fill(x, y, w, h, @bg)
+      for p in @statics
+        if p.near?(x, y, x + w, y + h) then p.draw(self) end
+      end
+      gui_copy(@id, BACK, FRONT, x, y, w, h)
+      gui_draw_to(@id, FRONT)
+      for b in @movers
+        if b.near?(x, y, x + w, y + h) then b.show(self) end
+      end
+    catch err
+      gui_draw_to(@id, 0)
+      raise(err)
+    end
+    gui_draw_to(@id, 0)
+    gui_copy(@id, FRONT, 0, x, y, w, h)
+  end
+
+  # a ball where it is now, and not where it was drawn last
+  def moved(b)
+    if not @in_frame then self.draw_moved end
+  end
+
+  def hide(p)
+    if p.moves?
+      self.rub_out(p)
+      self.draw_moved
+    else
+      self.refresh(p.x, p.y, p.w, p.h)
+    end
+  end
+
+  def paint
+    try
+      if @backed then gui_copy(@id, FRONT, 0, 0, 0, PW, PH) else self.refresh(0, 0, PW, PH) end
+    catch err
+      @running = false
+      DESK.stop_ticks(self)
+      @error = err.to_s
+    end
+    self.fill(PW, 0, 1, PH, PAL.grey)
+    self.fill(0, PH, self.width, 1, PAL.grey)
+    self.draw_bin
+    self.status
+  end
+
+  # ---- the bin: Run and Reset, then a cell for each kind of part
+
+  def bin_x = PW + 3
+  def cell_rect(k) = [self.bin_x + k % 2 * (CELL + 1), 46 + k / 2 * (CELL + 1), CELL, CELL]
+  def cell_at(x, y)
+    if x < self.bin_x or y < 46 then return nil end
+    k = (y - 46) / (CELL + 1) * 2 + (x - self.bin_x) / (CELL + 1)
+    if k < @kinds.size then k else nil end
+  end
+
+  def draw_bin
+    self.fill(PW + 1, 0, self.width - PW - 1, PH, PAL.light)
+    self.draw_buttons
+    k = 0
+    while k < @kinds.size
+      self.draw_cell(k)
+      k += 1
+    end
+  end
+
+  def button(y, label)
+    x = self.bin_x
+    w = 2 * CELL + 1
+    self.fill(x, y, w, 18, PAL.white)
+    self.box(x, y, w, 18, PAL.black)
+    self.text_in(UI, x + (w - gui_text_width(label, UI)) / 2, y + 13, label, PAL.black, PAL.white)
+  end
+
+  def draw_buttons
+    self.button(3, if @running then "Stop" else "Run" end)
+    self.button(24, "Reset")
+  end
+
+  def draw_cell(k)
+    r = self.cell_rect(k)
+    on = @kinds[k] == @picked
+    self.fill(r[0], r[1], r[2], r[3], if on then PAL.select else PAL.white end)
+    self.box(r[0], r[1], r[2], r[3], if on then PAL.black else PAL.grey end)
+    gui_clip(@id, r[0] + 1, r[1] + 1, r[2] - 2, r[3] - 2)
+    try
+      @kinds[k].new(r[0] + r[2] / 2, r[1] + r[3] / 2).icon(self)
+    catch err
+      self.text(r[0] + 14, r[1] + 22, "?", PAL.red)
+    end
+    gui_clip(@id)
+  end
+
+  def status
+    y = PH + 1
+    self.fill(0, y, self.width, self.height - y, PAL.light)
+    s = if @error != nil
+      "Stopped: " + @error
+    elif @hover != nil and @kinds[@hover] != @picked
+      @kinds[@hover].name + ": click it, then click the table"
+    elif @picked != nil
+      @picked.name + ": click the table to put one there (Shift: more)"
+    elif @running
+      "Running: {@movers.size} moving, {@ms} ms a frame, {@speed.min(100)}% speed"
+    else
+      "Drag the parts about, or take one from the bin. Right-click: more"
+    end
+    self.text_in(UI, 4, y + 12, short(s, 76), PAL.black, PAL.light)
+  end
+
+  # ---- the mouse
+
+  def part_at(x, y)
+    for l in [@movers, @statics]
+      k = l.size - 1
+      while k >= 0
+        if l[k].under?(x, y) then return l[k] end
+        k -= 1
+      end
+    end
+    nil
+  end
+
+  def pointer_at(x, y)
+    k = if x >= PW then self.cell_at(x, y) else nil end
+    if k != @hover
+      @hover = k
+      self.status
+    end
+    if x >= PW then P_HAND elif @picked != nil then P_CROSS elif self.part_at(x, y) != nil then P_MOVE else P_ARROW end
+  end
+
+  def mouse_down(x, y, b)
+    if x >= PW then return self.bin_click(x, y) end
+    if y >= PH then return nil end
+    if @picked != nil
+      self.place(@picked.new(x, y))
+      if gui_mouse()[3] & M_SHIFT == 0
+        k = @kinds.index(@picked)
+        @picked = nil
+        if k != nil then self.draw_cell(k) end
+      end
+      self.status
+      return nil
+    end
+    p = self.part_at(x, y)
+    if p == nil then return nil end
+    e = if p.respond_to?(:end_at) then p.end_at(x, y) else nil end
+    c = p.centre
+    @drag = [p, e, c[0] - x, c[1] - y]
+    @trail = [x, y, gui_ticks(), x, y, gui_ticks()]
+  end
+
+  def mouse_drag(x, y)
+    if @drag == nil then return nil end
+    p = @drag[0]
+    x = x.max(0).min(PW - 1)
+    y = y.max(0).min(PH - 1)
+    was = [p.x, p.y, p.w, p.h]
+    if @drag[1] != nil then p.set_end(@drag[1], x, y) else p.move_to(x + @drag[2], y + @drag[3]) end
+    if p.moves?
+      self.moved(p)
+    else
+      @grid = nil
+      self.refresh(was[0], was[1], was[2], was[3])
+      self.refresh(p.x, p.y, p.w, p.h)
+    end
+    @trail = [x, y, gui_ticks(), @trail[0], @trail[1], @trail[2]]
+  end
+
+  # let go of a ball while it runs, and it's thrown
+  def mouse_up(x, y, b)
+    if @drag == nil then return nil end
+    p = @drag[0]
+    @drag = nil
+    if p.moves? and @running
+      dt = (@trail[2] - @trail[5]).max(1)
+      p.throw((@trail[0] - @trail[3]) * FIX * 2 / dt, (@trail[1] - @trail[4]) * FIX * 2 / dt)
+    end
+  end
+
+  def bin_click(x, y)
+    if y >= 3 and y < 21 then return if @running then self.stop else self.run end end
+    if y >= 24 and y < 42 then return self.reset end
+    k = self.cell_at(x, y)
+    if k == nil then return nil end
+    old = if @picked == nil then nil else @kinds.index(@picked) end
+    @picked = if @kinds[k] == @picked then nil else @kinds[k] end
+    if old != nil then self.draw_cell(old) end
+    self.draw_cell(k)
+    @hover = nil
+    self.status
+  end
+
+  def key(code, mods)
+    if code == 32
+      if @running then self.stop else self.run end
+    elif code == K_ESCAPE and @picked != nil
+      k = @kinds.index(@picked)
+      @picked = nil
+      self.draw_cell(k)
+      self.status
+    end
+  end
+
+  def menu_items
+    m = gui_mouse()
+    r = self.screen_rect
+    x = m[0] - r[0]
+    y = m[1] - r[1]
+    p = if x < PW and y < PH then self.part_at(x, y) else nil end
+    k = if x >= PW then self.cell_at(x, y) else nil end
+    items = []
+    if p != nil
+      items.push(["Edit " + p.class.name, { edit_class(p.class) }])
+      if p.respond_to?(:flip)
+        items.push(["Flip", {
+          was = [p.x, p.y, p.w, p.h]
+          p.flip
+          @grid = nil
+          self.refresh(was[0], was[1], was[2], was[3])
+          self.refresh(p.x, p.y, p.w, p.h) }])
+      end
+      items.push(["Remove", { self.take_off(p)
+                              self.hide(p) }])
+      items.push("-")
+    elif k != nil
+      cls = @kinds[k]
+      items.push(["Edit " + cls.name, { edit_class(cls) }])
+      items.push("-")
+    end
+    items + [[if @running then "Stop" else "Run" end, { if @running then self.stop else self.run end }],
+             ["Reset", { self.reset }],
+             "-",
+             ["New part...", { Workspace(NEW_PART).set_title("New part") }],
+             ["Start again", { self.demo }],
+             ["Clear the table", { self.clear }]]
+  end
+
+  # a Workspace changed some classes: a new kind of part goes in the bin,
+  # and a changed one is drawn again
+  def classes_changed(names)
+    kinds = part_classes()
+    if kinds.size != @kinds.size or names.contains?("Gadgets") or kinds.any? { |c| names.contains?(c.name) }
+      @kinds = kinds
+      all = self.parts
+      @statics = all.reject { |p| p.moves? }
+      @movers = all.select { |p| p.moves? }
+      @grid = nil
+      @backed = false
+      self.invalidate
+    end
+  end
+end

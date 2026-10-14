@@ -7,6 +7,7 @@
 
 (() => {
   const CLOCK_HZ = 3_000_000;
+  const TICK_HZ = 60;
   const SLICE_MS = 12;          // host time per frame at most
   const STEPS = 40_000;         // instructions per call into the module
   const KEYS = {
@@ -30,6 +31,7 @@
   let busyMs = 0;
   let buttons = 0;
   let stats = { t: 0, cycles: 0, idle: 0 };
+  let uptime = 0;               // seconds the machine has been running
   const snapshots = {};
 
   function status(text, error = false) {
@@ -75,11 +77,22 @@
     consoleEl.textContent = "";
     outPos = 0;
     budget = 0;
+    uptime = 0;
+    setTimer();
     stats = { t: performance.now(), cycles: wasm.cycles(), idle: wasm.idle_cycles() };
     setTime();
     running = true;
     status(kind === "cold" ? "Booting…" : "Running.");
     canvas.focus({ preventScroll: true });
+  }
+
+  // A faster Heron programs its timer for the same 60 ticks a second, and
+  // the desktop works in ticks: so the switch makes the machine quicker,
+  // not time faster. (Flat out, it's programmed as for 48 MHz; waiting
+  // for the timer costs the host nothing, so time does run faster then.)
+  function setTimer() {
+    const hz = CLOCK_HZ * (speed === 0 ? 16 : speed);
+    wasm.set_timer_period(Math.round(hz / TICK_HZ));
   }
 
   function setTime() {
@@ -114,6 +127,7 @@
         running = false;
         status("The simulation stopped: " + text(wasm.error_ptr(), wasm.error_len()), true);
       }
+      uptime += dt / 1000;
       busyMs = wasm.idled() ? 0 : busyMs + dt;
       const ptr = busyMs > 400 ? "wait" : POINTERS[wasm.pointer()] || "default";
       if (canvas.style.cursor !== ptr) canvas.style.cursor = ptr;
@@ -153,11 +167,12 @@
     const dc = c - stats.cycles, di = idle - stats.idle, secs = (now - stats.t) / 1000;
     $("mhz").textContent = running ? (dc / secs / 1e6).toFixed(1) + " MHz" : "stopped";
     $("busy").textContent = dc > 0 ? Math.round(100 * (1 - di / dc)) + "%" : "–";
-    const t = c / CLOCK_HZ;
+    const t = uptime;
     $("mtime").textContent = `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
     $("led-run").classList.toggle("on", running && dc > di);
     stats = { t: now, cycles: c, idle };
     setTime();
+    setTimer();                 // (booting, the machine sets it for 3 MHz)
   }
 
   // ---- the screen's size: as big as fits (the width, and the window's
@@ -269,6 +284,7 @@
     if (!b) return;
     speed = Number(b.dataset.speed);
     budget = 0;
+    if (wasm) setTimer();
     press($("speeds"), b);
     canvas.focus({ preventScroll: true });
   });

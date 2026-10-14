@@ -191,6 +191,21 @@ pub extern "C" fn set_time_of_day(seconds: u32) {
     with_m(|m| m.dev.display.time_of_day = seconds);
 }
 
+/// The timer's period in cycles. The page sets it from the clock it runs
+/// the machine at, as a faster machine would be programmed, so the timer
+/// ticks 60 times a second at any speed (the desktop works in ticks).
+/// Until the machine has started its timer, this does nothing.
+#[unsafe(no_mangle)]
+pub extern "C" fn set_timer_period(cycles: f64) {
+    with_m(|m| {
+        let p = cycles as u64;
+        if m.dev.timer_period != 0 && p != 0 && p != m.dev.timer_period {
+            m.dev.timer_period = p;
+            m.dev.timer_next = m.dev.timer_next.min(m.cycles + p);
+        }
+    });
+}
+
 /// The pointer's shape (display.rs).
 #[unsafe(no_mangle)]
 pub extern "C" fn pointer() -> u32 {

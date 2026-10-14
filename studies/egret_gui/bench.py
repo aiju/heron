@@ -126,8 +126,8 @@ def measure(log=print):
         row("Opening", f"{name}", r.workspace_do(code, settle))
     r = Probe()
     r.workspace_do("Browser()", 4)
-    row("Browser", "Pick a class (Clock)", r.cost(lambda: r.s.click(100, 195), 2))
-    row("Browser", "Pick a method and show its source (paint)", r.cost(lambda: r.s.click(300, 135), 2))
+    row("Browser", "Pick a class (Ball)", r.cost(lambda: r.s.click(100, 120), 2))
+    row("Browser", "Pick a method and show its source (draw)", r.cost(lambda: r.s.click(300, 135), 2))
 
     # Life and the Mandelbrot set
     life = Probe()
@@ -146,11 +146,24 @@ def measure(log=print):
     secs = float(re.search(r"Mandelbrot: drawn in ([\d.]+) s", mandel.s.output).group(1))
     speed = ((mandel.s.cycles - c0) / host / 1e6, (mandel.s.m.instructions - i0) / host / 1e6)
 
+    # Gadgets' table, as it opens, running for 20 s where nothing covers it
+    gad = Probe()
+    gad.workspace_do("G = Gadgets(); G.move_to(175, 120); G.run", 0.1)
+    b0, c0 = busy(gad.s), gad.s.cycles
+    gad.s.run(20)
+    gbusy = busy(gad.s) - b0 - gad.rate * (gad.s.cycles - c0)
+    gad.workspace_do('print("gadgets", G.run_frames, G.statics.find { |p| p.is_a?(Bucket) }.count)', 1)
+    m = re.search(r"gadgets (\d+) (\d+)", gad.s.output)
+    gframes, gcaught = int(m.group(1)), int(m.group(2))
+    row("Gadgets", "A frame of the table it opens with (two to five balls moving), on average",
+        round(gbusy / gframes))
+
     # memory, once the desktop is up
     st = Probe()
     st.workspace_do("print(\"stats \" + gui_stats().inspect)", 1)
     mem = [int(x) for x in re.search(r"stats \[([\d, ]+)\]", st.s.output).group(1).split(",")]
     return {"rows": rows, "life": gens / 30, "mandel": secs, "image": build.image(), "host": speed,
+            "gadgets": (gframes / 20, gcaught),
             "profiles": profiles(),
             "mem": mem,
             "lines": {f: open(os.path.join(build.LIB, f)).read().count("\n") for f in build.DESKTOP},
@@ -173,6 +186,8 @@ def tables(r):
     out += ["", "## Running", "", "| | |", "|---|---:|",
             f"| Life, generations a second (the glider gun) | {r['life']:.1f} |",
             f"| The Mandelbrot set, 160 x 120, up to 32 steps | {r['mandel']:.1f} s |",
+            f"| Gadgets' table, frames a second (of 30) | {r['gadgets'][0]:.0f} |",
+            f"| ... and balls in the bucket after 20 s | {r['gadgets'][1]} |",
             f"| The simulator on the host, natively: million cycles a second | {r['host'][0]:.0f} |",
             f"| ... and million instructions a second | {r['host'][1]:.0f} |", ""]
     out += ["## Where the cycles go", "",
@@ -292,7 +307,7 @@ def profiles():
 
 # the middles of the desktop menu's items, from its top
 MENU = {"Workspace": 11, "Transcript": 29, "Browser": 47, "Clock": 72, "Life": 90,
-        "Mandelbrot": 108, "Paint": 126, "About": 151}
+        "Gadgets": 108, "Mandelbrot": 126, "Paint": 144, "About": 169}
 
 
 def menu(s, item, x=550, y=300):
@@ -304,7 +319,7 @@ def menu(s, item, x=550, y=300):
 
 def screenshots(out=REPORT_DIR, log=print):
     """The report's pictures: the desktop at 8 and 1 bits per pixel with
-    some things done in it, and the Browser."""
+    some things done in it, the Browser, and Gadgets."""
     paths = []
     for depth in (3, 0):
         s = run.Session(depth=depth).boot()
@@ -330,11 +345,28 @@ def screenshots(out=REPORT_DIR, log=print):
     s.drag(150, 71, 414, 250)                   # to the bottom right
     s.run(2)
     menu(s, "Browser", 450, 190)                # at (78, 84)
-    s.click(124, 217)                           # Clock
+    s.click(124, 142)                           # Ball
     s.run(1)
-    s.click(324, 157)                           # paint
+    s.click(324, 127)                           # bounce_off
     s.run(6)
     paths.append(os.path.join(out, "browser.png"))
+    s.png(paths[-1])
+    # Gadgets, with a part made in the Workspace and put on the table
+    s = run.Session().boot()
+    s.run(3)
+    s.click(200, 50)
+    s.key("end", ["ctrl"])
+    s.type("\n\nclass Balloon < Ball; def radius = 9; def color = PAL.yellow; def gravity = -30; end")
+    s.key("d", ["ctrl"])
+    s.run(2)
+    menu(s, "Gadgets")                          # its table at (176, 44)
+    s.run(2)
+    s.click(595, 56)                            # Run
+    s.run(9)
+    s.click(614, 219)                           # the Balloon, last in the bin
+    s.click(470, 300)                           # on the table
+    s.run(1.2)
+    paths.append(os.path.join(out, "gadgets.png"))
     s.png(paths[-1])
     for p in paths:
         log(f"wrote {os.path.relpath(p)}")

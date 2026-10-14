@@ -442,12 +442,13 @@ class Mandel < Window
     @colors[limit]
   end
 
-  # as many points as fit in a few hundredths of a second, so the desktop
-  # stays awake; each row drawn when it's done
+  # as many points as fit in most of a tick, so the desktop stays awake;
+  # each row drawn when it's done
   def tick(t)
     if @next >= @order.size then return nil end
     start = clock()
-    while clock() - start < 40000
+    slice = gui_tick_cycles() * 4 / 5
+    while clock() - start < slice
       job = @order[@next]
       ci = @y0 + job[0] * @step
       @row.push(self.point(@x0 + @x * @step, ci))
@@ -827,6 +828,16 @@ def class_source(cls)
   out
 end
 
+# a class's source in a Workspace, to change and run again
+def edit_class(cls)
+  gui_pointer(P_BUSY)
+  src = class_source(cls)
+  w = Workspace("# Change it, then press Ctrl-D with the cursor in it. (It can't\n" +
+                "# take new instance variables: that needs a new class.)\n\n" + src.join("\n") + "\n")
+  w.set_title(cls.name)
+  w
+end
+
 class Browser < Window
   def init
     @classes = gui_globals().select { |g| g[1].is_a?(Class) }.map { |g| g[1] }.sort_by { |c| c.name }
@@ -918,12 +929,7 @@ class Browser < Window
   # a class, or one of its methods, into a Workspace, to change and run
   # again
   def edit_class
-    if @cls == nil then return nil end
-    gui_pointer(P_BUSY)
-    src = class_source(@cls)
-    w = Workspace("# Change it, then press Ctrl-D with the cursor in it. (It can't\n" +
-                  "# take new instance variables: that needs a new class.)\n\n" + src.join("\n") + "\n")
-    w.set_title(@cls.name)
+    if @cls != nil then edit_class(@cls) end
   end
 
   def edit_method

@@ -9,8 +9,9 @@ reports: [21]
 A demo more than a design study: a small Smalltalk-style desktop for
 [Egret](../egret/README.md), running on the simulated draft 1b machine.
 There are overlapping windows, a mouse and a keyboard, a Workspace where
-you type Egret and run it, a Transcript, a class browser, and a few demos
-(a clock, Life, the Mandelbrot set, Paint). The desktop is Egret source
+you type Egret and run it, a Transcript, a class browser, a few demos
+(a clock, Life, the Mandelbrot set, Paint), and Gadgets, a playground of
+parts with cartoon physics where a new class is a new part. The desktop is Egret source
 that the machine compiles when it boots, like any other Egret program.
 The pixels are the [graphics study](../graphics/README.md)'s library and
 assembly kernels. It runs in a browser, as WebAssembly, at the machine's
@@ -58,10 +59,26 @@ The browser version needs Rust's WebAssembly target:
   your version. A class can't take new instance variables once it exists
   (that's Egret), and running a class with a different superclass leaves
   the old one.
+- **Gadgets** (on the desktop's menu) is a table of parts, after The
+  Incredible Machine: balls, bowling balls, bricks, ramps, a trampoline,
+  a bucket, and a dropper that drops balls. Run and Reset (or the space
+  bar) start it and put it back. Take a part from the bin and click the
+  table to put one there; drag parts about, a ramp by its ends; throw a
+  ball while it runs. Right-click a part for its menu: Edit opens its
+  class in a Workspace. Every part is an object of a subclass of `Part`,
+  and the bin shows every such class, so a new part is a new class:
+  "New part..." on the menu starts one (`class Balloon < Ball` with a
+  colour and gravity of -30). Change a method, Ctrl-D, and the parts on
+  the table use it from the next frame; an error in one stops the table
+  and says so in its status line.
 - **On the page**, the clock switch runs the machine at 3, 12 or 48 MHz,
-  or as fast as the browser can (about 50–80 MHz). Restart starts from a
+  or as fast as the browser can (about 50–80 MHz). The page programs the
+  machine's timer for 60 ticks a second at each speed, as a faster Heron
+  would be, and the desktop works in ticks: a faster machine does more in
+  a tick, so Gadgets gets smoother rather than faster (flat out, the
+  timer is set as for 48 MHz). Restart starts from a
   snapshot of the desktop just booted; Cold boot starts from nothing and
-  shows the machine compiling the desktop (10 s at 3 MHz). An infinite
+  shows the machine compiling the desktop (22 s at 3 MHz). An infinite
   loop in a Workspace hangs the desktop: Restart is the way out.
 
 ## How it works
@@ -71,6 +88,7 @@ The browser version needs Rust's WebAssembly target:
 | `lib/gui.eg` | Colours, windows, menus, the desktop and its event loop |
 | `lib/widgets.eg` | A window of editable text, wrapped at spaces, with a scroll bar |
 | `lib/apps.eg` | Workspace, Transcript, Clock, Life, Mandelbrot, Paint, Browser, About |
+| `lib/gadgets.eg` | Gadgets: the parts, their physics, and the table |
 | `lib/desktop.eg` | The menu, the first windows, and `DESK.run` |
 | `src/gwm.c` | The window manager: the graphics study's `wm.c`, with updates for Egret to paint instead of paint functions |
 | `src/gui_prims.c` | Egret's primitives for the screen, events, windows, drawing, fonts, the Workspace's compiler and the Browser |
@@ -84,7 +102,7 @@ The browser version needs Rust's WebAssembly target:
 | `web.py`, `cli.py` | Putting the site together; the command line |
 
 **The devices** (`studies/v1_isa/isa/src/display.rs`). The frame buffer
-is 512 KB of VRAM at `0x01000000`, outside the 1 MB of RAM, laid out as
+is 1 MB of VRAM at `0x01000000`, outside the 1 MB of RAM, laid out as
 the graphics study draws: 640 × 480 at 1, 2, 4 or 8 bits per pixel. The
 I/O page gains a queue of input events (keys, buttons, the wheel), the
 mouse's position and buttons, the mode, a 256-entry palette, the time of
@@ -109,15 +127,29 @@ runs in the ordinary interpreter, never nested in C, and an error in it
 is an Egret error the desktop catches. Classes and methods take effect as
 they're compiled. Each statement's method stays in the permanent space.
 
+**Gadgets' drawing.** A frame is every other tick. The table is drawn
+offscreen in two layers in VRAM (`gui_layers`): one has the parts that
+stay still, the other the picture, with the balls. A ball that moves is
+rubbed out in the picture by copying from the still layer, drawn where
+it is, and the rectangle copied to the screen, so the screen never shows
+a ball half drawn and what was under it isn't drawn again. The window is
+kept on a word boundary of the screen, as the Macintosh kept its
+windows, so those copies don't shift. The still parts are found from a
+ball through a grid of 64-pixel cells. A frame that's late is done with
+the next and drawn once for both; later than that is slow motion.
+
 **Memory.** The VM, the graphics library and the fonts come to 310 KB,
 past where Egret's code space ended (0x30000), so `src/gui_map.h` moves
-Egret's map up: console input at 0x50000, 192 KB of permanent space, two
-152 KB semispaces, 72 KB of C stack. The font cache lives in VRAM past
-the screen (`gui_alloc`), and so does what's under a menu. The build also
-shrinks the scan converter's edge tables from 52 KB to 13 and 26 KB (a
-text substitution on the graphics study's sources at build time), and
-links the C library in the middle of the code, which is past the 64 KB
-a 16-bit relative call reaches.
+Egret's map up: 96 KB of console input at 0x50000 (the desktop's source
+is 85 KB), 224 KB of permanent space (the desktop takes 173 KB, and
+every class and line a Workspace runs adds to it), two 120 KB
+semispaces, 72 KB of C stack. VRAM past the screen holds the font cache (`gui_alloc`), what's
+under a menu, where the source's lines start, and Gadgets' layers. The
+build also shrinks the scan converter's edge tables from 52 KB to 13 and
+26 KB (a text substitution on the graphics study's sources at build
+time). The code is past the 64 KB a 16-bit relative call reaches, so
+`build.py` links it in an order where every call reaches: the graphics,
+the GUI, the C library, the VM, the interpreter.
 
 **The browser** (`web/`). The simulator crate compiles for
 `wasm32-unknown-unknown` with no changes. `web/src/lib.rs` wraps it in
@@ -136,8 +168,9 @@ changes outside the study need doing properly or taking out:
 
 - `studies/v1_isa/isa/src/display.rs` and `machine.rs`: the display,
   keyboard and mouse are wired into every draft 1 machine, and VRAM is
-  allocated for each. They should be optional (a feature, or a device
-  the machine is given), or be replaced by whatever RFC 0016 becomes.
+  allocated for each (1 MB, to give Gadgets its layers). They should be
+  optional (a feature, or a device the machine is given), or be replaced
+  by whatever RFC 0016 becomes.
 - `heron/bindings/src/py_v1.rs`: the display's getters and setters,
   `run_until`, and setters for the timer and the cycle count (for
   snapshots).

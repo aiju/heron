@@ -38,6 +38,8 @@ DESK.add_menu("Browser", { Browser() })
 DESK.add_menu_line
 DESK.add_menu("Clock", { Clock(500, 10) })
 DESK.add_menu("Life", { Life() })
+DESK.add_menu("Gadgets", {
+  if TABLE == nil then Gadgets() else TABLE.raise_to_top end })
 DESK.add_menu("Mandelbrot", { Mandel() })
 DESK.add_menu("Paint", { Paint() })
 DESK.add_menu_line

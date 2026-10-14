@@ -24,6 +24,21 @@ Font fonts[MAXFONTS];
 int nfonts;
 static TTF ttf;
 static int depth = -1;
+
+/* a window's layers (below, with the drawing) */
+static Surface layer[3];
+static int layer_id, layer_to;
+static Rect layer_clip;
+
+/* a = a and b; false if that's empty */
+static int isect_rect(Rect *a, const Rect *b)
+{
+    if (b->x0 > a->x0) a->x0 = b->x0;
+    if (b->y0 > a->y0) a->y0 = b->y0;
+    if (b->x1 < a->x1) a->x1 = b->x1;
+    if (b->y1 < a->y1) a->y1 = b->y1;
+    return a->x1 > a->x0 && a->y1 > a->y0;
+}
 static Value ws_start;          /* perm_hp when the Workspace first compiled */
 
 /* ---- helpers ---- */
@@ -148,12 +163,23 @@ static Value p_wait(Value *args, int argc)
     return NIL;
 }
 
+/* The cycles in a tick: what the timer's set to. gui_init sets it for
+   3 MHz; the page sets it for the clock it runs the machine at, as a
+   faster machine would, so a tick is a 60th of a second at any speed. */
+static unsigned per_tick(void)
+{
+    unsigned p = HERON_TIMER;
+    return p ? p : CLOCK_HZ / TICK_HZ;
+}
+
+static Value p_tick_cycles(Value *args, int argc) { return MKINT(per_tick()); }
+
 /* ticks since start-up, from the cycle counter (which wraps at 32 bits) */
 static unsigned last_cycles, tick_cycles, ticks;
 
 static Value p_ticks(Value *args, int argc)
 {
-    unsigned now = HERON_CYCLES, per = CLOCK_HZ / TICK_HZ;
+    unsigned now = HERON_CYCLES, per = per_tick();
     tick_cycles += now - last_cycles;
     last_cycles = now;
     ticks += tick_cycles / per;
@@ -220,13 +246,27 @@ static Value p_event(Value *args, int argc)
 
 /* ---- colours ---- */
 
+/* The nearest colour, remembered: colour methods ask for the same few
+   colours every frame, and a search is 256 distances */
+static int clamp255(int v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
 static Value p_rgb(Value *args, int argc)
 {
+    static unsigned key[64], val[64];
+    unsigned k, h;
+    int r, g, b;
     NEED_INTS(1, 3);
     NEED_INIT();
+    r = clamp255(I(1)); g = clamp255(I(2)); b = clamp255(I(3));
     if (depth == 0)
-        return MKINT(I(1) + I(2) + I(3) >= 3 * 128);
-    return MKINT(theme_nearest(depth, I(1), I(2), I(3)));
+        return MKINT(r + g + b >= 3 * 128);
+    k = 1u << 24 | (unsigned)r << 16 | (unsigned)g << 8 | (unsigned)b;
+    h = (k ^ k >> 6 ^ k >> 12 ^ k >> 18) & 63;
+    if (key[h] != k) {
+        key[h] = k;
+        val[h] = theme_nearest(depth, r, g, b);
+    }
+    return MKINT(val[h]);
 }
 
 /* the theme's colours: black white desk desk2 frame title title_text
@@ -369,6 +409,17 @@ static Value p_clip(Value *args, int argc)
     NEED_WIN(1);
     if (!I(1))
         return NIL;
+    if (layer_to && I(1) == layer_id) {
+        layer_clip.x0 = layer_clip.y0 = 0;
+        layer_clip.x1 = layer[layer_to].w;
+        layer_clip.y1 = layer[layer_to].h;
+        if (argc >= 5) {
+            NEED_INTS(2, 5);
+            r.x0 = I(2); r.y0 = I(3); r.x1 = I(2) + I(4); r.y1 = I(3) + I(5);
+            isect_rect(&layer_clip, &r);
+        }
+        return NIL;
+    }
     if (argc < 5) {
         gwm_paint_clip(I(1), 0);
         return NIL;
@@ -390,12 +441,31 @@ static Value p_outline(Value *args, int argc)
 
 /* ---- drawing: through each of the window's clips ---- */
 
+/* ---- a window's layers: two offscreen copies of (part of) its content
+   in VRAM, for one window at a time. While its drawing goes to a layer,
+   it's clipped to the layer (and its own clip) instead of the screen.
+   Gadgets keeps the table's still parts in layer 1 and composes the
+   picture in layer 2: a moving part is rubbed out by copying from 1 to
+   2, drawn in 2, and copied to the screen, so the screen never shows it
+   half drawn. */
+static int clips_for(int id, Rect **cl, int *ox, int *oy, Surface **s)
+{
+    if (layer_to && id == layer_id) {
+        *cl = &layer_clip;
+        *ox = *oy = 0;
+        *s = &layer[layer_to];
+        return layer_clip.x1 > layer_clip.x0 && layer_clip.y1 > layer_clip.y0;
+    }
+    *s = &screen;
+    return gwm_clips(id, cl, ox, oy);
+}
+
 #define EACH_CLIP(id) \
-    Rect *cl; int ncl, ox, oy, ci; \
-    ncl = gwm_clips(id, &cl, &ox, &oy); \
+    Rect *cl; int ncl, ox, oy, ci; Surface *S; \
+    ncl = clips_for(id, &cl, &ox, &oy, &S); \
     for (ci = 0; ci < ncl; ci++) { \
-        gfx_clip_rect(&screen, &cl[ci]);
-#define END_CLIPS } gfx_noclip(&screen);
+        gfx_clip_rect(S, &cl[ci]);
+#define END_CLIPS } gfx_noclip(S);
 
 /* gui_fill(win, x, y, w, h, color, rop) */
 static Value p_fill(Value *args, int argc)
@@ -406,7 +476,7 @@ static Value p_fill(Value *args, int argc)
     x = I(2); y = I(3); w = I(4); h = I(5);
     {
         EACH_CLIP(I(1))
-            gfx_fill(&screen, ox + x, oy + y, ox + x + w, oy + y + h, I(6), I(7));
+            gfx_fill(S, ox + x, oy + y, ox + x + w, oy + y + h, I(6), I(7));
         END_CLIPS
     }
     return NIL;
@@ -421,7 +491,7 @@ static Value p_box(Value *args, int argc)
     x = I(2); y = I(3); w = I(4); h = I(5);
     {
         EACH_CLIP(I(1))
-            gfx_frame(&screen, ox + x, oy + y, ox + x + w, oy + y + h, 1, I(6), GFX_COPY);
+            gfx_frame(S, ox + x, oy + y, ox + x + w, oy + y + h, 1, I(6), GFX_COPY);
         END_CLIPS
     }
     return NIL;
@@ -434,7 +504,7 @@ static Value p_line(Value *args, int argc)
     NEED_INTS(2, 7);
     {
         EACH_CLIP(I(1))
-            gfx_line(&screen, ox + I(2), oy + I(3), ox + I(4), oy + I(5), I(6), I(7));
+            gfx_line(S, ox + I(2), oy + I(3), ox + I(4), oy + I(5), I(6), I(7));
         END_CLIPS
     }
     return NIL;
@@ -448,9 +518,9 @@ static Value p_oval(Value *args, int argc)
     {
         EACH_CLIP(I(1))
             if (FALSY(args[7]))
-                gfx_ellipse(&screen, ox + I(2), oy + I(3), I(4), I(5), I(6), GFX_COPY);
+                gfx_ellipse(S, ox + I(2), oy + I(3), I(4), I(5), I(6), GFX_COPY);
             else
-                gfx_fill_ellipse(&screen, ox + I(2), oy + I(3), I(4), I(5), I(6), GFX_COPY);
+                gfx_fill_ellipse(S, ox + I(2), oy + I(3), I(4), I(5), I(6), GFX_COPY);
         END_CLIPS
     }
     return NIL;
@@ -481,7 +551,7 @@ static Value p_poly(Value *args, int argc)
                 xy[k] += ox;
                 xy[k + 1] += oy;
             }
-            gfx_poly(&screen, xy, n / 2, I(3), GFX_COPY, GFX_NONZERO);
+            gfx_poly(S, xy, n / 2, I(3), GFX_COPY, GFX_NONZERO);
             for (k = 0; k < n; k += 2) {
                 xy[k] -= ox;
                 xy[k + 1] -= oy;
@@ -508,11 +578,80 @@ static Value p_pixels(Value *args, int argc)
     {
         EACH_CLIP(I(1))
             if (depth == 3)
-                gfx_blit(&screen, ox + x, oy + y, &src, 0, 0, n, 1, GFX_COPY);
+                gfx_blit(S, ox + x, oy + y, &src, 0, 0, n, 1, GFX_COPY);
             else
                 for (i = 0; i < n; i++)
-                    gfx_pixel(&screen, ox + x + i, oy + y, BYTES(args[4])[i], GFX_COPY);
+                    gfx_pixel(S, ox + x + i, oy + y, BYTES(args[4])[i], GFX_COPY);
         END_CLIPS
+    }
+    return NIL;
+}
+
+/* gui_layers(win, w, h): give the window two layers of w x h (the ones
+   another window had are gone); false if they don't fit */
+static Value p_layers(Value *args, int argc)
+{
+    int w, h, pitch;
+    NEED_WIN(1);
+    NEED_INTS(2, 3);
+    NEED_INIT();
+    w = I(2);
+    h = I(3);
+    pitch = (((w << depth) + 31) >> 5) << 2;
+    layer_to = 0;
+    layer_id = 0;
+    if (!I(1) || w <= 0 || h <= 0 || 2 * pitch * h > BACKING_SIZE)
+        return FALSE_V;
+    gfx_init(&layer[1], BACKING, w, h, pitch, depth);
+    gfx_init(&layer[2], BACKING + pitch * h, w, h, pitch, depth);
+    layer_id = I(1);
+    return TRUE_V;
+}
+
+/* gui_draw_to(win, n): the window's drawing goes to layer n, or (0) the
+   screen; a layer's clip starts as all of it */
+static Value p_draw_to(Value *args, int argc)
+{
+    NEED_WIN(1);
+    NEED_INTS(2, 2);
+    layer_to = I(1) && I(1) == layer_id && I(2) >= 1 && I(2) <= 2 ? I(2) : 0;
+    layer_clip.x0 = layer_clip.y0 = 0;
+    layer_clip.x1 = layer[1].w;
+    layer_clip.y1 = layer[1].h;
+    return NIL;
+}
+
+/* gui_copy(win, from, to, x, y, w, h): copy a rectangle from layer to
+   layer, or to the screen (0), where it is in the window */
+static Value p_copy(Value *args, int argc)
+{
+    Rect r, b;
+    int from, to;
+    NEED_WIN(1);
+    NEED_INTS(2, 7);
+    from = I(2);
+    to = I(3);
+    if (!I(1) || I(1) != layer_id || from < 1 || from > 2 || to < 0 || to > 2 || to == from)
+        return NIL;
+    r.x0 = I(4); r.y0 = I(5); r.x1 = I(4) + I(6); r.y1 = I(5) + I(7);
+    b.x0 = b.y0 = 0;
+    b.x1 = layer[1].w;
+    b.y1 = layer[1].h;
+    if (!isect_rect(&r, &b))
+        return NIL;
+    if (to) {
+        gfx_noclip(&layer[to]);
+        gfx_blit(&layer[to], r.x0, r.y0, &layer[from], r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0, GFX_COPY);
+    } else {
+        Rect *cl;
+        int ncl, ox, oy, ci;
+        ncl = gwm_clips(I(1), &cl, &ox, &oy);
+        for (ci = 0; ci < ncl; ci++) {
+            gfx_clip_rect(&screen, &cl[ci]);
+            gfx_blit(&screen, ox + r.x0, oy + r.y0, &layer[from], r.x0, r.y0,
+                     r.x1 - r.x0, r.y1 - r.y0, GFX_COPY);
+        }
+        gfx_noclip(&screen);
     }
     return NIL;
 }
@@ -566,7 +705,7 @@ static Value p_text(Value *args, int argc)
         ramp = ramp_for(I(5), I(6));
     {
         EACH_CLIP(I(1))
-            end = font_draw(&screen, f, ox + I(2), oy + I(3), buf, I(5), ramp) - ox;
+            end = font_draw(S, f, ox + I(2), oy + I(3), buf, I(5), ramp) - ox;
         END_CLIPS
         if (ncl == 0)
             end = I(2) + font_width(f, buf);
@@ -766,10 +905,10 @@ static Value p_methods(Value *args, int argc)
 static unsigned src_len[2];
 static int nlines[2] = { -1, -1 };
 
-static const char *source(int which, unsigned short **ix, int *n, unsigned *len)
+static const char *source(int which, unsigned **ix, int *n, unsigned *len)
 {
     const char *src = which ? (const char *)BP(INPUT_LO) : prelude_src;
-    unsigned short *lines = which ? LINE_INDEX + MAXLINES0 : LINE_INDEX;
+    unsigned *lines = which ? LINE_INDEX + MAXLINES0 : LINE_INDEX;
     int max = which ? MAXLINES1 : MAXLINES0, k = 0;
     unsigned i, end;
     if (nlines[which] < 0) {
@@ -797,7 +936,7 @@ static const char *source(int which, unsigned short **ix, int *n, unsigned *len)
 static Value p_source_lines(Value *args, int argc)
 {
     const char *src;
-    unsigned short *ix;
+    unsigned *ix;
     unsigned len, a, b;
     int first, count, n, k, got = 0;
     Value l, str;
@@ -827,7 +966,7 @@ static Value p_source_lines(Value *args, int argc)
 static Value p_find_lines(Value *args, int argc)
 {
     const char *src;
-    unsigned short *ix;
+    unsigned *ix;
     unsigned len, plen;
     int n, k, v[64], got = 0;
     const unsigned char *pre;
@@ -924,6 +1063,10 @@ static const PrimDef defs[] = {
     { "Object", "gui_scroll", 6, p_scroll, 0 },
     { "Object", "gui_invalidate", -2, p_invalidate, 0 },
     { "Object", "gui_clip", -2, p_clip, 0 },
+    { "Object", "gui_tick_cycles", 0, p_tick_cycles, 0 },
+    { "Object", "gui_layers", 3, p_layers, 0 },
+    { "Object", "gui_draw_to", 2, p_draw_to, 0 },
+    { "Object", "gui_copy", 7, p_copy, 0 },
     { "Object", "gui_outline", 4, p_outline, 0 },
     { "Object", "gui_fill", 7, p_fill, 0 },
     { "Object", "gui_box", 6, p_box, 0 },
