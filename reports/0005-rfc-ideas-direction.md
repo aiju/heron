@@ -182,9 +182,9 @@ Questions raised along the way that only Emily can answer:
 8. May the design use PLDs (GALs)? The backplane's logic is about 23 chips
    without them and about 12 with them
    ([RFC 0014](0014-rfc-system-bus.md#9-electrical-rules)).
-9. The system bus's open details: per-slot or bused strobes, the simple
-   cards' speed, fixed-priority or round-robin arbitration, and the card
-   IDs' format ([RFC 0014](0014-rfc-system-bus.md#13-open-questions)).
+9. The system bus's open details: the slot bits, the simple cards' speed,
+   fixed-priority or round-robin arbitration, the card IDs' format, and
+   more ([RFC 0014](0014-rfc-system-bus.md#14-open-questions)).
 
 Answered so far:
 - 32-bit architecture with a narrow implementation first: yes.
@@ -214,6 +214,9 @@ Answered so far:
   when they need longer. This replaced, the same day, an address map and
   timing table in RAM on the backplane.
 - Every card has an ID.
+- SEL is the strobe for simple cards; there are no bused read and write
+  strobes. LOCK stays, since a multi-CPU system needs it. The slot bits
+  (A31–A28 for now) may move.
 - No −5.2 V on the backplane; it may carry a higher voltage.
 
 ## 16. Offered next steps

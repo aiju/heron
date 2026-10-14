@@ -34,7 +34,10 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 - Simple, dumb peripherals must be possible, and they go on the system bus:
   there's no separate I/O bus.
 - Bus addresses are the full 32 bits.
-- Addresses carry the slot: A31–A28 select one of 16 slots.
+- Addresses carry the slot: four address bits select one of 16 slots
+  (which four is still open).
+- SEL, sent only to the addressed slot, is the strobe for simple cards.
+- LOCK, for locked read-modify-write across the bus.
 - Each card says what it is, and so how it's timed, with class straps that
   the backplane reads. A fast card holds WAIT when it needs longer.
 - No burst transfers.

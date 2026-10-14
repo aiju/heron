@@ -3,7 +3,7 @@ number: 14
 type: rfc
 title: System bus
 status: open
-date: 2026-10-13
+date: 2026-10-14
 context:
   studies: [bus_si, v1b_hw]
   commit: a14eeb2
@@ -11,165 +11,145 @@ context:
 
 # RFC 0014: System bus
 
-A draft specification of the backplane bus shared by the main CPU, DMA
-devices, peripherals and possibly other CPUs. The reasoning behind it is in
-[RFC 0007](0007-rfc-ideas-microarchitecture.md) and
-[RFC 0008](0008-rfc-ideas-memory-and-buses.md).
+The backplane bus shared by the main CPU, other CPUs, DMA engines and
+peripherals. This RFC has three parts:
 
-The electrical numbers come from ngspice simulations of the backplane with
-TI's IBIS models ([studies/bus_si/README.md](../studies/bus_si/README.md); results in
-[report 0013](0013-report-bus-si/full.json)). The datasheet delays in the timing
+- **[Part 1](#part-1-the-specification)** is the specification. It's
+  meant to be read on its own, by someone designing a card or the
+  backplane.
+- **[Part 2](#part-2-rationale)** gives the reasons for each choice in
+  Part 1, with the timing budgets and the signal-integrity results behind
+  them.
+- **[Part 3](#part-3-open-questions-ideas-and-signal-integrity-work)**
+  lists the open questions, the ideas still open, the ideas rejected and
+  why, and the signal-integrity work still to do.
+
+[Section 18](#18-decisions) records what Emily has decided.
+
+Statuses: **decided** (Emily chose it), **recommended**, **open**,
+**optional** for features a card may leave out, and **rejected**. Anything
+in Part 1 without a status is recommended.
+
+The electrical figures come from ngspice simulations of the backplane with
+TI's IBIS models ([studies/bus_si](../studies/bus_si/README.md);
+[report 0013](0013-report-bus-si.md)). The datasheet delays in the timing
 budgets are rough worst-case figures and need checking against the parts
 actually used.
 
-Statuses: **decided** (Emily chose it), **recommended**, **open**,
-**optional** for features a card may leave out, and **rejected**. What
-Emily has decided is collected in [section 14](#14-decisions).
+**Revised on 2026-10-13 and 14.** The main changes since the first draft:
 
-**Revised on 2026-10-13**, after Emily's decisions and a review of the
-first draft:
-
-- **Bus clock:** the period T is open. 60 ns is the working value, and the
-  figures here are for 60 ns ([section 4](#4-clock-and-timing-conventions)).
-- **Slots and card classes:**
-  - A31–A28 still select the slot.
-  - Each card says what it is with two straps: a simple card, or a fast
-    16- or 32-bit card ([section 5.1](#51-slots-and-card-classes)).
-  - The backplane reads the addressed slot's straps and times the transfer.
-    It drives SEL, the strobes, a new RDY line, BUSY, W32 and BERR.
-  - A fast card that needs longer holds WAIT.
-  - Masters lose their wait-state tables and strobe logic.
-  - An address map in RAM on the backplane was tried in between and dropped
-    (same section).
-- **No bursts** ([section 7](#7-no-bursts)).
-- **Fixes from the review:**
-  - halfwords always travel on D0–D15, so 16-bit masters can use 32-bit
-    cards ([5.7](#57-data-width-and-byte-lanes));
-  - every card can see where a transfer ends, and WAIT gets a clock to turn
-    around ([5.4](#54-the-end-of-a-transfer-and-turnaround));
-  - simple cards get a recovery clock with the address held, so a strobe
-    never ends as the next address appears
-    ([5.6](#56-simple-cards-and-the-strobes));
-  - idle lines are driven or held by pull-ups ([section 6](#6-arbitration),
-    [section 9](#9-electrical-rules));
-  - clock skew and hold time ([section 4](#4-clock-and-timing-conventions));
-  - LOCK and slave ports ([section 6](#6-arbitration)).
-- **Simple peripherals** go on the system bus; the separate I/O bus is
-  rejected ([section 12](#12-rejected-a-separate-io-bus)).
-- **Cards:**
-  - two 96-pin connectors per slot are decided;
-  - every card has an ID;
-  - the card size, and how the system splits into cards, wait until the
-    design is closer to completion. Nothing in the protocol depends on them.
-- **The backplane:** active logic is decided, and there's no −5.2 V. The
-  ECL number cruncher is deprioritised, so the bus no longer plans around
-  it.
-- **Arbitration:** fixed priority is now recommended over round robin, at
-  about half the logic.
+- **Timing:** the backplane times every transfer from straps on each card.
+  Masters lose their wait-state tables and strobe logic.
+- **Strobes:** SEL is the strobe for simple cards; the bused RD and WR
+  strobes are gone.
+- **The end of a transfer** is visible on the bus (RDY and WAIT).
+- **Bus mastering** is withdraw-then-grant, with no BUSY line.
+- **No bursts;** halfwords always travel on D0–D15.
+- **Fixes from reviews:** turnaround rules, a recovery clock for simple
+  cards, a loading rule, skew and hold time, and LOCK with slave ports.
+  Part 2 explains each.
 
 ## Contents
 
-1. [Summary](#1-summary)
-2. [Kinds of card](#2-kinds-of-card)
-3. [Signals](#3-signals)
-4. [Clock and timing conventions](#4-clock-and-timing-conventions)
-5. [Transfers](#5-transfers)
-6. [Arbitration](#6-arbitration)
-7. [No bursts](#7-no-bursts)
-8. [Reset, card IDs, interrupts and synchronisation](#8-reset-card-ids-interrupts-and-synchronisation)
-9. [Electrical rules](#9-electrical-rules)
-10. [The main CPU board on the bus](#10-the-main-cpu-board-on-the-bus)
-11. [Other CPUs as masters](#11-other-cpus-as-masters)
-12. [Rejected: a separate I/O bus](#12-rejected-a-separate-io-bus)
-13. [Open questions](#13-open-questions)
-14. [Decisions](#14-decisions)
+- [Part 1: The specification](#part-1-the-specification)
+  1. [Overview](#1-overview)
+  2. [Cards and the backplane](#2-cards-and-the-backplane)
+  3. [Signals](#3-signals)
+  4. [Clock and timing](#4-clock-and-timing)
+  5. [Transfers](#5-transfers)
+  6. [Simple cards](#6-simple-cards)
+  7. [Bus mastering](#7-bus-mastering)
+  8. [Reset, card IDs, interrupts and synchronisation](#8-reset-card-ids-interrupts-and-synchronisation)
+  9. [Electrical rules](#9-electrical-rules)
+  10. [The main CPU board on the bus](#10-the-main-cpu-board-on-the-bus)
+  11. [Other CPUs as masters](#11-other-cpus-as-masters)
+  12. [Example cards](#12-example-cards)
+- [Part 2: Rationale](#part-2-rationale)
+  13. [Why the bus looks like this](#13-why-the-bus-looks-like-this)
+- [Part 3: Open questions, ideas and signal-integrity work](#part-3-open-questions-ideas-and-signal-integrity-work)
+  14. [Open questions](#14-open-questions)
+  15. [Open ideas](#15-open-ideas)
+  16. [Rejected ideas](#16-rejected-ideas)
+  17. [Signal-integrity work to do](#17-signal-integrity-work-to-do)
+  18. [Decisions](#18-decisions)
 
-## 1. Summary
+## Part 1: The specification
+
+### 1. Overview
 
 | | |
 |---|---|
-| Timing | **Synchronous**: one bus clock, every signal sampled on its rising edge. **decided** |
-| Bus clock | Period T **open**; this RFC uses 60 ns (16.7 MHz) |
-| Address | 32 bits (4 GB). A31–A28 select one of 16 slots, 256 MB each. **decided** |
-| Card classes | Two straps on each card: empty slot, simple card, or fast 16- or 32-bit card. The backplane reads the addressed slot's straps and times the transfer. **decided** |
+| Timing | **Synchronous**: one bus clock, BCLK; every signal changes just after a rising edge and is sampled at a later one. **decided** |
+| Bus clock | Period T **open**. This RFC uses 60 ns (16.7 MHz); the shortest usable period is about 50 ns ([13.7](#137-timing-budgets)) |
+| Address | 32 bits. Four address bits select one of 16 slots: A31–A28 for now (**tentative**) |
+| Card classes | Two straps on each card say what it is: a simple card, or a fast 16- or 32-bit card. The backplane reads them and times the transfer. **decided** |
 | Data | 16 bits on P1 (D0–D15), 32 bits with P2. Halfwords and bytes always travel on D0–D15 |
-| Transfers | An address clock, then data clocks. A fast card takes 2 clocks (120 ns), longer if it holds WAIT. A simple card gets N data clocks with a strobe, then a recovery clock: 360 ns with N = 4 |
+| Transfers | An address clock, a data phase, and for simple cards a recovery clock. A fast card takes 2 clocks (120 ns) unless it holds WAIT. A simple card takes N + 2 clocks, with N set on the backplane |
+| Strobes | SEL, sent only to the addressed slot, is the strobe; WRITE gives the direction. No bused strobes. **decided** |
+| Bus mastering | Any slot can be a master. A central arbiter on the backplane withdraws GNT from one master before granting another; fixed priority |
 | Bursts | None. **decided** |
-| Masters | Any slot. A fixed-priority arbiter on the backplane; the bus stays with the last master while nobody else asks |
-| Backplane | Active logic: slot decoding, the card-class straps, transfer timing, the arbiter, the bus monitor, the clock buffer and the power-on reset. **decided** |
-| Cards | Two 96-pin connectors per slot (DIN 41612, as simulated), up to 16 slots. P1 alone is enough for a simple card. Every card has an ID. **decided**. The card size and the split into cards wait until the design is closer to completion |
-| Simple peripherals | On the system bus. **decided**. A simple card needs no clock, no address comparator and no WAIT logic: a UART card is three 74HCT chips besides the UART |
+| Backplane | Active logic: slot decoding, the class straps, transfer timing, the arbiter, the bus monitor, the clock buffer and the power-on reset. **decided** |
+| Cards | Two 96-pin connectors per slot (DIN 41612), up to 16 slots. P1 alone is enough for a simple card. Every card has an ID. **decided**. The card size waits until the design is closer to completion |
 
 Peak rates at T = 60 ns:
 
 | | Clocks | |
 |---|---:|---:|
-| Single transfer to a fast card | 2 | 120 ns |
+| Transfer to a fast card | 2 | 120 ns |
 | 16-bit transfers | 2 | 16.7 MB/s |
 | 32-bit transfers | 2 | 33 MB/s |
-| Transfer to a simple card (N data clocks, 1 recovery clock) | N + 2 | 360 ns with N = 4 |
+| Transfer to a simple card (N data clocks, 1 recovery clock) | N + 2 | 300 ns with N = 3 |
 
-## 2. Kinds of card
+### 2. Cards and the backplane
 
-A card can play any combination of these roles. A CPU board is a master and
-a fast card (its RAM, for other masters). The backplane takes part in every
-transfer.
+A card can play several of these roles. A CPU board is a master and a fast
+card (its RAM, for other masters).
 
-**Master** (main CPU, DMA engines, bridges for other CPUs). Must:
+**Master** (CPUs, DMA engines, bridges for other CPUs). Must:
 
-- request the bus and follow the arbitration rules
-  ([section 6](#6-arbitration));
-- run transfers: an address clock, then hold the address through the rest
-  of the transfer ([5.2](#52-read), [5.3](#53-write));
-- take read data at the end of each data clock in which RD is asserted and
-  WAIT isn't, and end the transfer when RDY says so
-  ([5.4](#54-the-end-of-a-transfer-and-turnaround));
-- split words for 16-bit cards and steer the halves
-  ([5.7](#57-data-width-and-byte-lanes));
-- report a bus error to its own processor when a transfer ends in BERR.
+- follow the bus-mastering rules ([section 7](#7-bus-mastering));
+- run transfers: drive the address clock, then hold the address and
+  WRITE until the transfer ends ([5.2](#52-the-phases-of-a-transfer));
+- take read data at the end of each clock in which DPH is asserted and
+  WAIT isn't; the last one counts;
+- end the transfer at the first clock with RDY asserted and WAIT not, or
+  with BERR ([5.3](#53-the-end-of-a-transfer-and-turnaround));
+- split words for 16-bit cards and steer the byte lanes
+  ([5.5](#55-data-width-and-byte-lanes));
+- report BERR to its own processor.
 
-Masters keep no wait-state tables and drive no strobes: the backplane does
-both.
+**Fast card** (memory, a CPU board's slave port, the registers and buffers
+of DMA, Ethernet or video cards). Straps itself as fast 16-bit or fast
+32-bit. Must:
 
-**Fast card** (memory cards, the CPU boards' slave ports, DMA and Ethernet
-cards' registers and buffers). Straps itself as a fast 16- or 32-bit card.
-
-- It registers the address at the end of every address clock, and answers
-  when the backplane asserts its SEL.
-- A transfer is one data clock unless the card holds WAIT.
-- It needs fast parts (74ABT or 74FCT-T) at the bus interface; 74HCT is
-  too slow for a one-clock path
-  ([section 4](#4-clock-and-timing-conventions)).
-
-A 2 MB 32-bit memory card with 10–15 ns SRAMs, for example, is about 19
-chips: four SRAMs, four address registers, six transceivers (low half, high
-half, and the swap for halfwords at A1 = 1), about three for control, a
-clock buffer and its ID. It never needs WAIT.
+- register the address, BE and WRITE at the end of every address clock;
+- answer while its SEL is asserted. A transfer is one data clock unless the
+  card holds WAIT ([5.4](#54-wait));
+- let go of D and WAIT at the end of the transfer, whether it ended with
+  RDY or with BERR;
+- use fast parts (74ABT or 74FCT-T) at its bus interface.
 
 **Simple card** (UARTs, the CF card, an RTC, a parallel port, the front
-panel). Straps itself as simple. Needs only:
+panel). Straps itself as simple. Needs P1 only, no clock, no address
+comparator and no WAIT logic. It makes its device's read and write strobes
+from SEL and WRITE ([section 6](#6-simple-cards)).
 
-- P1, with D0–D7 (or D0–D15), a few low address lines, SEL, RD, WR, the
-  class straps and an IRQ line, and its ID
-  ([section 8.2](#82-card-ids));
-- no clock, no address comparator, no WAIT logic. The backplane times its
-  strobes.
+**The backplane** decodes the slot from the address and reads that slot's
+class straps. For every transfer it drives:
 
-  A UART card, for example: a 16C550 with its crystal, a 74HCT245 on the
-  data lines, a 74HCT14 to square up RD and WR, and a 74HCT541 with straps
-  for its ID. It can be built entirely from 74HCT.
+- SEL to the addressed slot;
+- DPH, RDY and W32;
+- BERR, on an error.
 
-**The backplane** decodes the slot from A31–A28 and reads that slot's
-straps. For every transfer it drives SEL to the addressed slot, RD or WR,
-RDY, BUSY, W32 and, on an error, BERR. It also arbitrates, buffers the clock
-and resets the system. The parts are in [section 9](#9-electrical-rules).
+It also arbitrates, buffers the clock and resets the system
+([section 9](#9-electrical-rules) for its parts).
 
-## 3. Signals
+### 3. Signals
 
-Polarity: control signals are active low on the backplane. Signal names
-below are given without a suffix, and "asserted" means active.
+Control signals are active low on the backplane. Signal names are given
+without a suffix, and "asserted" means active.
 
-**Topology** (column "Type" below):
+**Topology:**
 
 - **bused:** runs past every slot.
 - **radial:** each slot has its own trace to logic on the backplane, on the
@@ -178,845 +158,885 @@ below are given without a suffix, and "asserted" means active.
 
 **Drive types:**
 
-- **backplane:** driven by the backplane's logic all the time, so it never
-  floats.
-- **3-state:** driven by the current owner (or the selected card for read
-  data), and otherwise by nobody.
-- **shared:** driven by one card at a time, actively both ways, and held
-  inactive by a weak pull-up when nobody drives (as in PCI).
+- **backplane:** always driven by the backplane's logic.
+- **owner:** driven by the master that holds GNT ([section 7](#7-bus-mastering)), with a weak pull-up for the clock between owners.
+- **3-state:** driven by the owner, or by the addressed card for read data,
+  and otherwise floating.
+- **shared:** driven by the addressed card, actively both ways, and held
+  inactive by a weak pull-up otherwise.
 - **OC:** open collector, with a pull-up on the backplane.
-- **pull-up:** a 3-state line with a weak pull-up, which holds it inactive
-  between owners ([section 9](#9-electrical-rules)).
 
-### P1: the 16-bit bus
+#### P1: the 16-bit bus
 
 | Signal | Pins | Type | Driven by | Meaning |
 |---|---:|---|---|---|
-| D0–D15 | 16 | bused, 3-state | master in a write, card in a read | data |
-| A1–A31 | 31 | bused, 3-state | bus owner | address; A31–A28 select the slot |
-| BE0, BE1 | 2 | bused, 3-state | bus owner | byte enables ([5.7](#57-data-width-and-byte-lanes)) |
-| START | 1 | bused, 3-state, pull-up | bus owner | asserted in the address clock of each transfer |
-| WRITE | 1 | bused, 3-state, pull-up | bus owner | asserted for a write, valid with START |
-| LOCK | 1 | bused, 3-state, pull-up | bus owner | keep the bus across a read-modify-write (**optional**) |
-| RD, WR | 2 | bused, backplane, slow edges | backplane | strobes for simple cards |
-| RDY | 1 | bused, backplane | backplane | the transfer may end now ([5.4](#54-the-end-of-a-transfer-and-turnaround)) |
-| WAIT | 1 | bused, shared | addressed card | add a data clock |
+| D0–D15 | 16 | bused, 3-state | owner in a write, card in a read | data |
+| A1–A31 | 31 | bused, owner | owner | address; the slot bits select the slot |
+| BE0, BE1 | 2 | bused, owner | owner | byte enables ([5.5](#55-data-width-and-byte-lanes)) |
+| START | 1 | bused, owner | owner | asserted in the address clock of each transfer |
+| WRITE | 1 | bused, owner | owner | asserted for a write, from the address clock to the end of the transfer |
+| LOCK | 1 | bused, owner | owner | keep the bus for a locked sequence ([7.3](#73-locked-sequences)) |
+| DPH | 1 | bused, backplane | backplane | data phase: asserted in the data-phase clocks of every transfer |
+| RDY | 1 | bused, backplane | backplane | the transfer may end in this clock ([5.3](#53-the-end-of-a-transfer-and-turnaround)) |
+| WAIT | 1 | bused, shared | addressed fast card | add a data clock |
 | BERR | 1 | bused, backplane | backplane | end the transfer with an error |
-| BUSY | 1 | bused, backplane | backplane | a transfer is past its address clock |
-| CLASS0, CLASS1 | 2 | radial, strapped | card (tied to ground or left open) | what kind of card is in this slot ([5.1](#51-slots-and-card-classes)) |
-| REQ | 1 | radial | master | bus request to the arbiter |
+| CLASS0, CLASS1 | 2 | radial, strapped | card (ground or open) | what's in this slot ([5.1](#51-slots-and-card-classes)) |
+| REQ | 1 | radial | master | bus request |
 | GNT | 1 | radial | backplane | bus grant |
-| SEL | 1 | radial | backplane | this slot is addressed; asserted from the first data clock to the end |
+| SEL | 1 | radial | backplane | this slot is addressed; asserted in the data phase only. The strobe for simple cards |
 | BCLK | 1 | radial | backplane | bus clock |
 | RESET | 1 | bused, OC, slow edges | backplane power-on reset, main CPU | system reset |
 | IRQ0–IRQ3 | 4 | bused, OC | any card | interrupt requests |
-| reserved | 3 | | | for ground pins beside SEL, a third class strap, or a higher supply voltage (**open**) |
+| reserved | 5 | | | first: ground pins beside SEL and WRITE; then a higher supply voltage or a third class strap (**open**) |
 | +5 V, ground | 24 | | | |
 
-### P2: the upper half and extras
+#### P2: the upper half and extras
 
 | Signal | Pins | Type | Driven by | Meaning |
 |---|---:|---|---|---|
 | D16–D31 | 16 | bused, 3-state | as D0–D15 | upper halfword of a word transfer |
-| BE2, BE3 | 2 | bused, 3-state, pull-up | bus owner | byte enables of the upper halfword in a word transfer |
+| BE2, BE3 | 2 | bused, owner | owner | byte enables of the upper halfword, in word transfers only |
 | W32 | 1 | bused, backplane | backplane | the addressed card is a fast 32-bit card |
 | IRQ4–IRQ7 | 4 | bused, OC | any card | interrupt requests |
 | GA0–GA3 | 4 | strapped | backplane | slot number, for cards that want to know it |
-| CLKSRC | 1 | slot 0 only | main CPU board | clock into the backplane's buffer, if the bus clock comes from the CPU board (**open**, [section 4](#4-clock-and-timing-conventions)) |
+| CLKSRC | 1 | slot 0 only | main CPU board | clock into the backplane's buffer, if the bus clock comes from the CPU board (**open**) |
 | +5 V, ground | ~16 | | | |
-| user-defined | ~52 | | | private links between neighbouring cards, as on VME's P2 |
+| user-defined | ~52 | | | private links between neighbouring cards |
 
-**What moved since the first draft:**
-
-- PRESENT became CLASS0, and CLASS1 is new.
-- GA0–GA3 and CLKSRC moved from P1 to P2: a simple card doesn't need its
-  slot number, and CLKSRC is wired at one slot only. That made room on P1,
-  which was exactly full, for RDY and CLASS1.
-- BURST, BACK and BFIX are gone.
-
-### Pin assignment rules
+#### Pin assignment rules
 
 The pin-by-pin assignment is still to do. It must follow these rules:
 
-- BCLK, RD, WR and RESET each have a ground pin on both sides, in the row
-  and across rows. The simulations show connector coupling dominating
-  crosstalk ([section 9](#9-electrical-rules)). SEL should get them too,
-  since simple cards combine it with the strobes: **recommended**, from
-  the reserved pins.
+- BCLK, SEL, WRITE and RESET each have a ground pin on both sides, in the
+  row and across rows.
 - Power and ground pins are spread along the connector, not grouped.
 - The same signal is on the same pin at every slot. That includes the
   radial ones, which the backplane routes to its own logic.
 
-## 4. Clock and timing conventions
+### 4. Clock and timing
 
-- **The period T is open.** 60 ns is the working value, and the figures in
-  this RFC are for it. The budgets below show the limits: the strobes' slow
-  edges, which masters sample, need about 45–55 ns; every other one-clock
-  path fits in about 33–44 ns.
-- **Clock source: open.** Either:
-  - the main CPU board divides its 50 MHz master clock (60 ns is ÷ 3) and
-    sends the result on CLKSRC, wired only at slot 0, to the backplane's
-    buffer. Then the CPU always knows where the next bus clock edge is
-    ([section 10](#10-the-main-cpu-board-on-the-bus));
-  - or an oscillator on the backplane, independent of any CPU, with every
-    master synchronising to it.
-- **Distribution.** A buffer on the backplane drives each slot's BCLK on
-  its own trace, through a 56–68 Ω series resistor, with one load per
-  card. Every card, the CPU board included, clocks its bus logic from its
-  own BCLK pin.
-- **When signals change and are sampled.** Every bused signal changes just
-  after a rising BCLK edge and is sampled at a later rising edge. Simple
-  cards also act on the edges of RD, WR and RESET.
+- **The period T is open;** 60 ns is the working value.
+- **The clock source is open.** Either:
+  - the main CPU board divides its 50 MHz master clock (÷ 3 for 60 ns) and
+    sends it on CLKSRC, wired at slot 0 only, to the backplane's buffer;
+  - or an oscillator on the backplane.
+- **Distribution:** a clock driver on the backplane drives each slot's
+  BCLK on its own trace, through a 56–68 Ω series resistor.
+  - Every card clocks its bus logic from its own BCLK pin, through exactly
+    one buffer.
+  - The CPU board does this too, even when it supplies the clock.
+- **When signals change:**
+  - Every bused and radial signal changes just after a rising BCLK edge and
+    is sampled at a later one.
+  - Simple cards also act on the edges of SEL, and act on WRITE and RESET
+    as levels.
+- **Card-edge timing**, measured at the card's connector, from BCLK at its
+  pin. **recommended** values, to be confirmed against parts data and
+  signal-integrity runs ([section 17](#17-signal-integrity-work-to-do)):
 
-**Clock skew.**
+  | Parameter | Meaning | Proposed |
+  |---|---|---:|
+  | T<sub>co</sub> max | outputs valid | ≤ 16 ns |
+  | T<sub>co</sub> min | earliest change of an output | ≥ 3 ns |
+  | T<sub>su</sub> | input setup | ≤ 8 ns |
+  | T<sub>h</sub> | input hold | ≤ 1 ns |
+  | T<sub>skew</sub> | between any two cards' BCLK, as their registers see it | ≤ 2 ns |
 
-- **Trace lengths:** 0.8 ns between slots with unmatched lengths, none with
-  matched lengths (simulated).
-- **Buffers:** a 16-slot backplane needs at least two buffer packages, and
-  every card buffers BCLK once more. The delay of a '244-type buffer ranges
-  over roughly 1–5 ns from part to part, so two cards can be several ns
-  apart from the buffers alone.
-- **recommended:**
-  - a clock-driver part with a specified output-to-output and part-to-part
-    skew on the backplane;
-  - on every card, exactly one buffer of a specified fast family between
-    the BCLK pin and the bus registers.
-- The budgets below assume at most 3 ns between any two cards. **open**
-  until the parts are chosen.
+  They must satisfy:
+  - **setup:** T<sub>co</sub> max + backplane settling (≤ 11 ns at 16
+    slots) + T<sub>su</sub> + T<sub>skew</sub> ≤ T;
+  - **hold:** T<sub>co</sub> min ≥ T<sub>h</sub> + T<sub>skew</sub>.
 
-**Card-edge timing.** **recommended:** specify each card's timing at its
-connector, as PCI does, so a card can be checked on its own:
+### 5. Transfers
 
-| Parameter | Meaning | Value |
-|---|---|---|
-| T<sub>co</sub> max | BCLK at the card's pin to its outputs valid at its pins | to do |
-| T<sub>co</sub> min | the same, to the earliest change | to do |
-| T<sub>su</sub> | an input valid at the pin before BCLK | to do |
-| T<sub>h</sub> | an input held at the pin after BCLK | to do |
-| T<sub>skew</sub> | between any two cards' BCLK, as their registers see it | 3 ns |
+#### 5.1 Slots and card classes
 
-The two constraints:
-
-- **Setup:** T<sub>co</sub> max + the backplane's settling time +
-  T<sub>su</sub> + T<sub>skew</sub> ≤ T.
-- **Hold:** T<sub>co</sub> min ≥ T<sub>h</sub> + T<sub>skew</sub>. With
-  minimum datasheet delays, a register and a transceiver can change their
-  outputs within a few ns, which is about the same as the skew. So hold
-  time needs checking, not assuming.
-
-The values can be filled in once ABT and FCT parts are in
-`infra/hw/timing.json`. It only has HCT, ACT and F parts so far.
-
-**Budget for a one-clock path** between two fast cards, at 16 slots, in ns:
-
-| Step | ABT or FCT-T card |
-|---|---:|
-| Register clock-to-output (e.g. 74ABT574, 74ABT652) | ≈ 6 |
-| Transceiver onto the bus | ≈ 5 |
-| Backplane: flight and settling with 22 Ω series resistors (simulated, worst case) | ≤ 11 |
-| Transceiver off the bus | ≈ 5 |
-| Register setup time | ≈ 3 |
-| Clock skew | ≤ 3 |
-| **Total** | **≈ 33** |
-| Slack at 60 ns | 27 |
-
-A 74HCT card would need roughly 35 + 30 + 14 + 30 + 15 ≈ 125 ns for the
-same path. That's why HCT cards are simple cards.
-
-**Budget for the backplane's slot and class lookup**, from the start of
-the address clock to the backplane's registers
-([5.1](#51-slots-and-card-classes)), in ns:
-
-| Step | ns |
-|---|---:|
-| Master's register and transceiver | ≈ 11 |
-| Backplane | ≤ 11 |
-| Slot decoder (74ACT138), or class multiplexer (74ACT151) | ≈ 10 |
-| Register setup | ≈ 3 |
-| Clock skew | ≤ 3 |
-| **Total** | **≈ 38** |
-| Slack at 60 ns | 22 |
-
-**Budget for a fast card's read.** The address is registered at the end of
-the address clock, then:
-
-| Step | ns |
-|---|---:|
-| Register clock-to-output | ≈ 6 |
-| SRAM | 15–25 |
-| Card's transceiver | ≈ 5 |
-| Backplane | ≤ 11 |
-| Master's transceiver | ≈ 5 |
-| Master's setup | ≈ 3 |
-| Clock skew | ≤ 3 |
-| **Total** | **48–58** |
-
-That fits one data clock with 20 ns SRAM or faster; otherwise the card
-holds WAIT for a clock. SEL reaches the card about 10 ns into the first
-data clock, early enough to enable the card's transceiver before its data
-gets there. A card that needs longer raises WAIT from SEL in the same clock:
-about 10 ns for its gate and driver, 11 for the backplane and 11 for the
-master, about 44 ns in all.
-
-## 5. Transfers
-
-Every transfer is an address clock and one or more data clocks; a transfer
-to a simple card ends with a recovery clock. The backplane decodes the slot
-and reads its class during the address clock, and from then on it times the
-transfer.
-
-### 5.1 Slots and card classes
-
-- **Slots.** **decided.**
-  - A31–A28 select one of 16 slots, 256 MB each; A27–A0 are the address
-    within the slot's region.
-  - The backplane decodes the slot and registers SEL for it at the end of
-    the address clock.
-  - Cards only decode the address bits within their region. They never
-    compare addresses, so they need no comparator.
-- **Classes.** **decided** (the encoding is recommended). Each card ties
-  its two class pins to ground or leaves them open, and the backplane pulls
-  them up:
+- **Slots.** Four address bits select one of 16 slots. They're A31–A28 for
+  now, giving 256 MB per slot. That choice is **tentative**: they might
+  move, for example to A30–A27.
+  - The backplane decodes the slot during the address clock.
+  - A card decodes only the address bits within its own region, and never
+    compares addresses.
+- **Classes.** Each card ties its two class pins to ground or leaves them
+  open; the backplane pulls them up. **decided** (the encoding is
+  recommended).
 
   | CLASS1 | CLASS0 | The slot holds | The backplane |
   |---|---|---|---|
   | open | open | nothing | asserts BERR in the first data clock |
-  | open | ground | a simple card, 16 bits | drives RD or WR for N data clocks, then a recovery clock, then RDY |
-  | ground | open | a fast 16-bit card | asserts RDY in every data clock; the card holds WAIT if it needs longer |
+  | open | ground | a simple card, 16 bits | gives it N data clocks, then a recovery clock |
+  | ground | open | a fast 16-bit card | gives it one data clock, more while it holds WAIT |
   | ground | ground | a fast 32-bit card | the same, and asserts W32 |
 
-  PCI does the same with its PRSNT1# and PRSNT2# pins, which encode a
-  card's power class.
-- **N**, the number of data clocks for simple cards, is set by jumpers on
-  the backplane and is the same for every simple card. 4 is recommended:
-  360 ns per transfer ([5.6](#56-simple-cards-and-the-strobes)).
-  - The slowest simple device sets it.
-  - A third strap, from P1's reserved pins, could give simple cards a
-    second speed, for about two more backplane chips. **open.**
-- **Cost:** about 8 chips on the backplane: the slot decoders and SEL
-  registers, and the class multiplexers ([section 9](#9-electrical-rules)).
-  There's no software to run at boot, and no switches to set when cards
-  move.
+- **N** is the same for every simple card, set by jumpers on the backplane.
+  The slowest simple device sets it ([13.7](#137-timing-budgets)).
 
-**Replaced:**
+#### 5.2 The phases of a transfer
 
-- **The first draft's per-slot wait-state tables in every master.** They
-  needed loading at boot, cost about 3 chips per master, and were invisible
-  to the slaves.
-- **An address map in RAM on the backplane.** It was decided and then
-  **rejected** on the same day (Emily, 2026-10-13), in favour of slots in
-  the address.
-  - **What it was:** 128 KB pages, each mapped to a slot with its own
-    timing and width, and written by software at boot.
-  - **Why it went:** nothing answered until software had written it; a bad
-    map made every card unreachable; and its lookup was the longest
-    one-clock path on the bus.
-  - **What it would have bought:** placement anywhere (contiguous memory
-    across cards) and timing per page. This machine doesn't need either:
-    main RAM is private to the CPU board, each card has 256 MB to itself,
-    and an MMU will hide physical layout.
-
-### 5.2 Read
-
-| Phase | Clocks | The owner drives | The backplane drives | The card drives |
-|---|---|---|---|---|
-| Address | 1 | A, BE, START; WRITE inactive | | |
-| Data | fast card: 1; simple card: N; more while the card holds WAIT | A, BE | SEL, RD, BUSY, W32; RDY in every data clock for a fast card | D, WAIT |
-| Recovery | simple card: 1; fast card: none | A, BE | SEL, BUSY, RDY | |
-
-- **Read data:** the master takes it at the end of every data clock in
-  which RD is asserted and WAIT isn't. The last one counts.
-- **Address:** cards register the address, WRITE and BE at the end of every
-  address clock, whether they're addressed or not.
-
-### 5.3 Write
-
-| Phase | Clocks | The owner drives | The backplane drives | The card drives |
+| Phase | Clocks | The owner drives | The backplane drives | The addressed card drives |
 |---|---|---|---|---|
 | Address | 1 | A, BE, START, WRITE | | |
-| Data | fast card: 1; simple card: N; more while the card holds WAIT | A, BE, D | SEL, WR, BUSY, W32; RDY in every data clock for a fast card | WAIT |
-| Recovery | simple card: 1; fast card: none | A, BE, D | SEL, BUSY, RDY | |
+| Data | fast: 1; simple: N; more while a fast card holds WAIT | A, BE, WRITE; D in a write | SEL, DPH; W32 for a fast 32-bit card; RDY in every data clock for a fast card | D in a read; WAIT (fast cards) |
+| Recovery | simple cards only: 1 | A, BE, WRITE; D in a write | RDY | |
 
-A fast card takes the data at the end of the transfer, a simple card at the
-end of WR. Fast cards ignore the strobes.
+- **SEL and DPH** are asserted about 10 ns into each data-phase clock, and
+  released just after the data phase ends. SEL comes from registered
+  outputs, so it never glitches.
+- **Address-clock sampling:** fast cards register A, BE and WRITE at the
+  end of every address clock, addressed or not.
+- **Read data:** the master takes it at the end of every clock in which DPH
+  is asserted and WAIT isn't; the last one counts.
+- **Write data:** a fast card takes it at the end of the transfer; a simple
+  card when its strobe ends.
 
-### 5.4 The end of a transfer, and turnaround
+#### 5.3 The end of a transfer, and turnaround
 
-- **The end.**
-  - A transfer ends at the end of the first data or recovery clock in which
-    RDY is asserted and WAIT isn't.
-  - Every card sees RDY and WAIT, so the master, the card and the bus
-    monitor agree on the end without counting anything themselves.
-  - BERR also ends a transfer, with an error ([5.8](#58-bus-errors)).
-- **Back to back.** The owner can start its next address clock in the clock
-  right after the end.
-- **Data lines** are only driven in data and recovery clocks: by the card in
-  a read, by the master in a write, until just after the end. The next
-  transfer's address clock is a clock in which nobody drives them. So
-  transfers never clash on D, and read-to-write turnaround needs no extra
-  clock.
-- **WAIT** is the only line that cards share.
-  - The addressed card drives it from its first data clock to the end. It is
-    inactive in the last clock, and the card lets go just after the end.
-  - The weak pull-up then holds it inactive.
-  - The next card starts driving it in its own first data clock, a clock
-    later.
-- **Every other line** has one driver at a time: the backplane's lines
-  always, and the owner's lines while the master owns the bus
-  ([section 6](#6-arbitration)).
+- **The end.** A transfer ends at the end of the first clock in which RDY
+  is asserted and WAIT isn't, or in which BERR is asserted. Every card sees
+  these lines, so the master, the card and the bus monitor all agree.
+- **Back to back.** The owner may start its next address clock in the
+  clock right after the end.
+- **D** is driven only in data and recovery clocks: by the card in a read,
+  by the owner in a write. Both let go just after the end. The next address
+  clock is a clock with nobody driving D, so transfers never clash on it.
+- **WAIT** is driven only by the addressed fast card:
+  - from its first data clock to the end of the transfer;
+  - inactive in the last clock;
+  - let go just after the end.
 
-The first draft had no visible end. The master counted wait states from
-its own table, which the slave couldn't see. So whenever the table asked
-for more clocks than a slave would have taken, the slave stopped driving
-too early. That happened at boot, when every slot got the maximum. Also, a
-slave let go of WAIT at the same edge where the next slave started to drive
-it.
+  The pull-up then holds it inactive until the next card drives it, a
+  clock later.
+- **Every other line** has a single driver at a time: the backplane's lines
+  always, and the owner's lines as [section 7](#7-bus-mastering) says.
 
-### 5.5 WAIT and recovery
+#### 5.4 WAIT
 
-- **Data clocks:** one for a fast card; N for a simple card, from its class
-  and the backplane's jumpers.
-- **WAIT**, from the card, adds data clocks for variable delays: a CPU
-  board's slave port while the CPU uses its RAM, a slow SRAM, DRAM refresh, a
-  FIFO running dry.
-  - The data phase ends at the first clock at or after the last scheduled
-    data clock in which WAIT is inactive.
-  - A fast card raises WAIT in its first data clock if it needs to: SEL
-    arrives about 10 ns into it ([section 4](#4-clock-and-timing-conventions)).
-  - A simple card may hold WAIT too, if it has the logic; most won't.
-- **Recovery:** one clock after a simple card's strobe. The owner keeps the
-  address, and in a write the data, on the bus through it. So a simple card
-  sees its strobe end a whole clock before anything else on the bus
-  changes. Fast cards have no recovery clock.
+- A fast card asserts WAIT to add data clocks. Uses:
+  - a CPU board's slave port while the CPU uses its RAM;
+  - slow SRAM;
+  - DRAM refresh;
+  - a FIFO that's empty or full.
+- The data phase ends at the first clock, at or after the last scheduled
+  data clock, in which WAIT is inactive.
+- SEL reaches the card about 10 ns into the first data clock. A card that
+  decides from SEL can still raise WAIT in that clock ([13.7](#137-timing-budgets)).
+- Simple cards never drive WAIT.
 - **The bus monitor** on the backplane asserts BERR if WAIT stays asserted
-  for 256 clocks, so a stuck card can't hang the system.
+  for 256 clocks.
 
-### 5.6 Simple cards and the strobes
+#### 5.5 Data width and byte lanes
 
-The backplane drives RD or WR in every transfer, from the start of the
-first data clock to the end of the data phase. Fast cards ignore them.
-
-| | Asserted | Released | Guarantees |
-|---|---|---|---|
-| RD | start of the first data clock | end of the data phase | address stable a whole clock before RD and a clock after it |
-| WR | start of the first data clock | end of the data phase | address stable a whole clock before WR; address and data stable a clock after it; data valid from early in the first data clock |
-
-**SEL** for the addressed slot is asserted with the strobes, about 10 ns
-into the first data clock, and released at the end of the transfer. Another
-slot's SEL only appears in the next transfer's first data clock. That's a
-clock after a fast card's strobe ended, by which time the strobe's slow
-edge (about 45 ns) has settled, and two clocks after a simple card's. So a
-strobe never overlaps another card's select or an address change.
-
-The first draft released RD at the edge where a back-to-back transfer puts
-out its next address. With RD's slow edge, the next card's select arrived
-while RD was still asserted: a false read, which can lose a UART character.
-
-**Timing of a simple card**, at T = 60 ns:
-
-- **The strobe:** it reaches the card about 40 ns into the first data clock,
-  since its slow edge ([section 9](#9-electrical-rules)) takes up to about
-  30 ns. A 74HCT14 adds about 15 ns.
-- **Time left for the card:** the data has to reach the master by the end of
-  data clock N, and the backplane and the master take about 20 ns of that.
-  That leaves the card about N × 60 − 80 ns from its 74HCT14's output to its
-  data on the bus: 160 ns with N = 4.
-- **Example:** a 16C550 behind a 74HCT245 needs N ≥ 3.
-
-**What a simple card does:**
-
-- It enables its data drivers with SEL and RD, and writes with SEL and WR.
-- It puts 8-bit registers on D0–D7 at addresses 4 bytes apart, and 16-bit
-  ones on D0–D15, 4 apart. Software uses byte or halfword accesses. Simple
-  cards are 16 bits wide, so a master splits a word access.
-
-**Per-slot strobes: open.** The alternative to bused strobes is radial RD
-and WR from the backplane to each slot.
-
-- **For:** point-to-point edges are clean, so the RC networks and the
-  Schmitt triggers go, and a card can never see another card's strobe.
-- **Against:** about two more backplane chips, and 32 more radial traces.
-- **The cards stay the same size:** a gate replaces the 74HCT14.
-
-### 5.7 Data width and byte lanes
-
-**recommended.**
-
-- **Halfwords and bytes always travel on D0–D15**, for every master and
-  every card. A1 picks the halfword; BE0 and BE1 pick its bytes.
-- **Words** travel on D0–D31 when the addressed card is a fast 32-bit card,
-  which the backplane signals with W32, from the card's class:
+- **Halfwords and bytes always travel on D0–D15.** A1 picks the halfword;
+  BE0 and BE1 pick its bytes.
+- **Words** travel on D0–D31 in one transfer when W32 is asserted (the card
+  is a fast 32-bit card):
   - A1 = 0 and BE0–BE3 pick the bytes;
   - bytes 0–1 are on D0–D15, bytes 2–3 on D16–D31.
 
-  BE2 and BE3 are only asserted in a word transfer. Their pull-ups keep
-  them inactive while a master that uses only P1 owns the bus.
-- **A word to a 16-bit card:** the master sees W32 inactive at the end of
-  the first data clock, so it knows only D0–D15 moved. It repeats the high
-  half at A1 = 1, also on D0–D15.
+  BE2 and BE3 are only asserted in word transfers; their pull-ups keep
+  them inactive while a P1-only master owns the bus.
+- **A word to a 16-bit card:** W32 stays inactive, so the master knows only
+  D0–D15 moved. It repeats the high half at A1 = 1, also on D0–D15.
+- **What each kind of card needs:**
+  - a 16-bit card uses P1 only;
+  - a 32-bit card puts the upper half of its data on D16–D31 for words, and
+    on D0–D15 for halfwords and bytes at A1 = 1: one swap transceiver;
+  - a 32-bit master does the same swap for its own upper half;
+  - a 16-bit master uses P1 only, with two transfers per word.
 
-| Access by a 32-bit master | Fast 32-bit card (W32) | 16-bit card |
-|---|---|---|
-| Byte or halfword | D0–D15 | D0–D15 |
-| Word | D0–D31, one transfer | low half, then the high half at A1 = 1, both on D0–D15 |
+#### 5.6 Bus errors
 
-**What each card needs:**
-
-- A **16-bit card** uses P1 only.
-- A **32-bit card** connects the upper half of its data to D16–D31 for
-  words, and to D0–D15 for halfwords and bytes at A1 = 1. That takes one
-  swap transceiver, a 74ABT16245 or two 74ABT245. In return, a master that
-  uses only P1 can use it like any 16-bit card.
-- A **32-bit master** does the same swap for its own upper half.
-- A **16-bit master**, like the draft 1b CPU with its 16-bit memory bus,
-  uses P1 only and does two transfers per word.
-
-The first draft put a halfword at A1 = 1 on D16–D31 for 32-bit slaves. A
-master that uses only P1 can't see those lines, so the main CPU couldn't
-have reached half of a 32-bit card.
-
-### 5.8 Bus errors
-
-BERR ends a transfer with an error. On the draft 1b CPU it becomes a trap
-next to the address error.
-
-- **Only the backplane drives BERR**, so no two drivers ever fight over it.
-- **Empty slots:** both class pins open. BERR comes in the first data clock.
-- **Timeouts:** BERR when WAIT has been asserted for 256 clocks.
-- **Cards see BERR too**, and let go at the end of the transfer, as at any
-  other end.
+- **Only the backplane drives BERR.** BERR ends a transfer at the end of
+  the clock in which it's asserted.
+- **Empty slot:** both class pins open. BERR comes in the first data clock.
+- **Timeout:** WAIT asserted for 256 clocks.
 - **Errors inside a card** (an unused address in its region, a parity
   error) are the card's business: it can ignore the access or raise an
   interrupt.
 
-Earlier drafts had slaves claim each transfer on a shared line. A simple
-card can only release such a line, not drive it high again, and a 10 kΩ
-pull-up takes microseconds to restore it on a loaded backplane. The class
-straps need no logic on the cards.
+### 6. Simple cards
 
-## 6. Arbitration
+**decided** (SEL as the strobe).
 
-- **Requests and grants.**
-  - Each slot has its own REQ and GNT to an arbiter on the backplane.
-  - **recommended:** fixed priority by slot number, with the main CPU in
-    slot 0 lowest, so the bus parks on it. About 5 chips. Round robin is
-    fairer, at about twice the logic (**open**).
-  - The arbiter is synchronous: it samples REQ at each edge and changes GNT
-    just after.
-  - It only moves GNT at the edge that ends a transfer, or at an edge with
-    no transfer under way (START and BUSY inactive). It never moves GNT
-    while LOCK is asserted.
-- **Owning the bus.**
-  - The master with GNT owns the bus.
-  - It drives the owner's lines (A, BE, START, WRITE, LOCK) the whole time
-    it has GNT, whether or not it is running a transfer. So they don't
-    float while the bus is parked.
-- **Starting.**
-  - The owner can start an address clock after any edge at which it
-    sampled GNT, once its previous transfer has ended.
-  - A master that has just been granted waits until it has sampled GNT
-    asserted at two edges in a row, with START and BUSY inactive at the
-    second. Then it starts driving.
-  - The arbiter can move GNT just as the old owner starts another transfer.
-    START and BUSY then show the new owner that the bus is still in use.
-- **Handing over.**
-  - The old owner stops driving its lines just after the first edge at
-    which it samples GNT inactive with no transfer of its own under way.
-  - The new owner starts a clock later, so there's always a clock with
-    nobody driving those lines, and the pull-ups hold START, WRITE and LOCK
-    inactive through it.
-  - From a request on an idle bus to the first address clock takes 3
-    clocks.
-- **Parking.** While nobody else asks, GNT stays with the last owner,
-  normally the main CPU, so it can start transfers with no arbitration
-  delay.
-- **Priority.**
-  - When a higher-priority master asks, the arbiter moves GNT after the
-    owner's current transfer. The old owner may squeeze in one more
-    transfer at the edge where GNT moves.
-  - A master that keeps asking can hold lower ones off. For DMA that's the
-    point. The CPU keeps running from its private RAM meanwhile.
-- **LOCK.** **optional**: the hardware semaphores
-  ([section 8.3](#83-interrupts-and-synchronisation)) don't need it.
-  - The owner holds LOCK across a read-modify-write, and the arbiter
-    doesn't move GNT while it's asserted.
-  - A card with a second way into its memory, like a CPU board's slave
-    port, must keep that way out too, from the first locked transfer to it
-    until LOCK is released. Otherwise the read-modify-write isn't atomic.
-- **Deadlock rule** for CPU boards with slave ports. A CPU stalled waiting
-  for the bus must still let its slave port use its RAM. Otherwise two
-  CPUs can wait for each other forever.
+- **The strobe.** A simple card's SEL is asserted for exactly the N clocks
+  of its data phase. The card makes its device's strobes from SEL and
+  WRITE:
+  - read strobe = SEL and not WRITE;
+  - write strobe = SEL and WRITE.
+- **Inputs.** The device's strobes come from Schmitt-trigger NAND gates (a
+  74HCT132):
+  - SEL and WRITE each go to at most two inputs on the card;
+  - the device's chip select is tied active, or taken from address bits.
+- **What the card can rely on**, at T = 60 ns:
 
-## 7. No bursts
+  | | Guaranteed |
+  |---|---|
+  | Address and WRITE stable before the strobe starts | from the address clock: about 50–70 ns |
+  | Strobe width | N clocks, less a few ns |
+  | Address, WRITE and write data held after the strobe ends | the recovery clock: about 35 ns or more |
+  | Time from the strobe starting to read data being needed at the card's connector | about N × 60 − 50 ns |
 
-**rejected** (Emily, 2026-10-13): there are no burst transfers.
+- **Byte lanes.** The card puts 8-bit registers on D0–D7, and 16-bit ones
+  on D0–D15, at addresses 4 bytes apart. A master splits a word access into
+  halfwords.
+- **No:** no clock, no address comparator, no WAIT.
 
-- **Why:** bursts would need an address counter on every card that takes
-  them, and more state on the backplane. Single transfers are enough for
-  this machine: a fast memory card moves 33 MB/s.
-- **What the first draft had:** optional bursts, with BURST, BACK and BFIX
-  on P2, up to 16 words in an aligned block, the slave counting the address
-  itself, and one word per clock (67 MB/s at 60 ns).
+A UART card, for example, is a 16C550 and its crystal, a 74HCT245, a
+74HCT132 and a 74HCT541 for its ID ([12](#12-example-cards)).
 
-## 8. Reset, card IDs, interrupts and synchronisation
+### 7. Bus mastering
 
-### 8.1 Reset
-
-- **RESET** is open collector with slow edges. Cards receive it through a
-  Schmitt trigger. The backplane's power-on reset and the main CPU drive it.
-- **Nothing on the bus needs setting up after reset.** Slots come from the
-  address, and timing from the class straps, so every card answers from the
-  first transfer.
-
-### 8.2 Card IDs
-
-**Every card has an ID. decided.** Software reads it at boot to learn
-what's in each slot; an empty slot answers with BERR.
-
-- **Format and place: open.** It could be a type code, perhaps with a few
-  bytes describing the card.
-- **The cheapest version, for an 8-bit simple card:** a 74HCT541 with
-  straps, driving D8–D15 on every read and enabled by SEL and RD, its two
-  enable inputs. It needs no extra gate, and any halfword read from the
-  card returns the ID in its upper byte.
-- **A card with registers on D8–D15** puts its ID at a fixed offset
-  instead, say offset 0 of its region, with its own registers above.
-
-Cards that want to know their slot number can read it from GA0–GA3 on P2.
-
-### 8.3 Interrupts and synchronisation
-
-- **Eight interrupt lines**, IRQ0–IRQ3 on P1 and IRQ4–IRQ7 on P2: open
-  collector, level-sensitive. Each card picks its line with a jumper; each
-  CPU listens to its own subset through its priority encoder.
-- **Doorbells.** A write to a register in a CPU board's region interrupts
-  that CPU.
-- **Hardware semaphores.** A read returns the old value and sets the
-  semaphore (test-and-set on read), so CPUs without a locked
-  read-modify-write can share them. Sixteen of them. Where they live is
-  **open**: on the main CPU board, or on the backplane, which would then
-  need a slot region of its own.
-- **A control register per CPU** for reset/run and NMI. One CPU can boot
-  another by loading its RAM through its slave port and releasing its
-  reset.
-
-## 9. Electrical rules
-
-From the signal-integrity simulations: 16 slots, 25 mm card stubs, an
-estimated 12 nH and 2 pF per connector contact, TI IBIS models.
 **recommended.**
 
-**The backplane:**
+#### 7.1 The arbiter
 
-- 4 layers (signal, ground, +5 V, signal).
-- 0.2 mm traces: 67.5 Ω and 5.8 ps/mm bare (field-solved). Loaded with 16
-  cards, a bused line is about 24–29 Ω and 13.5–16 ps/mm, about 5 ns from
-  end to end.
-- **Active parts on the backplane: decided.**
+- **Requests and grants:**
+  - every slot has its own REQ and GNT;
+  - the backplane pulls REQ up, so an empty slot never requests;
+  - the arbiter asserts at most one GNT at a time.
+- **What it knows:** at each edge it samples REQ and LOCK, and it knows
+  whether a transfer is under way, since it saw START and it drives RDY and
+  BERR.
+- **Priority:** fixed, by slot number, the highest slot first. Slot 0, the
+  main CPU, is lowest.
+- **Parking:** when nobody requests, GNT goes to slot 0, or stays there. If
+  slot 0 is empty, nobody is granted.
+- **Switching** from owner P to master Q, where Q is the highest-priority
+  master requesting, or slot 0 for parking when nobody requests. It happens
+  when LOCK isn't asserted, and either Q has the higher priority or P isn't
+  requesting:
+  1. **Withdraw:** the arbiter deasserts P's GNT just after an edge E.
+  2. **Wait:** until the first edge, from E + 1 on, at which no transfer is
+     under way. P may have started one more transfer just after E, since it
+     still saw GNT at E. The arbiter sees that transfer's START at E + 1 and
+     waits for its end.
+  3. **Grant:** it asserts Q's GNT just after that edge.
 
-  | Part | Chips |
-  |---|---:|
-  | Slot decoders and SEL registers | 4 |
-  | Class straps: multiplexers by A31–A28 | 4 |
-  | Transfer timing: a counter for N, the state, output registers | 4 |
-  | Drivers for RD, WR, RDY, BUSY, BERR and W32 | 1 |
-  | Bus monitor | 2 |
-  | Arbiter, fixed priority, 16 slots | 5 |
-  | Clock buffer, power-on reset | 3 |
-  | **Total, in plain 74-series** | **~23** |
+  So **GNT is only ever asserted on an idle bus that its last owner is
+  letting go of.** A master never has to check whether the bus is busy.
 
-  With GALs it would be about 12. Whether PLDs are allowed is **open**.
+#### 7.2 Masters
 
-**No resistor terminators on bused lines:**
+- **Request:** a master asserts REQ while it wants the bus. The main CPU
+  needn't request while the bus is parked on it.
+- **Start:** a master may start an address clock just after any edge at
+  which it samples GNT asserted, once its own previous transfer has ended.
+- **Drive:** a master drives the owner's lines (A, BE, START, WRITE, LOCK)
+  from just after the first edge at which it samples GNT, for as long as it
+  holds GNT, idle or not.
+- **Let go:**
+  - just after the first edge at which it samples GNT deasserted with no
+    transfer of its own under way;
+  - or, if one is under way, just after that transfer's end.
 
-- 74HCT and 74AHCT can't pull a line low against them: the low level was
-  0.66–1.19 V, against the 0.8 V threshold.
-- They'd burn about 8–12 W across ~86 lines.
-- With ABT or ACT drivers, falling edges ring back above 0.8 V for about
-  30 ns. The line resonates as a whole, since 194 Ω terminators barely load
-  a 26 Ω line.
+  START and LOCK are inactive by then, and the pull-ups hold them. The
+  next owner starts driving a clock later, so the owner's lines always
+  have a clock with no driver between owners.
+- **Courtesy:** a master other than the main CPU deasserts REQ for at
+  least one clock after every 16 transfers, so lower-priority masters get a
+  turn. **recommended.**
 
-**22 Ω in series at every bus driver output**, or parts with built-in
-series resistors such as the 74ABT2245. With ABT drivers it lowers the
-peak from 6.0 to 4.4 V and the dip below ground from −0.9 to −0.45 V, and
-cuts extra threshold crossings from 8 to 2. It costs about 2 ns of
-settling.
+From a request on an idle bus to the new owner's first address clock takes
+3 clocks. Between transfers of different masters there's one idle clock.
 
-**Bus drivers:**
+#### 7.3 Locked sequences
 
-- Fast cards and the backplane use 74ABT or 74FCT-T (reduced swing, high
-  level about 3.3 V).
-- 74ACT isn't recommended as a bus driver: it overshoots to about 7 V and
-  undershoots to −1.4 V.
-- 74HCT is fine on simple cards.
+LOCK keeps the bus for a read-modify-write. A multi-CPU system needs it.
+**decided** (LOCK stays).
 
-**One load per card on each bused signal:** a transceiver or one or two
-inputs, at most 25 mm from the connector (as simulated).
+- **Starting:** the owner asserts LOCK in an idle clock, then starts the
+  first locked transfer only if it still samples GNT at the next edge. If
+  GNT has gone, the arbiter withdrew it at that same edge: the owner drops
+  LOCK, lets go, and tries again when it's granted.
+- **Holding:** the arbiter never withdraws GNT at an edge where it samples
+  LOCK asserted. The owner deasserts LOCK after the end of its last locked
+  transfer.
+- **Length:** a locked sequence is a read-modify-write, at most 4
+  transfers.
+- **Slave ports:** a card with a second way into its memory, like a CPU
+  board's slave port, keeps that way out from the first locked transfer
+  addressed to it until LOCK is released.
 
-**RD, WR and RESET** must give clean edges to cards that act on the edges:
+#### 7.4 Deadlock and timeouts
 
-- 33 Ω + 220 pF to ground at both ends of the backplane, on top of the
-  series resistors. That leaves 0–2 extra crossings and no dip below
-  ground, at the cost of about 20–30 ns slower edges, which the strobe
-  timing allows for ([5.6](#56-simple-cards-and-the-strobes)). RD and WR
-  are driven only by the backplane.
-- Schmitt-trigger receivers (74HCT14) on simple cards.
-- Ground pins on both sides.
+- **Deadlock rule:** a CPU board stalled waiting for the bus must still let
+  its slave port use its RAM. Otherwise two CPUs, each waiting for the
+  other's RAM through the bus, can wait forever.
+- **The backstop:** the bus monitor's WAIT timeout
+  ([5.6](#56-bus-errors)) turns anything that slips through into a bus
+  error instead of a hang.
 
-**BCLK:**
+### 8. Reset, card IDs, interrupts and synchronisation
 
-- An ABT buffer with 56–68 Ω series resistors: peak about 4.5 V, dip −0.1
-  to −0.5 V.
-- No threshold re-crossing at any slot in any simulated case. Matched trace
-  lengths are optional.
+#### 8.1 Reset
 
-**SEL and GNT** are point-to-point from the backplane's registers, like
-BCLK, and need series resistors like it. They haven't been simulated.
+- **RESET** is open collector with slow edges. Cards receive it through a
+  Schmitt trigger. The backplane's power-on reset and the main CPU drive
+  it.
+- **During and after reset:** the arbiter grants slot 0, and nothing on the
+  bus needs setting up. Slots come from the address, and timing from the
+  class straps.
 
-**Lines without a driver:**
+#### 8.2 Card IDs
 
-- **Pull-ups.** WAIT, START, WRITE and LOCK on P1, and BE2 and BE3 on P2,
-  have a weak (10 kΩ) pull-up for when nobody drives them. The class pins
-  are pulled up too, so an empty slot reads as open.
-- **Pull-ups only hold.** On a loaded line (150–250 pF) a pull-up would take
-  microseconds to bring the line back up, far more than a clock. So the
-  rules in [5.4](#54-the-end-of-a-transfer-and-turnaround) and
-  [section 6](#6-arbitration) make sure each of these lines is driven
-  inactive before it is let go.
-- **Address and data lines** float between owners and outside data
-  clocks. **recommended:** bus-hold inputs (74ABTH parts) on the backplane,
-  or weak pull-ups, so they don't drift to mid-rail and make every receiver
-  draw current. Nothing samples them while they float.
-- **The backplane's own lines** (RD, WR, RDY, BUSY, BERR, W32, SEL, GNT,
-  BCLK) are always driven.
+**decided:** every card has an ID. Software reads it at boot to learn
+what's in each slot; an empty slot answers with BERR.
 
-**Interrupt lines:** open collector, one 1 kΩ pull-up each. They're slow
-(~250 ns to rise), which is fine since every CPU synchronises them.
+- **Format and place: open.**
+- **The cheapest version, for an 8-bit simple card:** a 74HCT541 with
+  straps. It drives D8–D15 whenever the card's read strobe is active, so
+  any halfword read from the card returns the ID in its upper byte.
+- **Cards with registers on D8–D15** put the ID at a fixed offset instead,
+  for example offset 0 of their region.
+- **Slot numbers:** cards that want theirs read GA0–GA3 on P2.
 
-**Crosstalk.** Two neighbours switching put 1–2 V spikes on a quiet line
-through the connector contacts' coupling. This is harmless on lines
-sampled at a clock edge, as they're quiet again by then. It's why RD, WR,
-RESET, BCLK and SEL get ground pins either side.
+#### 8.3 Interrupts and synchronisation
 
-**Simulated settling, 16 slots,** worst case over driver positions, both
-corners and the receivers on every other card. "Added delay" is on top of the datasheet
-propagation delay:
+- **Interrupts:** eight lines, IRQ0–IRQ3 on P1 and IRQ4–IRQ7 on P2. Open
+  collector, level-sensitive. Each card picks its line with a jumper; each
+  CPU listens to its own subset through a priority encoder.
+- **Doorbells:** a write to a register in a CPU board's region interrupts
+  that CPU.
+- **Semaphores:** sixteen hardware semaphores, test-and-set on read, for
+  CPUs that share data without locked sequences. Where they live is
+  **open**.
+- **CPU control:** each CPU has a control register for reset/run and NMI.
+  One CPU boots another by loading its RAM through its slave port and
+  releasing its reset.
 
-| Driver, termination | Added delay, rise / fall | Peak / lowest voltage | Extra threshold crossings |
+### 9. Electrical rules
+
+These come from the signal-integrity simulations
+([13.8](#138-electrical-rules-and-the-simulations)).
+
+- **The backplane:** 4 layers (signal, ground, +5 V, signal), 0.2 mm traces
+  (67.5 Ω bare). Up to 16 slots at a 20.32 mm pitch, as simulated.
+- **No resistor terminators** on bused lines.
+- **22 Ω in series at every bus driver output**, or parts with built-in
+  series resistors (74ABT2245).
+- **Bus drivers:**
+  - 74ABT or 74FCT-T on fast cards and on the backplane;
+  - 74HCT on simple cards;
+  - not 74ACT.
+- **Loading.** On each bused signal, a card puts at most one transceiver
+  pin, or up to three CMOS inputs close together. That's about 12 pF in
+  all, within 25 mm of the connector. The numbers wait on signal-integrity
+  runs ([section 17](#17-signal-integrity-work-to-do)).
+  - The backplane's own logic follows the same rule: it takes the signals
+    it uses (the slot bits, START, WRITE, WAIT, LOCK) through one buffer.
+- **Radial lines** (BCLK, SEL, GNT) are driven from registers on the
+  backplane through 33–68 Ω series resistors. At the card end they go to
+  one buffer (BCLK) or at most three inputs close together (SEL, GNT).
+- **SEL and WRITE** reach simple cards' logic only through Schmitt-trigger
+  inputs.
+- **RESET:**
+  - open collector with a 1 kΩ pull-up;
+  - 33 Ω + 220 pF to ground at both ends of the backplane;
+  - Schmitt-trigger receivers.
+- **Pull-ups (10 kΩ):**
+  - WAIT, START, WRITE and LOCK on P1;
+  - BE2 and BE3 on P2;
+  - REQ and the class pins at the backplane end.
+
+  They only hold a line. Every line that has them is driven inactive before
+  it's let go, except WRITE, which nothing reads between transfers.
+- **Floating lines:** A, BE0–1 and D float between owners and outside data
+  phases. Weak pull-ups in resistor packs, or bus-hold parts (74ABTH), keep
+  them from drifting to mid-rail. **open** which.
+- **Interrupt lines:** open collector, one 1 kΩ pull-up each.
+- **Decoupling:** every bus chip is decoupled. Until ground bounce is
+  understood, prefer SOIC or flow-through parts (74ABT16245) for wide
+  drivers.
+
+**The backplane's logic** ([13.9](#139-the-backplanes-logic)): about 28
+chips in plain 74-series, or about 13 with GALs. Whether PLDs are allowed is
+**open**.
+
+### 10. The main CPU board on the bus
+
+Guidance for the main CPU board; not part of the specification proper.
+
+- **Addresses.** How a CPU maps its own address space onto the bus is the
+  board's business.
+  - A 32-bit CPU might give the bus part of its address space and pass the
+    slot bits straight through.
+  - The draft 1b hardware's MAR only holds address bits 0–19 and 31, so it
+    would need about two more chips to supply the slot bits.
+- **Slot:** the main CPU sits in slot 0. The bus parks on it, so it starts
+  most bus accesses with no arbitration delay.
+- **If the bus clock comes from the CPU board**, the bus clock is the 50 MHz
+  master clock divided by N (N = 3 for 60 ns), and the CPU always knows
+  where the next bus clock edge is. A bus access is one stretched
+  microcycle. A read starts at tick $t_0$, and the address clock starts at
+  the first bus clock edge $E$ at least a tick later. For a two-clock
+  transfer:
+
+  $$t_\text{read} = (E - t_0) + 2N + 2 \text{ ticks}, \quad 1 \le E - t_0 \le N$$
+
+  That's 200 ns on average at N = 3 (180–220 ns). The CPU's cycle lengths
+  never need to be multiples of the bus clock.
+- **If it comes from an oscillator on the backplane**, the CPU synchronises
+  to it, which costs about 20–40 ns per access.
+- **Posted writes.** Registered bus transceivers (74ABT652) take the
+  address and data at the end of an ordinary microcycle; the bus interface
+  finishes the write on its own.
+- **Early request.** When the bus isn't parked on the CPU, the pipelined
+  microcode tells the bus interface a cycle ahead that the next
+  microinstruction uses the bus.
+- **The slave port shares the RAM by ticks, not cycles.** The board straps
+  itself as a fast 16-bit card.
+  - A data latch frees the RAM about 4 ticks into each CPU memory cycle.
+    The RAM is then busy roughly 15% of the time.
+  - With 55 ns RAM the slave port holds WAIT for one clock: 180 ns per
+    transfer, longer when it collides with the CPU.
+  - It honours LOCK and the deadlock rule ([7.3](#73-locked-sequences),
+    [7.4](#74-deadlock-and-timeouts)).
+
+### 11. Other CPUs as masters
+
+Guidance, not specification. A CPU with its own bus timing (a Z80, a
+68000) can be a master through a small **bridge** on its card.
+
+**How the bridge works:**
+1. The CPU starts a cycle in a window mapped to the system bus.
+2. The bridge holds the CPU: WAIT on a Z80, DTACK withheld on a 68000.
+3. It synchronises the request to BCLK, gets the bus, and runs an ordinary
+   transfer, with lane steering.
+4. It releases the CPU, with read data latched.
+
+**Cost:** about 4–6 bus clocks per access, 250–400 ns, and about 12–15
+chips.
+
+**Z80:**
+- An 8-bit P1-only master.
+- A window of its memory or I/O space maps to the bus through a bank
+  register.
+- A byte goes on D0–D7 or D8–D15 according to its address bit 0.
+
+**68000:**
+- A 16-bit P1-only master.
+- Its BERR maps onto the bus's BERR, and TAS onto LOCK.
+- It's big-endian, so a swap bit in the bank register picks straight or
+  swapped byte order per window.
+- A 68020 or 68030 is a 32-bit master. Its DSACK0/1 can be driven from W32,
+  with the bridge steering lanes.
+
+### 12. Example cards
+
+Not part of the specification: rough chip counts, to check that the rules
+allow cheap cards.
+
+| Card | Chips | Notes |
+|---|---:|---|
+| UART | 4 + the 16C550 | 74HCT245 on D0–D7; 74HCT132 for the strobes; 74HCT541 with straps for the ID |
+| 2 MB 32-bit memory, 10–15 ns SRAM | ~19 | 4 SRAMs, 4 address registers, 6 transceivers (low half, high half, swap), ~3 for control, a clock buffer, the ID. Never needs WAIT |
+| 1 MB 16-bit memory as a simple card | ~7 | 2 SRAMs, 2 '245, a '132 and a '00 for the strobes and byte write enables, the ID. N clocks per transfer, no registers |
+| DMA engine, 8 channels, microcoded | ~34 | channel state in a small SRAM, a 16-bit adder, a microsequencer, a 32-bit address register, data registers with halfword packing. About 3–5 MB/s from the CF card |
+
+## Part 2: Rationale
+
+### 13. Why the bus looks like this
+
+#### 13.1 Synchronous
+
+**decided.**
+
+- **Against strobe-timed buses** (8080, Z80, ISA style): read and write
+  strobes driven by whichever master owns the bus would be multidrop lines
+  and the timing reference for every transfer. The simulations show fast
+  multidrop edges ringing back through the threshold 2–14 times unless
+  slowed by 20–35 ns.
+- **Against fully asynchronous handshakes** (Unibus, VME): every card needs
+  acknowledge logic, and every CPU still needs synchronisers.
+- **What synchronous buys:** the only line that must have clean edges is
+  the point-to-point clock. With SEL as the strobe
+  ([13.3](#133-sel-as-the-strobe)), every other edge that matters is also
+  point-to-point.
+
+#### 13.2 Slots in the address, and class straps
+
+- **Why straps:** a card that says what it is with two straps needs no
+  logic, and the backplane can time it from the first transfer after reset.
+  PCI does the same with its PRSNT1# and PRSNT2# pins.
+- **Why the backplane times transfers:**
+  - masters need no wait-state tables or strobe logic;
+  - simple cards need no clock;
+  - every card sees where a transfer ends.
+- **Alternatives tried** ([section 16](#16-rejected-ideas)):
+  - **Per-master wait-state tables**, in the first draft. Slaves couldn't
+    see the end of a transfer, and every table needed loading at boot.
+  - **An address map in RAM on the backplane.** It was flexible, but
+    nothing answered until software had written it.
+  - **WAIT-only timing,** with each card timing itself. Simple cards grew
+    to about 8 chips.
+- **The slot bits:** A31–A28 give each slot 256 MB. That's plenty: main RAM
+  is private to each CPU board, and an MMU will hide physical layout. They
+  might move to A30–A27, to leave half the address space for something
+  else.
+
+#### 13.3 SEL as the strobe
+
+**decided.** It replaces the bused RD and WR strobes of the earlier drafts.
+
+- **What was wrong with the bused strobes:**
+  - They were multidrop lines that simple cards act on, so they needed
+    33 Ω + 220 pF at both ends of the backplane and Schmitt triggers on the
+    cards.
+  - Their 22–31 ns edges were the slowest path on the bus, since masters
+    sampled them to know when read data was valid.
+  - With a slow strobe and a fast select, a back-to-back transfer could
+    start a false read on another card. The first draft had that problem.
+- **What SEL as the strobe buys:**
+  - **Clean edges:** SEL is already per slot, registered and
+    point-to-point, like BCLK.
+  - **Fewer parts:** the RC networks and the RD/WR pins go.
+  - **More time for simple cards:** their strobes start about 30 ns into
+    the data clock instead of about 55.
+  - **No false reads across cards:** a card never sees another card's
+    strobe.
+  - **A faster clock floor:** masters take read data on DPH, a clean
+    registered line, so the shortest usable period drops from about 55 ns
+    to about 50 ns.
+- **What it costs:**
+  - **SEL and WRITE become glitch-sensitive.** A crosstalk spike on either
+    while SEL is asserted becomes a false or broken access. Hence the
+    ground pins beside both and the Schmitt-trigger inputs (the 74HCT132
+    replaces the 74HCT14, same count).
+  - **SEL must never glitch,** so it comes from registered one-hot outputs.
+    That rules out the cheaper decode-after-register variant, which glitches
+    at the clock edge.
+  - **No chip-select window wider than the strobe,** because SEL is the
+    strobe. A device's chip select is tied active or taken from address
+    bits, which are steady from the address clock through the recovery
+    clock.
+
+#### 13.4 RDY, WAIT, DPH and the recovery clock
+
+- **A visible end.** The first draft's masters counted wait states from
+  their own tables, which slaves couldn't see. So whenever a table asked for
+  more clocks than a slave would have taken, the slave stopped driving
+  early, for example at boot when every slot got the maximum. With RDY and
+  WAIT on the bus, every card sees the end.
+- **WAIT rather than DTACK.**
+  - RDY already acknowledges on behalf of every card, so slaves only speak
+    up when they're late.
+  - A slave-driven acknowledge would put logic on every card.
+  - It would also hit the problem that dropped the first draft's claim
+    line: a simple card can only release a shared line, and a 10 kΩ pull-up
+    takes microseconds to restore it.
+- **WAIT is bused, not radial.**
+  - A radial WAIT, folded into RDY by the backplane, would leave no shared
+    lines at all.
+  - But it adds a second trip through the backplane: about 54 ns of the 60.
+- **The turnaround rules** give WAIT and D a clock with nobody driving
+  between transfers. Earlier drafts handed WAIT over at the same edge.
+- **DPH** tells masters which clocks carry read data. For a simple card,
+  RDY comes in the recovery clock, after its data has gone.
+- **The recovery clock** holds the address after a simple card's strobe.
+  - The first draft let the address change at the same edge RD was
+    released.
+  - With RD's slow edge, a UART could see its register address change while
+    RD was still active, and lose a character.
+
+#### 13.5 Data width and byte lanes
+
+- **Why halfwords always travel on D0–D15:** in the first draft a halfword
+  at A1 = 1 travelled on D16–D31 to 32-bit cards. A P1-only master can't see
+  those lines, so 16-bit CPUs, Z80s and 68000s couldn't have used half of a
+  32-bit card.
+- **The cost:** a swap transceiver on every 32-bit card and master.
+- **W32 comes from the class straps,** so no card drives a shared W32.
+- **Why keep 32 bits:** the target is a 32-bit architecture with more than
+  one CPU, so the 32-bit path stays. A review that suggested a 16-bit-only
+  bus had been framed around the draft 1b hardware, which is only a study.
+
+#### 13.6 Bus mastering
+
+- **A central arbiter**, because the backplane already knows when
+  transfers start and end. Distributed schemes (NuBus) need logic on every
+  master.
+- **Withdraw, then grant.**
+  - The old rules let GNT move at the same edge the old owner started one
+    more transfer. So a new master needed BUSY and a two-edge check, START
+    and BUSY inactive at the second of two GNT samples, before it could
+    trust GNT.
+  - Now the arbiter does the waiting, and GNT means "idle and yours". BUSY's
+    pin became DPH. The handover still takes 3 clocks.
+- **Fixed priority,** with the main CPU lowest and parked on, because the
+  CPU makes most bus accesses and DMA should pre-empt it.
+  - Fixed priority can starve low-priority masters.
+  - The courtesy rule (drop REQ after 16 transfers) bounds that.
+  - Round robin is fairer, at about twice the logic. **open.**
+- **LOCK and its idle clock.** A multi-CPU system needs atomic
+  read-modify-write across the bus, and test-and-set semaphores don't cover
+  every use.
+  - Starting with an idle clock closes a race: the arbiter might withdraw
+    GNT at the very edge where the owner asserts LOCK, and then the first
+    locked transfer would go out without a lock.
+  - It costs one clock per locked sequence.
+- **The slave-port rule and the deadlock rule** make locked sequences
+  atomic against the target CPU's own accesses, and stop two CPUs waiting
+  for each other forever. The WAIT timeout catches whatever slips through.
+
+#### 13.7 Timing budgets
+
+All at 16 slots, in ns, with rough datasheet worst cases.
+
+| Path | Steps | Total | Slack at 60 ns |
+|---|---|---:|---:|
+| One-clock path between fast cards | register 6, transceiver 5, backplane ≤ 11, transceiver 5, setup 3, skew 2 | ≈ 32 | 28 |
+| Slot and class lookup on the backplane | master 11, backplane ≤ 11, input buffer 5, class multiplexer (two levels) 15, setup 3, skew 2 | ≈ 47 | 13 |
+| A fast card's read, one data clock | its register 6, SRAM 15–25, transceiver 5, backplane ≤ 11, master 8, skew 2 | 47–57 | 3–13 |
+| A fast card raising WAIT from SEL | SEL at the card 10, gate and driver 10, backplane ≤ 11, master 8, skew 2 | ≈ 41 | 19 |
+| DPH or RDY to a master | register 6, driver 5, backplane ≤ 11, receiver 5, setup 3, skew 2 | ≈ 32 | 28 |
+
+- **The class lookup sets the shortest usable period,** about 50 ns.
+- **A 74HCT card** would need roughly 125 ns for the one-clock path. That's
+  why HCT cards are simple cards.
+
+**Simple cards.**
+
+- **When the strobe starts:** SEL arrives about 10 ns into the first data
+  clock, and the 74HCT132 adds about 20. So the device's strobe starts at
+  about 30 ns.
+- **How much time the card gets:** read data must be at the card's
+  connector by about 22 ns before the end of the last data clock. That
+  leaves about N × 60 − 50 ns from the strobe starting: 70 ns with N = 2,
+  130 ns with N = 3.
+- **What sets N:**
+  - A 16C550 behind a 74HCT245 needs N = 2–3.
+  - A CF card in ATA PIO mode 0, its state after reset, wants 290 ns
+    strobes for 8-bit registers (N = 5) and 70 ns of address setup. The
+    strobe gets 50–70 ns.
+  - So with a CF card among the simple cards, either N = 5 with a slightly
+    short setup, or a second, slower class with a setup clock (open idea,
+    [section 15](#15-open-ideas)).
+
+**Skew and hold.**
+
+- **Where skew comes from:**
+  - the trace lengths alone give 0.8 ns (simulated);
+  - two clock-buffer packages on the backplane;
+  - one buffer on every card.
+
+  A '244-type buffer varies by about 1–5 ns from part to part, so skew
+  could reach several ns.
+- **Why hold time is the risk:**
+  - with minimum datasheet delays, a register and a transceiver can change
+    an output within 2.5–3 ns;
+  - against about 1 ns of hold plus the skew, hold doesn't close on paper.
+- **Hence the proposals in [section 4](#4-clock-and-timing):**
+  - T<sub>skew</sub> ≤ 2 ns, from a clock-driver part with specified
+    part-to-part skew and a specified buffer on each card;
+  - T<sub>co</sub> min ≥ 3 ns.
+
+  Both need confirming with parts data and simulation.
+
+#### 13.8 Electrical rules and the simulations
+
+From [report 0013](0013-report-bus-si.md): one bus line on a 6U backplane
+with 8 or 16 slots, TI IBIS models, an estimated 12 nH and 2 pF per
+connector contact, 25 mm card stubs.
+
+- **No terminators.**
+  - 74HCT and 74AHCT can't pull a terminated line below 0.8 V: the low
+    level was 0.66–1.19 V.
+  - Terminators would burn 8–12 W.
+  - With ABT drivers, falling edges ring back above 0.8 V for about 30 ns,
+    since 194 Ω barely loads a 26 Ω line.
+- **22 Ω in series.** With ABT drivers it lowers the peak from 6.0 to
+  4.4 V, the dip from −0.9 to −0.45 V, and extra threshold crossings from 8
+  to 2. It costs about 2 ns of settling.
+- **Drivers:** 74ACT overshoots to about 7 V and undershoots to −1.4 V.
+- **The clock:** an ABT buffer with 56–68 Ω series resistors gave clean
+  edges at every slot in every simulated case, with 0.8 ns of skew without
+  length matching.
+- **Crosstalk:** two switching neighbours put 1–2 V spikes on a quiet line
+  through the connector contacts' coupling.
+  - That's harmless on lines sampled at a clock edge.
+  - It's not harmless on SEL and WRITE, which simple cards use as strobe
+    and direction, hence their ground pins and Schmitt inputs.
+- **Loading:**
+  - A card as simulated adds about 9 pF per slot, giving a loaded line of
+    about 27 Ω and 14 ps/mm.
+  - The bus switches on the reflected wave: an ABT driver through 22 Ω
+    reaches only about 1.4 V on its first step.
+  - Heavier cards lower that step and lengthen the round trip. At about
+    20 pF per card, settling might grow 1.5–2×, an estimate to be simulated.
+  - Hence the loading rule.
+
+Simulated settling at 16 slots, worst case over driver positions and
+corners. "Added delay" is on top of the datasheet propagation delay:
+
+| Driver, termination | Added delay, rise / fall | Peak / lowest | Extra crossings |
 |---|---|---|---|
 | ABT, 22 Ω series | 9 / 11 ns | 4.4 / −0.45 V | 2 |
 | FCT-T, 22 Ω series | 10 / 10 ns | 4.1 / −0.4 V | 4 |
 | HCT, 22 Ω series | 8 / 14 ns | 5.7 / −0.3 V | 2 |
 | ABT, none | 7 / 9 ns | 6.0 / −0.9 V | 8 |
 | ABT, 330/470 Ω (VME) | 5 / 26 ns | 5.7 / −0.9 V | 4 |
-| ABT, series + 33 Ω + 220 pF (strobes) | 22 / 31 ns | 4.0 / +0.2 V | 0 |
+| ABT, series + 33 Ω + 220 pF (now only on RESET) | 22 / 31 ns | 4.0 / +0.2 V | 0 |
 
-With 8 slots, the delays without the RC network are about half. With it
-they barely change: 18 / 26 ns for ABT.
+With 8 slots, the delays without the RC network are about half.
 
-**Not settled yet:**
+#### 13.9 The backplane's logic
 
-- **Ground bounce.** The simulation model is numerically unreliable. Until
-  it's fixed: decouple every bus chip, and prefer SOIC or flow-through
-  parts (such as the 74ABT16245, with many ground pins) for wide drivers.
-- **Gaps in the sweep.** 39 of the 840 bus-line runs failed, mostly with
-  series resistors on 16 slots. Every driver position still has at least
-  one corner covered: 12–15 of the 16 position and corner runs finished.
-- **Driver models.** TI's ABT, FCT and HCT models disagree with themselves.
-  The simulation follows the waveforms through the edge and the V-I tables
-  for the levels.
-- **Card size.** The simulations assumed 6U cards at a 20.32 mm pitch with
-  25 mm stubs. Once the card size and the backplane's layout are settled,
-  the affected cases need rerunning.
-- **Power.** No −5.2 V on the backplane. A higher supply voltage, such as
-  +12 V, may come: **open**.
+| Part | Chips |
+|---|---:|
+| Input buffer for the slot bits, START, WRITE, WAIT, LOCK | 1 |
+| Slot decoders and SEL registers | 4 |
+| Class multiplexers, by the slot bits | 5 |
+| Transfer timing: counter for N, state, class register | 4 |
+| Drivers for DPH, RDY, BERR, W32 | 1 |
+| Bus monitor | 2 |
+| Arbiter: request priority encoder, owner register, comparison, state, grant decoders | ~8 |
+| Clock driver, power-on reset | 3 |
+| **Total, plain 74-series** | **~28** |
 
-## 10. The main CPU board on the bus
+- **With GALs:** about 13. The arbiter, the transfer timing and the class
+  multiplexers each fit one or two.
+- **Fewer master slots:** limiting bus mastering to 8 slots would save
+  about 2 chips of the arbiter.
 
-**Addresses.** On the draft 1b CPU, MAR bit 31 set means "system bus". MAR
-bits 30–27 drive A31–A28, the slot number; A27 is 0; and MAR bits 26–0
-drive A26–A0. So the CPU reaches the first 128 MB of every slot, with
-plain wiring. A later CPU with an MMU can produce full 32-bit bus
-addresses.
+#### 13.10 Relatives
 
-**If the bus clock comes from the CPU board** (one of the options in
-[section 4](#4-clock-and-timing-conventions)):
+- **VME:** the mechanics (two 96-pin connectors, P1 enough for basic cards,
+  user pins on P2), BERR with a bus timer, and a central system controller.
+- **NuBus:** synchronous operation, START, slot spaces, and declaration
+  ROMs (our card IDs).
+- **PCI:** per-slot REQ/GNT with parking, pull-ups and turnaround on shared
+  lines, card-edge timing, and presence straps (our class straps).
+- **SBus, the Apple II, and EISA's per-slot enables:** the slot select comes
+  from a central decoder, so cards need no comparator.
 
-- **No synchroniser.** The draft 1b CPU's cycles are whole numbers of
-  20 ns ticks of the 50 MHz master clock
-  ([RFC 0007, section 4](0007-rfc-ideas-microarchitecture.md#4-microarchitecture)).
-  The bus clock is the same clock divided by N, N = 3 for 60 ns. So the CPU
-  always knows the phase of the next bus clock edge.
-- **A bus access is one stretched microcycle.** A read starts at tick
-  $t_0$. The address clock starts at the first bus clock edge $E$ at least
-  a tick later, which gives MAR and its decode time to settle. For a
-  two-clock transfer, the data is in a CPU register about two ticks after
-  the data clock ends:
+## Part 3: Open questions, ideas and signal-integrity work
 
-  $$t_\text{read} = (E - t_0) + 2N + 2 \text{ ticks}, \quad 1 \le E - t_0 \le N$$
+### 14. Open questions
 
-  At N = 3 that's 200 ns on average (180–220).
+Questions only Emily can answer:
 
-  That's about one ordinary microcycle with HCT parts, two with ACT.
-  Waiting for the next bus clock edge costs 1.5–2.5 ticks per access on
-  average. That doesn't matter, because RAM is private and the bus only
-  carries I/O and remote accesses. The CPU's cycle lengths never need to
-  be multiples of the bus clock. **recommended.**
-
-**If it comes from an oscillator on the backplane**, the CPU synchronises
-to it, which costs about 20–40 ns per access
-([RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)).
-
-Either way:
-
-- **No wait-state table, no strobes.** The bus interface runs the address
-  clock, holds the address, and watches RDY, WAIT, RD, W32 and BERR. The
-  backplane does the rest.
-- **Posted writes.** Registered bus transceivers (74ABT652 or 646) take the
-  address and data at the end of an ordinary microcycle. The bus interface
-  finishes the write on its own, so the CPU only waits if it reaches the bus
-  again before then.
-- **Bus parking and early request.** The bus normally stays parked on the
-  main CPU. When it isn't, the pipelined microcode tells the bus interface
-  a cycle ahead that the next microinstruction uses the bus. It requests
-  then, and the arbitration delay is mostly hidden.
-- **The returned clock.** The bus interface runs on the board's BCLK pin,
-  like every other card. With the bus clock from the CPU board, that's
-  about 4 ns behind the internal phase it was divided from: a fixed skew
-  between two clocks from one source, easy to check in the timing
-  analysis. Driving the bus from the internal phase would eat the hold-time
-  margin.
-
-**The slave port shares the RAM by ticks, not cycles.** The board straps
-itself as a fast 16-bit card.
-
-- **When the CPU uses the RAM.** Half the CPU's cycles don't touch it:
-  fetch is 25% of executed cycles, reads 20%, writes 5%. With pipelined
-  microcode, the RAM arbiter knows about 40 ns into each cycle whether the
-  next one uses the RAM, and when it starts.
-- **Freeing the RAM early.** A data latch (2 × 74ACT573 on the 16-bit
-  memory bus) frees the RAM about 4 ticks into a memory cycle, instead of at
-  its end. It adds a few ns to the fetch path, which is at 309 ns against
-  the 334 ns multiply step.
-- **What other masters get.** The RAM is then busy roughly 15% of the time,
-  so most slave-port accesses get it straight away. A collision costs a
-  bus clock (the card holds WAIT), or the CPU's cycle stretches by a tick
-  instead.
-- **Timing.** The RAM is 55 ns, so the slave port holds WAIT for one clock:
-  180 ns per transfer at 60 ns. Other masters reach the CPU's RAM in about
-  180–320 ns, instead of 300–600 ns with whole-cycle stealing. The CPU's
-  RAM becomes usable as a DMA buffer.
-
-## 11. Other CPUs as masters
-
-A CPU with its own bus timing, like a Z80 or a 68000, can be a master
-through a small **bridge** on its card. **recommended** as the way to
-attach them. The bridge turns the CPU's own bus cycles into bus transfers:
-
-1. The CPU starts a cycle in an address window mapped to the system bus.
-2. The bridge holds the CPU: WAIT on a Z80, DTACK withheld on a 68000.
-3. It synchronises the request to BCLK with two flip-flops (1–2 clocks),
-   requests the bus unless it's parked there, and runs an ordinary
-   transfer, with lane steering.
-4. It releases the CPU, with read data latched.
-
-**Cost:**
-
-- About 4–6 bus clocks per access: 250–400 ns at 60 ns. That's a few wait
-  states to a 4–8 MHz CPU.
-- About 12–15 chips: the synchroniser and a small state machine, a bank
-  register for the window, transceivers and lane steering. The bridge needs
-  no wait-state table and no strobes. A GAL or two would shrink it a lot.
-
-**Z80:**
-
-- 8-bit data and 16-bit addresses. A window, say the top 16 KB of memory,
-  or a range of I/O ports, maps to the bus through a bank register that
-  supplies A31–A14. So it can reach anywhere, 16 KB at a time.
-- Little-endian like the bus. A byte goes on D0–D7 or D8–D15 according to
-  its address bit 0, so the card steers the lanes with two transceivers. It
-  is a P1-only master.
-- WAIT must reach the Z80 before the falling clock edge in T2, about 60 ns
-  after the address is valid at 8 MHz. The window decode needs 74ACT or 74F
-  gates.
-- Interrupts: one bus IRQ line into INT, mode 1 or with a vector from the
-  card.
-- Optional: other masters can reach the Z80's RAM by taking its local bus
-  with BUSREQ/BUSACK.
-
-**68000:**
-
-- Its asynchronous bus fits best: the bridge just withholds DTACK until the
-  transfer is done.
-- 16-bit data and 24-bit addresses. A window, say the top 8 MB, maps
-  through a bank register. It is a P1-only master.
-- BERR goes straight to the 68000's own BERR input, so bus errors become
-  68000 exceptions.
-- TAS (an indivisible read-modify-write) maps onto LOCK, which is on P1 so
-  16-bit masters can use it.
-- **Byte order.** The 68000 is big-endian: a byte at an even address
-  travels on D8–D15.
-  - Wiring its D8–D15 to the bus's D0–D7 makes bytes at the same address
-    match, but 16-bit words look byte-swapped to the 68000, as with ISA
-    cards on an Atari.
-  - Straight wiring makes words match, but byte addresses differ in bit 0.
-
-  A swap bit in the bank register can pick per window: swapped for
-  peripherals and text, straight for 16-bit data.
-- Interrupts: a priority encoder from the bus IRQ lines to IPL0–IPL2.
-- A 68020 or 68030 is a 32-bit master. Its dynamic bus sizing (DSACK0/1)
-  can be driven from W32: with W32 it's a 32-bit port, without it 16-bit.
-  The bridge steers the lanes, since the 68020 expects a 16-bit port on its
-  upper data lines.
-- Optional: other masters can reach its RAM through BR/BG/BGACK.
-
-## 12. Rejected: a separate I/O bus
-
-**rejected** (Emily, 2026-10-13): simple peripherals go on the system bus.
-The idea and its arguments are kept here, so it isn't proposed again
-without new evidence.
-
-A bridge card would have run a slow, separate I/O bus for simple
-peripherals:
-
-- 8 data bits, about 12 address bits, 8080-style read and write strobes;
-- interrupt lines;
-- its own small backplane with cheaper connectors: 3U cards with 64-pin
-  DIN 41612 connectors, or RC2014-style headers.
-
-| For | Against |
-|---|---|
-| The system bus carries only fast cards: fewer loads, cleaner edges, perhaps a faster clock | One more card (~10–15 chips) and a second backplane and card format |
-| No strobes on the fast backplane | Every I/O access crosses the bridge: about two system-bus transfers plus the I/O cycle |
-| The I/O bus can be as slow as needed (~500 ns), on 2-layer cards, with chips that want odd timing (6800-style E clock, Z80 peripherals) | DMA to simple devices has to go through the bridge |
-
-## 13. Open questions
-
-1. The bus clock period (60 ns for now), and whether the clock comes from
+1. **The bus clock:** its period (60 ns for now), and whether it comes from
    the main CPU board or an oscillator on the backplane.
-2. The card size and how the system splits into cards. These wait until
-   the design is closer to completion. Two 96-pin connectors are decided.
-   One idea for then, full-width and half-width slots, is in
-   [RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses).
-3. May the design use PLDs (GALs)? The backplane's logic is about 23 chips
-   without them and about 12 with them, and the bridges shrink too.
-4. A higher supply voltage on the backplane: which one, and on which pins.
-   P1 has three reserved pins, and P2 has room.
-5. The pin-by-pin assignment of P1 and P2.
-6. Ground bounce, once the model is fixed: which packages and parts for the
-   wide bus drivers.
-7. Card IDs: what they hold and where they are
-   ([section 8.2](#82-card-ids)).
-8. Bused or per-slot strobes ([5.6](#56-simple-cards-and-the-strobes)).
-9. The simple cards' length N (4 recommended), and whether a third class
-   strap should give them a second speed.
-10. Arbitration: fixed priority (recommended) or round robin.
-11. Where the hardware semaphores live: on the main CPU board or on the
-    backplane.
-12. The card-edge timing values and the skew budget
-    ([section 4](#4-clock-and-timing-conventions)).
+2. **The slot bits:** A31–A28, or elsewhere (A30–A27)?
+3. **Cards:** the card size and how the system splits into cards. These
+   wait until the design is closer to completion.
+4. **PLDs:** may the design use GALs? The backplane is about 28 chips
+   without them and 13 with them, and the bridges and DMA engine shrink
+   too.
+5. **Simple-card speed:** one speed N for all simple cards, or a second,
+   slower class (with a setup clock) from a third class strap? It's about
+   two more backplane chips and one reserved pin.
+6. **Arbitration:** fixed priority (recommended) or round robin? Park on
+   slot 0 (recommended) or on the last owner?
+7. **Card IDs:** format and place.
+8. **Semaphores:** on the main CPU board, or on the backplane, which would
+   then need an address region of its own?
+9. **A higher supply voltage:** which one, and on which pins?
+10. **Floating lines:** resistor packs or bus-hold parts?
 
-## 14. Decisions
+Questions to settle by work rather than by decision:
+
+11. **Pins:** the pin-by-pin assignment of P1 and P2.
+12. **Timing values:** the card-edge timing values, the skew budget and the
+    hold rule ([section 17](#17-signal-integrity-work-to-do)).
+13. **Loading:** the loading rule's numbers (section 17).
+14. **Ground bounce:** which packages and parts for wide bus drivers.
+
+### 15. Open ideas
+
+- **Full-width and half-width slots** (Emily's idea): some columns take
+  full cards on P1 and P2, others two P1-only cards stacked. It waits for
+  the card size ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)).
+- **A slower simple-card class:** a third strap selecting a second N, and
+  a setup clock before the strobe for devices like a CF card at PIO mode 0.
+- **Round-robin arbitration.**
+- **Master slots:** only some slots can be bus masters, to shrink the
+  arbiter.
+- **Semaphores on the backplane,** where every master finds them at a fixed
+  address.
+- **The bus clock from an oscillator on the backplane,** independent of the
+  CPU board, at the cost of a synchroniser in each CPU.
+- **Moving the slot bits** to A30–A27, or elsewhere.
+
+### 16. Rejected ideas
+
+Kept with their reasons, so they aren't proposed again without new
+evidence.
+
+| Idea | Status | Why |
+|---|---|---|
+| A strobe-timed bus without a clock (8080, Z80, ISA) | **rejected** (Emily) | Multidrop strobes as timing references ring unless slowed by 20–35 ns |
+| A fully asynchronous handshake (Unibus, VME) | **rejected** (Emily) | Acknowledge logic on every card, synchronisers in every CPU |
+| A separate I/O bus behind a bridge card | **rejected** (Emily, 2026-10-13) | Simple peripherals go on the system bus. It would have cost a bridge (~10–15 chips), a second backplane and card format, and two system-bus transfers per I/O access |
+| An address map and timing table in RAM on the backplane | **rejected** (Emily, 2026-10-13) | Nothing answered until software had written it; a bad map made every card unreachable; its lookup was the longest path. Its flexibility (contiguous memory across cards, timing per page) isn't needed |
+| Per-slot wait-state tables in every master | **rejected** (Emily, 2026-10-13) | Replaced by class straps. Slaves couldn't see the end of a transfer, and every table needed loading at boot |
+| WAIT-only timing, each card timing itself | **rejected** (Emily, 2026-10-13) | Replaced by class straps. Simple cards would need a clock and about 8 chips |
+| Burst transfers | **rejected** (Emily, 2026-10-13) | They'd need an address counter on every card that takes them, and more backplane state. Single transfers give 33 MB/s |
+| Bused RD and WR strobes | **rejected** (Emily, 2026-10-14) | Replaced by SEL as the strobe ([13.3](#133-sel-as-the-strobe)) |
+| A system-controller card in slot 0 | **rejected** (Emily, 2026-10-13) | Active logic on the backplane instead. The radial lines would have needed many extra pins on slot 0 |
+| A slave-driven claim line | not recommended | A simple card can only release a shared line, and a 10 kΩ pull-up takes microseconds to restore it |
+| A slave-driven acknowledge (DTACK) | not recommended | Logic on every card. RDY acknowledges on the cards' behalf |
+| Resistor terminators (VME's 330/470 Ω) | not recommended | HCT can't pull them low; 8–12 W; ABT edges ring for 30 ns |
+| 74ACT as bus drivers | not recommended | 7 V overshoot, −1.4 V undershoot |
+| A radial WAIT folded into RDY | not recommended | No shared lines, but about 54 ns of the 60 for the WAIT path |
+| Inverted polarity, inverting transceivers, bus-invert coding | not recommended | Clocked lines settle both ways, so polarity doesn't change the clock rate. Inverting ABT parts are about 1 ns faster at most. Bus-invert coding helps simultaneous switching, not timing, at an XOR per bit on every card |
+| A 16-bit-only bus; dropping LOCK | not recommended | Proposed by a review framed around the draft 1b hardware. The target is a 32-bit, multi-CPU system |
+| −5.2 V on the backplane | **rejected** (Emily, 2026-10-13) | The ECL cruncher is deprioritised. A higher voltage may come instead |
+
+### 17. Signal-integrity work to do
+
+The existing sweeps ([report 0013](0013-report-bus-si.md)) model one bused
+line on a 16- or 8-slot backplane with one transceiver per card. The
+revised bus raises questions they don't answer. In rough order of
+importance:
+
+1. **Ground bounce.** The model is numerically unreliable. Fix it, then
+   simulate 16 and 32 data lines switching together in DIP, SOIC and
+   flow-through packages, with decoupling. *Decides:* the bus driver parts
+   and packages (question 14).
+2. **SEL as a strobe.**
+   - Simulate SEL as a point-to-point line from a registered ABT output
+     through 33–68 Ω, ending in one to three HCT inputs.
+   - Then crosstalk onto SEL and WRITE from switching neighbours, with and
+     without ground pins either side, against the 74HCT132's hysteresis.
+
+   *Decides:* the series resistor, the ground-pin rules, and whether the
+   Schmitt inputs are enough.
+3. **Card loading.** Heavier cards: 12, 15 and 25 pF per card, and stubs of
+   25, 50 and 75 mm, on all 16 slots and on a few. *Decides:* the loading
+   rule's numbers (question 13).
+4. **Hold time.** The earliest change at the nearest receiver, at the fast
+   corner with minimum driver delays. The current sweeps only report
+   settling. *Decides:* T<sub>co</sub> min and the skew budget.
+5. **The clock tree with real parts.** A clock-driver part on the
+   backplane, and a buffer on each card. *Decides:* T<sub>skew</sub>.
+6. **The backplane's own lines.**
+   - Where its logic sits (an end or the middle), since DPH, RDY, BERR and
+     W32 all come from there.
+   - Its input buffer's tap.
+   - The radial outputs (SEL, GNT) and the class-pin pull-ups.
+7. **WAIT, the one shared line:** behaviour after release with only the
+   pull-up holding it, and crosstalk while it floats.
+8. **The 68 failed jobs** from the full sweep: 39 bus-line, 27
+   ground-bounce, 2 clock-tree. Rerun them once the time-step problems are
+   understood, without changing models or thresholds.
+9. **The connector model.** 12 nH and 2 pF per contact is an estimate from
+   the geometry. A measured or datasheet figure, and a sensitivity run,
+   would show how much rides on it.
+10. **Geometry, once the card size is settled.** Slot pitch, stub length and
+    slot count. The full/half-width layout, if chosen, with its unloaded hop
+    between connector rows.
+11. **A faster clock.** If T goes below 60 ns, recheck the settling margins
+    at 50 ns.
+
+The RC networks on the strobes no longer matter except on RESET. Those
+results stay in report 0013 for the record.
+
+The sweeps can run in a cloud session; that's turned out to be as fast as
+a laptop. `AGENTS.md` and the study's README still say otherwise, and
+should be updated.
+
+### 18. Decisions
 
 Emily has decided:
 
@@ -1026,25 +1046,34 @@ Emily has decided:
 - bus addresses are the full 32 bits;
 - two connectors per slot, with P1 enough for a simple peripheral.
 
-And on 2026-10-13:
+On 2026-10-13:
 
 - **Cards:**
   - two 96-pin connectors per slot;
   - the card size, and how the system is split into cards, wait until the
-    design is closer to completion (6U Eurocards had been marked as
-    decided);
-  - cards keep their IDs.
+    design is closer to completion;
+  - every card has an ID.
 - **The bus clock** isn't decided: it is a variable for now, with 60 ns as
   the starting point.
 - **Addressing and timing:**
-  - addresses carry the slot: A31–A28 select it;
-  - a card's timing comes from class straps on the card, read by the
-    backplane, and a fast card holds WAIT when it needs longer;
-  - these replace an address map and timing table in RAM on the backplane,
-    which had been decided earlier the same day.
-- **No burst transfers.** They had been optional.
-- **Simple peripherals** go on the system bus, and the separate I/O bus idea
-  is closed.
-- **The backplane:** active parts on it are fine, and there's no −5.2 V on
-  it, though it may carry a higher voltage.
-- **The ECL number cruncher** is deprioritised: it may not happen.
+  - addresses carry the slot;
+  - a card's timing comes from class straps read by the backplane;
+  - a fast card holds WAIT when it needs longer.
+
+  These replaced an address map and timing table in RAM, decided earlier
+  the same day, and a WAIT-only scheme.
+- **No burst transfers.**
+- **Simple peripherals** go on the system bus; the separate I/O bus is
+  closed.
+- **The backplane:** active parts on it are fine; no −5.2 V on it, though it
+  may carry a higher voltage.
+- **The ECL number cruncher** is deprioritised.
+
+On 2026-10-14:
+
+- **Strobes:** SEL is the strobe for simple cards, and the bused RD and WR
+  strobes go.
+- **LOCK stays:** a multi-CPU system will need it. The bus is designed for
+  the 32-bit, multi-CPU target, not for the draft 1b hardware.
+- **The slot bits:** A31–A28 is tentative; the slot bits may move, for
+  example to A30–A27.
