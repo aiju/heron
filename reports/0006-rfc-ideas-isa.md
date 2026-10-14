@@ -5,7 +5,7 @@ title: Instruction set ideas
 status: open
 date: 2026-10-12
 context:
-  studies: [v1_isa, v1b_hw, lisp]
+  studies: [v1_isa, v1b_hw, lisp, c_compiler, kernel]
   commit: e494b0c
 ---
 
@@ -144,6 +144,71 @@ are of compiled cycles, on 12 benchmarks.
 | Keep a memory-indirect call (`CALL [r + d]`) in draft 2 | Calls go through a code word in every object; a load and `CALL r` would cost 1.3% (up to 2.5%) | **measured**, open |
 | One-parcel `[r - 1]` and `[r + 3]` (the pair offsets) | Saves 1.1% compiled, 1.7% interpreted; not worth the encoding space | **measured** |
 | Guard pages for the stack and heap limits | In [RFC 0010](0010-rfc-ideas-os.md#11-mmu): 5.0% and 1.8% | **open** |
+
+### 2.7 `r0` as a general register
+
+**measured**, open. Only for a draft 2 built on 1b. In draft 1, `r0` reads
+as zero in both encodings. In 1a it carries its weight: `[r0 + disp]` is
+1a's only absolute address. 1b's encoding already covers the usual reasons
+for a zero register: `#0` is a one-parcel constant (mode 1), absolute
+addresses have their own modes (F4–F9) and `NEG` is a unary op. The idea is
+to make `r0` a 15th general register.
+
+- **What `r0` does in 1b now.** Every use in the 1b code (the programs,
+  compiled C, the kernel and the Lisp runtime) is one of these:
+  - **Storing zero:** `ST r0, ea`, since 1b has no store-immediate. That's
+    13 of the 16 uses in the hand-written programs, 16 of the 24 in
+    compiled C (the other 8 are `MOV rX, r0`, the same as `MOV rX, #0`),
+    and 52 in the kernel and the Lisp runtime.
+  - **A zero for instructions that only take registers:** `ADC r5, r0`
+    (bignum), `SBC r6, r0` (sort), `MTHI r0` before a `DIVUL` chain, the
+    kernel's `MTUR r1, r0` and `MTSR mapd, r0`, and the Lisp's
+    `CMP.T r1, r0`.
+  - **A zero in the hardware:** `NEG` and the multiply and divide routines
+    read `r0` onto the A bus. A hidden register-file entry that the reset
+    routine zeroes, like the loop constants at 24 and 25, would do the same.
+  - **Unused:** `MOV r0, ea` tests a memory operand without a scratch
+    register.
+
+  Executed, it's 0.99% of the hand-written programs' instructions, and 92%
+  of that is one store in sieve's inner loop.
+- **What it costs:**
+  - one register: 14 general registers instead of 15;
+  - 5 OR gates, a microinstruction bit (`WR0`) and a reset step in the 1b
+    hardware;
+  - encodings: with `R = r0`, modes 2, 6, 7, 8, A and B are useless, and
+    3, 9 and C duplicate the absolute modes.
+- **Measured** on the 15 C programs for 1b, with the compiler patched two
+  ways at `b6ffcfd` (not committed). The table gives cycles in the
+  programs' own code, geometric means, D16-overlap / D32-overlap:
+
+  | Change | Cycles | Where |
+  |---|---:|---|
+  | No zero register: a 0 needed in a register is a fresh `MOV rX, #0` | +1.3% / +1.1% | sieve +19% / +16%, bst +1% |
+  | One register fewer (r14 not allocated), an upper bound on what a 15th is worth | +0.5% / +0.7% | sha256 +6% / +11%, wordfreq +0.8% |
+
+  - The other programs barely change.
+  - Sieve's cost is the compiler's: it puts the `MOV` inside the inner
+    loop rather than hoisting it, and the loop has registers to spare.
+  - The C library is left out because of a layout effect. Its size moves
+    sieve's byte array on or off a word boundary, which changes `memset`'s
+    time by 3.6×.
+  - [Report 0004](0004-report-draft-1-evaluation.md) found no hand-written
+    program short of registers either.
+- **Replacing it:**
+  - Op B (`JMP`/`CALL ea`) has 14 unused values of `d`. One could be
+    `CLR ea`, which stores zero at any size, in any mode.
+  - `ADC`/`SBC`, `MTSR` and `MTUR` would still need a zero from a register,
+    or new forms. For example, the unary group has four free functions,
+    room for an add-carry.
+- **Against:**
+  - It's about 1% either way, so performance doesn't decide it.
+  - `r0 = 0` is part of the common draft 1 machine, and 1a needs it.
+  - The kernel and the Lisp rely on it.
+  - It keeps the compiler simple: a zero never needs a register of its own.
+
+  Only worth it if a 1b-based draft 2 wants the register or the encoding
+  space for something else.
 
 ## 3. Floating point
 
