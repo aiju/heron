@@ -21,7 +21,7 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 
 **Construction**
 
-- 4-layer PCBs on a backplane, two connectors per slot. The first
+- 4-layer PCBs on a backplane, two 96-pin connectors per slot. The first
   connector, P1, is enough for a simple peripheral.
 
 **Clocking**
@@ -31,12 +31,20 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 **System bus** (the draft specification is [RFC 0014](../reports/0014-rfc-system-bus.md))
 
 - Synchronous: one bus clock, every signal sampled on its rising edge.
-- Simple, dumb peripherals must be possible.
+- Simple, dumb peripherals must be possible, and they go on the system bus:
+  there's no separate I/O bus.
 - Bus addresses are the full 32 bits.
-- Burst transfers are optional.
+- Addresses carry the slot: four address bits select one of 16 slots
+  (which four is still open).
+- SEL, sent only to the addressed slot, is the strobe for simple cards.
+- LOCK, for locked read-modify-write across the bus.
+- Each card says what it is, and so how it's timed, with class straps that
+  the backplane reads. A fast card holds WAIT when it needs longer.
+- No burst transfers.
+- Every card has an ID.
+- The backplane carries active logic.
+- No −5.2 V on the backplane.
 
 **Beyond the CPU**
 
-- A second CPU: an ECL number cruncher, designed separately. It shares the
-  system bus and has its own RAM.
 - Ethernet, preferably with a MAC built from TTL.

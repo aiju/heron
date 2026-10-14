@@ -103,12 +103,14 @@ picks how long its own cycle is. Measured on the draft 1b hardware
 - **Variable-length cycles meet the synchronous system bus.**
   **recommended.** Details in
   [RFC 0014, section 10](0014-rfc-system-bus.md#10-the-main-cpu-board-on-the-bus).
-  - The bus clock is the master clock ÷ 3 or ÷ 4, so the CPU always knows
-    where the next bus clock edge is; no synchroniser.
+  - If the bus clock is the master clock divided down (÷ 3 for 60 ns), the
+    CPU always knows where the next bus clock edge is; no synchroniser. The
+    bus clock is **open** for now (Emily, 2026-10-13), and so is where it
+    comes from.
   - A bus access is one microcycle, stretched until the transfer is done: a
-    read takes about 200 ns at ÷ 3 and 250 ns at ÷ 4. Waiting for the next
-    bus edge costs 1.5–2.5 ticks per access. CPU cycle lengths never need to
-    be multiples of the bus clock.
+    read takes about 200 ns at 60 ns. Waiting for the next bus edge costs
+    1.5–2.5 ticks per access. CPU cycle lengths never need to be multiples
+    of the bus clock.
   - **Posted writes** through registered bus transceivers (74ABT652): the
     CPU doesn't wait for a write unless it reaches the bus again first.
   - **The bus parks on the main CPU**, and the pipelined microcode requests

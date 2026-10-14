@@ -77,17 +77,20 @@ Chip counts are rough estimates, scaled from the 98-chip draft 0 design.
   instruction-level simulator, ahead of hardware. **open.**
 - **Build in stages on a backplane of cards** (CPU, memory, then MMU and I/O
   cards). Above ~150 chips, only PCBs or a backplane, no breadboards.
-  **decided**: 4-layer PCBs and a backplane with two connectors per slot
-  ([section 5](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)). The CPU needs at least two
-  boards; how to split it is **open**.
+  **decided**: 4-layer PCBs and a backplane with two 96-pin connectors per
+  slot ([section 5](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)). The CPU needs at least two boards. The card
+  size and how to split the system into cards wait until the design is
+  closer to completion (Emily, 2026-10-13).
 - **A second, heterogeneous CPU: an ECL number cruncher**, designed
-  separately. It shares the system bus and has its own RAM. **decided** in
-  principle. What the bus needs to know from its design:
+  separately, sharing the system bus and with its own RAM. It had been
+  **decided** in principle; now **deprioritised** (Emily, 2026-10-13): it
+  may not happen, and the system bus no longer plans around it. The
+  backplane won't carry −5.2 V. If it comes back, what the bus needs to
+  know from its design:
   - its word size (32 or 64 bits) and how much RAM it has;
   - whether it is a bus master (fetching its own data) or only a slave the
     main CPU feeds;
-  - whether it uses burst transfers;
-  - whether the backplane should carry its −5.2 V supply.
+  - whether it uses burst transfers.
 
   The draft bus specification to hand to its design is
   [RFC 0014](0014-rfc-system-bus.md).
@@ -171,33 +174,50 @@ Questions raised along the way that only Emily can answer:
    If graphics: raster or vector?
 5. How many simultaneous terminals? Is a microcontroller inside a
    peripheral acceptable?
-6. Design cards for a bus clock of ÷ 3 (16.7 MHz, recommended) or ÷ 4
-   (12.5 MHz)? The CPU board's jumper allows both.
-7. What does the ECL number cruncher need from the bus: 32-bit transfers,
-   bursts, LOCK? Does the backplane carry its −5.2 V supply?
-8. How to split the CPU over two or more boards, and DIP or SOIC?
-9. Simple peripherals on the system bus (recommended) or on a separate I/O
-   bus behind a bridge?
-10. Active parts on the backplane (clock buffer, slot decoder, arbiter, bus
-    monitor), or a system-controller card in slot 0?
+6. The bus clock: its period (60 ns for now) and where it comes from, the
+   CPU board or an oscillator on the backplane?
+7. How to split the system into cards (the CPU needs at least two), the
+   card size, and DIP or SOIC? These wait until the design is closer to
+   completion. Two 96-pin connectors per slot are decided.
+8. May the design use PLDs (GALs)? The backplane's logic is about 23 chips
+   without them and about 12 with them
+   ([RFC 0014](0014-rfc-system-bus.md#9-electrical-rules)).
+9. The system bus's open details: the slot bits, the simple cards' speed,
+   fixed-priority or round-robin arbitration, the card IDs' format, and
+   more ([RFC 0014](0014-rfc-system-bus.md#14-open-questions)).
 
 Answered so far:
 - 32-bit architecture with a narrow implementation first: yes.
 - 16-bit instruction parcels: yes.
 - Compare RISC-like and CISC-like encodings: done.
 - PCBs: 4-layer.
-- A backplane with slots: yes, with two connectors per slot, P1 enough for
-  simple peripherals.
+- A backplane with slots: yes, with two 96-pin connectors per slot, P1
+  enough for simple peripherals. The card size and the split into cards
+  wait until the design is closer to completion.
 - Variable-length cycles from a 50 MHz master clock: yes, with lengths set
   by jumpers, and the timer counting real time.
-- A second CPU: an ECL number cruncher, designed separately.
+- A second CPU, an ECL number cruncher: deprioritised, it may not happen
+  (it had been decided in principle).
 - Ethernet: yes, preferably with a TTL MAC.
 - The system bus is synchronous. The strobed bus was reconsidered after the
   signal-integrity simulations and stays rejected.
 - Simple, dumb peripherals must be possible.
 - The master clock stays 50 MHz (20 ns ticks).
-- Bursts: an optional feature for now.
+- Bursts: none (they had been an optional feature).
 - Bus addresses: the full 32 bits.
+- The bus clock isn't decided yet: a variable for now, with 60 ns as the
+  starting point.
+- Simple peripherals go on the system bus; no separate I/O bus.
+- Active parts on the backplane: yes.
+- Addresses carry the slot (A31–A28), and each card's timing comes from
+  class straps on the card, read by the backplane; fast cards hold WAIT
+  when they need longer. This replaced, the same day, an address map and
+  timing table in RAM on the backplane.
+- Every card has an ID.
+- SEL is the strobe for simple cards; there are no bused read and write
+  strobes. LOCK stays, since a multi-CPU system needs it. The slot bits
+  (A31–A28 for now) may move.
+- No −5.2 V on the backplane; it may carry a higher voltage.
 
 ## 16. Offered next steps
 

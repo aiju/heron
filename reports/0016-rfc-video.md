@@ -350,7 +350,7 @@ copper and sprites take their share (blanking is 27% of a frame):
   address space on 16-bit machines, and the CPU has auto-increment
   addressing modes anyway. **not recommended.**
 - **The card is a synchronous slave** on the bus
-  ([RFC 0014, section 2](0014-rfc-system-bus.md#2-kinds-of-card)), 32 bits
+  ([RFC 0014, section 2](0014-rfc-system-bus.md#2-cards-and-the-backplane)), 32 bits
   wide.
   - **Writes are posted:** registered transceivers (74ABT652) take a
     write, and the card does it in the next free slot. The CPU only waits
