@@ -626,6 +626,8 @@ class ListPane
     self.draw_row(k)
   end
 
+  def row_at(py) = @top + (py - @y) / 15
+
   # the row clicked, or nil
   def click(px, py)
     k = @top + (py - @y) / 15
@@ -643,29 +645,157 @@ class ListPane
   end
 end
 
-# the source of a method from line `line` of a source: the def, the lines
-# indented under it, and its end
-def method_source(which, line, sel)
-  lines = gui_source_lines(which, line, 80)
-  if lines.size == 0 or not lines[0].contains?("def " + sel.to_s) then return nil end
-  indent = 0
-  while indent < lines[0].size and lines[0][indent] == " "
-    indent += 1
-  end
-  out = [lines[0]]
-  i = 1
-  while i < lines.size
-    l = lines[i]
-    k = 0
-    while k < l.size and l[k] == " "
-      k += 1
-    end
-    if l.strip.size > 0 and k <= indent
-      if l.strip == "end" and k == indent then out.push(l) end
+# ---- source: where classes and methods come from, and what the
+# Workspace has changed since
+
+# the methods compiled in a Workspace, by class name and then selector:
+# their lines, as they were run
+EDITS = Map.new
+
+# the last line of the block (a class, a def) that starts at lines[i]: the
+# lines indented under it, and the end that closes it if it has one
+# (gui_indent is a line's leading spaces, -1 if it's blank)
+def block_end(lines, i)
+  ind = gui_indent(lines[i])
+  j = i + 1
+  n = lines.size
+  while j < n
+    k = gui_indent(lines[j])
+    if k >= 0 and k <= ind
+      if k == ind and lines[j].strip == "end" then return j end
       break
     end
-    out.push(l)
-    i += 1
+    j += 1
+  end
+  # no end of its own (a one-line def): the blank lines after it aren't its
+  j -= 1
+  while j > i and gui_indent(lines[j]) < 0
+    j -= 1
+  end
+  j
+end
+
+# the name in "class Name < Super", and the selector in "def name(args)"
+def class_name_of(t)
+  rest = right_of(t.strip, 6).strip
+  k = 0
+  while k < rest.size and rest[k] != " " and rest[k] != "<" and rest[k] != "#"
+    k += 1
+  end
+  left_of(rest, k)
+end
+
+
+# [[class name, selector, lines]] for the defs in some code, in class
+# statements and at the top level (where they're Object's)
+def defs_in(lines)
+  out = []
+  i = 0
+  while i < lines.size
+    t = lines[i].strip
+    if t.starts_with?("class ")
+      e = block_end(lines, i)
+      name = class_name_of(t)
+      k = i + 1
+      while k < e
+        sel = gui_def_name(lines[k])
+        if sel != nil
+          me = block_end(lines, k)
+          out.push([name, sel, lines[k..me]])
+          k = me + 1
+        else
+          k += 1
+        end
+      end
+      i = e + 1
+    elif t.starts_with?("def ")
+      e = block_end(lines, i)
+      out.push(["Object", gui_def_name(t), lines[i..e]])
+      i = e + 1
+    else
+      i += 1
+    end
+  end
+  out
+end
+
+# what a Workspace compiled: remember the source of its methods
+def record_edits(code)
+  for d in defs_in(code.split("\n"))
+    m = EDITS.get(d[0], nil)
+    if m == nil
+      m = Map.new
+      EDITS[d[0]] = m
+    end
+    m[d[1]] = d[2]
+  end
+end
+
+# the source of a method from line `line` of a source (0 the prelude, 1
+# what the machine booted with)
+def method_source(which, line, sel)
+  lines = gui_source_lines(which, line, 200)
+  if lines.size == 0 or not lines[0].contains?("def " + sel.to_s) then return nil end
+  lines[0..block_end(lines, 0)]
+end
+
+# a class's class statements in a source, each as its lines
+def class_blocks(which, name)
+  out = []
+  for n in gui_find_lines(which, "class " + name)
+    count = 100
+    while true
+      lines = gui_source_lines(which, n, count)
+      e = block_end(lines, 0)
+      if e < lines.size - 1 or lines.size < count or count >= 1000 then break end
+      count = (count * 4).min(1000)
+    end
+    if class_name_of(lines[0]) == name then out.push(lines[0..e]) end
+  end
+  out
+end
+
+# All of a class's source, as lines: its class statements from the prelude
+# and from what the machine booted with, with the methods a Workspace has
+# changed in their place and the ones it added before the last end
+def class_source(cls)
+  name = cls.name
+  edits = EDITS.get(name, Map.new)
+  used = Map.new
+  out = []
+  blocks = class_blocks(0, name) + class_blocks(1, name)
+  for b in blocks
+    if out.size > 0 then out.push("") end
+    k = 0
+    while k < b.size
+      l = b[k]
+      sel = if k > 0 then gui_def_name(l) else nil end
+      if sel != nil and edits.has?(sel)
+        out = out + edits[sel]
+        used[sel] = true
+        k = block_end(b, k) + 1
+      else
+        out.push(l)
+        k += 1
+      end
+    end
+  end
+  added = []
+  for sel in edits.keys
+    if not used.has?(sel)
+      added.push("")
+      added = added + edits[sel]
+    end
+  end
+  if blocks.size == 0
+    if added.size == 0 then return ["# {name} is built into the VM: it has no Egret source."] end
+    sup = cls.superclass
+    head = "class " + name + if sup == nil or sup == Object then "" else " < " + sup.name end
+    return [head] + added.drop(1) + ["end"]
+  end
+  if added.size > 0 and out.last.strip == "end"
+    out.pop
+    out = out + added + ["end"]
   end
   out
 end
@@ -733,7 +863,10 @@ class Browser < Window
 
   def source_of(m)
     if m[3] == 0 then return ["# {m[0]} is a primitive, written in C (vm/prims.c", "# or src/gui_prims.c)."] end
-    if m[3] == 2 then return ["# {m[0]} was defined in a Workspace."] end
+    if m[3] == 2
+      e = EDITS.get(@cls.name, Map.new).get(m[0].to_s, nil)
+      return if e == nil then ["# {m[0]} was defined in a Workspace."] else e end
+    end
     src = method_source(1, m[2], m[0])
     if src == nil then src = method_source(0, m[2], m[0]) end
     if src == nil then ["# (no source for {m[0]}: line {m[2]})"] else src end
@@ -755,16 +888,37 @@ class Browser < Window
     end
   end
 
-  # a method into a Workspace, to change and run again
+  # a class, or one of its methods, into a Workspace, to change and run
+  # again
+  def edit_class
+    if @cls == nil then return nil end
+    gui_pointer(P_BUSY)
+    src = class_source(@cls)
+    w = Workspace("# Change it, then press Ctrl-D with the cursor in it. (It can't\n" +
+                  "# take new instance variables: that needs a new class.)\n\n" + src.join("\n") + "\n")
+    w.set_title(@cls.name)
+  end
+
+  def edit_method
+    if @cls == nil or @right.sel == nil then return nil end
+    code = "class " + @cls.name + "\n" + @source.join("\n") + "\nend\n"
+    w = Workspace("# Change it, then press Ctrl-D with the cursor in it.\n\n" + code)
+    w.set_title(@cls.name + "#" + @methods[@right.sel][0].to_s)
+  end
+
   def double_click(x, y)
-    if @right.hit?(x, y) and @right.sel != nil
-      code = "class " + @cls.name + "\n" + @source.join("\n") + "\nend\n"
-      w = Workspace("# Change it, select it all (Ctrl-A) and do it (Ctrl-D):\n" + code)
-      w.set_title(@cls.name + "#" + @methods[@right.sel][0].to_s)
-    else
-      self.mouse_down(x, y, 0)
+    if @left.hit?(x, y)
+      if @left.row_at(y) != @left.sel then self.mouse_down(x, y, 0) end
+      self.edit_class
+    elif @right.hit?(x, y)
+      if @right.row_at(y) != @right.sel then self.mouse_down(x, y, 0) end
+      self.edit_method
     end
   end
+
+  def menu_items = [
+    ["Edit the class", { self.edit_class }],
+    ["Edit the method", { self.edit_method }]]
 
   def wheel(d)
     m = gui_mouse()

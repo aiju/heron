@@ -46,9 +46,15 @@ The browser version needs Rust's WebAssembly target:
   it does the whole of it. Errors go there too, and to the Transcript. Ctrl-A,
   Ctrl-C, Ctrl-X and Ctrl-V work, with a clipboard of the machine's own.
   Meta (Cmd) works as Ctrl.
-- **In the Browser**, pick a class, then a method, to see its source;
-  double-click the method to open it in a Workspace, change it, and run
-  it again (Ctrl-A, Ctrl-D) to redefine it in the running system.
+- **In the Browser**, pick a class, then a method, to see its source.
+  Double-click a class to open all of it in a Workspace, or a method for
+  just that (or right-click for the same): change it, and with the cursor
+  in it press Ctrl-D to redefine it in the running system. Objects that
+  exist already use the new methods from their next send. The Browser
+  remembers what the Workspaces changed, so a class opened again shows
+  your version. A class can't take new instance variables once it exists
+  (that's Egret), and running a class with a different superclass leaves
+  the old one.
 - **On the page**, the clock switch runs the machine at 3, 12 or 48 MHz,
   or as fast as the browser can (about 50–80 MHz). Restart starts from a
   snapshot of the desktop just booted; Cold boot starts from nothing and

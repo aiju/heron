@@ -26,11 +26,13 @@
 #define TICK_HZ 60
 #define CLOCK_HZ 3000000          /* the timer counts the reference configuration's cycles */
 
-/* VRAM past the screen: the font cache, then the save-under for menus */
+/* VRAM past the screen: the font cache, the save-under for menus, and
+   where the lines of the source start (for the Browser) */
 #define FONT_ARENA (VRAM + 0x4B000)
 #define FONT_ARENA_END (VRAM + 0x60000)
 #define SAVE_UNDER (VRAM + 0x60000)
-#define SAVE_UNDER_SIZE 0x20000
+#define SAVE_UNDER_SIZE 0x1C000
+#define LINE_INDEX ((unsigned short *)(VRAM + 0x7C000))   /* 16 KB */
 
 void gui_wait(void);              /* EI; HALT; DI: sleep until the next tick (rt_v1b.s) */
 void *gui_alloc(unsigned n);      /* the font cache's malloc */

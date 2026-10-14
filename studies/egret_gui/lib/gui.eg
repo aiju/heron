@@ -569,6 +569,7 @@ class Desktop
   def evaluate(code)
     r = gui_compile(code)
     if r.is_a?(String) then return [false, r.strip] end
+    record_edits(code)                  # for the Browser (apps.eg)
     result = nil
     try
       for sel in r

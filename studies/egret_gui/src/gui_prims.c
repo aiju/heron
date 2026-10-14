@@ -758,44 +758,130 @@ static Value p_methods(Value *args, int argc)
     return l;
 }
 
-/* gui_source_lines(which, first, count): lines first.. (from 1) of the
-   prelude (0) or of what the machine booted with (1) */
+/* The prelude (0) and what the machine booted with (1), and where each
+   line of them starts, worked out the first time they're asked for (in
+   VRAM: 1,024 lines of prelude and 7,168 of the rest at most). */
+#define MAXLINES0 1024
+#define MAXLINES1 7168
+static unsigned src_len[2];
+static int nlines[2] = { -1, -1 };
+
+static const char *source(int which, unsigned short **ix, int *n, unsigned *len)
+{
+    const char *src = which ? (const char *)BP(INPUT_LO) : prelude_src;
+    unsigned short *lines = which ? LINE_INDEX + MAXLINES0 : LINE_INDEX;
+    int max = which ? MAXLINES1 : MAXLINES0, k = 0;
+    unsigned i, end;
+    if (nlines[which] < 0) {
+        if (which) {
+            for (end = 0; end < INPUT_HI - INPUT_LO && src[end]; end++)
+                ;
+        } else {
+            end = prelude_len;
+        }
+        lines[k++] = 0;
+        for (i = 0; i < end && k < max; i++)
+            if (src[i] == '\n')
+                lines[k++] = i + 1;
+        src_len[which] = end;
+        nlines[which] = k;
+    }
+    *ix = lines;
+    *n = nlines[which];
+    *len = src_len[which];
+    return src;
+}
+
+/* gui_source_lines(which, first, count): lines first.. (from 1) of a
+   source */
 static Value p_source_lines(Value *args, int argc)
 {
-    const char *src, *p, *end, *q;
-    unsigned len;
-    int line = 1, first, count, n = 0;
+    const char *src;
+    unsigned short *ix;
+    unsigned len, a, b;
+    int first, count, n, k, got = 0;
     Value l, str;
     NEED_INTS(1, 3);
-    if (I(1) == 0) {
-        src = prelude_src;
-        len = prelude_len;
-    } else {
-        src = (const char *)BP(INPUT_LO);
-        for (len = 0; len < INPUT_HI - INPUT_LO && src[len]; len++)
-            ;
-    }
+    src = source(I(1) != 0, &ix, &n, &len);
     first = I(2);
     count = I(3);
-    if (count < 0 || count > 200)
-        return prim_fail("up to 200 lines");
-    p = src;
-    end = src + len;
-    while (p < end && line < first)
-        if (*p++ == '\n')
-            line++;
+    if (count < 0 || count > 1000)
+        return prim_fail("up to 1000 lines");
     l = make_list(count);
     push_root(&l);
-    while (p < end && n < count) {
-        for (q = p; q < end && *q != '\n'; q++)
-            ;
-        str = make_string(p, q - p);
-        ITEMS(l)[n++] = str;
-        p = q + 1;
+    for (k = first - 1; k >= 0 && k < n && got < count; k++) {
+        a = ix[k];
+        b = k + 1 < n ? ix[k + 1] - 1 : len;
+        if (a > len)
+            break;
+        str = make_string(src + a, b - a);
+        ITEMS(l)[got++] = str;
     }
-    F(l, L_SIZE) = MKINT(n);
+    F(l, L_SIZE) = MKINT(got);
     pop_roots(1);
     return l;
+}
+
+/* gui_find_lines(which, prefix): the numbers of the lines of a source
+   that start with prefix (up to 64 of them) */
+static Value p_find_lines(Value *args, int argc)
+{
+    const char *src;
+    unsigned short *ix;
+    unsigned len, plen;
+    int n, k, v[64], got = 0;
+    const unsigned char *pre;
+    NEED_INTS(1, 1);
+    if (!IS_STR(args[2]))
+        return prim_fail("expected a String");
+    src = source(I(1) != 0, &ix, &n, &len);
+    pre = BYTES(args[2]);
+    plen = SIZE(args[2]);
+    for (k = 0; k < n && got < 64; k++)
+        if (len - ix[k] >= plen && src[ix[k]] == pre[0] && memcmp(src + ix[k], pre, plen) == 0)
+            v[got++] = k + 1;
+    return int_list(got, v);
+}
+
+/* gui_indent(line): its leading spaces, or -1 if it's blank */
+static Value p_indent(Value *args, int argc)
+{
+    const unsigned char *b;
+    unsigned n, k;
+    if (!IS_STR(args[1]))
+        return prim_fail("expected a String");
+    b = BYTES(args[1]);
+    n = SIZE(args[1]);
+    for (k = 0; k < n && b[k] == ' '; k++)
+        ;
+    while (k < n && (b[k] == ' ' || b[k] == '\t' || b[k] == '\r'))
+        k++;
+    if (k == n)
+        return MKINT(-1);
+    for (k = 0; b[k] == ' '; k++)
+        ;
+    return MKINT(k);
+}
+
+/* gui_def_name(line): the selector if the line is a def ("def name(..."
+   or "def name = ..."), else nil */
+static Value p_def_name(Value *args, int argc)
+{
+    const unsigned char *b;
+    unsigned n, k, e;
+    if (!IS_STR(args[1]))
+        return prim_fail("expected a String");
+    b = BYTES(args[1]);
+    n = SIZE(args[1]);
+    for (k = 0; k < n && b[k] == ' '; k++)
+        ;
+    if (n - k < 5 || memcmp(b + k, "def ", 4) != 0)
+        return NIL;
+    for (k += 4; k < n && b[k] == ' '; k++)
+        ;
+    for (e = k; e < n && b[e] != '(' && b[e] != ' '; e++)
+        ;
+    return e > k ? make_string((const char *)BYTES(args[1]) + k, e - k) : NIL;
 }
 
 /* [permanent space used, its size, heap used, a semispace's size,
@@ -856,6 +942,9 @@ static const PrimDef defs[] = {
     { "Object", "gui_globals", 0, p_globals, 0 },
     { "Object", "gui_methods", 1, p_methods, 0 },
     { "Object", "gui_source_lines", 3, p_source_lines, 0 },
+    { "Object", "gui_find_lines", 2, p_find_lines, 0 },
+    { "Object", "gui_indent", 1, p_indent, 0 },
+    { "Object", "gui_def_name", 1, p_def_name, 0 },
     { 0, 0, 0, 0, 0 }
 };
 

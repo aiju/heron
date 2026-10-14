@@ -48,13 +48,13 @@ class Devices(unittest.TestCase):
         self.assertEqual(words, (0x1000_0041, 0xFFFF_FFFF, 12 | 34 << 16))
 
 
-def workspace_do(s, code):
+def workspace_do(s, code, settle=3):
     """Raise the Workspace (its title bar), add a line of code, do it."""
     s.click(200, 50)
     s.key("end", ["ctrl"])
     s.type("\n" + code)
     s.key("d", ["ctrl"])
-    s.run(3)
+    s.run(settle)
 
 
 class Desktop(unittest.TestCase):
@@ -74,6 +74,15 @@ class Desktop(unittest.TestCase):
         workspace_do(self.s, "Window(\"x\", 10, 10, 50, 50).no_such_method")
         workspace_do(self.s, "print(\"still here\")")
         self.assertIn("still here", self.s.output)
+
+    def test_class_source_with_edits(self):
+        # a class's source is its class statement as booted, with what a
+        # Workspace changed in place and what it added at the end
+        workspace_do(self.s, 'print(class_source(Clock).first, class_source(Clock).last)')
+        self.assertIn("class Clock < Window end", self.s.output)
+        workspace_do(self.s, 'record_edits("class Clock\\n  def tick(t) = nil\\n  def hello = 1\\nend")')
+        workspace_do(self.s, 'c = class_source(Clock); print(c.index("  def tick(t) = nil") != nil, c[-2])', 4)
+        self.assertIn("true   def hello = 1", self.s.output)
 
     def test_apps_open(self):
         for k in ["Life", "Mandel", "Paint", "Browser", "About"]:
