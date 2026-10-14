@@ -1,0 +1,4 @@
+# The reports index is generated (heron reports). Merges keep both sides'
+# lines rather than stopping on a conflict; the index test catches what
+# that gets wrong, and heron reports fixes it.
+reports/README.md merge=union
