@@ -6,7 +6,7 @@ status: open
 date: 2026-10-14
 context:
   studies: [bus_si, v1b_hw]
-  commit: a14eeb2
+  commit: 1470409
 ---
 
 # RFC 0014: System bus
@@ -30,9 +30,10 @@ Statuses: **decided** (Emily chose it), **recommended**, **open**,
 **optional** for features a card may leave out, and **rejected**. Anything
 in Part 1 without a status is recommended.
 
-The electrical figures come from ngspice simulations of the backplane with
-TI's IBIS models ([studies/bus_si](../studies/bus_si/README.md);
-[report 0013](0013-report-bus-si.md)). The datasheet delays in the timing
+The electrical figures come from simulations of the backplane with TI's
+IBIS models ([studies/bus_si](../studies/bus_si/README.md);
+[report 0013](0013-report-bus-si.md), and
+[report 0022](0022-report-bus-si-revised.md) for the revised bus). The datasheet delays in the timing
 budgets are rough worst-case figures and need checking against the parts
 actually used.
 
@@ -70,7 +71,7 @@ actually used.
   14. [Open questions](#14-open-questions)
   15. [Open ideas](#15-open-ideas)
   16. [Rejected ideas](#16-rejected-ideas)
-  17. [Signal-integrity work to do](#17-signal-integrity-work-to-do)
+  17. [Signal integrity](#17-signal-integrity)
   18. [Decisions](#18-decisions)
 
 ## Part 1: The specification
@@ -231,8 +232,9 @@ The pin-by-pin assignment is still to do. It must follow these rules:
   - Simple cards also act on the edges of SEL, and act on WRITE and RESET
     as levels.
 - **Card-edge timing**, measured at the card's connector, from BCLK at its
-  pin. **recommended** values, to be confirmed against parts data and
-  signal-integrity runs ([section 17](#17-signal-integrity-work-to-do)):
+  pin. **recommended** values. Report 0022 confirms the hold rule with
+  ABT parts, and suggests 2.5 ns for skew
+  ([section 17](#17-signal-integrity)):
 
   | Parameter | Meaning | Proposed |
   |---|---|---:|
@@ -520,8 +522,9 @@ These come from the signal-integrity simulations
   - not 74ACT.
 - **Loading.** On each bused signal, a card puts at most one transceiver
   pin, or up to three CMOS inputs close together. That's about 12 pF in
-  all, within 25 mm of the connector. The numbers wait on signal-integrity
-  runs ([section 17](#17-signal-integrity-work-to-do)).
+  all, within 25 mm of the connector. Report 0022 supports 12 pF, counting
+  the card's trace, with traces up to about 50 mm
+  ([section 17](#17-signal-integrity)).
   - The backplane's own logic follows the same rule: it takes the signals
     it uses (the slot bits, START, WRITE, WAIT, LOCK) through one buffer.
 - **Radial lines** (BCLK, SEL, GNT) are driven from registers on the
@@ -836,7 +839,9 @@ All at 16 slots, in ns, with rough datasheet worst cases.
 
 From [report 0013](0013-report-bus-si.md): one bus line on a 6U backplane
 with 8 or 16 slots, TI IBIS models, an estimated 12 nH and 2 pF per
-connector contact, 25 mm card stubs.
+connector contact, 25 mm card stubs. [Report 0022](0022-report-bus-si-revised.md)
+reran these on a new simulator without changing a worst case, and extended
+them to the revised bus ([section 17](#17-signal-integrity)).
 
 - **No terminators.**
   - 74HCT and 74AHCT can't pull a terminated line below 0.8 V: the low
@@ -934,13 +939,28 @@ Questions only Emily can answer:
 9. **A higher supply voltage:** which one, and on which pins?
 10. **Floating lines:** resistor packs or bus-hold parts?
 
-Questions to settle by work rather than by decision:
+Still to do:
 
 11. **Pins:** the pin-by-pin assignment of P1 and P2.
-12. **Timing values:** the card-edge timing values, the skew budget and the
-    hold rule ([section 17](#17-signal-integrity-work-to-do)).
-13. **Loading:** the loading rule's numbers (section 17).
-14. **Ground bounce:** which packages and parts for wide bus drivers.
+
+Answered by report 0022, waiting for Emily to adopt them or not
+([section 17](#17-signal-integrity)):
+
+12. **Timing values:**
+    - skew of 2.5 ns or less, with specified clock parts on the backplane
+      and every card;
+    - 13 ns for settling in the budgets;
+    - simple cards get about N × T − 60 ns.
+13. **Loading:** 12 pF per card counting the trace, and traces up to about
+    50 mm.
+14. **Ground bounce:**
+    - ABT16245 in TSSOP for wide drivers;
+    - octal ABT245 in SOIC where a narrow one is wanted;
+    - not DIP, not FCT-T in DIP, not the ABT2245.
+15. **The backplane's lines:**
+    - its logic in the middle;
+    - 22 Ω on its bused outputs;
+    - 56–68 Ω on SEL and GNT.
 
 ### 15. Open ideas
 
@@ -983,58 +1003,42 @@ evidence.
 | A 16-bit-only bus; dropping LOCK | not recommended | Proposed by a review framed around the draft 1b hardware. The target is a 32-bit, multi-CPU system |
 | −5.2 V on the backplane | **rejected** (Emily, 2026-10-13) | The ECL cruncher is deprioritised. A higher voltage may come instead |
 
-### 17. Signal-integrity work to do
+### 17. Signal integrity
 
-The existing sweeps ([report 0013](0013-report-bus-si.md)) model one bused
-line on a 16- or 8-slot backplane with one transceiver per card. The
-revised bus raises questions they don't answer. In rough order of
-importance:
+[Report 0022](0022-report-bus-si-revised.md) did the work this section
+used to list: eleven items, on a simulator of the study's own
+([studies/bus_si](../studies/bus_si/README.md)). Report 0013's worst cases
+stand; its ground-bounce results are superseded.
 
-1. **Ground bounce.** The model is numerically unreliable. Fix it, then
-   simulate 16 and 32 data lines switching together in DIP, SOIC and
-   flow-through packages, with decoupling. *Decides:* the bus driver parts
-   and packages (question 14).
-2. **SEL as a strobe.**
-   - Simulate SEL as a point-to-point line from a registered ABT output
-     through 33–68 Ω, ending in one to three HCT inputs.
-   - Then crosstalk onto SEL and WRITE from switching neighbours, with and
-     without ground pins either side, against the 74HCT132's hysteresis.
+The report suggests the following changes. They're **pending**: Emily
+decides, and Parts 1 and 2 haven't been changed to match yet.
 
-   *Decides:* the series resistor, the ground-pin rules, and whether the
-   Schmitt inputs are enough.
-3. **Card loading.** Heavier cards: 12, 15 and 25 pF per card, and stubs of
-   25, 50 and 75 mm, on all 16 slots and on a few. *Decides:* the loading
-   rule's numbers (question 13).
-4. **Hold time.** The earliest change at the nearest receiver, at the fast
-   corner with minimum driver delays. The current sweeps only report
-   settling. *Decides:* T<sub>co</sub> min and the skew budget.
-5. **The clock tree with real parts.** A clock-driver part on the
-   backplane, and a buffer on each card. *Decides:* T<sub>skew</sub>.
-6. **The backplane's own lines.**
-   - Where its logic sits (an end or the middle), since DPH, RDY, BERR and
-     W32 all come from there.
-   - Its input buffer's tap.
-   - The radial outputs (SEL, GNT) and the class-pin pull-ups.
-7. **WAIT, the one shared line:** behaviour after release with only the
-   pull-up holding it, and crosstalk while it floats.
-8. **The 68 failed jobs** from the full sweep: 39 bus-line, 27
-   ground-bounce, 2 clock-tree. Rerun them once the time-step problems are
-   understood, without changing models or thresholds.
-9. **The connector model.** 12 nH and 2 pF per contact is an estimate from
-   the geometry. A measured or datasheet figure, and a sensitivity run,
-   would show how much rides on it.
-10. **Geometry, once the card size is settled.** Slot pitch, stub length and
-    slot count. The full/half-width layout, if chosen, with its unloaded hop
-    between connector rows.
-11. **A faster clock.** If T goes below 60 ns, recheck the settling margins
-    at 50 ns.
+| Item | Finding (report 0022) | Suggested change to this RFC |
+|---|---|---|
+| Ground bounce | 16-bit TSSOP parts (ABT16245) bounce a fifth as much as octal SOIC or DIP parts, and every glitch is gone within 12 ns of the edge | Wide drivers: ABT16245 in TSSOP; octal ABT245 in SOIC is acceptable; not DIP, not FCT-T in DIP, not the ABT2245 (section 9 now allows it) |
+| SEL as a strobe | No series resistor up to 68 Ω makes the 74HCT132 retrigger. Without the guard ground pins, a simple card's own data drivers can turn a read into a write; with them both strobes keep 1.1 V or more of margin | SEL and GNT: 56–68 Ω, not 33–68. The guard-pin rule is necessary, and with it the Schmitt inputs are enough |
+| Card loading | 12 pF per card adds 10.3 / 12.8 ns (rise / fall); 15 pF adds 14.3; 20 pF jumps to 19.1 | Keep 12 pF, counting the card's trace. Use 13 ns, not 11, for settling in the budgets. Card traces up to about 50 mm |
+| Hold time | The bus never brings a change forward. ABT574/273 with ABT16245 meet T<sub>co</sub> min ≥ 3 ns and T<sub>h</sub> ≤ 1 ns | As proposed in section 4; that leaves at least 2.9 ns for skew |
+| Clock tree | Trace skew is 0.25 ns. The rest is the parts': about 2.0–2.6 ns with clock drivers that specify part-to-part skew at both ends, about 8 ns with a generic '244 on each card | T<sub>skew</sub> ≤ 2.5 ns, with specified clock parts (FCT807CT or CDC341 class) on the backplane and on every card; 68 Ω |
+| The backplane's lines | Logic in the middle shortens the radial lines to under 200 mm and settles rising edges 2.4 ns sooner. 33 Ω is too much on its bused outputs | The backplane's logic in the middle; 22 Ω on DPH, RDY, BERR and W32 |
+| WAIT | Released, it stays at least 2.7 V against two switching neighbours | No change |
+| Connector | 12 nH per contact confirmed against TE's measurements; settling barely depends on it | No change |
+| Geometry | Delay follows the backplane's length: 20 slots add 3 ns, a 15.24 mm pitch saves 1 ns | Tables for when the card size is chosen |
+| A 50 ns clock | Card-to-card transfers use about 32 ns of 50. HCT's falling edge settles in 21 ns, not 11 | 50 ns works for bused paths. Simple cards get about N × T − 60 ns from the strobe starting, not N × 60 − 50; a 16C550 behind a 74HCT245 may need N = 3 |
 
-The RC networks on the strobes no longer matter except on RESET. Those
-results stay in report 0013 for the record.
+**Still open after report 0022:**
 
-The sweeps can run in a cloud session; that's turned out to be as fast as
-a laptop. `AGENTS.md` and the study's README still say otherwise, and
-should be updated.
+- **The clock driver's own ground bounce,** six outputs switching
+  together. The calibrated model says it's fine; the raw IBIS model says a
+  falling edge could ring back and clock twice. This needs a measurement on
+  a prototype backplane, and it favours a clock driver that publishes a
+  ground-bounce figure.
+- **Not modelled:** the planes' spreading inductance and decoupling
+  placement.
+- **The real pin assignment:** it should keep the guard pins and spread
+  the returns as report 0022's reference assignment does.
+- **The half-width layout's hop** between connector rows, if that layout is
+  chosen.
 
 ### 18. Decisions
 
