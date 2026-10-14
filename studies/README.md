@@ -22,3 +22,4 @@ commands, and `heron test <study>` runs its unit tests.
 | [c_compiler](c_compiler/README.md) | A C compiler for drafts 1a and 1b |
 | [lisp](lisp/README.md) | A Lisp for draft 1b: interpreter, compiler and collector on the machine, and what it wants from the ISA |
 | [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane, in ngspice |
+| [egret](egret/README.md) | Egret, a small object language, interpreted and compiled on draft 1b |

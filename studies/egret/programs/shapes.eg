@@ -1,0 +1,104 @@
+# shapes: the same messages sent to objects of six classes in turn, so the
+# send sites see many receiver classes: method lookup and its caches.
+
+class Shape
+  def init(name)
+    @name = name
+  end
+  attr name
+  def describe = "{@name}: area {self.area}, perimeter {self.perimeter}"
+  def bigger_than?(other) = self.area > other.area
+end
+
+class Square < Shape
+  def init(side)
+    super("square")
+    @side = side
+  end
+  def area = @side * @side
+  def perimeter = 4 * @side
+end
+
+class Rect < Shape
+  def init(w, h)
+    super("rect")
+    @w = w
+    @h = h
+  end
+  def area = @w * @h
+  def perimeter = 2 * (@w + @h)
+end
+
+class Triangle < Shape
+  # a right triangle with legs a, b (and an integer hypotenuse c)
+  def init(a, b, c)
+    super("triangle")
+    @a = a
+    @b = b
+    @c = c
+  end
+  def area = @a * @b / 2
+  def perimeter = @a + @b + @c
+end
+
+class Circle < Shape
+  # pi as 355/113
+  def init(r)
+    super("circle")
+    @r = r
+  end
+  def area = 355 * @r * @r / 113
+  def perimeter = 710 * @r / 113
+end
+
+class Ring < Circle
+  def init(r, inner)
+    super(r)
+    @name = "ring"
+    @inner = inner
+  end
+  def area = super - 355 * @inner * @inner / 113
+  def perimeter = super + 710 * @inner / 113
+end
+
+class Group < Shape
+  def init(parts)
+    super("group of {parts.size}")
+    @parts = parts
+  end
+  def area = @parts.reduce(0) { |a, s| a + s.area }
+  def perimeter = @parts.reduce(0) { |a, s| a + s.perimeter }
+end
+
+def make(i)
+  k = i % 6
+  if k == 0 then Square(i % 7 + 1)
+  elif k == 1 then Rect(i % 5 + 1, i % 3 + 2)
+  elif k == 2 then Triangle(3 * (i % 4 + 1), 4 * (i % 4 + 1), 5 * (i % 4 + 1))
+  elif k == 3 then Circle(i % 9 + 1)
+  elif k == 4 then Ring(i % 9 + 3, i % 3 + 1)
+  else Group([Square(2), Circle(i % 4 + 1)])
+  end
+end
+
+shapes = (0..59).map { |i| make(i) }
+for s in shapes.take(6)
+  print(s.describe)
+end
+total_area = 0
+total_perimeter = 0
+biggest = shapes[0]
+for round in 1..20
+  for s in shapes
+    total_area += s.area
+    total_perimeter += s.perimeter
+    if s.bigger_than?(biggest) then biggest = s end
+  end
+end
+print("total area {total_area}, total perimeter {total_perimeter}")
+print("biggest: {biggest.describe}")
+counts = Map.new
+for s in shapes
+  counts[s.class.name] = counts.get(s.class.name, 0) + 1
+end
+print(counts)

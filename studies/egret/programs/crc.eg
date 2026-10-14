@@ -1,0 +1,45 @@
+# crc: CRC-16/CCITT-FALSE bit by bit and with a 256-entry table, over
+# "123456789" and over 1 KB of xorshift output.
+
+def crc_bitwise(bytes)
+  crc = 0xffff
+  for b in bytes
+    crc = crc ^ (b << 8)
+    8.times { |k|
+      crc = if crc & 0x8000 != 0 then ((crc << 1) ^ 0x1021) & 0xffff else (crc << 1) & 0xffff end
+    }
+  end
+  crc
+end
+
+Table = (0..255).map { |i|
+  crc = i << 8
+  for k in 1..8
+    crc = if crc & 0x8000 != 0 then ((crc << 1) ^ 0x1021) & 0xffff else (crc << 1) & 0xffff end
+  end
+  crc
+}
+
+def crc_table(bytes)
+  crc = 0xffff
+  for b in bytes
+    crc = ((crc << 8) ^ Table[((crc >> 8) ^ b) & 0xff]) & 0xffff
+  end
+  crc
+end
+
+buf = []
+x = 0xace1
+512.times { |i|
+  x = x ^ ((x << 7) & 0xffff)
+  x = x ^ (x >> 9)
+  x = x ^ ((x << 8) & 0xffff)
+  buf.push(x & 0xff)
+  buf.push(x >> 8)
+}
+digits = "123456789".chars.map { |c| c.ord }
+def hex4(n) = n.to_s(16).upper.zfill(4)
+print("bitwise \"123456789\": " + hex4(crc_bitwise(digits)))
+print("table   \"123456789\": " + hex4(crc_table(digits)))
+print("bitwise 1 KB buffer: " + hex4(crc_bitwise(buf)))
+print("table   1 KB buffer: " + hex4(crc_table(buf)))

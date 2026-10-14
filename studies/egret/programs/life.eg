@@ -1,0 +1,87 @@
+# life: Conway's Game of Life on a 32 x 16 torus, 20 generations. Prints the
+# population of every generation and the final board. As in the C and
+# assembly versions, each grid has a one-cell border filled from the
+# opposite edges before every generation, so the neighbours are at fixed
+# offsets.
+
+ROWS = 16
+COLS = 32
+W = COLS + 2
+
+class Board
+  def init
+    @cells = List.new((ROWS + 2) * W, 0)
+  end
+
+  attr cells
+
+  def set(r, c)
+    @cells[(r + 1) * W + c + 1] = 1
+  end
+
+  def wrap
+    g = @cells
+    for r in 1..ROWS
+      row = r * W
+      g[row] = g[row + COLS]
+      g[row + COLS + 1] = g[row + 1]
+    end
+    for c in 0..<W
+      g[c] = g[ROWS * W + c]
+      g[(ROWS + 1) * W + c] = g[W + c]
+    end
+  end
+
+  # one generation into next; returns the new population
+  def step(next)
+    g = @cells
+    out = next.cells
+    pop = 0
+    for r in 1..ROWS
+      p = r * W + 1
+      for c in 0..<COLS
+        n = g[p - W - 1] + g[p - W] + g[p - W + 1] + g[p - 1] + g[p + 1] + g[p + W - 1] + g[p + W] + g[p + W + 1]
+        alive = if (n | g[p]) == 3 then 1 else 0 end
+        out[p] = alive
+        pop += alive
+        p += 1
+      end
+    end
+    pop
+  end
+
+  def show
+    for r in 1..ROWS
+      line = ""
+      for c in 1..COLS
+        line += if @cells[r * W + c] == 1 then "#" else "." end
+      end
+      print(line)
+    end
+  end
+end
+
+start = [[0, 1], [1, 2], [2, 0], [2, 1], [2, 2],
+         [8, 23], [8, 24], [8, 25],
+         [12, 7], [12, 8], [12, 9], [13, 6], [13, 7], [13, 8],
+         [3, 27], [3, 28], [4, 27], [4, 28],
+         [7, 31], [7, 0], [7, 1],
+         [15, 20], [0, 20], [1, 20]]
+cur = Board()
+nxt = Board()
+for rc in start
+  cur.set(rc[0], rc[1])
+end
+pop = start.size
+pops = []
+for g in 1..20
+  pops.push(pop)
+  cur.wrap
+  pop = cur.step(nxt)
+  t = cur
+  cur = nxt
+  nxt = t
+end
+pops.push(pop)
+print("population: " + pops.map { |p| p.to_s }.join(" "))
+cur.show

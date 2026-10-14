@@ -1,0 +1,408 @@
+# The prelude: Egret's core library, in Egret. The VM compiles it when it
+# starts, on top of the primitives in vm/prims.c.
+
+class Object
+  def init() = nil
+  def nil? = false
+  def to_s = self.inspect
+
+  # Point(x: 1, y: 2)
+  def inspect
+    names = self.class.ivars
+    if names.size == 0
+      return "<" + self.class.name + ">"
+    end
+    parts = []
+    i = 0
+    while i < names.size
+      parts.push(names[i].to_s + ": " + self.ivar(i).inspect)
+      i += 1
+    end
+    self.class.name + "(" + parts.join(", ") + ")"
+  end
+
+  def print(*args)
+    i = 0
+    while i < args.size
+      if i > 0 then write(" ") end
+      write(args[i].to_s)
+      i += 1
+    end
+    write("\n")
+    nil
+  end
+
+  def assert(cond, what)
+    if not cond then raise("assertion failed: " + what) end
+    nil
+  end
+
+  def loop(body)
+    while true
+      body()
+    end
+  end
+end
+
+class Nil
+  def nil? = true
+  def to_s = "nil"
+  def inspect = "nil"
+end
+
+class Bool
+  def to_s = if self then "true" else "false" end
+  def inspect = self.to_s
+end
+
+class Class
+  def to_s = self.name
+  def inspect = self.name
+end
+
+class Block
+  def inspect = "<Block>"
+end
+
+class Error
+  def init(message)
+    @message = message
+  end
+  def message = @message
+  def to_s = @message.to_s
+  def inspect = self.class.name + "(" + @message.inspect + ")"
+end
+
+class Int
+  def inspect = self.to_s
+  def abs = if self < 0 then -self else self end
+  def zero? = self == 0
+  def even? = self % 2 == 0
+  def odd? = self % 2 == 1
+  def min(other) = if other < self then other else self end
+  def max(other) = if other > self then other else self end
+
+  def times(body)
+    i = 0
+    while i < self
+      body(i)
+      i += 1
+    end
+    self
+  end
+
+  def upto(last, body)
+    i = self
+    while i <= last
+      body(i)
+      i += 1
+    end
+    self
+  end
+
+  def downto(last, body)
+    i = self
+    while i >= last
+      body(i)
+      i -= 1
+    end
+    self
+  end
+
+  def gcd(other)
+    a = self.abs
+    b = other.abs
+    while b != 0
+      t = a % b
+      a = b
+      b = t
+    end
+    a
+  end
+
+  # the integer square root (Newton's method)
+  def sqrt
+    if self < 0 then raise("sqrt of a negative number") end
+    if self < 2 then return self end
+    x = self
+    y = (x + 1) / 2
+    while y < x
+      x = y
+      y = (x + self / x) / 2
+    end
+    x
+  end
+end
+
+class String
+  def empty? = self.size == 0
+  def reverse = self.chars.reverse.join("")
+  def lines = self.split("\n")
+  def each(body)
+    for c in self.chars
+      body(c)
+    end
+    self
+  end
+  def ljust(n) = if self.size >= n then self else self + " " * (n - self.size) end
+  def rjust(n) = if self.size >= n then self else " " * (n - self.size) + self end
+  def zfill(n) = if self.size >= n then self else "0" * (n - self.size) + self end
+  def digit? = self.size > 0 and self.ord >= 48 and self.ord <= 57
+  def letter?
+    c = self.ord
+    self.size > 0 and ((c >= 97 and c <= 122) or (c >= 65 and c <= 90))
+  end
+  def space? = self == " " or self == "\n" or self == "\t" or self == "\r"
+end
+
+# What every collection can do, given `for x in self` (that is, an iter
+# that returns a List or a Range). List, Map (its keys) and Range inherit
+# these; List has faster versions of some.
+class Collection
+  def to_s = self.inspect
+  def empty? = self.size == 0
+
+  def each(body)
+    for x in self
+      body(x)
+    end
+    self
+  end
+
+  def each_with_index(body)
+    i = 0
+    for x in self
+      body(x, i)
+      i += 1
+    end
+    self
+  end
+
+  def to_list
+    out = []
+    for x in self
+      out.push(x)
+    end
+    out
+  end
+
+  def map(f)
+    out = []
+    for x in self
+      out.push(f(x))
+    end
+    out
+  end
+
+  def select(f)
+    out = []
+    for x in self
+      if f(x) then out.push(x) end
+    end
+    out
+  end
+
+  def reject(f)
+    out = []
+    for x in self
+      if not f(x) then out.push(x) end
+    end
+    out
+  end
+
+  def reduce(acc, f)
+    for x in self
+      acc = f(acc, x)
+    end
+    acc
+  end
+
+  def sum = self.reduce(0) { |a, x| a + x }
+
+  def find(f)
+    for x in self
+      if f(x) then return x end
+    end
+    nil
+  end
+
+  def any?(f)
+    for x in self
+      if f(x) then return true end
+    end
+    false
+  end
+
+  def all?(f)
+    for x in self
+      if not f(x) then return false end
+    end
+    true
+  end
+
+  def count(f)
+    n = 0
+    for x in self
+      if f(x) then n += 1 end
+    end
+    n
+  end
+
+  def contains?(item)
+    for x in self
+      if x == item then return true end
+    end
+    false
+  end
+
+  def min
+    best = nil
+    for x in self
+      if best == nil or x < best then best = x end
+    end
+    best
+  end
+
+  def max
+    best = nil
+    for x in self
+      if best == nil or x > best then best = x end
+    end
+    best
+  end
+
+  def uniq
+    seen = Map.new
+    out = []
+    for x in self
+      if not seen.has?(x)
+        seen[x] = true
+        out.push(x)
+      end
+    end
+    out
+  end
+
+  def sort = self.to_list.sort_with { |a, b| a < b }
+  def sort_by(key) = self.to_list.sort_with { |a, b| key(a) < key(b) }
+  def sort_with(before) = self.to_list.sort_with(before)
+end
+
+class List
+  def inspect = "[" + self.map { |x| x.inspect }.join(", ") + "]"
+  def first = self[0]
+  def last = self[-1]
+  def to_list = self
+
+  def each(body)
+    i = 0
+    while i < self.size
+      body(self[i])
+      i += 1
+    end
+    self
+  end
+
+  def map(f)
+    out = List.new(self.size)
+    i = 0
+    while i < self.size
+      out[i] = f(self[i])
+      i += 1
+    end
+    out
+  end
+
+  def index(item)
+    i = 0
+    while i < self.size
+      if self[i] == item then return i end
+      i += 1
+    end
+    nil
+  end
+
+  def ==(other)
+    if not other.is_a?(List) then return false end
+    if other.size != self.size then return false end
+    i = 0
+    while i < self.size
+      if self[i] != other[i] then return false end
+      i += 1
+    end
+    true
+  end
+
+  def take(n) = self[0..(n - 1)]
+  def drop(n) = self[n..(self.size - 1)]
+
+  # a stable merge sort: before(a, b) says a goes first
+  def sort_with(before)
+    a = self.copy
+    n = a.size
+    tmp = List.new(n)
+    width = 1
+    while width < n
+      lo = 0
+      while lo < n - width
+        mid = lo + width
+        hi = (mid + width).min(n)
+        i = lo
+        j = mid
+        k = lo
+        while i < mid and j < hi
+          if before(a[j], a[i])
+            tmp[k] = a[j]
+            j += 1
+          else
+            tmp[k] = a[i]
+            i += 1
+          end
+          k += 1
+        end
+        while i < mid
+          tmp[k] = a[i]
+          i += 1
+          k += 1
+        end
+        while j < hi
+          tmp[k] = a[j]
+          j += 1
+          k += 1
+        end
+        k = lo
+        while k < hi
+          a[k] = tmp[k]
+          k += 1
+        end
+        lo += 2 * width
+      end
+      width *= 2
+    end
+    a
+  end
+end
+
+class Map
+  def inspect
+    if self.size == 0 then return "[:]" end
+    parts = []
+    for k in self.keys
+      parts.push(k.inspect + ": " + self[k].inspect)
+    end
+    "[" + parts.join(", ") + "]"
+  end
+  def each(body)
+    for k in self.keys
+      body(k, self[k])
+    end
+    self
+  end
+  def items = self.keys.map { |k| [k, self[k]] }
+end
+
+class Range
+  def inspect = self.first.to_s + ".." + self.last.to_s
+  def size = if self.last < self.first then 0 else self.last - self.first + 1 end
+  def contains?(x) = x >= self.first and x <= self.last
+end

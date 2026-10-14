@@ -1,0 +1,85 @@
+# sort: quicksort 256 random numbers, insertion-sort 64 more; check that both
+# came out sorted and print a checksum and a few values. The numbers are
+# xorshift16 outputs (seed 12345). The same algorithms as the C version.
+
+class XorShift16
+  def init(seed)
+    @x = seed
+  end
+  def next
+    x = @x
+    x = x ^ ((x << 7) & 0xffff)
+    x = x ^ (x >> 9)
+    x = x ^ ((x << 8) & 0xffff)
+    @x = x
+  end
+end
+
+def quicksort(a, lo, hi)
+  while lo < hi
+    pivot = a[(lo + hi) / 2]
+    i = lo
+    j = hi
+    while i <= j
+      while a[i] < pivot
+        i += 1
+      end
+      while a[j] > pivot
+        j -= 1
+      end
+      if i <= j
+        t = a[i]
+        a[i] = a[j]
+        a[j] = t
+        i += 1
+        j -= 1
+      end
+    end
+    if j - lo < hi - i
+      quicksort(a, lo, j)
+      lo = i
+    else
+      quicksort(a, i, hi)
+      hi = j
+    end
+  end
+end
+
+def insertion_sort(a)
+  for i in 1..<a.size
+    v = a[i]
+    j = i
+    while j > 0 and a[j - 1] > v
+      a[j] = a[j - 1]
+      j -= 1
+    end
+    a[j] = v
+  end
+end
+
+def hex4(n) = n.to_s(16).upper.zfill(4)
+
+def report(a)
+  for i in 1..<a.size
+    if a[i - 1] > a[i]
+      return "NOT sorted at {i}"
+    end
+  end
+  s1 = 0
+  s2 = 0
+  for v in a
+    s1 = (s1 + v) & 0xffff
+    s2 = (s2 + s1) & 0xffff
+  end
+  "sorted, checksum {hex4(s1)} {hex4(s2)}"
+end
+
+rng = XorShift16(12345)
+big = List.new(256).map { |_| rng.next }
+small = List.new(64).map { |_| rng.next }
+quicksort(big, 0, 255)
+print("quicksort 256: " + report(big))
+print("  a[0]={big[0]} a[1]={big[1]} a[127]={big[127]} a[128]={big[128]} a[254]={big[254]} a[255]={big[255]}")
+insertion_sort(small)
+print("insertion sort 64: " + report(small))
+print("  a[0]={small[0]} a[31]={small[31]} a[63]={small[63]}")
