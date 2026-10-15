@@ -59,7 +59,7 @@ isn't in the repository.
 - **New since 1b:**
   - one-parcel 7-bit constants for `MVI` and `CMPI`;
   - one-operand instructions with every mode in one cell: `CLR`, `INC`
-    and `DEC` on memory, `JMP`, `CALL`;
+    and `DEC` on memory or a register, `JMP`, `CALL`;
   - a one-cell `DBNZ`;
   - constant forms of `TST`, `BIC` and multiply;
   - `ILLEGAL` at `00`.
@@ -229,8 +229,8 @@ from the register byte. They are 1b's modes, in 1b's order
 - **Row 1** is `MOV` with all 16 modes: loads, copies and constants. `1E`
   is `TMOV`.
 - **Row 2** is the stores. The three slots a store can't use hold `CLR`
-  (`20`), `INC` (`21`) and `DEC` (`2D`) on memory, one cell each, with
-  every mode from the register byte. `2E` is `TTST`.
+  (`20`), `INC` (`21`) and `DEC` (`2D`), one cell each, with every mode
+  from the register byte. `2E` is `TTST`.
 - **Row 3** is `MOVS`: a `MOV` that sets N and Z, with every mode except
   the quick constants.
 - **Flags:** `MOV` never sets them. `MOVS` sets N and Z and leaves C and V,
@@ -260,7 +260,11 @@ from the register byte. They are 1b's modes, in 1b's order
   With `MOV` never setting the flags, one mnemonic reads the same for
   loads, stores, copies and constants. `ST` in the map is only a label.
 - **`CLR`** stores zero at any size, in place of 1b's `ST r0, ea`.
-  `MOV [x], #0` can assemble to it. **`INC` and `DEC` on memory** are the
+  `MOV [x], #0` can assemble to it. With mode 0, `CLR r5` zeroes a
+  register: one parcel, like `MOV r5, #0`, and the same instruction if
+  `CLR` leaves the flags alone ([9](#9-open-questions)). `INC r5` and
+  `DEC r5` likewise repeat row D's in-place forms. **`INC` and `DEC` on
+  memory** are the
   memory increment RFC 0006 recommends: fib's call counter, a timer
   handler's load, add and store.
 
@@ -410,15 +414,15 @@ Marked out to reserve space, not necessarily to build:
 
 **decided** (Emily, 2026-10-15). In draft 1 `r0` reads as zero.
 
-- **What replaces it:** `CLR` stores zero, and `MOV rX, #0` puts one in a
-  register.
+- **What replaces it:** `CLR` stores zero, in memory or in a register
+  (`CLR rX`).
 - **What still needs a zero** ([RFC 0006, 3.3](0006-rfc-ideas-isa.md#33-r0-as-a-general-register)):
   - `ADC r5, r0` in bignum and `SBC r6, r0` in sort;
   - `MTHI r0` before a `DIVUL` chain;
   - the kernel's `MTUR r1, r0` and `MTSR mapd, r0`;
   - the Lisp's `CMP.T r1, r0`.
 
-  These take a register set to zero first, or new forms: `ADC`, `SBC`
+  These take a `CLR rX` first, or new forms: `ADC`, `SBC`
   and `TCMP` with `#q` ([9](#9-open-questions)).
 - **In the hardware:** `NEG` and the multiply and divide routines read
   `r0` as zero. A hidden register-file entry that the reset routine zeroes
@@ -471,8 +475,8 @@ programs and the 15 C programs compiled for 1b, with their C library.
 8. **`MOVS rs`,** in the map. Register copies' flags were read 21 times in
    86,000.
 9. **`Jcc`'s spare nibble:** a 20-bit relative offset?
-10. **Flags of `CLR`, `INC` and `DEC` on memory.** A proposal: `CLR` leaves
-    them alone like a store; `INC` and `DEC` set N and Z like their
+10. **Flags of `CLR`, `INC` and `DEC` with the mode from the register
+    byte.** A proposal: `CLR` leaves them alone like a store; `INC` and `DEC` set N and Z like their
     register forms.
 11. **Sign-extending loads,** which 1a had and 1b doesn't.
 12. **Room to grow:** 20 free cells, and `AND`, `OR` and `XOR`'s memory

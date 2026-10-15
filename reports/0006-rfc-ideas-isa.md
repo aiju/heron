@@ -214,9 +214,9 @@ unary op. So a 1b-based draft 2 can make `r0` a 15th general register.
   - [Report 0004](0004-report-draft-1-evaluation.md) found no hand-written
     program short of registers either.
 - **Replacing it:**
-  - `CLR ea` stores zero at any size, in any mode. In 1b it would take one
-    of op B's 14 unused values of `k`; RFC 0028's map gives it a cell.
-    `MOV [x], #0` can assemble to it.
+  - `CLR ea` stores zero at any size, in any mode, a register included
+    (`CLR rX`). In 1b it would take one of op B's 14 unused values of `k`;
+    RFC 0028's map gives it a cell. `MOV [x], #0` can assemble to it.
   - `ADC`/`SBC`, `MTSR` and `MTUR` still need a zero from a register, or
     new forms: `ADC`, `SBC` and the tagged `CMP` with a quick constant,
     say. Which is **open**
@@ -483,7 +483,7 @@ and the later studies:
 | 16-bit ALU operations alongside 32-bit (68000 `.W`/`.L`) | doubles the ALU encodings | Rejected for doubling the encodings and baking a 16-bit implementation into the ISA; a narrow implementation is now rejected itself. Reopened (Emily, 2026-10-15) | **open** |
 | `V` updated (or defined) by `INC`/`DEC`/`TST` | microcode | Signed branches after them test a stale V ([report 0003](0003-report-draft-1-programming-notes.md)) | **open** |
 | System extensions: supervisor mode, register banks, `MFUR`/`MTUR`, XL/XS; a vectored `SWI` | special registers, flag bits, two system functions; the decode ROM | Built and measured as v1bs, except the vectored `SWI`, which is an estimate ([RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)). In RFC 0028's map `SWI #n` is one cell and the decode ROM sees `n`, so each can have its own microcode entry | **recommended** |
-| One-operand instructions with every mode in one cell (the 68000's single-operand group, 1b's op B) | the decode ROM | The mode and its register are 8 bits, the register byte of draft 2's parcel. RFC 0028's map uses it for `CLR`, `INC` and `DEC` on memory, `JMP` and `CALL`. A mode an instruction can't use traps (`CLR #q`) | **recommended** |
+| One-operand instructions with every mode in one cell (the 68000's single-operand group, 1b's op B) | the decode ROM | The mode and its register are 8 bits, the register byte of draft 2's parcel. RFC 0028's map uses it for `CLR`, `INC` and `DEC`, `JMP` and `CALL`. A mode an instruction can't use traps (`CLR #q`) | **recommended** |
 
 ## 6. For dynamic languages
 
