@@ -357,9 +357,11 @@ holds 0.16 ICs per cm², the same density as the HP 21MX board (0.17).
 
 **Arrangement (R15).** The grid is Emily's choice, made in RFC 0023: the
 board reads like the classic TTL boards, and a person can find a chip
-by row and column. On RFC 0023's CPU card it costs 10 to 13% more area
-than placing the chips anywhere. For DIP parts it costs nothing, since
-all the 0.3 inch DIPs are the same width.
+by row and column. Under these rules it cost RFC 0023's CPU card no area:
+placed anywhere or on the grid, the card gets down to 6U × 320 mm.
+Before the edge strips and the spacing, it cost that card 10 to 13%. For
+DIP parts it costs nothing, since all the 0.3 inch DIPs are the same
+width.
 
 **Spacing (R16).**
 - Eurocircuits keeps courtyards 0.25 mm apart (0.5 mm for connectors)
