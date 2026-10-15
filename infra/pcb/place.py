@@ -29,7 +29,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from . import kicadlib
+from . import kicadlib, packages
 
 
 DECAP_ROOM = 2.4          # mm kept at a chip's VCC end for a capacitor beside it
@@ -260,7 +260,8 @@ class Placer:
         if the capacitor goes beside it."""
         cx0, cy0, cx1, cy1 = p.courtyard()
         if self._beside(p):
-            vcc = [d for d in p.pads() if d.net == "VCC"]
+            nums = {d.number for d in supply_pads(p)}
+            vcc = [d for d in p.pads() if d.number in nums]
             if vcc:
                 v = vcc[0]
                 mx, my = (cx0 + cx1) / 2, (cy0 + cy1) / 2
@@ -379,12 +380,24 @@ def _clear(chip, x, y, r):
     return True
 
 
+def supply_pads(part):
+    """A chip's supply pins (its pinout's VCC), as footprint pads; for a
+    part without a pinout, its pads on the VCC net. Not any pad on VCC: an
+    input tied high is on VCC too."""
+    if part.typ in packages.PINOUTS:
+        nums = {str(n) for n in packages.pin_numbers(part.typ).get("VCC", [])}
+        pads = [d for d in part.fp.pads if d.number in nums]
+        if pads:
+            return pads
+    return [d for d in part.fp.pads if part.nets.get(d.number) == "VCC"]
+
+
 def under_spot(chip, cap, rules):
     """Where a chip's capacitor can go under it, on the other side: (x, y,
     turn) in the chip's own coordinates, on the line between its pin rows
     as near its VCC pin as the capacitor's vias can go clear of the chip's
     pads and stay within its rows; None if nowhere (a chip too small)."""
-    vcc = [d for d in chip.fp.pads if chip.nets.get(d.number) == "VCC"]
+    vcc = supply_pads(chip)
     if not vcc:
         return None
     v = vcc[0]
@@ -424,7 +437,7 @@ def place_decaps(board, side="B"):
         chip = board.parts.get(c.ref[1:])
         if chip is None:
             continue
-        vcc = [d for d in chip.fp.pads if chip.nets.get(d.number) == "VCC"]
+        vcc = supply_pads(chip)
         if not vcc:
             continue
         v = vcc[0]
