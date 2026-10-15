@@ -394,17 +394,17 @@ it says about 1a against 1b: [report 0011](../../reports/0011-report-c-compiler.
   (`studies/c_compiler/ir/interp.py`), which checks the optimiser without the backends.
 - `studies/c_compiler/tests/cc/fuzz.py` generates random programs (all integer types,
   arrays, structs, loops that walk arrays, switches, calls) and compares
-  the compiler's output for both drafts with gcc's. The programs avoid undefined
-  behaviour except signed overflow, which gcc is told to wrap (`-fwrapv`).
-  the optimiser assumes that signed arithmetic doesn't overflow (the
-  `nsw` flag above), so where a program does overflow, the compiler may correctly
-  print something else: a difference is only a bug if the program doesn't
-  overflow there. The fuzzer found five bugs during development: a tail
-  call that freed a stack frame still in use, a loop test moved onto a
-  value that wasn't an address, a rewrite that referred to an instruction
-  already deleted, the register allocator spilling rematerialised
-  constants forever, and a peephole that looked at the wrong instructions
-  when reusing flags. `studies/c_compiler/tests/cc/regress.c` keeps the last one.
+  the compiler's output for both drafts with gcc's. The programs have no
+  undefined behaviour: the generator keeps a bound on each `int` value,
+  leaves arithmetic signed where it can't overflow (so the optimiser's
+  `nsw` assumptions above get tested), and does it in `unsigned` where it
+  might. gcc builds the reference with `-fsanitize=undefined`, which
+  catches a program the generator got wrong. The fuzzer found five bugs
+  during development: a tail call that freed a stack frame still in use,
+  a loop test moved onto a value that wasn't an address, a rewrite that
+  referred to an instruction already deleted, the register allocator
+  spilling rematerialised constants forever, and a peephole that looked at
+  the wrong instructions when reusing flags. `studies/c_compiler/tests/cc/regress.c` keeps the last one.
 - `heron c_compiler bench` checks the 15 benchmark programs.
 
 ## Limitations and next steps
