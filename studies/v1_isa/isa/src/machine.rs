@@ -176,6 +176,18 @@ pub struct Machine {
     /// The order the (pc, key) pairs first happened in: (counts index,
     /// index in it), or None for interrupt entries.
     order: Vec<Option<(u32, u32)>>,
+    /// Watches every instruction, when a tool has attached one.
+    pub observer: Option<Box<dyn Observer>>,
+}
+
+/// Something that watches every instruction the machine executes, such as
+/// the instruction profiles of studies/v1b_profile.
+pub trait Observer: std::any::Any + Send + Sync {
+    /// Before the instruction at `m.pc`.
+    fn before(&mut self, m: &Machine);
+    /// After it: its timing key, the physical address its cycles are
+    /// counted at, and whether an interrupt was taken after it.
+    fn after(&mut self, m: &Machine, key: Key, at: u32, irq: bool);
 }
 
 impl Machine {
@@ -220,6 +232,7 @@ impl Machine {
             counts: Vec::new(),
             irq_count: 0,
             order: Vec::new(),
+            observer: None,
         }
     }
 
@@ -450,6 +463,22 @@ impl Machine {
 
     /// Execute one instruction, and take an interrupt if one is due.
     pub fn step(&mut self) -> Result<(), String> {
+        let Some(mut obs) = self.observer.take() else {
+            return self.execute().map(|_| ());
+        };
+        obs.before(self);
+        let irqs = self.irqs;
+        let done = self.execute();
+        if let Ok((key, at)) = done {
+            obs.after(self, key, at, self.irqs != irqs);
+        }
+        self.observer = Some(obs);
+        done.map(|_| ())
+    }
+
+    /// `step` without the observer: the instruction's timing key and the
+    /// address its cycles are counted at.
+    fn execute(&mut self) -> Result<(Key, u32), String> {
         let pc = self.pc;
         if let Some(p) = self.pages.as_deref_mut() {
             p.fetch(pc);
@@ -510,7 +539,7 @@ impl Machine {
             self.cycles += self.ref_cycles(k) as u64;
             self.dev.tick(self.cycles);
         }
-        Ok(())
+        Ok((key, at))
     }
 
     /// Take a trap raised by the instruction at pc.
