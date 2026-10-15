@@ -677,6 +677,10 @@ instructions:
     such as the kernel's current thread, the Lisp's environment or the VM's
     state. One cell each for `MOV` and `ST` gives 16 word fields. It pays
     only if the software dedicates the register.
+    [Report 0029](0029-report-fixed-base-mode.md) measured it on 1b: about
+    1% of Egret's cycles, 3–5% of the nucleus's message and switch paths,
+    and nothing for the Lisp, whose tagged pointers put fields at 4k ± 1.
+    Loads and stores (`MOV`, `MOVS`, `ST`) are 75–100% of the uses.
 - **Proposed:** neither for now. Revisit when the kernel, or compiled code
   heavy on structs, runs on draft 2.
 
