@@ -60,15 +60,35 @@ exist at first. Draft 2 fills them.
   them (see [Studies](#studies)).
 - Nothing depends on `reports/`. Reports cite code by study and commit.
 
+### What goes where
+
+By what a document does, not where its code lives:
+
+- **What the machine should be:** an RFC, even when a study built the
+  design to measure it.
+- **What was found:** a report.
+- **How an experiment or a tool works:** the study.
+- **The current design:** `docs/`.
+
+**The machine** is whatever would be documented in `docs/` if Emily said
+yes: the hardware, the ISA, the bus, the software that is part of the
+machine (boot ROM, operating system, C library) and the conventions
+between them (ABI, system calls, assembler syntax, file formats). Tool
+internals aren't, and neither is something built only to measure, like
+v1bx, the Lisp or Egret, unless it's proposed as part of the machine.
+
+A study's code implements what its RFC says. Where the RFC leaves a gap,
+the choice goes into the RFC for Emily, not into the study.
+
 ### Where work happens
 
 This isn't a rule to be dogmatic about. Usually:
 
-- New design ideas start as studies, for example the candidates for
-  draft 2.
-- When Emily picks one, it moves to the root. The study's folder keeps
-  only its README, with `status: moved`, saying where the code went and in
-  which commit.
+- A new design starts as an RFC, with a study for its code, for example
+  the candidates for draft 2.
+- When Emily accepts it, its specification moves to `docs/` and its code
+  to the root. The study's folder keeps only its README, with
+  `status: moved`, saying where the code went and in which commit.
 - When the current design is replaced, it becomes a frozen study.
 
 But work can happen in the root directly when that's the natural place for
@@ -112,8 +132,8 @@ self-contained.
   ```
 
   After that, the README says what the study is and how to run it.
-- **Documentation:** a study's own documentation (an ISA spec, a hardware
-  description) lives in the study. Its findings are reports.
+- **Documentation:** how the study works lives in the study. Its
+  findings are reports, and what it proposes for the machine is an RFC.
 - **Command line:** each study has its own, reached through the `heron`
   command (see [Python packaging](#python-packaging)), for example
   `heron v1b_hw hw run fib.s`. There is no `--isa` across machines; a study knows its machine.
@@ -139,6 +159,22 @@ self-contained.
   report of their own is a judgement call.
 
 Reports and RFCs share one numbering space.
+
+### Specifications
+
+An RFC proposing part of the machine contains a specification that
+someone building or programming to it can read on its own, and that
+moves to `docs/` unchanged once accepted. So it:
+
+- states the design in full, not as a diff against an older one;
+- builds only on live specifications, not on superseded ones, reports
+  or a study's documentation;
+- marks what isn't decided **open** rather than leaving it out;
+- keeps the reasons apart from it.
+
+By default, Part I is the specification and Part II the discussion, as
+in [RFC 0029](0029-rfc-draft-2-system.md). A different layout, or more
+parts, is fine where it suits the document.
 
 ### Files
 
@@ -368,7 +404,10 @@ Emily has decided, in the discussion of this RFC:
 - ideas RFCs are living documents, and an idea from an investigation is
   discussed in its report and linked, or described in the ideas RFC
   (2026-10-15);
-- the RFC as a whole is accepted (2026-10-15).
+- the RFC as a whole is accepted (2026-10-15);
+- a document goes where what it does puts it: a proposal for the
+  machine, its software included, is an RFC with a self-contained
+  specification (2026-10-15).
 
 ## Open questions
 
