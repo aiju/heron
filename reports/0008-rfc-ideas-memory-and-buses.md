@@ -47,7 +47,7 @@ The bus shared by the main CPU, DMA devices, peripherals and other CPUs
 is [RFC 0014](0014-rfc-system-bus.md): the draft specification, its
 rationale, and everything still to decide.
 
-- **Decided:** [section 18](0014-rfc-system-bus.md#18-decisions) of RFC
+- **Decided:** [section 19](0014-rfc-system-bus.md#19-decisions) of RFC
   0014, and in short in [docs/README.md](../docs/README.md). Synchronous,
   slots in the address, class straps read by the backplane, SEL as the
   strobe for simple cards, LOCK, no bursts, active logic on the

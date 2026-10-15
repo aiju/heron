@@ -17,7 +17,7 @@ backplane's logic, a memory card and an I/O card. All four are chip-level
 netlists that run together on the chip-level simulator from power-up.
 The CPU card gives each microinstruction a cycle as long as it needs, the
 variable-length cycles of
-[RFC 0007](0007-rfc-ideas-microarchitecture.md#4-microarchitecture). The
+[RFC 0007](0007-rfc-ideas-microarchitecture.md#2-clocking-variable-length-cycles). The
 work is in [studies/v1b_system](../studies/v1b_system/README.md); its
 [design.md](../studies/v1b_system/design.md) describes every card in
 detail.
