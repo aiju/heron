@@ -92,7 +92,7 @@ def timing(board_name):
     flight = wires.back_annotate(nl_cpu, w0)
     clk = tuple(w["CLK"]["driver"])
     buffered = {k: v for k, v in full.items() if k != clk}      # STA: CLK is the reference
-    tree = dict(buffered, **{clk: CLOCK_TREE_PS})
+    tree = {**buffered, clk: CLOCK_TREE_PS}
     path = programs.program_paths(["hello"])[0]
     img = programs.assemble(path)
     inp = programs.metadata(path)["input"]
@@ -155,6 +155,16 @@ def freerouting(timeout=3600, reuse=False):
                                   "track_m", "vias", "netlist_errors")}
 
 
+def freerouting_text(fr):
+    if not fr:
+        return "not run."
+    if fr["freerouting_exit"] == "timeout":
+        return f"stopped at the time limit ({fr['freerouting_seconds']} s) with no result."
+    return (f"exit code {fr['freerouting_exit']} after {fr['freerouting_seconds']} s; "
+            f"{fr['track_m']} m of track, {fr['vias']} vias, {fr['netlist_errors']} differences "
+            "from the netlist.")
+
+
 def table(rows, cols, heads):
     out = ["| " + " | ".join(heads) + " |", "|" + "|".join("---" for _ in heads) + "|"]
     for r in rows:
@@ -215,8 +225,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
             f"({sp['best_area']} of the area). `heron pcb split`.", "",
             "## Freerouting", "",
             "The 340 × 220 six-layer placement, routed by Freerouting with its fanout off and "
-            "only the signal layers, given an hour:", "",
-            "```", json.dumps(fr, indent=1), "```", ""]
+            "only the signal layers, given an hour: " + freerouting_text(fr), ""]
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
     with open(RESULTS, "w") as f:
         f.write("\n".join(text))

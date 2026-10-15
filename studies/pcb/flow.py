@@ -12,6 +12,7 @@ Each step's results go into a dict, which `heron pcb build` prints and the
 sweep collects.
 """
 
+import importlib.util
 import json
 import os
 import shutil
@@ -32,11 +33,7 @@ def kicad_cli():
 
 
 def pcbnew_available():
-    try:
-        import pcbnew  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    return importlib.util.find_spec("pcbnew") is not None
 
 
 def drc(path):
@@ -56,7 +53,7 @@ def drc(path):
     return types, len(d["unconnected_items"])
 
 
-def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F", halo=None,
+def build(card="cpu", style="smd", width=300.0, height=220.0, layers=6, sides="F", halo=None,
           seed=1, moves=30000, router_name="grid", route_params=None, out=None, checks=True,
           name=None, freeroute_timeout=3600, decaps=None, timing_driven=True):
     """Build one board and check it. Returns a dict of what happened."""
@@ -77,7 +74,8 @@ def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F
     res["courtyard_mm2"] = round(court)
     res["utilisation"] = round(court / (width * height * (2 if sides == "FB" else 1)), 3)
     if halo is None:
-        halo = 1.2 if style == "smd" else 1.0
+        # the room kept around each part, in mm: what the sweep found best
+        halo = 1.0 if style == "dip" else 0.8 if sides == "F" else 1.2
     decaps = decaps or ("under" if style == "smd" and sides == "F" else "beside")
     res["decaps"] = decaps
     pl = place.Placer(b, region=(3.0, 3.0, width - 3.0, height - 3.0), halo=halo,

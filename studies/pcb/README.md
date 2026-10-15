@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [system, bus_si, v1b_hw]
-reports: []
+reports: [23]
 ---
 
 # Printed circuit boards
@@ -9,8 +9,8 @@ reports: []
 How the system's cards (`studies/system`) become printed circuit boards
 that are checked to be the netlists the chip-level simulator runs: the CPU
 card as a surface-mount board and as a plain DIP board, placed and routed
-by code, written as KiCad boards, and checked three ways. The flow and the
-reasons for it are in RFC 0023.
+by code, written as KiCad boards, and checked against the netlist in four
+independent ways. The flow and the reasons for it are in RFC 0023.
 
 The reusable parts are in `infra/pcb` (packages and pinouts, the board
 model and KiCad writer, placement, power fanout, the router's driver, the
@@ -27,7 +27,7 @@ checks, the routed wires' delays, DSN/SES for other routers) and
 
 ```sh
 heron pcb build cpu --size 300x220            # place, route and check the CPU card (SMD, 6 layers)
-heron pcb build cpu --style dip --size 480x300   # the DIP version
+heron pcb build cpu --style dip --size 480x300 --layers 4   # the DIP version
 heron pcb build cpu --double --size 280x220   # parts on both sides
 heron pcb build cpu --router freerouting      # route with Freerouting instead (needs its jar)
 heron pcb check build/pcb/<name>/board.kicad_pcb   # check a board file against the netlist

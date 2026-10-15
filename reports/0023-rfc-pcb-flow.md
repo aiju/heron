@@ -2,7 +2,7 @@
 number: 23
 type: rfc
 title: Printed circuit boards: a flow from the netlist to checked boards
-status: draft
+status: open
 date: 2026-10-15
 context:
   studies: [pcb, system, bus_si]
@@ -60,7 +60,7 @@ flow has to put that back into the simulation. With the routed CPU card's
 wire delays in hwsim, the machine that passes every test with ideal wires
 gets hundreds of setup violations from flight times alone, and **stops
 after 11 cycles** once the loads are in: its clock is one 74F175 output
-driving 53 inputs over 1.4 m of copper, 376 pF, about 19 ns late. With a
+driving 53 inputs over 1.3 m of copper, 361 pF, about 19 ns late. With a
 clock tree for CLK, the length classes worked out again by the static
 timing analysis with the board's delays, and placement that keeps the
 50 MHz clock generator together, **the simulation with the board's wires
@@ -192,8 +192,8 @@ The stackup is signal, ground, signal, signal, power, signal: each signal
 layer next to a plane, the two inner signal layers crossing at right
 angles.
 
-**What it takes:** about 40 s to place, 30–60 s to route, and three
-minutes to check (most of it KiCad's DRC). Boards are build output, not
+**What it takes:** under a minute to place, under a minute to route, and
+a few minutes to check (most of it KiCad's plane filler and DRC). Boards are build output, not
 committed: a routed board is 24 MB of KiCad's text, and it comes back in
 two minutes.
 
@@ -272,8 +272,6 @@ check, KiCad's DRC and the fab netlist's check.
 | | 4 | **480 × 300** | **routed ✓** |
 | | 4 | 520 × 300 | routed |
 
-[to check against results.md]
-
 From these:
 
 - **SMD on six layers: about 300 × 220 mm** (66,000 mm²). Below that the
@@ -286,11 +284,12 @@ From these:
   440 × 260 routed with an earlier version of the placer, and with this
   one two nets stay in conflict.
 - **DIP on four layers: about 480 × 300 mm** (144,000 mm²). Six layers
-  don't make it smaller, because the parts don't fit any closer: the
-  footprints alone are 75,000 mm², against 37,000 for SMD, and
-  through-hole pins leave room for three tracks between them on both
-  outer layers. So Emily's original plan, a plain DIP board on four
-  layers, works; it is just big: 2.2 times the SMD card's area.
+  route the same board more easily (12 rounds against 46) but don't make
+  it smaller: at 440 × 300 the parts no longer fit. Their footprints
+  alone are 75,000 mm², against 37,000 for SMD, and a through-hole pin
+  blocks every layer, not just one. So Emily's original plan, a plain DIP
+  board on four layers, works; it is just big: 2.2 times the SMD card's
+  area.
 - **One card is enough.** RFC 0005 expected the CPU to need two. Splitting
   it would be costly: the best two-way split found cuts 171 signals,
   control against datapath 201, and the backplane has about 52 spare pins
@@ -313,7 +312,8 @@ at full scale: [smd-detail.png](0023-rfc-pcb-flow/smd-detail.png).*
 
 ![The CPU card as a DIP board: four layers, 480 × 300 mm](0023-rfc-pcb-flow/dip.png)
 
-*The DIP card at 480 × 300 mm, on four layers.*
+*The DIP card at 480 × 300 mm, on four layers: red, the top's tracks;
+blue, the bottom's; the planes are the two inner layers.*
 
 **Packages:** 74-series logic in SOIC (all of it is made in SOIC, and it
 is easy to rework); the microcode flash in PLCC-32, which can go in a
@@ -343,25 +343,25 @@ board ([results.md](0023-rfc-pcb-flow/results.md) has the table):
 | flight and load, CLK through a clock tree | the design's | wrong |
 | flight and load, CLK through a clock tree | worked out for the board | right, no violations, about 5% slower |
 
-[to check against results.md]
-
-- **CLK** is one output of a 74F175 driving 53 inputs over 1.38 m of
-  copper: 376 pF, about 16 ns more than at 50 pF, and up to 3.2 ns of
+- **CLK** is one output of a 74F175 driving 53 inputs over 1.32 m of
+  copper: 361 pF, about 15.5 ns more than at 50 pF, and up to 3.3 ns of
   flight between its first and last load. It needs a clock tree: a
   low-skew driver (a CDC341, as the bus clock has) feeding a few branches,
   each with a series resistor and a handful of loads. The design tolerates
   CLK up to 14 ns late with no violations (at 16 ns the tick counter's
   preload misses its setup); a tree makes about 6.
-- **The microcode address lines** Y0–Y16 each drive 17 ROMs over half a
-  metre (120 pF, 9 ns extra), FILL 37 inputs, FAULT 21. With the length
-  classes worked out again they cost a tick here and there; buffering them,
-  or the ROMs closer together, would win it back.
+- **The heavy nets after it:** FILL drives 36 inputs (192 pF, 13 ns
+  late), RESET_n 19 over 60 cm, FAULT 20; the microcode address lines
+  (Y0–Y16) and the result multiplexer's selects 16 each, over about 40 cm
+  (up to 115 pF, 6–8 ns late). With the length classes worked out again
+  they cost a tick here and there; buffering them, or the ROMs closer
+  together, would win it back.
 - **The setup violations** are on the MAR registers, whose path is the one
   the length classes were tuned to. The static timing analysis
   (`infra/hw/sta.py`) now takes the same per-pin delays, so the classes
-  and their jumpers can be worked out for the board: 13, 15, 16, 18 ticks
-  with flight times, 13, 16, 17, 18 with the loads, against the design's
-  13, 15, 16, 17.
+  and their jumpers can be worked out for the board: 13, 14, 16, 18 ticks
+  with flight times (1.5% slower), 13, 16, 17, 18 with the loads (4.6%),
+  against the design's 13, 15, 16, 17.
 - **The clock generator's 20 ns domain** allows one 74F gate between
   flip-flops; a wire of a few centimetres breaks it (0.2 ns short on the
   first placement). The analysis per microinstruction doesn't see that
