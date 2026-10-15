@@ -1,4 +1,4 @@
-"""ISA v1bs: draft 1b with this study's system extensions (system.md): a
+"""ISA v1bs: draft 1b with this study's system extensions (report 0020's appendix): a
 supervisor mode, register banks, the flat page map and cross-mode loads
 and stores. The simulator runs it (studies/v1_isa/isa, Isa::V1bs, sys.rs)
 and the assembler has its encoder (asm/v1bs.rs); this is the

@@ -86,9 +86,14 @@ The engines are Rust, everything else is Python
   unless she has made that choice. A rejected idea keeps its reason, so it
   isn't proposed again without new evidence.
 - **Reports are snapshots:** once a report is `current`, don't rewrite its
-  text. Only its status, `superseded-by` and clearly marked errata change.
+  text. Only its status, `superseded-by`, clearly marked errata and
+  (below) a specification it carries change.
 - **RFCs may carry findings:** an RFC can include the findings behind it.
   Whether they deserve a report of their own is a judgement call.
+- **Reports may carry specifications:** a report can include the
+  specification of the design it measured, as a part or an appendix
+  (0012, 0018, 0020, 0025). While its study is active, that part follows
+  the code, like the report's generated files.
 - **Specifications:** written to be read on its own and moved to
   `docs/` unchanged: in full rather than as a diff, built only on live
   specifications, undecided parts marked **open**, reasons kept apart.

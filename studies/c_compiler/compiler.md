@@ -27,7 +27,7 @@ instruction set.
   hand-written code does: 1b takes **6% fewer cycles than 1a** for compiled
   C, against 7.5% for the hand-written versions of the same 15 programs
   (D16-overlap; 8.1% over all 20 draft 1 programs, as in
-  [report 0004](../../reports/0004-report-draft-1-evaluation.md)). The compiler uses 1b's
+  [RFC 0004](../../reports/0004-rfc-draft-1-isa.md)). The compiler uses 1b's
   auto-increment and memory operands, but loses on its 4-bit constants. See
   [report 0011](../../reports/0011-report-c-compiler.md#1a-against-1b-for-compiled-code).
 
@@ -104,7 +104,7 @@ Implementation choices:
 
 ## Calling convention
 
-The program-wide conventions of [studies/v1_isa/isa-v1.md](../v1_isa/isa-v1.md):
+The program-wide conventions of [RFC 0004](../../reports/0004-rfc-draft-1-isa.md#13-software-conventions):
 
 - Arguments in `r1`–`r4`, the rest on the stack; the result in `r1`.
 - `r1`–`r7` are caller-saved, `r8`–`r14` callee-saved, `r15` is `sp`. `HI`

@@ -62,7 +62,7 @@ def alu32(a, b, s, m, cin):
 
 class IODev:
     """The I/O page seen from a 16-bit bus. Registers are 32 bits, read and
-    written a half at a time (the v1_isa study's isa-v1.md)."""
+    written a half at a time (RFC 0004)."""
 
     def __init__(self, inp=b""):
         self.inp = bytearray(inp)

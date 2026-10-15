@@ -129,7 +129,7 @@ multiplexer (107 ns, [results.md](0024-rfc-faster-smaller/results.md#parts)).
 the memory card holds its microcycle for 520–600 ns, a write (two data
 clocks) for 620–660 ns, a read from the I/O card for 880–920 ns and a
 write to it for 920–960 ns
-([report 0025](0025-report-draft-1b-system.md#5-what-a-bus-transfer-costs)).
+([report 0025](0025-report-draft-1b-system.md#13-what-a-bus-transfer-costs)).
 Only programs that use the cards notice: instruction fetches always come
 from the CPU card's RAM.
 

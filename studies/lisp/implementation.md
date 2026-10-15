@@ -1,7 +1,7 @@
 # The implementation on draft 1b
 
 How the Lisp of [language.md](language.md) runs on the draft 1b machine
-([isa-v1b.md](../v1_isa/isa-v1b.md)). The runtime is 1b assembly in
+([RFC 0004, Part II](../../reports/0004-rfc-draft-1-isa.md#part-ii-draft-1b)). The runtime is 1b assembly in
 `rt/`, plus the prelude in Lisp; the compiler, in Lisp, has its own
 document ([compiler.md](compiler.md)). It runs on the instruction-level
 simulator, with the timing model costing it for the hardware
@@ -129,7 +129,7 @@ instead of evaluating it; that's how the compiler takes over.
 An error prints `error: message: irritants` ([language.md](language.md))
 and returns to the top level, which drops the stack and goes on with the
 next form. The traps are errors too: an address error from `car`, `cdr` or
-a call, and (in v1bx, [isa.md](isa.md)) a tag check.
+a call, and (in v1bx, [report 0018's appendix](../../reports/0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)) a tag check.
 
 The prelude is text in the image, read at start-up as if it came before
 the console input. `(%reload-prelude)` reads it again, so that once the

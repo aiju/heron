@@ -66,7 +66,8 @@ By what a document does, not where its code lives:
 
 - **What the machine should be:** an RFC, even when a study built the
   design to measure it.
-- **What was found:** a report.
+- **What was found:** a report, which may carry the specification of
+  what it measured.
 - **How an experiment or a tool works:** the study.
 - **The current design:** `docs/`.
 
@@ -151,7 +152,9 @@ self-contained.
 ### What each is
 
 - **Report:** what was done and what was found. A report doesn't ask for
-  decisions. If it suggests one, it points to an RFC.
+  decisions. If it suggests one, it points to an RFC. A report can carry
+  the specification of the design it measured, as a part or an appendix
+  (reports 0012, 0018, 0020 and 0025 do).
 - **RFC:** proposes something and invites decisions: a design choice, a
   process, a set of ideas. Once the decision is made, the RFC records it.
   An RFC can include findings that support it; an ISA RFC might include
@@ -256,9 +259,11 @@ stays `open` while any item is.
 text isn't rewritten. Only its status, `superseded-by` and clearly marked
 errata change.
 
-The exception is generated files in a report's folder: the report names
-the command that writes them. While its study is active, rerunning the
-command updates them and the report's `commit`.
+The exceptions are generated files in a report's folder, whose command
+the report names, and a specification the report carries. While its
+study is active, both follow the code: rerunning the command updates the
+files, a change to the design updates the specification, and either
+updates the report's `commit`.
 
 **Index:** `reports/README.md` lists every report and RFC with its status.
 It is generated from the front matter. Every PR that adds a report or
@@ -407,7 +412,12 @@ Emily has decided, in the discussion of this RFC:
 - the RFC as a whole is accepted (2026-10-15);
 - a document goes where what it does puts it: a proposal for the
   machine, its software included, is an RFC with a self-contained
-  specification (2026-10-15).
+  specification (2026-10-15);
+- a report can carry the specification of the design it measured. The
+  specifications in `studies/` moved: draft 0's and draft 1's into
+  RFCs 0001 and 0004, which were reports, and the draft 1b hardware,
+  the draft 1b system, v1bx and v1bs into reports 0012, 0025, 0018 and
+  0020 (2026-10-15).
 
 ## Open questions
 

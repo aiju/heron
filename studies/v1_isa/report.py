@@ -1,7 +1,7 @@
 """Draft 1 report: cycles, code size and ISA statistics for 1a vs 1b.
 
 Runs every program in programs/v1a and programs/v1b and writes the
-generated part of report 0004 (draft 0's numbers, for reference, come from
+generated part of RFC 0004 (draft 0's numbers, for reference, come from
 the v0_hw study's baseline.json).
 
     heron v1_isa report
@@ -18,7 +18,7 @@ from heron.studies.v0_hw import baseline
 from . import timing32
 from .testing import program_paths, run_program
 
-DOC = os.path.join(ROOT, "reports", "0004-report-draft-1-evaluation", "performance.md")
+DOC = os.path.join(ROOT, "reports", "0004-rfc-draft-1-isa", "performance.md")
 
 ISAS = ["v1a", "v1b"]
 CONFIGS = timing32.CONFIG_NAMES

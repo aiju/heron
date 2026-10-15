@@ -52,7 +52,7 @@ The tools are Python, except the engines (the simulators, the assembler
 and the linker), which are Rust: crates in one Cargo workspace, with
 `Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
-**Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
+**Start here:** [RFC 0004](reports/0004-rfc-draft-1-isa.md)
 (draft 1a against 1b, and the hardware options), then
 [RFC 0005](reports/0005-rfc-ideas-direction.md) (where the ideas stand,
 and what the measurements point to), the other

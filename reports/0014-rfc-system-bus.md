@@ -569,7 +569,7 @@ Guidance for the main CPU board; not part of the specification proper.
   - The draft 1b hardware's MAR only holds address bits 0–19 and 31. As
     a card on the bus, a 32-bit MAR and a slot decode early enough to keep
     a bus write off the RAM took 7 chips
-    ([report 0025](0025-report-draft-1b-system.md#1-what-was-built)).
+    ([report 0025](0025-report-draft-1b-system.md#11-chips)).
 - **Slot:** the main CPU sits in slot 0. The bus parks on it, so it starts
   most bus accesses with no arbitration delay.
 - **If the bus clock comes from the CPU board**, the bus clock is the 50 MHz
@@ -585,7 +585,7 @@ Guidance for the main CPU board; not part of the specification proper.
   never need to be multiples of the bus clock. The draft 1b CPU card holds
   its cycle for 260 ns: the bus side's clock lags the CPU's by 33 ns, and
   the crossings sit at fixed phases of the master clock
-  ([report 0025](0025-report-draft-1b-system.md#5-what-a-bus-transfer-costs)).
+  ([report 0025](0025-report-draft-1b-system.md#13-what-a-bus-transfer-costs)).
 - **If it comes from an oscillator on the backplane**, the CPU synchronises
   to it, which costs about 20–40 ns per access.
 - **Posted writes.** Registered bus transceivers (74ABT652) take the

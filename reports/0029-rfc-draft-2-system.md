@@ -202,7 +202,7 @@ undefined.
 ### 9. Where it comes from
 
 The kernel study built draft 1b's system extensions as an experiment,
-v1bs ([studies/kernel/system.md](../studies/kernel/system.md)), ran a
+v1bs ([report 0020's appendix](0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)), ran a
 small message-passing kernel on them and measured its paths
 ([report 0020](0020-report-operating-system.md)).
 [RFC 0010](0010-rfc-ideas-os.md) collects the ideas around it. Part I

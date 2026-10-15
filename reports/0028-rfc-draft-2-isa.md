@@ -121,7 +121,7 @@ as in draft 1.
   ([9](#9-open-questions)).
 - **Decoding costs nothing for an irregular map.** The 1b CPU decodes
   through a ROM that looks up all 16 bits of the first parcel
-  ([hardware.md](../studies/v1b_hw/hardware.md#control)). What the hardware
+  ([report 0012](0012-report-draft-1b-hardware.md#5-control)). What the hardware
   cares about is that register numbers sit in fixed places, and the
   register byte gives that. Constants come from a few places: the register
   byte (`Bcc`, `SWI`), its low nibble (`DBNZ`, the quick constants), or the
@@ -201,7 +201,7 @@ Free root cells: `03`, `C3`, `C7`, `CB`, `CF`, `EF`, `F9`–`FB`.
 One numbering of 16 modes is used everywhere: as the column in rows 1–6
 and 8–A, and as the mode nibble `M` of instructions that take the mode
 from the register byte. They are 1b's modes, in 1b's order
-([isa-v1b.md](../studies/v1_isa/isa-v1b.md#addressing-modes)).
+([RFC 0004, Part II](0004-rfc-draft-1-isa.md#20-addressing-modes)).
 
 | M | Mode | M | Mode |
 |---|---|---|---|
@@ -418,7 +418,7 @@ D and E are new: tables without a base register. **decided** (Emily,
     same way whether the constant took 7 bits or 16.
   - So they're one more encoding for the assembler to pick, as 1b's already
     picks between the quick constants and the special mode
-    ([isa-v1b.md](../studies/v1_isa/isa-v1b.md#addressing-modes)): a quick
+    ([RFC 0004, Part II](0004-rfc-draft-1-isa.md#20-addressing-modes)): a quick
     constant for 0…15 and −1…−16, `#u7` for 16…127, and a 16- or 32-bit
     form for the rest. Which of the two one-parcel forms takes 0…15 is
     open ([9](#9-open-questions)).
@@ -551,7 +551,7 @@ D and E are new: tables without a base register. **decided** (Emily,
 - **`MFUR rd, rs` and `MTUR rd, rs`** (`31`, `3D`): the supervisor reads
   register `rs` of the user's bank into its own `rd`, or writes the
   user's `rd` from its own `rs` (v1bs's instructions,
-  [studies/kernel/system.md](../studies/kernel/system.md#registers-and-banks)).
+  [report 0020's appendix](0020-report-operating-system.md#registers-and-banks)).
   Privileged ([RFC 0029](0029-rfc-draft-2-system.md)). With a full bank
   per thread and the kernel in a bank of its own, they are how a system call reads its arguments and writes its
   results, and how a message moves between threads, so they get one
@@ -566,7 +566,7 @@ D and E are new: tables without a base register. **decided** (Emily,
 draft 2 simulator implements these, and software should use them where
 they fit, so that their use can be measured. Any of them may change or go
 (Emily, 2026-10-15). The definitions follow draft 1's conventions
-([isa-v1.md](../studies/v1_isa/isa-v1.md)): `rd ← f(rs)` for the unary
+([RFC 0004](0004-rfc-draft-1-isa.md#22-unary-functions)): `rd ← f(rs)` for the unary
 group, and "NZ" means N and Z from the result, with C and V unchanged.
 
 `CAS` (`F7`) and the floating-point escape `FPU` (`F8`) are different:
@@ -583,7 +583,7 @@ they're only marked out, to be designed ([9](#9-open-questions)).
 | `FD 00` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
 
 The tagged operations in `09`–`0D` check that their operands are integers.
-They follow the Lisp's v1bx ([studies/lisp/isa.md](../studies/lisp/isa.md)),
+They follow the Lisp's v1bx ([report 0018's appendix](0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)),
 on registers only:
 
 | Cell | Instruction | Does | Flags | Traps unless |
