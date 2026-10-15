@@ -382,8 +382,11 @@ grid board ([results.md](0023-rfc-pcb-flow/results.md) has the table):
 | flight and load, CLK through a clock tree | the design's | right, thousands of setup violations |
 | flight and load, CLK through a clock tree | worked out for the board | right, no violations, about 4% slower |
 
-The free 300 × 220 board gives the same results, row for row (with 13,
-15, 16, 18 ticks worked out for its flight times).
+The free 300 × 220 board gives the same results but for one row: with CLK
+through a clock tree and the design's length classes it goes wrong too.
+With the classes worked out for it (13, 15, 16, 18 ticks for its flight
+times; 13, 16, 17, 18 with the loads) it runs with no violations, 4.5%
+slower.
 
 - **CLK** is one output of a 74F175 driving 53 inputs over 1.25 m of
   copper: 364 pF, about 16 ns more than at 50 pF, and 5 ns of flight to

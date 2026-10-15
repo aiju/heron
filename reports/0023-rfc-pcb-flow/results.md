@@ -39,15 +39,15 @@ Board: the grid arrangement (rows and columns of chips, all the same way round),
 
 ## The routed wires in the chip-level simulation
 
-`hello` on the whole system (`studies/system`), with the CPU card's wires from the 340 × 220 board as per-pin delays (infra/pcb/wires.py).
+`hello` on the whole system (`studies/system`), with the CPU card's wires from the 340 × 220 grid board: a delay on each driving pin, and one in front of each load further along its wire (infra/pcb/wires.py). "Stopped after" 3,000,000 cycles: the limit; the program never finished.
 
 | Wires | Length classes | Ticks | Program suite | Output | Violations | Worst |
 |---|---|---|---|---|---|---|
 | ideal wires (as simulated) | the design's | 13 15 16 17 | +0.0% | right | 0 |  |
-| flight times | the design's | 13 15 16 17 | +0.0% | right | 713 | U_MAR3.D7 setup D -4.5 ns |
+| flight times | the design's | 13 15 16 17 | +0.0% | right | 713 | U_MAR3.D7 setup D -4.0 ns |
 | flight times | worked out for the board | 13 14 16 18 | +1.5% | right | 0 |  |
-| flight and load, CLK as routed | the design's | 13 15 16 17 | +0.0% | right | 3217 | U_RAMH.WE tWP write pulse width -38.7 ns |
-| flight and load, CLK through a clock tree | the design's | 13 15 16 17 | +0.0% | right | 4272 | U_UIR14.D6 setup D -12.3 ns |
+| flight and load, CLK as routed | the design's | 13 15 16 17 | +0.0% | wrong, stopped after 3000000 cycles | 14000144 | U_RAMH.WE tWP write pulse width -38.7 ns |
+| flight and load, CLK through a clock tree | the design's | 13 15 16 17 | +0.0% | right | 4523 | U_MAR3.D8 setup D -13.9 ns |
 | flight and load, CLK through a clock tree | worked out for the board | 13 16 17 18 | +4.4% | right | 0 |  |
 
 Ticks: the four length classes (20 ns ticks). Program suite: its time against the design's classes, from the suite's profile. CLK through a clock tree: CLK late by 6 ns instead of its routed delay, as a CDC341 and short branches would make it.
