@@ -118,7 +118,7 @@ A virtual address's bit 31 picks how it is mapped:
 |---|---|---|
 | 0 | `flags` | the flags word ([2](#2-modes-and-the-flags-word)) |
 | 1 | `hi` | `HI` |
-| 2 | `lo` | `LO`, for `MULA` (tentative, [RFC 0028, 6.9](0028-rfc-draft-2-isa.md#69-tentative-instructions)) |
+| 2 | `lo` | `LO`, for `MULA` (tentative, [RFC 0028, 5.10](0028-rfc-draft-2-isa.md#510-tentative-instructions)) |
 | 3 | | reserved for the FPU's control and status |
 | 4–7 | | reserved |
 | 8 | `far` | read only: the address of the last page fault or address error |
@@ -152,7 +152,7 @@ Reserved registers read as 0 and ignore writes.
 | `0x8000_000C` | reserved | |
 | `0x8000_0010` | divide error | the instruction |
 | `0x8000_0014` | address error: a misaligned access | the instruction |
-| `0x8000_0018` | tag trap ([RFC 0028, 6.9](0028-rfc-draft-2-isa.md#69-tentative-instructions)) | the instruction |
+| `0x8000_0018` | tag trap ([RFC 0028, 5.10](0028-rfc-draft-2-isa.md#510-tentative-instructions)) | the instruction |
 | `0x8000_001C` | privilege violation | the instruction |
 | `0x8000_0020` | page fault ([3](#3-the-address-space)) | the instruction |
 | `0x8000_0024` | trace | the next instruction |
@@ -174,8 +174,10 @@ Reserved registers read as 0 and ignore writes.
   resumes it. For that:
   - a register an addressing mode increments or decrements changes only
     once the access has succeeded;
-  - `SAVE`, `RESTORE`, `LDM` and `STM` update their base register last;
-    one whose range includes its base register is open;
+  - `SAVE` and `RESTORE` update `sp` last, and `LDM` and `STM` don't
+    change their base register; an `LDM` whose range includes its base
+    register is open
+    ([RFC 0028, 5.8](0028-rfc-draft-2-isa.md#58-multiple-registers));
   - `CAS`'s locked read is checked as a store.
 - **Trace:** with T set when an instruction starts, a trace exception
   follows it.
@@ -238,7 +240,7 @@ keeps what worked and changes the rest.
   instructions add. `CALL [r]+` was the one 1b form that broke them, by
   moving `r` before it pushed; with draft 2's link register a call
   pushes nothing
-  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  ([RFC 0028, 5.7](0028-rfc-draft-2-isa.md#57-jumps-and-calls)).
   Exceptions still push the PC and the flags, so a handler that calls
   saves `r7` like any function.
 - **A vector per `SWI` number:** the decode ROM sees the whole parcel, so
@@ -259,7 +261,7 @@ keeps what worked and changes the rest.
     and reply is 347 cycles against half banks' 293, while a preemption
     is 147 against 203. `MFUR` and `MTUR` are one parcel each to keep the
     copy cheap
-    ([RFC 0028](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+    ([RFC 0028, 5.9](0028-rfc-draft-2-isa.md#59-system-instructions)).
   - **256 banks** cover as many threads as a few MB will hold; past that,
     the kernel saves a bank's registers when it reuses it.
   - **In the hardware:** banks are spare address lines of the register
