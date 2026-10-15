@@ -2,7 +2,7 @@
 //! 1 MB of RAM, the I/O page and sixteen registers, all of them general,
 //! and the instruction-level simulator that runs it.
 //!
-//! I/O page at 0xFFFFFF00 (32-bit registers, see studies/v1_isa/isa-v1.md):
+//! I/O page at 0xFFFFFF00 (32-bit registers; RFC 0004, 26):
 //!   +00  R: console input byte, or -1     W: console output (low byte)
 //!   +04  R: bit 0 = input waiting, bit 1 = end of input
 //!   +08  R/W: timer period in cycles (0 = off)
