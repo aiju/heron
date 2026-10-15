@@ -323,8 +323,8 @@ From these:
   Placed freely the card gets no smaller: 320 routes, 310 doesn't fit. So
   under RFC 0026's rules the grid costs no area. Before them (no edge
   strips, less room between parts) the free placement got to 300 × 220
-  against the grid's 330 to 340 × 220: the grid cost 10–13% more. Four signal layers carry
-  about 110 m of track.
+  against the grid's 330 to 340 × 220: the grid cost 10–13% more. Four
+  signal layers carry about 110 m of track.
 - **SMD on four layers** routes only placed freely, and only with much
   more room: 9U × 340 (125,000 mm², 1.6 times the area), on two signal
   layers, one of them covered in pads. At 6U it doesn't route even 520
@@ -464,8 +464,8 @@ change the design or the placement where it doesn't.
   static timing analysis could give them each net's slack instead.
 - **The grid on four layers** routes for DIP, with wider slots, but not
   for SMD at any size tried (6U × 480 and 9U × 340, and up to 500 × 260
-  before the mechanics), where free placement routes at 9U × 340. Most likely because on a grid the obstacles on the
-  two signal layers line up (every chip's pads, every capacitor and its
+  before the mechanics), where free placement routes at 9U × 340. Most
+  likely because on a grid the obstacles on the two signal layers line up (every chip's pads, every capacitor and its
   vias underneath) into walls the tracks must cross; staggered rows, or
   the capacitors beside the chips, might fix it.
 - **Not built yet:** the memory card, the I/O card and the backplane as
