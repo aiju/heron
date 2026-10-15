@@ -29,6 +29,8 @@ So far there has been:
 
 Draft 2 is next, built on 1b
 ([RFC 0006](reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
+Its encoding is drafted in
+[RFC 0028](reports/0028-rfc-draft-2-isa.md).
 
 ## Layout
 

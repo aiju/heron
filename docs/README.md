@@ -5,8 +5,10 @@ decided, as reference. Why it was decided, and what else was considered,
 is in the RFCs and reports it links to ([the index](../reports/README.md)).
 
 There's no complete current design yet. Draft 2 comes next, built on
-draft 1b's encoding
+draft 1b
 ([RFC 0006](../reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
+Its encoding is drafted, not decided, in
+[RFC 0028](../reports/0028-rfc-draft-2-isa.md).
 Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 [draft 1](../studies/v1_isa/README.md) and
 [the draft 1b hardware](../studies/v1b_hw/README.md).
@@ -20,6 +22,8 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 - 16-bit instruction parcels, with 0–2 extension parcels.
 - Draft 2 builds on draft 1b: one register and one addressing mode per
   instruction ([isa-v1b.md](../studies/v1_isa/isa-v1b.md)).
+- In draft 2, `r0` is a general register; it no longer reads as zero
+  ([RFC 0006](../reports/0006-rfc-ideas-isa.md#33-r0-as-a-general-register)).
 
 **Construction**
 
