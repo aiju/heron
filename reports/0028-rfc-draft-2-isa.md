@@ -525,7 +525,7 @@ they're only marked out, to be designed ([9](#9-open-questions)).
 | `DC` | `FFS rd, rs` | The index of `rs`'s lowest set bit, 0–31, or 32 if `rs` is 0: the trailing zeros, the mirror of `CLZ` | NZ | Allocator and scheduler bitmaps |
 | `DD` | `POPC rd, rs` | The number of set bits in `rs`, 0–32 | NZ | Bitmaps, set sizes |
 | `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ | Big-endian data: SHA-256's message words, network headers, font files |
-| `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is a new special register (`MFSR`/`MTSR` 2) | unchanged | Multiply-accumulate: mandel, audio, filters |
+| `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is a new special register for `MFSR`/`MTSR`, numbered after v1bs's 0–8 ([studies/kernel/system.md](../studies/kernel/system.md#special-registers)) | unchanged | Multiply-accumulate: mandel, audio, filters |
 | `EE` | `MERGE rd, rs` | `rd ← (rd & ~HI) \| (rs & HI)`: `rs`'s bits where the mask in `HI` is set | NZ | Masked edges and glyph words in graphics: −20% of the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) |
 | `FD 10` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
 
