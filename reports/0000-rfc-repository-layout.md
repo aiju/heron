@@ -2,7 +2,7 @@
 number: 0
 type: rfc
 title: Repository layout, studies, reports and RFCs
-status: open
+status: accepted
 date: 2026-10-15
 context:
   commit: 852df5e (main, after the cleanup in PR #9)
@@ -364,7 +364,11 @@ Emily has decided, in the discussion of this RFC:
 - a study whose design becomes current is moved to the root, not copied;
 - a new document's number is reserved by pushing its stub to `main`, and
   the index merges with git's `union` driver (2026-10-14, replacing "for
-  now, a new document takes the next free number").
+  now, a new document takes the next free number");
+- ideas RFCs are living documents, and an idea from an investigation is
+  discussed in its report and linked, or described in the ideas RFC
+  (2026-10-15);
+- the RFC as a whole is accepted (2026-10-15).
 
 ## Open questions
 
