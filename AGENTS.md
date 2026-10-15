@@ -88,6 +88,13 @@ The engines are Rust, everything else is Python
   text. Only its status, `superseded-by` and clearly marked errata change.
 - **RFCs may carry findings:** an RFC can include the findings behind it.
   Whether they deserve a report of their own is a judgement call.
+- **Mentioning one to Emily:** in chat, a PR description or a comment,
+  link a report, an RFC or any other file on GitHub, at the branch that
+  has the version you mean: your PR's branch if you changed it there,
+  `main` otherwise. For example
+  `[RFC 0006](https://github.com/aiju/heron/blob/main/reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)`.
+  A bare "RFC 0006" leaves her to find the right version. Inside the
+  repository's own files, keep relative links.
 - **The index:** after adding a report or changing a status, run
   `python3 -m heron reports`. It rewrites `reports/README.md` and checks
   the front matter. Git merges the index by keeping both sides' lines

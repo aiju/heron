@@ -41,7 +41,7 @@ about 3 MHz.
   programs.
 - **Guard pages** would save 5.0% (the stack limit) and 1.8% (the heap
   limit) of compiled cycles, at no cost beyond a paged MMU
-  ([RFC 0010](0010-rfc-ideas-os.md#11-mmu)).
+  ([RFC 0010](0010-rfc-ideas-os.md#3-mmu)).
 - **What 1b already has that matters:** `CALL [r1 + 1]` through a code
   word (1.3% over a load and a register call), one-parcel stack slots, and
   auto-increment for pushes, pops and `cons`.
@@ -277,6 +277,11 @@ stack alone.
 
 RFC 0006 recommends basing draft 2 on 1a. For the Lisp, that means:
 
+> **Erratum (2026-10-15).** RFC 0006 no longer recommends 1a: draft 2
+> builds on 1b (Emily), which already has the trap, the memory-indirect
+> call and auto-increment. The points below are what a 1a-based draft 2
+> would have needed ([RFC 0006, section 4](0006-rfc-ideas-isa.md#4-what-a-1a-based-draft-2-would-want)).
+
 - **Keep the misaligned-access trap, precise.** It's the largest single
   effect measured here.
   - 1a's short word loads scale their offset by 4 (`[rs + 4o]`), so
@@ -324,6 +329,6 @@ back end would measure draft 2's base directly.
 ## Ideas recorded
 
 The findings are proposed as items in
-[RFC 0006](0006-rfc-ideas-isa.md#26-for-lisp) (the trap, the tagged mode,
-the indirect call) and [RFC 0010](0010-rfc-ideas-os.md#11-mmu) (guard
+[RFC 0006](0006-rfc-ideas-isa.md#6-for-dynamic-languages) (the trap, the tagged mode,
+the indirect call) and [RFC 0010](0010-rfc-ideas-os.md#3-mmu) (guard
 pages).

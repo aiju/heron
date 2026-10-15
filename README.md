@@ -27,7 +27,8 @@ So far there has been:
   with proposed system extensions, and what the operating system could
   be.
 
-Draft 2 is next. Which of 1a and 1b it builds on is still open.
+Draft 2 is next, built on 1b
+([RFC 0006](reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 
 ## Layout
 
@@ -50,7 +51,9 @@ and the linker), which are Rust: crates in one Cargo workspace, with
 `Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
 **Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
-(draft 1a against 1b, and the hardware options), then the
+(draft 1a against 1b, and the hardware options), then
+[RFC 0005](reports/0005-rfc-ideas-direction.md) (where the ideas stand,
+and what the measurements point to), the other
 [ideas RFCs](reports/README.md) and [RFC 0014](reports/0014-rfc-system-bus.md)
 (the system bus).
 
