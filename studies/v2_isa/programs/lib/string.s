@@ -52,8 +52,7 @@ memcpy: MOV  r7, r1             ; the result
         SUB  r3, r4
 .head:  MOV  r5, byte [r2]+
         MOV  byte [r1]+, r5
-        DEC  r4
-        BNE  .head
+        DBNZ r4, .head
 .words: MOV  r5, r3
         LSR  r5, #4             ; r5 = blocks of 16 bytes
         BEQ  .rest
@@ -65,23 +64,20 @@ memcpy: MOV  r7, r1             ; the result
         MOV  [r1]+, r4
         MOV  r4, [r2]+
         MOV  [r1]+, r4
-        DEC  r5
-        BNE  .block
+        DBNZ r5, .block
 .rest:  MOV  r5, r3
         LSR  r5, #2
         AND  r5, #3             ; r5 = words left (0-3)
         BEQ  .tail
 .word:  MOV  r4, [r2]+
         MOV  [r1]+, r4
-        DEC  r5
-        BNE  .word
+        DBNZ r5, .word
 .tail:  AND  r3, #3             ; bytes left (0-3)
 .bytes: TST  r3, r3
         BEQ  .done
 .bloop: MOV  r4, byte [r2]+
         MOV  byte [r1]+, r4
-        DEC  r3
-        BNE  .bloop
+        DBNZ r3, .bloop
 .done:  MOV  r1, r7
         RET
 
@@ -96,8 +92,7 @@ memmove:
         BHS  memcpy             ; dst - src >= n: forwards (n = 0 also goes here)
 .back:  MOV  r4, byte [r2 + r3 - 1]
         MOV  byte [r1 + r3 - 1], r4
-        DEC  r3
-        BNE  .back
+        DBNZ r3, .back
         RET
 
 memset: MOV  r7, r1             ; the result
@@ -111,8 +106,7 @@ memset: MOV  r7, r1             ; the result
         BHS  .bytes             ; the fill ends before that: bytes only
         SUB  r3, r4
 .head:  MOV  byte [r1]+, r2
-        DEC  r4
-        BNE  .head
+        DBNZ r4, .head
 .words: MOV  r5, r3
         LSR  r5, #4             ; r5 = blocks of 16 bytes
         BEQ  .rest
@@ -120,20 +114,17 @@ memset: MOV  r7, r1             ; the result
         MOV  [r1]+, r2
         MOV  [r1]+, r2
         MOV  [r1]+, r2
-        DEC  r5
-        BNE  .block
+        DBNZ r5, .block
 .rest:  MOV  r5, r3
         LSR  r5, #2
         AND  r5, #3             ; r5 = words left (0-3)
         BEQ  .tail
 .word:  MOV  [r1]+, r2
-        DEC  r5
-        BNE  .word
+        DBNZ r5, .word
 .tail:  AND  r3, #3             ; bytes left (0-3)
 .bytes: TST  r3, r3
         BEQ  .done
 .bloop: MOV  byte [r1]+, r2
-        DEC  r3
-        BNE  .bloop
+        DBNZ r3, .bloop
 .done:  MOV  r1, r7
         RET

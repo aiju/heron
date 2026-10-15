@@ -108,25 +108,21 @@ op_eq:  CMP  r9, [sp]+          ; a b -> a == b
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
-; JZ/JNZ pop the condition: the test branches first and each path pops for
-; itself.
+; JZ/JNZ pop the condition between the test and the branch: a pop is a MOV,
+; which leaves the flags alone.
 op_jz:  TST  r9, r9             ; JZ a16: jump if zero
-        BEQ  .take
         MOV  r9, [sp]+
+        BEQ  jump
         ADD  r8, #2
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
-.take:  MOV  r9, [sp]+
-        BRA  jump
 
 op_jnz: TST  r9, r9             ; JNZ a16: jump if not zero
-        BNE  .take
         MOV  r9, [sp]+
+        BNE  jump
         ADD  r8, #2
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
-.take:  MOV  r9, [sp]+
-        BRA  jump
 
 op_call:                        ; CALL a16: return address to the return stack
         LEA  r1, [r8 + 2]

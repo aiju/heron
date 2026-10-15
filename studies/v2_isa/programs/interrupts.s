@@ -36,15 +36,11 @@ start:  MOV  sp, #0x100000      ; top of RAM
 
 ; ---- interrupt and trap handlers ----
 
-; isr: count a tick. The CPU saves PC and the flags; the handler saves the
-; register it uses and must acknowledge the timer, or the level-triggered
-; IRQ would fire again straight after RTI.
-isr:    MOV  -[sp], r1
-        MOV  r1, [ticks]
-        INC  r1
-        MOV  [ticks], r1
+; isr: count a tick. The CPU saves PC and the flags, and INC and CLR work
+; on memory, so the handler needs no register. It must acknowledge the
+; timer, or the level-triggered IRQ would fire again straight after RTI.
+isr:    INC  [ticks]
         CLR  [TIMER_ACK]        ; any write acknowledges
-        MOV  r1, [sp]+
         RTI
 
 ; syscall: SWI #n calls system call n with the caller's r1-r4 as arguments
@@ -84,14 +80,13 @@ main:   SAVE r8-r10
 
         ; Work with interrupts firing: the sum of i*i for i = 1000 down to 1.
         ; The ISR runs between any two instructions here, so it must preserve
-        ; r1 (live from MOV to ADD) and the flags (from DEC to BNE).
+        ; r1 (live from MOV to ADD).
         MOV  r8, #0             ; r8 = sum
         MOV  r9, #1000          ; r9 = i
 .sq:    MOV  r1, r9
         MULU r1, r9
         ADD  r8, r1
-        DEC  r9
-        BNE  .sq
+        DBNZ r9, .sq
         MOV  r10, [ticks]       ; ticks during the work (not printed: timing)
         LEA  r1, [s_sum]
         BSR  puts
@@ -119,8 +114,7 @@ main:   SAVE r8-r10
         EI
         MOV  r8, [ticks]
         MOV  r9, #5000          ; idle a while with interrupts enabled
-.idle:  DEC  r9
-        BNE  .idle
+.idle:  DBNZ r9, .idle
         DI
         LEA  r1, [s_stopped]
         BSR  puts

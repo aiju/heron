@@ -39,14 +39,20 @@ cargo test -p v2-isa                          # the encoder, the semantics and t
 
 ## The programs
 
-They are 1b's, ported as they are. Stores are written `MOV`. The `MOV`s
-whose N and Z something reads became `MOVS`, 37 of them: found by
-tracing, on the 1b simulator, which instruction last set the flags
-whenever an instruction read them, and by a static pass over the code for
-the paths the runs miss. 1b's `ST r0` became `CLR`, and where 1b read `r0`
-as zero (`ADC`, `SBC`, `MTHI`) a `CLR r0` comes first. The SWI handler in
-`interrupts.s` reads the call number with one byte load: it's the
-instruction's register byte.
+They were ported in two steps, which the history keeps apart.
+
+1. **As they are.** Stores are written `MOV`. The `MOV`s whose N and Z
+   something reads became `MOVS`, 37 of them: found by tracing, on the 1b
+   simulator, which instruction last set the flags whenever an
+   instruction read them, and by a static pass over the code for the
+   paths the runs miss. 1b's `ST r0` became `CLR`, and where 1b read `r0`
+   as zero (`ADC`, `SBC`, `MTHI`) a `CLR r0` comes first. The SWI handler
+   in `interrupts.s` reads the call number with one byte load: it's the
+   instruction's register byte.
+2. **Using draft 2.** `DBNZ` for the counted loops; `INC` on memory for
+   counters (in the timer handler it saves the register too); a pop
+   between a test and its branch in `vm.s`; `REV` for SHA-256's
+   big-endian words; `MULFX` in `mandel.s` and `MULA` in `matmul.s`.
 
 Every program also passes with `r0` holding garbage from the start, which
 `tests/` checks, and linked from relocatable object files.

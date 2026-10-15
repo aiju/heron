@@ -94,8 +94,7 @@ wrap:   MOV  -[sp], r8
         MOV  r4, byte [r2 + 1]
         MOV  byte [r2 + COLS + 1], r4     ; column 1 -> column 33
         ADD  r2, #W2
-        DEC  r3
-        BNE  .col
+        DBNZ r3, .col
         MOV  r1, r8             ; row 16 -> row 0
         LEA  r2, [r8 + ROWS * W2]
         MOV  r3, #W2
@@ -119,8 +118,7 @@ show:   SAVE r8-r10
         BNE  .cell
         BSR  newline
         ADD  r8, #2
-        DEC  r9
-        BNE  .row
+        DBNZ r9, .row
         RESTORE r8-r10
         RET
 

@@ -6,10 +6,11 @@
 ;   xx = (x*x) >> 8, yy = (y*y) >> 8, xy = (x*y) >> 8 (arithmetic shift)
 ;   x = xx - yy + cx, y = 2*xy + cy
 ;
-; Each product is one MULS. |x| and |y| are below 2.0 whenever they are
-; multiplied, so every value stays far inside 16 bits and the reference's
-; 16-bit wrap-around never happens: plain 32-bit arithmetic gives the same
-; bits.
+; Each product and its shift is one MULFX, which shifts the 64-bit product
+; right arithmetically, as the reference does. |x| and |y| are below 2.0
+; whenever they are multiplied, so every value stays far inside 16 bits and
+; the reference's 16-bit wrap-around never happens: plain 32-bit arithmetic
+; gives the same bits.
 ;
 ; The |x| and |y| tests come free with the squares: |x| >= 512 exactly when
 ; x*x >= 2^18, i.e. xx >= 1024. With xx and yy never negative, the three
@@ -41,17 +42,14 @@ main:   SAVE r8-r13
         MOV  r9, #0
         MOV  r12, #-MAXIT       ; -16 still fits in the instruction
 .iter:  MOV  r1, r8
-        MULS r1, r8
-        LSR  r1, #8             ; r1 = xx (the square is never negative)
+        MULFX r1, r8, #8        ; r1 = xx
         MOV  r2, r9
-        MULS r2, r9
-        LSR  r2, #8             ; r2 = yy
+        MULFX r2, r9, #8        ; r2 = yy
         LEA  r3, [r1 + r2]      ; xx + yy
         CMP  r3, r13
         BHI  .out               ; xx + yy > 4.0
         BEQ  .edge              ; = 4.0: escaped only if |x| or |y| is 2.0
-.cont:  MULS r9, r8             ; y = x*y: y's old value isn't needed again
-        ASR  r9, #8             ; xy, rounded down like the reference
+.cont:  MULFX r9, r8, #8        ; y = xy: y's old value isn't needed again
         LEA  r9, [r11 + r9*2]   ; y = cy + 2xy
         LEA  r8, [r10 + r1]
         SUB  r8, r2             ; x = cx + xx - yy

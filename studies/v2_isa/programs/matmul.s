@@ -7,7 +7,8 @@
 ; Every number is a word. B is stored transposed as it is generated, so
 ; C[i][j] is the dot product of two consecutive runs of words (row i of A,
 ; row j of B transposed), each walked with an auto-increment operand. The
-; k loop is unrolled.
+; k loop is unrolled, each step a MULA: the sum builds up in HI:LO, 64 bits,
+; and its low word is C[i][j] mod 2^32.
 
         .include "lib/start.s"
 
@@ -32,48 +33,44 @@ main:   SAVE r8-r11
         SUB  r1, #2048
         MOV  [r9], r1
         ADD  r9, #ROW
-        DEC  r10
-        BNE  .fbcol
+        DBNZ r10, .fbcol
         ADD  r8, #4
         CMP  r8, #bt + ROW
         BNE  .fillb
 
         ; ---- multiply: no calls in here, so scratch registers only ----
+        CLR  r0
         LEA  r4, [mat_a]        ; r4 = row i of A
         LEA  r7, [mat_c]        ; r7 = C[i][j], filled in order
 .row:   LEA  r5, [bt]           ; r5 = row j of bt = column j of B
 .col:   MOV  r6, r4             ; r6 walks along row i of A
-        MOV  r3, [r6]+          ; r3 = sum, starting with k = 0
+        MTSR hi, r0             ; HI:LO = sum = 0
+        MTSR lo, r0
+        MOV  r1, [r6]+          ; k = 0
         MOV  r2, [r5]+
-        MULS r3, r2
+        MULA r1, r2             ; sum += A[i][k] * B[k][j]
         MOV  r1, [r6]+          ; k = 1
         MOV  r2, [r5]+
-        MULS r1, r2
-        ADD  r3, r1
+        MULA r1, r2
         MOV  r1, [r6]+          ; k = 2
         MOV  r2, [r5]+
-        MULS r1, r2
-        ADD  r3, r1
+        MULA r1, r2
         MOV  r1, [r6]+          ; k = 3
         MOV  r2, [r5]+
-        MULS r1, r2
-        ADD  r3, r1
+        MULA r1, r2
         MOV  r1, [r6]+          ; k = 4
         MOV  r2, [r5]+
-        MULS r1, r2
-        ADD  r3, r1
+        MULA r1, r2
         MOV  r1, [r6]+          ; k = 5
         MOV  r2, [r5]+
-        MULS r1, r2
-        ADD  r3, r1
+        MULA r1, r2
         MOV  r1, [r6]+          ; k = 6
         MOV  r2, [r5]+
-        MULS r1, r2
-        ADD  r3, r1
+        MULA r1, r2
         MOV  r1, [r6]+          ; k = 7
         MOV  r2, [r5]+
-        MULS r1, r2
-        ADD  r3, r1
+        MULA r1, r2
+        MFSR r3, lo             ; the sum's low word
         MOV  [r7]+, r3
         CMP  r5, #bt + ROW * N  ; r5 has walked through all of bt: row done
         BNE  .col
@@ -99,8 +96,7 @@ main:   SAVE r8-r11
         MOV  r3, #N
 .trace: ADD  r1, [r2]           ; C[i][i]: ROW + 4 bytes apart
         ADD  r2, #ROW + 4
-        DEC  r3
-        BNE  .trace
+        DBNZ r3, .trace
         BSR  print_s32
         BSR  newline
 

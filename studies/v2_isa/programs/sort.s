@@ -47,8 +47,7 @@ fill:   SAVE r8-r9
         MOV  r9, r2
 .loop:  BSR  rand               ; clobbers r1, r2
         MOV  [r8]+, r1
-        DEC  r9
-        BNE  .loop
+        DBNZ r9, .loop
         RESTORE r8-r9
         RET
 
@@ -143,8 +142,7 @@ report: SAVE r8-r9
         CMP  r7, r5             ; C = 0 (borrow) if smaller than the previous one
         SBC  r6, r0             ; r6 -= borrow
         MOV  r5, r7
-        DEC  r2
-        BNE  .loop
+        DBNZ r2, .loop
         MOV  r8, r3
         MOV  r9, r4
         LEA  r1, [s_sorted]
@@ -180,8 +178,7 @@ show:   SAVE r8-r10
         MOV  r1, byte [r9]+
         MOV  r1, [r8 + r1*4]    ; a[i]
         BSR  print_u32
-        DEC  r10
-        BNE  .loop
+        DBNZ r10, .loop
         RESTORE r8-r10
         BRA  newline
 

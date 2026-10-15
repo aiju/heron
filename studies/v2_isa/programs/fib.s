@@ -49,9 +49,7 @@ main:   SAVE r8-r10
 ; Nothing needs to survive the first recursive call except n - 1, which waits
 ; in a stack slot; the slot then holds fib(n - 1) across the second call and
 ; is popped straight into the final add.
-fib:    MOV  r2, [calls]
-        INC  r2
-        MOV  [calls], r2
+fib:    INC  [calls]
         CMP  r1, #2
         BLO  .done              ; fib(0) = 0, fib(1) = 1
         DEC  r1

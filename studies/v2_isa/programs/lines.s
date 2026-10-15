@@ -191,8 +191,7 @@ xor_rect:
 .mid:   XOR  r7, byte [r2]
         MOV  byte [r2]+, r7
         MOV  r7, #-1            ; the middle bytes flip completely
-        DEC  r8
-        BNE  .mid
+        DBNZ r8, .mid
         MOV  r7, r6             ; the last byte's mask
 .last:  XOR  r7, byte [r2]
         MOV  byte [r2], r7
@@ -218,16 +217,13 @@ show:   SAVE r8-r13
 .bit:   LSL  r1, #1             ; C = the next pixel
         BCS  .set
         MOV  byte [r11], r12
-        DEC  r2
-        BNE  .bit
+        DBNZ r2, .bit
         BRA  .bytedone
 .set:   MOV  byte [r11], r13
         INC  r9
-        DEC  r2
-        BNE  .bit
+        DBNZ r2, .bit
 .bytedone:
-        DEC  r10
-        BNE  .byte
+        DBNZ r10, .byte
         BSR  newline
         CMP  r8, #fb + W * H / 8
         BNE  .row

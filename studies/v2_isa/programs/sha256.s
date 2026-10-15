@@ -44,8 +44,7 @@ sha256:
         MOV  r3, #8
 .init:  MOV  r4, [r1]+
         MOV  [r2]+, r4
-        DEC  r3
-        BNE  .init
+        DBNZ r3, .init
 .full:  CMP  r9, #64            ; whole blocks straight from the message
         BLO  .tail
         MOV  r1, r8
@@ -57,15 +56,13 @@ sha256:
         MOV  r1, r11
         MOV  r2, #32
 .clr:   CLR  [r1]+
-        DEC  r2
-        BNE  .clr
+        DBNZ r2, .clr
         MOV  r1, r11            ; copy the r9 (< 64) bytes that are left
         TST  r9, r9
         BEQ  .mark
 .copy:  MOV  r2, byte [r8]+
         MOV  byte [r1]+, r2
-        DEC  r9
-        BNE  .copy
+        DBNZ r9, .copy
 .mark:  MOV  r2, #0x80
         MOV  byte [r1], r2
         ; The bit length goes in the last 8 bytes of the last block: one
@@ -78,11 +75,8 @@ sha256:
         ADD  r2, #64
 .len:   MOV  r3, r10
         LSL  r3, #3             ; bytes -> bits
-        MOV  r1, #4
-.lenb:  ROR  r3, #24            ; rotate left 8: big-endian, top byte first
-        MOV  byte [r2]+, r3
-        DEC  r1
-        BNE  .lenb
+        REV  r3                 ; big-endian
+        MOV  [r2]+, r3          ; (pad is word-aligned)
         MOV  r9, r2             ; r9 = end of the last block
         MOV  r8, r11
 .last:  MOV  r1, r8             ; hash the one or two pad blocks
@@ -97,9 +91,19 @@ sha256:
 ; Clobbers r1-r7, saves r8-r14.
 sha256_block:
         SAVE r8-r14
-        ; W[0..15] = the block read as big-endian words.
+        ; W[0..15] = the block read as big-endian words: a word load and REV
+        ; if the block is aligned (the pad blocks and msg1000's are), byte
+        ; by byte if not.
         MOV  r2, #W
-        MOV  r3, #W + 64
+        TST  r1, #3
+        BNE  .bytes
+        MOV  r3, #16
+.words: MOV  r4, [r1]+
+        REV  r4
+        MOV  [r2]+, r4
+        DBNZ r3, .words
+        BRA  .expand
+.bytes: MOV  r3, #W + 64
 .load:  MOV  r4, byte [r1]+
         LSL  r4, #8
         OR   r4, byte [r1]+
@@ -111,6 +115,7 @@ sha256_block:
         CMP  r2, r3
         BNE  .load
         ; W[16..63]. r9 points at W[t-16]; the last add steps it on.
+.expand:
         MOV  r9, #W
         MOV  r10, #W + 192      ; r9 stops at W[48] (t = 64)
 .sched: MOV  r1, [r9 + 4]       ; x = W[t-15]
@@ -224,8 +229,7 @@ print_digest:
         AND  r3, #15
         MOV  r3, byte [hexdigits + r3]
         MOV  byte [r4], r3
-        DEC  r2
-        BNE  .digit
+        DBNZ r2, .digit
         CMP  r5, r6
         BNE  .word
         BRA  newline            ; tail call

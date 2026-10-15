@@ -78,8 +78,7 @@ print_hex:
         AND  r3, #15
         MOV  r3, byte [__pr_hexdigits + r3]
         MOV  byte [r4], r3
-        DEC  r2
-        BNE  .loop
+        DBNZ r2, .loop
         RET
 
 __pr_hexdigits:

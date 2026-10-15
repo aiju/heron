@@ -53,9 +53,7 @@ main:   SAVE r8-r14
         ADD  r13, #1            ; linear probing
         AND  r13, #SLOTS - 1
         BRA  .probe
-.found: MOV  r1, [r14 + r13*8 + 4]
-        ADD  r1, #1
-        MOV  [r14 + r13*8 + 4], r1
+.found: INC  [r14 + r13*8 + 4]   ; one more of this word
         MOV  r10, r9            ; drop the copy: the pool space is reused
         BRA  .skip
 .new:   MOV  [r14 + r13*8], r9

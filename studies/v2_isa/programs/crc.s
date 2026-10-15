@@ -22,8 +22,7 @@ main:   SAVE r8-r9
 .fill:  BSR  rand
         MOV  half [r8], r1      ; (there is no half [r]+ mode)
         ADD  r8, #2
-        DEC  r9
-        BNE  .fill
+        DBNZ r9, .fill
 
         LEA  r8, [tests]        ; run the four tests, walking the table with [r8]+
 .test:  MOVS r1, [r8]+          ; label; 0 ends the list
@@ -54,8 +53,7 @@ crc_bits:
         BCC  .nopoly
         XOR  r3, r7
 .nopoly:
-        DEC  r6
-        BNE  .bit
+        DBNZ r6, .bit
 .next:  CMP  r1, r2
         BLO  .byte
         MOV  r1, r3
@@ -95,8 +93,7 @@ mktable:
         BCC  .nopoly
         XOR  r2, r7
 .nopoly:
-        DEC  r4
-        BNE  .bit
+        DBNZ r4, .bit
         LSR  r2, #16
         MOV  half [r3 + r1*2], r2
         DEC  r1

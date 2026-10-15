@@ -127,8 +127,7 @@ cmd_w:  BSR  getargs
 .next:  MOV  r4, [r2]+
         MOV  half [r3], r4
         ADD  r3, #2
-        DEC  r1
-        BNE  .next
+        DBNZ r1, .next
         RET
 
 cmd_b:  BSR  getargs
@@ -138,8 +137,7 @@ cmd_b:  BSR  getargs
         MOV  r3, [r2]+          ; r3 = address
 .next:  MOV  r4, [r2]+
         MOV  byte [r3]+, r4
-        DEC  r1
-        BNE  .next
+        DBNZ r1, .next
         RET
 
 cmd_s:  BSR  skipblanks
@@ -213,8 +211,7 @@ cmd_d:  BSR  getargs
         BEQ  .text0
 .pad:   LEA  r1, [s_pad]        ; keep the text column lined up
         BSR  puts
-        DEC  r11
-        BNE  .pad
+        DBNZ r11, .pad
 .text0: BSR  space
         BSR  space
         MOV  r11, r8
