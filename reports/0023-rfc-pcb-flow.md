@@ -281,7 +281,7 @@ check, KiCad's DRC and the fab netlist's check.
 | | 6 | 400 × 302 | the parts don't fit |
 | | 4 | **480 × 340** | **routed ✓** |
 | | 4 | 480 × 320, rows of 31 mm | routed |
-| | 4 | 440 × 302, the six-layer slots | DIP4_440 |
+| | 4 | 440 × 302, the six-layer slots | not routed (17 nets in conflict) |
 | SMD, free, capacitors under | 6 | 380 × 220 | routed ✓ |
 | | 6 | 340 × 220 | routed |
 | | 6 | 300 × 220 | routed ✓ |
