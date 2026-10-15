@@ -285,10 +285,6 @@ Offered in the discussions and the reports, not done yet:
   - the call path and a block move costed in the microcode generator.
 - **The D/A split** with per-register translation caches, on report 0020's
   page traces ([RFC 0010](0010-rfc-ideas-os.md#4-address-registers-with-hidden-state)).
-- **Variable-length cycles in the draft 1b netlist:** the length field, the
-  clock generator in the chip-level simulator, timing analysis against
-  each microinstruction's own length, and lengths assigned from the
-  analysis.
 - **The pin-by-pin assignment of P1 and P2,** following the rules in
   [RFC 0014](0014-rfc-system-bus.md#pin-assignment-rules); report 0022's
   reference assignment is a start. Then timing diagrams for the bus's
@@ -307,4 +303,7 @@ Done since they were offered:
   running processes and demand-zero pages (v1bs,
   [report 0020](0020-report-operating-system.md));
 - the signal-integrity write-up, with the ground-bounce model fixed and
-  the failed jobs rerun ([report 0022](0022-report-bus-si-revised.md)).
+  the failed jobs rerun ([report 0022](0022-report-bus-si-revised.md));
+- variable-length cycles in the draft 1b netlist, with the CPU as a card
+  on the system bus (v1b_system,
+  [report 0025](0025-report-draft-1b-system.md)).

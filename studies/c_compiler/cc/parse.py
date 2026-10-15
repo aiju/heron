@@ -315,11 +315,11 @@ class Parser:
             if old.kind != "var":
                 self.error(f"{name} redeclared as a variable", tok)
             if not T.same_type(old.ty, ty):
-                if old.ty.is_array and ty.is_array and T.same_type(old.ty.base, ty.base):
-                    if old.ty.length is None:
-                        old.ty = ty
-                else:
-                    self.error(f"conflicting types for {name}: {old.ty} and {ty}", tok)
+                self.error(f"conflicting types for {name}: {old.ty} and {ty}", tok)
+            # same_type lets int[] match int[N]: the later declaration
+            # completes the earlier one.
+            if old.ty.is_array and old.ty.length is None and ty.length is not None:
+                old.ty = ty
             if storage != "extern":
                 if old.storage == "extern":
                     old.storage = "static" if storage == "static" else "global"
@@ -684,7 +684,7 @@ class Parser:
         if self.at("{"):
             self.next()
             ty = self.init_braced(ty, 0, init.items)
-        elif ty.is_array and ty.base.kind == "char" and self.peek().kind == "str":
+        elif self.string_init(ty):
             ty = self.init_string(ty, 0, init.items)
         elif ty.is_array:
             self.error("an array needs a braced initializer")
@@ -694,6 +694,12 @@ class Parser:
             init.items.append((0, ty, self.convert_assign(e, ty, tok)))
         init.ty = ty
         return init
+
+    def string_init(self, ty):
+        """Whether a string literal initialises the array ty (a char array,
+        but not a _Bool one, which is a char too)."""
+        return (ty.is_array and ty.base.kind == "char" and not ty.base.is_bool
+                and self.peek().kind == "str")
 
     def init_string(self, ty, off, items):
         tok = self.peek()
@@ -711,7 +717,7 @@ class Parser:
     def init_braced(self, ty, off, items):
         """After '{': a braced list for an object of type ty at offset off."""
         if ty.is_array:
-            if ty.base.kind == "char" and self.peek().kind == "str":
+            if self.string_init(ty):
                 ty = self.init_string(ty, off, items)
                 self.accept(",")
                 self.expect("}")
@@ -777,7 +783,7 @@ class Parser:
             self.init_braced(ty, off, items)
             return
         if ty.is_array:
-            if ty.base.kind == "char" and self.peek().kind == "str":
+            if self.string_init(ty):
                 self.init_string(ty, off, items)
                 return
             esz = ty.base.size

@@ -110,6 +110,14 @@ and after compiling its source:
   KB of permanent space. Compiling a program's own source costs up to
   3.9M cycles; Richards' 300 lines take 1.3 s.
 
+> **Erratum (2026-10-15).** The C compiler now loads a switch table's
+> address PC-relative, and `build.py` no longer declares the tables
+> `.far` to work around its 16-bit addresses (issue #18). That makes the
+> C loop's dispatch a parcel shorter: it takes 1.70× the hand-written
+> loop's cycles on D16-overlap, 1.72× on D32-separate and 1.69× on
+> D32-wide. [performance.md](0017-report-egret/performance.md) has the
+> current numbers.
+
 ### Where the interpreter's cycles go
 
 Means over the programs, D32-separate (per program in

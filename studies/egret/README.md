@@ -57,10 +57,5 @@ heron test egret                                          # the unit tests
 
 - The VM image is about 140 KB (185 KB with the JIT) and sits below the
   console input buffer at 0x30000; the JIT build leaves 8 KB.
-- Two C compiler bugs are worked around here rather than fixed: the C
-  compiler addresses its switch tables with 16 bits, which fails once the
-  code passes 32 KB, so `build.py` declares them `.far`; and it gives an
-  array declared `extern T a[]` the size of that declaration rather than
-  of its definition, so `egret.h` sizes `prim_table`.
 - `EGRET_SLOWCOUNT` (a define for `build.machine`) counts the bytecodes the
   asm loop or the JIT hands to C, in `egret_slowcount`.

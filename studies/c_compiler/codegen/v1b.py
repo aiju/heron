@@ -368,7 +368,10 @@ class V1B(Target):
             self.emit("LEA", [t, Mem(r, disp=-lo)], defs=[t])
         self.emit("CMP", [t, Imm(span)], uses=[t], flags="cmp")
         self.emit("BCC", [Label(default)], cond="HS", targets=[default])
-        base = self.const_reg(label)
+        # PC-relative: the table is in the function's own section, so it is
+        # in reach wherever the linker puts the function
+        base = VReg()
+        self.emit("LEA", [base, f"[pc + {label}]"], defs=[base])
         self.emit("JMPM", [Mem(base, index=t, scale=4)], targets=list(dict.fromkeys(table)))
 
     def inline_copy(self, dst, src, size, align):

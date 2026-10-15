@@ -170,10 +170,10 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 | lisp-boyer-c | 28.4 M | 19 / 211 | 25.6 | 128.82 | 30.91 | 1.59 | 0.09 | 0.03 | 0.02 | 13.51 | 0.01 |
 | lisp-meta-c | 21.6 M | 19 / 209 | 21.3 | 88.52 | 29.50 | 3.29 | 0.07 | 0.02 | 0.01 | 10.39 | 0.01 |
 | lisp-boyer-i | 309.0 M | 4 / 202 | 3.9 | 51.13 | 15.21 | 0.23 | 0.06 | 0.01 | 0.01 | 24.96 | 0.00 |
-| egret-richards-jit | 7.1 M | 23 / 61 | 24.5 | 107.60 | 19.61 | 2.07 | 0.02 | 0.01 | 0.01 | 2.06 | 0.01 |
+| egret-richards-jit | 7.1 M | 23 / 61 | 24.6 | 107.61 | 19.63 | 2.07 | 0.02 | 0.01 | 0.01 | 2.06 | 0.01 |
 | egret-json-i | 32.6 M | 12 / 174 | 25.9 | 149.73 | 92.30 | 9.49 | 0.04 | 0.01 | 0.01 | 34.12 | 0.01 |
-| gfx-wm-8 | 6.5 M | 8 / 102 | 11.9 | 25.40 | 3.78 | 1.31 | 0.74 | 0.07 | 0.02 | 5.07 | 0.02 |
-| gfx-text-1 | 11.2 M | 8 / 35 | 10.1 | 28.26 | 1.14 | 0.27 | 0.00 | 0.00 | 0.00 | 0.26 | 0.00 |
+| gfx-wm-8 | 6.5 M | 8 / 101 | 8.9 | 22.93 | 3.51 | 1.30 | 0.74 | 0.07 | 0.02 | 4.99 | 0.02 |
+| gfx-text-1 | 11.2 M | 8 / 35 | 10.5 | 28.72 | 1.05 | 0.21 | 0.00 | 0.00 | 0.00 | 0.29 | 0.00 |
 | c-wordfreq | 0.1 M | 1 / 5 | 0.0 | 36.62 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 |
 | asm-vm | 0.6 M | 1 / 2 | 0.0 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 
@@ -182,9 +182,9 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 | lisp-boyer-c | Lisp: compile boyer on the machine, then run it | 103.0 M | 223 |
 | lisp-meta-c | Lisp: compile and run a metacircular interpreter | 76.6 M | 222 |
 | lisp-boyer-i | Lisp: boyer, interpreted | 1,056.2 M | 203 |
-| egret-richards-jit | Egret: richards, compiled by the JIT | 29.5 M | 66 |
+| egret-richards-jit | Egret: richards, compiled by the JIT | 29.4 M | 66 |
 | egret-json-i | Egret: json, interpreted | 133.6 M | 178 |
-| gfx-wm-8 | Graphics: the window manager scene at 8 bits per pixel | 27.3 M | 105 |
+| gfx-wm-8 | Graphics: the window manager scene at 8 bits per pixel | 27.3 M | 104 |
 | gfx-text-1 | Graphics: the text scene at 1 bit per pixel | 45.2 M | 38 |
 | c-wordfreq | C: word frequencies with a hash table | 0.4 M | 5 |
 | asm-vm | Assembly: the bytecode interpreter | 2.9 M | 2 |

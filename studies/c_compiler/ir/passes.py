@@ -877,6 +877,11 @@ def licm(func):
         pre = make_preheader(func, h, body)
         if pre is None:
             continue
+        # a new preheader is inside the loops around this one: what moves
+        # into it can only move further out with them
+        for h2, body2 in loops.items():
+            if h in body2 and h2 is not h:
+                body2.add(pre)
         defined_inside = {i for b in body for i in b.instrs}
         moved = False
         for b in dom.rpo:
