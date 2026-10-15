@@ -19,6 +19,7 @@ dependencies = [
  "sisim",
  "toolchain",
  "v1-isa",
+ "v1b-rtl",
 ]
 
 [[package]]
@@ -223,3 +224,7 @@ version = "0.1.0"
 dependencies = [
  "toolchain",
 ]
+
+[[package]]
+name = "v1b-rtl"
+version = "0.1.0"

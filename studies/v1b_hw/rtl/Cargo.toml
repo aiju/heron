@@ -1,0 +1,13 @@
+# The draft 1b hardware's register-transfer model in Rust: the datapath and
+# sequencer of studies/v1b_hw/rtl.py running the microcode ROM images that
+# ucode.py generates, cycle by cycle. It runs a whole machine, or follows
+# the instruction-level simulator as a shadow that times each instruction.
+# Python uses it through heron/bindings as heron.native.v1b_rtl.
+[package]
+name = "v1b-rtl"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

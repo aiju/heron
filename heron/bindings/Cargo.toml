@@ -20,6 +20,7 @@ hwsim = { path = "../../infra/hwsim" }
 sisim = { path = "../../infra/sisim" }
 toolchain = { path = "../../infra/toolchain" }
 v1-isa = { path = "../../studies/v1_isa/isa" }
+v1b-rtl = { path = "../../studies/v1b_hw/rtl" }
 pyo3.workspace = true
 pythonize.workspace = true
 
