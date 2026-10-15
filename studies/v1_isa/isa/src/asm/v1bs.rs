@@ -50,27 +50,37 @@ impl Encoder for V1bs {
     }
 
     fn assemble(&self, name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmError> {
-        let u = name.to_ascii_uppercase();
-        match u.as_str() {
-            "MFSR" | "MTSR" => {
-                if ops.len() != 2 {
-                    return err(format!("{u} needs a register and a special register"));
-                }
-                Ok(vec![if u == "MFSR" {
-                    w(0, reg_operand(&ops[0], "register")?, sr(ctx, &ops[1])?, 10)
-                } else {
-                    w(0, sr(ctx, &ops[0])?, reg_operand(&ops[1], "register")?, 11)
-                }])
+        assemble(name, ops, ctx, None)
+    }
+}
+
+/// Assemble one instruction; `rt` as for draft 1b's (v1b::assemble).
+pub(super) fn assemble(
+    name: &str,
+    ops: &[Operand],
+    ctx: &mut Ctx,
+    rt: Option<i64>,
+) -> Result<Vec<u16>, AsmError> {
+    let u = name.to_ascii_uppercase();
+    match u.as_str() {
+        "MFSR" | "MTSR" => {
+            if ops.len() != 2 {
+                return err(format!("{u} needs a register and a special register"));
             }
-            "MFUR" | "MTUR" => {
-                if ops.len() != 2 {
-                    return err(format!("{u} needs 'rd, rs'"));
-                }
-                let a = reg_operand(&ops[0], "register")?;
-                let b = reg_operand(&ops[1], "register")?;
-                Ok(vec![w(0, a, b, if u == "MFUR" { 14 } else { 15 })])
-            }
-            _ => V1B.assemble(name, ops, ctx),
+            Ok(vec![if u == "MFSR" {
+                w(0, reg_operand(&ops[0], "register")?, sr(ctx, &ops[1])?, 10)
+            } else {
+                w(0, sr(ctx, &ops[0])?, reg_operand(&ops[1], "register")?, 11)
+            }])
         }
+        "MFUR" | "MTUR" => {
+            if ops.len() != 2 {
+                return err(format!("{u} needs 'rd, rs'"));
+            }
+            let a = reg_operand(&ops[0], "register")?;
+            let b = reg_operand(&ops[1], "register")?;
+            Ok(vec![w(0, a, b, if u == "MFUR" { 14 } else { 15 })])
+        }
+        _ => super::v1b::assemble(name, ops, ctx, rt),
     }
 }

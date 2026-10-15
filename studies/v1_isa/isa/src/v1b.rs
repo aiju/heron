@@ -128,6 +128,19 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
             return Ok((insn::dec_jcc(pc, w, &mut |a| parcel(a))?, n));
         }
         OP_RR => {
+            // v1bx with a fixed-base mode E: the tagged register
+            // operations are op F's functions 9-E (MOV, ADD, SUB, CMP,
+            // AND, OR) instead
+            if m.isa == Isa::V1bx && m.rt.is_some() && (9..=0xE).contains(&rn) {
+                return Ok((
+                    Insn::AluTag {
+                        f: ea_alu([OP_MOV, 4, 5, 6, 7, 8][rn as usize - 9]),
+                        d: d as u8,
+                        rn: mode as u8,
+                    },
+                    1,
+                ));
+            }
             if rn as usize >= RR_ALU.len() {
                 return Ok((Insn::Illegal, 1));
             }
@@ -149,10 +162,18 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
         ext[(i - 1) as usize] = parcel(pc.wrapping_add(2 * i))?;
     }
     let nxt = pc.wrapping_add(2 * n);
-    let opnd = if mode == 0xE && m.isa == Isa::V1bx {
-        Some(Operand::Tagged(rn as u8))
-    } else {
-        operand(mode, rn, ext, nxt)
+    let opnd = match (mode, m.rt) {
+        // the fixed-base mode: the word at rT + 4R, as [sp + 4R]
+        (0xE, Some(t)) => Some(Operand::Mem(MemOp {
+            ea: Ea::Rd,
+            base: t,
+            disp: 4 * rn,
+            index: 0,
+            scale: 1,
+            size: 4,
+        })),
+        (0xE, None) if m.isa == Isa::V1bx => Some(Operand::Tagged(rn as u8)),
+        _ => operand(mode, rn, ext, nxt),
     };
     let Some(opnd) = opnd else {
         return Ok((Insn::Illegal, n));

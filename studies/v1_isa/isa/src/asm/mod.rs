@@ -17,14 +17,72 @@ pub use v1b::V1B;
 pub use v1bs::V1BS;
 
 /// The encoder for an ISA named in an object file or on a command line.
+/// `v1b+rtN`, `v1bx+rtN` and `v1bs+rtN` are 1b's encoders that also use
+/// the fixed-base mode E for `[rN + 4k]` (machine::Isa::parse).
 pub fn encoder(name: &str) -> Option<&'static dyn Encoder> {
     match name {
         "v1a" => Some(&V1A),
         "v1b" => Some(&V1B),
         "v1bs" => Some(&V1BS),
-        _ => None,
+        _ => {
+            let (base, r) = name.split_once("+rt")?;
+            let r: usize = r.parse().ok().filter(|&r| r < 16)?;
+            let table = match base {
+                "v1b" | "v1bx" => &RT_V1B,
+                "v1bs" => &RT_V1BS,
+                _ => return None,
+            };
+            Some(&table[r])
+        }
     }
 }
+
+/// 1b's encoder with a fixed-base register for mode E. Its objects are
+/// named for the base ISA, so they link with the base ISA's: the mode is
+/// only one more encoding the assembler may pick.
+pub struct WithRt {
+    base: &'static str,
+    rt: i64,
+}
+
+impl Encoder for WithRt {
+    fn name(&self) -> &'static str {
+        self.base
+    }
+
+    fn register(&self, name: &str) -> Option<u32> {
+        V1B.register(name)
+    }
+
+    fn word_bytes(&self) -> i64 {
+        V1B.word_bytes()
+    }
+
+    fn mem_top(&self) -> i64 {
+        V1B.mem_top()
+    }
+
+    fn assemble(&self, name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmError> {
+        if self.base == "v1bs" {
+            v1bs::assemble(name, ops, ctx, Some(self.rt))
+        } else {
+            v1b::assemble(name, ops, ctx, Some(self.rt))
+        }
+    }
+}
+
+const fn with_rt(base: &'static str) -> [WithRt; 16] {
+    let mut out = [const { WithRt { base: "", rt: 0 } }; 16];
+    let mut i = 0;
+    while i < 16 {
+        out[i] = WithRt { base, rt: i as i64 };
+        i += 1;
+    }
+    out
+}
+
+static RT_V1B: [WithRt; 16] = with_rt("v1b");
+static RT_V1BS: [WithRt; 16] = with_rt("v1bs");
 
 const M32: i64 = 0xFFFF_FFFF;
 /// The assembler refuses to place anything from here on.

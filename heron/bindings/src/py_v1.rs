@@ -118,9 +118,10 @@ pub mod v1 {
             reference: &str,
             system: Option<&Bound<'_, PyDict>>,
         ) -> PyResult<Machine> {
-            let isa = Isa::named(isa)
+            let (isa, rt) = Isa::parse(isa)
                 .ok_or_else(|| PyValueError::new_err(format!("no draft 1 ISA {isa:?}")))?;
             let mut m = Engine::new(isa, image, inp, config(reference)?);
+            m.rt = rt;
             if let Some(d) = system {
                 let get = |k: &str| d.get_item(k);
                 let uart_in: Vec<u8> = match get("uart_in")? {

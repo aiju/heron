@@ -22,7 +22,7 @@ report 0004 compares against.
 | [isa-v1a.md](isa-v1a.md), [isa-v1b.md](isa-v1b.md) | The two encodings |
 | [timing-model-v1.md](timing-model-v1.md) | How cycle counts are estimated for six hardware configurations |
 | `refcard.py` | Quick reference cards for 1a and 1b, two A4 pages each, as PDF in `build/refcard/` |
-| `isa/` | The ISAs' decoders and semantics, the instruction-level simulator, the timing model and the encoders the assembler uses, in Rust ([RFC 0015](../../reports/0015-rfc-languages.md)). Also two variants other studies use, v1bx for the Lisp ([isa.md](../lisp/isa.md)) and v1bs for the kernel study ([system.md](../kernel/system.md), `sys.rs`), and page reference counters (`pages.rs`) |
+| `isa/` | The ISAs' decoders and semantics, the instruction-level simulator, the timing model and the encoders the assembler uses, in Rust ([RFC 0015](../../reports/0015-rfc-languages.md)). Also the variants other studies use: v1bx for the Lisp ([isa.md](../lisp/isa.md)), v1bs for the kernel study ([system.md](../kernel/system.md), `sys.rs`), and `+rtN` for a fixed-base mode E ([fixed_base](../fixed_base/README.md)); and page reference counters (`pages.rs`) |
 | `v1common.py`, `v1a.py`, `v1b.py` | The ISAs' disassemblers, and what the tools need to know about them |
 | `sim32.py`, `timing32.py` | The simulator and the timing model as the studies use them, running the Rust ones |
 | `programs/v1a/`, `programs/v1b/` | The 20 programs and their libraries, in each encoding |

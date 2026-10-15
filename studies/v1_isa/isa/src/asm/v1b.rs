@@ -85,7 +85,7 @@ impl Encoder for V1b {
     }
 
     fn assemble(&self, name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmError> {
-        assemble(name, ops, ctx)
+        assemble(name, ops, ctx, None)
     }
 }
 
@@ -123,8 +123,15 @@ fn imm_mode(ctx: &mut Ctx, e: &ExprRef, min_ext: i64, n_before: i64) -> Result<M
     Ok((0xF, 3, vec![(v & 0xFFFF) as u16, (v >> 16) as u16]))
 }
 
-/// A memory operand.
-fn mem_mode(ctx: &mut Ctx, mem: &Mem, min_ext: i64, n_before: i64) -> Result<Mode, AsmError> {
+/// A memory operand. `rt`: the fixed-base register of mode E, if the
+/// machine has one (Isa::parse).
+fn mem_mode(
+    ctx: &mut Ctx,
+    mem: &Mem,
+    min_ext: i64,
+    n_before: i64,
+    rt: Option<i64>,
+) -> Result<Mode, AsmError> {
     let size = bytes(mem.size);
     let next = ctx.pc + 2 * (n_before + 1);
     if let Some(base) = &mem.base
@@ -228,6 +235,10 @@ fn mem_mode(ctx: &mut Ctx, mem: &Mem, min_ext: i64, n_before: i64) -> Result<Mod
     if min_ext == 0 && known && b == 15 && size == 4 && (0..=60).contains(&sd) && sd % 4 == 0 {
         return Ok((4, sd / 4, vec![]));
     }
+    if min_ext == 0 && known && Some(b) == rt && size == 4 && (0..=60).contains(&sd) && sd % 4 == 0
+    {
+        return Ok((0xE, sd / 4, vec![]));
+    }
     if mem.disp.is_some() {
         ctx.fix(n_before, ABS16S, mem.disp.as_ref(), 0)?;
     }
@@ -235,7 +246,7 @@ fn mem_mode(ctx: &mut Ctx, mem: &Mem, min_ext: i64, n_before: i64) -> Result<Mod
 }
 
 /// An operand's mode.
-fn ea(ctx: &mut Ctx, op: &Operand, n_before: i64) -> Result<Mode, AsmError> {
+fn ea(ctx: &mut Ctx, op: &Operand, n_before: i64, rt: Option<i64>) -> Result<Mode, AsmError> {
     let min_ext = (ctx.min_words() - n_before).max(0);
     match op {
         Operand::Reg(r) => {
@@ -245,7 +256,7 @@ fn ea(ctx: &mut Ctx, op: &Operand, n_before: i64) -> Result<Mode, AsmError> {
             Ok((0, r.n as i64, vec![]))
         }
         Operand::Imm(e) => imm_mode(ctx, e, min_ext, n_before),
-        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before),
+        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before, rt),
         _ => err("expected a register, #constant or [memory] operand"),
     }
 }
@@ -269,7 +280,13 @@ fn with_ext(first: u16, ext: Vec<u16>) -> Vec<u16> {
     out
 }
 
-fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmError> {
+/// Assemble one instruction; `rt` as for mem_mode.
+pub(super) fn assemble(
+    name: &str,
+    ops: &[Operand],
+    ctx: &mut Ctx,
+    rt: Option<i64>,
+) -> Result<Vec<u16>, AsmError> {
     let u = name.to_ascii_uppercase();
     let u = u.as_str();
     let k = kinds(ops);
@@ -284,7 +301,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
         } else {
             ("MOV", true)
         };
-        return assemble(op, &[ops[0].clone(), sp_mem(postinc)], ctx);
+        return assemble(op, &[ops[0].clone(), sp_mem(postinc)], ctx, rt);
     }
     if u == "LI" {
         if k != "RE" && k != "RI" {
@@ -294,10 +311,11 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             "MOV",
             &[ops[0].clone(), Operand::Imm(ex(&ops[1])?.clone())],
             ctx,
+            rt,
         );
     }
     if (u == "JMP" || u == "CALL") && (k == "M" || k == "I") {
-        let (m, r, ext) = ea(ctx, &ops[0], 1)?;
+        let (m, r, ext) = ea(ctx, &ops[0], 1, rt)?;
         if let Operand::Mem(mem) = &ops[0]
             && bytes(mem.size) != 4
         {
@@ -328,7 +346,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             }
             src => src,
         };
-        let (m, r, ext) = ea(ctx, src, 1)?;
+        let (m, r, ext) = ea(ctx, src, 1, rt)?;
         if u == "ST" && (matches!(m, 0 | 1 | 0xD) || (m == 0xF && r <= 3)) {
             return err("ST needs a memory operand");
         }

@@ -51,6 +51,21 @@ impl Isa {
             _ => None,
         }
     }
+
+    /// An ISA name with an optional fixed-base register for mode E:
+    /// `v1b+rt14` is draft 1b where mode E is the word at `r14 + 4R`
+    /// (draft 2's `[rT + 4R]`, RFC 0028). In `v1bx+rtN` the tagged
+    /// register operations move to op F, functions 9-E.
+    pub fn parse(name: &str) -> Option<(Isa, Option<u8>)> {
+        match name.split_once("+rt") {
+            None => Isa::named(name).map(|i| (i, None)),
+            Some((base, r)) => {
+                let isa = Isa::named(base).filter(|&i| i != Isa::V1a)?;
+                let r: u8 = r.parse().ok().filter(|&r| r < 16)?;
+                Some((isa, Some(r)))
+            }
+        }
+    }
 }
 
 /// The console, the timer and the cycle counter.
@@ -186,6 +201,8 @@ pub struct Machine {
     pub data_bytes: u64,
     /// v1bs's system state (sys.rs); None for the other ISAs.
     pub sys: Option<Box<Sys>>,
+    /// The fixed-base register of mode E (`Isa::parse`), if it has one.
+    pub rt: Option<u8>,
     /// Page reference statistics, when a tool has turned them on.
     pub pages: Option<Box<PageStats>>,
     /// The system bus, instead of the I/O page (see [`Bus`]).
@@ -239,6 +256,7 @@ impl Machine {
             min_sp: u32::MAX,
             data_bytes: 0,
             sys: (isa == Isa::V1bs).then(|| Box::new(Sys::new())),
+            rt: None,
             pages: None,
             bus: None,
             reference,
