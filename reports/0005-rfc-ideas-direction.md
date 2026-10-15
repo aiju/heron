@@ -37,48 +37,40 @@ Chip counts are rough estimates unless they come from a netlist.
 
 ## 1. Direction and ambition
 
-- **Put the ambition into the system, not raw CPU speed.** **open.**
+- **A whole computer, not raw CPU speed.** The fun part is building a
+  whole machine; period authenticity is held lightly (Emily, 2026-10-15).
   - Designing big is cheap now (netlist language, simulators, timing
     analysis). Building big isn't: wiring, signal integrity, parts.
-  - Software will be the long pole: a C compiler, an OS port, drivers.
+  - Software is cheap too, with Claude writing most of it: since draft 1
+    the studies have built a C compiler, a Lisp and an object language
+    that compile on the machine, graphics and a window manager, and a
+    kernel.
   - Three directions:
     1. A whole computer: OS, compiler, storage, terminals, front panel.
        Biggest payoff. Bill Buzbee's Magic-1 (~200 TTL chips, runs Minix)
        is the calibration point.
     2. Bigger: 32-bit (below).
     3. Faster: pipelining and caches. Lowest payoff per effort.
-
-  The studies since draft 1 have mostly taken the first direction: a C
-  compiler, a Lisp and an object language that compile on the machine,
-  graphics and a window manager, and a kernel.
-- **OS ambition ladder.** **open.** Aim for the top, build in stages:
-  1. Resident monitor: needs a boot ROM.
-  2. Single-tasking disk OS (CP/M, OS/8): needs storage, a system-call
-     convention and a loader.
-  3. Unprotected multitasking: needs timer preemption and relocatable
-     programs.
-  4. Protected multi-user (V6 Unix on a PDP-11/40): needs modes, an MMU, a
-     kernel stack and faults.
-
-  [Report 0020](0020-report-operating-system.md) proposes what the
-  operating system could be, and stages it from a monitor to protection
+- **The operating system has protection** (Emily, 2026-10-15); what kind
+  of system it is is still open. [Report 0020](0020-report-operating-system.md)
+  proposes one, and stages it from a monitor to protection
   ([RFC 0010](0010-rfc-ideas-os.md#1-the-operating-system)).
-- **A 32-bit architecture, built narrow first** (the System/360 Model 30
-  and the 68000 did this). **adopted** (draft 1), **measured.**
+- **A 32-bit architecture** (VAX-11/780, Eclipse MV/8000). **adopted**
+  (draft 1).
   - A 32-bit address space removes the workarounds for 64 KB: banking,
     video windows, I/D spaces.
-  - It gives encoding room and suits C and existing software. It's
-    period-authentic: VAX-11/780, Eclipse MV/8000.
-  - Measured: a 32-bit ISA on a 16-bit datapath and bus is *slower* than
-    draft 0 on ordinary code. It only gains on multiply/divide
-    ([report 0004](0004-report-draft-1-evaluation.md)).
-  - So the draft 1b hardware has a 32-bit datapath and a 16-bit memory
-    bus: 213 chips against draft 0's 98, about twice as fast
+  - It gives encoding room and suits C and existing software.
+  - The draft 1b hardware has a 32-bit datapath and a 16-bit memory bus:
+    213 chips against draft 0's 98, about twice as fast
     ([report 0012](0012-report-draft-1b-hardware.md)). The system
     extensions of [report 0020](0020-report-operating-system.md#the-hardware-list)
     would add roughly 40 more.
-- **Base draft 2 on 1b.** **open**: Emily's preference, and where most of
-  the work has gone. The 1a recommendation of report 0004 is withdrawn
+- **Built narrow first** (a 16-bit datapath and bus, as the System/360
+  Model 30 and the 68000 did): **rejected** (Emily, 2026-10-15). A 32-bit
+  ISA on them is *slower* than draft 0 on ordinary code, and only gains
+  on multiply and divide ([report 0004](0004-report-draft-1-evaluation.md)).
+- **Draft 2 builds on 1b.** **decided** (Emily, 2026-10-15). The 1a
+  recommendation of report 0004 is withdrawn
   ([RFC 0006](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 - **Keep 16-bit instruction parcels with 0–2 extension parcels**
   (precedents: SuperH, 68000, Thumb). **adopted.**
@@ -154,7 +146,8 @@ D32-separate. One is an estimate, and says so.
 Measured and small, about 1% or less: `r0` as a general register, a
 class load, a three-operand `XOR`, unaligned 16-bit loads, a link
 register, `CHK`, one-parcel pair offsets for the Lisp
-([RFC 0006](0006-rfc-ideas-isa.md#6-for-dynamic-languages)). Batching
+([RFC 0006](0006-rfc-ideas-isa.md#6-for-dynamic-languages)). Small isn't
+the same as not wanted: the link register is open. Batching
 system calls through rings doesn't pay on this machine at all
 ([RFC 0010](0010-rfc-ideas-os.md#1-the-operating-system)).
 
@@ -230,35 +223,56 @@ draft 1 has precise traps, and section 2 ranks the rest by measurement.
 
 Questions that only Emily can answer:
 
-1. What's the fun part: using the finished machine (OS, compiler,
-   software), the hardware engineering itself, or period authenticity?
-2. Build budget, roughly in chips or months (100, 200 and 400 chips are
-   different projects)? The draft 1b CPU alone is 213.
-3. **Draft 2's base:** 1b is Emily's preference. Is it decided?
-4. **A narrow implementation first:** a 16-bit datapath turned out slower
-   than draft 0, and the draft 1b hardware is 32 bits wide with a 16-bit
-   memory bus. Is that what "narrow" means now?
-5. OS goal: report 0020 recommends a message-passing nucleus with file
-   servers and per-process name spaces, in the style of Plan 9. Is that
-   the direction, or Unix-like (processes, files, a shell), or
-   period-flavoured (a BASIC timesharing system, a Forth machine)? Is
-   multi-user protection needed, or is unprotected multitasking enough?
-6. Console: a serial terminal, or should the machine drive its own screen?
-   If a screen, what for: a GUI, games, or both ([RFC 0016](0016-rfc-video.md#14-open-questions))?
-7. How many simultaneous terminals?
-8. **How strictly 7400 logic:** may the design use PLDs (GALs: the
-   backplane's logic is about 28 chips without them and 13 with them, and
-   the video card shrinks by about a third), a RAMDAC, a microcontroller
-   inside a peripheral (a terminal multiplexer), or a single-chip Ethernet
-   controller for bring-up?
-9. The card size, how the system splits into cards (the CPU needs at
-   least two), and DIP or SOIC. These wait until the design is closer to
+1. **Build budget,** roughly in chips or months (100, 200 and 400 chips
+   are different projects)? To be decided. The draft 1b CPU alone is 213
+   chips.
+2. **The operating system:** it has protection, but what kind of system?
+   Report 0020 recommends a message-passing nucleus with file servers and
+   per-process name spaces, in the style of Plan 9; a small Unix and a
+   single-address-space world are the main alternatives
+   ([RFC 0010](0010-rfc-ideas-os.md#1-the-operating-system)).
+3. **How many terminals?** Undecided, and probably not more than 4 serial
+   ports. It hardly matters for the CPU: with FIFO UARTs, a line running
+   flat out at 9,600 baud is an estimated few percent of the machine,
+   and a person typing much less
+   ([RFC 0009](0009-rfc-ideas-io.md#1-io)).
+4. **Bought-in chips:** a RAMDAC for the video card is undecided
+   ([RFC 0016](0016-rfc-video.md#5-pixels-and-colour)), and so is a
+   single-chip Ethernet controller for bring-up
+   ([RFC 0009](0009-rfc-ideas-io.md#4-networking)).
+5. **Cards:** the card size, and how the system splits into cards (the
+   CPU needs at least two). To be decided, when the design is closer to
    completion.
-10. The system bus's open questions: the bus clock, the slot bits, a
-    slower simple class, arbitration, card IDs, and more
-    ([RFC 0014, section 14](0014-rfc-system-bus.md#14-open-questions)).
+6. **The system bus's open questions:** the bus clock, the slot bits, a
+   slower simple class, arbitration, card IDs, and more
+   ([RFC 0014, section 14](0014-rfc-system-bus.md#14-open-questions)).
+7. **The video card's open questions,** from what the screen is mainly
+   for to sprites and tiles
+   ([RFC 0016, section 14](0016-rfc-video.md#14-open-questions)).
 
-Answered so far: what's decided is in [docs/README.md](../docs/README.md),
+**Answered by Emily on 2026-10-15:**
+
+- **The fun part** is building a whole machine. Period authenticity is
+  held lightly.
+- **Draft 2 builds on 1b**
+  ([RFC 0006](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
+- **A narrow implementation first** is rejected
+  ([section 1](#1-direction-and-ambition)).
+- **The operating system has protection.**
+- **Console:** both serial terminals and video, at least in the design;
+  the first build might not have video.
+- **No microcontrollers** inside peripherals.
+- **PLDs (PALs, GALs):** a preference against, though not a definite no.
+  They make the machine harder to build, they're hard to source, and
+  they're less fun. Without them the backplane's logic is about 28 chips
+  rather than 13 ([RFC 0014](0014-rfc-system-bus.md#139-the-backplanes-logic)),
+  and the video card about a third bigger.
+- **Parts:** more open to surface-mount parts, for an SMT build assembled
+  by a PCB assembly service ([RFC 0007](0007-rfc-ideas-microarchitecture.md#3-parts)).
+- **The master clock:** 50 MHz is recommended, not decided
+  ([RFC 0007](0007-rfc-ideas-microarchitecture.md#2-clocking-variable-length-cycles)).
+
+Answered earlier: what's decided is in [docs/README.md](../docs/README.md),
 and the bus decisions in
 [RFC 0014, section 18](0014-rfc-system-bus.md#18-decisions). Besides
 those: RISC-like and CISC-like encodings were compared (draft 1); the ECL

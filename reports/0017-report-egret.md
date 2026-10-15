@@ -2,7 +2,7 @@
 number: 17
 type: report
 title: An object language on draft 1b, interpreted and compiled on the machine
-status: draft
+status: current
 date: 2026-10-13
 context:
   studies: [egret, c_compiler, v1_isa]
@@ -164,7 +164,7 @@ programs, D32-separate:
   are 21–37% of the loop's executed instructions, `JMP [r + r*4]` 7–14%,
   indexed loads and stores 4–8%. A 1b-based draft 2 keeps them; a
   1a-based one would want the auto-increment forms and the table jump
-  that [RFC 0006](0006-rfc-ideas-isa.md#4-if-draft-2-builds-on-1a-after-all)
+  that [RFC 0006](0006-rfc-ideas-isa.md#4-what-a-1a-based-draft-2-would-want)
   lists for it.
 
 ## Compiling on the machine

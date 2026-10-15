@@ -85,14 +85,14 @@ Every study since has compared the two or used 1b:
 | The Lisp | 1b only | `CALL [r1 + 1]` through a code word, auto-increment for pushes, pops and `cons`; its stack slots are one parcel in both |  [0018](0018-report-lisp.md) |
 | Kernel routines | 0.93 unrolled | 1b is 1–3 cycles faster calling through tables, and PC-relative data is free. 1a's one-parcel `[r + 4o]` would suit control-block fields | [0020](0020-report-operating-system.md#the-rest) |
 
-- **Base draft 2 on 1b.** **open**: Emily's preference, and where most of
-  the work since draft 1 has gone: the 213-chip hardware
+- **Draft 2 builds on 1b.** **decided** (Emily, 2026-10-15). It's where
+  most of the work since draft 1 has gone: the 213-chip hardware
   ([report 0012](0012-report-draft-1b-hardware.md)), the Lisp, Egret and
-  the kernel study's v1bs. Section 3 collects what a
-  1b-based draft 2 would change.
-- **Base draft 2 on 1a.** Report 0004 recommended it. That recommendation
-  is withdrawn: it was based on faulty numbers (Emily, 2026-10-14).
-  Section 4 keeps the additions 1a would want, in case.
+  the kernel study's v1bs. Section 3 collects what a 1b-based draft 2
+  would change.
+- **Draft 2 on 1a.** Report 0004 recommended it. That recommendation is
+  withdrawn: it was based on faulty numbers (Emily, 2026-10-14).
+  Section 4 keeps what 1a would have wanted, for the record.
 
 ## 3. For a draft 2 built on 1b
 
@@ -302,9 +302,10 @@ set N and Z (C and V unchanged); stores don't.
 
 Measured at `b6ffcfd` with scripts that aren't committed.
 
-## 4. If draft 2 builds on 1a after all
+## 4. What a 1a-based draft 2 would want
 
-**open**, and moot if draft 2 builds on 1b. What 1a would want, from
+For the record, since draft 2 builds on 1b. Some of it is also an
+argument for keeping a 1b feature. What 1a would want, from
 [report 0004](0004-report-draft-1-evaluation.md#recommendations-for-draft-2)
 and the later studies:
 
@@ -353,6 +354,10 @@ and the later studies:
 | Block I/O instruction (Z80 `INIR` style, interruptible) | microcode | ~5–6 cycles per word against ~12–15 for a software loop ([RFC 0009](0009-rfc-ideas-io.md#2-channels-and-dma)) | **open** |
 | Atomic exchange / test-and-set | microcode + bus `LOCK` | On one CPU, restartable sequences need no hardware ([report 0020](0020-report-operating-system.md#the-rest)); between CPUs the bus has `LOCK` and semaphore registers ([RFC 0014](0014-rfc-system-bus.md#73-locked-sequences)) | **open** |
 | Popcount, find-first-set | microcode | Scheduler and allocator bitmaps; `CLZ` (draft 1) already finds the kernel study's highest ready priority | **open** |
+| `DBNZ` (decrement and branch) | a major opcode in 1a; in 1b, op A's free space would hold a one-parcel `DBNZ r, d7` ([3.1](#31-room-left-in-1bs-encoding)) | 2.3% of draft 0's instructions. Rejected on draft 0's evidence; reopened (Emily, 2026-10-15) | **open** |
+| Wider branch offsets | encoding | 95% of draft 0's executed branches fit a 6-bit offset and 100% fit 8 bits, and the assembler relaxes the rest. Rejected on draft 0's evidence; reopened (Emily, 2026-10-15) | **open** |
+| A link register instead of pushing the return address (`BL`) | a register, or a special register | ~2% of draft 0's cycles. Egret's JIT: 0.7% on average, 2.6% at most (Richards); the calls are long for what they store, not for the call itself ([report 0017](0017-report-egret.md#changes-for-compiled-code)). Rejected; reopened (Emily, 2026-10-15) | **open** |
+| 16-bit ALU operations alongside 32-bit (68000 `.W`/`.L`) | doubles the ALU encodings | Rejected for doubling the encodings and baking a 16-bit implementation into the ISA; a narrow implementation is now rejected itself. Reopened (Emily, 2026-10-15) | **open** |
 | `V` updated (or defined) by `INC`/`DEC`/`TST` | microcode | Signed branches after them test a stale V ([report 0003](0003-report-draft-1-programming-notes.md)) | **open** |
 | System extensions: supervisor mode, register banks, `MFUR`/`MTUR`, XL/XS; a vectored `SWI` | special registers, flag bits, two system functions; the decode ROM | Built and measured as v1bs, except the vectored `SWI`, which is an estimate ([RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)) | **recommended** |
 
@@ -369,7 +374,7 @@ compiled on the machine.
 | Keep a memory-indirect call (`CALL [r + d]`) | The Lisp calls through a code word in every object; a load and `CALL r` would cost 1.3% (up to 2.5%). 1b has it | **measured**, open |
 | Guard pages for the stack and heap limits | The Lisp: 5.0% and 1.8% of compiled cycles ([RFC 0010](0010-rfc-ideas-os.md#3-mmu)) | **open** |
 | One-parcel `[r - 1]` and `[r + 3]` (the Lisp's pair offsets); the heap limit in a register | 1.1% and 0.9%: not worth the encoding space or a register | **not recommended** |
-| Egret's smaller ones: load a value's class, three-operand `XOR`, unaligned 16-bit loads, a call that leaves the return address in a register, `CHK` | About 1% or less each, interpreted or compiled | **not recommended** |
+| Egret's smaller ones: load a value's class, three-operand `XOR`, unaligned 16-bit loads, `CHK` | About 1% or less each, interpreted or compiled. Its link-register call is [in section 5](#5-more-instruction-ideas) | **not recommended** |
 
 What would help these languages more is software: direct threading saves
 11% of Egret's interpreter, and its JIT would gain most from keeping the
@@ -380,20 +385,18 @@ compiler has no register allocation
 
 ## 7. Not recommended and rejected
 
+Emily reviewed the rejections on 2026-10-15, and reopened four of them
+([section 5](#5-more-instruction-ideas)).
+
 | Proposal | Status | Why not |
 |---|---|---|
 | Three-operand ALU throughout | **rejected** | `MOV`+op pairs were 1% of draft 0 instructions (12% in queens); doesn't fit 16-bit nibble fields |
 | Compare-and-branch | **rejected** | `CMP`;`Bcc` is 5.4% of instructions, but a fused form needs an extension word: 2 parcels either way, ~1 cycle saved |
-| `DBNZ` (decrement and branch) | **rejected** | 2.3% of instructions; needs a whole major opcode |
-| Wider branch offsets | **rejected** | 95% of executed branches fit a 6-bit offset, 100% fit 8 bits; the assembler relaxes the rest |
 | A 12-bit `BSR` (±4 KB, SuperH style) in 1a's op B | **rejected** | Saves ~9% of code size and no cycles; op B went to the shift group instead |
-| Link register instead of pushing the return address | **rejected** | ~2% of cycles, gives up a register. Egret's JIT confirms it: 0.7% on average ([report 0017](0017-report-egret.md#changes-for-compiled-code)) |
 | ARM-style conditional execution | **rejected** | No spare bits |
-| 16-bit ALU ops alongside 32-bit (68000 `.W`/`.L`) | **rejected** | Doubles the ALU encodings and bakes the narrow implementation into the ISA |
 | Decimal (BCD) arithmetic | **rejected** | No use |
-| Separate I/O instructions (`IN`/`OUT`) | **rejected** | No opcode space; memory-mapped I/O works with every addressing mode |
-| Register + register addressing in a load/store ISA | **rejected** | Not worth a major opcode; `[label + reg]` covered static arrays in 16-bit space (1b's indexed mode is the alternative) |
-| Memory-destination ALU operations in general | **rejected** | 0.4% of draft 0's instructions, all in fib. A memory increment alone is still recommended ([3.2](#32-1bs-gaps)) |
+| Separate I/O instructions (`IN`/`OUT`) | **not recommended** (Emily, 2026-10-15) | No opcode space; memory-mapped I/O works with every addressing mode |
+| Memory-destination ALU operations in general | **not recommended** (Emily, 2026-10-15) | 0.4% of draft 0's instructions, all in fib. A memory increment alone is still recommended ([3.2](#32-1bs-gaps)) |
 
 ## 8. Floating point
 

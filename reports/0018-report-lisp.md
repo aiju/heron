@@ -277,10 +277,10 @@ stack alone.
 
 RFC 0006 recommends basing draft 2 on 1a. For the Lisp, that means:
 
-> **Erratum (2026-10-14).** RFC 0006 no longer recommends 1a: 1b is
-> Emily's preference, and 1b already has the trap, the memory-indirect
+> **Erratum (2026-10-15).** RFC 0006 no longer recommends 1a: draft 2
+> builds on 1b (Emily), which already has the trap, the memory-indirect
 > call and auto-increment. The points below are what a 1a-based draft 2
-> would need ([RFC 0006, section 4](0006-rfc-ideas-isa.md#4-if-draft-2-builds-on-1a-after-all)).
+> would have needed ([RFC 0006, section 4](0006-rfc-ideas-isa.md#4-what-a-1a-based-draft-2-would-want)).
 
 - **Keep the misaligned-access trap, precise.** It's the largest single
   effect measured here.

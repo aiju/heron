@@ -27,8 +27,7 @@ So far there has been:
   with proposed system extensions, and what the operating system could
   be.
 
-Draft 2 is next. Which of 1a and 1b it builds on isn't decided; 1b is
-Emily's preference, and most of the work since draft 1 has been on 1b
+Draft 2 is next, built on 1b
 ([RFC 0006](reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 
 ## Layout

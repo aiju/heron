@@ -4,9 +4,8 @@ Heron's current design is what this folder describes: only what has been
 decided, as reference. Why it was decided, and what else was considered,
 is in the RFCs and reports it links to ([the index](../reports/README.md)).
 
-There's no complete current design yet. Draft 2 comes next. Which of the
-draft 1 encodings, 1a or 1b, it builds on isn't decided; 1b is Emily's
-preference, and most of the work since draft 1 has been on 1b
+There's no complete current design yet. Draft 2 comes next, built on
+draft 1b's encoding
 ([RFC 0006](../reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 [draft 1](../studies/v1_isa/README.md) and
@@ -16,9 +15,11 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 
 **Architecture**
 
-- A 32-bit architecture, with a narrow implementation first
+- A 32-bit architecture
   ([RFC 0005](../reports/0005-rfc-ideas-direction.md#1-direction-and-ambition)).
 - 16-bit instruction parcels, with 0–2 extension parcels.
+- Draft 2 builds on draft 1b: one register and one addressing mode per
+  instruction ([isa-v1b.md](../studies/v1_isa/isa-v1b.md)).
 
 **Construction**
 
@@ -27,7 +28,7 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 
 **Clocking**
 
-- Variable-length cycles from a 50 MHz master clock: [clocking.md](clocking.md).
+- Variable-length cycles from a master clock: [clocking.md](clocking.md).
 
 **System bus** (the draft specification is [RFC 0014](../reports/0014-rfc-system-bus.md))
 
@@ -48,4 +49,8 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 
 **Beyond the CPU**
 
+- The operating system has protection.
+- A console on serial terminals, and video too (the first build might
+  leave video out).
+- No microcontrollers inside peripherals.
 - Ethernet, preferably with a MAC built from TTL.

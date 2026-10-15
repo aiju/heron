@@ -34,8 +34,8 @@ the rest as fast cards.
 - **What the system needs:** a console UART (16C550), a CompactFlash card
   (8-bit IDE), a real-time clock (DS12887), a timer, an interrupt
   controller, the front panel, a way to switch the boot ROM out, Ethernet
-  ([section 4](#4-networking)), and perhaps video
-  ([section 3](#3-video)), a keyboard and a mouse. The MMU's registers are
+  ([section 4](#4-networking)), video ([section 3](#3-video)), a keyboard
+  and a mouse. The MMU's registers are
   special registers in the kernel study's v1bs, not devices
   ([studies/kernel/system.md](../studies/kernel/system.md)).
 - **Memory-mapped I/O.** **adopted.**
@@ -92,11 +92,18 @@ the rest as fast cards.
   - File system: FAT (swap cards with a PC), or a small Unix-style one plus
     a host tool to build images. Or none at first: the PC's files over the
     network ([section 4](#4-networking)).
-- **Console:** a serial terminal first (a VT100 or an emulator), with a
-  16C550 UART with FIFO. **recommended.** Without the FIFO, an interrupt
-  per character at 9,600 baud handed to a user-level driver takes 17% of
-  the machine per busy terminal
-  ([report 0020](0020-report-operating-system.md#interrupts-and-devices)).
+- **Console:** serial terminals and video, at least in the design; the
+  first build might not have video. **decided** (Emily, 2026-10-15).
+- **Serial ports:** a 16C550 UART with FIFO per line, and a VT100 or an
+  emulator on the other end. **recommended.** Probably not more than 4
+  ports (Emily, 2026-10-15). That's well within the machine:
+  - without the FIFO, an interrupt per character at 9,600 baud, handed
+    to a user-level driver, would take 17% of the machine per busy line
+    ([report 0020](0020-report-operating-system.md#interrupts-and-devices));
+  - with the FIFO interrupting every 8 characters, about 2% for the
+    interrupts, and perhaps as much again to handle the characters (an
+    estimate): four lines running flat out take under a quarter of
+    the machine, and people typing much less.
 - **Keyboard and mouse:** PS/2, a shift register, bit counter and
   interrupt each (~4 chips). **open.** The window manager of
   [report 0019](0019-report-graphics.md) would want the mouse.
@@ -116,7 +123,7 @@ so devices should interrupt per buffer, not per byte.
 | **Cycle-stealing DMA**, optionally following descriptor chains ("channel lite") | ~15–20 chips per channel, plus bus mastering | ~1 stolen cycle | **recommended** once the OS swaps or multitasks for real: disk first, then terminal output (DH11-style output DMA) |
 | A DMA card: 8 channels, microcoded, on the system bus | ~34 chips | – | **open**; about 3–5 MB/s from the CF card ([RFC 0014, section 12](0014-rfc-system-bus.md#12-example-cards)) |
 | DMA in its own memory time slot | memory-timing redesign | 0 | **open**; the recommended tick-level RAM sharing ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#1-memory)) gets most of the way: DMA into the CPU's RAM at near bus speed, rarely delaying the CPU |
-| Intelligent terminal multiplexer: 4–8 lines with buffers, one interrupt per line or buffer | a lot in TTL; one chip with a microcontroller | turns ~1000 interrupts/s per terminal into ~10 | **open**: is a microcontroller in a peripheral OK? 1980s minis did it |
+| Intelligent terminal multiplexer: 4–8 lines with buffers, one interrupt per line or buffer | a lot in TTL | turns ~1000 interrupts/s per terminal into ~10 | **open**, but hardly needed for up to 4 lines with FIFO UARTs. With a microcontroller, as 1980s minis did: **rejected** (Emily, 2026-10-15: no microcontrollers in peripherals) |
 | CDC 6600-style peripheral processor "barrel": one shared datapath, 8 virtual I/O processors with registers in SRAM | ~60–100 chips | – | **open**, a project of its own. Register banks with their own PC, switched by interrupts, would be the same idea inside the CPU ([report 0020](0020-report-operating-system.md#further-ideas)) |
 | 82C37 off-the-shelf DMA chip | 1 chip | – | **rejected**: 8-bit, 8085-style timing |
 
@@ -209,7 +216,7 @@ from TTL ([docs/README.md](../docs/README.md)).
 | Option | Chips | Notes | Status |
 |---|---:|---|---|
 | **TTL MAC with a PHY chip** | ~40–60 | Design below | **recommended** |
-| WIZnet W5100 | ~2 | 8-bit parallel bus, 16 KB buffers; hardware TCP/IP or a raw-frame mode; still made | **open**, as a quick bring-up path |
+| WIZnet W5100 | ~2 | 8-bit parallel bus, 16 KB buffers; hardware TCP/IP or a raw-frame mode; still made | **open**, as a quick bring-up path. Whether a single-chip controller is acceptable at all is to be decided (Emily, 2026-10-15) |
 | Realtek RTL8019AS (NE2000-compatible) | ~3 | 5 V, 8/16-bit ISA-style bus, 16 KB buffer, 10 Mbit/s only; obsolete but easy to find and documented everywhere | **open** |
 | 16-bit 10/100 controllers (Davicom DM9000-class, Microchip LAN9221) | ~4 | 3.3 V; 5 V tolerance needs checking, may need level shifters | **open** |
 
@@ -257,6 +264,6 @@ from TTL ([docs/README.md](../docs/README.md)).
   roughly halves that; DMA removes it. An interrupt per frame to a
   user-level driver costs 500–640 cycles more.
 - **TCP/IP** (a uIP- or lwIP-sized stack) once there's a C compiler and an
-  OS. **open.** Telnet into a timesharing system would give the OS ladder
-  in [RFC 0005](0005-rfc-ideas-direction.md#1-direction-and-ambition) a
+  OS. **open.** Telnet into a timesharing system would give the operating
+  system ([RFC 0010](0010-rfc-ideas-os.md#1-the-operating-system)) a
   concrete goal.

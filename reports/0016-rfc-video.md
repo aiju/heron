@@ -665,11 +665,13 @@ interrupt) would be about 55.
   copper need more room, and they can't easily go on a neighbouring card:
   they need the VRAM bus (32 data lines, 19 address lines, strobes and slot
   signals, about 60), more than P2's ~54 user-defined pins. So: one large
-  card, SOIC parts, or a mezzanine on the base card. **open.**
+  card, SOIC parts, or a mezzanine on the base card. **open.** Emily is
+  open to an SMT build (2026-10-15).
 - **PLDs.** GALs would absorb the timing decode, the slot arbitration, the
   sequencers and the glue: perhaps a third fewer chips, so a base card of
   about 50 and stages 1–3 in about 100. **open**; the same question comes
-  up for the backplane.
+  up for the backplane. Emily would rather not use them, though it isn't
+  a definite no (2026-10-15).
 - **Stages.** Build stage 1 first. A VGA monitor and a PVM both work from
   the first day, and the console works with glyphs drawn by software. The
   blitter and the copper are additions that don't change stage 1, so long
@@ -730,7 +732,8 @@ For Emily:
    high-resolution monochrome mode (800×600 or 1024×768) wanted for a
    workstation look?
 3. **VRAM width:** 32 bits (recommended) or 16?
-4. **Palette:** fast SRAM and resistor DACs, or a RAMDAC chip?
+4. **Palette:** fast SRAM and resistor DACs, or a RAMDAC chip? Undecided
+   (Emily, 2026-10-15).
 5. **The PVM:** which model, a 15 kHz-only one or one that also takes
    31 kHz? Interlace and 50 Hz too?
 6. **The blitter:** which tier, and byte-aligned (for 8-bit colour) or
@@ -738,7 +741,8 @@ For Emily:
 7. **The copper:** yes?
 8. **Sprites and tiles:** both, one, or neither? Perhaps after the game
    demo in simulation.
-9. **PLDs:** may the card use GALs?
+9. **PLDs:** may the card use GALs? A preference against, not a definite
+   no (Emily, 2026-10-15).
 10. **Board:** one large card, a card with a mezzanine, or SOIC parts? This
     waits on the card size.
 11. **Sound:** on the video card, in the horizontal-blanking slots, or on a
