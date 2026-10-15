@@ -69,7 +69,7 @@ NSYS = ($ - systab) / 4
 
 ; ---- main ----
 
-main:   SAVE r8-r10
+main:   SAVE r7-r10
         LEA  r1, [s_title]
         BSR  puts
 
@@ -130,13 +130,13 @@ main:   SAVE r8-r10
         SWI  #SYS_PUTC
         LEA  r1, [s_done]
         BSR  puts
-        RESTORE r8-r10
+        RESTORE r7-r10
         RET
 
 ; timed_sleep: r1 = ticks. Sleep, then print "sleep N: M ticks" where M is
 ; measured around the sleep (with interrupts off at both ends, so it's exact).
 timed_sleep:
-        SAVE r8-r9
+        SAVE r7-r9
         MOV  r8, r1
         DI
         MOV  r9, [ticks]
@@ -154,7 +154,7 @@ timed_sleep:
         BSR  print_u32
         LEA  r1, [s_ticks]
         BSR  puts
-        RESTORE r8-r9
+        RESTORE r7-r9
         RET
 
 ; sleep: wait until r1 more ticks have been counted. Call with interrupts

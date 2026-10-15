@@ -9,7 +9,7 @@
 ;
 ; The decimal routines clobber r1-r6 and HI, print_hex r1-r4; r7-r14 are
 ; left alone. The decimal routines use at most 80 bytes of stack (one word
-; per digit) below the return address.
+; per digit).
 ;
 ; Decimal digits come from the hardware divide: DIVU by 10 leaves the next
 ; digit (least significant first) in HI. The digits are pushed on the stack

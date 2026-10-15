@@ -17,7 +17,7 @@
 SLOTS   = 256                   ; hash table entries (8 bytes each): {word, count}
 TOPN    = 15
 
-main:   SAVE r8-r14
+main:   SAVE r7-r14
         ; r8 = console, r9 = start of the current word in the pool,
         ; r10 = where its next letter goes, r11 = its hash,
         ; r12 = 31 (MULU has no immediate form), r13 = probe index,
@@ -133,7 +133,7 @@ main:   SAVE r8-r14
         BSR  newline
         CMP  r10, r11
         BNE  .print
-        RESTORE r8-r14
+        RESTORE r7-r14
         RET
 
         .include "lib/console.s"

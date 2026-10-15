@@ -11,7 +11,7 @@
 
         .include "lib/start.s"
 
-main:   SAVE r8-r11
+main:   SAVE r7-r11
 
         ; ---- 16 x 16 multiply, 16 / 16 divide ----
         LEA  r1, [s_head16]
@@ -146,7 +146,7 @@ main:   SAVE r8-r11
         CMP  r8, #divs_end
         BLO  .pdiv
 
-        RESTORE r8-r11
+        RESTORE r7-r11
         RET
 
 ; ---- data ----

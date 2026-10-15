@@ -331,9 +331,7 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
         0xFC => return one(Insn::Swi),
         0xFD => {
             return match rb {
-                0x00 => one(Insn::Ret),
-                0xFD => one(Insn::Nop),
-                0x10 => {
+                0x00 => {
                     // MULFX rd, rs, #n: rd and rs in the high byte, n in
                     // bits 4-0
                     let e = ext1()?;
@@ -358,15 +356,14 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
                 0x01 => one(Insn::SetI { val: 0 }),
                 0x02 => one(Insn::Rti),
                 0x03 => one(Insn::Halt),
-                // MFUR and MTUR: the supervisor's, without a supervisor yet
-                0x10 | 0x11 => Ok((Insn::Illegal, 2)),
                 _ => one(Insn::Illegal),
             };
         }
         _ => {}
     }
-    // rows 1-6 and 8-A: an operation with the mode as the column; MOVS
-    // has no quick constants
+    // rows 1-6 and 8-A: an operation with the mode as the column. MOVS
+    // has no quick constants: its cells 31 and 3D are MFUR and MTUR, the
+    // supervisor's, which trap without a supervisor yet
     if !matches!(row, 1..=6 | 8..=0xA) || (row == 3 && matches!(col, 1 | 0xD)) {
         return one(Insn::Illegal);
     }

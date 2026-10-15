@@ -120,6 +120,11 @@ impl Encoder for Draft2 {
         MEM_TOP
     }
 
+    /// .align pads with NOP, MOV r0, r0.
+    fn pad(&self) -> [u8; 2] {
+        NOP.to_le_bytes()
+    }
+
     /// The first parcel as its two bytes in memory, opcode first; the
     /// extension parcels, which carry data, as 16-bit values.
     fn hex(&self, words: &[u16]) -> String {
@@ -132,6 +137,9 @@ impl Encoder for Draft2 {
         assemble(name, ops, ctx)
     }
 }
+
+/// NOP: MOV r0, r0, which does nothing now that MOV leaves the flags alone.
+const NOP: u16 = 0x0010;
 
 /// A parcel: the opcode byte, and the register byte's high and low
 /// nibbles.
@@ -518,7 +526,7 @@ fn sr_number(ctx: &mut Ctx, op: &Operand) -> Result<i64, AsmError> {
         match name.to_ascii_lowercase().as_str() {
             "flags" => return Ok(0),
             "hi" => return Ok(1),
-            "lo" => return Ok(9),
+            "lo" => return Ok(2),
             _ => {}
         }
     }
@@ -591,8 +599,9 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
     let one = |v: u16| Ok(vec![v]);
 
     match u {
-        "RET" => return no_operands(u, ops).map(|_| vec![pb(0xFD, 0x00)]),
-        "NOP" => return no_operands(u, ops).map(|_| vec![pb(0xFD, 0xFD)]),
+        // the link register: a return is JMP r7, and NOP is MOV r0, r0
+        "RET" => return no_operands(u, ops).map(|_| vec![p(0xF0, 0, 7)]),
+        "NOP" => return no_operands(u, ops).map(|_| vec![NOP]),
         "EI" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x00)]),
         "DI" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x01)]),
         "RTI" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x02)]),
@@ -645,7 +654,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
                 return err(format!("{u} needs one register"));
             };
             let r = reg_operand(r, "register")?;
-            let n = if u.ends_with("HI") { 1 } else { 9 };
+            let n = if u.ends_with("HI") { 1 } else { 2 };
             return one(if u.starts_with("MF") {
                 p(0x0E, r, n)
             } else {
@@ -654,8 +663,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
         }
         "MFUR" | "MTUR" => {
             let (a, b) = two_regs(u, ops)?;
-            let f = if u == "MFUR" { 0x10 } else { 0x11 };
-            return Ok(vec![pb(0xFE, f), (a << 12 | b << 8) as u16]);
+            return one(p(if u == "MFUR" { 0x31 } else { 0x3D }, a, b));
         }
         "SWI" => {
             let [op] = ops else {
@@ -679,7 +687,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             if known && !(0..=31).contains(&n) {
                 return err("MULFX's shift must be 0-31");
             }
-            return Ok(vec![pb(0xFD, 0x10), (d << 12 | s << 8 | (n & 31)) as u16]);
+            return Ok(vec![pb(0xFD, 0x00), (d << 12 | s << 8 | (n & 31)) as u16]);
         }
         "DBNZ" => {
             if k != "RE" {

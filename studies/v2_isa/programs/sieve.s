@@ -9,7 +9,7 @@
 
 N = 8192
 
-main:   SAVE r8-r11
+main:   SAVE r7-r11
 
         MOV  r1, #flags
         MOV  r2, #1
@@ -68,7 +68,7 @@ main:   SAVE r8-r11
         DBNZ r9, .print
         BSR  newline
 
-        RESTORE r8-r11
+        RESTORE r7-r11
         RET
 
 s_count: .asciz "primes below 8192: "

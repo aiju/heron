@@ -41,6 +41,10 @@ pub fn misaligned<T>(what: &str, a: u32) -> Res<T> {
     trap(ADDR_VECTOR, true, &format!("misaligned {what} at {a:08X}"))
 }
 
+/// The link register: calls leave the return address in r7, and a return
+/// is JMP r7.
+pub const LINK: usize = 7;
+
 fn illegal<T>() -> Res<T> {
     trap(ILLEGAL_VECTOR, true, "illegal instruction")
 }
@@ -90,8 +94,6 @@ pub struct MemOp {
 pub enum Insn {
     Illegal,
     Halt,
-    Nop,
-    Ret,
     Save {
         a: u8,
         cnt: u8,
@@ -584,14 +586,6 @@ impl Machine {
                 self.pc = nxt;
                 key(Kind::Sys)
             }
-            Insn::Nop => {
-                self.pc = nxt;
-                key(Kind::Sys)
-            }
-            Insn::Ret => {
-                self.pc = self.pop()? & !1;
-                key(Kind::Ret)
-            }
             Insn::Save { a, cnt } => {
                 let sp = self.r[15].wrapping_sub(4 * cnt as u32);
                 for i in 0..cnt {
@@ -629,7 +623,7 @@ impl Machine {
                 let v = match b {
                     0 => self.flags_word(),
                     1 => self.hi,
-                    9 => self.lo,
+                    2 => self.lo,
                     _ => return illegal(),
                 };
                 self.r[a as usize] = v;
@@ -640,7 +634,7 @@ impl Machine {
                 match a {
                     0 => self.set_flags_word(r(self, b)),
                     1 => self.hi = r(self, b),
-                    9 => self.lo = r(self, b),
+                    2 => self.lo = r(self, b),
                     _ => return illegal(),
                 }
                 self.pc = nxt;
@@ -793,7 +787,7 @@ impl Machine {
                 }
             }
             Insn::Bsr { target } => {
-                self.push(nxt)?;
+                self.r[LINK] = nxt;
                 self.pc = target;
                 key(Kind::Call {
                     how: How::Rel,
@@ -807,7 +801,7 @@ impl Machine {
                     0
                 };
                 if cc == 15 {
-                    self.push(nxt)?;
+                    self.r[LINK] = nxt;
                     self.pc = target;
                     key(Kind::Call { how, x })
                 } else if cc == 14 || self.cond_true(cc) {
@@ -835,14 +829,14 @@ impl Machine {
             Insn::JeaReg { call, rn } => {
                 let t = r(self, rn) & !1;
                 if call {
-                    self.push(nxt)?;
+                    self.r[LINK] = nxt;
                 }
                 self.pc = t;
                 key(jump(call, How::Reg, 0))
             }
             Insn::JeaImm { call, t } => {
                 if call {
-                    self.push(nxt)?;
+                    self.r[LINK] = nxt;
                 }
                 self.pc = t;
                 key(jump(call, How::Abs, 0))
@@ -852,7 +846,7 @@ impl Machine {
                 let t = self.rd32(a)? & !1;
                 self.post(&m, a);
                 if call {
-                    self.push(nxt)?;
+                    self.r[LINK] = nxt;
                 }
                 self.pc = t;
                 let ea = m.ea;

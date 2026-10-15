@@ -2,12 +2,311 @@
 number: 29
 type: rfc
 title: Draft 2's system architecture
-status: draft
+status: open
 date: 2026-10-15
 context:
-  commit: 9012aff
+  studies: [kernel, v1_isa]
+  commit: 1b8e4d2
+depends-on: [10, 28]
 ---
 
 # RFC 0029: Draft 2's system architecture
 
-Reserved; being written on the branch `claude/funny-hawking-i94ih8`.
+What draft 2's CPU gives an operating system. Part I is the
+specification, with its holes marked **open**; Part II is where it comes
+from and why. The instructions' encodings are in
+[RFC 0028](0028-rfc-draft-2-isa.md).
+
+## Part I: Specification
+
+### 1. Overview
+
+To the machine of RFC 0028 this adds:
+
+- **two modes,** supervisor and user ([2](#2-modes-and-the-flags-word));
+- **an address space** whose upper half is a window onto physical memory
+  for the supervisor, and whose lower part is translated by a page map
+  ([3](#3-the-address-space));
+- **special registers** 8–15, for the supervisor ([4](#4-special-registers));
+- **register banks,** one per thread ([5](#5-register-banks));
+- **exceptions** that are precise and vectored ([6](#6-exceptions)).
+
+### 2. Modes and the flags word
+
+- **Supervisor and user mode.** The S bit of the flags word says which.
+  Reset enters supervisor mode, every exception enters it, and `RTI` takes
+  the mode from the flags word it pops. Nothing else changes S.
+- **The flags word:**
+
+  | Bit | Name | |
+  |---|---|---|
+  | 0 | V | overflow |
+  | 1 | C | carry |
+  | 2 | Z | zero |
+  | 3 | N | negative |
+  | 4 | I | interrupts enabled |
+  | 5 | S | supervisor mode |
+  | 6 | T | trace: trap after every instruction |
+  | 7 | | reserved |
+  | 8–10 | | reserved for an interrupt priority level ([7](#7-interrupts), open) |
+  | 11–31 | | reserved |
+
+  Reserved bits read as 0 and must be written as 0.
+- **`MTSR flags, rs`** sets N, Z, C and V in user mode, and every bit but
+  S in supervisor mode.
+- **Privileged instructions:** `HALT`, `EI`, `DI`, `RTI`, `MFUR`, `MTUR`,
+  and `MFSR` and `MTSR` of special registers 8–15. In user mode they raise
+  a privilege violation ([6](#6-exceptions)).
+
+### 3. The address space
+
+A virtual address's bit 31 picks how it is mapped:
+
+| Virtual address | User mode | Supervisor mode |
+|---|---|---|
+| `0x0000_0000`–`0x00FF_FFFF` | through the page map of context `ctx` | the same |
+| `0x0100_0000`–`0x7FFF_FFFF` | page fault | page fault |
+| `0x8000_0000`–`0xFFFF_FFFF` | page fault | physical: the address with bit 31 cleared |
+
+- **The window.** In supervisor mode, an address with bit 31 set is
+  physical address `va & 0x7FFF_FFFF`, for instruction fetches and data
+  accesses alike, and nothing checks it. Physical addresses with bit 31
+  set are reachable only through the page map (open, with the system
+  bus's slot bits; [RFC 0014](0014-rfc-system-bus.md)).
+- **The translated space.** Addresses below 16 MB are translated in both
+  modes, through context `ctx`. So the supervisor uses a user's pointers
+  as they are, and its accesses are checked like the user's.
+- **The page map** has 128 contexts of 4096 entries, one per 4 KB page.
+  An entry:
+
+  | Bits | |
+  |---|---|
+  | 31–12 | the physical page |
+  | 11–3 | read as 0, ignored when written |
+  | 2 | X: instructions may be fetched |
+  | 1 | W: data may be stored |
+  | 0 | V: valid |
+
+  It is read and written through `mapa` and `mapd` ([4](#4-special-registers)).
+  Its contents are undefined after reset. Referenced and dirty bits are
+  left to software.
+- **A page fault** happens when a translated access finds its entry
+  invalid, a store finds W clear or a fetch finds X clear, and for the
+  addresses the table above marks as faulting. `far` gets the
+  virtual address and `fsr` the reason:
+
+  | `fsr` bit | |
+  |---|---|
+  | 0 | the entry isn't valid |
+  | 1 | a store to a page without W |
+  | 2 | a fetch from a page without X |
+  | 3 | the address is between 16 MB and 2 GB |
+  | 4 | a user-mode access with bit 31 set |
+  | 5 | the access was a store |
+  | 6 | the access was a fetch |
+  | 7 | the access was made in supervisor mode |
+
+- **An access to a physical address that nothing answers** (open: a bus
+  timeout and a vector for it).
+
+### 4. Special registers
+
+`MFSR rd, n` and `MTSR n, rs`, n = 0–15. Registers 0–7 are user mode's,
+8–15 the supervisor's.
+
+| n | Name | |
+|---|---|---|
+| 0 | `flags` | the flags word ([2](#2-modes-and-the-flags-word)) |
+| 1 | `hi` | `HI` |
+| 2 | `lo` | `LO`, for `MULA` (tentative, [RFC 0028, 6.9](0028-rfc-draft-2-isa.md#69-tentative-instructions)) |
+| 3 | | reserved for the FPU's control and status |
+| 4–7 | | reserved |
+| 8 | `far` | read only: the address of the last page fault or address error |
+| 9 | `fsr` | read only: why the last page fault happened ([3](#3-the-address-space)) |
+| 10 | `ctx` | the page map context, 0–127 |
+| 11 | `mapa` | the map address: context × 4096 + page, 0–524,287 |
+| 12 | `mapd` | the map entry at `mapa`; writing it moves `mapa` on by one |
+| 13 | `bank` | the register bank user mode runs in, 0–255 |
+| 14 | `bkpt` | open: a breakpoint address |
+| 15 | | reserved |
+
+Reserved registers read as 0 and ignore writes.
+
+### 5. Register banks
+
+- **A bank** holds `r0`–`r15`, `HI` and `LO`. There are 256.
+- **Supervisor mode runs in bank 0,** and user mode in bank `bank`. An
+  exception switches to bank 0; `RTI` into user mode switches to bank
+  `bank`. With `bank` = 0 the two modes share their registers.
+- **`MFUR rd, rs`** copies register `rs` of bank `bank` into the
+  supervisor's `rd`. **`MTUR rd, rs`** copies the supervisor's `rs` into
+  register `rd` of bank `bank`.
+
+### 6. Exceptions
+
+| Vector | Exception | Saved PC |
+|---|---|---|
+| `0x8000_0000` | reset | – |
+| `0x8000_0004` | interrupt ([7](#7-interrupts)) | the next instruction |
+| `0x8000_0008` | illegal instruction | the instruction |
+| `0x8000_000C` | reserved | |
+| `0x8000_0010` | divide error | the instruction |
+| `0x8000_0014` | address error: a misaligned access | the instruction |
+| `0x8000_0018` | tag trap ([RFC 0028, 6.9](0028-rfc-draft-2-isa.md#69-tentative-instructions)) | the instruction |
+| `0x8000_001C` | privilege violation | the instruction |
+| `0x8000_0020` | page fault ([3](#3-the-address-space)) | the instruction |
+| `0x8000_0024` | trace | the next instruction |
+| `0x8000_0100` + 4n | `SWI #n`, n = 0–255 | the next instruction |
+
+- **Vectors** are 4 bytes apart, room for one two-parcel instruction,
+  normally a relative `JMP` to the handler.
+- **Entering an exception:**
+  1. switch to supervisor mode and bank 0;
+  2. push the PC, then the flags word as it was, on bank 0's `sp`;
+  3. clear I and T;
+  4. jump to the vector.
+- **`RTI`** pops the flags word, then the PC, and with them the mode and
+  the bank.
+- **Precise faults.** Where the saved PC is the instruction's own, the
+  instruction has changed neither the flags nor the PC, nor any register
+  it addresses memory with. It may already have loaded registers or
+  stored to memory, but running it again gives the same result, so `RTI`
+  resumes it. For that:
+  - a register an addressing mode increments or decrements changes only
+    once the access has succeeded;
+  - `SAVE`, `RESTORE`, `LDM` and `STM` update their base register last;
+    one whose range includes its base register is open;
+  - `CAS`'s locked read is checked as a store.
+- **Trace:** with T set when an instruction starts, a trace exception
+  follows it.
+- **Bank 0's `sp`** should point into the window, where a push can't
+  fault. A fault while an exception is being entered is open.
+
+### 7. Interrupts
+
+**Open:** priority levels, their masking and where each one's vector
+comes from. Until then there is one interrupt request, level-triggered,
+taken between instructions when I is set, through vector `0x8000_0004`:
+never straight after `EI`, possibly straight after `DI`, and straight
+after `RTI` if the flags it restores enable it. `HALT` with I set waits
+for an interrupt.
+
+### 8. Reset
+
+Supervisor mode, bank 0, I and T clear, `ctx` and `bank` 0, and the PC at
+the reset vector, which is physical address 0. Everything else is
+undefined.
+
+## Part II: Discussion
+
+### 9. Where it comes from
+
+The kernel study built draft 1b's system extensions as an experiment,
+v1bs ([studies/kernel/system.md](../studies/kernel/system.md)), ran a
+small message-passing kernel on them and measured its paths
+([report 0020](0020-report-operating-system.md)).
+[RFC 0010](0010-rfc-ideas-os.md) collects the ideas around it. Part I
+keeps what worked and changes the rest.
+
+### 10. The choices
+
+- **S is changed only by exceptions and `RTI`.** v1bs let `MTSR flags`
+  set it, and the nucleus once dropped into user mode by writing the
+  flags back without it
+  ([report 0020](0020-report-operating-system.md#protection-modes-and-the-stack)).
+- **The window at bit 31,** proposed by Emily (2026-10-15), instead of
+  v1bs's flag bits XL and XS, which made the supervisor's loads or stores
+  go through the user's map.
+  - **XL and XS are dropped** (Emily, 2026-10-15). They're a mode on
+    every load or store: while one is set, the kernel's own stack goes
+    through the user's map too, so a copy loop has to be hand-written and
+    can never be compiled.
+  - **With the window,** the kernel lives in physical memory above
+    `0x8000_0000`, and uses a user's pointers as they are. Copying in and
+    out of user memory is a plain `memcpy`, and a bad pointer is a page
+    fault with `fsr` bit 7 set. The handler finds out whether the kernel
+    expected one, from a table of the copy routines' addresses, say.
+  - **Checking a user's pointer** is a test of its sign: bit 31 set
+    means it isn't the user's.
+  - **What it costs:** the window reaches the lower 2 GB of the bus's
+    physical space, so where RAM, ROM and the slots sit has to suit it.
+    Which address bits pick the slot is still open in RFC 0014.
+  - **The kernel still reads the map** to copy between processes that
+    aren't running.
+- **Precise faults** are draft 1's rules
+  ([RFC 0010, 3](0010-rfc-ideas-os.md#3-mmu)), plus the cases draft 2's
+  instructions add. `CALL [r]+` was the one 1b form that broke them, by
+  moving `r` before it pushed; with draft 2's link register a call
+  pushes nothing
+  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  Exceptions still push the PC and the flags, so a handler that calls
+  saves `r7` like any function.
+- **A vector per `SWI` number:** the decode ROM sees the whole parcel, so
+  each number gets its own microcode entry. A null system call spent 16
+  of its 39 cycles dispatching
+  ([report 0020](0020-report-operating-system.md#the-paths-measured)).
+- **Special registers 8–15 are the supervisor's,** so the privilege check
+  is one bit. v1bs's numbering grew one register at a time.
+- **Full banks, the kernel in bank 0.** v1bs offered three policies;
+  report 0020 measured them
+  ([register banks](0020-report-operating-system.md#register-banks)).
+  - **Full banks are the simplest:** kernel code is ordinary code with
+    all 16 registers, compiled C included, and the bank lines stay
+    steady through the cycle. Half banks share `r0`–`r7` between the
+    modes and add a gate to the register read path; a split by mode makes
+    the kernel's registers mean something different from everyone else's.
+  - **What full banks cost** is copying a message between banks. A call
+    and reply is 347 cycles against half banks' 293, while a preemption
+    is 147 against 203. `MFUR` and `MTUR` are one parcel each to keep the
+    copy cheap
+    ([RFC 0028](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  - **256 banks** cover as many threads as a few MB will hold; past that,
+    the kernel saves a bank's registers when it reuses it.
+  - **In the hardware:** banks are spare address lines of the register
+    file's SRAMs, about 4 chips. The microcode's own constants, and the
+    zero that `r0` no longer gives it, stay outside the banks.
+- **The page map is v1bs's flat map,** with 128 contexts instead of 16.
+  - **No misses:** the bigger workloads touch at most 223 pages, and every
+    translation is in the map
+    ([report 0020](0020-report-operating-system.md#translation-the-page-map)).
+  - **128 contexts** take three 512K × 8 SRAMs (the AS6C4008, 55 ns, made
+    in DIP) where 16 took three 128K × 8. A kernel with servers would
+    outgrow 16 processes, and reassigning a context costs about 800
+    cycles a switch.
+  - **Page tables in RAM should be the kernel's truth,** and the map
+    filled from them: 85 cycles a refill with banks. Then a tagged
+    translation cache, RFC 0010's upgrade path to any number of processes
+    and 32-bit spaces, could replace the map without changing more than
+    the kernel's fill routine.
+  - **The map stays off the instruction fetch,** which sets the clock:
+    the PC's physical page is held in a register and reloaded when the PC
+    leaves the page
+    ([RFC 0010, 3](0010-rfc-ideas-os.md#3-mmu)). Window fetches aren't
+    translated at all.
+  - **DMA bypasses the map.** A window register in the slave port, which
+    only the supervisor sets, would confine bus masters.
+
+### 11. Open questions
+
+1. **Interrupt levels:** how many, how they're masked (bits 8–10 of the
+   flags word are reserved for it), and whether a vector comes from the
+   level or from the device, as
+   [RFC 0009](0009-rfc-ideas-io.md#1-io) proposes. Whether each level
+   gets a register bank, so that a handler saves nothing.
+2. **The physical memory map:** where RAM, ROM, the I/O registers and the
+   slots sit, now that the window reaches only the lower 2 GB, and what
+   an access that nothing answers does.
+3. **A bank-to-bank copy** of `r0`–`r7`, which would win back most of the
+   message cost of full banks.
+4. **The breakpoint register** (special register 14).
+5. **Boot:** the reset vector is physical address 0, so a ROM has to be
+   there at reset ([RFC 0010, 2](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)).
+6. **`LDM` and `STM` with the base register in their range.**
+7. **When, if ever, a tagged translation cache replaces the map.**
+
+### 12. Next steps
+
+- **The system half of the draft 2 simulator,** from the kernel study's
+  ([sys.rs](../studies/v1_isa/isa/src/sys.rs)) with the changes above.
+  Then port the nucleus and measure its paths again with full banks and
+  the window.

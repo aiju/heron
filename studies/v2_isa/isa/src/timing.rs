@@ -333,21 +333,14 @@ impl Config {
                     self.base_update(&mut ops, upd);
                     first = vec![ops.len() - 1];
                 }
-                ops.push(op(ar, self.addr(0), &first)); // MAR, T <- sp - 4
-                let push = ops.len() - 1;
-                ops.push(op(B, self.mem(4), &[push])); // [sp] <- return address
-                ops.push(op(R, 1, &[push])); // sp <- T
+                // the link register: r7 <- the return address, and nothing
+                // pushed
+                ops.push(op(R, 1, &first));
                 match kind {
-                    Kind::Call { how: How::Rel, x } => ops.push(op_pc(A, self.addr(x), &[push])),
-                    Kind::Call { how: How::Reg, .. } => ops.push(op_pc(R, 1, &[push])),
-                    _ => ops.push(op_pc(0, 1, &[push])), // abs, or the target read from memory
+                    Kind::Call { how: How::Rel, x } => ops.push(op_pc(A, self.addr(x), &first)),
+                    Kind::Call { how: How::Reg, .. } => ops.push(op_pc(R, 1, &first)),
+                    _ => ops.push(op_pc(0, 1, &first)), // abs, or the target read from memory
                 }
-            }
-            Kind::Ret => {
-                ops.push(op(R, 1, &[])); // MAR, T <- sp
-                ops.push(op_pc(B, self.mem(4), &[0]));
-                ops.push(op(A, self.addr(0), &[0])); // T <- T + 4
-                ops.push(op(R, 1, &[2])); // sp <- T
             }
             Kind::Rti => {
                 ops.push(op(R, 1, &[]));
@@ -455,7 +448,6 @@ impl Config {
                 | Kind::Jmpm { .. }
                 | Kind::Call { .. }
                 | Kind::Callm { .. }
-                | Kind::Ret
                 | Kind::Rti
                 | Kind::Trap
                 | Kind::Irq

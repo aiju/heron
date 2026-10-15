@@ -14,7 +14,7 @@
 LINESZ = 80
 DEPTH  = 16
 
-main:   SAVE r8-r9
+main:   SAVE r7-r9
 .line:  LEA  r1, [line]
         MOV  r2, #LINESZ
         BSR  gets
@@ -48,13 +48,13 @@ main:   SAVE r8-r9
         BSR  puts
 .eol:   BSR  newline
         BRA  .line
-.eof:   RESTORE r8-r9
+.eof:   RESTORE r7-r9
         RET
 
 ; eval: r1 = line -> r1 = 0 and r2 = one past the top of `stack`, or
-; r1 = an error message. A leaf routine, so it works in r1-r7 only:
+; r1 = an error message. A leaf routine, so it works in r0-r6 only:
 ;   r4 = scan pointer, r5 = calculator stack pointer (the next free slot),
-;   r1 = current character, r6 = number being parsed, r7 = its sign.
+;   r1 = current character, r6 = number being parsed, r0 = its sign.
 eval:   MOV  r4, r1
         LEA  r5, [stack]
 .skip:  MOVS r1, byte [r4]+     ; skip blanks to the next token
@@ -99,10 +99,10 @@ eval:   MOV  r4, r1
         BRA  .skip
 
 .number:                        ; optional '-', then at least one digit
-        MOV  r7, #0
+        MOV  r0, #0
         CMP  r1, #'-'
         BNE  .first
-        MOV  r7, #1
+        MOV  r0, #1
         MOV  r1, byte [r4]+     ; can't be a blank or NUL: "-" alone is an operator
 .first: MOV  r6, #0
 .digit: SUB  r1, #'0'
@@ -116,7 +116,7 @@ eval:   MOV  r4, r1
         BEQ  .push
         CMP  r1, #9
         BNE  .digit
-.push:  TST  r7, r7
+.push:  TST  r0, r0
         BEQ  .pos
         NEG  r6
 .pos:   SXH  r6

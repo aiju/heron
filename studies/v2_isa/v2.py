@@ -31,11 +31,11 @@ UNARY = ["NOT", "NEG", "INC", "DEC", "RLC", "RRC", "SWAP", "SXB", "SXH", "ZXB", 
 ROW_E = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "MULA", "DIVU", "DIVS", "DIVUL",
          "BIC", "TST", "MULU", "MULS", "MERGE"]
 SHIFTS = ["LSL", "LSR", "ASR", "ROR"]
-# LO is numbered after the kernel study's system registers, 0-8
-SR_NAMES = {0: "flags", 1: "hi", 9: "lo"}
+# LO is special register 2 (RFC 0029, 4)
+SR_NAMES = {0: "flags", 1: "hi", 2: "lo"}
 # the free cells, ILLEGAL, and CAS and the FPU escape, which aren't designed
-FREE = {0x00, 0x03, 0x31, 0x3D, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB,
-        0xFF}
+FREE = {0x00, 0x03, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFF}
+LINK = 7                        # calls leave the return address in r7
 
 SIZE_NAME = {1: "byte ", 2: "half ", 4: ""}
 
@@ -161,7 +161,7 @@ def _ext_for(op, rb):
         return 1
     if op == 0xF3:
         return 2
-    if (op == 0xFD and rb == 0x10) or (op == 0xFE and rb in (0x10, 0x11)):
+    if op == 0xFD and rb == 0x00:
         return 1
     return 0
 
@@ -248,11 +248,11 @@ def disassemble(ws, pc=0, symbols=None):
     if op == 0x08:
         return f"ADD.B4 {rr}", 1
     if op == 0x0E:
-        if lo in (1, 9):
+        if lo in (1, 2):
             return f"MF{SR_NAMES[lo].upper()} {R(hi)}", 1
         return f"MFSR {R(hi)}, {SR_NAMES.get(lo, lo)}", 1
     if op == 0x0F:
-        if hi in (1, 9):
+        if hi in (1, 2):
             return f"MT{SR_NAMES[hi].upper()} {R(lo)}", 1
         return f"MTSR {SR_NAMES.get(hi, hi)}, {R(lo)}", 1
     if op in TAGGED:
@@ -263,9 +263,12 @@ def disassemble(ws, pc=0, symbols=None):
         if opnd is None or opnd[0] == "imm":
             return bad
         return f"{name} {dis_ea(hi, lo, ext, nxt, symbols)}", n
+    if op in (0x31, 0x3D):
+        # in MOVS's quick-constant cells: the supervisor's moves between banks
+        return f"{'MFUR' if op == 0x31 else 'MTUR'} {rr}", 1
+    if op == 0x10 and rb == 0:
+        return "NOP", 1             # MOV r0, r0
     if row in EA_ROWS:
-        if row == 3 and col in (1, 0xD):
-            return bad
         opnd, _ = ea_info(col, lo, ext)
         if opnd is None:
             return bad
@@ -306,6 +309,8 @@ def disassemble(ws, pc=0, symbols=None):
         opnd, _ = ea_info(hi, lo, ext)
         if opnd is None or (opnd[0] == "mem" and opnd[5] != 4):
             return bad
+        if op == 0xF0 and hi == 0 and lo == LINK:
+            return "RET", 1             # JMP r7
         return f"{'JMP' if op == 0xF0 else 'CALL'} {dis_ea(hi, lo, ext, nxt, symbols)}", n
     if op in (0xF2, 0xF3):
         if lo:
@@ -325,18 +330,13 @@ def disassemble(ws, pc=0, symbols=None):
     if op == 0xFC:
         return f"SWI #{rb}", 1
     if op == 0xFD:
-        if rb == 0x10:
+        if rb == 0x00:
             e = ext[0]
             if e & 0xE0:
                 return bad
             return f"MULFX {R(e >> 12)}, {R((e >> 8) & 15)}, #{e & 31}", 2
-        return {0x00: ("RET", 1), 0xFD: ("NOP", 1)}.get(rb, bad)
+        return bad
     if op == 0xFE:
-        if rb in (0x10, 0x11):
-            e = ext[0]
-            if e & 0xFF:
-                return bad
-            return f"{'MFUR' if rb == 0x10 else 'MTUR'} {R(e >> 12)}, {R((e >> 8) & 15)}", 2
         return {0: ("EI", 1), 1: ("DI", 1), 2: ("RTI", 1), 3: ("HALT", 1)}.get(rb, bad)
     return bad
 
@@ -366,8 +366,11 @@ def kind(ws):
     op, rb = w & 0xFF, w >> 8
     hi, lo = rb >> 4, rb & 15
     row, col = op >> 4, op & 15
-    if disassemble(ws)[0].startswith(".half"):
+    first = disassemble(ws)[0].split()[0]
+    if first == ".half":
         return "illegal"
+    if first in ("RET", "NOP", "MFUR", "MTUR"):
+        return first
     if op in (0x01, 0x02):
         return "LDM" if op == 1 else "STM"
     if 0x04 <= op <= 0x07:

@@ -18,7 +18,7 @@ W2    = COLS + 2                ; bytes per stored row
 GRID  = W2 * (ROWS + 2)
 GENS  = 20
 
-main:   SAVE r8-r11
+main:   SAVE r7-r11
         LEA  r1, [pattern]      ; grid_a starts all dead (.space): set the
         MOV  r2, #1             ; pattern's cells, counting them
         MOV  r10, #0            ; r10 = population (of generation 0 here)
@@ -51,7 +51,7 @@ main:   SAVE r8-r11
 .done:  BSR  newline
         MOV  r1, r8
         BSR  show
-        RESTORE r8-r11
+        RESTORE r7-r11
         RET
 
 ; step: r1 = current grid (border filled), r2 = next grid -> r1 = population
@@ -85,7 +85,7 @@ step:   LEA  r3, [r2 + W2 + 1]  ; r3 = the cell in the next grid
 
 ; wrap: r1 = grid. Copy the opposite edges into the border: columns first,
 ; then whole rows, which also fills the corners.
-wrap:   PUSH r8
+wrap:   SAVE r7-r8
         MOV  r8, r1
         LEA  r2, [r1 + W2]      ; row 1
         MOV  r3, #ROWS
@@ -103,11 +103,11 @@ wrap:   PUSH r8
         LEA  r2, [r8 + W2]
         MOV  r3, #W2
         BSR  memcpy
-        POP  r8
+        RESTORE r7-r8
         RET
 
 ; show: r1 = grid. Print it as # and . characters.
-show:   SAVE r8-r10
+show:   SAVE r7-r10
         LEA  r8, [r1 + W2 + 1]  ; r8 = the first cell
         MOV  r9, #ROWS
 .row:   LEA  r10, [r8 + COLS]   ; end of the row
@@ -119,7 +119,7 @@ show:   SAVE r8-r10
         BSR  newline
         ADD  r8, #2
         DBNZ r9, .row
-        RESTORE r8-r10
+        RESTORE r7-r10
         RET
 
 ; Live cells as offsets into the grid: (row + 1) * W2 + (col + 1).

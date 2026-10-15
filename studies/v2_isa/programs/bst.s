@@ -14,7 +14,7 @@ LEFT  = 4                       ; left subtree, or 0
 RIGHT = 8                       ; right subtree, or 0
 NODE  = 12
 
-main:   SAVE r8-r13
+main:   SAVE r7-r13
         MOV  r1, #0xBEEF
         BSR  srand
         LEA  r8, [pool]         ; r8 = the next free node
@@ -53,7 +53,7 @@ main:   SAVE r8-r13
         BSR  height
         BSR  print_u32
         BSR  newline
-        RESTORE r8-r13
+        RESTORE r7-r13
         RET
 
 ; insert: r1 = key, r2 = an unused node (the pool is zero, so its links are
@@ -77,6 +77,7 @@ insert: MOV  [r2], r1           ; the key
 ; a call, so a long right spine doesn't grow the stack. The node is r14, the
 ; current object, so its fields are one-parcel slots.
 inorder:
+        PUSH r7
         PUSH r14
         MOV  r14, r1
 .node:  MOVS r1, [r14 + LEFT]
@@ -97,12 +98,13 @@ inorder:
 .right: MOVS r14, [r14 + RIGHT]
         BNE  .node
         POP  r14
-        RET
+        JMP  [sp]+
 
 ; height: r1 = a subtree, or 0 -> r1 = number of levels (0 for an empty one).
 ; The node is r14, as in inorder.
 height: TST  r1, r1
         BEQ  .ret
+        PUSH r7
         SAVE r13-r14
         MOV  r14, r1
         MOV  r1, [r14 + LEFT]
@@ -115,6 +117,7 @@ height: TST  r1, r1
         MOV  r1, r13
 .max:   INC  r1
         RESTORE r13-r14
+        JMP  [sp]+
 .ret:   RET
 
 s_keys:    .asciz "every 10th key in order:"

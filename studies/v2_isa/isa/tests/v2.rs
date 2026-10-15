@@ -47,7 +47,7 @@ fn rfc_examples() {
         ("MOV r5, #'a'", &[b(0x71, 0x5C)]),
         ("CLR [r6]+", &[b(0x20, 0x66)]),
         ("MOV r1, [r14 + 8]", &[b(0x1E, 0x12)]),
-        ("RET", &[b(0xFD, 0x00)]),
+        ("RET", &[b(0xF0, 0x07)]),
         ("HALT", &[b(0xFE, 0x03)]),
     ];
     for (line, words) in cases {
@@ -131,7 +131,7 @@ fn encodings() {
         ("MOV r1, [r14 + 64]", &[b(0x13, 0x1E), 0x0040]),
         ("MOV r1, byte [r14 + 4]", &[b(0x19, 0x1E), 0x0004]),
         ("LEA r1, [r14 + 8]", &[b(0x04, 0x1E), 0x0008]),
-        ("MULFX r1, r2, #16", &[b(0xFD, 0x10), 0x1210]),
+        ("MULFX r1, r2, #16", &[b(0xFD, 0x00), 0x1210]),
         // row D, shifts
         ("SXH r1, r2", &[b(0xD8, 0x12)]),
         ("REV r1", &[b(0xDE, 0x11)]),
@@ -153,19 +153,22 @@ fn encodings() {
         ("LDM r1, r4-r7", &[b(0x01, 0x41), 0x7000]),
         ("STM sp, r0", &[b(0x02, 0x0F), 0x0000]),
         ("MFSR r1, hi", &[b(0x0E, 0x11)]),
-        ("MTSR lo, r2", &[b(0x0F, 0x92)]),
+        ("MTSR lo, r2", &[b(0x0F, 0x22)]),
         ("PUSH r1", &[b(0x27, 0x1F)]),
         ("POP r2", &[b(0x16, 0x2F)]),
         ("MFHI r1", &[b(0x0E, 0x11)]),
-        ("MFLO r3", &[b(0x0E, 0x39)]),
+        ("MFLO r3", &[b(0x0E, 0x32)]),
         ("MTHI r2", &[b(0x0F, 0x12)]),
-        ("MTLO r2", &[b(0x0F, 0x92)]),
+        ("MTLO r2", &[b(0x0F, 0x22)]),
         ("MFSR r1, flags", &[b(0x0E, 0x10)]),
         ("SWI #42", &[b(0xFC, 0x2A)]),
-        ("NOP", &[b(0xFD, 0xFD)]),
+        ("NOP", &[b(0x10, 0x00)]),
+        ("JMP r7", &[b(0xF0, 0x07)]),
+        ("JMP [sp]+", &[b(0xF0, 0x6F)]),
         ("EI", &[b(0xFE, 0x00)]),
         ("RTI", &[b(0xFE, 0x02)]),
-        ("MFUR r1, sp", &[b(0xFE, 0x10), 0x1F00]),
+        ("MFUR r1, sp", &[b(0x31, 0x1F)]),
+        ("MTUR r2, r3", &[b(0x3D, 0x23)]),
     ];
     for (line, words) in cases {
         assert_eq!(encode(line), *words, "{line}");
@@ -345,6 +348,39 @@ fn tables_without_a_base_register() {
 }
 
 #[test]
+fn calls_leave_the_return_address_in_r7() {
+    // a call nests by saving r7 with the registers it keeps; a function can
+    // also push its return address and return with JMP [sp]+
+    let m = run("        BSR  outer\n        CALL #pushed\n        HALT\n\
+         outer:  SAVE r7-r8\n        MOV  r8, #3\n        BSR  inner\n        ADD  r1, r8\n\
+         \x20       RESTORE r7-r8\n        RET\n\
+         inner:  MOV  r1, #4\n        RET\n\
+         pushed: PUSH r7\n        BSR  inner\n        ADD  r1, #10\n        JMP  [sp]+");
+    assert_eq!(m.r[1], 14);
+    assert_eq!(m.r[15], 0x8000);
+    // nothing is pushed: below the stack, memory is untouched
+    assert!(m.mem[0x7FE0..0x7FF8].iter().all(|&b| b == 0));
+}
+
+#[test]
+fn align_pads_with_nop() {
+    let mut a = Assembler::new(encoder("v2").unwrap(), false);
+    a.load(
+        "t.s",
+        Some(
+            "        .org 0x101
+        .align 8
+        HALT
+",
+        ),
+    )
+    .unwrap();
+    let img = a.assemble().unwrap();
+    let pad: Vec<u8> = (0x101..0x108).map(|i| img.mem[&i]).collect();
+    assert_eq!(pad, [0x00, 0x10, 0x00, 0x10, 0x00, 0x10, 0x00]);
+}
+
+#[test]
 fn mode_e_is_a_slot_at_r14() {
     let m = run(
         "        MOV r14, #0x300\n        MOV r1, #5\n        MOV [r14 + 8], r1\n\
@@ -409,13 +445,7 @@ fn tagged_operations_check_bit_0() {
 fn illegal_cells_trap() {
     // MFUR is the supervisor's, and there is no supervisor yet
     for cell in [
-        "0x00",
-        "0x03",
-        "0x31",
-        "0xC3",
-        "0xF7",
-        "0xFF",
-        "0x10FE, 0x1200",
+        "0x00", "0x03", "0x31", "0xC3", "0xF7", "0xFF", "0x10FE", "0xFDFD",
     ] {
         let m = run(&format!("        .half {cell}"));
         assert_eq!(m.r[14], 0x7E, "{cell}");
