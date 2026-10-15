@@ -196,6 +196,8 @@ growing stacks, guard pages), and sharing.
 - `CALL` and `JMP/CALL [mem]` read the target and push before changing the
   PC or `sp`, except 1b's `CALL [r]+` and `CALL -[r]`, which move `r`
   first ([report 0020](0020-report-operating-system.md#what-was-hard)).
+  Draft 2's calls push nothing: the return address goes to `r7`
+  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
 - `SAVE` writes first and moves `sp` last; re-running it is idempotent.
 - `RESTORE` re-runs idempotently (`sp` is never in the range).
 - Prefetch faults are held back until the parcel is used.

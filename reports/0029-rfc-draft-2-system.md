@@ -172,8 +172,8 @@ Reserved registers read as 0 and ignore writes.
   it addresses memory with. It may already have loaded registers or
   stored to memory, but running it again gives the same result, so `RTI`
   resumes it. For that:
-  - an instruction that both stores and updates an address register
-    (`CALL [r]+`, `CALL -[r]`) stores first;
+  - a register an addressing mode increments or decrements changes only
+    once the access has succeeded;
   - `SAVE`, `RESTORE`, `LDM` and `STM` update their base register last;
     one whose range includes its base register is open;
   - `CAS`'s locked read is checked as a store.
@@ -235,9 +235,12 @@ keeps what worked and changes the rest.
     aren't running.
 - **Precise faults** are draft 1's rules
   ([RFC 0010, 3](0010-rfc-ideas-os.md#3-mmu)), plus the cases draft 2's
-  instructions add. `CALL [r]+` was the one 1b form that broke them; a
-  link register would remove it altogether
-  ([RFC 0006, 5](0006-rfc-ideas-isa.md#5-more-instruction-ideas)).
+  instructions add. `CALL [r]+` was the one 1b form that broke them, by
+  moving `r` before it pushed; with draft 2's link register a call
+  pushes nothing
+  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  Exceptions still push the PC and the flags, so a handler that calls
+  saves `r7` like any function.
 - **A vector per `SWI` number:** the decode ROM sees the whole parcel, so
   each number gets its own microcode entry. A null system call spent 16
   of its 39 cycles dispatching

@@ -69,6 +69,8 @@ isn't in the repository.
     `[abs24 + x·s]` and `[pc + d24 + x·s]`;
   - a second slot mode, `[r14 + 4R]`: the first 16 words of the current
     object in one parcel, for every operation that takes a mode;
+  - a link register: calls leave the return address in `r7`, and a
+    return is `JMP r7`;
   - `ILLEGAL` at `00`.
 - **Some instructions are tentative:** `ADD.B4`, `FFS`, `POPC`, `REV`,
   `MULA`, `MERGE`, `MULFX` and the tagged operations. They're defined so
@@ -100,7 +102,7 @@ as in draft 1.
 | `BNE .loop`, three parcels back | `B1 FD` |
 | `MOV r5, #'a'` (`MVI`, the `#u7` form) | `71 5C` |
 | `CLR [r6]+` | `20 66` |
-| `RET` | `FD 00` |
+| `RET`, which is `JMP r7` | `F0 07` |
 | `HALT` | `FE 03` |
 | `MOV r1, [r14 + 8]` (mode E) | `1E 12` |
 
@@ -186,9 +188,9 @@ The two extension grids, with the second byte:
 
 | `FD`, misc | | `FE`, system | |
 |---|---|---|---|
-| `FD 00` | `RET` | `FE 00` | `EI` |
-| `FD 10` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 01` | `DI` |
-| `FD FD` | `NOP` | `FE 02` | `RTI` |
+| `FD 10` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 00` | `EI` |
+| `FD FD` | `NOP` | `FE 01` | `DI` |
+| | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
 
 Free root cells: `03`, `C3`, `C7`, `CB`, `CF`, `EF`, `F9`–`FB`.
@@ -444,7 +446,8 @@ D and E are new: tables without a base register. **decided** (Emily,
 ### 6.4 Branches and loops (row B, `F2`, `F3`, `F6`)
 
 - **`Bcc`:** row B. The condition is the opcode's low nibble (E is `BRA`,
-  F `BSR`), the 8-bit offset in parcels the register byte.
+  F `BSR`), the 8-bit offset in parcels the register byte. `BSR` leaves
+  the return address in `r7` ([6.8](#68-control-multiple-and-system-rows-0-and-f)).
 - **`Jcc rel16` and `Jcc abs32`:** the condition in the register byte's high
   nibble. The low nibble is spare.
 - **`DBNZ r, back4`** (`F6`): decrement `r` and branch 1–16 parcels back
@@ -495,6 +498,21 @@ D and E are new: tables without a base register. **decided** (Emily,
 
 - **`JMP ea` and `CALL ea`:** one cell each, with the mode from the
   register byte. `JMP r3` is mode 0.
+- **A link register.** `CALL`, `BSR` and `Jcc`'s call put the return
+  address in `r7` and push nothing. **decided** (Emily, 2026-10-15).
+  - A return is `JMP r7`, one parcel, which the assembler also accepts as
+    `RET`. A function that pushed its return address returns with
+    `JMP [sp]+`.
+  - `r7` is the last caller-saved register, next to the callee-saved
+    `r8`–`r14`, so a function that calls saves it in its `SAVE r7-rN`.
+  - Exceptions still push the PC and the flags
+    ([RFC 0029, 6](0029-rfc-draft-2-system.md#6-exceptions)).
+  - Measured on 1b with the convention ported (the link-register report,
+    in review): −2.3% of the hand-written suite's cycles, −0.2% of
+    compiled C's, −0.9% of Egret's JIT, and at worst +0.24% measured. A
+    leaf call and return takes 5 cycles instead of 10. The microcode is
+    74 microinstructions shorter, and a call no longer writes memory, so
+    `CALL [r]+` no longer needs care to be restartable.
 - **`SAVE ra-rb` and `RESTORE ra-rb`:** one cell each.
   - All 29 compiled functions that save registers save `r8`–`rN`, and
     none saves a register it doesn't use, so register masks would buy
@@ -520,7 +538,7 @@ D and E are new: tables without a base register. **decided** (Emily,
 - **`MFSR rd, n` and `MTSR n, rs`** (`0E`, `0F`): `HI` (n = 1) is how a
   remainder or a product's high half is read.
 - **The extension grids** hold instructions without operands, which are
-  still one parcel there (`RET`, `NOP`, `EI`, `DI`, `RTI`, `HALT`).
+  still one parcel there (`NOP`, `EI`, `DI`, `RTI`, `HALT`).
 - **`MFUR rd, rs` and `MTUR rd, rs`** (`31`, `3D`): the supervisor reads
   register `rs` of the user's bank into its own `rd`, or writes the
   user's `rd` from its own `rs` (v1bs's instructions,
@@ -638,8 +656,7 @@ programs and the 15 C programs compiled for 1b, with their C library.
 5. **The tag that marks an integer:** the Lisp's bit 0 clear, or Egret's
    2n + 1. A register holding the expected tag bit could serve both.
 6. **`LDM` and `STM`:** what their extension parcel's 12 spare bits do
-   (direction, writeback). With a link register (`BL`), a range plus a
-   bit for it.
+   (direction, writeback).
 7. **The opcode byte first in memory,** as in the map, or second.
 8. **`MOVS rs`,** in the map. Register copies' flags were read 21 times in
    86,000.
