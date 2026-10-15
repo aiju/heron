@@ -166,10 +166,10 @@ T("181", "alu181",
         ([f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)], ["G"], "AB->G"),
         ([f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)], ["CN4"], "AB->CN4"),
         ([f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)], ["AEQB"], "AB->AEQB"),
-        (["CN"], [f"F{i}" for i in range(4)], "CN->F"),
+        (["CN"], [f"F{i}" for i in range(4)] + ["AEQB"], "CN->F"),
         (["CN"], ["CN4"], "CN->CN4"),
-        ([f"S{i}" for i in range(4)] + ["M"], [f"F{i}" for i in range(4)] + ["P", "G", "CN4", "AEQB"],
-         "S->F")],
+        ([f"S{i}" for i in range(4)], [f"F{i}" for i in range(4)] + ["P", "G", "CN4", "AEQB"], "S->F"),
+        (["M"], [f"F{i}" for i in range(4)] + ["AEQB"], "M->F")],
   family="alu", desc="4-bit ALU")
 
 T("182", "cla182",
