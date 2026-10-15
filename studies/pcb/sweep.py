@@ -88,6 +88,13 @@ CLOCK_TREE_PS = 6000      # CLK through a CDC341 tree: its delay, short branches
 TIMING_BOARD = "cpu-smd-6-340x233"     # the board whose wires go into the simulation
 
 
+def _wrong(hw):
+    """How a run whose output was wrong ended."""
+    how = {"stop condition": "halted", "cycle limit": "still running at the cycle limit",
+           "the clock stopped": "its clock stopped"}.get(hw["reason"], hw["reason"])
+    return f"wrong, {how} after {hw['cycles']:,} cycles"
+
+
 def timing(board_name):
     """hello on the whole system at chip level with the routed CPU card's
     wires in, and the length classes worked out again with them (static
@@ -150,8 +157,7 @@ def timing(board_name):
         worst = hw["violation_summary"][0] if hw["violation_summary"] else None
         rows.append({"wires": label, "classes": which, "lengths": " ".join(map(str, lens)),
                      "slower": f"{ticks / base_ticks - 1:+.1%}",
-                     "output": "right" if out == programs.expected("hello") else
-                     f"wrong, stopped after {hw['cycles']} cycles",
+                     "output": "right" if out == programs.expected("hello") else _wrong(hw),
                      "violations": hw["violation_total"],
                      "worst": "" if not worst else
                      f"{worst['what'].replace('CPU.', '')} {worst['worst_slack_ps'] / 1000:.1f} ns"})
@@ -240,7 +246,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
             "`hello` on the whole system (`studies/v1b_system`), with the CPU card's wires from "
             f"the {TIMING_BOARD.rsplit('-', 1)[1].replace('x', ' × ')} grid board: a delay on each "
             "driving pin, and one in front of each load further along its wire (infra/pcb/wires.py). "
-            "\"Stopped after\" 3,000,000 cycles: the limit; the program never finished.", "",
+            "A run ends when the machine halts, when its clock stops, or at 3,000,000 cycles.", "",
             table(timing_rows, ["wires", "classes", "lengths", "slower", "output", "violations", "worst"],
                   ["Wires", "Length classes", "Ticks", "Program suite", "Output", "Violations",
                    "Worst"]), "",

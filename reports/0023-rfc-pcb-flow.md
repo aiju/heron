@@ -65,11 +65,12 @@ flow has to put that back into the simulation. With the routed CPU card's
 wire delays in hwsim, the machine that passes every test with ideal wires
 gets hundreds of setup violations from flight times alone, and **goes
 wrong** once the loads are in: its clock is one 74F175 output driving 53
-inputs over 1.25 m of copper, 364 pF, 16 to 21 ns late. With a clock tree
-for CLK, the length classes worked out again by the static timing
-analysis with the board's delays, and placement that keeps the 50 MHz
-clock generator together, **the simulation with the board's wires runs
-with no violations**, about 4% slower than with ideal wires (section 7).
+inputs over 1.3 m of copper, 364 pF, 16 to 21 ns late. A clock tree for
+CLK isn't enough on its own; the length classes have to be worked out
+again by the static timing analysis with the board's delays. With both,
+and placement that keeps the 50 MHz clock generator together, **the
+simulation with the board's wires runs with no violations**, 4.6% slower
+than with ideal wires (section 7).
 
 ## 2. How Claude can design a board
 
@@ -394,25 +395,28 @@ the card, the inputs on the other cards get the connector's flight time
 the same way. hwsim takes a delay per output pin (`pin_delays`,
 `Instance.add_pin_delay`).
 
-`hello` on the whole system, with the CPU card's wires from the 340 × 220
+`hello` on the whole system, with the CPU card's wires from the 6U × 340
 grid board ([results.md](0023-rfc-pcb-flow/results.md) has the table):
 
 | Wires | Length classes | Result |
 |---|---|---|
 | ideal, as simulated so far | the design's | right, no violations |
 | flight times | the design's | right, hundreds of setup violations |
-| flight times | worked out for the board | right, no violations |
+| flight times | worked out for the board | right, no violations, 1.4% slower |
 | flight and load, CLK as routed | the design's | wrong, millions of violations |
-| flight and load, CLK through a clock tree | the design's | right, thousands of setup violations |
-| flight and load, CLK through a clock tree | worked out for the board | right, no violations, about 4% slower |
+| flight and load, CLK through a clock tree | the design's | wrong, more than a million setup violations |
+| flight and load, CLK through a clock tree | worked out for the board | right, no violations, 4.6% slower |
 
-The free 300 × 220 board gives the same results but for one row: with CLK
-through a clock tree and the design's length classes it goes wrong too.
-With the classes worked out for it (13, 15, 16, 18 ticks for its flight
-times; 13, 16, 17, 18 with the loads) it runs with no violations, 4.5%
-slower.
+The free 6U × 320 board gives the same results but for one row: with CLK
+through a clock tree and the design's length classes its output comes
+out right, but with about 1,100 setup violations of up to 14 ns, the
+same as the grid board's. So neither board can keep the design's
+classes; whether the output survives the violations is luck. With the
+classes worked out for it (13, 15, 16, 18 ticks for its flight times;
+13, 16, 17, 18 with the loads, as for the grid) it runs with no
+violations, 4.5% slower.
 
-- **CLK** is one output of a 74F175 driving 53 inputs over 1.25 m of
+- **CLK** is one output of a 74F175 driving 53 inputs over 1.3 m of
   copper: 364 pF, about 16 ns more than at 50 pF, and 5 ns of flight to
   its last load. It reaches the registers 16 to 21 ns late, while the
   SRAMs' write window, made from the 50 MHz clock, doesn't move with it:
@@ -421,17 +425,18 @@ slower.
   and a handful of loads. The design tolerates CLK up to 14 ns late with
   no violations (at 16 ns the tick counter's preload misses its setup); a
   tree makes about 6.
-- **The heavy nets after it:** FILL drives 35 inputs (179 pF, 10 ns more),
-  RESET_n 19 over half a metre, FAULT 20; the microcode address lines
-  (Y0–Y16) 16 each over about 35 cm (108 pF, 5 ns more and 2 ns of
-  flight). With the length classes worked out again they cost a tick here
-  and there; buffering them, or the ROMs closer together, would win it
-  back.
+- **The heavy nets after it:** FILL drives 36 inputs (188 pF, 11 ns more),
+  RESET_n 19 over half a metre, FAULT 20; then a group of nets with 16
+  loads each over 35 to 40 cm (IRQP, uRMS0 and uRMS1, FLEN1, and on the
+  free board the microcode address lines): about 110 pF, 5 ns more and 2
+  ns of flight. With the length classes worked out again they cost a
+  tick here and there; buffering them, or the ROMs closer together, would
+  win it back.
 - **The setup violations** are on the MAR registers, whose path is the one
   the length classes were tuned to. The static timing analysis
   (`infra/hw/sta.py`) takes the same delays, so the classes and their
-  jumpers can be worked out for the board: 13, 14, 16, 18 ticks with
-  flight times (1.5% slower), 13, 16, 17, 18 with the loads (4.4%),
+  jumpers can be worked out for the board: 13, 15, 16, 18 ticks with
+  flight times (1.4% slower), 13, 16, 17, 18 with the loads (4.6%),
   against the design's 13, 15, 16, 17.
 - **The clock generator's 20 ns domain** allows one 74F gate between
   flip-flops; a wire of a few centimetres breaks it (0.2 ns short on the
