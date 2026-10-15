@@ -106,7 +106,7 @@ def mechanics(b):
         b.add(hole)
     # an L: two along the front edge, one along the top towards the back;
     # the same on the bottom side, for its capacitors
-    marks = [(5.0, 15.0), (5.0, h - 15.0), (back - 12.0, 6.5)]
+    marks = [(5.0, 15.0), (5.0, h - 15.0), (back - 12.0, 7.0)]
     n = 0
     for side in ("F", "B"):
         for x, y in marks:
