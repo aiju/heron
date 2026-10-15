@@ -57,7 +57,8 @@ isn't in the repository.
 - **`MOV` never sets the flags; `MOVS` does.** Stores are written `MOV`
   too.
 - **New since 1b:**
-  - one-parcel 7-bit constants for `MVI` and `CMPI`;
+  - one-parcel 7-bit constants for `MOV` and `CMP`, labelled `MVI` and
+    `CMPI` in the map;
   - one-operand instructions with every mode in one cell: `CLR`, `INC`
     and `DEC` on memory or a register, `JMP`, `CALL`;
   - a one-cell `DBNZ`;
@@ -87,7 +88,7 @@ as in draft 1.
 | `MOV r3, [r4 + 8]` | `13 34` `08 00` |
 | `MOV [sp + 12], r5` (a store) | `24 53` |
 | `BNE .loop`, three parcels back | `B1 FD` |
-| `MVI r5, #'a'` | `71 5C` |
+| `MOV r5, #'a'` (`MVI`, the `#u7` form) | `71 5C` |
 | `CLR [r6]+` | `20 66` |
 | `RET` | `FD 00` |
 | `HALT` | `FE 03` |
@@ -147,7 +148,8 @@ as in draft 1.
 `R` is the mode's register; `R+X·s` the indexed mode; `spec` 1b's special
 mode ([5](#5-addressing-modes)); `+1`, `+1–2` the extension parcels; `×n`
 an instruction that fills n cells. `ST` is a store, written `MOV` in draft
-2's syntax; the assembler doesn't accept `ST`.
+2's syntax; the assembler doesn't accept `ST`. Likewise `MVI` and `CMPI`
+are written `MOV` and `CMP` ([6.3](#63-short-constants-row-7)).
 
 | | _0 | _1 | _2 | _3 | _4 | _5 | _6 | _7 | _8 | _9 | _A | _B | _C | _D | _E | _F |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -301,6 +303,22 @@ from the register byte. They are 1b's modes, in 1b's order
 
 - **`MVI rd, #u7`** (`70`–`77`) and **`CMPI rd, #u7`** (`78`–`7F`): a
   constant 0…127, zero-extended. `MVI` leaves the flags alone.
+- **They're written `MOV rd, #c` and `CMP rd, #c`.** **decided** (Emily,
+  2026-10-15).
+  - Like `ST`, `MVI` and `CMPI` are only labels in the map. The assembler
+    doesn't accept them, and the disassembler prints `MOV` and `CMP`.
+  - They behave exactly as the other constant forms do: `MOV` leaves the
+    flags alone whatever the constant's encoding, and `CMP` sets them the
+    same way whether the constant took 7 bits or 16.
+  - So they're one more encoding for the assembler to pick, as 1b's already
+    picks between the quick constants and the special mode
+    ([isa-v1b.md](../studies/v1_isa/isa-v1b.md#addressing-modes)): a quick
+    constant for 0…15 and −1…−16, `#u7` for 16…127, and a 16- or 32-bit
+    form for the rest. Which of the two one-parcel forms takes 0…15 is
+    open ([9](#9-open-questions)).
+  - A label's value isn't known when its instruction is assembled, so
+    `MOV r1, #label` takes a 16- or 32-bit form, as in 1b, unless the
+    linker learns to relax it.
 - **Constants beyond the quick ones,** as a share of executed instructions:
 
   | Constant | `MOV`, hand-written | `MOV`, compiled C | `CMP`, hand-written | `CMP`, compiled C |
@@ -318,7 +336,7 @@ from the register byte. They are 1b's modes, in 1b's order
   - Most hand-written "wider" loads are −256: the simulator's I/O page,
     which a real machine puts in a slot instead.
 - **Compiled C compares with characters more than it loads them,** so
-  `CMPI` earns its half-row as much as `MVI`.
+  the `CMP` half-row earns its place as much as the `MOV` one.
 
 ### 6.4 Branches and loops (row B, `F2`, `F3`, `F6`)
 
@@ -366,8 +384,8 @@ from the register byte. They are 1b's modes, in 1b's order
   on registers.
 - **`BIC`, `TST`, `MULU` and `MULS` with the special mode** take 16- and
   32-bit constants, which closes 1b's "no immediate `TST`/`BIC`/`MUL`"
-  gap. Dividing by a constant (`printf`'s `DIVU` by 10) takes an `MVI`
-  first.
+  gap. Dividing by a constant (`printf`'s `DIVU` by 10) takes a
+  `MOV rX, #10` first.
 - **`MULA` and `MERGE`** are placeholders.
 
 ### 6.8 Control, multiple and system (rows 0 and F)
@@ -480,7 +498,13 @@ programs and the 15 C programs compiled for 1b, with their C library.
    86,000.
 9. **`Jcc`'s spare nibble:** a 20-bit relative offset?
 10. **Sign-extending loads,** which 1a had and 1b doesn't.
-11. **Room to grow:** 20 free cells, and `AND`, `OR` and `XOR`'s memory
+11. **How the assembler picks a constant's encoding:**
+    - 0…15 fit both the quick constant and `#u7`. A fixed preference keeps
+      the output reproducible; the proposal is the quick constant.
+    - A qualifier that forces a long form, for patching code in place or
+      instructions of a fixed length: `MOV.L r1, #5`, say, like ARM's
+      `.W`. Only if something needs it.
+12. **Room to grow:** 20 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([6.2](#62-alu-operations-rows-46-and-8a)).
 
 ## 10. Next steps
