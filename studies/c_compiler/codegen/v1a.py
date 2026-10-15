@@ -28,7 +28,7 @@ class V1A(Target):
     SMALL_ADD = (-128, 127)
 
     @staticmethod
-    def free_imm(op, c):
+    def free_imm(op, c, i=None):
         """Can instruction op take constant c without costing more than a
         register operand would? (MVI, ADDI and CMPI take 8 bits; the rest
         need an extension parcel.)"""

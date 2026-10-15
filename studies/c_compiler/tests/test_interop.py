@@ -1,5 +1,6 @@
 """C and assembly linked together, through the object files and linker in
-infra and the draft 1 assembler (the v1_isa study tests those on their own)."""
+infra and the draft 1 and 2 assemblers (the v1_isa and v2_isa studies test
+those on their own)."""
 
 import io
 import os
@@ -9,6 +10,7 @@ from contextlib import redirect_stdout, redirect_stderr
 
 from heron.infra import asm, obj as O
 from heron.studies.v1_isa import testing
+from heron.studies.v2_isa import testing as testing_v2
 
 
 def assemble(isa, text, name="t.s"):
@@ -72,19 +74,42 @@ asm_sum:
         RET
         .data
 _scale: .word 5
+""",
+    "v2": """
+        .global asm_sum, _scale
+asm_sum:
+        SAVE r8-r10
+        MOV  r8, r1
+        MOV  r9, r2
+        CLR  r10
+.loop:  MOV  r1, [r8]+
+        CALL twice
+        ADD  r10, r1
+        DBNZ r9, .loop
+        MOV  r1, r10
+        RESTORE r8-r10
+        RET
+        .data
+_scale: .word 5
 """}
+
+
+def print_routines(isa):
+    """The hand-written programs' print routines."""
+    d = testing_v2.PROGRAMS if isa == "v2" else testing.program_dir(isa)
+    return os.path.join(d, "lib", "print.s")
 
 
 class CAndAssembly(unittest.TestCase):
     def test_interop(self):
         from heron.studies.c_compiler.cc import driver
         from heron.infra.objtools import assemble_object
-        for isa in ("v1a", "v1b"):
+        for isa in ("v1a", "v1b", "v2"):
             with self.subTest(isa=isa):
                 p = driver.Program(isa)
                 p.add_file("main.c", text=INTEROP_C)
                 p.add_object(assemble(isa, INTEROP_S[isa], "sum.s"))
-                p.add_object(assemble_object(isa, os.path.join(testing.program_dir(isa), "lib", "print.s")))
+                p.add_object(assemble_object(isa, print_routines(isa)))
                 p.add_library()
                 img = p.link()
                 m = driver.run_image(img, isa)
@@ -115,6 +140,29 @@ class CAndAssembly(unittest.TestCase):
             text = out.buffer.getvalue().decode("latin-1")
             self.assertIn("40\n", text)
             self.assertIn("pc16h", text)
+
+    def test_command_line_v2(self):
+        from heron.studies.c_compiler.cli import main as cc_main
+        from heron.studies.v2_isa.cli import main
+        with tempfile.TemporaryDirectory() as d:
+            c = os.path.join(d, "main.c")
+            s = os.path.join(d, "sum.s")
+            with open(c, "w") as f:
+                f.write(INTEROP_C)
+            with open(s, "w") as f:
+                f.write(INTEROP_S["v2"])
+            out = io.TextIOWrapper(io.BytesIO(), encoding="latin-1")
+            with redirect_stdout(out), redirect_stderr(io.StringIO()):
+                self.assertEqual(cc_main(["cc", "--isa", "v2", "-c", c, "-o", os.path.join(d, "main.o")]), 0)
+                self.assertEqual(main(["asm", "-c", s]), 0)
+                self.assertEqual(main(["asm", "-c", print_routines("v2"), "-o", os.path.join(d, "print.o")]), 0)
+                self.assertEqual(cc_main(["cc", "--isa", "v2", os.path.join(d, "main.o"),
+                                       os.path.join(d, "sum.o"), os.path.join(d, "print.o"),
+                                       "-o", os.path.join(d, "prog.out")]), 0)
+                self.assertEqual(main(["run", os.path.join(d, "prog.out")]), 0)
+                self.assertEqual(cc_main(["cc", "--isa", "v2", c, s, print_routines("v2"), "--run"]), 0)
+            out.flush()
+            self.assertEqual(out.buffer.getvalue().decode("latin-1"), "40\n40\n")
 
 
 class CommandLine(unittest.TestCase):
