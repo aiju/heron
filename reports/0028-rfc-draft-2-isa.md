@@ -235,6 +235,9 @@ from the register byte. They are 1b's modes, in 1b's order
   the quick constants.
 - **Flags:** `MOV` never sets them. `MOVS` sets N and Z and leaves C and V,
   as draft 1's loads did. ALU operations set them as in draft 1.
+  - `CLR` leaves them alone, like a store. `INC` and `DEC` set N and Z
+    and leave C and V, like their register forms, in every mode.
+    **decided** (Emily, 2026-10-15).
   - Almost every move whose flags anything reads is a load followed by a
     branch. Constant loads' flags were never read in any trace, and
     register copies' 21 times in 86,000
@@ -261,12 +264,11 @@ from the register byte. They are 1b's modes, in 1b's order
   loads, stores, copies and constants. `ST` in the map is only a label.
 - **`CLR`** stores zero at any size, in place of 1b's `ST r0, ea`.
   `MOV [x], #0` can assemble to it. With mode 0, `CLR r5` zeroes a
-  register: one parcel, like `MOV r5, #0`, and the same instruction if
-  `CLR` leaves the flags alone ([9](#9-open-questions)). `INC r5` and
-  `DEC r5` likewise repeat row D's in-place forms. **`INC` and `DEC` on
-  memory** are the
-  memory increment RFC 0006 recommends: fib's call counter, a timer
-  handler's load, add and store.
+  register: one parcel, and the same instruction as `MOV r5, #0`, since
+  neither touches the flags. `INC r5` and `DEC r5` likewise repeat row
+  D's in-place forms. **`INC` and `DEC` on memory** are the memory
+  increment RFC 0006 recommends: fib's call counter, a timer handler's
+  load, add and store.
 
 ### 6.2 ALU operations (rows 4–6 and 8–A)
 
@@ -475,11 +477,8 @@ programs and the 15 C programs compiled for 1b, with their C library.
 8. **`MOVS rs`,** in the map. Register copies' flags were read 21 times in
    86,000.
 9. **`Jcc`'s spare nibble:** a 20-bit relative offset?
-10. **Flags of `CLR`, `INC` and `DEC` with the mode from the register
-    byte.** A proposal: `CLR` leaves them alone like a store; `INC` and `DEC` set N and Z like their
-    register forms.
-11. **Sign-extending loads,** which 1a had and 1b doesn't.
-12. **Room to grow:** 20 free cells, and `AND`, `OR` and `XOR`'s memory
+10. **Sign-extending loads,** which 1a had and 1b doesn't.
+11. **Room to grow:** 20 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([6.2](#62-alu-operations-rows-46-and-8a)).
 
 ## 10. Next steps
