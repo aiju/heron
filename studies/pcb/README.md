@@ -19,16 +19,17 @@ checks, the routed wires' delays, DSN/SES for other routers) and
 
 | File | What's in it |
 |---|---|
-| `cards.py` | The cards as boards: their netlists, the DIN 41612 connectors at the back edge and their pin maps, the timing-critical nets for placement |
+| `cards.py` | The cards as boards: their netlists, the DIN 41612 connectors at the back edge and their pin maps, the grid's slot sizes, the timing-critical nets for placement |
 | `flow.py` | The flow for one board: parts, placement, fanout, routing, the board file and a picture, the checks |
 | `sweep.py` | The experiments: board sizes, layer counts, SMD and DIP, one and two sides, the routed wires back in the simulation and the timing analysis, Freerouting |
 | `split.py` | What splitting the CPU card in two would cost |
 | `cli.py` | The commands |
 
 ```sh
-heron pcb build cpu --size 320x220            # place, route and check the CPU card (SMD, 6 layers)
-heron pcb build cpu --style dip --size 480x300 --layers 4   # the DIP version
-heron pcb build cpu --double --size 280x220   # parts on both sides
+heron pcb build cpu --size 340x220            # place, route and check the CPU card (SMD, 6 layers, a grid)
+heron pcb build cpu --style dip --size 480x340 --layers 4   # the DIP version
+heron pcb build cpu --free --size 300x220     # the parts anywhere, not on a grid
+heron pcb build cpu --double --size 280x220   # parts on both sides (placed freely)
 heron pcb build cpu --router freerouting      # route with Freerouting instead (needs its jar)
 heron pcb check build/pcb/<name>/board.kicad_pcb   # check a board file against the netlist
 heron pcb pinouts                             # the pinouts against KiCad's symbols

@@ -71,7 +71,7 @@ def main(argv=None):
     b = sub.add_parser("build", help="place, route and check one board")
     b.add_argument("card", nargs="?", default="cpu")
     b.add_argument("--style", default="smd", choices=("smd", "dip"))
-    b.add_argument("--size", default="320x220")
+    b.add_argument("--size", default="340x220")
     b.add_argument("--layers", type=int, default=6, choices=(4, 6))
     b.add_argument("--free", action="store_true",
                    help="parts anywhere, not in rows and columns")

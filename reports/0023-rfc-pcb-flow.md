@@ -44,28 +44,29 @@ netlist; and the board's wire delays back in the simulator.
 | **Routing** | Our own grid router (negotiated congestion), in Rust: the whole CPU card in under a minute | `infra/pcbroute` |
 | **The board file** | Written directly as KiCad 9 s-expressions, with a project file holding the design rules | `infra/pcb/board.py` |
 | **Checks** | Pinouts against KiCad's symbols; pads against the netlist; copper connectivity from geometry, and KiCad's DRC; the fab's test netlist against the board | `infra/pcb/check.py`, `copper.py` |
-| **Timing** | The routed wires' delays back into the chip-level simulator and the static timing analysis | `infra/pcb/wires.py`; per-pin delays in hwsim and `sta.py` |
+| **Timing** | The routed wires' delays back into the chip-level simulator and the static timing analysis, each load with its own flight time | `infra/pcb/wires.py`; per-pin delays and the `wire` fixture in hwsim and `sta.py` |
 | **Fab files** | Gerbers, drill, placement and the IPC-D-356 test netlist, by `kicad-cli` | `studies/pcb/flow.py` |
 
-**For the CPU card** (269 chips): surface-mount parts, **six layers, about
-300 × 220 mm**, parts on the top and the decoupling capacitors underneath.
-It places in under a minute and routes in under a minute, with no DRC
-errors, and every check passes. Four layers would take about 460 × 260.
-The plain DIP version works on **four layers at about 480 × 300 mm**,
-2.2 times the area. One card is enough: splitting the CPU over two would
-put about 170 signals or more between them.
+**For the CPU card** (269 chips): surface-mount parts on a grid, rows and
+columns of chips all the same way round, **six layers, about 340 × 220
+mm**, the decoupling capacitors underneath. It places and routes in under
+a minute each, with no DRC errors, and every check passes. Placed freely
+it would be 10–13% smaller (300 × 220); on four layers it routes only
+placed freely, at 460 × 260. The plain DIP version works as a grid on
+**four layers at about 480 × 340 mm**, 2.2 times the area, or on six at
+420 × 302. One card is enough: splitting the CPU over two would put about
+170 signals or more between them.
 
 **The finding that matters most:** a board changes the timing, and the
 flow has to put that back into the simulation. With the routed CPU card's
 wire delays in hwsim, the machine that passes every test with ideal wires
-gets hundreds of setup violations from flight times alone, and **stops
-after 11 cycles** once the loads are in: its clock is one 74F175 output
-driving 53 inputs over 1.3 m of copper, 361 pF, about 19 ns late. With a
-clock tree for CLK, the length classes worked out again by the static
-timing analysis with the board's delays, and placement that keeps the
-50 MHz clock generator together, **the simulation with the board's wires
-runs with no violations**, about 5% slower than with ideal wires
-(section 7).
+gets hundreds of setup violations from flight times alone, and **goes
+wrong** once the loads are in: its clock is one 74F175 output driving 53
+inputs over 1.25 m of copper, 364 pF, 16 to 21 ns late. With a clock tree
+for CLK, the length classes worked out again by the static timing
+analysis with the board's delays, and placement that keeps the 50 MHz
+clock generator together, **the simulation with the board's wires runs
+with no violations**, about 4% slower than with ideal wires (section 7).
 
 ## 2. How Claude can design a board
 
@@ -117,7 +118,7 @@ The pieces of a PCB flow, and who should do each:
 
 **Freerouting**, the open-source autorouter KiCad users reach for (Java,
 Specctra DSN in, SES out; `infra/pcb/dsn.py` writes and reads both),
-was run on the same CPU card placement:
+was run on the CPU card placed freely at 340 × 220:
 
 - with the planes given to it as power layers, as KiCad exports them, its
   first fanout pass took **101 minutes and escaped 134 of 3,508 pins**; it
@@ -154,13 +155,13 @@ time, not at all of them.
 ## 4. The flow
 
 ```sh
-heron pcb build cpu --size 320x220     # place, route, check: build/pcb/<name>/
+heron pcb build cpu --size 340x220     # place, route, check: build/pcb/<name>/
 heron pcb check board.kicad_pcb        # check a board file against the netlist
 heron pcb pinouts                      # the pinouts against KiCad's symbols
 heron pcb sweep --write                # the experiments behind this RFC
 ```
 
-One build, for the CPU card at 320 × 220 mm:
+One build, for the CPU card at 340 × 220 mm:
 
 1. **Parts** (`physical.parts`): the card's netlist (`studies/system`)
    through the pinout table. Each chip keeps the simulator's reference
@@ -271,42 +272,54 @@ check, KiCad's DRC and the fab netlist's check.
 
 | Board | Layers | Size (mm) | Result |
 |---|---|---|---|
-| **SMD**, parts on top, capacitors under | 6 | 380 × 220 | routed ✓ |
+| **SMD, grid**, capacitors under | 6 | **340 × 220** | **routed ✓** |
+| | 6 | 330 × 220 | routed |
+| | 6 | 320 × 220 | routed, in the last of 60 rounds |
+| | 6 | 300 × 220 | the parts don't fit |
+| SMD, grid | 4 | 480 × 260 | **not routed** (60 nets in conflict) |
+| **DIP, grid** | 6 | **420 × 302** | **routed ✓** |
+| | 6 | 400 × 302 | the parts don't fit |
+| | 4 | **480 × 340** | **routed ✓** |
+| | 4 | 480 × 320, rows of 31 mm | routed |
+| | 4 | 440 × 302, the six-layer slots | DIP4_440 |
+| SMD, free, capacitors under | 6 | 380 × 220 | routed ✓ |
 | | 6 | 340 × 220 | routed |
-| | 6 | **300 × 220** | **routed ✓** |
+| | 6 | 300 × 220 | routed ✓ |
 | | 6 | 280 × 233 (6U × 280) | routed |
 | | 6 | 280 × 220 | routed, in twice the rounds |
 | | 6 | 260 × 220 | the parts don't fit |
-| SMD, everything on top | 6 | 340 × 220 | routed |
+| SMD, free, everything on top | 6 | 340 × 220 | routed |
 | | 6 | 320 × 220 | the parts don't fit |
-| SMD, parts on both sides | 6 | 280 × 220 | routed |
+| SMD, free, parts on both sides | 6 | 280 × 220 | routed |
 | | 6 | 260 × 220 | not routed (2 nets in conflict) |
-| SMD | 4 | 380 × 220 | **not routed** (58 nets in conflict) |
+| SMD, free | 4 | 380 × 220 | not routed (58 nets in conflict) |
 | | 4 | 440 × 260 | not routed (2 nets in conflict) |
-| | 4 | **460 × 260** | **routed ✓** |
-| **DIP** | 6 | 480 × 300 | routed ✓ |
+| | 4 | 460 × 260 | routed ✓ |
+| DIP, free | 6 | 480 × 300 | routed ✓ |
 | | 6 | 440 × 300 | the parts don't fit |
-| | 4 | **480 × 300** | **routed ✓** |
+| | 4 | 480 × 300 | routed ✓ |
 | | 4 | 520 × 300 | routed |
 
 From these:
 
-- **SMD on six layers: about 300 × 220 mm** (66,000 mm²). Below that the
-  limit is first the placement, then the routing: with parts on both sides
-  280 × 220 routes and smaller doesn't. Four signal layers carry about
-  120 m of track on this card.
-- **SMD on four layers** needs about 460 × 260 (120,000 mm²), 1.8 times
-  the area: two signal layers, one of them covered in pads. Near the
-  limit, whether a board routes depends on the details of its placement:
-  440 × 260 routed with an earlier version of the placer, and with this
-  one two nets stay in conflict.
-- **DIP on four layers: about 480 × 300 mm** (144,000 mm²). Six layers
-  route the same board more easily (12 rounds against 46) but don't make
-  it smaller: at 440 × 300 the parts no longer fit. Their footprints
-  alone are 75,000 mm², against 37,000 for SMD, and a through-hole pin
-  blocks every layer, not just one. So Emily's original plan, a plain DIP
-  board on four layers, works; it is just big: 2.2 times the SMD card's
-  area.
+- **SMD on six layers, as a grid: about 340 × 220 mm** (75,000 mm²);
+  330 × 220 routes as easily, 320 × 220 only just. Placed freely the card
+  gets down to 300 × 220 (66,000 mm²), so the grid costs 10–13% of the
+  area: a narrow SOIC's slot is as tall as a wide one's, and a wide SOIC
+  takes two narrow slots. Four signal layers carry about 110 m of track.
+- **SMD on four layers** routes only placed freely, at about 460 × 260
+  (120,000 mm²): 1.6 times the area of the six-layer grid, on two signal
+  layers, one of them covered in pads. The grid doesn't route on four
+  layers at any size tried (section 8).
+- **DIP packs better on the grid than placed freely.** All the 0.3"
+  DIPs are the same width, so the slots waste nothing across them. On six
+  layers the grid gets to 420 × 302 (127,000 mm²), smaller than any free
+  DIP board. On four layers its slots need to be wider and taller (12.07
+  × 33 mm, against 10.75 × 29.5) to leave the two signal layers room
+  between the chips: 480 × 340 (163,000 mm²), and 480 × 320 routes too,
+  against 480 × 300 placed freely. So Emily's original plan, a plain DIP
+  board on four layers, works as a grid; it is just big: 2.2 times the
+  SMD card's area.
 - **One card is enough.** RFC 0005 expected the CPU to need two. Splitting
   it would be costly: the best two-way split found cuts 171 signals,
   control against datapath 201, and the backplane has about 52 spare pins
@@ -314,23 +327,27 @@ From these:
 - **The card's height** comes from its connectors: P1 and P2 are 95 mm
   each, so 220 mm is about the least for both. The depth follows from the
   area. That needn't be a Eurocard size, but 6U (233.35 mm) by 280 mm,
-  a standard subrack depth, has about the same area and routes too.
-- **Parts on both sides** save little: 280 × 220 against 300 × 220, for a
-  second side of chips to assemble. The capacitors underneath already need
-  a second side, but one of only capacitors, which a fab charges less
-  for; with everything on top the card grows to about 340 × 220.
+  a standard subrack depth, routes placed freely; the grid's equivalent
+  would be about 6U × 320 (not tried).
+- **Parts on both sides** save little, and only placed freely (the grid is
+  one-sided): 280 × 220 against 300 × 220, for a second side of chips to
+  assemble. The capacitors underneath already need a second side, but one
+  of only capacitors, which a fab charges less for; with everything on
+  top the free card grows to about 340 × 220.
 
-![The CPU card as an SMD board: six layers, 300 × 220 mm, connectors on the right](0023-rfc-pcb-flow/smd.png)
+![The CPU card as an SMD board: six layers, 340 × 220 mm, the chips on a grid, connectors on the right](0023-rfc-pcb-flow/smd.png)
 
-*The SMD card at 300 × 220 mm. Red: top-side pads and tracks; green and
-purple: the inner signal layers, horizontal and vertical; blue: the bottom,
-with the decoupling capacitors under the chips; grey dots: vias. A detail
-at full scale: [smd-detail.png](0023-rfc-pcb-flow/smd-detail.png).*
+*The SMD card at 340 × 220 mm, its chips on a grid. Red: top-side pads
+and tracks; green and purple: the inner signal layers, horizontal and
+vertical; blue: the bottom, with the decoupling capacitors under the
+chips; grey dots: vias. A detail at full scale:
+[smd-detail.png](0023-rfc-pcb-flow/smd-detail.png).*
 
-![The CPU card as a DIP board: four layers, 480 × 300 mm](0023-rfc-pcb-flow/dip.png)
+![The CPU card as a DIP board: four layers, 480 × 340 mm, the chips on a grid](0023-rfc-pcb-flow/dip.png)
 
-*The DIP card at 480 × 300 mm, on four layers: red, the top's tracks;
-blue, the bottom's; the planes are the two inner layers.*
+*The DIP card at 480 × 340 mm, on four layers, its chips on a grid with
+each capacitor above its chip: red, the top's tracks; blue, the bottom's;
+the planes are the two inner layers.*
 
 **Packages:** 74-series logic in SOIC (all of it is made in SOIC, and it
 is easy to rework); the microcode flash in PLCC-32, which can go in a
@@ -345,49 +362,60 @@ a 50 pF load, and with ideal wires inside a card (only the backplane's
 settling is modelled). A routed board has neither. `wires.nets` measures,
 for every net, its copper, the flight time to each load along it, and the
 load: the inputs' capacitance plus the track's. `wires.back_annotate`
-turns that into extra delay per driving pin, and hwsim now takes a delay
-per output pin (`pin_delays`, `Instance.add_pin_delay`).
+turns that into delays: a driving pin gets its load's extra delay and the
+flight time to its nearest load, and each input further along gets the
+rest of its own flight time from a wire element in front of it (a new
+fixture, `wire`, in hwsim and the timing analysis); where a net leaves
+the card, the inputs on the other cards get the connector's flight time
+the same way. hwsim takes a delay per output pin (`pin_delays`,
+`Instance.add_pin_delay`).
 
-`hello` on the whole system, with the CPU card's wires from the 300 × 220
-board ([results.md](0023-rfc-pcb-flow/results.md) has the table):
+`hello` on the whole system, with the CPU card's wires from the 340 × 220
+grid board ([results.md](0023-rfc-pcb-flow/results.md) has the table):
 
 | Wires | Length classes | Result |
 |---|---|---|
 | ideal, as simulated so far | the design's | right, no violations |
 | flight times | the design's | right, hundreds of setup violations |
 | flight times | worked out for the board | right, no violations |
-| flight and load, CLK as routed | the design's | stops after 11 cycles |
-| flight and load, CLK through a clock tree | the design's | wrong |
-| flight and load, CLK through a clock tree | worked out for the board | right, no violations, about 5% slower |
+| flight and load, CLK as routed | the design's | wrong, millions of violations |
+| flight and load, CLK through a clock tree | the design's | right, thousands of setup violations |
+| flight and load, CLK through a clock tree | worked out for the board | right, no violations, about 4% slower |
 
-- **CLK** is one output of a 74F175 driving 53 inputs over 1.32 m of
-  copper: 361 pF, about 15.5 ns more than at 50 pF, and up to 3.3 ns of
-  flight between its first and last load. It needs a clock tree: a
-  low-skew driver (a CDC341, as the bus clock has) feeding a few branches,
-  each with a series resistor and a handful of loads. The design tolerates
-  CLK up to 14 ns late with no violations (at 16 ns the tick counter's
-  preload misses its setup); a tree makes about 6.
-- **The heavy nets after it:** FILL drives 36 inputs (192 pF, 13 ns
-  late), RESET_n 19 over 60 cm, FAULT 20; the microcode address lines
-  (Y0–Y16) and the result multiplexer's selects 16 each, over about 40 cm
-  (up to 115 pF, 6–8 ns late). With the length classes worked out again
-  they cost a tick here and there; buffering them, or the ROMs closer
-  together, would win it back.
+The free 300 × 220 board gives the same results, row for row (with 13,
+15, 16, 18 ticks worked out for its flight times).
+
+- **CLK** is one output of a 74F175 driving 53 inputs over 1.25 m of
+  copper: 364 pF, about 16 ns more than at 50 pF, and 5 ns of flight to
+  its last load. It reaches the registers 16 to 21 ns late, while the
+  SRAMs' write window, made from the 50 MHz clock, doesn't move with it:
+  the writes miss. It needs a clock tree: a low-skew driver (a CDC341, as
+  the bus clock has) feeding a few branches, each with a series resistor
+  and a handful of loads. The design tolerates CLK up to 14 ns late with
+  no violations (at 16 ns the tick counter's preload misses its setup); a
+  tree makes about 6.
+- **The heavy nets after it:** FILL drives 35 inputs (179 pF, 10 ns more),
+  RESET_n 19 over half a metre, FAULT 20; the microcode address lines
+  (Y0–Y16) 16 each over about 35 cm (108 pF, 5 ns more and 2 ns of
+  flight). With the length classes worked out again they cost a tick here
+  and there; buffering them, or the ROMs closer together, would win it
+  back.
 - **The setup violations** are on the MAR registers, whose path is the one
   the length classes were tuned to. The static timing analysis
-  (`infra/hw/sta.py`) now takes the same per-pin delays, so the classes
-  and their jumpers can be worked out for the board: 13, 14, 16, 18 ticks
-  with flight times (1.5% slower), 13, 16, 17, 18 with the loads (4.6%),
+  (`infra/hw/sta.py`) takes the same delays, so the classes and their
+  jumpers can be worked out for the board: 13, 14, 16, 18 ticks with
+  flight times (1.5% slower), 13, 16, 17, 18 with the loads (4.4%),
   against the design's 13, 15, 16, 17.
 - **The clock generator's 20 ns domain** allows one 74F gate between
   flip-flops; a wire of a few centimetres breaks it (0.2 ns short on the
-  first placement). The analysis per microinstruction doesn't see that
-  domain, the simulation does. Placement now weighs those nets eight
-  times (`cards.weights`), which keeps the generator together and fixes it.
-- **The violations don't always show the failure.** With CLK 19 ns late,
-  the machine goes wrong and hwsim reports no violation at all: the
-  clock's lateness moves every capture with it. The program's output
-  caught it.
+  first free placement). The analysis per microinstruction doesn't see
+  that domain, the simulation does. Placement weighs those nets eight
+  times (`cards.weights`), which keeps the generator together; on the grid
+  it also took better annealing (section 5).
+- **The violations don't always show the failure.** With CLK uniformly
+  19 ns late (an earlier, coarser model of the wires), the machine went
+  wrong and hwsim reported no violation at all: the clock's lateness moved
+  every capture with it. The program's output caught it.
 
 So a board is done only when the simulation with its own wires passes:
 route, measure the wires, work out the classes again, simulate, and
@@ -427,16 +455,19 @@ For Emily:
 2. **KiCad as a dependency:** install it in CI so `heron test pcb` can
    build and check boards there, or vendor the few footprints the cards
    use (CC-BY-SA, with KiCad's exception for designs)?
-3. **SMD or DIP** for the CPU card? SMD (recommended) is 300 × 220 on six
-   layers; DIP is about 480 × 300 on four.
-4. **Layers:** for SMD, six (300 × 220) rather than the four RFC 0005
-   recorded (460 × 260)?
-5. **Card size:** about 300 × 220, or a standard 6U × 280 (233 × 280)?
-   The memory and I/O cards are small; their size can follow the CPU
-   card's or be smaller.
+3. **SMD or DIP** for the CPU card? SMD (recommended) is 340 × 220 on six
+   layers as a grid; DIP is about 480 × 340 on four, or 420 × 302 on six.
+4. **Layers:** for SMD, six (340 × 220, a grid) rather than the four RFC
+   0005 recorded (460 × 260, placed freely)?
+5. **Arrangement and size:** the grid at about 340 × 220 (recommended,
+   following Emily's preference for a regular arrangement), or the free
+   placement at 300 × 220? Or a standard 6U height (233 mm), which the
+   grid would need about 320 mm deep for? The memory and I/O cards are
+   small; their size can follow the CPU card's or be smaller.
 6. **Assembly:** the decoupling capacitors underneath (a second, cheap
    assembly side), or everything on top on a larger board?
 7. **The design changes** of section 7: a clock tree for CLK, buffers on
    the heavy nets. They belong in the system study.
-8. **hwsim's and the timing analysis's per-pin delays** come with this
-   RFC (and `wires=` for the system's length classes): keep them?
+8. **The wire delays in hwsim and the timing analysis** come with this
+   RFC: a delay per output pin, the `wire` fixture for each load's own
+   flight time, and `wires=` for the system's length classes. Keep them?
