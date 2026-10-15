@@ -58,7 +58,7 @@ def drc(path):
 
 def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F", halo=None,
           seed=1, moves=30000, router_name="grid", route_params=None, out=None, checks=True,
-          name=None, freeroute_timeout=3600, decaps=None):
+          name=None, freeroute_timeout=3600, decaps=None, timing_driven=True):
     """Build one board and check it. Returns a dict of what happened."""
     res = {"card": card, "style": style, "width": width, "height": height, "layers": layers,
            "sides": sides, "router": router_name}
@@ -81,7 +81,8 @@ def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F
     decaps = decaps or ("under" if style == "smd" and sides == "F" else "beside")
     res["decaps"] = decaps
     pl = place.Placer(b, region=(3.0, 3.0, width - 3.0, height - 3.0), halo=halo,
-                      grid=0.635 if style == "smd" else 1.27, sides=sides, decaps=decaps, seed=seed)
+                      grid=0.635 if style == "smd" else 1.27, sides=sides, decaps=decaps, seed=seed,
+                      weights=cards.weights(nl) if timing_driven else None)
     pl.global_place()
     targets = {p.ref: (p.x, p.y, p.side) for p in pl.movable}
     # largest first packs the surface-mount boards best, left to right the
@@ -97,6 +98,8 @@ def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F
     if unplaced:
         res["result"] = "does not fit"
         res["seconds_place"] = round(time.time() - t0, 1)
+        with open(os.path.join(out, "result.json"), "w") as f:
+            json.dump(res, f, indent=1)
         return res
     w0, w1 = pl.refine(moves=moves)
     res["hpwl_m"] = round(w1 / 1000, 1)

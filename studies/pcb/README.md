@@ -19,9 +19,10 @@ in Rust). This study has the cards, the experiments and the commands.
 
 | File | What's in it |
 |---|---|
-| `cards.py` | The cards as boards: their netlists, the DIN 41612 connectors at the back edge and their pin maps |
+| `cards.py` | The cards as boards: their netlists, the DIN 41612 connectors at the back edge and their pin maps, the timing-critical nets for placement |
 | `flow.py` | The flow for one board: parts, placement, fanout, routing, the board file and a picture, the checks |
-| `sweep.py` | The experiments: board sizes, layer counts, SMD and DIP, one and two sides, Freerouting |
+| `sweep.py` | The experiments: board sizes, layer counts, SMD and DIP, one and two sides, the routed wires back in the simulation and the timing analysis, Freerouting |
+| `split.py` | What splitting the CPU card in two would cost |
 | `cli.py` | The commands |
 
 ```sh
@@ -31,7 +32,8 @@ heron pcb build cpu --double --size 260x220   # parts on both sides
 heron pcb build cpu --router freerouting      # route with Freerouting instead (needs its jar)
 heron pcb check build/pcb/<name>/board.kicad_pcb   # check a board file against the netlist
 heron pcb pinouts                             # the pinouts against KiCad's symbols
-heron pcb sweep [--write]                     # the experiments (about an hour)
+heron pcb split                               # the signals between two halves of the CPU card
+heron pcb sweep [--write]                     # the experiments (about two hours; --only, --reuse)
 heron test pcb                                # the unit tests
 ```
 

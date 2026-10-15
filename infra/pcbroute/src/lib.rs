@@ -15,9 +15,20 @@
 //! The nets are routed by negotiated congestion (PathFinder, McMurchie and
 //! Ebeling 1995): every net is routed on its own, sharing nodes at a cost
 //! that grows with each iteration, and nodes that stay over-used grow a
-//! history cost, until no node is used by two nets. A net with several
-//! pads is grown as a tree: A* from everything routed so far to the
-//! nearest pad not yet reached.
+//! history cost, until no node is used by two nets. After the first round
+//! only the nets still in conflict are routed again.
+//!
+//! A net with several pads is grown as a tree, in Prim's order: A* from
+//! everything routed so far to the one pad nearest it, then the next. Two
+//! things keep the searches small: the heuristic counts the via still
+//! needed to reach a pad on another layer, and it is weighted a little
+//! (hweight), so a search runs at its target rather than flooding the
+//! box around it. A search stays near its net's bounding box (window)
+//! unless that fails.
+//!
+//! Obstacles are tested at the nodes only; a track between two nodes can
+//! pass a round obstacle a little closer than either node, so every
+//! keep-out has a small slack.
 
 mod geom;
 
@@ -25,7 +36,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::time::Instant;
 
-pub use geom::{seg_dist, Shape};
+pub use geom::{Shape, seg_dist};
 use serde::{Deserialize, Serialize};
 
 const FREE: i32 = -1;
@@ -277,7 +288,9 @@ impl PartialOrd for Item {
 }
 impl Ord for Item {
     fn cmp(&self, o: &Self) -> Ordering {
-        o.0.total_cmp(&self.0).then(self.1.total_cmp(&o.1)).then(o.2.cmp(&self.2))
+        o.0.total_cmp(&self.0)
+            .then(self.1.total_cmp(&o.1))
+            .then(o.2.cmp(&self.2))
     }
 }
 
@@ -354,9 +367,6 @@ impl<'a> Router<'a> {
         }
     }
 
-
-
-
     fn rip_up(&mut self, net: usize) {
         for &n in &self.used[net] {
             self.occ[n as usize] -= 1;
@@ -403,7 +413,12 @@ impl<'a> Router<'a> {
     /// Route one net; false if a pad couldn't be reached at all.
     fn route_net(&mut self, net: usize) -> bool {
         let p = self.p;
-        let pads: Vec<usize> = p.nets[net].pads.iter().copied().filter(|&s| !self.terms[s].is_empty()).collect();
+        let pads: Vec<usize> = p.nets[net]
+            .pads
+            .iter()
+            .copied()
+            .filter(|&s| !self.terms[s].is_empty())
+            .collect();
         if pads.len() < 2 {
             return true;
         }
@@ -468,12 +483,30 @@ impl<'a> Router<'a> {
     /// A* from the tree to the nearest node of a pad in `left`. Returns the
     /// path (tree end first) and the pad reached. `windowed` keeps the
     /// search near the net's own bounding box.
-    fn search(&mut self, net: usize, tree: &[u32], left: &[usize], windowed: bool) -> Option<(Vec<u32>, usize)> {
+    fn search(
+        &mut self,
+        net: usize,
+        tree: &[u32],
+        left: &[usize],
+        windowed: bool,
+    ) -> Option<(Vec<u32>, usize)> {
         self.search += 1;
         self.searches += 1;
         let sid = self.search;
         let mut expanded = 0u64;
-        let Router { p, g, occ, hist, pres, cost, from, stamp, foot, terms, .. } = self;
+        let Router {
+            p,
+            g,
+            occ,
+            hist,
+            pres,
+            cost,
+            from,
+            stamp,
+            foot,
+            terms,
+            ..
+        } = self;
         let (p, g, occ, hist, pres, foot, terms) = (*p, &*g, &*occ, &*hist, *pres, &*foot, &*terms);
         let net_i = net as i32;
         let (nx, ny, nl) = (g.nx, g.ny, g.nl);
@@ -511,8 +544,16 @@ impl<'a> Router<'a> {
         let hw = p.hweight as f32;
         let via_h = p.via_cost as f32;
         let h = |l: usize, x: usize, y: usize| -> f32 {
-            let dx = if x < tx0 { tx0 - x } else { x.saturating_sub(tx1) };
-            let dy = if y < ty0 { ty0 - y } else { y.saturating_sub(ty1) };
+            let dx = if x < tx0 {
+                tx0 - x
+            } else {
+                x.saturating_sub(tx1)
+            };
+            let dy = if y < ty0 {
+                ty0 - y
+            } else {
+                y.saturating_sub(ty1)
+            };
             let v = if on_target_layer[l] { 0.0 } else { via_h };
             ((dx + dy) as f32 + v) * hw
         };
@@ -563,7 +604,12 @@ impl<'a> Router<'a> {
             }
             let lc = p.layer_cost.get(l).copied().unwrap_or(1.0) as f32;
             let dir = p.dirs.get(l).copied().unwrap_or(0);
-            let mut relax = |nb: usize, step: f32, hl: usize, hx: usize, hy: usize, heap: &mut BinaryHeap<Item>| {
+            let mut relax = |nb: usize,
+                             step: f32,
+                             hl: usize,
+                             hx: usize,
+                             hy: usize,
+                             heap: &mut BinaryHeap<Item>| {
                 let nc = c + step * node_cost(nb);
                 if stamp[nb] != sid || nc < cost[nb] {
                     stamp[nb] = sid;
@@ -602,7 +648,12 @@ impl<'a> Router<'a> {
         if p.verbose && expanded > 300_000 {
             eprintln!(
                 "  search for {}: {expanded} expanded, tree {}, {} pads left, window {}x{}, found {}",
-                p.nets[net].name, tree.len(), left.len(), wx1 - wx0, wy1 - wy0, found.is_some()
+                p.nets[net].name,
+                tree.len(),
+                left.len(),
+                wx1 - wx0,
+                wy1 - wy0,
+                found.is_some()
             );
         }
         let (end, pad) = found?;
@@ -658,7 +709,12 @@ impl<'a> Router<'a> {
                 g.pos(x, y)
             })
             .collect();
-        NetRoute { name: self.p.nets[net].name.clone(), segments: segs, vias, routed: true }
+        NetRoute {
+            name: self.p.nets[net].name.clone(),
+            segments: segs,
+            vias,
+            routed: true,
+        }
     }
 }
 
@@ -666,7 +722,10 @@ impl<'a> Router<'a> {
 pub fn route(p: &Problem) -> Solution {
     let t0 = Instant::now();
     let mut r = Router::new(p);
-    let mut sol = Solution { nodes: r.g.owner.len(), ..Default::default() };
+    let mut sol = Solution {
+        nodes: r.g.owner.len(),
+        ..Default::default()
+    };
     let nn = p.nets.len();
     let mut unreachable = vec![false; nn];
     for (i, net) in p.nets.iter().enumerate() {
@@ -704,7 +763,13 @@ pub fn route(p: &Problem) -> Solution {
             }
         }
         let length: f64 = (0..nn)
-            .map(|n| r.paths[n].iter().map(|pth| pth.len().saturating_sub(1)).sum::<usize>() as f64 * p.pitch)
+            .map(|n| {
+                r.paths[n]
+                    .iter()
+                    .map(|pth| pth.len().saturating_sub(1))
+                    .sum::<usize>() as f64
+                    * p.pitch
+            })
             .sum();
         let vias: usize = r.vias.iter().map(|v| v.len()).sum();
         sol.rounds.push(Round {

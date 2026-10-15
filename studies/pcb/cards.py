@@ -58,6 +58,36 @@ def connectors(nl, width, height, uses_p2=True):
     return out
 
 
+# The CPU card's 50 MHz clock generator allows one 74F gate between
+# flip-flops in a 20 ns tick (studies/system/design.md): its wires must be
+# short, so its nets weigh more in placement.
+CRITICAL_SECTIONS = {"Clock generator", "Bus hold and crossings", "Length class"}
+CRITICAL_WEIGHT = 8.0
+
+
+def weights(nl):
+    """{net: weight} for placement: the nets that touch the timing-critical
+    sections, but not the broadcast ones (more than six pins: the clock,
+    the microcode address), which can't be short anyway. A gate package
+    can serve several sections, so a gate's pins take its own section (the
+    netlist records each gate's)."""
+    size = {}
+    for inst in nl.instances:
+        for net in inst.conn.values():
+            size[net] = size.get(net, 0) + 1
+    pin_section = {}
+    for g in nl.gates:
+        for pin in list(g.inputs) + [g.output]:
+            pin_section[(g.ref, pin)] = g.section
+    out = {}
+    for inst in nl.instances:
+        for pin, net in inst.conn.items():
+            sec = pin_section.get((inst.ref, pin), inst.section)
+            if sec in CRITICAL_SECTIONS and net not in ("VCC", "GND") and size[net] <= 6:
+                out[net] = CRITICAL_WEIGHT
+    return out
+
+
 def board(card, style="smd", width=380.0, height=220.0, layers=6, rules=None, nl=None):
     """A card's board with its parts, unplaced but for the connectors."""
     nl = nl or netlists()[card]

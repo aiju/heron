@@ -12,7 +12,8 @@
   pinouts               the pinouts against KiCad's symbol library
   split                 what splitting the CPU card in two would cost: the
                         signals between the halves
-  sweep [--write]       the experiments of RFC 0023: board sizes, layers,
+  sweep [--write] [--only LABEL] [--reuse] [--no-freerouting]
+                        the experiments of RFC 0023: board sizes, layers,
                         SMD and DIP, single- and double-sided
 """
 
@@ -58,7 +59,8 @@ def cmd_split(args):
 
 def cmd_sweep(args):
     from . import sweep
-    return sweep.main(write=args.write, only=args.only)
+    return sweep.main(write=args.write, only=args.only, reuse=args.reuse,
+                      freeroute=not args.no_freerouting)
 
 
 def main(argv=None):
@@ -83,7 +85,9 @@ def main(argv=None):
     sub.add_parser("split", help="the cost of splitting the CPU card").set_defaults(fn=cmd_split)
     s = sub.add_parser("sweep", help="the experiments")
     s.add_argument("--write", action="store_true")
-    s.add_argument("--only")
+    s.add_argument("--only", help="only the boards whose label has this")
+    s.add_argument("--reuse", action="store_true", help="read back boards already built")
+    s.add_argument("--no-freerouting", action="store_true")
     s.set_defaults(fn=cmd_sweep)
     args = ap.parse_args(argv)
     return args.fn(args)

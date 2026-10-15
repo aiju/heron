@@ -64,10 +64,18 @@ def clock_offset(corner):
     return d("74F109", "CLK->Q") + d("74F08", "A->Y") - d("74F175", "CLK->Q")
 
 
-def requirements(variant=chips.DEFAULT_VARIANT, corner="max"):
+def requirements(variant=chips.DEFAULT_VARIANT, corner="max", wires=None):
     """{packed control word: ticks it needs}, over every distinct
-    microinstruction (with and without an interrupt pending)."""
-    N = sta.Netlist(cpu.build(card=True, stub=True), variant, corner)
+    microinstruction (with and without an interrupt pending). `wires`:
+    {(chip, output pin): ps} of extra delay, a routed board's wiring
+    (infra/pcb/wires.py)."""
+    nl = cpu.build(card=True, stub=True)
+    if wires:
+        insts = {i.ref: i for i in nl.instances}
+        for (ref, pin), ps in wires.items():
+            if ref in insts:
+                insts[ref].add_pin_delay(pin, ps)
+    N = sta.Netlist(nl, variant, corner)
     off = clock_offset(corner)
     out = {}
     for (w, extra), _labels in v1b_machine.sta_words().items():
@@ -157,11 +165,11 @@ def choose(req, words, prof, n=4):
     return lens, best[1]
 
 
-def assign(variant=chips.DEFAULT_VARIANT, corner="max"):
+def assign(variant=chips.DEFAULT_VARIANT, corner="max", wires=None):
     """The length classes: (class of each packed word, jumper lengths for
     this variant and corner, the suite's ticks with them, its ticks at a
-    fixed clock)."""
-    req = requirements(variant, corner)
+    fixed clock). `wires` as for requirements()."""
+    req = requirements(variant, corner, wires)
     words = rom_words()
     prof = profile()
     lens, t = choose(req, words, prof)

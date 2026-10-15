@@ -37,11 +37,14 @@ DECAP_ROOM = 2.4          # mm kept at a chip's VCC end for a capacitor beside i
 
 class Placer:
     def __init__(self, board, region=None, halo=1.5, grid=0.635, skip_nets=("VCC", "GND"),
-                 seed=1, sides="F", decaps="under"):
+                 seed=1, sides="F", decaps="under", weights=None):
         """region: (x0, y0, x1, y1) the parts may use (default: the board
         less 3 mm), its corner moved onto the grid; halo: free space kept
         around each part's courtyard (mm); sides: "F" or "FB"; decaps:
-        "under" (on the other side) or "beside" (room kept for them)."""
+        "under" (on the other side) or "beside" (room kept for them);
+        weights: {net: factor} for nets whose length matters more (timing-
+        critical ones), in both the global placement and the annealing."""
+        self.weights = dict(weights or {})
         self.b = board
         x0, y0, x1, y1 = region or (3.0, 3.0, board.width - 3.0, board.height - 3.0)
         x0, y0 = math.ceil(x0 / grid) * grid, math.ceil(y0 / grid) * grid
@@ -83,6 +86,7 @@ class Placer:
             w = 1.0 / (k - 1)
             if k > 12:                  # long nets pull too hard as cliques
                 w *= 12.0 / k
+            w *= self.weights.get(net, 1.0)
             for a in range(k):
                 for c in range(a + 1, k):
                     pa, pc = ps[a], ps[c]
@@ -277,7 +281,7 @@ class Placer:
             x, y = self._pin(p, num)
             xs.append(x)
             ys.append(y)
-        return (max(xs) - min(xs)) + (max(ys) - min(ys))
+        return ((max(xs) - min(xs)) + (max(ys) - min(ys))) * self.weights.get(net, 1.0)
 
     def _pin(self, p, num):
         key = (p.ref, p.x, p.y, p.rot, p.side)

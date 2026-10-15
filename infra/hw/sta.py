@@ -95,11 +95,16 @@ class Case:
         return self.net(inst.conn[p]) if p in inst.conn else (0, NEG, None)
 
     def output(self, inst, pin):
-        """(value, arrival, enabled, cause) of one output pin."""
+        """(value, arrival, enabled, cause) of one output pin, with the
+        pin's wiring delay if it has one (Instance.add_pin_delay)."""
         model = inst.type.model
         d = self.N.delay[inst.ref]
         f = getattr(self, "m_" + model)
-        return f(inst, pin, d)
+        v, t, en, cause = f(inst, pin, d)
+        extra = inst.pin_extra.get(pin) if hasattr(inst, "pin_extra") else None
+        if extra and t != NEG:
+            t += extra / 1000.0
+        return v, t, en, cause
 
     # ---- helpers ----
     def latest(self, inst, terms):

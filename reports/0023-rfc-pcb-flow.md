@@ -32,18 +32,19 @@ The numbers are in [results.md](0023-rfc-pcb-flow/results.md), which
 **Recommended:** a flow of our own, from the netlist the simulator runs to
 a KiCad board, with KiCad for what it does best (its libraries, its design
 rule check, its plane filler, its Gerber writer, a GUI to look and
-touch up), and four independent checks that the board is that netlist.
+touch up); four checks, independent of each other, that the board is that
+netlist; and the board's wire delays back in the simulator.
 
 | Step | How | Where |
 |---|---|---|
 | **The source** | The Python netlist the chip-level simulator runs. Nothing about connectivity is ever edited on the board | `infra/hw/netlist.py`, the studies |
 | **Packages and pinouts** | A table per chip type, checked against KiCad's symbol library; footprints from KiCad's library | `infra/pcb/packages.py` |
 | **Parts** | Every chip with its supply pins, a decoupling capacitor each, the connectors by the bus's pin map | `infra/pcb/physical.py` |
-| **Placement** | Quadratic placement, legalisation on a grid, annealing on wire length; capacitors under each chip | `infra/pcb/place.py` |
+| **Placement** | Quadratic placement, legalisation on a grid, annealing on wire length, the timing-critical nets weighted; capacitors under each chip | `infra/pcb/place.py` |
 | **Routing** | Our own grid router (negotiated congestion), in Rust: the whole CPU card in under a minute | `infra/pcbroute` |
 | **The board file** | Written directly as KiCad 9 s-expressions, with a project file holding the design rules | `infra/pcb/board.py` |
 | **Checks** | Pinouts against KiCad's symbols; pads against the netlist; copper connectivity from geometry, and KiCad's DRC; the fab's test netlist against the board | `infra/pcb/check.py`, `copper.py` |
-| **Timing** | The routed wires' delays back into the chip-level simulator | `infra/pcb/wires.py`, hwsim's per-pin delays |
+| **Timing** | The routed wires' delays back into the chip-level simulator and the static timing analysis | `infra/pcb/wires.py`; per-pin delays in hwsim and `sta.py` |
 | **Fab files** | Gerbers, drill, placement and the IPC-D-356 test netlist, by `kicad-cli` | `studies/pcb/flow.py` |
 
 **For the CPU card** (269 chips): surface-mount parts, **six layers, about
@@ -54,13 +55,16 @@ errors, and every check passes. The DIP version needs about twice the area
 sensible size, and splitting the CPU over two cards costs at least 171
 signals between them.
 
-**The finding that matters most:** with the routed board's wire delays
-back in the simulator, the machine that passes every test with ideal
-wires **stops after 11 cycles**. The CPU clock is one 74F175 output driving
-53 inputs over 1.4 m of copper, 376 pF; the board adds about 19 ns to it.
-Flight times alone (up to 3.2 ns) give 874 setup violations. A board needs
-a clock tree, buffers on the heavy nets and timing-driven placement, and
-the flow must keep putting the board's delays back into the simulation
+**The finding that matters most:** a board changes the timing, and the
+flow has to put that back into the simulation. With the routed CPU card's
+wire delays in hwsim, the machine that passes every test with ideal wires
+gets hundreds of setup violations from flight times alone, and **stops
+after 11 cycles** once the loads are in: its clock is one 74F175 output
+driving 53 inputs over 1.4 m of copper, 376 pF, about 19 ns late. With a
+clock tree for CLK, the length classes worked out again by the static
+timing analysis with the board's delays, and placement that keeps the
+50 MHz clock generator together, **the simulation with the board's wires
+runs with no violations**, about 5% slower than with ideal wires
 (section 7).
 
 ## 2. How Claude can design a board
@@ -85,9 +89,9 @@ that doesn't change connectivity (silkscreen, a track's shape). That is
 also what makes the board reproducible: rebuild it after a netlist change
 and it comes out checked again.
 
-This also answers how much of the work is the model's: the code here was
-written by Claude in one session, and every board in the tables was
-produced and checked without a person in the loop.
+That is how this RFC was made: the code was written by Claude in one
+session, and every board in its tables was produced, looked at and
+checked without a person in the loop.
 
 ## 3. KiCad, our own tools, or something else
 
@@ -115,9 +119,11 @@ The pieces of a PCB flow, and who should do each:
 Specctra DSN in, SES out; `infra/pcb/dsn.py` writes and reads both),
 was run on the same CPU card placement:
 
-- [results pending: the first run with the planes as power layers, two
-  hours; the second with only the signal layers and its fanout off, an
-  hour.]
+- with the planes given to it as power layers, as KiCad exports them, its
+  first fanout pass took **101 minutes and escaped 134 of 3,508 pins**; it
+  was stopped at two hours without a result;
+- [the second run, with only the signal layers and its fanout off, given
+  an hour: pending].
 
 **Our router** routes the same board in about 30 seconds. It is a grid
 router with negotiated congestion (PathFinder, the algorithm of FPGA
@@ -166,7 +172,8 @@ One build, for the CPU card at 300 × 220 mm:
    as anchors, spread by recursive bisection to the board's density; then
    each part to the nearest free spot (a summed-area table over the
    occupancy makes that a vectorised search), and annealing that swaps
-   same-footprint parts and turns them by 180°. Then each chip's 100 nF
+   same-footprint parts and turns them by 180°. Nets of the 50 MHz clock
+   generator weigh eight times as much, so its chips stay together. Then each chip's 100 nF
    goes under it on the bottom, between its pin rows, as near its VCC pin
    as its vias can go clear of the pads.
 3. **Fanout** (`fanout.fanout`): every surface pad on a supply gets a via
@@ -289,40 +296,50 @@ load: the inputs' capacitance plus the track's. `wires.back_annotate`
 turns that into extra delay per driving pin, and hwsim now takes a delay
 per output pin (`pin_delays`, `Instance.add_pin_delay`).
 
-`hello` on the whole system, with the CPU card's wires from the
-300 × 220 board ([results.md](0023-rfc-pcb-flow/results.md)):
+`hello` on the whole system, with the CPU card's wires from the 300 × 220
+board ([results.md](0023-rfc-pcb-flow/results.md) has the table):
 
-| Wires | Output | Violations |
+| Wires | Length classes | Result |
 |---|---|---|
-| ideal, as simulated so far | right | 0 |
-| flight times only | right | 874 |
-| extra load, but not on CLK | right | 5240 |
-| extra load on CLK alone | the machine stops after 11 cycles | 0 |
+| ideal, as simulated so far | the design's | right, no violations |
+| flight times | the design's | right, hundreds of setup violations |
+| flight times | worked out for the board | right, no violations |
+| flight and load, CLK as routed | the design's | stops after 11 cycles |
+| flight and load, CLK through a clock tree | the design's | wrong |
+| flight and load, CLK through a clock tree | worked out for the board | right, no violations, about 5% slower |
 
-[to update from results.md]
+[to check against results.md]
 
 - **CLK** is one output of a 74F175 driving 53 inputs over 1.38 m of
   copper: 376 pF, about 16 ns more than at 50 pF, and up to 3.2 ns of
   flight between its first and last load. It needs a clock tree: a
   low-skew driver (a CDC341, as the bus clock has) feeding a few branches,
-  each with a series resistor and a handful of loads.
+  each with a series resistor and a handful of loads. The design tolerates
+  CLK up to 14 ns late with no violations (at 16 ns the tick counter's
+  preload misses its setup); a tree makes about 6.
 - **The microcode address lines** Y0–Y16 each drive 17 ROMs over half a
-  metre (120 pF, 9 ns extra), FILL 37 inputs, FAULT 21. They want
-  buffering, or the ROMs closer together.
-- **The setup violations** with flight times alone are on the MAR
-  registers, whose path is the one the length classes were tuned to, and
-  on the clock generator's 20 ns domain, which allows one 74F gate
-  between flip-flops: 0.2 ns of wire breaks it. Timing-driven placement
-  (the clock generator together, the MAR beside the ALU) and the length
-  classes worked out with the board's delays would fix them.
-- **The violations don't show the failure.** With CLK late, the machine
-  goes wrong and hwsim reports no violation at all: the clock's own
-  lateness moves every capture with it. The output check caught it.
+  metre (120 pF, 9 ns extra), FILL 37 inputs, FAULT 21. With the length
+  classes worked out again they cost a tick here and there; buffering them,
+  or the ROMs closer together, would win it back.
+- **The setup violations** are on the MAR registers, whose path is the one
+  the length classes were tuned to. The static timing analysis
+  (`infra/hw/sta.py`) now takes the same per-pin delays, so the classes
+  and their jumpers can be worked out for the board: 13, 15, 16, 18 ticks
+  with flight times, 13, 16, 17, 18 with the loads, against the design's
+  13, 15, 16, 17.
+- **The clock generator's 20 ns domain** allows one 74F gate between
+  flip-flops; a wire of a few centimetres breaks it (0.2 ns short on the
+  first placement). The analysis per microinstruction doesn't see that
+  domain, the simulation does. Placement now weighs those nets eight
+  times (`cards.weights`), which keeps the generator together and fixes it.
+- **The violations don't always show the failure.** With CLK 19 ns late,
+  the machine goes wrong and hwsim reports no violation at all: the
+  clock's lateness moves every capture with it. The program's output
+  caught it.
 
-So the loop has to stay closed: the static timing analysis
-(`infra/hw/sta.py`) and the length classes should take the board's
-delays too, and a board is done only when the simulation with its wires
-passes.
+So a board is done only when the simulation with its own wires passes:
+route, measure the wires, work out the classes again, simulate, and
+change the design or the placement where it doesn't.
 
 ## 8. Limits and what's next
 
@@ -361,5 +378,5 @@ For Emily:
    assembly side), or everything on top on a larger board?
 7. **The design changes** of section 7: a clock tree for CLK, buffers on
    the heavy nets. They belong in the system study.
-8. **hwsim's per-pin delays** come with this RFC; should the static timing
-   analysis take the board's delays next?
+8. **hwsim's and the timing analysis's per-pin delays** come with this
+   RFC (and `wires=` for the system's length classes): keep them?
