@@ -19,6 +19,8 @@ def _shape(s, layers, net, pad):
     return d
 
 
+THERMAL_ROOM = 0.6     # mm around a through-hole pad on a plane, for its thermal spokes
+
 DEFAULTS = {"iterations": 60, "via_cost": 6.0, "wrong_way": 4.0, "pres_fac": 0.5, "hweight": 1.3,
             "pres_mult": 1.5, "hist_fac": 0.4, "window": 10.0}
 
@@ -50,6 +52,13 @@ def problem(board, dirs=None, layer_cost=None, skip=(), **params):
                 continue
         nid = net_id.get(pad.net, -1)
         shapes.append(_shape(copper.pad_shape(pad), layers, nid, nid >= 0))
+        if pad.layers == "*" and pad.net in planes:
+            # a through-hole pad on a plane joins it through thermal spokes:
+            # other nets' vias keep THERMAL_ROOM away, so their holes in the
+            # plane leave the spokes room to land (RFC 0026, R6)
+            shapes.append({"kind": "capsule", "x1": pad.x, "y1": pad.y, "x2": pad.x, "y2": pad.y,
+                           "r": max(pad.w, pad.h) / 2 + THERMAL_ROOM, "layers": [], "net": -1,
+                           "pad": False})
         if nid >= 0:
             net_pads[nid].append(len(shapes) - 1)
     for (layer, x1, y1, x2, y2, w, net) in board.tracks:

@@ -59,7 +59,10 @@ THT is through-hole, SMD surface-mount.
   V-score, mouse bites or break-off nubs. Where an assembly rail was
   broken off a guided edge, the edge is sanded flush.
 - **R6 Thermal relief.** A through-hole pin joins a plane through four
-  spokes, 0.3 to 0.5 mm wide.
+  spokes, 0.3 to 0.5 mm wide. No via or track of another net comes
+  within 0.6 mm of such a pad's edge, so that the holes those vias leave
+  in the plane don't cut off the spokes; KiCad's DRC requires at least
+  two.
 
 ### 1.2 Outline and mechanics
 
@@ -213,6 +216,7 @@ THT is through-hole, SMD surface-mount.
 | Rules | In the flow ([RFC 0023](0023-rfc-pcb-flow.md)) |
 |---|---|
 | R2, R3 | the stack-ups and design rules written into every board and its project file |
+| R6 | the router keeps other nets 0.6 mm from a through-hole pad on a plane (`router.THERMAL_ROOM`); KiCad's zones draw the spokes |
 | R7–R10, R14, R21 | a card's keep-out strips, bracket holes, connector positions and fiducials (`studies/pcb/cards.py`), honoured by the placers and the router and checked by `check.keepouts` and KiCad's DRC |
 | R15 | the grid placement (`place.GridPlacer`) |
 | R16, R17 | the placers' margins around THT parts; the capacitors' spots (`place.place_decaps`) |
@@ -220,7 +224,7 @@ THT is through-hole, SMD surface-mount.
 | R20 | net weights in placement; the timing loop in `heron pcb sweep` |
 | R26 | the fab files written by every full check |
 | R29–R31 | `heron pcb build`, `check` and `view` |
-| R1, R4–R6, R11–R13, R22–R25, R27, R28 | not applied by the flow: they go in the order, the case design, or the flow's next steps (R27: silkscreen) |
+| R1, R4, R5, R11–R13, R22–R25, R27, R28 | not applied by the flow: they go in the order, the case design, or the flow's next steps (R27: silkscreen) |
 
 ## 2. Rationale and sources
 
