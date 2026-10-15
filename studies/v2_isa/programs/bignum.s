@@ -88,17 +88,17 @@ printnum:
         CMP  r3, r11
         BNE  .div
         MFHI r1
-        MOV  -[sp], r1          ; the next 9-digit group
+        PUSH r1                 ; the next 9-digit group
         MOVS r1, [r9 - 4]       ; the top limb is still there?
         BNE  .group
         SUB  r9, #4             ; no: one limb shorter
         CMP  r9, r11
         BNE  .group             ; until the number is 0
-        MOV  r1, [sp]+          ; the top group without leading zeros...
+        POP  r1                 ; the top group without leading zeros...
         BSR  print_u32
 .print: CMP  sp, r10
         BEQ  .done
-        MOV  r1, [sp]+          ; ...and the rest as exactly 9 digits
+        POP  r1                 ; ...and the rest as exactly 9 digits
         MOV  r2, #9
         BSR  print_u32z
         BRA  .print

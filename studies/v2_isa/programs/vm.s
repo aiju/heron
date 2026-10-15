@@ -38,7 +38,7 @@ op_halt:
         RET
 
 op_push:                        ; PUSH i32 (little-endian, unaligned)
-        MOV  -[sp], r9
+        PUSH r9
         MOV  r9, byte [r8 + 3]
         LSL  r9, #8
         OR   r9, byte [r8 + 2]
@@ -51,14 +51,14 @@ op_push:                        ; PUSH i32 (little-endian, unaligned)
         JMP  [r13 + r1*4]
 
 op_pushb:                       ; PUSHB i8 (sign-extended)
-        MOV  -[sp], r9
+        PUSH r9
         MOV  r9, byte [r8]+
         SXB  r9
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_load:                        ; LOAD g
-        MOV  -[sp], r9
+        PUSH r9
         MOV  r1, byte [r8]+
         MOV  r9, [r11 + r1*4]
         MOV  r1, byte [r8]+
@@ -67,7 +67,7 @@ op_load:                        ; LOAD g
 op_store:                       ; STORE g
         MOV  r1, byte [r8]+
         MOV  [r11 + r1*4], r9
-        MOV  r9, [sp]+
+        POP  r9
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
@@ -80,19 +80,19 @@ op_sub: NEG  r9                 ; a b -> a - b = -b + a
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
-op_mul: MOV  r1, [sp]+          ; a b -> a * b (b is the multiplier: the
+op_mul: POP  r1                 ; a b -> a * b (b is the multiplier: the
         MULS r1, r9             ; loop stops at b's top bit, and b is the
         MOV  r9, r1             ; small one in n * 3)
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
-op_div: MOV  r1, [sp]+          ; a b -> a / b, rounding toward zero
+op_div: POP  r1                 ; a b -> a / b, rounding toward zero
         DIVS r1, r9
         MOV  r9, r1
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
-op_mod: MOV  r1, [sp]+          ; a b -> a mod b, with the sign of a
+op_mod: POP  r1                 ; a b -> a mod b, with the sign of a
         DIVS r1, r9
         MFHI r9
         MOV  r1, byte [r8]+
@@ -108,17 +108,17 @@ op_eq:  CMP  r9, [sp]+          ; a b -> a == b
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
-; JZ/JNZ pop the condition between the test and the branch: a pop is a MOV,
+; JZ/JNZ pop the condition between the test and the branch: POP is a MOV,
 ; which leaves the flags alone.
 op_jz:  TST  r9, r9             ; JZ a16: jump if zero
-        MOV  r9, [sp]+
+        POP  r9
         BEQ  jump
         ADD  r8, #2
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_jnz: TST  r9, r9             ; JNZ a16: jump if not zero
-        MOV  r9, [sp]+
+        POP  r9
         BNE  jump
         ADD  r8, #2
         MOV  r1, byte [r8]+
@@ -139,12 +139,12 @@ op_ret: MOV  r8, -[r10]         ; RET
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
-op_dup: MOV  -[sp], r9          ; a -> a a
+op_dup: PUSH r9                 ; a -> a a
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_drop:                        ; a ->
-        MOV  r9, [sp]+
+        POP  r9
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
@@ -156,14 +156,14 @@ op_swap:                        ; a b -> b a
         JMP  [r13 + r1*4]
 
 op_over:                        ; a b -> a b a
-        MOV  -[sp], r9
+        PUSH r9
         MOV  r9, [sp + 4]
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_print:                       ; a -> (prints a and a newline)
         MOV  r1, r9
-        MOV  r9, [sp]+
+        POP  r9
         BSR  print_s32
         BSR  newline
         MOV  r1, byte [r8]+

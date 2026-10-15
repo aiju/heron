@@ -140,6 +140,8 @@ fn encodings() {
         ("STM sp, r0", &[b(0x02, 0x0F), 0x0000]),
         ("MFSR r1, hi", &[b(0x0E, 0x11)]),
         ("MTSR lo, r2", &[b(0x0F, 0x22)]),
+        ("PUSH r1", &[b(0x27, 0x1F)]),
+        ("POP r2", &[b(0x16, 0x2F)]),
         ("MFHI r1", &[b(0x0E, 0x11)]),
         ("MFLO r3", &[b(0x0E, 0x32)]),
         ("MTHI r2", &[b(0x0F, 0x12)]),
@@ -164,7 +166,7 @@ fn errors() {
             "draft 2 has no ST: a store is written MOV [address], rs",
         ),
         ("MVI r1, #3", "draft 2 has no MVI: write MOV rd, #value"),
-        ("PUSH r1", "draft 2 has no PUSH: write MOV -[sp], rs"),
+        ("LI r1, #3", "draft 2 has no LI: write MOV rd, #value"),
         (
             "MOV [r1], #3",
             "there is no store of a constant: only MOV [address], #0 (CLR)",

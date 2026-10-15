@@ -160,10 +160,10 @@ main:   SAVE r8-r11
 
 ; putquoted: print the string at r1 in double quotes.
 putquoted:
-        MOV  -[sp], r1
+        PUSH r1
         MOV  r1, #'"'
         CALL putc
-        MOV  r1, [sp]+
+        POP  r1
         CALL puts
         MOV  r1, #'"'
         BRA  putc               ; tail call

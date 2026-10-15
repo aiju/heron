@@ -7,9 +7,10 @@
 //! The syntax is draft 1b's (studies/v1_isa/isa-v1b.md), with one spelling
 //! per instruction: a store is `MOV [address], rs`, and `MOV` and `CMP`
 //! pick their 7-bit forms themselves, so `ST`, `MVI` and `CMPI` are only
-//! labels in the map. `MFHI`, `MTHI`, `MFLO` and `MTLO` are the special
-//! registers HI and LO's `MFSR` and `MTSR`, and the disassembler prints
-//! them so: the assembler takes what the disassembler prints.
+//! labels in the map. `PUSH r1` is `MOV -[sp], r1` and `POP r1` is
+//! `MOV r1, [sp]+`; `MFHI`, `MTHI`, `MFLO` and `MTLO` are the special
+//! registers HI and LO's `MFSR` and `MTSR`. The disassembler prints those
+//! names: the assembler takes what the disassembler prints.
 
 use toolchain::asm::expr::Expr;
 use toolchain::asm::{AsmError, Ctx, Encoder, ExprRef, Mem, Operand, Size, kinds};
@@ -562,8 +563,6 @@ fn renamed(u: &str) -> Option<&'static str> {
         "ST" => "a store is written MOV [address], rs",
         "MVI" => "write MOV rd, #value",
         "CMPI" => "write CMP rd, #value",
-        "PUSH" => "write MOV -[sp], rs",
-        "POP" => "write MOV rd, [sp]+",
         "LI" => "write MOV rd, #value",
         "MFF" => "write MFSR rd, flags",
         "MTF" => "write MTSR flags, rs",
@@ -617,6 +616,17 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             let n = sr_number(ctx, &ops[0])?;
             let rs = reg_operand(&ops[1], "register")?;
             return one(p(0x0F, n, rs));
+        }
+        "PUSH" | "POP" => {
+            let [r @ Operand::Reg(_)] = ops else {
+                return err(format!("{u} needs one register"));
+            };
+            let r = reg_operand(r, "register")?;
+            return one(if u == "PUSH" {
+                p(0x27, r, 15)
+            } else {
+                p(0x16, r, 15)
+            });
         }
         "MFHI" | "MFLO" | "MTHI" | "MTLO" => {
             let [r @ Operand::Reg(_)] = ops else {

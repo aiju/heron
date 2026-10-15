@@ -269,7 +269,11 @@ def disassemble(ws, pc=0, symbols=None):
         if row == 2:
             if opnd[0] != "mem":
                 return bad
+            if col == 7 and lo == 15:
+                return f"PUSH {R(hi)}", 1
             return f"MOV {t}, {R(hi)}", n
+        if row == 1 and col == 6 and lo == 15:
+            return f"POP {R(hi)}", 1
         return f"{EA_ROWS[row]} {R(hi)}, {t}", n
     if row == 7:
         return f"{'MOV' if op < 0x78 else 'CMP'} {R(hi)}, #{(lo << 3) | (op & 7)}", 1

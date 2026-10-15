@@ -15,7 +15,7 @@
 W       = 64
 H       = 32
 
-main:   MOV  -[sp], r8
+main:   PUSH r8
         MOV  r8, #star          ; r8 walks through all the shape tables
 .star:  MOV  r1, #32            ; lines from the centre
         MOV  r2, #16
@@ -44,7 +44,7 @@ main:   MOV  -[sp], r8
         BSR  xor_rect
         CMP  r8, #rects_end
         BNE  .rect
-        MOV  r8, [sp]+
+        POP  r8
         BRA  show               ; tail call
 
 ; plot: set pixel (r1, r2) if it lies inside the framebuffer.
@@ -169,7 +169,7 @@ plot4:  LEA  r1, [r8 + r4]
 ; leftmask[x0 & 7], the middle ones completely, the last with
 ; rightmask[x1 & 7] (both masks at once if the row is a single byte).
 xor_rect:
-        MOV  -[sp], r8
+        PUSH r8
         MOV  r5, r1
         AND  r5, #7
         MOV  r5, byte [leftmask + r5]
@@ -198,7 +198,7 @@ xor_rect:
         ADD  r1, #8
         DEC  r4
         BPL  .row
-        MOV  r8, [sp]+
+        POP  r8
         RET
 
 ; show: print the framebuffer as '#' and '.', then "pixels: N".

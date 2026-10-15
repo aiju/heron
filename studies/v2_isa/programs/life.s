@@ -85,7 +85,7 @@ step:   LEA  r3, [r2 + W2 + 1]  ; r3 = the cell in the next grid
 
 ; wrap: r1 = grid. Copy the opposite edges into the border: columns first,
 ; then whole rows, which also fills the corners.
-wrap:   MOV  -[sp], r8
+wrap:   PUSH r8
         MOV  r8, r1
         LEA  r2, [r1 + W2]      ; row 1
         MOV  r3, #ROWS
@@ -103,7 +103,7 @@ wrap:   MOV  -[sp], r8
         LEA  r2, [r8 + W2]
         MOV  r3, #W2
         BSR  memcpy
-        MOV  r8, [sp]+
+        POP  r8
         RET
 
 ; show: r1 = grid. Print it as # and . characters.

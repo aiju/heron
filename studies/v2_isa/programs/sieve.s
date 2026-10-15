@@ -57,13 +57,13 @@ main:   SAVE r8-r11
 .scan:  DEC  r10
         MOVS r1, byte [flags + r10]
         BEQ  .scan
-        MOV  -[sp], r10
+        PUSH r10
         DBNZ r9, .scan
         LEA  r1, [s_last]
         BSR  puts
         MOV  r9, #10
 .print: BSR  space
-        MOV  r1, [sp]+
+        POP  r1
         BSR  print_u32
         DBNZ r9, .print
         BSR  newline

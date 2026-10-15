@@ -37,7 +37,7 @@ __pr_digits:                    ; print_u64 joins here, with r4 and r5 set up
 .div:   DEC  r2                 ; count down the minimum width
         DIVU r1, r5             ; r1 /= 10, HI = digit; Z = nothing left
         MFHI r3
-        MOV  -[sp], r3          ; (MFHI and stores leave the flags alone)
+        PUSH r3                 ; (MFHI and stores leave the flags alone)
         BNE  .div
         MOV  r3, #'0'
         MOV  r6, #PR_OUT
@@ -45,7 +45,7 @@ __pr_digits:                    ; print_u64 joins here, with r4 and r5 set up
         BMI  .out
         MOV  byte [r6], r3
         BRA  .pad
-.out:   MOV  r1, [sp]+          ; most significant digit first
+.out:   POP  r1                 ; most significant digit first
         ADD  r1, r3
         MOV  byte [r6], r1
         CMP  sp, r4
@@ -60,7 +60,7 @@ print_u64:
 .div:   DIVU  r2, r5            ; high word / 10, remainder in HI...
         DIVUL r1, r5            ; ...on top of the low word: (HI:low) / 10, HI = digit
         MFHI  r3
-        MOV   -[sp], r3
+        PUSH  r3
         TST   r2, r2
         BNE   .div
         ; The quotient now fits in 32 bits and isn't 0 (the value was at least

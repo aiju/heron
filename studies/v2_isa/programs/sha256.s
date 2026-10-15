@@ -11,7 +11,7 @@
 
         .include "lib/start.s"
 
-main:   MOV  -[sp], r8
+main:   PUSH r8
         ; Generate the 1000-byte message.
         MOV  r1, #msg1000
         MOV  r2, #msg1000 + 1000
@@ -28,7 +28,7 @@ main:   MOV  -[sp], r8
         BSR  sha256
         BSR  print_digest
         BRA  .next
-.done:  MOV  r8, [sp]+
+.done:  POP  r8
         RET
 
 ; sha256: r1 = message, r2 = length in bytes -> digest in H.

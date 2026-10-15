@@ -53,7 +53,7 @@ fib:    INC  [calls]
         CMP  r1, #2
         BLO  .done              ; fib(0) = 0, fib(1) = 1
         DEC  r1
-        MOV  -[sp], r1          ; [sp] = n - 1
+        PUSH r1                 ; [sp] = n - 1
         BSR  fib                ; r1 = fib(n - 1)
         MOV  r2, r1
         MOV  r1, [sp]           ; swap: r1 = n - 1, [sp] = fib(n - 1)

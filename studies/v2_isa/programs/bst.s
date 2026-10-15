@@ -76,7 +76,7 @@ insert: MOV  [r2], r1           ; the key
 ; Uses r10-r13 as described in main. The right subtree is a loop rather than
 ; a call, so a long right spine doesn't grow the stack.
 inorder:
-        MOV  -[sp], r8
+        PUSH r8
         MOV  r8, r1
 .node:  MOVS r1, [r8 + LEFT]
         BEQ  .visit
@@ -95,7 +95,7 @@ inorder:
         MOV  r10, #10
 .right: MOVS r8, [r8 + RIGHT]
         BNE  .node
-        MOV  r8, [sp]+
+        POP  r8
         RET
 
 ; height: r1 = a subtree, or 0 -> r1 = number of levels (0 for an empty one).
