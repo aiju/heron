@@ -117,10 +117,27 @@ def netlist(variant=VARIANT, corner="max", lengths_=None):
         return json.load(f)
 
 
+def class_rom(cls):
+    """v1b_system's class ROM, with the longest class wherever FAULT is set.
+    The first microinstruction of a trap after a bus error starts with
+    FAULT still high (BUSERR is the last access's BUSACC and the bus
+    side's EQ); it falls about 40 ns in, when this microinstruction's
+    BUSACC does, and only then can the next address settle. Static timing
+    doesn't see that path (its CPU ties BUSERR to 0), so the fault pages
+    are made as long as the longest microinstruction. They run once per
+    trap."""
+    from heron.studies.v1b_hw import ucode as uc
+    rom = bytearray(lengths.class_rom(cls))
+    for a in range(len(rom)):
+        if a >> uc.FAULT_BIT & 1:
+            rom[a] = 3
+    return bytes(rom)
+
+
 def preloads(img, inp=b"", cls=None, variant=VARIANT):
     """v1b_system's preloads, with this system's class ROM."""
     pre = machine.preloads(img, inp)
-    pre["CPU.U_UC15"] = lengths.class_rom(cls if cls is not None else classes(variant)[0])
+    pre["CPU.U_UC15"] = class_rom(cls if cls is not None else classes(variant)[0])
     return pre
 
 
