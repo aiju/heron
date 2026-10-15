@@ -120,5 +120,35 @@ class Flow(unittest.TestCase):
         self.assertTrue(any(e.startswith("short") for e in copper.check(b)))
 
 
+@needs_kicad
+class Grid(unittest.TestCase):
+    def test_grid_placement(self):
+        nl = small_netlist()
+        b = B.Board("small", 60.0, 45.0, layers=2)
+        for p in physical.parts(nl, "smd"):
+            b.add(p)
+        pl = place.GridPlacer(b, (8.25, 14.25), halo=0.8)
+        pl.global_place()
+        self.assertEqual(pl.legalize(), [])
+        pl.refine(moves=2000)
+        chips = [p for p in b.parts.values() if p.kind == "chip"]
+        # every chip the same way round, centred in its own block of slots
+        # (with the room for its capacitor, if that goes beside it)
+        self.assertEqual({p.rot for p in chips}, {0})
+        x0, y0, _, _ = pl.region
+        taken = set()
+        for p in chips:
+            nc, nr, _, _ = pl.spans[p.ref]
+            c, r = pl.where[p.ref]
+            bx0, by0, bx1, by1 = pl._box(p)
+            self.assertAlmostEqual((bx0 + bx1) / 2, x0 + (c + nc / 2) * pl.px, places=6)
+            self.assertAlmostEqual((by0 + by1) / 2, y0 + (r + nr / 2) * pl.py, places=6)
+            self.assertLessEqual(c + nc, pl.ncol)
+            self.assertLessEqual(r + nr, pl.nrow)
+            cells = {(c + i, r + j) for i in range(nc) for j in range(nr)}
+            self.assertFalse(cells & taken, p.ref)
+            taken |= cells
+
+
 if __name__ == "__main__":
     unittest.main()

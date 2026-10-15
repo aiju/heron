@@ -18,29 +18,39 @@ from . import flow
 
 RESULTS = os.path.join(ROOT, "reports", "0023-rfc-pcb-flow", "results.md")
 
-# (label, style, width, height, layers, sides, decaps, halo, full checks)
+# (label, style, width, height, layers, sides, decaps, halo, full checks, arrangement):
+# first the grid (rows and columns, every chip the same way round), then
+# parts anywhere ("free"), for comparison
 BOARDS = [
-    ("smd-6", "smd", 380, 220, 6, "F", "under", 1.2, True),
-    ("smd-6", "smd", 340, 220, 6, "F", "under", 0.8, False),
-    ("smd-6", "smd", 300, 220, 6, "F", "under", 0.8, True),
-    ("smd-6", "smd", 280, 220, 6, "F", "under", 0.8, False),
-    ("smd-6", "smd", 260, 220, 6, "F", "under", 0.8, False),
-    ("smd-6", "smd", 280, 233, 6, "F", "under", 0.8, False),
-    ("smd-6-top", "smd", 340, 220, 6, "F", "beside", 0.8, False),
-    ("smd-6-top", "smd", 320, 220, 6, "F", "beside", 0.8, False),
-    ("smd-6-both", "smd", 280, 220, 6, "FB", "beside", 1.2, False),
-    ("smd-6-both", "smd", 260, 220, 6, "FB", "beside", 1.2, False),
-    ("smd-4", "smd", 380, 220, 4, "F", "under", 1.2, False),
-    ("smd-4", "smd", 440, 260, 4, "F", "under", 1.2, False),
-    ("smd-4", "smd", 460, 260, 4, "F", "under", 1.2, True),
-    ("dip-6", "dip", 480, 300, 6, "F", "beside", 1.0, True),
-    ("dip-6", "dip", 440, 300, 6, "F", "beside", 1.0, False),
-    ("dip-6", "dip", 400, 300, 6, "F", "beside", 1.0, False),
-    ("dip-4", "dip", 520, 300, 4, "F", "beside", 1.0, False),
-    ("dip-4", "dip", 480, 300, 4, "F", "beside", 1.0, True),
+    ("smd-6", "smd", 340, 220, 6, "F", "under", 0.8, False, "grid"),
+    ("smd-6", "smd", 320, 220, 6, "F", "under", 0.8, True, "grid"),
+    ("smd-6", "smd", 300, 220, 6, "F", "under", 0.8, False, "grid"),
+    ("smd-4", "smd", 480, 260, 4, "F", "under", 0.8, False, "grid"),
+    ("dip-6", "dip", 420, 302, 6, "F", "beside", 1.0, False, "grid"),
+    ("dip-4", "dip", 440, 302, 4, "F", "beside", 1.0, False, "grid"),
+    ("dip-4", "dip", 420, 302, 4, "F", "beside", 1.0, True, "grid"),
+    ("dip-4", "dip", 400, 302, 4, "F", "beside", 1.0, False, "grid"),
+    ("free-smd-6", "smd", 380, 220, 6, "F", "under", 1.2, True, "free"),
+    ("free-smd-6", "smd", 340, 220, 6, "F", "under", 0.8, False, "free"),
+    ("free-smd-6", "smd", 300, 220, 6, "F", "under", 0.8, True, "free"),
+    ("free-smd-6", "smd", 280, 220, 6, "F", "under", 0.8, False, "free"),
+    ("free-smd-6", "smd", 260, 220, 6, "F", "under", 0.8, False, "free"),
+    ("free-smd-6", "smd", 280, 233, 6, "F", "under", 0.8, False, "free"),
+    ("free-smd-6-top", "smd", 340, 220, 6, "F", "beside", 0.8, False, "free"),
+    ("free-smd-6-top", "smd", 320, 220, 6, "F", "beside", 0.8, False, "free"),
+    ("free-smd-6-both", "smd", 280, 220, 6, "FB", "beside", 1.2, False, "free"),
+    ("free-smd-6-both", "smd", 260, 220, 6, "FB", "beside", 1.2, False, "free"),
+    ("free-smd-4", "smd", 380, 220, 4, "F", "under", 1.2, False, "free"),
+    ("free-smd-4", "smd", 440, 260, 4, "F", "under", 1.2, False, "free"),
+    ("free-smd-4", "smd", 460, 260, 4, "F", "under", 1.2, True, "free"),
+    ("free-dip-6", "dip", 480, 300, 6, "F", "beside", 1.0, True, "free"),
+    ("free-dip-6", "dip", 440, 300, 6, "F", "beside", 1.0, False, "free"),
+    ("free-dip-6", "dip", 400, 300, 6, "F", "beside", 1.0, False, "free"),
+    ("free-dip-4", "dip", 520, 300, 4, "F", "beside", 1.0, False, "free"),
+    ("free-dip-4", "dip", 480, 300, 4, "F", "beside", 1.0, True, "free"),
 ]
 
-KEYS = ["name", "style", "width", "height", "layers", "sides", "decaps", "utilisation",
+KEYS = ["name", "arrangement", "style", "width", "height", "layers", "sides", "decaps", "utilisation",
         "unplaced", "legalize", "hpwl_m", "routed", "rounds", "conflicted", "track_m", "vias",
         "seconds_place", "seconds_route", "netlist_errors", "copper_opens", "copper_shorts",
         "drc_errors", "drc_unconnected", "ipc356_errors"]
@@ -48,7 +58,7 @@ KEYS = ["name", "style", "width", "height", "layers", "sides", "decaps", "utilis
 
 def run_boards(only=None, reuse=False):
     out = []
-    for label, style, w, h, layers, sides, decaps, halo, full in BOARDS:
+    for label, style, w, h, layers, sides, decaps, halo, full, arrangement in BOARDS:
         if only and only not in label:
             continue
         name = f"cpu-{label}-{w}x{h}"
@@ -58,7 +68,8 @@ def run_boards(only=None, reuse=False):
                 r = json.load(f)
         else:
             r = flow.build("cpu", style, w, h, layers=layers, sides=sides, decaps=decaps,
-                           halo=halo, checks=True if full else "netlist", name=name)
+                           halo=halo, checks=True if full else "netlist", name=name,
+                           arrangement=arrangement)
         r = {k: r.get(k) for k in KEYS}
         r["label"] = label
         print(json.dumps(r), flush=True)

@@ -55,10 +55,14 @@ def drc(path):
 
 def build(card="cpu", style="smd", width=300.0, height=220.0, layers=6, sides="F", halo=None,
           seed=1, moves=30000, router_name="grid", route_params=None, out=None, checks=True,
-          name=None, freeroute_timeout=3600, decaps=None, timing_driven=True):
-    """Build one board and check it. Returns a dict of what happened."""
+          name=None, freeroute_timeout=3600, decaps=None, timing_driven=True,
+          arrangement="grid", pitch=None):
+    """Build one board and check it. Returns a dict of what happened.
+    arrangement: "grid" (rows and columns of slots, every chip the same way
+    round) or "free"; pitch: the slots' least size, default the card's
+    (cards.PITCH)."""
     res = {"card": card, "style": style, "width": width, "height": height, "layers": layers,
-           "sides": sides, "router": router_name}
+           "sides": sides, "router": router_name, "arrangement": arrangement}
     name = name or f"{card}-{style}-{int(width)}x{int(height)}-{layers}L-{sides}"
     out = out or os.path.join(OUT, name)
     os.makedirs(out, exist_ok=True)
@@ -78,9 +82,15 @@ def build(card="cpu", style="smd", width=300.0, height=220.0, layers=6, sides="F
         halo = 1.0 if style == "dip" else 0.8 if sides == "F" else 1.2
     decaps = decaps or ("under" if style == "smd" and sides == "F" else "beside")
     res["decaps"] = decaps
-    pl = place.Placer(b, region=(3.0, 3.0, width - 3.0, height - 3.0), halo=halo,
-                      grid=0.635 if style == "smd" else 1.27, sides=sides, decaps=decaps, seed=seed,
-                      weights=cards.weights(nl) if timing_driven else None)
+    kw = dict(region=(3.0, 3.0, width - 3.0, height - 3.0), halo=halo, sides=sides, decaps=decaps,
+              seed=seed, weights=cards.weights(nl) if timing_driven else None)
+    if arrangement == "grid" and sides != "F":
+        raise ValueError("a grid placement is one-sided: use arrangement='free' with sides='FB'")
+    if arrangement == "free":
+        pl = place.Placer(b, grid=0.635 if style == "smd" else 1.27, **kw)
+    else:
+        pl = place.GridPlacer(b, pitch or cards.PITCH[style], **kw)
+        res["pitch"] = [round(pl.px, 2), round(pl.py, 2)]
     # largest first packs the surface-mount boards best, left to right the
     # DIP ones: try one, then the other; if the critical nets' weights
     # bunch the parts too much to fit, try again without them

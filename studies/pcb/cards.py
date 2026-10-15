@@ -61,6 +61,11 @@ def connectors(nl, width, height, uses_p2=True):
 # The CPU card's 50 MHz clock generator allows one 74F gate between
 # flip-flops in a 20 ns tick (studies/system/design.md): its wires must be
 # short, so its nets weigh more in placement.
+# the slots of a grid placement (mm, the least): a narrow SOIC or a 0.3"
+# DIP and its capacitor take one, a wide SOIC two columns, the tall parts
+# two rows; the sizes that need the least area for this card's packages
+PITCH = {"smd": (8.25, 14.25), "dip": (10.75, 29.5)}
+
 CRITICAL_SECTIONS = {"Clock generator", "Bus hold and crossings", "Length class"}
 CRITICAL_WEIGHT = 8.0
 

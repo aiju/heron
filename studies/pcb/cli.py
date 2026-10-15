@@ -1,6 +1,6 @@
 """heron pcb: the system's cards as printed circuit boards.
 
-  build [CARD] [--style smd|dip] [--size WxH] [--layers N] [--double]
+  build [CARD] [--style smd|dip] [--size WxH] [--layers N] [--free] [--double]
         [--router grid|freerouting] [--seed N]
                         place, route and check one board, into
                         build/pcb/<name>/ (board.kicad_pcb, board.png,
@@ -27,7 +27,8 @@ def cmd_build(args):
     w, h = (float(v) for v in args.size.lower().split("x"))
     res = flow.build(args.card, args.style, w, h, layers=args.layers,
                      sides="FB" if args.double else "F", seed=args.seed,
-                     router_name=args.router)
+                     router_name=args.router,
+                     arrangement="free" if args.free or args.double else "grid")
     print(json.dumps(res, indent=1))
     return 0 if res.get("routed") and not res.get("netlist_errors") else 1
 
@@ -72,7 +73,9 @@ def main(argv=None):
     b.add_argument("--style", default="smd", choices=("smd", "dip"))
     b.add_argument("--size", default="300x220")
     b.add_argument("--layers", type=int, default=6, choices=(4, 6))
-    b.add_argument("--double", action="store_true", help="parts on both sides")
+    b.add_argument("--free", action="store_true",
+                   help="parts anywhere, not in rows and columns")
+    b.add_argument("--double", action="store_true", help="parts on both sides (implies --free)")
     b.add_argument("--router", default="grid", choices=("grid", "freerouting"))
     b.add_argument("--seed", type=int, default=1)
     b.set_defaults(fn=cmd_build)

@@ -21,6 +21,9 @@ With sides="FB" the board is double-sided: a surface-mount part may go on
 either side (through-hole parts take both), and the decoupling
 capacitors go beside their chips, in room the legalisation keeps for
 them at the chip's VCC end.
+
+GridPlacer does the same steps on a grid of slots: rows and columns of
+chips, all the same way round, as on the classic TTL boards.
 """
 
 import math
@@ -365,6 +368,162 @@ class Placer:
                 else:
                     cur += after - before
             t *= cool
+        return start, cur
+
+
+class GridPlacer(Placer):
+    """Placement on a grid of slots, as on the classic TTL boards: rows
+    and columns of chips, every chip the same way round (pin 1 at the top
+    left), each centred in a block of whole slots: one slot for most, two
+    or four for the big ones. A block more than a slot wide starts on an
+    even column (and one more than a slot high on an even row), so a wide
+    chip takes the place of two narrow ones and the columns line up.
+
+    pitch: (px, py), the least slot size; the slots grow to fill the region
+    evenly. The steps are Placer's: global placement, then legalisation
+    onto the slots, then annealing that swaps chips of the same block size
+    or moves one to a free block nearby. One side only."""
+
+    def __init__(self, board, pitch, align=True, **kw):
+        super().__init__(board, **kw)
+        self.align = align
+        assert self.sides == "F", "a grid placement is one-sided"
+        x0, y0, x1, y1 = self.region
+        self.ncol = max(1, int((x1 - x0) / pitch[0] + 1e-6))
+        self.nrow = max(1, int((y1 - y0) / pitch[1] + 1e-6))
+        self.px = (x1 - x0) / self.ncol
+        self.py = (y1 - y0) / self.nrow
+        self.spans = {}           # ref -> (columns, rows, x and y from the block's centre to the origin)
+        for p in self.movable:
+            p.place(0.0, 0.0, 0, "F")
+            bx0, by0, bx1, by1 = self._box(p)
+            nc = max(1, math.ceil((bx1 - bx0 + self.halo) / self.px - 1e-6))
+            nr = max(1, math.ceil((by1 - by0 + self.halo) / self.py - 1e-6))
+            self.spans[p.ref] = (nc, nr, -(bx0 + bx1) / 2, -(by0 + by1) / 2)
+        self.where = {}
+
+    def _area(self, p):
+        nc, nr, _, _ = self.spans[p.ref]
+        return nc * self.px * nr * self.py
+
+    def _step(self, n):
+        """Where a block n slots long may start: every slot, or with
+        aligning, every other one for blocks longer than a slot."""
+        return 2 if self.align and n > 1 else 1
+
+    def _put(self, p, c, r):
+        nc, nr, ox, oy = self.spans[p.ref]
+        x0, y0, _, _ = self.region
+        p.place(x0 + (c + nc / 2) * self.px + ox, y0 + (r + nr / 2) * self.py + oy, p.rot, p.side)
+        self.where[p.ref] = (c, r)
+
+    def _blocked(self):
+        """The slots the fixed parts (connectors) cover, with half the halo."""
+        x0, y0, _, _ = self.region
+        occ = np.full((self.nrow, self.ncol), -1, dtype=np.int32)
+        h = self.halo / 2
+        for p in self.fixed:
+            cx0, cy0, cx1, cy1 = p.courtyard()
+            c0 = max(0, int(math.floor((cx0 - h - x0) / self.px)))
+            c1 = min(self.ncol, int(math.ceil((cx1 + h - x0) / self.px)))
+            r0 = max(0, int(math.floor((cy0 - h - y0) / self.py)))
+            r1 = min(self.nrow, int(math.ceil((cy1 + h - y0) / self.py)))
+            occ[r0:r1, c0:c1] = -2
+        return occ
+
+    def legalize(self, order="size"):
+        """Each chip, largest first, to the free block nearest its global
+        position; returns those that found none."""
+        x0, y0, _, _ = self.region
+        occ = self._blocked()
+        self.unplaced = []
+        self.where = {}
+        idx = {p.ref: i for i, p in enumerate(self.movable)}
+        for p in sorted(self.movable, key=lambda p: (-self._area(p), p.x)):
+            nc, nr, _, _ = self.spans[p.ref]
+            if nc > self.ncol or nr > self.nrow:
+                self.unplaced.append(p)
+                continue
+            free = (occ == -1).astype(np.int32)
+            S = np.zeros((self.nrow + 1, self.ncol + 1), dtype=np.int32)
+            S[1:, 1:] = free.cumsum(0).cumsum(1)
+            R, C = np.mgrid[0:self.nrow - nr + 1, 0:self.ncol - nc + 1]
+            ok = (S[R + nr, C + nc] - S[R, C + nc] - S[R + nr, C] + S[R, C]) == nc * nr
+            ok &= (C % self._step(nc) == 0) & (R % self._step(nr) == 0)
+            if not ok.any():
+                self.unplaced.append(p)
+                p.place(self.region[2] + 20, y0, p.rot, p.side)
+                continue
+            cx = x0 + (C + nc / 2) * self.px
+            cy = y0 + (R + nr / 2) * self.py
+            d = np.where(ok, (cx - p.x) ** 2 + (cy - p.y) ** 2, np.inf)
+            k = int(np.argmin(d))
+            r, c = int(R.flat[k]), int(C.flat[k])
+            occ[r:r + nr, c:c + nc] = idx[p.ref]
+            self._put(p, c, r)
+        self._occ = occ
+        return self.unplaced
+
+    def refine(self, moves=20000, t0=None, rotate=False):
+        """Simulated annealing on the slots: swap two chips whose blocks are
+        the same size, or move one to a free block within a few slots.
+        Returns (wire length before, after)."""
+        self._pin_cache = {}
+        occ = self._occ
+        idx = {p.ref: i for i, p in enumerate(self.movable)}
+        by_span = defaultdict(list)
+        for p in self.movable:
+            by_span[self.spans[p.ref][:2]].append(p)
+        nets_of = defaultdict(set)
+        for n, pins in self.nets.items():
+            for p, _ in pins:
+                nets_of[p.ref].add(n)
+        start = cur = self.hpwl()
+        t = t0 if t0 is not None else cur / len(self.nets) * 0.5
+        cool = (0.01) ** (1.0 / max(moves, 1))
+        reach = 4
+        for _ in range(moves):
+            t *= cool
+            a = self.rng.choice(self.movable)
+            nc, nr, _, _ = self.spans[a.ref]
+            ca, ra = self.where[a.ref]
+            group = by_span[(nc, nr)]
+            if len(group) > 1 and self.rng.random() < 0.5:
+                b = self.rng.choice(group)
+                if b is a:
+                    continue
+                cb, rb = self.where[b.ref]
+                affected = nets_of[a.ref] | nets_of[b.ref]
+                before = sum(self._net_len(n) for n in affected)
+                self._put(a, cb, rb)
+                self._put(b, ca, ra)
+                after = sum(self._net_len(n) for n in affected)
+                if after > before and self.rng.random() >= math.exp((before - after) / t):
+                    self._put(a, ca, ra)
+                    self._put(b, cb, rb)
+                else:
+                    occ[ra:ra + nr, ca:ca + nc] = idx[b.ref]
+                    occ[rb:rb + nr, cb:cb + nc] = idx[a.ref]
+                    cur += after - before
+            else:
+                sc, sr = self._step(nc), self._step(nr)
+                c = ca + self.rng.randint(-reach, reach) * sc
+                r = ra + self.rng.randint(-reach, reach) * sr
+                if (c, r) == (ca, ra) or c < 0 or r < 0 or c + nc > self.ncol or r + nr > self.nrow:
+                    continue
+                block = occ[r:r + nr, c:c + nc]
+                if not np.all((block == -1) | (block == idx[a.ref])):
+                    continue
+                affected = nets_of[a.ref]
+                before = sum(self._net_len(n) for n in affected)
+                self._put(a, c, r)
+                after = sum(self._net_len(n) for n in affected)
+                if after > before and self.rng.random() >= math.exp((before - after) / t):
+                    self._put(a, ca, ra)
+                else:
+                    occ[ra:ra + nr, ca:ca + nc] = -1
+                    occ[r:r + nr, c:c + nc] = idx[a.ref]
+                    cur += after - before
         return start, cur
 
 
