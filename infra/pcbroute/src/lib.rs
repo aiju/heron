@@ -243,6 +243,12 @@ fn build_grid(p: &Problem) -> Grid {
             for x in x0..=x1 {
                 let (px, py) = g.pos(x, y);
                 let d = s.dist(px, py);
+                if s.via_only {
+                    if d < vkeep - 1e-9 {
+                        g.vowner[y * nx + x] = BLOCKED;
+                    }
+                    continue;
+                }
                 for l in 0..nl {
                     if !s.on(l) {
                         continue;

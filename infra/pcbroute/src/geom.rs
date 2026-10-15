@@ -32,6 +32,10 @@ pub struct Shape {
     pub net: i64,
     /// a pad: its net's routes may end on it
     pub pad: bool,
+    /// it keeps vias out but not tracks: the room a through-hole pad on a
+    /// plane needs for its thermal spokes, which only vias can cut
+    #[serde(default)]
+    pub via_only: bool,
 }
 
 impl Shape {

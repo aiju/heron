@@ -55,10 +55,11 @@ def problem(board, dirs=None, layer_cost=None, skip=(), **params):
         if pad.layers == "*" and pad.net in planes:
             # a through-hole pad on a plane joins it through thermal spokes:
             # other nets' vias keep THERMAL_ROOM away, so their holes in the
-            # plane leave the spokes room to land (RFC 0026, R6)
+            # plane leave the spokes room to land (RFC 0026, R6); tracks may
+            # pass, as they don't cut the plane
             shapes.append({"kind": "capsule", "x1": pad.x, "y1": pad.y, "x2": pad.x, "y2": pad.y,
                            "r": max(pad.w, pad.h) / 2 + THERMAL_ROOM, "layers": [], "net": -1,
-                           "pad": False})
+                           "pad": False, "via_only": True})
         if nid >= 0:
             net_pads[nid].append(len(shapes) - 1)
     for (layer, x1, y1, x2, y2, w, net) in board.tracks:

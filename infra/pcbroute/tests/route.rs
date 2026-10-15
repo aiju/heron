@@ -103,6 +103,33 @@ fn via_through_a_wall() {
 }
 
 #[test]
+fn vias_keep_out_but_tracks_cross() {
+    // pads on different layers, and a band where vias may not go: the via
+    // goes outside it, and the tracks still cross it
+    let band = Shape {
+        kind: "rect".into(),
+        cx: 10.0,
+        cy: 10.0,
+        hw: 3.0,
+        hh: 10.0,
+        net: -1,
+        via_only: true,
+        ..Default::default()
+    };
+    let p = problem(
+        vec![pad(5.0, 8.0, 0, vec![0]), pad(15.0, 8.0, 0, vec![1]), band],
+        vec![vec![0, 1]],
+        2,
+    );
+    let s = route(&p);
+    assert!(s.failed.is_empty() && s.conflicted.is_empty(), "{s:?}");
+    assert!(!s.nets[0].vias.is_empty(), "{s:?}");
+    for &(x, _) in &s.nets[0].vias {
+        assert!(!(6.5..=13.5).contains(&x), "a via in the band at x = {x}");
+    }
+}
+
+#[test]
 fn crossing_nets_negotiate() {
     // two nets that cross on one layer can't both be routed there: with two
     // layers, they must end up without sharing a node
