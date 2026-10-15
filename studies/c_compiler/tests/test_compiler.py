@@ -318,6 +318,17 @@ int main(void) { if (zero) pad(); printf("%d %d\\n", f(3), f(9)); return 0; }
             self.assertGreater(img.symbols["_f"], 0x8000, isa)
             self.assertEqual(bytes(run_image(img, isa).dev.out), b"11 0\n", isa)
 
+    def test_licm_out_of_a_new_preheader(self):
+        # The inner loop's new preheader lies inside the outer loop: the
+        # sext8 hoisted into it must move out with the multiply that uses it
+        # (optimized() verifies the IR after every pass)
+        src = """int f(int n, int c, int m) { int s = 0, i, k, t = 0;
+for (i = 0; i < n; i++) { if (m > i) { k = 0; do { t = (signed char)c; s += k; k++; } while (k < m); s += t * 3; } }
+return s; }"""
+        optimized(src)
+        self.check("#include <stdio.h>\n" + src + '\nint main(void) { printf("%d %d\\n", f(5, 200, 3), f(4, -7, 2)); '
+                   "return 0; }", "-495 -40\n")
+
     def test_spill_pressure(self):
         # more live values than registers
         body = "".join(f"int v{i} = x * {i + 3};\n" for i in range(24))
