@@ -60,8 +60,10 @@ estimates unless they come from that netlist.
 microinstruction picks how long its own cycle is. Measured from the draft
 1b hardware's timing analysis
 ([hardware.md](../studies/v1b_hw/hardware.md#timing)) over the programs;
-this RFC is where the numbers are recorded. Not yet built into the
-netlist ([RFC 0005](0005-rfc-ideas-direction.md#5-next-steps)).
+this RFC is where the numbers are recorded. Built into the draft 1b CPU
+card on the system bus, with four lengths, it makes the suite's
+microcycles 1.14 times as fast
+([report 0025](0025-report-draft-1b-system.md#4-variable-length-cycles)).
 
 - **Why.** A fixed clock runs every cycle at the slowest microinstruction's
   speed. With HCT + LS181 at worst case:
