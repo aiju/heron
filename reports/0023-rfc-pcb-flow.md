@@ -51,8 +51,8 @@ netlist; and the board's wire delays back in the simulator.
 columns of chips all the same way round, **six layers, about 340 × 220
 mm**, the decoupling capacitors underneath. It places and routes in under
 a minute each, with no DRC errors, and every check passes. Placed freely
-it would be 10–13% smaller (300 × 220); on four layers it routes only
-placed freely, at 460 × 260. The plain DIP version works as a grid on
+it would be 300 × 220: the grid costs 10–13% more area. On four layers
+it routes only placed freely, at 460 × 260. The plain DIP version works as a grid on
 **four layers at about 480 × 340 mm**, 2.2 times the area, or on six at
 420 × 302. One card is enough: splitting the CPU over two would put about
 170 signals or more between them.

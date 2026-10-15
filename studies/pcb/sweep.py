@@ -240,8 +240,9 @@ def write_results(boards, timing_rows, nets, fr, sp):
                    "Track (m)", "Vias", "Place (s)", "Route (s)", "Checks"]), "",
             "## The routed wires in the chip-level simulation", "",
             "`hello` on the whole system (`studies/system`), with the CPU card's wires from "
-            f"the {TIMING_BOARD.rsplit('-', 1)[1].replace('x', ' × ')} board as per-pin delays "
-            "(infra/pcb/wires.py).", "",
+            f"the {TIMING_BOARD.rsplit('-', 1)[1].replace('x', ' × ')} grid board: a delay on each "
+            "driving pin, and one in front of each load further along its wire (infra/pcb/wires.py). "
+            "\"Stopped after\" 3,000,000 cycles: the limit; the program never finished.", "",
             table(timing_rows, ["wires", "classes", "lengths", "slower", "output", "violations", "worst"],
                   ["Wires", "Length classes", "Ticks", "Program suite", "Output", "Violations",
                    "Worst"]), "",
