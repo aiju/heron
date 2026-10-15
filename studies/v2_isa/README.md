@@ -52,7 +52,9 @@ They were ported in two steps, which the history keeps apart.
 2. **Using draft 2.** `DBNZ` for the counted loops; `INC` on memory for
    counters (in the timer handler it saves the register too); a pop
    between a test and its branch in `vm.s`; `REV` for SHA-256's
-   big-endian words; `MULFX` in `mandel.s` and `MULA` in `matmul.s`.
+   big-endian words; `MULFX` in `mandel.s` and `MULA` in `matmul.s`; and
+   mode E, with `r14` as the current object: `bst.s`'s node, and the
+   sixteen-word window of SHA-256's message schedule.
 
 Every program also passes with `r0` holding garbage from the start, which
 `tests/` checks, and linked from relocatable object files.

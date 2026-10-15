@@ -114,11 +114,12 @@ sha256_block:
         MOV  [r2]+, r4
         CMP  r2, r3
         BNE  .load
-        ; W[16..63]. r9 points at W[t-16]; the last add steps it on.
+        ; W[16..63]. r14 points at W[t-16], so W[t-16..t-1] are the slots
+        ; [r14 + 0..60], one parcel each; the last add steps it on.
 .expand:
-        MOV  r9, #W
-        MOV  r10, #W + 192      ; r9 stops at W[48] (t = 64)
-.sched: MOV  r1, [r9 + 4]       ; x = W[t-15]
+        MOV  r14, #W
+        MOV  r10, #W + 192      ; r14 stops at W[48] (t = 64)
+.sched: MOV  r1, [r14 + 4]      ; x = W[t-15]
         MOV  r2, r1
         ROR  r2, #18
         MOV  r3, r2
@@ -126,7 +127,7 @@ sha256_block:
         XOR  r2, r3
         LSR  r1, #3
         XOR  r1, r2             ; r1 = s0 = ROR7 ^ ROR18 ^ SHR3
-        MOV  r2, [r9 + 56]      ; y = W[t-2]
+        MOV  r2, [r14 + 56]     ; y = W[t-2]
         MOV  r3, r2
         ROR  r3, #17
         MOV  r4, r3
@@ -135,10 +136,10 @@ sha256_block:
         LSR  r2, #10
         XOR  r2, r3             ; r2 = s1 = ROR17 ^ ROR19 ^ SHR10
         ADD  r1, r2
-        ADD  r1, [r9 + 36]      ; + W[t-7]
-        ADD  r1, [r9]+          ; + W[t-16]; r9 -> W[t-15]
-        MOV  [r9 + 60], r1      ; W[t]
-        CMP  r9, r10
+        ADD  r1, [r14 + 36]     ; + W[t-7]
+        ADD  r1, [r14]+         ; + W[t-16]; r14 -> W[t-15]
+        MOV  [r14 + 60], r1     ; W[t]
+        CMP  r14, r10
         BNE  .sched
         ; a..h = H
         MOV  r13, #H

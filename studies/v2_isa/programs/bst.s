@@ -74,14 +74,15 @@ insert: MOV  [r2], r1           ; the key
 ; inorder: r1 = a node (not 0). Visit its subtree in key order: count each
 ; node, check the keys ascend, print a key whenever the countdown runs out.
 ; Uses r10-r13 as described in main. The right subtree is a loop rather than
-; a call, so a long right spine doesn't grow the stack.
+; a call, so a long right spine doesn't grow the stack. The node is r14, the
+; current object, so its fields are one-parcel slots.
 inorder:
-        PUSH r8
-        MOV  r8, r1
-.node:  MOVS r1, [r8 + LEFT]
+        PUSH r14
+        MOV  r14, r1
+.node:  MOVS r1, [r14 + LEFT]
         BEQ  .visit
         BSR  inorder
-.visit: MOV  r1, [r8]           ; the key
+.visit: MOV  r1, [r14]          ; the key
         CMP  r1, r12
         BHS  .asc
         MOV  r13, #1            ; out of order
@@ -93,26 +94,27 @@ inorder:
         MOV  r1, r12
         BSR  print_u32
         MOV  r10, #10
-.right: MOVS r8, [r8 + RIGHT]
+.right: MOVS r14, [r14 + RIGHT]
         BNE  .node
-        POP  r8
+        POP  r14
         RET
 
 ; height: r1 = a subtree, or 0 -> r1 = number of levels (0 for an empty one).
+; The node is r14, as in inorder.
 height: TST  r1, r1
         BEQ  .ret
-        SAVE r8-r9
-        MOV  r8, r1
-        MOV  r1, [r8 + LEFT]
+        SAVE r13-r14
+        MOV  r14, r1
+        MOV  r1, [r14 + LEFT]
         BSR  height
-        MOV  r9, r1
-        MOV  r1, [r8 + RIGHT]
+        MOV  r13, r1
+        MOV  r1, [r14 + RIGHT]
         BSR  height
-        CMP  r1, r9
+        CMP  r1, r13
         BHS  .max
-        MOV  r1, r9
+        MOV  r1, r13
 .max:   INC  r1
-        RESTORE r8-r9
+        RESTORE r13-r14
 .ret:   RET
 
 s_keys:    .asciz "every 10th key in order:"
