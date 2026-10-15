@@ -162,16 +162,35 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
               "2J": "H3", "2K": "T2_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC",
               "2Q": "MID"})
 
+    bus_interface(nl, u)
+    nl.finish()
+    return bus.Card("CPU", nl)
+
+
+def bus_interface(nl, u, slow=HCT):
+    """The bus side of the card: which accesses go to the bus, the bus
+    interface on the bus clock, and the interrupts. It uses the clock
+    generator's nets (HOLD, BRQ, DONEM, MID and their inverses). `slow` is
+    the family of the few gates off the fast paths (74HCT here), or a
+    {gate type: part} map (studies/v1b_tradeoffs, with a faster CPU)."""
+    g = nl.gate
+
+    def gf(typ, ins, out):
+        return g(typ, ins, out, part=F + typ)
+
+    def gs(typ, ins, out):
+        return g(typ, ins, out, part=slow[typ] if isinstance(slow, dict) else slow + typ)
+
     nl.section("Bus access decode")
     # ---- which accesses go on the bus (CPU side, fast parts: the clock
     # generator reads BUSACC at least 5 ticks, 100 ns, into the cycle) ------
     gf("08", [u["SIZE0"], "MAR1"], "MISF1")
     gf("32", ["MAR0", "MISF1"], "MISF2")
     gf("00", [u["SIZE1"], "MISF2"], "MISF_n")             # not misaligned
-    g("04", [u["MEMWR"]], "MEMWR_n", part=HCT + "04")
+    gs("04", [u["MEMWR"]], "MEMWR_n")
     gf("00", [u["MEMRD_n"], "MEMWR_n"], "MEMACC")
     gf("21", ["MEMACC", u["ADDRMAR"], "MARBUS", "MISF_n"], "BUSACC")
-    g("08", ["BUSACC", "EQ"], "BUSERR", part=HCT + "08")   # into FAULT (cpu.py)
+    gs("08", ["BUSACC", "EQ"], "BUSERR")   # into FAULT (cpu.py)
     gf("20", ["BUSACC", "MEMWR_n", "MID", "VCC"], "BUSRD_n")
 
     nl.section("Bus interface: state")
@@ -228,8 +247,8 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
               "3OE": "GND", "3A": "REQQ_n", "3Y": "BUS.REQ_n",
               "4OE": "VCC", "4A": "GND"})
     # address, byte enables and WRITE, registered in the address clock
-    g("08", ["BYTE", "ADDR0"], "BE0D_n", part=HCT + "08")
-    g("08", ["BYTE", "ADDR0_n"], "BE1D_n", part=HCT + "08")
+    gs("08", ["BYTE", "ADDR0"], "BE0D_n")
+    gs("08", ["BYTE", "ADDR0_n"], "BE1D_n")
     src = [("MAR1H", "BUS.A1")] + [(f"MAR{i}", f"BUS.A{i}") for i in range(2, 32)] \
         + [("BE0D_n", "BUS.BE0_n"), ("BE1D_n", "BUS.BE1_n"), ("MEMWR_n", "BUS.WRITE_n")]
     for k in range(4):
@@ -258,7 +277,4 @@ def build(lengths=(17, 17, 17, 17), bus_div=3):
 
     nl.section("Interrupts")
     # ---- interrupts: any of IRQ0-IRQ2 ---------------------------------------
-    g("10", ["IRQB0_n", "IRQB1_n", "IRQB2_n"], "IRQ", part=HCT + "10")
-
-    nl.finish()
-    return bus.Card("CPU", nl)
+    gs("10", ["IRQB0_n", "IRQB1_n", "IRQB2_n"], "IRQ")

@@ -141,6 +141,12 @@ def run(path, max_cycles=10_000_000, trace=None, cf_image=None, probe=None, **kw
     inp = programs.metadata(path)["input"]
     hw = native.hwsim.run_system(netlist(**kw), config(max_cycles, trace, probe=probe),
                                  preloads(img, inp, cf_image))
+    return img, decode(hw)
+
+
+def decode(hw):
+    """The outcome of a run with the registers, RAM and flags decoded from
+    the chips' dumps and nets."""
     d = hw["dumps"]
     hw["output"] = bytes(d["IO.U_UART"])
     hw["cf"] = bytes(d["IO.U_CF"])
@@ -158,4 +164,4 @@ def run(path, max_cycles=10_000_000, trace=None, cf_image=None, probe=None, **kw
     n = hw["nets"]
     hw["pc"] = sum(n[f"CPU.PC{i}"] << i for i in range(1, 32))
     hw["flags"] = {f: n[f"CPU.{f}"] for f in ("NFLAG", "ZFLAG", "CFLAG", "VFLAG", "IFLAG")}
-    return img, hw
+    return hw

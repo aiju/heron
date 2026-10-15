@@ -87,7 +87,7 @@ def build(card=False, stub=False):
     nl.section("Decode")
     # decode ROM: first parcel on the data bus (or GOIRQ) -> routine address, length
     for k in range(2):
-        rom = nl.add("flash", f"U_DEC{k}", CE="GND", OE="GND", WE="VCC")
+        rom = nl.add("flash", f"U_DEC{k}", role="decode", CE="GND", OE="GND", WE="VCC")
         for i in range(16):
             rom[f"A{i}"] = DBUS[i]
         rom["A16"] = u["GOIRQ"]
