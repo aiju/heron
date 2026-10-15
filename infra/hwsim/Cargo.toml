@@ -7,6 +7,7 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
+devices = { path = "../devices" }
 serde.workspace = true
 serde_bytes.workspace = true
 

@@ -5,14 +5,18 @@
 //! simulator propagates every change through the chips with those delays
 //! ([`sim`]), checks setup, hold and write timing and bus contention as it
 //! goes, and runs the machine from reset until its program halts
-//! ([`machine`]).
+//! ([`machine`]), or runs a whole system of cards whose clocks are parts
+//! of the netlist ([`system`]).
 
+pub mod devices;
 pub mod machine;
 pub mod models;
 pub mod rng;
 pub mod sim;
+pub mod system;
 
 pub use machine::{Config, Netlist, Outcome, run};
+pub use system::{SysConfig, SysOutcome, run_system};
 
 /// A netlist or configuration the simulator can't run.
 #[derive(Debug, Clone, PartialEq, Eq)]

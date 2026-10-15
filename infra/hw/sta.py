@@ -35,7 +35,7 @@ class Netlist:
             if inst.type.family == "fixture":
                 self.delay[inst.ref] = {}
             else:
-                part = chips.part_number(variant, inst.type.name, inst.role)
+                part = inst.part_number(variant)
                 self.delay[inst.ref] = {k: v / 1000.0 for k, v in chips.delays_for(timing, part, corner).items()}
         self.drivers = defaultdict(list)    # net -> [(inst, pin)]
         for inst in self.insts:

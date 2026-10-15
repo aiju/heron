@@ -13,7 +13,13 @@ which pins.
 Both take the delay values per part number from infra/hw/timing.json, via
 delays_for().
 
-Pin kinds: 'in', 'out', 'tri' (three-state output), 'io' (bidirectional).
+Pin kinds: 'in', 'out', 'tri' (three-state output), 'io' (bidirectional),
+'pull' (a pull-up resistor to VCC: a weak driver of 1).
+
+Families: 'logic' (74HCT/ACT, or a family the netlist names), 'alu'
+(74LS/F/S), 'mem', 'device' (UART, timer, CF card), 'osc' (canned
+oscillators), 'misc' (a supply supervisor), 'passive' (resistor
+networks), 'fixture' (test equipment, not on any board).
 """
 
 import json
@@ -47,14 +53,14 @@ def T(*a, **kw):
     return t
 
 
-def gate_type(name, model, n_sections, n_inputs, desc):
+def gate_type(name, model, n_sections, n_inputs, desc, out_kind="out"):
     pins, arcs = [], []
     letters = "ABCDEFGH"
     for s in range(1, n_sections + 1):
         ins = [f"{s}{letters[i]}" for i in range(n_inputs)] if n_sections > 1 else \
               [letters[i] for i in range(n_inputs)]
         out = f"{s}Y" if n_sections > 1 else "Y"
-        pins += [(p, "in") for p in ins] + [(out, "out")]
+        pins += [(p, "in") for p in ins] + [(out, out_kind)]
         arcs.append((ins, [out], "A->Y"))
     return T(name, model, pins, arcs, desc=desc)
 
@@ -68,6 +74,12 @@ gate_type("21", "and", 2, 4, "dual 4-input AND")
 gate_type("30", "nand", 1, 8, "8-input NAND")
 gate_type("32", "or", 4, 2, "quad 2-input OR")
 gate_type("86", "xor", 4, 2, "quad 2-input XOR")
+gate_type("11", "and", 3, 3, "triple 3-input AND")
+gate_type("20", "nand", 2, 4, "dual 4-input NAND")
+gate_type("27", "nor", 3, 3, "triple 3-input NOR")
+gate_type("132", "nand", 4, 2, "quad 2-input NAND, Schmitt-trigger inputs")
+gate_type("14", "nand", 6, 1, "hex inverter, Schmitt-trigger inputs")
+gate_type("05", "nand_oc", 6, 1, "hex inverter, open-collector outputs", out_kind="tri")
 
 T("74", "dff74",
   [(f"{s}{p}", k) for s in (1, 2) for p, k in
@@ -151,11 +163,24 @@ T("541", "buf541",
   + [(["OE1", "OE2"], [f"Y{i}" for i in range(1, 9)], "OE->Y en")],
   desc="octal three-state buffer")
 
+T("540", "buf540",
+  [("OE1", "in"), ("OE2", "in")] + [(f"A{i}", "in") for i in range(1, 9)]
+  + [(f"Y{i}", "tri") for i in range(1, 9)],
+  arcs=[([f"A{i}"], [f"Y{i}"], "A->Y") for i in range(1, 9)]
+  + [(["OE1", "OE2"], [f"Y{i}" for i in range(1, 9)], "OE->Y en")],
+  desc="octal three-state inverting buffer")
+
 T("688", "cmp688",
   [(f"P{i}", "in") for i in range(8)] + [(f"Q{i}", "in") for i in range(8)] + [("G", "in"), ("PEQ", "out")],
   arcs=[([f"P{i}" for i in range(8)] + [f"Q{i}" for i in range(8)], ["PEQ"], "P->PEQ"),
         (["G"], ["PEQ"], "G->PEQ")],
   desc="8-bit identity comparator")
+
+T("521", "cmp688",
+  [(f"P{i}", "in") for i in range(8)] + [(f"Q{i}", "in") for i in range(8)] + [("G", "in"), ("PEQ", "out")],
+  arcs=[([f"P{i}" for i in range(8)] + [f"Q{i}" for i in range(8)], ["PEQ"], "P->PEQ"),
+        (["G"], ["PEQ"], "G->PEQ")],
+  desc="8-bit identity comparator (the 688's function, in 74F)")
 
 T("181", "alu181",
   [(f"A{i}", "in") for i in range(4)] + [(f"B{i}", "in") for i in range(4)]
@@ -218,9 +243,113 @@ T("flash", "rom",
         (["OE"], [f"D{i}" for i in range(8)], "tOE")],
   family="mem", desc="128K x 8 parallel flash (microcode)")
 
+# ---- bus interface, clock generator and backplane parts ----
+
+T("109", "jk109",
+  [(f"{s}{p}", k) for s in (1, 2) for p, k in
+   (("J", "in"), ("K", "in"), ("CLK", "in"), ("PRE", "in"), ("CLR", "in"), ("Q", "out"),
+    ("QN", "out"))],
+  arcs=[([f"{s}CLK"], [f"{s}Q", f"{s}QN"], "CLK->Q") for s in (1, 2)]
+  + [([f"{s}PRE", f"{s}CLR"], [f"{s}Q", f"{s}QN"], "PRE/CLR->Q") for s in (1, 2)],
+  checks=[([f"{s}J", f"{s}K"], f"{s}CLK", "rise", "setup JK", "hold JK") for s in (1, 2)],
+  desc="dual J-K̄ flip-flop with preset and clear (K is active low)")
+
+T("574", "dreg",
+  [("OE", "in"), ("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q"),
+        (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
+  desc="octal D flip-flop, three-state outputs")
+
+T("534", "dreg_inv",
+  [("OE", "in"), ("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q"),
+        (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
+  desc="octal D flip-flop, inverting three-state outputs")
+
+T("823", "dreg",
+  [("OE", "in"), ("CLK", "in"), ("EN", "in"), ("CLR", "in")]
+  + [(f"D{i}", "in") for i in range(1, 10)] + [(f"Q{i}", "tri") for i in range(1, 10)],
+  arcs=[(["CLK"], [f"Q{i}" for i in range(1, 10)], "CLK->Q"),
+        (["CLR"], [f"Q{i}" for i in range(1, 10)], "CLR->Q"),
+        (["OE"], [f"Q{i}" for i in range(1, 10)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 10)], "CLK", "rise", "setup D", "hold D"),
+          (["EN"], "CLK", "rise", "setup EN", "hold EN")],
+  desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE active low)")
+
+T("245", "xcvr245",
+  [("DIR", "in"), ("OE", "in")] + [(f"A{i}", "io") for i in range(1, 9)]
+  + [(f"B{i}", "io") for i in range(1, 9)],
+  arcs=[([f"A{i}"], [f"B{i}"], "A->B") for i in range(1, 9)]
+  + [([f"B{i}"], [f"A{i}"], "B->A") for i in range(1, 9)]
+  + [(["OE", "DIR"], [f"A{i}" for i in range(1, 9)], "OE->A en"),
+     (["OE", "DIR"], [f"B{i}" for i in range(1, 9)], "OE->B en")],
+  desc="octal transceiver (DIR high: A to B; OE active low)")
+
+T("125", "tribuf",
+  [(f"{s}{p}", k) for s in range(1, 5) for p, k in (("OE", "in"), ("A", "in"), ("Y", "tri"))],
+  arcs=[([f"{s}A"], [f"{s}Y"], "A->Y") for s in range(1, 5)]
+  + [([f"{s}OE"], [f"{s}Y"], "OE->Y en") for s in range(1, 5)],
+  desc="quad three-state buffer (OE active low)")
+
+T("148", "enc148",
+  [(f"I{i}", "in") for i in range(8)] + [("EI", "in")] + [(f"A{i}", "out") for i in range(3)]
+  + [("GS", "out"), ("EO", "out")],
+  arcs=[([f"I{i}" for i in range(8)], ["A0", "A1", "A2", "GS", "EO"], "I->Y"),
+        (["EI"], ["A0", "A1", "A2", "GS", "EO"], "EI->Y")],
+  desc="8-line to 3-line priority encoder, active low, I7 first")
+
+T("clkdrv", "fanbuf", [("A", "in")] + [(f"Y{i}", "out") for i in range(1, 9)],
+  arcs=[(["A"], [f"Y{i}" for i in range(1, 9)], "A->Y")],
+  desc="1-to-8 clock driver")
+
+T("osc", "osc", [("OUT", "io")], family="osc",
+  desc="crystal oscillator (params period_ps, phase_ps: the first rising edge)")
+
+T("por", "por", [("RST", "tri")], family="misc",
+  desc="supply supervisor as power-on reset: open-collector RST low until params release_ps")
+
+T("pullup", "pullup", [(f"P{i}", "pull") for i in range(1, 9)], family="passive",
+  desc="eight pull-up resistors to VCC (a resistor network)")
+
+# ---- devices: register-level models in infra/devices, pins in hwsim ----
+
+T("16c550", "uart16550",
+  [(f"D{i}", "io") for i in range(8)] + [(f"A{i}", "in") for i in range(3)]
+  + [(p, "in") for p in ("CS0", "CS1", "CS2", "RD", "WR", "MR", "XIN")]
+  + [(p, "out") for p in ("INTR", "RTS", "DTR", "OUT1", "OUT2")],
+  arcs=[(["RD"], [f"D{i}" for i in range(8)], "RD->D")], family="device",
+  desc="UART with 16-byte FIFOs (CS2, RD, WR, RTS, DTR, OUT1, OUT2 active low; MR active high); "
+       "the terminal on its serial line is inside the model")
+
+T("82c54", "i8254",
+  [(f"D{i}", "io") for i in range(8)] + [("A0", "in"), ("A1", "in")]
+  + [(p, "in") for p in ("CS", "RD", "WR")]
+  + [(f"{p}{i}", "in") for i in range(3) for p in ("CLK", "GATE")]
+  + [(f"OUT{i}", "out") for i in range(3)],
+  arcs=[(["RD"], [f"D{i}" for i in range(8)], "RD->D")]
+  + [([f"CLK{i}"], [f"OUT{i}"], "CLK->OUT") for i in range(3)], family="device",
+  desc="programmable interval timer: three 16-bit counters (CS, RD, WR active low)")
+
+T("cf", "cf",
+  [(f"D{i}", "io") for i in range(16)] + [(f"A{i}", "in") for i in range(3)]
+  + [(p, "in") for p in ("CS0", "CS1", "IORD", "IOWR", "RESET")]
+  + [("INTRQ", "out"), ("WAKE", "io")],
+  arcs=[(["IORD"], [f"D{i}" for i in range(16)], "RD->D")], family="device",
+  desc="CompactFlash card in True IDE mode (CS0, CS1, IORD, IOWR, RESET active low); "
+       "WAKE is the simulator's, on a net of its own")
+
 # ---- test fixtures (not chips on the board) ----
 
 T("const", "const", [("LO", "out"), ("HI", "out")], family="fixture", desc="GND and VCC")
+
+T("vector", "vector", [("CLK", "in")] + [(f"O{i}", "tri") for i in range(64)]
+  + [(f"I{i}", "in") for i in range(48)], family="fixture",
+  desc="a script played against CLK and a record of its inputs (params outs, ins, "
+       "delay_ps; the script is its preload, the record its dump): a test's bus master")
 
 T("clockgen", "clockgen", [("CLK", "out"), ("WEWIN", "out"), ("RESET", "out")],
   family="fixture", desc="clock, write window and reset (oscillator + phase logic)")
@@ -266,8 +395,32 @@ DEFAULT_VARIANT = "hct-ls181"
 ACT_MISSING = {"30", "688"}
 
 
-def part_number(variant, chip_type, role=None):
+# Parts outside the variants: families that only the card designs use,
+# named in the netlist by part number (Netlist.add(..., part=...)).
+FIXED_PARTS = {"osc": "oscillator", "por": "TL7705A", "pullup": "10k x8 resistor network",
+               "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF"}
+# Families whose parts may have no timing data (their models have defaults).
+UNTIMED = {"osc", "misc", "passive", "fixture"}
+
+
+# Delay names a model reads that fall back to another one in the timing
+# data: the 245 turns each side on in the time the datasheet gives for both.
+DELAY_FALLBACK = {"OE->A en": "OE->Y en", "OE->B en": "OE->Y en"}
+
+
+def part_number(variant, chip_type, role=None, part=None):
+    """The part a chip of this type is in this variant: `part` if the
+    netlist names one, else the variant's choice for its type and role.
+    Besides the keys above, a variant may name a part per chip type
+    ("parts": {"153": "74F153", ...}), the slower 512K x 8 RAM ("ram512")
+    and the decode ROMs apart from the microcode ROMs ("decode")."""
+    if part is not None:
+        return part
+    if chip_type in FIXED_PARTS:
+        return FIXED_PARTS[chip_type]
     v = VARIANTS[variant]
+    if chip_type in v.get("parts", {}):
+        return v["parts"][chip_type]
     if chip_type == "181":
         return v["alu"]
     if chip_type == "182":
@@ -275,9 +428,9 @@ def part_number(variant, chip_type, role=None):
     if chip_type == "sram":
         return v["ram"] if role == "ram" else v["rf"]
     if chip_type == "sram512":
-        return "AS6C4008-55"
+        return "AS7C4096A-12" if role == "fastram" else v.get("ram512", "AS6C4008-55")
     if chip_type == "flash":
-        return v["rom"]
+        return v.get("decode", v["rom"]) if role == "decode" else v["rom"]
     if TYPES[chip_type].family == "fixture":
         return chip_type
     if v["logic"] == "74ACT" and chip_type in ACT_MISSING:
@@ -289,6 +442,8 @@ def delays_for(timing, part, corner):
     """{delay name: picoseconds} for a part number at corner 'typ' or 'max'."""
     entry = timing.get(part)
     if entry is None:
+        if part in FIXED_PARTS.values():
+            return {}
         raise KeyError(f"no timing data for {part}")
     out = {}
     for k, v in entry.get("delays", {}).items():

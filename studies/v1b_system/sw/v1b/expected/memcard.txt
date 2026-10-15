@@ -1,0 +1,26 @@
+memory card and slots
+slot 1: 0102
+slot 2: empty
+slot 3: empty
+slot 4: empty
+slot 5: empty
+slot 6: empty
+slot 7: empty
+slot 8: empty
+slot 9: empty
+slot 10: empty
+slot 11: empty
+slot 12: empty
+slot 13: empty
+slot 14: empty
+slot 15: 1000
+bus errors: 13
+written as words, read as words ok, halves ok, bytes ok
+written as halves, read as words ok, halves ok, bytes ok
+written as bytes, read as words ok, halves ok, bytes ok
+bytes into words ok
+halves into words ok
+address lines ok, at 2 MB 600DF00D
+misaligned and empty-slot traps: 3
+memcpy both ways ok
+primes below 10000: 1229, sum 5736396

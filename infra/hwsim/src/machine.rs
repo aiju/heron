@@ -35,6 +35,13 @@ pub struct ChipDesc {
     pub nets: Vec<i64>,
     #[serde(default)]
     pub delays: HashMap<String, Time>,
+    /// Settings of the part itself: an oscillator's period, a device's
+    /// timing (infra/hw/chips.py says which parts take which).
+    #[serde(default)]
+    pub params: HashMap<String, i64>,
+    /// Don't report this chip's timing violations (a synchroniser).
+    #[serde(default)]
+    pub nocheck: bool,
 }
 
 /// How the run loop knows the reset sequence is over.
@@ -529,6 +536,7 @@ pub fn build(netlist: &Netlist, pre: &HashMap<&str, Vec<u8>>, rng: &mut Rng) -> 
                 "out" => Ok(Kind::Out),
                 "tri" => Ok(Kind::Tri),
                 "io" => Ok(Kind::Io),
+                "pull" => Ok(Kind::Pull),
                 _ => Err(Error(format!("{}: unknown pin kind {k:?}", c.reference))),
             })
             .collect::<Result<_, _>>()?;
@@ -548,6 +556,7 @@ pub fn build(netlist: &Netlist, pre: &HashMap<&str, Vec<u8>>, rng: &mut Rng) -> 
             kinds,
             pins,
             outs: Vec::new(),
+            checks: !c.nocheck,
         });
     }
     let (state, topo, infos) = Sim::wire(netlist.nets.clone(), infos);
@@ -556,6 +565,7 @@ pub fn build(netlist: &Netlist, pre: &HashMap<&str, Vec<u8>>, rng: &mut Rng) -> 
         let spec = Spec {
             info: &info,
             delays: &desc.delays,
+            params: &desc.params,
         };
         let model = Model::new(
             &desc.model,

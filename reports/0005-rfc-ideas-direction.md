@@ -255,7 +255,7 @@ Questions that only Emily can answer:
 
 What's decided is in [docs/README.md](../docs/README.md),
 and the bus decisions in
-[RFC 0014, section 18](0014-rfc-system-bus.md#18-decisions). Besides
+[RFC 0014, section 19](0014-rfc-system-bus.md#19-decisions). Besides
 those: RISC-like and CISC-like encodings were compared (draft 1); the ECL
 number cruncher is deprioritised; the tools' engines are Rust, with Python
 for the rest ([RFC 0015](0015-rfc-languages.md)).
