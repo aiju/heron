@@ -16,8 +16,9 @@ Draft 2 builds on 1b
 ([RFC 0006](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 This RFC is its encoding as Emily laid it out on 2026-10-15, the
 measurements behind each part, and what is still open. It is a working
-map: cells will move, and some of what is placed only marks out space
-([6.9](#69-placeholders)).
+map: cells will move, and some instructions are tentative, defined so
+they can be simulated and measured
+([6.9](#69-tentative-instructions)).
 
 The map itself is [map.json](0028-rfc-draft-2-isa/map.json), in the format
 of the opcode explorer it was laid out with, an interactive page that
@@ -34,7 +35,8 @@ isn't in the repository.
 7. [`r0` is a general register](#7-r0-is-a-general-register)
 8. [How it was measured](#8-how-it-was-measured)
 9. [Open questions](#9-open-questions)
-10. [Next steps](#10-next-steps)
+10. [1b's gaps left open](#10-1bs-gaps-left-open)
+11. [Next steps](#11-next-steps)
 
 ## 1. Summary
 
@@ -66,6 +68,10 @@ isn't in the repository.
   - tables without a base register, in the special mode:
     `[abs24 + x·s]` and `[pc + d24 + x·s]`;
   - `ILLEGAL` at `00`.
+- **Some instructions are tentative:** `ADD.B4`, `FFS`, `POPC`, `REV`,
+  `MULA`, `MERGE`, `MULFX` and the tagged operations. They're defined so
+  that the simulator has them and software can use them, to measure
+  whether they earn their cells ([6.9](#69-tentative-instructions)).
 - **236 of the 256 root cells are used,** 20 are free.
 - **Open:** `CAS` and the floating-point escape are marked out, not
   designed; `LEA`'s special mode; what `r0`'s change still needs; and the
@@ -177,7 +183,7 @@ The two extension grids, with the second byte:
 | `FD`, misc | | `FE`, system | |
 |---|---|---|---|
 | `FD 00` | `RET` | `FE 00` | `EI` |
-| `FD 10` | `MULFX` (a placeholder) | `FE 01` | `DI` |
+| `FD 10` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 01` | `DI` |
 | `FD FD` | `NOP` | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
 | | | `FE 10` | `MFUR rd, rs` (two parcels) |
@@ -227,7 +233,8 @@ from the register byte. They are 1b's modes, in 1b's order
 - **1b's gaps that remain** ([RFC 0006, 3.2](0006-rfc-ideas-isa.md#32-1bs-gaps)):
   no one-parcel `[R + small offset]`; no byte or half auto-decrement and no
   half auto-increment; no sign-extending loads (`SXB` and `SXH` after the
-  load). The indexed mode's 8-bit displacement, which couldn't hold a
+  load). [Section 10](#10-1bs-gaps-left-open) has what they cost and the
+  options. The indexed mode's 8-bit displacement, which couldn't hold a
   table's address, is answered by the special mode's D and E.
 
 ### 5.1 The special mode
@@ -373,7 +380,8 @@ D and E are new: tables without a base register. **decided** (Emily,
   `TCMP`, on registers. They trap unless their operands are integers, and
   `TADD` and `TSUB` on overflow too: −6.4% of the Lisp's compiled cycles,
   −5.5% of Egret's ([RFC 0006, 6](0006-rfc-ideas-isa.md#6-for-dynamic-languages)).
-  Which tag marks an integer is open.
+  Which tag marks an integer is open. Their definitions are tentative
+  ([6.9](#69-tentative-instructions)).
 
 ### 6.3 Short constants (row 7)
 
@@ -444,8 +452,8 @@ D and E are new: tables without a base register. **decided** (Emily,
 
 ### 6.6 Unary (row D)
 
-- **`rd ← f(rs)`:** `NOT` … `CLZ`, then `FFS`, `POPC` and `REV` as
-  placeholders, and `SETcc`.
+- **`rd ← f(rs)`:** `NOT` … `CLZ`, then `FFS`, `POPC` and `REV`, which
+  are tentative ([6.9](#69-tentative-instructions)), and `SETcc`.
 - **The separate source pays in compiled code.** `rd` ≠ `rs` is 3.0% of
   compiled executed instructions (`INC` 1.33%, `DEC` 0.66%, `NOT` 0.64%):
   the compiler's `x + 1` into another register. In hand-written code it is
@@ -462,7 +470,7 @@ D and E are new: tables without a base register. **decided** (Emily,
   32-bit constants, which closes 1b's "no immediate `TST`/`BIC`/`MUL`"
   gap. Dividing by a constant (`printf`'s `DIVU` by 10) takes a
   `MOV rX, #10` first.
-- **`MULA` and `MERGE`** are placeholders.
+- **`MULA` and `MERGE`** are tentative ([6.9](#69-tentative-instructions)).
 
 ### 6.8 Control, multiple and system (rows 0 and F)
 
@@ -499,14 +507,49 @@ D and E are new: tables without a base register. **decided** (Emily,
   traps. Draft 1 made the zero parcel `HALT`; a trap gives the kernel the
   PC.
 
-### 6.9 Placeholders
+### 6.9 Tentative instructions
 
-Marked out to reserve space, not necessarily to build:
+**Tentative** means defined well enough to build, but not decided: the
+draft 2 simulator implements these, and software should use them where
+they fit, so that their use can be measured. Any of them may change or go
+(Emily, 2026-10-15). The definitions follow draft 1's conventions
+([isa-v1.md](../studies/v1_isa/isa-v1.md)): `rd ← f(rs)` for the unary
+group, and "NZ" means N and Z from the result, with C and V unchanged.
 
-- `CAS` (`F7`) and the floating-point escape `FPU` (`F8`), both to be
-  designed;
-- `ADD.B4` (`08`), `MULA` (`E6`), `MERGE` (`EE`), `FFS`, `POPC` and `REV`
-  (`DC`–`DE`), `MULFX` (`FD 10`).
+`CAS` (`F7`) and the floating-point escape `FPU` (`F8`) are different:
+they're only marked out, to be designed ([9](#9-open-questions)).
+
+| Cell | Instruction | Does | Flags | For |
+|---|---|---|---|---|
+| `08` | `ADD.B4 rd, rs` | Adds each of the four bytes on its own, modulo 256: no carry crosses a byte boundary | NZ | Pixel arithmetic; finding a zero byte a word at a time |
+| `DC` | `FFS rd, rs` | The index of `rs`'s lowest set bit, 0–31, or 32 if `rs` is 0: the trailing zeros, the mirror of `CLZ` | NZ | Allocator and scheduler bitmaps |
+| `DD` | `POPC rd, rs` | The number of set bits in `rs`, 0–32 | NZ | Bitmaps, set sizes |
+| `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ | Big-endian data: SHA-256's message words, network headers, font files |
+| `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is a new special register (`MFSR`/`MTSR` 2) | unchanged | Multiply-accumulate: mandel, audio, filters |
+| `EE` | `MERGE rd, rs` | `rd ← (rd & ~HI) \| (rs & HI)`: `rs`'s bits where the mask in `HI` is set | NZ | Masked edges and glyph words in graphics: −20% of the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) |
+| `FD 10` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
+
+The tagged operations in column E check that their operands are integers.
+They follow the Lisp's v1bx ([studies/lisp/isa.md](../studies/lisp/isa.md)),
+on registers only:
+
+| Cell | Instruction | Does | Flags | Traps unless |
+|---|---|---|---|---|
+| `1E` | `TMOV rd, rs` | `rd ← rs` | unchanged, like `MOV` | `rs` is an integer |
+| `2E` | `TTST rd, rs` | flags of `rd & rs`, like `TST` | NZ | both are integers |
+| `4E` | `TADD rd, rs` | `rd ← rd + rs` | as `ADD` | both are integers, and the sum doesn't overflow |
+| `5E` | `TSUB rd, rs` | `rd ← rd − rs` | as `SUB` | as `TADD` |
+| `6E` | `TCMP rd, rs` | flags of `rd − rs` | as `CMP` | both are integers |
+
+- **The trap** has its own vector and is taken before anything is
+  written, so the saved PC is the instruction's own, as in v1bx.
+- **`TTST r1, r1`** checks `r1` and sets Z if it's zero and N if it's
+  negative. That's the Lisp's `zero?` and its check of one operand,
+  which v1bx wrote as `CMP.T r1, r0` and `MOV.T r9, r1`; neither needs a
+  zero register any more.
+- **The tag that marks an integer** is open ([9](#9-open-questions)).
+  Until it's settled the simulator can take the Lisp's, bit 0 clear,
+  which v1bx measured.
 
 ## 7. `r0` is a general register
 
@@ -520,8 +563,9 @@ Marked out to reserve space, not necessarily to build:
   - the kernel's `MTUR r1, r0` and `MTSR mapd, r0`;
   - the Lisp's `CMP.T r1, r0`.
 
-  These take a `CLR rX` first, or new forms: `ADC`, `SBC`
-  and `TCMP` with `#q` ([9](#9-open-questions)).
+  These take a `CLR rX` first, or new forms: `ADC` and `SBC` with `#q`
+  ([9](#9-open-questions)). The Lisp's needs neither: `TTST r1, r1` does
+  the same ([6.9](#69-tentative-instructions)).
 - **In the hardware:** `NEG` and the multiply and divide routines read
   `r0` as zero. A hidden register-file entry that the reset routine zeroes
   replaces it, like the loop constants at entries 24 and 25. The gates
@@ -562,8 +606,9 @@ programs and the 15 C programs compiled for 1b, with their C library.
 3. **`LEA` with the special mode,** or a dedicated `LEA rd, [pc + d]`? The
    register byte's spare nibble could take its displacement to 20 bits,
    ±512 KB.
-4. **What `r0`'s change needs** ([7](#7-r0-is-a-general-register)): `ADC`,
-   `SBC` and `TCMP` with a constant, or a register kept at zero.
+4. **What `r0`'s change needs** ([7](#7-r0-is-a-general-register)): `ADC`
+   and `SBC` with a constant, or a `CLR rX` first. The Lisp's
+   `CMP.T r1, r0` becomes `TTST r1, r1` ([6.9](#69-tentative-instructions)).
 5. **The tag that marks an integer:** the Lisp's bit 0 clear, or Egret's
    2n + 1. A register holding the expected tag bit could serve both.
 6. **`LDM` and `STM`:** what their extension parcel's 12 spare bits do
@@ -573,7 +618,8 @@ programs and the 15 C programs compiled for 1b, with their C library.
 8. **`MOVS rs`,** in the map. Register copies' flags were read 21 times in
    86,000.
 9. **`Jcc`'s spare nibble:** a 20-bit relative offset?
-10. **Sign-extending loads,** which 1a had and 1b doesn't.
+10. **Sign-extending loads,** which 1a had and 1b doesn't. Proposed: none
+    ([10.3](#103-sign-extending-loads)).
 11. **How the assembler picks a constant's encoding:**
     - 0…15 fit both the quick constant and `#u7`. A fixed preference keeps
       the output reproducible; the proposal is the quick constant.
@@ -583,12 +629,115 @@ programs and the 15 C programs compiled for 1b, with their C library.
 12. **Room to grow:** 20 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([6.2](#62-alu-operations-rows-46-and-8a)).
 
-## 10. Next steps
+## 10. 1b's gaps left open
+
+Three of 1b's addressing gaps
+([RFC 0006, 3.2](0006-rfc-ideas-isa.md#32-1bs-gaps)) have no cells in the
+map. Here is what they cost in 1b code, and the options. None is decided.
+Measured as in [section 8](#8-how-it-was-measured), with the same
+uncommitted scripts.
+
+### 10.1 Short offsets
+
+There is no one-parcel `[R + small offset]`. `[R + d16]` accesses (word,
+byte or half, `sp` aside), by displacement, as a share of executed
+instructions:
+
+| Displacement | Hand-written | Compiled C |
+|---|---:|---:|
+| 0–15 elements forward | 1.70% | 1.50% |
+| …of which loads and stores | 0.78% | 0.34% |
+| 1–16 elements back | 0.06% | 1.31% |
+| otherwise within 255 bytes | 2.00% (life 38%) | 2.33% (life 31%) |
+| 256 bytes or more: a label, `[table + R]` | 0.72% | 0.08% |
+
+- **Loads and stores at a small offset are rare,** and nearly all of them
+  are fields 1–3: `[R + 4]`, `[R + 8]`, `[R + 12]`. They're mostly bst's
+  child pointers and vm's state. In compiled C the small forward offsets
+  are mostly `LEA`, a pointer plus 4 into another register (matmul,
+  wordfreq, queens).
+- **The backward ones are the compiler's `a[i-1]`,** with its loop
+  pointer on `a[i]`, and sha256's `W[t-2]` … `W[t-16]`. That is a
+  compiler choice as much as a gap.
+- **Life's 34-byte rows** are most of the rest. No short form reaches them.
+- **What a short form would save is small.** On the 1b hardware a word at
+  `[R + 4]` takes 5 cycles against 4 for `[R]`, and a byte 4 either way, so
+  about 0.2% of hand-written cycles and 0.1% of compiled ones. With RFC
+  0007's wide fetch the extension parcel arrives with the opcode, and the
+  cycle mostly goes; the parcel stays.
+- **The strongest case isn't in these programs:** the kernel study pays a
+  cycle per control-block field
+  ([report 0020](0020-report-operating-system.md#the-rest)).
+- **Options:**
+  - **`MOV` and `ST` with `[R + 4k]`,** k = 1–3 or 1–4: 4 cells each, 8 in
+    all, in aligned blocks of 4. None is free now; moving `ADD.B4` would
+    free `08`–`0B`.
+  - **A second fixed-base slot,** shaped like `[sp + 4R]`: `[rT + 4R]`,
+    with `rT` a register set aside by convention for the current object,
+    such as the kernel's current thread, the Lisp's environment or the VM's
+    state. One cell each for `MOV` and `ST` gives 16 word fields. It pays
+    only if the software dedicates the register.
+- **Proposed:** neither for now. Revisit when the kernel, or compiled code
+  heavy on structs, runs on draft 2.
+
+### 10.2 More auto-increment and auto-decrement modes
+
+1b has `[R]+`, `-[R]` and `byte [R]+`, but no byte or half auto-decrement
+and no half auto-increment. Counted as a plain `[R]` access with its
+pointer stepped by the access size in the instruction just before or
+after, beside the modes 1b has:
+
+| | Hand-written | Compiled C |
+|---|---:|---:|
+| `byte [R]+`, in 1b | 7.65% | 2.97% |
+| `[R]+` / `-[R]`, in 1b | 3.70% / 2.12% | 0.72% / 0 |
+| a byte access with a step back | 0.01% | 0 |
+| a half access with a step forward | 0.04% (crc) | 0 |
+| a half access with a step back | 0 | 0 |
+
+- **Practically nothing wants them.** Hand-written code was written
+  around 1b and may avoid what it lacks, but compiled C avoids nothing and
+  shows none either. Its stray hits are a byte pre-increment (`*++p`,
+  0.13%, in strings) and word steps the compiler didn't fold into `[R]+`
+  (sha256), which is a peephole's job.
+- **The usual users,** `memmove` with overlap and string reversal, don't
+  run here, and Heron's graphics are 1–8 bits per pixel, so there are no
+  halfword streams.
+- **The count misses** a step further from its access than the next
+  instruction.
+- **Option:** they'd need only `MOV`, not a column: `MOV rd, byte -[R]`
+  and `MOV byte -[R], rs`, 2 cells.
+- **Proposed:** none until a program needs them.
+
+### 10.3 Sign-extending loads
+
+Byte and half loads zero-extend, so a signed one takes `SXB` or `SXH`
+after it:
+
+| | Hand-written | Compiled C |
+|---|---:|---:|
+| `SXB` | 0.19%, all right after a byte load (vm 3.9%) | 0 |
+| `SXH` | 0.08%, none right after a load (rpn, arith) | 0.01% |
+
+- **Compiled C never needs it:** plain `char` is unsigned
+  ([compiler.md](../studies/c_compiler/compiler.md)), and `short` is
+  rare.
+- **The one user is vm,** loading signed bytecode operands.
+- **Draft 0 pointed the same way:** 97% of the byte loads feeding an ALU
+  operation wanted zero extension
+  ([RFC 0006, 2](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
+- **A load and `SXB`** cost a parcel and 2 cycles more than a signed load
+  would. A signed load takes a cell per mode: `MOV rd, sbyte [R]+`, say.
+- **Proposed:** none. A C ABI with a signed `char` would change this, and
+  there's no reason for one.
+
+## 11. Next steps
 
 - **Draft 2 in the instruction-level simulator:** an ISA beside v1a, v1b,
-  v1bs and v1bx in the draft 1 crate, with its assembler. Then retarget
-  the C compiler, the Lisp, Egret and the kernel, and measure it against
-  1b.
+  v1bs and v1bx in the draft 1 crate, with its assembler, the tentative
+  instructions included. Then retarget the C compiler, the Lisp, Egret,
+  the graphics library and the kernel, using the tentative instructions
+  where they fit, and measure it against 1b.
 - **An estimate of draft 2's microcode,** with `SAVE` and `RESTORE` as
   loops and the quick constants from the instruction register.
 - **A loop buffer in the cycle model**
