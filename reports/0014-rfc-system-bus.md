@@ -553,7 +553,8 @@ These come from the signal-integrity simulations
 
 **The backplane's logic** ([13.9](#139-the-backplanes-logic)): about 28
 chips in plain 74-series, or about 13 with GALs. Whether PLDs are allowed is
-**open**.
+**open**; Emily would rather not use them, though it isn't a definite no
+(2026-10-15).
 
 ### 10. The main CPU board on the bus
 
@@ -927,7 +928,9 @@ Questions only Emily can answer:
    wait until the design is closer to completion.
 4. **PLDs:** may the design use GALs? The backplane is about 28 chips
    without them and 13 with them, and the bridges and DMA engine shrink
-   too.
+   too. Emily (2026-10-15): a preference against, since they make the
+   machine harder to build, are hard to source and are less fun, but not
+   a definite no.
 5. **Simple-card speed:** one speed N for all simple cards, or a second,
    slower class (with a setup clock) from a third class strap? It's about
    two more backplane chips and one reserved pin.
@@ -966,7 +969,7 @@ Answered by report 0022, waiting for Emily to adopt them or not
 
 - **Full-width and half-width slots** (Emily's idea): some columns take
   full cards on P1 and P2, others two P1-only cards stacked. It waits for
-  the card size ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)).
+  the card size ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#full-width-and-half-width-slots)).
 - **A slower simple-card class:** a third strap selecting a second N, and
   a setup clock before the strobe for devices like a CF card at PIO mode 0.
 - **Round-robin arbitration.**

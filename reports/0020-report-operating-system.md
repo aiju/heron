@@ -25,7 +25,7 @@ To answer the first with numbers rather than guesses, the
 
 - **v1bs** ([system.md](../studies/kernel/system.md)): draft 1b with a
   supervisor mode, register banks, the flat page map of
-  [RFC 0010](0010-rfc-ideas-os.md#11-mmu), loads and stores across
+  [RFC 0010](0010-rfc-ideas-os.md#3-mmu), loads and stores across
   modes, and precise page faults, as an ISA variant of the draft 1
   simulator.
 - **A benchmark nucleus**: a small message-passing kernel in 1b assembly,
@@ -167,7 +167,7 @@ hardware) every path takes 53–68% of these cycles: a null system call
 
 ### Protection: modes and the stack
 
-The minimum is the list in [RFC 0010](0010-rfc-ideas-os.md#10-operating-system-support),
+The minimum is the list in [RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system),
 and the nucleus confirms it: a supervisor bit in the flags word, a
 supervisor stack pointer the trap switches to before it pushes, `HALT`,
 `EI`, `DI`, `RTI` and the system registers trapping in user mode, and
@@ -323,7 +323,7 @@ nucleus would translate those addresses itself, by reading the map
 **Referenced and dirty bits** in software (map read-only, take the first
 write's fault) cost a fault each, about 100 cycles: cheap next to
 writing the page back to a CompactFlash card (~9 ms per 4 KB by polled
-I/O, [RFC 0009](0009-rfc-ideas-io.md#7-channels-and-dma)).
+I/O, [RFC 0009](0009-rfc-ideas-io.md#2-channels-and-dma)).
 
 ### Zeroing and copying
 
@@ -348,7 +348,7 @@ the page. Copying is twice that. On 1b, per 4 KB page:
   operating system for Heron should create processes by spawning a
   program, not by copying one.
 - **Zero pages in advance**, when the machine is idle, or with DMA: the
-  tick-level RAM sharing of [RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)
+  tick-level RAM sharing of [RFC 0008](0008-rfc-ideas-memory-and-buses.md#1-memory)
   would let a bus master clear pages while the CPU runs.
 - **The nucleus can't take interrupts while it zeroes** a page with
   interrupts off: 1.5 ms of latency. A real kernel zeroes with

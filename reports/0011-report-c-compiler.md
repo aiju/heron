@@ -88,3 +88,12 @@ constants weigh more heavily. That supports the evaluation's recommendation:
 1a with auto-increment loads and stores would keep most of what the compiler
 gets from 1b.
 
+> **Erratum (2026-10-15).** The sentence above was first written when a
+> register-allocation bug (fixed in `bfe9b7e`) put compiled C on 1b at
+> 0.978 of 1a's cycles, with seven programs slower on 1b, and it stayed
+> when the numbers were corrected. With them, the support for 1a is much
+> weaker. The evaluation's recommendation of 1a is withdrawn
+> ([report 0004](0004-report-draft-1-evaluation.md)), and draft 2 builds
+> on 1b. The finding stands: auto-increment is most of what compiled code
+> gains from 1b.
+

@@ -37,6 +37,25 @@ context:
 stores, and probably a jump through a table. Build it with a 32-bit datapath
 if the chip budget allows, or at least a 32-bit bus.
 
+> **Erratum (2026-10-15).** The recommendation to base draft 2 on 1a is
+> withdrawn, and draft 2 builds on 1b (Emily). It rested on faulty
+> numbers:
+>
+> - **Compiled C.** The C compiler's first measurement had 1b taking
+>   0.978 of 1a's cycles, with seven of the fifteen programs slower on 1b,
+>   and that was read as support for 1a. A register-allocation bug caused
+>   it: the compiler counted a loop with two back edges twice, and spilled
+>   1b's hot loops in `printf`. Fixed in `bfe9b7e`, compiled C takes
+>   0.943 of 1a's cycles and three programs are a fraction slower
+>   ([report 0011](0011-report-c-compiler.md#1a-against-1b-for-compiled-code)).
+> - **1b's encoding isn't full.** This report counted only the reserved
+>   modes and special forms. Op A alone has about 4,064 free encodings
+>   ([RFC 0006, 3.1](0006-rfc-ideas-isa.md#31-room-left-in-1bs-encoding)),
+>   room for a one-parcel form with a 7-bit constant.
+>
+> The hand-written cycle counts weren't affected, and neither are the
+> hardware recommendations.
+
 **Since then, draft 1b has been built** as a chip-level netlist in the
 D32-separate configuration. See [hardware-v1b.md](../studies/v1b_hw/hardware.md) and
 [performance-v1b.md](0012-report-draft-1b-hardware/performance.md).
@@ -306,6 +325,9 @@ From the five writers' notes:
     register exactly once.
 
 ## Recommendations for draft 2
+
+> **Erratum (2026-10-14):** recommendation 1 is withdrawn; see the
+> erratum at the top.
 
 1. **Start from 1a.** 1b's lead is real, but most of it is auto-increment
    and table dispatch, which fit 1a's spare encoding space. 1b's
