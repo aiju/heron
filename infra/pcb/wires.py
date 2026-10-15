@@ -37,7 +37,8 @@ def _family(part_number):
 
 def nets(board, nl):
     """{net: {"length": mm, "pF": total, "driver": (ref, pin) or None,
-    "loads": {(ref, pad): ps from the driver}}} for every routed net."""
+    "loads": {(ref, pin): ps from the driver}}} for every routed net (a
+    connector's load by its pad: it isn't in the netlist)."""
     outer = {"F.Cu", "B.Cu"}
     planes = set(board.planes.values())
     # copper of each net: nodes are points (rounded to a micron), edges carry ps
@@ -148,7 +149,8 @@ def nets(board, nl):
                     continue
                 d = dist.get(("pad", pad.part.ref, pad.number))
                 if d is not None:
-                    info["loads"][(pad.part.ref, pad.number)] = round(d)
+                    pin = pin_of.get((pad.part.ref, pad.number), pad.number)
+                    info["loads"][(pad.part.ref, pin)] = round(d)
         out[net] = info
     return out
 
