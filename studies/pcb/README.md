@@ -26,7 +26,7 @@ checks, the routed wires' delays, DSN/SES for other routers) and
 | `cli.py` | The commands |
 
 ```sh
-heron pcb build cpu --size 300x220            # place, route and check the CPU card (SMD, 6 layers)
+heron pcb build cpu --size 320x220            # place, route and check the CPU card (SMD, 6 layers)
 heron pcb build cpu --style dip --size 480x300 --layers 4   # the DIP version
 heron pcb build cpu --double --size 280x220   # parts on both sides
 heron pcb build cpu --router freerouting      # route with Freerouting instead (needs its jar)

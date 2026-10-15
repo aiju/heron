@@ -53,7 +53,7 @@ def drc(path):
     return types, len(d["unconnected_items"])
 
 
-def build(card="cpu", style="smd", width=300.0, height=220.0, layers=6, sides="F", halo=None,
+def build(card="cpu", style="smd", width=320.0, height=220.0, layers=6, sides="F", halo=None,
           seed=1, moves=30000, router_name="grid", route_params=None, out=None, checks=True,
           name=None, freeroute_timeout=3600, decaps=None, timing_driven=True,
           arrangement="grid", pitch=None):

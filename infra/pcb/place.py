@@ -374,8 +374,9 @@ class Placer:
 class GridPlacer(Placer):
     """Placement on a grid of slots, as on the classic TTL boards: rows
     and columns of chips, every chip the same way round (pin 1 at the top
-    left), each centred in a block of whole slots: one slot for most, two
-    or four for the big ones. A block more than a slot wide starts on an
+    left), each in a block of whole slots (one for most, two or four for
+    the big ones), centred across it and at its top, so the chips of a row
+    start on one line. A block more than a slot wide starts on an
     even column (and one more than a slot high on an even row), so a wide
     chip takes the place of two narrow ones and the columns line up.
 
@@ -393,13 +394,13 @@ class GridPlacer(Placer):
         self.nrow = max(1, int((y1 - y0) / pitch[1] + 1e-6))
         self.px = (x1 - x0) / self.ncol
         self.py = (y1 - y0) / self.nrow
-        self.spans = {}           # ref -> (columns, rows, x and y from the block's centre to the origin)
+        self.spans = {}           # ref -> (columns, rows, x from the block's centre and y from its top to the origin)
         for p in self.movable:
             p.place(0.0, 0.0, 0, "F")
             bx0, by0, bx1, by1 = self._box(p)
             nc = max(1, math.ceil((bx1 - bx0 + self.halo) / self.px - 1e-6))
             nr = max(1, math.ceil((by1 - by0 + self.halo) / self.py - 1e-6))
-            self.spans[p.ref] = (nc, nr, -(bx0 + bx1) / 2, -(by0 + by1) / 2)
+            self.spans[p.ref] = (nc, nr, -(bx0 + bx1) / 2, self.halo / 2 - by0)
         self.where = {}
 
     def _area(self, p):
@@ -414,7 +415,7 @@ class GridPlacer(Placer):
     def _put(self, p, c, r):
         nc, nr, ox, oy = self.spans[p.ref]
         x0, y0, _, _ = self.region
-        p.place(x0 + (c + nc / 2) * self.px + ox, y0 + (r + nr / 2) * self.py + oy, p.rot, p.side)
+        p.place(x0 + (c + nc / 2) * self.px + ox, y0 + r * self.py + oy, p.rot, p.side)
         self.where[p.ref] = (c, r)
 
     def _blocked(self):

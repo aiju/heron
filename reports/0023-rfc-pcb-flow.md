@@ -40,7 +40,7 @@ netlist; and the board's wire delays back in the simulator.
 | **The source** | The Python netlist the chip-level simulator runs. Nothing about connectivity is ever edited on the board | `infra/hw/netlist.py`, the studies |
 | **Packages and pinouts** | A table per chip type, checked against KiCad's symbol library; footprints from KiCad's library | `infra/pcb/packages.py` |
 | **Parts** | Every chip with its supply pins, a decoupling capacitor each, the connectors by the bus's pin map | `infra/pcb/physical.py` |
-| **Placement** | Quadratic placement, legalisation on a grid, annealing on wire length, the timing-critical nets weighted; capacitors under each chip | `infra/pcb/place.py` |
+| **Placement** | The chips in rows and columns, all the same way round, as on the classic TTL boards: quadratic placement, then each chip onto the grid, annealing on wire length with the timing-critical nets weighted; capacitors under each chip | `infra/pcb/place.py` |
 | **Routing** | Our own grid router (negotiated congestion), in Rust: the whole CPU card in under a minute | `infra/pcbroute` |
 | **The board file** | Written directly as KiCad 9 s-expressions, with a project file holding the design rules | `infra/pcb/board.py` |
 | **Checks** | Pinouts against KiCad's symbols; pads against the netlist; copper connectivity from geometry, and KiCad's DRC; the fab's test netlist against the board | `infra/pcb/check.py`, `copper.py` |
@@ -154,13 +154,13 @@ time, not at all of them.
 ## 4. The flow
 
 ```sh
-heron pcb build cpu --size 300x220     # place, route, check: build/pcb/<name>/
+heron pcb build cpu --size 320x220     # place, route, check: build/pcb/<name>/
 heron pcb check board.kicad_pcb        # check a board file against the netlist
 heron pcb pinouts                      # the pinouts against KiCad's symbols
 heron pcb sweep --write                # the experiments behind this RFC
 ```
 
-One build, for the CPU card at 300 × 220 mm:
+One build, for the CPU card at 320 × 220 mm:
 
 1. **Parts** (`physical.parts`): the card's netlist (`studies/system`)
    through the pinout table. Each chip keeps the simulator's reference
@@ -168,15 +168,25 @@ One build, for the CPU card at 300 × 220 mm:
    name. Tied pins (a clock driver's enables, the supervisor's capacitor
    pins) get their rail or a capacitor; the connectors' pads get their bus
    signals by report 0022's reference pin map.
-2. **Placement** (`place.Placer`): quadratic placement with the connectors
-   as anchors, spread by recursive bisection to the board's density; then
-   each part to the nearest free spot (a summed-area table over the
-   occupancy makes that a vectorised search; what doesn't fit gets a
-   second try with half the room kept around it), and annealing that swaps
-   same-footprint parts and turns them by 180°. Nets of the 50 MHz clock
+2. **Placement** (`place.GridPlacer`): the chips in rows and columns, all
+   the same way round (pin 1 at the top left), as on the classic TTL
+   boards. The board is a grid of slots, at least 8.25 × 14.25 mm and
+   stretched to fill it: a narrow SOIC takes one, a wide one two side by
+   side, the PLCCs and the tall parts two rows, and a block of two starts
+   on an even column or row, so a wide chip takes the place of two narrow
+   ones and the columns line up. Quadratic placement, with the connectors
+   as anchors and spread by recursive bisection to the board's density,
+   gives each chip a target; each chip, largest first, goes to the free
+   block nearest it; then annealing swaps chips whose blocks are the same
+   size or moves one to a free block nearby. Nets of the 50 MHz clock
    generator weigh eight times as much, so its chips stay together. Then
    each chip's 100 nF goes under it on the bottom, between its pin rows,
    as near its supply pin as its vias can go clear of the pads.
+
+   `place.Placer` (`--free`) puts the parts anywhere instead: each to the
+   nearest free spot on a fine grid, turned by 180° where that shortens
+   the wires. It packs a little tighter (section 6), but the chips end up
+   at any position and either way round.
 3. **Fanout** (`fanout.fanout`): every surface pad on a supply gets a via
    at its inner end, under the chip's body, where it can't meet a
    neighbour's (beyond its outer end where the body is crowded); the
