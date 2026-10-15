@@ -147,7 +147,7 @@ as in draft 1.
 `R` is the mode's register; `R+X·s` the indexed mode; `spec` 1b's special
 mode ([5](#5-addressing-modes)); `+1`, `+1–2` the extension parcels; `×n`
 an instruction that fills n cells. `ST` is a store, written `MOV` in draft
-2's syntax.
+2's syntax; the assembler doesn't accept `ST`.
 
 | | _0 | _1 | _2 | _3 | _4 | _5 | _6 | _7 | _8 | _9 | _A | _B | _C | _D | _E | _F |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -262,6 +262,8 @@ from the register byte. They are 1b's modes, in 1b's order
   and a pop `MOV r1, [sp]+`. The operand order tells the assembler which.
   With `MOV` never setting the flags, one mnemonic reads the same for
   loads, stores, copies and constants. `ST` in the map is only a label.
+  - The draft 2 assembler doesn't accept `ST`: a store is written `MOV`,
+    so there's one spelling for it. **decided** (Emily, 2026-10-15).
 - **`CLR`** stores zero at any size, in place of 1b's `ST r0, ea`.
   `MOV [x], #0` can assemble to it. With mode 0, `CLR r5` zeroes a
   register: one parcel, and the same instruction as `MOV r5, #0`, since
