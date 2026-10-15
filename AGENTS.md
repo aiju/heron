@@ -123,6 +123,7 @@ Change the generator and rerun it rather than editing the output by hand:
 - `studies/v0_hw/baseline.json`: `baseline.write()` in that study (it's
   frozen, so this shouldn't be needed);
 - `reports/0022-report-bus-si-revised/results.md`: `heron bus_si report`;
+  the figures next to it: `heron bus_si traces`;
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
