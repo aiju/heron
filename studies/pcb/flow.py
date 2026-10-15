@@ -54,13 +54,14 @@ def drc(path):
 
 
 def build(card="cpu", style="smd", width=320.0, height=220.0, layers=6, sides="F", halo=None,
-          seed=1, moves=30000, router_name="grid", route_params=None, out=None, checks=True,
+          seed=1, moves=None, router_name="grid", route_params=None, out=None, checks=True,
           name=None, freeroute_timeout=3600, decaps=None, timing_driven=True,
           arrangement="grid", pitch=None):
     """Build one board and check it. Returns a dict of what happened.
     arrangement: "grid" (rows and columns of slots, every chip the same way
     round) or "free"; pitch: the slots' least size, default the card's
-    (cards.PITCH)."""
+    (cards.PITCH); moves: the annealing's (default 150,000 on a grid, whose
+    moves are cheap, and 30,000 free)."""
     res = {"card": card, "style": style, "width": width, "height": height, "layers": layers,
            "sides": sides, "router": router_name, "arrangement": arrangement}
     name = name or f"{card}-{style}-{int(width)}x{int(height)}-{layers}L-{sides}"
@@ -115,7 +116,7 @@ def build(card="cpu", style="smd", width=320.0, height=220.0, layers=6, sides="F
         with open(os.path.join(out, "result.json"), "w") as f:
             json.dump(res, f, indent=1)
         return res
-    w0, w1 = pl.refine(moves=moves)
+    w0, w1 = pl.refine(moves=moves or (30000 if arrangement == "free" else 150000))
     res["hpwl_m"] = round(w1 / 1000, 1)
     place.place_decaps(b, side="B" if decaps == "under" else "F")
     res["fanout"] = fanout.fanout(b)
