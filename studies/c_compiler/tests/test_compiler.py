@@ -113,6 +113,9 @@ yes4
             pp("#if 1 / 0\n#endif\n")
         with self.assertRaises(CompileError):
             pp("#if 0 || 1 % (2 - 2)\n#endif\n")
+        # there's no long long: a constant past 32 bits would wrap silently
+        with self.assertRaises(CompileError):
+            pp("#if 4294967297 == 1\n#endif\n")
 
     def test_variadic(self):
         self.assertEqual(pp("#define P(f, ...) g(f, ## __VA_ARGS__)\nP(1) P(1, 2, 3)"),
@@ -133,6 +136,8 @@ class Diagnostics(unittest.TestCase):
         self.assertIn("lvalue", self.error("int f(void) { 3 = 4; return 0; }"))
         self.assertIn("argument", self.error("int g(int a); int f(void) { return g(1, 2); }"))
         self.assertIn("_Bool", self.error("unsigned _Bool b;"))
+        self.assertIn("braced", self.error('_Bool b[] = "ab";'))
+        self.assertIn("conflicting", self.error("int a[10];\nint a[20];"))
 
     def test_unsupported(self):
         self.assertIn("floating", self.error("float x;"))
@@ -284,6 +289,34 @@ printf("%d %d %u\\n", s, n, u); return 0; }""", "310 -1 4294967295\n")
 static unsigned rol(unsigned x, int n) { return x << n | x >> (32 - n); }
 int main(void) { unsigned x = 0x80000001u; printf("%x %x %x\\n", rol(x, 1), x >> 4 | x << 28, rol(x, 31)); return 0; }""",
                    "3 18000000 c0000000\n")
+
+    def test_extern_array_completed_by_definition(self):
+        self.check("""#include <stdio.h>
+extern int table[];
+int table[100];
+int other[4];
+int main(void) { int i; other[0] = 7; for (i = 0; i < 4; i++) table[i] = 99;
+printf("%d %d\\n", other[0], (int)sizeof(table)); return 0; }""", "7 400\n")
+
+    def test_jump_table_past_32k(self):
+        # The table sits in its function's section: 1b reaches it
+        # PC-relative, 1a with a 32-bit displacement, wherever that goes.
+        from heron.infra import link
+        from heron.studies.c_compiler.cc import driver
+        src = """#include <stdio.h>
+extern void pad(void) __asm__("pad");
+volatile int zero;
+int f(int x) { switch (x) { case 0: return 5; case 1: return 7; case 2: return 9;
+               case 3: return 11; case 4: return 2; } return 0; }
+int main(void) { if (zero) pad(); printf("%d %d\\n", f(3), f(9)); return 0; }
+"""
+        pad = "        .global pad\n        .section .text.pad\npad:    .space 40000\n"
+        for isa in ("v1a", "v1b"):
+            objs = [driver.start_object(isa), driver.assemble(isa, pad, "pad.o"),
+                    driver.assemble(isa, driver.unit_assembly(compile_unit("t.c", isa, text=src), isa), "t.o")]
+            img = link.link(objs, [driver.library(isa)[0]], isa)
+            self.assertGreater(img.symbols["_f"], 0x8000, isa)
+            self.assertEqual(bytes(run_image(img, isa).dev.out), b"11 0\n", isa)
 
     def test_spill_pressure(self):
         # more live values than registers

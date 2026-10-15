@@ -237,6 +237,9 @@ How the compiler uses all this:
   `MOV r1, #_f` (calls are PC-relative and don't care). Two files can't
   disagree in a dangerous way: a far reference to a near variable works,
   and a near reference to a far one fails to link.
+- **Switch tables** go in their function's section. 1b loads a table's
+  address PC-relative and 1a declares it `.far`, so it's in reach wherever
+  the function lies.
 - **The C library** (`studies/c_compiler/cc/lib/*.c`) is compiled once per process into
   a library of four object files; `lib/start_v1a.s` and `start_v1b.s`
   (vectors, stack, `CALL _main`, `_exit`) are an absolute object file.

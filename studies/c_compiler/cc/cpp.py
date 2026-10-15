@@ -611,6 +611,8 @@ class IfParser:
         if t.kind == "num":
             # long if it fits, else unsigned long (C89's rules with a 32-bit long)
             v, u, _, _ = parse_int(t)
+            if v >= 1 << 32:
+                raise CompileError(f"integer constant {t.text} is too large for #if", t)
             u = u or v >= 1 << 31
             return wrap32(v, u), u
         if t.kind == "char":

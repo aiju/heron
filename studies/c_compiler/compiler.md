@@ -280,11 +280,17 @@ each backend fits as much as it can into one addressing mode.
   stack slots), **auto-increment** when a pointer is stepped by the access
   size next to the access (as in `*p++`, or a strength-reduced loop),
   `LEA` as a three-address add, `INC`/`DEC`, the one-parcel constants,
-  `CALL`/`JMP` through memory, and `JMP [table + r*4]` for dense switches.
+  `CALL`/`JMP` through memory, and `LEA rt, [pc + table]`, `JMP [rt + r*4]`
+  for dense switches.
 - **1a** uses base + displacement and `[label + r]` addresses (the
   assembler picks the one-parcel short forms), immediate operands for every
   ALU function, `ADDI`, sign-extending loads, `LEA` as a three-address add,
-  and a table jump through a register.
+  and a table jump through a register (`LD r, [table + r]`, with the table
+  declared `.far`).
+
+A switch table goes in its function's section, so the PC-relative address
+on 1b and the 32-bit displacement on 1a reach it wherever the linker puts
+the function.
 
 Two-address instructions are written as `COPY d, a; OP d, b`, choosing which
 operand to copy so that the copy is likely to disappear.
