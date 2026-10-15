@@ -36,6 +36,12 @@ from . import kicadlib, packages
 
 
 DECAP_ROOM = 2.4          # mm kept at a chip's VCC end for a capacitor beside it
+# least gaps between courtyards (which reach 0.25 mm past the pads), for
+# assembly: 2.5 mm from a through-hole pad to a surface-mount one, 2.54 mm
+# between through-hole pads (RFC 0023, section 8)
+SMD_THT_GAP = 2.0
+THT_THT_GAP = 2.04
+THT_BOTTOM_CLEAR = 5.0    # no part on the bottom within this of a through-hole pad
 
 
 class Placer:
@@ -62,6 +68,7 @@ class Placer:
         self.skip = set(skip_nets)
         self.movable = [p for p in board.parts.values() if p.kind not in ("decap",) and not p.fixed]
         self.fixed = [p for p in board.parts.values() if p.fixed]
+        self._smd = any(not p.tht for p in self.movable)
         self.nets = defaultdict(list)            # net -> [(part, pad number)]
         for p in board.parts.values():
             if p.kind == "decap":
@@ -123,7 +130,8 @@ class Placer:
 
     def _area(self, p):
         x0, y0, x1, y1 = p.fp.courtyard
-        a = (x1 - x0 + self.halo) * (y1 - y0 + self.halo)
+        m = 2 * self._margin(p)
+        a = (x1 - x0 + m) * (y1 - y0 + m)
         if self._beside(p):
             a += DECAP_ROOM * min(x1 - x0, y1 - y0)
         if self.sides == "FB" and not p.tht and p.kind != "conn":
@@ -182,6 +190,13 @@ class Placer:
         occ = np.zeros((2, H, W), dtype=np.int32)          # [side][y][x]
         for p in self.fixed:
             self._mark(occ, p, True)
+        for kx0, ky0, kx1, ky1 in self._keepouts():
+            a = min(max(int(math.floor((kx0 - x0) / res)), 0), W)
+            b = min(max(int(math.floor((ky0 - y0) / res)), 0), H)
+            c = min(max(int(math.ceil((kx1 - x0) / res)), 0), W)
+            d = min(max(int(math.ceil((ky1 - y0) / res)), 0), H)
+            if a < c and b < d:
+                occ[:, b:d, a:c] = True
         cx = x0 + np.arange(int((x1 - x0) / g) + 1) * g
         cy = y0 + np.arange(int((y1 - y0) / g) + 1) * g
         CX, CY = np.meshgrid(cx, cy)
@@ -206,7 +221,7 @@ class Placer:
             for side, occ_sides in choices:
                 p.place(0.0, 0.0, p.rot, side)
                 bx0, by0, bx1, by1 = self._box(p)
-                h = self.halo / 2 * halo_k
+                h = self._margin(p) * halo_k
                 c0 = np.floor((CX + bx0 - h - x0) / res).astype(int)
                 c1 = np.ceil((CX + bx1 + h - x0) / res).astype(int)
                 r0 = np.floor((CY + by0 - h - y0) / res).astype(int)
@@ -248,8 +263,8 @@ class Placer:
         """Whether a chip's capacitor will go beside it."""
         if p.kind != "chip":
             return False
-        if self.decaps == "beside":
-            return True
+        if self.decaps == "beside" or p.tht:
+            return True            # nothing goes under a through-hole part
         cap = self.b.parts.get("C" + p.ref)
         if cap is None:
             return False
@@ -287,11 +302,26 @@ class Placer:
         return (int(math.floor((cx0 - halo - x0) / g)), int(math.floor((cy0 - halo - y0) / g)),
                 int(math.ceil((cx1 + halo - x0) / g)), int(math.ceil((cy1 + halo - y0) / g)))
 
+    def _margin(self, p):
+        """The room kept on each side of a part's courtyard: half the halo,
+        or around a through-hole part enough for the gaps assembly needs
+        (SMD_THT_GAP to a surface-mount part, THT_THT_GAP to another)."""
+        if not p.tht:
+            return self.halo / 2
+        if self._smd:
+            return max(SMD_THT_GAP - self.halo / 2, THT_THT_GAP / 2)
+        return max(self.halo / 2, THT_THT_GAP / 2)
+
+    def _keepouts(self):
+        """The keep-out areas no chip may go in, as (x0, y0, x1, y1)."""
+        return [(k["x0"], k["y0"], k["x1"], k["y1"]) for k in getattr(self.b, "keepouts", [])
+                if "footprints" in k["no"] and "chip" not in k["allow"]]
+
     def _sides(self, p):
         return (0, 1) if p.tht or p.kind == "conn" else ((0,) if p.side == "F" else (1,))
 
     def _mark(self, occ, p, val, halo_k=1.0):
-        a, b, c, d = self._cells(p, self.halo / 2 * halo_k)
+        a, b, c, d = self._cells(p, self._margin(p) * halo_k)
         _, ny, nx = occ.shape
         a, b, c, d = max(a, 0), max(b, 0), min(c, nx), min(d, ny)
         for s in self._sides(p):
@@ -398,9 +428,10 @@ class GridPlacer(Placer):
         for p in self.movable:
             p.place(0.0, 0.0, 0, "F")
             bx0, by0, bx1, by1 = self._box(p)
-            nc = max(1, math.ceil((bx1 - bx0 + self.halo) / self.px - 1e-6))
-            nr = max(1, math.ceil((by1 - by0 + self.halo) / self.py - 1e-6))
-            self.spans[p.ref] = (nc, nr, -(bx0 + bx1) / 2, self.halo / 2 - by0)
+            m = self._margin(p)
+            nc = max(1, math.ceil((bx1 - bx0 + 2 * m) / self.px - 1e-6))
+            nr = max(1, math.ceil((by1 - by0 + 2 * m) / self.py - 1e-6))
+            self.spans[p.ref] = (nc, nr, -(bx0 + bx1) / 2, m - by0)
         self.where = {}
 
     def _area(self, p):
@@ -419,17 +450,22 @@ class GridPlacer(Placer):
         self.where[p.ref] = (c, r)
 
     def _blocked(self):
-        """The slots the fixed parts (connectors) cover, with half the halo."""
+        """The slots the fixed parts (connectors) cover, with their margins,
+        and the keep-out areas."""
         x0, y0, _, _ = self.region
         occ = np.full((self.nrow, self.ncol), -1, dtype=np.int32)
-        h = self.halo / 2
+        boxes = []
         for p in self.fixed:
             cx0, cy0, cx1, cy1 = p.courtyard()
-            c0 = max(0, int(math.floor((cx0 - h - x0) / self.px)))
-            c1 = min(self.ncol, int(math.ceil((cx1 + h - x0) / self.px)))
-            r0 = max(0, int(math.floor((cy0 - h - y0) / self.py)))
-            r1 = min(self.nrow, int(math.ceil((cy1 + h - y0) / self.py)))
-            occ[r0:r1, c0:c1] = -2
+            h = self._margin(p)
+            boxes.append((cx0 - h, cy0 - h, cx1 + h, cy1 + h))
+        for bx0, by0, bx1, by1 in boxes + self._keepouts():
+            c0 = max(0, int(math.floor((bx0 - x0) / self.px + 1e-6)))
+            c1 = min(self.ncol, int(math.ceil((bx1 - x0) / self.px - 1e-6)))
+            r0 = max(0, int(math.floor((by0 - y0) / self.py + 1e-6)))
+            r1 = min(self.nrow, int(math.ceil((by1 - y0) / self.py - 1e-6)))
+            if c0 < c1 and r0 < r1:
+                occ[r0:r1, c0:c1] = -2
         return occ
 
     def legalize(self, order="size"):
@@ -552,14 +588,15 @@ def supply_pads(part):
     return [d for d in part.fp.pads if part.nets.get(d.number) == "VCC"]
 
 
-def under_spot(chip, cap, rules):
-    """Where a chip's capacitor can go under it, on the other side: (x, y,
-    turn) in the chip's own coordinates, on the line between its pin rows
-    as near its VCC pin as the capacitor's vias can go clear of the chip's
-    pads and stay within its rows; None if nowhere (a chip too small)."""
+def under_spots(chip, cap, rules):
+    """Where a chip's capacitor can go under it, on the other side: [(x, y,
+    turn)] in the chip's own coordinates, on the line between its pin rows
+    where the capacitor's vias can go clear of the chip's pads and stay
+    within its rows, nearest its VCC pin first; empty if nowhere (a chip
+    too small)."""
     vcc = supply_pads(chip)
     if not vcc:
-        return None
+        return []
     v = vcc[0]
     bx, by = chip.body_centre()
     xs = [d.x for d in chip.fp.pads if d.number]
@@ -570,27 +607,57 @@ def under_spot(chip, cap, rules):
     reach = max(cpads) + 0.5 + rules["via_dia"] / 2 + 0.25
     keep = rules["via_dia"] / 2 + rules["clearance"] + 0.05
     lo, hi = (min(ys), max(ys)) if rows_along_y else (min(xs), max(xs))
-    best = None
+    found = []
     for k in range(int((hi - lo) / 0.254) + 1):
         t = lo + k * 0.254
         if t - reach < lo or t + reach > hi:
             continue
         pts = [(bx, t - reach), (bx, t + reach)] if rows_along_y else [(t - reach, by), (t + reach, by)]
         if all(_clear(chip, x, y, keep) for x, y in pts):
-            dist = abs(t - (v.y if rows_along_y else v.x))
-            if best is None or dist < best[0]:
-                best = (dist, t)
-    if best is None:
-        return None
-    return ((bx, best[1], 90) if rows_along_y else (best[1], by, 0))
+            found.append((abs(t - (v.y if rows_along_y else v.x)), t))
+    found.sort()
+    return [(bx, t, 90) if rows_along_y else (t, by, 0) for _, t in found]
 
 
-def place_decaps(board, side="B"):
+def under_spot(chip, cap, rules):
+    """The first of under_spots(), or None."""
+    spots = under_spots(chip, cap, rules)
+    return spots[0] if spots else None
+
+
+def place_decaps(board, side="B", tht_clear=THT_BOTTOM_CLEAR):
     """Each chip's decoupling capacitor C<ref>. With side "B": on the other
-    side, under the chip's body (under_spot); a chip too small for that,
-    and every chip with side "F", has it beside its end nearest its VCC
-    pin, on its own side."""
+    side, under the chip's body (under_spots), as near its VCC pin as it
+    can be while keeping tht_clear from every through-hole pad (selective
+    soldering needs the room). A chip too small for that, a chip with no
+    such spot, and every chip with side "F" has it beside its end nearest
+    its VCC pin, on its own side; board.decaps_beside lists the chips whose
+    capacitor went there for want of a spot."""
     r = board.rules
+    cell = 2 * tht_clear
+    tht = defaultdict(list)
+    for p in board.parts.values():
+        if p.kind == "decap":
+            continue
+        for d in p.pads():
+            if d.layers == "*":
+                hx, hy = d.extent()
+                tht[(int(d.x // cell), int(d.y // cell))].append((d.x, d.y, hx, hy))
+
+    def near_tht(cap):
+        for d in cap.pads():
+            ex, ey = d.extent()
+            cx, cy = int(d.x // cell), int(d.y // cell)
+            for i in (cx - 1, cx, cx + 1):
+                for j in (cy - 1, cy, cy + 1):
+                    for (x, y, hx, hy) in tht.get((i, j), ()):
+                        dx = max(abs(d.x - x) - ex - hx, 0.0)
+                        dy = max(abs(d.y - y) - ey - hy, 0.0)
+                        if math.hypot(dx, dy) < tht_clear:
+                            return True
+        return False
+
+    board.decaps_beside = []
     for c in board.parts.values():
         if c.kind != "decap":
             continue
@@ -605,15 +672,20 @@ def place_decaps(board, side="B"):
         xs = [d.x for d in chip.fp.pads if d.number]
         ys = [d.y for d in chip.fp.pads if d.number]
         rows_along_y = (max(ys) - min(ys)) >= (max(xs) - min(xs))
-        spot = under_spot(chip, c, r) if side == "B" else None
-        if spot is not None:
-            lx, ly, lrot = spot
+        spots = under_spots(chip, c, r) if side == "B" and not chip.tht else []
+        placed = False
+        for lx, ly, lrot in spots:
             if chip.side == "B":
                 ly = -ly
             dx, dy = kicadlib.rotate(lx, ly, chip.rot)
             c.place(chip.x + dx, chip.y + dy, (chip.rot + lrot) % 180,
                     "B" if chip.side == "F" else "F")
-        else:
+            if not near_tht(c):
+                placed = True
+                break
+        if not placed:
+            if spots:
+                board.decaps_beside.append(chip.ref)
             # beside the chip (also for a chip too small to have it under)
             x0, y0, x1, y1 = chip.fp.courtyard
             if rows_along_y:

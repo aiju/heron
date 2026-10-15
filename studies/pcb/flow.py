@@ -83,7 +83,7 @@ def build(card="cpu", style="smd", width=340.0, height=220.0, layers=6, sides="F
         halo = 1.0 if style == "dip" else 0.8 if sides == "F" else 1.2
     decaps = decaps or ("under" if style == "smd" and sides == "F" else "beside")
     res["decaps"] = decaps
-    kw = dict(region=(3.0, 3.0, width - 3.0, height - 3.0), halo=halo, sides=sides, decaps=decaps,
+    kw = dict(region=b.region, halo=halo, sides=sides, decaps=decaps,
               seed=seed, weights=cards.weights(nl) if timing_driven else None)
     if arrangement == "grid" and sides != "F":
         raise ValueError("a grid placement is one-sided: use arrangement='free' with sides='FB'")
@@ -119,6 +119,7 @@ def build(card="cpu", style="smd", width=340.0, height=220.0, layers=6, sides="F
     w0, w1 = pl.refine(moves=moves or (30000 if arrangement == "free" else 150000))
     res["hpwl_m"] = round(w1 / 1000, 1)
     place.place_decaps(b, side="B" if decaps == "under" else "F")
+    res["decaps_beside"] = len(getattr(b, "decaps_beside", []))
     res["fanout"] = fanout.fanout(b)
     b.add_planes()
     res["seconds_place"] = round(time.time() - t0, 1)

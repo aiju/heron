@@ -1,7 +1,7 @@
 """The experiments behind RFC 0023: the CPU card at several sizes, as SMD
-and DIP boards on four and six layers, with parts on one side or both;
+and DIP boards on four and six layers, its chips on a grid or anywhere;
 the full checks on the boards the RFC recommends; the routed wires back
-in the chip-level simulation; Freerouting on the same placement.
+in the chip-level simulation; Freerouting on a free placement.
 
 `heron pcb sweep` runs them (about an hour and a half, most of it the
 DIP boards and Freerouting) and prints the tables; with --write it writes
@@ -29,40 +29,29 @@ def _board(label, style, width, height, layers, sides="F", decaps=None, halo=Non
 # first the grid (rows and columns of chips, all the same way round), then
 # the parts anywhere ("free"), for comparison; full: all the checks, not
 # only the netlist's
+U6 = 233.35      # a 6U Eurocard's height
+
 BOARDS = [
-    _board("smd-6", "smd", 340, 220, 6, full=True),
-    _board("smd-6", "smd", 330, 220, 6),
-    _board("smd-6", "smd", 320, 220, 6),
-    _board("smd-6", "smd", 300, 220, 6),
-    _board("smd-4", "smd", 480, 260, 4),
-    _board("dip-6", "dip", 420, 302, 6, full=True),
-    _board("dip-6", "dip", 400, 302, 6),
-    _board("dip-4", "dip", 480, 340, 4, full=True),
-    _board("dip-4", "dip", 480, 320, 4, pitch=(12.07, 31.0)),
-    _board("dip-4", "dip", 440, 302, 4, pitch=(10.75, 29.5)),
-    _board("free-smd-6", "smd", 380, 220, 6, halo=1.2, full=True, arrangement="free"),
-    _board("free-smd-6", "smd", 340, 220, 6, arrangement="free"),
-    _board("free-smd-6", "smd", 300, 220, 6, full=True, arrangement="free"),
-    _board("free-smd-6", "smd", 280, 220, 6, arrangement="free"),
-    _board("free-smd-6", "smd", 260, 220, 6, arrangement="free"),
-    _board("free-smd-6", "smd", 280, 233, 6, arrangement="free"),
-    _board("free-smd-6-top", "smd", 340, 220, 6, decaps="beside", arrangement="free"),
-    _board("free-smd-6-top", "smd", 320, 220, 6, decaps="beside", arrangement="free"),
-    _board("free-smd-6-both", "smd", 280, 220, 6, sides="FB", halo=1.2, arrangement="free"),
-    _board("free-smd-6-both", "smd", 260, 220, 6, sides="FB", halo=1.2, arrangement="free"),
-    _board("free-smd-4", "smd", 380, 220, 4, halo=1.2, arrangement="free"),
-    _board("free-smd-4", "smd", 440, 260, 4, halo=1.2, arrangement="free"),
-    _board("free-smd-4", "smd", 460, 260, 4, halo=1.2, full=True, arrangement="free"),
-    _board("free-dip-6", "dip", 480, 300, 6, full=True, arrangement="free"),
-    _board("free-dip-6", "dip", 440, 300, 6, arrangement="free"),
-    _board("free-dip-6", "dip", 400, 300, 6, arrangement="free"),
-    _board("free-dip-4", "dip", 520, 300, 4, arrangement="free"),
-    _board("free-dip-4", "dip", 480, 300, 4, full=True, arrangement="free"),
+    _board("smd-6", "smd", 340, U6, 6, full=True),
+    _board("smd-6", "smd", 330, U6, 6),
+    _board("smd-6", "smd", 320, U6, 6),
+    _board("smd-4", "smd", 480, U6, 4),
+    _board("dip-6", "dip", 470, 320, 6, full=True),
+    _board("dip-6", "dip", 460, 320, 6),
+    _board("dip-4", "dip", 490, 345, 4, full=True),
+    _board("dip-4", "dip", 500, 345, 4),
+    _board("free-smd-6", "smd", 300, U6, 6, full=True, arrangement="free"),
+    _board("free-smd-6", "smd", 280, U6, 6, arrangement="free"),
+    _board("free-smd-6-top", "smd", 340, U6, 6, decaps="beside", arrangement="free"),
+    _board("free-smd-4", "smd", 460, U6, 4, halo=1.2, full=True, arrangement="free"),
+    _board("free-dip-6", "dip", 480, 320, 6, arrangement="free"),
+    _board("free-dip-4", "dip", 500, 345, 4, full=True, arrangement="free"),
 ]
 
 KEYS = ["name", "arrangement", "pitch", "style", "width", "height", "layers", "sides", "decaps", "utilisation",
         "unplaced", "legalize", "hpwl_m", "routed", "rounds", "conflicted", "track_m", "vias",
-        "seconds_place", "seconds_route", "netlist_errors", "copper_opens", "copper_shorts",
+        "seconds_place", "seconds_route", "netlist_errors", "keepout_errors", "decaps_beside",
+        "copper_opens", "copper_shorts",
         "drc_errors", "drc_unconnected", "ipc356_errors"]
 
 
@@ -72,7 +61,7 @@ def run_boards(only=None, reuse=False):
         label, w, h = bd["label"], bd["width"], bd["height"]
         if only and only not in label:
             continue
-        name = f"cpu-{label}-{w}x{h}"
+        name = f"cpu-{label}-{int(w)}x{int(h)}"
         done = os.path.join(flow.OUT, name, "result.json")
         if reuse and os.path.exists(done):
             with open(done) as f:
@@ -90,7 +79,7 @@ def run_boards(only=None, reuse=False):
 
 
 CLOCK_TREE_PS = 6000      # CLK through a CDC341 tree: its delay, short branches
-TIMING_BOARD = "cpu-smd-6-340x220"     # the board whose wires go into the simulation
+TIMING_BOARD = "cpu-smd-6-340x233"     # the board whose wires go into the simulation
 
 
 def timing(board_name):
@@ -171,13 +160,13 @@ def timing(board_name):
 
 
 def freerouting(timeout=3600, reuse=False):
-    name = "cpu-smd-6-340x220-freerouting"
+    name = "cpu-smd-6-340x233-freerouting"
     done = os.path.join(flow.OUT, name, "result.json")
     if reuse and os.path.exists(done):
         with open(done) as f:
             r = json.load(f)
     else:
-        r = flow.build("cpu", "smd", 340, 220, layers=6, halo=0.8, router_name="freerouting",
+        r = flow.build("cpu", "smd", 340, U6, layers=6, halo=0.8, router_name="freerouting",
                        checks="netlist", name=name, freeroute_timeout=timeout, arrangement="free")
     return {k: r.get(k) for k in ("freerouting_exit", "freerouting_seconds", "freerouting_tracks",
                                   "track_m", "vias", "netlist_errors")}
@@ -218,21 +207,24 @@ def write_results(boards, timing_rows, nets, fr, sp):
         return "routed"
     for r in boards:
         r["result"] = verdict(r)
-        r["size"] = f"{r['width']} × {r['height']}"
+        r["size"] = f"{r['width']:g} × {r['height']:g}"
         r["slots"] = f"{r['pitch'][0]} × {r['pitch'][1]}" if r.get("pitch") else ""
         r["checks"] = ("" if r.get("drc_errors") is None else
-                       f"netlist {r['netlist_errors']}, opens {r['copper_opens']}, shorts "
+                       f"netlist {r['netlist_errors']}, keep-outs {r['keepout_errors']}, "
+                       f"opens {r['copper_opens']}, shorts "
                        f"{r['copper_shorts']}, DRC {r['drc_errors']}, unconnected {r['drc_unconnected']}, "
                        f"fab test netlist {r['ipc356_errors']}")
     text = ["# RFC 0023: results", "",
             "Generated by `heron pcb sweep --write` (studies/pcb/sweep.py). Do not edit.", "",
             "## The CPU card at each size", "",
             "Board: the grid arrangement (rows and columns of chips, all the same way round), "
-            "or with free-, the parts anywhere; -top: the capacitors beside the chips, -both: "
-            "parts on both sides. Slots: the grid's, stretched to fill the board. "
-            "Utilisation: the parts' courtyards over the board's area (both sides' "
-            "area for double-sided boards). Track: routed signal copper. Checks (where run): "
-            "differences from the netlist, copper opens and shorts, KiCad's DRC errors and "
+            "or with free-, the parts anywhere; -top: the capacitors beside the chips. Every board "
+            "has the mechanics of RFC 0023 section 8: clear strips along its edges, the front "
+            "panel's bracket holes, fiducials, the spacing around through-hole parts. "
+            "Slots: the grid's, stretched to fill the board. "
+            "Utilisation: the parts' courtyards over the board's area. Track: routed signal "
+            "copper. Checks (where run): differences from the netlist, parts or copper in the "
+            "keep-outs, copper opens and shorts, KiCad's DRC errors and "
             "unconnected items, differences of the fab's test netlist (IPC-D-356) from the board.", "",
             table(boards, ["label", "size", "layers", "slots", "utilisation", "result", "rounds",
                            "track_m", "vias", "seconds_place", "seconds_route", "checks"],
@@ -259,7 +251,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
             f"{sp['control_datapath']}; the best balanced split found {sp['best']} "
             f"({sp['best_area']} of the area). `heron pcb split`.", "",
             "## Freerouting", "",
-            "The free 340 × 220 six-layer placement, routed by Freerouting with its fanout off and "
+            "The free 340 × 233 (6U) six-layer placement, routed by Freerouting with its fanout off and "
             "only the signal layers, given an hour: " + freerouting_text(fr), ""]
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
     with open(RESULTS, "w") as f:
@@ -267,7 +259,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
 
 
 IMAGES = {"smd.png": (TIMING_BOARD, None), "smd-detail.png": (TIMING_BOARD, (0.36, 0.30, 0.62, 0.62)),
-          "dip.png": ("cpu-dip-4-480x340", None)}
+          "dip.png": ("cpu-dip-4-490x345", None)}
 
 
 def images():
@@ -306,7 +298,7 @@ def viewer(names=None, out=None, standalone=True):
     from heron.infra.pcb import board as B
     from heron.infra.pcb import view
     if names is None:
-        names = [f"cpu-{bd['label']}-{bd['width']}x{bd['height']}" for bd in BOARDS if bd["full"]]
+        names = [f"cpu-{bd['label']}-{int(bd['width'])}x{int(bd['height'])}" for bd in BOARDS if bd["full"]]
     boards = []
     for name in names:
         folder = os.path.join(flow.OUT, name)
