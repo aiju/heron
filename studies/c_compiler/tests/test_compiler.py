@@ -248,13 +248,30 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(a, r"INC\s+\[_n \+ r\d\*4\]")
 
     def test_v2_r0_is_allocated(self):
-        # eight values live across the loop, all in scratch registers: r1-r7 and r0
-        src = ("int f(int *p, int n) { int a = 0, b = 1, c = 2, d = 3, e = 4, g = 5;"
-               " while (n--) { a += *p++; b ^= a; c += b; d -= c; e |= d; g += e; }"
-               " return a + b + c + d + e + g; }")
+        # seven values live across the loop, in scratch registers: r1-r6 and
+        # r0, before r7, which a leaf would have to save
+        src = ("int f(int *p, int n) { int a = 0, b = 1, c = 2, d = 3, e = 4;"
+               " while (n--) { a += *p++; b ^= a; c += b; d -= c; e |= d; }"
+               " return a + b + c + d + e; }")
         a = asm_of(src, "v2")
         self.assertIn("r0", a)
+        self.assertNotIn("r7", a)
         self.assertNotIn("SAVE", a)
+
+    def test_v2_link_register(self):
+        # a leaf returns through r7; a function that calls saves r7 with the
+        # registers it keeps, or pushes it alone, and restores it before a
+        # tail call
+        a = asm_of("int f(int x) { return x * 3; }", "v2")
+        self.assertNotIn("r7", a)
+        self.assertRegex(a, r"RET\n")
+        src = "int g(int); int f(int x) { return g(x) + x; }"
+        self.assertRegex(asm_of(src, "v2"), r"SAVE r7-r8(.*\n)*\s+RESTORE r7-r8\n\s+RET")
+        a = asm_of("int g(int); int f(int x) { return g(x) + 1; }", "v2")
+        self.assertRegex(a, r"PUSH r7(.*\n)*\s+JMP  \[sp\]\+")
+        a = asm_of("int g(int); int h(int); int f(int x) { if (x) return g(x) + 1; return h(2); }",
+                   "v2")
+        self.assertRegex(a, r"MOV  r7, \[sp\]\+\n\s+BRA  _h")
 
     def test_v2_dbnz(self):
         # a counter that only counts is counted down to zero, and the loop

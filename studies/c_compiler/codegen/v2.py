@@ -13,6 +13,9 @@ selector (codegen.v1b) with what changed:
   [x*s + d], and a dense switch is one JMP [pc + table + r*4].
 - INC and DEC on memory, for x++ and x-- on a variable in memory.
 - TST and MULS with a constant.
+- Calls leave the return address in r7, the link register (Target.LINK):
+  a function that calls saves it with SAVE r7-rN, or pushes it, and a leaf
+  that leaves r7 alone returns through it.
 - MOV and CMP take 16..127 in one parcel (the assembler picks the form):
   free_imm knows, and keeps such a constant in a register only where CMP
   could then take a memory operand.
@@ -33,10 +36,12 @@ def is_zero(v):
 
 
 class V2(V1B):
-    # r0 is scratch like r1-r7, taken after them
-    ALLOC_ORDER = PHYS[1:8] + PHYS[0:1] + PHYS[8:15]
+    # r0 is scratch like r1-r7; r7, the link register, comes last, since a
+    # leaf that uses it has to save it
+    ALLOC_ORDER = PHYS[1:7] + PHYS[0:1] + PHYS[7:15]
     CALLER_SAVED = PHYS[0:8]
     ZERO = None
+    LINK = PHYS[7]
     IMM_OPS = V1B.IMM_OPS + ("TST", "MULS")
     COUNT_DOWN = True       # for DBNZ
 
@@ -190,6 +195,9 @@ class V2(V1B):
 
     # ---- after allocation ------------------------------------------------
 
+    def push(self, r):
+        return f"        PUSH {self.fmt(r)}"
+
     def format_instr(self, i):
         if i.op == "ST":
             return [f"        MOV  {self.fmt(i.ops[1])}, {self.fmt(i.ops[0])}"]
@@ -227,6 +235,8 @@ class V2(V1B):
         op = i.op
         if op == "RET":
             return 1 + 2 * len(self.epilogue())
+        if op == "TAIL":
+            return 3 + 2 * len(self.epilogue(tail=True))
         if op in ("BCC", "JMP"):
             return 1 if i.targets[0] in inside else 2
         if op in ("BSR", "CALL") and isinstance(i.ops[0], Label):
@@ -277,7 +287,7 @@ class V2(V1B):
     # Every instruction selected here that changes the flags says so
     # (flags "cmp", "nz" or "set"), and only BCC and SETcc read them, so the
     # scans below look past the others: MOV, LEA, stores, CLR, MFHI.
-    ENDS = ("JMP", "RET", "BSR", "CALL", "JMPM", "JMPT", "HALT", "DBNZ")
+    ENDS = ("JMP", "RET", "TAIL", "BSR", "CALL", "JMPM", "JMPT", "HALT", "DBNZ")
 
     def drop_compares(self):
         """CMP r, #0 (or #-1) goes when the instruction that last wrote r

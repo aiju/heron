@@ -78,7 +78,7 @@ _scale: .word 5
     "v2": """
         .global asm_sum, _scale
 asm_sum:
-        SAVE r8-r10
+        SAVE r7-r10             ; r7: the return address, which CALL twice overwrites
         MOV  r8, r1
         MOV  r9, r2
         CLR  r10
@@ -87,7 +87,7 @@ asm_sum:
         ADD  r10, r1
         DBNZ r9, .loop
         MOV  r1, r10
-        RESTORE r8-r10
+        RESTORE r7-r10
         RET
         .data
 _scale: .word 5
