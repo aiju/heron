@@ -9,7 +9,7 @@ import unittest
 
 from heron.infra.hw.netlist import Netlist
 from heron.infra.pcb import board as B
-from heron.infra.pcb import check, copper, kicadlib, physical, place, router, sexpr
+from heron.infra.pcb import check, copper, kicadlib, physical, place, router, sexpr, wires
 
 needs_kicad = unittest.skipUnless(kicadlib.available(), "needs KiCad's libraries")
 
@@ -118,6 +118,27 @@ class Flow(unittest.TestCase):
         c = next(t for t in b.tracks if t[6] == "Q3" and t[0] == a[0])
         b.tracks.append((a[0], a[1], a[2], c[1], c[2], 0.127, "Q0"))
         self.assertTrue(any(e.startswith("short") for e in copper.check(b)))
+
+
+class Wires(unittest.TestCase):
+    def test_each_load_has_its_own_flight_time(self):
+        nl = small_netlist()
+        insts = {i.ref: i for i in nl.instances}
+        # Q0 (QA): the buffer 100 ps along, the connector 400; Q1 (QB): the
+        # connector first, the buffer 400 ps along
+        w = {"Q0": {"driver": ("U_CNT", "QA"), "length": 60.0, "pF": 10.0,
+                    "loads": {("U_BUF", "A1"): 100, ("P1", "a1"): 400}},
+             "Q1": {"driver": ("U_CNT", "QB"), "length": 60.0, "pF": 10.0,
+                    "loads": {("U_BUF", "A2"): 400, ("P1", "a2"): 100}}}
+        extra = wires.back_annotate(nl, w)
+        self.assertEqual(extra, {("U_CNT", "QA"): 100, ("U_CNT", "QA", "off"): 300,
+                                 ("U_CNT", "QB"): 100, ("U_BUF", "A2"): 300})
+        wires.apply(nl, extra)          # no other cards: the connector's is left out
+        self.assertEqual(insts["U_CNT"].pin_extra, {"QA": 100, "QB": 100})
+        self.assertEqual(insts["U_BUF"].conn["A1"], "Q0")
+        far = insts["U_BUF"].conn["A2"]
+        wire = {i.ref: i for i in nl.instances}["W~U_BUF~A2"]
+        self.assertEqual((wire.conn["A"], wire.conn["Y"], wire.pin_extra), ("Q1", far, {"Y": 300}))
 
 
 @needs_kicad

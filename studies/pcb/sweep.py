@@ -116,8 +116,11 @@ def timing(board_name):
         v["pF"] = 0.0
     flight = wires.back_annotate(nl_cpu, w0)
     clk = tuple(w["CLK"]["driver"])
-    buffered = {k: v for k, v in full.items() if k != clk}      # STA: CLK is the reference
-    tree = {**buffered, clk: CLOCK_TREE_PS}
+    clk_keys = wires.keys_of(w, "CLK")
+
+    def no_clk(d):          # the timing analysis: CLK is its reference
+        return {k: v for k, v in d.items() if k not in clk_keys}
+    tree = {**no_clk(full), clk: CLOCK_TREE_PS}
     path = programs.program_paths(["hello"])[0]
     img = programs.assemble(path)
     inp = programs.metadata(path)["input"]
@@ -134,10 +137,10 @@ def timing(board_name):
     rows = []
     cases = [("ideal wires (as simulated)", {}, None),
              ("flight times", flight, None),
-             ("flight times", flight, flight),
+             ("flight times", flight, no_clk(flight)),
              ("flight and load, CLK as routed", full, None),
              ("flight and load, CLK through a clock tree", tree, None),
-             ("flight and load, CLK through a clock tree", tree, buffered)]
+             ("flight and load, CLK through a clock tree", tree, no_clk(full))]
     for label, sim, sta_wires in cases:
         pre = machine.preloads(img, inp)
         if sta_wires is None:
@@ -162,7 +165,8 @@ def timing(board_name):
     heavy = sorted(w.items(), key=lambda kv: -kv[1]["pF"])[:8]
     nets = [{"net": n, "length_mm": round(i["length"]), "pF": round(i["pF"]),
              "loads": len(i["loads"]), "flight_ns": round(max(i["loads"].values(), default=0) / 1000, 1),
-             "extra_ns": round(full.get(tuple(i["driver"]), 0) / 1000, 1) if i["driver"] else None}
+             "load_ns": round((full.get(tuple(i["driver"]), 0) - min(i["loads"].values(), default=0))
+                              / 1000, 1) if i["driver"] else None}
             for n, i in heavy]
     return rows, nets
 
@@ -247,8 +251,9 @@ def write_results(boards, timing_rows, nets, fr, sp):
             f"{CLOCK_TREE_PS / 1000:g} ns instead of its routed delay, as a CDC341 and short "
             "branches would make it.", "",
             "The most heavily loaded nets:", "",
-            table(nets, ["net", "length_mm", "pF", "loads", "flight_ns", "extra_ns"],
-                  ["Net", "Length (mm)", "Load (pF)", "Loads", "Flight (ns)", "Extra delay (ns)"]),
+            table(nets, ["net", "length_mm", "pF", "loads", "flight_ns", "load_ns"],
+                  ["Net", "Length (mm)", "Load (pF)", "Loads", "Flight to the last (ns)",
+                   "Delay of the load over 50 pF (ns)"]),
             "", "## Splitting the CPU card", "",
             f"Signals between the halves: control against datapath (by the netlist's sections) "
             f"{sp['control_datapath']}; the best balanced split found {sp['best']} "

@@ -161,11 +161,22 @@ def _on_segment(q, a, b, eps=2e-3):
     return False
 
 
+MIN_WIRE_PS = 50       # a load nearer than this to the nearest one gets no wire of its own
+
+
 def back_annotate(nl, wires, variant=None):
-    """Extra delays for the netlist's drivers: each driving pin gets its
-    net's worst flight time plus the extra load over the datasheet's
-    50 pF. Returns {(ref, pin): ps}; apply() puts them on a netlist (as
-    the simulator's per-pin delays)."""
+    """The routed wires' delays, as the simulator and the timing analysis
+    take them (apply()), {key: ps}:
+
+    - (ref, pin) of a driving pin: its load's extra delay over the
+      datasheet's 50 pF, and the flight time to its nearest load;
+    - (ref, pin) of an input further along the wire: the rest of its own
+      flight time;
+    - (ref, pin, "off") of a driving pin whose net leaves the card: the rest
+      of the flight time to the connector, for the inputs on other cards.
+
+    A bus transceiver's net (an io driver) is left out: its direction
+    decides which end drives."""
     from heron.infra.hw import chips
     variant = variant or chips.DEFAULT_VARIANT
     insts = {i.ref: i for i in nl.instances}
@@ -175,17 +186,63 @@ def back_annotate(nl, wires, variant=None):
             continue
         ref, pin = w["driver"]
         if insts[ref].type.kind(pin) == "io":
-            continue          # a bus transceiver: its direction decides; left out
+            continue
         fam = _family(insts[ref].part_number(variant))
-        flight = max(w["loads"].values(), default=0)
+        near = min(w["loads"].values(), default=0)
         load = max(w["pF"] - DATASHEET_PF, 0.0) * NS_PER_PF.get(fam, 0.0) * 1000
-        out[(ref, pin)] = int(flight + load)
+        out[(ref, pin)] = int(near + load)
+        for (lref, lpin), ps in w["loads"].items():
+            if ps - near < MIN_WIRE_PS:
+                continue
+            if lref not in insts:
+                out[(ref, pin, "off")] = int(ps - near)        # the connector
+            elif insts[lref].type.kind(lpin) == "in":
+                out[(lref, lpin)] = int(ps - near)
     return out
+
+
+def keys_of(wires, net):
+    """The keys of back_annotate() that belong to one net."""
+    w = wires[net]
+    keys = set(w["loads"])
+    if w["driver"]:
+        keys |= {tuple(w["driver"]), (*w["driver"], "off")}
+    return keys
 
 
 def apply(nl, extra, prefix=""):
     """Put back_annotate()'s delays on a netlist (whose chips may carry a
-    prefix: a card's chips in the system are CPU.<ref>)."""
+    prefix: a card's chips in the system are CPU.<ref>): a driving pin's
+    as its pin delay; an input's as a wire element in front of it, whose
+    pin delay it is; the connector's in front of every input of another
+    card on the net (with a prefix: in a card's own netlist there are
+    none)."""
     insts = {i.ref: i for i in nl.instances}
-    for (ref, pin), ps in extra.items():
-        insts[prefix + ref].add_pin_delay(pin, ps)
+    for key, ps in sorted(extra.items(), key=lambda kv: len(kv[0])):
+        if len(key) == 3:
+            if not prefix:
+                continue
+            net = insts[prefix + key[0]].conn[key[1]]
+            for inst in list(nl.instances):
+                if inst.ref.startswith(prefix) or inst.type.family == "fixture":
+                    continue
+                for p, n in list(inst.conn.items()):
+                    if n == net and inst.type.kind(p) == "in":
+                        _wire(nl, inst, p, ps)
+            continue
+        inst = insts[prefix + key[0]]
+        if inst.type.kind(key[1]) == "in":
+            _wire(nl, inst, key[1], ps)
+        else:
+            inst.add_pin_delay(key[1], ps)
+
+
+def _wire(nl, inst, pin, ps):
+    """A wire element between an input and its net."""
+    card, _, local = inst.ref.rpartition(".")
+    card = card + "." if card else ""
+    net = inst.conn[pin]
+    far = f"{net}~{local}~{pin}"
+    w = nl.add("wire", f"{card}W~{local}~{pin}", A=net, Y=far)
+    w.add_pin_delay("Y", ps)
+    inst.conn[pin] = far

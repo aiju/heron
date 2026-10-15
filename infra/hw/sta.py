@@ -313,6 +313,11 @@ class Case:
     def m_const(self, inst, pin, d):
         return (int(pin == "HI"), NEG, True, None)
 
+    def m_wire(self, inst, pin, d):
+        # its delay is its pin delay, which output() adds
+        v, t, _ = self.pin(inst, "A")
+        return (v, t, True, (inst.ref, inst.conn["A"], "wire"))
+
     def m_clockgen(self, inst, pin, d):
         if pin == "CLK":
             return (None, 0.0, True, None)

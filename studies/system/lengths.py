@@ -67,14 +67,13 @@ def clock_offset(corner):
 def requirements(variant=chips.DEFAULT_VARIANT, corner="max", wires=None):
     """{packed control word: ticks it needs}, over every distinct
     microinstruction (with and without an interrupt pending). `wires`:
-    {(chip, output pin): ps} of extra delay, a routed board's wiring
-    (infra/pcb/wires.py)."""
+    a routed board's wiring delays, from infra/pcb/wires.py's
+    back_annotate()."""
     nl = cpu.build(card=True, stub=True)
     if wires:
-        insts = {i.ref: i for i in nl.instances}
-        for (ref, pin), ps in wires.items():
-            if ref in insts:
-                insts[ref].add_pin_delay(pin, ps)
+        from heron.infra.pcb import wires as pcb_wires
+        refs = {i.ref for i in nl.instances}
+        pcb_wires.apply(nl, {k: v for k, v in wires.items() if k[0] in refs})
     N = sta.Netlist(nl, variant, corner)
     off = clock_offset(corner)
     out = {}

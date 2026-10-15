@@ -346,6 +346,10 @@ T("cf", "cf",
 
 T("const", "const", [("LO", "out"), ("HI", "out")], family="fixture", desc="GND and VCC")
 
+T("wire", "wire", [("A", "in"), ("Y", "out")], family="fixture",
+  desc="the far end of a wire: Y is A, later by Y's pin delay (a routed board's flight "
+       "time to one load, infra/pcb/wires.py)")
+
 T("vector", "vector", [("CLK", "in")] + [(f"O{i}", "tri") for i in range(64)]
   + [(f"I{i}", "in") for i in range(48)], family="fixture",
   desc="a script played against CLK and a record of its inputs (params outs, ins, "
