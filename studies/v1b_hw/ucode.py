@@ -632,11 +632,14 @@ def mem_tail(opname, steps, update, size, name, link=False):
         tail = end(name, wb="r", b="r") if update else end(name)
         return chain(name, *steps, *store_steps(size), tail)
     lsteps, opnd = load_steps(size, update)
-    if opname == "CALL" and link:
+    if opname == "CALL" and link and not update:
         # the ALU is idle while the target's high half is read: the return
-        # address goes to R then
+        # address goes to R then (unless the base is written back in that
+        # cycle, which bridges the B bus onto the A bus)
         lsteps[-1] = merge(lsteps[-1], link_pc())
         return chain(name, *steps, *lsteps, op_tail(opname, opnd, name, link, linked=True))
+    if opname == "CALL" and link:
+        return chain(name, *steps, *lsteps, op_tail(opname, opnd, name, link))
     return chain(name, *steps, *lsteps, op_tail(opname, opnd, name))
 
 

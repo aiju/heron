@@ -19,7 +19,12 @@
    r8 is set only when the bytecode's address is needed. A call passes the
    new frame's bp in r4 and the caller's bytecode address to go on at in
    r8; the callee's prologue pops the return address into the caller's
-   frame (Frame.nip), so a return is JMP [r11 + nip]. */
+   frame (Frame.nip), so a return is JMP [r11 + nip].
+
+   Built for v1bl (__V1BL__, studies/link_register), a call leaves the
+   return address in r7: the prologue stores it, stubs that call C keep it
+   on the stack meanwhile, and the bytecode a send through the method
+   cache passes (gsend) is in r5. */
 
 #ifdef EGRET_JIT
 
@@ -71,6 +76,11 @@ static Value here(void) { return code_base + 2 * ncode; }
 enum { MOV = 1, ST, LEA, ADD, SUB, CMP, AND, OR, XOR, JEA = 0xB };
 enum { EQ, NE, HS, LO, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE, RA, LINK };
 enum { R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, SP };
+#ifdef __V1BL__
+#define SEND_IP R5                          /* the bytecode, for gsend: r7 is the link */
+#else
+#define SEND_IP R7
+#endif
 #define OPW(op, d, m, r) put((op) << 12 | (d) << 8 | (m) << 4 | (r))
 
 static void ea_r(int op, int d, int r) { OPW(op, d, 0, r); }
@@ -321,7 +331,8 @@ static void emit_stubs(void)
             break;
         case SK_SEND: {
             /* the operands back on the stack, the selector in r6 and the
-               bytecode in r7, for a send through the method cache (gsend) */
+               bytecode in r7 (SEND_IP), for a send through the method
+               cache (gsend) */
             unsigned char *p = BP(s->ip);
             s->back = ncode;
             if (s->adjust)
@@ -331,7 +342,7 @@ static void emit_stubs(void)
                 ea_pi(ST, R1, R10);
             }
             ea_k(MOV, R6, egret_special[p[0]]);
-            ea_k32(MOV, R7, s->ip);
+            ea_k32(MOV, SEND_IP, s->ip);
             jcc_abs(LINK, gsend(p[0] == OP_AT_PUT ? 2 : 1) - OP_ENTRY);
             branch_to(RA, p + 1 - bc_start);
             break;
@@ -1029,8 +1040,12 @@ static void prologue(Value m)
     put(0xE000 | RA << 8 | 1);                  /* BRA over the next */
     /* entry */
     ea_k(MOV, R5, 0);
+#ifdef __V1BL__
+    ea_m(ST, R7, R11, 20);                      /* Frame.nip: where the caller goes on */
+#else
     pop(R1);                                    /* where the caller goes on */
     ea_m(ST, R1, R11, 20);                      /* Frame.nip */
+#endif
     ea_m(ST, R8, R11, 0);                       /* Frame.ip */
     ea_m(LEA, R11, R11, sizeof(Frame));
     ea_abs(CMP, R11, ADDR(&egret_frames_end));
@@ -1180,16 +1195,24 @@ static Value prim_stub(Value m)
     ea_abs(ST, R1, ADDR(&vm_sp));
     ea_r(MOV, R1, R4);
     ea_k(MOV, R2, MI_NARGS(F(m, M_INFO)));
+#ifdef __V1BL__
+    push(R7);
+#endif
     push(R4);
     jcc_abs(LINK, V((char *)prim_table[F(m, M_PRIM)]));
     pop(R4);
+#ifdef __V1BL__
+    pop(R7);
+#endif
     rr(TST, R1, R1);
     fail = jcc_fwd(EQ);
     ea_m(ST, R1, R4, 0);
     ea_m(LEA, R10, R4, 4);
     ret();
     patch_fwd(fail, here());
+#ifndef __V1BL__
     pop(R1);                                    /* no return: raise */
+#endif
     jcc_abs(RA, ADDR(jit_glue_prim_failed));
     F(m, M_NATIVE) = finish_stub();
     return F(m, M_NATIVE);
@@ -1213,7 +1236,9 @@ static Value block_stub(int argc)
     jmp_r(R1);
     patch_fwd(slow1, here());
     patch_fwd(slow2, here());
+#ifndef __V1BL__
     pop(R1);
+#endif
     jcc_abs(RA, ADDR(jit_glue_redo));           /* C makes the send */
     return block_stubs[argc] = finish_stub();
 }
@@ -1248,6 +1273,9 @@ static Value new_stub(int argc)
     s[4] = jcc_fwd(EQ);
     ea_m(LEA, R2, R10, -4);
     ea_abs(ST, R2, ADDR(&vm_sp));
+#ifdef __V1BL__
+    push(R7);
+#endif
     push(R4);
     push(R5);
     ea_m(MOV, R2, R1, FLD(C_NIVARS));
@@ -1255,12 +1283,17 @@ static Value new_stub(int argc)
     jcc_abs(LINK, V((char *)alloc_obj));
     pop(R5);
     pop(R4);
+#ifdef __V1BL__
+    pop(R7);
+#endif
     ea_m(ST, R1, R4, 0);                        /* the object in place of the class */
     ea_k(SUB, R5, NEW_ENTRY);
     jmp_r(R5);
     for (i = 0; i < 5; i++)
         patch_fwd(s[i], here());
+#ifndef __V1BL__
     pop(R1);
+#endif
     jcc_abs(RA, ADDR(jit_glue_redo));
     return new_stubs[argc] = finish_stub();
 }
@@ -1268,10 +1301,10 @@ static Value new_stub(int argc)
 /* A send through the method cache, rather than an inline cache of its own,
    as the asm loop makes them: an operator's when its fast path doesn't
    apply (so that a method's operators cost little to compile), and a send
-   that saw too many classes. r6 is the selector, r7 the bytecode, r8 the
-   bytecode after it (the entry OP_ENTRY bytes before sets it, for an
-   operator), the return address on the stack. A miss, or a method not
-   yet compiled, goes to jit_gsend_miss. */
+   that saw too many classes. r6 is the selector, r7 the bytecode (SEND_IP),
+   r8 the bytecode after it (the entry OP_ENTRY bytes before sets it, for an
+   operator), the return address on the stack (v1bl: in r7). A miss, or a
+   method not yet compiled, goes to jit_gsend_miss. */
 static Value gsend_stubs[16];
 static Value gsend(int argc)
 {
@@ -1279,7 +1312,7 @@ static Value gsend(int argc)
     if (gsend_stubs[argc])
         return gsend_stubs[argc];
     begin_stub();
-    ea_m(LEA, R8, R7, 1);
+    ea_m(LEA, R8, SEND_IP, 1);
     ea_m(LEA, R4, R10, -4 * (argc + 1));
     ea_m(MOV, R1, R4, 0);
     un(RRC, R2, R1);
@@ -1388,7 +1421,7 @@ Value jit_send_miss(VMStateHead *st, int si)
         Value mega, g = gsend(argc);
         begin_stub();
         ea_k(MOV, R6, sel);
-        ea_k32(MOV, R7, V(ip));
+        ea_k32(MOV, SEND_IP, V(ip));
         jcc_abs(RA, g);
         mega = finish_stub();
         /* CMP r2, #class (3 parcels); Jcc NE miss (2): BRA over them */
