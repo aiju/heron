@@ -63,6 +63,8 @@ isn't in the repository.
     and `DEC` on memory or a register, `JMP`, `CALL`;
   - a one-cell `DBNZ`;
   - constant forms of `TST`, `BIC` and multiply;
+  - tables without a base register, in the special mode:
+    `[abs24 + x·s]` and `[pc + d24 + x·s]`;
   - `ILLEGAL` at `00`.
 - **236 of the 256 root cells are used,** 20 are free.
 - **Open:** `CAS` and the floating-point escape are marked out, not
@@ -146,7 +148,7 @@ as in draft 1.
 ## 4. The map
 
 `R` is the mode's register; `R+X·s` the indexed mode; `spec` 1b's special
-mode ([5](#5-addressing-modes)); `+1`, `+1–2` the extension parcels; `×n`
+mode ([5.1](#51-the-special-mode)); `+1`, `+1–2` the extension parcels; `×n`
 an instruction that fills n cells. `ST` is a store, written `MOV` in draft
 2's syntax; the assembler doesn't accept `ST`. Likewise `MVI` and `CMPI`
 are written `MOV` and `CMP` ([6.3](#63-short-constants-row-7)).
@@ -203,14 +205,18 @@ from the register byte. They are 1b's modes, in 1b's order
 | 7 | `-[R]` | F | special |
 
 - **Byte and half operands** zero-extend when read.
-- **Special:** `R` picks one of 13 operands that need no register:
-  - 0–3: `#s16`, `#u16`, `#hi16`, `#imm32`;
-  - 4–6: a word, byte or half at `[abs16]`;
-  - 7–9: the same at `[abs32]`;
-  - A–C: the same at `[pc + d16]`;
-  - D–F: reserved.
-- **Indexed:** an extension parcel holds the index register, the scale
-  (×1–8), the size and an 8-bit displacement.
+- **Indexed:** an extension parcel holds the index register `x`, the scale,
+  the size and an 8-bit displacement:
+
+  ```
+  index parcel   15    12 11  10 9    8 7         0
+                    x        s      z        d8
+  ```
+
+  The scale is ×1, ×2, ×4 or ×8, and the size byte, half or word; size 3
+  traps.
+- **Special:** `R` picks an operand that needs no register, in the table
+  below ([5.1](#51-the-special-mode)).
 - **The mode from the register byte:** a one-operand instruction puts `M`
   in the register byte's high nibble and `R` in the low one, so one cell
   gets every mode. 1b's op B did this for `JMP ea` and `CALL ea`, and the
@@ -220,9 +226,79 @@ from the register byte. They are 1b's modes, in 1b's order
   other register.
 - **1b's gaps that remain** ([RFC 0006, 3.2](0006-rfc-ideas-isa.md#32-1bs-gaps)):
   no one-parcel `[R + small offset]`; no byte or half auto-decrement and no
-  half auto-increment; the indexed mode's 8-bit displacement can't hold a
-  table's address; no sign-extending loads (`SXB` and `SXH` after the
-  load).
+  half auto-increment; no sign-extending loads (`SXB` and `SXH` after the
+  load). The indexed mode's 8-bit displacement, which couldn't hold a
+  table's address, is answered by the special mode's D and E.
+
+### 5.1 The special mode
+
+`M` = F uses `R` to pick an operand that needs no register. 0–C are 1b's.
+D and E are new: tables without a base register. **decided** (Emily,
+2026-10-15).
+
+| R | Operand | Extension parcels | Syntax |
+|---|---|---:|---|
+| 0 | constant: 16 bits, sign-extended | 1 | `#-300` |
+| 1 | constant: 16 bits, zero-extended | 1 | `#0xFFFF` |
+| 2 | constant: 16 bits, shifted left 16 | 1 | `#0x12340000` |
+| 3 | constant: 32 bits | 2 | `#0x12345678` |
+| 4 | word at `[abs16]` | 1 | `[counter]` |
+| 5 | byte at `[abs16]` | 1 | `byte [0xFFFFFF00]` |
+| 6 | half at `[abs16]` | 1 | `half [counter]` |
+| 7 | word at `[abs32]` | 2 | `[counter]`, where neither 4 nor A reaches |
+| 8 | byte at `[abs32]` | 2 | `byte [counter]` |
+| 9 | half at `[abs32]` | 2 | `half [counter]` |
+| A | word at `[pc + d16]` | 1 | `[pc + counter]` |
+| B | byte at `[pc + d16]` | 1 | `byte [pc + counter]` |
+| C | half at `[pc + d16]` | 1 | `half [pc + counter]` |
+| D | `[abs24 + x·s]`, any size | 2 | `[table + r2*4]`, `byte [table + r2]` |
+| E | `[pc + d24 + x·s]`, any size | 2 | `[pc + table + r2*4]` |
+| F | reserved: traps | | |
+
+- **Addresses:** `abs16` and `abs24` are sign-extended, so `abs16`
+  reaches the lowest and highest 32 KB and `abs24` the lowest and highest
+  8 MB. `pc` is the next instruction's address: `d16` reaches ±32 KB,
+  `d24` ±8 MB.
+- **D and E's parcels:** first an index parcel laid out like the indexed
+  mode's, whose low byte holds the address's bits 23–16, then bits 15–0:
+
+  ```
+  parcel 1       15    12 11  10 9    8 7         0
+                    x        s      z     a23–16
+  parcel 2       15                             0
+                               a15–0
+  ```
+
+  The size comes from `z`, so one value of `R` covers bytes, halves and
+  words. Like the indexed mode, the microcode dispatches on the index
+  parcel as it arrives, then fetches the address.
+- **By instruction:**
+  - `ST`, `CLR`, `INC`, `DEC` and `LEA` trap on the constants (0–3), as
+    they do on `#q`.
+  - `LEA` takes the address, so its byte, half and word forms give the
+    same result: `LEA r1, [table + r2*4]` is a three-operand table
+    address.
+  - `JMP` and `CALL` take the operand's value, as in 1b: `JMP #label`
+    jumps to `label`, and `JMP [pc + table + r2*4]` to the address stored
+    in the table.
+- **The assembler picks the shortest form.** `[label + r2]` is mode 3, 9
+  or C when the label fits 16 bits (two parcels), and D otherwise (three);
+  `[table + r2*4]` is D, unless the table's address is in a base register.
+- **What D and E are for:**
+  - **A table without a base register.** Indexed accesses whose base was
+    loaded with `MOV r, #label` are 1.47% of hand-written executed
+    instructions (vm 16%, mandel 10%) and 0.19% of compiled ones. Each
+    holds a register through its loop, or, where the load isn't hoisted,
+    costs a `MOV` (sha256's `MOV r1, #_h` before
+    `MOV r1, [r1 + r8*4]`).
+  - **`[label + R]` beyond ±32 KB.** 1b's only form is the displacement
+    modes with a label; D with ×1 reaches 8 MB.
+  - **Position-independent jump tables,** for `switch` in relocatable
+    code: `JMP [pc + table + r2*4]`. Nothing in 1b does it in one
+    instruction.
+  - With `r0` a general register, `[r0 + x·s + d8]` is no longer a
+    base-less index either.
+- **Cost:** microcode for two operands, and no cells.
 
 ## 6. What is where, and why
 
