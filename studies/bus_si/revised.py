@@ -198,15 +198,19 @@ def _summary(res, b):
     return w
 
 
-def run_job(job):
+def run_job(job, keep=False):
+    """One job's result; with `keep`, also its waveforms ('time' and 'v')."""
     kind = job[0]
     if kind == "load":
         _, pat, stub, c, fam, corner, d = job
         card = bused.Card(family=fam, stub=stub * 1e-3)
         card = replace(card, extra_c=bused.extra_for(c * 1e-12, card))
         b = bused.Bus.full().with_cards(set(PATTERNS[pat]), card)
-        res = bused.run(b, ("slot", d), corner)
-        return {"worst": _summary(res, b), "rx": res["rx"]}
+        res = bused.run(b, ("slot", d), corner, keep)
+        out = {"worst": _summary(res, b), "rx": res["rx"]}
+        if keep:
+            out["time"], out["v"] = res["time"], res["v"]
+        return out
     if kind == "conn":
         _, l_nh, c_pf, fam, corner, d = job
         bp = bus.Backplane(package="soic", conn_l=l_nh * 1e-9, conn_c=c_pf * 1e-12)
@@ -233,8 +237,7 @@ def run_job(job):
     if kind == "sel":
         _, length, series, rx, count, corner = job
         path = radial.Radial(length=length * 1e-3, series=series, rx_family=rx, rx_count=count)
-        res = radial.run(radial.Driver(), [path], corner)
-        return res
+        return radial.run(radial.Driver(), [path], corner, keep=keep)
     if kind == "clock":
         _, drv, group, matched, series, rx, corner, rails = job
         lengths = clock_lengths(matched=matched)
@@ -249,20 +252,20 @@ def run_job(job):
             driver = radial.Driver(family=drv, package=pkg)
         else:
             driver = radial.Driver(family=drv, package=pkg, n_gnd=n_gnd, n_vcc=n_vcc, **CLOCK_RAILS[rails])
-        res = radial.run(driver, paths, corner)
+        res = radial.run(driver, paths, corner, keep=keep)
         res["slots"] = list(slots)
         return res
     if kind == "gb":
         _, fam, pkg, lines, model, edge, corner, decaps, switching = job
         c = gb.Card.model(model, family=fam, package=pkg, lines=lines, decaps=decaps, switching=switching,
                           series=0.0 if fam == "abt2245" else 22.0)
-        return gb.run(c, corner, edge == "falling")
+        return gb.run(c, corner, edge == "falling", keep)
     if kind == "floating":
         _, victim, fam, corner, agg, k = job
-        return floating.run(victim, fam, corner, aggressor_slot=agg, k_conn=k)
+        return floating.run(victim, fam, corner, aggressor_slot=agg, k_conn=k, keep=keep)
     if kind == "xt":
         _, fam, pkg, model, guard, edge, corner, sel_r = job
-        return xt.run(xt.card(fam, pkg, model), corner, edge == "falling", guard, sel_r)
+        return xt.run(xt.card(fam, pkg, model), corner, edge == "falling", guard, sel_r, keep)
     if kind == "volp":
         _, fam, pkg, model = job
         kw = {} if model == "raw" else dict(overlap=False, alpha=gb.CALIBRATED_ALPHA)

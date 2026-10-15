@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+import xml.etree.ElementTree as ET
 
 try:
     import numpy as np
@@ -12,7 +13,7 @@ except ImportError:
     np = None
 if np is not None:
     from heron.infra.si import engine, ibis, runner
-    from heron.studies.bus_si import bused, connector, gb
+    from heron.studies.bus_si import bused, connector, gb, svgplot, traces
 
 needs_numpy = unittest.skipUnless(np is not None, "the bus_si study needs numpy (pip install numpy)")
 
@@ -104,3 +105,24 @@ class Models(unittest.TestCase):
         w = bused.worst(bused.run(b, ("slot", 0), "typ"))
         self.assertEqual(w["unsettled"], 0)
         self.assertLess(w["add_rise"], 6e-9)
+
+
+@needs_numpy
+class Figures(unittest.TestCase):
+    def test_a_figure_keeps_its_peaks(self):
+        t = np.linspace(0, 20, 20001)
+        v = np.where(np.abs(t - 7.3) < 0.002, 5.0, 1.0)          # a 4 ps spike
+        panel = {"title": "T", "x": (0, 20), "xlabel": "ns", "series": [(0, t, v), (1, t, -v)],
+                 "marks": [(0.8, "VIL 0.8 V")]}
+        svg = svgplot.figure([panel], ["a", "b"], "t", "d")
+        root = ET.fromstring(svg)
+        paths = [e for e in root.iter() if e.tag.endswith("path")]
+        self.assertEqual(len(paths), 2)
+        ys = [float(x) for x in paths[0].get("d")[1:].split()[1::2]]
+        self.assertLess(len(ys), 2000)
+        self.assertEqual(len(set(ys)), 2)           # both the spike and the base line survive
+
+    def test_the_wait_figure(self):
+        svg = traces.make(("figure", "wait"))
+        ET.fromstring(svg)
+        self.assertIn("VIH 2.0 V", svg)
