@@ -30,10 +30,12 @@ what the disassembler prints.
 - **Moves:** `MOV rd, src` loads, copies and takes constants, and leaves
   the flags alone. `MOV [address], rs` is a store: the operand order says
   which. `MOVS rd, src` is a `MOV` that sets N and Z.
-- **No aliases:** no `ST`, `MVI` or `CMPI` (only labels in the map), and
-  none of 1b's `PUSH`, `POP`, `LI`, `MFHI`, `MTHI`, `MFF` or `MTF`. A push
-  is `MOV -[sp], r1`, a pop `MOV r1, [sp]+`, `MFHI r1` is `MFSR r1, hi`.
-  The assembler says so when it meets one.
+- **HI and LO:** `MFHI r1`, `MTHI r1`, `MFLO r1` and `MTLO r1` are `MFSR`
+  and `MTSR` with `hi` and `lo`, and the disassembler prints them so.
+- **Labels, not instructions:** no `ST`, `MVI` or `CMPI` (only labels in
+  the map), and none of 1b's `PUSH`, `POP`, `LI`, `MFF` or `MTF`. A push is
+  `MOV -[sp], r1`, a pop `MOV r1, [sp]+`. The assembler says so when it
+  meets one.
 - **One operand:** `CLR`, `INC` and `DEC` take a register or any memory
   operand: `CLR byte [r1]+`, `INC [counter]`. `MOV [x], #0` is `CLR [x]`.
 - **Tables:** `[table + r2*4]` and `byte [table + r2*2]` index a table

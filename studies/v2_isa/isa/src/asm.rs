@@ -7,8 +7,9 @@
 //! The syntax is draft 1b's (studies/v1_isa/isa-v1b.md), with one spelling
 //! per instruction: a store is `MOV [address], rs`, and `MOV` and `CMP`
 //! pick their 7-bit forms themselves, so `ST`, `MVI` and `CMPI` are only
-//! labels in the map. There are no `PUSH`, `POP`, `LI` or `MFHI`-style
-//! aliases either: the assembler takes what the disassembler prints.
+//! labels in the map. `MFHI`, `MTHI`, `MFLO` and `MTLO` are the special
+//! registers HI and LO's `MFSR` and `MTSR`, and the disassembler prints
+//! them so: the assembler takes what the disassembler prints.
 
 use toolchain::asm::expr::Expr;
 use toolchain::asm::{AsmError, Ctx, Encoder, ExprRef, Mem, Operand, Size, kinds};
@@ -566,8 +567,6 @@ fn renamed(u: &str) -> Option<&'static str> {
         "LI" => "write MOV rd, #value",
         "MFF" => "write MFSR rd, flags",
         "MTF" => "write MTSR flags, rs",
-        "MFHI" => "write MFSR rd, hi",
-        "MTHI" => "write MTSR hi, rs",
         "ADDI" => "write ADD rd, #value",
         _ => return None,
     })
@@ -618,6 +617,18 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             let n = sr_number(ctx, &ops[0])?;
             let rs = reg_operand(&ops[1], "register")?;
             return one(p(0x0F, n, rs));
+        }
+        "MFHI" | "MFLO" | "MTHI" | "MTLO" => {
+            let [r @ Operand::Reg(_)] = ops else {
+                return err(format!("{u} needs one register"));
+            };
+            let r = reg_operand(r, "register")?;
+            let n = if u.ends_with("HI") { 1 } else { 2 };
+            return one(if u.starts_with("MF") {
+                p(0x0E, r, n)
+            } else {
+                p(0x0F, n, r)
+            });
         }
         "MFUR" | "MTUR" => {
             let (a, b) = two_regs(u, ops)?;

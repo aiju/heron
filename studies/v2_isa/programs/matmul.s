@@ -44,8 +44,8 @@ main:   SAVE r8-r11
         LEA  r7, [mat_c]        ; r7 = C[i][j], filled in order
 .row:   LEA  r5, [bt]           ; r5 = row j of bt = column j of B
 .col:   MOV  r6, r4             ; r6 walks along row i of A
-        MTSR hi, r0             ; HI:LO = sum = 0
-        MTSR lo, r0
+        MTHI r0                 ; HI:LO = sum = 0
+        MTLO r0
         MOV  r1, [r6]+          ; k = 0
         MOV  r2, [r5]+
         MULA r1, r2             ; sum += A[i][k] * B[k][j]
@@ -70,7 +70,7 @@ main:   SAVE r8-r11
         MOV  r1, [r6]+          ; k = 7
         MOV  r2, [r5]+
         MULA r1, r2
-        MFSR r3, lo             ; the sum's low word
+        MFLO r3                 ; the sum's low word
         MOV  [r7]+, r3
         CMP  r5, #bt + ROW * N  ; r5 has walked through all of bt: row done
         BNE  .col

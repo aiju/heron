@@ -244,8 +244,12 @@ def disassemble(ws, pc=0, symbols=None):
     if op == 0x08:
         return f"ADD.B4 {rr}", 1
     if op == 0x0E:
+        if lo in (1, 2):
+            return f"MF{SR_NAMES[lo].upper()} {R(hi)}", 1
         return f"MFSR {R(hi)}, {SR_NAMES.get(lo, lo)}", 1
     if op == 0x0F:
+        if hi in (1, 2):
+            return f"MT{SR_NAMES[hi].upper()} {R(lo)}", 1
         return f"MTSR {SR_NAMES.get(hi, hi)}, {R(lo)}", 1
     if op in TAGGED:
         return f"{TAGGED[op]} {rr}", 1

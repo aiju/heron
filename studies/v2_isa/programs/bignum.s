@@ -52,7 +52,7 @@ mulsmall:
 .limb:  MOV  r6, [r3]
         MULU r6, r1             ; HI:r6 = limb * k
         ADD  r6, r5             ; + carry in
-        MFSR r5, hi             ; (MFSR leaves the flags alone)
+        MFHI r5                 ; (MFHI leaves the flags alone)
         ADC  r5, r0             ; carry out: limb * k + carry < 2^32 * k
         MOV  [r3]+, r6
         CMP  r3, r4
@@ -80,14 +80,14 @@ printnum:
         MOV  r10, sp            ; the groups go on the stack above this
         MOV  r11, #tmp
         CLR  r0
-.group: MTSR hi, r0             ; nothing above the top limb
+.group: MTHI r0                 ; nothing above the top limb
         MOV  r3, r9
 .div:   MOV  r1, -[r3]          ; from the top limb down:
         DIVUL r1, r8            ; (HI:limb) / 10^9, remainder to HI
         MOV  [r3], r1
         CMP  r3, r11
         BNE  .div
-        MFSR r1, hi
+        MFHI r1
         MOV  -[sp], r1          ; the next 9-digit group
         MOVS r1, [r9 - 4]       ; the top limb is still there?
         BNE  .group

@@ -36,8 +36,8 @@ print_u32z:
 __pr_digits:                    ; print_u64 joins here, with r4 and r5 set up
 .div:   DEC  r2                 ; count down the minimum width
         DIVU r1, r5             ; r1 /= 10, HI = digit; Z = nothing left
-        MFSR r3, hi
-        MOV  -[sp], r3          ; (MFSR and stores leave the flags alone)
+        MFHI r3
+        MOV  -[sp], r3          ; (MFHI and stores leave the flags alone)
         BNE  .div
         MOV  r3, #'0'
         MOV  r6, #PR_OUT
@@ -59,7 +59,7 @@ print_u64:
         MOV  r5, #10
 .div:   DIVU  r2, r5            ; high word / 10, remainder in HI...
         DIVUL r1, r5            ; ...on top of the low word: (HI:low) / 10, HI = digit
-        MFSR  r3, hi
+        MFHI  r3
         MOV   -[sp], r3
         TST   r2, r2
         BNE   .div
