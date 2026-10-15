@@ -91,8 +91,11 @@ Every study since has compared the two or used 1b:
   the kernel study's v1bs. Section 3 collects what a 1b-based draft 2
   would change.
 - **Draft 2 on 1a.** Report 0004 recommended it. That recommendation is
-  withdrawn: it was based on faulty numbers (Emily, 2026-10-14).
-  Section 4 keeps what 1a would have wanted, for the record.
+  withdrawn: it rested on faulty numbers (Emily, 2026-10-14). The C
+  compiler's first figure, 1b at 0.978 of 1a's cycles, came from a
+  register-allocation bug (0.943 once fixed), and 1b's encoding isn't as
+  full as the report said ([3.1](#31-room-left-in-1bs-encoding)). Section
+  4 keeps what 1a would have wanted, for the record.
 
 ## 3. For a draft 2 built on 1b
 
