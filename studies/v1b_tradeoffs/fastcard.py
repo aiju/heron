@@ -13,12 +13,12 @@ generator for short cycles:
     cleared to 0 and 1), then the count from P = 19 - K to 15, then one
     tail tick T1. CLK is high for H0 and H1. K is 4 to 19.
   - the write window opens entering tick 2 and closes entering the tail.
-    It is LATE and not TAILX: LATE rises entering tick 2 and falls
-    entering H0; TAILX rises entering T1, set straight from the counter's
-    carry (74ACT163 CLK->RCO is 15.2 ns, so there's no time for an
-    inverter), and falls entering H1. No two of them change at the same
-    edge, so the window can't glitch. LATE also says when the bus read
-    latch may drive the data bus (MID).
+    It is MID and not TAILX: MID rises entering tick 2 and falls entering
+    H0; TAILX rises entering T1, set straight from the counter's carry
+    (74ACT163 CLK->RCO is 15.2 ns, so there's no time for an inverter),
+    and falls entering H1. They never change at the same edge, so the
+    window can't glitch. MID also says when the bus read latch may drive
+    the data bus, as on v1b_system's card.
   - a bus access holds the count from tick 3 until its transfer is done.
     BUSACC (decoded from the MAR and the microinstruction) settles about
     32 ns after the CPU clock, too late for the edge entering tick 2. The

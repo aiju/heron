@@ -50,10 +50,12 @@ from counting or a model, not from a netlist.
 ## 1. Summary
 
 - **The parts set the speed.** The microcycle is as long as 74HCT logic
-  and 55 ns memories make it. With 74F and 74ABT logic and 12 ns SRAM,
-  the 1b CPU's netlist, unchanged, needs 107 ns at worst case instead of
-  334 ns, and the chip-level simulator runs the exercise program at
-  102.5 ns. Not one chip more.
+  and 55 ns memories make it. With 74F and 74ABT logic and 12 ns SRAM
+  for the RAM and the register file, the 1b CPU's netlist, unchanged,
+  needs 159 ns at worst case instead of 334 ns, for no chips more; with
+  the control store in 12 ns SRAM as well (about 15 chips for its
+  loader), 107 ns, and the chip-level simulator runs the exercise
+  program down to 102.5 ns.
 - **The system's clock generator caps that gain at 15%.** It opens the
   write window 10 ticks into the cycle and holds bus accesses from count
   9, so no cycle is shorter than 13 ticks (260 ns), whatever the parts.
@@ -80,15 +82,16 @@ from counting or a model, not from a netlist.
   the 30-chip control store, the PC and the MAR.
 - **Packaging is the cheapest size lever.** 16-bit "Widebus" registers,
   buffers and transceivers, and 16-bit-wide SRAM for the register file,
-  save 53 chips with no change to the design. GALs, if allowed, would
+  save 53 chips with no change to the design, if the boards may use
+  fine-pitch packages. GALs, if allowed, would
   save roughly 70 to 100 more (*estimate*).
 - **A narrower datapath doesn't pay.** Once 16-bit parts are used, a
-  16-bit datapath saves only about 25 to 30 more chips, for 10 to 30%
-  more time.
+  16-bit datapath saves only about 30 more chips, for 10 to 30% more
+  time.
 
 **Recommended:** fast parts and the new clock generator (2.3 times at
 chip level with the flash control store, for no chips); 16-bit parts
-(−53); then decide on GALs, the SRAM control store,
+(−53) if the packages are allowed; then decide on GALs, the SRAM control store,
 the bus's multi-master and slot count, and the cycle levers
 ([section 13](#13-design-points), [section 15](#15-open-questions)).
 
@@ -115,9 +118,10 @@ multiply step's sign logic after the carry (334 ns), and every
 instruction's last cycle carries the fetch: RAM, decode ROM, the
 next-address multiplexer and the microcode ROM in a row, three 55 ns
 memories (309 ns). With fast logic, the memories dominate: the fetch path
-is about 150 ns with flash and 65 ns with SRAM; the slowest path becomes
-the register file, the 74F181/182 carry chain and the result multiplexer
-(107 ns, [results.md](0024-rfc-faster-smaller/results.md#parts)).
+is about 150 ns with flash and 65 ns with SRAM; with the control store in
+SRAM the slowest path is again the signed multiply step's, through the
+register file, the 74F181/182 carry chain, the sign logic and the result
+multiplexer (107 ns, [results.md](0024-rfc-faster-smaller/results.md#parts)).
 
 **The bus.** A transfer to the memory card holds its microcycle for
 620–680 ns, one to the I/O card for 880–960 ns. Only programs that use
@@ -193,8 +197,9 @@ pipelining that overlaps instructions. Even a pipelined machine with
 separate instruction and data memories stops at 1.40, held by the
 multiply and divide steps. With the microcycle's floor, that's roughly
 105–160 ns per instruction at best, against about 400 ns for the fast
-system and 1,200 ns for the system as built (the suite's microcycle time
-divided by its instructions).
+system with the control store in SRAM (490 ns with it in flash) and
+1,200 ns for the system as built (the suite's microcycle time divided by
+its instructions).
 
 **Chips.** An inventory of what a 32-bit microcoded 1b CPU needs at
 least, with 16-bit parts and without PLDs: the control store and its
@@ -217,7 +222,7 @@ parts; times for the suite's microcycles with four length classes on a
 | 74ACT, 74F181, 55 ns RAM and flash | 211 ns | 0.93 s | 1.9 |
 | 74ACT, 74F181, 12 ns RAM, 55 ns flash | 176 ns | 0.86 s | 2.0 |
 | 74F and 74ABT, 74F181, 12 ns RAM, 55 ns flash | 159 ns | 0.72 s | 2.4 |
-| the same, decode ROMs in 12 ns SRAM | 116 ns | 0.66 s | 2.7 |
+| the same, decode ROMs in 12 ns SRAM | 116 ns | 0.66 s | 2.6 |
 | the same, the whole control store in 12 ns SRAM | 107 ns | 0.51 s | 3.4 |
 
 "74F and 74ABT" takes the faster family for each type: 74F for gates,
@@ -226,7 +231,10 @@ buffers and transceivers ([parts.py](../studies/v1b_tradeoffs/parts.py)).
 The timing data gained the 74F161, the 74F299 and the 64K × 16
 IS61C6416AL for this, from their datasheets. With typical delays instead
 of worst case the fast parts gain less than 74HCT does (1.2 against
-1.6 times), since memory access times don't improve.
+1.6 times), since memory access times don't improve. (The slowest
+microinstructions of the two rows with flash decode a fetch through the
+standalone netlist's I/O fixture, a 20 ns stand-in on the data bus; with
+only the 12 ns RAM there, they'd need about 151 and 108 ns.)
 
 **The chip-level simulator agrees.** The unchanged netlist with the
 fastest set runs fib, sieve, strings and hello at 108 ns, and the
@@ -234,11 +242,13 @@ exercise program (every instruction, mode and trap) down to 102.5 ns,
 with no timing violation; bus contention drops from 37 ns to 6 ns.
 
 **The control store in SRAM** isn't free. Fast SRAM is empty at power-up,
-so something must fill it from a flash: about 10 64K × 16 SRAMs for the
-microcode, the length classes and the decode table, a 512 KB flash, and a
-loader that drives their 160 data pins and their addresses (about 22
-chips: 16-bit buffers, a counter, a decoder for the write strobes). About
-15 chips more than the 18 flash ROMs now (*estimate*). In return: 1.25
+so something must fill it from flash: about 10 64K × 16 SRAMs for the
+microcode, the length classes and the decode table, one to three flash
+chips for their images (1.25 MB in all, less if the loader skips the
+unused parts of the microcode's address space), and a loader that drives
+their 160 data pins and their addresses (about 22 chips: 16-bit buffers,
+a counter, a decoder for the write strobes). About 15 chips more than the
+18 flash ROMs now (*estimate*). In return: 1.25
 times the speed, and a writable control store, the user-defined opcodes
 of [RFC 0005](0005-rfc-ideas-direction.md). **open.** The decode ROMs alone
 in SRAM gain 9% for about 8 chips. **not recommended.**
@@ -269,13 +279,16 @@ against 1.82 s, 15% faster.
 clock generator for short cycles, and the bus interface unchanged:
 
 - **Two head ticks and one tail tick.** The length class comes through
-  the microinstruction register and a 74F153 about 30 ns after the CPU
-  clock, so the counter loads its preload entering tick 2. K is 4 to 19.
+  the microinstruction register and a 74F153 about 30 ns into the cycle
+  (19 ns after the CPU clock, which a flip-flop makes 9.5 ns after the
+  master clock's edge), so the counter loads its preload entering tick 2.
+  K is 4 to 19.
 - **The write window** opens entering tick 2 and closes entering the
-  tail, without a glitch: it's LATE and not TAILX, three flip-flop edges
-  that never coincide. TAILX is set straight from the counter's carry:
-  the 74ACT163's carry comes 15.2 ns into a 20 ns tick, with no time for
-  an inverter.
+  tail, without a glitch: it's MID and not TAILX, two J-K flip-flops that
+  never change at the same edge (MID rises entering tick 2 and falls
+  entering H0, TAILX rises entering the tail and falls entering H1).
+  TAILX is set straight from the counter's carry: the 74ACT163's carry
+  comes 15.2 ns into a 20 ns tick, with no time for an inverter.
 - **A bus access holds from tick 3,** because the bus-access decode settles
   32 ns after the CPU clock. The counter's carry is masked while it
   holds, so a bus access needs 6 ticks at least.
@@ -328,7 +341,7 @@ read, and a way past the case where the next instruction reads the
 register being written; the model assumes no stalls, so 0.64 is a bound.
 Together with the fast parts and the SRAM control store, the 32-bit
 memory and its prefetch buffer would bring the suite's microcycles to
-roughly 0.47 s (*estimate*), nearly four times the system as built.
+roughly 0.47 s (*estimate*), 3.8 times the system as built.
 
 ## 8. Smaller: packages and PLDs
 
@@ -339,10 +352,11 @@ file's 32K × 8 SRAMs make one 64K × 16. That saves 53 chips: 44 on the CPU
 card, 3 on the backplane, 6 on the memory card, with the netlists' logic
 unchanged ([results.md](0024-rfc-faster-smaller/results.md#16-bit-parts)).
 Report 0022 already recommends the 74ABT16245 for the bus drivers. The
-512K × 8 RAMs stay: no 5 V 16-bit SRAM is that deep. These parts come in
-TSSOP and SSOP only (0.5–0.635 mm pitch); 74ABT16823 and IS61C6416AL are
-still listed as active. **recommended**, if the boards may use them
-(open question 7 of RFC 0005, DIP or SOIC).
+512K × 8 RAMs stay: no 5 V 16-bit SRAM is that deep. The logic parts come
+in TSSOP and SSOP (0.5–0.635 mm pitch), the 64K × 16 SRAM in TSOP-II
+(0.8 mm); 74ABT16823 and IS61C6416AL are still listed as active.
+**recommended**, if the boards may use these packages (open question 7
+of RFC 0005, DIP or SOIC).
 
 **GALs.** Much of the system is state machines and decode logic, which
 22V10s (ATF22V10C-7, 7.5 ns, still made) absorb at several chips each.
@@ -388,7 +402,7 @@ microcode, for 4% more cycles on this hardware.
 
 ## 10. Smaller: a narrower datapath
 
-Draft 1 is "a 32-bit architecture, built narrow first" (RFC 0005). The
+Draft 1 is "a 32-bit architecture, built 16 bits wide first" (RFC 0005). The
 cycle model gives a 16-bit datapath 1.27 times the 1b hardware's cycles
 with a 32-bit register file and 1.51 with a 16-bit one; with a 32-bit
 memory bus and prefetch 1.07, against 0.80 for a 32-bit datapath with
@@ -396,9 +410,9 @@ the same memory. An 8-bit datapath takes 2.5–2.9 times.
 
 In chips, 44 of the CPU core's touch only bits 16–31 of the datapath.
 Less the PC and MAR, which stay 32 bits, and plus half the result
-multiplexer, a 16-bit datapath would save about 40. But 22 of those are
+multiplexer, a 16-bit datapath would save about 40. But 23 of those are
 octal registers, buffers and SRAMs that 16-bit parts halve anyway: after
-16-bit parts, a 16-bit datapath saves about 25–30 chips (15% of the
+16-bit parts, a 16-bit datapath saves about 30 chips (15–20% of the
 CPU), for 1.3–1.5 times the cycles of a 32-bit datapath with the same
 memory, at a microcycle about 15% shorter (its carry chain is shorter).
 Most of the CPU (the control store, the sequencer, the PC and MAR, the
@@ -410,13 +424,13 @@ flags, the memory interface) doesn't scale with width.
 | What | Chips |
 |---|---:|
 | Backplane | 51 |
-| CPU card: bus interface (state 15, address 6, data 7, access decode 4, crossings 4, interrupts 1) | 36 |
+| CPU card: bus interface (state 15, address 6, data 6.5, access decode 4, crossings 3.5, interrupts 1) | 36 |
 | Memory card, against about 5 chips for the same 2 MB on the CPU card | 31 |
 | I/O card's bus glue | about 5 |
 | **The bus** | **about 120** |
 
-The clock generator (14) isn't the bus's: variable-length cycles need it
-anyway.
+The clock generator and the length class (14) aren't the bus's:
+variable-length cycles need them anyway.
 
 Requirements that drive the bus's chips, from RFC 0014's decisions:
 
@@ -429,10 +443,11 @@ Requirements that drive the bus's chips, from RFC 0014's decisions:
 | a backplane at all | about 120 | a single-board machine with I/O on the CPU card (and wait states for its devices) |
 
 A single-master bus with 8 slots, no monitor and no IDs would save about
-30 chips. Of these, only the slot count isn't something a future card
+30–35 chips. Of these, only the slot count isn't something a future card
 needs: DMA (Ethernet, disk, video) wants mastering, and LOCK is decided
 for a multi-CPU system. **open**: 8 slots instead of 16; mastering
-limited to a few slots (RFC 0014's open idea), which saves about 5.
+limited to a few slots (RFC 0014's open idea, which estimated about 2
+chips for 8 master slots; fewer master slots save a few more).
 
 ## 12. Requirements worth another look
 
@@ -442,14 +457,14 @@ limited to a few slots (RFC 0014's open idea), which saves about 5.
 | 55 ns memories | the 1b hardware | the rest of it | 12 ns RAM: **recommended**; the control store in SRAM: **open** |
 | The clock generator's fixed window and hold point | v1b_system | any speed-up beyond 15% | one for short cycles: **recommended** |
 | No PLDs | RFC 0005, open question 8 | roughly 70–100 chips | GALs: **open** |
-| Through-hole-friendly packages | RFC 0005, open question 7 | 53 chips | 16-bit parts in TSSOP: **open** |
+| DIP or SOIC packages | RFC 0005, open question 7 | 53 chips | 16-bit parts in TSSOP: **recommended** if the packages are allowed |
 | Worst-case timing over −40–85 °C | every report so far | 1.2–1.6 times the time, against typical delays | design to typical: **not recommended** (the jumpers let a real board run faster) |
 | 16 slots | RFC 0014 | 7–12 chips | 8 slots: **open** |
 | Any slot a bus master | RFC 0014 (DMA, LOCK) | about 18 chips | a single master: **not recommended** |
 | A backplane of cards | RFC 0005, decided | about 120 chips | a single board: **not recommended** (decided) |
 | Hardware multiply and divide | draft 1 | about 10 chips | drop it: **not recommended** |
 | 1b's addressing modes | draft 1b | a few chips and microcode | drop them: **not recommended** |
-| A 32-bit datapath | the 1b hardware | 25–30 chips, after 16-bit parts | 16 bits: **not recommended** |
+| A 32-bit datapath | the 1b hardware | about 30 chips, after 16-bit parts | 16 bits: **not recommended** |
 
 ## 13. Design points
 
@@ -463,13 +478,17 @@ for the program suite's microcycles, and at chip level where it was run.
 | … in SRAM, with its loader | ~378 | 0.59 s (3.1×) | 0.82 s (2.7×) |
 | Fast, flash, 16-bit parts | ~310 | 0.74 s | |
 | … and GALs | ~210–240 | 0.74 s or less | |
-| … and a single-master, 8-slot bus | ~180–210 | | |
-| Fast, SRAM control store, 32-bit memory and prefetch | ~390 | ~0.47 s (3.9×) | |
+| … and a single-master, 8-slot bus | ~195–230 | | |
+| Fast, SRAM control store, 32-bit memory and prefetch | ~390 | ~0.47 s (3.8×) | |
 
 The second and third rows are measured, with the netlist as built apart
 from the CPU card's clock generator and parts (the third without the
 SRAM loader, which isn't in the netlist); the rest are *estimates* built
-from the measurements above.
+from the measurements above. With GALs, the bus's single master and 8
+slots save less than section 11's 30–35 chips, since the GALs already
+shrink the arbiter and the slot logic. The microcycle column is the 20
+programs of the `v1_isa` suite on the RTL model; the chip-level column is
+v1b_system's 22, with its memory card and CF card programs.
 
 ## 14. What was tried and didn't work
 
@@ -477,18 +496,21 @@ from the measurements above.
   flip-flop whose K input needed the counter's carry inverted: the carry
   comes 15.2 ns into the tick, and with the inverter the flip-flop missed
   it. The register file wrote across the next cycle's address change.
-- **Holding a bus access from tick 2** sampled the bus-access decode 0.9 ns
-  too early: it settles 32 ns after the CPU clock. Tick 3 costs about 9%
-  of the suite's time (a bus-capable microinstruction needs 6 ticks
-  instead of 4); decoding the MAR's slot bits when the MAR loads would
-  win it back.
+- **Holding a bus access from tick 2** sampled the bus-access decode too
+  early: it settles 32 ns after the CPU clock, about 41 ns into the
+  cycle, and the hold's input changed just after the sampling edge (by
+  0.9 ns in the run that caught it, by about 11 ns at worst). Tick 3
+  costs about 9% of the suite's time with the SRAM control store (2%
+  with flash, whose cycles are longer anyway): a bus-capable
+  microinstruction needs 6 ticks instead of 4. Decoding the MAR's slot
+  bits when the MAR loads would win it back.
 - **The original handshake** with the bus side relies on a long tail
   after every transfer: its done signal stays up for up to 9 ticks after
   the release. With short cycles the next access would have seen it and
   not held at all. This one was found by reading the timing, before it
   could fail in a run.
-- **Two tail ticks** would have avoided the window problem, at 14% of the
-  suite's time.
+- **Two tail ticks** would have avoided the window problem, at about 13%
+  of the suite's time with the SRAM control store (3% with flash).
 - **Upgrading every card's parts** made the I/O card's read data reach
   the CPU card's read latch inside the setup window of one of its early,
   discarded captures; only the CPU card's parts change now.
