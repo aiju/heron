@@ -910,9 +910,9 @@ static Value p_methods(Value *args, int argc)
 
 /* The prelude (0) and what the machine booted with (1), and where each
    line of them starts, worked out the first time they're asked for (in
-   VRAM: 1,024 lines of prelude and 7,168 of the rest at most). */
+   VRAM: 1,024 lines of prelude and 11,264 of the rest at most). */
 #define MAXLINES0 1024
-#define MAXLINES1 7168
+#define MAXLINES1 11264
 static unsigned src_len[2];
 static int nlines[2] = { -1, -1 };
 

@@ -1,0 +1,1391 @@
+# Egretica's calculus: derivatives, integrals, equations, series, sums,
+# limits, numbers to any number of digits, and matrices. algebra.eg has
+# the expressions.
+
+# a variable of its own for solve's substitutions (nobody can type a %)
+TVAR = sym("%t")
+
+# ---- derivatives -------------------------------------------------------------
+
+def deriv(e, x)
+  if e.free?(x) then return ZERO end
+  if e == x then return ONE end
+  if e.is_a?(Add) then return add(e.args.map { |a| deriv(a, x) }) end
+  if e.is_a?(Mul)
+    xs = e.args
+    ts = []
+    i = 0
+    while i < xs.size
+      d = deriv(xs[i], x)
+      if d != ZERO
+        ys = xs.copy
+        ys[i] = d
+        ts.push(mul(ys))
+      end
+      i += 1
+    end
+    return add(ts)
+  end
+  if e.is_a?(Pow)
+    b = e.base
+    p = e.expo
+    if p.free?(x) then return mul([p, pow(b, add([p, MINUS1])), deriv(b, x)]) end
+    if b.free?(x) then return mul([e, fn("log", [b]), deriv(p, x)]) end
+    return mul([e, add([mul([deriv(p, x), fn("log", [b])]), mul([p, deriv(b, x), pow(b, MINUS1)])])])
+  end
+  if e.is_a?(Fn) and e.args.size == 1
+    u = e.args[0]
+    d = deriv(u, x)
+    rule = DERIVS.get(e.name, nil)
+    f = if rule != nil then rule(u) else Fn(e.name + "'", [u]) end
+    return mul([f, d])
+  end
+  if e.is_a?(Lst) or e.is_a?(Eqn) then return e.rebuild(e.args.map { |a| deriv(a, x) }) end
+  raise("can't differentiate " + e.to_s)
+end
+
+def one_minus_sq(u) = sub(ONE, pow(u, TWO))
+DERIVS = [
+  "sin": { |u| fn("cos", [u]) },
+  "cos": { |u| negate(fn("sin", [u])) },
+  "tan": { |u| pow(fn("cos", [u]), int(-2)) },
+  "log": { |u| pow(u, MINUS1) },
+  "asin": { |u| pow(one_minus_sq(u), num(-1, 2)) },
+  "acos": { |u| negate(pow(one_minus_sq(u), num(-1, 2))) },
+  "atan": { |u| pow(add([ONE, pow(u, TWO)]), MINUS1) },
+  "sinh": { |u| fn("cosh", [u]) },
+  "cosh": { |u| fn("sinh", [u]) },
+  "tanh": { |u| pow(fn("cosh", [u]), int(-2)) },
+  "abs": { |u| div(u, fn("abs", [u])) }]
+
+# ---- integrals ---------------------------------------------------------------------
+#
+# A few methods, tried in turn: a table of integrals of a linear argument
+# (sin(3 x + 1)); fractions of polynomials, by partial fractions;
+# substitution, when the derivative of a part divides the rest; by parts,
+# for a polynomial times sin, cos, e^x, log or atan; powers of sin and
+# cos; and multiplying out. nil if none works.
+
+def integrate(f, x)
+  r = integ(f, x, 0)
+  if r == nil then return nil end
+  e = expand(r)
+  if e.leaves <= r.leaves then e else r end
+end
+
+def integ(f, x, depth)
+  if depth > 6 then return nil end
+  if f.free?(x) then return mul([f, x]) end
+  if f == x then return mul([HALF, pow(x, TWO)]) end
+  if f.is_a?(Add)
+    parts = []
+    for t in f.args
+      r = integ(t, x, depth)
+      if r == nil then return nil end
+      parts.push(r)
+    end
+    return add(parts)
+  end
+  cs = split_free(f, x)
+  if cs[0] != ONE
+    r = integ(cs[1], x, depth)
+    return if r == nil then nil else mul([cs[0], r]) end
+  end
+  r = int_table(f, x)
+  if r == nil then r = int_rational(f, x) end
+  if r == nil then r = int_subst(f, x, depth) end
+  if r == nil then r = int_parts(f, x, depth) end
+  if r == nil then r = int_trig_power(f, x, depth) end
+  if r == nil
+    g = expand(f)
+    if g != f then r = integ(g, x, depth + 1) end
+  end
+  if r == nil
+    g = expand(trig_sums(f))
+    if g != f then r = integ(g, x, depth + 1) end
+  end
+  r
+end
+
+# products of sines and cosines as sums: sin a cos b is
+# (sin(a + b) + sin(a - b))/2, sin^2 a is (1 - cos 2a)/2 and so on
+def trig_sums(e)
+  if e.is_a?(Add) then return add(e.args.map { |a| trig_sums(a) }) end
+  fs = []
+  for f in (if e.is_a?(Mul) then e.args else [e] end)
+    if f.is_a?(Pow) and trig?(f.base) and f.expo.is_a?(Num) and f.expo.int? and f.expo.p > 0
+      f.expo.p.times { |i| fs.push(f.base) }
+    else
+      fs.push(f)
+    end
+  end
+  ts = fs.select { |f| trig?(f) }
+  if ts.size < 2 then return e end
+  a = ts[0]
+  b = ts[1]
+  rest = []
+  skip = 0
+  for f in fs
+    if skip < 2 and (f.same?(a) or f.same?(b)) then skip += 1 else rest.push(f) end
+  end
+  u = a.args[0]
+  v = b.args[0]
+  s = add([u, v])
+  d = sub(u, v)
+  pair = if a.name == "sin" and b.name == "sin"
+    sub(fn("cos", [d]), fn("cos", [s]))
+  elif a.name == "cos" and b.name == "cos"
+    add([fn("cos", [d]), fn("cos", [s])])
+  elif a.name == "sin"
+    add([fn("sin", [s]), fn("sin", [d])])
+  else
+    add([fn("sin", [s]), negate(fn("sin", [d]))])
+  end
+  trig_sums(expand(mul(rest + [HALF, pair])))
+end
+def trig?(f) = f.is_a?(Fn) and (f.name == "sin" or f.name == "cos")
+
+# [the factors free of x, the rest]
+def split_free(f, x)
+  if not f.is_a?(Mul) then return [ONE, f] end
+  a = []
+  b = []
+  for t in f.args
+    if t.free?(x) then a.push(t) else b.push(t) end
+  end
+  [mul(a), mul(b)]
+end
+
+# [a, b] when u is a x + b, a and b free of x
+def linear(u, x)
+  cs = poly_of(u, x)
+  if cs == nil or cs.size != 2 then nil else [cs[1], cs[0]] end
+end
+
+def inv(e) = pow(e, MINUS1)
+
+INTEGRALS = [
+  "sin": { |u| negate(fn("cos", [u])) },
+  "cos": { |u| fn("sin", [u]) },
+  "tan": { |u| negate(fn("log", [fn("cos", [u])])) },
+  "log": { |u| sub(mul([u, fn("log", [u])]), u) },
+  "atan": { |u| sub(mul([u, fn("atan", [u])]), mul([HALF, fn("log", [add([ONE, pow(u, TWO)])])])) },
+  "asin": { |u| add([mul([u, fn("asin", [u])]), pow(one_minus_sq(u), HALF)]) },
+  "acos": { |u| sub(mul([u, fn("acos", [u])]), pow(one_minus_sq(u), HALF)) },
+  "sinh": { |u| fn("cosh", [u]) },
+  "cosh": { |u| fn("sinh", [u]) }]
+
+def int_table(g, x)
+  if g.is_a?(Pow)
+    b = g.base
+    n = g.expo
+    if n.free?(x)
+      l = linear(b, x)
+      if l != nil
+        if n == MINUS1 then return div(fn("log", [b]), l[0]) end
+        n1 = add([n, ONE])
+        return div(pow(b, n1), mul([l[0], n1]))
+      end
+      if b.is_a?(Fn) and b.name == "tan" and n == TWO
+        l = linear(b.args[0], x)
+        if l != nil then return sub(div(b, l[0]), x) end
+      end
+      if b.is_a?(Fn) and n == int(-2) and b.args.size == 1
+        u = b.args[0]
+        l = linear(u, x)
+        if l != nil and b.name == "cos" then return div(fn("tan", [u]), l[0]) end
+        if l != nil and b.name == "sin" then return negate(div(fn("cos", [u]), mul([l[0], fn("sin", [u])]))) end
+      end
+      return int_sqrt_quad(b, n, x)
+    end
+    if b.free?(x)
+      l = linear(n, x)
+      if l != nil
+        if b == EUL then return div(g, l[0]) end
+        return div(g, mul([l[0], fn("log", [b])]))
+      end
+    end
+    return nil
+  end
+  if g.is_a?(Fn) and g.args.size == 1
+    u = g.args[0]
+    l = linear(u, x)
+    rule = INTEGRALS.get(g.name, nil)
+    if l != nil and rule != nil then return div(rule(u), l[0]) end
+    return nil
+  end
+  if g.is_a?(Mul) and g.args.size == 2 then return int_exp_trig(g, x) end
+  nil
+end
+
+# (a + b x^2)^(1/2) and (a + b x^2)^(-1/2): asin and the like
+def int_sqrt_quad(b, n, x)
+  if n != HALF and n != num(-1, 2) then return nil end
+  cs = rat_poly_of(b, x)
+  if cs == nil or cs.size != 3 or not cs[1].zero? or not cs[0].p > 0 then return nil end
+  a = cs[0]
+  c = cs[2]
+  if c.neg?
+    k = q_abs(c)
+    s = fn("asin", [mul([x, pow(q_div(k, a), HALF)])])
+    if n == HALF then return add([mul([HALF, x, pow(b, HALF)]), mul([HALF, a, pow(k, num(-1, 2)), s])]) end
+    return mul([pow(k, num(-1, 2)), s])
+  end
+  if n == HALF then return nil end
+  mul([pow(c, num(-1, 2)), fn("log", [add([mul([x, pow(c, HALF)]), pow(b, HALF)])])])
+end
+
+# e^(a x) sin(b x) and e^(a x) cos(b x)
+def int_exp_trig(g, x)
+  e = g.args.find { |f| f.is_a?(Pow) and f.base == EUL }
+  t = g.args.find { |f| f.is_a?(Fn) and (f.name == "sin" or f.name == "cos") }
+  if e == nil or t == nil then return nil end
+  la = linear(e.expo, x)
+  lb = linear(t.args[0], x)
+  if la == nil or lb == nil then return nil end
+  a = la[0]
+  b = lb[0]
+  s = fn("sin", [t.args[0]])
+  c = fn("cos", [t.args[0]])
+  inner = if t.name == "sin" then sub(mul([a, s]), mul([b, c])) else add([mul([a, c]), mul([b, s])]) end
+  div(mul([e, inner]), add([pow(a, TWO), pow(b, TWO)]))
+end
+
+# partial fractions: (x - a)^-k gives a log or a power, and
+# (B x + C)/(x^2 + p x + q) a log and an atan (or a log, if it has real
+# roots)
+def int_rational(g, x)
+  nd = num_den(g)
+  n = rat_poly_of(nd[0], x)
+  d = rat_poly_of(nd[1], x)
+  if n == nil or d == nil or d.size < 2 then return nil end
+  ap = apart_parts(n, d)
+  if ap == nil then return nil end
+  out = [poly_integral(ap[0], x)]
+  for t in ap[1]
+    num_ = t[0]
+    f = t[1]
+    j = t[2]
+    fx = p_ex(f, x)
+    if f.size == 2
+      a = mul([num_[0], inv(f[1])])
+      if j == 1 then out.push(mul([a, fn("log", [fx])]))
+      else out.push(div(mul([a, pow(fx, int(1 - j))]), int(1 - j))) end
+    elif f.size == 3
+      out.push(int_quadratic(num_, f, j, x))
+    else
+      return nil
+    end
+  end
+  add(out)
+end
+
+def poly_integral(a, x)
+  ts = []
+  i = 0
+  while i < a.size
+    ts.push(mul([a[i], num(1, i + 1), pow(x, int(i + 1))]))
+    i += 1
+  end
+  add(ts)
+end
+
+# (B x + C)/(a x^2 + b x + c)^j: as B/2 (2 x + p)/q^j and the rest over
+# q^j, with q = x^2 + p x + r; j > 1 by the reduction formula
+def int_quadratic(top, f, j, x)
+  scale = q_div(ONE, Num(f[2].p ** j, f[2].q ** j))
+  bb = if top.size > 1 then top[1] else ZERO end
+  p = q_div(f[1], f[2])
+  r = q_div(f[0], f[2])
+  q = add([pow(x, TWO), mul([p, x]), r])
+  rest = q_sub(top[0], q_mul(bb, q_mul(p, HALF)))
+  out = []
+  if j == 1
+    out.push(mul([q_mul(bb, HALF), fn("log", [p_ex(f, x)])]))
+  else
+    out.push(mul([q_mul(bb, HALF), num(-1, j - 1), pow(q, int(1 - j))]))
+  end
+  out.push(mul([rest, int_quad_inv(p, r, j, x, q)]))
+  mul([scale, add(out)])
+end
+
+# 1/(x^2 + p x + r)^j
+def int_quad_inv(p, r, j, x, q)
+  d = q_sub(q_mul(Num(4, 1), r), q_mul(p, p))       # 4 r - p^2
+  shifted = add([mul([TWO, x]), p])                   # 2 x + p
+  if j > 1
+    c = q_mul(int(j - 1), d)
+    return add([div(shifted, mul([c, pow(q, int(j - 1))])),
+                mul([num(2 * (2 * j - 3), 1), q_div(ONE, c), int_quad_inv(p, r, j - 1, x, q)])])
+  end
+  if d.p > 0
+    s = num_pow(d, HALF)
+    return mul([TWO, inv(s), fn("atan", [div(shifted, s)])])
+  end
+  s = num_pow(q_neg(d), HALF)
+  mul([inv(s), fn("log", [div(sub(shifted, s), add([shifted, s]))])])
+end
+def q_neg(a) = Num(-a.p, a.q)
+
+# the parts of g with x in them that might be u in a substitution: and
+# x^2 for x^4 (and so on)
+def candidates(g, x, out, seen)
+  for a in g.args
+    if not a.free?(x) and a != x and not seen.has?(a.key)
+      seen[a.key] = true
+      out.push(a)
+      if a.is_a?(Pow) and a.base == x and a.expo.is_a?(Num) and a.expo.int?
+        d = 2
+        while d < a.expo.p
+          u = pow(x, int(d))
+          if a.expo.p % d == 0 and not seen.has?(u.key)
+            seen[u.key] = true
+            out.push(u)
+          end
+          d += 1
+        end
+      end
+    end
+    candidates(a, x, out, seen)
+  end
+  out
+end
+
+# e with u replaced by t: also the powers of u (x^4 for u = x^2, e^(2 x)
+# for u = e^x), and cos^2 as 1 - sin^2 for u = sin and the other way
+def subst_u(e, u, t)
+  if e == u then return t end
+  if e.is_a?(Pow)
+    ub = if u.is_a?(Pow) then u.base else u end
+    ue = if u.is_a?(Pow) then u.expo else ONE end
+    if e.base == ub
+      k = div(e.expo, ue)
+      if k.is_a?(Num) and k.int? then return pow(t, k) end
+    end
+    if u.is_a?(Fn) and e.base.is_a?(Fn) and e.base.args[0] == u.args[0] and e.expo.is_a?(Num) and e.expo.int? and e.expo.p % 2 == 0
+      pair = [u.name, e.base.name]
+      if pair == ["sin", "cos"] or pair == ["cos", "sin"]
+        return pow(sub(ONE, pow(t, TWO)), int(e.expo.p / 2))
+      end
+    end
+  end
+  xs = e.args
+  if xs.size == 0 then return e end
+  e.rebuild(xs.map { |a| subst_u(a, u, t) })
+end
+
+def int_subst(g, x, depth)
+  cs = candidates(g, x, [], Map.new)
+  if cs.size > 12 then cs = cs.take(12) end
+  # a new variable at each depth, so that one substitution inside
+  # another doesn't mix them up
+  t = sym("%t" + depth.to_s)
+  for u in cs
+    du = deriv(u, x)
+    if du == ZERO then continue end
+    q = subst_u(div(g, du), u, t)
+    if q.free?(x)
+      r = integ(q, t, depth + 1)
+      if r != nil then return replace(r, t.key, u) end
+    end
+  end
+  # a linear u (x sqrt(x + 1)): x is (t - b)/a
+  for u in cs
+    l = linear(u, x)
+    if l != nil and u != x
+      q = subst_u(g, u, t)
+      q = replace(q, x.key, div(sub(t, l[1]), l[0]))
+      r = integ(expand(div(q, l[0])), t, depth + 1)
+      if r != nil then return replace(r, t.key, u) end
+    end
+  end
+  nil
+end
+
+# by parts: log, atan and the like times a polynomial (u is the log); a
+# polynomial times sin, cos or e^x (u is the polynomial)
+def int_parts(g, x, depth)
+  fs = if g.is_a?(Mul) then g.args else [g] end
+  for f in fs
+    hard = f
+    if f.is_a?(Pow) and f.expo.is_a?(Num) and f.expo.int? and f.expo.p > 0 then hard = f.base end
+    if hard.is_a?(Fn) and ["log", "atan", "asin", "acos"].contains?(hard.name)
+      rest = div(g, f)
+      if poly_of(rest, x) != nil
+        v = integ(rest, x, depth + 1)
+        if v != nil
+          w = integ(expand(mul([deriv(f, x), v])), x, depth + 1)
+          if w != nil then return sub(mul([f, v]), w) end
+        end
+      end
+    end
+  end
+  if fs.size == 2
+    i = 0
+    while i < 2
+      p = fs[i]
+      h = fs[1 - i]
+      cs = poly_of(p, x)
+      if cs != nil and cs.size > 1
+        v = int_table(h, x)
+        if v != nil
+          w = integ(expand(mul([deriv(p, x), v])), x, depth + 1)
+          if w != nil then return sub(mul([p, v]), w) end
+        end
+      end
+      i += 1
+    end
+  end
+  nil
+end
+
+# sin^n and cos^n of a linear argument, n > 1, by the reduction formula
+def int_trig_power(g, x, depth)
+  if not (g.is_a?(Pow) and g.base.is_a?(Fn) and g.expo.is_a?(Num) and g.expo.int? and g.expo.p > 1) then return nil end
+  f = g.base
+  if f.name != "sin" and f.name != "cos" then return nil end
+  u = f.args[0]
+  l = linear(u, x)
+  if l == nil then return nil end
+  n = g.expo.p
+  s = fn("sin", [u])
+  c = fn("cos", [u])
+  first = if f.name == "sin" then negate(mul([pow(s, int(n - 1)), c])) else mul([pow(c, int(n - 1)), s]) end
+  rest = if n == 2 then x else integ(pow(f, int(n - 2)), x, depth + 1) end
+  if rest == nil then return nil end
+  add([div(first, mul([int(n), l[0]])), mul([num(n - 1, n), rest])])
+end
+
+# ---- equations -------------------------------------------------------------------
+#
+# solve(f, x) finds the x with f == 0: polynomials over the rationals by
+# their factors (rational roots, then the quadratic formula, then numbers
+# for what's left); others by undoing what's done to x (e^(2 x) = 3, so
+# 2 x = log(3)), after taking a part as a new variable if that makes a
+# polynomial (sin(x)^2 = sin(x)).
+
+def solve(f, x)
+  nd = num_den(together(f))
+  sols = solve_core(nd[0], x)
+  # not where the denominator is zero
+  out = []
+  for s in sols
+    d = at(nd[1], x, s)
+    if d != ZERO and not out.contains?(s) then out.push(s) end
+  end
+  sort_numbers(out)
+end
+
+def solve_core(f, x)
+  if f.free?(x)
+    if f == ZERO then raise("every " + x.to_s + " is a solution") end
+    return []
+  end
+  cs = poly_of(f, x)
+  if cs != nil
+    if cs.all? { |c| c.is_a?(Num) } then return solve_rat_poly(cs, x) end
+    if cs.size == 2 then return [together(negate(div(cs[0], cs[1])))] end
+    if cs.size == 3 then return quadratic(cs[2], cs[1], cs[0]).map { |r| together(r) } end
+    raise("can't solve a polynomial of degree {cs.size - 1} with letters in it")
+  end
+  r = isolate(f, ZERO, x)
+  if r != nil then return r end
+  # a part u with x in it, as a new variable: a polynomial in it?
+  for u in candidates(f, x, [], Map.new)
+    if u.is_a?(Add) then continue end
+    q = subst_u(f, u, TVAR)
+    if q.free?(x) and poly_of(q, TVAR) != nil
+      out = []
+      for v in solve_core(q, TVAR)
+        r = isolate(u, v, x)
+        if r != nil then out = out + r end
+      end
+      return out
+    end
+  end
+  raise("can't solve that for " + x.to_s)
+end
+
+def quadratic(a, b, c)
+  d = sub(pow(b, TWO), mul([Num(4, 1), a, c]))
+  r = pow(d, HALF)
+  m = inv(mul([TWO, a]))
+  [expand(mul([sub(negate(b), r), m])), expand(mul([add([negate(b), r]), m]))]
+end
+
+def solve_rat_poly(cs, x)
+  out = []
+  for fm in p_factor(cs)[1]
+    f = fm[0]
+    if f.size == 2
+      out.push(q_div(negate(f[0]), f[1]))
+    elif f.size == 3
+      out = out + quadratic(f[2], f[1], f[0])
+    else
+      out = out + solve_hard(f, x)
+    end
+  end
+  out
+end
+
+# no rational roots and degree > 2: in x^g alone, roots of roots;
+# otherwise the real roots as decimals
+def solve_hard(f, x)
+  g = 0
+  i = 1
+  while i < f.size
+    if not f[i].zero? then g = g.gcd(i) end
+    i += 1
+  end
+  if g > 1
+    # in y = x^2 (or x^g for an odd g)
+    e = if g % 2 == 0 then 2 else g end
+    h = []
+    i = 0
+    while i < f.size
+      h.push(f[i])
+      i += e
+    end
+    out = []
+    for r in solve_rat_poly(h, x)
+      rt = pow(r, num(1, e))
+      out.push(rt)
+      if e == 2 then out.push(negate(rt)) end
+    end
+    return out
+  end
+  real_roots(f.map { |c| c.p }).map { |v| dec(v, 40, 10) }
+end
+
+# numbers by size, the others after them as they came
+def sort_numbers(xs)
+  vals = xs.map { |s| try numval(s, 20, Map.new) catch e nil end }
+  idx = (0..<xs.size).to_list.sort_with { |i, j|
+    if vals[i] == nil then false elif vals[j] == nil then true else vals[i] < vals[j] end }
+  idx.map { |i| xs[i] }
+end
+
+# undo what's done to x: l = r with x in l once; a List of the solutions,
+# or nil
+def isolate(l, r, x)
+  while true
+    if l == x then return [r] end
+    if l.is_a?(Add) or l.is_a?(Mul)
+      with = l.args.select { |t| not t.free?(x) }
+      if with.size != 1 then return nil end
+      rest = l.args.select { |t| t.free?(x) }
+      r = if l.is_a?(Add) then sub(r, add(rest)) else div(r, mul(rest)) end
+      l = with[0]
+    elif l.is_a?(Pow) and l.expo.free?(x)
+      n = l.expo
+      root = pow(r, inv(n))
+      if n.is_a?(Num) and n.int? and n.p % 2 == 0
+        return both(isolate(l.base, root, x), isolate(l.base, negate(root), x))
+      end
+      r = root
+      l = l.base
+    elif l.is_a?(Pow) and l.base.free?(x)
+      r = div(fn("log", [r]), fn("log", [l.base]))
+      l = l.expo
+    elif l.is_a?(Fn) and l.args.size == 1
+      u = l.args[0]
+      if l.name == "sin" then return both(isolate(u, fn("asin", [r]), x), isolate(u, sub(PI, fn("asin", [r])), x)) end
+      if l.name == "cos" then return both(isolate(u, fn("acos", [r]), x), isolate(u, negate(fn("acos", [r])), x)) end
+      inverse = ["tan": "atan", "asin": "sin", "acos": "cos", "atan": "tan", "sinh": "asinh"].get(l.name, nil)
+      if l.name == "log"
+        r = pow(EUL, r)
+      elif inverse != nil
+        r = fn(inverse, [r])
+      else
+        return nil
+      end
+      l = u
+    else
+      return nil
+    end
+  end
+end
+
+def both(a, b)
+  if a == nil then return b end
+  if b == nil then return a end
+  out = a.copy
+  for s in b
+    if not out.contains?(s) then out.push(s) end
+  end
+  out
+end
+
+# A system: take an equation that's linear in one of the variables, solve
+# it for that one, put that in the others and go on; or one with only one
+# variable left. A List of Maps, variable name -> value.
+def solve_system(fs, vs)
+  fs = fs.select { |f| f != ZERO }
+  if fs.size == 0 then return [Map.new] end
+  # one that can't be zero: no solutions
+  if vs.size == 0 or fs.any? { |f| vs.all? { |v| f.free?(v) } and vars_of(f).size == 0 } then return [] end
+  for f in fs
+    for v in vs
+      cs = poly_of(f, v)
+      if cs != nil and cs.size == 2 and cs[1].is_a?(Num)
+        val = together(negate(div(cs[0], cs[1])))
+        return solve_rest(fs, vs, f, v, [val])
+      end
+    end
+  end
+  for f in fs
+    in_it = vs.select { |v| not f.free?(v) }
+    if in_it.size == 1 then return solve_rest(fs, vs, f, in_it[0], solve(f, in_it[0])) end
+  end
+  for f in fs
+    for v in vs
+      cs = poly_of(f, v)
+      if cs != nil and cs.size == 2
+        return solve_rest(fs, vs, f, v, [together(negate(div(cs[0], cs[1])))])
+      end
+    end
+  end
+  raise("can't solve that system")
+end
+
+def solve_rest(fs, vs, f, v, vals)
+  out = []
+  others = fs.select { |g| not g.same?(f) }
+  more = vs.select { |w| w != v }
+  for val in vals
+    gs = others.map { |g| together(replace(g, v.key, val)) }
+    for s in solve_system(gs, more)
+      w = val
+      for k in s.keys
+        w = replace(w, sym(k).key, s[k])
+      end
+      s[v.name] = simplify(w)
+      out.push(s)
+    end
+  end
+  out
+end
+
+# ---- series, sums and limits -------------------------------------------------------
+
+# a Taylor series, as [terms, the order of what's left]
+def series(f, x, a, n)
+  ts = []
+  g = f
+  fact = 1
+  k = 0
+  while k <= n
+    c = at(g, x, a)
+    if c == nil then raise("can't expand that around " + x.to_s + " = " + a.to_s) end
+    c = simplify(c)
+    if c != ZERO then ts.push(mul([c, num(1, fact), pow(sub(x, a), int(k))])) end
+    k += 1
+    fact = fact * k
+    if k <= n then g = deriv(g, x) end
+  end
+  ts
+end
+
+# sum of f for k from a to b: added up when a and b are numbers; a
+# polynomial in b for a polynomial f (the sum is one of a degree more:
+# found from that many values); a geometric series
+def sum_of(f, k, a, b)
+  if a.is_a?(Num) and b.is_a?(Num) and a.int? and b.int?
+    if b.p - a.p > 5000 then raise("that's too many terms to add") end
+    ts = []
+    i = a.p
+    while i <= b.p
+      ts.push(replace(f, k.key, int(i)))
+      i += 1
+    end
+    return add(ts)
+  end
+  cs = poly_of(f, k)
+  if cs != nil and a.is_a?(Num) and cs.all? { |c| c.is_a?(Num) }
+    # S(n) at n = a, a + 1, ... a + d + 1, then interpolated
+    d = cs.size
+    xs = []
+    ys = []
+    s = ZERO
+    i = 0
+    while i <= d
+      s = add([s, replace(f, k.key, add([a, int(i)]))])
+      xs.push(add([a, int(i)]))
+      ys.push(s)
+      i += 1
+    end
+    return factor_or_not(p_ex(lagrange(xs, ys), b))
+  end
+  # c r^k
+  sf = split_free(f, k)
+  g = sf[1]
+  if g.is_a?(Pow) and g.base.free?(k)
+    l = linear(g.expo, k)
+    if l != nil and l[0] == ONE
+      r = g.base
+      return simplify(mul([sf[0], pow(r, l[1]), div(sub(pow(r, add([b, ONE])), pow(r, a)), sub(r, ONE))]))
+    end
+  end
+  raise("can't add that up")
+end
+
+def factor_or_not(e)
+  f = factor(e)
+  if f.leaves < e.leaves then f else e end
+end
+
+# the polynomial through the points (xs[i], ys[i]), all numbers
+def lagrange(xs, ys)
+  out = []
+  i = 0
+  while i < xs.size
+    p = [ys[i]]
+    j = 0
+    while j < xs.size
+      if j != i
+        d = q_sub(xs[i], xs[j])
+        p = p_mul(p, [q_div(negate(xs[j]), d), q_div(ONE, d)])
+      end
+      j += 1
+    end
+    out = p_add(out, p)
+    i += 1
+  end
+  out
+end
+
+# the limit of f as x goes to a: the value there if it has one; for 0/0,
+# l'Hopital's rule; at infinity, x = 1/t with t going to 0; for f^g,
+# e^(the limit of g log f)
+def limit(f, x, a)
+  if a == INF or a == negate(INF)
+    t = sym("%u")
+    xr = if a == INF then inv(t) else negate(inv(t)) end
+    return limit(together(replace(f, x.key, xr)), t, ZERO)
+  end
+  v = at(f, x, a)
+  if v != nil and v.free?(INF) then return simplify(v) end
+  if f.is_a?(Pow) and not f.expo.free?(x) and not f.base.free?(x)
+    l = limit(mul([f.expo, fn("log", [f.base])]), x, a)
+    return simplify(pow(EUL, l))
+  end
+  # as a fraction; or a product f g as f/(1/g), for 0 times infinity
+  pairs = [num_den(together(f))]
+  if f.is_a?(Mul)
+    for g in f.args
+      pairs.push([div(f, g), inv(g)])
+    end
+  end
+  for nd in pairs
+    r = lhopital(nd[0], nd[1], x, a)
+    if r != nil then return r end
+  end
+  raise("can't find that limit")
+end
+
+# n/d at a, by l'Hopital's rule for 0/0 and infinity/infinity (where
+# neither has a value)
+def lhopital(n, d, x, a)
+  k = 0
+  while k < 6
+    vn = at(n, x, a)
+    vd = at(d, x, a)
+    if vn != nil and vd != nil
+      vn = simplify(vn)
+      vd = simplify(vd)
+      if vd != ZERO then return simplify(div(vn, vd)) end
+      if vn != ZERO
+        s = side_sign(div(n, d), x, a)
+        if s == 0 then raise("the limit isn't the same from both sides") end
+        return if s > 0 then INF else negate(INF) end
+      end
+    elif vn != nil or vd != nil
+      return nil
+    end
+    nd = num_den(together(div(deriv(n, x), deriv(d, x))))
+    n = nd[0]
+    d = nd[1]
+    k += 1
+  end
+  nil
+end
+
+# the sign of f just either side of a: 1, -1, or 0 if they're different
+def side_sign(f, x, a)
+  try
+    av = numval(a, 40, Map.new)
+    e = 1 << 20
+    l = numval(f, 40, Map.new.tap_set(x.name, av - e))
+    r = numval(f, 40, Map.new.tap_set(x.name, av + e))
+    if l > 0 and r > 0 then 1 elif l < 0 and r < 0 then -1 else 0 end
+  catch err
+    0
+  end
+end
+
+class Map
+  def tap_set(k, v)
+    self[k] = v
+    self
+  end
+end
+
+# ---- numbers to any precision ---------------------------------------------------------
+#
+# Fixed point in big integers: v stands for v / 2^p. numval works out an
+# expression that way, with the variables' values in env (by name, fixed
+# point too), or raises an error (a log of a negative number, x with no
+# value). Plots use p = 12, N 3.3 bits a digit and some more.
+
+def fx(n, p) = n << p
+def fx_mul(a, b, p) = (a * b) >> p
+def fx_div(a, b, p)
+  if b == 0 then raise("division by zero") end
+  (a << p) / b
+end
+
+CONST_CACHE = Map.new
+
+# atan(1/n) at 2^p: its series
+def atan_inv(n, p)
+  one = 1 << p
+  t = one / n
+  s = t
+  n2 = n * n
+  k = 1
+  while t != 0
+    t = t / n2
+    k += 2
+    if k % 4 == 3 then s -= t / k else s += t / k end
+  end
+  s
+end
+
+def fx_pi(p)
+  key = "pi" + p.to_s
+  v = CONST_CACHE.get(key, nil)
+  if v == nil
+    q = p + 10
+    v = (16 * atan_inv(5, q) - 4 * atan_inv(239, q)) >> 10
+    CONST_CACHE[key] = v
+  end
+  v
+end
+
+# log 2 = 2 atanh(1/3)
+def fx_ln2(p)
+  key = "ln2" + p.to_s
+  v = CONST_CACHE.get(key, nil)
+  if v == nil
+    q = p + 10
+    t = (1 << q) / 3
+    s = t
+    k = 1
+    while t != 0
+      t = t / 9
+      k += 2
+      s += t / k
+    end
+    v = (2 * s) >> 10
+    CONST_CACHE[key] = v
+  end
+  v
+end
+
+def fx_exp(a, p)
+  ln2 = fx_ln2(p)
+  k = a / ln2
+  r = a - k * ln2
+  one = 1 << p
+  s = one
+  t = one
+  n = 1
+  while t != 0
+    t = fx_mul(t, r, p) / n
+    s += t
+    n += 1
+  end
+  if k >= 0 then s << k else s >> -k end
+end
+
+def fx_log(a, p)
+  if a <= 0 then raise("log of a number that isn't positive") end
+  k = bits(a) - p - 1
+  m = if k >= 0 then a >> k else a << -k end
+  one = 1 << p
+  s = fx_div(m - one, m + one, p)
+  s2 = fx_mul(s, s, p)
+  sum = 0
+  t = s
+  n = 1
+  while t != 0
+    sum += t / n
+    t = fx_mul(t, s2, p)
+    n += 2
+  end
+  2 * sum + k * fx_ln2(p)
+end
+
+# the series for sin r (from t = r, n = 1) or cos r (from 1, 0), |r| <= pi/4
+def fx_series(r, t, n, p)
+  r2 = fx_mul(r, r, p)
+  s = t
+  while t != 0
+    t = -fx_mul(t, r2, p) / ((n + 1) * (n + 2))
+    s += t
+    n += 2
+  end
+  s
+end
+
+# sin a, or (cos) sin(a + pi/2): sin(r + k pi/2) for r within pi/4 of 0
+def fx_sin(a, p, cos)
+  half = fx_pi(p) / 2
+  q = (2 * a + half) / (2 * half)          # the nearest multiple of pi/2
+  r = a - q * half
+  k = (q + if cos then 1 else 0 end) % 4
+  v = if k % 2 == 0 then fx_series(r, r, 1, p) else fx_series(r, 1 << p, 0, p) end
+  if k >= 2 then -v else v end
+end
+
+def fx_sincos(a, p) = [fx_sin(a, p, false), fx_sin(a, p, true)]
+
+def fx_atan(a, p)
+  one = 1 << p
+  if a < 0 then return -fx_atan(-a, p) end
+  if a > one then return fx_pi(p) / 2 - fx_atan(fx_div(one, a, p), p) end
+  # twice halved: atan(a) = 2 atan(a / (1 + sqrt(1 + a^2)))
+  2.times { |i| a = fx_div(a, one + fx_sqrt(one + fx_mul(a, a, p), p), p) }
+  a2 = fx_mul(a, a, p)
+  s = a
+  t = a
+  n = 1
+  while t != 0
+    t = -fx_mul(t, a2, p)
+    n += 2
+    s += t / n
+  end
+  4 * s
+end
+
+def fx_sqrt(a, p)
+  if a < 0 then raise("square root of a negative number") end
+  (a << p).sqrt
+end
+
+def fx_asin(a, p)
+  one = 1 << p
+  if a.abs > one then raise("asin of a number past 1") end
+  if a.abs == one then return if a > 0 then fx_pi(p) / 2 else -fx_pi(p) / 2 end end
+  fx_atan(fx_div(a, fx_sqrt(one - fx_mul(a, a, p), p), p), p)
+end
+
+def numval(e, p, env)
+  if e.is_a?(Num) then return (e.p << p) / e.q end
+  if e.is_a?(Sym)
+    v = env.get(e.name, nil)
+    if v != nil then return v end
+    if e == PI then return fx_pi(p) end
+    if e == EUL then return fx_exp(1 << p, p) end
+    if e == IMAG then raise("that's a complex number") end
+    raise("no value for " + e.name)
+  end
+  if e.is_a?(Add) then return e.args.reduce(0) { |s, a| s + numval(a, p, env) } end
+  if e.is_a?(Mul) then return e.args.reduce(1 << p) { |s, a| fx_mul(s, numval(a, p, env), p) } end
+  if e.is_a?(Pow)
+    n = e.expo
+    if e.base == EUL then return fx_exp(numval(n, p, env), p) end
+    b = numval(e.base, p, env)
+    if n.is_a?(Num) and n.int? then return fx_ipow(b, n.p, p) end
+    if n == HALF then return fx_sqrt(b, p) end
+    if b < 0 and n.is_a?(Num) and n.q % 2 == 1
+      return fx_ipow(-fx_exp(fx_mul(fx_log(-b, p), (1 << p) / n.q, p), p), n.p, p)
+    end
+    if b == 0 then return 0 end
+    return fx_exp(fx_mul(numval(n, p, env), fx_log(b, p), p), p)
+  end
+  if e.is_a?(Fn) and e.args.size == 1
+    a = numval(e.args[0], p, env)
+    nm = e.name
+    one = 1 << p
+    if nm == "sin" then return fx_sin(a, p, false) end
+    if nm == "cos" then return fx_sin(a, p, true) end
+    if nm == "tan"
+      sc = fx_sincos(a, p)
+      return fx_div(sc[0], sc[1], p)
+    end
+    if nm == "log" then return fx_log(a, p) end
+    if nm == "atan" then return fx_atan(a, p) end
+    if nm == "asin" then return fx_asin(a, p) end
+    if nm == "acos" then return fx_pi(p) / 2 - fx_asin(a, p) end
+    if nm == "abs" then return a.abs end
+    if nm == "sinh" or nm == "cosh" or nm == "tanh"
+      ea = fx_exp(a, p)
+      eb = fx_div(one, ea, p)
+      if nm == "sinh" then return (ea - eb) / 2 end
+      if nm == "cosh" then return (ea + eb) / 2 end
+      return fx_div(ea - eb, ea + eb, p)
+    end
+    if nm == "factorial" and a >= 0 and a % one == 0 then return numval(fn("factorial", [int(a >> p)]), p, env) end
+  end
+  if e.is_a?(Dec) then return dec_val(e, p) end
+  raise("no number for " + e.to_s)
+end
+
+def fx_ipow(b, n, p)
+  one = 1 << p
+  if n < 0 then return fx_div(one, fx_ipow(b, -n, p), p) end
+  r = one
+  while n > 0
+    if n % 2 == 1 then r = fx_mul(r, b, p) end
+    b = fx_mul(b, b, p)
+    n = n / 2
+  end
+  r
+end
+
+def dec_val(d, p)
+  s = d.digits
+  neg = s[0] == "-"
+  if neg then s = s[1..(s.size - 1)] end
+  i = s.index(".")
+  frac = if i == nil then 0 else s.size - i - 1 end
+  m = s.replace(".", "").to_i
+  t = d.tens - frac
+  v = if t >= 0 then (m * 10 ** t) << p else (m << p) / 10 ** -t end
+  if neg then -v else v end
+end
+
+# v (fixed point, p bits) as a Dec of n significant digits
+def dec(v, p, n)
+  if v == 0 then return Dec("0.", 0) end
+  neg = v < 0
+  v = v.abs
+  # the power of ten of its first digit
+  k = (v >> p).to_s.size - 1
+  if v >> p == 0
+    k = -1
+    while ((v * 10 ** (-k)) >> p) == 0
+      k -= 1
+    end
+  end
+  s = n - 1 - k
+  m = if s >= 0 then ((v * 10 ** s) + (1 << (p - 1))) >> p else ((v >> p) + 10 ** (-s) / 2) / 10 ** (-s) end
+  if m.to_s.size > n
+    m = m / 10
+    k += 1
+  end
+  ds = m.to_s
+  sign = if neg then "-" else "" end
+  if k >= 0 and k < n.max(12)
+    while ds.size < k + 1
+      ds = ds + "0"
+    end
+    whole = ds[0..k]
+    rest = trim_zeros(if k + 1 < ds.size then ds[(k + 1)..(ds.size - 1)] else "" end)
+    return Dec(sign + whole + "." + rest, 0)
+  end
+  if k < 0 and k >= -5
+    return Dec(sign + "0." + "0" * (-k - 1) + trim_zeros(ds), 0)
+  end
+  Dec(sign + ds[0] + "." + trim_zeros(ds[1..(ds.size - 1)]), k)
+end
+
+def trim_zeros(s)
+  n = s.size
+  while n > 0 and s[n - 1] == "0"
+    n -= 1
+  end
+  if n == 0 then "" else s[0..(n - 1)] end
+end
+
+# N: the numbers in e worked out to n digits; what has variables stays
+def approx(e, n)
+  p = n * 10 / 3 + 24
+  if vars_of(e).size == 0 and not e.is_a?(Lst)
+    if e.has?(IMAG.key)
+      cs = poly_of(e, IMAG)
+      if cs != nil and cs.size == 2
+        re = if cs[0] == ZERO then ZERO else approx(cs[0], n) end
+        return add([re, mul([approx(cs[1], n), IMAG])])
+      end
+    end
+    return dec(numval(e, p, Map.new), p, n)
+  end
+  xs = e.args
+  if xs.size == 0 then e else e.rebuild(xs.map { |a| approx(a, n) }) end
+end
+
+# the real roots of a polynomial with whole coefficients, at 2^-40: sign
+# changes over the interval the roots are in, and bisection
+def real_roots(w)
+  n = w.size - 1
+  b = 1 + w.reduce(0) { |m, c| m.max(c.abs) } / w.last.abs
+  p = 40
+  lo = -(b << p)
+  steps = 400
+  h = (2 * (b << p)) / steps
+  out = []
+  x0 = lo
+  f0 = poly_sign(w, x0, p)
+  i = 1
+  while i <= steps
+    x1 = lo + i * h
+    f1 = poly_sign(w, x1, p)
+    if f1 == 0
+      out.push(x1)
+    elif f0 != 0 and f0 != f1
+      a = x0
+      c = x1
+      while c - a > 1
+        m = (a + c) / 2
+        fm = poly_sign(w, m, p)
+        if fm == f0 then a = m else c = m end
+      end
+      out.push(a)
+    end
+    x0 = x1
+    f0 = f1
+    i += 1
+  end
+  out
+end
+
+# the sign of the polynomial at v / 2^p, exactly
+def poly_sign(w, v, p)
+  r = 0
+  i = w.size - 1
+  sc = 1
+  while i >= 0
+    r = r * v + w[i] * sc
+    sc = sc << p
+    i -= 1
+  end
+  # r is the value times 2^(p n), and has the sign of the value
+  r <=> 0
+end
+
+# ---- whole numbers ---------------------------------------------------------------------
+
+# [[p, k], ...]: trial division, then Pollard's rho
+def factor_integer(n)
+  if n < 0 then return [[-1, 1]] + factor_integer(-n) end
+  if n < 2 then return [[n, 1]] end
+  ps = Map.new
+  rest = n
+  p = 2
+  while p < 1000 and p * p <= rest
+    while rest % p == 0
+      ps[p] = ps.get(p, 0) + 1
+      rest = rest / p
+    end
+    p += if p == 2 then 1 else 2 end
+  end
+  stack = if rest > 1 then [rest] else [] end
+  while stack.size > 0
+    m = stack.pop
+    if prime?(m)
+      ps[m] = ps.get(m, 0) + 1
+    else
+      d = rho(m)
+      stack.push(d)
+      stack.push(m / d)
+    end
+  end
+  ps.keys.sort.map { |k| [k, ps[k]] }
+end
+
+def powmod(b, e, m)
+  r = 1
+  b = b % m
+  while e > 0
+    if e % 2 == 1 then r = r * b % m end
+    b = b * b % m
+    e = e / 2
+  end
+  r
+end
+
+# Miller-Rabin with the first twelve primes as witnesses
+def prime?(n)
+  if n < 2 then return false end
+  for p in [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+    if n % p == 0 then return n == p end
+  end
+  d = n - 1
+  s = 0
+  while d % 2 == 0
+    d = d / 2
+    s += 1
+  end
+  for a in [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+    x = powmod(a, d, n)
+    if x != 1 and x != n - 1
+      k = 1
+      while k < s and x != n - 1
+        x = x * x % n
+        k += 1
+      end
+      if x != n - 1 then return false end
+    end
+  end
+  true
+end
+
+# a factor of n, by Pollard's rho with Brent's cycle finding: the
+# differences multiplied together, a gcd every 64 of them
+def rho(n)
+  c = 1
+  while true
+    y = 2
+    r = 1
+    q = 1
+    g = 1
+    x = y
+    ys = y
+    while g == 1
+      x = y
+      r.times { |i| y = (y * y + c) % n }
+      k = 0
+      while k < r and g == 1
+        ys = y
+        m = (r - k).min(64)
+        m.times { |i|
+          y = (y * y + c) % n
+          q = q * (x - y).abs % n }
+        g = q.gcd(n)
+        k += m
+      end
+      r = r * 2
+    end
+    if g == n
+      # too far: back to the last batch, one at a time
+      g = 1
+      while g == 1
+        ys = (ys * ys + c) % n
+        g = (x - ys).abs.gcd(n)
+      end
+    end
+    if g != n then return g end
+    c += 1
+  end
+end
+
+# ---- matrices: Lsts of Lsts -------------------------------------------------------------
+
+def matrix?(e) = e.is_a?(Lst) and e.args.size > 0 and e.args.all? { |r| r.is_a?(Lst) and r.args.size == e.args[0].args.size }
+def rows_of(m) = m.args.map { |r| r.args }
+
+def need_square(m)
+  if not matrix?(m) or m.args.size != m.args[0].args.size then raise("that's not a square matrix") end
+  rows_of(m)
+end
+
+# by minors: fine for the small ones that get typed in
+def det(rs)
+  n = rs.size
+  if n == 1 then return rs[0][0] end
+  if n == 2 then return sub(mul([rs[0][0], rs[1][1]]), mul([rs[0][1], rs[1][0]])) end
+  ts = []
+  j = 0
+  while j < n
+    minor = rs.drop(1).map { |r| r.select_index { |k| k != j } }
+    t = mul([rs[0][j], det(minor)])
+    ts.push(if j % 2 == 0 then t else negate(t) end)
+    j += 1
+  end
+  expand(add(ts))
+end
+
+class List
+  def select_index(f)
+    out = []
+    i = 0
+    while i < self.size
+      if f(i) then out.push(self[i]) end
+      i += 1
+    end
+    out
+  end
+end
+
+def transpose(rs) = (0..<rs[0].size).map { |j| rs.map { |r| r[j] } }
+
+# Gauss-Jordan on [m | 1]
+def inverse(rs)
+  n = rs.size
+  a = []
+  i = 0
+  while i < n
+    a.push(rs[i] + (0..<n).map { |j| if i == j then ONE else ZERO end })
+    i += 1
+  end
+  c = 0
+  while c < n
+    p = c
+    while p < n and simplify(a[p][c]) == ZERO
+      p += 1
+    end
+    if p == n then raise("that matrix has no inverse") end
+    t = a[p]
+    a[p] = a[c]
+    a[c] = t
+    pv = a[c][c]
+    a[c] = a[c].map { |v| together(div(v, pv)) }
+    r = 0
+    while r < n
+      if r != c and a[r][c] != ZERO
+        f = a[r][c]
+        k = 0
+        while k < 2 * n
+          a[r][k] = together(sub(a[r][k], mul([f, a[c][k]])))
+          k += 1
+        end
+      end
+      r += 1
+    end
+    c += 1
+  end
+  a.map { |row| row.drop(n) }
+end
+
+def dot(a, b)
+  if matrix?(a) and matrix?(b)
+    ra = rows_of(a)
+    cb = transpose(rows_of(b))
+    if ra[0].size != cb[0].size then raise("those matrices don't fit together") end
+    return Lst(ra.map { |r| Lst(cb.map { |c| dot_lists(r, c) }) })
+  end
+  if matrix?(a) and b.is_a?(Lst) then return Lst(rows_of(a).map { |r| dot_lists(r, b.args) }) end
+  if a.is_a?(Lst) and b.is_a?(Lst) then return dot_lists(a.args, b.args) end
+  raise("Dot needs lists")
+end
+
+def dot_lists(r, c)
+  if r.size != c.size then raise("those don't fit together") end
+  ts = []
+  i = 0
+  while i < r.size
+    ts.push(mul([r[i], c[i]]))
+    i += 1
+  end
+  expand(add(ts))
+end
+
+def matrix(rs) = Lst(rs.map { |r| Lst(r) })
+
+def eigenvalues(rs)
+  l = sym("%l")
+  n = rs.size
+  m = []
+  i = 0
+  while i < n
+    m.push((0..<n).map { |j| if i == j then sub(rs[i][j], l) else rs[i][j] end })
+    i += 1
+  end
+  out = []
+  for v in solve(det(m), l)
+    out.push(v)
+  end
+  out
+end

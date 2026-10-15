@@ -68,7 +68,7 @@ class Session:
                 raise Halted(f"the machine halted at {self.m.pc:08X}:\n{self.output}")
         return self
 
-    def boot(self, limit=60.0):
+    def boot(self, limit=120.0):
         """Run until the desktop is up: the first time it waits for input
         (it has written 'ready' to the console)."""
         end = self.m.cycles + int(limit * CLOCK_HZ)

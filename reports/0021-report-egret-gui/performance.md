@@ -11,69 +11,80 @@ time; and that as time at 3 MHz.
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Start the VM, draw the splash, read the source, compile the prelude (408 lines) | 11,922,917 | 3,974 ms |
-| Compile the desktop (3421 lines of Egret) and open its first windows | 58,881,353 | 19,627 ms |
-| Paint the first windows | 3,796,269 | 1,265 ms |
+| Start the VM, draw the splash, read the source, compile the prelude (408 lines) | 11,923,614 | 3,975 ms |
+| Compile the desktop (7689 lines of Egret) and open its first windows | 168,489,556 | 56,163 ms |
+| Paint the first windows | 3,798,689 | 1,266 ms |
 
 ## Idle
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
 | The event loop, a second with nothing to do | 186,000 | 62 ms |
-| The same with the clock moving its hands | 541,793 | 181 ms |
+| The same with the clock moving its hands | 539,575 | 180 ms |
 
 ## Workspace
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Type a character | 64,969 | 22 ms |
-| Delete it | 46,597 | 16 ms |
-| Return, with the lines below it redrawn | 554,162 | 185 ms |
-| Print it: `3 + 4 * 5` | 176,534 | 59 ms |
-| Print it: `2 ** 100` | 227,210 | 76 ms |
-| Scroll to the end (Ctrl-End) | 1,516,793 | 506 ms |
+| Type a character | 63,797 | 21 ms |
+| Delete it | 46,636 | 16 ms |
+| Return, with the lines below it redrawn | 579,602 | 193 ms |
+| Print it: `3 + 4 * 5` | 182,542 | 61 ms |
+| Print it: `2 ** 100` | 228,476 | 76 ms |
+| Scroll to the end (Ctrl-End) | 1,524,215 | 508 ms |
 
 ## Windows
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Open the desktop menu and close it (Escape) | 746,580 | 249 ms |
-| Drag the Workspace by 100 pixels (8 steps of its outline) and move it | 893,145 | 298 ms |
-| Raise the Transcript from behind the Workspace | 670,575 | 224 ms |
-| Close the Workspace (and paint the desktop under it) | 338,823 | 113 ms |
+| Open the desktop menu and close it (Escape) | 662,892 | 221 ms |
+| Drag the Workspace by 100 pixels (8 steps of its outline) and move it | 891,869 | 297 ms |
+| Raise the Transcript from behind the Workspace | 680,113 | 227 ms |
+| Close the Workspace (and paint the desktop under it) | 335,629 | 112 ms |
 
 ## Opening
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Transcript | 373,050 | 124 ms |
-| Browser | 2,058,675 | 686 ms |
-| Paint | 381,489 | 127 ms |
-| About | 8,256,624 | 2,752 ms |
+| Transcript | 375,298 | 125 ms |
+| Browser | 2,761,588 | 921 ms |
+| Egretica | 1,394,740 | 465 ms |
+| About | 8,257,717 | 2,753 ms |
 
 ## Browser
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| Pick a class (Ball) | 1,060,168 | 353 ms |
-| Pick a method and show its source (draw) | 3,717,101 | 1,239 ms |
+| Pick a class (Ball) | 1,064,427 | 355 ms |
+| Pick a method and show its source (draw) | 6,519,177 | 2,173 ms |
+
+## Egretica
+
+| | cycles | at 3 MHz |
+|---|---:|---:|
+| `D[x^2 Sin[x], x]` | 2,286,999 | 762 ms |
+| `Integrate[x^2 Exp[x], x]` | 6,095,586 | 2,032 ms |
+| `Integrate[1/(x^3 + 1), x]` | 9,092,895 | 3,031 ms |
+| `Solve[x^3 - 6 x^2 + 11 x - 6 == 0, x]` | 5,192,376 | 1,731 ms |
+| `Factor[x^6 - 1]` | 5,034,696 | 1,678 ms |
+| `Series[Tan[x], {x, 0, 7}]` | 16,073,647 | 5,358 ms |
+| `N[Pi, 50]` | 3,073,209 | 1,024 ms |
+| `Plot[{Sin[x], Cos[x]}, {x, 0, 2 Pi}]` | 14,101,008 | 4,700 ms |
 
 ## Gadgets
 
 | | cycles | at 3 MHz |
 |---|---:|---:|
-| A frame of the table it opens with (two to five balls moving), on average | 111,446 | 37 ms |
+| A frame of the table it opens with (two to five balls moving), on average | 110,787 | 37 ms |
 
 ## Running
 
 | | |
 |---|---:|
-| Life, generations a second (the glider gun) | 2.9 |
-| The Mandelbrot set, 160 x 120, up to 32 steps | 108.3 s |
 | Gadgets' table, frames a second (of 30) | 25 |
 | ... and balls in the bucket after 20 s | 4 |
-| The simulator on the host, natively: million cycles a second | 103 |
-| ... and million instructions a second | 25 |
+| The simulator on the host, natively: million cycles a second | 179 |
+| ... and million instructions a second | 29 |
 
 ## Where the cycles go
 
@@ -82,14 +93,14 @@ after it (the idle loop's included), by the kind of function they were in.
 
 | | an idle second | typing a character | print it: `2 ** 100` | opening the Browser |
 |---|---:|---:|---:|---:|
-| Egret's interpreter (the assembly loop) | 69% | 55% | 31% | 41% |
-| its slow path, in C | 0% | 11% | 7% | 3% |
-| allocation and collection | 13% | 8% | 5% | 5% |
-| drawing (the graphics library) | 0% | 10% | 35% | 40% |
+| Egret's interpreter (the assembly loop) | 69% | 56% | 32% | 48% |
+| its slow path, in C | 0% | 10% | 7% | 4% |
+| allocation and collection | 13% | 8% | 5% | 6% |
+| drawing (the graphics library) | 0% | 10% | 35% | 30% |
 | the window manager | 6% | 4% | 2% | 2% |
 | Egret's primitives (prims.c, gui_prims.c) | 10% | 7% | 4% | 4% |
-| the rest of the VM and the C library | 1% | 5% | 16% | 5% |
-| all, at 3 MHz | 62 ms | 37 ms | 146 ms | 1,123 ms |
+| the rest of the VM and the C library | 1% | 5% | 16% | 7% |
+| all, at 3 MHz | 62 ms | 37 ms | 147 ms | 1,315 ms |
 
 ## Sizes
 
@@ -97,16 +108,21 @@ after it (the idle loop's included), by the kind of function they were in.
 |---|---:|
 | The image: the VM, the graphics library and kernels, the fonts, the GUI's C | 316 KB |
 | ... of which code | 68 KB |
-| Egret's permanent space used once the desktop is up (classes, methods, symbols) | 173 of 224 KB |
-| Egret's heap in use then | 44 of 120 KB |
-| `lib/gui.eg`, lines of Egret | 605 |
+| Egret's permanent space used once the desktop is up (classes, methods, symbols) | 331 of 368 KB |
+| Egret's heap in use then | 50 of 120 KB |
+| `lib/gui.eg`, lines of Egret | 618 |
 | `lib/widgets.eg`, lines of Egret | 606 |
-| `lib/apps.eg`, lines of Egret | 1003 |
+| `lib/apps.eg`, lines of Egret | 616 |
 | `lib/gadgets.eg`, lines of Egret | 1156 |
-| `lib/desktop.eg`, lines of Egret | 51 |
+| `lib/algebra.eg`, lines of Egret | 1446 |
+| `lib/calculus.eg`, lines of Egret | 1391 |
+| `lib/egretica.eg`, lines of Egret | 738 |
+| `lib/notebook.eg`, lines of Egret | 1065 |
+| `lib/desktop.eg`, lines of Egret | 53 |
 | `src/gui.h`, lines | 90 |
-| `src/gui_map.h`, lines | 31 |
+| `src/gui_map.h`, lines | 39 |
 | `src/gui_prims.c`, lines | 1105 |
 | `src/gwm.c`, lines | 587 |
+| `src/host.c`, lines | 35 |
 | `src/rt_v1b.s`, lines | 87 |
 | `src/splash.c`, lines | 294 |

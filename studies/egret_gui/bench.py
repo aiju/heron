@@ -65,6 +65,39 @@ class Probe:
         s.run(1)
         return self.cost(lambda: s.key("d", ["ctrl"]), settle)
 
+    def egretica(self, line):
+        """Type a line into the notebook (on top) and press Return; returns
+        the cost of working it out and drawing the result."""
+        s = self.s
+        s.key("escape")
+        s.type(line)
+        s.run(1)
+
+        def enter():
+            s.key("return", dt=0.05)
+            wait_done(s)
+        return self.cost(enter, 0.5)
+
+
+def wait_done(s, limit=600):
+    """Run until the desktop's busy pointer comes (if it hasn't yet: the
+    keys typed before may still be being dealt with) and goes, which it
+    does when it's finished what it was doing."""
+    for _ in range(60):
+        if s.m.pointer == P_BUSY:
+            break
+        s.run(0.05)
+    for _ in range(int(limit / 0.05)):
+        if s.m.pointer != P_BUSY:
+            break
+        s.run(0.05)
+
+
+P_BUSY = 3
+EGRETICA = ["D[x^2 Sin[x], x]", "Integrate[x^2 Exp[x], x]", "Integrate[1/(x^3 + 1), x]",
+            "Solve[x^3 - 6 x^2 + 11 x - 6 == 0, x]", "Factor[x^6 - 1]", "Series[Tan[x], {x, 0, 7}]",
+            "N[Pi, 50]", "Plot[{Sin[x], Cos[x]}, {x, 0, 2 Pi}]"]
+
 
 def measure(log=print):
     rows = []                                   # (section, what, cycles)
@@ -121,30 +154,25 @@ def measure(log=print):
 
     # the applications, opened from a Workspace (its line, compiled and run)
     for name, code, settle in [("Transcript", "Transcript()", 3), ("Browser", "Browser()", 4),
-                               ("Paint", "Paint()", 3), ("About", "About()", 3)]:
+                               ("Egretica", "Notebook()", 4), ("About", "About()", 3)]:
         r = Probe()
         row("Opening", f"{name}", r.workspace_do(code, settle))
     r = Probe()
     r.workspace_do("Browser()", 4)
-    row("Browser", "Pick a class (Ball)", r.cost(lambda: r.s.click(100, 120), 2))
+    row("Browser", "Pick a class (Ball)", r.cost(lambda: r.s.click(100, 135), 2))
     row("Browser", "Pick a method and show its source (draw)", r.cost(lambda: r.s.click(300, 135), 2))
 
-    # Life and the Mandelbrot set
-    life = Probe()
-    life.workspace_do("Life()", 0.1)
-    life.s.run(30)
-    life.workspace_do("print(\"generation \" + DESK.find(Life).generation.to_s)", 1)
-    m = re.search(r"generation (\d+)", life.s.output)
-    gens = int(m.group(1))
-    mandel = Probe()
-    mandel.workspace_do("Mandel()", 0.1)
-    t0, c0 = time.perf_counter(), mandel.s.cycles
-    i0 = mandel.s.m.instructions
-    while "Mandelbrot: drawn" not in mandel.s.output and mandel.s.seconds < 1000:
-        mandel.s.run(5)
-    host = time.perf_counter() - t0
-    secs = float(re.search(r"Mandelbrot: drawn in ([\d.]+) s", mandel.s.output).group(1))
-    speed = ((mandel.s.cycles - c0) / host / 1e6, (mandel.s.m.instructions - i0) / host / 1e6)
+    # Egretica: lines worked out and drawn, one after another; and how
+    # fast the simulator goes on the host while it's busy with them
+    eg = Probe()
+    eg.workspace_do("Notebook()", 4)
+    host = 0.0
+    c0, i0 = eg.s.cycles, eg.s.m.instructions
+    for line in EGRETICA:
+        t0 = time.perf_counter()
+        row("Egretica", f"`{line}`", eg.egretica(line))
+        host += time.perf_counter() - t0
+    speed = ((eg.s.cycles - c0) / host / 1e6, (eg.s.m.instructions - i0) / host / 1e6)
 
     # Gadgets' table, as it opens, running for 20 s where nothing covers it
     gad = Probe()
@@ -162,7 +190,7 @@ def measure(log=print):
     st = Probe()
     st.workspace_do("print(\"stats \" + gui_stats().inspect)", 1)
     mem = [int(x) for x in re.search(r"stats \[([\d, ]+)\]", st.s.output).group(1).split(",")]
-    return {"rows": rows, "life": gens / 30, "mandel": secs, "image": build.image(), "host": speed,
+    return {"rows": rows, "image": build.image(), "host": speed,
             "gadgets": (gframes / 20, gcaught),
             "profiles": profiles(),
             "mem": mem,
@@ -184,8 +212,6 @@ def tables(r):
             section = sec
         out.append(f"| {what} | {cycles:,} | {ms(cycles):,.0f} ms |")
     out += ["", "## Running", "", "| | |", "|---|---:|",
-            f"| Life, generations a second (the glider gun) | {r['life']:.1f} |",
-            f"| The Mandelbrot set, 160 x 120, up to 32 steps | {r['mandel']:.1f} s |",
             f"| Gadgets' table, frames a second (of 30) | {r['gadgets'][0]:.0f} |",
             f"| ... and balls in the bucket after 20 s | {r['gadgets'][1]} |",
             f"| The simulator on the host, natively: million cycles a second | {r['host'][0]:.0f} |",
@@ -306,8 +332,8 @@ def profiles():
 
 
 # the middles of the desktop menu's items, from its top
-MENU = {"Workspace": 11, "Transcript": 29, "Browser": 47, "Clock": 72, "Life": 90,
-        "Gadgets": 108, "Mandelbrot": 126, "Paint": 144, "About": 169}
+MENU = {"Workspace": 11, "Transcript": 29, "Browser": 47, "Egretica": 72, "Gadgets": 90,
+        "Clock": 108, "About": 133}
 
 
 def menu(s, item, x=550, y=300):
@@ -317,9 +343,19 @@ def menu(s, item, x=550, y=300):
     s.click(x + 30, y + MENU[item], dt=1)
 
 
+def egretica_lines(s, lines):
+    for line in lines:
+        s.type(line)
+        s.run(0.5)
+        s.key("return", dt=0.05)
+        wait_done(s)
+        s.run(0.5)
+
+
 def screenshots(out=REPORT_DIR, log=print):
     """The report's pictures: the desktop at 8 and 1 bits per pixel with
-    some things done in it, the Browser, Gadgets, and the splash."""
+    some things done in it, the Browser, Gadgets, Egretica, and the
+    splash."""
     paths = []
     for depth in (3, 0):
         s = run.Session(depth=depth).boot()
@@ -332,22 +368,19 @@ def screenshots(out=REPORT_DIR, log=print):
         s.click(100, 232)                       # do it: print("Hello from the Workspace"), below the map's result, which wraps
         s.key("d", ["ctrl"])
         s.run(1)
-        menu(s, "Mandelbrot")
-        s.drag(130, 71, 530, 191)               # out to the right
-        while "Mandelbrot: drawn" not in s.output and s.seconds < 1000:
-            s.run(5)
+        menu(s, "Egretica")                     # at (54, 62)
+        s.key("return", dt=0.05)                # what it opens with: D[x^2 Sin[x], x]
+        wait_done(s)
+        egretica_lines(s, ["Integrate[1/(x^3 + 1), x]"])
         s.run(2)
         paths.append(os.path.join(out, f"desktop-{1 << depth}.png"))
         s.png(paths[-1])
     s = run.Session().boot()
     s.run(3)
-    menu(s, "Life")                             # at (54, 62)
-    s.drag(150, 71, 414, 250)                   # to the bottom right
-    s.run(2)
-    menu(s, "Browser", 450, 190)                # at (78, 84)
-    s.click(124, 142)                           # Ball
+    menu(s, "Browser")                          # at (54, 62)
+    s.click(100, 135)                           # Ball
     s.run(1)
-    s.click(324, 127)                           # bounce_off
+    s.click(300, 105)                           # bounce_off
     s.run(6)
     paths.append(os.path.join(out, "browser.png"))
     s.png(paths[-1])
@@ -367,6 +400,16 @@ def screenshots(out=REPORT_DIR, log=print):
     s.click(470, 300)                           # on the table
     s.run(1.2)
     paths.append(os.path.join(out, "gadgets.png"))
+    s.png(paths[-1])
+    # Egretica: an integral, an equation, a series and a plot
+    s = run.Session().boot()
+    s.run(3)
+    menu(s, "Egretica")                         # at (54, 62)
+    s.run(1)
+    s.key("escape")
+    egretica_lines(s, ["Integrate[x^2 Exp[x], x]", "Solve[x^2 - x - 1 == 0, x]", "Series[Tan[x], {x, 0, 7}]",
+                       "Plot[{Sin[x], Cos[x], Sin[x]/x}, {x, -2 Pi, 2 Pi}]"])
+    paths.append(os.path.join(out, "egretica.png"))
     s.png(paths[-1])
     # the splash, a few seconds into a cold boot
     s = run.Session()

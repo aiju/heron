@@ -174,7 +174,7 @@ int main(void)
     unsigned n, src_len, i;
     const unsigned char *in;
 #ifdef __HERON__
-    if ((unsigned)_end > INPUT_LO)
+    if ((unsigned)_end > INPUT_LO || (unsigned)_end > PERM_LO)
         fatal("the VM is too big for its memory map");
 #endif
     mem_init();

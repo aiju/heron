@@ -28,7 +28,8 @@ OURS = ["gui_prims.c", "gwm.c", "splash.c"]
 GFX_LIB = ["theme.c", "gfx.c", "line.c", "ellipse.c", "raster.c", "blit.c", "expand.c",
            "font.c", "ttf.c"]
 # the desktop, in the order it's compiled
-DESKTOP = ["gui.eg", "widgets.eg", "apps.eg", "gadgets.eg", "desktop.eg"]
+DESKTOP = ["gui.eg", "widgets.eg", "apps.eg", "gadgets.eg", "algebra.eg", "calculus.eg",
+           "egretica.eg", "notebook.eg", "desktop.eg"]
 
 
 def _inputs():

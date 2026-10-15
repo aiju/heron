@@ -27,15 +27,15 @@
 #define CLOCK_HZ 3000000          /* the timer counts the reference configuration's cycles */
 
 /* VRAM past the screen: the font cache, the save-under for menus, where
-   the lines of the source start (for the Browser), and a window's two
-   layers (for Gadgets) */
+   the lines of the source start (for the Browser), a window's two
+   layers (for Gadgets), and from 0xC0000 the console input (gui_map.h) */
 #define FONT_ARENA (VRAM + 0x4B000)
 #define FONT_ARENA_END (VRAM + 0x60000)
 #define SAVE_UNDER (VRAM + 0x60000)
 #define SAVE_UNDER_SIZE 0x1C000
-#define LINE_INDEX ((unsigned *)(VRAM + 0x80000))          /* 32 KB */
+#define LINE_INDEX ((unsigned *)(VRAM + 0x7C000))          /* 48 KB */
 #define BACKING (VRAM + 0x88000)
-#define BACKING_SIZE 0x78000
+#define BACKING_SIZE 0x38000
 
 void gui_wait(void);              /* EI; HALT; DI: sleep until the next tick (rt_v1b.s) */
 void gui_setup(int depth);        /* the screen, palette, fonts, window manager, timer */

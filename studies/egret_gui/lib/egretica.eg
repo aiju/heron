@@ -1,0 +1,738 @@
+# Egretica's language, after Mathematica's: D[x^2 Sin[x], x],
+# Integrate[1/(1 + x^2), x], Solve[x^2 == 2, x], Plot[Sin[x], {x, 0, 2 Pi}].
+# Function names go in either case, with [] or (): sin(x), solve(...).
+# Multiplication can be left out (2 x, x y, 2(x + 1)), a = 5 gives a a
+# value, f(x) := x^2 + 1 defines a function, % is the last result and
+# e /. x -> 2 puts 2 in for x. calc runs a line and gives back what came
+# out: an expression, a Plot, or a Help.
+
+# ---- reading --------------------------------------------------------------------
+
+def tokens(s)
+  out = []
+  i = 0
+  n = s.size
+  while i < n
+    c = s[i]
+    if c.space?
+      i += 1
+    elif c.digit? or (c == "." and i + 1 < n and s[i + 1].digit?)
+      j = i
+      while j < n and (s[j].digit? or (s[j] == "." and j + 1 < n and s[j + 1].digit?))
+        j += 1
+      end
+      out.push(["num", s[i..(j - 1)]])
+      i = j
+    elif c.letter?
+      j = i
+      while j < n and (s[j].letter? or s[j].digit? or s[j] == "_")
+        j += 1
+      end
+      out.push(["id", s[i..(j - 1)]])
+      i = j
+    else
+      two = if i + 1 < n then s[i..(i + 1)] else "" end
+      if ["==", ":=", "->", "/.", "**", "<=", ">="].contains?(two)
+        out.push(["op", two])
+        i += 2
+      elif "+-*/^()[]\{\},=!%.".contains?(c)
+        out.push(["op", c])
+        i += 1
+      else
+        raise("I don't know what " + c + " is")
+      end
+    end
+  end
+  out.push(["end", ""])
+  out
+end
+
+# what can be called with () as well as []: the functions and commands,
+# by their names in lower case, and what's been defined with :=
+FUNCS = ["sin": "sin", "cos": "cos", "tan": "tan", "log": "log", "ln": "log",
+         "exp": "exp", "sqrt": "sqrt", "arcsin": "asin", "asin": "asin", "arccos": "acos",
+         "acos": "acos", "arctan": "atan", "atan": "atan", "abs": "abs", "sinh": "sinh",
+         "cosh": "cosh", "tanh": "tanh", "factorial": "factorial"]
+COMMANDS = ["D", "Integrate", "Solve", "Expand", "Factor", "Simplify", "Together", "Apart",
+            "N", "Plot", "ParametricPlot", "PolarPlot", "Series", "Sum", "Limit", "FactorInteger",
+            "PrimeQ", "Det", "Inverse", "Transpose", "Eigenvalues", "IdentityMatrix", "Dot",
+            "Help", "Clear", "Length", "Table", "Range", "GCD", "LCM", "Binomial", "Fibonacci",
+            "Numerator", "Denominator"]
+def command_names
+  m = ["diff": "D", "integral": "Integrate", "taylor": "Series"]
+  for c in COMMANDS
+    if c.size > 1 then m[c.lower] = c end
+  end
+  m
+end
+COMMAND_NAMES = command_names
+
+VARS = Map.new          # name -> value
+DEFS = Map.new          # name -> [parameters, body]
+OUTS = []               # the results so far
+
+# a name's function or command, or nil: [:fn, "sin"] or [:cmd, "Solve"]
+# or [:def, "f"]
+def callable(name)
+  if DEFS.has?(name) then return [:def, name] end
+  if name == "D" or name == "N" then return [:cmd, name] end
+  low = name.lower
+  if FUNCS.has?(low) then return [:fn, FUNCS[low]] end
+  c = COMMAND_NAMES.get(low, nil)
+  if c != nil then [:cmd, c] else nil end
+end
+
+# A parser of the tokens into a tree of Lists: ["num", "3"], ["id", "x"],
+# ["call", "Sin", [args]], ["+", a, b] and so on.
+class Parser
+  def init(s)
+    @t = tokens(s)
+    @i = 0
+  end
+
+  def kind = @t[@i][0]
+  def text = @t[@i][1]
+  def at?(op) = @t[@i][0] == "op" and @t[@i][1] == op
+  def take
+    @i += 1
+    @t[@i - 1][1]
+  end
+  def expect(op)
+    if not self.at?(op)
+      what = if self.kind == "end" then "the end" else self.text end
+      raise("expected " + op + " but found " + what)
+    end
+    @i += 1
+  end
+
+  # a line: a definition, an assignment, or an expression
+  def line
+    r = nil
+    if self.kind == "id" and @t[@i + 1][1] == "=" and @t[@i + 1][0] == "op"
+      name = self.take
+      self.take
+      r = ["set", name, self.expr]
+    elif self.kind == "id" and @t.any? { |t| t[0] == "op" and t[1] == ":=" }
+      name = self.take
+      close = if self.at?("[") then "]" else ")" end
+      self.take
+      ps = []
+      while not self.at?(close)
+        p = self.take
+        if p.ends_with?("_") then p = p[0..(p.size - 2)] end
+        ps.push(p)
+        if not self.at?(close) then self.expect(",") end
+      end
+      self.take
+      self.expect(":=")
+      r = ["def", name, ps, self.expr]
+    else
+      r = self.expr
+    end
+    if self.kind != "end" then raise("didn't expect " + self.text + " here") end
+    r
+  end
+
+  def expr
+    e = self.rule
+    while self.at?("/.")
+      self.take
+      e = ["subs", e, self.rule]
+    end
+    e
+  end
+
+  def rule
+    e = self.equation
+    if self.at?("->")
+      self.take
+      return ["rule", e, self.equation]
+    end
+    e
+  end
+
+  def equation
+    e = self.sum
+    if self.at?("==") or self.at?("=")
+      self.take
+      return ["eq", e, self.sum]
+    end
+    e
+  end
+
+  def sum
+    e = self.product
+    while self.at?("+") or self.at?("-")
+      op = self.take
+      e = [op, e, self.product]
+    end
+    e
+  end
+
+  def starts_factor? = self.kind == "num" or self.kind == "id" or self.at?("(") or self.at?("\{") or self.at?("%")
+
+  def product
+    e = self.unary
+    while true
+      if self.at?("*") or self.at?("/") or self.at?(".")
+        op = self.take
+        e = [op, e, self.unary]
+      elif self.starts_factor?
+        e = ["*", e, self.power]
+      else
+        return e
+      end
+    end
+  end
+
+  def unary
+    if self.at?("-")
+      self.take
+      return ["neg", self.unary]
+    end
+    if self.at?("+")
+      self.take
+      return self.unary
+    end
+    self.power
+  end
+
+  def power
+    b = self.postfix
+    if self.at?("^") or self.at?("**")
+      self.take
+      return ["^", b, self.unary]
+    end
+    b
+  end
+
+  def postfix
+    e = self.primary
+    while self.at?("!")
+      self.take
+      e = ["call", "factorial", [e]]
+    end
+    e
+  end
+
+  def primary
+    k = self.kind
+    if k == "num" then return ["num", self.take] end
+    if k == "id"
+      name = self.take
+      if self.at?("[") or (self.at?("(") and callable(name) != nil)
+        close = if self.at?("[") then "]" else ")" end
+        self.take
+        return ["call", name, self.items(close)]
+      end
+      return ["id", name]
+    end
+    if self.at?("(")
+      self.take
+      e = self.expr
+      self.expect(")")
+      return e
+    end
+    if self.at?("\{")
+      self.take
+      return ["list", self.items("\}")]
+    end
+    if self.at?("%")
+      self.take
+      if self.kind == "num" then return ["out", self.take.to_i] end
+      return ["out", nil]
+    end
+    raise(if k == "end" then "that's not finished" else "didn't expect " + self.text + " here" end)
+  end
+
+  def items(close)
+    out = []
+    while not self.at?(close)
+      out.push(self.expr)
+      if not self.at?(close) then self.expect(",") end
+    end
+    self.take
+    out
+  end
+end
+
+# "2.5" as 5/2: decimals typed in are exact
+def read_num(s)
+  i = s.index(".")
+  if i == nil then return int(s.to_i) end
+  frac = s[(i + 1)..(s.size - 1)]
+  num((s[0..(i - 1)] + frac).to_i, 10 ** frac.size)
+end
+
+# ---- working it out ------------------------------------------------------------------
+
+# what calc gives back that isn't an expression
+class Help
+  def init(lines)
+    @lines = lines
+  end
+  attr lines
+  def to_s = @lines.join("\n")
+end
+
+class Plot
+  def init(curves, aspect)
+    @curves = curves          # [[x, y] or nil (a gap), ...], fixed point
+    @aspect = aspect          # whether x and y have the same scale
+  end
+  attr curves, aspect
+  def to_s = "<Plot of {@curves.size}>"
+end
+
+PLOT_P = 12                   # the plots' fixed point: 12 bits
+
+# a line typed in, worked out: OUTS has what each line gave, or nil
+def calc(s)
+  OUTS.push(nil)
+  i = OUTS.size - 1
+  r = ev(Parser(s).line)
+  if r.is_a?(Ex) or r.is_a?(Plot) then OUTS[i] = r end
+  r
+end
+
+def ev(a)
+  k = a[0]
+  if k == "num" then return read_num(a[1]) end
+  if k == "id" then return ev_name(a[1]) end
+  if k == "+" then return thread(ev(a[1]), ev(a[2]), { |x, y| add([x, y]) }) end
+  if k == "-" then return thread(ev(a[1]), ev(a[2]), { |x, y| sub(x, y) }) end
+  if k == "*" then return thread(ev(a[1]), ev(a[2]), { |x, y| mul([x, y]) }) end
+  if k == "/" then return thread(ev(a[1]), ev(a[2]), { |x, y| div(x, y) }) end
+  if k == "^" then return thread(ev(a[1]), ev(a[2]), { |x, y| pow(x, y) }) end
+  if k == "." then return dot(ev(a[1]), ev(a[2])) end
+  if k == "neg" then return thread(ev(a[1]), ONE, { |x, y| negate(x) }) end
+  if k == "list" then return Lst(a[1].map { |b| ev(b) }) end
+  if k == "eq" then return Eqn(ev(a[1]), ev(a[2])) end
+  if k == "rule" then return Rule(ev(a[1]), ev(a[2])) end
+  if k == "subs" then return subs(ev(a[1]), ev(a[2])) end
+  if k == "call" then return ev_call(a[1], a[2]) end
+  if k == "out"
+    n = a[1]
+    if n == nil
+      n = OUTS.size - 1
+      while n > 0 and OUTS[n - 1] == nil
+        n -= 1
+      end
+    end
+    if n < 1 or n >= OUTS.size or OUTS[n - 1] == nil then raise("there's no result " + if a[1] == nil then "yet" else n.to_s end) end
+    return OUTS[n - 1]
+  end
+  if k == "set"
+    v = ev(a[2])
+    VARS[a[1]] = v
+    return v
+  end
+  if k == "def"
+    DEFS[a[1]] = [a[2], a[3]]
+    return Help([a[1] + "(" + a[2].join(", ") + ") is defined"])
+  end
+  raise("can't work out " + k)
+end
+
+def ev_name(name)
+  v = VARS.get(name, nil)
+  if v != nil then return v end
+  if name == "Pi" or name == "pi" then return PI end
+  if name == "E" then return EUL end
+  if name == "I" then return IMAG end
+  if name == "Infinity" or name == "oo" or name == "infinity" then return INF end
+  if callable(name) != nil and DEFS.get(name, nil) == nil then raise(name + " needs [ ] after it") end
+  sym(name)
+end
+
+# arithmetic on lists goes element by element
+def thread(a, b, f)
+  if a.is_a?(Lst) and b.is_a?(Lst)
+    if a.args.size != b.args.size then raise("those lists aren't the same length") end
+    return Lst((0..<a.args.size).map { |i| thread(a.args[i], b.args[i], f) })
+  end
+  if a.is_a?(Lst) then return Lst(a.args.map { |x| thread(x, b, f) }) end
+  if b.is_a?(Lst) then return Lst(b.args.map { |y| thread(a, y, f) }) end
+  if not (a.is_a?(Ex) and b.is_a?(Ex)) then raise("can't do arithmetic on that") end
+  f(a, b)
+end
+
+# e /. x -> 2, or /. {x -> 2, y -> 3}
+def subs(e, rules)
+  rs = if rules.is_a?(Lst) then rules.args else [rules] end
+  for r in rs
+    if not r.is_a?(Rule) then raise("/. needs rules like x -> 2") end
+    e = replace(e, r.args[0].key, r.args[1])
+  end
+  e
+end
+
+# a name taken out of VARS while body runs: x in Plot[x^2, {x, 0, 1}],
+# even if x = 3
+def unbound(name, body)
+  old = VARS.get(name, nil)
+  VARS.delete(name)
+  try
+    r = body()
+  catch err
+    if old != nil then VARS[name] = old end
+    raise(err)
+  end
+  if old != nil then VARS[name] = old end
+  r
+end
+
+def ev_call(name, as)
+  c = callable(name)
+  if c == nil
+    # a function nobody defined: f(x) stays f(x)
+    return fn(name, as.map { |b| ev(b) })
+  end
+  if c[0] == :fn
+    xs = as.map { |b| ev(b) }
+    if xs.size != 1 then raise(name + " takes one argument") end
+    if xs[0].is_a?(Lst) then return Lst(xs[0].args.map { |y| apply_fn(c[1], y) }) end
+    return apply_fn(c[1], xs[0])
+  end
+  if c[0] == :def
+    d = DEFS[name]
+    if as.size != d[0].size then raise(name + " takes {d[0].size} arguments") end
+    vals = as.map { |b| ev(b) }
+    olds = d[0].map { |p| VARS.get(p, nil) }
+    i = 0
+    while i < vals.size
+      VARS[d[0][i]] = vals[i]
+      i += 1
+    end
+    r = nil
+    err = nil
+    try
+      r = ev(d[1])
+    catch e
+      err = e
+    end
+    i = 0
+    while i < vals.size
+      if olds[i] == nil then VARS.delete(d[0][i]) else VARS[d[0][i]] = olds[i] end
+      i += 1
+    end
+    if err != nil then raise(err) end
+    return r
+  end
+  self.send(("cmd_" + c[1]).to_sym, as)
+end
+
+def apply_fn(f, x)
+  if f == "exp" then return pow(EUL, x) end
+  if f == "sqrt" then return pow(x, HALF) end
+  fn(f, [x])
+end
+
+def need(as, n, usage)
+  if as.size < n[0] or as.size > n[1] then raise("use it like this: " + usage) end
+end
+
+# the variable: as given, or the only one there is
+def var_of(e, as, i)
+  if as.size > i
+    v = ev(as[i])
+    if not v.is_a?(Sym) then raise(v.to_s + " isn't a variable") end
+    return v
+  end
+  vs = vars_of(e)
+  if vs.size != 1 then raise("which variable? Say, like D[f, x]") end
+  vs[0]
+end
+
+# {x, a, b}: [x, a, b]
+def iterator(a, usage)
+  if a[0] != "list" or a[1].size != 3 or a[1][0][0] != "id" then raise("use it like this: " + usage) end
+  [sym(a[1][0][1]), ev(a[1][1]), ev(a[1][2])]
+end
+
+def an_int(e, what)
+  if not (e.is_a?(Num) and e.int?) then raise(what + " should be a whole number") end
+  e.p
+end
+
+def cmd_D(as)
+  need(as, [1, 3], "D[x^3, x], D[f, \{x, 2\}]")
+  if as.size > 1 and as[1][0] == "list"
+    it = as[1][1]
+    x = sym(it[0][1])
+    n = an_int(ev(it[1]), "how many times")
+    e = unbound(x.name, { ev(as[0]) })
+    n.times { |i| e = deriv(e, x) }
+    return e
+  end
+  e = ev(as[0])
+  x = var_of(e, as, 1)
+  e = unbound(x.name, { ev(as[0]) })
+  e = deriv(e, x)
+  if as.size > 2 then e = deriv(e, var_of(e, as, 2)) end
+  e
+end
+
+def cmd_Integrate(as)
+  need(as, [1, 2], "Integrate[x^2, x] or Integrate[x^2, \{x, 0, 1\}]")
+  if as.size == 2 and as[1][0] == "list"
+    it = iterator(as[1], "Integrate[x^2, \{x, 0, 1\}]")
+    x = it[0]
+    f = unbound(x.name, { ev(as[0]) })
+    r = integrate(f, x)
+    if r == nil then return Fn("Integrate", [f, Lst(it)]) end
+    hi = at(r, x, it[2])
+    lo = at(r, x, it[1])
+    if hi == nil or lo == nil then raise("that integral goes through infinity") end
+    return simplify(sub(hi, lo))
+  end
+  f = ev(as[0])
+  x = var_of(f, as, 1)
+  f = unbound(x.name, { ev(as[0]) })
+  r = integrate(f, x)
+  if r == nil then Fn("Integrate", [f, x]) else r end
+end
+
+def as_zero(e) = if e.is_a?(Eqn) then sub(e.args[0], e.args[1]) else e end
+
+def cmd_Solve(as)
+  need(as, [1, 2], "Solve[x^2 == 4, x], or Solve[\{x + y == 3, x - y == 1\}, \{x, y\}]")
+  e = ev(as[0])
+  if e.is_a?(Lst)
+    fs = e.args.map { |f| as_zero(f) }
+    vs = if as.size > 1 then ev(as[1]) else Lst(vars_of(e)) end
+    vs = if vs.is_a?(Lst) then vs.args else [vs] end
+    sols = solve_system(fs, vs)
+    return Lst(sols.map { |s| Lst(vs.select { |v| s.has?(v.name) }.map { |v| Rule(v, s[v.name]) }) })
+  end
+  f = as_zero(e)
+  x = var_of(f, as, 1)
+  Lst(solve(f, x).map { |s| Lst([Rule(x, s)]) })
+end
+
+def cmd_Expand(as) = expand(ev(as[0]))
+def cmd_Factor(as)
+  e = ev(as[0])
+  if e.is_a?(Num) and e.int? then return cmd_FactorInteger(as) end
+  factor(e)
+end
+def cmd_Simplify(as) = simplify(ev(as[0]))
+def cmd_Together(as) = together(ev(as[0]))
+def cmd_Apart(as)
+  e = ev(as[0])
+  apart(e, var_of(e, as, 1))
+end
+def cmd_Numerator(as) = num_den(together(ev(as[0])))[0]
+def cmd_Denominator(as) = num_den(together(ev(as[0])))[1]
+
+def cmd_N(as)
+  need(as, [1, 2], "N[Pi] or N[Pi, 50]")
+  n = if as.size > 1 then an_int(ev(as[1]), "the number of digits") else 10 end
+  if n < 1 or n > 1000 then raise("1 to 1000 digits, please") end
+  approx(ev(as[0]), n)
+end
+
+def cmd_Series(as)
+  need(as, [1, 2], "Series[Sin[x], \{x, 0, 7\}]")
+  x = nil
+  a = ZERO
+  n = 5
+  if as.size == 2 and as[1][0] == "list"
+    it = iterator(as[1], "Series[Sin[x], \{x, 0, 7\}]")
+    x = it[0]
+    a = it[1]
+    n = an_int(it[2], "the order")
+  end
+  f = ev(as[0])
+  if x == nil then x = var_of(f, as, 1) end
+  f = unbound(x.name, { ev(as[0]) })
+  Fn("Series", sort_terms(series(f, x, a, n)).reverse + [pow(sub(x, a), int(n + 1))])
+end
+
+def cmd_Sum(as)
+  need(as, [2, 2], "Sum[k^2, \{k, 1, n\}]")
+  it = iterator(as[1], "Sum[k^2, \{k, 1, n\}]")
+  f = unbound(it[0].name, { ev(as[0]) })
+  sum_of(f, it[0], it[1], it[2])
+end
+
+def cmd_Limit(as)
+  need(as, [2, 2], "Limit[Sin[x]/x, x -> 0]")
+  r = ev(as[1])
+  if not (r.is_a?(Rule) and r.args[0].is_a?(Sym)) then raise("use it like this: Limit[Sin[x]/x, x -> 0]") end
+  x = r.args[0]
+  f = unbound(x.name, { ev(as[0]) })
+  limit(f, x, r.args[1])
+end
+
+def cmd_FactorInteger(as)
+  n = an_int(ev(as[0]), "FactorInteger's number")
+  Fn("Factors", factor_integer(n).map { |pk| Lst([int(pk[0]), int(pk[1])]) })
+end
+def cmd_PrimeQ(as) = if prime?(an_int(ev(as[0]), "PrimeQ's number")) then sym("True") else sym("False") end
+def cmd_GCD(as) = int(as.reduce(0) { |g, b| g.gcd(an_int(ev(b), "GCD's numbers")) })
+def cmd_LCM(as) = int(as.reduce(1) { |l, b|
+  k = an_int(ev(b), "LCM's numbers")
+  l * k / l.gcd(k) })
+def cmd_Binomial(as)
+  n = an_int(ev(as[0]), "n")
+  k = an_int(ev(as[1]), "k")
+  r = 1
+  i = 0
+  while i < k
+    r = r * (n - i) / (i + 1)
+    i += 1
+  end
+  int(r)
+end
+def cmd_Fibonacci(as)
+  n = an_int(ev(as[0]), "n")
+  a = 0
+  b = 1
+  n.times { |i|
+    t = a + b
+    a = b
+    b = t }
+  int(a)
+end
+
+def cmd_Det(as) = det(need_square(ev(as[0])))
+def cmd_Inverse(as) = matrix(inverse(need_square(ev(as[0]))))
+def cmd_Transpose(as)
+  m = ev(as[0])
+  if not matrix?(m) then raise("that's not a matrix") end
+  matrix(transpose(rows_of(m)))
+end
+def cmd_Eigenvalues(as) = Lst(eigenvalues(need_square(ev(as[0]))))
+def cmd_IdentityMatrix(as)
+  n = an_int(ev(as[0]), "the size")
+  matrix((0..<n).map { |i| (0..<n).map { |j| if i == j then ONE else ZERO end } })
+end
+def cmd_Dot(as) = dot(ev(as[0]), ev(as[1]))
+def cmd_Length(as)
+  e = ev(as[0])
+  int(if e.is_a?(Lst) then e.args.size else 0 end)
+end
+
+def cmd_Table(as)
+  need(as, [2, 2], "Table[k^2, \{k, 1, 10\}]")
+  it = iterator(as[1], "Table[k^2, \{k, 1, 10\}]")
+  a = an_int(it[1], "the start")
+  b = an_int(it[2], "the end")
+  if b - a > 1000 then raise("that's too long a table") end
+  Lst((a..b).map { |i| unbound(it[0].name, {
+    VARS[it[0].name] = int(i)
+    ev(as[0]) }) })
+end
+def cmd_Range(as)
+  n = an_int(ev(as[0]), "Range's number")
+  if n > 1000 then raise("that's too long") end
+  Lst((1..n).map { |i| int(i) })
+end
+
+def cmd_Clear(as)
+  for a in as
+    if a[0] == "id"
+      VARS.delete(a[1])
+      DEFS.delete(a[1])
+    end
+  end
+  if as.size == 0
+    for k in VARS.keys
+      VARS.delete(k)
+    end
+    for k in DEFS.keys
+      DEFS.delete(k)
+    end
+  end
+  Help(["cleared"])
+end
+
+# ---- plots ---------------------------------------------------------------------------
+
+# the samples of f over x from a to b: [x, y] in fixed point, nil where
+# it has no value
+def samples(f, x, a, b, n)
+  p = PLOT_P
+  av = numval(a, p, Map.new)
+  bv = numval(b, p, Map.new)
+  if bv <= av then raise("the plot's range goes backwards") end
+  env = Map.new
+  out = []
+  i = 0
+  while i <= n
+    xv = av + (bv - av) * i / n
+    env[x.name] = xv
+    y = nil
+    try
+      y = numval(f, p, env)
+    catch err
+      y = nil
+    end
+    out.push(if y == nil then nil else [xv, y] end)
+    i += 1
+  end
+  out
+end
+
+def cmd_Plot(as)
+  need(as, [2, 2], "Plot[Sin[x], \{x, 0, 2 Pi\}], or Plot[\{Sin[x], Cos[x]\}, \{x, 0, 2 Pi\}]")
+  it = iterator(as[1], "Plot[Sin[x], \{x, 0, 2 Pi\}]")
+  f = unbound(it[0].name, { ev(as[0]) })
+  fs = if f.is_a?(Lst) then f.args else [f] end
+  if fs.size > 4 then raise("four curves at most") end
+  Plot(fs.map { |g| samples(g, it[0], it[1], it[2], 120) }, false)
+end
+
+def cmd_ParametricPlot(as)
+  need(as, [2, 2], "ParametricPlot[\{Cos[3 t], Sin[2 t]\}, \{t, 0, 2 Pi\}]")
+  it = iterator(as[1], "ParametricPlot[\{Cos[3 t], Sin[2 t]\}, \{t, 0, 2 Pi\}]")
+  f = unbound(it[0].name, { ev(as[0]) })
+  if not (f.is_a?(Lst) and f.args.size == 2) then raise("ParametricPlot needs \{x, y\}") end
+  Plot([zip_samples(samples(f.args[0], it[0], it[1], it[2], 160), samples(f.args[1], it[0], it[1], it[2], 160))], true)
+end
+
+def cmd_PolarPlot(as)
+  need(as, [2, 2], "PolarPlot[1 + Cos[t], \{t, 0, 2 Pi\}]")
+  it = iterator(as[1], "PolarPlot[1 + Cos[t], \{t, 0, 2 Pi\}]")
+  t = it[0]
+  r = unbound(t.name, { ev(as[0]) })
+  # r at each t, then x = r cos t and y = r sin t
+  pts = samples(r, t, it[1], it[2], 160).map { |s|
+    if s == nil then nil
+    else
+      sc = fx_sincos(s[0], PLOT_P)
+      [fx_mul(s[1], sc[1], PLOT_P), fx_mul(s[1], sc[0], PLOT_P)]
+    end }
+  Plot([pts], true)
+end
+
+def zip_samples(xs, ys)
+  out = []
+  i = 0
+  while i < xs.size
+    out.push(if xs[i] == nil or ys[i] == nil then nil else [xs[i][1], ys[i][1]] end)
+    i += 1
+  end
+  out
+end
+
+def cmd_Help(as) = Help([
+  "Egretica: a little computer algebra system, in Egret.",
+  "Type a line and press Return. Up and Down: earlier lines.",
+  "",
+  "  D[x^2 Sin[x], x]          Integrate[x Exp[x], x]",
+  "  Integrate[Sin[x]^2, \{x, 0, Pi\}]   Solve[x^2 - x - 1 == 0, x]",
+  "  Solve[\{x + y == 3, x y == 2\}, \{x, y\}]   Factor[x^6 - 1]",
+  "  Expand[(x + y)^4]   Simplify[Sin[x]^2 + Cos[x]^2]",
+  "  Together[1/x + 1/(x + 1)]   Apart[1/(x^2 - 1)]",
+  "  N[Pi, 50]   N[Sqrt[2]]   Series[Exp[x], \{x, 0, 6\}]",
+  "  Sum[k^2, \{k, 1, n\}]   Limit[Sin[x]/x, x -> 0]",
+  "  Plot[\{Sin[x], Cos[x]\}, \{x, 0, 2 Pi\}]",
+  "  ParametricPlot[\{Cos[3 t], Sin[2 t]\}, \{t, 0, 2 Pi\}]",
+  "  PolarPlot[1 + Cos[t], \{t, 0, 2 Pi\}]",
+  "  Det[\{\{a, b\}, \{c, d\}\}]   Eigenvalues[\{\{2, 1\}, \{1, 2\}\}]",
+  "  FactorInteger[2^32 + 1]   100!   f(x) := x^2 + 1   f(3)",
+  "  a = 5   %   x^2 /. x -> 3   Clear[a]",
+  "",
+  "Names go in either case, with [ ] or ( ): sin(x) works too."])

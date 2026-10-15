@@ -1,0 +1,1065 @@
+# Egretica's window: a notebook, after Mathematica's. A line typed at the
+# bottom is worked out (egretica.eg) and comes back laid out as maths:
+# fractions stacked, powers raised, roots under a radical sign; or as a
+# plot. The font has only ASCII, so pi, the integral sign, arrows and the
+# like are drawn.
+
+# ---- boxes ------------------------------------------------------------------
+#
+# Maths is laid out in boxes: a width, and how far it goes above (a) and
+# below (d) its baseline. draw(win, x, y) draws one with its baseline at y.
+
+MF = nil                # the fonts: [font, ascent, descent, axis] for the
+SF = nil                # main size and the size of scripts
+
+def math_fonts
+  if MF == nil
+    MF = [gui_font(15), 12, 4, 5]
+    SF = [gui_font(11), 9, 3, 4]
+  end
+end
+
+# the fonts made, all their characters rasterised (measuring them does
+# it), and the shades for anti-aliasing black on white worked out (a
+# search of the palette for each, done by drawing off the screen): five
+# seconds at 3 MHz, done as the desktop starts, so that the first result
+# doesn't wait for it
+def warm_math_fonts
+  math_fonts()
+  s = (32..126).map { |c| c.chr }.join("")
+  gui_text_width(s, MF[0])
+  gui_text_width(s, SF[0])
+  gui_text(0, -100, -100, "x", PAL.black, PAL.white, MF[0])
+end
+
+class Bx
+  attr w, a, d
+  def h = @a + @d
+end
+
+class TBx < Bx
+  def init(s, f)
+    @s = s
+    @f = f
+    @w = gui_text_width(s, f[0])
+    @a = f[1]
+    @d = f[2]
+  end
+  def draw(win, x, y) = gui_text(win.id, x, y, @s, PAL.black, PAL.white, @f[0])
+end
+
+class SpBx < Bx
+  def init(w)
+    @w = w
+    @a = 0
+    @d = 0
+  end
+  def draw(win, x, y) = nil
+end
+
+class HBx < Bx
+  def init(kids)
+    @kids = kids
+    @w = kids.reduce(0) { |s, k| s + k.w }
+    @a = kids.reduce(0) { |m, k| m.max(k.a) }
+    @d = kids.reduce(0) { |m, k| m.max(k.d) }
+  end
+  attr kids
+  def draw(win, x, y)
+    for k in @kids
+      k.draw(win, x, y)
+      x += k.w
+    end
+  end
+end
+
+class FracBx < Bx
+  def init(top, bot, f)
+    @top = top
+    @bot = bot
+    @axis = f[3]
+    @w = top.w.max(bot.w) + 4
+    @a = @axis + 2 + top.h
+    @d = bot.h + 2 - @axis
+  end
+  def draw(win, x, y)
+    bar = y - @axis
+    win.fill(x + 1, bar, @w - 2, 1, PAL.black)
+    @top.draw(win, x + (@w - @top.w) / 2, bar - 2 - @top.d)
+    @bot.draw(win, x + (@w - @bot.w) / 2, bar + 2 + @bot.a)
+  end
+end
+
+class SupBx < Bx
+  def init(base, sup)
+    @base = base
+    @sup = sup
+    @up = (base.a - sup.a / 2).max(6)
+    @w = base.w + sup.w + 1
+    @a = base.a.max(@up + sup.a)
+    @d = base.d.max(sup.d - @up)
+  end
+  def draw(win, x, y)
+    @base.draw(win, x, y)
+    @sup.draw(win, x + @base.w + 1, y - @up)
+  end
+end
+
+# a radical sign, with an index for cube roots and the like
+class RootBx < Bx
+  def init(inner, index)
+    @in = inner
+    @ix = index
+    @left = if index == nil then 0 else (index.w - 4).max(0) end
+    @w = @left + inner.w + 12
+    @a = inner.a + 3
+    @d = inner.d + 1
+  end
+  def draw(win, x, y)
+    top = y - @a
+    bot = y + @d
+    h = bot - top
+    x0 = x + @left
+    c = PAL.black
+    win.line(x0, bot - h * 2 / 5, x0 + 2, bot - h / 2, c)
+    win.line(x0 + 2, bot - h / 2, x0 + 5, bot, c)
+    win.line(x0 + 3, bot - h / 2, x0 + 5, bot - 1, c)
+    win.line(x0 + 5, bot, x0 + 9, top, c)
+    win.fill(x0 + 9, top, @in.w + 3, 1, c)
+    @in.draw(win, x0 + 11, y)
+    if @ix != nil then @ix.draw(win, x, bot - h * 2 / 5 - 2) end
+  end
+end
+
+# brackets around something: text when it's one line high, drawn when
+# it's taller
+class ParBx < Bx
+  def init(inner, kind, f)
+    @in = inner
+    @kind = kind
+    @f = f
+    @tall = inner.a > f[1] + 1 or inner.d > f[2] + 1
+    if @tall
+      @bw = 7
+      @a = inner.a + 1
+      @d = inner.d + 1
+    else
+      @open = TBx(kind[0], f)
+      @close = TBx(kind[1], f)
+      @bw = @open.w
+      @a = inner.a.max(f[1])
+      @d = inner.d.max(f[2])
+    end
+    @w = inner.w + 2 * @bw + 1
+  end
+  def draw(win, x, y)
+    if @tall
+      self.bracket(win, x, y, false)
+      self.bracket(win, x + @w - @bw, y, true)
+    else
+      @open.draw(win, x, y)
+      @close.draw(win, x + @w - @bw, y)
+    end
+    @in.draw(win, x + @bw, y)
+  end
+  def bracket(win, x, y, right)
+    top = y - @a
+    bot = y + @d
+    c = PAL.black
+    k = if right then 1 else 0 end
+    if @kind == "||"
+      win.fill(x + 3, top, 1, bot - top, c)
+    elif @kind == "[]"
+      xs = if right then x + 4 else x + 2 end
+      win.fill(xs, top, 1, bot - top, c)
+      win.fill(if right then x + 1 else xs end, top, 4, 1, c)
+      win.fill(if right then x + 1 else xs end, bot - 1, 4, 1, c)
+    else
+      # a curve: from the top to the bottom through the middle, further out
+      mid = (top + bot) / 2
+      h = bot - top
+      far = if right then x + 5 else x + 1 end
+      near = if right then x + 2 else x + 4 end
+      pts = [[near, top], [far * 2 / 3 + near / 3, top + h / 6], [far, top + h / 3], [far, bot - h / 3],
+             [far * 2 / 3 + near / 3, bot - h / 6], [near, bot]]
+      if @kind == "\{\}"
+        nub = if right then x + 6 else x end
+        pts = [[near, top], [far, top + 2], [far, mid - 2], [nub, mid], [far, mid + 2], [far, bot - 2], [near, bot]]
+      end
+      i = 1
+      while i < pts.size
+        win.line(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], c)
+        win.line(pts[i - 1][0] + 1 - 2 * k, pts[i - 1][1], pts[i][0] + 1 - 2 * k, pts[i][1], c)
+        i += 1
+      end
+    end
+  end
+end
+
+# what the font hasn't got: pi, a minus sign, times, a centred dot, an
+# arrow, infinity, and the integral sign (as tall as h)
+class GlyphBx < Bx
+  def init(kind, f, h)
+    @kind = kind
+    @f = f
+    @a = f[1]
+    @d = f[2]
+    @w = ["pi": 10, "minus": 11, "times": 11, "dot": 7, "arrow": 16, "inf": 13, "int": 10].get(kind, 8)
+    if kind == "int"
+      @a = (h / 2 + f[3] + 2).max(f[1] + 2)
+      @d = (h / 2 - f[3] + 2).max(f[2] + 2)
+    end
+    if f.same?(SF)
+      @w = @w * 3 / 4
+    end
+  end
+  def draw(win, x, y)
+    c = PAL.black
+    ax = y - @f[3]
+    k = @kind
+    if k == "pi"
+      t = y - @f[1] * 2 / 3
+      win.fill(x + 1, t, @w - 2, 1, c)
+      win.fill(x, t + 1, 1, 1, c)
+      win.fill(x + @w / 3, t, 1, y - t, c)
+      win.line(x + @w * 2 / 3, t, x + @w * 2 / 3, y - 2, c)
+      win.line(x + @w * 2 / 3 + 1, t, x + @w * 2 / 3 + 1, y - 2, c)
+      win.line(x + @w * 2 / 3 + 1, y - 1, x + @w - 1, y - 1, c)
+    elif k == "minus"
+      win.fill(x + 2, ax, @w - 4, 1, c)
+    elif k == "times"
+      r = (@w - 4) / 2 - 1
+      win.line(x + @w / 2 - r, ax - r, x + @w / 2 + r, ax + r, c)
+      win.line(x + @w / 2 - r, ax + r, x + @w / 2 + r, ax - r, c)
+    elif k == "dot"
+      win.fill(x + @w / 2 - 1, ax - 1, 2, 2, c)
+    elif k == "arrow"
+      win.fill(x + 2, ax, @w - 4, 1, c)
+      win.line(x + @w - 6, ax - 3, x + @w - 3, ax, c)
+      win.line(x + @w - 6, ax + 3, x + @w - 3, ax, c)
+    elif k == "inf"
+      r = (@w - 3) / 4
+      win.oval(x + 1 + r, ax, r, r * 3 / 4 + 1, c)
+      win.oval(x + 2 + 3 * r, ax, r, r * 3 / 4 + 1, c)
+    elif k == "int"
+      top = y - @a + 1
+      bot = y + @d - 1
+      for dx in [0, 1]
+        win.line(x + 6 + dx, top + 2, x + 3 + dx, bot - 2, c)
+      end
+      win.line(x + 7, top + 1, x + 8, top, c)
+      win.line(x + 8, top, x + 9, top + 1, c)
+      win.line(x + 3, bot - 1, x + 2, bot, c)
+      win.line(x + 2, bot, x + 1, bot - 1, c)
+    end
+  end
+end
+
+# a matrix's entries, in columns
+class GridBx < Bx
+  def init(rows, f)
+    @rows = rows
+    n = rows[0].size
+    @cw = (0..<n).map { |j| rows.reduce(0) { |m, r| m.max(r[j].w) } }
+    @ra = rows.map { |r| r.reduce(0) { |m, b| m.max(b.a) } }
+    @rd = rows.map { |r| r.reduce(0) { |m, b| m.max(b.d) } }
+    @w = @cw.reduce(0) { |s, c| s + c } + 12 * (n - 1) + 4
+    h = @ra.reduce(0) { |s, a| s + a } + @rd.reduce(0) { |s, d| s + d } + 3 * (rows.size - 1)
+    @a = h / 2 + f[3]
+    @d = h - @a
+  end
+  def draw(win, x, y)
+    yy = y - @a
+    i = 0
+    while i < @rows.size
+      yy += @ra[i]
+      xx = x + 2
+      j = 0
+      while j < @cw.size
+        b = @rows[i][j]
+        b.draw(win, xx + (@cw[j] - b.w) / 2, yy)
+        xx += @cw[j] + 12
+        j += 1
+      end
+      yy += @rd[i] + 3
+      i += 1
+    end
+  end
+end
+
+# ---- laying out expressions --------------------------------------------------
+
+FN_SHOWN = ["asin": "arcsin", "acos": "arccos", "atan": "arctan"]
+
+def hbx(kids) = if kids.size == 1 then kids[0] else HBx(kids) end
+def txt(s, f) = TBx(s, f)
+def thin = SpBx(3)
+def op_bx(s, f) = hbx([SpBx(3), if s == "-" then GlyphBx("minus", f, 0) else txt(s, f) end, SpBx(3)])
+
+# the precedence it's laid out at: when it needs brackets
+def lay_prec(e)
+  if e.is_a?(Add) then return 10 end
+  if e.is_a?(Mul) then return if neg_ex?(e) then 15 else 20 end end
+  if e.is_a?(Num) then return if e.p < 0 then 15 elif e.q != 1 then 20 else 40 end end
+  if e.is_a?(Dec) then return if e.neg? then 15 elif e.tens != 0 then 20 else 40 end end
+  if e.is_a?(Pow) then return if e.expo.is_a?(Num) and e.expo.neg? then 20 else 30 end end
+  if e.is_a?(Eqn) then return 2 end
+  if e.is_a?(Rule) then return 1 end
+  40
+end
+
+def lay_p(e, f, prec)
+  b = lay(e, f)
+  if lay_prec(e) < prec then ParBx(b, "()", f) else b end
+end
+
+def lay(e, f)
+  if e.is_a?(Num)
+    if e.q != 1 and f.same?(MF) then return lay_signed(e.p < 0, FracBx(txt(e.p.abs.to_s, f), txt(e.q.to_s, f), f), f) end
+    if e.q != 1 then return txt(e.p.to_s + "/" + e.q.to_s, f) end
+    if e.p < 0 then return hbx([GlyphBx("minus", f, 0), txt((-e.p).to_s, f)]) end
+    return txt(e.p.to_s, f)
+  end
+  if e.is_a?(Sym)
+    n = e.name
+    if n == "Pi" then return GlyphBx("pi", f, 0) end
+    if n == "Infinity" then return GlyphBx("inf", f, 0) end
+    return txt(["E": "e", "I": "i", "True": "True", "False": "False"].get(n, n), f)
+  end
+  if e.is_a?(Dec)
+    s = e.digits
+    neg = e.neg?
+    if neg then s = s[1..(s.size - 1)] end
+    b = txt(s, f)
+    if e.tens != 0 then b = hbx([b, GlyphBx("times", f, 0), SupBx(txt("10", f), lay(int(e.tens), SF))]) end
+    return lay_signed(neg, b, f)
+  end
+  if e.is_a?(Add) then return hbx(add_pieces(e, f)) end
+  if e.is_a?(Mul) then return lay_mul(e, f) end
+  if e.is_a?(Pow) then return lay_pow(e, f) end
+  if e.is_a?(Fn) then return lay_fn(e, f) end
+  if e.is_a?(Lst)
+    if matrix?(e) and not e.args.any? { |r| r.args.any? { |x| x.is_a?(Rule) or x.is_a?(Lst) } }
+      return ParBx(GridBx(e.args.map { |r| r.args.map { |x| lay(x, f) } }, f), "()", f)
+    end
+    return ParBx(comma_list(e.args, f), "\{\}", f)
+  end
+  if e.is_a?(Eqn) then return hbx([lay_p(e.args[0], f, 3), op_bx("=", f), lay_p(e.args[1], f, 3)]) end
+  if e.is_a?(Rule) then return hbx([lay_p(e.args[0], f, 2), SpBx(2), GlyphBx("arrow", f, 0), SpBx(2), lay_p(e.args[1], f, 2)]) end
+  txt(e.to_s, f)
+end
+
+def lay_signed(neg, b, f) = if neg then hbx([GlyphBx("minus", f, 0), b]) else b end
+
+def comma_list(xs, f)
+  kids = []
+  for x in xs
+    if kids.size > 0
+      kids.push(txt(",", f))
+      kids.push(SpBx(4))
+    end
+    kids.push(lay(x, f))
+  end
+  if kids.size == 0 then SpBx(2) else hbx(kids) end
+end
+
+# a sum's terms, each after its + or minus sign: the pieces a long one
+# breaks between
+def add_pieces(e, f) = sign_pieces(shown_terms(e.args), f)
+def sign_pieces(ts, f)
+  out = []
+  for t in ts
+    if out.size == 0
+      out.push(lay_p(t, f, 11))
+    elif neg_ex?(t)
+      out.push(hbx([op_bx("-", f), lay_p(negate(t), f, 11)]))
+    else
+      out.push(hbx([op_bx("+", f), lay_p(t, f, 11)]))
+    end
+  end
+  out
+end
+
+# factors side by side, with a centred dot between numbers
+def factor_row(fs, f)
+  kids = []
+  prev = nil
+  for x in fs
+    b = lay_p(x, f, 21)
+    if prev != nil
+      starts_num = x.is_a?(Num) or x.is_a?(Dec) or (x.is_a?(Pow) and x.base.is_a?(Num) and x.expo != HALF)
+      kids.push(if starts_num then GlyphBx("dot", f, 0) else SpBx(2) end)
+    end
+    kids.push(b)
+    prev = x
+  end
+  hbx(kids)
+end
+
+def lay_mul(e, f)
+  s = split_frac(e)
+  stacked = f.same?(MF) and s[2].size > 0
+  # one factor over another needs no brackets
+  top = if s[1].size == 0 then txt("1", f) elif s[1].size == 1 and stacked then lay(s[1][0], f) else factor_row(s[1], f) end
+  if s[2].size == 0 then return lay_signed(s[0], top, f) end
+  if not stacked
+    # in a script, on one line
+    bot = if s[2].size == 1 then lay_p(s[2][0], f, 21) else ParBx(factor_row(s[2], f), "()", f) end
+    return lay_signed(s[0], hbx([top, txt("/", f), bot]), f)
+  end
+  bot = if s[2].size == 1 then lay(s[2][0], f) else factor_row(s[2], f) end
+  lay_signed(s[0], FracBx(top, bot, f), f)
+end
+
+def lay_pow(e, f)
+  b = e.base
+  x = e.expo
+  if x.is_a?(Num) and x.neg? then return lay_mul(e, f) end
+  if x.is_a?(Num) and x.p == 1 and x.q > 1
+    return RootBx(lay(b, f), if x.q == 2 then nil else txt(x.q.to_s, SF) end)
+  end
+  # sin^2(x)
+  if b.is_a?(Fn) and b.args.size == 1 and FN_RULES.has?(b.name) and b.name != "abs" and b.name != "factorial" and x.is_a?(Num) and x.int?
+    return hbx([SupBx(txt(FN_SHOWN.get(b.name, b.name), f), lay(x, SF)), fn_args(b.args, f)])
+  end
+  base = if b == EUL then txt("e", f) else lay_p(b, f, 31) end
+  SupBx(base, lay(x, SF))
+end
+
+def fn_args(xs, f) = ParBx(comma_list(xs, f), "()", f)
+
+def lay_fn(e, f)
+  n = e.name
+  xs = e.args
+  if n == "abs" then return ParBx(lay(xs[0], f), "||", f) end
+  if n == "factorial" then return hbx([lay_p(xs[0], f, 31), txt("!", f)]) end
+  if n == "Integrate"
+    body = lay_p(xs[0], f, 11)
+    v = xs[1]
+    if v.is_a?(Lst)
+      ig = GlyphBx("int", f, body.h + 8)
+      lims = LimBx(lay(v.args[1], SF), lay(v.args[2], SF), ig.d - 1, ig.a - 6)
+      return hbx([ig, lims, SpBx(2), body, SpBx(3), txt("d", f), lay(v.args[0], f)])
+    end
+    return hbx([GlyphBx("int", f, body.h), SpBx(2), body, SpBx(3), txt("d", f), lay(v, f)])
+  end
+  if n == "Series"
+    ts = xs[0..(xs.size - 2)]
+    return hbx(sign_pieces(ts, f) + [op_bx("+", f), txt("O", f), ParBx(lay(xs.last, f), "()", f)])
+  end
+  if n == "Factors"
+    kids = []
+    for pk in xs
+      if kids.size > 0 then kids.push(GlyphBx("times", f, 0)) end
+      kids.push(if pk.args[1] == ONE then lay(pk.args[0], f) else SupBx(lay(pk.args[0], f), lay(pk.args[1], SF)) end)
+    end
+    return hbx(kids)
+  end
+  hbx([txt(FN_SHOWN.get(n, n), f), fn_args(xs, f)])
+end
+
+# an integral's limits: the lower below, the upper above, at its right
+class LimBx < Bx
+  def init(lo, hi, down, up)
+    @lo = lo
+    @hi = hi
+    @down = down
+    @up = up
+    @w = lo.w.max(hi.w)
+    @a = up + hi.a
+    @d = down + lo.d
+  end
+  def draw(win, x, y)
+    @hi.draw(win, x, y - @up)
+    @lo.draw(win, x, y + @down)
+  end
+end
+
+# the pieces a result can break between, when it's wider than the window:
+# a sum's terms, a list's items
+def pieces(e, f)
+  if e.is_a?(Add) then return add_pieces(e, f) end
+  if e.is_a?(Lst) and not matrix?(e) and e.args.size > 1
+    out = []
+    i = 0
+    while i < e.args.size
+      b = lay(e.args[i], f)
+      if i == 0 then b = hbx([txt("\{", f), b]) end
+      b = hbx([b, txt(if i == e.args.size - 1 then "\}" else ", " end, f)])
+      out.push(b)
+      i += 1
+    end
+    return out
+  end
+  if e.is_a?(Eqn) then return [hbx([lay(e.args[0], f), op_bx("=", f)])] + pieces(e.args[1], f) end
+  # a long number in pieces of ten digits
+  if e.is_a?(Num) and e.q == 1 and e.p.to_s.size > 30 then return digit_pieces(e.p.to_s, f) end
+  if e.is_a?(Dec) and e.tens == 0 and e.digits.size > 30 then return digit_pieces(e.digits, f) end
+  [lay(e, f)]
+end
+
+def digit_pieces(s, f)
+  out = []
+  i = 0
+  while i < s.size
+    j = (i + 10).min(s.size)
+    out.push(txt(s[i..(j - 1)], f))
+    i = j
+  end
+  out
+end
+
+# a result laid out in rows no wider than w (if it can be broken)
+def layout_rows(e, w)
+  ps = pieces(e, MF)
+  rows = []
+  row = []
+  rw = 0
+  for p in ps
+    if row.size > 0 and rw + p.w > w
+      rows.push(hbx(row))
+      row = [SpBx(16)]
+      rw = 16
+    end
+    row.push(p)
+    rw += p.w
+  end
+  rows.push(hbx(row))
+  rows
+end
+
+# ---- plots ---------------------------------------------------------------------
+
+PLOT_COLORS = [[0, 95, 215], [215, 40, 0], [0, 150, 60], [200, 120, 0]]
+
+class PlotBx < Bx
+  def init(plot, w, h)
+    @w = w
+    @h0 = h
+    @a = h
+    @d = 0
+    @l = 34
+    @t = 8
+    @pw = w - 42
+    @ph = h - 26
+    self.scale(plot)
+  end
+
+  # the ranges, the curves as pixels, and the ticks
+  def scale(plot)
+    xs = []
+    ys = []
+    for c in plot.curves
+      for pt in c
+        if pt != nil
+          xs.push(pt[0])
+          ys.push(pt[1])
+        end
+      end
+    end
+    if xs.size == 0 then raise("there's nothing to plot: no point has a value") end
+    xr = [xs.min, xs.max]
+    yr = robust_range(ys)
+    if plot.aspect
+      # the same scale both ways, centred
+      sx = xr[1] - xr[0]
+      sy = yr[1] - yr[0]
+      if sx * @ph > sy * @pw
+        m = (yr[0] + yr[1]) / 2
+        sy = sx * @ph / @pw
+        yr = [m - sy / 2, m + sy / 2]
+      else
+        m = (xr[0] + xr[1]) / 2
+        sx = sy * @pw / @ph
+        xr = [m - sx / 2, m + sx / 2]
+      end
+    end
+    @x0 = xr[0]
+    @x1 = xr[1]
+    @y0 = yr[0]
+    @y1 = yr[1]
+    @curves = plot.curves.map { |c| c.map { |pt| if pt == nil then nil else [self.px(pt[0]), self.py(pt[1])] end } }
+    @xticks = ticks(@x0, @x1).map { |t| [self.px(t[0]), t[1]] }
+    @yticks = ticks(@y0, @y1).map { |t| [self.py(t[0]), t[1]] }
+  end
+
+  def px(v) = @l + (v - @x0) * @pw / (@x1 - @x0)
+  def py(v) = @t + @ph - (v - @y0) * @ph / (@y1 - @y0)
+  def inside?(p) = p[1] >= @t and p[1] <= @t + @ph
+
+  def draw(win, x, y)
+    top = y - @a
+    c = PAL.black
+    win.fill(x, top, @w, @h0, PAL.white)
+    win.box(x, top, @w, @h0, PAL.light)
+    # the axes: through 0 if it's in view, else along the edges
+    ax = if @x0 <= 0 and @x1 >= 0 then self.px(0) else @l end
+    ay = if @y0 <= 0 and @y1 >= 0 then self.py(0) else @t + @ph end
+    win.fill(x + @l, top + ay, @pw + 1, 1, PAL.grey)
+    win.fill(x + ax, top + @t, 1, @ph + 1, PAL.grey)
+    for t in @xticks
+      win.fill(x + t[0], top + ay - 2, 1, 5, c)
+      lw = gui_text_width(t[1], UI)
+      ly = ay + 13
+      if t[0] != ax then gui_text(win.id, x + t[0] - lw / 2, top + ly, t[1], PAL.shadow, PAL.white, UI) end
+    end
+    for t in @yticks
+      win.fill(x + ax - 2, top + t[0], 5, 1, c)
+      lw = gui_text_width(t[1], UI)
+      lx = if ax - lw - 4 < 0 then ax + 5 else ax - lw - 4 end
+      if t[0] != ay then gui_text(win.id, x + lx, top + t[0] + 4, t[1], PAL.shadow, PAL.white, UI) end
+    end
+    i = 0
+    while i < @curves.size
+      rgb = PLOT_COLORS[i % 4]
+      col = PAL.rgb(rgb[0], rgb[1], rgb[2])
+      self.polyline(win, x, top, @curves[i], col)
+      i += 1
+    end
+  end
+
+  # the points, joined, without the lines that leave the plot or jump
+  # across it (an asymptote)
+  def polyline(win, x, y, pts, col)
+    lo = @t
+    hi = @t + @ph
+    i = 1
+    while i < pts.size
+      p = pts[i - 1]
+      q = pts[i]
+      if p != nil and q != nil and (p[1] - q[1]).abs < @ph
+        a = clip_y(p, q, lo, hi)
+        b = clip_y(q, p, lo, hi)
+        if a != nil and b != nil
+          win.line(x + a[0], y + a[1], x + b[0], y + b[1], col)
+          win.line(x + a[0], y + a[1] + 1, x + b[0], y + b[1] + 1, col)
+        end
+      end
+      i += 1
+    end
+  end
+end
+
+# p, or where the line from p to q comes into the band lo..hi
+def clip_y(p, q, lo, hi)
+  if p[1] >= lo and p[1] <= hi then return p end
+  edge = if p[1] < lo then lo else hi end
+  if (q[1] < lo and edge == lo) or (q[1] > hi and edge == hi) then return nil end
+  [p[0] + (q[0] - p[0]) * (edge - p[1]) / (q[1] - p[1]), edge]
+end
+
+# the range of the values, less what shoots off (1/x near 0)
+def robust_range(ys)
+  s = ys.sort
+  n = s.size
+  lo = s[0]
+  hi = s[n - 1]
+  if n >= 20
+    a = s[n / 20]
+    b = s[n - 1 - n / 20]
+    span = (b - a).max(1 << PLOT_P)
+    if hi - lo > 6 * span
+      lo = a - span / 4
+      hi = b + span / 4
+    end
+  end
+  if hi - lo < (1 << PLOT_P) / 64
+    lo -= 1 << PLOT_P
+    hi += 1 << PLOT_P
+  end
+  pad = (hi - lo) / 20
+  [lo - pad, hi + pad]
+end
+
+# ticks from a to b (fixed point): [value, label], every 1, 2 or 5 times a
+# power of ten
+def ticks(a, b)
+  span = b - a
+  k = 0
+  # the step, as m 10^k, about a fifth of the span
+  while (10 ** (k + 1) << PLOT_P) * 3 < span
+    k += 1
+  end
+  while k > -6 and (fx_ten(k) * 3 > span)
+    k -= 1
+  end
+  m = 1
+  for c in [2, 5, 10]
+    if fx_ten(k) * c * 4 <= span then m = c end
+  end
+  step = fx_ten(k) * m
+  out = []
+  i = a / step + 1
+  while i * step <= b and out.size < 20
+    out.push([i * step, ten_label(i * m, k)])
+    i += 1
+  end
+  out
+end
+
+def fx_ten(k) = if k >= 0 then 10 ** k << PLOT_P else (1 << PLOT_P) / 10 ** (-k) end
+
+# n 10^k as a decimal
+def ten_label(n, k)
+  if k >= 0 then return (n * 10 ** k).to_s end
+  s = n.abs.to_s
+  while s.size <= -k
+    s = "0" + s
+  end
+  w = s.size + k
+  r = s[0..(w - 1)] + "." + s[w..(s.size - 1)]
+  if n < 0 then "-" + r else r end
+end
+
+# ---- the notebook -------------------------------------------------------------------
+
+class Cell
+  def init(kind, n, value)
+    @kind = kind                # "in", "out" or "msg"
+    @n = n
+    @value = value              # what was typed, what came out, or lines
+    @rows = nil
+    @lw = nil
+  end
+  attr kind, n, value, rows, h, time
+  def took(t)
+    @time = t
+  end
+
+  # its rows of boxes for a width
+  def lay_out(w)
+    if @lw == w then return nil end
+    @lw = w
+    if @kind == "out"
+      v = @value
+      if v.is_a?(Plot)
+        pw = (w - 10).min(380).max(120)
+        @rows = [PlotBx(v, pw, if v.aspect then pw * 3 / 4 else pw * 5 / 8 end)]
+      else
+        @rows = layout_rows(v, w - 8)
+      end
+      @h = @rows.reduce(8) { |s, r| s + r.a + r.d + 2 }
+    elif @kind == "in"
+      @h = 20
+    else
+      @h = @value[1].size * 15 + 6
+    end
+  end
+end
+
+LABEL_W = 64
+
+class Notebook < Window
+  def init
+    math_fonts()
+    @cells = []
+    @count = 0
+    @top = 0
+    @input = "D[x^2 Sin[x], x]"
+    @cur = @input.size
+    @hist = []
+    @hpos = 0
+    p = DESK.place(470, 380)
+    super("Egretica", p[0], p[1], 470, 380)
+    self.message(["Egretica: a little computer algebra system, after Mathematica.",
+                  "Press Return to work out the line at the bottom. Help[] lists",
+                  "what it knows; right-click for examples."], PAL.shadow)
+  end
+
+  attr cells
+  def bar_h = 22
+  def area_h = self.height - self.bar_h
+  def content_w = self.width - LABEL_W
+
+  def message(lines, color) = self.add_cell(Cell("msg", 0, [color, lines]), 0)
+
+  def total
+    h = 0
+    for c in @cells
+      c.lay_out(self.content_w)
+      h += c.h
+    end
+    h
+  end
+
+  # a cell at the end, shown; more is how much above it to draw again
+  def add_cell(c, more)
+    @cells.push(c)
+    if @cells.size > 60
+      @cells = @cells.drop(@cells.size - 60)
+      more = self.area_h
+    end
+    c.lay_out(self.content_w)
+    self.show_end(c.h + more)
+  end
+
+  # ---- drawing
+
+  def paint
+    r = DESK.paint_rect
+    if r == nil then r = [0, 0, self.width, self.height] end
+    self.draw_cells(r[1], r[3].min(self.area_h), r[0], r[2])
+    if r[3] > self.area_h then self.draw_bar end
+  end
+
+  # the cells between y0 and y1 (in the window), or only what of them is
+  # between x0 and x1 (a strip a window on top uncovers)
+  def draw_cells(y0, y1, *xs)
+    x0 = if xs.size > 0 then xs[0] else 0 end
+    x1 = if xs.size > 0 then xs[1] else self.width end
+    y0 = y0.max(0)
+    if y1 <= y0 then return nil end
+    self.fill(x0, y0, x1 - x0, y1 - y0, PAL.white)
+    y = -@top
+    for c in @cells
+      c.lay_out(self.content_w)
+      if y + c.h > y0 and y < y1 then self.draw_cell(c, y, x0, x1) end
+      y += c.h
+    end
+  end
+
+  # the end, where the last h of the cells has changed: what was there
+  # moves up, and what that uncovers is drawn as an update from the
+  # window manager
+  def show_end(h)
+    ah = self.area_h
+    t = (self.total - ah).max(0)
+    dy = t - @top
+    @top = t
+    if dy < 0 or dy >= ah
+      self.draw_cells(0, ah)
+    else
+      bottom = self.total - @top
+      if dy > 0 then self.scroll(0, 0, self.width, ah, dy) end
+      self.draw_cells(bottom - h, ah - dy)
+    end
+    self.draw_bar
+  end
+
+  # the window manager's updates, painted now: the line typed, before the
+  # work starts (and before the result scrolls again, which with an update
+  # still to paint would repaint it all). An input event that comes
+  # instead is kept for afterwards.
+  def paint_updates
+    while true
+      e = gui_event()
+      if e == nil then return nil end
+      if e[0] != 8
+        @held.push(e)
+        return nil
+      end
+      DESK.dispatch(e)
+    end
+  end
+
+  def draw_cell(c, y, x0, x1)
+    if c.kind == "in"
+      gui_text(@id, 4, y + 14, "In[{c.n}]:=", PAL.grey, PAL.white, UI)
+      x = gui_text(@id, LABEL_W, y + 14, c.value, PAL.black, PAL.white, MONO)
+      if c.time != nil
+        tw = gui_text_width(c.time, UI)
+        gui_text(@id, (self.width - tw - 6).max(x + 12), y + 14, c.time, PAL.grey, PAL.white, UI)
+      end
+    elif c.kind == "msg"
+      yy = y + 14
+      for l in c.value[1]
+        gui_text(@id, 8, yy, l, c.value[0], PAL.white, UI)
+        yy += 15
+      end
+    else
+      yy = y + 3
+      first = true
+      for r in c.rows
+        yy += r.a
+        if first then gui_text(@id, 4, yy.min(y + 16), "Out[{c.n}]=", PAL.grey, PAL.white, UI) end
+        if x0 < LABEL_W + r.w and x1 > LABEL_W then r.draw(self, LABEL_W, yy) end
+        yy += r.d + 2
+        first = false
+      end
+    end
+  end
+
+  def draw_bar
+    y = self.area_h
+    w = self.width
+    self.fill(0, y, w, 1, PAL.grey)
+    self.fill(0, y + 1, w, self.bar_h - 1, PAL.light)
+    gui_text(@id, 4, y + 16, "In[{@count + 1}]:=", PAL.grey, PAL.light, UI)
+    cw = gui_text_width("M", MONO)
+    room = (w - LABEL_W - 6) / cw
+    start = (@cur - room + 1).max(0)
+    s = left_of(right_of(@input, start), room)
+    gui_text(@id, LABEL_W, y + 16, s, PAL.black, PAL.light, MONO)
+    self.fill(LABEL_W + (@cur - start) * cw, y + 4, 1, 15, PAL.black)
+  end
+
+  def resized = self.invalidate
+
+  # ---- working a line out
+
+  def enter
+    line = @input.strip
+    if line.size == 0 then return nil end
+    @hist.push(line)
+    @hpos = @hist.size
+    @count += 1
+    @input = ""
+    @cur = 0
+    cin = Cell("in", @count, line)
+    self.add_cell(cin, 0)
+    @held = []
+    self.paint_updates
+    DESK.busy
+    r = nil
+    err = nil
+    start = clock()
+    try
+      r = calc(line)
+    catch e
+      err = e.message
+    end
+    # how long it took, at the machine's speed now
+    t = (clock() - start) * 10 / (60 * gui_tick_cycles())
+    @cells.last.took(if t < 100 then "{t / 10}.{t % 10} s" else "{t / 10} s" end)
+    c = nil
+    if err != nil
+      c = Cell("msg", 0, [PAL.red, [err]])
+    elif r.is_a?(Help)
+      c = Cell("msg", 0, [PAL.black, r.lines])
+    else
+      c = Cell("out", @count, r)
+      try
+        c.lay_out(self.content_w)
+      catch e
+        c = Cell("msg", 0, [PAL.red, [e.message]])
+      end
+    end
+    self.add_cell(c, cin.h)
+    for e in @held
+      DESK.dispatch(e)
+    end
+  end
+
+  def run(line)
+    @input = line
+    @cur = line.size
+    self.enter
+  end
+
+  # ---- the keyboard and the mouse
+
+  def key(code, mods)
+    if mods & M_COMMAND != 0
+      if code == 118
+        self.put(CLIPBOARD.replace("\n", " "))
+      elif code == 99
+        CLIPBOARD = @input
+      elif code == 108
+        self.clear_cells
+      end
+      return nil
+    end
+    if code == K_RETURN
+      self.enter
+      return nil
+    end
+    if code == K_PAGEUP or code == K_PAGEDOWN
+      return self.scroll_by(if code == K_PAGEUP then -self.area_h * 3 / 4 else self.area_h * 3 / 4 end)
+    end
+    if code == K_LEFT then @cur = (@cur - 1).max(0)
+    elif code == K_RIGHT then @cur = (@cur + 1).min(@input.size)
+    elif code == K_HOME then @cur = 0
+    elif code == K_END then @cur = @input.size
+    elif code == K_UP or code == K_DOWN
+      @hpos = (@hpos + if code == K_UP then -1 else 1 end).max(0).min(@hist.size)
+      @input = if @hpos < @hist.size then @hist[@hpos] else "" end
+      @cur = @input.size
+    elif code == K_ESCAPE
+      @input = ""
+      @cur = 0
+    elif code == K_BACKSPACE
+      if @cur > 0
+        @input = left_of(@input, @cur - 1) + right_of(@input, @cur)
+        @cur -= 1
+      end
+    elif code == K_DELETE
+      @input = left_of(@input, @cur) + right_of(@input, @cur + 1)
+    elif code >= 32 and code < 127
+      self.put(code.chr)
+      return nil
+    end
+    self.draw_bar
+  end
+
+  def put(s)
+    @input = left_of(@input, @cur) + s + right_of(@input, @cur)
+    @cur += s.size
+    self.draw_bar
+  end
+
+  def scroll_by(d)
+    ah = self.area_h
+    t = (@top + d).max(0).min((self.total - ah).max(0))
+    dy = t - @top
+    if dy == 0 then return nil end
+    @top = t
+    # (what scrolling uncovers comes as an update)
+    if dy.abs >= ah then self.draw_cells(0, ah) else self.scroll(0, 0, self.width, ah, dy) end
+  end
+
+  def wheel(d) = self.scroll_by(d * 40)
+
+  # a click on an input puts it back in the line at the bottom; on a
+  # result, puts that in (as it would be typed); in the line, moves the
+  # cursor
+  def mouse_down(x, y, b)
+    if y >= self.area_h
+      cw = gui_text_width("M", MONO)
+      room = (self.width - LABEL_W - 6) / cw
+      start = (@cur - room + 1).max(0)
+      @cur = (start + (x - LABEL_W + cw / 2) / cw).max(0).min(@input.size)
+      return self.draw_bar
+    end
+    yy = -@top
+    for c in @cells
+      if y >= yy and y < yy + c.h
+        if c.kind == "in"
+          @input = c.value
+          @cur = @input.size
+        elif c.kind == "out" and c.value.is_a?(Ex)
+          self.put(if @input.size == 0 then c.value.to_s else "(" + c.value.to_s + ")" end)
+          return nil
+        end
+        return self.draw_bar
+      end
+      yy += c.h
+    end
+  end
+
+  def pointer_at(x, y) = if y >= self.area_h then P_TEXT else P_ARROW end
+
+  def clear_cells
+    @cells = []
+    @top = 0
+    self.invalidate
+  end
+
+  def menu_items
+    ex = [["Differentiate", "D[x^2 Sin[x], x]"],
+          ["Integrate", "Integrate[x^2 Exp[x], x]"],
+          ["A definite integral", "Integrate[Sin[x]^2, \{x, 0, Pi\}]"],
+          ["Solve", "Solve[x^3 - 6 x^2 + 11 x - 6 == 0, x]"],
+          ["A system", "Solve[\{x + y == 7, x y == 12\}, \{x, y\}]"],
+          ["Factor", "Factor[x^6 - 1]"],
+          ["Sum a series", "Sum[k^3, \{k, 1, n\}]"],
+          ["Taylor series", "Series[Tan[x], \{x, 0, 7\}]"],
+          ["A limit", "Limit[(1 + 1/n)^n, n -> Infinity]"],
+          ["50 digits of pi", "N[Pi, 50]"],
+          ["Plot", "Plot[\{Sin[x], Cos[x], Sin[x]/x\}, \{x, -2 Pi, 2 Pi\}]"],
+          ["A Lissajous figure", "ParametricPlot[\{Sin[3 t], Sin[4 t]\}, \{t, 0, 2 Pi\}]"],
+          ["A rose", "PolarPlot[Cos[4 t], \{t, 0, 2 Pi\}]"],
+          ["Eigenvalues", "Eigenvalues[\{\{2, 1\}, \{1, 2\}\}]"]]
+    items = ex.map { |e| [e[0], { self.run(e[1]) }] }
+    items + ["-", ["Help", { self.run("Help[]") }], ["Clear", { self.clear_cells }]]
+  end
+end
