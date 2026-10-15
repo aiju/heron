@@ -197,7 +197,7 @@ growing stacks, guard pages), and sharing.
   PC or `sp`, except 1b's `CALL [r]+` and `CALL -[r]`, which move `r`
   first ([report 0020](0020-report-operating-system.md#what-was-hard)).
   Draft 2's calls push nothing: the return address goes to `r7`
-  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  ([RFC 0028, 5.7](0028-rfc-draft-2-isa.md#57-jumps-and-calls)).
 - `SAVE` writes first and moves `sp` last; re-running it is idempotent.
 - `RESTORE` re-runs idempotently (`sp` is never in the range).
 - Prefetch faults are held back until the parcel is used.
