@@ -4,7 +4,7 @@
 
         .include "lib/start.s"
 
-main:   SAVE r8-r11
+main:   SAVE r7-r11
 
         ; ---- strlen ----
         LEA  r8, [lentab]
@@ -155,17 +155,19 @@ main:   SAVE r8-r11
         CALL print_u32
         CALL newline
 
-        RESTORE r8-r11
+        RESTORE r7-r11
         RET
 
 ; putquoted: print the string at r1 in double quotes.
 putquoted:
+        PUSH r7
         PUSH r1
         MOV  r1, #'"'
         CALL putc
         POP  r1
         CALL puts
         MOV  r1, #'"'
+        POP  r7
         BRA  putc               ; tail call
 
 ; reverse: reverse the string at r1 in place.

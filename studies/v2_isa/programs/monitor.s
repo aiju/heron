@@ -25,7 +25,7 @@
 LINESZ  = 80
 MAXARGS = LINESZ / 2            ; a number and a blank need two characters
 
-main:
+main:   PUSH r7
 .loop:  LEA  r1, [line]
         MOV  r2, #LINESZ
         BSR  gets
@@ -38,13 +38,14 @@ main:
         BSR  newline
         BSR  command
         BRA  .loop
-.eof:   RET
+.eof:   JMP  [sp]+
 
 ; command: run the command in `line`. The handlers get r8 pointing after the
 ; command letter and may use r8-r11, which command saves for them. A parse
-; error anywhere jumps to `bail`, which unwinds the stack to here.
+; error anywhere jumps to `bail`, which unwinds the stack to here, so the
+; handlers needn't keep track of what they pushed.
 command:
-        SAVE r8-r11
+        SAVE r7-r11
         MOV  [errsp], sp
         LEA  r8, [line]
         BSR  skipblanks
@@ -55,7 +56,7 @@ command:
         LSL  r2, #2
         CALL [cmdtab + r2]
 cmd_done:
-        RESTORE r8-r11
+        RESTORE r7-r11
         RET
 bail:   MOV  sp, [errsp]        ; back to command's stack level
         LEA  r1, [s_what]
@@ -104,6 +105,7 @@ hexnum: MOV  r1, #0
 ; getargs: parse the rest of the line as hex numbers into `args`
 ; -> r1 = how many, r2 = args. Bails on a bad number.
 getargs:
+        PUSH r7
         LEA  r4, [args]         ; r4 = where the next one goes
 .next:  BSR  skipblanks
         BEQ  .end
@@ -114,11 +116,12 @@ getargs:
         MOV  r1, r4
         SUB  r1, r2
         LSR  r1, #2
-        RET
+        JMP  [sp]+
 
 ; ---- the commands ----
 
-cmd_w:  BSR  getargs
+cmd_w:  PUSH r7
+        BSR  getargs
         CMP  r1, #2
         BLO  bail
         DEC  r1                 ; r1 = words to write
@@ -128,9 +131,10 @@ cmd_w:  BSR  getargs
         MOV  half [r3], r4
         ADD  r3, #2
         DBNZ r1, .next
-        RET
+        JMP  [sp]+
 
-cmd_b:  BSR  getargs
+cmd_b:  PUSH r7
+        BSR  getargs
         CMP  r1, #2
         BLO  bail
         DEC  r1                 ; r1 = bytes to write
@@ -138,34 +142,40 @@ cmd_b:  BSR  getargs
 .next:  MOV  r4, [r2]+
         MOV  byte [r3]+, r4
         DBNZ r1, .next
-        RET
+        JMP  [sp]+
 
-cmd_s:  BSR  skipblanks
+cmd_s:  PUSH r7
+        BSR  skipblanks
         BSR  hexnum             ; r1 = address; r8 is past exactly one blank
         BRA  .next
 .copy:  MOV  byte [r1]+, r2
 .next:  MOVS r2, byte [r8]+
         BNE  .copy
-        RET
+        JMP  [sp]+
 
-cmd_f:  BSR  getargs
+cmd_f:  PUSH r7
+        BSR  getargs
         CMP  r1, #3
         BNE  bail
         MOV  r1, [r2]+          ; address
         MOV  r3, [r2]+          ; length
         MOV  r2, [r2]           ; byte
+        POP  r7
         BRA  memset             ; tail call
 
-cmd_c:  BSR  getargs
+cmd_c:  PUSH r7
+        BSR  getargs
         CMP  r1, #3
         BNE  bail
         MOV  r4, [r2]+          ; source
         MOV  r1, [r2]+          ; destination
         MOV  r3, [r2]           ; length
         MOV  r2, r4
+        POP  r7
         BRA  memmove
 
-cmd_r:  BSR  getargs
+cmd_r:  PUSH r7
+        BSR  getargs
         CMP  r1, #1
         BNE  bail
         MOV  r8, [r2]           ; r8 = address
@@ -178,11 +188,13 @@ cmd_r:  BSR  getargs
         MOV  r1, half [r8]
         MOV  r2, #4
         BSR  print_hex
+        POP  r7
         BRA  newline
 
 ; d: r8 = start of the line, r9 = end of the dump, r10 = end of the line,
 ; r11 walks the line.
-cmd_d:  BSR  getargs
+cmd_d:  PUSH r7
+        BSR  getargs
         CMP  r1, #2
         BNE  bail
         MOV  r8, [r2]+
@@ -227,7 +239,7 @@ cmd_d:  BSR  getargs
         BSR  newline
         MOV  r8, r10
         BRA  .line
-.done:  RET
+.done:  JMP  [sp]+
 
         .align 4
 cmdtab: .word cmd_b, cmd_c, cmd_d, bail, cmd_f                  ; b-f

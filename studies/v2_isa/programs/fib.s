@@ -4,7 +4,7 @@
 
         .include "lib/start.s"
 
-main:   SAVE r8-r10
+main:   SAVE r7-r10
 
         ; ---- recursive ----
         MOV  r1, #18
@@ -42,16 +42,17 @@ main:   SAVE r8-r10
         CMP  r10, #47
         BLO  .loop
 
-        RESTORE r8-r10
+        RESTORE r7-r10
         RET
 
 ; fib: r1 = n -> r1 = fib(n), the slow recursive way, counting the calls.
-; Nothing needs to survive the first recursive call except n - 1, which waits
-; in a stack slot; the slot then holds fib(n - 1) across the second call and
-; is popped straight into the final add.
+; Nothing needs to survive the first recursive call except the return address
+; and n - 1, which waits in a stack slot; the slot then holds fib(n - 1)
+; across the second call and is popped straight into the final add.
 fib:    INC  [calls]
         CMP  r1, #2
         BLO  .done              ; fib(0) = 0, fib(1) = 1
+        PUSH r7
         DEC  r1
         PUSH r1                 ; [sp] = n - 1
         BSR  fib                ; r1 = fib(n - 1)
@@ -61,6 +62,7 @@ fib:    INC  [calls]
         DEC  r1
         BSR  fib                ; r1 = fib(n - 2)
         ADD  r1, [sp]+          ; + fib(n - 1), popping it
+        JMP  [sp]+
 .done:  RET
 
 s_rec:    .asciz "recursive fib(18) = "

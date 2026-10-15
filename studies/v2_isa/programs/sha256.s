@@ -11,7 +11,7 @@
 
         .include "lib/start.s"
 
-main:   PUSH r8
+main:   SAVE r7-r8
         ; Generate the 1000-byte message.
         MOV  r1, #msg1000
         MOV  r2, #msg1000 + 1000
@@ -28,14 +28,14 @@ main:   PUSH r8
         BSR  sha256
         BSR  print_digest
         BRA  .next
-.done:  POP  r8
+.done:  RESTORE r7-r8
         RET
 
 ; sha256: r1 = message, r2 = length in bytes -> digest in H.
 ; Hashes the whole 64-byte blocks in place, then builds the padded last
 ; block (or two) in pad. Clobbers r1-r7.
 sha256:
-        SAVE r8-r11
+        SAVE r7-r11
         MOV  r8, r1             ; r8 = next unhashed byte
         MOV  r9, r2             ; r9 = bytes left
         MOV  r10, r2            ; r10 = total length
@@ -84,13 +84,13 @@ sha256:
         ADD  r8, #64
         CMP  r8, r9
         BLO  .last
-        RESTORE r8-r11
+        RESTORE r7-r11
         RET
 
 ; sha256_block: r1 = 64-byte block (any alignment) -> H updated.
 ; Clobbers r1-r7, saves r8-r14.
 sha256_block:
-        SAVE r8-r14
+        SAVE r7-r14
         ; W[0..15] = the block read as big-endian words: a word load and REV
         ; if the block is aligned (the pad blocks and msg1000's are), byte
         ; by byte if not.
@@ -214,7 +214,7 @@ sha256_block:
         MOV  [r13]+, r7
         ADD  r8, [r13]
         MOV  [r13]+, r8
-        RESTORE r8-r14
+        RESTORE r7-r14
         RET
 
 ; print_digest: print H as 64 lowercase hex digits and a newline.

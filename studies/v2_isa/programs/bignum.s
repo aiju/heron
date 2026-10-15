@@ -13,7 +13,7 @@
 LIMBS   = 8                     ; 52! < 2^226
 BILLION = 1000000000
 
-main:   SAVE r8-r10
+main:   SAVE r7-r10
         MOV  r1, #1
         MOV  [num], r1          ; num = 1, one limb long
         MOV  r9, #1             ; r9 = length in limbs
@@ -36,7 +36,7 @@ main:   SAVE r8-r10
 .next:  INC  r8
         CMP  r8, #52
         BLS  .fact
-        RESTORE r8-r10
+        RESTORE r7-r10
         RET
 
 ; mulsmall: r1 = k, r2 = length -> num *= k, r1 = the new length.
@@ -68,7 +68,7 @@ mulsmall:
 ; empty at most the top limb, so one check per division keeps the length up
 ; to date.
 printnum:
-        SAVE r8-r11
+        SAVE r7-r11
         MOV  r9, r1
         LSL  r9, #2
         MOV  r3, r9             ; byte count for memcpy
@@ -102,7 +102,7 @@ printnum:
         MOV  r2, #9
         BSR  print_u32z
         BRA  .print
-.done:  RESTORE r8-r11
+.done:  RESTORE r7-r11
         RET
 
 show:   .byte 10, 20, 30, 40, 52, 0

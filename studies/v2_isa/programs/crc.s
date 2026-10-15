@@ -12,7 +12,7 @@
 BUFLEN = 1024
 POLY32 = 0x10210000             ; the polynomial, top-aligned like the CRC
 
-main:   SAVE r8-r9
+main:   SAVE r7-r9
         BSR  mktable
 
         MOV  r1, #0xACE1        ; the 1 KB test buffer
@@ -36,13 +36,13 @@ main:   SAVE r8-r9
         BSR  print_hex
         BSR  newline
         BRA  .test
-.done:  RESTORE r8-r9
+.done:  RESTORE r7-r9
         RET
 
 ; crc_bits: r1 = data, r2 = length, r3 = CRC -> r1 = CRC, one bit at a time.
 crc_bits:
         LSL  r3, #16            ; top-aligned
-        MOV  r7, #POLY32
+        MOV  r5, #POLY32
         ADD  r2, r1             ; r2 = end
         BRA  .next
 .byte:  MOV  r4, byte [r1]+
@@ -51,7 +51,7 @@ crc_bits:
         MOV  r6, #8
 .bit:   LSL  r3, #1
         BCC  .nopoly
-        XOR  r3, r7
+        XOR  r3, r5
 .nopoly:
         DBNZ r6, .bit
 .next:  CMP  r1, r2
@@ -83,7 +83,7 @@ crc_table:
 ; mktable: table[i] = the CRC of the single byte i, starting from 0, i.e.
 ; i << 8 put through 8 steps of the bitwise loop. Fills it from the top down.
 mktable:
-        MOV  r7, #POLY32
+        MOV  r5, #POLY32
         MOV  r3, #table
         MOV  r1, #255           ; r1 = i
 .entry: MOV  r2, r1
@@ -91,7 +91,7 @@ mktable:
         MOV  r4, #8
 .bit:   LSL  r2, #1
         BCC  .nopoly
-        XOR  r2, r7
+        XOR  r2, r5
 .nopoly:
         DBNZ r4, .bit
         LSR  r2, #16

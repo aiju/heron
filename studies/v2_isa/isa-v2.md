@@ -10,11 +10,15 @@ The machine is draft 1's ([isa-v1.md](../v1_isa/isa-v1.md)): registers,
 flags, memory, the I/O page, interrupts and the vectors. The differences:
 
 - `r0` is a general register. All registers start at zero.
+- Calls leave the return address in `r7`, the link register, and push
+  nothing; a return is `JMP r7`. Exceptions still push the PC and the
+  flags.
 - `r14` is the current object by convention, which mode E, `[r14 + 4R]`,
   reaches: the first 16 words in one parcel, as `[sp + 4R]` does at `sp`.
-- `LO` is a new special register, 9, after the kernel study's 0–8
-  ([system.md](../kernel/system.md#special-registers)); `MULA` accumulates
-  into it with `HI`.
+- `LO` is a new special register, 2
+  ([RFC 0029, 4](../../reports/0029-rfc-draft-2-system.md#4-special-registers));
+  `MULA` accumulates into it with `HI`. The simulator has only `flags`,
+  `HI` and `LO`: `MFSR` and `MTSR` trap on the other numbers.
 - The tag check of the tagged operations traps to its own vector, `0x18`.
 - The zero parcel is `ILLEGAL`, not `HALT`, and so is `FF`.
 
@@ -36,7 +40,8 @@ what the disassembler prints.
   which. `MOVS rd, src` is a `MOV` that sets N and Z.
 - **Shorthands:** `PUSH r1` is `MOV -[sp], r1` and `POP r1` is
   `MOV r1, [sp]+`; `MFHI r1`, `MTHI r1`, `MFLO r1` and `MTLO r1` are `MFSR`
-  and `MTSR` with `hi` and `lo`. The disassembler prints them so.
+  and `MTSR` with `hi` and `lo`; `RET` is `JMP r7` and `NOP` is
+  `MOV r0, r0`. The disassembler prints them so.
 - **Labels, not instructions:** no `ST`, `MVI` or `CMPI` (only labels in
   the map), and none of 1b's `LI`, `MFF` or `MTF`. The assembler says what
   to write instead when it meets one.
@@ -44,7 +49,8 @@ what the disassembler prints.
   operand: `CLR byte [r1]+`, `INC [counter]`. `MOV [x], #0` is `CLR [x]`.
 - **Tables:** `[table + r2*4]` and `byte [table + r2*2]` index a table
   without a base register; `[pc + table + r2*4]` does it PC-relative.
-- **Special registers:** `flags` (0), `hi` (1), `lo` (9), or a number.
+- **Special registers:** `flags` (0), `hi` (1), `lo` (2), or a number.
+- **`.align`** pads code with `NOP`s (a zero parcel would trap).
 
 The assembler picks the shortest encoding:
 
@@ -81,8 +87,8 @@ The RFC defines these only in part.
 | `SETcc rd` (`DF`) | `rd` and the condition in the register byte; condition 15 traps |
 | `SAVE`, `RESTORE` | Any range within `r0`–`r14` |
 | `INC`, `DEC` on a byte or half | N from the operand's own top bit, Z from the value stored |
-| `MULFX rd, rs, #n` (`FD 10`) | The extension parcel holds `rd` in bits 15–12, `rs` in 11–8, `n` in 4–0; bits 7–5 must be 0 |
-| `MFUR`, `MTUR` (`FE 10`, `FE 11`) | The extension parcel holds `rd` in bits 15–12 and `rs` in 11–8, its low byte 0. The assembler and the disassembler have them; the simulator, which has no supervisor yet, traps on them |
+| `MULFX rd, rs, #n` (`FD 00`) | The extension parcel holds `rd` in bits 15–12, `rs` in 11–8, `n` in 4–0; bits 7–5 must be 0 |
+| `MFUR`, `MTUR` (`31`, `3D`) | The assembler and the disassembler have them; the simulator, which has no supervisor yet, traps on them |
 | `MULA` | `MULU` and `MULS` leave `LO` alone |
 | The tag | An integer has bit 0 clear, the Lisp's, as RFC 0028 suggests until it's settled |
 | `CAS` (`F7`), `FPU` (`F8`), the free cells | Trap as illegal, until they're designed |
@@ -101,6 +107,9 @@ The RFC defines these only in part.
     `PC`.
   - `LDM` and `STM` (`ldm`, `stm`) stream words like `RESTORE` and `SAVE`,
     without updating `sp`.
+  - A call (`call`, `callm`) writes `r7` instead of pushing: one register
+    write, then the jump. `RET` is a jump to a register, and `JMP [sp]+`
+    a jump through memory.
   - The tables without a base register: `[abs24 + x·s]` (`absx`) is one
     full add; `[pc + d24 + x·s]` (`pcx`) is an address add, then a full
     one.

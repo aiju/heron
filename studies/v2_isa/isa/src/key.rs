@@ -155,7 +155,6 @@ pub enum Kind {
         ea: Ea,
         x: u8,
     },
-    Ret,
     Rti,
     Trap,
     Irq,
@@ -217,7 +216,6 @@ impl Key {
             Kind::Jmpm { .. } => "jmpm",
             Kind::Call { .. } => "call",
             Kind::Callm { .. } => "callm",
-            Kind::Ret => "ret",
             Kind::Rti => "rti",
             Kind::Trap => "trap",
             Kind::Irq => "irq",
@@ -250,7 +248,7 @@ impl Key {
             Kind::Save { n } | Kind::Restore { n } | Kind::Ldm { n } | Kind::Stm { n } => {
                 vec![i(n)]
             }
-            Kind::Ret | Kind::Rti | Kind::Trap | Kind::Irq | Kind::Sys => vec![],
+            Kind::Rti | Kind::Trap | Kind::Irq | Kind::Sys => vec![],
         }
     }
 
@@ -321,7 +319,6 @@ impl Key {
             ("restore", [Int(n)]) => Kind::Restore { n: u8_(*n)? },
             ("ldm", [Int(n)]) => Kind::Ldm { n: u8_(*n)? },
             ("stm", [Int(n)]) => Kind::Stm { n: u8_(*n)? },
-            ("ret", []) => Kind::Ret,
             ("rti", []) => Kind::Rti,
             ("trap", []) => Kind::Trap,
             ("irq", []) => Kind::Irq,

@@ -15,7 +15,7 @@
 N   = 8
 ROW = 4 * N                     ; bytes per matrix row
 
-main:   SAVE r8-r11
+main:   SAVE r7-r11
         MOV  r1, #2024
         BSR  srand
         LEA  r8, [mat_a]        ; A in row order
@@ -128,7 +128,7 @@ main:   SAVE r8-r11
         MOV  r2, #4
         BSR  print_hex
         BSR  newline
-        RESTORE r8-r11
+        RESTORE r7-r11
         RET
 
 s_row:   .asciz "row 3:"

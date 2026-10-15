@@ -34,7 +34,7 @@ FOUR  = 1024                    ; 4.0
 
 ; Registers: r8 = x, r9 = y, r10 = cx, r11 = cy, r12 = iterations - MAXIT
 ; (counts up to 0), r13 = 4.0; r1-r3 are temporaries.
-main:   SAVE r8-r13
+main:   SAVE r7-r13
         MOV  r13, #FOUR
         MOV  r11, #Y0
 .row:   MOV  r10, #X0
@@ -64,7 +64,7 @@ main:   SAVE r8-r13
         ADD  r11, #YSTEP
         CMP  r11, #Y0 + H * YSTEP
         BNE  .row
-        RESTORE r8-r13
+        RESTORE r7-r13
         RET
 
 .edge:  CMP  r1, r13            ; xx = 4.0 (so yy = 0): |x| = 2.0

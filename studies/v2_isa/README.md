@@ -39,7 +39,7 @@ cargo test -p v2-isa                          # the encoder, the semantics and t
 
 ## The programs
 
-They were ported in two steps, which the history keeps apart.
+They were ported in three steps, which the history keeps apart.
 
 1. **As they are.** Stores are written `MOV`. The `MOV`s whose N and Z
    something reads became `MOVS`, 37 of them: found by tracing, on the 1b
@@ -55,6 +55,12 @@ They were ported in two steps, which the history keeps apart.
    big-endian words; `MULFX` in `mandel.s` and `MULA` in `matmul.s`; and
    mode E, with `r14` as the current object: `bst.s`'s node, and the
    sixteen-word window of SHA-256's message schedule.
+3. **The link register.** A function that calls saves `r7` with the rest:
+   `SAVE r8-rN` became `SAVE r7-rN`, and `PUSH r8` became `SAVE r7-r8`.
+   One that saves nothing else pushes `r7` and returns with `JMP [sp]+`,
+   and a tail call restores `r7` before its branch. The leaf routines
+   that used `r7` as scratch (crc's two loops, rpn's `eval`, `isort`,
+   `xor_rect`, `memcpy` and `memset`) use `r5` or `r0` instead.
 
 Every program also passes with `r0` holding garbage from the start, which
 `tests/` checks, and linked from relocatable object files.

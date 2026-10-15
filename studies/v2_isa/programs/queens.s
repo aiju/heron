@@ -13,7 +13,7 @@
 N = 8
 
 ; r13 = solutions found so far, for the whole search.
-main:   SAVE r8-r13
+main:   SAVE r7-r13
         MOV  r13, #0
         LEA  r1, [cur]          ; row 0
         MOV  r2, #(1 << N) - 1  ; every column free,
@@ -55,7 +55,7 @@ main:   SAVE r8-r13
 .eol:   BSR  newline
         CMP  r8, #first + 4 * N
         BNE  .row
-        RESTORE r8-r13
+        RESTORE r7-r13
         RET
 
 ; solve: r1 = &cur[row], r2 = columns still free, r3 / r4 = squares in this
@@ -63,7 +63,7 @@ main:   SAVE r8-r13
 ; point in r13; the first complete one is copied to `first`.
 solve:  TST  r2, r2
         BEQ  .found             ; no free column: all rows have a queen
-        SAVE r8-r12
+        SAVE r7-r12
         MOV  r8, r1
         MOV  r9, r2
         MOV  r10, r3
@@ -88,7 +88,7 @@ solve:  TST  r2, r2
         BSR  solve
         TST  r12, r12
         BNE  .try
-.done:  RESTORE r8-r12
+.done:  RESTORE r7-r12
         RET
 
 .found: INC  r13

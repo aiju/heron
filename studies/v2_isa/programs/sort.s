@@ -6,7 +6,8 @@
 
         .include "lib/start.s"
 
-main:   MOV  r1, #12345
+main:   PUSH r7
+        MOV  r1, #12345
         BSR  srand
 
         ; ---- quicksort ----
@@ -39,16 +40,17 @@ main:   MOV  r1, #12345
         BSR  report
         MOV  r1, #small
         LEA  r2, [smallshow]
+        POP  r7
         BRA  show               ; tail call
 
 ; fill: r1 = array, r2 = count: store count random numbers.
-fill:   SAVE r8-r9
+fill:   SAVE r7-r9
         MOV  r8, r1
         MOV  r9, r2
 .loop:  BSR  rand               ; clobbers r1, r2
         MOV  [r8]+, r1
         DBNZ r9, .loop
-        RESTORE r8-r9
+        RESTORE r7-r9
         RET
 
 ; qsort: sort the words from r1 to r2 (both inclusive) as unsigned numbers.
@@ -60,7 +62,7 @@ fill:   SAVE r8-r9
 ; r2 = &a[j] + 4. (Comparing the pivot straight with memory, CMP r10, [r1]+,
 ; saves an instruction per step but then the swap has to load both values
 ; again; that came out 1.3% slower overall.)
-qsort:  SAVE r8-r10
+qsort:  SAVE r7-r10
         MOV  r8, r1             ; r8 = lo
         MOV  r9, r2             ; r9 = hi
 .again: CMP  r8, r9
@@ -102,7 +104,7 @@ qsort:  SAVE r8-r10
         BSR  qsort              ; r1 = i already
         MOV  r9, r10
         BRA  .again
-.done:  RESTORE r8-r10
+.done:  RESTORE r7-r10
         RET
 
 ; isort: insertion sort of r2 >= 2 words at r1, unsigned.
@@ -116,10 +118,10 @@ isort:  MOV  r5, r1             ; r5 = start
 .outer: MOV  r6, [r3]+          ; r6 = v = a[k], r3 = &a[k + 1]
         MOV  r1, r3             ; -[r1] is the hole, a[k] first
         LEA  r4, [r3 - 4]       ; -[r4] is the element below it, a[k - 1] first
-.inner: MOV  r7, -[r4]
-        CMP  r7, r6
+.inner: MOV  r0, -[r4]
+        CMP  r0, r6
         BLS  .place             ; a[p] <= v: v goes just above it
-        MOV  -[r1], r7          ; move a[p] up into the hole
+        MOV  -[r1], r0          ; move a[p] up into the hole
         CMP  r4, r5
         BHI  .inner             ; until a[0] has moved
 .place: MOV  -[r1], r6
@@ -130,7 +132,7 @@ isort:  MOV  r5, r1             ; r5 = start
 ; report: r1 = array, r2 = count: print "sorted" or "NOT sorted" and a
 ; Fletcher-style checksum (s1 += x; s2 += s1; both mod 2^16, so the sums run
 ; in 32 bits and only the low 4 hex digits are printed).
-report: SAVE r8-r9
+report: SAVE r7-r9
         MOV  r3, #0             ; s1
         MOV  r4, #0             ; s2
         MOV  r5, #0             ; the previous value
@@ -158,12 +160,12 @@ report: SAVE r8-r9
         MOV  r2, #4
         BSR  print_hex
         BSR  newline
-        RESTORE r8-r9
+        RESTORE r7-r9
         RET
 
 ; show: r1 = array, r2 = list of indices (bytes, count first): print
 ; "  a[i]=value a[i]=value ..." on one line.
-show:   SAVE r8-r10
+show:   SAVE r7-r10
         MOV  r8, r1
         MOV  r9, r2
         MOV  r10, byte [r9]+    ; r10 = count, r9 -> the first index
@@ -179,7 +181,7 @@ show:   SAVE r8-r10
         MOV  r1, [r8 + r1*4]    ; a[i]
         BSR  print_u32
         DBNZ r10, .loop
-        RESTORE r8-r10
+        RESTORE r7-r10
         BRA  newline
 
 s_quick:     .asciz "quicksort 256: "

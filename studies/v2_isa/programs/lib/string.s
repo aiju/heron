@@ -5,10 +5,10 @@
 ;   strcmp   r1 = a, r2 = b                -> r1 < 0, 0 or > 0: the difference of the
 ;                                             first differing bytes, compared unsigned
 ;                                                                         clobbers r1-r4
-;   memcpy   r1 = dst, r2 = src, r3 = n    -> r1 = dst                    clobbers r2-r5, r7
+;   memcpy   r1 = dst, r2 = src, r3 = n    -> r1 = dst                    clobbers r0, r2-r5
 ;            (copies forward: use memmove when the areas overlap)
-;   memmove  r1 = dst, r2 = src, r3 = n    -> r1 = dst, any overlap       clobbers r2-r5, r7
-;   memset   r1 = dst, r2 = byte, r3 = n   -> r1 = dst                    clobbers r2-r5, r7, HI
+;   memmove  r1 = dst, r2 = src, r3 = n    -> r1 = dst, any overlap       clobbers r0, r2-r5
+;   memset   r1 = dst, r2 = byte, r3 = n   -> r1 = dst                    clobbers r0, r2-r5, HI
 ;
 ; memcpy and memset move whole words, 16 bytes per loop, when the addresses
 ; allow it (dst and src equally aligned for memcpy); memmove copies bytes
@@ -39,7 +39,7 @@ strcmp: MOVS r3, byte [r1]+
         NEG  r1, r4
         RET
 
-memcpy: MOV  r7, r1             ; the result
+memcpy: MOV  r0, r1             ; the result
         MOV  r4, r1
         XOR  r4, r2
         AND  r4, #3
@@ -78,7 +78,7 @@ memcpy: MOV  r7, r1             ; the result
 .bloop: MOV  r4, byte [r2]+
         MOV  byte [r1]+, r4
         DBNZ r3, .bloop
-.done:  MOV  r1, r7
+.done:  MOV  r1, r0
         RET
 
 ; Forward copying is safe unless dst lies inside (src, src + n). One unsigned
@@ -95,7 +95,7 @@ memmove:
         DBNZ r3, .back
         RET
 
-memset: MOV  r7, r1             ; the result
+memset: MOV  r0, r1             ; the result
         ZXB  r2
         MOV  r4, #0x01010101
         MULU r2, r4             ; the byte in all four lanes of a word
@@ -126,5 +126,5 @@ memset: MOV  r7, r1             ; the result
         BEQ  .done
 .bloop: MOV  byte [r1]+, r2
         DBNZ r3, .bloop
-.done:  MOV  r1, r7
+.done:  MOV  r1, r0
         RET

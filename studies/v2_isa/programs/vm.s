@@ -22,7 +22,7 @@
 
         .include "lib/start.s"
 
-main:   SAVE r8-r14
+main:   SAVE r7-r14
         MOV  r14, sp            ; to drop whatever the VM leaves on the stack
         MOV  r8, #vm_code
         MOV  r10, #rstack
@@ -34,7 +34,7 @@ main:   SAVE r8-r14
 
 op_halt:
         MOV  sp, r14
-        RESTORE r8-r14
+        RESTORE r7-r14
         RET
 
 op_push:                        ; PUSH i32 (little-endian, unaligned)
