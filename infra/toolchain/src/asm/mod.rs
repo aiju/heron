@@ -122,6 +122,16 @@ pub trait Encoder: Sync {
     fn mem_top(&self) -> i64 {
         0x10000
     }
+    /// What .align pads with: a parcel as its two bytes in memory, the first
+    /// for even addresses (draft 2 pads code with a NOP).
+    fn pad(&self) -> [u8; 2] {
+        [0, 0]
+    }
+    /// An instruction's parcels in hex, for the listing.
+    fn hex(&self, words: &[u16]) -> String {
+        let w: Vec<String> = words.iter().map(|w| format!("{w:04X}")).collect();
+        w.join(" ")
+    }
     /// Encode one instruction (the mnemonic in lower case) as parcels.
     fn assemble(
         &self,
@@ -1096,7 +1106,8 @@ impl Assembler {
                 }
                 self.note_align(i, v);
                 let pad = (v - pc % v) % v;
-                self.stmts[i].data = vec![0; pad as usize];
+                let fill = self.enc.pad();
+                self.stmts[i].data = (pc..pc + pad).map(|a| fill[(a & 1) as usize]).collect();
                 Ok(pc + pad)
             }
             Dir::Space(count, fill) => {
@@ -1358,8 +1369,8 @@ impl Assembler {
             match body {
                 None => lines.push(format!("{:20} {text}", "")),
                 Some(st) if st.kind == Kind::Insn => {
-                    let w: Vec<String> = st.words.iter().map(|w| format!("{w:04X}")).collect();
-                    lines.push(format!("{:04X}  {:<14} {text}", st.addr, w.join(" ")));
+                    let w = self.enc.hex(&st.words);
+                    lines.push(format!("{:04X}  {w:<14} {text}", st.addr));
                 }
                 Some(st) => {
                     let b: Vec<String> =

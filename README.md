@@ -30,7 +30,10 @@ So far there has been:
 Draft 2 is next, built on 1b
 ([RFC 0006](reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 Its encoding is drafted in
-[RFC 0028](reports/0028-rfc-draft-2-isa.md).
+[RFC 0028](reports/0028-rfc-draft-2-isa.md), and a study has it in an
+assembler and the instruction-level simulator, with the 20 programs
+ported ([studies/v2_isa](studies/v2_isa/README.md)). The C compiler
+compiles for it too.
 
 ## Layout
 
@@ -40,7 +43,7 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 |---|---|
 | [docs/](docs/README.md) | The current design: what has been decided, as reference |
 | [reports/](reports/README.md) | Numbered reports (what was done and found) and RFCs (proposals that need decisions) |
-| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the 1b system on the bus, the C compiler, a Lisp, the bus signal integrity, graphics, an operating system |
+| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, draft 2, the 1b system on the bus, the C compiler, a Lisp, the bus signal integrity, graphics, an operating system |
 | [infra/](infra/README.md) | Reusable code: assembler and linker core, netlist language, static timing analysis, the chip-level simulator |
 | `heron/` | The `heron` command, the glue that makes the folders importable as `heron.*`, and `bindings/`, the crate that makes the Rust engines a Python module (`heron.native`) |
 | `tests/` | Tests of the repository itself |
@@ -85,7 +88,8 @@ cargo test                                # the Rust crates' tests
 
 heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # draft 1b: cycles for six configurations, mix, profile
 heron v1_isa --isa v1a test               # every 1a program against its expected output
-heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a: 1a) and run it
+heron v2_isa test                         # every draft 2 program
+heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a, v2) and run it
 heron lisp run -c studies/lisp/programs/tak.lisp --stats      # compile Lisp on the 1b simulator and run it
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # the 1b hardware at chip level
 heron v1b_hw hw sta                       # static timing analysis of the 1b netlist

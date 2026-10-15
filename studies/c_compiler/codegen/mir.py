@@ -65,8 +65,8 @@ class Frame:
 class Mem:
     """A memory operand. base and index are registers (or None); disp is an
     int; sym a symbol name added to disp; frame a Frame added to disp (base
-    is then sp). size 1, 2 or 4 (draft 1b prints it, 1a puts it in the
-    mnemonic)."""
+    is then sp). size 1, 2 or 4 (drafts 1b and 2 print it, 1a puts it in
+    the mnemonic)."""
     __slots__ = ("base", "index", "scale", "disp", "sym", "frame", "size", "postinc")
 
     def __init__(self, base=None, disp=0, sym=None, index=None, scale=1, frame=None, size=4,
@@ -159,9 +159,10 @@ class MBlock:
 
 
 class MFunction:
-    def __init__(self, name, ir_func):
+    def __init__(self, name, ir_func, alloc_regs=PHYS[1:15]):
         self.name = name
         self.ir = ir_func
+        self.alloc_regs = frozenset(alloc_regs)    # the physical registers to allocate
         self.blocks = []
         self.slots = {}         # IR Slot -> offset from the start of the locals area
         self.locals_size = 0
@@ -172,6 +173,14 @@ class MFunction:
         self.consts = []        # (label, list of block targets): jump tables
         self.assign = {}        # VReg -> PReg after allocation
         self.leaf = True
+        self.ret_words = 1      # the return address on the stack (0: in a link register)
+        self.link_used = False  # the body writes the link register
+
+    def is_alloc(self, r):
+        """Registers the allocator cares about: virtual ones and the
+        physical ones it allocates (r1-r14 on draft 1, where r0 reads as
+        zero; r0-r14 on draft 2)."""
+        return not r.is_phys or r in self.alloc_regs
 
     def compute_preds(self):
         for b in self.blocks:
@@ -201,7 +210,7 @@ class MFunction:
         if fr.kind == "spill":
             return self.spill_base + 4 * fr.key
         if fr.kind == "in":
-            return self.frame_size + 4 * self.nsaved + 4 + 4 * fr.key
+            return self.frame_size + 4 * self.nsaved + 4 * self.ret_words + 4 * fr.key
         raise ValueError(fr.kind)
 
     def local_offset_known(self, slot):
@@ -214,13 +223,9 @@ class MFunction:
 # Liveness
 
 
-def is_alloc(r):
-    """Registers the allocator cares about: virtual ones and r1-r14."""
-    return not r.is_phys or 1 <= r.n <= 14
-
-
 def liveness(mf):
     """Returns (live_in, live_out) dicts of sets per block."""
+    is_alloc = mf.is_alloc
     mf.compute_preds()
     use, defs = {}, {}
     for b in mf.blocks:

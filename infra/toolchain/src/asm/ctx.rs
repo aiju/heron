@@ -8,7 +8,7 @@ use super::expr::{self, EvalError, Expr};
 use super::{
     AsmError, Base, ExprRef, Fixup, REP_FAR, REP_NEAR, REP_PC, Stmt, Tables, Where, undefined,
 };
-use crate::obj::{PC16, PC16H};
+use crate::obj;
 
 fn id(e: &ExprRef) -> usize {
     Arc::as_ptr(e) as usize
@@ -165,7 +165,7 @@ impl<'a> Ctx<'a> {
             return Ok(());
         };
         let field = self.pc + 2 * index;
-        if kind == PC16 || kind == PC16H {
+        if obj::pc_relative(kind) {
             if self.t.direct(b.as_ref(), self.section).is_some() {
                 return Ok(());
             }

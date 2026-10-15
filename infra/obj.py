@@ -60,9 +60,15 @@ ABS16 = 2           # 16 bits of data: S + A in -32768..65535
 ABS16S = 3          # 16 bits the CPU sign-extends: S + A in -32768..32767
 PC16 = 4            # 16 bits, PC-relative: S + A - P in -32768..32767
 PC16H = 5           # 16 bits, PC-relative in parcels: (S + A - P) / 2, even, ±64 KB
+ABS24H = 6          # bits 23-16 of S + A, sign-extended from 24 bits (draft 2's tables)
+ABS24L = 7          # bits 15-0 of S + A, with ABS24H
+PC24H = 8           # bits 23-16 of S + A - P, within ±8 MB
+PC24L = 9           # bits 15-0 of S + A - P, with PC24H
 
-RELOC_NAMES = {ABS32: "abs32", ABS16: "abs16", ABS16S: "abs16s", PC16: "pc16", PC16H: "pc16h"}
-RELOC_SIZE = {ABS32: 4, ABS16: 2, ABS16S: 2, PC16: 2, PC16H: 2}
+RELOC_NAMES = {ABS32: "abs32", ABS16: "abs16", ABS16S: "abs16s", PC16: "pc16", PC16H: "pc16h",
+               ABS24H: "abs24h", ABS24L: "abs24l", PC24H: "pc24h", PC24L: "pc24l"}
+RELOC_SIZE = {ABS32: 4, ABS16: 2, ABS16S: 2, PC16: 2, PC16H: 2,
+              ABS24H: 1, ABS24L: 2, PC24H: 1, PC24L: 2}
 
 M32 = 0xFFFFFFFF
 

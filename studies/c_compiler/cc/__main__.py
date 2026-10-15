@@ -1,13 +1,13 @@
 """C compiler command line: heron c_compiler cc ...
 
-    heron c_compiler cc [--isa v1a|v1b] FILE... [-o OUT] [-c | -S | --run] [--stats]
+    heron c_compiler cc [--isa v1a|v1b|v2] FILE... [-o OUT] [-c | -S | --run] [--stats]
                         [--emit-ir] [-O0] [-I DIR] [-D NAME[=VALUE]] [--input TEXT]
                         [--input-file FILE] [--max-cycles N]
 
 FILEs are C (.c), assembly (.s), object files (.o) and libraries (.a). Without
 -c, -S or --run, everything is compiled and linked with the start code and
 the C library into an executable (FIRST.out, or -o), which `heron v1_isa run`
-runs.
+runs (`heron v2_isa run` for draft 2).
 """
 
 import argparse
@@ -124,7 +124,6 @@ def run(args, isa):
     if not args.run:
         return 0
     from heron.infra import isas
-    from heron.studies.v1_isa.cli import run32
     inp = args.input.encode().decode("unicode_escape").encode("latin-1") if args.input else b""
     if args.input_file:
         with open(args.input_file, "rb") as f:
@@ -133,12 +132,16 @@ def run(args, isa):
                             input_file=args.input_file,
                             trace=False, stats=args.stats, regs=False,
                             max_cycles=args.max_cycles)
+    if isa == "v2":
+        from heron.studies.v2_isa.cli import run as run_v2
+        return run_v2(ns, img, inp)
+    from heron.studies.v1_isa.cli import run32
     return run32(ns, isas.get(isa), img, inp)
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="heron c_compiler cc", description="C compiler for drafts 1a and 1b")
-    p.add_argument("--isa", default="v1b", choices=("v1a", "v1b"), help="the encoding (default v1b)")
+    p = argparse.ArgumentParser(prog="heron c_compiler cc", description="C compiler for drafts 1a, 1b and 2")
+    p.add_argument("--isa", default="v1b", choices=("v1a", "v1b", "v2"), help="the ISA (default v1b)")
     add_arguments(p)
     args = p.parse_args(argv)
     return run(args, args.isa)
