@@ -1,5 +1,5 @@
 //! The draft 1b encoder: register + addressing mode, 16-bit parcels
-//! (isa-v1b.md). Main format `F D M R`: operation, register, mode,
+//! (RFC 0004, Part II). Main format `F D M R`: operation, register, mode,
 //! register-or-constant for the mode.
 
 use toolchain::asm::{AsmError, Ctx, Encoder, ExprRef, Mem, Operand, Reg, Size, kinds};

@@ -68,7 +68,7 @@ The generated tables are in [performance.md](0019-report-graphics/performance.md
      bit-aligned copy word drops from 26.5 to 13.5 cycles. A barrel
      shifter alone saves 4.4% overall, and 25–34% of bit-aligned copies
      at 1 bit.
-  3. **Auto-increment for 1a**, as [report 0004](0004-report-draft-1-evaluation.md#recommendations-for-draft-2)
+  3. **Auto-increment for 1a**, as [RFC 0004](0004-rfc-draft-1-isa.md#35-recommendations-for-draft-2)
      recommends: it is most of 1b's lead here too.
   4. **A merge under a mask** (`d = (d & ~m) | (c & m)`), the core of
      every masked edge and glyph word: 20% off the glyph loop.
@@ -249,7 +249,7 @@ Cycles, 1b / 1a (D16-overlap), geometric means:
 [performance.md](0019-report-graphics/performance.md#1a-against-1b) has
 them by scene and depth, and by phase.)
 The gap is smaller than for the draft 1 programs (1b 7–10% faster,
-[report 0004](0004-report-draft-1-evaluation.md)), because most of the
+[RFC 0004](0004-rfc-draft-1-isa.md)), because most of the
 work here is either in kernels where 1b's modes help only a little, or
 in compiled C, which gains less from 1b ([report 0011](0011-report-c-compiler.md)).
 
@@ -307,7 +307,7 @@ kernels (D16-overlap), from [performance.md](0019-report-graphics/performance.md
 
 **Shifts.** The model charges a shift by n one step per 16, per 8 and per
 remaining bit; the draft 1b hardware is similar (2–11 cycles for a shift
-by a constant, [hardware.md](../studies/v1b_hw/hardware.md)). Graphics
+by a constant, [report 0012](0012-report-draft-1b-hardware.md#4-datapath)). Graphics
 shifts a lot:
 
 - a copy that isn't word-aligned puts each word together from two
@@ -415,7 +415,7 @@ this. It would help `memcpy` and context switches as much.
 ### Auto-increment for 1a
 
 1b's lead in copies is auto-increment
-([report 0004](0004-report-draft-1-evaluation.md#what-if-1a-had-auto-increment)
+([RFC 0004](0004-rfc-draft-1-isa.md#311-what-if-1a-had-auto-increment)
 estimated it for the draft 1 programs). Here it is worth 30% on a copy
 along its rows (`-[r]`, backwards) and 14–16% on scrolling. 1a with `[r]+` and `-[r]` for words
 and bytes would close most of the gap to 1b in these kernels.

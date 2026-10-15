@@ -12,14 +12,15 @@ collector, written in 1b assembly, and a compiler to 1b code, written in
 the Lisp and running on the machine. It's an experiment, not a product:
 the point is to see what a Lisp needs from the instruction set and the
 system, and what changes would help it. The findings are in
-[report 0018](../../reports/0018-report-lisp.md).
+[report 0018](../../reports/0018-report-lisp.md), and its appendix
+specifies v1bx, 1b with a tagged register mode, the study's ISA
+experiment.
 
 | File | What's in it |
 |---|---|
 | [language.md](language.md) | The language: data, special forms, procedures, errors |
 | [implementation.md](implementation.md) | How it runs on 1b: values, memory, the collector, the interpreter, the calling convention |
 | [compiler.md](compiler.md) | The compiler, and the saved image the compiled runs start from |
-| [isa.md](isa.md) | v1bx: 1b with a tagged register mode, the study's ISA experiment |
 | `rt/` | The runtime, in 1b assembly: `start.s` (memory map, top level, traps), `gc.s`, `read.s`, `print.s`, `eval.s` (the interpreter), `prims.s`, `code.s` (support for compiled code) |
 | `prelude.lisp` | The parts of the language written in Lisp, read at start-up |
 | `compiler.lisp` | The compiler |

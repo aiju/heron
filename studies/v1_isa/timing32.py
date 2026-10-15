@@ -1,6 +1,6 @@
 """Cycle estimates for the draft 1 machines, from a model of six hardware
 configurations. One of them, D32-separate, has since been built as the
-draft 1b hardware (studies/v1b_hw/hardware.md); report 0012 compares
+draft 1b hardware; report 0012 describes it and compares
 its cycle counts with this model's.
 
 The instruction-level simulator records, for every executed instruction, a

@@ -22,7 +22,8 @@ has the reasons.
 | What | Where |
 |---|---|
 | The current design, as reference: what it is, not why or what else was considered | `docs/` (and, from draft 2, `isa/`, `hw/`, `sw/`, `tools/`) |
-| An experiment: a design, a measurement, a tool | its own folder in `studies/` |
+| What the machine should be (hardware, ISA, its software and their conventions), even if a study built it | an RFC with a self-contained specification |
+| An experiment: the code that builds or measures a design, a tool, and how it works | its own folder in `studies/` |
 | Code any design can reuse, with no opcodes, microcode fields or memory map in it | `infra/` |
 | An engine: a simulator, an assembler or linker | a Rust crate, in the folder it belongs to ([RFC 0015](reports/0015-rfc-languages.md#where-the-rust-code-lives)) |
 | What you did and found | a report in `reports/` |
@@ -85,9 +86,21 @@ The engines are Rust, everything else is Python
   unless she has made that choice. A rejected idea keeps its reason, so it
   isn't proposed again without new evidence.
 - **Reports are snapshots:** once a report is `current`, don't rewrite its
-  text. Only its status, `superseded-by` and clearly marked errata change.
+  text. Only its status, `superseded-by`, clearly marked errata and
+  (below) a specification it carries change.
 - **RFCs may carry findings:** an RFC can include the findings behind it.
   Whether they deserve a report of their own is a judgement call.
+- **Reports may carry specifications:** a report can include the
+  specification of the design it measured, as a part or an appendix
+  (0012, 0018, 0020, 0025). While its study is active, that part follows
+  the code, like the report's generated files.
+- **Specifications:** written to be read on its own and moved to
+  `docs/` unchanged: in full rather than as a diff, built only on live
+  specifications, undecided parts marked **open**, reasons kept apart.
+  By default Part I is the specification and Part II the discussion;
+  deviate, or add parts, where that suits the document. Where your code
+  needs something its RFC leaves open, add it to the RFC for Emily
+  rather than deciding it in the study.
 - **Mentioning one to Emily:** in chat, a PR description or a comment,
   link a report, an RFC or any other file on GitHub, at the branch that
   has the version you mean: your PR's branch if you changed it there,

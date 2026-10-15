@@ -170,7 +170,8 @@ def render(res):
     s.append(table(["Routine", "Mean", "Largest"], rows))
 
     s.append("\n## The tagged register mode\n\n"
-             "Compiled with `tagged` (the v1bx mode E, [isa.md](../../studies/lisp/isa.md)) "
+             "Compiled with `tagged` (the v1bx mode E, "
+             "[report 0018's appendix](../0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)) "
              "against plain 1b: the cycles outside the collector, which the "
              "change doesn't touch (a collection's cost depends on where it "
              "happens to fall). The timing model costs a tagged operation as "
