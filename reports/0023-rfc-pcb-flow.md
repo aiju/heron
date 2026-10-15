@@ -307,7 +307,7 @@ check, KiCad's DRC and the fab netlist's check.
 | | 4 | 6U × 520 | not routed (4 nets in conflict) |
 | | 4 | 6U × 460 | not routed (19 nets in conflict) |
 | DIP, free | 6 | 480 × 320 | the parts don't fit |
-| | 4 | 500 × 345 | FREE_DIP_4 |
+| | 4 | 500 × 345 | routed ✓ |
 
 6U is 233.35 mm, 9U 366.7 mm. Every board has RFC 0026's mechanics: a
 5 mm strip along the top and bottom edges for the card guides, an 8 mm
@@ -338,10 +338,12 @@ From these:
   2.1 times the SMD card's area. 500 × 345 was left with 2 nets in
   conflict: four layers are at the edge of what this board routes on,
   and a little more room doesn't always help, as the slots and so the
-  placement change with it. So Emily's original plan, a plain DIP board
-  on four layers, works as a grid; it is just big. Neither DIP board is
-  a Eurocard size: 320 and 345 mm high fit within 9U (366.7), but 470
-  and 490 deep are more than the deepest Eurocard, 400.
+  placement change with it. Placed freely, 500 × 345 routes, with a
+  fifth more track (193 m against 159). So Emily's original plan, a
+  plain DIP board on four layers, works as a grid; it is just big.
+  Neither DIP board is a Eurocard size: 320 and 345 mm high fit within
+  9U (366.7), but 470 and 490 deep are more than the deepest Eurocard,
+  400.
 - **One card is enough.** RFC 0005 expected the CPU to need two. Splitting
   it would be costly: the best two-way split found cuts 171 signals,
   control against datapath 201, and the backplane has about 52 spare pins
