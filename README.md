@@ -32,7 +32,8 @@ Draft 2 is next, built on 1b
 Its encoding is drafted in
 [RFC 0028](reports/0028-rfc-draft-2-isa.md), and a study has it in an
 assembler and the instruction-level simulator, with the 20 programs
-ported ([studies/v2_isa](studies/v2_isa/README.md)).
+ported ([studies/v2_isa](studies/v2_isa/README.md)). The C compiler
+compiles for it too.
 
 ## Layout
 
@@ -88,7 +89,7 @@ cargo test                                # the Rust crates' tests
 heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # draft 1b: cycles for six configurations, mix, profile
 heron v1_isa --isa v1a test               # every 1a program against its expected output
 heron v2_isa test                         # every draft 2 program
-heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a: 1a) and run it
+heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a, v2) and run it
 heron lisp run -c studies/lisp/programs/tak.lisp --stats      # compile Lisp on the 1b simulator and run it
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # the 1b hardware at chip level
 heron v1b_hw hw sta                       # static timing analysis of the 1b netlist
