@@ -37,8 +37,11 @@ def _family(part_number):
 
 def nets(board, nl):
     """{net: {"length": mm, "pF": total, "driver": (ref, pin) or None,
-    "loads": {(ref, pin): ps from the driver}}} for every routed net (a
-    connector's load by its pad: it isn't in the netlist)."""
+    "loads": {(ref, pin): ps from the driver}, "others": {(ref, pin): ps}}}
+    for every routed net (a connector's load by its pad: it isn't in the
+    netlist). A net with several drivers (a tri-state bus) is timed from
+    the first by reference; "others" has each other driver's flight time to
+    its nearest pad."""
     outer = {"F.Cu", "B.Cu"}
     planes = set(board.planes.values())
     # copper of each net: nodes are points (rounded to a micron), edges carry ps
@@ -98,16 +101,21 @@ def nets(board, nl):
         if pad.net and pad.net not in planes:
             pads_by_net[pad.net].append(pad)
     for net, pads in pads_by_net.items():
+        pads.sort(key=lambda p: (p.part.ref, p.number))
         g = graph[net]
         ends = list(g)
-        info = {"length": round(length[net], 1), "driver": None, "loads": {}}
+        info = {"length": round(length[net], 1), "driver": None, "loads": {}, "others": {}}
         c = cap[net]
         driver = None
+        others = []
         for pad in pads:
             pin = pin_of.get((pad.part.ref, pad.number))
             k = kind_of.get((pad.part.ref, pin))
-            if k in ("out", "tri") and driver is None:
-                driver = pad
+            if k in ("out", "tri"):
+                if driver is None:
+                    driver = pad
+                else:
+                    others.append(pad)
             elif k == "io":
                 c += PF_IO
             elif k == "in":
@@ -130,20 +138,7 @@ def nets(board, nl):
                 for e in touching(pad):
                     g[key].append((e, 0.0))
                     g[e].append((key, 0.0))
-            start = ("pad", driver.part.ref, driver.number)
-            dist = {start: 0.0}
-            heap = [(0.0, 0, start)]
-            k = 0
-            while heap:
-                d, _, e = heapq.heappop(heap)
-                if d > dist.get(e, 1e18):
-                    continue
-                for f, ps in g[e]:
-                    nd = d + ps
-                    if nd < dist.get(f, 1e18):
-                        dist[f] = nd
-                        k += 1
-                        heapq.heappush(heap, (nd, k, f))
+            dist = _flights(g, driver)
             for pad in pads:
                 if pad is driver:
                     continue
@@ -151,8 +146,33 @@ def nets(board, nl):
                 if d is not None:
                     pin = pin_of.get((pad.part.ref, pad.number), pad.number)
                     info["loads"][(pad.part.ref, pin)] = round(d)
+            for o in others:
+                dist = _flights(g, o)
+                near = min((dist[k] for k in (("pad", p.part.ref, p.number) for p in pads if p is not o)
+                            if k in dist), default=None)
+                if near is not None:
+                    info["others"][(o.part.ref, pin_of.get((o.part.ref, o.number)))] = round(near)
         out[net] = info
     return out
+
+
+def _flights(g, pad):
+    """Dijkstra over a net's copper graph from one pad: {node: ps}."""
+    start = ("pad", pad.part.ref, pad.number)
+    dist = {start: 0.0}
+    heap = [(0.0, 0, start)]
+    k = 0
+    while heap:
+        d, _, e = heapq.heappop(heap)
+        if d > dist.get(e, 1e18):
+            continue
+        for f, ps in g[e]:
+            nd = d + ps
+            if nd < dist.get(f, 1e18):
+                dist[f] = nd
+                k += 1
+                heapq.heappush(heap, (nd, k, f))
+    return dist
 
 
 def _on_segment(q, a, b, eps=2e-3):
@@ -193,6 +213,9 @@ def back_annotate(nl, wires, variant=None):
         near = min(w["loads"].values(), default=0)
         load = max(w["pF"] - DATASHEET_PF, 0.0) * NS_PER_PF.get(fam, 0.0) * 1000
         out[(ref, pin)] = int(near + load)
+        for (oref, opin), ps in w.get("others", {}).items():
+            if insts[oref].type.kind(opin) != "io":
+                out[(oref, opin)] = int(ps + load)
         for (lref, lpin), ps in w["loads"].items():
             if ps - near < MIN_WIRE_PS:
                 continue
@@ -206,7 +229,7 @@ def back_annotate(nl, wires, variant=None):
 def keys_of(wires, net):
     """The keys of back_annotate() that belong to one net."""
     w = wires[net]
-    keys = set(w["loads"])
+    keys = set(w["loads"]) | set(w.get("others", {}))
     if w["driver"]:
         keys |= {tuple(w["driver"]), (*w["driver"], "off")}
     return keys
