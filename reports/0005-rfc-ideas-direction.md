@@ -149,7 +149,9 @@ Measured and small, about 1% or less: `r0` as a general register, a
 class load, a three-operand `XOR`, unaligned 16-bit loads, a link
 register, `CHK`, one-parcel pair offsets for the Lisp
 ([RFC 0006](0006-rfc-ideas-isa.md#6-for-dynamic-languages)). Small isn't
-the same as not wanted: the link register is open. Batching
+the same as not wanted: the link register is open, and now measured on
+the 1b hardware, −0.2% to −2.3% by workload
+([report 0030](0030-report-link-register.md)). Batching
 system calls through rings doesn't pay on this machine at all
 ([RFC 0010](0010-rfc-ideas-os.md#1-the-operating-system)).
 

@@ -134,6 +134,9 @@ Change the generator and rerun it rather than editing the output by hand:
 - `reports/0024-rfc-faster-smaller/results.md`:
   `heron v1b_tradeoffs report --write` (`--hw` reruns the chip-level
   suites, about 30 minutes);
+- `reports/0030-report-link-register/results.md`:
+  `heron link_register report --write` (about half an hour the first
+  time, cached in `build/link_register/` after that);
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -144,7 +147,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
 - `heron test v1_isa c_compiler v1b_hw v1b_system v1b_tradeoffs v0_hw
-  graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+  graphics kernel bus_si link_register`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
   against their expected output.

@@ -633,8 +633,8 @@ programs and the 15 C programs compiled for 1b, with their C library.
 5. **The tag that marks an integer:** the Lisp's bit 0 clear, or Egret's
    2n + 1. A register holding the expected tag bit could serve both.
 6. **`LDM` and `STM`:** what their extension parcel's 12 spare bits do
-   (direction, writeback). With a link register (`BL`), a range plus a
-   bit for it.
+   (direction, writeback). With a link register in r7, next to r8–r14, a
+   range covers it and no bit is needed ([13](#9-open-questions)).
 7. **The opcode byte first in memory,** as in the map, or second.
 8. **`MOVS rs`,** in the map. Register copies' flags were read 21 times in
    86,000.
@@ -649,6 +649,13 @@ programs and the 15 C programs compiled for 1b, with their C library.
       `.W`. Only if something needs it.
 12. **Room to grow:** 11 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([6.2](#62-alu-operations-rows-46-and-8a)).
+13. **`CALL` with a link register,** r7: measured on 1b in
+    [report 0030](0030-report-link-register.md). On the 1b hardware it is
+    a small gain everywhere (−2.3% hand-written, −0.2% compiled C, −0.9%
+    Egret's JIT), for no hardware; with the wide fetch it is about even.
+    If taken, the cells don't change: `CALL ea` and `BSR` write r7, `RET`
+    is `JMP r7` and `FD 00` is free, and `JMP [sp]+` is the return that
+    pops.
 
 ## 10. 1b's gaps left open
 
