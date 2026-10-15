@@ -929,6 +929,43 @@
   "part_number": "SN74F157A",
   "source": "https://www.ti.com/lit/ds/symlink/sn74f157a.pdf"
  },
+ "74F161": {
+  "checks": {
+   "fmax MHz": 90,
+   "hold EN": 0,
+   "hold LOAD": 2,
+   "hold data": 2,
+   "setup EN": 11.5,
+   "setup LOAD": 11.5,
+   "setup data": 5,
+   "tw CLK": 7
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 11,
+    "min": 2.7,
+    "typ": 7.1
+   },
+   "CLK->RCO": {
+    "max": 15,
+    "min": 4.2,
+    "typ": 9.6
+   },
+   "CLR->Q": {
+    "max": 13,
+    "min": 4.7,
+    "typ": 8.6
+   },
+   "ENT->RCO": {
+    "max": 8.5,
+    "min": 1.7,
+    "typ": 4.1
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F161A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f161a.pdf"
+ },
  "74F163": {
   "checks": {
    "fmax MHz": 90,
@@ -1099,6 +1136,49 @@
   "estimated": [],
   "part_number": "SN74F27",
   "source": "https://www.ti.com/lit/ds/symlink/sn74f27.pdf"
+ },
+ "74F299": {
+  "checks": {
+   "fmax MHz": 70,
+   "hold DS": 2,
+   "hold IO": 2,
+   "hold S": 0,
+   "recovery CLR": 7,
+   "setup DS": 5.5,
+   "setup IO": 5.5,
+   "setup S": 8.5,
+   "tw CLK": 7
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 12,
+    "min": 3.2,
+    "typ": 8.1
+   },
+   "CLK->QS": {
+    "max": 10,
+    "min": 2.7,
+    "typ": 6.6
+   },
+   "CLR->Q": {
+    "max": 15,
+    "min": 5.7,
+    "typ": 10.6
+   },
+   "OE->Y dis": {
+    "max": 7,
+    "min": 1.2,
+    "typ": 4.1
+   },
+   "OE->Y en": {
+    "max": 11,
+    "min": 2.7,
+    "typ": 6.6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F299",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f299.pdf"
  },
  "74F32": {
   "checks": {},
@@ -2653,6 +2733,62 @@
   },
   "estimated": [],
   "source": "https://static.chipdip.ru/lib/137/DOC012137217.pdf (ISSI IS61C256AL Rev. C1, Jan 2020, p.4-5)"
+ },
+ "IS61C6416AL-12": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 9,
+   "tCW": 9,
+   "tDH": 0,
+   "tDW": 6,
+   "tOH": 3,
+   "tRC": 12,
+   "tWC": 12,
+   "tWP": 9,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 12,
+    "typ": 12
+   },
+   "tACC": {
+    "max": 12,
+    "typ": 12
+   },
+   "tACE": {
+    "max": 12,
+    "typ": 12
+   },
+   "tCE": {
+    "max": 12,
+    "typ": 12
+   },
+   "tCHZ": {
+    "max": 7,
+    "typ": 7
+   },
+   "tDF": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOE": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOHZ": {
+    "max": 6,
+    "typ": 6
+   },
+   "tWHZ": {
+    "max": 6,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "part_number": "IS61C6416AL-12",
+  "source": "https://static.chipdip.ru/lib/414/DOC012414509.pdf"
  },
  "SST39SF010A-55": {
   "checks": {

@@ -1,8 +1,8 @@
-# The system (studies/system) for the instruction-level simulator: the
+# The system (studies/v1b_system) for the instruction-level simulator: the
 # memory map and the cards' devices behind the draft 1 machine's Bus. Python
 # uses it through heron/bindings, as a Machine with system=... .
 [package]
-name = "system-model"
+name = "v1b-system-model"
 version = "0.1.0"
 edition.workspace = true
 publish.workspace = true

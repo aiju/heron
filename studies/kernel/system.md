@@ -86,7 +86,7 @@ with one `MTSR` each.
 
 ## The page map
 
-The flat page map of [RFC 0010](../../reports/0010-rfc-ideas-os.md#11-mmu):
+The flat page map of [RFC 0010](../../reports/0010-rfc-ideas-os.md#3-mmu):
 
 - **16 contexts of 4096 entries,** 4 KB pages, so 16 MB of virtual
   space per context. An address of 16 MB or more faults.

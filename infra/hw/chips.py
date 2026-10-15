@@ -191,10 +191,10 @@ T("181", "alu181",
         ([f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)], ["G"], "AB->G"),
         ([f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)], ["CN4"], "AB->CN4"),
         ([f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)], ["AEQB"], "AB->AEQB"),
-        (["CN"], [f"F{i}" for i in range(4)], "CN->F"),
+        (["CN"], [f"F{i}" for i in range(4)] + ["AEQB"], "CN->F"),
         (["CN"], ["CN4"], "CN->CN4"),
-        ([f"S{i}" for i in range(4)] + ["M"], [f"F{i}" for i in range(4)] + ["P", "G", "CN4", "AEQB"],
-         "S->F")],
+        ([f"S{i}" for i in range(4)], [f"F{i}" for i in range(4)] + ["P", "G", "CN4", "AEQB"], "S->F"),
+        (["M"], [f"F{i}" for i in range(4)] + ["AEQB"], "M->F")],
   family="alu", desc="4-bit ALU")
 
 T("182", "cla182",
@@ -414,12 +414,17 @@ DELAY_FALLBACK = {"OE->A en": "OE->Y en", "OE->B en": "OE->Y en"}
 
 def part_number(variant, chip_type, role=None, part=None):
     """The part a chip of this type is in this variant: `part` if the
-    netlist names one, else the variant's choice for its type and role."""
+    netlist names one, else the variant's choice for its type and role.
+    Besides the keys above, a variant may name a part per chip type
+    ("parts": {"153": "74F153", ...}), the slower 512K x 8 RAM ("ram512")
+    and the decode ROMs apart from the microcode ROMs ("decode")."""
     if part is not None:
         return part
     if chip_type in FIXED_PARTS:
         return FIXED_PARTS[chip_type]
     v = VARIANTS[variant]
+    if chip_type in v.get("parts", {}):
+        return v["parts"][chip_type]
     if chip_type == "181":
         return v["alu"]
     if chip_type == "182":
@@ -427,9 +432,9 @@ def part_number(variant, chip_type, role=None, part=None):
     if chip_type == "sram":
         return v["ram"] if role == "ram" else v["rf"]
     if chip_type == "sram512":
-        return "AS7C4096A-12" if role == "fastram" else "AS6C4008-55"
+        return "AS7C4096A-12" if role == "fastram" else v.get("ram512", "AS6C4008-55")
     if chip_type == "flash":
-        return v["rom"]
+        return v.get("decode", v["rom"]) if role == "decode" else v["rom"]
     if TYPES[chip_type].family == "fixture":
         return chip_type
     if v["logic"] == "74ACT" and chip_type in ACT_MISSING:

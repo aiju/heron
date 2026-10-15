@@ -5,8 +5,8 @@ title: Printed circuit boards: a flow from the netlist to checked boards
 status: open
 date: 2026-10-15
 context:
-  studies: [pcb, system, bus_si]
-  commit: 2f81658
+  studies: [pcb, v1b_system, bus_si]
+  commit: cc89b79
 ---
 
 # RFC 0023: Printed circuit boards: a flow from the netlist to checked boards
@@ -163,7 +163,7 @@ heron pcb sweep --write                # the experiments behind this RFC
 
 One build, for the CPU card at 340 × 220 mm:
 
-1. **Parts** (`physical.parts`): the card's netlist (`studies/system`)
+1. **Parts** (`physical.parts`): the card's netlist (`studies/v1b_system`)
    through the pinout table. Each chip keeps the simulator's reference
    (`U_ALU3`), so a board's part and the simulator's chip are the same
    name. Tied pins (a clock driver's enables, the supervisor's capacitor

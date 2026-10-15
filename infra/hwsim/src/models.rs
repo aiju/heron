@@ -2491,6 +2491,9 @@ pub struct Sr299 {
     state: [u8; 8],
     prev: u8,
     last_edge: Option<Time>,
+    /// the mode (S1 S0) at the last edge: which data inputs it took, and so
+    /// which ones have a hold time to keep
+    last_mode: u8,
     driving: bool,
     d_clk: Time,
     d_qs: Time,
@@ -2532,6 +2535,7 @@ impl Sr299 {
             state,
             prev: 0,
             last_edge: None,
+            last_mode: 0,
             driving: false,
             d_clk: s.d("CLK->Q")?,
             d_qs: s.d("CLK->QS")?,
@@ -2596,6 +2600,7 @@ impl Sr299 {
                 }
                 self.state = nx;
                 self.last_edge = Some(cx.now());
+                self.last_mode = mode;
                 self.outputs(cx, c, self.d_clk, self.d_qs);
             }
             self.prev = v;
@@ -2609,9 +2614,12 @@ impl Sr299 {
             self.outputs(cx, c, self.d_en, self.d_qs);
         } else if pin == self.oe1 || pin == self.oe2 {
             self.outputs(cx, c, self.d_en, self.d_qs);
-        } else if pin == self.ds0 || pin == self.ds7 {
+        } else if (pin == self.ds0 && self.last_mode == 1)
+            || (pin == self.ds7 && self.last_mode == 2)
+        {
+            // a serial input has a hold time only after an edge that shifted it in
             cx.check_hold(c, pin, self.last_edge, self.h_ds, "DS");
-        } else if self.is_io[pin] && !self.driving {
+        } else if self.is_io[pin] && !self.driving && self.last_mode == 3 {
             cx.check_hold(c, pin, self.last_edge, self.h_io, "IO");
         }
     }

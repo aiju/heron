@@ -1,12 +1,12 @@
 ---
 status: active
-depends-on: [system, bus_si, v1b_hw]
+depends-on: [v1b_system, bus_si, v1b_hw]
 reports: [23]
 ---
 
 # Printed circuit boards
 
-How the system's cards (`studies/system`) become printed circuit boards
+How the system's cards (`studies/v1b_system`) become printed circuit boards
 that are checked to be the netlists the chip-level simulator runs: the CPU
 card as a surface-mount board and as a plain DIP board, placed and routed
 by code, written as KiCad boards, and checked against the netlist in four

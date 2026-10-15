@@ -88,6 +88,13 @@ The engines are Rust, everything else is Python
   text. Only its status, `superseded-by` and clearly marked errata change.
 - **RFCs may carry findings:** an RFC can include the findings behind it.
   Whether they deserve a report of their own is a judgement call.
+- **Mentioning one to Emily:** in chat, a PR description or a comment,
+  link a report, an RFC or any other file on GitHub, at the branch that
+  has the version you mean: your PR's branch if you changed it there,
+  `main` otherwise. For example
+  `[RFC 0006](https://github.com/aiju/heron/blob/main/reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)`.
+  A bare "RFC 0006" leaves her to find the right version. Inside the
+  repository's own files, keep relative links.
 - **The index:** after adding a report or changing a status, run
   `python3 -m heron reports`. It rewrites `reports/README.md` and checks
   the front matter. Git merges the index by keeping both sides' lines
@@ -98,12 +105,12 @@ The engines are Rust, everything else is Python
 
 Change the generator and rerun it rather than editing the output by hand:
 
-- the `performance.md` in reports 0001, 0004, 0011, 0012, 0018, 0019 and
+- the `performance.md` in reports 0004, 0011, 0012, 0017, 0018, 0019 and
   0020:
-  - `heron v0_hw report`
   - `heron v1_isa report`
   - `heron c_compiler bench --write`
   - `heron v1b_hw report`
+  - `heron egret bench --write`
   - `heron lisp report --write`
   - `heron graphics bench --write` (also the screenshots next to it)
   - `heron kernel report --write`
@@ -123,8 +130,12 @@ Change the generator and rerun it rather than editing the output by hand:
 - `studies/v0_hw/baseline.json`: `baseline.write()` in that study (it's
   frozen, so this shouldn't be needed);
 - `reports/0022-report-bus-si-revised/results.md`: `heron bus_si report`;
+  the figures next to it: `heron bus_si traces`;
 - `reports/0023-rfc-pcb-flow/results.md`: `heron pcb sweep --write` (needs
   KiCad; about an hour and a half);
+- `reports/0024-rfc-faster-smaller/results.md`:
+  `heron v1b_tradeoffs report --write` (`--hw` reruns the chip-level
+  suites, about 30 minutes);
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -134,8 +145,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v0_hw graphics kernel bus_si`: a
-  study's unit tests. Run the ones for the studies you touched, or
+- `heron test v1_isa c_compiler v1b_hw v1b_system v1b_tradeoffs v0_hw
+  graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
   against their expected output.
@@ -150,7 +161,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.
 - **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
-  about 5 for every program, and `heron v1b_hw report --hw` longer.
+  about 5 for every program, `heron v1b_system test --jobs 4` (the whole
+  system on the bus) about 8, and `heron v1b_hw report --hw` longer.
 - **Signal integrity:** `heron bus_si report` runs report 0022's sweeps
   on the native engine, about 15 minutes on four cores; a single preset
   takes seconds to minutes. Run long ones in the background: they resume

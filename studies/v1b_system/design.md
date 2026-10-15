@@ -168,7 +168,7 @@ how often each microinstruction runs (the suite's profile on the model):
 | 3 | 17 | 340 | 109 |
 
 That's 1.138× faster than a fixed 340 ns clock over the suite.
-`heron system lengths` prints the jumpers for every set of parts.
+`heron v1b_system lengths` prints the jumpers for every set of parts.
 
 ### The bus interface
 
@@ -274,7 +274,7 @@ copies here. Two programs are the system's own:
 - **The model** (`model/`): the cards behind the CPU, for the `v1_isa`
   simulator. It decodes addresses as the cards do and runs the same
   device models (`infra/devices`), with time from the cycle count at
-  300 ns a cycle. `heron system test` compares everything that doesn't
+  300 ns a cycle. `heron v1b_system test` compares everything that doesn't
   depend on time; a program names the words that do
   (`;! timing-dependent: ticks`).
 - **The bus tests** (`bfm.py`, `tests/test_bus.py`): scripted masters and
@@ -285,7 +285,7 @@ copies here. Two programs are the system's own:
 
 ## Performance
 
-At chip level, worst-case delays (`heron system test`):
+At chip level, worst-case delays (`heron v1b_system test`):
 
 | Program | Microcycles | Time | ns per microcycle |
 |---|---:|---:|---:|
@@ -298,9 +298,12 @@ At chip level, worst-case delays (`heron system test`):
 | memcard | 624,959 | 208.5 ms | 334 |
 | cfcard | 224,330 | 72.1 ms | 321 |
 
-The programs that use the bus most are the slowest per microcycle: a
-transfer to the memory card holds its microcycle for 620–680 ns, and one
-to the I/O card for 880–960 ns.
+The programs that use the bus most are the slowest per microcycle. Over
+memcard and cfcard, a read from the memory card holds its microcycle for
+520–600 ns (mostly 560), a write, two data clocks, for 620–660 ns, a
+transfer to the I/O card for 880–960 ns, and a bus error for 680–720 ns;
+the bus clock's phase and the microinstruction's length class make the
+spread.
 
 ## Known issues
 

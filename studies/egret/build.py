@@ -142,12 +142,6 @@ def compile_heron(isa="v1b", defines=None, variant="asm"):
     objs = []
     for u in p.units:
         text = driver.unit_assembly(u, isa)
-        # The C compiler addresses its switch tables with 16 bits, which
-        # fails once the code passes 32 KB, as the VM's does: declare
-        # them .far.
-        tables = re.findall(r"^(\w+_jt\d+):", text, re.M)
-        if tables:
-            text = "        .far " + ", ".join(tables) + "\n" + text
         objs.append(driver.assemble(isa, text, os.path.basename(u.path)[:-2] + ".o"))
     if variant in ("asm", "jit"):
         objs.append(driver.assemble(isa, asm_interpreter(isa), f"interp_{isa}.o"))

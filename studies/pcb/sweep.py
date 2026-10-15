@@ -91,7 +91,7 @@ def timing(board_name):
     from heron import native
     from heron.infra.pcb import board as B
     from heron.infra.pcb import wires
-    from heron.studies.system import lengths, machine, programs
+    from heron.studies.v1b_system import lengths, machine, programs
 
     from . import cards
     nl_cpu = cards.netlists()["cpu"]
@@ -231,7 +231,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
                   ["Board", "mm", "Layers", "Slots (mm)", "Utilisation", "Result", "Rounds",
                    "Track (m)", "Vias", "Place (s)", "Route (s)", "Checks"]), "",
             "## The routed wires in the chip-level simulation", "",
-            "`hello` on the whole system (`studies/system`), with the CPU card's wires from "
+            "`hello` on the whole system (`studies/v1b_system`), with the CPU card's wires from "
             f"the {TIMING_BOARD.rsplit('-', 1)[1].replace('x', ' × ')} grid board: a delay on each "
             "driving pin, and one in front of each load further along its wire (infra/pcb/wires.py). "
             "\"Stopped after\" 3,000,000 cycles: the limit; the program never finished.", "",

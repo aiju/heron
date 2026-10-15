@@ -114,7 +114,7 @@ impl Devices {
 }
 
 /// Everything outside the CPU's own RAM, for a machine on the system bus
-/// (studies/system) instead of the simulator's I/O page. Accesses go to
+/// (studies/v1b_system) instead of the simulator's I/O page. Accesses go to
 /// it as the 16-bit CPU card makes them: transfers of a halfword, a word
 /// being two (the low half first), with byte enables.
 pub trait Bus: Send + Sync {

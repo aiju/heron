@@ -7,7 +7,7 @@ that ends at e. Signals are active low except SEL."""
 
 import unittest
 
-from heron.studies.system import bfm
+from heron.studies.v1b_system import bfm
 
 MEM, IO, EMPTY = 0x10000000, 0xF0000000, 0x40000000
 N = 6                                  # a simple card's data clocks

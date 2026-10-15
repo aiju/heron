@@ -1,10 +1,10 @@
 """The system: every program on the instruction-level model of the machine,
-and a short one on the whole system at chip level (`heron system test`
+and a short one on the whole system at chip level (`heron v1b_system test`
 runs them all there, in about 8 minutes)."""
 
 import unittest
 
-from heron.studies.system import cli, lengths, machine, programs
+from heron.studies.v1b_system import cli, lengths, machine, programs
 
 
 class InstructionLevel(unittest.TestCase):

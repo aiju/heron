@@ -293,6 +293,12 @@ class V1A(Target):
 
     # ---- after allocation ------------------------------------------------
 
+    def emit_text(self):
+        # A jump table is read as [t + table]: declared .far, the table gets
+        # a 32-bit displacement, which reaches it wherever the function goes
+        far = "".join(f"        .far {label}\n" for label, _ in self.mf.consts)
+        return far + super().emit_text()
+
     def format_instr(self, i):
         if i.op == "JMPR":
             return [f"        JMP  {self.fmt(i.ops[0])}"]

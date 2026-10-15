@@ -5,7 +5,7 @@ title: System bus
 status: open
 date: 2026-10-14
 context:
-  studies: [bus_si, v1b_hw]
+  studies: [bus_si, v1b_hw, v1b_system]
   commit: 1470409
 ---
 
@@ -22,9 +22,10 @@ peripherals. This RFC has three parts:
   them.
 - **[Part 3](#part-3-open-questions-ideas-and-signal-integrity-work)**
   lists the open questions, the ideas still open, the ideas rejected and
-  why, and the signal-integrity work still to do.
+  why, the signal-integrity work still to do, and what building the bus
+  found.
 
-[Section 18](#18-decisions) records what Emily has decided.
+[Section 19](#19-decisions) records what Emily has decided.
 
 Statuses: **decided** (Emily chose it), **recommended**, **open**,
 **optional** for features a card may leave out, and **rejected**. Anything
@@ -72,7 +73,8 @@ actually used.
   15. [Open ideas](#15-open-ideas)
   16. [Rejected ideas](#16-rejected-ideas)
   17. [Signal integrity](#17-signal-integrity)
-  18. [Decisions](#18-decisions)
+  18. [The bus as built](#18-the-bus-as-built)
+  19. [Decisions](#19-decisions)
 
 ## Part 1: The specification
 
@@ -553,7 +555,8 @@ These come from the signal-integrity simulations
 
 **The backplane's logic** ([13.9](#139-the-backplanes-logic)): about 28
 chips in plain 74-series, or about 13 with GALs. Whether PLDs are allowed is
-**open**.
+**open**; Emily would rather not use them, though it isn't a definite no
+(2026-10-15).
 
 ### 10. The main CPU board on the bus
 
@@ -563,8 +566,10 @@ Guidance for the main CPU board; not part of the specification proper.
   board's business.
   - A 32-bit CPU might give the bus part of its address space and pass the
     slot bits straight through.
-  - The draft 1b hardware's MAR only holds address bits 0–19 and 31, so it
-    would need about two more chips to supply the slot bits.
+  - The draft 1b hardware's MAR only holds address bits 0–19 and 31. As
+    a card on the bus, a 32-bit MAR and a slot decode early enough to keep
+    a bus write off the RAM took 7 chips
+    ([report 0025](0025-report-draft-1b-system.md#1-what-was-built)).
 - **Slot:** the main CPU sits in slot 0. The bus parks on it, so it starts
   most bus accesses with no arbitration delay.
 - **If the bus clock comes from the CPU board**, the bus clock is the 50 MHz
@@ -577,7 +582,10 @@ Guidance for the main CPU board; not part of the specification proper.
   $$t_\text{read} = (E - t_0) + 2N + 2 \text{ ticks}, \quad 1 \le E - t_0 \le N$$
 
   That's 200 ns on average at N = 3 (180–220 ns). The CPU's cycle lengths
-  never need to be multiples of the bus clock.
+  never need to be multiples of the bus clock. The draft 1b CPU card holds
+  its cycle for 260 ns: the bus side's clock lags the CPU's by 33 ns, and
+  the crossings sit at fixed phases of the master clock
+  ([report 0025](0025-report-draft-1b-system.md#5-what-a-bus-transfer-costs)).
 - **If it comes from an oscillator on the backplane**, the CPU synchronises
   to it, which costs about 20–40 ns per access.
 - **Posted writes.** Registered bus transceivers (74ABT652) take the
@@ -927,7 +935,9 @@ Questions only Emily can answer:
    wait until the design is closer to completion.
 4. **PLDs:** may the design use GALs? The backplane is about 28 chips
    without them and 13 with them, and the bridges and DMA engine shrink
-   too.
+   too. Emily (2026-10-15): a preference against, since they make the
+   machine harder to build, are hard to source and are less fun, but not
+   a definite no.
 5. **Simple-card speed:** one speed N for all simple cards, or a second,
    slower class (with a setup clock) from a third class strap? It's about
    two more backplane chips and one reserved pin.
@@ -962,11 +972,21 @@ Answered by report 0022, waiting for Emily to adopt them or not
     - 22 Ω on its bused outputs;
     - 56–68 Ω on SEL and GNT.
 
+Raised by report 0025, which built the bus, waiting for Emily
+([section 18](#18-the-bus-as-built)):
+
+16. **The bus as built:**
+    - SEL active high;
+    - RDY and BERR from registers;
+    - REQ registered, so a request on an idle bus takes 4 clocks;
+    - the bus monitor counting data clocks;
+    - a fast card's WAIT from its address clock, not from SEL.
+
 ### 15. Open ideas
 
 - **Full-width and half-width slots** (Emily's idea): some columns take
   full cards on P1 and P2, others two P1-only cards stacked. It waits for
-  the card size ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)).
+  the card size ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#full-width-and-half-width-slots)).
 - **A slower simple-card class:** a third strap selecting a second N, and
   a setup clock before the strobe for devices like a CF card at PIO mode 0.
 - **Round-robin arbitration.**
@@ -1040,7 +1060,27 @@ decides, and Parts 1 and 2 haven't been changed to match yet.
 - **The half-width layout's hop** between connector rows, if that layout is
   chosen.
 
-### 18. Decisions
+### 18. The bus as built
+
+[Report 0025](0025-report-draft-1b-system.md) built this bus at chip
+level ([studies/v1b_system](../studies/v1b_system/README.md)). The build
+has the backplane's logic, the draft 1b CPU as the main CPU board in
+slot 0, a fast 32-bit memory card and a simple I/O card, all at the parts'
+worst-case datasheet delays. Five things in it differ from Parts 1 and 2,
+all for timing.
+
+They're **pending**: Emily hasn't decided on them, and Parts 1 and 2
+haven't been changed to match.
+
+| Item | What the build found | What the build does | What it would change here |
+|---|---|---|---|
+| SEL's polarity | Section 3 makes every control signal active low. A simple card's strobes are one Schmitt NAND from SEL ([section 6](#6-simple-cards)), which needs SEL active high | SEL is active high | SEL becomes the one active-high control signal (section 3) |
+| RDY and BERR | The budget for RDY to a master ([13.7](#137-timing-budgets)) starts from a register. With a gate between the transfer's state and the driver, a master that decides on RDY or BERR misses its setup | The backplane works out their values for the next clock and registers them. In an address clock that's the class lookup, the backplane's slowest path: RDY's next value comes through a 74F153 selected by the address clock and WAIT, and BERR's empty-slot part is one gate after the lookup | RDY and BERR come from registers, as SEL does ([5.2](#52-the-phases-of-a-transfer)) |
+| REQ | From REQ to the grant registers is about 42 ns (priority encoder, owner comparison, grant decoder): more than a clock leaves after a master's REQ arrives | REQ is registered before the arbiter uses it | A request on an idle bus takes 4 clocks to the first address clock, not 3 ([7.2](#72-masters), [13.6](#136-bus-mastering)). The main CPU doesn't see this: the bus is parked on slot 0 |
+| The bus monitor | WAIT arrives too late for a 74F163's 11.5 ns count-enable setup | It counts data clocks: BERR comes in the clock after 256 clocks of WAIT | The timeout in [5.4](#54-wait) and [5.6](#56-bus-errors) counts data clocks, a clock later |
+| WAIT from a fast card | SEL reaches the card about 15 ns into the clock, so WAIT raised from SEL is at the backplane about 41 ns in. The backplane then needs about 20 ns more to decide SEL and DPH for the next clock: 61 ns in a 60 ns clock. The budget in 13.7 counts only the path to a master | The memory card decides in the address clock: a 74F521 compares A28–A31 with its slot number, and a register set from it drives WAIT and the write strobes. Two drivers put it on WAIT: one while SEL is asserted, as 5.4 says, and one from the register itself, since SEL comes too late | A fast card raises WAIT from its own decode of the address clock, not from SEL ([5.4](#54-wait), [13.7](#137-timing-budgets)) |
+
+### 19. Decisions
 
 Emily has decided:
 

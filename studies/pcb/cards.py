@@ -1,7 +1,7 @@
 """The system's cards as printed circuit boards: what goes on each, and
 its connectors.
 
-A card's netlist (studies/system) names its connector pins BUS.<signal>.
+A card's netlist (studies/v1b_system) names its connector pins BUS.<signal>.
 On the board they are the pins of two DIN 41612 type C connectors, P1 and
 P2, at the card's back edge, by the reference pin assignment of report
 0022 (studies/bus_si/connector.py), which follows RFC 0014's rules.
@@ -10,7 +10,7 @@ P2, at the card's back edge, by the reference pin assignment of report
 from heron.infra.pcb import board as B
 from heron.infra.pcb import physical
 from heron.studies.bus_si import connector
-from heron.studies.system import cpucard, iocard, memcard
+from heron.studies.v1b_system import cpucard, iocard, memcard
 
 CONNECTOR = "Connector_DIN:DIN41612_C_3x32_Male_Horizontal_THT"
 # the connector's pins span 78.74 mm; with its flanges it is 95 mm long
@@ -130,7 +130,7 @@ PITCH = {("smd", 6): (8.25, 14.25), ("smd", 4): (8.25, 14.25),
          ("dip", 6): (11.8, 30.4), ("dip", 4): (12.07, 33.0)}
 
 # The CPU card's 50 MHz clock generator allows one 74F gate between
-# flip-flops in a 20 ns tick (studies/system/design.md): its wires must be
+# flip-flops in a 20 ns tick (studies/v1b_system/design.md): its wires must be
 # short, so its nets weigh more in placement.
 CRITICAL_SECTIONS = {"Clock generator", "Bus hold and crossings", "Length class"}
 CRITICAL_WEIGHT = 8.0

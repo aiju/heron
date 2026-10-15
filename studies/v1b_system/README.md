@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v1b_hw, v1_isa]
-reports: []
+reports: [25]
 ---
 
 # The system: draft 1b on the bus
@@ -37,10 +37,12 @@ against.
 | `cli.py` | The commands |
 
 ```sh
-heron system run studies/v1_isa/programs/v1b/fib.s   # a program on the whole system, against the model
-heron system test [NAMES] [--jobs 4]   # the suite at chip level (about 8 minutes); --isa: on the model only
-heron system bom [--card CPU]          # the parts list
-heron system lengths                   # the length classes and their jumpers
-heron system schematic                 # the netlists as a schematic to browse, in build/system/schematic.html
-heron test system                      # the unit tests: the bus against RFC 0014 with scripted masters, hello at chip level
+heron v1b_system run studies/v1_isa/programs/v1b/fib.s   # a program on the whole system, against the model
+heron v1b_system test [NAMES] [--jobs 4]   # the suite at chip level (about 8 minutes); --isa: on the model only
+heron v1b_system bom [--card CPU]          # the parts list
+heron v1b_system lengths                   # the length classes and their jumpers
+heron v1b_system schematic                 # the netlists as a schematic to browse, in build/v1b_system/schematic.html
+heron test v1b_system                      # the unit tests: the bus against RFC 0014 with scripted masters, hello at chip level
 ```
+
+Report: [0025](../../reports/0025-report-draft-1b-system.md).

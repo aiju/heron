@@ -22,9 +22,9 @@ dependencies = [
  "pyo3-build-config",
  "pythonize",
  "sisim",
- "system-model",
  "toolchain",
  "v1-isa",
+ "v1b-system-model",
 ]
 
 [[package]]
@@ -216,14 +216,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "system-model"
-version = "0.1.0"
-dependencies = [
- "devices",
- "v1-isa",
-]
-
-[[package]]
 name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -244,4 +236,12 @@ name = "v1-isa"
 version = "0.1.0"
 dependencies = [
  "toolchain",
+]
+
+[[package]]
+name = "v1b-system-model"
+version = "0.1.0"
+dependencies = [
+ "devices",
+ "v1-isa",
 ]

@@ -23,6 +23,7 @@ cross-check the engine (`--engine ngspice`).
 ```sh
 heron bus_si check                         # the engines and models, one timed run
 heron bus_si report                        # every report 0022 sweep, then its tables (~15 min on 4 cores)
+heron bus_si traces                        # report 0022's figures: the waveforms behind its numbers (seconds)
 heron bus_si sweep --preset loading        # one preset (heron bus_si sweep --help lists them)
 heron bus_si sweep --preset full --engine ngspice   # report 0013's sweep on ngspice
 heron bus_si compare A.json B.json         # two runs of a preset, job by job
@@ -39,7 +40,8 @@ heron test bus_si                          # the study's unit tests
   children, recorded as a timeout, and the worker replaced. A heartbeat
   line every 30 s gives the oldest running job's age.
 - **Results** go to `build/si/results/<preset>.json`; `heron bus_si
-  report` turns them into `reports/0022-report-bus-si-revised/results.md`.
+  report` turns them into `reports/0022-report-bus-si-revised/results.md`,
+  and `heron bus_si traces` draws the figures next to it.
   Report 0013's ngspice results stay in its folder.
 
 ## The engine
@@ -71,6 +73,7 @@ the 68 jobs ngspice couldn't finish.
 | `floating.py` | WAIT and CLASS held only by their pull-ups, between switching neighbours |
 | `sweep.py`, `revised.py` | The presets: report 0013's, then report 0022's |
 | `summary.py`, `compare.py` | Report 0022's tables; comparing two runs |
+| `traces.py`, `svgplot.py` | Report 0022's figures: some of its jobs again, with their waveforms, as SVG |
 
 ### What's assumed
 

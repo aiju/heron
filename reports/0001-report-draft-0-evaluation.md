@@ -192,7 +192,7 @@ in DIP (fast SRAM, the 55 ns flash).
 ## Questions for the next round
 
 These have since been answered or carried into
-[proposals.md](0005-rfc-ideas-direction.md#15-open-questions).
+[proposals.md](0005-rfc-ideas-direction.md#4-open-questions).
 
 - How much is speed worth in chips? The multiply datapath is about 4 chips;
   a pipelined microcode register about 6 and a redesign of the fetch path.

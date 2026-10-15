@@ -23,6 +23,10 @@ which `heron bus_si report` regenerates (about 15 minutes on four cores).
 Corners are IBIS's: `min` is slow (4.5 V, hot), `max` fast (5.5 V, cold).
 What follows suggests changes to the RFC; making them is for Emily.
 
+> **Figures (added 2026-10-14).** Sections 2, 3, 4, 6 and 8 now show
+> waveforms behind their numbers, from the same jobs; `heron bus_si
+> traces` draws them. The text is unchanged.
+
 ## Summary
 
 | Item | Finding | Suggests |
@@ -140,6 +144,13 @@ level at the receivers while the others fall, from a low level of 0.2 V.
 Card ground: against the backplane's. Push-out: the switching line's
 settle time against one line switching alone.)
 
+![Ground bounce: the die ground and the quiet line for three drivers](0022-report-bus-si-revised/groundbounce.svg)
+
+*15 of 16 lines falling at once, fast corner, calibrated model. The
+ABT16245's die barely moves; the octal parts' jump by 1.8–2.8 V. Through
+22 Ω the quiet line feels a fraction of it; of these three, only FCT-T in
+DIP touches VIL.*
+
 - **The package decides.** The ABT16245 returns 16 outputs through eight
   ground pins of about 2.9 nH each; an octal part in SOIC returns 8
   through one of 6.4 nH, in DIP 10.3 nH. Its die bounces a fifth as much.
@@ -187,6 +198,13 @@ at every corner.
 - 68 Ω keeps the HCT inputs within their −0.5 V rating; 56 Ω nearly. The
   resistor costs at most 0.4 ns.
 
+![SEL at the 74HCT132 input with no resistor, 33 and 68 ohm](0022-report-bus-si-revised/sel.svg)
+
+*SEL through 200 mm to one 74HCT132 input, fast corner. Without a
+resistor the input clamps at 6.3 V and −1 V, and is still ringing when
+the next edge comes 40 ns later; 68 Ω gives clean steps inside the
+−0.5 V limit. No edge comes back through VT± once it has crossed.*
+
 **Crosstalk.** The worst case for a simple card is its own read: while SEL
 is asserted and WRITE high, its two transceivers drive D0–D15, all
 switching together, through the contacts next to SEL and WRITE. Measured
@@ -196,6 +214,13 @@ at its 74HCT132's inputs against its own ground:
 |---|---:|---:|
 | Ground pins on all four sides (the RFC's rule) | +1.09 V or more | +1.77 V or more |
 | Data lines on those pins instead | +0.21 V | **−0.94 V** |
+
+![SEL and WRITE during a read, with and without the guard ground pins](0022-report-bus-si-revised/crosstalk.svg)
+
+*A simple card's read: its two ABT245s in DIP drive D0–D15 low together,
+typical corner, calibrated model. With the guard pins SEL and WRITE keep
+more than a volt from their thresholds; with data lines on those pins
+WRITE rings down to 0.36 V, through VT−.*
 
 - **Without the guard pins a read can become a write.** WRITE dips to
   0.36 V with ABT drivers in DIP, and to 1.0–1.7 V with HCT drivers
@@ -222,6 +247,14 @@ trace (0.086 pF/mm), the transceiver's pin and die, any other inputs.
 | 15 pF | 11.7 / 14.3 ns | 12.0 / 14.5 ns | 12.1 / 15.1 ns |
 | 20 pF | 13.9 / 19.1 ns | 14.2 / 19.1 ns | 14.4 / 19.3 ns |
 | 25 pF | 16.2 / 22.2 ns | 17.1 / 22.4 ns | 18.1 / 22.6 ns |
+
+![A falling edge at three receivers, with 12 and 20 pF per card](0022-report-bus-si-revised/loading.svg)
+
+*A falling edge from slot 3, every slot filled, fast corner. At 12 pF the
+far end settles first, and the slots next to the driver wait for its
+reflection (16 ns from the driver's edge). At 20 pF the far end's first
+step only just reaches VIL, and the reflection lifts it back above 0.8 V
+until 23 ns: the jump in the table.*
 
 - **12 pF is the right rule.** The RFC's 11 ns settling figure is the 9 pF
   card of report 0013; at 12 pF it's 12.8 ns, and the budgets should use
@@ -283,6 +316,13 @@ one package switching together:
 | Raw IBIS | 1.9–2.2 V | 2.6 V |
 | Raw IBIS, three outputs | 1.3–1.7 V | 1.8 V |
 
+![The clock at a card and the clock driver's die ground, calibrated and raw](0022-report-bus-si-revised/clock.svg)
+
+*Six outputs of the CDC329A falling together, fast corner. With the
+calibrated model the clock at the card rings by a few tenths of a volt;
+with the raw IBIS supply currents the driver's ground swings by ±2.5 V
+and the clock rings back to 2 V, through VIL.*
+
 The calibrated model is the better estimate (section 1), and says it's
 fine. The raw one says a falling edge could ring back through the
 threshold and clock twice. The CDC329A's datasheet gives no ground-bounce
@@ -339,6 +379,12 @@ corners:
 |---|---:|---:|
 | Guarded (k = 0.07) | 3.18 V | 0.12 V |
 | Unguarded (k = 0.35) | 2.70 V | 0.13 V |
+
+![WAIT held by its pull-up while two neighbours switch](0022-report-bus-si-revised/wait.svg)
+
+*WAIT released high, its two neighbours rising and falling along the
+backplane, slow corner. Unguarded, it dips to 2.7 V on their falling
+edge, well above VIH, and comes back.*
 
 At least 0.7 V above VIH, so WAIT is fine as specified. An open CLASS
 line, pulled up to 5 V, moves by less than 0.06 V.

@@ -27,7 +27,8 @@ So far there has been:
   with proposed system extensions, and what the operating system could
   be.
 
-Draft 2 is next. Which of 1a and 1b it builds on is still open.
+Draft 2 is next, built on 1b
+([RFC 0006](reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 
 ## Layout
 
@@ -37,7 +38,7 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 |---|---|
 | [docs/](docs/README.md) | The current design: what has been decided, as reference |
 | [reports/](reports/README.md) | Numbered reports (what was done and found) and RFCs (proposals that need decisions) |
-| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, a Lisp, the bus signal integrity, graphics, an operating system |
+| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the 1b system on the bus, the C compiler, a Lisp, the bus signal integrity, graphics, an operating system |
 | [infra/](infra/README.md) | Reusable code: assembler and linker core, netlist language, static timing analysis, the chip-level simulator |
 | `heron/` | The `heron` command, the glue that makes the folders importable as `heron.*`, and `bindings/`, the crate that makes the Rust engines a Python module (`heron.native`) |
 | `tests/` | Tests of the repository itself |
@@ -50,7 +51,9 @@ and the linker), which are Rust: crates in one Cargo workspace, with
 `Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
 **Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
-(draft 1a against 1b, and the hardware options), then the
+(draft 1a against 1b, and the hardware options), then
+[RFC 0005](reports/0005-rfc-ideas-direction.md) (where the ideas stand,
+and what the measurements point to), the other
 [ideas RFCs](reports/README.md) and [RFC 0014](reports/0014-rfc-system-bus.md)
 (the system bus).
 
