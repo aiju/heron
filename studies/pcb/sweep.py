@@ -18,39 +18,50 @@ from . import flow
 
 RESULTS = os.path.join(ROOT, "reports", "0023-rfc-pcb-flow", "results.md")
 
-# (label, style, width, height, layers, sides, decaps, halo, full checks, arrangement):
-# first the grid (rows and columns, every chip the same way round), then
-# parts anywhere ("free"), for comparison
+def _board(label, style, width, height, layers, sides="F", decaps=None, halo=None, full=False,
+           arrangement="grid", pitch=None):
+    return dict(label=label, style=style, width=width, height=height, layers=layers, sides=sides,
+                decaps=decaps or ("under" if style == "smd" and sides == "F" else "beside"),
+                halo=halo or (1.0 if style == "dip" else 0.8), full=full,
+                arrangement=arrangement, pitch=pitch)
+
+
+# first the grid (rows and columns of chips, all the same way round), then
+# the parts anywhere ("free"), for comparison; full: all the checks, not
+# only the netlist's
 BOARDS = [
-    ("smd-6", "smd", 340, 220, 6, "F", "under", 0.8, False, "grid"),
-    ("smd-6", "smd", 320, 220, 6, "F", "under", 0.8, True, "grid"),
-    ("smd-6", "smd", 300, 220, 6, "F", "under", 0.8, False, "grid"),
-    ("smd-4", "smd", 480, 260, 4, "F", "under", 0.8, False, "grid"),
-    ("dip-6", "dip", 420, 302, 6, "F", "beside", 1.0, False, "grid"),
-    ("dip-4", "dip", 440, 302, 4, "F", "beside", 1.0, False, "grid"),
-    ("dip-4", "dip", 420, 302, 4, "F", "beside", 1.0, True, "grid"),
-    ("dip-4", "dip", 400, 302, 4, "F", "beside", 1.0, False, "grid"),
-    ("free-smd-6", "smd", 380, 220, 6, "F", "under", 1.2, True, "free"),
-    ("free-smd-6", "smd", 340, 220, 6, "F", "under", 0.8, False, "free"),
-    ("free-smd-6", "smd", 300, 220, 6, "F", "under", 0.8, True, "free"),
-    ("free-smd-6", "smd", 280, 220, 6, "F", "under", 0.8, False, "free"),
-    ("free-smd-6", "smd", 260, 220, 6, "F", "under", 0.8, False, "free"),
-    ("free-smd-6", "smd", 280, 233, 6, "F", "under", 0.8, False, "free"),
-    ("free-smd-6-top", "smd", 340, 220, 6, "F", "beside", 0.8, False, "free"),
-    ("free-smd-6-top", "smd", 320, 220, 6, "F", "beside", 0.8, False, "free"),
-    ("free-smd-6-both", "smd", 280, 220, 6, "FB", "beside", 1.2, False, "free"),
-    ("free-smd-6-both", "smd", 260, 220, 6, "FB", "beside", 1.2, False, "free"),
-    ("free-smd-4", "smd", 380, 220, 4, "F", "under", 1.2, False, "free"),
-    ("free-smd-4", "smd", 440, 260, 4, "F", "under", 1.2, False, "free"),
-    ("free-smd-4", "smd", 460, 260, 4, "F", "under", 1.2, True, "free"),
-    ("free-dip-6", "dip", 480, 300, 6, "F", "beside", 1.0, True, "free"),
-    ("free-dip-6", "dip", 440, 300, 6, "F", "beside", 1.0, False, "free"),
-    ("free-dip-6", "dip", 400, 300, 6, "F", "beside", 1.0, False, "free"),
-    ("free-dip-4", "dip", 520, 300, 4, "F", "beside", 1.0, False, "free"),
-    ("free-dip-4", "dip", 480, 300, 4, "F", "beside", 1.0, True, "free"),
+    _board("smd-6", "smd", 340, 220, 6, full=True),
+    _board("smd-6", "smd", 330, 220, 6),
+    _board("smd-6", "smd", 320, 220, 6),
+    _board("smd-6", "smd", 300, 220, 6),
+    _board("smd-4", "smd", 500, 260, 4),
+    _board("smd-4", "smd", 480, 260, 4),
+    _board("dip-6", "dip", 420, 302, 6, full=True),
+    _board("dip-6", "dip", 400, 302, 6),
+    _board("dip-4", "dip", 500, 302, 4, full=True, pitch=(12.7, 29.5)),
+    _board("dip-4", "dip", 480, 302, 4, pitch=(12.07, 29.5)),
+    _board("dip-4", "dip", 440, 302, 4),
+    _board("free-smd-6", "smd", 380, 220, 6, halo=1.2, full=True, arrangement="free"),
+    _board("free-smd-6", "smd", 340, 220, 6, arrangement="free"),
+    _board("free-smd-6", "smd", 300, 220, 6, full=True, arrangement="free"),
+    _board("free-smd-6", "smd", 280, 220, 6, arrangement="free"),
+    _board("free-smd-6", "smd", 260, 220, 6, arrangement="free"),
+    _board("free-smd-6", "smd", 280, 233, 6, arrangement="free"),
+    _board("free-smd-6-top", "smd", 340, 220, 6, decaps="beside", arrangement="free"),
+    _board("free-smd-6-top", "smd", 320, 220, 6, decaps="beside", arrangement="free"),
+    _board("free-smd-6-both", "smd", 280, 220, 6, sides="FB", halo=1.2, arrangement="free"),
+    _board("free-smd-6-both", "smd", 260, 220, 6, sides="FB", halo=1.2, arrangement="free"),
+    _board("free-smd-4", "smd", 380, 220, 4, halo=1.2, arrangement="free"),
+    _board("free-smd-4", "smd", 440, 260, 4, halo=1.2, arrangement="free"),
+    _board("free-smd-4", "smd", 460, 260, 4, halo=1.2, full=True, arrangement="free"),
+    _board("free-dip-6", "dip", 480, 300, 6, full=True, arrangement="free"),
+    _board("free-dip-6", "dip", 440, 300, 6, arrangement="free"),
+    _board("free-dip-6", "dip", 400, 300, 6, arrangement="free"),
+    _board("free-dip-4", "dip", 520, 300, 4, arrangement="free"),
+    _board("free-dip-4", "dip", 480, 300, 4, full=True, arrangement="free"),
 ]
 
-KEYS = ["name", "arrangement", "style", "width", "height", "layers", "sides", "decaps", "utilisation",
+KEYS = ["name", "arrangement", "pitch", "style", "width", "height", "layers", "sides", "decaps", "utilisation",
         "unplaced", "legalize", "hpwl_m", "routed", "rounds", "conflicted", "track_m", "vias",
         "seconds_place", "seconds_route", "netlist_errors", "copper_opens", "copper_shorts",
         "drc_errors", "drc_unconnected", "ipc356_errors"]
@@ -58,7 +69,8 @@ KEYS = ["name", "arrangement", "style", "width", "height", "layers", "sides", "d
 
 def run_boards(only=None, reuse=False):
     out = []
-    for label, style, w, h, layers, sides, decaps, halo, full, arrangement in BOARDS:
+    for bd in BOARDS:
+        label, w, h = bd["label"], bd["width"], bd["height"]
         if only and only not in label:
             continue
         name = f"cpu-{label}-{w}x{h}"
@@ -67,9 +79,10 @@ def run_boards(only=None, reuse=False):
             with open(done) as f:
                 r = json.load(f)
         else:
-            r = flow.build("cpu", style, w, h, layers=layers, sides=sides, decaps=decaps,
-                           halo=halo, checks=True if full else "netlist", name=name,
-                           arrangement=arrangement)
+            r = flow.build("cpu", bd["style"], w, h, layers=bd["layers"], sides=bd["sides"],
+                           decaps=bd["decaps"], halo=bd["halo"],
+                           checks=True if bd["full"] else "netlist", name=name,
+                           arrangement=bd["arrangement"], pitch=bd["pitch"])
         r = {k: r.get(k) for k in KEYS}
         r["label"] = label
         print(json.dumps(r), flush=True)
@@ -78,7 +91,7 @@ def run_boards(only=None, reuse=False):
 
 
 CLOCK_TREE_PS = 6000      # CLK through a CDC341 tree: its delay, short branches
-TIMING_BOARD = "cpu-smd-6-320x220"     # the board whose wires go into the simulation
+TIMING_BOARD = "cpu-smd-6-340x220"     # the board whose wires go into the simulation
 
 
 def timing(board_name):
@@ -203,6 +216,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
     for r in boards:
         r["result"] = verdict(r)
         r["size"] = f"{r['width']} × {r['height']}"
+        r["slots"] = f"{r['pitch'][0]} × {r['pitch'][1]}" if r.get("pitch") else ""
         r["checks"] = ("" if r.get("drc_errors") is None else
                        f"netlist {r['netlist_errors']}, opens {r['copper_opens']}, shorts "
                        f"{r['copper_shorts']}, DRC {r['drc_errors']}, unconnected {r['drc_unconnected']}, "
@@ -212,15 +226,15 @@ def write_results(boards, timing_rows, nets, fr, sp):
             "## The CPU card at each size", "",
             "Board: the grid arrangement (rows and columns of chips, all the same way round), "
             "or with free-, the parts anywhere; -top: the capacitors beside the chips, -both: "
-            "parts on both sides. "
+            "parts on both sides. Slots: the grid's, stretched to fill the board. "
             "Utilisation: the parts' courtyards over the board's area (both sides' "
             "area for double-sided boards). Track: routed signal copper. Checks (where run): "
             "differences from the netlist, copper opens and shorts, KiCad's DRC errors and "
             "unconnected items, differences of the fab's test netlist (IPC-D-356) from the board.", "",
-            table(boards, ["label", "size", "layers", "utilisation", "result", "rounds", "track_m",
-                           "vias", "seconds_place", "seconds_route", "checks"],
-                  ["Board", "mm", "Layers", "Utilisation", "Result", "Rounds", "Track (m)", "Vias",
-                   "Place (s)", "Route (s)", "Checks"]), "",
+            table(boards, ["label", "size", "layers", "slots", "utilisation", "result", "rounds",
+                           "track_m", "vias", "seconds_place", "seconds_route", "checks"],
+                  ["Board", "mm", "Layers", "Slots (mm)", "Utilisation", "Result", "Rounds",
+                   "Track (m)", "Vias", "Place (s)", "Route (s)", "Checks"]), "",
             "## The routed wires in the chip-level simulation", "",
             "`hello` on the whole system (`studies/system`), with the CPU card's wires from "
             f"the {TIMING_BOARD.rsplit('-', 1)[1].replace('x', ' × ')} board as per-pin delays "
@@ -248,7 +262,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
 
 
 IMAGES = {"smd.png": (TIMING_BOARD, None), "smd-detail.png": (TIMING_BOARD, (0.36, 0.30, 0.62, 0.62)),
-          "dip.png": ("cpu-dip-4-480x300", None)}
+          "dip.png": ("cpu-dip-4-500x302", None)}
 
 
 def images():
