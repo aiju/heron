@@ -3,8 +3,9 @@
 See reports/0028-rfc-draft-2-isa.md and isa-v2.md. A parcel's opcode byte
 comes first in memory, so it is the parcel's low byte; the register byte
 holds `rd` in its high nibble and the mode's register `R` in its low one.
-The modes are draft 1b's (studies/v1_isa/isa-v1b.md), with two tables
-added to the special mode. This is the disassembler's side; decoding and
+The modes are draft 1b's (studies/v1_isa/isa-v1b.md), with mode E,
+`[r14 + 4R]`, a second slot mode, and two tables added to the special
+mode. This is the disassembler's side; decoding and
 executing is Rust (isa/src/decode.rs, insn.rs), and so is the encoder the
 assembler uses (isa/src/asm.rs).
 """
@@ -24,15 +25,17 @@ COND = ["EQ", "NE", "CS", "CC", "MI", "PL", "VS", "VC",
         "HI", "LS", "GE", "LT", "GT", "LE", "RA"]
 # rows with every mode as a column
 EA_ROWS = {1: "MOV", 2: "ST", 3: "MOVS", 4: "ADD", 5: "SUB", 6: "CMP", 8: "AND", 9: "OR", 0xA: "XOR"}
-TAGGED = {0x1E: "TMOV", 0x2E: "TTST", 0x4E: "TADD", 0x5E: "TSUB", 0x6E: "TCMP"}
+TAGGED = {0x09: "TMOV", 0x0A: "TTST", 0x0B: "TADD", 0x0C: "TSUB", 0x0D: "TCMP"}
 UNARY = ["NOT", "NEG", "INC", "DEC", "RLC", "RRC", "SWAP", "SXB", "SXH", "ZXB", "ZXH",
          "CLZ", "FFS", "POPC", "REV"]
 ROW_E = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "MULA", "DIVU", "DIVS", "DIVUL",
          "BIC", "TST", "MULU", "MULS", "MERGE"]
 SHIFTS = ["LSL", "LSR", "ASR", "ROR"]
-SR_NAMES = {0: "flags", 1: "hi", 2: "lo"}
-FREE = {0x00, 0x03, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x31, 0x3D, 0x3E, 0x8E, 0x9E, 0xAE,
-        0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFF}
+# LO is numbered after the kernel study's system registers, 0-8
+SR_NAMES = {0: "flags", 1: "hi", 9: "lo"}
+# the free cells, ILLEGAL, and CAS and the FPU escape, which aren't designed
+FREE = {0x00, 0x03, 0x31, 0x3D, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB,
+        0xFF}
 
 SIZE_NAME = {1: "byte ", 2: "half ", 4: ""}
 
@@ -78,6 +81,7 @@ def ea_info(M, Rn, ext):
     ('reg', r) | ('imm', value) | ('mem', base, disp, index, scale, size,
     timing kind), with base None for an absolute address and 'pc' for a
     PC-relative one (disp then the offset), or None for a mode that traps.
+    Mode E, [r14 + 4R], is a word at r14 + 4R, as mode 4 is at sp + 4R.
     The special mode's tables are D, [abs24 + x*s], ('mem', None, address,
     x, s, size, 'absx'), and E, [pc + d24 + x*s], ('mem', 'pc', d24, x, s,
     size, 'pcx')."""
@@ -96,8 +100,8 @@ def ea_info(M, Rn, ext):
         return ("imm", (-(Rn + 1)) & M32), n
     if M == 5:
         return indexed(Rn, sext8(ext[0]), ext[0], "idx"), n
-    if M == 4:
-        return ("mem", 15, 4 * Rn, None, 1, 4, "rd"), n
+    if M in (4, 0xE):
+        return ("mem", 15 if M == 4 else 14, 4 * Rn, None, 1, 4, "rd"), n
     simple = {2: (4, "r"), 3: (4, "rd"), 6: (4, "pi"), 7: (4, "pd"), 8: (1, "r"),
               9: (1, "rd"), 0xA: (1, "pi"), 0xB: (2, "r"), 0xC: (2, "rd")}
     if M in simple:
@@ -244,11 +248,11 @@ def disassemble(ws, pc=0, symbols=None):
     if op == 0x08:
         return f"ADD.B4 {rr}", 1
     if op == 0x0E:
-        if lo in (1, 2):
+        if lo in (1, 9):
             return f"MF{SR_NAMES[lo].upper()} {R(hi)}", 1
         return f"MFSR {R(hi)}, {SR_NAMES.get(lo, lo)}", 1
     if op == 0x0F:
-        if hi in (1, 2):
+        if hi in (1, 9):
             return f"MT{SR_NAMES[hi].upper()} {R(lo)}", 1
         return f"MTSR {SR_NAMES.get(hi, hi)}, {R(lo)}", 1
     if op in TAGGED:
@@ -350,7 +354,7 @@ def mode_class(M, Rn, ext):
         return "r"
     if opnd[0] == "imm":
         return "#q" if M in (1, 0xD) else ("#i32" if Rn == 3 else "#i16")
-    name = "[sp+n]" if M == 4 else MODE_CLASS[opnd[6]]
+    name = {4: "[sp+n]", 0xE: "[r14+n]"}.get(M) or MODE_CLASS[opnd[6]]
     return {1: "b", 2: "h", 4: ""}[opnd[5]] + name
 
 

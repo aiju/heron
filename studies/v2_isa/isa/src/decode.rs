@@ -3,8 +3,9 @@
 //! mode's register `R` in its low one. The opcode byte is a table, not
 //! fields: rows 1-6 and 8-A give an operation its modes as columns, and
 //! one-operand instructions take the mode from the register byte. The
-//! modes are draft 1b's (studies/v1_isa/isa-v1b.md), and the special mode
-//! adds two tables without a base register.
+//! modes are draft 1b's (studies/v1_isa/isa-v1b.md), with mode E,
+//! `[r14 + 4R]`, a second slot mode, and two tables without a base register
+//! in the special mode.
 
 use crate::insn::{
     ALU_ADC, ALU_ADD, ALU_ADDB4, ALU_AND, ALU_BIC, ALU_CMP, ALU_DIVS, ALU_DIVU, ALU_DIVUL,
@@ -93,6 +94,8 @@ fn operand(mode: u32, rn: u32, ext: [u32; 2], nxt: u32) -> Option<Operand> {
         2 => mem(Ea::R, rn, 0, 4),
         3 => mem(Ea::Rd, rn, sext16(ext[0]), 4),
         4 => mem(Ea::Rd, 15, 4 * rn, 4),
+        // the slot modes: words 0-15 at sp, and at r14
+        0xE => mem(Ea::Rd, 14, 4 * rn, 4),
         5 => indexed(Ea::Idx, rn, sext8(ext[0]), ext[0]),
         6 => mem(Ea::Pi, rn, 0, 4),
         7 => mem(Ea::Pd, rn, 0, 4),
@@ -121,7 +124,6 @@ fn operand(mode: u32, rn: u32, ext: [u32; 2], nxt: u32) -> Option<Operand> {
             }
             _ => None,
         },
-        // E: the tagged column, which traps as a mode
         _ => None,
     }
 }
@@ -179,13 +181,9 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
         0x08 => return one(Insn::AluReg { f: ALU_ADDB4, d, s }),
         0x0E => return one(Insn::Mfsr { a: d, b: s }),
         0x0F => return one(Insn::Mtsr { a: d, b: s }),
-        0x1E | 0x2E | 0x4E | 0x5E | 0x6E => {
+        0x09..=0x0D => {
             // the tagged operations: TMOV TTST TADD TSUB TCMP
-            let f = match op {
-                0x1E => ALU_MOV,
-                0x2E => ALU_TST,
-                _ => row_alu(row).unwrap(),
-            };
+            let f = [ALU_MOV, ALU_TST, ALU_ADD, ALU_SUB, ALU_CMP][(op - 9) as usize];
             return one(Insn::AluTag { f, d, rn: s });
         }
         0x20 | 0x21 | 0x2D => {

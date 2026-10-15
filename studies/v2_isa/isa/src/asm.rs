@@ -178,11 +178,11 @@ const SHIFTS: [&str; 4] = ["LSL", "LSR", "ASR", "ROR"];
 fn rr_op(u: &str) -> Option<i64> {
     Some(match u {
         "ADD.B4" => 0x08,
-        "TMOV" => 0x1E,
-        "TTST" => 0x2E,
-        "TADD" => 0x4E,
-        "TSUB" => 0x5E,
-        "TCMP" => 0x6E,
+        "TMOV" => 0x09,
+        "TTST" => 0x0A,
+        "TADD" => 0x0B,
+        "TSUB" => 0x0C,
+        "TCMP" => 0x0D,
         "ADC" => 0xE0,
         "SBC" => 0xE1,
         "BIC" => 0xE2,
@@ -334,8 +334,15 @@ fn table_mode(
     ))
 }
 
-/// A memory operand.
-fn mem_mode(ctx: &mut Ctx, mem: &Mem, min_ext: i64, n_before: i64) -> Result<Mode, AsmError> {
+/// A memory operand; `r14_slot` allows mode E, `[r14 + 4R]`, which LEA
+/// doesn't have.
+fn mem_mode(
+    ctx: &mut Ctx,
+    mem: &Mem,
+    min_ext: i64,
+    n_before: i64,
+    r14_slot: bool,
+) -> Result<Mode, AsmError> {
     let size = bytes(mem.size);
     let next = ctx.pc + 2 * (n_before + 1);
     let index = match &mem.index {
@@ -438,8 +445,13 @@ fn mem_mode(ctx: &mut Ctx, mem: &Mem, min_ext: i64, n_before: i64) -> Result<Mod
     if min_ext == 0 && known && sd == 0 {
         return Ok((by_size(size, 2, 8, 0xB), b, vec![]));
     }
-    if min_ext == 0 && known && b == 15 && size == 4 && (0..=60).contains(&sd) && sd % 4 == 0 {
+    // the slot modes: the first 16 words at sp, and at r14
+    let slot = min_ext == 0 && known && size == 4 && (0..=60).contains(&sd) && sd % 4 == 0;
+    if slot && b == 15 {
         return Ok((4, sd / 4, vec![]));
+    }
+    if slot && b == 14 && r14_slot {
+        return Ok((0xE, sd / 4, vec![]));
     }
     if min_ext <= 1 && (!known || fits16(sd)) {
         ctx.fix(n_before, ABS16S, mem.disp.as_ref(), 0)?;
@@ -460,7 +472,7 @@ fn ea(ctx: &mut Ctx, op: &Operand, n_before: i64, quick: bool) -> Result<Mode, A
             Ok((0, r.n as i64, vec![]))
         }
         Operand::Imm(e) => imm_mode(ctx, e, min_ext, n_before, quick),
-        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before),
+        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before, true),
         _ => err("expected a register, #constant or [memory] operand"),
     }
 }
@@ -506,7 +518,7 @@ fn sr_number(ctx: &mut Ctx, op: &Operand) -> Result<i64, AsmError> {
         match name.to_ascii_lowercase().as_str() {
             "flags" => return Ok(0),
             "hi" => return Ok(1),
-            "lo" => return Ok(2),
+            "lo" => return Ok(9),
             _ => {}
         }
     }
@@ -633,7 +645,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
                 return err(format!("{u} needs one register"));
             };
             let r = reg_operand(r, "register")?;
-            let n = if u.ends_with("HI") { 1 } else { 2 };
+            let n = if u.ends_with("HI") { 1 } else { 9 };
             return one(if u.starts_with("MF") {
                 p(0x0E, r, n)
             } else {
@@ -737,7 +749,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             // the size makes no difference to an address
             mem.size = None;
             let min_ext = (ctx.min_words() - 1).max(0);
-            let (m, r, ext) = mem_mode(ctx, &mem, min_ext, 1)?;
+            let (m, r, ext) = mem_mode(ctx, &mem, min_ext, 1, false)?;
             let cell = match m {
                 // LEA rd, [R] is a copy
                 2 => 0x10,

@@ -10,7 +10,11 @@ The machine is draft 1's ([isa-v1.md](../v1_isa/isa-v1.md)): registers,
 flags, memory, the I/O page, interrupts and the vectors. The differences:
 
 - `r0` is a general register. All registers start at zero.
-- `LO` is a new special register, which `MULA` accumulates into with `HI`.
+- `r14` is the current object by convention, which mode E, `[r14 + 4R]`,
+  reaches: the first 16 words in one parcel, as `[sp + 4R]` does at `sp`.
+- `LO` is a new special register, 9, after the kernel study's 0–8
+  ([system.md](../kernel/system.md#special-registers)); `MULA` accumulates
+  into it with `HI`.
 - The tag check of the tagged operations traps to its own vector, `0x18`.
 - The zero parcel is `ILLEGAL`, not `HALT`, and so is `FF`.
 
@@ -40,7 +44,7 @@ what the disassembler prints.
   operand: `CLR byte [r1]+`, `INC [counter]`. `MOV [x], #0` is `CLR [x]`.
 - **Tables:** `[table + r2*4]` and `byte [table + r2*2]` index a table
   without a base register; `[pc + table + r2*4]` does it PC-relative.
-- **Special registers:** `flags`, `hi`, `lo`, or a number.
+- **Special registers:** `flags` (0), `hi` (1), `lo` (9), or a number.
 
 The assembler picks the shortest encoding:
 
@@ -48,8 +52,10 @@ The assembler picks the shortest encoding:
   16…127 (`MOV` and `CMP`), then the special mode's 16- and 32-bit forms.
   RFC 0028 left open which one-parcel form takes 0…15 and proposed the
   quick constant; **chosen**.
-- **`[R + d]`:** `[R]`, then `[sp + 4k]` for a word, `[R + d16]`, and the
-  table mode with `R` as its index when `d` needs 17 to 24 bits.
+- **`[R + d]`:** `[R]`, then `[sp + 4k]` and `[r14 + 4k]` for a word
+  (k = 0…15), `[R + d16]`, and the table mode with `R` as its index when
+  `d` needs 17 to 24 bits. `LEA` has no `[r14 + 4R]` cell, so
+  `LEA r1, [r14 + 8]` takes `[R + d16]`.
 - **Absolute:** 16 bits, then PC-relative, then 32 bits, as 1b.
 - **`LEA rd, [R]`** is `MOV rd, R`: draft 2 has no `LEA [R]`, and neither
   touches the flags.
@@ -80,7 +86,7 @@ The RFC defines these only in part.
 | `MULA` | `MULU` and `MULS` leave `LO` alone |
 | The tag | An integer has bit 0 clear, the Lisp's, as RFC 0028 suggests until it's settled |
 | `CAS` (`F7`), `FPU` (`F8`), the free cells | Trap as illegal, until they're designed |
-| Reserved values | An index parcel's size 3, the special mode's `R` = F, mode E where it isn't the tagged column, and the free extension-grid cells trap as illegal |
+| Reserved values | An index parcel's size 3, the special mode's `R` = F, and the free extension-grid cells trap as illegal |
 
 ## Timing and linking
 
@@ -102,6 +108,8 @@ The RFC defines these only in part.
     a multiply, then two steps per step of its shift: one over each half
     of the product.
   - `MULU` and `MULS` with a word from memory cost the multiply alone.
+  - Mode E, `[r14 + 4R]`, costs what mode 4, `[sp + 4R]`, does: a
+    register plus a displacement.
 - **Linking:** the tables' 24-bit address has its top byte in the index
   parcel, so the linker fills it in with two relocations, `abs24h` and
   `abs24l` (`pc24h` and `pc24l` PC-relative)

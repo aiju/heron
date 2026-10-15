@@ -629,7 +629,7 @@ impl Machine {
                 let v = match b {
                     0 => self.flags_word(),
                     1 => self.hi,
-                    2 => self.lo,
+                    9 => self.lo,
                     _ => return illegal(),
                 };
                 self.r[a as usize] = v;
@@ -640,7 +640,7 @@ impl Machine {
                 match a {
                     0 => self.set_flags_word(r(self, b)),
                     1 => self.hi = r(self, b),
-                    2 => self.lo = r(self, b),
+                    9 => self.lo = r(self, b),
                     _ => return illegal(),
                 }
                 self.pc = nxt;

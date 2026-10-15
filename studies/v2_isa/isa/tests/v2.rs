@@ -46,6 +46,7 @@ fn rfc_examples() {
         ("BNE here - 4", &[b(0xB1, 0xFD)]),
         ("MOV r5, #'a'", &[b(0x71, 0x5C)]),
         ("CLR [r6]+", &[b(0x20, 0x66)]),
+        ("MOV r1, [r14 + 8]", &[b(0x1E, 0x12)]),
         ("RET", &[b(0xFD, 0x00)]),
         ("HALT", &[b(0xFE, 0x03)]),
     ];
@@ -115,8 +116,21 @@ fn encodings() {
         ("ADD.B4 r1, r2", &[b(0x08, 0x12)]),
         ("MERGE r1, r2", &[b(0xEE, 0x12)]),
         ("MULA r1, r2", &[b(0xE6, 0x12)]),
-        ("TADD r1, r2", &[b(0x4E, 0x12)]),
-        ("TTST r1, r1", &[b(0x2E, 0x11)]),
+        ("TMOV r1, r2", &[b(0x09, 0x12)]),
+        ("TADD r1, r2", &[b(0x0B, 0x12)]),
+        ("TTST r1, r1", &[b(0x0A, 0x11)]),
+        ("TCMP r1, r2", &[b(0x0D, 0x12)]),
+        // mode E, the slot mode at r14, for every operation that has modes
+        ("ADD r3, [r14 + 60]", &[b(0x4E, 0x3F)]),
+        ("MOV [r14 + 4], r5", &[b(0x2E, 0x51)]),
+        ("AND r1, [r14 + 4]", &[b(0x8E, 0x11)]),
+        ("MOVS r2, [r14 + 12]", &[b(0x3E, 0x23)]),
+        ("CLR [r14 + 8]", &[b(0x20, 0xE2)]),
+        ("JMP [r14 + 20]", &[b(0xF0, 0xE5)]),
+        ("MOV r1, [r14]", &[b(0x12, 0x1E)]),
+        ("MOV r1, [r14 + 64]", &[b(0x13, 0x1E), 0x0040]),
+        ("MOV r1, byte [r14 + 4]", &[b(0x19, 0x1E), 0x0004]),
+        ("LEA r1, [r14 + 8]", &[b(0x04, 0x1E), 0x0008]),
         ("MULFX r1, r2, #16", &[b(0xFD, 0x10), 0x1210]),
         // row D, shifts
         ("SXH r1, r2", &[b(0xD8, 0x12)]),
@@ -139,13 +153,13 @@ fn encodings() {
         ("LDM r1, r4-r7", &[b(0x01, 0x41), 0x7000]),
         ("STM sp, r0", &[b(0x02, 0x0F), 0x0000]),
         ("MFSR r1, hi", &[b(0x0E, 0x11)]),
-        ("MTSR lo, r2", &[b(0x0F, 0x22)]),
+        ("MTSR lo, r2", &[b(0x0F, 0x92)]),
         ("PUSH r1", &[b(0x27, 0x1F)]),
         ("POP r2", &[b(0x16, 0x2F)]),
         ("MFHI r1", &[b(0x0E, 0x11)]),
-        ("MFLO r3", &[b(0x0E, 0x32)]),
+        ("MFLO r3", &[b(0x0E, 0x39)]),
         ("MTHI r2", &[b(0x0F, 0x12)]),
-        ("MTLO r2", &[b(0x0F, 0x22)]),
+        ("MTLO r2", &[b(0x0F, 0x92)]),
         ("MFSR r1, flags", &[b(0x0E, 0x10)]),
         ("SWI #42", &[b(0xFC, 0x2A)]),
         ("NOP", &[b(0xFD, 0xFD)]),
@@ -331,6 +345,21 @@ fn tables_without_a_base_register() {
 }
 
 #[test]
+fn mode_e_is_a_slot_at_r14() {
+    let m = run(
+        "        MOV r14, #0x300\n        MOV r1, #5\n        MOV [r14 + 8], r1\n\
+         \x20       ADD r1, [r14 + 8]\n        INC [r14 + 8]\n        MOVS r2, [r14 + 8]\n\
+         \x20       MOV r9, #-1\n        MOV [r14 + 60], r9\n        CLR [r14 + 60]\n\
+         \x20       MOV r3, #there\n        MOV [r14 + 20], r3\n        JMP [r14 + 20]\n\
+         \x20       HALT\n\
+         there:  MOV r4, #9",
+    );
+    assert_eq!((m.r[1], m.r[2], m.r[4]), (10, 6, 9));
+    assert_eq!(&m.mem[0x308..0x30C], &6u32.to_le_bytes());
+    assert_eq!(&m.mem[0x33C..0x340], &0u32.to_le_bytes());
+}
+
+#[test]
 fn ldm_stm_and_save_with_r0() {
     let m = run(
         "        MOV r0, #1\n        MOV r1, #2\n        MOV r2, #3\n        MOV r9, #0x300\n\
@@ -383,7 +412,7 @@ fn illegal_cells_trap() {
         "0x00",
         "0x03",
         "0x31",
-        "0x8E",
+        "0xC3",
         "0xF7",
         "0xFF",
         "0x10FE, 0x1200",
