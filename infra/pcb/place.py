@@ -466,9 +466,11 @@ class GridPlacer(Placer):
         return self.unplaced
 
     def refine(self, moves=20000, t0=None, rotate=False):
-        """Simulated annealing on the slots: swap two chips whose blocks are
-        the same size, or move one to a free block within a few slots.
-        Returns (wire length before, after)."""
+        """Simulated annealing on the slots: a chip to a block within a few
+        slots of its own, moving there if the block is free or swapping
+        with the chip there if that one's block is the same; now and then
+        a swap with a chip of the same block size anywhere. Returns (wire
+        length before, after)."""
         self._pin_cache = {}
         occ = self._occ
         idx = {p.ref: i for i, p in enumerate(self.movable)}
@@ -488,43 +490,41 @@ class GridPlacer(Placer):
             a = self.rng.choice(self.movable)
             nc, nr, _, _ = self.spans[a.ref]
             ca, ra = self.where[a.ref]
-            group = by_span[(nc, nr)]
-            if len(group) > 1 and self.rng.random() < 0.5:
-                b = self.rng.choice(group)
+            b = None
+            if self.rng.random() < 0.1:
+                b = self.rng.choice(by_span[(nc, nr)])
                 if b is a:
                     continue
-                cb, rb = self.where[b.ref]
-                affected = nets_of[a.ref] | nets_of[b.ref]
-                before = sum(self._net_len(n) for n in affected)
-                self._put(a, cb, rb)
-                self._put(b, ca, ra)
-                after = sum(self._net_len(n) for n in affected)
-                if after > before and self.rng.random() >= math.exp((before - after) / t):
-                    self._put(a, ca, ra)
-                    self._put(b, cb, rb)
-                else:
-                    occ[ra:ra + nr, ca:ca + nc] = idx[b.ref]
-                    occ[rb:rb + nr, cb:cb + nc] = idx[a.ref]
-                    cur += after - before
+                c, r = self.where[b.ref]
             else:
-                sc, sr = self._step(nc), self._step(nr)
-                c = ca + self.rng.randint(-reach, reach) * sc
-                r = ra + self.rng.randint(-reach, reach) * sr
+                c = ca + self.rng.randint(-reach, reach) * self._step(nc)
+                r = ra + self.rng.randint(-reach, reach) * self._step(nr)
                 if (c, r) == (ca, ra) or c < 0 or r < 0 or c + nc > self.ncol or r + nr > self.nrow:
                     continue
-                block = occ[r:r + nr, c:c + nc]
-                if not np.all((block == -1) | (block == idx[a.ref])):
-                    continue
-                affected = nets_of[a.ref]
-                before = sum(self._net_len(n) for n in affected)
-                self._put(a, c, r)
-                after = sum(self._net_len(n) for n in affected)
-                if after > before and self.rng.random() >= math.exp((before - after) / t):
-                    self._put(a, ca, ra)
-                else:
-                    occ[ra:ra + nr, ca:ca + nc] = -1
-                    occ[r:r + nr, c:c + nc] = idx[a.ref]
-                    cur += after - before
+                others = set(occ[r:r + nr, c:c + nc].flat) - {-1, idx[a.ref]}
+                if others:
+                    if len(others) > 1 or -2 in others:
+                        continue
+                    b = self.movable[others.pop()]
+                    if self.spans[b.ref][:2] != (nc, nr) or self.where[b.ref] != (c, r):
+                        continue
+            affected = nets_of[a.ref] | (nets_of[b.ref] if b else set())
+            before = sum(self._net_len(n) for n in affected)
+            self._put(a, c, r)
+            if b:
+                self._put(b, ca, ra)
+            after = sum(self._net_len(n) for n in affected)
+            if after > before and self.rng.random() >= math.exp((before - after) / t):
+                self._put(a, ca, ra)
+                if b:
+                    self._put(b, c, r)
+                continue
+            if b:
+                occ[ra:ra + nr, ca:ca + nc] = idx[b.ref]
+            else:
+                occ[ra:ra + nr, ca:ca + nc] = -1
+            occ[r:r + nr, c:c + nc] = idx[a.ref]
+            cur += after - before
         return start, cur
 
 
