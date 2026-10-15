@@ -30,12 +30,15 @@ def _board(label, style, width, height, layers, sides="F", decaps=None, halo=Non
 # the parts anywhere ("free"), for comparison; full: all the checks, not
 # only the netlist's
 U6 = 233.35      # a 6U Eurocard's height
+U9 = 366.7       # and a 9U one's
 
 BOARDS = [
     _board("smd-6", "smd", 340, U6, 6, full=True),
     _board("smd-6", "smd", 330, U6, 6),
     _board("smd-6", "smd", 320, U6, 6),
+    _board("smd-6", "smd", 310, U6, 6),
     _board("smd-4", "smd", 480, U6, 4),
+    _board("smd-4", "smd", 340, U9, 4),
     _board("dip-6", "dip", 470, 320, 6, full=True),
     _board("dip-6", "dip", 460, 320, 6),
     _board("dip-4", "dip", 490, 345, 4, full=True),
@@ -44,7 +47,9 @@ BOARDS = [
     _board("free-smd-6", "smd", 310, U6, 6, arrangement="free"),
     _board("free-smd-6", "smd", 300, U6, 6, arrangement="free"),
     _board("free-smd-6-top", "smd", 340, U6, 6, decaps="beside", arrangement="free"),
-    _board("free-smd-4", "smd", 460, U6, 4, halo=1.2, full=True, arrangement="free"),
+    _board("free-smd-4", "smd", 340, U9, 4, halo=1.2, full=True, arrangement="free"),
+    _board("free-smd-4", "smd", 520, U6, 4, halo=1.2, arrangement="free"),
+    _board("free-smd-4", "smd", 460, U6, 4, halo=1.2, arrangement="free"),
     _board("free-dip-6", "dip", 480, 320, 6, arrangement="free"),
     _board("free-dip-4", "dip", 500, 345, 4, full=True, arrangement="free"),
 ]

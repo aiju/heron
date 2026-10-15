@@ -48,14 +48,17 @@ netlist; and the board's wire delays back in the simulator.
 | **Fab files** | Gerbers, drill, placement and the IPC-D-356 test netlist, by `kicad-cli` | `studies/pcb/flow.py` |
 
 **For the CPU card** (269 chips): surface-mount parts on a grid, rows and
-columns of chips all the same way round, **six layers, about 340 × 220
-mm**, the decoupling capacitors underneath. It places and routes in under
-a minute each, with no DRC errors, and every check passes. Placed freely
-it would be 300 × 220: the grid costs 10–13% more area. On four layers
-it routes only placed freely, at 460 × 260. The plain DIP version works as a grid on
-**four layers at about 480 × 340 mm**, 2.2 times the area, or on six at
-420 × 302. One card is enough: splitting the CPU over two would put about
-170 signals or more between them.
+columns of chips all the same way round, **six layers, on a 6U × 340 mm
+Eurocard** (233.35 × 340), the decoupling capacitors underneath, and the
+mechanics of [RFC 0026](0026-rfc-pcb-design-rules.md): clear strips for
+the card guides, the front panel's holes, fiducials. It places and routes
+in about a minute each, with no DRC errors, and every check passes. The
+grid costs no area: placed freely, the card gets no smaller than 6U ×
+320 either. On four layers it routes only placed freely, and only on a
+9U × 340 card, 1.6 times the area. The plain DIP version works as a grid
+on **four layers at about 490 × 345 mm**, 2.1 times the area, or on six
+at 470 × 320. One card is enough: splitting the CPU over two would put
+about 170 signals or more between them.
 
 **The finding that matters most:** a board changes the timing, and the
 flow has to put that back into the simulation. With the routed CPU card's
@@ -118,13 +121,15 @@ The pieces of a PCB flow, and who should do each:
 
 **Freerouting**, the open-source autorouter KiCad users reach for (Java,
 Specctra DSN in, SES out; `infra/pcb/dsn.py` writes and reads both),
-was run on the CPU card placed freely at 340 × 220:
+was run on the CPU card placed freely:
 
 - with the planes given to it as power layers, as KiCad exports them, its
-  first fanout pass took **101 minutes and escaped 134 of 3,508 pins**; it
-  was stopped at two hours without a result;
+  first fanout pass took **101 minutes and escaped 134 of 3,508 pins**
+  (at 340 × 220, before the card had its mechanics); it was stopped at
+  two hours without a result;
 - with only the signal layers given to it and its fanout off, it had not
-  finished its first routing pass after an hour, and gave nothing back.
+  finished its first routing pass after an hour, and gave nothing back,
+  both at 340 × 220 and at 6U × 340 with the mechanics.
 
 **Our router** routes the same board in under a minute. It is a grid
 router with negotiated congestion (PathFinder, the algorithm of FPGA
@@ -162,7 +167,7 @@ heron pcb pinouts                      # the pinouts against KiCad's symbols
 heron pcb sweep --write                # the experiments behind this RFC
 ```
 
-One build, for the CPU card at 340 × 220 mm:
+One build, for the CPU card at 6U × 340 mm:
 
 1. **Parts** (`physical.parts`): the card's netlist (`studies/v1b_system`)
    through the pinout table. Each chip keeps the simulator's reference
@@ -190,14 +195,18 @@ One build, for the CPU card at 340 × 220 mm:
 
    `place.Placer` (`--free`) puts the parts anywhere instead: each to the
    nearest free spot on a fine grid, turned by 180° where that shortens
-   the wires. It packs a little tighter (section 6), but the chips end up
-   at any position and either way round.
+   the wires. With RFC 0026's spacing it packs the CPU card no tighter
+   than the grid (section 6), and the chips end up at any position and
+   either way round.
 3. **Fanout** (`fanout.fanout`): every surface pad on a supply gets a via
    at its inner end, under the chip's body, where it can't meet a
    neighbour's (beyond its outer end where the body is crowded); the
    planes do the rest. The router never sees the supplies.
 4. **Routing** (`router.route`): the grid router on the four signal layers
-   (top and bottom any way, the inner two horizontal and vertical).
+   (top and bottom any way, the inner two horizontal and vertical). The
+   keep-out strips are obstacles; so is a ring around each through-hole
+   pad on a plane, for vias only, which leaves the plane's thermal spokes
+   their copper (RFC 0026's R6).
 5. **The board file**: KiCad 9 format, a project file with the rules (the
    standard six-layer process of a common fab: 0.127 mm tracks and gaps,
    0.2 mm holes in 0.45 mm vias), and a PNG.
@@ -245,6 +254,10 @@ by code, and the important ones by two programs that don't share code.
   chip too small to have it underneath, and capacitors at the wrong end
   of chips with an input tied to VCC (taken for the supply pin). Each is
   now a rule in the placer, and the DRC is part of every full check.
+- **Routing**, through KiCad's DRC: on the four-layer DIP board, vias of
+  other nets so close to a through-hole pad on a plane that its thermal
+  relief had fewer spokes than the minimum (`starved_thermal`). The
+  router now keeps vias, not tracks, out of a ring around such pads.
 - **Timing**, through the simulation with the board's wires: the first
   grid placement missed a setup time on the microcode register by 1.6 ns
   (better annealing fixed it). And it showed the wire model too
@@ -277,80 +290,84 @@ check, KiCad's DRC and the fab netlist's check.
 
 | Board | Layers | Size (mm) | Result |
 |---|---|---|---|
-| **SMD, grid**, capacitors under | 6 | **340 × 220** | **routed ✓** |
-| | 6 | 330 × 220 | routed |
-| | 6 | 320 × 220 | routed, in the last of 60 rounds |
-| | 6 | 300 × 220 | the parts don't fit |
-| SMD, grid | 4 | 480 × 260 | **not routed** (60 nets in conflict) |
-| **DIP, grid** | 6 | **420 × 302** | **routed ✓** |
-| | 6 | 400 × 302 | the parts don't fit |
-| | 4 | **480 × 340** | **routed ✓** |
-| | 4 | 480 × 320, rows of 31 mm | routed |
-| | 4 | 440 × 302, the six-layer slots | not routed (17 nets in conflict) |
-| SMD, free, capacitors under | 6 | 380 × 220 | routed ✓ |
-| | 6 | 340 × 220 | routed |
-| | 6 | 300 × 220 | routed ✓ |
-| | 6 | 280 × 233 (6U × 280) | routed |
-| | 6 | 280 × 220 | routed, in twice the rounds |
-| | 6 | 260 × 220 | the parts don't fit |
-| SMD, free, everything on top | 6 | 340 × 220 | routed |
-| | 6 | 320 × 220 | the parts don't fit |
-| SMD, free, parts on both sides | 6 | 280 × 220 | routed |
-| | 6 | 260 × 220 | not routed (2 nets in conflict) |
-| SMD, free | 4 | 380 × 220 | not routed (58 nets in conflict) |
-| | 4 | 440 × 260 | not routed (2 nets in conflict) |
-| | 4 | 460 × 260 | routed ✓ |
-| DIP, free | 6 | 480 × 300 | routed ✓ |
-| | 6 | 440 × 300 | the parts don't fit |
-| | 4 | 480 × 300 | routed ✓ |
-| | 4 | 520 × 300 | routed |
+| **SMD, grid**, capacitors under | 6 | **6U × 340** | **routed ✓** |
+| | 6 | 6U × 330 | routed |
+| | 6 | 6U × 320 | routed |
+| | 6 | 6U × 310 | the parts don't fit |
+| SMD, grid | 4 | 6U × 480 | not routed (66 nets in conflict) |
+| | 4 | 9U × 340 | not routed (95 nets in conflict) |
+| **DIP, grid** | 6 | **470 × 320** | **routed ✓** |
+| | 6 | 460 × 320 | the parts don't fit |
+| | 4 | **490 × 345** | **routed ✓** |
+| | 4 | 500 × 345 | not routed (2 nets in conflict) |
+| SMD, free, capacitors under | 6 | 6U × 320 | routed ✓ |
+| | 6 | 6U × 310 | the parts don't fit |
+| SMD, free, everything on top | 6 | 6U × 340 | routed |
+| SMD, free | 4 | 9U × 340 | routed ✓ |
+| | 4 | 6U × 520 | not routed (4 nets in conflict) |
+| | 4 | 6U × 460 | not routed (19 nets in conflict) |
+| DIP, free | 6 | 480 × 320 | the parts don't fit |
+| | 4 | 500 × 345 | FREE_DIP_4 |
+
+6U is 233.35 mm, 9U 366.7 mm. Every board has RFC 0026's mechanics: a
+5 mm strip along the top and bottom edges for the card guides, an 8 mm
+strip at the front for the panel and its bracket holes, the connectors at
+the back at the Eurocard positions, fiducials, and its spacing between
+parts.
 
 From these:
 
-- **SMD on six layers, as a grid: about 340 × 220 mm** (75,000 mm²);
-  330 × 220 routes as easily, 320 × 220 only just. Placed freely the card
-  gets down to 300 × 220 (66,000 mm²), so the grid costs 10–13% of the
-  area: a narrow SOIC's slot is as tall as a wide one's, and a wide SOIC
-  takes two narrow slots. Four signal layers carry about 110 m of track.
-- **SMD on four layers** routes only placed freely, at about 460 × 260
-  (120,000 mm²): 1.6 times the area of the six-layer grid, on two signal
-  layers, one of them covered in pads. The grid doesn't route on four
+- **SMD on six layers, as a grid: 6U × 340 mm** (79,000 mm²), a standard
+  Eurocard. 330 and 320 route as easily; at 310 the parts don't fit.
+  Placed freely the card gets no smaller: 320 routes, 310 doesn't fit. So
+  under RFC 0026's rules the grid costs no area. Before them (no edge
+  strips, less room between parts) the free placement got to 300 × 220
+  against the grid's 330 to 340 × 220: the grid cost 10–13% more. Four signal layers carry
+  about 110 m of track.
+- **SMD on four layers** routes only placed freely, and only with much
+  more room: 9U × 340 (125,000 mm², 1.6 times the area), on two signal
+  layers, one of them covered in pads. At 6U it doesn't route even 520
+  deep, where it comes within 4 nets. The grid doesn't route on four
   layers at any size tried (section 8).
 - **DIP packs better on the grid than placed freely.** All the 0.3"
   DIPs are the same width, so the slots waste nothing across them. On six
-  layers the grid gets to 420 × 302 (127,000 mm²), smaller than any free
-  DIP board. On four layers its slots need to be wider and taller (12.07
-  × 33 mm, against 10.75 × 29.5) to leave the two signal layers room
-  between the chips: 480 × 340 (163,000 mm²), and 480 × 320 routes too,
-  against 480 × 300 placed freely. So Emily's original plan, a plain DIP
-  board on four layers, works as a grid; it is just big: 2.2 times the
-  SMD card's area.
+  layers the grid fits 470 × 320 (150,000 mm²), where the free placement
+  leaves 31 parts over at 480 × 320. On four layers the grid's slots need
+  to be wider and taller (12.07 × 33 mm, against 11.8 × 30.4) to leave
+  the two signal layers room between the chips: 490 × 345 (169,000 mm²),
+  2.1 times the SMD card's area. 500 × 345 was left with 2 nets in
+  conflict: four layers are at the edge of what this board routes on,
+  and a little more room doesn't always help, as the slots and so the
+  placement change with it. So Emily's original plan, a plain DIP board
+  on four layers, works as a grid; it is just big. Neither DIP board is
+  a Eurocard size: 320 and 345 mm high fit within 9U (366.7), but 470
+  and 490 deep are more than the deepest Eurocard, 400.
 - **One card is enough.** RFC 0005 expected the CPU to need two. Splitting
   it would be costly: the best two-way split found cuts 171 signals,
   control against datapath 201, and the backplane has about 52 spare pins
   per slot.
-- **The card's height** comes from its connectors: P1 and P2 are 95 mm
-  each, so 220 mm is about the least for both. The depth follows from the
-  area. That needn't be a Eurocard size, but 6U (233.35 mm) by 280 mm,
-  a standard subrack depth, routes placed freely; the grid's equivalent
-  would be about 6U × 320 (not tried).
-- **Parts on both sides** save little, and only placed freely (the grid is
-  one-sided): 280 × 220 against 300 × 220, for a second side of chips to
-  assemble. The capacitors underneath already need a second side, but one
-  of only capacitors, which a fab charges less for; with everything on
-  top the free card grows to about 340 × 220.
+- **The card's height** comes from its connectors: P1 and P2 at their
+  Eurocard positions take a 6U card, 233.35 mm. The depth follows from
+  the area, and 340 is a standard subrack depth. RFC 0026 has why 6U ×
+  340 suits the assembly houses too: it fits within every one's limit.
+- **Parts on one side or two.** The grid is one-sided; the capacitors
+  underneath need a second side, but one of only capacitors, which a fab
+  charges less for. With everything on top, the free card routes at 6U ×
+  340 (smaller wasn't tried).
 
-![The CPU card as an SMD board: six layers, 340 × 220 mm, the chips on a grid, connectors on the right](0023-rfc-pcb-flow/smd.png)
+![The CPU card as an SMD board: six layers, 6U × 340 mm, the chips on a grid, connectors on the right](0023-rfc-pcb-flow/smd.png)
 
-*The SMD card at 340 × 220 mm, its chips on a grid. Red: top-side pads
+*The SMD card at 6U × 340 mm, its chips on a grid. Red: top-side pads
 and tracks; green and purple: the inner signal layers, horizontal and
 vertical; blue: the bottom, with the decoupling capacitors under the
-chips; grey dots: vias. A detail at full scale:
-[smd-detail.png](0023-rfc-pcb-flow/smd-detail.png).*
+chips; grey dots: vias. The strips along the edges are clear for the
+card guides and the front panel. A detail at full scale:
+[smd-detail.png](0023-rfc-pcb-flow/smd-detail.png); every layer and net
+in the browser: `heron pcb view`.*
 
-![The CPU card as a DIP board: four layers, 480 × 340 mm, the chips on a grid](0023-rfc-pcb-flow/dip.png)
+![The CPU card as a DIP board: four layers, 490 × 345 mm, the chips on a grid](0023-rfc-pcb-flow/dip.png)
 
-*The DIP card at 480 × 340 mm, on four layers, its chips on a grid with
+*The DIP card at 490 × 345 mm, on four layers, its chips on a grid with
 each capacitor above its chip: red, the top's tracks; blue, the bottom's;
 the planes are the two inner layers.*
 
@@ -439,8 +456,8 @@ change the design or the placement where it doesn't.
   Their timing is only weights on the nets known to be critical; the
   static timing analysis could give them each net's slack instead.
 - **The grid on four layers** routes for DIP, with wider slots, but not
-  for SMD at any size tried (up to 500 × 260), where free placement
-  routes at 460 × 260. Most likely because on a grid the obstacles on the
+  for SMD at any size tried (6U × 480 and 9U × 340, and up to 500 × 260
+  before the mechanics), where free placement routes at 9U × 340. Most likely because on a grid the obstacles on the
   two signal layers line up (every chip's pads, every capacitor and its
   vias underneath) into walls the tracks must cross; staggered rows, or
   the capacitors beside the chips, might fix it.
@@ -453,9 +470,10 @@ change the design or the placement where it doesn't.
   routed lengths.
 - **Mechanics and assembly:** [RFC 0026](0026-rfc-pcb-design-rules.md)
   has the rules. The flow applies the edge strips, bracket holes,
-  connector positions, fiducials and spacing. Still to do: silkscreen
-  (its R27), the front panel and handles, and a stiffener where its R13
-  asks for one.
+  connector positions, fiducials, spacing and thermal relief. Still to
+  do: silkscreen (its R27), the front panel and handles, a stiffener
+  where its R13 asks for one, and the hand-soldering rule for
+  through-hole pads (its R25), which waits on Emily.
 
 ## 9. Open questions
 
@@ -466,15 +484,15 @@ For Emily:
 2. **KiCad as a dependency:** install it in CI so `heron test pcb` can
    build and check boards there, or vendor the few footprints the cards
    use (CC-BY-SA, with KiCad's exception for designs)?
-3. **SMD or DIP** for the CPU card? SMD (recommended) is 340 × 220 on six
-   layers as a grid; DIP is about 480 × 340 on four, or 420 × 302 on six.
-4. **Layers:** for SMD, six (340 × 220, a grid) rather than the four RFC
-   0005 recorded (460 × 260, placed freely)?
-5. **Arrangement and size:** the grid at about 340 × 220 (recommended,
-   following Emily's preference for a regular arrangement), or the free
-   placement at 300 × 220? Or a standard 6U height (233 mm), which the
-   grid would need about 320 mm deep for? The memory and I/O cards are
-   small; their size can follow the CPU card's or be smaller.
+3. **SMD or DIP** for the CPU card? SMD (recommended) is a 6U × 340
+   Eurocard on six layers as a grid; DIP is about 490 × 345 on four, or
+   470 × 320 on six.
+4. **Layers:** for SMD, six (6U × 340, a grid) rather than the four RFC
+   0005 recorded (9U × 340, placed freely)?
+5. **Size:** 6U × 340 (recommended), a standard Eurocard, or 6U × 320,
+   the smallest that fits, but not a standard depth? The grid costs
+   nothing against free placement at either. The memory and I/O cards
+   are small; their size can follow the CPU card's or be smaller.
 6. **Assembly:** the decoupling capacitors underneath (a second, cheap
    assembly side), or everything on top on a larger board?
 7. **The design changes** of section 7: a clock tree for CLK, buffers on
