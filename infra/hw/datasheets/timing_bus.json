@@ -1883,5 +1883,167 @@
     "estimated": [],
     "notes": "tWP = 12 ns is the write pulse with /OE low (tWP2); with /OE high during the write it is 8 ns ('tWP OE high', tWP1), the same convention as IS61C256AL in timing_alu_mem.json. tWHZ is the datasheet's tWZ (2..6 ns). tAH (address hold from end of write) and tWR (write recovery) are both 0. Z parameters and tDH are guaranteed, not tested. TTL inputs (VIH 2.2 V, VIL 0.8 V). The 4 Mbit JEDEC pinout differs from the 32Kx8 parts in timing_alu_mem.json.",
     "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
+  },
+
+  "74F161": {
+    "family": "F",
+    "function": "4-bit synchronous binary counter, asynchronous clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F161A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f161a.pdf",
+    "datasheet": "TI SDFS087A (Mar 1987, rev Oct 1993)",
+    "availability": "Not checked. The SN74F163A (the same counter with a synchronous clear) is active in DIP.",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 2.7,
+        "typ": 7.1,
+        "max": 11
+      },
+      "CLK->RCO": {
+        "min": 4.2,
+        "typ": 9.6,
+        "max": 15
+      },
+      "ENT->RCO": {
+        "min": 1.7,
+        "typ": 4.1,
+        "max": 8.5
+      },
+      "CLR->Q": {
+        "min": 4.7,
+        "typ": 8.6,
+        "max": 13
+      }
+    },
+    "checks": {
+      "setup data": 5,
+      "hold data": 2,
+      "setup LOAD": 11.5,
+      "hold LOAD": 2,
+      "setup EN": 11.5,
+      "hold EN": 0,
+      "tw CLK": 7,
+      "fmax MHz": 90
+    },
+    "estimated": [],
+    "notes": "The SN74F163A's switching characteristics, with an asynchronous clear (/CLR->Q 13 ns, /CLR->RCO 11.5 ns). CLK->Q is 9.5 ns when loading, 11 when counting. Setup of /LOAD 11.5 ns high, 9.5 low; of ENP/ENT 11.5 high, 5 low (the larger is given). Hold of /LOAD 2 ns high, 0 low."
+  },
+
+  "74F299": {
+    "family": "F",
+    "function": "8-bit universal shift/storage register, three-state I/O",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F299",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f299.pdf",
+    "datasheet": "TI SDFS071B (Mar 1987, rev Apr 2004)",
+    "availability": "Not checked (the datasheet marks the SN54F299 obsolete).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 3.2,
+        "typ": 8.1,
+        "max": 12
+      },
+      "CLK->QS": {
+        "min": 2.7,
+        "typ": 6.6,
+        "max": 10
+      },
+      "CLR->Q": {
+        "min": 5.7,
+        "typ": 10.6,
+        "max": 15
+      },
+      "OE->Y en": {
+        "min": 2.7,
+        "typ": 6.6,
+        "max": 11
+      },
+      "OE->Y dis": {
+        "min": 1.2,
+        "typ": 4.1,
+        "max": 7
+      }
+    },
+    "checks": {
+      "setup S": 8.5,
+      "hold S": 0,
+      "setup DS": 5.5,
+      "hold DS": 2,
+      "setup IO": 5.5,
+      "hold IO": 2,
+      "recovery CLR": 7,
+      "tw CLK": 7,
+      "fmax MHz": 70
+    },
+    "estimated": [],
+    "notes": "CLK->Q is to QA-QH (tPHL 12, tPLH 10); CLK->QS to QA'/QH' (tPLH 10, tPHL 9.5); CLR->Q to QA-QH (15; 10.5 to QA'/QH'). Enable: tPZL 11, tPZH 9; disable: tPHZ 7, tPLZ 6.5. The serial inputs SR/SL and the I/O pins in a parallel load share the 5.5 ns setup."
+  },
+
+  "IS61C6416AL-12": {
+    "family": "SRAM",
+    "function": "64K x 16 fast asynchronous SRAM, 5 V; also a writable control store, read like a ROM",
+    "manufacturer": "ISSI",
+    "part_number": "IS61C6416AL-12",
+    "source": "https://static.chipdip.ru/lib/414/DOC012414509.pdf",
+    "datasheet": "ISSI IS61C6416AL/IS64C6416AL Rev. B1 (2020); Rev. B2 (Jan 2025) is on mouser.com",
+    "availability": "Distributors list IS61C6416AL-12TLI (44-pin TSOP-II) as active and some SOJ (-12KLI) listings as obsolete (Oct 2026). No DIP.",
+    "max_cond": "VCC 5 V +-10%, -40..85 C (I grade)",
+    "delays": {
+      "tAA": {
+        "typ": 12,
+        "max": 12
+      },
+      "tACE": {
+        "typ": 12,
+        "max": 12
+      },
+      "tOE": {
+        "typ": 6,
+        "max": 6
+      },
+      "tOHZ": {
+        "typ": 6,
+        "max": 6
+      },
+      "tCHZ": {
+        "typ": 7,
+        "max": 7
+      },
+      "tWHZ": {
+        "typ": 6,
+        "max": 6
+      },
+      "tACC": {
+        "typ": 12,
+        "max": 12
+      },
+      "tCE": {
+        "typ": 12,
+        "max": 12
+      },
+      "tDF": {
+        "typ": 6,
+        "max": 6
+      }
+    },
+    "checks": {
+      "tAS": 0,
+      "tAW": 9,
+      "tWP": 9,
+      "tDW": 6,
+      "tDH": 0,
+      "tWR": 0,
+      "tOH": 3,
+      "tAH": 0,
+      "tCW": 9,
+      "tRC": 12,
+      "tWC": 12
+    },
+    "estimated": [],
+    "notes": "tACC, tCE and tDF repeat tAA, tACE and tHZOE under the ROM model's names, for the part used as a control store: loaded at power-up, then only read. tWP is tPWE (9 ns with /OE high or low); tAW and tCW are tAW and tSCE (9 ns); tDW is tSD (6 ns). Byte enables: tBA 6 ns."
   }
 }
