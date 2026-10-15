@@ -170,8 +170,13 @@ growing stacks, guard pages), and sharing.
   flag bits, XL and XS, send its loads or stores through the user's map
   (the 68010's `MOVES` without a new instruction). Copying to and from user
   memory runs at full speed with any instruction, and a bad pointer is
-  just a page fault. ~1–2 chips. **measured**, **recommended**. They
-  replace the `LDU`/`STU` instructions first proposed.
+  just a page fault. ~1–2 chips. **measured**; **rejected** for draft 2
+  (Emily, 2026-10-15): they're a mode on every load or store, so while one
+  is set the kernel's own stack goes through the user's map and copy loops
+  can't be compiled. RFC 0029 has the supervisor reach user memory through
+  the translated space instead, with physical memory in a window at bit 31
+  ([RFC 0029, 3](0029-rfc-draft-2-system.md#3-the-address-space)). They
+  replaced the `LDU`/`STU` instructions first proposed.
 - **Writing the map:** `MTSR mapd` with `mapa` stepping on by one, so a
   run of entries takes one instruction each (v1bs).
 - **More than 16 processes:** reassign contexts. Reusing one costs about 7
