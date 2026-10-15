@@ -37,7 +37,7 @@ TICK = cpucard.TICK_PS / 1000
 # the window must be at least a tick long; the counter's range sets the most
 K_MIN, K_MAX = cpucard.WINDOW_OPEN + cpucard.TAIL + 1, cpucard.HEAD + cpucard.TAIL + 16
 K_BUS = 12
-CACHE = os.path.join(BUILD, "system")
+CACHE = os.path.join(BUILD, "v1b_system")
 
 
 def window(k, off):
@@ -114,7 +114,7 @@ def rom_words():
 
 def profile():
     """Executions of each ROM address over the program suite, on the RTL
-    model (cached in build/system/profile.json)."""
+    model (cached in build/v1b_system/profile.json)."""
     path = os.path.join(CACHE, "profile.json")
     srcs = v1b_machine.sources() + [os.path.abspath(__file__)]
     if os.path.exists(path) and os.path.getmtime(path) > max(os.path.getmtime(p) for p in srcs):

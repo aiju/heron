@@ -168,7 +168,7 @@ how often each microinstruction runs (the suite's profile on the model):
 | 3 | 17 | 340 | 109 |
 
 That's 1.138× faster than a fixed 340 ns clock over the suite.
-`heron system lengths` prints the jumpers for every set of parts.
+`heron v1b_system lengths` prints the jumpers for every set of parts.
 
 ### The bus interface
 
@@ -274,7 +274,7 @@ copies here. Two programs are the system's own:
 - **The model** (`model/`): the cards behind the CPU, for the `v1_isa`
   simulator. It decodes addresses as the cards do and runs the same
   device models (`infra/devices`), with time from the cycle count at
-  300 ns a cycle. `heron system test` compares everything that doesn't
+  300 ns a cycle. `heron v1b_system test` compares everything that doesn't
   depend on time; a program names the words that do
   (`;! timing-dependent: ticks`).
 - **The bus tests** (`bfm.py`, `tests/test_bus.py`): scripted masters and
@@ -285,7 +285,7 @@ copies here. Two programs are the system's own:
 
 ## Performance
 
-At chip level, worst-case delays (`heron system test`):
+At chip level, worst-case delays (`heron v1b_system test`):
 
 | Program | Microcycles | Time | ns per microcycle |
 |---|---:|---:|---:|

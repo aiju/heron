@@ -1,5 +1,5 @@
 ; The console's primitives for the system (draft 1b on the system bus): the
-; I/O card's UART (studies/system/iocard.py). lib/start.s includes this;
+; I/O card's UART (studies/v1b_system/iocard.py). lib/start.s includes this;
 ; lib/console.s builds the usual console routines on it.
 ;
 ;   __con_init                       set up the UART              clobbers r1

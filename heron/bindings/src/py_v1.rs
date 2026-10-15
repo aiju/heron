@@ -100,8 +100,8 @@ pub mod v1 {
     /// `image` RAM from address 0, `inp` the console input, `reference`
     /// the configuration its own cycle count follows. With `system` (a dict:
     /// uart_in, cf_image, ns_per_cycle), the machine is the system of
-    /// studies/system: everything outside its RAM is on the system bus
-    /// (studies/system/model), and the I/O page isn't there.
+    /// studies/v1b_system: everything outside its RAM is on the system bus
+    /// (studies/v1b_system/model), and the I/O page isn't there.
     #[pyclass]
     struct Machine {
         m: Engine,
@@ -131,11 +131,11 @@ pub mod v1 {
                     Some(v) => v.extract()?,
                     None => vec![0; 512 * 2048],
                 };
-                let mut cfg = system_model::Config::default();
+                let mut cfg = v1b_system_model::Config::default();
                 if let Some(v) = get("ns_per_cycle")? {
                     cfg.ns_per_cycle = v.extract()?;
                 }
-                m.bus = Some(Box::new(system_model::System::new(cfg, &uart_in, cf)));
+                m.bus = Some(Box::new(v1b_system_model::System::new(cfg, &uart_in, cf)));
             }
             Ok(Machine { m })
         }

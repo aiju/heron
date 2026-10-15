@@ -1,4 +1,4 @@
-"""The system's command line: heron system <command> ...
+"""The system's command line: heron v1b_system <command> ...
 
   run    PROG.s [--trace A:B] [--max-cycles N]
                          run a program on the whole system at chip level
@@ -10,7 +10,7 @@
   lengths                the length classes: what each microinstruction
                          needs, and the jumpers for every set of parts
   schematic [--out FILE] [--fragment]
-                         the schematic viewer (build/system/schematic.html),
+                         the schematic viewer (build/v1b_system/schematic.html),
                          a page with every card's sheets
 """
 
@@ -170,7 +170,7 @@ def cmd_schematic(args):
     from heron import BUILD
     from heron.infra.hw import schematic
     from . import machine
-    out = args.out or os.path.join(BUILD, "system", "schematic.html")
+    out = args.out or os.path.join(BUILD, "v1b_system", "schematic.html")
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     html = schematic.page(machine.build(), "Heron draft 1b system", CARDS,
                           standalone=not args.fragment)
@@ -182,7 +182,7 @@ def cmd_schematic(args):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    p = argparse.ArgumentParser(prog="heron system", description="The system on the bus")
+    p = argparse.ArgumentParser(prog="heron v1b_system", description="The system on the bus")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run a program on the system at chip level")
     r.add_argument("file")
@@ -199,7 +199,7 @@ def main(argv=None):
     b.set_defaults(fn=cmd_bom)
     sub.add_parser("lengths", help="the length classes").set_defaults(fn=cmd_lengths)
     sc = sub.add_parser("schematic", help="the schematic viewer")
-    sc.add_argument("--out", help="where to write it (default build/system/schematic.html)")
+    sc.add_argument("--out", help="where to write it (default build/v1b_system/schematic.html)")
     sc.add_argument("--fragment", action="store_true",
                     help="without the document around it, for a page host that adds it")
     sc.set_defaults(fn=cmd_schematic)

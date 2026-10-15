@@ -2,7 +2,7 @@
 
 build() is the CPU as studied in report 0012: a fixed clock from a test
 fixture, and the I/O page as a fixture. build(card=True) is the core of the
-CPU card on the system bus (studies/system/cpucard.py), which adds its own
+CPU card on the system bus (studies/v1b_system/cpucard.py), which adds its own
 clock generator, bus interface and interrupt inputs: there the MAR holds
 all 32 address bits, the RAM is only slot 0's region (the slot bits
 MAR[31:28] all 0), anything else goes on the bus, and a bus error (net
@@ -551,7 +551,7 @@ def build(card=False, stub=False):
     g("86", ["CONDT_n", CC[0]], "BCOND_n")
 
     if card and not stub:
-        return nl              # studies/system/cpucard.py adds the rest
+        return nl              # studies/v1b_system/cpucard.py adds the rest
     nl.finish()
     nl.check()
     return nl

@@ -1,8 +1,8 @@
-//! The system of studies/system as the instruction-level simulator sees it:
+//! The system of studies/v1b_system as the instruction-level simulator sees it:
 //! the CPU card's RAM in slot 0, the memory card in slot 1, the I/O card in
 //! slot 15, and nothing in the other slots. It's the reference the
 //! chip-level system is checked against, so it decodes addresses as the
-//! cards do (studies/system/memcard.py and iocard.py).
+//! cards do (studies/v1b_system/memcard.py and iocard.py).
 //!
 //! Time comes from the machine's cycle count, at an assumed cycle time:
 //! the UART, the timer and the CF card move on by the time that has passed.

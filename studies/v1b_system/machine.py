@@ -3,7 +3,7 @@ backplane with the CPU card in slot 0, the memory card in slot 1 and the
 I/O card in slot 15, run from power-up.
 
 The composed netlist, the length classes and the ROM images are built
-into build/system/ and rebuilt when their sources change.
+into build/v1b_system/ and rebuilt when their sources change.
 """
 
 import glob
@@ -18,7 +18,7 @@ from heron.studies.v1b_hw import ucode as uc
 from . import backplane, bus, cpucard, iocard, lengths, memcard, programs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(BUILD, "system")
+OUT = os.path.join(BUILD, "v1b_system")
 SLOTS = {"CPU": 0, "MEM": 1, "IO": 15}
 N_SIMPLE = 6            # data clocks for a simple card: the CF card sets it
 
