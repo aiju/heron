@@ -1,11 +1,11 @@
 """The Lisp study's command line: heron lisp <command> ...
 
   run    PROG.lisp [-c] [--stats] [--profile] [--input-file F]   run a program on the 1b
-                                         simulator (-c: compiled)
+                                         simulator (-c: compiled; --isa v2: on draft 2)
   ref    PROG.lisp                       run it on the reference interpreter
-  test   [NAME...] [-c] [-v] [--features F]   the programs and tests against their
-                                         expected output
-  build  [-l FILE.lst]                   assemble the runtime (and write a listing)
+  test   [NAME...] [-c] [-v] [--features F] [--isa v2]   the programs and tests against
+                                         their expected output
+  build  [-l FILE.lst] [--isa v2]        assemble the runtime (and write a listing)
   report [--write] [NAME...]             the measurements behind report 0018
                                          (--write: its performance.md)
 """
@@ -14,6 +14,7 @@ import argparse
 import sys
 
 CONFIG = "D32-separate"         # the 1b hardware's configuration (report 0012)
+ISAS = ("v1b", "v2")
 
 
 def cmd_run(args):
@@ -24,7 +25,8 @@ def cmd_run(args):
         with open(args.input_file, "rb") as f:
             text += f.read()
     features = [f for f in (args.features or "").split(",") if f]
-    r = machine.run(text, features, max_cycles=args.max_cycles, compiled=args.compiled)
+    r = machine.run(text, features, max_cycles=args.max_cycles, compiled=args.compiled,
+                    isa=args.isa)
     sys.stdout.buffer.write(r.output)
     sys.stdout.flush()
     m = r.machine
@@ -53,12 +55,13 @@ def cmd_ref(args):
 def cmd_test(args):
     from . import testing
     features = [f for f in (args.features or "").split(",") if f]
-    return testing.run_suite(args.names, features, verbose=args.v, compiled=args.compiled)
+    return testing.run_suite(args.names, features, verbose=args.v, compiled=args.compiled,
+                             isa=args.isa)
 
 
 def cmd_build(args):
     from . import build
-    img = build.build([f for f in (args.features or "").split(",") if f])
+    img = build.build([f for f in (args.features or "").split(",") if f], args.isa)
     lo, hi = img.extent()
     print(f"image {lo:05X}-{hi - 1:05X}, {img.code_bytes()} bytes of runtime code")
     if args.l:
@@ -74,7 +77,7 @@ def cmd_report(args):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    p = argparse.ArgumentParser(prog="heron lisp", description="A Lisp for draft 1b")
+    p = argparse.ArgumentParser(prog="heron lisp", description="A Lisp for drafts 1b and 2")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run", help="run a program on the 1b simulator")
     r.add_argument("file")
@@ -84,6 +87,7 @@ def main(argv=None):
     r.add_argument("--features", help="ISA experiments to build the runtime with (comma-separated)")
     r.add_argument("--max-cycles", type=int, default=5_000_000_000)
     r.add_argument("-c", "--compiled", action="store_true", help="load the compiler first: compile the program")
+    r.add_argument("--isa", choices=ISAS, default="v1b", help="draft 1b (the default) or draft 2")
     r.set_defaults(fn=cmd_run)
     f = sub.add_parser("ref", help="run a program on the reference interpreter")
     f.add_argument("file")
@@ -93,10 +97,12 @@ def main(argv=None):
     t.add_argument("-v", action="store_true", help="show where the output differs")
     t.add_argument("-c", "--compiled", action="store_true", help="compile the programs")
     t.add_argument("--features", help="ISA experiments (comma-separated; isa.md)")
+    t.add_argument("--isa", choices=ISAS, default="v1b", help="draft 1b (the default) or draft 2")
     t.set_defaults(fn=cmd_test)
     b = sub.add_parser("build", help="assemble the runtime")
     b.add_argument("-l", help="write a listing")
     b.add_argument("--features")
+    b.add_argument("--isa", choices=ISAS, default="v1b", help="draft 1b (the default) or draft 2")
     b.set_defaults(fn=cmd_build)
     rp = sub.add_parser("report", help="the measurements behind report 0018")
     rp.add_argument("names", nargs="*")
