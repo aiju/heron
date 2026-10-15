@@ -298,9 +298,12 @@ At chip level, worst-case delays (`heron v1b_system test`):
 | memcard | 624,959 | 208.5 ms | 334 |
 | cfcard | 224,330 | 72.1 ms | 321 |
 
-The programs that use the bus most are the slowest per microcycle: a
-transfer to the memory card holds its microcycle for 620–680 ns, and one
-to the I/O card for 880–960 ns.
+The programs that use the bus most are the slowest per microcycle. Over
+memcard and cfcard, a read from the memory card holds its microcycle for
+520–600 ns (mostly 560), a write, two data clocks, for 620–660 ns, a
+transfer to the I/O card for 880–960 ns, and a bus error for 680–720 ns;
+the bus clock's phase and the microinstruction's length class make the
+spread.
 
 ## Known issues
 

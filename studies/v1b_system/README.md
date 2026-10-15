@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v1b_hw, v1_isa]
-reports: []
+reports: [25]
 ---
 
 # The system: draft 1b on the bus
@@ -44,3 +44,5 @@ heron v1b_system lengths                   # the length classes and their jumper
 heron v1b_system schematic                 # the netlists as a schematic to browse, in build/v1b_system/schematic.html
 heron test v1b_system                      # the unit tests: the bus against RFC 0014 with scripted masters, hello at chip level
 ```
+
+Report: [0025](../../reports/0025-report-draft-1b-system.md).
