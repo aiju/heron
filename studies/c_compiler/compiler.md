@@ -30,10 +30,10 @@ C or about any of the instruction sets.
   [report 0004](../../reports/0004-report-draft-1-evaluation.md)). The compiler uses 1b's
   auto-increment and memory operands, but loses on its 4-bit constants. See
   [report 0011](../../reports/0011-report-c-compiler.md#1a-against-1b-for-compiled-code).
-- **On draft 2:** compiled C takes 2.4% fewer cycles than on 1b in the
-  programs' own code, and 2.0% fewer in the C library, with 3.9% less
-  code. `CLR`, `MOVS`, `INC` and `DEC` on memory, and loops counted down
-  for `DBNZ` do most of it. See
+- **On draft 2:** compiled C takes 2.8% fewer cycles than on 1b in the
+  programs' own code, and 3.8% fewer in the C library, with 3.7% less
+  code. `CLR`, `MOVS`, `INC` and `DEC` on memory, loops counted down for
+  `DBNZ` and the link register do most of it. See
   [report 0030](../../reports/0030-report-c-compiler-draft-2.md).
 
 The numbers are in [report 0011](../../reports/0011-report-c-compiler/performance.md),
@@ -118,7 +118,13 @@ The program-wide conventions of [studies/v1_isa/isa-v1.md](../v1_isa/isa-v1.md):
 - `r1`–`r7` are caller-saved, `r8`–`r14` callee-saved, `r15` is `sp`. `HI`
   and the flags are caller-saved.
 - On draft 2, `r0` is a general register: caller-saved, and allocated
-  after `r7`. On draft 1 it reads as zero.
+  after `r1`–`r6`. On draft 1 it reads as zero.
+- On draft 2, calls leave the return address in `r7`, the link register.
+  A function that calls saves `r7` with the callee-saved registers it
+  uses, in one `SAVE r7-rN`, or pushes it alone and returns with
+  `JMP [sp]+`; a leaf leaves it alone and returns with `RET` (`JMP r7`).
+  The allocator takes `r7` last among the scratch registers, since a leaf
+  that uses it has to save it. On draft 1, calls push the return address.
 - A **variadic** function gets every argument on the stack, so `va_list` is
   just a pointer that walks up the stack, one word per argument.
 - A **struct argument** is passed as the address of a copy the caller
@@ -138,12 +144,13 @@ sp ->   outgoing stack arguments (reserved once; sp doesn't move in the body)
         local arrays, structs and variables whose address is taken
         spill slots
         callee-saved registers the function uses (one SAVE ra-rb)
-        return address
+        return address (on draft 2, the saved r7, if the function saves it)
         the caller's stack arguments for this function
 ```
 
 A function that needs none of this has no prologue at all: a leaf function
-is its body and a `RET`.
+is its body and a `RET`. The link register's handling (`Target.LINK`) is
+target-independent, so a draft 1 variant with one could use it too.
 
 ## How it's built
 
@@ -490,8 +497,7 @@ it says about 1a against 1b: [report 0011](../../reports/0011-report-c-compiler.
   between constants; the test that guards a loop's entry would give it
   for a variable bound. 1b would gain from it too (0.7%, report 0030),
   but it's draft 2's only, so report 0011's numbers stand.
-- **If `CALL` takes `r7` as a link register** (RFC 0028, pending), the
-  backend changes where it counts the pushed return address
-  (`MFunction.frame_offset`), saves `r7` in functions that call
-  (`Target.finish`), and keeps `r7` out of a leaf function's registers
+- **Shrink-wrapping** would be worth more with the link register: a
+  function saves `r7` on entry whenever any of its paths calls, so fib's
+  and bst's calls that return at once still save and restore it
   ([report 0030](../../reports/0030-report-c-compiler-draft-2.md#the-link-register)).

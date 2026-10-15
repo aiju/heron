@@ -6,43 +6,44 @@ status: current
 date: 2026-10-15
 context:
   studies: [c_compiler, v2_isa, v1_isa]
-  commit: 1b8e4d2
+  commit: 55616f0
 ---
 
 # Report 0030: The C compiler on draft 2
 
 The C compiler ([compiler.md](../studies/c_compiler/compiler.md))
 retargeted to draft 2 as [RFC 0028](0028-rfc-draft-2-isa.md) maps it and
-the v2_isa study implements it, using draft 2's new instructions where
-compiled C has a use for them: the step RFC 0028's next steps
-([11](0028-rfc-draft-2-isa.md#11-next-steps)) name, and the list in
-[RFC 0006](0006-rfc-ideas-isa.md) for the compiler on draft 2. The
+the v2_isa study implements it, link register included, using draft 2's
+new instructions where compiled C has a use for them: the step RFC 0028's
+next steps ([11](0028-rfc-draft-2-isa.md#11-next-steps)) name, and the
+list in [RFC 0006](0006-rfc-ideas-isa.md) for the compiler on draft 2. The
 per-program tables are in
 [performance.md](0030-report-c-compiler-draft-2/performance.md), generated
 by `heron c_compiler bench --isa v2 --write`.
 
 ## Summary
 
-- **Compiled C takes 2.4% fewer cycles on draft 2 than on 1b** in the
-  programs' own code, and 2.0% fewer in the C library (D16-overlap,
-  geometric means over the 15 programs); 2.3–3.0% in the other
+- **Compiled C takes 2.8% fewer cycles on draft 2 than on 1b** in the
+  programs' own code, and 3.8% fewer in the C library (D16-overlap,
+  geometric means over the 15 programs); 2.7–3.6% in the other
   configurations. The hand-written programs, as ported to draft 2, take
-  1.0% fewer.
-- **Its code is 3.9% smaller,** and the C library 6.5%.
+  2.6% fewer.
+- **Its code is 3.7% smaller,** and the C library 6.4%.
 - **Where it comes from,** each feature turned off in turn: `CLR` 1.3%
   (against a fresh `MOV rX, #0`), counting loops down and `DBNZ` 1.0%,
   `MOVS` 1.0% (2.0% in the library), `INC` and `DEC` on memory 0.7%, the
   tables without a base register 0.3%, `TST` and `MULS` with a constant
-  0.1%.
+  0.1%. The link register, against draft 2 with pushed return addresses:
+  0.4%, and 1.8% in the library.
 - **Two of those are mostly the compiler's.** Counting loops down would
   give 1b 0.7% too, since its `DEC` sets Z; `DBNZ` itself is worth 0.3%.
-  With 1b counting down as well, draft 2's lead would be about 1.7%.
+  With 1b counting down as well, draft 2's lead would be about 2.2%.
 - **Worth nothing measurable here:** `r0` as a 15th register (0.0%, 0.4%
   in the library), `CMPI` against keeping a constant in a register, and
   `JMP [pc + table + r*4]`, which no program's hot code reaches.
 - **Not used at all:** mode E (`[r14 + 4R]`), `LDM` and `STM`, and the
   tentative instructions ([below](#what-the-compiler-doesnt-use)).
-- **Compiled C against the hand-written draft 2 programs:** 1.19× in the
+- **Compiled C against the hand-written draft 2 programs:** 1.20× in the
   programs' own code, against 1.22× on 1b (11 programs that spend less
   than half their time in the C library).
 
@@ -53,9 +54,17 @@ Draft 2 keeps 1b's addressing modes in its rows, so the backend
 register allocator and the rest of the backend are shared; draft 1's
 code comes out byte for byte as before.
 
-- **`r0` is a general register:** allocated after `r7`, and caller-saved.
-  A zero store is `CLR` at any size and in any mode; a zero in a register
-  is `MOV rX, #0`.
+- **Calls leave the return address in `r7`**
+  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  A function that calls saves `r7` with the registers it keeps, in one
+  `SAVE r7-rN`; one that keeps no others pushes it and returns with
+  `JMP [sp]+`. A leaf leaves it alone and returns with `RET`, which is
+  `JMP r7`, and a tail call restores it before its branch
+  ([below](#the-link-register)).
+- **`r0` is a general register:** caller-saved, and allocated after
+  `r1`–`r6` and before `r7`, which a leaf that uses it has to save. A zero
+  store is `CLR` at any size and in any mode; a zero in a register is
+  `MOV rX, #0`.
 - **`MOV` leaves the flags alone.** Where a compare with 0 would read
   the flags of a load or a copy, the `MOV` becomes `MOVS` and the compare
   goes, also past instructions that leave the flags alone, so a string
@@ -98,22 +107,22 @@ The draft 2 backend with one feature turned off, against the whole backend
 
 | Without | Own cycles | Library cycles | Own code | Most |
 |---|---:|---:|---:|---|
-| `CLR` (a `MOV #0` and a store instead) | 1.0128 | 1.0022 | 1.0048 | sieve 1.190 |
-| counting down and `DBNZ` | 1.0097 | 1.0049 | 1.0061 | crc 1.151 |
+| `CLR` (a `MOV #0` and a store instead) | 1.0128 | 1.0021 | 1.0048 | sieve 1.190 |
+| counting down and `DBNZ` | 1.0097 | 1.0050 | 1.0061 | crc 1.151 |
 | `DBNZ` (loops still counted down) | 1.0031 | 1.0017 | 1.0013 | crc 1.047 |
-| `MOVS` | 1.0097 | 1.0195 | 1.0078 | strings 1.075 |
+| `MOVS` | 1.0098 | 1.0195 | 1.0078 | strings 1.077 |
 | `INC` and `DEC` on memory | 1.0066 | 1.0000 | 1.0039 | fib 1.093 |
 | tables without a base register | 1.0026 | 1.0000 | 1.0069 | crc 1.017 |
 | `JMP [pc + table + r*4]` | 1.0000 | 1.0000 | 1.0000 | – |
 | `TST` and `MULS` with a constant | 1.0008 | 1.0002 | 1.0000 | wordfreq 1.008 |
 | `CMP #16..127` in place of a register | 1.0002 | 1.0008 | 1.0004 | mandel 1.004 |
-| `r0` as a 15th register | 1.0002 | 1.0036 | 0.9996 | sha256 1.003 |
+| `r0` as a 15th register | 1.0002 | 1.0036 | 1.0000 | sha256 1.003 |
 
 The library column leaves out sieve: its byte array lands on or off a
 word boundary depending on the library's size, which changes `memset`'s
 time 3.6 times over ([RFC 0006,
 3.3](0006-rfc-ideas-isa.md#33-r0-as-a-general-register)). For the same
-reason sieve's whole-program cycles are 0.92 of 1b's, while its own code
+reason sieve's whole-program cycles are 0.81 of 1b's, while its own code
 is 0.998.
 
 - **`CLR` is what replaces the zero register,** and it does so fully.
@@ -126,7 +135,7 @@ is 0.998.
   RFC 0006's bound, from taking one of 1b's 14 away, was 0.5–0.7%
   (sha256 6–11%); adding a 15th is worth less.
 - **`MOVS`:** a load followed by a test of what it loaded, mostly string
-  loops (strings 7.5%, the library's `strlen`, `strcpy` and `format`
+  loops (strings 7.7%, the library's `strlen`, `strcpy` and `format`
   2.0%). Half of the uses are `MOVS rd, rs`, the compiler's copy followed
   by a test: 0.25% of the executed instructions, which bears on
   [RFC 0028, 9.8](0028-rfc-draft-2-isa.md#9-open-questions).
@@ -153,6 +162,33 @@ is 0.998.
   program here runs a dense `switch`; printf's on the conversion letter is
   too sparse for a table.
 
+## The link register
+
+The simulator no longer has the pushing `CALL` to turn off, so the link
+register is measured against this report's first version, the same
+compiler on draft 2 as it was before the change (tables at `acd2d85`):
+
+| | Before | With the link register |
+|---|---:|---:|
+| Own code, draft 2 / 1b | 0.976 | 0.972 |
+| C library, draft 2 / 1b | 0.980 | 0.962 |
+| Hand-written programs, draft 2 / 1b | 0.990 | 0.974 |
+
+- **The library gains most:** its leaf functions (`putchar`, `strlen`,
+  `strcmp`) are now called and returned from without touching memory.
+  mandel, which prints through `putchar`, spends 17% fewer cycles there.
+- **The programs' own code gains 0.4%:** arith 3.1%, strings 1.9% and
+  matmul 1.4%, whose own functions are leaves or call leaves.
+- **Calls that return at once still save `r7`** (fib's and bst's), since
+  a function saves on entry whatever any of its paths needs; saving
+  registers only on the paths that need them (shrink-wrapping) would
+  change that. hello's `main`, which saved nothing before, now pushes
+  `r7` around its call to `printf`.
+- **The mechanism is target-independent:** `Target.LINK` names the
+  register, and the backend saves it like a callee-saved register below
+  `r8`. It's the one the link register study (in review) wrote for a 1b
+  with a link register.
+
 ## Against 1b, program by program
 
 Own code, D16-overlap:
@@ -161,13 +197,16 @@ Own code, D16-overlap:
   base register.
 - **fib 0.915:** `INC [_calls]` in place of a load, an add and a store on
   every call.
-- **wordfreq 0.963:** `INC [r13 + 4]` on a word's count, `MULS r13, #31`
+- **wordfreq 0.962:** `INC [r13 + 4]` on a word's count, `MULS r13, #31`
   for the hash, and the tables without a base register.
-- **bst 0.969:** `INC [_visited]` on every visit, `MOVS` for loads and
-  copies that are tested, and `MULS r3, #12` and `LEA r4, [_pool + r3]`
-  for a new node's address.
-- **queens 0.981:** `MOVS` for a copy tested in the recursion.
-- **The other ten:** 0.994–1.000.
+- **arith 0.967, bst 0.968:** arith's calls to leaves; bst's
+  `INC [_visited]` on every visit, `MOVS` for loads and copies that are
+  tested, and `MULS r3, #12` and `LEA r4, [_pool + r3]` for a new node's
+  address.
+- **strings 0.979, matmul 0.980, queens 0.981:** calls to leaves, and
+  queens' `MOVS` for a copy tested in the recursion.
+- **The rest:** 0.990–0.998, and hello 1.026 of 39 cycles (its push of
+  `r7`).
 
 ## What the compiler doesn't use
 
@@ -185,29 +224,10 @@ Own code, D16-overlap:
 - **The tagged operations, `SWI`, `MFUR` and `MTUR`:** for the Lisp,
   Egret and the kernel, not C.
 
-## The link register
-
-`CALL` may come to put the return address in `r7` instead of pushing it
-(pending). For the backend that would change:
-
-- **The stack arguments' offset** (`MFunction.frame_offset`), which counts
-  the pushed return address.
-- **The saved registers** (`Target.finish`): a function that calls saves
-  `r7` with the callee-saved registers, and `SAVE r7-rN` does that in one
-  range.
-- **A leaf function's registers:** it keeps its return address in `r7`
-  rather than allocating it, which leaves `r0`–`r6` as its scratch
-  registers, seven as on draft 1.
-- **`RET` and the start code,** with whatever the return becomes.
-
-A call to a leaf function, such as the C library's string functions,
-would then touch no memory to call and return. fib's and bst's calls that
-return at once would still save `r7`, until the compiler saves registers
-only on the paths that need them (shrink-wrapping, which it doesn't do).
-
 ## Next steps
 
-- The link register, if `CALL` changes.
+- Shrink-wrapping, which the link register makes worth more: a call that
+  returns at once could skip saving `r7`.
 - Trip counts from the test that guards a loop's entry, for counted loops
   with a variable bound.
 - 1b counting down too, for a fair comparison in report 0011's tables.
