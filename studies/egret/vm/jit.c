@@ -114,6 +114,11 @@ static void ea_m(int op, int d, int base, SValue disp)
         OPW(op, d, 2, base);
     else if (base == SP && disp >= 0 && disp <= 60 && !(disp & 3))
         OPW(op, d, 4, disp >> 2);
+#ifdef EGRET_RT
+    /* a machine with a fixed-base mode E, [rT + 4R] (RFC 0028) */
+    else if (base == EGRET_RT && disp >= 0 && disp <= 60 && !(disp & 3))
+        OPW(op, d, 0xE, disp >> 2);
+#endif
     else {
         OPW(op, d, 3, base);
         put(disp);
