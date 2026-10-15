@@ -55,6 +55,7 @@ isn't in the repository.
   constants and addresses, at most two.
 - **Two extension grids,** `FD` and `FE`, turn the register byte into a
   second opcode byte, for instructions that are rare or have no operands.
+  `FD` may go ([6.8](#68-control-multiple-and-system-rows-0-and-f)).
 - **`r0` is a general register.** **decided** (Emily, 2026-10-15).
 - **`MOV` never sets the flags; `MOVS` does.** Stores are written `MOV`
   too.
@@ -188,8 +189,8 @@ The two extension grids, with the second byte:
 
 | `FD`, misc | | `FE`, system | |
 |---|---|---|---|
-| `FD 10` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 00` | `EI` |
-| `FD FD` | `NOP` | `FE 01` | `DI` |
+| `FD 00` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 00` | `EI` |
+| | | `FE 01` | `DI` |
 | | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
 
@@ -538,7 +539,15 @@ D and E are new: tables without a base register. **decided** (Emily,
 - **`MFSR rd, n` and `MTSR n, rs`** (`0E`, `0F`): `HI` (n = 1) is how a
   remainder or a product's high half is read.
 - **The extension grids** hold instructions without operands, which are
-  still one parcel there (`NOP`, `EI`, `DI`, `RTI`, `HALT`).
+  still one parcel there (`EI`, `DI`, `RTI`, `HALT`), and rare ones with an
+  extension parcel (`MULFX`).
+- **`FD`'s fate is uncertain.** With `RET` now `JMP r7` and `NOP` a `MOV`,
+  it holds only the tentative `MULFX`. It may stay as room for rare
+  instructions, at the cost of one root cell, or go, with `MULFX` moving
+  elsewhere.
+- **`NOP` is `MOV r0, r0`** (`10 00`), which does nothing now that `MOV`
+  never sets the flags. The assembler accepts `NOP` for it, and `.align`
+  pads code with it.
 - **`MFUR rd, rs` and `MTUR rd, rs`** (`31`, `3D`): the supervisor reads
   register `rs` of the user's bank into its own `rd`, or writes the
   user's `rd` from its own `rs` (v1bs's instructions,
@@ -571,7 +580,7 @@ they're only marked out, to be designed ([9](#9-open-questions)).
 | `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ | Big-endian data: SHA-256's message words, network headers, font files |
 | `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is special register 2 ([RFC 0029, 4](0029-rfc-draft-2-system.md#4-special-registers)) | unchanged | Multiply-accumulate: mandel, audio, filters |
 | `EE` | `MERGE rd, rs` | `rd ← (rd & ~HI) \| (rs & HI)`: `rs`'s bits where the mask in `HI` is set | NZ | Masked edges and glyph words in graphics: −20% of the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) |
-| `FD 10` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
+| `FD 00` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
 
 The tagged operations in `09`–`0D` check that their operands are integers.
 They follow the Lisp's v1bx ([studies/lisp/isa.md](../studies/lisp/isa.md)),

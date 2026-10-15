@@ -954,14 +954,6 @@
     "i": "illegal",
     "s": 1
    },
-   "gmv9svl31r3yb/10": {
-    "i": "mulfx",
-    "s": 1
-   },
-   "gmv9svl31r3yb/FD": {
-    "i": "nop",
-    "s": 1
-   },
    "gmv9sqwj9jo7q/00": {
     "i": "ei",
     "s": 1
@@ -1049,6 +1041,10 @@
    },
    "root/3D": {
     "i": "mtur",
+    "s": 1
+   },
+   "gmv9svl31r3yb/00": {
+    "i": "mulfx",
     "s": 1
    }
   },
