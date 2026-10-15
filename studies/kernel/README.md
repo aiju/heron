@@ -18,7 +18,7 @@ the timing model; on `c_compiler` for one comparison; and on `lisp`,
 `egret` and `graphics` for their programs, whose page references it
 counts.
 
-- **v1bs** ([system.md](system.md)): draft 1b with a supervisor mode,
+- **v1bs** ([report 0020's appendix](../../reports/0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)): draft 1b with a supervisor mode,
   register banks in the spare register-file SRAM (three policies), the
   flat page map of RFC 0010, loads and stores across modes, and precise
   page faults. It's an ISA variant of the draft 1 simulator

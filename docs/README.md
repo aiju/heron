@@ -9,9 +9,10 @@ draft 1b
 ([RFC 0006](../reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 Its encoding is drafted, not decided, in
 [RFC 0028](../reports/0028-rfc-draft-2-isa.md).
-Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
-[draft 1](../studies/v1_isa/README.md) and
-[the draft 1b hardware](../studies/v1b_hw/README.md).
+Earlier designs are [RFC 0001](../reports/0001-rfc-draft-0.md) (draft 0),
+[RFC 0004](../reports/0004-rfc-draft-1-isa.md) (draft 1) and
+[report 0012](../reports/0012-report-draft-1b-hardware.md) (the draft 1b
+hardware), with their code in [studies](../studies/README.md).
 
 ## Decided so far
 
@@ -21,7 +22,7 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
   ([RFC 0005](../reports/0005-rfc-ideas-direction.md#1-direction-and-ambition)).
 - 16-bit instruction parcels, with 0–2 extension parcels.
 - Draft 2 builds on draft 1b: one register and one addressing mode per
-  instruction ([isa-v1b.md](../studies/v1_isa/isa-v1b.md)).
+  instruction ([RFC 0004, Part II](../reports/0004-rfc-draft-1-isa.md#part-ii-draft-1b)).
 - In draft 2, `r0` is a general register; it no longer reads as zero
   ([RFC 0006](../reports/0006-rfc-ideas-isa.md#33-r0-as-a-general-register)).
 

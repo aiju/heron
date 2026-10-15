@@ -6,7 +6,7 @@ A card is an HTML page, written next to the PDF, that headless Chromium
 prints (set CHROME if it can't find one). The fonts are Inter and JetBrains
 Mono where they're installed. The examples on page 2 go through the assembler, so the
 encodings printed next to them are the assembler's. Everything else follows
-isa-v1.md, isa-v1a.md and isa-v1b.md: change it here when they change.
+RFC 0004 (reports/0004-rfc-draft-1-isa.md): change it here when it changes.
 """
 
 import glob
@@ -662,8 +662,9 @@ def page2(isa):
 
 
 def footer(isa, n):
-    return (f'<footer><span>Heron draft {isa[1:]} · from <code>studies/v1_isa/isa-v1.md</code> and '
-            f'<code>isa-{isa}.md</code> · <code>heron v1_isa refcard</code></span>'
+    part = 'I' if isa == 'v1a' else 'II'
+    return (f'<footer><span>Heron draft {isa[1:]} · from RFC 0004, Part {part} · '
+            f'<code>heron v1_isa refcard</code></span>'
             f'<span>{n} / 2</span></footer>')
 
 

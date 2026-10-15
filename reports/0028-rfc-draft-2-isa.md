@@ -542,7 +542,7 @@ What changed from 1b, beyond the encoding:
   it uses.
 - **Decoding costs nothing for an irregular map.** The 1b CPU decodes
   through a ROM that looks up all 16 bits of the first parcel
-  ([hardware.md](../studies/v1b_hw/hardware.md#control)). What the hardware
+  ([report 0012](0012-report-draft-1b-hardware.md#5-control)). What the hardware
   cares about is that register numbers sit in fixed places, and the
   register byte gives that. Constants come from a few places: the register
   byte (`Bcc`, `SWI`), its low nibble (`DBNZ`, the quick constants), or the
@@ -793,7 +793,7 @@ where they fit, so that their use can be measured (Emily, 2026-10-15).
   ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)); `MULFX`,
   fixed-point multiply (mandel's inner loop).
 - **The tagged operations** are the Lisp's v1bx
-  ([studies/lisp/isa.md](../studies/lisp/isa.md)) on registers: −6.4% of
+  ([report 0018's appendix](0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)) on registers: −6.4% of
   the Lisp's compiled cycles, −5.5% of Egret's
   ([RFC 0006, 6](0006-rfc-ideas-isa.md#6-for-dynamic-languages)).
   - `TMOV` leaves the flags alone, like `MOV`, where v1bx's `MOV.T` set

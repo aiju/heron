@@ -1,4 +1,4 @@
-"""The kernel study: v1bs's system extensions (system.md) on the
+"""The kernel study: v1bs's system extensions (report 0020's appendix) on the
 simulator, the nucleus's scenarios on every register-bank variant, the
 small routines, and the page statistics."""
 

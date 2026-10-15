@@ -34,8 +34,8 @@ say otherwise.
 ## 1. Adopted in draft 1
 
 These came from the draft 0 evaluation
-([report 0001](0001-report-draft-0-evaluation.md)); draft 1 has them
-([isa-v1.md](../studies/v1_isa/isa-v1.md)):
+([RFC 0001](0001-rfc-draft-0.md)); draft 1 has them
+([RFC 0004](0004-rfc-draft-1-isa.md)):
 
 | Proposal | Evidence or reason |
 |---|---|
@@ -60,7 +60,7 @@ These came from the draft 0 evaluation
 ## 2. 1a against 1b, and the base for draft 2
 
 **measured.** Both encodings were specified, built and measured on 20
-programs ([report 0004](0004-report-draft-1-evaluation.md)).
+programs ([RFC 0004](0004-rfc-draft-1-isa.md)).
 
 - **1a, RISC-like:** load/store, register-register ALU, short and long
   load/store forms, 8-bit immediates.
@@ -80,7 +80,7 @@ Every study since has compared the two or used 1b:
 
 | Workload | Cycles, 1b / 1a | Where 1b gains, or doesn't | Report |
 |---|---:|---|---|
-| The 20 hand-written programs | 0.90–0.93 | Auto-increment above all; the VM's table dispatch (−24%) and Life's memory operands (−16%). Register-bound programs are within 3% | [0004](0004-report-draft-1-evaluation.md) |
+| The 20 hand-written programs | 0.90–0.93 | Auto-increment above all; the VM's table dispatch (−24%) and Life's memory operands (−16%). Register-bound programs are within 3% | [0004](0004-rfc-draft-1-isa.md) |
 | The 15 programs in compiled C | 0.94–0.95 | Auto-increment in pointer loops. Memory operands save a cycle each; 4-bit constants cost the compiler more than a person | [0011](0011-report-c-compiler.md) |
 | Graphics: assembly kernels / compiled C | 0.95 / 0.97 | Copies (−30% along rows) and anti-aliased text, by auto-increment; the rest is the same | [0019](0019-report-graphics.md) |
 | Egret's interpreter | 1b only | Auto-increment is 21–37% of the loop's instructions, `JMP [r + r*4]` 7–14% | [0017](0017-report-egret.md) |
@@ -93,7 +93,7 @@ Every study since has compared the two or used 1b:
   the kernel study's v1bs. Section 3 collects what a 1b-based draft 2
   would change, and [RFC 0028](0028-rfc-draft-2-isa.md) lays out its
   encoding.
-- **Draft 2 on 1a.** Report 0004 recommended it. That recommendation is
+- **Draft 2 on 1a.** RFC 0004 recommended it. That recommendation is
   withdrawn: it rested on faulty numbers (Emily, 2026-10-14). The C
   compiler's first figure, 1b at 0.978 of 1a's cycles, came from a
   register-allocation bug (0.943 once fixed), and 1b's encoding isn't as
@@ -105,14 +105,14 @@ Every study since has compared the two or used 1b:
 ### 3.1 Room left in 1b's encoding
 
 Every opcode of the `F D M R` format is taken
-([isa-v1b.md](../studies/v1_isa/isa-v1b.md)). What's left:
+([RFC 0004, Part II](0004-rfc-draft-1-isa.md#part-ii-draft-1b)). What's left:
 
 - **Op A, `A c k R`:** the long jumps and calls use only k = 0 and 1 with
   R = 0, and everything else traps, so about 4,064 encodings are free:
   nearly a whole opcode. With `c` as a register, k = 8–F and R give each
   register a 7-bit field, enough for one one-parcel instruction with a
   constant up to 127 (`MOV rd, #'a'`, say), with k = 2–7 left over.
-  Report 0004 counted only the modes and special forms when it called
+  RFC 0004 counted only the modes and special forms when it called
   1b's encoding full.
 - **Mode E,** the one reserved mode. The Lisp's v1bx uses it for a tagged
   register operand ([section 6](#6-for-dynamic-languages)).
@@ -142,7 +142,7 @@ only for extending 1b itself.
 
 ### 3.2 1b's gaps
 
-From [report 0004](0004-report-draft-1-evaluation.md), the program
+From [RFC 0004](0004-rfc-draft-1-isa.md), the program
 writers' notes ([report 0003](0003-report-draft-1-programming-notes.md))
 and the later studies. Where RFC 0028's map closes a gap, the status says
 how:
@@ -158,7 +158,7 @@ how:
 | `[label + reg]` reaches only ±32 KB | 1b has no 32-bit displacement form | **decided** (Emily, 2026-10-15): `[abs24 + Rx]` reaches 8 MB, as above |
 | `POP` is `MOV r, [sp]+`, which sets N and Z | It can't sit between a test and its branch; `RESTORE r-r` can ([3.4](#34-which-movs-set-the-flags)) | **open.** Gone in RFC 0028's map, where `MOV` never sets the flags |
 | No store-immediate | Zero is stored as `ST r0, ea` ([3.3](#33-r0-as-a-general-register)); `CLR ea` in op B would replace it. With `r0` a general register in draft 2, something has to | **recommended:** `CLR ea`, one cell with every mode in RFC 0028's map. It leaves the flags alone, like a store: **decided** (Emily, 2026-10-15) |
-| No memory increment (`INC [mem]`, `ADD [mem], r`) | fib's call counter is 30% of its time; a timer interrupt handler is a load, an add and a store. Memory-destination ALU operations in general were 0.4% of draft 0's instructions ([section 7](#7-not-recommended-and-rejected)) | **recommended** ([report 0004](0004-report-draft-1-evaluation.md#recommendations-for-draft-2)): `INC ea` and `DEC ea`, one cell each in RFC 0028's map. They set N and Z like the register forms: **decided** (Emily, 2026-10-15) |
+| No memory increment (`INC [mem]`, `ADD [mem], r`) | fib's call counter is 30% of its time; a timer interrupt handler is a load, an add and a store. Memory-destination ALU operations in general were 0.4% of draft 0's instructions ([section 7](#7-not-recommended-and-rejected)) | **recommended** ([RFC 0004](0004-rfc-draft-1-isa.md#35-recommendations-for-draft-2)): `INC ea` and `DEC ea`, one cell each in RFC 0028's map. They set N and Z like the register forms: **decided** (Emily, 2026-10-15) |
 | `CALL [r]+` and `CALL -[r]` move the register before pushing the return address, so a fault on the push can't be restarted | Found by the kernel study ([report 0020](0020-report-operating-system.md#what-was-hard)). The microcode should push first, or draft 2 drops the form (crc uses it). RFC 0028's `CALL ea` has every mode, these two included | **recommended**; gone in draft 2, whose calls push nothing ([RFC 0028, 5.7](0028-rfc-draft-2-isa.md#57-jumps-and-calls)) |
 
 ### 3.3 `r0` as a general register
@@ -212,7 +212,7 @@ unary op. So a 1b-based draft 2 can make `r0` a 15th general register.
   - The C library is left out because of a layout effect. Its size moves
     sieve's byte array on or off a word boundary, which changes `memset`'s
     time by 3.6×.
-  - [Report 0004](0004-report-draft-1-evaluation.md) found no hand-written
+  - [RFC 0004](0004-rfc-draft-1-isa.md) found no hand-written
     program short of registers either.
 - **Replacing it:**
   - `CLR ea` stores zero at any size, in any mode, a register included
@@ -371,7 +371,7 @@ scripts aren't committed.
   `ADD` 3.51% and 3.14%, `CMP` 0.71% and 1.92%, `OR`, `SUB` and `XOR`
   0.9% and 0.6% together, `AND` never.
 - **The stack-slot mode `[sp + 4R]`** is unused in the hand-written
-  programs, as [report 0004](0004-report-draft-1-evaluation.md) found. With
+  programs, as [RFC 0004](0004-rfc-draft-1-isa.md) found. With
   the C library it is up to 17% of a compiled program's executed
   instructions, mostly `printf`'s frame: hello 16.6%, arith 9.6%, strings
   6.3%, bignum 6.0%, and over 2% in 7 of the 15 programs.
@@ -430,7 +430,7 @@ scripts aren't committed.
 
 For the record, since draft 2 builds on 1b. Some of it is also an
 argument for keeping a 1b feature. What 1a would want, from
-[report 0004](0004-report-draft-1-evaluation.md#recommendations-for-draft-2)
+[RFC 0004](0004-rfc-draft-1-isa.md#35-recommendations-for-draft-2)
 and the later studies:
 
 - **Post-increment and pre-decrement loads and stores** in op F: byte and
@@ -458,7 +458,7 @@ and the later studies:
     pointer between a load and the branch that tests it.
 - **The system extensions** of v1bs fit 1a as well: special registers,
   flag bits and two system-group functions
-  ([studies/kernel/system.md](../studies/kernel/system.md)).
+  ([report 0020's appendix](0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)).
 
 ## 5. More instruction ideas
 
@@ -495,7 +495,7 @@ compiled on the machine.
 | Proposal | Evidence | Status |
 |---|---|---|
 | Keep misaligned-access traps **precise** (the saved PC is the faulting instruction's, nothing changed) and decodable | Tagged pointers make the Lisp's `car`, `cdr` and calls type-check themselves through the trap; checking in software would cost 16% compiled (up to 35%) and 19% interpreted. Draft 1's restartability rules already give it | **recommended** |
-| Tagged arithmetic: `ADD`, `SUB`, `CMP` (and `MOV`) that trap unless both operands are integers, `ADD`/`SUB` trapping on overflow too (SPARC's `TADDccTV`) | The Lisp built it as v1bx, a tagged register operand in 1b's mode E ([isa.md](../studies/lisp/isa.md)): −6.4% of compiled cycles (geometric mean), up to −16% (fib); −5.6% if it costs a cycle more; about one chip. Egret's JIT: −5.5% on average, 16–18% in the numeric programs; its interpreter only 2–3%. The two tag integers differently (the Lisp with bit 0 clear, Egret as 2n + 1); hardware fixes one, and the Lisp's adds directly. A register holding the expected tag bit would let the check serve both for a couple of gates, though Egret's adds would still need a correction. Not only for the Lisp: Smalltalk, Scheme, ML and Erlang keep small integers the same way; C, the kernel and assembly gain nothing. RFC 0028's map has `TMOV`, `TTST`, `TADD`, `TSUB` and `TCMP` on registers, in its column E ([9.2](0028-rfc-draft-2-isa.md#92-alu-operations-and-constants)) | **measured**, open |
+| Tagged arithmetic: `ADD`, `SUB`, `CMP` (and `MOV`) that trap unless both operands are integers, `ADD`/`SUB` trapping on overflow too (SPARC's `TADDccTV`) | The Lisp built it as v1bx, a tagged register operand in 1b's mode E ([report 0018's appendix](0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)): −6.4% of compiled cycles (geometric mean), up to −16% (fib); −5.6% if it costs a cycle more; about one chip. Egret's JIT: −5.5% on average, 16–18% in the numeric programs; its interpreter only 2–3%. The two tag integers differently (the Lisp with bit 0 clear, Egret as 2n + 1); hardware fixes one, and the Lisp's adds directly. A register holding the expected tag bit would let the check serve both for a couple of gates, though Egret's adds would still need a correction. Not only for the Lisp: Smalltalk, Scheme, ML and Erlang keep small integers the same way; C, the kernel and assembly gain nothing. RFC 0028's map has `TMOV`, `TTST`, `TADD`, `TSUB` and `TCMP` on registers, in its column E ([9.2](0028-rfc-draft-2-isa.md#92-alu-operations-and-constants)) | **measured**, open |
 | Keep a memory-indirect call (`CALL [r + d]`) | The Lisp calls through a code word in every object; a load and `CALL r` would cost 1.3% (up to 2.5%). 1b has it | **measured**, open |
 | Guard pages for the stack and heap limits | The Lisp: 5.0% and 1.8% of compiled cycles ([RFC 0010](0010-rfc-ideas-os.md#3-mmu)) | **open** |
 | One-parcel `[r - 1]` and `[r + 3]` (the Lisp's pair offsets); the heap limit in a register | 1.1% and 0.9%: not worth the encoding space or a register | **not recommended** |
@@ -586,7 +586,7 @@ studies that are about the tools, not the ISA. All **open**.
 - **`.align` that pads code with `NOP`s,** so hot loops can be aligned:
   wide-fetch cycles depend on loop alignment by up to 15%, and `.align`
   pads with zeros, which are `HALT`
-  ([report 0004](0004-report-draft-1-evaluation.md#the-hardware-configurations)).
+  ([RFC 0004](0004-rfc-draft-1-isa.md#33-the-hardware-configurations)).
   **recommended.**
 - **Library constants that don't pollute the global namespace**
   (`CONSOLE`, `PR_OUT`): programs couldn't reuse the names.

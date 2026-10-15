@@ -1,5 +1,5 @@
 ; The benchmark nucleus: a small message-passing kernel for v1bs
-; (system.md), written to measure what an operating system's hot paths
+; (report 0020's appendix), written to measure what an operating system's hot paths
 ; cost on draft 1b and what the system extensions save. It is not an
 ; operating system: there is no file system, no loader, no allocator for
 ; user memory beyond demand-zero pages, and processes come from a table
