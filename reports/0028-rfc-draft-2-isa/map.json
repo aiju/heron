@@ -954,18 +954,6 @@
     "i": "illegal",
     "s": 1
    },
-   "gmv9svl31r3yb/00": {
-    "i": "ret",
-    "s": 1
-   },
-   "gmv9svl31r3yb/10": {
-    "i": "mulfx",
-    "s": 1
-   },
-   "gmv9svl31r3yb/FD": {
-    "i": "nop",
-    "s": 1
-   },
    "gmv9sqwj9jo7q/00": {
     "i": "ei",
     "s": 1
@@ -980,14 +968,6 @@
    },
    "gmv9sqwj9jo7q/03": {
     "i": "halt",
-    "s": 1
-   },
-   "gmv9sqwj9jo7q/10": {
-    "i": "mfur",
-    "s": 1
-   },
-   "gmv9sqwj9jo7q/11": {
-    "i": "mtur",
     "s": 1
    },
    "root/09": {
@@ -1053,6 +1033,18 @@
    "root/AE": {
     "i": "xor",
     "m": "r14slot",
+    "s": 1
+   },
+   "root/31": {
+    "i": "mfur",
+    "s": 1
+   },
+   "root/3D": {
+    "i": "mtur",
+    "s": 1
+   },
+   "gmv9svl31r3yb/00": {
+    "i": "mulfx",
     "s": 1
    }
   },

@@ -55,6 +55,7 @@ isn't in the repository.
   constants and addresses, at most two.
 - **Two extension grids,** `FD` and `FE`, turn the register byte into a
   second opcode byte, for instructions that are rare or have no operands.
+  `FD` may go ([6.8](#68-control-multiple-and-system-rows-0-and-f)).
 - **`r0` is a general register.** **decided** (Emily, 2026-10-15).
 - **`MOV` never sets the flags; `MOVS` does.** Stores are written `MOV`
   too.
@@ -69,12 +70,14 @@ isn't in the repository.
     `[abs24 + x·s]` and `[pc + d24 + x·s]`;
   - a second slot mode, `[r14 + 4R]`: the first 16 words of the current
     object in one parcel, for every operation that takes a mode;
+  - a link register: calls leave the return address in `r7`, and a
+    return is `JMP r7`;
   - `ILLEGAL` at `00`.
 - **Some instructions are tentative:** `ADD.B4`, `FFS`, `POPC`, `REV`,
   `MULA`, `MERGE`, `MULFX` and the tagged operations. They're defined so
   that the simulator has them and software can use them, to measure
   whether they earn their cells ([6.9](#69-tentative-instructions)).
-- **245 of the 256 root cells are used,** 11 are free.
+- **247 of the 256 root cells are used,** 9 are free.
 - **Open:** `CAS` and the floating-point escape are marked out, not
   designed; `LEA`'s special mode; what `r0`'s change still needs; and the
   rest of [section 9](#9-open-questions).
@@ -100,7 +103,7 @@ as in draft 1.
 | `BNE .loop`, three parcels back | `B1 FD` |
 | `MOV r5, #'a'` (`MVI`, the `#u7` form) | `71 5C` |
 | `CLR [r6]+` | `20 66` |
-| `RET` | `FD 00` |
+| `RET`, which is `JMP r7` | `F0 07` |
 | `HALT` | `FE 03` |
 | `MOV r1, [r14 + 8]` (mode E) | `1E 12` |
 
@@ -168,7 +171,7 @@ are written `MOV` and `CMP` ([6.3](#63-short-constants-row-7)).
 | 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 |  | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | LEA spec +1–2 | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | MFSR rd,n | MTSR n,rs |
 | 1_ | MOV rs | MOV #q | MOV [R] | MOV [R+d16] +1 | MOV [sp+4R] | MOV [R+X·s] +1 | MOV [R]+ | MOV -[R] | MOV b[R] | MOV b[R+d16] +1 | MOV b[R]+ | MOV h[R] | MOV h[R+d16] +1 | MOV #−q | MOV [r14+4R] | MOV spec +1–2 |
 | 2_ | CLR ea +0–2 | INC ea +0–2 | ST [R] | ST [R+d16] +1 | ST [sp+4R] | ST [R+X·s] +1 | ST [R]+ | ST -[R] | ST b[R] | ST b[R+d16] +1 | ST b[R]+ | ST h[R] | ST h[R+d16] +1 | DEC ea +0–2 | ST [r14+4R] | ST spec +1–2 |
-| 3_ | MOVS rs |  | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 |  | MOVS [r14+4R] | MOVS spec +1–2 |
+| 3_ | MOVS rs | MFUR rd,rs | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 | MTUR rd,rs | MOVS [r14+4R] | MOVS spec +1–2 |
 | 4_ | ADD rs | ADD #q | ADD [R] | ADD [R+d16] +1 | ADD [sp+4R] | ADD [R+X·s] +1 | ADD [R]+ | ADD -[R] | ADD b[R] | ADD b[R+d16] +1 | ADD b[R]+ | ADD h[R] | ADD h[R+d16] +1 | ADD #−q | ADD [r14+4R] | ADD spec +1–2 |
 | 5_ | SUB rs | SUB #q | SUB [R] | SUB [R+d16] +1 | SUB [sp+4R] | SUB [R+X·s] +1 | SUB [R]+ | SUB -[R] | SUB b[R] | SUB b[R+d16] +1 | SUB b[R]+ | SUB h[R] | SUB h[R+d16] +1 | SUB #−q | SUB [r14+4R] | SUB spec +1–2 |
 | 6_ | CMP rs | CMP #q | CMP [R] | CMP [R+d16] +1 | CMP [sp+4R] | CMP [R+X·s] +1 | CMP [R]+ | CMP -[R] | CMP b[R] | CMP b[R+d16] +1 | CMP b[R]+ | CMP h[R] | CMP h[R+d16] +1 | CMP #−q | CMP [r14+4R] | CMP spec +1–2 |
@@ -186,15 +189,12 @@ The two extension grids, with the second byte:
 
 | `FD`, misc | | `FE`, system | |
 |---|---|---|---|
-| `FD 00` | `RET` | `FE 00` | `EI` |
-| `FD 10` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 01` | `DI` |
-| `FD FD` | `NOP` | `FE 02` | `RTI` |
+| `FD 00` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 00` | `EI` |
+| | | `FE 01` | `DI` |
+| | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
-| | | `FE 10` | `MFUR rd, rs` (two parcels) |
-| | | `FE 11` | `MTUR rd, rs` (two parcels) |
 
-Free root cells: `03`, `31`, `3D`, `C3`, `C7`, `CB`, `CF`, `EF`,
-`F9`–`FB`.
+Free root cells: `03`, `C3`, `C7`, `CB`, `CF`, `EF`, `F9`–`FB`.
 
 ## 5. Addressing modes
 
@@ -235,12 +235,12 @@ from the register byte. They are 1b's modes, in 1b's order
   - It's a mode like any other, so every operation in rows 1–6 and 8–A
     has it, and so do the instructions that take the mode from the
     register byte: `CLR [r14 + 8]`, `JMP [r14 + 20]`.
-  - Measured on 1b with the mode added (report 0029): 3–5% of the
-    nucleus's message and switch paths, and its code 4% smaller; about 1%
-    of Egret's cycles; nothing for the Lisp, whose tagged pointers put
-    fields at 4k ± 1. Loads and stores are 75–100% of the uses, so the
-    report suggested three cells; the whole column keeps the mode table
-    orthogonal.
+  - Measured on 1b with the mode added (the fixed-base report, in
+    review): 3–5% of the nucleus's message and switch paths, and its code
+    4% smaller; about 1% of Egret's cycles; nothing for the Lisp, whose
+    tagged pointers put fields at 4k ± 1. Loads and stores are 75–100%
+    of the uses, so the report suggested three cells; the whole column
+    keeps the mode table orthogonal.
   - The assembler picks it for a word at `[r14 + 0…60]`, as it picks mode
     4 for `[sp + 0…60]`.
 - **The mode from the register byte:** a one-operand instruction puts `M`
@@ -337,7 +337,8 @@ D and E are new: tables without a base register. **decided** (Emily,
   (`20`), `INC` (`21`) and `DEC` (`2D`), one cell each, with every mode
   from the register byte. `2E` is `TTST`.
 - **Row 3** is `MOVS`: a `MOV` that sets N and Z, with every mode except
-  the quick constants.
+  the quick constants. Their two cells hold the moves between register
+  banks, `MFUR` (`31`) and `MTUR` (`3D`) ([6.8](#68-control-multiple-and-system-rows-0-and-f)).
 - **Flags:** `MOV` never sets them. `MOVS` sets N and Z and leaves C and V,
   as draft 1's loads did. ALU operations set them as in draft 1.
   - `CLR` leaves them alone, like a store. `INC` and `DEC` set N and Z
@@ -446,7 +447,8 @@ D and E are new: tables without a base register. **decided** (Emily,
 ### 6.4 Branches and loops (row B, `F2`, `F3`, `F6`)
 
 - **`Bcc`:** row B. The condition is the opcode's low nibble (E is `BRA`,
-  F `BSR`), the 8-bit offset in parcels the register byte.
+  F `BSR`), the 8-bit offset in parcels the register byte. `BSR` leaves
+  the return address in `r7` ([6.8](#68-control-multiple-and-system-rows-0-and-f)).
 - **`Jcc rel16` and `Jcc abs32`:** the condition in the register byte's high
   nibble. The low nibble is spare.
 - **`DBNZ r, back4`** (`F6`): decrement `r` and branch 1–16 parcels back
@@ -497,6 +499,21 @@ D and E are new: tables without a base register. **decided** (Emily,
 
 - **`JMP ea` and `CALL ea`:** one cell each, with the mode from the
   register byte. `JMP r3` is mode 0.
+- **A link register.** `CALL`, `BSR` and `Jcc`'s call put the return
+  address in `r7` and push nothing. **decided** (Emily, 2026-10-15).
+  - A return is `JMP r7`, one parcel, which the assembler also accepts as
+    `RET`. A function that pushed its return address returns with
+    `JMP [sp]+`.
+  - `r7` is the last caller-saved register, next to the callee-saved
+    `r8`–`r14`, so a function that calls saves it in its `SAVE r7-rN`.
+  - Exceptions still push the PC and the flags
+    ([RFC 0029, 6](0029-rfc-draft-2-system.md#6-exceptions)).
+  - Measured on 1b with the convention ported (the link-register report,
+    in review): −2.3% of the hand-written suite's cycles, −0.2% of
+    compiled C's, −0.9% of Egret's JIT, and at worst +0.24% measured. A
+    leaf call and return takes 5 cycles instead of 10. The microcode is
+    74 microinstructions shorter, and a call no longer writes memory, so
+    `CALL [r]+` no longer needs care to be restartable.
 - **`SAVE ra-rb` and `RESTORE ra-rb`:** one cell each.
   - All 29 compiled functions that save registers save `r8`–`rN`, and
     none saves a register it doesn't use, so register masks would buy
@@ -522,8 +539,23 @@ D and E are new: tables without a base register. **decided** (Emily,
 - **`MFSR rd, n` and `MTSR n, rs`** (`0E`, `0F`): `HI` (n = 1) is how a
   remainder or a product's high half is read.
 - **The extension grids** hold instructions without operands, which are
-  still one parcel there (`RET`, `NOP`, `EI`, `DI`, `RTI`, `HALT`), and
-  the supervisor's `MFUR` and `MTUR`, which are two.
+  still one parcel there (`EI`, `DI`, `RTI`, `HALT`), and rare ones with an
+  extension parcel (`MULFX`).
+- **`FD`'s fate is uncertain.** With `RET` now `JMP r7` and `NOP` a `MOV`,
+  it holds only the tentative `MULFX`. It may stay as room for rare
+  instructions, at the cost of one root cell, or go, with `MULFX` moving
+  elsewhere.
+- **`NOP` is `MOV r0, r0`** (`10 00`), which does nothing now that `MOV`
+  never sets the flags. The assembler accepts `NOP` for it, and `.align`
+  pads code with it.
+- **`MFUR rd, rs` and `MTUR rd, rs`** (`31`, `3D`): the supervisor reads
+  register `rs` of the user's bank into its own `rd`, or writes the
+  user's `rd` from its own `rs` (v1bs's instructions,
+  [studies/kernel/system.md](../studies/kernel/system.md#registers-and-banks)).
+  Privileged ([RFC 0029](0029-rfc-draft-2-system.md)). With a full bank
+  per thread and the kernel in a bank of its own, they are how a system call reads its arguments and writes its
+  results, and how a message moves between threads, so they get one
+  parcel each in the root map rather than two in `FE`.
 - **`00` and `FF` are `ILLEGAL`,** so a jump into zeroed or erased memory
   traps. Draft 1 made the zero parcel `HALT`; a trap gives the kernel the
   PC.
@@ -546,9 +578,9 @@ they're only marked out, to be designed ([9](#9-open-questions)).
 | `DC` | `FFS rd, rs` | The index of `rs`'s lowest set bit, 0–31, or 32 if `rs` is 0: the trailing zeros, the mirror of `CLZ` | NZ | Allocator and scheduler bitmaps |
 | `DD` | `POPC rd, rs` | The number of set bits in `rs`, 0–32 | NZ | Bitmaps, set sizes |
 | `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ | Big-endian data: SHA-256's message words, network headers, font files |
-| `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is a new special register for `MFSR`/`MTSR`, numbered after v1bs's 0–8 ([studies/kernel/system.md](../studies/kernel/system.md#special-registers)) | unchanged | Multiply-accumulate: mandel, audio, filters |
+| `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is special register 2 ([RFC 0029, 4](0029-rfc-draft-2-system.md#4-special-registers)) | unchanged | Multiply-accumulate: mandel, audio, filters |
 | `EE` | `MERGE rd, rs` | `rd ← (rd & ~HI) \| (rs & HI)`: `rs`'s bits where the mask in `HI` is set | NZ | Masked edges and glyph words in graphics: −20% of the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) |
-| `FD 10` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
+| `FD 00` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
 
 The tagged operations in `09`–`0D` check that their operands are integers.
 They follow the Lisp's v1bx ([studies/lisp/isa.md](../studies/lisp/isa.md)),
@@ -633,8 +665,7 @@ programs and the 15 C programs compiled for 1b, with their C library.
 5. **The tag that marks an integer:** the Lisp's bit 0 clear, or Egret's
    2n + 1. A register holding the expected tag bit could serve both.
 6. **`LDM` and `STM`:** what their extension parcel's 12 spare bits do
-   (direction, writeback). With a link register (`BL`), a range plus a
-   bit for it.
+   (direction, writeback).
 7. **The opcode byte first in memory,** as in the map, or second.
 8. **`MOVS rs`,** in the map. Register copies' flags were read 21 times in
    86,000.
@@ -647,7 +678,7 @@ programs and the 15 C programs compiled for 1b, with their C library.
     - A qualifier that forces a long form, for patching code in place or
       instructions of a fixed length: `MOV.L r1, #5`, say, like ARM's
       `.W`. Only if something needs it.
-12. **Room to grow:** 11 free cells, and `AND`, `OR` and `XOR`'s memory
+12. **Room to grow:** 9 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([6.2](#62-alu-operations-rows-46-and-8a)).
 
 ## 10. 1b's gaps left open
@@ -700,8 +731,8 @@ instructions:
     state. One cell each for `MOV` and `ST` gives 16 word fields. It pays
     only if the software dedicates the register.
 - **Decided:** the second fixed-base slot, as mode E with `r14`, after
-  report 0029 measured it on the kernel, Egret and the Lisp (Emily,
-  2026-10-15; [5](#5-addressing-modes)). Short offsets through any
+  the fixed-base report measured it on the kernel, Egret and the Lisp
+  (Emily, 2026-10-15; [5](#5-addressing-modes)). Short offsets through any
   register are not proposed.
 
 ### 10.2 More auto-increment and auto-decrement modes
