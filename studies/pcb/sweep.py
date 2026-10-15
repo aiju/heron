@@ -36,7 +36,7 @@ BOARDS = [
     ("dip-6", "dip", 440, 300, 6, "F", "beside", 1.0, False),
     ("dip-6", "dip", 400, 300, 6, "F", "beside", 1.0, False),
     ("dip-4", "dip", 520, 300, 4, "F", "beside", 1.0, False),
-    ("dip-4", "dip", 480, 300, 4, "F", "beside", 1.0, False),
+    ("dip-4", "dip", 480, 300, 4, "F", "beside", 1.0, True),
 ]
 
 KEYS = ["name", "style", "width", "height", "layers", "sides", "decaps", "utilisation",
@@ -222,7 +222,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
 
 
 IMAGES = {"smd.png": ("cpu-smd-6-300x220", None), "smd-detail.png": ("cpu-smd-6-300x220", (0.36, 0.30, 0.62, 0.62)),
-          "dip.png": ("cpu-dip-6-480x300", None)}
+          "dip.png": ("cpu-dip-4-480x300", None)}
 
 
 def images():

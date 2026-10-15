@@ -50,10 +50,10 @@ netlist; and the board's wire delays back in the simulator.
 **For the CPU card** (269 chips): surface-mount parts, **six layers, about
 300 × 220 mm**, parts on the top and the decoupling capacitors underneath.
 It places in under a minute and routes in under a minute, with no DRC
-errors, and every check passes. The DIP version needs about twice the area
-(480 × 300 mm on six layers). Four layers aren't enough for either at a
-sensible size, and splitting the CPU over two cards costs at least 171
-signals between them.
+errors, and every check passes. Four layers would take about 440 × 260.
+The plain DIP version works on **four layers at about 480 × 300 mm**,
+2.2 times the area. One card is enough: splitting the CPU over two would
+put about 170 signals or more between them.
 
 **The finding that matters most:** a board changes the timing, and the
 flow has to put that back into the simulation. With the routed CPU card's
@@ -171,14 +171,16 @@ One build, for the CPU card at 300 × 220 mm:
 2. **Placement** (`place.Placer`): quadratic placement with the connectors
    as anchors, spread by recursive bisection to the board's density; then
    each part to the nearest free spot (a summed-area table over the
-   occupancy makes that a vectorised search), and annealing that swaps
+   occupancy makes that a vectorised search; what doesn't fit gets a
+   second try with half the room kept around it), and annealing that swaps
    same-footprint parts and turns them by 180°. Nets of the 50 MHz clock
-   generator weigh eight times as much, so its chips stay together. Then each chip's 100 nF
-   goes under it on the bottom, between its pin rows, as near its VCC pin
-   as its vias can go clear of the pads.
+   generator weigh eight times as much, so its chips stay together. Then
+   each chip's 100 nF goes under it on the bottom, between its pin rows,
+   as near its supply pin as its vias can go clear of the pads.
 3. **Fanout** (`fanout.fanout`): every surface pad on a supply gets a via
-   just beyond its end; the planes do the rest. The router never sees the
-   supplies.
+   at its inner end, under the chip's body, where it can't meet a
+   neighbour's (beyond its outer end where the body is crowded); the
+   planes do the rest. The router never sees the supplies.
 4. **Routing** (`router.route`): the grid router on the four signal layers
    (top and bottom any way, the inner two horizontal and vertical).
 5. **The board file**: KiCad 9 format, a project file with the rules (the
@@ -222,6 +224,11 @@ by code, and the important ones by two programs that don't share code.
   That is why link 3 has two checkers.
 - **The fab's netlist:** KiCad truncates references to six characters in
   IPC-D-356 (`U_UIR15` becomes `U_UIR1`), so it is matched by position.
+- **Placement**, through KiCad's DRC: power vias of two neighbouring chips
+  whose supply pads faced each other, a capacitor with no room beside a
+  chip too small to have it underneath, and capacitors at the wrong end
+  of chips with an input tied to VCC (taken for the supply pin). Each is
+  now a rule in the placer, and the DRC is part of every full check.
 
 **The rules that keep it true:**
 
@@ -240,51 +247,75 @@ by code, and the important ones by two programs that don't share code.
 
 ## 6. The CPU card: size, layers, SMD or DIP
 
-| Board | mm | Layers | Result |
+Every board in [results.md](0023-rfc-pcb-flow/results.md), built by
+`heron pcb sweep`; "routed" means no net left in conflict and no
+difference from the netlist, and the boards marked ✓ also pass the copper
+check, KiCad's DRC and the fab netlist's check.
+
+| Board | Layers | Size (mm) | Result |
 |---|---|---|---|
-| SMD, parts on top, capacitors under | 380 × 220 | 6 | routed; all checks pass |
-| | 300 × 220 | 6 | routed; all checks pass |
-| | 280 × 220 | 6 | routed, near the limit |
-| | 260 × 220 | 6 | the parts don't fit |
-| SMD, everything on top | 320 × 220 | 6 | [pending] |
-| SMD, parts on both sides | 280 × 220 | 6 | routed |
-| | 260 × 220 | 6 | not routed |
-| SMD | 380 × 220 | 4 | [pending] |
-| DIP | 480 × 300 | 6 | routed |
-| | 440 × 300 | 6 | [pending] |
-| | 520 × 300 | 4 | [pending] |
+| **SMD**, parts on top, capacitors under | 6 | 380 × 220 | routed ✓ |
+| | 6 | 340 × 220 | routed |
+| | 6 | **300 × 220** | **routed ✓** |
+| | 6 | 280 × 233 (6U × 280) | routed |
+| | 6 | 280 × 220 | routed, hard (38 rounds) |
+| | 6 | 260 × 220 | the parts don't fit |
+| SMD, everything on top | 6 | 340 × 220 | routed |
+| | 6 | 320 × 220 | the parts don't fit |
+| SMD, parts on both sides | 6 | 280 × 220 | routed |
+| | 6 | 260 × 220 | [pending] |
+| SMD | 4 | 380 × 220 | **not routed** (61 nets in conflict) |
+| | 4 | 440 × 260 | routed |
+| **DIP** | 6 | 480 × 300 | routed ✓ |
+| | 6 | 440 × 300 | the parts don't fit |
+| | 4 | **480 × 300** | **routed** |
+| | 4 | 520 × 300 | routed |
+
+[to check against results.md]
 
 From these:
 
-- **The limit is routing, around 60,000 mm² on six layers.** Below that,
-  even with parts on both sides, the last nets don't resolve. Four signal
-  layers carry about 115 m of track on this card; more layers or finer
-  rules would shrink it, but neither is cheap.
-- **One card is enough.** RFC 0005 expected the CPU to need two. On
-  surface-mount parts and six layers it fits one card of about 300 × 220.
-  Splitting it is costly: the best two-way split found (a min-cut
-  bipartition) cuts 171 signals, control against datapath 201; the
-  backplane's spare pins are about 52 per slot.
+- **SMD on six layers: about 300 × 220 mm** (66,000 mm²). Below that the
+  limit is first the placement, then the routing: with parts on both sides
+  280 × 220 routes and smaller doesn't. Four signal layers carry about
+  120 m of track on this card.
+- **SMD on four layers** needs about 440 × 260 (114,000 mm²), nearly
+  twice the area: two signal layers, one of them covered in pads.
+- **DIP on four layers: about 480 × 300 mm** (144,000 mm²). Six layers
+  don't make it smaller, because the parts don't fit any closer: the
+  footprints alone are 75,000 mm², against 37,000 for SMD, and
+  through-hole pins leave room for three tracks between them on both
+  outer layers. So Emily's original plan, a plain DIP board on four
+  layers, works; it is just big: 2.2 times the SMD card's area.
+- **One card is enough.** RFC 0005 expected the CPU to need two. Splitting
+  it would be costly: the best two-way split found cuts 171 signals,
+  control against datapath 201, and the backplane has about 52 spare pins
+  per slot.
 - **The card's height** comes from its connectors: P1 and P2 are 95 mm
-  each, so 220 mm is about the least for both. Its depth then follows from
-  the area: 300 mm. That is not a Eurocard size (6U is 233.35 mm high, and
-  the common depths are 160, 220 and 280 mm), though 233 × 280 has about
-  the same area and should route too.
-- **Six layers, not four.** RFC 0005 recorded four-layer boards. With
-  surface-mount parts, four layers leave two signal layers, one of them
-  crowded with pads: [pending].
-- **DIP needs twice the area:** 480 × 300 mm on six layers. The parts'
-  footprints are twice as large (75,000 mm² against 37,000), and the
-  through-hole pins block every layer.
-- **Parts on both sides** save little: 280 × 220 against 300 × 220. It
-  costs a second assembly pass for chips; the capacitors underneath
-  already need one, but a fab charges less for a side of capacitors.
+  each, so 220 mm is about the least for both. The depth follows from the
+  area. That needn't be a Eurocard size, but 6U (233.35 mm) by 280 mm,
+  a standard subrack depth, has about the same area and routes too.
+- **Parts on both sides** save little: 280 × 220 against 300 × 220, for a
+  second side of chips to assemble. The capacitors underneath already need
+  a second side, but one of only capacitors, which a fab charges less
+  for; with everything on top the card grows to about 340 × 220.
 
-**Packages:** 74-series logic in SOIC (all of it is made in SOIC, and
-SOIC is easy to rework); the microcode flash in PLCC-32 sockets, so it can
-be reprogrammed; the 74LS181 and 74S182, which are only new-old-stock, in
-DIP; the fast SRAMs in SOJ. TSSOP isn't needed: the board is limited by
-routing, not by the parts' size.
+![The CPU card as an SMD board: six layers, 300 × 220 mm, connectors on the right](0023-rfc-pcb-flow/smd.png)
+
+*The SMD card at 300 × 220 mm. Red: top-side pads and tracks; green and
+purple: the inner signal layers, horizontal and vertical; blue: the bottom,
+with the decoupling capacitors under the chips; grey dots: vias. A detail
+at full scale: [smd-detail.png](0023-rfc-pcb-flow/smd-detail.png).*
+
+![The CPU card as a DIP board: four layers, 480 × 300 mm](0023-rfc-pcb-flow/dip.png)
+
+*The DIP card at 480 × 300 mm, on four layers.*
+
+**Packages:** 74-series logic in SOIC (all of it is made in SOIC, and it
+is easy to rework); the microcode flash in PLCC-32, which can go in a
+socket to be reprogrammed; the 74LS181 and 74S182, which are only
+new-old-stock, in DIP; the fast SRAMs in SOJ. TSSOP isn't needed: the
+board is limited by its routing, not its parts' size.
 
 ## 7. What the board says about the design
 
@@ -347,8 +378,9 @@ change the design or the placement where it doesn't.
   matching, no differential pairs, one track width. Enough for this
   logic; the clock tree may want length matching later.
 - **The placer** is simple; the size limit it shows at 260 × 220 is
-  partly its own. Timing-driven placement (weights on the critical nets)
-  is the next thing it needs.
+  partly its own. Its timing is only weights on the nets known to be
+  critical; the static timing analysis could give it each net's slack
+  instead.
 - **Not built yet:** the memory card, the I/O card and the backplane as
   boards (the AS7C4096A, the 16C550 and the CF socket need pinouts), and
   the connectors' consistency between card and backplane, which the same
@@ -369,8 +401,9 @@ For Emily:
    build and check boards there, or vendor the few footprints the cards
    use (CC-BY-SA, with KiCad's exception for designs)?
 3. **SMD or DIP** for the CPU card? SMD (recommended) is 300 × 220 on six
-   layers; DIP is about 480 × 300 on six.
-4. **Layers:** six, not the four RFC 0005 recorded?
+   layers; DIP is about 480 × 300 on four.
+4. **Layers:** for SMD, six (300 × 220) rather than the four RFC 0005
+   recorded (440 × 260)?
 5. **Card size:** about 300 × 220, or a standard 6U × 280 (233 × 280)?
    The memory and I/O cards are small; their size can follow the CPU
    card's or be smaller.
