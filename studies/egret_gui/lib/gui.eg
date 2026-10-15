@@ -299,7 +299,7 @@ class Desktop
     @next_y = 40
     @menu_items = []
   end
-  attr windows, ticking
+  attr windows, ticking, paint_rect
 
   def add(w)
     @windows[w.id] = w
@@ -385,17 +385,22 @@ class Desktop
     end
   end
 
+  # (paint_rect is what's being painted, [x0, y0, x1, y1] in the window,
+  # for a window that would rather not draw all of itself)
   def update(e)
     w = @windows[e[1]]
     if w == nil then return nil end
     gui_clip(w.id, e[2], e[3], e[4] - e[2], e[5] - e[3])
+    @paint_rect = [e[2], e[3], e[4], e[5]]
     try
       w.paint
     catch err
       gui_clip(w.id)
+      @paint_rect = nil
       raise(err)
     end
     gui_clip(w.id)
+    @paint_rect = nil
   end
 
   def key_down(code, mods)
@@ -508,6 +513,14 @@ class Desktop
       gui_pointer(ptr)
       @pointer = ptr
     end
+  end
+
+  # the busy pointer, while something takes a while; the idle loop puts
+  # the right one back when it's done
+  def busy
+    gui_pointer(P_BUSY)
+    @pointer = P_BUSY
+    @mx = -1
   end
 
   def safely(body)
