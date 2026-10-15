@@ -123,6 +123,8 @@ Change the generator and rerun it rather than editing the output by hand:
 - `studies/v0_hw/baseline.json`: `baseline.write()` in that study (it's
   frozen, so this shouldn't be needed);
 - `reports/0022-report-bus-si-revised/results.md`: `heron bus_si report`;
+- `reports/0023-rfc-pcb-flow/results.md`: `heron pcb sweep --write` (needs
+  KiCad; about an hour and a half);
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes

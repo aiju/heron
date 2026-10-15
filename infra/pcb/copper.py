@@ -91,11 +91,6 @@ class Shape:
                         self.cy + sx * self.hw * self.uy + sy * self.hh * self.vy))
         return out
 
-    def contains(self, x, y, margin=0.0):
-        if self.kind == "capsule":
-            return _seg_dist(self.x1, self.y1, self.x2, self.y2, x, y, x, y) <= self.r + margin
-        return _rect_pt_dist(self, x, y) <= self.r + margin
-
 
 def distance(a, b):
     """The distance between the cores of two shapes: a capsule's segment,

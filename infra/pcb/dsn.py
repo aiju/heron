@@ -37,7 +37,7 @@ def _shape(pad, layer):
     return ["polygon", layer, 0] + pts
 
 
-def write(board, path, protect=(), vias_only_through=True):
+def write(board, path, protect=()):
     """The board as a DSN file. Nets in `protect` (default: the planes'
     nets) are not routed."""
     protect = set(protect) | set(board.planes.values())

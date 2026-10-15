@@ -20,6 +20,7 @@ commands, and `heron test <study>` runs its unit tests.
 | [v1_isa](v1_isa/README.md) | Draft 1: a 32-bit ISA in two encodings, 1a and 1b, and the program suite |
 | [v1b_hw](v1b_hw/README.md) | A 213-chip implementation of draft 1b |
 | [system](system/README.md) | Draft 1b on the RFC 0014 bus: the backplane, the CPU card with variable-length cycles, a memory card and an I/O card, at chip level |
+| [pcb](pcb/README.md) | The cards as printed circuit boards: placed and routed by code, written as KiCad boards, checked against the simulated netlist |
 | [c_compiler](c_compiler/README.md) | A C compiler for drafts 1a and 1b |
 | [lisp](lisp/README.md) | A Lisp for draft 1b: interpreter, compiler and collector on the machine, and what it wants from the ISA |
 | [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane: loading, ground bounce, crosstalk, the clock tree, the strobes |

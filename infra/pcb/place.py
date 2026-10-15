@@ -66,7 +66,7 @@ class Placer:
 
     # ---- 1. global ------------------------------------------------------------------
 
-    def global_place(self, rounds=6):
+    def global_place(self):
         idx = {p.ref: i for i, p in enumerate(self.movable)}
         n = len(self.movable)
         A = np.zeros((n, n))
@@ -163,41 +163,69 @@ class Placer:
 
     # ---- 2. legal ---------------------------------------------------------------------
 
-    def legalize(self):
-        g = self.grid
+    def legalize(self, order="size"):
+        """Move every part to the free spot nearest its target, on the
+        placement grid; returns the parts that found none. A summed-area
+        table over the occupancy map tests every candidate spot at once.
+        order: "size" (largest first) or "x" (left to right, as Tetris)."""
+        g, res = self.grid, self.res
         x0, y0, x1, y1 = self.region
-        nx, ny = int((x1 - x0) / g) + 1, int((y1 - y0) / g) + 1
-        occ = np.zeros((2, int((y1 - y0) / self.res) + 1, int((x1 - x0) / self.res) + 1),
-                       dtype=bool)          # [side][y][x], at self.res
+        H, W = int((y1 - y0) / res) + 1, int((x1 - x0) / res) + 1
+        occ = np.zeros((2, H, W), dtype=np.int32)          # [side][y][x]
         for p in self.fixed:
             self._mark(occ, p, True)
-        order = sorted(self.movable, key=lambda p: -self._area(p) * (2 if p.tht else 1))
+        cx = x0 + np.arange(int((x1 - x0) / g) + 1) * g
+        cy = y0 + np.arange(int((y1 - y0) / g) + 1) * g
+        CX, CY = np.meshgrid(cx, cy)
+        if order == "x":
+            key = lambda p: (not p.tht, p.x)           # noqa: E731
+        else:
+            key = lambda p: -self._area(p) * (2 if p.tht else 1)   # noqa: E731
+        sat = [None, None]
+        stale = [True, True]
         self.unplaced = []
-        for p in order:
+        for p in sorted(self.movable, key=key):
             tx, ty = p.x, p.y
-            sides = ("F", "B") if self.sides == "FB" and not p.tht and p.kind != "conn" else (p.side,)
+            if self.sides == "FB" and not p.tht and p.kind != "conn":
+                choices = [("F", (0,)), ("B", (1,))]
+            else:
+                choices = [(p.side, self._sides(p))]
             best = None
-            for r in range(0, max(nx, ny)):
-                found = []
-                for dx in range(-r, r + 1):
-                    for dy in (-r, r) if abs(dx) != r else range(-r, r + 1):
-                        x = round((tx - x0) / g) * g + x0 + dx * g
-                        y = round((ty - y0) / g) * g + y0 + dy * g
-                        for k, side in enumerate(sides):
-                            p.place(x, y, p.rot, side)
-                            if self._fits(occ, p):
-                                found.append((math.hypot(x - tx, y - ty) + 0.01 * k, x, y, side))
-                if found:
-                    best = min(found)
-                    break
-                if r * g > 2 * max(x1 - x0, y1 - y0):
-                    break
+            for side, occ_sides in choices:
+                p.place(0.0, 0.0, p.rot, side)
+                bx0, by0, bx1, by1 = self._box(p)
+                h = self.halo / 2
+                c0 = np.floor((CX + bx0 - h - x0) / res).astype(int)
+                c1 = np.ceil((CX + bx1 + h - x0) / res).astype(int)
+                r0 = np.floor((CY + by0 - h - y0) / res).astype(int)
+                r1 = np.ceil((CY + by1 + h - y0) / res).astype(int)
+                ok = (c0 >= 0) & (r0 >= 0) & (c1 <= W) & (r1 <= H)
+                c0, c1 = np.clip(c0, 0, W), np.clip(c1, 0, W)
+                r0, r1 = np.clip(r0, 0, H), np.clip(r1, 0, H)
+                for sd in occ_sides:
+                    if stale[sd]:
+                        a = np.zeros((H + 1, W + 1), dtype=np.int32)
+                        a[1:, 1:] = occ[sd].cumsum(0, dtype=np.int32).cumsum(1, dtype=np.int32)
+                        sat[sd] = a
+                        stale[sd] = False
+                    S = sat[sd]
+                    ok &= (S[r1, c1] - S[r0, c1] - S[r1, c0] + S[r0, c0]) == 0
+                if not ok.any():
+                    continue
+                d = np.where(ok, (CX - tx) ** 2 + (CY - ty) ** 2, np.inf)
+                k = int(np.argmin(d))
+                cand = (float(d.flat[k]) + (0.01 if side == "B" else 0.0),
+                        float(CX.flat[k]), float(CY.flat[k]), side)
+                if best is None or cand < best:
+                    best = cand
             if best is None:
                 self.unplaced.append(p)
                 p.place(x1 + 20, y0, p.rot, p.side)
                 continue
             p.place(best[1], best[2], p.rot, best[3])
             self._mark(occ, p, True)
+            for sd in self._sides(p):
+                stale[sd] = True
         return self.unplaced
 
     def _box(self, p):
@@ -230,15 +258,6 @@ class Placer:
 
     def _sides(self, p):
         return (0, 1) if p.tht or p.kind == "conn" else ((0,) if p.side == "F" else (1,))
-
-    def _fits(self, occ, p):
-        a, b, c, d = self._cells(p, self.halo / 2)
-        _, ny, nx = occ.shape
-        if p.fixed:
-            a, b, c, d = max(a, 0), max(b, 0), min(c, nx), min(d, ny)
-        if a < 0 or b < 0 or c > nx or d > ny:
-            return False
-        return not any(occ[s, b:d, a:c].any() for s in self._sides(p))
 
     def _mark(self, occ, p, val):
         a, b, c, d = self._cells(p, self.halo / 2)

@@ -113,7 +113,6 @@ KICAD_SYMBOLS = {
 
 # Our pin name -> KiCad's, where they differ only by naming convention.
 def kicad_pin_name(typ, pin):
-    import re
     if typ in ("74",):
         return {"CLR": "~{R}", "PRE": "~{S}", "CLK": "C", "D": "D", "Q": "Q", "QN": "~{Q}"}[pin[1:]]
     if typ == "109":

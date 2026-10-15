@@ -19,8 +19,6 @@ check.compare() reads a board back and holds it against the netlist with
 these same rules, written separately.
 """
 
-from heron.infra.hw import chips
-
 from . import packages
 from .board import Part
 
@@ -97,6 +95,3 @@ def bom(board):
         out.setdefault(p.value, []).append(p.ref)
     return dict(sorted(out.items()))
 
-
-def default_variant():
-    return chips.DEFAULT_VARIANT

@@ -58,7 +58,7 @@ def drc(path):
 
 def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F", halo=None,
           seed=1, moves=30000, router_name="grid", route_params=None, out=None, checks=True,
-          name=None, freeroute_timeout=3600):
+          name=None, freeroute_timeout=3600, decaps=None):
     """Build one board and check it. Returns a dict of what happened."""
     res = {"card": card, "style": style, "width": width, "height": height, "layers": layers,
            "sides": sides, "router": router_name}
@@ -78,11 +78,21 @@ def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F
     res["utilisation"] = round(court / (width * height * (2 if sides == "FB" else 1)), 3)
     if halo is None:
         halo = 1.2 if style == "smd" else 1.0
-    decaps = "under" if style == "smd" and sides == "F" else "beside"
+    decaps = decaps or ("under" if style == "smd" and sides == "F" else "beside")
+    res["decaps"] = decaps
     pl = place.Placer(b, region=(3.0, 3.0, width - 3.0, height - 3.0), halo=halo,
                       grid=0.635 if style == "smd" else 1.27, sides=sides, decaps=decaps, seed=seed)
     pl.global_place()
-    unplaced = pl.legalize()
+    targets = {p.ref: (p.x, p.y, p.side) for p in pl.movable}
+    # largest first packs the surface-mount boards best, left to right the
+    # DIP ones: try one, then the other
+    for order in (("size", "x") if style == "smd" else ("x", "size")):
+        for p in pl.movable:
+            p.place(*targets[p.ref][:2], p.rot, targets[p.ref][2])
+        unplaced = pl.legalize(order=order)
+        if not unplaced:
+            break
+    res["legalize"] = order
     res["unplaced"] = len(unplaced)
     if unplaced:
         res["result"] = "does not fit"
@@ -144,8 +154,36 @@ def check_board(path, nl, style, pin_maps, full=True):
         res["drc_errors"] = sum(d[0].values())
         res["drc_types"] = d[0]
         res["drc_unconnected"] = d[1]
+        # the fab's files, and its test netlist against the board
+        fab(path, len([l for l in rb.copper]))
+        ipc = os.path.join(os.path.dirname(path), "fab", "netlist.ipc")
+        ierrs = check.compare_ipc356(ipc, rb)
+        res["ipc356_errors"] = len(ierrs)
+        res["ipc356_sample"] = ierrs[:5]
     res["seconds_check"] = round(time.time() - t, 1)
     return res
+
+
+def fab(path, layers):
+    """The fabrication and assembly files for a board, with kicad-cli,
+    into fab/ beside it: Gerbers of the copper, mask, paste, silkscreen
+    and outline layers, the drill files, the placement file for assembly,
+    and the IPC-D-356 netlist the fab tests the bare board against.
+    Returns the files' names."""
+    cli = kicad_cli()
+    if not cli:
+        return None
+    out = os.path.join(os.path.dirname(path), "fab")
+    os.makedirs(out, exist_ok=True)
+    cu = ["F.Cu"] + [f"In{i}.Cu" for i in range(1, layers - 1)] + ["B.Cu"]
+    lay = cu + ["F.Mask", "B.Mask", "F.Paste", "B.Paste", "F.SilkS", "B.SilkS", "Edge.Cuts"]
+    run = lambda *a: subprocess.run([cli, "pcb", "export", *a], check=True,       # noqa: E731
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    run("gerbers", "-o", out + "/", "-l", ",".join(lay), path)
+    run("drill", "-o", out + "/", path)
+    run("pos", "--format", "csv", "--units", "mm", "-o", os.path.join(out, "positions.csv"), path)
+    run("ipcd356", "-o", os.path.join(out, "netlist.ipc"), path)
+    return sorted(os.listdir(out))
 
 
 def freeroute(b, out, timeout=3600, threads=3):
@@ -161,7 +199,8 @@ def freeroute(b, out, timeout=3600, threads=3):
     t = time.time()
     try:
         code = dsn.freeroute(dpath, spath, passes=100, threads=threads, timeout=timeout,
-                             log=os.path.join(out, "freerouting.log"))
+                             log=os.path.join(out, "freerouting.log"),
+                             extra=["--router.fanout.enabled=false"])
     except subprocess.TimeoutExpired:
         code = "timeout"
     res = {"freerouting_exit": code, "freerouting_seconds": round(time.time() - t)}

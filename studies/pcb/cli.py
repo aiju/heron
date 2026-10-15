@@ -10,6 +10,8 @@
                         pads, its copper (with KiCad's zone filler) and
                         KiCad's DRC
   pinouts               the pinouts against KiCad's symbol library
+  split                 what splitting the CPU card in two would cost: the
+                        signals between the halves
   sweep [--write]       the experiments of RFC 0023: board sizes, layers,
                         SMD and DIP, single- and double-sided
 """
@@ -49,6 +51,11 @@ def cmd_pinouts(args):
     return 1 if errs else 0
 
 
+def cmd_split(args):
+    from . import split
+    return split.main()
+
+
 def cmd_sweep(args):
     from . import sweep
     return sweep.main(write=args.write, only=args.only)
@@ -73,6 +80,7 @@ def main(argv=None):
     c.add_argument("--style", default="smd", choices=("smd", "dip"))
     c.set_defaults(fn=cmd_check)
     sub.add_parser("pinouts", help="the pinouts against KiCad's symbols").set_defaults(fn=cmd_pinouts)
+    sub.add_parser("split", help="the cost of splitting the CPU card").set_defaults(fn=cmd_split)
     s = sub.add_parser("sweep", help="the experiments")
     s.add_argument("--write", action="store_true")
     s.add_argument("--only")

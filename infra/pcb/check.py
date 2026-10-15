@@ -187,3 +187,78 @@ def compare(nl, board, style, connectors=()):
         else:
             errs.append(f"{p.ref}: a part the netlist doesn't explain (nets {nets[:6]})")
     return errs
+
+
+# ---- the fab's test netlist ----------------------------------------------------------
+
+def read_ipc356(path):
+    """The test points of an IPC-D-356 netlist: [(net, ref, pin, x, y)] in
+    mm, board coordinates (y down). Vias have ref "VIA". The format keeps
+    14 characters of a net's name and 6 of a reference, so a point is
+    matched to a pad by where it is, not by its names."""
+    out = []
+    unit = 0.00254                      # CUST 0: 0.0001 inch
+    with open(path) as f:
+        for line in f:
+            if line.startswith("P  UNITS"):
+                parts = line.split()
+                if len(parts) >= 4 and parts[3] == "1":
+                    unit = 0.001        # CUST 1: microns
+            if not (line.startswith("317") or line.startswith("327")):
+                continue
+            net = line[3:17].strip()
+            ref = line[20:26].strip()
+            pin = line[27:31].strip()
+            i = line.index("X", 27)
+            x = int(line[i + 1:i + 8]) * unit
+            y = -int(line[i + 9:i + 16]) * unit
+            out.append((net, ref, pin, x, y))
+    return out
+
+
+def compare_ipc356(path, board, tol=0.01):
+    """The fab's test netlist against the board: every component test
+    point on a pad, and the points' nets the same partition of the pads
+    as the board's nets. Returns a list of differences."""
+    pads = {}
+    for pad in board.pads():
+        if pad.number:
+            pads.setdefault((round(pad.x / tol), round(pad.y / tol)), []).append(pad)
+    errs = []
+    ipc_net = {}
+    for net, ref, pin, x, y in read_ipc356(path):
+        if ref == "VIA" or net == "N/C":           # vias; pads on no net
+            continue
+        cands = [p for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                 for p in pads.get((round(x / tol) + dx, round(y / tol) + dy), [])]
+        cands = [p for p in cands if p.part.ref[:6] == ref and p.number == pin]
+        if len(cands) != 1:
+            errs.append(f"test point {ref}-{pin} on {net} at ({x:.3f}, {y:.3f}): "
+                        f"{len(cands)} pads there")
+            continue
+        p = cands[0]
+        ipc_net[(p.part.ref, p.number)] = net
+    by_ipc = defaultdict(set)
+    by_board = defaultdict(set)
+    for k, n in ipc_net.items():
+        by_ipc[n].add(k)
+    for p in board.parts.values():
+        for num, n in p.nets.items():
+            if n and (p.ref, num) in ipc_net:
+                by_board[n].add((p.ref, num))
+    if sorted(map(sorted, by_ipc.values())) != sorted(map(sorted, by_board.values())):
+        board_of = {k: n for n, ks in by_board.items() for k in ks}
+        for n, ks in by_ipc.items():
+            names = {board_of.get(k) for k in ks}
+            if len(names) != 1 or by_board[names.pop()] != ks:
+                errs.append(f"test net {n}: on the board as {sorted(str(x) for x in {board_of.get(k) for k in ks})}")
+    tested = set(ipc_net)
+    size = defaultdict(int)
+    for p in board.parts.values():
+        for n in p.nets.values():
+            size[n] += 1
+    for p in board.parts.values():
+        for num, n in p.nets.items():
+            if n and size[n] > 1 and (p.ref, num) not in tested:
+                errs.append(f"{p.ref}.{num} on {n}: no test point")
+    return errs

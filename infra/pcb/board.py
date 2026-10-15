@@ -467,4 +467,8 @@ def read_kicad(path):
             filled.append([(p[1] - x0, p[2] - y0) for p in sexpr.find_all(sexpr.find(fpoly, "pts"), "xy")])
         b.zones.append({"layer": str(layer), "net": str(sexpr.value(z, "net_name")), "pts": pts,
                         "priority": sexpr.value(z, "priority", 0), "filled": filled})
+    # a copper layer with a zone and no tracks is a plane of the zone's net
+    tracked = {t[0] for t in b.tracks}
+    zone_net = {z["layer"]: z["net"] for z in b.zones}
+    b.stackup = [(l, zone_net[l] if l in zone_net and l not in tracked else None) for l in cu]
     return b

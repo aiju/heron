@@ -1,0 +1,124 @@
+"""The board flow on a small netlist: parts, placement, routing, the board
+file there and back, and the checks, including that they catch what they
+should. They need KiCad's libraries (footprints and symbols) and are
+skipped without them."""
+
+import os
+import tempfile
+import unittest
+
+from heron.infra.hw.netlist import Netlist
+from heron.infra.pcb import board as B
+from heron.infra.pcb import check, copper, kicadlib, physical, place, router, sexpr
+
+needs_kicad = unittest.skipUnless(kicadlib.available(), "needs KiCad's libraries")
+
+
+def small_netlist():
+    """A counter whose outputs go through a buffer to a connector-free set
+    of gates: enough nets, packages and fan-out to route."""
+    nl = Netlist()
+    nl.add("const", "X_K", HI="EN")
+    nl.add("osc", "U_OSC", OUT="CK", params={"period_ps": 100_000})
+    nl.add("163", "U_CNT", CLK="CK", CLR="RST_n", LOAD="VCC", ENP="EN", ENT="EN",
+           A="GND", B="GND", C="GND", D="GND", QA="Q0", QB="Q1", QC="Q2", QD="Q3", RCO="CY")
+    nl.add("541", "U_BUF", OE1="GND", OE2="GND",
+           **{f"A{i + 1}": n for i, n in enumerate(["Q0", "Q1", "Q2", "Q3", "CY", "CK", "GND", "GND"])},
+           **{f"Y{i + 1}": f"B{i}" for i in range(6)})
+    nl.gate("00", ["B0", "B1"], "N01")
+    nl.gate("00", ["B2", "B3"], "N23")
+    nl.gate("00", ["N01", "N23"], "ALL")
+    nl.gate("04", ["ALL"], "RST_n")
+    nl.gate("08", ["B4", "B5"], "OUT")
+    nl.finish()
+    nl.check()
+    return nl
+
+
+def build(layers=2):
+    nl = small_netlist()
+    b = B.Board("small", 60.0, 45.0, layers=layers)
+    for p in physical.parts(nl, "smd"):
+        b.add(p)
+    pl = place.Placer(b, halo=1.5)
+    pl.global_place()
+    assert not pl.legalize()
+    pl.refine(moves=2000)
+    place.place_decaps(b, side="B")
+    b.add_planes()
+    return nl, b
+
+
+class Basics(unittest.TestCase):
+    def test_sexpr_round_trip(self):
+        text = '(a "b c" 1 2.5 (d (e f) "g\\"h"))'
+        e = sexpr.parse(text)
+        self.assertEqual(e, ["a", "b c", 1, 2.5, ["d", ["e", "f"], 'g"h']])
+        self.assertEqual(sexpr.parse(sexpr.dump(e)), e)
+
+    @needs_kicad
+    def test_pinouts_agree_with_kicad(self):
+        self.assertEqual(check.check_pinouts(), [])
+
+
+@needs_kicad
+class Flow(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.nl, cls.board = build(layers=2)
+        cls.sol = router.route(cls.board)
+        cls.dir = tempfile.TemporaryDirectory()
+        cls.path = os.path.join(cls.dir.name, "small.kicad_pcb")
+        cls.board.write(cls.path)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.dir.cleanup()
+
+    def read(self):
+        return B.read_kicad(self.path)
+
+    def test_routed(self):
+        self.assertEqual(self.sol["failed"] + self.sol["unreachable"] + self.sol["conflicted"], [])
+
+    def test_round_trip(self):
+        def key(b):
+            return sorted((p.part.ref, p.number, round(p.x, 3), round(p.y, 3), str(p.layers), p.net)
+                          for p in b.pads())
+        self.assertEqual(key(self.read()), key(self.board))
+
+    def test_pads_match_netlist(self):
+        self.assertEqual(check.compare(self.nl, self.read(), "smd"), [])
+
+    def test_copper_connects_the_nets(self):
+        # two layers, no planes: the supplies are routed like any net
+        self.assertEqual(copper.check(self.read()), [])
+
+    def test_compare_catches_a_swap(self):
+        b = self.read()
+        p = b.parts["U_CNT"]
+        p.nets["14"], p.nets["13"] = p.nets["13"], p.nets["14"]      # QA and QB
+        errs = check.compare(self.nl, b, "smd")
+        self.assertTrue(any("Q0" in e for e in errs) and any("Q1" in e for e in errs), errs)
+
+    def test_compare_catches_an_unexplained_part(self):
+        b = self.read()
+        b.parts["CU_CNT"].nets["1"] = "CK"
+        self.assertTrue(any("CU_CNT" in e for e in check.compare(self.nl, b, "smd")))
+
+    def test_copper_catches_an_open(self):
+        b = self.read()
+        net = "B4"
+        b.tracks = [t for t in b.tracks if t[6] != net]
+        self.assertIn(net, " ".join(copper.check(b)))
+
+    def test_copper_catches_a_short(self):
+        b = self.read()
+        a = next(t for t in b.tracks if t[6] == "Q0")
+        c = next(t for t in b.tracks if t[6] == "Q3" and t[0] == a[0])
+        b.tracks.append((a[0], a[1], a[2], c[1], c[2], 0.127, "Q0"))
+        self.assertTrue(any(e.startswith("short") for e in copper.check(b)))
+
+
+if __name__ == "__main__":
+    unittest.main()
