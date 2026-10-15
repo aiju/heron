@@ -465,9 +465,10 @@ change the design or the placement where it doesn't.
 - **The grid on four layers** routes for DIP, with wider slots, but not
   for SMD at any size tried (6U × 480 and 9U × 340, and up to 500 × 260
   before the mechanics), where free placement routes at 9U × 340. Most
-  likely because on a grid the obstacles on the two signal layers line up (every chip's pads, every capacitor and its
-  vias underneath) into walls the tracks must cross; staggered rows, or
-  the capacitors beside the chips, might fix it.
+  likely because on a grid the obstacles on the two signal layers line up
+  (every chip's pads, every capacitor and its vias underneath) into walls
+  the tracks must cross; staggered rows, or the capacitors beside the
+  chips, might fix it.
 - **Not built yet:** the memory card, the I/O card and the backplane as
   boards (the AS7C4096A, the 16C550 and the CF socket need pinouts), and
   the connectors' consistency between card and backplane, which the same
