@@ -83,17 +83,23 @@ def build(card="cpu", style="smd", width=380.0, height=220.0, layers=6, sides="F
     pl = place.Placer(b, region=(3.0, 3.0, width - 3.0, height - 3.0), halo=halo,
                       grid=0.635 if style == "smd" else 1.27, sides=sides, decaps=decaps, seed=seed,
                       weights=cards.weights(nl) if timing_driven else None)
-    pl.global_place()
-    targets = {p.ref: (p.x, p.y, p.side) for p in pl.movable}
     # largest first packs the surface-mount boards best, left to right the
-    # DIP ones: try one, then the other
-    for order in (("size", "x") if style == "smd" else ("x", "size")):
-        for p in pl.movable:
-            p.place(*targets[p.ref][:2], p.rot, targets[p.ref][2])
-        unplaced = pl.legalize(order=order)
+    # DIP ones: try one, then the other; if the critical nets' weights
+    # bunch the parts too much to fit, try again without them
+    for weighted in ((True, False) if timing_driven else (False,)):
+        pl.weights = cards.weights(nl) if weighted else {}
+        pl.global_place()
+        targets = {p.ref: (p.x, p.y, p.side) for p in pl.movable}
+        for order in (("size", "x") if style == "smd" else ("x", "size")):
+            for p in pl.movable:
+                p.place(*targets[p.ref][:2], p.rot, targets[p.ref][2])
+            unplaced = pl.legalize(order=order)
+            if not unplaced:
+                break
         if not unplaced:
             break
     res["legalize"] = order
+    res["timing_driven"] = weighted
     res["unplaced"] = len(unplaced)
     if unplaced:
         res["result"] = "does not fit"

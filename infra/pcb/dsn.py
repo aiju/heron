@@ -159,13 +159,14 @@ def read_ses(board, path, replace=True):
     return len(tracks), len(vias)
 
 
-FREEROUTING = os.environ.get("FREEROUTING_JAR", os.path.expanduser(
-    "~/freerouting/freerouting/build/libs/freerouting-current-executable.jar"))
-
-
 def freeroute(dsn, ses, passes=100, threads=None, timeout=None, log=None, extra=()):
-    """Run Freerouting on a DSN file; returns its exit code."""
-    cmd = ["java", "-jar", FREEROUTING, "-de", dsn, "-do", ses, "-mp", str(passes),
+    """Run Freerouting (its executable jar: $FREEROUTING_JAR) on a DSN
+    file; returns its exit code."""
+    jar = os.environ.get("FREEROUTING_JAR")
+    if not jar or not os.path.exists(jar):
+        raise RuntimeError("set FREEROUTING_JAR to Freerouting's executable jar "
+                           "(https://github.com/freerouting/freerouting)")
+    cmd = ["java", "-jar", jar, "-de", dsn, "-do", ses, "-mp", str(passes),
            "--gui.enabled=false"] + list(extra)
     if threads is not None:
         cmd += ["-mt", str(threads)]

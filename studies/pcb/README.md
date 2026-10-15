@@ -14,8 +14,8 @@ reasons for it are in RFC 0023.
 
 The reusable parts are in `infra/pcb` (packages and pinouts, the board
 model and KiCad writer, placement, power fanout, the router's driver, the
-checks, DSN/SES for other routers) and `infra/pcbroute` (the grid router,
-in Rust). This study has the cards, the experiments and the commands.
+checks, the routed wires' delays, DSN/SES for other routers) and
+`infra/pcbroute` (the grid router, in Rust). This study has the cards, the experiments and the commands.
 
 | File | What's in it |
 |---|---|
@@ -26,9 +26,9 @@ in Rust). This study has the cards, the experiments and the commands.
 | `cli.py` | The commands |
 
 ```sh
-heron pcb build cpu --size 340x220            # place, route and check the CPU card (SMD, 6 layers)
-heron pcb build cpu --style dip --size 440x300 --layers 4
-heron pcb build cpu --double --size 260x220   # parts on both sides
+heron pcb build cpu --size 300x220            # place, route and check the CPU card (SMD, 6 layers)
+heron pcb build cpu --style dip --size 480x300   # the DIP version
+heron pcb build cpu --double --size 280x220   # parts on both sides
 heron pcb build cpu --router freerouting      # route with Freerouting instead (needs its jar)
 heron pcb check build/pcb/<name>/board.kicad_pcb   # check a board file against the netlist
 heron pcb pinouts                             # the pinouts against KiCad's symbols

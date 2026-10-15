@@ -45,6 +45,7 @@ class Placer:
         weights: {net: factor} for nets whose length matters more (timing-
         critical ones), in both the global placement and the annealing."""
         self.weights = dict(weights or {})
+        self._too_small = {}
         self.b = board
         x0, y0, x1, y1 = region or (3.0, 3.0, board.width - 3.0, board.height - 3.0)
         x0, y0 = math.ceil(x0 / grid) * grid, math.ceil(y0 / grid) * grid
@@ -120,7 +121,7 @@ class Placer:
     def _area(self, p):
         x0, y0, x1, y1 = p.fp.courtyard
         a = (x1 - x0 + self.halo) * (y1 - y0 + self.halo)
-        if self.decaps == "beside" and p.kind == "chip":
+        if self._beside(p):
             a += DECAP_ROOM * min(x1 - x0, y1 - y0)
         if self.sides == "FB" and not p.tht and p.kind != "conn":
             a /= 2              # half the surface parts go on each side
@@ -188,7 +189,11 @@ class Placer:
         sat = [None, None]
         stale = [True, True]
         self.unplaced = []
-        for p in sorted(self.movable, key=key):
+        # a second pass gives what didn't fit half the halo: a little less
+        # room for escapes beats no room at all
+        todo = [(p, 1.0) for p in sorted(self.movable, key=key)]
+        while todo:
+            p, halo_k = todo.pop(0)
             tx, ty = p.x, p.y
             if self.sides == "FB" and not p.tht and p.kind != "conn":
                 choices = [("F", (0,)), ("B", (1,))]
@@ -198,7 +203,7 @@ class Placer:
             for side, occ_sides in choices:
                 p.place(0.0, 0.0, p.rot, side)
                 bx0, by0, bx1, by1 = self._box(p)
-                h = self.halo / 2
+                h = self.halo / 2 * halo_k
                 c0 = np.floor((CX + bx0 - h - x0) / res).astype(int)
                 c1 = np.ceil((CX + bx1 + h - x0) / res).astype(int)
                 r0 = np.floor((CY + by0 - h - y0) / res).astype(int)
@@ -223,20 +228,38 @@ class Placer:
                 if best is None or cand < best:
                     best = cand
             if best is None:
+                if halo_k == 1.0:
+                    p.place(tx, ty, p.rot, p.side)
+                    todo.append((p, 0.5))
+                    continue
                 self.unplaced.append(p)
                 p.place(x1 + 20, y0, p.rot, p.side)
                 continue
             p.place(best[1], best[2], p.rot, best[3])
-            self._mark(occ, p, True)
+            self._mark(occ, p, True, halo_k)
             for sd in self._sides(p):
                 stale[sd] = True
         return self.unplaced
 
+    def _beside(self, p):
+        """Whether a chip's capacitor will go beside it."""
+        if p.kind != "chip":
+            return False
+        if self.decaps == "beside":
+            return True
+        cap = self.b.parts.get("C" + p.ref)
+        if cap is None:
+            return False
+        key = (p.fp.name, p.typ)
+        if key not in self._too_small:
+            self._too_small[key] = under_spot(p, cap, self.b.rules) is None
+        return self._too_small[key]
+
     def _box(self, p):
         """The part's courtyard, with room for its capacitor at its VCC end
-        if the capacitors go beside the chips."""
+        if the capacitor goes beside it."""
         cx0, cy0, cx1, cy1 = p.courtyard()
-        if self.decaps == "beside" and p.kind == "chip":
+        if self._beside(p):
             vcc = [d for d in p.pads() if d.net == "VCC"]
             if vcc:
                 v = vcc[0]
@@ -263,8 +286,8 @@ class Placer:
     def _sides(self, p):
         return (0, 1) if p.tht or p.kind == "conn" else ((0,) if p.side == "F" else (1,))
 
-    def _mark(self, occ, p, val):
-        a, b, c, d = self._cells(p, self.halo / 2)
+    def _mark(self, occ, p, val, halo_k=1.0):
+        a, b, c, d = self._cells(p, self.halo / 2 * halo_k)
         _, ny, nx = occ.shape
         a, b, c, d = max(a, 0), max(b, 0), min(c, nx), min(d, ny)
         for s in self._sides(p):
@@ -329,6 +352,8 @@ class Placer:
                     cur += after - before
             elif rotate:
                 a = self.rng.choice(self.movable)
+                if self._beside(a):
+                    continue          # its capacitor's room is at one end
                 affected = nets_of[a.ref]
                 before = sum(self._net_len(n) for n in affected)
                 old = (a.x, a.y, a.rot)
@@ -354,12 +379,44 @@ def _clear(chip, x, y, r):
     return True
 
 
+def under_spot(chip, cap, rules):
+    """Where a chip's capacitor can go under it, on the other side: (x, y,
+    turn) in the chip's own coordinates, on the line between its pin rows
+    as near its VCC pin as the capacitor's vias can go clear of the chip's
+    pads and stay within its rows; None if nowhere (a chip too small)."""
+    vcc = [d for d in chip.fp.pads if chip.nets.get(d.number) == "VCC"]
+    if not vcc:
+        return None
+    v = vcc[0]
+    bx, by = chip.body_centre()
+    xs = [d.x for d in chip.fp.pads if d.number]
+    ys = [d.y for d in chip.fp.pads if d.number]
+    rows_along_y = (max(ys) - min(ys)) >= (max(xs) - min(xs))
+    # the capacitor's pads and vias, along its axis, from its centre
+    cpads = [abs(d.x) for d in cap.fp.pads] or [0.8]
+    reach = max(cpads) + 0.5 + rules["via_dia"] / 2 + 0.25
+    keep = rules["via_dia"] / 2 + rules["clearance"] + 0.05
+    lo, hi = (min(ys), max(ys)) if rows_along_y else (min(xs), max(xs))
+    best = None
+    for k in range(int((hi - lo) / 0.254) + 1):
+        t = lo + k * 0.254
+        if t - reach < lo or t + reach > hi:
+            continue
+        pts = [(bx, t - reach), (bx, t + reach)] if rows_along_y else [(t - reach, by), (t + reach, by)]
+        if all(_clear(chip, x, y, keep) for x, y in pts):
+            dist = abs(t - (v.y if rows_along_y else v.x))
+            if best is None or dist < best[0]:
+                best = (dist, t)
+    if best is None:
+        return None
+    return ((bx, best[1], 90) if rows_along_y else (best[1], by, 0))
+
+
 def place_decaps(board, side="B"):
     """Each chip's decoupling capacitor C<ref>. With side "B": on the other
-    side, under the chip's body on the line between its pin rows, as near
-    its VCC pin as its vias can go clear of the chip's pads, turned along
-    the rows. With side "F": beside the chip's end nearest its VCC pin, on
-    the same side."""
+    side, under the chip's body (under_spot); a chip too small for that,
+    and every chip with side "F", has it beside its end nearest its VCC
+    pin, on its own side."""
     r = board.rules
     for c in board.parts.values():
         if c.kind != "decap":
@@ -375,31 +432,9 @@ def place_decaps(board, side="B"):
         xs = [d.x for d in chip.fp.pads if d.number]
         ys = [d.y for d in chip.fp.pads if d.number]
         rows_along_y = (max(ys) - min(ys)) >= (max(xs) - min(xs))
-        # the capacitor's pads and vias, along its axis, from its centre
-        cpads = [abs(d.x) for d in c.fp.pads] or [0.8]
-        reach = max(cpads) + 0.5 + r["via_dia"] / 2 + 0.25
-        keep = r["via_dia"] / 2 + r["clearance"] + 0.05
-        best = None
-        if side == "B":
-            span = (max(ys) - min(ys)) if rows_along_y else (max(xs) - min(xs))
-            steps = int(span / 0.254) + 1
-            for k in range(steps):
-                t = (min(ys) if rows_along_y else min(xs)) + k * 0.254
-                if rows_along_y:
-                    pts = [(bx, t - reach), (bx, t + reach)]
-                    dist = abs(t - v.y)
-                else:
-                    pts = [(t - reach, by), (t + reach, by)]
-                    dist = abs(t - v.x)
-                lo, hi = (min(ys), max(ys)) if rows_along_y else (min(xs), max(xs))
-                if t - reach < lo or t + reach > hi:
-                    continue
-                if all(_clear(chip, x, y, keep) for x, y in pts):
-                    if best is None or dist < best[0]:
-                        best = (dist, t)
-        if best is not None:
-            lx, ly = (bx, best[1]) if rows_along_y else (best[1], by)
-            lrot = 90 if rows_along_y else 0
+        spot = under_spot(chip, c, r) if side == "B" else None
+        if spot is not None:
+            lx, ly, lrot = spot
             if chip.side == "B":
                 ly = -ly
             dx, dy = kicadlib.rotate(lx, ly, chip.rot)

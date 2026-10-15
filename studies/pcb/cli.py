@@ -70,7 +70,7 @@ def main(argv=None):
     b = sub.add_parser("build", help="place, route and check one board")
     b.add_argument("card", nargs="?", default="cpu")
     b.add_argument("--style", default="smd", choices=("smd", "dip"))
-    b.add_argument("--size", default="380x220")
+    b.add_argument("--size", default="300x220")
     b.add_argument("--layers", type=int, default=6, choices=(4, 6))
     b.add_argument("--double", action="store_true", help="parts on both sides")
     b.add_argument("--router", default="grid", choices=("grid", "freerouting"))
