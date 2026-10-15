@@ -52,7 +52,8 @@ heron v1b_profile merge other.db             # copy another database's traces in
 Or open the database in any SQLite client: `sqlite3 build/v1b_profile/profile.db`.
 
 The database isn't committed: `collect` makes it again in minutes. It is
-about 250 MB.
+about 250 MB, a third of it indexes; a copy without them gets them back
+the first time `heron v1b_profile sql` or `summary` opens it.
 
 ## The traces
 

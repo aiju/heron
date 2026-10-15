@@ -114,7 +114,8 @@ def main(argv=None):
         failed = runner.collect(ts, a.db, a.jobs, shadow=not a.no_shadow)
         return 1 if failed else 0
 
-    con = sqlite3.connect(a.db)
+    # through the schema: it adds whatever indexes or views the file lacks
+    con = C.Database(a.db).con
     try:
         cur = con.execute(SUMMARY if a.cmd == "summary" else a.query)
         table(cur, getattr(a, "limit", None))
