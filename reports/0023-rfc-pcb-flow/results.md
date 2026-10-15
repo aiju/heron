@@ -30,15 +30,15 @@ Board: the grid arrangement (rows and columns of chips, all the same way round),
 
 ## The routed wires in the chip-level simulation
 
-`hello` on the whole system (`studies/v1b_system`), with the CPU card's wires from the 340 × 233 grid board: a delay on each driving pin, and one in front of each load further along its wire (infra/pcb/wires.py). "Stopped after" 3,000,000 cycles: the limit; the program never finished.
+`hello` on the whole system (`studies/v1b_system`), with the CPU card's wires from the 340 × 233 grid board: a delay on each driving pin, and one in front of each load further along its wire (infra/pcb/wires.py). A run ends when the machine halts, when its clock stops, or at 3,000,000 cycles.
 
 | Wires | Length classes | Ticks | Program suite | Output | Violations | Worst |
 |---|---|---|---|---|---|---|
 | ideal wires (as simulated) | the design's | 13 15 16 17 | +0.0% | right | 0 |  |
 | flight times | the design's | 13 15 16 17 | +0.0% | right | 592 | U_MAR3.D4 setup D -3.5 ns |
 | flight times | worked out for the board | 13 15 16 18 | +1.4% | right | 0 |  |
-| flight and load, CLK as routed | the design's | 13 15 16 17 | +0.0% | wrong, stopped after 2031436 cycles | 6335528 | U_MAR3.D3 setup D -15.0 ns |
-| flight and load, CLK through a clock tree | the design's | 13 15 16 17 | +0.0% | wrong, stopped after 2031436 cycles | 1484913 | U_MAR3.D1 setup D -13.4 ns |
+| flight and load, CLK as routed | the design's | 13 15 16 17 | +0.0% | wrong, halted after 2,031,436 cycles | 6335528 | U_MAR3.D3 setup D -15.0 ns |
+| flight and load, CLK through a clock tree | the design's | 13 15 16 17 | +0.0% | wrong, halted after 2,031,436 cycles | 1484913 | U_MAR3.D1 setup D -13.4 ns |
 | flight and load, CLK through a clock tree | worked out for the board | 13 16 17 18 | +4.6% | right | 0 |  |
 
 Ticks: the four length classes (20 ns ticks). Program suite: its time against the design's classes, from the suite's profile. CLK through a clock tree: CLK late by 6 ns instead of its routed delay, as a CDC341 and short branches would make it.
