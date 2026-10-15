@@ -982,14 +982,6 @@
     "i": "halt",
     "s": 1
    },
-   "gmv9sqwj9jo7q/10": {
-    "i": "mfur",
-    "s": 1
-   },
-   "gmv9sqwj9jo7q/11": {
-    "i": "mtur",
-    "s": 1
-   },
    "root/09": {
     "i": "tmov",
     "s": 1
@@ -1053,6 +1045,14 @@
    "root/AE": {
     "i": "xor",
     "m": "r14slot",
+    "s": 1
+   },
+   "root/31": {
+    "i": "mfur",
+    "s": 1
+   },
+   "root/3D": {
+    "i": "mtur",
     "s": 1
    }
   },

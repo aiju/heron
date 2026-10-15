@@ -74,7 +74,7 @@ isn't in the repository.
   `MULA`, `MERGE`, `MULFX` and the tagged operations. They're defined so
   that the simulator has them and software can use them, to measure
   whether they earn their cells ([6.9](#69-tentative-instructions)).
-- **245 of the 256 root cells are used,** 11 are free.
+- **247 of the 256 root cells are used,** 9 are free.
 - **Open:** `CAS` and the floating-point escape are marked out, not
   designed; `LEA`'s special mode; what `r0`'s change still needs; and the
   rest of [section 9](#9-open-questions).
@@ -168,7 +168,7 @@ are written `MOV` and `CMP` ([6.3](#63-short-constants-row-7)).
 | 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 |  | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | LEA spec +1–2 | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | MFSR rd,n | MTSR n,rs |
 | 1_ | MOV rs | MOV #q | MOV [R] | MOV [R+d16] +1 | MOV [sp+4R] | MOV [R+X·s] +1 | MOV [R]+ | MOV -[R] | MOV b[R] | MOV b[R+d16] +1 | MOV b[R]+ | MOV h[R] | MOV h[R+d16] +1 | MOV #−q | MOV [r14+4R] | MOV spec +1–2 |
 | 2_ | CLR ea +0–2 | INC ea +0–2 | ST [R] | ST [R+d16] +1 | ST [sp+4R] | ST [R+X·s] +1 | ST [R]+ | ST -[R] | ST b[R] | ST b[R+d16] +1 | ST b[R]+ | ST h[R] | ST h[R+d16] +1 | DEC ea +0–2 | ST [r14+4R] | ST spec +1–2 |
-| 3_ | MOVS rs |  | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 |  | MOVS [r14+4R] | MOVS spec +1–2 |
+| 3_ | MOVS rs | MFUR rd,rs | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 | MTUR rd,rs | MOVS [r14+4R] | MOVS spec +1–2 |
 | 4_ | ADD rs | ADD #q | ADD [R] | ADD [R+d16] +1 | ADD [sp+4R] | ADD [R+X·s] +1 | ADD [R]+ | ADD -[R] | ADD b[R] | ADD b[R+d16] +1 | ADD b[R]+ | ADD h[R] | ADD h[R+d16] +1 | ADD #−q | ADD [r14+4R] | ADD spec +1–2 |
 | 5_ | SUB rs | SUB #q | SUB [R] | SUB [R+d16] +1 | SUB [sp+4R] | SUB [R+X·s] +1 | SUB [R]+ | SUB -[R] | SUB b[R] | SUB b[R+d16] +1 | SUB b[R]+ | SUB h[R] | SUB h[R+d16] +1 | SUB #−q | SUB [r14+4R] | SUB spec +1–2 |
 | 6_ | CMP rs | CMP #q | CMP [R] | CMP [R+d16] +1 | CMP [sp+4R] | CMP [R+X·s] +1 | CMP [R]+ | CMP -[R] | CMP b[R] | CMP b[R+d16] +1 | CMP b[R]+ | CMP h[R] | CMP h[R+d16] +1 | CMP #−q | CMP [r14+4R] | CMP spec +1–2 |
@@ -190,11 +190,8 @@ The two extension grids, with the second byte:
 | `FD 10` | `MULFX rd, rs, #n` (two parcels, tentative) | `FE 01` | `DI` |
 | `FD FD` | `NOP` | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
-| | | `FE 10` | `MFUR rd, rs` (two parcels) |
-| | | `FE 11` | `MTUR rd, rs` (two parcels) |
 
-Free root cells: `03`, `31`, `3D`, `C3`, `C7`, `CB`, `CF`, `EF`,
-`F9`–`FB`.
+Free root cells: `03`, `C3`, `C7`, `CB`, `CF`, `EF`, `F9`–`FB`.
 
 ## 5. Addressing modes
 
@@ -337,7 +334,8 @@ D and E are new: tables without a base register. **decided** (Emily,
   (`20`), `INC` (`21`) and `DEC` (`2D`), one cell each, with every mode
   from the register byte. `2E` is `TTST`.
 - **Row 3** is `MOVS`: a `MOV` that sets N and Z, with every mode except
-  the quick constants.
+  the quick constants. Their two cells hold the moves between register
+  banks, `MFUR` (`31`) and `MTUR` (`3D`) ([6.8](#68-control-multiple-and-system-rows-0-and-f)).
 - **Flags:** `MOV` never sets them. `MOVS` sets N and Z and leaves C and V,
   as draft 1's loads did. ALU operations set them as in draft 1.
   - `CLR` leaves them alone, like a store. `INC` and `DEC` set N and Z
@@ -522,8 +520,15 @@ D and E are new: tables without a base register. **decided** (Emily,
 - **`MFSR rd, n` and `MTSR n, rs`** (`0E`, `0F`): `HI` (n = 1) is how a
   remainder or a product's high half is read.
 - **The extension grids** hold instructions without operands, which are
-  still one parcel there (`RET`, `NOP`, `EI`, `DI`, `RTI`, `HALT`), and
-  the supervisor's `MFUR` and `MTUR`, which are two.
+  still one parcel there (`RET`, `NOP`, `EI`, `DI`, `RTI`, `HALT`).
+- **`MFUR rd, rs` and `MTUR rd, rs`** (`31`, `3D`): the supervisor reads
+  register `rs` of the user's bank into its own `rd`, or writes the
+  user's `rd` from its own `rs` (v1bs's instructions,
+  [studies/kernel/system.md](../studies/kernel/system.md#registers-and-banks)).
+  Privileged. With a full bank per thread and the kernel in a bank of
+  its own, they are how a system call reads its arguments and writes its
+  results, and how a message moves between threads, so they get one
+  parcel each in the root map rather than two in `FE`.
 - **`00` and `FF` are `ILLEGAL`,** so a jump into zeroed or erased memory
   traps. Draft 1 made the zero parcel `HALT`; a trap gives the kernel the
   PC.
@@ -647,7 +652,7 @@ programs and the 15 C programs compiled for 1b, with their C library.
     - A qualifier that forces a long form, for patching code in place or
       instructions of a fixed length: `MOV.L r1, #5`, say, like ARM's
       `.W`. Only if something needs it.
-12. **Room to grow:** 11 free cells, and `AND`, `OR` and `XOR`'s memory
+12. **Room to grow:** 9 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([6.2](#62-alu-operations-rows-46-and-8a)).
 
 ## 10. 1b's gaps left open
