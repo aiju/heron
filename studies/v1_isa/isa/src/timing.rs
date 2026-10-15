@@ -319,6 +319,27 @@ impl Config {
                     _ => ops.push(op_pc(0, 1, &[push])), // abs, or the target read from memory
                 }
             }
+            Kind::Link { .. } | Kind::Linkm { .. } => {
+                let mut first = vec![];
+                if let Kind::Linkm { ea, x } = kind {
+                    // read the target into T first
+                    let (mar, upd) = self.ea_ops(&mut ops, ea, x, &[]);
+                    ops.push(op(B, self.mem(4), &[mar]));
+                    self.base_update(&mut ops, upd);
+                    first = vec![ops.len() - 1];
+                }
+                // the return address goes through the ALU to the link
+                // register; the PC is read at the start of a cycle, so the
+                // new one can load in the same cycle
+                ops.push(op(A, 1, &first)); // T <- PC
+                let link = ops.len() - 1;
+                ops.push(op(R, 1, &[link])); // r7 <- T
+                match kind {
+                    Kind::Link { how: How::Rel, x } => ops.push(op_pc(A, self.addr(x), &[link])),
+                    Kind::Link { how: How::Reg, .. } => ops.push(op_pc(R, 1, &first)),
+                    _ => ops.push(op_pc(0, 1, &first)), // abs, or the target read from memory
+                }
+            }
             Kind::Ret => {
                 ops.push(op(R, 1, &[])); // MAR, T <- sp
                 ops.push(op_pc(B, self.mem(4), &[0]));
@@ -406,6 +427,8 @@ impl Config {
                 | Kind::Jmpm { .. }
                 | Kind::Call { .. }
                 | Kind::Callm { .. }
+                | Kind::Link { .. }
+                | Kind::Linkm { .. }
                 | Kind::Ret
                 | Kind::Rti
                 | Kind::Trap

@@ -29,6 +29,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIB_DIR = os.path.join(HERE, "lib")
 LIB_SOURCES = ["stdio.c", "string.c", "stdlib.c", "ctype.c"]
 NEAR_MAX = 1024
+# Data objects of at least this many bytes are aligned to it. 1 leaves
+# them as C does; a comparison of two code generators sets 4, so that a
+# char array's alignment (and memset's speed on it) doesn't follow the
+# size of the code before it (studies/link_register).
+MIN_DATA_ALIGN = 1
 
 
 def target_for(isa):
@@ -38,7 +43,10 @@ def target_for(isa):
     if isa == "v1b":
         from heron.studies.c_compiler.codegen.v1b import V1B
         return V1B
-    raise CompileError(f"no C compiler backend for ISA {isa} (use v1a or v1b)")
+    if isa == "v1bl":
+        from heron.studies.c_compiler.codegen.v1b import V1BL
+        return V1BL
+    raise CompileError(f"no C compiler backend for ISA {isa} (use v1a, v1b or v1bl)")
 
 
 class Unit:
@@ -174,7 +182,8 @@ def library(isa, opt=1):
 
 def start_object(isa):
     if isa not in _start:
-        path = os.path.join(LIB_DIR, f"start_{isa}.s")
+        # v1bl's start code is 1b's: CALL _main, then HALT
+        path = os.path.join(LIB_DIR, f"start_{'v1b' if isa == 'v1bl' else isa}.s")
         with open(path) as f:
             _start[isa] = assemble(isa, f.read(), os.path.basename(path)[:-2] + ".o")
     return _start[isa]
@@ -343,8 +352,9 @@ class Program:
 
 def format_data(d, symname):
     lines = []
-    if d.align > 1:
-        lines.append(f"        .align {d.align}")
+    align = max(d.align, MIN_DATA_ALIGN) if d.size >= MIN_DATA_ALIGN else d.align
+    if align > 1:
+        lines.append(f"        .align {align}")
     lines.append(f"{symname(d.name)}:")
     for kind, v in d.items:
         if kind == "zero":

@@ -6,6 +6,7 @@
 
 pub mod v1a;
 pub mod v1b;
+pub mod v1bl;
 pub mod v1bs;
 
 use toolchain::asm::expr::Expr;
@@ -14,6 +15,7 @@ use toolchain::obj::{ABS32, PC16H};
 
 pub use v1a::V1A;
 pub use v1b::V1B;
+pub use v1bl::V1BL;
 pub use v1bs::V1BS;
 
 /// The encoder for an ISA named in an object file or on a command line.
@@ -22,6 +24,7 @@ pub fn encoder(name: &str) -> Option<&'static dyn Encoder> {
         "v1a" => Some(&V1A),
         "v1b" => Some(&V1B),
         "v1bs" => Some(&V1BS),
+        "v1bl" => Some(&V1BL),
         _ => None,
     }
 }

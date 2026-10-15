@@ -406,6 +406,15 @@ def sp_minus(k, also=None):
     return merge(mi(ra=SP, kv=k, alu="sub", ldmar=1, ldr=1), also or {})
 
 
+# v1bl (studies/link_register): calls leave the return address in r7
+LINK = 7
+
+
+def link_pc():
+    """R <- PC: the return address, for the link register."""
+    return mi(a="pc", alu="passa", ldr=1)
+
+
 def push_pc():
     """The two bus cycles that store PC at MAR (word)."""
     return [mi(a="pc", alu="passa", mem="wrlo", size="word"),
@@ -554,9 +563,10 @@ EA_OPS = {1: "MOV", 2: "ST", 3: "LEA", 4: "ADD", 5: "SUB", 6: "CMP", 7: "AND", 8
 ALU_OF = {"ADD": "add", "SUB": "sub", "CMP": "sub", "AND": "and", "OR": "or", "XOR": "xor"}
 
 
-def op_tail(opname, opnd, name):
+def op_tail(opname, opnd, name, link=False, linked=False):
     """The steps after the operand is available on the B bus (opnd: mi()
-    keywords selecting it). Returns the head node."""
+    keywords selecting it). Returns the head node. With link (v1bl) a CALL
+    leaves the return address in r7; linked says R already holds it."""
     rf = opnd.get("rb") is not None
     if opname == "MOV":
         if rf:
@@ -570,33 +580,38 @@ def op_tail(opname, opnd, name):
         return chain(name, step, end(name, wb="d", b="r", fnz="nz"))
     if opname == "JMP":
         return chain(name, mi(alu="passb", ldpc=1, **opnd), end(name))
+    if opname == "CALL" and link:
+        steps = [] if linked else [link_pc()]
+        return chain(name, *steps, mi(alu="passb", ldpc=1, **opnd), end(name, wb=LINK, b="r"))
     if opname == "CALL":
         return chain(name, sp_minus(4), *push_pc(), mi(alu="passb", ldpc=1, **opnd),
                      end(name, wb=SP, b="r"))
     raise ValueError(opname)
 
 
-def ea_routine(op, k, M, R):
+def ea_routine(op, k, M, R, link=False):
     """ops 1-9 and B. k is the d field for op B (0 JMP, 1 CALL)."""
     opname = "JMP" if (op == 0xB and k == 0) else ("CALL" if op == 0xB else EA_OPS[op])
     name = f"{opname} m{M:X}" + (f"/{R:X}" if M in (1, 4, 0xD, 0xF) else "")
     if M == 0:
-        return op_tail(opname, {"rb": "r"}, name)
+        return op_tail(opname, {"rb": "r"}, name, link)
     if M in (1, 0xD):
         v = R if M == 1 else -(R + 1)
-        return op_tail(opname, {"kv": v}, name)
+        return op_tail(opname, {"kv": v}, name, link)
     if M == 0xF and R <= 3:
         if R == 3:
-            return chain(name, FETCH_EXT, mi(mem="exthi"), op_tail(opname, {"b": "t"}, name))
+            return chain(name, FETCH_EXT, mi(mem="exthi"),
+                         op_tail(opname, {"b": "t"}, name, link))
         if R == 2:
-            return chain(name, mi(mem="exthi"), op_tail(opname, {"b": "thi"}, name))
+            return chain(name, mi(mem="exthi"), op_tail(opname, {"b": "thi"}, name, link))
         fill = "t15" if R == 0 else "0"
-        return chain(name, FETCH_EXT, op_tail(opname, {"b": "tlo", "fill": fill}, name))
+        return chain(name, FETCH_EXT, op_tail(opname, {"b": "tlo", "fill": fill}, name, link))
     if M == 5:
         table = []
         for i in range(32):
             s, z, dz = i >> 3, (i >> 1) & 3, (i & 1) ^ 1
-            table.append(index_entry(opname, s, z, dz, f"{name} s{s}z{z}{'' if dz else 'd'}"))
+            table.append(index_entry(opname, s, z, dz, f"{name} s{s}z{z}{'' if dz else 'd'}",
+                                     link))
         return Node(mi(mem="ext", ldx=1), ("dispatch", table), name)
     size = mode_size(M, R)
     if opname == "LEA" and M == 0xF and R in (4, 5, 6):
@@ -607,20 +622,25 @@ def ea_routine(op, k, M, R):
         steps, _ = addr_steps(M, R, dest="r")
         return chain(name, *steps, end(name, wb="d", b="r"))
     steps, update = addr_steps(M, R)
-    return mem_tail(opname, steps, update, size, name)
+    return mem_tail(opname, steps, update, size, name, link)
 
 
-def mem_tail(opname, steps, update, size, name):
+def mem_tail(opname, steps, update, size, name, link=False):
     """Address steps done (MAR set; R holds the new base for update), now
     the access and the operation."""
     if opname == "ST":
         tail = end(name, wb="r", b="r") if update else end(name)
         return chain(name, *steps, *store_steps(size), tail)
     lsteps, opnd = load_steps(size, update)
+    if opname == "CALL" and link:
+        # the ALU is idle while the target's high half is read: the return
+        # address goes to R then
+        lsteps[-1] = merge(lsteps[-1], link_pc())
+        return chain(name, *steps, *lsteps, op_tail(opname, opnd, name, link, linked=True))
     return chain(name, *steps, *lsteps, op_tail(opname, opnd, name))
 
 
-def index_entry(opname, s, z, dz, name):
+def index_entry(opname, s, z, dz, name, link=False):
     if z == 3:
         return illegal(4)
     size = (1, 2, 4)[z]
@@ -628,7 +648,7 @@ def index_entry(opname, s, z, dz, name):
         return illegal(4)
     if opname == "LEA":
         return chain(name, *index_addr(s, dz, dest="r"), end(name, wb="d", b="r"))
-    return mem_tail(opname, index_addr(s, dz), None, size, name)
+    return mem_tail(opname, index_addr(s, dz), None, size, name, link)
 
 
 def unary_routine(fn):
@@ -1158,7 +1178,7 @@ def restore_routine(a, b):
     return chain(name, *steps, end(name, wb=SP, b="r"))
 
 
-def sys_routine(fn, a, b):
+def sys_routine(fn, a, b, link=False):
     name = c.SYS_FN[fn]
     if name == "NOP":
         return end(name)
@@ -1167,7 +1187,9 @@ def sys_routine(fn, a, b):
     if name == "JMP":
         return chain(name, mi(rb="s", alu="passb", ldpc=1), end(name))
     if name == "CALL":
-        return op_tail("CALL", {"rb": "s"}, name)
+        return op_tail("CALL", {"rb": "s"}, name, link)
+    if name == "RET" and link:
+        return chain(name, mi(rb=LINK, alu="passb", ldpc=1), end(name))
     if name == "RET":
         return chain(name, mi(ra=SP, marsrc="a", ldmar=1, kv=4, alu="add", ldr=1),
                      mi(mem="rdlo", size="word"),
@@ -1202,7 +1224,7 @@ def sys_routine(fn, a, b):
     raise ValueError(name)
 
 
-def jcc_routine(kind, k, pol):
+def jcc_routine(kind, k, pol, link=False):
     """op A: kind 'cond' / 'jmp' / 'call'; k 0 relative, 1 absolute; pol is
     the condition's polarity bit."""
     name = {"cond": "Jcc", "jmp": "JMP", "call": "CALL"}[kind] + (" rel" if k == 0 else " abs")
@@ -1213,6 +1235,8 @@ def jcc_routine(kind, k, pol):
             return branch(name, FETCH_EXT, cond, end(name), chain(name, add, end(name)))
         if kind == "jmp":
             return chain(name, FETCH_EXT, add, end(name))
+        if link:
+            return chain(name, FETCH_EXT, link_pc(), add, end(name, wb=LINK, b="r"))
         return chain(name, merge(FETCH_EXT, sp_minus(4)), *push_pc(), add,
                      end(name, wb=SP, b="r"))
     load = mi(b="t", alu="passb", ldpc=1)
@@ -1221,14 +1245,19 @@ def jcc_routine(kind, k, pol):
                      branch(name, mi(mem="exthi"), cond, end(name), chain(name, load, end(name))))
     if kind == "jmp":
         return chain(name, FETCH_EXT, mi(mem="exthi"), load, end(name))
+    if link:
+        return chain(name, FETCH_EXT, mi(mem="exthi"), link_pc(), load,
+                     end(name, wb=LINK, b="r"))
     return chain(name, merge(FETCH_EXT, sp_minus(4)), mi(mem="exthi"), *push_pc(), load,
                  end(name, wb=SP, b="r"))
 
 
-def bcc_routine(link):
+def bcc_routine(bsr, link=False):
     add = mi(a="pc", b="simm", v8="bcc", fill="ir7", alu="add", ldpc=1)
-    if not link:
+    if not bsr:
         return chain("Bcc", merge(add, mi(pccond=1)), end("Bcc"))
+    if link:
+        return chain("BSR", link_pc(), add, end("BSR", wb=LINK, b="r"))
     return chain("BSR", sp_minus(4), *push_pc(), add, end("BSR", wb=SP, b="r"))
 
 
@@ -1286,12 +1315,13 @@ def classify(w):
     return ("ea", op, d if op == 0xB else None, M, sub)
 
 
-def routine(key):
+def routine(key, link=False):
+    """The routine for a classify() key; link: v1bl's calls."""
     kind = key[0]
     if kind == "illegal":
         return illegal(2)
     if kind == "sys":
-        return sys_routine(*key[1:])
+        return sys_routine(*key[1:], link=link)
     if kind == "un":
         return unary_routine(key[1])
     if kind == "shift":
@@ -1299,14 +1329,14 @@ def routine(key):
     if kind == "shreg":
         return shift_reg_routine(key[1])
     if kind == "bcc":
-        return bcc_routine(key[1])
+        return bcc_routine(key[1], link)
     if kind == "jcc":
-        return jcc_routine(*key[1:])
+        return jcc_routine(*key[1:], link=link)
     if kind == "rr":
         return rr_routine(key[1])
     if kind == "ea":
         _, op, k, M, sub = key
-        return ea_routine(op, k, M, sub if sub is not None else 0)
+        return ea_routine(op, k, M, sub if sub is not None else 0, link)
     raise ValueError(key)
 
 
@@ -1430,9 +1460,12 @@ def _dedup(nodes, keep):
 
 
 class Microcode:
-    """Placed microcode: ROM contents, decode ROM, entry points."""
+    """Placed microcode: ROM contents, decode ROM, entry points. With link,
+    v1bl's: calls leave the return address in r7 and RET jumps to it
+    (studies/link_register)."""
 
-    def __init__(self):
+    def __init__(self, link=False):
+        self.link = link
         _trap_cache.clear()
         self.reset = reset_routine()
         self.reset.fixed = 0
@@ -1448,7 +1481,7 @@ class Microcode:
             k = classify(w)
             self.keys[w] = k
             if k not in self.entry:
-                self.entry[k] = routine(k)
+                self.entry[k] = routine(k, link)
         roots = [self.reset, *self.faults.values(), self.irq, *self.entry.values()]
         self.groups = _assign_slots(roots)
         nodes = _reachable(roots)
@@ -1570,14 +1603,14 @@ class Microcode:
 
 IDLE = pack(mi())
 
-_built = None
+_built = {}
 
 
-def built():
-    global _built
-    if _built is None:
-        _built = Microcode()
-    return _built
+def built(link=False):
+    """The microcode, built once per process (link: v1bl's)."""
+    if link not in _built:
+        _built[link] = Microcode(link)
+    return _built[link]
 
 
 def rom_images():

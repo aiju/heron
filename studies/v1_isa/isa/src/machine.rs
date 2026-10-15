@@ -39,6 +39,10 @@ pub enum Isa {
     V1bx,
     /// 1b with the system extensions of the kernel study (sys.rs).
     V1bs,
+    /// 1b with a link register (studies/link_register): `BSR` and `CALL`
+    /// leave the return address in r7 instead of pushing it, and `RET`
+    /// jumps to r7.
+    V1bl,
 }
 
 impl Isa {
@@ -48,6 +52,7 @@ impl Isa {
             "v1b" => Some(Isa::V1b),
             "v1bx" => Some(Isa::V1bx),
             "v1bs" => Some(Isa::V1bs),
+            "v1bl" => Some(Isa::V1bl),
             _ => None,
         }
     }
@@ -487,7 +492,7 @@ impl Machine {
     fn decode(&mut self, pc: u32, ppc: u32) -> Res<Decoded> {
         let (insn, n) = match self.isa {
             Isa::V1a => v1a::decode(self, pc)?,
-            Isa::V1b | Isa::V1bx | Isa::V1bs => v1b::decode(self, pc)?,
+            Isa::V1b | Isa::V1bx | Isa::V1bs | Isa::V1bl => v1b::decode(self, pc)?,
         };
         let d = Decoded { insn, n, vpc: pc };
         let last = pc.wrapping_add(2 * (n - 1));

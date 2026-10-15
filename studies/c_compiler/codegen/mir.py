@@ -172,6 +172,8 @@ class MFunction:
         self.consts = []        # (label, list of block targets): jump tables
         self.assign = {}        # VReg -> PReg after allocation
         self.leaf = True
+        self.ret_words = 1      # the return address on the stack (0: in a link register)
+        self.link_used = False  # the body writes the link register
 
     def compute_preds(self):
         for b in self.blocks:
@@ -201,7 +203,7 @@ class MFunction:
         if fr.kind == "spill":
             return self.spill_base + 4 * fr.key
         if fr.kind == "in":
-            return self.frame_size + 4 * self.nsaved + 4 + 4 * fr.key
+            return self.frame_size + 4 * self.nsaved + 4 * self.ret_words + 4 * fr.key
         raise ValueError(fr.kind)
 
     def local_offset_known(self, slot):

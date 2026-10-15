@@ -99,6 +99,9 @@ pub enum Kind {
     Jmpm { ea: Ea, x: u8 },
     Call { how: How, x: u8 },
     Callm { ea: Ea, x: u8 },
+    /// v1bl: a call that leaves the return address in the link register
+    Link { how: How, x: u8 },
+    Linkm { ea: Ea, x: u8 },
     Ret,
     Rti,
     Trap,
@@ -148,6 +151,8 @@ impl Key {
             Kind::Jmpm { .. } => "jmpm",
             Kind::Call { .. } => "call",
             Kind::Callm { .. } => "callm",
+            Kind::Link { .. } => "link",
+            Kind::Linkm { .. } => "linkm",
             Kind::Ret => "ret",
             Kind::Rti => "rti",
             Kind::Trap => "trap",
@@ -171,11 +176,16 @@ impl Key {
                 vec![Str(ea.name()), i(size), i(x)]
             }
             Kind::Op { ea, size, x, wb } => vec![Str(ea.name()), i(size), i(x), i(wb)],
-            Kind::Lea { ea, x } | Kind::Jmpm { ea, x } | Kind::Callm { ea, x } => {
+            Kind::Lea { ea, x }
+            | Kind::Jmpm { ea, x }
+            | Kind::Callm { ea, x }
+            | Kind::Linkm { ea, x } => {
                 vec![Str(ea.name()), i(x)]
             }
             Kind::Br { taken, x } => vec![i(taken), i(x)],
-            Kind::Jmp { how, x } | Kind::Call { how, x } => vec![Str(how.name()), i(x)],
+            Kind::Jmp { how, x } | Kind::Call { how, x } | Kind::Link { how, x } => {
+                vec![Str(how.name()), i(x)]
+            }
             Kind::Save { n } | Kind::Restore { n } => vec![i(n)],
             Kind::Ret | Kind::Rti | Kind::Trap | Kind::Irq | Kind::Sys => vec![],
         }
@@ -233,6 +243,14 @@ impl Key {
             },
             ("call", [Str(h), Int(x)]) => Kind::Call {
                 how: How::from_name(h)?,
+                x: u8_(*x)?,
+            },
+            ("link", [Str(h), Int(x)]) => Kind::Link {
+                how: How::from_name(h)?,
+                x: u8_(*x)?,
+            },
+            ("linkm", [Str(e), Int(x)]) => Kind::Linkm {
+                ea: Ea::from_name(e)?,
                 x: u8_(*x)?,
             },
             ("save", [Int(n)]) => Kind::Save { n: u8_(*n)? },

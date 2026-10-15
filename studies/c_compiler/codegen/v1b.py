@@ -11,7 +11,7 @@ What it tries to use:
 """
 
 from heron.studies.c_compiler.ir.ir import Instr, Const, SymAddr, Param
-from .mir import R0, SP, VReg, Imm, Mem, Frame, Label, MInstr
+from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr
 from .target import Target, COND, SWAP, CALLER_SAVED
 from .addr import decompose, fits
 
@@ -425,3 +425,9 @@ class V1B(Target):
             if j.flags in ("cmp", "nz") or j.op in ("BSR", "CALL", "JMP", "RET", "JMPM"):
                 return False
         return False
+
+
+class V1BL(V1B):
+    """Draft 1b with a link register (v1bl, studies/link_register): BSR and
+    CALL leave the return address in r7."""
+    LINK = PHYS[7]

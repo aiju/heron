@@ -6,7 +6,12 @@
 //! key or stops with a trap or an error.
 
 use crate::key::{Ea, How, Key, Kind};
-use crate::machine::{ADDR_VECTOR, DIV_VECTOR, ILLEGAL_VECTOR, Machine, SWI_VECTOR, TAG_VECTOR};
+use crate::machine::{
+    ADDR_VECTOR, DIV_VECTOR, ILLEGAL_VECTOR, Isa, Machine, SWI_VECTOR, TAG_VECTOR,
+};
+
+/// v1bl's link register: `BSR` and `CALL` leave the return address in it.
+pub const LINK: usize = 7;
 
 /// An instruction trapping: `fault` saves the faulting instruction's
 /// address, otherwise the next instruction's.
@@ -481,6 +486,18 @@ impl Machine {
         Ok(())
     }
 
+    /// A call's return address: pushed, or in v1bl put in the link
+    /// register. The call's timing kind follows: `call` (the push) or
+    /// `link`.
+    fn call_kind(&mut self, ret: u32, how: How, x: u8) -> Res<Kind> {
+        if self.isa == Isa::V1bl {
+            self.r[LINK] = ret;
+            return Ok(Kind::Link { how, x });
+        }
+        self.push(ret)?;
+        Ok(Kind::Call { how, x })
+    }
+
     pub fn pop(&mut self) -> Res<u32> {
         let sp = self.r[15];
         let v = self.rd32(sp)?;
@@ -584,9 +601,14 @@ impl Machine {
             }
             Insn::CallReg { b } => {
                 let t = r(self, b) & !1;
-                self.push(nxt)?;
+                let kind = self.call_kind(nxt, How::Reg, 0)?;
                 self.pc = t;
-                key(Kind::Call {
+                key(kind)
+            }
+            Insn::Ret if self.isa == Isa::V1bl => {
+                // a jump to the link register
+                self.pc = self.r[LINK] & !1;
+                key(Kind::Jmp {
                     how: How::Reg,
                     x: 0,
                 })
@@ -735,12 +757,9 @@ impl Machine {
                 }
             }
             Insn::Bsr { target } => {
-                self.push(nxt)?;
+                let kind = self.call_kind(nxt, How::Rel, crosses(nxt, target))?;
                 self.pc = target;
-                key(Kind::Call {
-                    how: How::Rel,
-                    x: crosses(nxt, target),
-                })
+                key(kind)
             }
             Insn::Jcc { cc, target, how } => {
                 let x = if how == How::Rel {
@@ -749,9 +768,9 @@ impl Machine {
                     0
                 };
                 if cc == 15 {
-                    self.push(nxt)?;
+                    let kind = self.call_kind(nxt, how, x)?;
                     self.pc = target;
-                    key(Kind::Call { how, x })
+                    key(kind)
                 } else if cc == 14 || self.cond_true(cc) {
                     self.pc = target;
                     key(Kind::Jmp { how, x })
@@ -813,43 +832,39 @@ impl Machine {
             }
             Insn::JeaReg { call, rn } => {
                 let t = r(self, rn) & !1;
-                if call {
-                    self.push(nxt)?;
-                }
-                self.pc = t;
                 let how = How::Reg;
-                key(if call {
-                    Kind::Call { how, x: 0 }
+                let kind = if call {
+                    self.call_kind(nxt, how, 0)?
                 } else {
                     Kind::Jmp { how, x: 0 }
-                })
+                };
+                self.pc = t;
+                key(kind)
             }
             Insn::JeaImm { call, t } => {
-                if call {
-                    self.push(nxt)?;
-                }
-                self.pc = t;
                 let how = How::Abs;
-                key(if call {
-                    Kind::Call { how, x: 0 }
+                let kind = if call {
+                    self.call_kind(nxt, how, 0)?
                 } else {
                     Kind::Jmp { how, x: 0 }
-                })
+                };
+                self.pc = t;
+                key(kind)
             }
             Insn::JeaMem { call, m } => {
                 let (a, x) = self.address(&m, nxt);
                 let t = self.rd32(a)? & !1;
                 self.post(&m, a);
-                if call {
-                    self.push(nxt)?;
-                }
-                self.pc = t;
                 let ea = m.ea;
-                key(if call {
-                    Kind::Callm { ea, x }
-                } else {
+                let kind = if !call {
                     Kind::Jmpm { ea, x }
-                })
+                } else if let Kind::Link { .. } = self.call_kind(nxt, How::Reg, 0)? {
+                    Kind::Linkm { ea, x }
+                } else {
+                    Kind::Callm { ea, x }
+                };
+                self.pc = t;
+                key(kind)
             }
             Insn::St { d, m } => {
                 let v = r(self, d);

@@ -9,6 +9,12 @@ stack; result in r1; r1-r7 caller-saved, r8-r14 callee-saved; sp is r15.
 Calls to variadic functions pass every argument on the stack. The caller
 reserves the outgoing argument area at the bottom of its frame, so sp
 doesn't move inside a function body.
+
+With a link register (LINK, the v1bl variant of studies/link_register),
+calls leave the return address in it instead of pushing it. The allocator
+treats it like a callee-saved register: a function that calls, or that
+needs the register, saves it with the others (SAVE r7-rN) or pushes it; a
+leaf that doesn't returns through it.
 """
 
 from heron.studies.c_compiler.ir import ir as I
@@ -63,6 +69,7 @@ def split_critical_edges(func):
 class Target:
     FOLD_LOADS = True       # loads can be operands of other instructions
     ALLOC_ORDER = PHYS[1:15]
+    LINK = None             # the link register, if calls leave the return address in one
     SMALL_ADD = (-16, 15)        # add constants that fit the one-parcel form
 
     def __init__(self, symname=None, near=None):
@@ -544,6 +551,8 @@ class Target:
                 for r in i.defs:
                     if r.is_phys and 8 <= r.n <= 14:
                         used.add(r.n)
+                    if r is self.LINK:
+                        mf.link_used = True
         mf.saved = (min(used), max(used)) if used else None
         nsaved = mf.saved[1] - mf.saved[0] + 1 if mf.saved else 0
         mf.layout_frame(nsaved)
@@ -551,6 +560,32 @@ class Target:
             b.instrs = [i for i in b.instrs if not (i.is_copy and i.ops[0] is i.ops[1])]
         self.peephole()
         self.thread_jumps()
+        self.tail_calls()
+        if self.LINK is not None:
+            # a function whose only calls are tail calls is a leaf: the
+            # link register survives until the jump
+            mf.leaf = mf.leaf or not any(i.op in ("BSR", "CALL") for b in mf.blocks
+                                         for i in b.instrs)
+            # the return address stays on the stack (in the saved link
+            # register) unless this is a leaf that leaves the register alone
+            mf.ret_words = int(self.saves_link())
+            if mf.saved and self.saves_link():
+                mf.saved = (self.LINK.n + 1, mf.saved[1])     # SAVE r7-rN takes them all
+                mf.nsaved = mf.saved[1] - mf.saved[0] + 1
+
+    def tail_calls(self):
+        """A call followed by a return becomes a jump (TAIL), unless the
+        callee might see this frame's locals or takes stack arguments."""
+        if self.mf.locals_size:
+            return
+        for b in self.mf.blocks:
+            out = []
+            for i in b.instrs:
+                if i.op == "RET" and out and out[-1].op == "BSR" and out[-1].comment == "tail-ok":
+                    out[-1] = MInstr("TAIL", [out[-1].ops[0]])
+                    continue
+                out.append(i)
+            b.instrs = out
 
     def retarget(self, i, mapping):
         if not i.targets:
@@ -732,14 +767,9 @@ class Target:
         for b, instrs in body:
             if b in used_labels:
                 lines.append(f"{b.label}:")
-            for k, i in enumerate(instrs):
-                # a tail call, unless the callee might see this frame's locals
-                if (i.op == "BSR" and i.comment == "tail-ok" and k + 1 < len(instrs)
-                        and instrs[k + 1].op == "RET" and mf.locals_size == 0):
-                    instrs[k + 1] = MInstr("TAIL", [i.ops[0]])
-                    continue
+            for i in instrs:
                 if i.op == "TAIL":
-                    lines += self.epilogue() + [f"        BRA  {self.fmt(i.ops[0])}"]
+                    lines += self.epilogue(tail=True) + [f"        BRA  {self.fmt(i.ops[0])}"]
                     continue
                 lines += self.format_instr(i)
         for label, table in mf.consts:
@@ -752,7 +782,7 @@ class Target:
     def format_instr(self, i):
         op = i.op
         if op == "RET":
-            return self.epilogue() + ["        RET"]
+            return self.epilogue() + self.return_instr()
         if op == "COPY":
             return [f"        MOV  {self.fmt(i.ops[0])}, {self.fmt(i.ops[1])}"]
         if op == "JMP":
@@ -764,20 +794,43 @@ class Target:
         args = ", ".join(self.fmt(x) for x in i.ops)
         return [f"        {op:<4} {args}".rstrip()]
 
+    def saves_link(self):
+        return self.LINK is not None and (not self.mf.leaf or self.mf.link_used)
+
     def prologue(self):
         mf = self.mf
         out = []
-        if mf.saved:
+        if self.saves_link():
+            # the return address goes below the callee-saved registers, so
+            # one SAVE takes both; without them, a push
+            if mf.saved:
+                out.append(f"        SAVE r{self.LINK.n}-r{mf.saved[1]}")
+            else:
+                out.append(f"        ST   r{self.LINK.n}, -[sp]")
+        elif mf.saved:
             out.append(f"        SAVE r{mf.saved[0]}-r{mf.saved[1]}")
         if mf.frame_size:
             out += self.adjust_sp(-mf.frame_size)
         return out
 
-    def epilogue(self):
+    def epilogue(self, tail=False):
+        """Unwind the frame. Before a return, with a link register saved and
+        nothing else, return_instr pops the return address itself; before a
+        tail call it goes back into the link register."""
         mf = self.mf
         out = []
         if mf.frame_size:
             out += self.adjust_sp(mf.frame_size)
-        if mf.saved:
+        if self.saves_link():
+            if mf.saved:
+                out.append(f"        RESTORE r{self.LINK.n}-r{mf.saved[1]}")
+            elif tail:
+                out.append(f"        MOV  r{self.LINK.n}, [sp]+")
+        elif mf.saved:
             out.append(f"        RESTORE r{mf.saved[0]}-r{mf.saved[1]}")
         return out
+
+    def return_instr(self):
+        if self.saves_link() and not self.mf.saved:
+            return ["        JMP  [sp]+"]
+        return ["        RET"]
