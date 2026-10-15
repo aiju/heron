@@ -21,6 +21,7 @@ sisim = { path = "../../infra/sisim" }
 toolchain = { path = "../../infra/toolchain" }
 v1-isa = { path = "../../studies/v1_isa/isa" }
 v1b-rtl = { path = "../../studies/v1b_hw/rtl" }
+v1b-profile = { path = "../../studies/v1b_profile/collect" }
 pyo3.workspace = true
 pythonize.workspace = true
 

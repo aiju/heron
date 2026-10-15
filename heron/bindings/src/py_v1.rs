@@ -32,7 +32,7 @@ pub mod v1 {
     }
 
     /// A key as the Python tuple (parcels, pc & 2, kind, *params).
-    fn key_tuple<'py>(py: Python<'py>, k: &Key) -> PyResult<Bound<'py, PyTuple>> {
+    pub(crate) fn key_tuple<'py>(py: Python<'py>, k: &Key) -> PyResult<Bound<'py, PyTuple>> {
         let mut items = vec![
             k.n.into_pyobject(py)?.into_any(),
             k.p2.into_pyobject(py)?.into_any(),
@@ -100,8 +100,8 @@ pub mod v1 {
     /// `image` RAM from address 0, `inp` the console input, `reference`
     /// the configuration its own cycle count follows.
     #[pyclass]
-    struct Machine {
-        m: Engine,
+    pub struct Machine {
+        pub(crate) m: Engine,
     }
 
     #[pymethods]

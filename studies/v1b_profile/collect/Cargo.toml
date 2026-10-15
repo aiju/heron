@@ -1,0 +1,18 @@
+# The instruction profiles of draft 1b programs (studies/v1b_profile): an
+# observer of the instruction-level simulator that records, per executed
+# instruction, its timing keys, its cost on the draft 1b hardware (from the
+# register-transfer model following it as a shadow), control flow, and
+# register and flag def-use chains. Python uses it through heron/bindings
+# as heron.native.v1b_profile.
+[package]
+name = "v1b-profile"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+v1-isa = { path = "../../v1_isa/isa" }
+v1b-rtl = { path = "../../v1b_hw/rtl" }
+
+[lints]
+workspace = true

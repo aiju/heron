@@ -8,6 +8,7 @@ mod py_hwsim;
 mod py_sisim;
 mod py_toolchain;
 mod py_v1;
+mod py_v1b_profile;
 mod py_v1b_rtl;
 
 #[pymodule(name = "_native")]
@@ -22,6 +23,8 @@ mod native {
     use crate::py_toolchain::toolchain;
     #[pymodule_export]
     use crate::py_v1::v1;
+    #[pymodule_export]
+    use crate::py_v1b_profile::v1b_profile;
     #[pymodule_export]
     use crate::py_v1b_rtl::v1b_rtl;
 

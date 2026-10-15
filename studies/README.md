@@ -25,3 +25,4 @@ commands, and `heron test <study>` runs its unit tests.
 | [egret](egret/README.md) | Egret, a small object language, interpreted and compiled on draft 1b |
 | [graphics](graphics/README.md) | Graphics on draft 1: a library, bitmap and TrueType fonts, and a window manager, in C and assembly for 1a and 1b |
 | [kernel](kernel/README.md) | An operating system for Heron: system extensions to 1b, a benchmark nucleus that measures an OS's hot paths, and page statistics for the MMU |
+| [v1b_profile](v1b_profile/README.md) | Instruction profiles of every program that runs on 1b, with the hardware's exact cycles, in an SQLite database |

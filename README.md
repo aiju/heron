@@ -26,6 +26,9 @@ So far there has been:
   operating system, measured with a small message-passing kernel on 1b
   with proposed system extensions, and what the operating system could
   be.
+- **Instruction profiles:** what every program that runs on 1b executes,
+  instruction by instruction, with the 1b hardware's exact cycles, in a
+  database for quick investigations.
 
 Draft 2 is next. Which of 1a and 1b it builds on is still open.
 
@@ -84,6 +87,7 @@ heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b
 heron lisp run -c studies/lisp/programs/tak.lisp --stats      # compile Lisp on the 1b simulator and run it
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # the 1b hardware at chip level
 heron v1b_hw hw sta                       # static timing analysis of the 1b netlist
+heron v1b_profile collect                 # every 1b program's instruction profile, into build/v1b_profile/profile.db
 ```
 
 Each study's README lists its commands, and `heron <study> --help` shows

@@ -3,7 +3,7 @@
 # in isa/ and tools/, and heron/bindings makes them one Python module.
 [workspace]
 resolver = "3"
-members = ["heron/bindings", "infra/hwsim", "infra/sisim", "infra/toolchain", "studies/v1_isa/isa", "studies/v1b_hw/rtl"]
+members = ["heron/bindings", "infra/hwsim", "infra/sisim", "infra/toolchain", "studies/v1_isa/isa", "studies/v1b_hw/rtl", "studies/v1b_profile/collect"]
 
 [workspace.package]
 edition = "2024"
