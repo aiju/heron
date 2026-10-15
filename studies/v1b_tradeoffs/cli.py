@@ -2,8 +2,8 @@
 
   report [--write] [--hw] [--jobs N]
                         the generated tables of RFC 0024 (--write: into
-                        its results.md; --hw: run both systems' suites at
-                        chip level first, about 20 minutes)
+                        its results.md; --hw: run the three systems'
+                        suites at chip level first, about 30 minutes)
   parts [SET...] [--corner C] [--path]
                         static timing of the 1b CPU with other parts (the
                         sets in parts.py), and the suite's time
