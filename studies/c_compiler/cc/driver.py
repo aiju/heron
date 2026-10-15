@@ -88,11 +88,12 @@ def rename_symbols(module, mapping):
 def optimize_unit(u, isa, opt, verify_ir=False):
     if u.optimized:
         return
-    free_imm = target_for(isa).free_imm if opt > 0 else None
+    target = target_for(isa)
+    free_imm = target.free_imm if opt > 0 else None
     for f in u.module.functions:
         if verify_ir:
             verify(f)
-        optimize(f, opt, verify=verify_ir, free_imm=free_imm)
+        optimize(f, opt, verify=verify_ir, free_imm=free_imm, countdown=target.COUNT_DOWN)
     u.optimized = True
 
 

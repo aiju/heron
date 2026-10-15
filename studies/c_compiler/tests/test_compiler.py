@@ -196,12 +196,13 @@ class InterpretedIR(unittest.TestCase):
             name = os.path.basename(path)[:-2]
             with open(os.path.join(here, "expected", name + ".txt"), "rb") as f:
                 expected = f.read()
-            for opt in (0, 1):
-                p = Program("v1b", opt=opt)
+            # draft 2's optimisation also counts loops down (count_down)
+            for isa, opt in (("v1b", 0), ("v1b", 1), ("v2", 1)):
+                p = Program(isa, opt=opt)
                 p.add_file(path)
                 p.add_library()
                 funcs, data = p.compile()
-                with self.subTest(program=name, opt=opt):
+                with self.subTest(program=name, isa=isa, opt=opt):
                     self.assertEqual(run(funcs, data), expected)
 
 
@@ -254,6 +255,19 @@ class CodePatterns(unittest.TestCase):
         a = asm_of(src, "v2")
         self.assertIn("r0", a)
         self.assertNotIn("SAVE", a)
+
+    def test_v2_dbnz(self):
+        # a counter that only counts is counted down to zero, and the loop
+        # closes with DBNZ when it's within reach (16 parcels)...
+        a = asm_of("unsigned f(unsigned c) { int k; for (k = 0; k < 8; k++)"
+                   " c = c & 1 ? c >> 1 ^ 0xA001 : c >> 1; return c; }", "v2")
+        self.assertRegex(a, r"MOV\s+(r\d+), #8\n(.*\n)*.*DBNZ \1, \.b\d+")
+        self.assertNotIn("CMP", a)
+        # ... and with DEC and BNE when it isn't
+        body = "; ".join(f"a = a * {k} + (a >> {k})" for k in range(3, 12))
+        a = asm_of(f"int f(int a, int n) {{ while (n--) {{ {body}; }} return a; }}", "v2")
+        self.assertRegex(a, r"DEC\s+(r\d+), \1\n\s+BNE")
+        self.assertNotIn("DBNZ", a)
 
     def test_three_address_add_uses_lea(self):
         for isa in ("v1a", "v1b", "v2"):
@@ -318,6 +332,22 @@ printf("%d %d\\n", arr[4], arr[15]); return 0; }""", "-2 75\n")
         self.check("""#include <stdio.h>
 int main(void) { int n = 5, s = 0; unsigned u = 3; while (n--) s += n; while (u--) s += 100;
 printf("%d %d %u\\n", s, n, u); return 0; }""", "310 -1 4294967295\n")
+
+    def test_counted_loops(self):
+        # the loop shapes ir.passes.count_down turns into counts down to zero
+        self.check("""#include <stdio.h>
+volatile int sink;
+static int up(void) { int i, n = 0; for (i = 0; i < 8; i++) n += 3; return n; }
+static int down(void) { int i, n = 0; for (i = 10; i > 0; i--) n++; return n; }
+static int le(void) { int i, n = 0; for (i = -3; i <= 4; i++) n++; return n; }
+static int ge(void) { unsigned i; int n = 0; for (i = 9; i >= 2; i--) n++; return n; }
+static int ne(int a, int b) { int i, n = 0; for (i = a; i != b; i++) n++; return n; }
+static int dowhile(int k) { int n = 0; do n++; while (--k); return n; }
+static int once(void) { int i = 5, n = 0; do n++; while (++i < 3); return n; }
+static int wn(int k) { int n = 0; while (k--) n += 2; return n; }
+static unsigned wrap(void) { unsigned i, n = 0; for (i = 0xFFFFFFF0u; i != 0x10; i++) n++; return n; }
+int main(void) { printf("%d %d %d %d %d %d %d\\n", up(), down(), le(), ge(), ne(3, 11), ne(-5, -2), dowhile(6));
+printf("%d %d %d %u\\n", once(), wn(7), wn(0), wrap()); return 0; }""", "24 10 8 8 8 3 6\n1 14 0 32\n")
 
     def test_rotates(self):
         self.check("""#include <stdio.h>

@@ -65,6 +65,7 @@ class Target:
     ALLOC_ORDER = PHYS[1:15]
     CALLER_SAVED = PHYS[1:8]     # what a call clobbers
     ZERO = R0               # a register that reads as zero, or None
+    COUNT_DOWN = False      # loops that only count, counted down to zero (ir.passes.count_down)
     SMALL_ADD = (-16, 15)        # add constants that fit the one-parcel form
 
     def __init__(self, symname=None, near=None):
@@ -724,6 +725,7 @@ class Target:
             if instrs and instrs[-1].op == "JMP" and instrs[-1].targets and instrs[-1].targets[0] is nxt:
                 instrs = instrs[:-1]
             body.append((b, instrs))
+        self.final_layout(body)
         # labels only where needed
         used_labels = set()
         for b, instrs in body:
@@ -751,6 +753,10 @@ class Target:
             for t in table:
                 lines.append(f"        .word {mf.name}{t.label}")
         return "\n".join(lines) + "\n"
+
+    def final_layout(self, body):
+        """Last changes, with the blocks in their final order: body is
+        [(block, instructions)]."""
 
     def format_instr(self, i):
         op = i.op

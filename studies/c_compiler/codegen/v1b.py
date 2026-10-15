@@ -27,7 +27,7 @@ class V1B(Target):
     IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR")
 
     @staticmethod
-    def free_imm(op, c):
+    def free_imm(op, c, i=None):
         """Can instruction op take constant c without costing more than a
         register operand would?"""
         if not hasattr(c, "signed"):

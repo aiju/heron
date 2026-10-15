@@ -14,7 +14,11 @@ selector (codegen.v1b) with what changed:
 - INC and DEC on memory, for x++ and x-- on a variable in memory.
 - TST and MULS with a constant.
 - MOV and CMP take 16..127 in one parcel (the assembler picks the form):
-  free_imm knows.
+  free_imm knows, and keeps such a constant in a register only where CMP
+  could then take a memory operand.
+- DBNZ: loops whose counter only counts are counted down to zero
+  (ir.passes.count_down), and DEC r; BNE back becomes DBNZ r when the loop
+  fits its reach of 16 parcels.
 """
 
 from heron.studies.c_compiler.ir import ir as I
@@ -34,11 +38,12 @@ class V2(V1B):
     CALLER_SAVED = PHYS[0:8]
     ZERO = None
     IMM_OPS = V1B.IMM_OPS + ("TST", "MULS")
+    COUNT_DOWN = True       # for DBNZ
 
     @staticmethod
-    def free_imm(op, c):
-        """Can instruction op take constant c without costing more than a
-        register operand would?"""
+    def free_imm(op, c, i=None):
+        """Can instruction op (the IR instruction i) take constant c without
+        costing more than a register operand would?"""
         if not hasattr(c, "signed"):
             return False                    # an address: one or two extension parcels
         v = c.signed
@@ -46,9 +51,22 @@ class V2(V1B):
             return False                    # a register, or a constant in an extension parcel
         if op == "add" and v in (1, -1):
             return True                     # INC / DEC
-        if op in I.CMPOPS:
-            return -16 <= v <= 127          # the quick constants, and CMP's 7-bit form
-        return -16 <= v <= 15
+        if -16 <= v <= 15:
+            return True                     # the quick constants
+        if op in I.CMPOPS and 16 <= v <= 127:
+            # CMP's 7-bit form; but against a load only it uses, a constant
+            # in a register makes CMP rK, [address]: one instruction, not a
+            # load and a CMP
+            return i is None or not any(V2.memory_operand(a, i) for a in i.args)
+        return False
+
+    @staticmethod
+    def memory_operand(a, i):
+        """Could load a be a memory operand of instruction i?"""
+        if not (isinstance(a, Instr) and a.op == "load" and a.block is i.block
+                and (a.size == 4 or not a.signed)):
+            return False
+        return sum(x is a for j in i.block.func.instructions() for x in j.args) == 1
 
     def emit(self, op, ops=(), defs=(), uses=(), **kw):
         if op in ("MOV", "COPY"):
@@ -177,7 +195,80 @@ class V2(V1B):
             return [f"        MOV  {self.fmt(i.ops[1])}, {self.fmt(i.ops[0])}"]
         if i.op == "JMPT":
             return [f"        JMP  [pc + {i.ops[1]} + {self.fmt(i.ops[0])}*4]"]
+        if i.op == "DBNZ":
+            return [f"        DBNZ {self.fmt(i.ops[0])}, {i.targets[0].label}"]
         return super().format_instr(i)
+
+    def final_layout(self, body):
+        """DEC r; BNE back to a block that starts at most 16 parcels before
+        it, the DBNZ included: DBNZ r. Nothing else may read the DEC's
+        flags (and DBNZ leaves them alone)."""
+        where = {b: n for n, (b, _) in enumerate(body)}
+        for n, (b, instrs) in enumerate(body):
+            for k in range(len(instrs) - 1):
+                d, br = instrs[k], instrs[k + 1]
+                if not (d.op == "DEC" and len(d.ops) == 2 and d.ops[0] is d.ops[1]
+                        and br.op == "BCC" and br.cond == "NE"
+                        and where.get(br.targets[0], n + 1) <= n):
+                    continue
+                if any(j.op == "BCC" or j.op.startswith("SET") for j in instrs[k + 2:]):
+                    continue
+                loop = body[where[br.targets[0]]:n + 1]
+                inside = {lb for lb, _ in loop}
+                size = sum(self.parcels(j, inside) for lb, li in loop
+                           for j in (li[:k] if lb is b else li)) + 1
+                if size <= 16:
+                    instrs[k:k + 2] = [MInstr("DBNZ", [d.ops[0]], targets=br.targets)]
+                    break
+
+    def parcels(self, i, inside):
+        """At most how many parcels instruction i takes; inside is the
+        blocks a branch reaches with a one-parcel Bcc."""
+        op = i.op
+        if op == "RET":
+            return 1 + 2 * len(self.epilogue())
+        if op in ("BCC", "JMP"):
+            return 1 if i.targets[0] in inside else 2
+        if op in ("BSR", "CALL") and isinstance(i.ops[0], Label):
+            return 3
+        if op == "JMPT":
+            return 3
+        n = 1
+        for x in i.ops:
+            if isinstance(x, Mem):
+                n += self.mem_parcels(x, op)
+            elif isinstance(x, Imm):
+                n += self.imm_parcels(x.value, op)
+            elif isinstance(x, str):
+                n += 2
+        return n
+
+    QUICK = ("MOV", "ADD", "SUB", "CMP", "AND", "OR", "XOR")
+
+    def imm_parcels(self, v, op):
+        if op in ("LSL", "LSR", "ASR", "ROR"):
+            return 0
+        if not isinstance(v, int):
+            return 2                        # a symbol
+        if op in self.QUICK and -16 <= v <= 15 or op in ("MOV", "CMP") and 16 <= v <= 127:
+            return 0
+        v &= 0xFFFFFFFF
+        return 1 if v < 0x8000 or v >= 0xFFFF8000 or v <= 0xFFFF or not v & 0xFFFF else 2
+
+    def mem_parcels(self, m, op):
+        if m.postinc:
+            return 0
+        d = self.mem_disp(m)
+        if m.base is None:
+            return 2 if m.index is not None or m.sym is not None or not fits(d, 16) else 1
+        if m.index is not None:
+            return 1
+        if m.sym is not None:
+            return 2
+        if d == 0 or m.size == 4 and d % 4 == 0 and 0 <= d <= 60 and (
+                m.base is SP or m.base is PHYS[14] and op != "LEA"):
+            return 0
+        return 1 if fits(d, 16) else 2
 
     def peephole(self):
         self.drop_compares()
@@ -186,7 +277,7 @@ class V2(V1B):
     # Every instruction selected here that changes the flags says so
     # (flags "cmp", "nz" or "set"), and only BCC and SETcc read them, so the
     # scans below look past the others: MOV, LEA, stores, CLR, MFHI.
-    ENDS = ("JMP", "RET", "BSR", "CALL", "JMPM", "JMPT", "HALT")
+    ENDS = ("JMP", "RET", "BSR", "CALL", "JMPM", "JMPT", "HALT", "DBNZ")
 
     def drop_compares(self):
         """CMP r, #0 (or #-1) goes when the instruction that last wrote r

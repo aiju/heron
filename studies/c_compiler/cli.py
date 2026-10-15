@@ -3,6 +3,7 @@
   cc     [--isa v1a|v1b|v2] FILE... [-o OUT] [-c | -S | --run] ...   compile (see cc/__main__.py)
   bench  [--write]    compiled C against the hand-written programs
                       (--write: the generated part of report 0011)
+  bench  --isa v2     draft 2's compiled C against 1b's and the hand-written programs
 """
 
 import argparse
@@ -19,7 +20,8 @@ def main(argv=None):
     sub.add_parser("cc", help="compile C, and link and run it (heron c_compiler cc --help)")
     b = sub.add_parser("bench", help="compiled C against the hand-written programs")
     b.add_argument("--write", action="store_true", help="write the generated part of report 0011")
+    b.add_argument("--isa", choices=("v2",), help="draft 2 against 1b instead")
     b.set_defaults(fn=lambda args: __import__("heron.studies.c_compiler.bench", fromlist=["x"]).main(
-        ["--write"] if args.write else []))
+        (["--write"] if args.write else []) + (["--isa", args.isa] if args.isa else [])))
     args = p.parse_args(argv)
     return args.fn(args) or 0
