@@ -232,12 +232,12 @@ from the register byte. They are 1b's modes, in 1b's order
   - It's a mode like any other, so every operation in rows 1–6 and 8–A
     has it, and so do the instructions that take the mode from the
     register byte: `CLR [r14 + 8]`, `JMP [r14 + 20]`.
-  - Measured on 1b with the mode added (report 0029): 3–5% of the
-    nucleus's message and switch paths, and its code 4% smaller; about 1%
-    of Egret's cycles; nothing for the Lisp, whose tagged pointers put
-    fields at 4k ± 1. Loads and stores are 75–100% of the uses, so the
-    report suggested three cells; the whole column keeps the mode table
-    orthogonal.
+  - Measured on 1b with the mode added (the fixed-base report, in
+    review): 3–5% of the nucleus's message and switch paths, and its code
+    4% smaller; about 1% of Egret's cycles; nothing for the Lisp, whose
+    tagged pointers put fields at 4k ± 1. Loads and stores are 75–100%
+    of the uses, so the report suggested three cells; the whole column
+    keeps the mode table orthogonal.
   - The assembler picks it for a word at `[r14 + 0…60]`, as it picks mode
     4 for `[sp + 0…60]`.
 - **The mode from the register byte:** a one-operand instruction puts `M`
@@ -525,8 +525,8 @@ D and E are new: tables without a base register. **decided** (Emily,
   register `rs` of the user's bank into its own `rd`, or writes the
   user's `rd` from its own `rs` (v1bs's instructions,
   [studies/kernel/system.md](../studies/kernel/system.md#registers-and-banks)).
-  Privileged. With a full bank per thread and the kernel in a bank of
-  its own, they are how a system call reads its arguments and writes its
+  Privileged ([RFC 0029](0029-rfc-draft-2-system.md)). With a full bank
+  per thread and the kernel in a bank of its own, they are how a system call reads its arguments and writes its
   results, and how a message moves between threads, so they get one
   parcel each in the root map rather than two in `FE`.
 - **`00` and `FF` are `ILLEGAL`,** so a jump into zeroed or erased memory
@@ -551,7 +551,7 @@ they're only marked out, to be designed ([9](#9-open-questions)).
 | `DC` | `FFS rd, rs` | The index of `rs`'s lowest set bit, 0–31, or 32 if `rs` is 0: the trailing zeros, the mirror of `CLZ` | NZ | Allocator and scheduler bitmaps |
 | `DD` | `POPC rd, rs` | The number of set bits in `rs`, 0–32 | NZ | Bitmaps, set sizes |
 | `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ | Big-endian data: SHA-256's message words, network headers, font files |
-| `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is a new special register for `MFSR`/`MTSR`, numbered after v1bs's 0–8 ([studies/kernel/system.md](../studies/kernel/system.md#special-registers)) | unchanged | Multiply-accumulate: mandel, audio, filters |
+| `E6` | `MULA rd, rs` | `HI:LO ← HI:LO + rd × rs`, signed, 64 bits, like MIPS's `MADD`. `LO` is special register 2 ([RFC 0029, 4](0029-rfc-draft-2-system.md#4-special-registers)) | unchanged | Multiply-accumulate: mandel, audio, filters |
 | `EE` | `MERGE rd, rs` | `rd ← (rd & ~HI) \| (rs & HI)`: `rs`'s bits where the mask in `HI` is set | NZ | Masked edges and glyph words in graphics: −20% of the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) |
 | `FD 10` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
 
@@ -705,8 +705,8 @@ instructions:
     state. One cell each for `MOV` and `ST` gives 16 word fields. It pays
     only if the software dedicates the register.
 - **Decided:** the second fixed-base slot, as mode E with `r14`, after
-  report 0029 measured it on the kernel, Egret and the Lisp (Emily,
-  2026-10-15; [5](#5-addressing-modes)). Short offsets through any
+  the fixed-base report measured it on the kernel, Egret and the Lisp
+  (Emily, 2026-10-15; [5](#5-addressing-modes)). Short offsets through any
   register are not proposed.
 
 ### 10.2 More auto-increment and auto-decrement modes

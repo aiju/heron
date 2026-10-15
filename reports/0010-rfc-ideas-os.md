@@ -17,7 +17,8 @@ hardware gives it, each with its own status
 evidence is [report 0020](0020-report-operating-system.md), which built
 v1bs, draft 1b with system extensions
 ([studies/kernel/system.md](../studies/kernel/system.md)), and a small
-message-passing kernel on it.
+message-passing kernel on it. Draft 2's system architecture is drafted
+in [RFC 0029](0029-rfc-draft-2-system.md).
 
 | Status | Meaning |
 |---|---|
