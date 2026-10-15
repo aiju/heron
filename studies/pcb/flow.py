@@ -90,7 +90,7 @@ def build(card="cpu", style="smd", width=320.0, height=220.0, layers=6, sides="F
     if arrangement == "free":
         pl = place.Placer(b, grid=0.635 if style == "smd" else 1.27, **kw)
     else:
-        pl = place.GridPlacer(b, pitch or cards.PITCH[style], **kw)
+        pl = place.GridPlacer(b, pitch or cards.PITCH[(style, layers)], **kw)
         res["pitch"] = [round(pl.px, 2), round(pl.py, 2)]
     # largest first packs the surface-mount boards best, left to right the
     # DIP ones: try one, then the other; if the critical nets' weights

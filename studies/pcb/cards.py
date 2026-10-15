@@ -58,10 +58,13 @@ def connectors(nl, width, height, uses_p2=True):
     return out
 
 
-# the slots of a grid placement (mm, the least): a narrow SOIC or a 0.3"
-# DIP and its capacitor take one, a wide SOIC two columns, the tall parts
-# two rows; the sizes that need the least area for this card's packages
-PITCH = {"smd": (8.25, 14.25), "dip": (10.75, 29.5)}
+# the slots of a grid placement (mm, the least), by style and layers: a
+# narrow SOIC or a 0.3" DIP and its capacitor take one, a wide SOIC two
+# columns, the tall parts two rows; the sizes that need the least area
+# for this card's packages, but for DIP on four layers, whose two signal
+# layers need wider channels between the columns and the rows
+PITCH = {("smd", 6): (8.25, 14.25), ("smd", 4): (8.25, 14.25),
+         ("dip", 6): (10.75, 29.5), ("dip", 4): (12.07, 33.0)}
 
 # The CPU card's 50 MHz clock generator allows one 74F gate between
 # flip-flops in a 20 ns tick (studies/system/design.md): its wires must be

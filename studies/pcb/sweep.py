@@ -34,13 +34,12 @@ BOARDS = [
     _board("smd-6", "smd", 330, 220, 6),
     _board("smd-6", "smd", 320, 220, 6),
     _board("smd-6", "smd", 300, 220, 6),
-    _board("smd-4", "smd", 500, 260, 4),
     _board("smd-4", "smd", 480, 260, 4),
     _board("dip-6", "dip", 420, 302, 6, full=True),
     _board("dip-6", "dip", 400, 302, 6),
-    _board("dip-4", "dip", 500, 302, 4, full=True, pitch=(12.7, 29.5)),
-    _board("dip-4", "dip", 480, 302, 4, pitch=(12.07, 29.5)),
-    _board("dip-4", "dip", 440, 302, 4),
+    _board("dip-4", "dip", 480, 340, 4, full=True),
+    _board("dip-4", "dip", 480, 320, 4, pitch=(12.07, 31.0)),
+    _board("dip-4", "dip", 440, 302, 4, pitch=(10.75, 29.5)),
     _board("free-smd-6", "smd", 380, 220, 6, halo=1.2, full=True, arrangement="free"),
     _board("free-smd-6", "smd", 340, 220, 6, arrangement="free"),
     _board("free-smd-6", "smd", 300, 220, 6, full=True, arrangement="free"),
@@ -179,7 +178,7 @@ def freerouting(timeout=3600, reuse=False):
             r = json.load(f)
     else:
         r = flow.build("cpu", "smd", 340, 220, layers=6, halo=0.8, router_name="freerouting",
-                       checks="netlist", name=name, freeroute_timeout=timeout)
+                       checks="netlist", name=name, freeroute_timeout=timeout, arrangement="free")
     return {k: r.get(k) for k in ("freerouting_exit", "freerouting_seconds", "freerouting_tracks",
                                   "track_m", "vias", "netlist_errors")}
 
@@ -267,7 +266,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
 
 
 IMAGES = {"smd.png": (TIMING_BOARD, None), "smd-detail.png": (TIMING_BOARD, (0.36, 0.30, 0.62, 0.62)),
-          "dip.png": ("cpu-dip-4-500x302", None)}
+          "dip.png": ("cpu-dip-4-480x340", None)}
 
 
 def images():

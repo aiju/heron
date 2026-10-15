@@ -203,9 +203,9 @@ layer next to a plane, the two inner signal layers crossing at right
 angles.
 
 **What it takes:** under a minute to place, under a minute to route, and
-a few minutes to check (most of it KiCad's plane filler and DRC). Boards are build output, not
-committed: a routed board is 24 MB of KiCad's text, and it comes back in
-two minutes.
+a few minutes to check (most of it KiCad's plane filler and DRC). Boards
+are build output, not committed: a routed board is 24 MB of KiCad's text,
+and it comes back in two minutes.
 
 ## 5. Making sure the board is the simulated netlist
 
@@ -218,7 +218,7 @@ by code, and the important ones by two programs that don't share code.
 | 2. The netlist → the board's pads | `check.compare`: the board file read back, its pads' nets against the netlist through the pinouts, as partitions (names don't matter) | the code that built the board |
 | 3. The pads' nets → the copper | `copper.check`: connectivity from the copper's geometry alone (tracks, vias, pads, the filled planes); and KiCad's DRC (`unconnected`, `shorting_items`) | each other, and the router |
 | 4. The board → the fab | `check.compare_ipc356`: the IPC-D-356 netlist the fab tests the bare boards against, matched to pads by position | KiCad's net labels |
-| 5. The board's wires → the timing | `wires.nets`: each net's copper as a graph, flight time to each load and the load in pF, back into hwsim as per-pin delays | — (section 7) |
+| 5. The board's wires → the timing | `wires.nets`: each net's copper as a graph, the flight time to each load and the load in pF, back into hwsim and the timing analysis: the driver's delay, and in front of each load further along a wire element with its own flight time | — (section 7) |
 
 **What each link caught while this was being built:**
 
@@ -239,6 +239,13 @@ by code, and the important ones by two programs that don't share code.
   chip too small to have it underneath, and capacitors at the wrong end
   of chips with an input tied to VCC (taken for the supply pin). Each is
   now a rule in the placer, and the DRC is part of every full check.
+- **Timing**, through the simulation with the board's wires: the first
+  grid placement missed a setup time on the microcode register by 1.6 ns
+  (better annealing fixed it). And it showed the wire model too
+  pessimistic: when every load got its net's worst flight time, the bus
+  hold flip-flop missed its setup by 0.6 ns because the bus clock's wire
+  goes on to the connector, 1.4 ns away, while the gate in front of the
+  flip-flop is 0.6 ns along it. Each load now gets its own.
 
 **The rules that keep it true:**
 
@@ -391,10 +398,16 @@ change the design or the placement where it doesn't.
 - **The router** is grid-based and orthogonal: no 45° tracks, no length
   matching, no differential pairs, one track width. Enough for this
   logic; the clock tree may want length matching later.
-- **The placer** is simple; the size limit it shows at 260 × 220 is
-  partly its own. Its timing is only weights on the nets known to be
-  critical; the static timing analysis could give it each net's slack
-  instead.
+- **The placers** are simple: the grid's annealing moves one chip or
+  swaps two, the free one packs no better than its legaliser finds room.
+  Their timing is only weights on the nets known to be critical; the
+  static timing analysis could give them each net's slack instead.
+- **The grid on four layers** routes for DIP, with wider slots, but not
+  for SMD at any size tried (up to 500 × 260), where free placement
+  routes at 460 × 260. Most likely because on a grid the obstacles on the
+  two signal layers line up (every chip's pads, every capacitor and its
+  vias underneath) into walls the tracks must cross; staggered rows, or
+  the capacitors beside the chips, might fix it.
 - **Not built yet:** the memory card, the I/O card and the backplane as
   boards (the AS7C4096A, the 16C550 and the CF socket need pinouts), and
   the connectors' consistency between card and backplane, which the same
