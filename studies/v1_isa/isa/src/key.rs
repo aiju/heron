@@ -83,7 +83,8 @@ impl How {
 
 /// The work an instruction does. `x` is 1 when an address computation
 /// carries into the upper 16 bits (a second cycle on a 16-bit datapath);
-/// `wb` is 1 when the result is written back.
+/// `wb` is 1 when the result is written back. `Link` and `Linkm` are v1bl's
+/// calls, which leave the return address in the link register.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
     Alu { wb: u8 },
@@ -99,7 +100,6 @@ pub enum Kind {
     Jmpm { ea: Ea, x: u8 },
     Call { how: How, x: u8 },
     Callm { ea: Ea, x: u8 },
-    /// v1bl: a call that leaves the return address in the link register
     Link { how: How, x: u8 },
     Linkm { ea: Ea, x: u8 },
     Ret,
