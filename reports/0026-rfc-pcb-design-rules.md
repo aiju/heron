@@ -168,8 +168,13 @@ THT is through-hole, SMD surface-mount.
     400 × 510 mm at Eurocircuits by arrangement.
 - **R24 Footprints.** KiCad's library: IPC-7351 at nominal density, never
   high density.
-- **R25 Through-hole parts.** As few as the design allows. Each THT joint
-  is soldered selectively or by hand, and the houses charge per joint.
+- **R25 Through-hole parts.**
+  - As few as the design allows. Each THT joint is soldered selectively
+    or by hand, and the houses charge per joint.
+  - *Pending (section 3):* a THT pad that may be soldered by hand has at
+    least X mm of copper around its hole. Many library footprints have
+    less (section 2.4), so this rule will mean choosing or drawing
+    footprints with larger pads.
 - **R26 Files.**
   - Gerbers (copper, mask, paste, silkscreen, outline) and Excellon
     drill files.
@@ -443,6 +448,20 @@ boards go larger: JLCPCB 656 × 586, Eurocircuits 500 × 425 [JP, ES].
   [E1], where IPC-7351 puts pin 1 at the upper left. The house's preview
   is where a wrong rotation shows [JT].
 
+**Hand soldering (R25).** Many of KiCad's THT footprints are drawn
+with little copper around the hole:
+
+| Footprint | Pad | Hole | Ring |
+|---|---|---|---|
+| DIP (`DIP-16_W7.62mm`), also the disc capacitors and DIP oscillators | ø1.6 mm | ø0.8 mm | 0.4 mm |
+| DIN 41612 type C, right angle | ø1.55 mm | ø1.0 mm | 0.28 mm |
+| DIP, long pads (`DIP-16_W7.62mm_LongPads`) | 2.4 × 1.6 mm oval | ø0.8 mm | 0.4 mm across, 0.8 mm along |
+
+That is enough for wave and selective soldering, but awkward by hand.
+A small ring holds little heat and leaves little room for a fillet, and
+it lifts more easily when a part is reworked. Emily has preferences
+here that are still to be written down as R25's number.
+
 **Test (R28).**
 - Every fab tests bare boards electrically against a netlist.
 - In-circuit test needs pads of 1.27 mm at a 2.54 mm pitch, 3.2 mm from
@@ -468,6 +487,10 @@ For Emily:
    case?
 6. **Stiffening** (R13): only for cards beyond the Eurocard sizes, or a
    stiffener on every 6U × 340 card too?
+7. **THT pads for hand soldering** (R25): how much copper around the
+   hole, at least? This applies to which parts: all THT parts, or only
+   those likely to be soldered or reworked by hand? And with it, which
+   footprints to use or draw (section 2.4).
 
 ## 4. Sources
 
