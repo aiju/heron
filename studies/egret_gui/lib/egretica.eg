@@ -689,7 +689,7 @@ def cmd_ParametricPlot(as)
   it = iterator(as[1], "ParametricPlot[\{Cos[3 t], Sin[2 t]\}, \{t, 0, 2 Pi\}]")
   f = unbound(it[0].name, { ev(as[0]) })
   if not (f.is_a?(Lst) and f.args.size == 2) then raise("ParametricPlot needs \{x, y\}") end
-  Plot([zip_samples(samples(f.args[0], it[0], it[1], it[2], 200), samples(f.args[1], it[0], it[1], it[2], 200))], true)
+  Plot([zip_samples(samples(f.args[0], it[0], it[1], it[2], 160), samples(f.args[1], it[0], it[1], it[2], 160))], true)
 end
 
 def cmd_PolarPlot(as)
@@ -697,9 +697,14 @@ def cmd_PolarPlot(as)
   it = iterator(as[1], "PolarPlot[1 + Cos[t], \{t, 0, 2 Pi\}]")
   t = it[0]
   r = unbound(t.name, { ev(as[0]) })
-  xs = samples(mul([r, fn("cos", [t])]), t, it[1], it[2], 200)
-  ys = samples(mul([r, fn("sin", [t])]), t, it[1], it[2], 200)
-  Plot([zip_samples(xs, ys)], true)
+  # r at each t, then x = r cos t and y = r sin t
+  pts = samples(r, t, it[1], it[2], 160).map { |s|
+    if s == nil then nil
+    else
+      sc = fx_sincos(s[0], PLOT_P)
+      [fx_mul(s[1], sc[1], PLOT_P), fx_mul(s[1], sc[0], PLOT_P)]
+    end }
+  Plot([pts], true)
 end
 
 def zip_samples(xs, ys)

@@ -926,36 +926,29 @@ def fx_log(a, p)
   2 * sum + k * fx_ln2(p)
 end
 
-# sin and cos of r, |r| <= pi/4: [sin, cos]
-def fx_sincos_small(r, p)
-  one = 1 << p
+# the series for sin r (from t = r, n = 1) or cos r (from 1, 0), |r| <= pi/4
+def fx_series(r, t, n, p)
   r2 = fx_mul(r, r, p)
-  s = r
-  t = r
-  n = 1
+  s = t
   while t != 0
     t = -fx_mul(t, r2, p) / ((n + 1) * (n + 2))
     s += t
     n += 2
   end
-  c = one
-  t = one
-  n = 0
-  while t != 0
-    t = -fx_mul(t, r2, p) / ((n + 1) * (n + 2))
-    c += t
-    n += 2
-  end
-  [s, c]
+  s
 end
 
-def fx_sincos(a, p)
+# sin a, or (cos) sin(a + pi/2): sin(r + k pi/2) for r within pi/4 of 0
+def fx_sin(a, p, cos)
   half = fx_pi(p) / 2
   q = (2 * a + half) / (2 * half)          # the nearest multiple of pi/2
-  sc = fx_sincos_small(a - q * half, p)
-  k = q % 4
-  if k == 0 then sc elif k == 1 then [sc[1], -sc[0]] elif k == 2 then [-sc[0], -sc[1]] else [-sc[1], sc[0]] end
+  r = a - q * half
+  k = (q + if cos then 1 else 0 end) % 4
+  v = if k % 2 == 0 then fx_series(r, r, 1, p) else fx_series(r, 1 << p, 0, p) end
+  if k >= 2 then -v else v end
 end
+
+def fx_sincos(a, p) = [fx_sin(a, p, false), fx_sin(a, p, true)]
 
 def fx_atan(a, p)
   one = 1 << p
@@ -1015,8 +1008,8 @@ def numval(e, p, env)
     a = numval(e.args[0], p, env)
     nm = e.name
     one = 1 << p
-    if nm == "sin" then return fx_sincos(a, p)[0] end
-    if nm == "cos" then return fx_sincos(a, p)[1] end
+    if nm == "sin" then return fx_sin(a, p, false) end
+    if nm == "cos" then return fx_sin(a, p, true) end
     if nm == "tan"
       sc = fx_sincos(a, p)
       return fx_div(sc[0], sc[1], p)

@@ -12,6 +12,7 @@ WELCOME = "# Welcome to Egret on the Heron. Put the cursor on
 \"Heron\".reverse.upper
 print(\"Hello from the Workspace\")
 Clock(480, 210)
+Notebook()      # Egretica: algebra, after Mathematica
 
 class Greeter
   def init(name)
@@ -29,6 +30,7 @@ w.text(64, 64, \"Egret was here\", PAL.white)
 gui_init(SCREEN_DEPTH)
 PAL = Palette(SCREEN_DEPTH)
 DESK = Desktop()
+warm_math_fonts()
 
 DESK.add_menu("Workspace", { Workspace(WELCOME) })
 DESK.add_menu("Transcript", {

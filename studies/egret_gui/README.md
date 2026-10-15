@@ -9,9 +9,10 @@ reports: [21]
 A demo more than a design study: a small Smalltalk-style desktop for
 [Egret](../egret/README.md), running on the simulated draft 1b machine.
 There are overlapping windows, a mouse and a keyboard, a Workspace where
-you type Egret and run it, a Transcript, a class browser, a few demos
-(a clock, Life, the Mandelbrot set, Paint), and Gadgets, a playground of
-parts with cartoon physics where a new class is a new part. The desktop is Egret source
+you type Egret and run it, a Transcript, a class browser, a clock,
+Gadgets, a playground of parts with cartoon physics where a new class is
+a new part, and Egretica, a little computer algebra system after
+Mathematica: derivatives, integrals, equations, series, plots. The desktop is Egret source
 that the machine compiles when it boots, like any other Egret program.
 The pixels are the [graphics study](../graphics/README.md)'s library and
 assembly kernels. It runs in a browser, as WebAssembly, at the machine's
@@ -29,7 +30,7 @@ heron egret_gui web [-o DIR]          # the same as static files (default build/
 heron egret_gui shot --do "click 550 300; wait 1" -o desk.png   # without a browser: do things, save the screen
 heron egret_gui shot --depth 0        # at 1 bit per pixel
 heron egret_gui bench [--write]       # report 0021's tables (--write: the file, and its screenshots)
-heron test egret_gui                  # the unit tests
+heron test egret_gui                  # the unit tests (Egretica's algebra on the host, the rest on the simulator)
 ```
 
 The browser version needs Rust's WebAssembly target:
@@ -71,6 +72,24 @@ The browser version needs Rust's WebAssembly target:
   colour and gravity of -30). Change a method, Ctrl-D, and the parts on
   the table use it from the next frame; an error in one stops the table
   and says so in its status line.
+- **Egretica** (on the desktop's menu) is a notebook: type a line at the
+  bottom and press Return, and what it comes to is laid out as maths
+  above it, or plotted. It speaks a little Mathematica:
+  `D[x^2 Sin[x], x]`, `Integrate[1/(x^3 + 1), x]`,
+  `Integrate[Sin[x]^2, {x, 0, Pi}]`, `Solve[x^3 - 6 x^2 + 11 x - 6 == 0, x]`,
+  `Solve[{x + y == 7, x y == 12}, {x, y}]`, `Factor[x^6 - 1]`,
+  `Expand`, `Simplify`, `Together`, `Apart`, `N[Pi, 50]`,
+  `Series[Tan[x], {x, 0, 7}]`, `Sum[k^3, {k, 1, n}]`,
+  `Limit[(1 + 1/n)^n, n -> Infinity]`, `Plot[{Sin[x], Cos[x]}, {x, 0, 2 Pi}]`,
+  `ParametricPlot`, `PolarPlot`, `Det`, `Inverse`, `Eigenvalues`,
+  `FactorInteger`, `100!`, `f(x) := x^2 + 1`, `a = 5`, `%` and
+  `x^2 /. x -> 3`. Names go in either case, with `[]` or `()`
+  (`sin(x)`), and multiplication can be left out (`2 x`, `x y`).
+  `Help[]` lists it all, and the right-click menu has examples. Up and
+  Down go through the lines typed; a click on an earlier line puts it
+  back at the bottom, and a click on a result adds it to the line. Each
+  line shows how long it took: a second or two at 3 MHz, more for big
+  series and factoring big numbers, during which the desktop waits.
 - **On the page**, the clock switch runs the machine at 3, 12 or 48 MHz,
   or as fast as the browser can (about 50–80 MHz). The page programs the
   machine's timer for 60 ticks a second at each speed, as a faster Heron
@@ -78,7 +97,7 @@ The browser version needs Rust's WebAssembly target:
   a tick, so Gadgets gets smoother rather than faster (flat out, the
   timer is set as for 48 MHz). Restart starts from a
   snapshot of the desktop just booted; Cold boot starts from nothing and
-  shows the machine compiling the desktop (25 s at 3 MHz), under a splash. An infinite
+  shows the machine compiling the desktop (a minute at 3 MHz), under a splash. An infinite
   loop in a Workspace hangs the desktop: Restart is the way out.
 
 ## How it works
@@ -87,8 +106,12 @@ The browser version needs Rust's WebAssembly target:
 |---|---|
 | `lib/gui.eg` | Colours, windows, menus, the desktop and its event loop |
 | `lib/widgets.eg` | A window of editable text, wrapped at spaces, with a scroll bar |
-| `lib/apps.eg` | Workspace, Transcript, Clock, Life, Mandelbrot, Paint, Browser, About |
+| `lib/apps.eg` | Workspace, Transcript, Clock, Browser, About |
 | `lib/gadgets.eg` | Gadgets: the parts, their physics, and the table |
+| `lib/algebra.eg` | Egretica's expressions, which simplify as they're made; polynomials, factoring, fractions |
+| `lib/calculus.eg` | Derivatives, integrals, equations, series, sums, limits, numbers to any precision, matrices |
+| `lib/egretica.eg` | The language typed in: a parser, and the commands |
+| `lib/notebook.eg` | Egretica's window: maths laid out in boxes, plots, the notebook |
 | `lib/desktop.eg` | The menu, the first windows, and `DESK.run` |
 | `src/gwm.c` | The window manager: the graphics study's `wm.c`, with updates for Egret to paint instead of paint functions |
 | `src/gui_prims.c` | Egret's primitives for the screen, events, windows, drawing, fonts, the Workspace's compiler and the Browser |
@@ -98,6 +121,7 @@ The browser version needs Rust's WebAssembly target:
 | `build.py` | The image: Egret's VM, the graphics library and kernels, the fonts, `src/` |
 | `run.py` | A session without a browser: input events by the clock, the screen as PNG |
 | `snapshot.py` | The machine's state as bytes, for the browser to start from |
+| `host.py`, `src/host.c` | Egret's VM on the host with this memory map and no screen, for testing Egretica's algebra in a fraction of a second |
 | `web/` | The browser version: `index.html`, `app.js`, and the simulator crate for WebAssembly |
 | `bench.py` | What things cost on the machine: report 0021's tables and screenshots |
 | `web.py`, `cli.py` | Putting the site together; the command line |
@@ -150,18 +174,43 @@ windows, so those copies don't shift. The still parts are found from a
 ball through a grid of 64-pixel cells. A frame that's late is done with
 the next and drawn once for both; later than that is slow motion.
 
-**Memory.** The VM, the graphics library and the fonts come to 310 KB,
+**Memory.** The VM, the graphics library and the fonts come to 316 KB,
 past where Egret's code space ended (0x30000), so `src/gui_map.h` moves
-Egret's map up: 96 KB of console input at 0x50000 (the desktop's source
-is 85 KB), 224 KB of permanent space (the desktop takes 173 KB, and
-every class and line a Workspace runs adds to it), two 120 KB
-semispaces, 72 KB of C stack. VRAM past the screen holds the font cache (`gui_alloc`), what's
+Egret's map up: 368 KB of permanent space from 0x50000 (the desktop
+takes 330 KB, Egretica 170 of it, and every class and line a Workspace
+runs adds to it), two 120 KB semispaces, and 24 KB of C stack (booting,
+the deepest it goes, takes 3 KB). The console input, the desktop's
+source (200 KB), doesn't fit in RAM as well, so it goes in VRAM, at
+0x010C0000: the compiler reads it from there, and the Browser shows it.
+VRAM past the screen also holds the font cache (`gui_alloc`), what's
 under a menu, where the source's lines start, and Gadgets' layers. The
 build also shrinks the scan converter's edge tables from 52 KB to 13 and
 26 KB (a text substitution on the graphics study's sources at build
 time). The code is past the 64 KB a 16-bit relative call reaches, so
 `build.py` links it in an order where every call reaches: the graphics,
 the GUI, the C library, the VM, the interpreter.
+
+**Egretica.** Numbers are exact (Egret's integers are any size, and
+fractions are pairs of them), and an expression is a `Num`, `Sym`,
+`Add`, `Mul`, `Pow` or `Fn` (with `Lst`, `Eqn`, `Rule`, and `Dec` for
+decimals), made by `add`, `mul`, `pow` and `fn`, which put it in a
+canonical form as they go: terms and factors sorted by a key string,
+like terms collected, `x x^2` as `x^3`, `sqrt(12)` as `2 sqrt(3)`,
+`sin(-x)` as `-sin(x)`, `sin(pi/6)` as 1/2. Equal expressions have equal
+keys, which is all simplifying needs. Polynomials in one variable are
+lists of fractions: factoring takes out rational roots, then factors in
+x^2, repeated factors and quadratic ones; partial fractions solve a
+linear system. Integration tries a table (with a linear argument),
+partial fractions, substitution (when a part's derivative divides the
+rest: `x cos(x^2)`), by parts, powers of sin and cos, and products of
+sines as sums; the tests check its answers by differentiating them.
+Numbers to any precision are fixed point in big integers: pi by Machin's
+formula, the functions by their series after reducing the argument, and
+plots use the same at 12 bits. A result is laid out in boxes (a width,
+and how far above and below the baseline): stacked fractions,
+superscripts in a smaller size, radicals and brackets drawn to fit, and
+pi, the integral sign, arrows and the like drawn too, since the font has
+only ASCII. Long sums and lists break between their terms.
 
 **The browser** (`web/`). The simulator crate compiles for
 `wasm32-unknown-unknown` with no changes. `web/src/lib.rs` wraps it in
@@ -186,6 +235,9 @@ changes outside the study need doing properly or taking out:
 - `heron/bindings/src/py_v1.rs`: the display's getters and setters,
   `run_until`, and setters for the timer and the cycle count (for
   snapshots).
+- `studies/egret/vm/main.c`: the check that the VM fits below its memory
+  map also checks against the permanent space, since the console input
+  is now elsewhere (the same for Egret's own builds).
 - `studies/egret/vm`: `EGRET_GUI` hooks in `egret.h` (the memory map from
   `gui_map.h`, 256 primitives), `prims.c` (a second table of primitives;
   `PrimDef` moved to `egret.h`) and `main.c` (output copied to the

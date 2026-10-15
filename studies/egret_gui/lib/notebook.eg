@@ -19,6 +19,19 @@ def math_fonts
   end
 end
 
+# the fonts made, all their characters rasterised (measuring them does
+# it), and the shades for anti-aliasing black on white worked out (a
+# search of the palette for each, done by drawing off the screen): five
+# seconds at 3 MHz, done as the desktop starts, so that the first result
+# doesn't wait for it
+def warm_math_fonts
+  math_fonts()
+  s = (32..126).map { |c| c.chr }.join("")
+  gui_text_width(s, MF[0])
+  gui_text_width(s, SF[0])
+  gui_text(0, -100, -100, "x", PAL.black, PAL.white, MF[0])
+end
+
 class Bx
   attr w, a, d
   def h = @a + @d
@@ -746,8 +759,8 @@ class Notebook < Window
     @cur = @input.size
     @hist = []
     @hpos = 0
-    p = DESK.place(470, 400)
-    super("Egretica", p[0], p[1], 470, 400)
+    p = DESK.place(470, 380)
+    super("Egretica", p[0], p[1], 470, 380)
     self.message(["Egretica: a little computer algebra system, after Mathematica.",
                   "Press Return to work out the line at the bottom. Help[] lists",
                   "what it knows; right-click for examples."], PAL.shadow)
@@ -785,25 +798,29 @@ class Notebook < Window
   def paint
     r = DESK.paint_rect
     if r == nil then r = [0, 0, self.width, self.height] end
-    self.draw_cells(r[1], r[3].min(self.area_h))
+    self.draw_cells(r[1], r[3].min(self.area_h), r[0], r[2])
     if r[3] > self.area_h then self.draw_bar end
   end
 
-  # the cells between y0 and y1 (in the window)
-  def draw_cells(y0, y1)
+  # the cells between y0 and y1 (in the window), or only what of them is
+  # between x0 and x1 (a strip a window on top uncovers)
+  def draw_cells(y0, y1, *xs)
+    x0 = if xs.size > 0 then xs[0] else 0 end
+    x1 = if xs.size > 0 then xs[1] else self.width end
     y0 = y0.max(0)
     if y1 <= y0 then return nil end
-    self.fill(0, y0, self.width, y1 - y0, PAL.white)
+    self.fill(x0, y0, x1 - x0, y1 - y0, PAL.white)
     y = -@top
     for c in @cells
       c.lay_out(self.content_w)
-      if y + c.h > y0 and y < y1 then self.draw_cell(c, y) end
+      if y + c.h > y0 and y < y1 then self.draw_cell(c, y, x0, x1) end
       y += c.h
     end
   end
 
   # the end, where the last h of the cells has changed: what was there
-  # moves up, and what that uncovers is drawn
+  # moves up, and what that uncovers is drawn as an update from the
+  # window manager
   def show_end(h)
     ah = self.area_h
     t = (self.total - ah).max(0)
@@ -812,14 +829,30 @@ class Notebook < Window
     if dy < 0 or dy >= ah
       self.draw_cells(0, ah)
     else
-      if dy > 0 then self.scroll(0, 0, self.width, ah, dy) end
       bottom = self.total - @top
-      self.draw_cells(bottom - h - dy, bottom.min(ah))
+      if dy > 0 then self.scroll(0, 0, self.width, ah, dy) end
+      self.draw_cells(bottom - h, ah - dy)
     end
     self.draw_bar
   end
 
-  def draw_cell(c, y)
+  # the window manager's updates, painted now: the line typed, before the
+  # work starts (and before the result scrolls again, which with an update
+  # still to paint would repaint it all). An input event that comes
+  # instead is kept for afterwards.
+  def paint_updates
+    while true
+      e = gui_event()
+      if e == nil then return nil end
+      if e[0] != 8
+        @held.push(e)
+        return nil
+      end
+      DESK.dispatch(e)
+    end
+  end
+
+  def draw_cell(c, y, x0, x1)
     if c.kind == "in"
       gui_text(@id, 4, y + 14, "In[{c.n}]:=", PAL.grey, PAL.white, UI)
       x = gui_text(@id, LABEL_W, y + 14, c.value, PAL.black, PAL.white, MONO)
@@ -839,7 +872,7 @@ class Notebook < Window
       for r in c.rows
         yy += r.a
         if first then gui_text(@id, 4, yy.min(y + 16), "Out[{c.n}]=", PAL.grey, PAL.white, UI) end
-        r.draw(self, LABEL_W, yy)
+        if x0 < LABEL_W + r.w and x1 > LABEL_W then r.draw(self, LABEL_W, yy) end
         yy += r.d + 2
         first = false
       end
@@ -874,6 +907,8 @@ class Notebook < Window
     @cur = 0
     cin = Cell("in", @count, line)
     self.add_cell(cin, 0)
+    @held = []
+    self.paint_updates
     DESK.busy
     r = nil
     err = nil
@@ -900,6 +935,9 @@ class Notebook < Window
       end
     end
     self.add_cell(c, cin.h)
+    for e in @held
+      DESK.dispatch(e)
+    end
   end
 
   def run(line)
@@ -965,13 +1003,8 @@ class Notebook < Window
     dy = t - @top
     if dy == 0 then return nil end
     @top = t
-    if dy.abs >= ah
-      self.draw_cells(0, ah)
-    else
-      self.scroll(0, 0, self.width, ah, dy)
-      if dy > 0 then self.draw_cells(ah - dy, ah) else self.draw_cells(0, -dy) end
-    end
-    self.draw_bar
+    # (what scrolling uncovers comes as an update)
+    if dy.abs >= ah then self.draw_cells(0, ah) else self.scroll(0, 0, self.width, ah, dy) end
   end
 
   def wheel(d) = self.scroll_by(d * 40)
