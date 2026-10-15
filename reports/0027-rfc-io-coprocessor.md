@@ -437,7 +437,7 @@ loop:  src ← src + AC; read [AH0:src]; if lc goto loop
 
 | | Chips | |
 |---|---:|---|
-| **A control register** in its slot: RUN, RESET (runs the reset routine), STEP (one microcycle, or to the end of the instruction), NMI; status: running, halted, at an instruction boundary | ~2 | RFC 0014 [8.3](0014-rfc-system-bus.md#83-interrupts-and-synchronisation) proposes one for every CPU. At power-up RUN is off if the control store is SRAM, on if it's flash (a jumper) |
+| **A control register** in its slot: RUN, RESET (runs the reset routine), STEP (one microcycle, or to the end of the instruction), NMI; status: running, halted, at an instruction boundary | ~2 | RFC 0014 [8.3](0014-rfc-system-bus.md#83-interrupts-and-synchronisation) proposes one for every CPU. At power-up RUN is off if the control store is SRAM, on if it's flash (a jumper). Its RESET is the warm reset of the reset levels in [RFC 0009](0009-rfc-ideas-io.md#1-io), taken when the CPU's current transfer ends |
 | **A slave port** into its RAM | (~12–15) | Recommended by RFC 0014 [section 10](0014-rfc-system-bus.md#10-the-main-cpu-board-on-the-bus) for any DMA, so not counted here. The IOP loads the boot program through it |
 | **A write port into an SRAM control store** | ~14 | Each 64K × 16 SRAM is a 16-bit lane in a window of the card's slot, written (and read back, to verify) while RUN is off |
 
