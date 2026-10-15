@@ -7,8 +7,10 @@ and checked against its expected output:
          ported copies in programs/ on v1bl
   c      the C versions (studies/c_compiler/programs), with the C library,
          compiled for each
-  egret  Egret's programs on its VM, in its C and assembly builds
-         (egret.py)
+  egret  Egret's programs on its VM: its C and assembly interpreters and
+         its JIT (egret.py)
+  graphics  the graphics study's scenes at every depth, with the C
+         kernels and the assembly ones (graphics.py)
 
 A run gives the instruction count, the cycles of the six configurations of
 draft 1's timing model, the cycles on the 1b hardware (hw.py; for asm and
@@ -243,6 +245,94 @@ def egret(workers=4):
                 E.image(isa, v)
         return _run_jobs(_egret_job, jobs, workers)
     return _cached("egret", deps, compute)
+
+
+def _graphics_job(args):
+    scene, depth, isa, kernels = args
+    from . import graphics as G
+    ok, tot = G.run(isa, kernels, scene, depth)
+    res = {"ok": ok, "instructions": tot["instructions"], "cycles": dict(tot["cycles"]),
+           "hw": hw.total(tot["keys"]), "code": 0,
+           "calls": {"calls": sum(n for (_pc, k), n in tot["keys"].items() if k[2] in CALLS)}}
+    return f"{scene}-{depth}", (isa, "asm" if kernels else "c"), res
+
+
+def graphics(workers=4):
+    """{scene-depth: {(isa, "c" or "asm" kernels): result}} for the graphics
+    study's scenes, with the C kernels and with the assembly ones."""
+    from . import graphics as G
+    from heron.studies.graphics import run as runmod
+    deps = _sources(*_BASE_DEPS, "studies/c_compiler", "studies/graphics")
+    jobs = [(sc, d, isa, k) for sc in runmod.SCENES for d in range(4) for isa in ISAS
+            for k in (False, True)]
+
+    def compute():
+        for isa in ISAS:
+            for k in (False, True):
+                G.image(isa, k)
+        return _run_jobs(_graphics_job, jobs, workers)
+    return _cached("graphics", deps, compute)
+
+
+def _lisp_job(args):
+    name, mode = args
+    from . import lisp
+    d, base, calls = getattr(lisp, mode)(name)
+    return name, mode, {"delta": d, "hw": base, "calls": dict(calls)}
+
+
+def lisp(workers=4):
+    """{program: {"interpreted" or "compiled": estimate}} for the Lisp's
+    programs (lisp.py): no port, the estimator's cycles."""
+    from . import lisp as L
+    deps = _sources(*_BASE_DEPS, "studies/lisp")
+    jobs = [(n, m) for n in L.names() for m in ("interpreted", "compiled")]
+    return _cached("lisp", deps, lambda: _run_jobs(_lisp_job, jobs, workers))
+
+
+def kernel():
+    """{scenario: {banks: estimate per operation}} for the nucleus (kernel.py)."""
+    from . import kernel as K
+    from heron.studies.kernel import build as kb
+    deps = _sources(*_BASE_DEPS, "studies/kernel")
+
+    def compute():
+        out = {}
+        for name in K.names():
+            for banks in kb.BANKS:
+                d, base, calls = K.scenario(name, banks)
+                out.setdefault(name, {})[banks] = {"delta": d, "hw": base, "calls": calls}
+        return out
+    return _cached("kernel", deps, compute)
+
+
+def estimates(workload, workers=4):
+    """{program: (estimated v1bl - 1b cycles on the 1b hardware, 1b's
+    cycles)} for the ported workloads asm and c, to check the estimator
+    against what the ports measured."""
+    deps = _sources(*_BASE_DEPS, "studies/c_compiler", "studies/v1_isa/programs")
+    paths = asm_paths("v1b") if workload == "asm" else sorted(glob.glob(os.path.join(CDIR, "*.c")))
+    jobs = [(p, workload) for p in paths]
+
+    def compute():
+        with ProcessPoolExecutor(workers) as ex:
+            return dict(ex.map(_estimate_job, jobs))
+    return _cached(f"estimates-{workload}", deps, compute)
+
+
+def _estimate_job(args):
+    path, workload = args
+    from . import estimate
+    name = os.path.basename(path)[:-2]
+    mod = isas.get("v1b")
+    if workload == "asm":
+        meta = metadata(path)
+        img, inp = asmcore.assemble_file(mod, path), meta["input"]
+    else:
+        img, inp = _c_build(path, "v1b"), _c_input(name)
+    counts = estimate.trace(Machine32(mod, img, inp=inp))
+    return name, {"delta": sum(estimate.delta(counts).values()),
+                  "calls": dict(estimate.summary(counts))}
 
 
 def configs():
