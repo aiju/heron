@@ -4,7 +4,7 @@ import argparse
 import os
 import time
 
-from . import bus, compare, summary, sweep
+from . import bus, compare, summary, sweep, traces
 from heron.infra.si import engine, ibis, spice
 
 
@@ -61,6 +61,13 @@ def cmd_report(args):
     return 0
 
 
+def cmd_traces(args):
+    """Rerun the jobs behind report 0022's figures and draw them."""
+    for path in traces.write(args.figures, args.jobs):
+        print("wrote", os.path.relpath(path))
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="heron bus_si", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -86,6 +93,11 @@ def main(argv=None):
     r.add_argument("--budget", type=float, help="start no new jobs after this many minutes, per preset")
     r.add_argument("--tables-only", action="store_true", help="only write the tables from the results there are")
     r.set_defaults(fn=cmd_report)
+    f = sub.add_parser("traces", help="draw report 0022's figures (SVG waveforms, seconds)")
+    f.add_argument("figures", nargs="*", choices=[[]] + list(traces.FIGURES), metavar="FIGURE",
+                   help=f"only these: {', '.join(traces.FIGURES)}")
+    f.add_argument("-j", "--jobs", type=int, help="parallel runs (default: all cores)")
+    f.set_defaults(fn=cmd_traces)
     k = sub.add_parser("compare", help="compare two results files of a preset, job by job")
     k.add_argument("a")
     k.add_argument("b")
