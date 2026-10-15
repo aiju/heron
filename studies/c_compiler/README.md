@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v1_isa, v2_isa]
-reports: [11]
+reports: [11, 30]
 ---
 
 # A C compiler for drafts 1a, 1b and 2
@@ -14,7 +14,8 @@ It depends on `v1_isa` for draft 1, its simulator and the program suite,
 and on `v2_isa` for draft 2 and its simulator.
 
 How it works, what it supports and how to use it: [compiler.md](compiler.md).
-How good its code is: [report 0011](../../reports/0011-report-c-compiler.md).
+How good its code is: [report 0011](../../reports/0011-report-c-compiler.md),
+and on draft 2 [report 0030](../../reports/0030-report-c-compiler-draft-2.md).
 Object files and linking C with assembly: [infra/linking.md](../../infra/linking.md).
 
 ```sh

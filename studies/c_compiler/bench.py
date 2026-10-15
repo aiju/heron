@@ -5,8 +5,7 @@ v1_isa study).
 
     heron c_compiler bench            print the tables
     heron c_compiler bench --write    also write the generated part of report 0011
-    heron c_compiler bench --isa v2   draft 2 against 1b, and against the
-                                      hand-written draft 2 programs (the v2_isa study)
+    heron c_compiler bench --isa v2   draft 2 against 1b (bench_v2.py)
 """
 
 import bisect
@@ -22,7 +21,6 @@ from .cc import driver
 
 CDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "programs")
 DOC = os.path.join(ROOT, "reports", "0011-report-c-compiler", "performance.md")
-CONFIGS = ["D16-overlap", "D32-overlap", "D32-wide"]
 
 
 def functions(img):
@@ -98,7 +96,7 @@ def run_c(path, isa):
     ok = m.error is None and not m.traps and out == exp
     res = {"ok": ok, "instructions": m.instructions, "cycles": m.all_cycles(), "image": img,
            "lib": prog.lib_functions}
-    res["split"] = {c: split_cycles(m, img, prog.lib_functions, c) for c in CONFIGS}
+    res["split"] = {c: split_cycles(m, img, prog.lib_functions, c) for c in res["cycles"]}
     res["kinds"] = kinds(m, img, isa, lambda n: not (n.startswith("_") and n[1:] in prog.lib_functions)
                          and not n.startswith("__"))
     own_names = {f.name for u in prog.units if not getattr(u, "library", False)
@@ -293,104 +291,10 @@ way one would write it in C rather than tuned for this compiler.
 """
 
 
-def report_v2(rows):
-    """Draft 2's compiled C against 1b's, and against the hand-written
-    draft 2 programs."""
-    out = []
-    cfg = "D16-overlap"
-    out.append(f"### Cycles ({cfg})\n")
-    out.append("Whole programs, and the program's own code without the C library "
-               "(own). The hand-written draft 2 versions are the v2_isa study's.\n")
-    out.append("| Program | 1b C | 2 C | 2 / 1b | own: 2 / 1b | 2 asm | 2 C / asm | own / asm |")
-    out.append("|---|---:|---:|---:|---:|---:|---:|---:|")
-    rat = {"all": [], "own": [], "asm": [], "own_asm": []}
-    for r in rows:
-        b, c, a = r["c_v1b"], r["c_v2"], r["asm_v2"]
-        if not (b["ok"] and c["ok"]):
-            out.append(f"| {r['name']} | {'ok' if b['ok'] else 'FAIL'} | {'ok' if c['ok'] else 'FAIL'} "
-                       "| – | – | – | – | – |")
-            continue
-        cb, cc = b["cycles"][cfg], c["cycles"][cfg]
-        ob, oc = b["split"][cfg][0], c["split"][cfg][0]
-        cells = [r["name"], fmt(cb), fmt(cc), f"{cc / cb:.3f}", f"{oc / ob:.3f}"]
-        rat["all"].append(cc / cb)
-        rat["own"].append(oc / ob)
-        if a:
-            ac = a["cycles"][cfg]
-            cells += [fmt(ac), f"{cc / ac:.2f}", f"{oc / ac:.2f}"]
-            rat["asm"].append(cc / ac)
-            if c["split"][cfg][1] < oc:
-                rat["own_asm"].append(oc / ac)
-        else:
-            cells += ["–", "–", "–"]
-        out.append("| " + " | ".join(cells) + " |")
-    out.append(f"| **geometric mean** | | | **{geomean(rat['all']):.3f}** | **{geomean(rat['own']):.3f}** "
-               f"| | **{geomean(rat['asm']):.2f}** | **{geomean(rat['own_asm']):.2f}** |")
-    out.append("")
-    out.append("The own / asm mean counts only the programs that spend less than half "
-               "their time in the C library, as report 0011 does.\n")
-    out.append("### Other configurations\n")
-    out.append("Geometric means of draft 2 / 1b for the compiled programs, whole and "
-               "their own code, and of the hand-written programs:\n")
-    out.append("| Configuration | C: 2 / 1b | own: 2 / 1b | asm: 2 / 1b |")
-    out.append("|---|---:|---:|---:|")
-    for cfg2 in ["D16-separate", "D16-overlap", "D16-wide", "D32-separate", "D32-overlap", "D32-wide"]:
-        whole, own, asm = [], [], []
-        for r in rows:
-            b, c = r["c_v1b"], r["c_v2"]
-            if b["ok"] and c["ok"]:
-                whole.append(c["cycles"][cfg2] / b["cycles"][cfg2])
-                if cfg2 in c["split"]:
-                    own.append(c["split"][cfg2][0] / b["split"][cfg2][0])
-            if r["asm_v1b"] and r["asm_v2"]:
-                asm.append(r["asm_v2"]["cycles"][cfg2] / r["asm_v1b"]["cycles"][cfg2])
-        own_s = f"{geomean(own):.3f}" if own else "–"
-        out.append(f"| {cfg2} | {geomean(whole):.3f} | {own_s} | {geomean(asm):.3f} |")
-    out.append("")
-    out.append("### Code size (bytes)\n")
-    out.append("The program's own functions, and the C library linked with it.\n")
-    out.append("| Program | 1b C own | 2 C own | 2 / 1b | C library 1b / 2 |")
-    out.append("|---|---:|---:|---:|---:|")
-    tb = tc = 0
-    for r in rows:
-        (ob, lb), (oc, lc) = r["c_v1b"]["code"], r["c_v2"]["code"]
-        tb, tc = tb + ob, tc + oc
-        out.append(f"| {r['name']} | {ob} | {oc} | {oc / ob:.3f} | {lb} / {lc} |")
-    out.append(f"| **total** | **{tb}** | **{tc}** | **{tc / tb:.3f}** | |")
-    out.append("")
-    out.append("### What the draft 2 code executes\n")
-    out.append("Executed instructions in the programs' own code, summed over all programs, "
-               "by the v2_isa study's instruction kinds: the 25 most frequent, and those "
-               "draft 2 added.\n")
-    from collections import Counter
-    tot = Counter()
-    for r in rows:
-        if r["c_v2"]["ok"]:
-            tot.update(r["c_v2"]["kinds"])
-    n = sum(tot.values())
-    new = [k for k in tot if k.split()[0] in ("MOVS", "CLR", "INC", "DEC", "MVI", "CMPI")
-           and (k.split()[0] not in ("INC", "DEC") or " " in k)
-           or "[abs+x]" in k or "[pc+x]" in k or "[r14+n]" in k
-           or k.split()[0] in ("DBNZ", "LDM", "STM", "MULA", "MULFX", "REV", "FFS", "POPC")]
-    out.append("| Instruction | Share |")
-    out.append("|---|---:|")
-    for k, c in tot.most_common(25):
-        out.append(f"| `{k}` | {100 * c / n:.2f}% |")
-    out.append("| *new in draft 2:* | |")
-    for k in sorted(new, key=lambda k: -tot[k]):
-        out.append(f"| `{k}` | {100 * tot[k] / n:.2f}% |")
-    return "\n".join(out) + "\n"
-
-
 def main(argv):
     if "--isa" in argv:
-        isa = argv[argv.index("--isa") + 1]
-        if isa != "v2":
-            print(f"bench --isa: only v2 (the default compares 1a and 1b)", file=sys.stderr)
-            return 1
-        rows = collect(("v1b", "v2"))
-        print(report_v2(rows))
-        return 0 if all(r["c_v1b"]["ok"] and r["c_v2"]["ok"] for r in rows) else 1
+        from . import bench_v2
+        return bench_v2.main(argv)
     rows = collect()
     text = report(rows)
     print(text)
