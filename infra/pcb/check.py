@@ -14,6 +14,7 @@ Three links, each checked from independent sources:
    net in two pieces, no two nets touching.
 """
 
+import re
 from collections import defaultdict
 
 from heron.infra.hw import netlist as hwnl
@@ -180,12 +181,41 @@ def compare(nl, board, style, connectors=()):
         if p.ref.startswith("C") and p.ref[1:] in chip_refs:
             if nets != ["GND", "VCC"]:
                 errs.append(f"{p.ref}: a decoupling capacitor on {nets}, not VCC and GND")
+        elif p.kind == "mech" and re.fullmatch(r"(H|FID)\d+", p.ref):
+            if set(nets) - {"GND"}:
+                errs.append(f"{p.ref}: a mounting hole or fiducial on {nets}")
         elif p.ref.startswith("C") and "." in p.ref and p.ref[1:].rsplit(".", 1)[0] in chip_refs:
             chip, tie = p.ref[1:].rsplit(".", 1)
             if f"{chip}.{tie}" not in nets or not ({"GND", "VCC"} & set(nets)):
                 errs.append(f"{p.ref}: a tie capacitor on {nets}")
         else:
             errs.append(f"{p.ref}: a part the netlist doesn't explain (nets {nets[:6]})")
+    return errs
+
+
+def keepouts(board, eps=1e-3):
+    """What is inside the board's keep-out areas and shouldn't be: a part
+    (its courtyard) where footprints aren't allowed, unless its kind is;
+    a track or via where they aren't. Returns a list of errors."""
+    errs = []
+    for k in board.keepouts:
+        def inside(x0, y0, x1, y1, k=k):
+            return (x0 < k["x1"] - eps and x1 > k["x0"] + eps
+                    and y0 < k["y1"] - eps and y1 > k["y0"] + eps)
+        if "footprints" in k["no"]:
+            for p in board.parts.values():
+                if p.kind not in k["allow"] and inside(*p.courtyard()):
+                    errs.append(f"{p.ref}: in the keep-out {k['name']}")
+        if "tracks" in k["no"]:
+            for (layer, x1, y1, x2, y2, w, net) in board.tracks:
+                if inside(min(x1, x2) - w / 2, min(y1, y2) - w / 2, max(x1, x2) + w / 2,
+                          max(y1, y2) + w / 2):
+                    errs.append(f"a track of {net} on {layer} at ({x1:.2f}, {y1:.2f}) "
+                                f"in the keep-out {k['name']}")
+        if "vias" in k["no"]:
+            for (x, y, dia, drill, net) in board.vias:
+                if inside(x - dia / 2, y - dia / 2, x + dia / 2, y + dia / 2):
+                    errs.append(f"a via of {net} at ({x:.2f}, {y:.2f}) in the keep-out {k['name']}")
     return errs
 
 

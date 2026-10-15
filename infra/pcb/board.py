@@ -13,6 +13,7 @@ copper, which is what the checks use.
 """
 
 import math
+import re
 import uuid as _uuid
 from collections import defaultdict
 
@@ -160,6 +161,7 @@ class Board:
         self.zones = []         # dict: layer, net, pts, priority, filled (list of polygons)
         self.texts = []         # (layer, x, y, text, size)
         self.holes = []         # mounting holes: (x, y, drill)
+        self.keepouts = []      # rule areas: dict x0, y0, x1, y1, name, no, allow
 
     # ---- contents ----------------------------------------------------------------
 
@@ -193,6 +195,15 @@ class Board:
                 if net:
                     out[net].append((p.ref, num))
         return dict(out)
+
+    def add_keepout(self, x0, y0, x1, y1, name, no=("tracks", "vias", "footprints"), allow=()):
+        """A rectangle kept clear of what `no` names ("tracks", "vias",
+        "footprints") on every copper layer, but for parts of the kinds in
+        `allow` (connectors on the back edge, say). Written as a KiCad rule
+        area, which its DRC checks too (footprints only when nothing is
+        allowed: KiCad's rule areas can't make exceptions)."""
+        self.keepouts.append({"x0": x0, "y0": y0, "x1": x1, "y1": y1, "name": name,
+                              "no": tuple(no), "allow": tuple(allow)})
 
     def add_planes(self, margin=None):
         """A zone over the whole board on each plane layer."""
@@ -295,6 +306,22 @@ class Board:
                 zone.append(["filled_polygon", ["layer", Str(z["layer"])],
                              ["pts"] + [["xy", float(x), float(y)] for x, y in poly]])
             out.append(zone)
+        for i, k in enumerate(self.keepouts):
+            def rule(what, k=k):
+                if what == "footprints" and k["allow"]:
+                    return "allowed"
+                return "not_allowed" if what in k["no"] else "allowed"
+            pts = [(k["x0"], k["y0"]), (k["x1"], k["y0"]), (k["x1"], k["y1"]), (k["x0"], k["y1"])]
+            name = k["name"] + (f" (allows {' '.join(k['allow'])})" if k["allow"] else "")
+            out.append(["zone", ["net", 0], ["net_name", Str("")], ["layers", Str("*.Cu")],
+                        ["uuid", Str(self._uuid(f"keepout{i}"))], ["name", Str(name)],
+                        ["hatch", "edge", 0.5], ["connect_pads", ["clearance", 0]],
+                        ["min_thickness", 0.25], ["filled_areas_thickness", "no"],
+                        ["keepout", ["tracks", rule("tracks")], ["vias", rule("vias")],
+                         ["pads", "allowed"], ["copperpour", "allowed"],
+                         ["footprints", rule("footprints")]],
+                        ["fill", ["thermal_gap", 0.5], ["thermal_bridge_width", 0.5]],
+                        ["polygon", ["pts"] + [["xy", round(x, 4), round(y, 4)] for x, y in pts]]])
         out.append(["embedded_fonts", "no"])
         return sexpr.dump(out, flat_depth=3) + "\n"
 
@@ -321,6 +348,8 @@ class Board:
                 continue
             if key == "property":
                 item = list(item)
+                if item[1] == "Kind":
+                    continue
                 if item[1] == "Reference":
                     item[2] = Str(part.ref)
                 elif item[1] == "Value":
@@ -338,6 +367,11 @@ class Board:
             elif key == "model":
                 pass
             out.append(item)
+        # what the part is (chip, decap, conn, mech...), for reading it back
+        out.insert(5, ["property", Str("Kind"), Str(part.kind), ["at", 0, 0, 0],
+                       ["layer", Str(f"{part.side}.Fab")], ["hide", "yes"],
+                       ["uuid", Str(self._uuid(f"kind:{part.ref}"))],
+                       ["effects", ["font", ["size", 1, 1], ["thickness", 0.15]]]])
         return out
 
     @staticmethod
@@ -450,6 +484,8 @@ def read_kicad(path):
         for prop in sexpr.find_all(fp, "property"):
             if prop[1] == "Value":
                 part.value = str(prop[2])
+            elif prop[1] == "Kind":
+                part.kind = str(prop[2])
         b.parts[ref] = part
     for s in sexpr.find_all(e, "segment"):
         st, en = sexpr.find(s, "start"), sexpr.find(s, "end")
@@ -460,6 +496,21 @@ def read_kicad(path):
         b.vias.append((at[1] - x0, at[2] - y0, float(sexpr.value(v, "size")),
                        float(sexpr.value(v, "drill")), nets[int(sexpr.value(v, "net"))]))
     for z in sexpr.find_all(e, "zone"):
+        ko = sexpr.find(z, "keepout")
+        if ko is not None:
+            pts = [(p[1] - x0, p[2] - y0) for p in
+                   sexpr.find_all(sexpr.find(sexpr.find(z, "polygon"), "pts"), "xy")]
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            no = tuple(str(r[0]) for r in ko[1:] if isinstance(r, list) and len(r) > 1
+                       and str(r[1]) == "not_allowed")
+            name, allow = str(sexpr.value(z, "name", "")), ()
+            m = re.fullmatch(r"(.*) \(allows ([^)]*)\)", name)
+            if m:
+                name, allow = m.group(1), tuple(m.group(2).split())
+                no += ("footprints",)
+            b.keepouts.append({"x0": min(xs), "y0": min(ys), "x1": max(xs), "y1": max(ys),
+                               "name": name, "no": no, "allow": allow})
+            continue
         layer = sexpr.value(z, "layer")
         pts = [(p[1] - x0, p[2] - y0) for p in sexpr.find_all(sexpr.find(sexpr.find(z, "polygon"), "pts"), "xy")]
         filled = []

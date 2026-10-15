@@ -9,6 +9,10 @@
                         check a board file against the card's netlist: its
                         pads, its copper (with KiCad's zone filler) and
                         KiCad's DRC
+  view [NAME...] [--out FILE]
+                        the boards (default: the sweep's fully checked ones)
+                        as one web page to pan, zoom and look at by layer:
+                        build/pcb/viewer.html
   pinouts               the pinouts against KiCad's symbol library
   split                 what splitting the CPU card in two would cost: the
                         signals between the halves
@@ -42,6 +46,13 @@ def cmd_check(args):
     ok = not res["netlist_errors"] and not res.get("copper_opens") and not res.get("copper_shorts") \
         and not res.get("drc_errors")
     return 0 if ok else 1
+
+
+def cmd_view(args):
+    from . import sweep
+    path = sweep.viewer(args.names or None, args.out)
+    print(path)
+    return 0
 
 
 def cmd_pinouts(args):
@@ -84,6 +95,10 @@ def main(argv=None):
     c.add_argument("--card", default="cpu")
     c.add_argument("--style", default="smd", choices=("smd", "dip"))
     c.set_defaults(fn=cmd_check)
+    v = sub.add_parser("view", help="the boards as a web page")
+    v.add_argument("names", nargs="*", help="board folders in build/pcb/")
+    v.add_argument("--out")
+    v.set_defaults(fn=cmd_view)
     sub.add_parser("pinouts", help="the pinouts against KiCad's symbols").set_defaults(fn=cmd_pinouts)
     sub.add_parser("split", help="the cost of splitting the CPU card").set_defaults(fn=cmd_split)
     s = sub.add_parser("sweep", help="the experiments")

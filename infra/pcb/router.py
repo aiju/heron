@@ -60,6 +60,15 @@ def problem(board, dirs=None, layer_cost=None, skip=(), **params):
     for (x, y, dia, drill, net) in board.vias:
         shapes.append({"kind": "capsule", "x1": x, "y1": y, "x2": x, "y2": y, "r": dia / 2,
                        "layers": [], "net": net_id.get(net, -1), "pad": False})
+    for k in board.keepouts:
+        # a keep-out for tracks: an obstacle the router keeps its clearance
+        # from, so made smaller by the clearance
+        if "tracks" in k["no"]:
+            hw = max((k["x1"] - k["x0"]) / 2 - r["clearance"], 0.01)
+            hh = max((k["y1"] - k["y0"]) / 2 - r["clearance"], 0.01)
+            shapes.append({"kind": "rect", "cx": (k["x0"] + k["x1"]) / 2, "cy": (k["y0"] + k["y1"]) / 2,
+                           "hw": hw, "hh": hh, "angle": 0.0, "rr": 0.0, "layers": [], "net": -1,
+                           "pad": False})
     if dirs is None:
         # outer layers any way, inner layers alternating
         dirs = [0 if l in ("F.Cu", "B.Cu") else (1 if k % 2 else 2) for k, l in enumerate(sig)]

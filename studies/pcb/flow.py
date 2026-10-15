@@ -157,6 +157,9 @@ def check_board(path, nl, style, pin_maps, full=True):
     errs = check.compare(nl, rb, style, pin_maps)
     res["netlist_errors"] = len(errs)
     res["netlist_sample"] = errs[:5]
+    kerrs = check.keepouts(rb)
+    res["keepout_errors"] = len(kerrs)
+    res["keepout_sample"] = kerrs[:5]
     if not full:
         res["seconds_check"] = round(time.time() - t, 1)
         return res

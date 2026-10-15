@@ -120,6 +120,37 @@ class Flow(unittest.TestCase):
         self.assertTrue(any(e.startswith("short") for e in copper.check(b)))
 
 
+@needs_kicad
+class Keepouts(unittest.TestCase):
+    def test_strips_stay_clear(self):
+        nl = small_netlist()
+        b = B.Board("small", 60.0, 45.0, layers=2)
+        for p in physical.parts(nl, "smd"):
+            b.add(p)
+        # a strip along the top edge, which the parts and tracks keep out of
+        b.add_keepout(0, 0, 60, 6, "guide")
+        pl = place.Placer(b, region=(3.0, 6.0, 57.0, 42.0), halo=1.5)
+        pl.global_place()
+        self.assertEqual(pl.legalize(), [])
+        pl.refine(moves=2000)
+        place.place_decaps(b, side="B")
+        b.add_planes()
+        sol = router.route(b)
+        self.assertEqual(sol["failed"] + sol["unreachable"] + sol["conflicted"], [])
+        self.assertEqual(check.keepouts(b), [])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "k.kicad_pcb")
+            b.write(path)
+            rb = B.read_kicad(path)
+        self.assertEqual([(k["name"], k["no"]) for k in rb.keepouts],
+                         [("guide", ("tracks", "vias", "footprints"))])
+        self.assertEqual(check.keepouts(rb), [])
+        # a part moved into the strip is caught
+        p = rb.parts["U_CNT"]
+        p.place(p.x, 3.0, p.rot, p.side)
+        self.assertTrue(any(e.startswith("U_CNT") for e in check.keepouts(rb)))
+
+
 class Wires(unittest.TestCase):
     def test_each_load_has_its_own_flight_time(self):
         nl = small_netlist()

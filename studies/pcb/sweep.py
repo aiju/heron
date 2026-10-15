@@ -294,6 +294,29 @@ def images():
         im.quantize(colors=48).save(os.path.join(folder, out), optimize=True)
 
 
+def describe(r):
+    """A board's one-line description from its result.json."""
+    style = "SMD" if r["style"] == "smd" else "DIP"
+    how = "grid" if r.get("arrangement", "free") == "grid" else ("free, both sides" if r["sides"] == "FB" else "free")
+    return f"{style}, {how} · {r['layers']} layers · {r['width']:g} × {r['height']:g} mm"
+
+
+def viewer(names=None, out=None, standalone=True):
+    """The boards (default: those with the full checks) as one web page."""
+    from heron.infra.pcb import board as B
+    from heron.infra.pcb import view
+    if names is None:
+        names = [f"cpu-{bd['label']}-{bd['width']}x{bd['height']}" for bd in BOARDS if bd["full"]]
+    boards = []
+    for name in names:
+        folder = os.path.join(flow.OUT, name)
+        with open(os.path.join(folder, "result.json")) as f:
+            r = json.load(f)
+        boards.append((name, describe(r), B.read_kicad(os.path.join(folder, "board.kicad_pcb"))))
+    out = out or os.path.join(flow.OUT, "viewer.html")
+    return view.write(out, boards, standalone=standalone)
+
+
 def main(write=False, only=None, reuse=False, freeroute=True):
     """Run the experiments (only: the boards whose label has it; reuse: a
     board already built is read back, not built again) and, with write,
