@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "devices"
+version = "0.1.0"
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -19,12 +23,14 @@ dependencies = [
  "sisim",
  "toolchain",
  "v1-isa",
+ "v1b-system-model",
 ]
 
 [[package]]
 name = "hwsim"
 version = "0.1.0"
 dependencies = [
+ "devices",
  "serde",
  "serde_bytes",
 ]
@@ -222,4 +228,12 @@ name = "v1-isa"
 version = "0.1.0"
 dependencies = [
  "toolchain",
+]
+
+[[package]]
+name = "v1b-system-model"
+version = "0.1.0"
+dependencies = [
+ "devices",
+ "v1-isa",
 ]

@@ -5,6 +5,269 @@
   "estimated": [],
   "source": "TI 'The TTL Data Book for Design Engineers', 2nd ed. 1981, p.7-284 (scan: https://faculty-web.msoe.edu/johnsontimoj/CE3101/files3101/The_TTL_Data_Book_For_Design_Engineers_2ed_1981.pdf, PDF page 541)"
  },
+ "74ABT125": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 4.9,
+    "min": 1,
+    "typ": 3.2
+   },
+   "OE->Y dis": {
+    "max": 6.2,
+    "min": 1,
+    "typ": 3.8
+   },
+   "OE->Y en": {
+    "max": 6.8,
+    "min": 1,
+    "typ": 3.6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT125",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt125.pdf"
+ },
+ "74ABT16245": {
+  "checks": {},
+  "delays": {
+   "A->B": {
+    "max": 4.2,
+    "min": 1,
+    "typ": 2.3
+   },
+   "B->A": {
+    "max": 4.2,
+    "min": 1,
+    "typ": 2.3
+   },
+   "OE->Y dis": {
+    "max": 6.3,
+    "min": 1.5,
+    "typ": 4.4
+   },
+   "OE->Y en": {
+    "max": 6.4,
+    "min": 1,
+    "typ": 3.7
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT16245A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt16245a.pdf"
+ },
+ "74ABT245": {
+  "checks": {},
+  "delays": {
+   "A->B": {
+    "max": 3.9,
+    "min": 1,
+    "typ": 2.6
+   },
+   "B->A": {
+    "max": 3.9,
+    "min": 1,
+    "typ": 2.6
+   },
+   "OE->Y dis": {
+    "max": 5.9,
+    "min": 1.5,
+    "typ": 4.4
+   },
+   "OE->Y en": {
+    "max": 6.2,
+    "min": 1.9,
+    "typ": 4
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT245B",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt245b.pdf"
+ },
+ "74ABT377": {
+  "checks": {
+   "fmax MHz": 150,
+   "hold D": 1.8,
+   "hold EN": 1.2,
+   "setup D": 2.5,
+   "setup EN": 3,
+   "tw CLK": 3.3
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 7.3,
+    "min": 2.2,
+    "typ": 5.3
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT377A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt377a.pdf"
+ },
+ "74ABT534": {
+  "checks": {
+   "fmax MHz": 125,
+   "hold D": 2,
+   "setup D": 1.6,
+   "tw CLK": 3.5
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 7.6,
+    "min": 2.6,
+    "typ": 5.5
+   },
+   "OE->Y dis": {
+    "max": 7.3,
+    "min": 2.3,
+    "typ": 4.7
+   },
+   "OE->Y en": {
+    "max": 6.8,
+    "min": 1,
+    "typ": 4
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT534A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt534a.pdf"
+ },
+ "74ABT540": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 4.8,
+    "min": 1,
+    "typ": 3.1
+   },
+   "OE->Y dis": {
+    "max": 7.3,
+    "min": 1.2,
+    "typ": 5.3
+   },
+   "OE->Y en": {
+    "max": 6.4,
+    "min": 1.1,
+    "typ": 3.4
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT540",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt540.pdf"
+ },
+ "74ABT541": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 3.9,
+    "min": 1,
+    "typ": 2.6
+   },
+   "OE->Y dis": {
+    "max": 5.8,
+    "min": 1.5,
+    "typ": 4.4
+   },
+   "OE->Y en": {
+    "max": 5.9,
+    "min": 1.9,
+    "typ": 4
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT541B",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt541b.pdf"
+ },
+ "74ABT574": {
+  "checks": {
+   "fmax MHz": 150,
+   "hold D": 1.8,
+   "setup D": 1.5,
+   "tw CLK": 3.3
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 7.1,
+    "min": 2.2,
+    "typ": 4.8
+   },
+   "OE->Y dis": {
+    "max": 7,
+    "min": 2,
+    "typ": 4.9
+   },
+   "OE->Y en": {
+    "max": 6.7,
+    "min": 1,
+    "typ": 4.7
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT574A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt574a.pdf"
+ },
+ "74ABT74": {
+  "checks": {
+   "fmax MHz": 150,
+   "hold D": 0,
+   "recovery PRE/CLR": 2.4,
+   "setup D": 2.6,
+   "tw CLK": 2.1,
+   "tw PRE/CLR": 2.2
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 4.7,
+    "min": 1.0,
+    "typ": 3.0
+   },
+   "PRE/CLR->Q": {
+    "max": 6.2,
+    "min": 1.0,
+    "typ": 3.4
+   }
+  },
+  "estimated": [],
+  "part_number": "74ABT74",
+  "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240116/77C8EE5B84FCDBB9B8CEF5490E8423C2.pdf"
+ },
+ "74ABT823": {
+  "checks": {
+   "fmax MHz": 125,
+   "hold D": 1.3,
+   "hold EN": 2,
+   "recovery CLR": 2.5,
+   "setup D": 2.1,
+   "setup EN": 3.3,
+   "tw CLK": 3.8,
+   "tw CLR": 5.5
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 6.8,
+    "min": 2.1,
+    "typ": 4.4
+   },
+   "CLR->Q": {
+    "max": 7.1,
+    "min": 2,
+    "typ": 4.1
+   },
+   "OE->Y dis": {
+    "max": 7.5,
+    "min": 1.9,
+    "typ": 5
+   },
+   "OE->Y en": {
+    "max": 6.5,
+    "min": 1,
+    "typ": 4.1
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT823",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt823.pdf"
+ },
  "74ACT00": {
   "checks": {},
   "delays": {
@@ -66,6 +329,42 @@
   "estimated": [],
   "part_number": "SN74ACT10",
   "source": "https://www.ti.com/lit/ds/symlink/sn74act10.pdf"
+ },
+ "74ACT11": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 10.5,
+    "min": 1,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT11",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act11.pdf"
+ },
+ "74ACT125": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 8.7,
+    "min": 2.8,
+    "typ": 5.7
+   },
+   "OE->Y dis": {
+    "max": 8.1,
+    "min": 1.7,
+    "typ": 5.2
+   },
+   "OE->Y en": {
+    "max": 10.2,
+    "min": 3.1,
+    "typ": 6.7
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ACT125",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74act125.pdf"
  },
  "74ACT138": {
   "checks": {},
@@ -258,6 +557,21 @@
   "part_number": "CD74ACT175",
   "source": "https://www.ti.com/lit/ds/symlink/cd74act175.pdf"
  },
+ "74ACT20": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 12.3,
+    "min": 3.5,
+    "typ": 7.4
+   }
+  },
+  "estimated": [
+   "A->Y typ"
+  ],
+  "part_number": "CD74ACT20",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74act20.pdf"
+ },
  "74ACT21": {
   "checks": {},
   "delays": {
@@ -271,6 +585,21 @@
   ],
   "part_number": "IN74ACT21",
   "source": "https://en.integral.by/upload/iblock/eda/IN74ACT21.pdf"
+ },
+ "74ACT27": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 10.5,
+    "min": 1.0,
+    "typ": 6.3
+   }
+  },
+  "estimated": [
+   "A->Y typ"
+  ],
+  "part_number": "IN74ACT27",
+  "source": "https://en.integral.by/upload/iblock/293/IN74ACT27.pdf"
  },
  "74ACT299": {
   "checks": {
@@ -395,6 +724,270 @@
   "part_number": "SN74ACT86",
   "source": "https://www.ti.com/lit/ds/symlink/sn74act86.pdf"
  },
+ "74F00": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6,
+    "min": 1,
+    "typ": 3.3
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F00",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f00.pdf"
+ },
+ "74F02": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6.5,
+    "min": 1,
+    "typ": 4
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F02",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f02.pdf"
+ },
+ "74F04": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6,
+    "min": 1,
+    "typ": 3.3
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F04",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f04.pdf"
+ },
+ "74F08": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6.6,
+    "min": 1.7,
+    "typ": 3.8
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F08",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f08.pdf"
+ },
+ "74F109": {
+  "checks": {
+   "fmax MHz": 90,
+   "hold JK": 1,
+   "recovery PRE/CLR": 2,
+   "setup JK": 3,
+   "tw CLK": 5,
+   "tw PRE/CLR": 4
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 9.2,
+    "min": 3,
+    "typ": 5.8
+   },
+   "PRE/CLR->Q": {
+    "max": 10.5,
+    "min": 2.4,
+    "typ": 6.6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F109",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f109.pdf"
+ },
+ "74F11": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6.6,
+    "min": 1.7,
+    "typ": 3.8
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F11",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f11.pdf"
+ },
+ "74F138": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 9,
+    "min": 2.7,
+    "typ": 5.7
+   },
+   "G->Y": {
+    "max": 9,
+    "min": 2.2,
+    "typ": 5.8
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F138",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f138.pdf"
+ },
+ "74F148": {
+  "checks": {},
+  "delays": {
+   "EI->Y": {
+    "max": 12.0,
+    "min": 2.5,
+    "typ": 8.0
+   },
+   "I->Y": {
+    "max": 12.0,
+    "min": 2.5,
+    "typ": 8.0
+   }
+  },
+  "estimated": [],
+  "part_number": "74F148",
+  "source": "http://peshkin.mech.northwestern.edu/datasheets/LogicChips/Encoder_8to3_74F148.pdf"
+ },
+ "74F151": {
+  "checks": {},
+  "delays": {
+   "D->W": {
+    "max": 7,
+    "min": 1,
+    "typ": 3.6
+   },
+   "D->Y": {
+    "max": 7.5,
+    "min": 2.5,
+    "typ": 4.2
+   },
+   "G->Y": {
+    "max": 10.5,
+    "min": 2.5,
+    "typ": 5.3
+   },
+   "S->W": {
+    "max": 9.5,
+    "min": 2.7,
+    "typ": 5.2
+   },
+   "S->Y": {
+    "max": 12,
+    "min": 3.6,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F151B",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f151b.pdf"
+ },
+ "74F153": {
+  "checks": {},
+  "delays": {
+   "C->Y": {
+    "max": 8,
+    "min": 1.7,
+    "typ": 4.9
+   },
+   "G->Y": {
+    "max": 10.5,
+    "min": 1.7,
+    "typ": 6.7
+   },
+   "S->Y": {
+    "max": 12,
+    "min": 2.7,
+    "typ": 7.7
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F153",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f153.pdf"
+ },
+ "74F157": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 7,
+    "min": 1.2,
+    "typ": 4.1
+   },
+   "G->Y": {
+    "max": 11,
+    "min": 1.7,
+    "typ": 6.6
+   },
+   "S->Y": {
+    "max": 11,
+    "min": 2.2,
+    "typ": 6.6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F157A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f157a.pdf"
+ },
+ "74F163": {
+  "checks": {
+   "fmax MHz": 90,
+   "hold CLR": 2,
+   "hold EN": 0,
+   "hold LOAD": 2,
+   "hold data": 2,
+   "setup CLR": 11.5,
+   "setup EN": 11.5,
+   "setup LOAD": 11.5,
+   "setup data": 5,
+   "tw CLK": 7
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 11,
+    "min": 2.7,
+    "typ": 7.1
+   },
+   "CLK->RCO": {
+    "max": 15,
+    "min": 4.2,
+    "typ": 9.6
+   },
+   "ENT->RCO": {
+    "max": 8.5,
+    "min": 1.7,
+    "typ": 4.1
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F163A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f163a.pdf"
+ },
+ "74F175": {
+  "checks": {
+   "fmax MHz": 100,
+   "hold D": 1,
+   "recovery CLR": 5,
+   "setup D": 3,
+   "tw CLK": 5,
+   "tw CLR": 5
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 9.5,
+    "min": 3.2,
+    "typ": 6.1
+   },
+   "CLR->Q": {
+    "max": 13,
+    "min": 3.2,
+    "typ": 8.6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F175",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f175.pdf"
+ },
  "74F181": {
   "checks": {},
   "delays": {
@@ -468,6 +1061,114 @@
   "estimated": [],
   "source": "https://dmf.unisalento.it/~panareo/Elettronica_Digitale/Data%20sheet/74f182.pdf (Fairchild DS009492, Apr 1988, rev. Sep 2000, p.6)"
  },
+ "74F20": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6,
+    "min": 1,
+    "typ": 3.3
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F20",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f20.pdf"
+ },
+ "74F21": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 5.5,
+    "min": 1,
+    "typ": 3.4
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F21",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f21.pdf"
+ },
+ "74F27": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 5.5,
+    "min": 1,
+    "typ": 3.1
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F27",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f27.pdf"
+ },
+ "74F32": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6.6,
+    "min": 2.2,
+    "typ": 3.8
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F32",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f32.pdf"
+ },
+ "74F521": {
+  "checks": {},
+  "delays": {
+   "G->PEQ": {
+    "max": 10,
+    "min": 2.2,
+    "typ": 6.1
+   },
+   "P->PEQ": {
+    "max": 11,
+    "min": 2.7,
+    "typ": 6.6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F521",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f521.pdf"
+ },
+ "74F74": {
+  "checks": {
+   "fmax MHz": 100,
+   "hold D": 1,
+   "recovery PRE/CLR": 2,
+   "setup D": 3,
+   "tw CLK": 5,
+   "tw PRE/CLR": 4
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 9.2,
+    "min": 3,
+    "typ": 5.8
+   },
+   "PRE/CLR->Q": {
+    "max": 10.5,
+    "min": 2.4,
+    "typ": 6.6
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F74",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f74.pdf"
+ },
+ "74F86": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 8,
+    "min": 3,
+    "typ": 5.3
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F86",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f86.pdf"
+ },
  "74HCT00": {
   "checks": {},
   "delays": {
@@ -504,6 +1205,22 @@
   "part_number": "74HCT04",
   "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT04.pdf"
  },
+ "74HCT05": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 28,
+    "typ": 8
+   },
+   "release": {
+    "max": 25,
+    "typ": 9
+   }
+  },
+  "estimated": [],
+  "part_number": "MM74HCT05",
+  "source": "https://www.onsemi.com/pdf/datasheet/mm74hct05-d.pdf"
+ },
  "74HCT08": {
   "checks": {},
   "delays": {
@@ -528,6 +1245,50 @@
   "part_number": "74HCT10",
   "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT10.pdf"
  },
+ "74HCT11": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 35,
+    "typ": 11
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT11",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct11.pdf"
+ },
+ "74HCT125": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 31,
+    "typ": 10
+   },
+   "OE->Y dis": {
+    "max": 35,
+    "typ": 11
+   },
+   "OE->Y en": {
+    "max": 31,
+    "typ": 10
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT125",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct125.pdf"
+ },
+ "74HCT132": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 41,
+    "typ": 13
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT132",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct132.pdf"
+ },
  "74HCT138": {
   "checks": {},
   "delays": {
@@ -543,6 +1304,18 @@
   "estimated": [],
   "part_number": "74HCT138",
   "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT138.pdf"
+ },
+ "74HCT14": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 48,
+    "typ": 16
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT14",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct14.pdf"
  },
  "74HCT151": {
   "checks": {},
@@ -693,6 +1466,18 @@
   "part_number": "74HCT175",
   "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT175.pdf"
  },
+ "74HCT20": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 35,
+    "typ": 11
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT20",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct20.pdf"
+ },
  "74HCT21": {
   "checks": {},
   "delays": {
@@ -704,6 +1489,42 @@
   "estimated": [],
   "part_number": "CD74HCT21",
   "source": "https://www.ti.com/lit/ds/symlink/cd74hct21.pdf"
+ },
+ "74HCT245": {
+  "checks": {},
+  "delays": {
+   "A->B": {
+    "max": 28,
+    "typ": 16
+   },
+   "B->A": {
+    "max": 28,
+    "typ": 16
+   },
+   "OE->Y dis": {
+    "max": 50,
+    "typ": 26
+   },
+   "OE->Y en": {
+    "max": 58,
+    "typ": 25
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74HCT245",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74hct245.pdf"
+ },
+ "74HCT27": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 29,
+    "typ": 9
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT27",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct27.pdf"
  },
  "74HCT299": {
   "checks": {
@@ -974,6 +1795,58 @@
   },
   "estimated": [],
   "source": "https://www.ti.com/lit/ds/symlink/sn54s182.pdf (TI SDLS206, Dec 1972, rev. Mar 1988, p.4; package addendum 18-Sep-2026)"
+ },
+ "82C54": {
+  "checks": {
+   "clk max MHz": 10,
+   "tAR": 25,
+   "tAW": 0,
+   "tDW": 95,
+   "tGH": 50,
+   "tGL": 50,
+   "tGS": 40,
+   "tGW": 50,
+   "tPWH": 30,
+   "tPWL": 40,
+   "tRA": 0,
+   "tRR": 95,
+   "tRV": 165,
+   "tSR": 0,
+   "tSW": 0,
+   "tWA": 0,
+   "tWD": 0,
+   "tWW": 95
+  },
+  "delays": {
+   "A->D": {
+    "max": 185,
+    "typ": 185
+   },
+   "CLK->OUT": {
+    "max": 100,
+    "typ": 100
+   },
+   "GATE->OUT": {
+    "max": 100,
+    "typ": 100
+   },
+   "RD->D": {
+    "max": 85,
+    "typ": 85
+   },
+   "RD->D dis": {
+    "max": 65,
+    "min": 5,
+    "typ": 65
+   },
+   "WR->OUT": {
+    "max": 240,
+    "typ": 240
+   }
+  },
+  "estimated": [],
+  "part_number": "CP82C54-10Z",
+  "source": "https://www.renesas.com/us/en/document/dst/82c54-datasheet"
  },
  "AS6C1008-55": {
   "checks": {
@@ -1252,6 +2125,55 @@
   "estimated": [],
   "source": "https://www.alliancememory.com/wp-content/uploads/as7c256av.1.2.pdf (Alliance AS7C256A v1.2, Sep 2004, p.3-5)"
  },
+ "AS7C4096A-12": {
+  "checks": {
+   "tAH": 0,
+   "tAS": 0,
+   "tAW": 8,
+   "tCLZ": 3,
+   "tCW": 8,
+   "tDH": 0,
+   "tDW": 6,
+   "tOH": 3,
+   "tOLZ": 0,
+   "tOW": 3,
+   "tRC": 12,
+   "tWC": 12,
+   "tWP": 12,
+   "tWP OE high": 8,
+   "tWR": 0
+  },
+  "delays": {
+   "tAA": {
+    "max": 12,
+    "typ": 12
+   },
+   "tACE": {
+    "max": 12,
+    "typ": 12
+   },
+   "tCHZ": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOE": {
+    "max": 6,
+    "typ": 6
+   },
+   "tOHZ": {
+    "max": 6,
+    "typ": 6
+   },
+   "tWHZ": {
+    "max": 6,
+    "min": 2,
+    "typ": 6
+   }
+  },
+  "estimated": [],
+  "part_number": "AS7C4096A-12",
+  "source": "https://www.alliancememory.com/wp-content/uploads/as7c4096a_v1.3.pdf"
+ },
  "AT28C256-15": {
   "checks": {
    "tAH": 50,
@@ -1280,6 +2202,67 @@
   },
   "estimated": [],
   "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/AT28C256-Industrial-Grade-256-Kbit-Paged-Parallel-EEPROM-Data-Sheet-DS20006386.pdf (Microchip DS20006386B, 2022, Tables 6-2, 6-3, 6-4). Older Atmel doc0006M (12/2009) gives identical -15 values."
+ },
+ "CDC341": {
+  "checks": {
+   "fclock max MHz both banks loaded": 40,
+   "fclock max MHz one bank loaded": 80,
+   "skew out": 0.6,
+   "skew part": 1.0,
+   "skew pulse": 0.9
+  },
+  "delays": {
+   "A->Y": {
+    "max": 4.9,
+    "min": 3.1,
+    "typ": 4.0
+   },
+   "G->Y": {
+    "max": 4,
+    "min": 2,
+    "typ": 2.9
+   }
+  },
+  "estimated": [
+   "A->Y typ",
+   "G->Y typ"
+  ],
+  "part_number": "CDC341",
+  "source": "https://www.ti.com/lit/ds/symlink/cdc341.pdf"
+ },
+ "CF": {
+  "checks": {
+   "t0": 600,
+   "t1": 70,
+   "t2": 290,
+   "t2 16-bit": 165,
+   "t2i": 0,
+   "t3": 60,
+   "t4": 30,
+   "t5": 50,
+   "t6": 5,
+   "t7": 90,
+   "t8": 60,
+   "t9": 20,
+   "tA": 35,
+   "tB": 1250
+  },
+  "delays": {
+   "RD->D": {
+    "max": 240,
+    "typ": 240
+   },
+   "RD->D dis": {
+    "max": 30,
+    "min": 5,
+    "typ": 30
+   }
+  },
+  "estimated": [
+   "t2i"
+  ],
+  "part_number": "CF+ & CompactFlash spec rev 4.1, True IDE PIO mode 0",
+  "source": "https://www.farnell.com/datasheets/2625955.pdf"
  },
  "CY7C199C-12": {
   "checks": {
@@ -1720,6 +2703,50 @@
   },
   "estimated": [],
   "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)"
+ },
+ "TL16C550C": {
+  "checks": {
+   "recovery": 40,
+   "tAH": 20,
+   "tAH WR": 10,
+   "tAS": 7,
+   "tCH": 10,
+   "tCS": 7,
+   "tDH": 5,
+   "tDS": 15,
+   "tRC": 87,
+   "tRD": 40,
+   "tWR": 40,
+   "tw XIN": 25,
+   "xin max MHz": 16
+  },
+  "delays": {
+   "RD->D": {
+    "max": 45,
+    "typ": 45
+   },
+   "RD->D dis": {
+    "max": 20,
+    "typ": 20
+   }
+  },
+  "estimated": [],
+  "part_number": "TL16C550C",
+  "source": "https://www.ti.com/lit/ds/symlink/tl16c550c.pdf"
+ },
+ "TL7705A": {
+  "checks": {
+   "td": 13.0,
+   "td max": 26.0,
+   "td min": 6.5
+  },
+  "delays": {},
+  "estimated": [
+   "td min",
+   "td max"
+  ],
+  "part_number": "TL7705A",
+  "source": "https://www.ti.com/lit/ds/symlink/tl7705a.pdf"
  },
  "_about": "Build infra/hw/timing.json from the datasheet research in infra/hw/datasheets/. Generated by infra/hw/build_timing.py."
 }

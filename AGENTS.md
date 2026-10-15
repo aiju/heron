@@ -140,8 +140,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v0_hw graphics kernel bus_si`: a
-  study's unit tests. Run the ones for the studies you touched, or
+- `heron test v1_isa c_compiler v1b_hw v1b_system v0_hw graphics kernel
+  bus_si`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
   against their expected output.
@@ -156,7 +156,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.
 - **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
-  about 5 for every program, and `heron v1b_hw report --hw` longer.
+  about 5 for every program, `heron v1b_system test --jobs 4` (the whole
+  system on the bus) about 8, and `heron v1b_hw report --hw` longer.
 - **Signal integrity:** `heron bus_si report` runs report 0022's sweeps
   on the native engine, about 15 minutes on four cores; a single preset
   takes seconds to minutes. Run long ones in the background: they resume

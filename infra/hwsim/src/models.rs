@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use crate::Error;
+use crate::devices::{CompactFlash, I8254, Uart16550};
 use crate::rng::Rng;
 use crate::sim::{ChipInfo, Ctx, Kind, Time};
 
@@ -12,14 +13,15 @@ use crate::sim::{ChipInfo, Ctx, Kind, Time};
 pub struct Spec<'a> {
     pub info: &'a ChipInfo,
     pub delays: &'a HashMap<String, Time>,
+    pub params: &'a HashMap<String, i64>,
 }
 
 impl Spec<'_> {
-    fn has(&self, name: &str) -> bool {
+    pub(crate) fn has(&self, name: &str) -> bool {
         self.info.pin_names.iter().any(|p| p == name)
     }
 
-    fn pin(&self, name: &str) -> Result<usize, Error> {
+    pub(crate) fn pin(&self, name: &str) -> Result<usize, Error> {
         self.info
             .pin_names
             .iter()
@@ -32,7 +34,10 @@ impl Spec<'_> {
             })
     }
 
-    fn pins<const N: usize>(&self, name: impl Fn(usize) -> String) -> Result<[usize; N], Error> {
+    pub(crate) fn pins<const N: usize>(
+        &self,
+        name: impl Fn(usize) -> String,
+    ) -> Result<[usize; N], Error> {
         let mut out = [0; N];
         for (i, p) in out.iter_mut().enumerate() {
             *p = self.pin(&name(i))?;
@@ -40,7 +45,7 @@ impl Spec<'_> {
         Ok(out)
     }
 
-    fn d(&self, name: &str) -> Result<Time, Error> {
+    pub(crate) fn d(&self, name: &str) -> Result<Time, Error> {
         self.delays.get(name).copied().ok_or_else(|| {
             Error(format!(
                 "{} ({}): no timing value {:?}",
@@ -49,13 +54,26 @@ impl Spec<'_> {
         })
     }
 
-    fn d_or(&self, name: &str, default: Time) -> Time {
+    pub(crate) fn d_or(&self, name: &str, default: Time) -> Time {
         self.delays.get(name).copied().unwrap_or(default)
+    }
+
+    pub(crate) fn param(&self, name: &str) -> Result<i64, Error> {
+        self.params.get(name).copied().ok_or_else(|| {
+            Error(format!(
+                "{} ({}): no parameter {:?}",
+                self.info.reference, self.info.part, name
+            ))
+        })
+    }
+
+    pub(crate) fn param_or(&self, name: &str, default: i64) -> i64 {
+        self.params.get(name).copied().unwrap_or(default)
     }
 
     /// For each pin, the bits of a bus that are on the same net, so that a
     /// cached value of the bus can follow a change seen on any pin of it.
-    fn masks(&self, bus: &[usize]) -> Vec<u64> {
+    pub(crate) fn masks(&self, bus: &[usize]) -> Vec<u64> {
         let pins = &self.info.pins;
         let on = |n, b: usize| pins[b] == Some(n);
         (0..pins.len())
@@ -84,7 +102,7 @@ fn b2u(b: bool) -> u8 {
 }
 
 /// A bus's value, low bit first.
-fn bus_value(cx: &Ctx, c: &ChipInfo, pins: &[usize]) -> usize {
+pub(crate) fn bus_value(cx: &Ctx, c: &ChipInfo, pins: &[usize]) -> usize {
     pins.iter()
         .enumerate()
         .map(|(i, &p)| (cx.input(c, p) as usize) << i)
@@ -92,7 +110,7 @@ fn bus_value(cx: &Ctx, c: &ChipInfo, pins: &[usize]) -> usize {
 }
 
 /// A net changed to v: set the bits of a cached bus value that are on it.
-fn follow(value: &mut usize, mask: u64, v: u8) {
+pub(crate) fn follow(value: &mut usize, mask: u64, v: u8) {
     if mask != 0 {
         let mask = mask as usize;
         *value = if v == 1 {
@@ -124,6 +142,18 @@ pub enum Model {
     ClockGen,
     IoDev(IoDev),
     Sr299(Sr299),
+    Jk109(Jk109),
+    DReg(DReg),
+    Xcvr245(Xcvr245),
+    TriBuf(TriBuf),
+    Enc148(Enc148),
+    FanBuf(FanBuf),
+    Osc(Osc),
+    Por(Por),
+    Uart(Box<Uart16550>),
+    Timer(Box<I8254>),
+    Cf(Box<CompactFlash>),
+    Vector(Vector),
 }
 
 impl Model {
@@ -137,6 +167,8 @@ impl Model {
     ) -> Result<Model, Error> {
         Ok(match name {
             "nand" => Model::Gate(Gate::new(GateFn::Nand, s)?),
+            "nand_oc" => Model::Gate(Gate::new(GateFn::Nand, s)?.open_collector()),
+            "and_oc" => Model::Gate(Gate::new(GateFn::And, s)?.open_collector()),
             "nor" => Model::Gate(Gate::new(GateFn::Nor, s)?),
             "and" => Model::Gate(Gate::new(GateFn::And, s)?),
             "or" => Model::Gate(Gate::new(GateFn::Or, s)?),
@@ -150,7 +182,8 @@ impl Model {
             "cnt163" => Model::Counter(Counter::new(s, rng, true)?),
             "dff175" => Model::Dff175(Dff175::new(s, rng)?),
             "reg377" => Model::Reg377(Reg377::new(s, rng)?),
-            "buf541" => Model::Buf541(Buf541::new(s)?),
+            "buf541" => Model::Buf541(Buf541::new(s, false)?),
+            "buf540" => Model::Buf541(Buf541::new(s, true)?),
             "cmp688" => Model::Cmp688(Cmp688::new(s)?),
             "alu181" => Model::Alu181(Alu181::new(s)?),
             "cla182" => Model::Cla182(Cla182::new(s)?),
@@ -165,6 +198,21 @@ impl Model {
             "iodev" => Model::IoDev(IoDev::new(s, false)?),
             "iodev32" => Model::IoDev(IoDev::new(s, true)?),
             "sr299" => Model::Sr299(Sr299::new(s, rng)?),
+            "jk109" => Model::Jk109(Jk109::new(s, rng)?),
+            "dreg" => Model::DReg(DReg::new(s, rng, false)?),
+            "dreg_inv" => Model::DReg(DReg::new(s, rng, true)?),
+            "xcvr245" => Model::Xcvr245(Xcvr245::new(s)?),
+            "tribuf" => Model::TriBuf(TriBuf::new(s)?),
+            "enc148" => Model::Enc148(Enc148::new(s)?),
+            "fanbuf" => Model::FanBuf(FanBuf::new(s)?),
+            "osc" => Model::Osc(Osc::new(s)?),
+            // pull-up resistors are weak drivers in the engine (sim.rs)
+            "pullup" => Model::Const,
+            "por" => Model::Por(Por::new(s)?),
+            "uart16550" => Model::Uart(Box::new(Uart16550::new(s, preload)?)),
+            "i8254" => Model::Timer(Box::new(I8254::new(s)?)),
+            "cf" => Model::Cf(Box::new(CompactFlash::new(s, preload)?)),
+            "vector" => Model::Vector(Vector::new(s, preload)?),
             _ => {
                 return Err(Error(format!(
                     "{}: unknown model {:?}",
@@ -193,14 +241,51 @@ impl Model {
             Model::Sram(m) => m.init(cx, c),
             Model::Rom(m) => m.init(cx, c),
             Model::Const => {
-                let lo = c.pin_names.iter().position(|p| p == "LO").unwrap();
-                let hi = c.pin_names.iter().position(|p| p == "HI").unwrap();
-                cx.drive(c, lo, 0, true, 0);
-                cx.drive(c, hi, 1, true, 0);
+                if let Some(lo) = c.pin_names.iter().position(|p| p == "LO") {
+                    cx.drive(c, lo, 0, true, 0);
+                }
+                if let Some(hi) = c.pin_names.iter().position(|p| p == "HI") {
+                    cx.drive(c, hi, 1, true, 0);
+                }
             }
             Model::ClockGen => {}
             Model::IoDev(m) => cx.drive(c, m.irq, 0, true, 0),
             Model::Sr299(m) => m.outputs(cx, c, 0, 0),
+            Model::Jk109(m) => m.init(cx, c),
+            Model::DReg(m) => m.init(cx, c),
+            Model::Xcvr245(m) => m.init(cx, c),
+            Model::TriBuf(m) => m.init(cx, c),
+            Model::Enc148(m) => m.eval_all(cx, c, 0),
+            Model::FanBuf(m) => m.eval_all(cx, c, 0),
+            Model::Osc(m) => m.init(cx, c),
+            Model::Por(m) => m.init(cx, c),
+            Model::Uart(m) => m.init(cx, c),
+            Model::Timer(m) => m.init(cx, c),
+            Model::Cf(m) => m.init(cx, c),
+            Model::Vector(m) => m.init(cx, c),
+        }
+    }
+
+    /// Put an image into a RAM again (a loader's doing, after power-up);
+    /// other chips keep what they have.
+    pub fn reload(&mut self, image: &[u8]) {
+        if let Model::Sram(m) = self {
+            let n = image.len().min(m.mem.len());
+            m.mem[..n].copy_from_slice(&image[..n]);
+            m.mem[n..].fill(0);
+        }
+    }
+
+    /// What a chip holds that a run reports at the end: a RAM's contents,
+    /// what a device sent to the outside world. None for the others.
+    pub fn dump(&self) -> Option<Vec<u8>> {
+        match self {
+            Model::Sram(m) => Some(m.mem.clone()),
+            Model::IoDev(m) => Some(m.output.clone()),
+            Model::Uart(m) => Some(m.core.tx_out.clone()),
+            Model::Cf(m) => Some(m.core.image().to_vec()),
+            Model::Vector(m) => Some(m.log.clone()),
+            _ => None,
         }
     }
 
@@ -225,6 +310,18 @@ impl Model {
             Model::Const | Model::ClockGen => {}
             Model::IoDev(m) => m.eval(cx, c, pin),
             Model::Sr299(m) => m.eval(cx, c, pin),
+            Model::Jk109(m) => m.eval(cx, c, pin),
+            Model::DReg(m) => m.eval(cx, c, pin),
+            Model::Xcvr245(m) => m.eval(cx, c, pin),
+            Model::TriBuf(m) => m.eval(cx, c, pin),
+            Model::Enc148(m) => m.eval(cx, c, pin),
+            Model::FanBuf(m) => m.eval(cx, c, pin),
+            Model::Osc(m) => m.eval(cx, c, pin),
+            Model::Por(_) => {}
+            Model::Uart(m) => m.eval(cx, c, pin),
+            Model::Timer(m) => m.eval(cx, c, pin),
+            Model::Cf(m) => m.eval(cx, c, pin),
+            Model::Vector(m) => m.eval(cx, c, pin),
         }
     }
 }
@@ -248,6 +345,10 @@ pub struct Gate {
     ins: Vec<Vec<usize>>,
     out: Vec<usize>,
     d: Time,
+    /// Open-collector outputs: they pull low or let go. Letting go takes
+    /// `d_release`, which includes the pull-up's rise to the threshold.
+    oc: bool,
+    d_release: Time,
 }
 
 impl Gate {
@@ -276,7 +377,15 @@ impl Gate {
             ins,
             out,
             d: s.d("A->Y")?,
+            oc: false,
+            d_release: s.d_or("release", 0),
         })
+    }
+
+    fn open_collector(mut self) -> Gate {
+        self.oc = true;
+        self.d_release = self.d_release.max(self.d);
+        self
     }
 
     fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
@@ -294,7 +403,13 @@ impl Gate {
             GateFn::Nor => ins.fold(0, |v, i| v | i) ^ 1,
             GateFn::Xor => ins.fold(0, |v, i| v ^ i),
         };
-        cx.drive(c, self.out[sec], v, true, d);
+        if self.oc {
+            // the pull-up holds the line at 1 while the output lets go
+            let d = if v == 1 && d > 0 { self.d_release } else { d };
+            cx.drive(c, self.out[sec], v, v == 0, d);
+        } else {
+            cx.drive(c, self.out[sec], v, true, d);
+        }
     }
 
     fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
@@ -898,7 +1013,9 @@ impl Reg377 {
 
 // ---------------------------------------------------------------- 541 octal buffer
 
+/// The 74xx541 octal three-state buffer (and the 540, which inverts).
 pub struct Buf541 {
+    invert: u8,
     oe1: usize,
     oe2: usize,
     a: [usize; 8],
@@ -912,9 +1029,10 @@ pub struct Buf541 {
 }
 
 impl Buf541 {
-    fn new(s: &Spec) -> Result<Buf541, Error> {
+    fn new(s: &Spec, invert: bool) -> Result<Buf541, Error> {
         let a = s.pins(|i| format!("A{}", i + 1))?;
         Ok(Buf541 {
+            invert: invert as u8,
             oe1: s.pin("OE1")?,
             oe2: s.pin("OE2")?,
             a,
@@ -931,7 +1049,7 @@ impl Buf541 {
     fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
         self.enabled = cx.input(c, self.oe1) == 0 && cx.input(c, self.oe2) == 0;
         for i in 0..8 {
-            let v = cx.input(c, self.a[i]);
+            let v = cx.input(c, self.a[i]) ^ self.invert;
             cx.drive(c, self.y[i], v, self.enabled, 0);
         }
     }
@@ -946,7 +1064,7 @@ impl Buf541 {
             let d = if en { self.d_en } else { self.d_dis };
             self.en_at = cx.now() + d;
             for i in 0..8 {
-                let v = cx.input(c, self.a[i]);
+                let v = cx.input(c, self.a[i]) ^ self.invert;
                 cx.drive(c, self.y[i], v, en, d);
             }
             return;
@@ -955,7 +1073,7 @@ impl Buf541 {
             && self.enabled
         {
             let t = (cx.now() + self.d_a).max(self.en_at);
-            let v = cx.input(c, self.a[i]);
+            let v = cx.input(c, self.a[i]) ^ self.invert;
             cx.drive_at(c, self.y[i], v, true, t);
         }
     }
@@ -1785,6 +1903,561 @@ impl IoDev {
     }
 }
 
+// ---------------------------------------------------------------- 109 dual J-K flip-flop
+
+struct Jk109Section {
+    j: usize,
+    k: usize,
+    clk: usize,
+    pre: usize,
+    clr: usize,
+    q: usize,
+    qn: usize,
+    prev: u8,
+    state: u8,
+    last_edge: Option<Time>,
+}
+
+/// The 74F109: positive-edge J-K̄ flip-flops with preset and clear. At an
+/// edge, J K̄ = 00 resets, 01 holds, 10 toggles and 11 sets.
+pub struct Jk109 {
+    sec: [Jk109Section; 2],
+    d_clk: Time,
+    d_pc: Time,
+    setup: Time,
+    hold: Time,
+}
+
+impl Jk109 {
+    fn new(s: &Spec, rng: &mut Rng) -> Result<Jk109, Error> {
+        let mut section = |i: usize| -> Result<Jk109Section, Error> {
+            let p = |n: &str| s.pin(&format!("{}{}", i + 1, n));
+            Ok(Jk109Section {
+                j: p("J")?,
+                k: p("K")?,
+                clk: p("CLK")?,
+                pre: p("PRE")?,
+                clr: p("CLR")?,
+                q: p("Q")?,
+                qn: p("QN")?,
+                prev: 0,
+                state: rng.bit(),
+                last_edge: None,
+            })
+        };
+        let sec = [section(0)?, section(1)?];
+        Ok(Jk109 {
+            sec,
+            d_clk: s.d("CLK->Q")?,
+            d_pc: s.d("PRE/CLR->Q")?,
+            setup: s.d("setup JK")?,
+            hold: s.d("hold JK")?,
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        for x in &self.sec {
+            Self::out(cx, c, x, 0);
+        }
+    }
+
+    fn out(cx: &mut Ctx, c: &ChipInfo, x: &Jk109Section, d: Time) {
+        let (pre, clr) = (cx.input(c, x.pre), cx.input(c, x.clr));
+        let (q, qn) = if pre == 0 && clr == 0 {
+            (1, 1)
+        } else {
+            (x.state, x.state ^ 1)
+        };
+        cx.drive(c, x.q, q, true, d);
+        cx.drive(c, x.qn, qn, true, d);
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        for x in &mut self.sec {
+            if pin == x.clk {
+                let v = cx.input(c, x.clk);
+                if v == 1 && x.prev == 0 && cx.input(c, x.pre) == 1 && cx.input(c, x.clr) == 1 {
+                    cx.check_setup(c, x.j, self.setup, "J");
+                    cx.check_setup(c, x.k, self.setup, "K");
+                    x.state = match (cx.input(c, x.j), cx.input(c, x.k)) {
+                        (0, 0) => 0,
+                        (0, _) => x.state,
+                        (_, 0) => x.state ^ 1,
+                        _ => 1,
+                    };
+                    x.last_edge = Some(cx.now());
+                    Self::out(cx, c, x, self.d_clk);
+                }
+                x.prev = v;
+            } else if pin == x.pre || pin == x.clr {
+                if cx.input(c, x.pre) == 0 {
+                    x.state = 1;
+                }
+                if cx.input(c, x.clr) == 0 {
+                    x.state = 0;
+                }
+                Self::out(cx, c, x, self.d_pc);
+            } else if pin == x.j || pin == x.k {
+                cx.check_hold(c, pin, x.last_edge, self.hold, "JK");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- D registers (574, 823)
+
+/// A register of D flip-flops on one clock: pins D1..Dn and Q1..Qn, CLK,
+/// and optionally EN (active-low clock enable), CLR (active-low,
+/// asynchronous) and OE (active-low output enable, with three-state Q
+/// pins). The 74ABT574 has OE; the 74ABT823 has all three; the 74ABT534
+/// is a 574 with inverting outputs.
+pub struct DReg {
+    invert: u8,
+    clk: usize,
+    en: Option<usize>,
+    clr: Option<usize>,
+    oe: Option<usize>,
+    d: Vec<usize>,
+    q: Vec<usize>,
+    is_d: Vec<bool>,
+    state: Vec<u8>,
+    prev: u8,
+    last_edge: Option<Time>,
+    loaded: bool,
+    enabled: bool,
+    d_clk: Time,
+    d_clr: Time,
+    d_en: Time,
+    d_dis: Time,
+    su_d: Time,
+    h_d: Time,
+    su_e: Time,
+    h_e: Time,
+}
+
+impl DReg {
+    fn new(s: &Spec, rng: &mut Rng, invert: bool) -> Result<DReg, Error> {
+        let (mut d, mut q) = (Vec::new(), Vec::new());
+        while s.has(&format!("D{}", d.len() + 1)) {
+            d.push(s.pin(&format!("D{}", d.len() + 1))?);
+            q.push(s.pin(&format!("Q{}", q.len() + 1))?);
+        }
+        let opt = |n: &str| {
+            if s.has(n) {
+                s.pin(n).map(Some)
+            } else {
+                Ok(None)
+            }
+        };
+        let (en, clr, oe) = (opt("EN")?, opt("CLR")?, opt("OE")?);
+        let mut is_d = vec![false; s.info.pin_names.len()];
+        for &p in &d {
+            is_d[p] = true;
+        }
+        Ok(DReg {
+            invert: invert as u8,
+            clk: s.pin("CLK")?,
+            en,
+            clr,
+            oe,
+            state: (0..d.len()).map(|_| rng.bit()).collect(),
+            d,
+            q,
+            is_d,
+            prev: 0,
+            last_edge: None,
+            loaded: false,
+            enabled: oe.is_none(),
+            d_clk: s.d("CLK->Q")?,
+            d_clr: if clr.is_some() { s.d("CLR->Q")? } else { 0 },
+            d_en: if oe.is_some() { s.d("OE->Y en")? } else { 0 },
+            d_dis: if oe.is_some() { s.d("OE->Y dis")? } else { 0 },
+            su_d: s.d("setup D")?,
+            h_d: s.d("hold D")?,
+            su_e: if en.is_some() { s.d("setup EN")? } else { 0 },
+            h_e: if en.is_some() { s.d("hold EN")? } else { 0 },
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        if let Some(oe) = self.oe {
+            self.enabled = cx.input(c, oe) == 0;
+        }
+        self.out(cx, c, 0);
+    }
+
+    fn out(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        for (i, &q) in self.q.iter().enumerate() {
+            cx.drive(c, q, self.state[i] ^ self.invert, self.enabled, d);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin == self.clk {
+            let v = cx.input(c, self.clk);
+            let cleared = self.clr.is_some_and(|p| cx.input(c, p) == 0);
+            if v == 1 && self.prev == 0 && !cleared {
+                if let Some(en) = self.en {
+                    cx.check_setup(c, en, self.su_e, "EN");
+                }
+                self.last_edge = Some(cx.now());
+                self.loaded = self.en.is_none_or(|en| cx.input(c, en) == 0);
+                if self.loaded {
+                    for i in 0..self.d.len() {
+                        cx.check_setup(c, self.d[i], self.su_d, "D");
+                        self.state[i] = cx.input(c, self.d[i]);
+                    }
+                    self.out(cx, c, self.d_clk);
+                }
+            }
+            self.prev = v;
+        } else if Some(pin) == self.clr {
+            if cx.input(c, pin) == 0 {
+                self.state.fill(0);
+                self.out(cx, c, self.d_clr);
+            }
+        } else if Some(pin) == self.oe {
+            let en = cx.input(c, pin) == 0;
+            if en != self.enabled {
+                self.enabled = en;
+                self.out(cx, c, if en { self.d_en } else { self.d_dis });
+            }
+        } else if Some(pin) == self.en {
+            cx.check_hold(c, pin, self.last_edge, self.h_e, "EN");
+        } else if self.is_d[pin] && self.loaded {
+            cx.check_hold(c, pin, self.last_edge, self.h_d, "D");
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 245 transceiver
+
+/// The 74xx245 octal transceiver: DIR = 1 drives B from A, DIR = 0 drives
+/// A from B, while OE (active low) is low.
+pub struct Xcvr245 {
+    dir: usize,
+    oe: usize,
+    a: [usize; 8],
+    b: [usize; 8],
+    a_idx: Vec<Option<usize>>,
+    b_idx: Vec<Option<usize>>,
+    /// The direction being driven: Some(true) A to B, Some(false) B to A.
+    mode: Option<bool>,
+    en_at: Time,
+    d_ab: Time,
+    d_ba: Time,
+    /// Turning on the A side and the B side; a side on a bus line takes
+    /// longer, since the line has to settle.
+    d_en_a: Time,
+    d_en_b: Time,
+    d_dis: Time,
+}
+
+impl Xcvr245 {
+    fn new(s: &Spec) -> Result<Xcvr245, Error> {
+        let a = s.pins(|i| format!("A{}", i + 1))?;
+        let b = s.pins(|i| format!("B{}", i + 1))?;
+        Ok(Xcvr245 {
+            dir: s.pin("DIR")?,
+            oe: s.pin("OE")?,
+            a_idx: s.index(&a),
+            b_idx: s.index(&b),
+            a,
+            b,
+            mode: None,
+            en_at: 0,
+            d_ab: s.d("A->B")?,
+            d_ba: s.d("B->A")?,
+            d_en_a: s.d_or("OE->A en", s.d("OE->Y en")?),
+            d_en_b: s.d_or("OE->B en", s.d("OE->Y en")?),
+            d_dis: s.d("OE->Y dis")?,
+        })
+    }
+
+    fn mode(&self, cx: &Ctx, c: &ChipInfo) -> Option<bool> {
+        (cx.input(c, self.oe) == 0).then(|| cx.input(c, self.dir) == 1)
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        self.mode = self.mode(cx, c);
+        self.drive_all(cx, c, 0, 0);
+    }
+
+    /// The time to turn on the side the mode drives.
+    fn d_on(&self) -> Time {
+        match self.mode {
+            Some(true) => self.d_en_b,
+            _ => self.d_en_a,
+        }
+    }
+
+    /// Drive both sides as the mode says: the driven side follows the
+    /// other after `d_on`, the side not driven lets go after `d_off`.
+    fn drive_all(&self, cx: &mut Ctx, c: &ChipInfo, d_on: Time, d_off: Time) {
+        for i in 0..8 {
+            let (va, vb) = (cx.input(c, self.a[i]), cx.input(c, self.b[i]));
+            match self.mode {
+                Some(true) => {
+                    cx.drive(c, self.b[i], va, true, d_on);
+                    cx.drive(c, self.a[i], cx.driven(c, self.a[i]), false, d_off);
+                }
+                Some(false) => {
+                    cx.drive(c, self.a[i], vb, true, d_on);
+                    cx.drive(c, self.b[i], cx.driven(c, self.b[i]), false, d_off);
+                }
+                None => {
+                    cx.drive(c, self.a[i], cx.driven(c, self.a[i]), false, d_off);
+                    cx.drive(c, self.b[i], cx.driven(c, self.b[i]), false, d_off);
+                }
+            }
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin == self.oe || pin == self.dir {
+            let m = self.mode(cx, c);
+            if m != self.mode {
+                self.mode = m;
+                let d_on = self.d_on();
+                self.en_at = cx.now() + d_on;
+                self.drive_all(cx, c, d_on, self.d_dis);
+            }
+            return;
+        }
+        match self.mode {
+            Some(true) => {
+                if let Some(i) = self.a_idx[pin] {
+                    let t = (cx.now() + self.d_ab).max(self.en_at);
+                    cx.drive_at(c, self.b[i], cx.input(c, pin), true, t);
+                }
+            }
+            Some(false) => {
+                if let Some(i) = self.b_idx[pin] {
+                    let t = (cx.now() + self.d_ba).max(self.en_at);
+                    cx.drive_at(c, self.a[i], cx.input(c, pin), true, t);
+                }
+            }
+            None => {}
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 125 quad three-state buffer
+
+/// Three-state buffers with an active-low enable each: sections nOE, nA,
+/// nY (the 74xx125).
+pub struct TriBuf {
+    oe: Vec<usize>,
+    a: Vec<usize>,
+    y: Vec<usize>,
+    sec_of: Vec<Option<usize>>,
+    enabled: Vec<bool>,
+    en_at: Vec<Time>,
+    d_a: Time,
+    d_en: Time,
+    d_dis: Time,
+}
+
+impl TriBuf {
+    fn new(s: &Spec) -> Result<TriBuf, Error> {
+        let (mut oe, mut a, mut y) = (Vec::new(), Vec::new(), Vec::new());
+        let mut sec_of = vec![None; s.info.pin_names.len()];
+        while s.has(&format!("{}A", a.len() + 1)) {
+            let n = a.len() + 1;
+            oe.push(s.pin(&format!("{n}OE"))?);
+            a.push(s.pin(&format!("{n}A"))?);
+            y.push(s.pin(&format!("{n}Y"))?);
+            sec_of[oe[n - 1]] = Some(n - 1);
+            sec_of[a[n - 1]] = Some(n - 1);
+        }
+        let n = a.len();
+        Ok(TriBuf {
+            oe,
+            a,
+            y,
+            sec_of,
+            enabled: vec![false; n],
+            en_at: vec![0; n],
+            d_a: s.d("A->Y")?,
+            d_en: s.d("OE->Y en")?,
+            d_dis: s.d("OE->Y dis")?,
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        for i in 0..self.a.len() {
+            self.enabled[i] = cx.input(c, self.oe[i]) == 0;
+            cx.drive(c, self.y[i], cx.input(c, self.a[i]), self.enabled[i], 0);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        let Some(i) = self.sec_of[pin] else { return };
+        if pin == self.oe[i] {
+            let en = cx.input(c, pin) == 0;
+            if en != self.enabled[i] {
+                self.enabled[i] = en;
+                let d = if en { self.d_en } else { self.d_dis };
+                self.en_at[i] = cx.now() + d;
+                cx.drive(c, self.y[i], cx.input(c, self.a[i]), en, d);
+            }
+        } else if self.enabled[i] {
+            let t = (cx.now() + self.d_a).max(self.en_at[i]);
+            cx.drive_at(c, self.y[i], cx.input(c, pin), true, t);
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 148 priority encoder
+
+/// The 74xx148 8-to-3 priority encoder, all active low: I7 has priority.
+/// With EI high everything is high; with no input low, A = 111, GS high
+/// and EO low; otherwise A is the complement of the highest low input's
+/// number, GS low and EO high.
+pub struct Enc148 {
+    i: [usize; 8],
+    ei: usize,
+    a: [usize; 3],
+    gs: usize,
+    eo: usize,
+    d_i: Time,
+    d_ei: Time,
+}
+
+impl Enc148 {
+    fn new(s: &Spec) -> Result<Enc148, Error> {
+        Ok(Enc148 {
+            i: s.pins(|i| format!("I{i}"))?,
+            ei: s.pin("EI")?,
+            a: s.pins(|i| format!("A{i}"))?,
+            gs: s.pin("GS")?,
+            eo: s.pin("EO")?,
+            d_i: s.d("I->Y")?,
+            d_ei: s.d("EI->Y")?,
+        })
+    }
+
+    fn eval_all(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        let (a, gs, eo) = if cx.input(c, self.ei) == 1 {
+            (7, 1, 1)
+        } else {
+            match (0..8).rev().find(|&n| cx.input(c, self.i[n]) == 0) {
+                Some(n) => (7 - n, 0, 1),
+                None => (7, 1, 0),
+            }
+        };
+        for (k, &p) in self.a.iter().enumerate() {
+            cx.drive(c, p, ((a >> k) & 1) as u8, true, d);
+        }
+        cx.drive(c, self.gs, gs, true, d);
+        cx.drive(c, self.eo, eo, true, d);
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        let d = if pin == self.ei { self.d_ei } else { self.d_i };
+        self.eval_all(cx, c, d);
+    }
+}
+
+// ---------------------------------------------------------------- clock drivers
+
+/// One input buffered to many outputs (a clock driver such as the
+/// CDC341): A to Y1..Yn.
+pub struct FanBuf {
+    a: usize,
+    y: Vec<usize>,
+    d: Time,
+}
+
+impl FanBuf {
+    fn new(s: &Spec) -> Result<FanBuf, Error> {
+        let mut y = Vec::new();
+        while s.has(&format!("Y{}", y.len() + 1)) {
+            y.push(s.pin(&format!("Y{}", y.len() + 1))?);
+        }
+        Ok(FanBuf {
+            a: s.pin("A")?,
+            y,
+            d: s.d("A->Y")?,
+        })
+    }
+
+    fn eval_all(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        let v = cx.input(c, self.a);
+        for &p in &self.y {
+            cx.drive(c, p, v, true, d);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, _pin: usize) {
+        self.eval_all(cx, c, self.d);
+    }
+}
+
+// ---------------------------------------------------------------- oscillator and power-on reset
+
+/// A crystal oscillator. Its output pin is also its own input, so that
+/// each edge schedules the next: high for half the period (rounded
+/// down), then low; the first rising edge comes at `phase_ps`.
+pub struct Osc {
+    out: usize,
+    high: Time,
+    low: Time,
+    phase: Time,
+}
+
+impl Osc {
+    fn new(s: &Spec) -> Result<Osc, Error> {
+        let period = s.param("period_ps")?;
+        if period < 2 {
+            return Err(Error(format!(
+                "{}: period_ps must be at least 2",
+                s.info.reference
+            )));
+        }
+        Ok(Osc {
+            out: s.pin("OUT")?,
+            high: period / 2,
+            low: period - period / 2,
+            phase: s.param_or("phase_ps", period / 2),
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        cx.drive(c, self.out, 0, true, 0);
+        cx.drive_at(c, self.out, 1, true, self.phase.max(1));
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin == self.out {
+            let v = cx.input(c, self.out);
+            let d = if v == 1 { self.high } else { self.low };
+            cx.drive(c, self.out, v ^ 1, true, d);
+        }
+    }
+}
+
+/// The power-on reset: an open-collector output that holds RST low from
+/// power-up until `release_ps`.
+pub struct Por {
+    rst: usize,
+    release: Time,
+}
+
+impl Por {
+    fn new(s: &Spec) -> Result<Por, Error> {
+        Ok(Por {
+            rst: s.pin("RST")?,
+            release: s.param("release_ps")?,
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        cx.drive(c, self.rst, 0, true, 0);
+        cx.drive_at(c, self.rst, 1, false, self.release);
+    }
+}
+
 // ---------------------------------------------------------------- 299 shift/storage register
 
 /// The 74HCT299: S1 S0 = 00 hold, 01 shift toward Q7 (DS0 into Q0), 10
@@ -1930,5 +2603,111 @@ impl Sr299 {
         } else if self.is_io[pin] && !self.driving {
             cx.check_hold(c, pin, self.last_edge, self.h_io, "IO");
         }
+    }
+}
+
+/// A test fixture that plays a script against a clock: a test's bus
+/// master. At every rising edge of CLK it records its inputs I0.. (as they
+/// were just before the edge); then, if the current step's conditions held
+/// in what it recorded, it moves to the next step and drives its outputs
+/// O0.. with it after `delay_ps`. The script is the preload, a step being
+/// `outs` bytes (0, 1, or 2 to let go of the pin) and then `conds` bytes,
+/// each 0 for none or 1 + 2k + v for "input k was v"; after its last step
+/// the outputs stay. The record is the dump: `ins` bytes per edge.
+pub struct Vector {
+    clk: usize,
+    outs: Vec<usize>,
+    ins: Vec<usize>,
+    conds: usize,
+    script: Vec<u8>,
+    step: usize,
+    delay: Time,
+    prev: u8,
+    pub log: Vec<u8>,
+}
+
+impl Vector {
+    fn new(s: &Spec, preload: Option<&[u8]>) -> Result<Vector, Error> {
+        let n_out = s.param("outs")? as usize;
+        let n_in = s.param("ins")? as usize;
+        let conds = s.param_or("conds", 0) as usize;
+        let outs = (0..n_out)
+            .map(|i| s.pin(&format!("O{i}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ins = (0..n_in)
+            .map(|i| s.pin(&format!("I{i}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        let script = preload.unwrap_or(&[]).to_vec();
+        let size = n_out + conds;
+        if size == 0 || !script.len().is_multiple_of(size) {
+            return Err(Error(format!(
+                "{}: the script isn't a whole number of {size}-byte steps",
+                s.info.reference
+            )));
+        }
+        if let Some(&b) = script
+            .chunks(size)
+            .flat_map(|st| &st[n_out..])
+            .find(|&&b| b != 0 && (b as usize - 1) / 2 >= n_in)
+        {
+            return Err(Error(format!(
+                "{}: condition {b} names an input it doesn't have",
+                s.info.reference
+            )));
+        }
+        Ok(Vector {
+            clk: s.pin("CLK")?,
+            outs,
+            ins,
+            conds,
+            script,
+            step: 0,
+            delay: s.param_or("delay_ps", 1).max(1),
+            prev: 0,
+            log: Vec::new(),
+        })
+    }
+
+    fn size(&self) -> usize {
+        self.outs.len() + self.conds
+    }
+
+    fn steps(&self) -> usize {
+        self.script.len() / self.size()
+    }
+
+    fn drive(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        let at = self.step * self.size();
+        for (i, &p) in self.outs.iter().enumerate() {
+            let v = self.script[at + i];
+            cx.drive(c, p, (v == 1) as u8, v < 2, d);
+        }
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        if self.steps() > 0 {
+            self.drive(cx, c, 0);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin != self.clk {
+            return;
+        }
+        let v = cx.input(c, self.clk);
+        if v == 1 && self.prev == 0 {
+            let seen: Vec<u8> = self.ins.iter().map(|&p| cx.input(c, p)).collect();
+            let at = self.step * self.size() + self.outs.len();
+            let met = self.step >= self.steps()
+                || self.script[at..at + self.conds]
+                    .iter()
+                    .all(|&b| b == 0 || seen[(b as usize - 1) / 2] == (b - 1) % 2);
+            self.log.extend_from_slice(&seen);
+            if met && self.step + 1 < self.steps() {
+                self.step += 1;
+                self.drive(cx, c, self.delay);
+            }
+        }
+        self.prev = v;
     }
 }
