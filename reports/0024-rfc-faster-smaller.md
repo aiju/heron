@@ -6,14 +6,14 @@ status: open
 date: 2026-10-15
 context:
   studies: [v1b_tradeoffs, v1b_system, v1b_hw, v1_isa]
-  commit: bec7644
-depends-on: [7, 14]
+  commit: d64d5a7
+depends-on: [7, 14, 25]
 ---
 
 # RFC 0024: Faster and smaller: where the system's time and chips go
 
 The draft 1b system ([studies/v1b_system](../studies/v1b_system/README.md),
-from [pull request #30](https://github.com/aiju/heron/pull/30)) is 367 chips and runs a microcycle
+[report 0025](0025-report-draft-1b-system.md)) is 367 chips and runs a microcycle
 every 300 ns or so. This RFC asks how much faster and how much smaller it
 could be, and what each step costs: where the time and the chips go now,
 how far either could go at best, which levers move them, measured where
@@ -83,11 +83,13 @@ from counting or a model, not from a netlist.
 - **Packaging is the cheapest size lever.** 16-bit "Widebus" registers,
   buffers and transceivers, and 16-bit-wide SRAM for the register file,
   save 53 chips with no change to the design, if the boards may use
-  fine-pitch packages. GALs, if allowed, would
-  save roughly 70 to 100 more (*estimate*).
+  fine-pitch surface-mount packages, which Emily is now more open to.
+  GALs, which she'd rather not use, would save roughly 70 to 100 more
+  (*estimate*).
 - **A narrower datapath doesn't pay.** Once 16-bit parts are used, a
   16-bit datapath saves only about 30 more chips, for 10 to 30% more
-  time.
+  time. This agrees with RFC 0005, where building narrow first is
+  rejected.
 
 **Recommended:** fast parts and the new clock generator (2.3 times at
 chip level with the flash control store, for no chips); 16-bit parts
@@ -123,10 +125,13 @@ SRAM the slowest path is again the signed multiply step's, through the
 register file, the 74F181/182 carry chain, the sign logic and the result
 multiplexer (107 ns, [results.md](0024-rfc-faster-smaller/results.md#parts)).
 
-**The bus.** A transfer to the memory card holds its microcycle for
-620–680 ns, one to the I/O card for 880–960 ns. Only programs that use
-the cards notice: instruction fetches always come from the CPU card's
-RAM.
+**The bus.** Report 0025 measured what a transfer costs: a read from
+the memory card holds its microcycle for 520–600 ns, a write (two data
+clocks) for 620–660 ns, a read from the I/O card for 880–920 ns and a
+write to it for 920–960 ns
+([report 0025](0025-report-draft-1b-system.md#5-what-a-bus-transfer-costs)).
+Only programs that use the cards notice: instruction fetches always come
+from the CPU card's RAM.
 
 ## 3. Where the chips go
 
@@ -333,7 +338,7 @@ relative to the hardware:
 | multiply: stop when the rest of the multiplier is zero | 0.97 (mandel 0.74) | +2 | **open** |
 | multiply: two bits a step | 0.97 (mandel 0.79) | +8–10 | **not recommended** |
 | divide: two bits a step | 0.97 (bignum 0.85) | +10 or more | **not recommended** |
-| draft 1a instead of 1b, on the same hardware | 1.04 | about the same | (RFC 0006) |
+| draft 1a instead of 1b, on the same hardware | 1.04 | about the same | draft 2 builds on 1b: decided (RFC 0005) |
 
 The two-phase register file needs input latches on the ALU, so the
 register file can be written while the ALU still works from the values
@@ -342,6 +347,12 @@ register being written; the model assumes no stalls, so 0.64 is a bound.
 Together with the fast parts and the SRAM control store, the 32-bit
 memory and its prefetch buffer would bring the suite's microcycles to
 roughly 0.47 s (*estimate*), 3.8 times the system as built.
+
+None of these is pipelining or a cache, which RFC 0007 rejects for now
+as the lowest payoff per effort; RFC 0005 ranks speed last of its three
+directions too. The parts and the clock generator of sections 5 and 6
+give more than all of these together, without touching the
+microarchitecture.
 
 ## 8. Smaller: packages and PLDs
 
@@ -355,8 +366,11 @@ Report 0022 already recommends the 74ABT16245 for the bus drivers. The
 512K × 8 RAMs stay: no 5 V 16-bit SRAM is that deep. The logic parts come
 in TSSOP and SSOP (0.5–0.635 mm pitch), the 64K × 16 SRAM in TSOP-II
 (0.8 mm); 74ABT16823 and IS61C6416AL are still listed as active.
-**recommended**, if the boards may use these packages (open question 7
-of RFC 0005, DIP or SOIC).
+**recommended**, if the boards may use these packages. DIP or SOIC is
+still open ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#splitting-the-cpu-into-boards)),
+and Emily is more open to surface-mount parts, which a PCB assembly
+service would put together
+([RFC 0007](0007-rfc-ideas-microarchitecture.md#3-parts)).
 
 **GALs.** Much of the system is state machines and decode logic, which
 22V10s (ATF22V10C-7, 7.5 ns, still made) absorb at several chips each.
@@ -374,8 +388,11 @@ By block, *estimates*, not fitted:
 That's about 100 chips, a quarter of the system; call it 70–100 until the
 blocks are fitted. GALs are often faster than the 74F multiplexers they'd
 replace (7.5 ns against 12). RFC 0014 estimated the backplane alone at 28
-chips without GALs and 13 with them. **open** (open question 8 of
-RFC 0005).
+chips without GALs and 13 with them. **open**: Emily would rather not
+use them, since they make the machine harder to build, are hard to
+source and are less fun, but it isn't a definite no
+([RFC 0014, open question 4](0014-rfc-system-bus.md#14-open-questions)).
+This section is what they would buy.
 
 ## 9. Smaller: what the ISA's features cost
 
@@ -397,12 +414,14 @@ cost in cycles:
 
 None is worth dropping for its chips. 1a instead of 1b would save a few
 of them (the indexed mode, some of the immediate unit) and some
-microcode, for 4% more cycles on this hardware.
-**not recommended** as a size lever.
+microcode, for 4% more cycles on this hardware, and draft 2 builds on
+1b anyway (RFC 0005, decided). **not recommended** as a size lever.
 
 ## 10. Smaller: a narrower datapath
 
-Draft 1 is "a 32-bit architecture, built 16 bits wide first" (RFC 0005). The
+RFC 0005 rejects building narrow first (Emily, 2026-10-15): a 32-bit
+ISA on a 16-bit datapath is slower than draft 0 on ordinary code. This
+section adds what a narrower datapath would save in chips. The
 cycle model gives a 16-bit datapath 1.27 times the 1b hardware's cycles
 with a 32-bit register file and 1.51 with a 16-bit one; with a 32-bit
 memory bus and prefetch 1.07, against 0.80 for a 32-bit datapath with
@@ -417,7 +436,7 @@ CPU), for 1.3–1.5 times the cycles of a 32-bit datapath with the same
 memory, at a microcycle about 15% shorter (its carry chain is shorter).
 Most of the CPU (the control store, the sequencer, the PC and MAR, the
 flags, the memory interface) doesn't scale with width.
-**not recommended.**
+**not recommended**, which agrees with RFC 0005.
 
 ## 11. Smaller: the bus
 
@@ -456,15 +475,15 @@ chips for 8 master slots; fewer master slots save a few more).
 | 74HCT logic | the draft 0 and 1b hardware | most of the factor of 2.5–3.4 | 74F and 74ABT: **recommended** |
 | 55 ns memories | the 1b hardware | the rest of it | 12 ns RAM: **recommended**; the control store in SRAM: **open** |
 | The clock generator's fixed window and hold point | v1b_system | any speed-up beyond 15% | one for short cycles: **recommended** |
-| No PLDs | RFC 0005, open question 8 | roughly 70–100 chips | GALs: **open** |
-| DIP or SOIC packages | RFC 0005, open question 7 | 53 chips | 16-bit parts in TSSOP: **recommended** if the packages are allowed |
+| No PLDs | RFC 0014, open question 4 (a preference against) | roughly 70–100 chips | GALs: **open** |
+| DIP or SOIC packages | RFC 0008 (open; Emily more open to surface mount, RFC 0007) | 53 chips | 16-bit parts in TSSOP: **recommended** if the packages are allowed |
 | Worst-case timing over −40–85 °C | every report so far | 1.2–1.6 times the time, against typical delays | design to typical: **not recommended** (the jumpers let a real board run faster) |
 | 16 slots | RFC 0014 | 7–12 chips | 8 slots: **open** |
 | Any slot a bus master | RFC 0014 (DMA, LOCK) | about 18 chips | a single master: **not recommended** |
 | A backplane of cards | RFC 0005, decided | about 120 chips | a single board: **not recommended** (decided) |
 | Hardware multiply and divide | draft 1 | about 10 chips | drop it: **not recommended** |
 | 1b's addressing modes | draft 1b | a few chips and microcode | drop them: **not recommended** |
-| A 32-bit datapath | the 1b hardware | about 30 chips, after 16-bit parts | 16 bits: **not recommended** |
+| A 32-bit datapath | RFC 0005 (built narrow first: rejected) | about 30 chips, after 16-bit parts | 16 bits: **not recommended** |
 
 ## 13. Design points
 
@@ -489,6 +508,10 @@ slots save less than section 11's 30–35 chips, since the GALs already
 shrink the arbiter and the slot logic. The microcycle column is the 20
 programs of the `v1_isa` suite on the RTL model; the chip-level column is
 v1b_system's 22, with its memory card and CF card programs.
+
+The build budget is still open (RFC 0005, open question 1: 100, 200 and
+400 chips are different projects). These points span about 200 to 390
+chips; only GALs bring the whole system near 200.
 
 ## 14. What was tried and didn't work
 
@@ -538,9 +561,11 @@ For Emily:
 2. **The control store:** flash (2.3 times at chip level), or SRAM
    loaded at power-up (2.7 times, about 15 chips more, and writable
    microcode)?
-3. **Packages:** may the boards use TSSOP 16-bit parts (−53 chips)?
-4. **GALs** (−70 to 100 chips, *estimate*)? If yes, the next step is to
-   fit the blocks of section 8 for real.
+3. **Packages:** may the boards use 16-bit parts in TSSOP, surface
+   mounted (−53 chips)?
+4. **GALs** (−70 to 100 chips, *estimate*)? RFC 0014 records a
+   preference against them; this is what they would buy. If yes, the
+   next step is to fit the blocks of section 8 for real.
 5. **The bus:** 8 slots instead of 16? Mastering in a few slots only?
 6. **Cycles:** is the next CPU worth the overlapped fetch and a 32-bit
    memory (about 1.25 times, 10–15 chips), and is a two-phase register
