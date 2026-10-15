@@ -150,4 +150,4 @@ netlist ([RFC 0005](0005-rfc-ideas-direction.md#5-next-steps)).
 - On the bus, report 0022 suggests ABT16245 in TSSOP for wide drivers and
   no DIP ([RFC 0014, section 17](0014-rfc-system-bus.md#17-signal-integrity)).
 - PLDs: Emily would rather not use them, though it isn't a definite no
-  ([RFC 0005](0005-rfc-ideas-direction.md#4-open-questions)).
+  ([RFC 0014](0014-rfc-system-bus.md#14-open-questions)).

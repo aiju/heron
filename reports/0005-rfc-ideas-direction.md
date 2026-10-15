@@ -51,9 +51,11 @@ Chip counts are rough estimates unless they come from a netlist.
        is the calibration point.
     2. Bigger: 32-bit (below).
     3. Faster: pipelining and caches. Lowest payoff per effort.
-- **The operating system has protection** (Emily, 2026-10-15); what kind
-  of system it is is still open. [Report 0020](0020-report-operating-system.md)
-  proposes one, and stages it from a monitor to protection
+- **Protection as an option:** the machine should be able to protect
+  programs from each other, but software may also run without protection
+  (Emily, 2026-10-15). What kind of operating system it runs is open.
+  [Report 0020](0020-report-operating-system.md) proposes one, and stages
+  it from a monitor to protection
   ([RFC 0010](0010-rfc-ideas-os.md#1-the-operating-system)).
 - **A 32-bit architecture** (VAX-11/780, Eclipse MV/8000). **adopted**
   (draft 1).
@@ -226,7 +228,8 @@ Questions that only Emily can answer:
 1. **Build budget,** roughly in chips or months (100, 200 and 400 chips
    are different projects)? To be decided. The draft 1b CPU alone is 213
    chips.
-2. **The operating system:** it has protection, but what kind of system?
+2. **The operating system:** what kind of system, with protection as an
+   option?
    Report 0020 recommends a message-passing nucleus with file servers and
    per-process name spaces, in the style of Plan 9; a small Unix and a
    single-address-space world are the main alternatives
@@ -250,29 +253,7 @@ Questions that only Emily can answer:
    for to sprites and tiles
    ([RFC 0016, section 14](0016-rfc-video.md#14-open-questions)).
 
-**Answered by Emily on 2026-10-15:**
-
-- **The fun part** is building a whole machine. Period authenticity is
-  held lightly.
-- **Draft 2 builds on 1b**
-  ([RFC 0006](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
-- **A narrow implementation first** is rejected
-  ([section 1](#1-direction-and-ambition)).
-- **The operating system has protection.**
-- **Console:** both serial terminals and video, at least in the design;
-  the first build might not have video.
-- **No microcontrollers** inside peripherals.
-- **PLDs (PALs, GALs):** a preference against, though not a definite no.
-  They make the machine harder to build, they're hard to source, and
-  they're less fun. Without them the backplane's logic is about 28 chips
-  rather than 13 ([RFC 0014](0014-rfc-system-bus.md#139-the-backplanes-logic)),
-  and the video card about a third bigger.
-- **Parts:** more open to surface-mount parts, for an SMT build assembled
-  by a PCB assembly service ([RFC 0007](0007-rfc-ideas-microarchitecture.md#3-parts)).
-- **The master clock:** 50 MHz is recommended, not decided
-  ([RFC 0007](0007-rfc-ideas-microarchitecture.md#2-clocking-variable-length-cycles)).
-
-Answered earlier: what's decided is in [docs/README.md](../docs/README.md),
+What's decided is in [docs/README.md](../docs/README.md),
 and the bus decisions in
 [RFC 0014, section 18](0014-rfc-system-bus.md#18-decisions). Besides
 those: RISC-like and CISC-like encodings were compared (draft 1); the ECL

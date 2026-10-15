@@ -40,11 +40,12 @@ page 4,622 ([report 0020](0020-report-operating-system.md#short-version)).
 So the structure of an operating system (traps, switches, messages) is
 affordable, and anything that copies data is not.
 
-- **Protection.** **decided**: the operating system has it (Emily,
-  2026-10-15). What kind of system it is, and how it protects, are still
-  open. Hardware protection means the supervisor mode and an MMU
-  (sections 2 and 3); a safe language, as in a Lisp or Egret world, is
-  the other way.
+- **Protection as an option** (Emily, 2026-10-15): the machine should be
+  able to protect programs from each other, but software may also run
+  without protection. Hardware protection means the supervisor mode and
+  an MMU (sections 2 and 3); a safe language, as in a Lisp or Egret world,
+  is the other way. What kind of system it is, and how it protects, are
+  open.
 - **A message-passing nucleus with servers, asynchronous I/O by rings,
   one protocol for every server (9P or similar) with per-process name
   spaces, and the Lisp and Egret as worlds of their own, with a Unix-like

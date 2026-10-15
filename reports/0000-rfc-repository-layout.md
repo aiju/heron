@@ -238,48 +238,11 @@ holds ideas not yet worth an RFC of their own, each with a status.
 
 - An idea worth pursuing gets its own RFC, linked from the list.
 - When a scratchpad gets stale, it is marked `obsolete` and a new one
-  starts with whatever is still live. (The proposal below would replace
-  this.)
-
-#### Keeping them current
-
-**Proposed** (2026-10-15), after the first tidy of RFCs 0005–0010
-([PR #28](https://github.com/aiju/heron/pull/28)); not decided.
-
-- **Edited in place.** An ideas RFC is a living list, not a snapshot:
-  when the evidence moves, its items move with it, and its `date` and
-  `commit` say when it was last brought up to date. A new number is for
-  when an area changes shape (it splits, or most of it moves into RFCs
-  of its own), not for a tidy.
-- **One home for each idea.** An idea lives in one ideas RFC, or in an RFC
-  of its own once it gets one (the bus in RFC 0014, video in RFC 0016).
-  Everything else links to it. The ideas RFC keeps a pointer, and the
-  alternatives the bigger RFC set aside.
-- **Evidence by link.** An item gives its measurement in a sentence, with
-  the configuration it was measured on, and links the report. It doesn't
-  copy the report's tables.
-- **Reports feed the ideas RFCs.** A report that finds something worth
-  changing ends with where each idea went, as report 0018's "Ideas
-  recorded" does, and the same PR adds them to the ideas RFCs. Then no
-  idea stays buried in a report.
-- **Statuses,** as for items now, plus **not recommended**: the evidence
-  is against it, and Emily hasn't decided. Only Emily sets **decided** or
-  **rejected**, and the item says so with the date: "(Emily, 2026-10-15)".
-  A rejection keeps its reason. When she reviews items and leaves them as
-  they are, the RFC records the review.
-- **Facts and decisions.** A stated fact that later work makes wrong is
-  fixed whenever it's noticed. A decision changes only when Emily changes
-  it. Next steps that are done go into a short "done" list with links,
-  and drop out at the next tidy.
-- **A tidy** every few reports, or when a decision lands: read the
-  reports since the last tidy for ideas not yet recorded, fix stale
-  facts, and collect the questions for Emily in the PR. Renumbering
-  sections is fine if the links into them are fixed; `heron test` checks
-  anchors.
-- **Questions for Emily** go in RFC 0005's open questions, or in the area
-  RFC's own. Her answers move to an "answered" list, with the date.
-
-If this is accepted, AGENTS.md gets a short version of it.
+  starts with whatever is still live.
+- Ideas RFCs are living documents: they may be edited, unlike reports.
+- An idea that comes out of an investigation is either discussed in its
+  report and linked from the ideas RFC, or described in the ideas RFC
+  itself. Which one is a judgement call.
 
 ## docs/
 
@@ -408,5 +371,3 @@ Emily has decided, in the discussion of this RFC:
 1. **Numbers:** how should parallel sessions allocate them, so two PRs
    don't take the same one? *Answered:* by reserving them on `main`
    ([Numbers](#numbers)).
-2. **Ideas RFCs:** how should they be kept current? Proposed in
-   [Keeping them current](#keeping-them-current).

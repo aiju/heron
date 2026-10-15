@@ -49,7 +49,6 @@ Earlier designs are studies: [draft 0](../studies/v0_hw/README.md),
 
 **Beyond the CPU**
 
-- The operating system has protection.
 - A console on serial terminals, and video too (the first build might
   leave video out).
 - No microcontrollers inside peripherals.
