@@ -222,8 +222,41 @@ class CodePatterns(unittest.TestCase):
         a = asm_of("int f(int *p, int i) { return p[i]; }", "v1b")
         self.assertRegex(a, r"\[r\d+ \+ r\d+\*4\]")
 
+    def test_v2_autoincrement_and_load_flags(self):
+        # the store between the load and the branch leaves the flags alone,
+        # so the load sets them: no compare
+        a = asm_of(self.STRCPY, "v2")
+        self.assertRegex(a, r"MOVS\s+(r\d+), byte \[r\d+\]\+\n\s+MOV\s+byte \[r\d+\]\+, \1\n\s+BNE")
+        self.assertNotIn("CMP", a)
+
+    def test_v2_zero_store_is_clr(self):
+        a = asm_of("struct s { int a, b; char c; }; void f(struct s *p) { p->a = 0; p->c = 0; }", "v2")
+        self.assertRegex(a, r"CLR\s+\[r1\]")
+        self.assertRegex(a, r"CLR\s+byte \[r1 \+ 8\]")
+        self.assertNotIn("r0", a)
+
+    def test_v2_table_without_base_register(self):
+        a = asm_of("int t[100]; int f(int i) { return t[i]; }", "v2")
+        self.assertRegex(a, r"MOV\s+r1, \[_t \+ r1\*4\]")
+
+    def test_v2_increment_in_memory(self):
+        a = asm_of("int n; unsigned char c[4]; void f(int i) { n++; c[i]--; }", "v2")
+        self.assertRegex(a, r"INC\s+\[_n\]")
+        self.assertRegex(a, r"DEC\s+byte \[_c \+ r1\]")
+        a = asm_of("int n[64]; void f(unsigned char *p) { n[*p]++; }", "v2")
+        self.assertRegex(a, r"INC\s+\[_n \+ r\d\*4\]")
+
+    def test_v2_r0_is_allocated(self):
+        # eight values live across the loop, all in scratch registers: r1-r7 and r0
+        src = ("int f(int *p, int n) { int a = 0, b = 1, c = 2, d = 3, e = 4, g = 5;"
+               " while (n--) { a += *p++; b ^= a; c += b; d -= c; e |= d; g += e; }"
+               " return a + b + c + d + e + g; }")
+        a = asm_of(src, "v2")
+        self.assertIn("r0", a)
+        self.assertNotIn("SAVE", a)
+
     def test_three_address_add_uses_lea(self):
-        for isa in ("v1a", "v1b"):
+        for isa in ("v1a", "v1b", "v2"):
             a = asm_of("int g(int a, int b) { return a - b; }\n"
                        "int f(int x) { return g(x + 1000, x); }", isa)
             self.assertIn("LEA", a)
@@ -233,22 +266,24 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(a, r"ADDI\s+r\d+, 5|LEA\s+r\d+, \[r\d+ \+ 5\]")
 
     def test_no_frame_for_leaf(self):
-        a = asm_of("int f(int a, int b) { return a * b + 1; }", "v1b")
-        self.assertNotIn("SAVE", a)
-        self.assertNotIn("sp", a)
+        for isa in ("v1b", "v2"):
+            a = asm_of("int f(int a, int b) { return a * b + 1; }", isa)
+            self.assertNotIn("SAVE", a)
+            self.assertNotIn("sp", a)
 
     def test_jump_table(self):
         src = """int f(int x) { switch (x) { case 0: return 5; case 1: return 7; case 2: return 9;
                  case 3: return 11; case 4: return 2; case 5: return 4; } return 0; }"""
         self.assertIn("JMP  [", asm_of(src, "v1b"))
         self.assertRegex(asm_of(src, "v1a"), r"JMP\s+r\d+")
+        self.assertRegex(asm_of(src, "v2"), r"JMP\s+\[pc \+ _f_jt0 \+ r\d+\*4\]")
 
 
 class Semantics(unittest.TestCase):
     """Small programs whose output doesn't need a reference compiler."""
 
     def check(self, src, out):
-        for isa in ("v1a", "v1b"):
+        for isa in ("v1a", "v1b", "v2"):
             self.assertEqual(run_c(src, isa), out, isa)
 
     def test_char_is_unsigned(self):
@@ -299,7 +334,7 @@ int main(void) { int i; other[0] = 7; for (i = 0; i < 4; i++) table[i] = 99;
 printf("%d %d\\n", other[0], (int)sizeof(table)); return 0; }""", "7 400\n")
 
     def test_jump_table_past_32k(self):
-        # The table sits in its function's section: 1b reaches it
+        # The table sits in its function's section: 1b and 2 reach it
         # PC-relative, 1a with a 32-bit displacement, wherever that goes.
         from heron.infra import link
         from heron.studies.c_compiler.cc import driver
@@ -311,7 +346,7 @@ int f(int x) { switch (x) { case 0: return 5; case 1: return 7; case 2: return 9
 int main(void) { if (zero) pad(); printf("%d %d\\n", f(3), f(9)); return 0; }
 """
         pad = "        .global pad\n        .section .text.pad\npad:    .space 40000\n"
-        for isa in ("v1a", "v1b"):
+        for isa in ("v1a", "v1b", "v2"):
             objs = [driver.start_object(isa), driver.assemble(isa, pad, "pad.o"),
                     driver.assemble(isa, driver.unit_assembly(compile_unit("t.c", isa, text=src), isa), "t.o")]
             img = link.link(objs, [driver.library(isa)[0]], isa)

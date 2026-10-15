@@ -1,4 +1,4 @@
-"""Compile C for draft 1a or 1b.
+"""Compile C for draft 1a, 1b or 2.
 
 Each translation unit becomes an object file: the backend writes its
 assembly, with a section per function and per data object and `.global`
@@ -38,7 +38,10 @@ def target_for(isa):
     if isa == "v1b":
         from heron.studies.c_compiler.codegen.v1b import V1B
         return V1B
-    raise CompileError(f"no C compiler backend for ISA {isa} (use v1a or v1b)")
+    if isa == "v2":
+        from heron.studies.c_compiler.codegen.v2 import V2
+        return V2
+    raise CompileError(f"no C compiler backend for ISA {isa} (use v1a, v1b or v2)")
 
 
 class Unit:
@@ -388,9 +391,13 @@ def build(paths, isa, opt=1, include=(), defines=None, library=True, verify_ir=F
 
 def run_image(img, isa, inp=b"", max_cycles=200_000_000):
     """Run on the instruction-level simulator; returns the machine."""
-    from heron.infra import isas
-    from heron.studies.v1_isa.sim32 import Machine32, SimError
-    m = Machine32(isas.get(isa), img, inp=inp)
+    if isa == "v2":
+        from heron.studies.v2_isa.sim import Machine, SimError
+        m = Machine(img, inp=inp)
+    else:
+        from heron.infra import isas
+        from heron.studies.v1_isa.sim32 import Machine32, SimError
+        m = Machine32(isas.get(isa), img, inp=inp)
     try:
         m.run(max_cycles=max_cycles)
     except SimError as e:

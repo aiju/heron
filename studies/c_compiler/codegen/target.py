@@ -1,24 +1,24 @@
-"""The parts of code generation that both draft 1 encodings share: walking
-the IR, deciding which values can be folded into the instructions that use
-them, the calling convention, phi copies, switch lowering, the stack frame,
-the peepholes and the assembly text. codegen.v1a and v1b subclass Target
+"""The parts of code generation that every target shares: walking the IR,
+deciding which values can be folded into the instructions that use them,
+the calling convention, phi copies, switch lowering, the stack frame, the
+peepholes and the assembly text. codegen.v1a, v1b and v2 subclass Target
 with their instruction selection.
 
 Calling convention (the v1_isa study's isa-v1.md): arguments in r1-r4, the rest on the
 stack; result in r1; r1-r7 caller-saved, r8-r14 callee-saved; sp is r15.
-Calls to variadic functions pass every argument on the stack. The caller
-reserves the outgoing argument area at the bottom of its frame, so sp
-doesn't move inside a function body.
+On draft 1 r0 reads as zero; on draft 2 it's a general register, and
+caller-saved. Calls to variadic functions pass every argument on the stack.
+The caller reserves the outgoing argument area at the bottom of its frame,
+so sp doesn't move inside a function body.
 """
 
 from heron.studies.c_compiler.ir import ir as I
 from heron.studies.c_compiler.ir.ir import Instr, Const, SymAddr, Param, Slot, Undef, PURE, s32
 from heron.studies.c_compiler.ir.cfg import compute_loop_depth, reverse_postorder
-from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr, MBlock, MFunction, liveness, is_alloc
+from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr, MBlock, MFunction, liveness
 from .regalloc import Allocator
 
 ARG_REGS = PHYS[1:5]
-CALLER_SAVED = PHYS[1:8]
 
 COND = {"eq": "EQ", "ne": "NE", "lt": "LT", "le": "LE", "gt": "GT", "ge": "GE",
         "ltu": "LO", "leu": "LS", "gtu": "HI", "geu": "HS"}
@@ -63,6 +63,8 @@ def split_critical_edges(func):
 class Target:
     FOLD_LOADS = True       # loads can be operands of other instructions
     ALLOC_ORDER = PHYS[1:15]
+    CALLER_SAVED = PHYS[1:8]     # what a call clobbers
+    ZERO = R0               # a register that reads as zero, or None
     SMALL_ADD = (-16, 15)        # add constants that fit the one-parcel form
 
     def __init__(self, symname=None, near=None):
@@ -76,7 +78,7 @@ class Target:
         split_critical_edges(f)
         compute_loop_depth(f)
         self.f = f
-        mf = self.mf = MFunction(self.symname(f.name), f)
+        mf = self.mf = MFunction(self.symname(f.name), f, self.ALLOC_ORDER)
         # locals: fixed offsets (spill slots go above them)
         off = 0
         for s in f.slots:
@@ -252,8 +254,8 @@ class Target:
                 raise AssertionError("use of an absorbed increment before its access")
             raise AssertionError(f"value {v} ({getattr(v, 'op', '?')}) used before it's computed")
         if isinstance(v, Const):
-            if v.value == 0:
-                return R0
+            if v.value == 0 and self.ZERO is not None:
+                return self.ZERO
             return self.const_reg(v.value)
         if isinstance(v, SymAddr):
             return self.const_reg(self.sym_expr(v))
@@ -262,7 +264,7 @@ class Target:
             self.emit("LEA", [t, Mem(SP, frame=Frame("local", v))], defs=[t])
             return t
         if v is Undef:
-            return R0
+            return self.ZERO if self.ZERO is not None else self.const_reg(0)
         raise AssertionError(v)
 
     def const_reg(self, value):
@@ -488,9 +490,9 @@ class Target:
 
     def emit_call(self, target, uses):
         if isinstance(target, Label):
-            self.emit("BSR", [target], defs=list(CALLER_SAVED), uses=uses)
+            self.emit("BSR", [target], defs=list(self.CALLER_SAVED), uses=uses)
         else:
-            self.emit("CALL", [target], defs=list(CALLER_SAVED), uses=uses + [target])
+            self.emit("CALL", [target], defs=list(self.CALLER_SAVED), uses=uses + [target])
 
     def new_label(self):
         self.label_count = getattr(self, "label_count", 0) + 1
@@ -499,7 +501,7 @@ class Target:
     def call_runtime(self, name, args, result=None):
         for k, a in enumerate(args):
             self.copy(ARG_REGS[k], a)
-        self.emit("BSR", [Label(self.symname(name))], defs=list(CALLER_SAVED),
+        self.emit("BSR", [Label(self.symname(name))], defs=list(self.CALLER_SAVED),
                   uses=list(ARG_REGS[:len(args)]))
         if result is not None:
             self.copy(result, PHYS[1])
@@ -607,6 +609,7 @@ class Target:
     def fold_constants(self):
         """MOV rt, #c; OP rd, rt  ->  OP rd, #c, when rt dies there (left
         over from constants rematerialised by the register allocator)."""
+        is_alloc = self.mf.is_alloc
         live_in, live_out = liveness(self.mf)
         for b in self.mf.blocks:
             live = set(live_out[b])

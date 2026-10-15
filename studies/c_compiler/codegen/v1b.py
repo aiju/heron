@@ -12,7 +12,7 @@ What it tries to use:
 
 from heron.studies.c_compiler.ir.ir import Instr, Const, SymAddr, Param
 from .mir import R0, SP, VReg, Imm, Mem, Frame, Label, MInstr
-from .target import Target, COND, SWAP, CALLER_SAVED
+from .target import Target, COND, SWAP
 from .addr import decompose, fits
 
 ALU = {"add": "ADD", "sub": "SUB", "and": "AND", "or": "OR", "xor": "XOR"}
@@ -108,15 +108,12 @@ class V1B(Target):
                 if fits(off, 8):
                     return Mem(SP, index=self.reg(x), scale=s, disp=disp, frame=frame, size=size)
             elif p.sym is not None:
-                if s == 1 and self.near(p.sym, disp):
-                    return Mem(self.reg(x), disp=disp, sym=self.symname(p.sym), size=size)
-                b = self.const_reg(self.sym_expr(SymAddr(p.sym, disp)))
-                return Mem(b, index=self.reg(x), scale=s, size=size)
+                return self.sym_indexed(p.sym, disp, x, s, size)
             elif s == 1:
                 if fits(disp, 16):
                     return Mem(self.reg(x), disp=disp, size=size)
-            elif fits(disp, 8):
-                return Mem(R0, index=self.reg(x), scale=s, disp=disp, size=size)
+            elif self.fits_scaled(disp):
+                return self.scaled(x, s, disp, size)
         elif len(terms) == 2 and p.slot is None and p.sym is None and fits(disp, 8):
             (x, sx), (y, sy) = terms
             if sx != 1 and sy == 1:
@@ -148,6 +145,25 @@ class V1B(Target):
             self.emit("ADD", [t, Imm(disp)], defs=[t], uses=[t], flags="nz")
             base, disp = t, 0
         return Mem(base, disp=disp, size=size)
+
+    def sym_indexed(self, sym, disp, x, s, size):
+        """[sym + disp + x*s]: [label + r], or the label's address in a
+        register as the base of an indexed operand."""
+        if s == 1 and self.near(sym, disp):
+            return Mem(self.reg(x), disp=disp, sym=self.symname(sym), size=size)
+        b = self.const_reg(self.sym_expr(SymAddr(sym, disp)))
+        return Mem(b, index=self.reg(x), scale=s, size=size)
+
+    def sym_index_ok(self, sym, disp, s):
+        """Does [sym + disp + x*s] count as one operand for try_lea?"""
+        return s == 1 and self.near(sym, disp) or s != 1
+
+    def fits_scaled(self, disp):
+        return fits(disp, 8)
+
+    def scaled(self, x, s, disp, size):
+        """[x*s + disp] without a base register: r0 is zero."""
+        return Mem(R0, index=self.reg(x), scale=s, disp=disp, size=size)
 
     def fmt_mem(self, m):
         kw = SIZE_KW[m.size]
@@ -287,8 +303,8 @@ class V1B(Target):
             if p.slot is not None:
                 return fits(self.mf.local_offset_known(p.slot) + disp, 8)
             if p.sym is not None:
-                return s == 1 and self.near(p.sym, disp) or s != 1
-            return fits(disp, 16) if s == 1 else fits(disp, 8)
+                return self.sym_index_ok(p.sym, disp, s)
+            return fits(disp, 16) if s == 1 else self.fits_scaled(disp)
         if len(terms) == 2 and p.slot is None and p.sym is None and fits(disp, 8):
             return any(s == 1 for _, s in terms)
         return False
@@ -357,7 +373,7 @@ class V1B(Target):
 
     def emit_call(self, target, uses):
         if isinstance(target, Mem):
-            self.emit("CALL", [target], defs=list(CALLER_SAVED), uses=uses)
+            self.emit("CALL", [target], defs=list(self.CALLER_SAVED), uses=uses)
             return
         super().emit_call(target, uses)
 
