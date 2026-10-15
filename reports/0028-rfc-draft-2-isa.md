@@ -67,12 +67,14 @@ isn't in the repository.
   - constant forms of `TST`, `BIC` and multiply;
   - tables without a base register, in the special mode:
     `[abs24 + x·s]` and `[pc + d24 + x·s]`;
+  - a second slot mode, `[r14 + 4R]`: the first 16 words of the current
+    object in one parcel, for every operation that takes a mode;
   - `ILLEGAL` at `00`.
 - **Some instructions are tentative:** `ADD.B4`, `FFS`, `POPC`, `REV`,
   `MULA`, `MERGE`, `MULFX` and the tagged operations. They're defined so
   that the simulator has them and software can use them, to measure
   whether they earn their cells ([6.9](#69-tentative-instructions)).
-- **236 of the 256 root cells are used,** 20 are free.
+- **245 of the 256 root cells are used,** 11 are free.
 - **Open:** `CAS` and the floating-point escape are marked out, not
   designed; `LEA`'s special mode; what `r0`'s change still needs; and the
   rest of [section 9](#9-open-questions).
@@ -100,6 +102,7 @@ as in draft 1.
 | `CLR [r6]+` | `20 66` |
 | `RET` | `FD 00` |
 | `HALT` | `FE 03` |
+| `MOV r1, [r14 + 8]` (mode E) | `1E 12` |
 
 - **Operand bits beyond the register byte** take the opcode byte's low
   bits, so the instruction fills an aligned block of 2, 4, 8 or 16 cells:
@@ -153,7 +156,8 @@ as in draft 1.
 
 ## 4. The map
 
-`R` is the mode's register; `R+X·s` the indexed mode; `spec` 1b's special
+`R` is the mode's register; `R+X·s` the indexed mode; `r14+4R` mode E, the
+slot mode; `spec` 1b's special
 mode ([5.1](#51-the-special-mode)); `+1`, `+1–2` the extension parcels; `×n`
 an instruction that fills n cells. `ST` is a store, written `MOV` in draft
 2's syntax; the assembler doesn't accept `ST`. Likewise `MVI` and `CMPI`
@@ -161,17 +165,17 @@ are written `MOV` and `CMP` ([6.3](#63-short-constants-row-7)).
 
 | | _0 | _1 | _2 | _3 | _4 | _5 | _6 | _7 | _8 | _9 | _A | _B | _C | _D | _E | _F |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 |  | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | LEA spec +1–2 | ADD.B4 |  |  |  |  |  | MFSR rd,n | MTSR n,rs |
-| 1_ | MOV rs | MOV #q | MOV [R] | MOV [R+d16] +1 | MOV [sp+4R] | MOV [R+X·s] +1 | MOV [R]+ | MOV -[R] | MOV b[R] | MOV b[R+d16] +1 | MOV b[R]+ | MOV h[R] | MOV h[R+d16] +1 | MOV #−q | TMOV | MOV spec +1–2 |
-| 2_ | CLR ea +0–2 | INC ea +0–2 | ST [R] | ST [R+d16] +1 | ST [sp+4R] | ST [R+X·s] +1 | ST [R]+ | ST -[R] | ST b[R] | ST b[R+d16] +1 | ST b[R]+ | ST h[R] | ST h[R+d16] +1 | DEC ea +0–2 | TTST | ST spec +1–2 |
-| 3_ | MOVS rs |  | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 |  |  | MOVS spec +1–2 |
-| 4_ | ADD rs | ADD #q | ADD [R] | ADD [R+d16] +1 | ADD [sp+4R] | ADD [R+X·s] +1 | ADD [R]+ | ADD -[R] | ADD b[R] | ADD b[R+d16] +1 | ADD b[R]+ | ADD h[R] | ADD h[R+d16] +1 | ADD #−q | TADD | ADD spec +1–2 |
-| 5_ | SUB rs | SUB #q | SUB [R] | SUB [R+d16] +1 | SUB [sp+4R] | SUB [R+X·s] +1 | SUB [R]+ | SUB -[R] | SUB b[R] | SUB b[R+d16] +1 | SUB b[R]+ | SUB h[R] | SUB h[R+d16] +1 | SUB #−q | TSUB | SUB spec +1–2 |
-| 6_ | CMP rs | CMP #q | CMP [R] | CMP [R+d16] +1 | CMP [sp+4R] | CMP [R+X·s] +1 | CMP [R]+ | CMP -[R] | CMP b[R] | CMP b[R+d16] +1 | CMP b[R]+ | CMP h[R] | CMP h[R+d16] +1 | CMP #−q | TCMP | CMP spec +1–2 |
+| 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 |  | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | LEA spec +1–2 | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | MFSR rd,n | MTSR n,rs |
+| 1_ | MOV rs | MOV #q | MOV [R] | MOV [R+d16] +1 | MOV [sp+4R] | MOV [R+X·s] +1 | MOV [R]+ | MOV -[R] | MOV b[R] | MOV b[R+d16] +1 | MOV b[R]+ | MOV h[R] | MOV h[R+d16] +1 | MOV #−q | MOV [r14+4R] | MOV spec +1–2 |
+| 2_ | CLR ea +0–2 | INC ea +0–2 | ST [R] | ST [R+d16] +1 | ST [sp+4R] | ST [R+X·s] +1 | ST [R]+ | ST -[R] | ST b[R] | ST b[R+d16] +1 | ST b[R]+ | ST h[R] | ST h[R+d16] +1 | DEC ea +0–2 | ST [r14+4R] | ST spec +1–2 |
+| 3_ | MOVS rs |  | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 |  | MOVS [r14+4R] | MOVS spec +1–2 |
+| 4_ | ADD rs | ADD #q | ADD [R] | ADD [R+d16] +1 | ADD [sp+4R] | ADD [R+X·s] +1 | ADD [R]+ | ADD -[R] | ADD b[R] | ADD b[R+d16] +1 | ADD b[R]+ | ADD h[R] | ADD h[R+d16] +1 | ADD #−q | ADD [r14+4R] | ADD spec +1–2 |
+| 5_ | SUB rs | SUB #q | SUB [R] | SUB [R+d16] +1 | SUB [sp+4R] | SUB [R+X·s] +1 | SUB [R]+ | SUB -[R] | SUB b[R] | SUB b[R+d16] +1 | SUB b[R]+ | SUB h[R] | SUB h[R+d16] +1 | SUB #−q | SUB [r14+4R] | SUB spec +1–2 |
+| 6_ | CMP rs | CMP #q | CMP [R] | CMP [R+d16] +1 | CMP [sp+4R] | CMP [R+X·s] +1 | CMP [R]+ | CMP -[R] | CMP b[R] | CMP b[R+d16] +1 | CMP b[R]+ | CMP h[R] | CMP h[R+d16] +1 | CMP #−q | CMP [r14+4R] | CMP spec +1–2 |
 | 7_ | MVI #u7 ×8 | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | CMPI #u7 ×8 | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ |
-| 8_ | AND rs | AND #q | AND [R] | AND [R+d16] +1 | AND [sp+4R] | AND [R+X·s] +1 | AND [R]+ | AND -[R] | AND b[R] | AND b[R+d16] +1 | AND b[R]+ | AND h[R] | AND h[R+d16] +1 | AND #−q |  | AND spec +1–2 |
-| 9_ | OR rs | OR #q | OR [R] | OR [R+d16] +1 | OR [sp+4R] | OR [R+X·s] +1 | OR [R]+ | OR -[R] | OR b[R] | OR b[R+d16] +1 | OR b[R]+ | OR h[R] | OR h[R+d16] +1 | OR #−q |  | OR spec +1–2 |
-| A_ | XOR rs | XOR #q | XOR [R] | XOR [R+d16] +1 | XOR [sp+4R] | XOR [R+X·s] +1 | XOR [R]+ | XOR -[R] | XOR b[R] | XOR b[R+d16] +1 | XOR b[R]+ | XOR h[R] | XOR h[R+d16] +1 | XOR #−q |  | XOR spec +1–2 |
+| 8_ | AND rs | AND #q | AND [R] | AND [R+d16] +1 | AND [sp+4R] | AND [R+X·s] +1 | AND [R]+ | AND -[R] | AND b[R] | AND b[R+d16] +1 | AND b[R]+ | AND h[R] | AND h[R+d16] +1 | AND #−q | AND [r14+4R] | AND spec +1–2 |
+| 9_ | OR rs | OR #q | OR [R] | OR [R+d16] +1 | OR [sp+4R] | OR [R+X·s] +1 | OR [R]+ | OR -[R] | OR b[R] | OR b[R+d16] +1 | OR b[R]+ | OR h[R] | OR h[R+d16] +1 | OR #−q | OR [r14+4R] | OR spec +1–2 |
+| A_ | XOR rs | XOR #q | XOR [R] | XOR [R+d16] +1 | XOR [sp+4R] | XOR [R+X·s] +1 | XOR [R]+ | XOR -[R] | XOR b[R] | XOR b[R+d16] +1 | XOR b[R]+ | XOR h[R] | XOR h[R+d16] +1 | XOR #−q | XOR [r14+4R] | XOR spec +1–2 |
 | B_ | Bcc s8 ×16 | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ | ↳ |
 | C_ | LSL #n ×2 | ↳ | LSL rs |  | LSR #n ×2 | ↳ | LSR rs |  | ASR #n ×2 | ↳ | ASR rs |  | ROR #n ×2 | ↳ | ROR rs |  |
 | D_ | NOT | NEG | INC | DEC | RLC | RRC | SWAP | SXB | SXH | ZXB | ZXH | CLZ | FFS | POPC | REV | SETcc |
@@ -189,8 +193,8 @@ The two extension grids, with the second byte:
 | | | `FE 10` | `MFUR rd, rs` (two parcels) |
 | | | `FE 11` | `MTUR rd, rs` (two parcels) |
 
-Free root cells: `03`, `09`–`0D`, `31`, `3D`, `3E`, `8E`, `9E`, `AE`,
-`C3`, `C7`, `CB`, `CF`, `EF`, `F9`–`FB`.
+Free root cells: `03`, `31`, `3D`, `C3`, `C7`, `CB`, `CF`, `EF`,
+`F9`–`FB`.
 
 ## 5. Addressing modes
 
@@ -207,7 +211,7 @@ from the register byte. They are 1b's modes, in 1b's order
 | 3 | `[R + d16]` | B | `half [R]` |
 | 4 | `[sp + 4R]`, R is the offset | C | `half [R + d16]` |
 | 5 | `[R + Rx·s + d8]`, indexed | D | `#−q`, −1…−16 |
-| 6 | `[R]+` | E | traps as a mode; the tagged column in the map |
+| 6 | `[R]+` | E | `[r14 + 4R]`, R is the offset |
 | 7 | `-[R]` | F | special |
 
 - **Byte and half operands** zero-extend when read.
@@ -223,6 +227,22 @@ from the register byte. They are 1b's modes, in 1b's order
   traps.
 - **Special:** `R` picks an operand that needs no register, in the table
   below ([5.1](#51-the-special-mode)).
+- **Mode E, `[r14 + 4R]`:** the word at `r14` plus 4 × `R`, 0–60, shaped
+  like mode 4 with `r14` for `sp`. **decided** (Emily, 2026-10-15).
+  - `r14` holds the current object by convention: the kernel's current
+    thread control block, Egret's frame record, the VM's state. It's
+    callee-saved in the C convention, so C code called from them keeps it.
+  - It's a mode like any other, so every operation in rows 1–6 and 8–A
+    has it, and so do the instructions that take the mode from the
+    register byte: `CLR [r14 + 8]`, `JMP [r14 + 20]`.
+  - Measured on 1b with the mode added (report 0029): 3–5% of the
+    nucleus's message and switch paths, and its code 4% smaller; about 1%
+    of Egret's cycles; nothing for the Lisp, whose tagged pointers put
+    fields at 4k ± 1. Loads and stores are 75–100% of the uses, so the
+    report suggested three cells; the whole column keeps the mode table
+    orthogonal.
+  - The assembler picks it for a word at `[r14 + 0…60]`, as it picks mode
+    4 for `[sp + 0…60]`.
 - **The mode from the register byte:** a one-operand instruction puts `M`
   in the register byte's high nibble and `R` in the low one, so one cell
   gets every mode. 1b's op B did this for `JMP ea` and `CALL ea`, and the
@@ -231,10 +251,10 @@ from the register byte. They are 1b's modes, in 1b's order
 - **With `r0` a general register,** every mode works with it like any
   other register.
 - **1b's gaps that remain** ([RFC 0006, 3.2](0006-rfc-ideas-isa.md#32-1bs-gaps)):
-  no one-parcel `[R + small offset]`; no byte or half auto-decrement and no
-  half auto-increment; no sign-extending loads (`SXB` and `SXH` after the
-  load). [Section 10](#10-1bs-gaps-left-open) has what they cost and the
-  options. The indexed mode's 8-bit displacement, which couldn't hold a
+  no one-parcel `[R + small offset]` except through `r14`; no byte or
+  half auto-decrement and no half auto-increment; no sign-extending loads
+  (`SXB` and `SXH` after the load). [Section 10](#10-1bs-gaps-left-open)
+  has what they cost and the options. The indexed mode's 8-bit displacement, which couldn't hold a
   table's address, is answered by the special mode's D and E.
 
 ### 5.1 The special mode
@@ -376,8 +396,9 @@ D and E are new: tables without a base register. **decided** (Emily,
   Each saves about a cycle over a load and an ALU operation. These rows are
   where to take cells back from: keeping `rs`, `#q`, `#−q` and the special
   mode for `AND`, `OR` and `XOR` frees up to 33.
-- **Column E is the tagged operations:** `TMOV`, `TTST`, `TADD`, `TSUB`,
-  `TCMP`, on registers. They trap unless their operands are integers, and
+- **Column E is mode E, `[r14 + 4R]`** ([5](#5-addressing-modes)).
+- **The tagged operations** `TMOV`, `TTST`, `TADD`, `TSUB` and `TCMP`, on
+  registers, are in `09`–`0D`. They trap unless their operands are integers, and
   `TADD` and `TSUB` on overflow too: −6.4% of the Lisp's compiled cycles,
   −5.5% of Egret's ([RFC 0006, 6](0006-rfc-ideas-isa.md#6-for-dynamic-languages)).
   Which tag marks an integer is open. Their definitions are tentative
@@ -529,17 +550,17 @@ they're only marked out, to be designed ([9](#9-open-questions)).
 | `EE` | `MERGE rd, rs` | `rd ← (rd & ~HI) \| (rs & HI)`: `rs`'s bits where the mask in `HI` is set | NZ | Masked edges and glyph words in graphics: −20% of the glyph loop ([report 0019](0019-report-graphics.md#a-merge-under-a-mask)) |
 | `FD 10` | `MULFX rd, rs, #n` | `rd ← (rd × rs) >> n`: the signed 64-bit product shifted right arithmetically by 0–31, its low 32 bits; `HI` gets the product's high half, as after `MULS`. The extension parcel holds `rd`, `rs` and `n`, with 3 bits spare | NZ; C = V = 1 if the result doesn't fit in 32 bits | Fixed-point multiply: mandel's inner loop |
 
-The tagged operations in column E check that their operands are integers.
+The tagged operations in `09`–`0D` check that their operands are integers.
 They follow the Lisp's v1bx ([studies/lisp/isa.md](../studies/lisp/isa.md)),
 on registers only:
 
 | Cell | Instruction | Does | Flags | Traps unless |
 |---|---|---|---|---|
-| `1E` | `TMOV rd, rs` | `rd ← rs` | unchanged, like `MOV` | `rs` is an integer |
-| `2E` | `TTST rd, rs` | flags of `rd & rs`, like `TST` | NZ | both are integers |
-| `4E` | `TADD rd, rs` | `rd ← rd + rs` | as `ADD` | both are integers, and the sum doesn't overflow |
-| `5E` | `TSUB rd, rs` | `rd ← rd − rs` | as `SUB` | as `TADD` |
-| `6E` | `TCMP rd, rs` | flags of `rd − rs` | as `CMP` | both are integers |
+| `09` | `TMOV rd, rs` | `rd ← rs` | unchanged, like `MOV` | `rs` is an integer |
+| `0A` | `TTST rd, rs` | flags of `rd & rs`, like `TST` | NZ | both are integers |
+| `0B` | `TADD rd, rs` | `rd ← rd + rs` | as `ADD` | both are integers, and the sum doesn't overflow |
+| `0C` | `TSUB rd, rs` | `rd ← rd − rs` | as `SUB` | as `TADD` |
+| `0D` | `TCMP rd, rs` | flags of `rd − rs` | as `CMP` | both are integers |
 
 - **The trap** has its own vector and is taken before anything is
   written, so the saved PC is the instruction's own, as in v1bx.
@@ -626,14 +647,15 @@ programs and the 15 C programs compiled for 1b, with their C library.
     - A qualifier that forces a long form, for patching code in place or
       instructions of a fixed length: `MOV.L r1, #5`, say, like ARM's
       `.W`. Only if something needs it.
-12. **Room to grow:** 20 free cells, and `AND`, `OR` and `XOR`'s memory
+12. **Room to grow:** 11 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([6.2](#62-alu-operations-rows-46-and-8a)).
 
 ## 10. 1b's gaps left open
 
 Three of 1b's addressing gaps
-([RFC 0006, 3.2](0006-rfc-ideas-isa.md#32-1bs-gaps)) have no cells in the
-map. Here is what they cost in 1b code, and the options. None is decided.
+([RFC 0006, 3.2](0006-rfc-ideas-isa.md#32-1bs-gaps)), and what they cost
+in 1b code. Short offsets got mode E, `[r14 + 4R]`; the other two have no
+cells.
 Measured as in [section 8](#8-how-it-was-measured), with the same
 uncommitted scripts.
 
@@ -677,8 +699,10 @@ instructions:
     such as the kernel's current thread, the Lisp's environment or the VM's
     state. One cell each for `MOV` and `ST` gives 16 word fields. It pays
     only if the software dedicates the register.
-- **Proposed:** neither for now. Revisit when the kernel, or compiled code
-  heavy on structs, runs on draft 2.
+- **Decided:** the second fixed-base slot, as mode E with `r14`, after
+  report 0029 measured it on the kernel, Egret and the Lisp (Emily,
+  2026-10-15; [5](#5-addressing-modes)). Short offsets through any
+  register are not proposed.
 
 ### 10.2 More auto-increment and auto-decrement modes
 
