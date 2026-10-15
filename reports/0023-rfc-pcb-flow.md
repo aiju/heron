@@ -50,7 +50,7 @@ netlist; and the board's wire delays back in the simulator.
 **For the CPU card** (269 chips): surface-mount parts, **six layers, about
 300 × 220 mm**, parts on the top and the decoupling capacitors underneath.
 It places in under a minute and routes in under a minute, with no DRC
-errors, and every check passes. Four layers would take about 440 × 260.
+errors, and every check passes. Four layers would take about 460 × 260.
 The plain DIP version works on **four layers at about 480 × 300 mm**,
 2.2 times the area. One card is enough: splitting the CPU over two would
 put about 170 signals or more between them.
@@ -122,10 +122,10 @@ was run on the same CPU card placement:
 - with the planes given to it as power layers, as KiCad exports them, its
   first fanout pass took **101 minutes and escaped 134 of 3,508 pins**; it
   was stopped at two hours without a result;
-- [the second run, with only the signal layers and its fanout off, given
-  an hour: pending].
+- with only the signal layers given to it and its fanout off, it had not
+  finished its first routing pass after an hour, and gave nothing back.
 
-**Our router** routes the same board in about 30 seconds. It is a grid
+**Our router** routes the same board in under a minute. It is a grid
 router with negotiated congestion (PathFinder, the algorithm of FPGA
 routers): every net is routed alone, nodes shared by two nets cost more
 in each round, and nodes that stay contested build up a history cost,
@@ -258,17 +258,18 @@ check, KiCad's DRC and the fab netlist's check.
 | | 6 | 340 × 220 | routed |
 | | 6 | **300 × 220** | **routed ✓** |
 | | 6 | 280 × 233 (6U × 280) | routed |
-| | 6 | 280 × 220 | routed, hard (38 rounds) |
+| | 6 | 280 × 220 | routed, in twice the rounds |
 | | 6 | 260 × 220 | the parts don't fit |
 | SMD, everything on top | 6 | 340 × 220 | routed |
 | | 6 | 320 × 220 | the parts don't fit |
 | SMD, parts on both sides | 6 | 280 × 220 | routed |
-| | 6 | 260 × 220 | [pending] |
-| SMD | 4 | 380 × 220 | **not routed** (61 nets in conflict) |
-| | 4 | 440 × 260 | routed |
+| | 6 | 260 × 220 | not routed (2 nets in conflict) |
+| SMD | 4 | 380 × 220 | **not routed** (58 nets in conflict) |
+| | 4 | 440 × 260 | not routed (2 nets in conflict) |
+| | 4 | **460 × 260** | **routed ✓** |
 | **DIP** | 6 | 480 × 300 | routed ✓ |
 | | 6 | 440 × 300 | the parts don't fit |
-| | 4 | **480 × 300** | **routed** |
+| | 4 | **480 × 300** | **routed ✓** |
 | | 4 | 520 × 300 | routed |
 
 [to check against results.md]
@@ -279,8 +280,11 @@ From these:
   limit is first the placement, then the routing: with parts on both sides
   280 × 220 routes and smaller doesn't. Four signal layers carry about
   120 m of track on this card.
-- **SMD on four layers** needs about 440 × 260 (114,000 mm²), nearly
-  twice the area: two signal layers, one of them covered in pads.
+- **SMD on four layers** needs about 460 × 260 (120,000 mm²), 1.8 times
+  the area: two signal layers, one of them covered in pads. Near the
+  limit, whether a board routes depends on the details of its placement:
+  440 × 260 routed with an earlier version of the placer, and with this
+  one two nets stay in conflict.
 - **DIP on four layers: about 480 × 300 mm** (144,000 mm²). Six layers
   don't make it smaller, because the parts don't fit any closer: the
   footprints alone are 75,000 mm², against 37,000 for SMD, and
@@ -403,7 +407,7 @@ For Emily:
 3. **SMD or DIP** for the CPU card? SMD (recommended) is 300 × 220 on six
    layers; DIP is about 480 × 300 on four.
 4. **Layers:** for SMD, six (300 × 220) rather than the four RFC 0005
-   recorded (440 × 260)?
+   recorded (460 × 260)?
 5. **Card size:** about 300 × 220, or a standard 6U × 280 (233 × 280)?
    The memory and I/O cards are small; their size can follow the CPU
    card's or be smaller.

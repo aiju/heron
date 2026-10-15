@@ -32,6 +32,7 @@ BOARDS = [
     ("smd-6-both", "smd", 260, 220, 6, "FB", "beside", 1.2, False),
     ("smd-4", "smd", 380, 220, 4, "F", "under", 1.2, False),
     ("smd-4", "smd", 440, 260, 4, "F", "under", 1.2, False),
+    ("smd-4", "smd", 460, 260, 4, "F", "under", 1.2, True),
     ("dip-6", "dip", 480, 300, 6, "F", "beside", 1.0, True),
     ("dip-6", "dip", 440, 300, 6, "F", "beside", 1.0, False),
     ("dip-6", "dip", 400, 300, 6, "F", "beside", 1.0, False),
