@@ -66,7 +66,7 @@ def connectors(nl, width, height, uses_p2=True):
     return out
 
 
-# ---- mechanics (RFC 0023, section 8) ----------------------------------------------------
+# ---- mechanics (RFC 0026) ----------------------------------------------------
 
 EUROCARD_6U = 233.35
 GUIDE_STRIP = 5.0         # the top and bottom edges, in the card guides: no parts, no copper

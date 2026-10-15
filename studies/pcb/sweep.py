@@ -219,7 +219,7 @@ def write_results(boards, timing_rows, nets, fr, sp):
             "## The CPU card at each size", "",
             "Board: the grid arrangement (rows and columns of chips, all the same way round), "
             "or with free-, the parts anywhere; -top: the capacitors beside the chips. Every board "
-            "has the mechanics of RFC 0023 section 8: clear strips along its edges, the front "
+            "follows the design rules of RFC 0026: clear strips along its edges, the front "
             "panel's bracket holes, fiducials, the spacing around through-hole parts. "
             "Slots: the grid's, stretched to fill the board. "
             "Utilisation: the parts' courtyards over the board's area. Track: routed signal "

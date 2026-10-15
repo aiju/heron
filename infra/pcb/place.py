@@ -38,7 +38,7 @@ from . import kicadlib, packages
 DECAP_ROOM = 2.4          # mm kept at a chip's VCC end for a capacitor beside it
 # least gaps between courtyards (which reach 0.25 mm past the pads), for
 # assembly: 2.5 mm from a through-hole pad to a surface-mount one, 2.54 mm
-# between through-hole pads (RFC 0023, section 8)
+# between through-hole pads (RFC 0026)
 SMD_THT_GAP = 2.0
 THT_THT_GAP = 2.04
 THT_BOTTOM_CLEAR = 5.0    # no part on the bottom within this of a through-hole pad
