@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v1b_system, bus_si, v1b_hw]
-reports: [23]
+reports: [23, 26]
 ---
 
 # Printed circuit boards
@@ -10,7 +10,9 @@ How the system's cards (`studies/v1b_system`) become printed circuit boards
 that are checked to be the netlists the chip-level simulator runs: the CPU
 card as a surface-mount board and as a plain DIP board, placed and routed
 by code, written as KiCad boards, and checked against the netlist in four
-independent ways. The flow and the reasons for it are in RFC 0023.
+independent ways. The flow and the reasons for it are in RFC 0023; the
+design rules the boards follow (the card in its case, assembly, spacing)
+are in RFC 0026.
 
 The reusable parts are in `infra/pcb` (packages and pinouts, the board
 model and KiCad writer, placement, power fanout, the router's driver, the
@@ -26,10 +28,10 @@ checks, the routed wires' delays, DSN/SES for other routers) and
 | `cli.py` | The commands |
 
 ```sh
-heron pcb build cpu --size 340x220            # place, route and check the CPU card (SMD, 6 layers, a grid)
-heron pcb build cpu --style dip --size 480x340 --layers 4   # the DIP version
-heron pcb build cpu --free --size 300x220     # the parts anywhere, not on a grid
-heron pcb build cpu --double --size 280x220   # parts on both sides (placed freely)
+heron pcb build cpu --size 340x233.35         # place, route and check the CPU card (SMD, 6 layers, a grid, 6U)
+heron pcb build cpu --style dip --size 490x345 --layers 4   # the DIP version
+heron pcb build cpu --free --size 300x233.35  # the parts anywhere, not on a grid
+heron pcb view                                # the boards as a web page: build/pcb/viewer.html
 heron pcb build cpu --router freerouting      # route with Freerouting instead (needs its jar)
 heron pcb check build/pcb/<name>/board.kicad_pcb   # check a board file against the netlist
 heron pcb pinouts                             # the pinouts against KiCad's symbols

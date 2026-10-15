@@ -82,11 +82,13 @@ def main(argv=None):
     b = sub.add_parser("build", help="place, route and check one board")
     b.add_argument("card", nargs="?", default="cpu")
     b.add_argument("--style", default="smd", choices=("smd", "dip"))
-    b.add_argument("--size", default="340x220")
+    b.add_argument("--size", default="340x233.35")
     b.add_argument("--layers", type=int, default=6, choices=(4, 6))
     b.add_argument("--free", action="store_true",
                    help="parts anywhere, not in rows and columns")
-    b.add_argument("--double", action="store_true", help="parts on both sides (implies --free)")
+    b.add_argument("--double", action="store_true",
+                   help="parts on both sides (implies --free; against RFC 0026's R17 "
+                        "on a board with through-hole parts)")
     b.add_argument("--router", default="grid", choices=("grid", "freerouting"))
     b.add_argument("--seed", type=int, default=1)
     b.set_defaults(fn=cmd_build)

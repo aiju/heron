@@ -155,8 +155,9 @@ time, not at all of them.
 ## 4. The flow
 
 ```sh
-heron pcb build cpu --size 340x220     # place, route, check: build/pcb/<name>/
+heron pcb build cpu --size 340x233.35 # place, route, check: build/pcb/<name>/
 heron pcb check board.kicad_pcb        # check a board file against the netlist
+heron pcb view                         # the boards as a web page: pan, zoom, layers, nets
 heron pcb pinouts                      # the pinouts against KiCad's symbols
 heron pcb sweep --write                # the experiments behind this RFC
 ```
@@ -168,7 +169,10 @@ One build, for the CPU card at 340 × 220 mm:
    (`U_ALU3`), so a board's part and the simulator's chip are the same
    name. Tied pins (a clock driver's enables, the supervisor's capacitor
    pins) get their rail or a capacitor; the connectors' pads get their bus
-   signals by report 0022's reference pin map.
+   signals by report 0022's reference pin map. The card gets its mechanics
+   by the design rules of [RFC 0026](0026-rfc-pcb-design-rules.md)
+   (`cards.mechanics`): keep-out strips along the edges, the connectors at
+   the Eurocard positions, the front panel's bracket holes, fiducials.
 2. **Placement** (`place.GridPlacer`): the chips in rows and columns, all
    the same way round (pin 1 at the top left), as on the classic TTL
    boards. The board is a grid of slots, at least 8.25 × 14.25 mm and
@@ -197,7 +201,8 @@ One build, for the CPU card at 340 × 220 mm:
 5. **The board file**: KiCad 9 format, a project file with the rules (the
    standard six-layer process of a common fab: 0.127 mm tracks and gaps,
    0.2 mm holes in 0.45 mm vias), and a PNG.
-6. **Checks** (section 5), and the fab files.
+6. **Checks** (section 5), and the fab files. `heron pcb view` writes the
+   boards as one web page to look at them by layer and by net.
 
 The stackup is signal, ground, signal, signal, power, signal: each signal
 layer next to a plane, the two inner signal layers crossing at right
@@ -446,8 +451,11 @@ change the design or the placement where it doesn't.
 - **Signal integrity on the card:** the bus study's engine
   (`infra/sisim`) could simulate the clock tree's branches from the
   routed lengths.
-- **Mechanics:** mounting holes, ejectors, the card guides' keep-outs,
-  panelisation. The case is a later problem.
+- **Mechanics and assembly:** [RFC 0026](0026-rfc-pcb-design-rules.md)
+  has the rules. The flow applies the edge strips, bracket holes,
+  connector positions, fiducials and spacing. Still to do: silkscreen
+  (its R27), the front panel and handles, and a stiffener where its R13
+  asks for one.
 
 ## 9. Open questions
 
