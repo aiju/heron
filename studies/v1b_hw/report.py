@@ -9,7 +9,7 @@ simulator. They are compared with the draft 1 timing model's estimates (the
 v1_isa study's timing32.py), per program and per kind of instruction. Clock
 speeds come from static timing analysis. With --hw the chip-level simulator
 also runs every program at the guaranteed clock and sweeps the clock on the
-exercise program for every parts variant and delay corner (about an hour);
+exercise program for every parts variant and delay corner (30-60 minutes);
 the results are cached in build/hw-v1b-results.json for later runs without
 --hw.
 """
@@ -212,7 +212,7 @@ def report(progs, sta_rows, hw, v0, mstats, args_hw):
     L.append("")
     if sweeps:
         L.append("*Simulation* is the shortest period at which the exercise program "
-                 "(`tests/hw/exercise_v1b.py`: every instruction, mode and trap) still runs correctly in "
+                 "(`studies/v1b_hw/exercise.py`: every instruction, mode and trap) still runs correctly in "
                  "the event-driven chip simulation, to the nearest nanosecond.")
         L.append("")
     worst = next(r for r in sta_rows if r["variant"] == "hct-ls181" and r["corner"] == "max")
@@ -367,7 +367,7 @@ def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(prog="heron v1b_hw report")
     ap.add_argument("--hw", action="store_true",
-                    help="also run the chip-level simulator (programs and clock sweeps; about an hour)")
+                    help="also run the chip-level simulator (programs and clock sweeps; 30-60 minutes)")
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--out", default=DOC)
     args = ap.parse_args(argv)
