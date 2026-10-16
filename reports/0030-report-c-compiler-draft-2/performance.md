@@ -11,22 +11,22 @@ The program's own code (own) and the C library's, compiled for 1b and for draft 
 
 | Program | 1b own | 2 own | own: 2 / 1b | library: 2 / 1b | whole: 2 / 1b | 2 asm | 2 own / asm |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| arith | 8,221 | 8,023 | 0.976 | 0.976 | 0.976 | 87,028 | 0.09 |
-| bignum | 50,917 | 50,160 | 0.985 | 0.984 | 0.984 | 32,713 | 1.53 |
-| bst | 48,505 | 46,771 | 0.964 | 0.988 | 0.971 | 35,356 | 1.32 |
-| crc | 268,988 | 228,718 | 0.850 | 0.990 | 0.854 | 193,715 | 1.18 |
-| fib | 319,774 | 269,462 | 0.843 | 0.979 | 0.878 | 315,160 | 0.86 |
-| hello | 39 | 40 | 1.026 | 1.025 | 1.025 | 140 | 0.29 |
-| life | 736,403 | 733,682 | 0.996 | 0.898 | 0.992 | 700,345 | 1.05 |
+| arith | 8,221 | 7,873 | 0.958 | 0.973 | 0.973 | 85,762 | 0.09 |
+| bignum | 50,917 | 48,777 | 0.958 | 0.974 | 0.966 | 32,019 | 1.52 |
+| bst | 48,505 | 46,471 | 0.958 | 0.977 | 0.963 | 35,197 | 1.32 |
+| crc | 268,988 | 228,718 | 0.850 | 0.984 | 0.854 | 193,715 | 1.18 |
+| fib | 319,774 | 269,462 | 0.843 | 0.975 | 0.876 | 314,179 | 0.86 |
+| hello | 39 | 40 | 1.026 | 1.004 | 1.005 | 140 | 0.29 |
+| life | 736,403 | 733,682 | 0.996 | 0.894 | 0.991 | 700,219 | 1.05 |
 | mandel | 758,651 | 751,623 | 0.991 | 0.833 | 0.988 | 709,266 | 1.06 |
-| matmul | 40,083 | 39,295 | 0.980 | 0.988 | 0.983 | 39,345 | 1.00 |
-| queens | 194,032 | 190,845 | 0.984 | 0.964 | 0.981 | 207,067 | 0.92 |
-| sha256 | 397,457 | 395,942 | 0.996 | 0.986 | 0.994 | 338,753 | 1.17 |
-| sieve | 216,911 | 216,430 | 0.998 | 0.380 | 0.808 | 204,696 | 1.06 |
-| sort | 144,562 | 141,749 | 0.981 | 0.983 | 0.981 | 107,167 | 1.32 |
-| strings | 7,309 | 7,174 | 0.982 | 0.966 | 0.968 | 16,682 | 0.43 |
-| wordfreq | 231,719 | 208,961 | 0.902 | 0.908 | 0.903 | 199,713 | 1.05 |
-| **geometric mean** | | | **0.962** | **0.961** | **0.951** | | **1.08** |
+| matmul | 40,083 | 39,295 | 0.980 | 0.978 | 0.979 | 39,229 | 1.00 |
+| queens | 194,032 | 190,845 | 0.984 | 0.931 | 0.977 | 207,037 | 0.92 |
+| sha256 | 397,457 | 395,942 | 0.996 | 0.974 | 0.992 | 338,753 | 1.17 |
+| sieve | 216,911 | 216,430 | 0.998 | 0.378 | 0.808 | 204,564 | 1.06 |
+| sort | 144,562 | 141,749 | 0.981 | 0.979 | 0.980 | 106,996 | 1.32 |
+| strings | 7,309 | 7,174 | 0.982 | 0.962 | 0.965 | 16,622 | 0.43 |
+| wordfreq | 231,719 | 208,961 | 0.902 | 0.907 | 0.903 | 199,635 | 1.05 |
+| **geometric mean** | | | **0.959** | **0.952** | **0.946** | | **1.08** |
 
 The own / asm mean counts only the programs that spend less than half their time in the C library, as report 0011 does.
 
@@ -36,12 +36,12 @@ Geometric means of draft 2 / 1b: the compiled programs' own code, the C library 
 
 | Configuration | C own | C library | asm |
 |---|---:|---:|---:|
-| D16-separate | 0.958 | 0.959 | 0.969 |
-| D16-overlap | 0.962 | 0.961 | 0.974 |
-| D16-wide | 0.964 | 0.970 | 0.980 |
-| D32-separate | 0.953 | 0.952 | 0.960 |
-| D32-overlap | 0.958 | 0.954 | 0.965 |
-| D32-wide | 0.960 | 0.965 | 0.972 |
+| D16-separate | 0.954 | 0.947 | 0.965 |
+| D16-overlap | 0.959 | 0.952 | 0.971 |
+| D16-wide | 0.960 | 0.954 | 0.977 |
+| D32-separate | 0.949 | 0.944 | 0.955 |
+| D32-overlap | 0.955 | 0.949 | 0.962 |
+| D32-wide | 0.956 | 0.952 | 0.968 |
 
 ### Code size (bytes)
 
@@ -49,9 +49,9 @@ The program's own functions, and the C library linked with it.
 
 | Program | 1b own | 2 own | 2 / 1b | C library 1b / 2 |
 |---|---:|---:|---:|---:|
-| arith | 288 | 276 | 0.958 | 1478 / 1378 |
-| bignum | 222 | 206 | 0.928 | 1478 / 1378 |
-| bst | 324 | 314 | 0.969 | 1500 / 1402 |
+| arith | 288 | 270 | 0.938 | 1478 / 1378 |
+| bignum | 222 | 200 | 0.901 | 1478 / 1378 |
+| bst | 324 | 312 | 0.963 | 1500 / 1400 |
 | crc | 324 | 306 | 0.944 | 1478 / 1378 |
 | fib | 114 | 104 | 0.912 | 1478 / 1378 |
 | hello | 18 | 20 | 1.111 | 1478 / 1378 |
@@ -64,7 +64,7 @@ The program's own functions, and the C library linked with it.
 | sort | 566 | 562 | 0.993 | 1478 / 1378 |
 | strings | 484 | 462 | 0.955 | 1718 / 1604 |
 | wordfreq | 486 | 444 | 0.914 | 1532 / 1434 |
-| **total** | **4768** | **4566** | **0.958** | |
+| **total** | **4768** | **4552** | **0.955** | |
 
 ### What each draft 2 feature is worth (D16-overlap)
 
@@ -73,15 +73,15 @@ The draft 2 backend with one feature turned off, against the whole backend: geom
 | Without | Own cycles | Library cycles | Own code | Most |
 |---|---:|---:|---:|---|
 | DBNZ (loops still counted down) | 1.0032 | 1.0018 | 1.0013 | crc 1.050 |
-| counting down and DBNZ | 1.0102 | 1.0052 | 1.0061 | crc 1.158 |
-| MOVS | 1.0108 | 1.0194 | 1.0074 | strings 1.079 |
+| counting down and DBNZ | 1.0102 | 1.0052 | 1.0062 | crc 1.158 |
+| MOVS | 1.0108 | 1.0206 | 1.0075 | strings 1.079 |
 | CLR (a MOV #0 and a store instead) | 1.0130 | 1.0023 | 1.0048 | sieve 1.190 |
-| INC and DEC on memory | 1.0086 | 1.0000 | 1.0039 | fib 1.124 |
-| tables without a base register | 1.0032 | 1.0000 | 1.0074 | crc 1.018 |
+| INC and DEC on memory | 1.0086 | 1.0000 | 1.0040 | fib 1.124 |
+| tables without a base register | 1.0032 | 1.0000 | 1.0075 | crc 1.018 |
 | JMP [pc + table + r*4] | 1.0000 | 1.0000 | 1.0000 | arith 1.000 |
 | TST and MULS with a constant | 1.0011 | 1.0002 | 1.0000 | wordfreq 1.012 |
-| CMP #16..127 in place of a register | 1.0003 | 1.0010 | 1.0013 | mandel 1.004 |
-| r0 as a 15th register | 1.0002 | 0.9956 | 1.0009 | sha256 1.003 |
+| CMP #16..127 in place of a register | 1.0003 | 1.0102 | 1.0013 | mandel 1.004 |
+| r0 as a 15th register | 1.0034 | 1.0049 | 1.0031 | bignum 1.026 |
 
 ### What the draft 2 code executes
 
@@ -89,10 +89,10 @@ Executed instructions in the programs' own code, summed over the 15 programs, by
 
 | Instruction | Share |
 |---|---:|
-| `Bcc` | 15.24% |
+| `Bcc` | 15.25% |
 | `CMP r` | 9.04% |
-| `MOV r` | 9.03% |
-| `ADD b[r+d]` | 6.91% |
+| `MOV r` | 9.04% |
+| `ADD b[r+d]` | 6.92% |
 | `ADD r` | 5.12% |
 | `CMP #q` | 3.00% |
 | `XOR r` | 2.57% |

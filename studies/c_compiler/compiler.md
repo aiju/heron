@@ -34,8 +34,8 @@ C or about any of the instruction sets.
   [RFC 0004](../../reports/0004-rfc-draft-1-isa.md)). The compiler uses 1b's
   auto-increment and memory operands, but loses on its 4-bit constants. See
   [report 0011](../../reports/0011-report-c-compiler.md#1a-against-1b-for-compiled-code).
-- **On draft 2:** compiled C takes 3.8% fewer cycles than on 1b in the
-  programs' own code, and 3.9% fewer in the C library, with 4.2% less
+- **On draft 2:** compiled C takes 4.1% fewer cycles than on 1b in the
+  programs' own code, and 4.8% fewer in the C library, with 4.5% less
   code. `CLR`, `MOVS`, `INC` and `DEC` on memory, loops counted down for
   `DBNZ` and the link register do most of it. See
   [report 0030](../../reports/0030-report-c-compiler-draft-2.md).
@@ -120,9 +120,11 @@ The program-wide conventions of [RFC 0004](../../reports/0004-rfc-draft-1-isa.md
 
 - Arguments in `r1`–`r4`, the rest on the stack; the result in `r1`.
 - `r1`–`r7` are caller-saved, `r8`–`r14` callee-saved, `r15` is `sp`. `HI`
-  and the flags are caller-saved.
+  (draft 1) and the flags are caller-saved.
 - On draft 2, `r0` is a general register: caller-saved, and allocated
-  after `r1`–`r6`. On draft 1 it reads as zero.
+  after `r1`–`r6`. It's also where a multiply leaves its high half and a
+  divide its remainder, since draft 2 has no `HI`. On draft 1 it reads as
+  zero.
 - On draft 2, calls leave the return address in `r7`, the link register.
   A function that calls saves `r7` with the callee-saved registers it
   uses, in one `SAVE r7-rN`, or pushes it alone and returns with
@@ -347,6 +349,10 @@ each backend fits as much as it can into one addressing mode.
     dense switch;
   - `INC` and `DEC` on memory for `x++`, with the address in the operand;
   - `TST` and `MULS` with a constant;
+  - a multiply's high half and a divide's remainder are in `r0` (there's
+    no `HI`), so every multiply and divide counts as writing `r0`, and a
+    remainder is `MOV rd, r0`, or stays in `r0` if the allocator can
+    leave it there;
   - `MOV` and `CMP` with 16…127 in one parcel (the assembler picks it);
     `free_imm` still keeps such a constant in a register across a loop
     where a compare could then take a load as its memory operand;

@@ -13,6 +13,8 @@ selector (codegen.v1b) with what changed:
   [x*s + d], and a dense switch is one JMP [pc + table + r*4].
 - INC and DEC on memory, for x++ and x-- on a variable in memory.
 - TST and MULS with a constant.
+- A multiply leaves its high half and a divide its remainder in r0 (there's
+  no HI): every one counts as writing r0, and a remainder is MOV rd, r0.
 - Calls leave the return address in r7, the link register (Target.LINK):
   a function that calls saves it with SAVE r7-rN, or pushes it, and a leaf
   that leaves r7 alone returns through it.
@@ -42,6 +44,7 @@ class V2(V1B):
     CALLER_SAVED = PHYS[0:8]
     ZERO = None
     LINK = PHYS[7]
+    HIGH = PHYS[0]          # a multiply's high half, a divide's remainder (RFC 0028, 5.3)
     IMM_OPS = V1B.IMM_OPS + ("TST", "MULS")
     COUNT_DOWN = True       # for DBNZ
 
@@ -180,7 +183,7 @@ class V2(V1B):
                 a, b = b, a
             d = self.def_reg(i)
             self.move_into(d, a)
-            self.emit("MULS", [d, Imm(b.signed)], defs=[d], uses=[d], flags="nz")
+            self.emit("MULS", [d, Imm(b.signed)], defs=self.high_defs(d), uses=[d], flags="nz")
             return
         super().sel_binop(i)
 
@@ -300,7 +303,7 @@ class V2(V1B):
 
     # Every instruction selected here that changes the flags says so
     # (flags "cmp", "nz" or "set"), and only BCC and SETcc read them, so the
-    # scans below look past the others: MOV, LEA, stores, CLR, MFHI.
+    # scans below look past the others: MOV, LEA, stores, CLR.
     ENDS = ("JMP", "RET", "TAIL", "BSR", "CALL", "JMPM", "JMPT", "HALT", "DBNZ")
 
     def drop_compares(self):
