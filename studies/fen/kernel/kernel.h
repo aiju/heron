@@ -143,6 +143,13 @@ u32 get_sr(void);
 void ureg_set(u32 bank, int n, u32 v);
 u32 ureg_get(u32 bank, int n);
 void bank_copy(u32 to, u32 from);
+void bank_copy_ur(u32 to, u32 from);
+void bank_msg(u32 to, u32 from, u32 r8, u32 r9);
+void bank_msg_ur(u32 to, u32 from, u32 r8, u32 r9);
+#ifdef COPY_UR
+#define bank_copy bank_copy_ur  /* to measure what BCOPY saves */
+#define bank_msg bank_msg_ur
+#endif
 void page_zero(void *p);
 int ucopy(void *dst, const void *src, u32 n);
 int ustrncpy(char *dst, const char *src, u32 n);
@@ -193,6 +200,8 @@ void ready(struct thread *t);
 void unready(struct thread *t);
 void block(struct thread *t, enum tstate st);
 void schedule(void);
+int may_switch_to(struct thread *t);
+void switch_to(struct thread *t);
 struct proc *proc_new(const char *name, int parent, int flags);
 struct thread *thread_new(struct proc *p, u32 pc, u32 sp, u32 arg, int prio);
 void thread_kill(struct thread *t);
@@ -200,7 +209,7 @@ void proc_exit(struct proc *p, int status);
 struct proc *proc_get(int pid);
 struct thread *thread_get(int tid);
 struct thread *rcvid_thread(int rcvid);
-void timer_tick(void);
+void timer_tick(u32 n);
 void wake_sleepers(void);
 u32 now_us(void);
 

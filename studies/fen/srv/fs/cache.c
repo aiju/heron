@@ -1,4 +1,5 @@
-/* The block cache: NBUF blocks, the least recently used one reused. Writes
+/* The block cache: NBUF blocks, found by a hash of the block number, the
+ * least recently used one reused. Writes
  * go to the card at once (write-through), so the card is always up to
  * date and nothing is lost when the machine stops. */
 
@@ -6,36 +7,77 @@
 #include "fs.h"
 
 #define NBUF 96
+#define NHASH 64
 
 static struct buf bufs[NBUF];
-static unsigned clock_;
+static struct buf *hash[NHASH];
+static struct buf *newest, *oldest;     /* the list by last use */
 unsigned cache_hits, cache_misses;
+
+static void unlink_use(struct buf *b)
+{
+    if (b->newer)
+        b->newer->older = b->older;
+    else
+        newest = b->older;
+    if (b->older)
+        b->older->newer = b->newer;
+    else
+        oldest = b->newer;
+}
+
+static void make_newest(struct buf *b)
+{
+    b->newer = 0;
+    b->older = newest;
+    if (newest)
+        newest->newer = b;
+    newest = b;
+    if (!oldest)
+        oldest = b;
+}
+
+static void unhash(struct buf *b)
+{
+    struct buf **pp;
+    for (pp = &hash[b->blk % NHASH]; *pp; pp = &(*pp)->hnext)
+        if (*pp == b) {
+            *pp = b->hnext;
+            return;
+        }
+}
 
 struct buf *bread(unsigned blk)
 {
-    struct buf *b, *lru = 0;
+    struct buf *b;
     int i;
-    for (i = 0; i < NBUF; i++) {
-        b = &bufs[i];
-        if (b->valid && b->blk == blk) {
-            b->used = ++clock_;
+    if (!newest)
+        for (i = 0; i < NBUF; i++)
+            make_newest(&bufs[i]);
+    for (b = hash[blk % NHASH]; b; b = b->hnext)
+        if (b->blk == blk) {
+            unlink_use(b);
+            make_newest(b);
             cache_hits++;
             return b;
         }
-        if (!lru || !b->valid || (lru->valid && b->used < lru->used))
-            lru = b;
-    }
     cache_misses++;
-    b = lru;
-    if (b->valid && b->dirty)
-        bwrite(b);
-    b->valid = 0;
+    b = oldest;
+    if (b->valid) {
+        if (b->dirty)
+            bwrite(b);
+        unhash(b);
+        b->valid = 0;
+    }
+    unlink_use(b);
+    make_newest(b);
     if (ide_read(blk * 2, b->data, 2) < 0)
         return 0;
     b->blk = blk;
     b->valid = 1;
     b->dirty = 0;
-    b->used = ++clock_;
+    b->hnext = hash[blk % NHASH];
+    hash[blk % NHASH] = b;
     return b;
 }
 

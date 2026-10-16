@@ -243,11 +243,12 @@ def image_bytes(img, lo, hi):
 
 # ---- the kernel ------------------------------------------------------------
 
-def kernel():
+def kernel(defines=None):
     """The kernel's image (bytes from physical 0) and its linked image."""
     generate()
     include = [os.path.join(HERE, "kernel")] + INCLUDE
-    objs = [obj_for(os.path.join(HERE, "kernel", s), include, window=True) for s in KERNEL_SOURCES]
+    objs = [obj_for(os.path.join(HERE, "kernel", s), include, window=True, defines=defines)
+            for s in KERNEL_SOURCES]
     objs.append(assemble_file(os.path.join(GEN, "ksys.s")))
     try:
         img = L.link(objs, [], ISA, mem_top=KERNEL_BASE + 0x01000000)
@@ -328,12 +329,12 @@ def boot_archive(modules):
     return head + b"".join(blobs)
 
 
-def boot_image(modules=None):
+def boot_image(modules=None, kernel_defines=None):
     """The kernel, and the boot archive from the page after it: bytes to put
     at physical 0. Also the kernel's linked image (for its symbols).
     `modules` are the archive's programs: names, or (name, program) to put
     a program in under another name."""
-    kbytes, kimg = kernel()
+    kbytes, kimg = kernel(kernel_defines)
     names = modules if modules is not None else BOOT
     mods = []
     for n in names:

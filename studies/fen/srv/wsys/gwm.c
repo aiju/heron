@@ -545,10 +545,10 @@ int gwm_clips(int id, Rect **out, int *ox, int *oy)
 
 void gwm_scroll(int id, int x0, int y0, int x1, int y1, int dy)
 {
-    static Region vis, left;
+    static Region vis, left, rest;
     static Rect cp[MAXRECT];
     Win *w = &wins[id];
-    Rect c, a, t;
+    Rect c, a, t, strip;
     int i, j, n = 0;
     cursor_off();
     content_of(w, &c);
@@ -590,8 +590,22 @@ void gwm_scroll(int id, int x0, int y0, int x1, int y1, int dy)
     rgn_copy(&left, &vis);
     for (i = 0; i < n; i++)
         rgn_sub(&left, &cp[i]);
-    for (i = 0; i < left.n; i++)
-        paint_part(id, &left.r[i]);
+    /* the strip the scroll opens is the program's to draw, which it knows:
+       filled, not exposed; what couldn't be copied (it was covered) is */
+    strip = a;
+    if (dy > 0)
+        strip.y0 = a.y1 - dy > a.y0 ? a.y1 - dy : a.y0;
+    else
+        strip.y1 = a.y0 - dy < a.y1 ? a.y0 - dy : a.y1;
+    for (i = 0; i < left.n; i++) {
+        t = left.r[i];
+        if (isect(&t, &strip))
+            gfx_fill(&screen, t.x0, t.y0, t.x1, t.y1, w->bg, GFX_COPY);
+        rgn_rect(&rest, &left.r[i]);
+        rgn_sub(&rest, &strip);
+        for (j = 0; j < rest.n; j++)
+            paint_part(id, &rest.r[j]);
+    }
 }
 
 void gwm_outline(const Rect *r)

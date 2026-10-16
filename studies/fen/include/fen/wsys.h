@@ -46,7 +46,9 @@ struct ws_font {
 #define D_LINE 3        /* colour, x0, y0, x1, y1 */
 #define D_TEXT 4        /* colour, font, x, baseline y, n, then n bytes (to a word) */
 #define D_ELLIPSE 5     /* colour, x centre, y centre, a, b, filled */
-#define D_SCROLL 6      /* x0, y0, x1, y1, dy: the rectangle's pixels up by dy, the rest exposed */
+#define D_SCROLL 6      /* x0, y0, x1, y1, dy: the rectangle's pixels up by dy; the strip
+                           that opens is filled for the program to draw, and what couldn't
+                           be copied (it was covered) is exposed */
 #define D_CLIP 7        /* x0, y0, x1, y1: draw only there, until D_NOCLIP */
 #define D_NOCLIP 8
 #define D_PIXELS 9      /* x, y, w, h, then w x h bytes of pixel values (to a word) */

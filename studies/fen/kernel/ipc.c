@@ -61,9 +61,7 @@ static void ready_front(struct thread *t)
 /* The message in c's bank to s, which was waiting in a receive. */
 static void deliver(struct thread *s, struct thread *c)
 {
-    bank_copy(s->id, c->id);
-    ureg_set(s->id, 8, RCVID(c));
-    ureg_set(s->id, 9, c->proc->pid);
+    bank_msg(s->id, c->id, RCVID(c), c->proc->pid);
     c->state = T_REPLY;
     c->peer = s;
     c->port = 0;
@@ -207,7 +205,13 @@ void sys_ipc_call(void)
     s = p->receivers;
     if (s) {
         q_remove(&p->receivers, s);
+        s->port = 0;
         deliver(s, t);
+        if (may_switch_to(s)) {
+            /* the client waits, the server runs: straight there */
+            switch_to(s);
+            return;
+        }
         block(t, T_REPLY);
         ready_front(s);
     } else {
@@ -237,14 +241,24 @@ static void receive(struct thread *t, struct port *p)
     q_append(&p->receivers, t);
 }
 
-static int reply(struct thread *t, int rcvid)
+/* The reply in t's bank to the client rcvid names: the client, not yet
+ * ready, or 0 if there's none waiting for t's process. */
+static struct thread *reply_copy(struct thread *t, int rcvid)
 {
     struct thread *c = rcvid_thread(rcvid);
     if (!c || c->state != T_REPLY || c->peer_pid != t->proc->pid)
-        return -ESRCH;
+        return 0;
     bank_copy(c->id, t->id);
     c->peer = 0;
     c->peer_pid = 0;
+    return c;
+}
+
+static int reply(struct thread *t, int rcvid)
+{
+    struct thread *c = reply_copy(t, rcvid);
+    if (!c)
+        return -ESRCH;
     ready_front(c);
     return 0;
 }
@@ -272,15 +286,27 @@ void sys_ipc_reply(void)
  * reply to a client that has gone is forgotten. */
 void sys_ipc_reply_recv(void)
 {
-    struct thread *t = current;
+    struct thread *t = current, *c = 0;
     int rcvid = ureg_get(t->id, 8);
     struct port *p = port_get(ureg_get(t->id, 9));
     if (rcvid > 0)
-        reply(t, rcvid);
+        c = reply_copy(t, rcvid);
     if (!p || p->owner != t->proc->pid) {
+        if (c)
+            ready_front(c);
         ureg_set(t->id, 8, -EINVAL);
         return;
     }
+    if (c && !p->pending && !p->senders && may_switch_to(c)) {
+        /* the server waits, the client runs: straight there */
+        t->port = p;
+        block(t, T_RECV);
+        q_append(&p->receivers, t);
+        switch_to(c);
+        return;
+    }
+    if (c)
+        ready_front(c);
     receive(t, p);
 }
 

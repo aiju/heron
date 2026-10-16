@@ -103,6 +103,33 @@ static struct thread *pick(void)
     return t;
 }
 
+/* Could t run now instead of the current thread, which is blocking? If no
+ * ready thread is above it, the scheduler would choose it anyway. */
+int may_switch_to(struct thread *t)
+{
+    return !ready_bits || t->prio >= 31 - clz(ready_bits);
+}
+
+/* Run t, which is in no queue, instead of the current thread, which has
+ * just blocked: the IPC's direct switch, past the run queue. */
+void switch_to(struct thread *t)
+{
+    struct frame *f = KFRAME;
+    struct thread *c = current;
+    c->pc = f->pc;
+    c->sr = f->sr;
+    t->state = T_RUNNING;
+    if (t->slice <= 0)
+        t->slice = SLICE_TICKS;
+    current = t;
+    need_resched = 0;
+    f->pc = t->pc;
+    f->sr = t->sr;
+    set_bank(t->id);
+    if (t->proc != c->proc)
+        set_ctx(t->proc->pid);
+}
+
 /* From kexit: save the current thread's frame, choose the next, and put
  * its frame there instead. With nothing to run, wait for an interrupt. */
 void schedule(void)
@@ -362,9 +389,9 @@ void wake_sleepers(void)
     }
 }
 
-void timer_tick(void)
+void timer_tick(u32 n)
 {
-    ticks++;
+    ticks += n;
     wake_sleepers();
     ring_alarms();
     if (current) {

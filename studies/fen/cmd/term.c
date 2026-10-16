@@ -11,10 +11,12 @@
  *
  * Output understands enough of ANSI X3.64 (VT100) for full-screen
  * programs: cursor motion, erasing, scrolling regions, colours and
- * reverse. The screen is kept as cells, and what changed is drawn when
- * the terminal has done what it was asked: a row at a time, in runs of
- * cells with the same colours, with scrolling as one D_SCROLL however many
- * lines went by. */
+ * reverse. The screen is kept as cells, and what changed is drawn a row
+ * at a time, in runs of cells with the same colours, with scrolling as one
+ * D_SCROLL however many lines went by. It's drawn when a program reads
+ * (it has said what it had to say), when a key is typed, and otherwise
+ * at most every DRAW_US while output comes: scrolling the window costs as
+ * much as copying it, so a stream of lines is drawn a few at a time. */
 
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +30,8 @@
 #define MAXC 132
 #define MAXR 60
 #define HANDLE 1
+#define DRAW_BIT 1              /* the alarm's */
+#define DRAW_US 80000
 
 static int port, win, shell_pid;
 static int cw, ch, ascent;              /* a cell, from the mono font */
@@ -44,8 +48,11 @@ static const unsigned rgb[16] = {
 #define DEF_BG 15
 #define ATTR(fg, bg) ((fg) | (bg) << 4)
 
-static char text[MAXR][MAXC];
-static unsigned char attr[MAXR][MAXC];
+/* the cells, a row through a pointer, so that scrolling moves pointers */
+static char text_rows[MAXR][MAXC];
+static unsigned char attr_rows[MAXR][MAXC];
+static char *text[MAXR];
+static unsigned char *attr[MAXR];
 static int dirty0[MAXR], dirty1[MAXR];  /* each row's changed columns, [dirty0, dirty1) */
 static int scrolled;                    /* lines scrolled since the last drawing */
 
@@ -113,35 +120,44 @@ static void clear_cells(int y, int x0, int x1)
 /* the rows [t, b] up by n (n < 0: down), the new ones blank */
 static void scroll_rows(int t, int b, int n)
 {
-    int y, k = n < 0 ? -n : n;
+    int y, i, k = n < 0 ? -n : n, whole = t == 0 && b == rows - 1 && n > 0 && scrolled >= 0;
+    char *tp[MAXR];
+    unsigned char *ap[MAXR];
     if (k > b - t + 1)
         k = b - t + 1;
+    for (i = 0; i < k; i++) {
+        tp[i] = text[n > 0 ? t + i : b - i];
+        ap[i] = attr[n > 0 ? t + i : b - i];
+    }
     if (n > 0) {
         for (y = t; y + k <= b; y++) {
-            memcpy(text[y], text[y + k], cols);
-            memcpy(attr[y], attr[y + k], cols);
+            text[y] = text[y + k];
+            attr[y] = attr[y + k];
             dirty0[y] = dirty0[y + k];
             dirty1[y] = dirty1[y + k];
         }
-        for (; y <= b; y++) {
-            dirty0[y] = dirty1[y] = 0;
-            clear_cells(y, 0, cols);
-        }
     } else {
         for (y = b; y - k >= t; y--) {
-            memcpy(text[y], text[y - k], cols);
-            memcpy(attr[y], attr[y - k], cols);
+            text[y] = text[y - k];
+            attr[y] = attr[y - k];
             dirty0[y] = dirty0[y - k];
             dirty1[y] = dirty1[y - k];
         }
-        for (; y >= t; y--) {
+    }
+    for (i = 0; i < k; i++) {
+        y = n > 0 ? b - k + 1 + i : t + i;
+        text[y] = tp[i];
+        attr[y] = ap[i];
+        dirty0[y] = dirty1[y] = 0;
+        clear_cells(y, 0, cols);
+        /* a blank row the D_SCROLL opens is filled with the background
+           already */
+        if (whole && bg == DEF_BG)
             dirty0[y] = dirty1[y] = 0;
-            clear_cells(y, 0, cols);
-        }
     }
     /* the whole screen moving is one D_SCROLL later; anything else is
        drawn again */
-    if (t == 0 && b == rows - 1 && n > 0 && scrolled >= 0)
+    if (whole)
         scrolled += k;
     else {
         for (y = t; y <= b; y++)
@@ -192,28 +208,34 @@ static void reset(void)
 
 /* ---- drawing ---- */
 
+/* the cells [x0, x1) of row y: runs of one colour, the blanks at the end
+ * of a run as a fill */
 static void draw_row(int y, int x0, int x1)
 {
     int x = x0;
     while (x < x1) {
-        int k = x, inv = 0;
+        int k = x, e;
         unsigned a = attr[y][x];
         if (cursor_shown && y == cy && x == cx) {
-            inv = 1;
-            k = x + 1;
-        } else {
-            while (k < x1 && attr[y][k] == a && !(cursor_shown && y == cy && k == cx))
-                k++;
-        }
-        if (inv)
             gui_textbg(win, rgb[a >> 4], rgb[a & 15], FONT_MONO, x * cw, y * ch + ascent,
                        &text[y][x], 1);
-        else
+            x++;
+            continue;
+        }
+        while (k < x1 && attr[y][k] == a && !(cursor_shown && y == cy && k == cx))
+            k++;
+        for (e = k; e > x && text[y][e - 1] == ' '; e--)
+            ;
+        if (e > x)
             gui_textbg(win, rgb[a & 15], rgb[a >> 4], FONT_MONO, x * cw, y * ch + ascent,
-                       &text[y][x], k - x);
+                       &text[y][x], e - x);
+        if (e < k)
+            gui_fill(win, rgb[a >> 4], e * cw, y * ch, k * cw, y * ch + ch);
         x = k;
     }
 }
+
+static int armed;               /* output not drawn yet, and an alarm for it */
 
 static void draw(void)
 {
@@ -243,6 +265,24 @@ static void draw(void)
     cursor_drawn_x = cursor_shown ? x : -1;
     cursor_drawn_y = cursor_shown ? cy : -1;
     gui_flush();
+}
+
+/* draw what changed now, or after a while */
+static void draw_now(void)
+{
+    if (armed) {
+        alarm(port, DRAW_BIT, 0);
+        armed = 0;
+    }
+    draw();
+}
+
+static void draw_later(void)
+{
+    if (!armed) {
+        alarm(port, DRAW_BIT, DRAW_US);
+        armed = 1;
+    }
 }
 
 /* ---- output: the characters and the escape sequences ---- */
@@ -635,10 +675,16 @@ static void resize(int w, int h)
         return;
     /* keep the cursor's row on the screen */
     if (cy >= nr) {
-        int k = cy - nr + 1;
-        for (y = 0; y + k < rows; y++) {
-            memcpy(text[y], text[y + k], MAXC);
-            memcpy(attr[y], attr[y + k], MAXC);
+        int k = cy - nr + 1, i;
+        char *tp[MAXR];
+        unsigned char *ap[MAXR];
+        for (i = 0; i < MAXR; i++) {
+            tp[i] = text[(i + k) % MAXR];
+            ap[i] = attr[(i + k) % MAXR];
+        }
+        for (i = 0; i < MAXR; i++) {
+            text[i] = tp[i];
+            attr[i] = ap[i];
         }
         cy -= k;
     }
@@ -670,15 +716,17 @@ static void quit(void)
     exit(0);
 }
 
-static void events(void)
+/* the window's events: whether to draw now (a key was typed) */
+static int events(void)
 {
     struct ws_event e;
-    int y;
+    int y, now = 0;
     while (gui_event(&e, 0)) {
         switch (e.type) {
         case EV_KEY:
             if (e.c)
                 key(e.a, e.b);
+            now = 1;
             break;
         case EV_EXPOSE:
             for (y = e.b / ch; y < rows && y * ch < e.d; y++)
@@ -687,7 +735,8 @@ static void events(void)
                 cursor_drawn_y = -1;
             break;
         case EV_RESIZE:
-            resize(e.b, e.c);
+            resize(e.a, e.b);
+            now = 1;
             break;
         case EV_CLOSE:
             quit();
@@ -695,6 +744,7 @@ static void events(void)
         }
     }
     run_readers();
+    return now;
 }
 
 static void gone(int pid)
@@ -741,9 +791,11 @@ static int handle(int rcvid, int pid, msg_t *m)
     case FS_READ:
         srv_keep(&readers, rcvid, pid, m);
         run_readers();
+        draw_now();
         return 1 << 30;
     case FS_WRITE:
     case FS_WRITE_INLINE:
+        draw_later();
         return write_out(rcvid, m);
     case FS_STAT:
     case FS_FSTAT:
@@ -793,6 +845,10 @@ int main(int argc, char **argv)
     if (win < 0)
         return 1;
     srv_init(port, 0);
+    for (i = 0; i < MAXR; i++) {
+        text[i] = text_rows[i];
+        attr[i] = attr_rows[i];
+    }
     reset();
     for (i = 0; i < 3; i++) {
         d[i].fd = i;
@@ -806,15 +862,22 @@ int main(int argc, char **argv)
         while (*s)
             output(*s++);
     }
+    draw();
     for (;;) {
-        draw();
         rcvid = ipc_recv(port, &m, &pid);
         if (rcvid == 0) {
             if (m.w[0] & SRV_EXIT_BIT)
                 srv_exits(gone);
             if (m.w[0] & GUI_BIT) {
                 gui_poll();
-                events();
+                if (events())
+                    draw_now();
+                else
+                    draw_later();
+            }
+            if (m.w[0] & DRAW_BIT) {
+                armed = 0;
+                draw();
             }
             continue;
         }

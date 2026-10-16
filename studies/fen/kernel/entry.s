@@ -22,6 +22,7 @@
         .global kexit, kstack_top
         .global _idle_wait, _map_get, _map_set, _map_clear, _set_bank, _get_bank
         .global _set_ctx, _get_ctx, _get_sr, _ureg_set, _ureg_get, _bank_copy, _page_zero
+        .global _bank_copy_ur, _bank_msg, _bank_msg_ur
         .global _ucopy, _ustrncpy, _clz, _halt, _start_first, _get_far, _get_fsr
 
 ; ---- the exception vectors (RFC 0029, 6), 4 bytes each
@@ -265,6 +266,56 @@ _page_zero:
 ; bank_copy(to, from): r0-r7 of bank `from` into bank `to`
 _bank_copy:
         BCOPY r1, r2
+        RET
+
+; bank_msg(to, from, a, b): a message: bank_copy, and a and b into r8 and
+; r9 of bank `to` (its rcvid and sender, or the reply's status)
+_bank_msg:
+        BCOPY r1, r2
+        MFSR r0, bank
+        MTSR bank, r1
+        MTUR r8, r3
+        MTUR r9, r4
+        MTSR bank, r0
+        RET
+
+; bank_msg_ur(to, from, a, b): bank_msg with bank_copy_ur
+_bank_msg_ur:
+        SAVE r3-r7
+        CALL _bank_copy_ur
+        RESTORE r3-r7
+        MFSR r0, bank
+        MTSR bank, r1
+        MTUR r8, r3
+        MTUR r9, r4
+        MTSR bank, r0
+        RET
+
+; bank_copy_ur(to, from): the same without BCOPY, through the kernel's
+; registers with MFUR and MTUR (to compare; ipc.c uses it with COPY_UR)
+_bank_copy_ur:
+        SAVE r8-r11
+        MFSR r0, bank
+        MTSR bank, r2
+        MFUR r3, r0
+        MFUR r4, r1
+        MFUR r5, r2
+        MFUR r6, r3
+        MFUR r8, r4
+        MFUR r9, r5
+        MFUR r10, r6
+        MFUR r11, r7
+        MTSR bank, r1
+        MTUR r0, r3
+        MTUR r1, r4
+        MTUR r2, r5
+        MTUR r3, r6
+        MTUR r4, r8
+        MTUR r5, r9
+        MTUR r6, r10
+        MTUR r7, r11
+        MTSR bank, r0
+        RESTORE r8-r11
         RET
 
 ; ureg_set(bank, n, v): register n of a bank <- v

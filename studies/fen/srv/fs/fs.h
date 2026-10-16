@@ -25,7 +25,8 @@ struct buf {
     unsigned blk;
     int valid;
     int dirty;
-    unsigned used;              /* for LRU */
+    struct buf *hnext;          /* the block number's hash chain */
+    struct buf *newer, *older;  /* the list by last use */
     unsigned char data[BLOCK];
 };
 struct buf *bread(unsigned blk);        /* 0 on an I/O error */

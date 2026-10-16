@@ -26,7 +26,7 @@ static int count(int fd, const char *name)
     int n, in = 0, i;
     while ((n = read(fd, buf, sizeof buf)) > 0) {
         c += n;
-        for (i = 0; i < n; i++) {
+        for (i = 0; i < n && (fl || fw); i++) {
             int ch = buf[i];
             if (ch == '\n')
                 l++;

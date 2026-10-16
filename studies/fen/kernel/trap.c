@@ -16,19 +16,27 @@ static u32 next_tick;
 
 void irq_init(void)
 {
-    next_tick = now_us() + TICK_US;
+    /* ticks count from the clock's 0, so that a second of them begins
+       when a second of time_us() does */
+    ticks = now_us() / TICK_US;
+    next_tick = (ticks + 1) * TICK_US;
     TIMER_COMPARE = next_tick;
     IRQ_MASK = 1 << IRQ_TIMER;
 }
 
+/* The tick, and the ticks missed while the kernel had interrupts off for
+ * longer than one (loading a program, say), so that the count keeps time. */
 static void tick(void)
 {
-    u32 now = now_us();
+    u32 now = now_us(), n = 1;
     next_tick += TICK_US;
-    if ((int)(next_tick - now) <= 0)
-        next_tick = now + TICK_US;
+    if ((int)(now - next_tick) >= 0) {
+        u32 late = (now - next_tick) / TICK_US + 1;
+        n += late;
+        next_tick += late * TICK_US;
+    }
     TIMER_COMPARE = next_tick;          /* clears FIRED, and arms */
-    timer_tick();
+    timer_tick(n);
 }
 
 void interrupt(int level)
