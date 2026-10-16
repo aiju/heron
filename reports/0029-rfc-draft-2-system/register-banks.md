@@ -68,6 +68,19 @@ registers, as on most machines. The method is in
    `HI` and `LO`; 8 banks the same chips and nearly as good; 4 the
    least that keeps IPC within a few percent of 256.
 
+> **Erratum (2026-10-16).** The C compiler's optimisations
+> ([report 0034](../0034-report-c-compiler-optimisations.md)) make Fen's
+> C a little faster, and [register-banks-results.md](register-banks-results.md)
+> is rerun. The workloads are a little shorter (shell 22.6 M busy cycles,
+> pipeline 187 M, desktop 23.4 M, busy 98 M) and the numbers here move a
+> little with them: with 8 banks the busiest workload ran a thread
+> without its bank 28 times in 16 seconds, not 32 in 17; with 4, the
+> pipeline missed 502 times, not 550; marking the bank is 1.0% of the
+> IPC loop, not 0.9%, and no banks or one bank cost it 21.0% and 25.7%
+> (20.8% and 25.5%); a call and reply is 732 cycles, not 734. The extra
+> cycles per call and reply, and what the summary concludes, don't
+> change.
+
 ## 1. How it was measured
 
 - **Traces.** The simulator records each return to user mode in another

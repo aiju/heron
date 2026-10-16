@@ -431,8 +431,9 @@ def report():
         limit = "–" if banks == 1 else f"{banks - 1:,}"
         lines.append(f"| {banks} | {chips} | {shared} | {limit} | " + " | ".join(row) + " |")
     lines += ["", "## Per IPC round trip", "",
-              "The ipc workload's extra cycles per call and reply, on top of Fen's 734",
-              "(D16-overlap; the workload includes starting kbench's server).", "",
+              "The ipc workload's extra cycles per call and reply, on top of what one",
+              "takes with a bank each (kbench's, in report 0036's performance.md;",
+              "D16-overlap; the workload includes starting kbench's server).", "",
               "| Banks | extra cycles |", "|---:|---:|"]
     ipc = traces[0]
     for banks in BANKS:

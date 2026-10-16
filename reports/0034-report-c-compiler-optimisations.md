@@ -261,9 +261,10 @@ rest is printf.
 
 ## Changes to other reports
 
-The generated tables of reports 0011, 0017, 0019, 0020, 0030 and 0032
-(`egret.md`) are rerun with the new compiler, and each of those reports
-gets an erratum for the numbers in its text that moved:
+The generated tables of reports 0011, 0017, 0019, 0020, 0030, 0032
+(`egret.md`) and 0036, and of RFC 0029's register banks, are rerun with
+the new compiler, and each gets an erratum for the numbers in its text
+that moved:
 
 - [Report 0011](0011-report-c-compiler.md): compiled C against the
   hand-written programs; 1a against 1b doesn't move but for sieve.
@@ -277,6 +278,11 @@ gets an erratum for the numbers in its text that moved:
   the code size and the features' worth.
 - [Report 0032](0032-report-lisp-egret-draft-2.md): Egret's gains on
   draft 2 move by at most 0.1 points.
+- [Report 0036](0036-report-fen.md), Fen, which came after this report
+  was first written: 0–7% faster (a call and reply between processes
+  732 cycles, was 734; `notify` and `ipc_recv` 520, was 560), and the
+  bank measurements in [RFC 0029](0029-rfc-draft-2-system/register-banks.md)
+  move with Fen's workloads, without changing their conclusions.
 
 The graphics bench caches its runs under a hash of the graphics sources,
 which leaves out the compiler; its tables here come from a fresh run.
