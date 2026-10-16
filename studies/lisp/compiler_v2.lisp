@@ -78,11 +78,6 @@
 (define (cc:u7 o)
   (and (eq? (car o) 'imm) (= (cadr o) 0) (>= (caddr o) 16) (<= (caddr o) 127) (caddr o)))
 
-; LEA has no [R] (that's a MOV) and no [r14 + 4R]
-(define (cc:lea-ea o labels pc)
-  (let ((e (cc:ea o labels pc)))
-    (if (= (car e) 14) (list 3 14 (cc:u16 (caddr o))) e)))
-
 (define (cc:tagged? i) (and (memq (car i) '(mov add sub cmp)) (eq? (car (caddr i)) 'tag)))
 
 ; the parcels of instruction i at address pc. long: whether a branch is in
@@ -98,12 +93,9 @@
      ((assq op cc:ea-ops)
       (let ((e (cc:ea (caddr i) labels (+ pc (* 2 (cc:ea-size (caddr i)))))))
         (cons (cc:p2 (+ (* 16 (cc:lookup op cc:ea-ops)) (car e)) (cadr i) (cadr e)) (cddr e))))
-     ((eq? op 'lea)
-      (let ((e (cc:lea-ea (caddr i) labels (+ pc (* 2 (cc:size i nil))))))
-        (if (= (car e) 2)
-            (list (cc:p2 16 (cadr i) (cadr e)))
-            (cons (cc:p2 (cdr (assq (car e) '((3 . 4) (4 . 5) (5 . 6) (15 . 7)))) (cadr i) (cadr e))
-                  (cddr e)))))
+     ((eq? op 'lea)                    ; row 0, in its modes' columns; [R] is a MOV
+      (let ((e (cc:ea (caddr i) labels (+ pc (* 2 (cc:ea-size (caddr i)))))))
+        (cons (cc:p2 (if (= (car e) 2) 16 (car e)) (cadr i) (cadr e)) (cddr e))))
      ((eq? op 'clr)
       (let ((e (cc:ea (cadr i) labels (+ pc (* 2 (cc:ea-size (cadr i)))))))
         (cons (cc:p2 32 (car e) (cadr e)) (cddr e))))
@@ -147,8 +139,7 @@
     (cond ((eq? op 'label) 0)
           ((cc:tagged? i) 1)
           ((and (memq op '(mov cmp)) (cc:u7 (caddr i))) 1)
-          ((assq op cc:ea-ops) (cc:ea-size (caddr i)))
-          ((eq? op 'lea) (- (length (cc:lea-ea (caddr i) nil 0)) 1))
+          ((or (assq op cc:ea-ops) (eq? op 'lea)) (cc:ea-size (caddr i)))
           ((eq? op 'clr) (cc:ea-size (cadr i)))
           ((memq op '(tst bic mulu muls))
            (if (eq? (car (caddr i)) 'reg)
