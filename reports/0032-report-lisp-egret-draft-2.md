@@ -62,6 +62,14 @@ geometric means over the programs: the Lisp's 12 benchmarks and Egret's
 > 1b's. That was 3.6% with report 0033's convention before the fix, and
 > 1.0% as the erratum above has it.
 
+> **Erratum (2026-10-16), the C compiler.** The C compiler's
+> optimisations ([report 0034](0034-report-c-compiler-optimisations.md))
+> make Egret's VM, which is compiled C, faster on both drafts, and
+> egret.md is rerun. Draft 2's gains for Egret move by at most 0.1
+> points: on D32-separate the interpreter loop −1.8%, the C loop −7.5%,
+> the JIT −2.5% and compiling −3.5%, and start-up −4.1%. The C
+> compiler's own gain on draft 2 (report 0030's −2.8%) is now −3.8%.
+
 ## Summary
 
 - **Everything runs on draft 2:** the Lisp's 22 programs and tests,
