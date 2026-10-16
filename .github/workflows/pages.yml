@@ -1,7 +1,8 @@
 # The website (heron site): every report, RFC, study and design page, the
 # index, the search and the browser tools, published to GitHub Pages from
-# main. Drafts show their text from the branch their stub names, so
-# drafts.yml runs this again when a branch changes a report.
+# main. Drafts show their text from the branch their stub names, and pages
+# other branches change link to those branches' versions, so branches.yml
+# runs this again when a branch changes a page.
 name: pages
 on:
   push:
@@ -18,7 +19,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      # all of history: other branches' versions are found by where they left main
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

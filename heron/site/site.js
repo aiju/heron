@@ -147,15 +147,16 @@
   // ------------------------------------------------------------ documents
   const prose = document.getElementById("prose");
   if (prose) {
-    // Section links: copy the section's address on GitHub, which is how
-    // documents are cited in chats and pull requests (AGENTS.md).
+    // Section links: copy the section's address on GitHub (on its branch,
+    // for a draft), which is how documents are cited in chats and pull
+    // requests (AGENTS.md).
     const src = document.body.dataset.src;
     if (src) {
       prose.querySelectorAll("h2[id], h3[id], h4[id], h5[id]").forEach((h) => {
         const a = document.createElement("a");
         a.className = "sec"; a.href = `#${h.id}`; a.textContent = "§";
         a.title = "Copy a link to this section on GitHub"; a.setAttribute("aria-label", a.title);
-        a.dataset.copy = `${GH}/blob/main/${src}#${h.id}`;
+        a.dataset.copy = `${GH}/blob/${document.body.dataset.ref || "main"}/${src}#${h.id}`;
         h.appendChild(a);
       });
       prose.addEventListener("click", (e) => {

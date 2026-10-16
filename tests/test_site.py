@@ -1,13 +1,18 @@
-"""The website (heron site): it builds, every document has a page, and the
-links between its pages, and to their sections, land."""
+"""The website (heron site): it builds, every document has a page, the
+links between its pages, and to their sections, land, and another branch's
+version of a page is marked where it differs from main."""
 
 import os
 import posixpath
+import re
 import tempfile
 import unittest
 from html.parser import HTMLParser
 
-from heron import meta, site
+from heron import ROOT, meta, site
+
+ISA = "reports/0028-rfc-draft-2-isa.md"
+EXTRA = "A paragraph that only the test's branch has."
 
 
 class Links(HTMLParser):
@@ -37,7 +42,11 @@ class Site(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.out = cls.tmp.name
-        site.Site(cls.out).build(apps=False, drafts=False)
+        cls.site = site.Site(cls.out)
+        with open(os.path.join(ROOT, ISA)) as f:
+            text = f.read()
+        cls.site.add_version(ISA, "test/a-branch", "0" * 40, "2026-10-16T18:00:00Z", text + "\n" + EXTRA + "\n")
+        cls.site.build(apps=False, branches=False)
         cls.pages = {}
         for d, _, files in os.walk(cls.out):
             for f in files:
@@ -56,6 +65,24 @@ class Site(unittest.TestCase):
             page = f"reports/{os.path.basename(path)[:-3]}.html"
             self.assertIn(page, self.pages)
             self.assertIn(f'href="{page}"', index)
+
+    def test_versions(self):
+        page = "reports/0028-rfc-draft-2-isa.test-a-branch.html"
+        self.assertIn(page, self.pages)
+        with open(os.path.join(self.out, page)) as f:
+            marked = re.findall(r'<p class="rev">([^<]*)', f.read())
+        self.assertEqual(marked, [EXTRA])
+        with open(os.path.join(self.out, "reports/0028-rfc-draft-2-isa.html")) as f:
+            self.assertIn('href="0028-rfc-draft-2-isa.test-a-branch.html"', f.read())
+
+    def test_revision_bars(self):
+        def bars(old, new):
+            r = self.site.render(ISA, new, "test/a-branch", old)
+            return re.findall(r'<p class="rev">([^<]*)</p>', r["html"])
+        doc = "---\nnumber: 28\n---\n\n# Title\n\nOne.\n\nTwo.\n\nThree.\n"
+        self.assertEqual(bars(doc, doc), [])
+        self.assertEqual(bars(doc, doc.replace("Two.", "Two, changed.")), ["Two, changed."])
+        self.assertEqual(bars(doc, doc.replace("Two.\n\n", "")), ["Three."])
 
     def test_links_land(self):
         bad = []
