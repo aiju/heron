@@ -20,13 +20,16 @@ OUT = os.path.join(BUILD, "v2_hw")
 SKIP = ("hello", "interrupts")      # as report 0012: no work / mostly halted
 
 
+# the sources a profile depends on
+SOURCES = ("ucode.py", "rtl.py", "system.py", "check.py", "timing.py", "perf.py")
+
+
 def _sources_tag():
     here = os.path.dirname(os.path.abspath(__file__))
     h = hashlib.sha1()
-    for f in sorted(os.listdir(here)):
-        if f.endswith(".py"):
-            with open(os.path.join(here, f), "rb") as fh:
-                h.update(fh.read())
+    for f in SOURCES:
+        with open(os.path.join(here, f), "rb") as fh:
+            h.update(fh.read())
     return h.hexdigest()[:12]
 
 
@@ -54,8 +57,9 @@ def run_one(name, mem, inp, code_base=0, **opts):
     return {
         "name": name, "instructions": m.instructions, "cycles": m.cycles, "ticks": m.ticks,
         "hold": m.hold_ticks, "refills": m.refills, "fetch_words": m.fetch_words,
-        "wasted": m.fetch_wasted, "ucount": dict(m.ucount),
+        "wasted": m.fetch_wasted, "ucount": dict(m.ucount), "refill_from": dict(m.refill_from),
         "bus": (m.sys.bus_reads, m.sys.bus_writes, m.sys.bus_fetches),
+        "icache_hits": m.sys.icache_hits,
     }
 
 
@@ -116,7 +120,7 @@ def kind_of(node):
     mem = f.get("MEM", 0)
     if f.get("MQM") or f.get("MS"):
         return "multiply or divide step"
-    if mem == 1:
+    if mem in (1, 6):
         return "data read"
     if mem == 2:
         return "data write"
@@ -146,9 +150,11 @@ def main(argv=None):
     import argparse
     p = argparse.ArgumentParser(prog="heron v2_hw perf")
     p.add_argument("--bus", action="store_true")
+    p.add_argument("--icache", type=int, default=0)
     p.add_argument("--force", action="store_true")
     args = p.parse_args(argv)
-    rows = profile(code_base=0x08000000 if args.bus else 0, force=args.force)
+    opts = {"icache": args.icache} if args.icache else {}
+    rows = profile(code_base=0x08000000 if args.bus else 0, force=args.force, **opts)
     lens, need = best_lengths(rows)
     times = time_with(rows, lens)
     print(f"length classes from the profile: {lens} ticks")

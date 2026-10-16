@@ -2,15 +2,17 @@
 
   check  [NAMES] [--lockstep]      the register-transfer model against the
                                    instruction-level simulator (the suite)
-  run    FILE.s [--input TEXT] [--bus] [--profile]
+  run    FILE.s [--input TEXT] [--bus] [--icache N] [--profile]
                                    one program on the RTL model: cycles, time,
                                    where they go (--bus: the code on the
                                    memory card, fetched over the bus)
   boot   FILE.s                    the whole boot: the I/O processor loads the
                                    control store and RAM through the slave
                                    port, then RESET and RUN
-  perf   [--bus]                   the suite's time, length classes from its
+  perf   [--bus] [--icache N]      the suite's time, length classes from its
                                    profile, where the cycles go
+  report [--write]                 RFC 0031's tables (--write: its
+                                   performance.md)
   ucode  [--list]                  the microcode: its size, length classes,
                                    and (--list) every microinstruction
 """
@@ -28,12 +30,13 @@ def cmd_run(args):
     img = asmcore.assemble_file(isas.get("v2"), args.file)
     inp = args.input.encode() if args.input is not None else metadata(args.file)["input"]
     m = check.run_rtl(img, inp, code_base=0x08000000 if args.bus else 0,
-                      prefetch_bus=args.prefetch_bus, profile=args.profile)
+                      prefetch_bus=args.prefetch_bus, profile=args.profile, icache=args.icache)
     sys.stdout.write(m.out.decode("latin-1"))
     print(f"\n{m.instructions} instructions, {m.cycles} cycles (CPI {m.cycles / m.instructions:.2f}), "
           f"{m.ticks * 20 / 1e6:.3f} ms, {m.ticks / m.cycles * 20:.0f} ns a cycle; "
           f"bus holds {m.hold_ticks * 20 / 1e6:.3f} ms; refills {m.refills}, "
-          f"words fetched {m.fetch_words} (wasted {m.fetch_wasted})")
+          f"words fetched {m.fetch_words} (wasted {m.fetch_wasted}); bus fetches "
+          f"{m.sys.bus_fetches}, instruction cache hits {m.sys.icache_hits}")
     if args.profile:
         names = Counter()
         for a, n in m.ucount.items():
@@ -80,6 +83,9 @@ def main(argv=None):
     if argv[:1] == ["perf"]:
         from .perf import main as perf_main
         return perf_main(argv[1:])
+    if argv[:1] == ["report"]:
+        from .report import main as report_main
+        return report_main(argv[1:])
     p = argparse.ArgumentParser(prog="heron v2_hw", description="The draft 2 CPU")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check", help="the RTL model against the instruction-level simulator")
@@ -90,6 +96,8 @@ def main(argv=None):
     r.add_argument("--prefetch-bus", action="store_true",
                    help="prefetch from bus space in any cycle, not only refills")
     r.add_argument("--profile", action="store_true")
+    r.add_argument("--icache", type=int, default=0, metavar="WORDS",
+                   help="an instruction cache of this many words for code in bus space")
     r.set_defaults(fn=cmd_run)
     b = sub.add_parser("boot", help="boot from the I/O processor, then run a program")
     b.add_argument("file")

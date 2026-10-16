@@ -4,7 +4,7 @@ See RFC 0031, Part I, for the datapath these signals drive, and rtl.py for
 the register-transfer model that runs them.
 
 The control store is writable: nine 64K x 16 SRAMs hold the 144-bit
-microinstruction (140 bits used) and a tenth the decode table. The I/O
+microinstruction (141 bits used) and a tenth the decode table. The I/O
 processor fills them at boot through the card's slave port. They are
 pipelined as in draft 1b: the SRAMs are addressed with the address of the
 *next* microinstruction, and their outputs are clocked into the

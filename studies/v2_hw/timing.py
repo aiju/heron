@@ -103,13 +103,25 @@ def delays():
 _D = None
 
 
-def estimate(f):
+# Changes to the design whose effect on time RFC 0031 measures, without
+# building them: names for estimate()'s `what_if`.
+WHAT_IF = {
+    "zreg": "Z and V from registers: the cycle that sets them clocks RES and the "
+            "operands' signs, and Z and V are worked out after the edge",
+    "rfearly": "the register file's addresses a cycle early: muxed from the "
+               "control store's output into a register beside the uIR",
+}
+
+
+def estimate(f, what_if=()):
     """Nanoseconds the microinstruction with fields f needs, from the CPU
     clock's edge, and the ticks that gives."""
     global _D
     if _D is None:
         _D = delays()
     d = _D
+    if "rfearly" in what_if:
+        d = dict(d, rf=d["rf"] - (_d("74F153", "S->Y")))
     mem = f.get("MEM", 0)
     # memory: data at T, or the fetch's word
     memt = d["vaddr_mar"] + d["map"] + d["phys"] + d["ram"]
@@ -157,9 +169,13 @@ def estimate(f):
         need = max(need, t_res + d["reg_setup"])
     if f.get("LDMAR") or f.get("LDPC") or f.get("LDLC"):
         need = max(need, t_res + d["cnt_setup"])
-    if f.get("FNZ"):
+    if f.get("FNZ") == 1 and "zreg" in what_if:
+        need = max(need, t_res + d["reg_setup"])
+    elif f.get("FNZ"):
         need = max(need, t_res + d["zero"] + d["reg_setup"])
-    if f.get("FV") == 7:
+    if f.get("FV") == 7 and "zreg" in what_if:
+        need = max(need, t_f + d["reg_setup"])
+    elif f.get("FV") == 7:
         need = max(need, t_f + d["vflag"] + d["reg_setup"])
     if f.get("FC") == 2:
         need = max(need, max(a, b) + d["alu_add"] - d["res"] + d["reg_setup"])
@@ -168,15 +184,19 @@ def estimate(f):
     if f.get("MQM"):
         need = max(need, t_f + 5.5)
     seq = f.get("SEQ", 0)
+    # with the register file's addresses a cycle early, the next
+    # microinstruction's are muxed after the control store
+    cs = d["cs"] + (_d("74F153", "S->Y") if "rfearly" in what_if else 0)
     if seq == 1:                                     # decode: queue -> table -> control store
-        t_dec = d["qh"] + d["decode"] + 12 + d["cs"]
+        t_dec = d["qh"] + d["decode"] + 12 + cs
         if mem == 3:                                 # a refill decodes the word it fetches
-            t_dec = fetch + d["mux2"] + d["decode"] + 12 + d["cs"]
+            t_dec = fetch + d["mux2"] + d["decode"] + 12 + cs
         need = max(need, t_dec)
     elif f.get("COND"):
-        cond_t = {2: d["r"], 3: d["uir"], 4: d["uir"] + 10, 7: d["uir"] + 10,
+        zcond = d["zero"] if "zreg" in what_if else 0
+        cond_t = {2: d["r"], 3: d["uir"], 4: d["uir"] + 10 + zcond, 7: d["uir"] + 10 + zcond,
                   9: d["uir"] + 15, 12: d["uir"] + 15}.get(f["COND"], d["uir"] + 8)
-        need = max(need, cond_t + d["mux2"] + d["cs"])
+        need = max(need, cond_t + d["mux2"] + cs)
     if mem in (1, 2, 4, 5, 6):
         fault = memt + 13                            # the map's bits -> FAULT -> control store
         need = max(need, fault + d["cs"])

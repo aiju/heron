@@ -170,7 +170,7 @@ class ConsoleCard:
 class System:
     """The memory system: translation, the CPU card's RAM, the bus."""
 
-    def __init__(self, ram_size=0x200000, prefetch_bus=False):
+    def __init__(self, ram_size=0x200000, prefetch_bus=False, icache=0):
         self.ram = bytearray(ram_size)
         self.ram_mask = ram_size - 1
         self.map = [0] * (1 << 19)
@@ -179,6 +179,12 @@ class System:
         self.console = None
         self.bus_transfers = 0
         self.bus_reads = self.bus_writes = self.bus_fetches = 0
+        # the instruction cache for code in bus space (RFC 0031, 7): icache
+        # words, direct mapped by physical address, a word a line
+        self.icache = icache
+        self.itag = [None] * icache
+        self.idata = [0] * icache
+        self.icache_hits = 0
 
     # ---- setup ---------------------------------------------------------
 
@@ -260,13 +266,28 @@ class System:
         self.bus_transfers += 1
         return (edge - t0) + TICKS_PER_BCLK * clocks + CROSS
 
+    def fetch_is_fast(self, pa):
+        """A fetch at pa won't go to the bus: the CPU card's RAM, or a hit
+        in the instruction cache."""
+        if self.is_local(pa):
+            return True
+        return bool(self.icache) and self.itag[(pa >> 2) % self.icache] == pa >> 2
+
     def fetch(self, pa, m):
         """A 32-bit word for the prefetch queue: (word, hold)."""
         if self.is_local(pa):
             a = pa & self.ram_mask & ~3
             return int.from_bytes(self.ram[a:a + 4], "little"), 0
+        if self.icache:
+            i = (pa >> 2) % self.icache
+            if self.itag[i] == pa >> 2:
+                self.icache_hits += 1
+                return self.idata[i], 0
         self.bus_fetches += 1
-        return self._bus_read(pa & ~3, 3, m)
+        w, h = self._bus_read(pa & ~3, 3, m)
+        if self.icache:
+            self.itag[i], self.idata[i] = pa >> 2, w
+        return w, h
 
     def read(self, pa, size, va, m):
         """Memory data for a read: the bytes in their lanes. (D, hold)"""
@@ -303,6 +324,8 @@ class System:
                     self.ram[base + k] = (d >> (8 * k)) & 0xFF
             return 0
         self.bus_writes += 1
+        if self.icache and self.itag[(pa >> 2) % self.icache] == pa >> 2:
+            self.itag[(pa >> 2) % self.icache] = None       # the CPU's own store
         card, off = self._card(pa)
         if card.width == 32 and not card.simple:
             card.write(off, d, lanes)

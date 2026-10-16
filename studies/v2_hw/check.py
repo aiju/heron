@@ -50,12 +50,12 @@ def program_paths(names=None):
     return paths
 
 
-def make_system(image, inp=b"", code_base=0, prefetch_bus=False):
+def make_system(image, inp=b"", code_base=0, prefetch_bus=False, icache=0):
     """The system the suite runs on: the CPU card's 2 MB, a memory card in
     slot 1, the console in slot 15; context 0's first 1 MB mapped onto
     physical code_base (0: the CPU card's RAM; 0x0800_0000: the memory
     card, to run the program over the bus)."""
-    s = System(prefetch_bus=prefetch_bus)
+    s = System(prefetch_bus=prefetch_bus, icache=icache)
     s.add(1, MemoryCard())
     s.add(15, ConsoleCard(inp))
     s.load(image, code_base)
@@ -80,8 +80,8 @@ def boot(m, pc=0, user=False):
 
 
 def run_rtl(image, inp=b"", max_cycles=200_000_000, code_base=0, prefetch_bus=False, mc=None,
-            trace=None, profile=False, user=False):
-    s = make_system(image, inp, code_base, prefetch_bus)
+            trace=None, profile=False, user=False, icache=0):
+    s = make_system(image, inp, code_base, prefetch_bus, icache)
     m = RTL(s, mc=mc)
     boot(m, user=user)
     m.cycles = m.ticks = m.hold_ticks = 0
@@ -89,6 +89,7 @@ def run_rtl(image, inp=b"", max_cycles=200_000_000, code_base=0, prefetch_bus=Fa
     if profile:
         from collections import Counter
         m.ucount = Counter()
+        m.refill_from = Counter()
     m.trace = trace
     m.run(max_cycles)
     return m
@@ -213,6 +214,7 @@ def c_programs(names=None):
 
 
 CODE_BASE = 0
+ICACHE = 0
 
 
 def check_image(name, img, inp, lock=False, max_cycles=400_000_000, path=""):
@@ -222,7 +224,7 @@ def check_image(name, img, inp, lock=False, max_cycles=400_000_000, path=""):
             m, sim = lockstep(img, inp, path)
         else:
             sim = run_isa(img, inp, max_cycles)
-            m = run_rtl(img, inp, code_base=CODE_BASE)
+            m = run_rtl(img, inp, code_base=CODE_BASE, icache=ICACHE)
     except RTLError as e:
         return name, [f"RTL error: {e}"], None
     diffs = compare(sim, m, code_base=CODE_BASE)
@@ -292,7 +294,7 @@ def check_program(path, lock=False, verbose=False):
             m, sim = lockstep(img, inp, path)
         else:
             sim = run_isa(img, inp, meta["max-cycles"])
-            m = run_rtl(img, inp, code_base=CODE_BASE)
+            m = run_rtl(img, inp, code_base=CODE_BASE, icache=ICACHE)
     except RTLError as e:
         return name, [f"RTL error: {e}"], None
     diffs = compare(sim, m, code_base=CODE_BASE)
@@ -311,10 +313,13 @@ def main(argv=None):
     p.add_argument("--c", action="store_true", help="the compiled C programs (or name them c/NAME)")
     p.add_argument("--bus", action="store_true",
                    help="the programs on the memory card: every fetch and access over the bus")
+    p.add_argument("--icache", type=int, default=0, metavar="WORDS",
+                   help="an instruction cache of this many words for code in bus space")
     args = p.parse_args(argv)
-    global CODE_BASE
+    global CODE_BASE, ICACHE
     if args.bus:
         CODE_BASE = 0x08000000
+    ICACHE = args.icache
     bad = 0
     jobs = []
     asm_names = [n for n in args.names if not n.startswith("c/")]

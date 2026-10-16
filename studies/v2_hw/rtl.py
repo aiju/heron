@@ -127,6 +127,7 @@ class RTL:
         self.instructions = 0
         self.halted = False
         self.ucount = None           # microaddress -> executions, if wanted
+        self.refill_from = None      # (after a jump?, routine) -> refills, if wanted
         self.fetch_words = 0
         self.fetch_wasted = 0
         self.refills = 0
@@ -239,8 +240,7 @@ class RTL:
                 demand = mem == 3
                 try:
                     pa_f = sysm.translate(self.FPC, "fetch", self)
-                    local = sysm.is_local(pa_f)
-                    if local or demand or sysm.prefetch_bus:
+                    if sysm.fetch_is_fast(pa_f) or demand or sysm.prefetch_bus:
                         fetched, h = sysm.fetch(pa_f, self)
                         hold += h
                 except Fault as e:
@@ -617,6 +617,8 @@ class RTL:
                 self.instructions += 1
             if forced == "refill":
                 self.refills += 1
+                if self.refill_from is not None:
+                    self.refill_from[(jump, self.mc.by_addr[self.uaddr].name)] += 1
         # interrupt request: synchronise, then pending = request & I (next)
         self.irqp = self.irqs & self.i
         self.irqs = sysm.irq(self)
