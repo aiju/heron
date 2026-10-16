@@ -5,9 +5,10 @@ primitives, tasks, the image flash. One system is booted for the class
 import re
 import unittest
 
-from heron import native
 from heron.studies.iop import build, layout
 from heron.studies.iop.run import Session
+
+from heron import native
 
 
 class Forth(unittest.TestCase):

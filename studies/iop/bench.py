@@ -43,7 +43,7 @@ def measure(wcs=False):
     s = Session(b)
     rows = []
     bclk = s.bclk
-    ms = lambda clocks: clocks * bclk / 1e6   # noqa: E731
+    ms = lambda clocks: clocks * bclk / 1e6
 
     # ---- the boot, by breakpoints at the microcode's stages
     s.s.breakpoints = [b.mc.labels["dictcopy"], b.mc.labels["next"]]

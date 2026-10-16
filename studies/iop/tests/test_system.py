@@ -1,6 +1,7 @@
 """The system: the IOP boots the draft 2 CPU, which then reaches the IOP's
 console through the I/O bus's window, its shared RAM and its doorbells."""
 
+import os
 import unittest
 
 from heron.studies.iop import build
@@ -90,3 +91,17 @@ class Blocks(unittest.TestCase):
         self.run_("$1122 $6000. d $33 $6001. busc! $44 $6000. busc!")
         self.assertEqual(self.s.s.cpu_mem(0x6000, 2), b"\x44\x33")
         self.assertIn("51 68  ok", self.s.command("$6001. busc@ . $6000. busc@ ."))
+
+
+class Interrupt(unittest.TestCase):
+    def test_cpu_int(self):
+        """The IOP raises a level in the CPU card's request register; the
+        CPU, waiting in HALT, takes it (sw/irq.s)."""
+        s = Session(build.Build(os.path.join(build.HERE, "sw", "irq.s")))
+        s.boot()
+        s.command("boot-cpu")
+        s.run_ms(2)
+        self.assertFalse(s.s.cpu()["halted"])
+        self.assertEqual(s.command("3 cpu-int cpu-wait", 3000),
+                         "3 cpu-int cpu-wait Level 3 from the IOP\r\n ok\r\n")
+        self.assertEqual(s.s.cpu()["irq"], 0)

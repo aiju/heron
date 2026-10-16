@@ -23,6 +23,7 @@ import os
 import pickle
 
 from heron import BUILD
+
 from . import layout, meta, uasm
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -94,9 +95,9 @@ def cpu_program(path):
     """A draft 2 program, assembled, as {physical address: byte}: it runs
     from the reset vector, physical 0, in the supervisor's window, so it
     is assembled at 0x8000_0000 and loaded at its address less bit 31."""
+    import heron.studies.v2_isa
     from heron.infra import asm as asmcore
     from heron.infra import isas
-    import heron.studies.v2_isa  # noqa: F401  (registers the ISA)
     try:
         img = asmcore.assemble_file(isas.get("v2"), path)
     except Exception as e:
@@ -114,7 +115,7 @@ def control_store():
     if os.path.exists(path) and os.path.getmtime(path) > os.path.getmtime(src):
         with open(path, "rb") as f:
             return pickle.load(f)
-    import heron.studies.v2_isa  # noqa: F401
+    import heron.studies.v2_isa
     from heron.studies.v2_hw import ucode as uc
     mc = uc.built()
     rom = mc.rom()

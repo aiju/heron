@@ -3,8 +3,9 @@
 
 import unittest
 
-from heron import native
 from heron.studies.iop import uasm
+
+from heron import native
 
 
 def one(line, pre=""):
