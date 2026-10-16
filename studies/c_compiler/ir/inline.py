@@ -2,18 +2,23 @@
 becomes a copy of its body.
 
 `inline_module` runs after every function has been optimised once, so a
-callee's size is what it compiles to. A call is inlined when the callee is
-defined in the module, isn't variadic, doesn't call itself and has at most
-INLINE_SIZE instructions (phis and jumps not counted) and no loop: what a
-call to a loop costs is small next to the loop. The callers that
-changed are optimised again by the driver, and a static function that
-nothing refers to any more is dropped.
+callee's size is what it compiles to. A function's calls are inlined when
+it is defined in the module, isn't variadic, doesn't call itself, has at
+most INLINE_SIZE instructions (phis and jumps not counted) and no loop
+(what a call to a loop costs is small next to the loop), and copying it
+into all its call sites adds at most INLINE_GROWTH instructions to the
+unit: each copy saves the call and its argument moves, and a static
+function that nothing else refers to goes once its calls are inlined. So
+a helper called from one place is inlined, and one called from fifty only
+if it's no bigger than the call. The callers that changed are optimised
+again by the driver.
 """
 
 from .ir import Instr, Param, Slot, SymAddr, Undef
 from .cfg import DomTree, natural_loops
 
 INLINE_SIZE = 16
+INLINE_GROWTH = 8
 
 
 def size(f):
@@ -90,7 +95,25 @@ def inline_module(module):
     """Inline the small functions' calls throughout module. Returns the
     functions that changed."""
     funcs = {f.name: f for f in module.functions}
-    small = {name for name, f in funcs.items() if inlinable(f)}
+    sites, taken = {}, set()
+    for f in module.functions:
+        for i in f.instructions():
+            for k, a in enumerate(i.args):
+                if isinstance(a, SymAddr) and a.name in funcs:
+                    if i.op == "call" and k == 0 and i.nfixed is None:
+                        sites[a.name] = sites.get(a.name, 0) + 1
+                    else:
+                        taken.add(a.name)
+    for d in module.data:
+        taken.update(v.name for kind, v in d.items if kind == "word" and isinstance(v, SymAddr))
+
+    def growth(f):
+        """Instructions that inlining every call to f adds to the unit."""
+        n = sites.get(f.name, 0)
+        call = len(f.params) + 2            # the argument moves, the call, the result
+        kept = not f.static or f.name in taken
+        return n * (size(f) - call) - (0 if kept else size(f))
+    small = {name for name, f in funcs.items() if inlinable(f) and growth(f) <= INLINE_GROWTH}
     changed = []
     for f in module.functions:
         done = False
