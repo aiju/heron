@@ -165,6 +165,27 @@ void srv_drop_pid(struct srv_req **list, int pid)
     }
 }
 
+static int next_rcvid;
+static msg_t next_msg;
+
+void srv_reply_next(int rcvid, const msg_t *reply)
+{
+    if (next_rcvid > 0)
+        ipc_reply(next_rcvid, &next_msg);
+    next_rcvid = rcvid;
+    next_msg = *reply;
+}
+
+int srv_recv(int port, msg_t *m, int *pid)
+{
+    int rcvid = next_rcvid;
+    if (rcvid <= 0)
+        return ipc_recv(port, m, pid);
+    next_rcvid = 0;
+    *m = next_msg;
+    return ipc_reply_recv(rcvid, m, port, pid);
+}
+
 int srv_reply(int rcvid, int status)
 {
     msg_t m;

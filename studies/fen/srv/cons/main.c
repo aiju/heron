@@ -332,7 +332,7 @@ int main(void)
         return 3;
     name_register("cons", port);
     for (;;) {
-        rcvid = ipc_recv(port, &m, &pid);
+        rcvid = srv_recv(port, &m, &pid);
         if (rcvid == 0) {
             if (m.w[0] & SRV_EXIT_BIT)
                 srv_exits(gone);
@@ -345,7 +345,7 @@ int main(void)
         r = handle(rcvid, pid, &m);
         if (r != 1 << 30) {
             m.w[0] = r;
-            ipc_reply(rcvid, &m);
+            srv_reply_next(rcvid, &m);
         }
     }
 }

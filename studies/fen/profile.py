@@ -77,7 +77,8 @@ class Profile:
         """{(process, function): cycles}"""
         now = self._now()
         kend = self.s.kernel.symbols["__end"] & 0x7FFFFFFF
-        ksyms = Symbols(self.s.kernel.symbols)
+        ksyms = Symbols({n: a for n, a in self.s.kernel.symbols.items()
+                         if a >= build.KERNEL_BASE})     # (not the .equ constants)
         procs = processes(self.s)
         owner = {}
         for pid, name in procs.items():

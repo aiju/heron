@@ -60,6 +60,13 @@ void srv_drop_pid(struct srv_req **list, int pid);
 /* Reply with a status in word 0. */
 int srv_reply(int rcvid, int status);
 
+/* A reply to send with the next srv_recv, so that replying and receiving
+ * are one system call (ipc_reply_recv, which the kernel switches straight
+ * through). A reply already kept goes at once. */
+void srv_reply_next(int rcvid, const msg_t *reply);
+/* Receive on port, sending the kept reply first: as ipc_recv. */
+int srv_recv(int port, msg_t *m, int *pid);
+
 /* A path from the client: copied into buf (size bytes), NUL-terminated. */
 int srv_path(int rcvid, msg_t *m, int which, char *buf, unsigned size);
 

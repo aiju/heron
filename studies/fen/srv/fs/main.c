@@ -35,7 +35,7 @@ void wait_irq(unsigned bit)
     msg_t m;
     int pid, rcvid;
     while (!(irq_seen & bit)) {
-        rcvid = ipc_recv(fs_port, &m, &pid);
+        rcvid = srv_recv(fs_port, &m, &pid);
         if (rcvid == 0) {
             irq_seen |= m.w[0];
             if (m.w[0] & SRV_EXIT_BIT)
@@ -704,7 +704,7 @@ static void serve(int rcvid, int pid, msg_t *m)
     if (r == 1 << 30)
         return;
     m->w[0] = r;
-    ipc_reply(rcvid, m);
+    srv_reply_next(rcvid, m);
 }
 
 static void say(const char *s)
@@ -748,7 +748,7 @@ int main(void)
             free(r);
             continue;
         }
-        rcvid = ipc_recv(fs_port, &m, &pid);
+        rcvid = srv_recv(fs_port, &m, &pid);
         if (rcvid == 0) {
             if (m.w[0] & SRV_EXIT_BIT)
                 srv_exits(gone);

@@ -21,7 +21,10 @@ instruction-level simulator, on a board of the study's own
   the trap frame and sets `bank` and `ctx`. Messages are 8 words in
   `r0`–`r7`, copied from bank to bank by `BCOPY` (a tentative instruction
   for RFC 0029's open question 3); bulk data is copied straight between
-  address spaces through the window.
+  address spaces through the window. A call to a waiting server and a
+  reply to a waiting client switch straight from one thread to the other,
+  in assembly (`kernel/fastipc.s`, its offsets generated from
+  `kernel/offsets.c`).
 - **Servers in user space**, drivers included: the file server drives the
   CompactFlash card, the console server the UART, the window system the
   video card, the keyboard and the mouse, each with its pages of the I/O

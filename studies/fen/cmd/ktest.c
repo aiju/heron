@@ -26,16 +26,19 @@ static volatile int server_ready;
 static volatile int deferring;
 
 /* a server thread: echoes word 1 + 1 in word 0; op 2 reads the client's
- * string and writes it back upper-cased; op 3 defers its reply until
- * the next op 4 */
+ * string and writes it back upper-cased; op 3 defers its reply until a
+ * notification comes. It answers at once with its next receive
+ * (ipc_reply_recv, the kernel's fast path), and a deferred reply on its
+ * own (ipc_reply). */
 static void server(unsigned arg)
 {
     msg_t m;
-    int pid, rcvid, deferred = 0;
+    int pid, rcvid, deferred = 0, answer = 0;
     server_port = port_create();
     server_ready = 1;
     for (;;) {
-        rcvid = ipc_recv(server_port, &m, &pid);
+        rcvid = ipc_reply_recv(answer, &m, server_port, &pid);
+        answer = 0;
         if (rcvid == 0) {
             /* a notification: tell whoever is deferred */
             if (deferred) {
@@ -49,7 +52,7 @@ static void server(unsigned arg)
         case 1:
             m.w[0] = m.w[1] + 1;
             m.w[7] = m.w[6] * 2;
-            ipc_reply(rcvid, &m);
+            answer = rcvid;
             break;
         case 2: {
             char buf[64];
@@ -62,7 +65,7 @@ static void server(unsigned arg)
                     buf[i] -= 32;
             ipc_write(rcvid, (void *)m.w[1], buf, n);
             m.w[0] = n;
-            ipc_reply(rcvid, &m);
+            answer = rcvid;
             break;
         }
         case 3:

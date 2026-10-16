@@ -752,7 +752,7 @@ int main(void)
         notify_clients();
         if (!cursor_on && mode != DRAG && mode != GROW)
             cursor_show();
-        rcvid = ipc_recv(port, &m, &pid);
+        rcvid = srv_recv(port, &m, &pid);
         if (rcvid == 0) {
             if (m.w[0] & SRV_EXIT_BIT)
                 srv_exits(client_gone);
@@ -764,6 +764,6 @@ int main(void)
             continue;
         r = handle(rcvid, pid, &m);
         m.w[0] = r;
-        ipc_reply(rcvid, &m);
+        srv_reply_next(rcvid, &m);
     }
 }

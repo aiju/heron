@@ -50,7 +50,7 @@ FX_MAGIC = 0x584E4546
 BOOT_MAGIC = 0x424E4546
 PAGE = 4096
 
-KERNEL_SOURCES = ["entry.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c"]
+KERNEL_SOURCES = ["entry.s", "fastipc.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c"]
 
 LIB_SOURCES = ["ipc.s", "start.c", "fd.c", "stdio.c", "stdlib.c", "string2.c", "spawn.c",
                "time.c", "getopt.c", "srv.c", "gui.c"]
@@ -191,9 +191,11 @@ def compile_c(path, include=INCLUDE, window=False, defines=None):
     return _cached(key, os.path.basename(path)[:-2] + ".o", make)
 
 
-def assemble_file(path):
+def assemble_file(path, prefix=""):
+    """An assembly file as an object file; `prefix` is text put in front of
+    it (the kernel's offsets, for fastipc.s)."""
     with open(path) as f:
-        text = f.read()
+        text = prefix + f.read()
     key = ("s", path, text, _compiler_version())
 
     def make():
@@ -243,11 +245,79 @@ def image_bytes(img, lo, hi):
 
 # ---- the kernel ------------------------------------------------------------
 
+def kernel_offsets(defines=None):
+    """kernel/offsets.c's constants as .equ lines: compiled, and read back
+    from what the compiler makes of them (a label and its four bytes)."""
+    import re
+    include = [os.path.join(HERE, "kernel")] + INCLUDE
+    path = os.path.join(HERE, "kernel", "offsets.c")
+    with open(path) as f:
+        text = f.read()
+    key = ("offsets", text, _headers(path, include), sorted((defines or {}).items()),
+           _compiler_version())
+    cache = os.path.join(CACHE, hashlib.sha256(pickle.dumps(key)).hexdigest()[:24] + ".equ")
+    if os.path.exists(cache):
+        with open(cache) as f:
+            return f.read()
+    try:
+        u = driver.compile_unit(path, ISA, include, defines)
+        asm = driver.unit_assembly(u, ISA, window=True)
+    except CompileError as e:
+        raise BuildError(f"kernel/offsets.c: {e}") from None
+    vals = {}
+    for m in re.finditer(r"^_(\w+):\n\s+\.byte ([\d, ]+)$", asm, re.M):
+        vals[m.group(1)] = int.from_bytes(bytes(int(b) for b in m.group(2).split(",")), "little")
+    for m in re.finditer(r"^_(\w+):\n\s+\.(space|fill) 4\b", asm, re.M):
+        vals[m.group(1)] = 0
+    names = re.findall(r"^(?:OFF|K)\((\w+),", text, re.M)
+    missing = [n for n in names if n not in vals]
+    if missing:
+        raise BuildError(f"kernel/offsets.c: no value for {', '.join(missing)}")
+    # fastipc.s indexes the tables with LEAs that multiply by these
+    if vals["PT_SIZE"] != 20 or vals["T_SIZE"] != 72:
+        raise BuildError(f"kernel/fastipc.s indexes ports by 20 bytes and threads by 72; "
+                         f"they are {vals['PT_SIZE']} and {vals['T_SIZE']}")
+    out = "; kernel/offsets.c, as the build read it\n" + "".join(
+        f"        .equ {n}, {vals[n]}\n" for n in names) + "\n"
+    with open(cache, "w") as f:
+        f.write(out)
+    return out
+
+
+def fastipc(offsets, defines=None):
+    """kernel/fastipc.s with the offsets in front; with COPY_UR, each BCOPY
+    done instead with MFUR and MTUR, through the registers its comment
+    names."""
+    import re
+    path = os.path.join(HERE, "kernel", "fastipc.s")
+    if not (defines or {}).get("COPY_UR"):
+        return assemble_file(path, offsets)
+
+    def expand(m):
+        rd, rs, regs = m.group(1), m.group(2), m.group(3).split()
+        out = [f"        MTSR bank, {rs}"]
+        out += [f"        MFUR {r}, r{i}" for i, r in enumerate(regs)]
+        out += [f"        MTSR bank, {rd}"]
+        out += [f"        MTUR r{i}, {r}" for i, r in enumerate(regs)]
+        return "\n".join(out)
+    with open(path) as f:
+        text = re.sub(r"^\s+BCOPY (r\d+), (r\d+)\s+; COPY_UR: ((?:r\d+ ?){8})$", expand,
+                      f.read(), flags=re.M)
+    if "BCOPY" in re.sub(r";.*", "", text):
+        raise BuildError("kernel/fastipc.s: a BCOPY without the registers for COPY_UR")
+    out = os.path.join(GEN, "fastipc_ur.s")
+    write_if_changed(out, text)
+    return assemble_file(out, offsets)
+
+
 def kernel(defines=None):
     """The kernel's image (bytes from physical 0) and its linked image."""
     generate()
     include = [os.path.join(HERE, "kernel")] + INCLUDE
-    objs = [obj_for(os.path.join(HERE, "kernel", s), include, window=True, defines=defines)
+    offsets = kernel_offsets(defines)
+    write_if_changed(os.path.join(GEN, "koffsets.s"), offsets)
+    objs = [fastipc(offsets, defines) if s == "fastipc.s"
+            else obj_for(os.path.join(HERE, "kernel", s), include, window=True, defines=defines)
             for s in KERNEL_SOURCES]
     objs.append(assemble_file(os.path.join(GEN, "ksys.s")))
     try:

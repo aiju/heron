@@ -16,7 +16,7 @@ int need_resched;
 u32 ticks;
 
 static struct thread *runq[NPRIO];      /* circular lists, the head runs next */
-static u32 ready_bits;
+u32 ready_bits;                         /* the levels that have one (fastipc.s reads it) */
 static struct thread *sleepers;         /* by wake time */
 
 #define KFRAME ((struct frame *)(kstack_top - 8))
@@ -233,6 +233,7 @@ struct thread *thread_new(struct proc *p, u32 pc, u32 sp, u32 arg, int prio)
         if (t->state == T_FREE) {
             t->proc = p;
             t->gen++;
+            t->rcvid = MAKE_RCVID(t);
             t->prio = prio;
             t->slice = SLICE_TICKS;
             t->pc = pc;

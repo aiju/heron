@@ -53,11 +53,11 @@ measured its nucleus in. The tables are generated:
    way.
 2. **Banks make a switch nothing to speak of.** A thread's registers stay
    in its bank, so a switch rewrites the two words of the trap frame and
-   sets `bank` and `ctx`: 124 cycles, in compiled C. A null system call
-   is 64 cycles, of which the dispatch is one `JMP` in the `SWI`'s own
+   sets `bank` and `ctx`: about 20 instructions and 80 cycles. A null system call
+   is 63 cycles, of which the dispatch is one `JMP` in the `SWI`'s own
    vector.
 3. **`BCOPY` earns its place:** with it a message is one instruction, and
-   a call and reply between processes takes 128 cycles (8.5%) fewer than
+   a call and reply between processes takes 50 cycles (6.4%) fewer than
    moving the eight words through the kernel's registers with `MFUR` and
    `MTUR`. Fen proposes it for open question 3 as built: `BCOPY rd, rs`,
    cell `F9`, the banks' numbers in registers, a microcoded loop.
@@ -74,13 +74,16 @@ measured its nucleus in. The tables are generated:
    can give each to its driver. They are about two chips and a choice of
    address lines. With the timer, they are Fen's answer to open
    question 2, the physical memory map ([1.2](#12-the-board)).
-6. **Compiled C is where the time goes, not the hardware.** A call and
-   reply between processes is 1,383 cycles (1,478 on D32-separate),
-   against 347 for report 0020's hand-written nucleus: Fen's kernel
-   executes about 350 instructions a round trip where the nucleus
-   executed 63, in small C functions that keep their globals in memory. A direct
-   switch from client to server and back, past the run queue, took it
-   from 2,169. A fast path in assembly is where to look next.
+6. **The IPC's fast path in assembly halves a round trip.** A call to a
+   waiting server, and a reply-and-receive to a waiting client, go from
+   one thread straight to the other in about 60 instructions each
+   (`kernel/fastipc.s`); anything else falls back to the C. A call and
+   reply between processes is 734 cycles (792 on D32-separate, against
+   347 for report 0020's hand-written nucleus, which did less), from
+   1,383 in compiled C, which executed about 350 instructions a round
+   trip, and 2,169 before the C switched directly. With the servers
+   replying and receiving in one call, the whole system gains: `spawn`
+   7%, cached reads 7%, a terminal's output 17%.
 7. **A 16-bit datapath makes pixels dear.** Moving a 562 × 381 window
    is 114 ms, and scrolling a terminal costs as much as copying the
    window. The window system needed the graphics library's fills and
@@ -88,7 +91,7 @@ measured its nucleus in. The tables are generated:
    `STM` (6 cycles a word copied, against about 75 for the C), and
    windows kept on word boundaries, since a copy that has to shift costs
    four times one that doesn't. The terminal draws what changed at most every 80 ms
-   while output streams: `seq 200` takes 0.8 s in a window, 0.2 s on the
+   while output streams: `seq 200` takes 0.7 s in a window, 0.2 s on the
    serial console.
 
 ## 1. What Fen is
@@ -170,7 +173,11 @@ messages, interrupts as notifications, and little else.
   write its memory (`ipc_read`, `ipc_write`, one copy through the window)
   or map its pages (`ipc_map`). When the server a call wakes would be
   chosen to run anyway, the kernel switches to it directly, past the run
-  queue, and the reply does the same back.
+  queue, and a reply that comes with the server's next receive
+  (`ipc_reply_recv`) does the same back. Both are an assembly fast path
+  (`fastipc.s`) in front of the C, which handles everything else; the
+  servers' library sends the reply a server owes with its next receive
+  (`srv_reply_next`, `srv_recv`), so that the servers take it.
 - **Notifications** are bits on a port, delivered to a receiver as a
   message with `rcvid` 0. Interrupts, a process ending (with a log of
   which), and alarms (`alarm(port, bits, µs)`) arrive as notifications,
@@ -288,11 +295,10 @@ Where RFC 0029 leaves something open, the simulator takes this:
   messages are registers, a system call saves nothing, and a switch is
   two special registers and a frame. 255 threads is the limit for the
   whole system, which was never close. `MFUR` and `MTUR` take the
-  register number in the instruction, so the kernel's "register n of
-  bank b" is a jump into a table of them, about 25 cycles where an
-  `MFUR` naming the register is one instruction. The IPC calls read the
-  port and the `rcvid` that way, three times a round trip; writing them
-  in assembly would name the registers.
+  register number in the instruction, so the kernel's C reaches
+  "register n of bank b" through a jump into a table of them, about 25
+  cycles where an `MFUR` naming the register is one instruction. The
+  fast path names its registers.
 - **`SWI` with a vector each** makes the dispatch a `JMP`: report 0020
   had it as 16 of a null call's 39 cycles, and asked for exactly this.
 - **Interrupts.** Fen uses three levels for devices and one for the
@@ -334,21 +340,23 @@ A message is eight words in `r0`–`r7`, and with a bank per thread it has
 to get from the client's bank to the server's. `BCOPY` does that in one
 instruction; without it the kernel sets `bank`, reads the eight words
 into its own registers with `MFUR`, sets `bank` again and writes them
-with `MTUR` (`bank_copy_ur` in `entry.s`). Measured with the kernel built
-each way (`COPY_UR`):
+with `MTUR`. Measured with the kernel built each way (`COPY_UR` makes
+the fast path's two copies those sixteen instructions inline, and the
+C's `bank_copy_ur` in `entry.s`):
 
 | | cycles | without `BCOPY` |
 |---|---:|---:|
-| a call and reply to another process | 1,383 | 1,511 |
-| a call and reply to a thread of the same process | 1,361 | 1,489 |
-| `spawn` and `waitpid` of `/bin/true` | 124,293 | 125,418 |
+| a call and reply to another process | 734 | 784 |
+| a call and reply to a thread of the same process | 730 | 780 |
+| `spawn` and `waitpid` of `/bin/true` | 116,171 | 116,587 |
 
-That is 64 cycles a message, two messages a round trip. Even as a slow
-microcoded loop it is worth its cell, and it is what makes passing
-messages in registers the natural design rather than one to argue for.
-The kernel also writes the receiver's `r8` and `r9` (the `rcvid` and the
-sender) with two `MTUR`s after it; a `BCOPY` of ten registers wouldn't
-pay for the change.
+That is 25 cycles a message, two messages a round trip, 6.4% of it.
+(Before the fast path, when the C called a function for the copy, it was
+64 cycles a message.) Even as a slow microcoded loop it is worth its
+cell, and it is what makes passing messages in registers the natural
+design rather than one to argue for. The kernel also writes the
+receiver's `r8` and `r9` (the `rcvid` and the sender) with two `MTUR`s
+after it; a `BCOPY` of ten registers wouldn't pay for the change.
 
 ## 3. What it costs
 
@@ -356,29 +364,34 @@ From [performance.md](0036-report-fen/performance.md):
 
 | | cycles | at 6 MHz |
 |---|---:|---:|
-| a null system call | 64 | 11 µs |
-| `notify` a port, and `ipc_recv` the notification | 558 | 93 µs |
-| a call and reply between processes | 1,383 | 231 µs |
-| `vm_alloc` and `vm_free` a page (zeroed) | 5,152 | 0.9 ms |
-| `spawn` and `waitpid` a program | 124,293 | 21 ms |
-| boot to the desktop's prompt | 5.6 M | 1.02 s |
-| move a 562 × 381 window | 684,000 | 114 ms |
+| a null system call | 63 | 11 µs |
+| `notify` a port, and `ipc_recv` the notification | 560 | 93 µs |
+| a call and reply between processes | 734 | 122 µs |
+| `vm_alloc` and `vm_free` a page (zeroed) | 5,154 | 0.9 ms |
+| `spawn` and `waitpid` a program | 116,171 | 19 ms |
+| boot to the desktop's prompt | 5.5 M | 1.01 s |
+| move a 562 × 381 window | 685,000 | 114 ms |
 
-Data moves at 1,437 KB/s reading a cached file, 885 KB/s through a
+Data moves at 1,533 KB/s reading a cached file, 934 KB/s through a
 pipe, and 135 KB/s writing a file through to the card (every block and
 every change to an inode or the bitmap is written at once).
 
-**Where a call and reply goes.** About 350 instructions in the kernel
-and 1,100 cycles of the 1,383; the rest is the two user-side stubs
-(each moves the message between memory and `r0`–`r7` with `LDM` and
-`STM`) and the loop. The kernel's part is two traps, two direct
-switches (124 cycles each), looking up the port and checking it
-(35 cycles each time), delivering the message, checking the `rcvid` on
-the reply, and the bookkeeping of the thread states, each a small C
-function whose globals are in memory. Report 0020's nucleus did a call
-and reply in 347 cycles on D32-separate, where Fen takes 1,478: it was
-63 instructions of hand-written assembly with less to check. Before the
-direct switch, the call put the server on the run queue and the
+**Where a call and reply goes.** Of the 734 cycles, the kernel's fast
+path is about 520, in some 125 instructions: two traps; the checks (the
+port is live and has a receiver; the `rcvid` names a thread waiting for
+this process's reply; the port has nothing else to receive; no ready
+thread is above the one about to run); the two `BCOPY`s; the port's
+queue and the threads' states; and two switches of about 20
+instructions and 80 cycles each, which save and load the trap frame's
+two words and set `bank` and `ctx`. The rest, about 210, is the user
+side: the two stubs, which move the message between memory and
+`r0`–`r7` with `LDM` and `STM`, and the benchmark's loops. Report 0020's
+nucleus did a call and reply in 347 cycles on D32-separate, where Fen
+takes 792; it was 63 instructions of hand-written assembly with less to
+check. In compiled C the same path was about 350 instructions and 1,383
+cycles: small functions, each loading its globals with 32-bit
+addresses, and the register numbers through a table. Before the C
+switched directly, the call put the server on the run queue and the
 scheduler took it off again, and a round trip was 2,169 cycles.
 
 **The desktop.** Drawing is most of what the window system costs. On a
@@ -398,7 +411,7 @@ drew, drawing at most every 80 ms while output streams and at once when
 a program reads or a key is typed; it fills blank cells instead of
 drawing spaces, and wsys fills the strip a scroll opens instead of
 asking the terminal to draw it. Before those, `seq 200` took 14.3 s in a
-terminal; now 0.8 s.
+terminal; now 0.7 s.
 
 ## 4. What Fen doesn't do yet
 
@@ -414,9 +427,10 @@ terminal; now 0.8 s.
 - **The desktop** has two bitmap fonts, one depth and one screen size, no
   clipboard and no editor. A full-screen editor in the terminal is the
   most useful thing missing.
-- **Performance:** the IPC fast path in assembly (call, receive, reply
-  and the direct switch), text drawing in assembly (the glyph expansion
-  is still the graphics library's C), and a write-back cache.
+- **Performance:** the rest of the IPC in assembly (a receive that finds
+  a caller waiting, notifications, interrupts to drivers), text drawing
+  in assembly (the glyph expansion is still the graphics library's C),
+  and a write-back cache.
 - **Not tried:** a real boot from ROM (the host loads the boot image into
   RAM), the non-maskable interrupt, the trace exception beyond the
   simulator's tests, and more than one CPU.
@@ -426,7 +440,7 @@ terminal; now 0.8 s.
 Nothing here decides anything; these are what Fen suggests:
 
 1. **RFC 0029, open question 3:** `BCOPY rd, rs` as built (cell `F9`,
-   bank numbers in registers, a microcoded loop), which saves 8.5% of a
+   bank numbers in registers, a microcoded loop), which saves 6.4% of a
    round trip.
 2. **RFC 0029, open question 2:** the board's memory map in
    [1.2](#12-the-board) as one answer, with the interrupt mask, a page per

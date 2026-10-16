@@ -91,11 +91,14 @@ struct thread {
     int peer_pid;               /* T_REPLY: the process that owes it a reply */
     u32 cycles;                 /* run time, in timer ticks */
     u32 gen;                    /* how many threads have had this bank: part of a rcvid */
+    int rcvid;                  /* its rcvid, from its id and gen */
 };
 
 /* A rcvid names a thread waiting for a reply: its id and generation, so a
- * stale one can't reach a new thread in the same bank. */
-#define RCVID(t) ((int)((((t)->gen & 0x7FFFFF) << 8) | (t)->id))
+ * stale one can't reach a new thread in the same bank. A thread keeps its
+ * own, made when it starts. */
+#define MAKE_RCVID(t) ((int)((((t)->gen & 0x7FFFFF) << 8) | (t)->id))
+#define RCVID(t) ((t)->rcvid)
 
 enum pstate { P_FREE, P_LIVE, P_ZOMBIE };
 
@@ -128,6 +131,7 @@ extern struct thread threads[MAX_THREADS];
 extern struct proc procs[MAX_PROCS];
 extern struct port ports[MAX_PORTS];
 extern u32 ticks;
+extern u32 ready_bits;
 extern u32 ram_size;
 
 /* entry.s */

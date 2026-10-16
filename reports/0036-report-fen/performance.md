@@ -14,27 +14,27 @@ second, and its own loop; the desktop's are the machine's busy cycles
 
 | Operation | µs | cycles | D32-separate | without BCOPY |
 |---|---:|---:|---:|---:|
-| getpid(), a system call that does nothing | 10.7 | 64 | 68 | 64 |
-| notify() a port of one's own, and ipc_recv() it | 93.1 | 558 | 587 | 558 |
-| ipc_call() to a thread of the same process, and its reply | 227.0 | 1,361 | 1,453 | 1,489 |
-| ipc_call() to another process, and its reply | 230.7 | 1,383 | 1,478 | 1,511 |
-| vm_alloc() and vm_free() a page (which is zeroed) | 858.8 | 5,152 | 5,066 | 5,152 |
-| vm_alloc() and vm_free() 64 pages | 48,952.8 | 293,717 | 287,676 | 293,755 |
-| spawn() /bin/true and waitpid() for it | 20,715.5 | 124,293 | 130,810 | 125,418 |
+| getpid(), a system call that does nothing | 10.6 | 63 | 68 | 63 |
+| notify() a port of one's own, and ipc_recv() it | 93.5 | 560 | 587 | 560 |
+| ipc_call() to a thread of the same process, and its reply | 121.7 | 730 | 782 | 780 |
+| ipc_call() to another process, and its reply | 122.4 | 734 | 792 | 784 |
+| vm_alloc() and vm_free() a page (which is zeroed) | 859.0 | 5,154 | 5,081 | 5,152 |
+| vm_alloc() and vm_free() 64 pages | 48,951.7 | 293,710 | 287,681 | 293,724 |
+| spawn() /bin/true and waitpid() for it | 19,361.8 | 116,171 | 122,230 | 116,587 |
 
 | Data | KB/s |
 |---|---:|
-| read() a file of 24 KB in the file server's cache, 4 KB at a time | 1,437 |
+| read() a file of 24 KB in the file server's cache, 4 KB at a time | 1,533 |
 | write() 64 KB to a new file, 4 KB at a time (through to the card) | 135 |
-| write() 256 KB into a pipe that another process reads, 4 KB at a time | 885 |
+| write() 256 KB into a pipe that another process reads, 4 KB at a time | 934 |
 
 ## The desktop
 
 | What | busy cycles | ms |
 |---|---:|---:|
-| boot to the terminal's prompt | 5,606,568 | 1020 |
-| move the terminal's window (562 × 381) by (100, 60) | 684,125 | 114 |
-| `seq 200` in the terminal | 4,795,864 | 806 |
-| `seq 200` on the serial console (115,200 baud) | 1,193,386 | 200 |
+| boot to the terminal's prompt | 5,520,895 | 1010 |
+| move the terminal's window (562 × 381) by (100, 60) | 684,558 | 114 |
+| `seq 200` in the terminal | 3,973,968 | 666 |
+| `seq 200` on the serial console (115,200 baud) | 999,621 | 180 |
 
 ![The desktop](desktop.png)

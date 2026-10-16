@@ -70,6 +70,11 @@ VECTORS = 0x80000100
 USER_NAMES = {"exit": "_exit", "time": "time_us", "sleep": "sleep_us"}
 
 
+# calls whose vector goes to an assembly fast path (kernel/fastipc.s),
+# which hands what it doesn't cover to the stub
+FAST = {"ipc_call", "ipc_reply_recv"}
+
+
 def kernel_stubs():
     """The SWI vectors (an absolute section) and the stubs."""
     by_num = {n: (name, nargs, kind) for n, name, nargs, kind in SYSCALLS}
@@ -79,6 +84,8 @@ def kernel_stubs():
     out += ["", f"        .org {VECTORS:#x}"]
     for n in range(256):
         target = f"ksys_{by_num[n][0]}" if n in by_num else "ksys_bad"
+        if n in by_num and by_num[n][0] in FAST:
+            target = f"fast_{by_num[n][0]}"
         out.append(f"        JMP  {target}")
     out += ["", "        .section .text.ksys", "ksys_bad:", "        MOV  r1, #-38", "        MTUR r1, r1",
             "        JMP  kexit"]
