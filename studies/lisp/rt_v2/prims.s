@@ -568,7 +568,7 @@ p_remainder:
         BSR  div_args
         POP  r7
         DIVS r1, r5
-        MFHI r1                 ; 2a rem 2b = 2 (a rem b)
+        MOV  r1, r0             ; 2a rem 2b = 2 (a rem b)
         RET
 
 p_modulo:
@@ -576,7 +576,7 @@ p_modulo:
         BSR  div_args
         POP  r7
         DIVS r1, r5
-        MFHI r1
+        MOV  r1, r0             ; the remainder
         CMP  r1, #0
         BEQ  .done
         MOV  r2, r1
@@ -700,7 +700,7 @@ p_gensym:
         MOV  r9, #tokbuf + 32   ; its digits, backwards
         MOV  r5, #10
 .dig:   DIVU r1, r5
-        MFHI r2
+        MOV  r2, r0
         ADD  r2, #'0'
         SUB  r9, #1
         MOV  byte [r9], r2

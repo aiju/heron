@@ -554,7 +554,7 @@ op_div: MOV  r2, -[r10]
         ASR  r1, #1
         ASR  r2, #1
         DIVS r1, r2
-        MFHI r3                 ; floor: one less if the remainder and
+        MOV  r3, r0             ; floor: one less if the remainder and
         TST  r3, r3             ; the divisor have different signs
         BEQ  .exact
         XOR  r3, r2
@@ -580,7 +580,7 @@ op_mod: MOV  r2, -[r10]
         ASR  r1, #1
         ASR  r2, #1
         DIVS r1, r2
-        MFHI r1                 ; floor: the remainder takes the
+        MOV  r1, r0             ; floor: the remainder takes the
         TST  r1, r1             ; divisor's sign
         BEQ  .done
         MOV  r3, r1

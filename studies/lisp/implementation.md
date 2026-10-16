@@ -183,7 +183,17 @@ different:
   is.
 - **Flags.** `MOV` and `POP` don't set the flags on draft 2. The ten
   `MOV`s whose N and Z a branch read became `MOVS`.
-- **`r0` is a general register,** so a zero store is `CLR`.
+- **`r0` is a general register,** so a zero store is `CLR`. It is also
+  `HI`: a multiply leaves its high half there and a divide its remainder
+  ([RFC 0028, 9.9](../../reports/0028-rfc-draft-2-isa.md#99-hi-and-lo-are-r0-and-r1)).
+  Nothing is live in `r0` across one: the primitives that multiply or
+  divide have taken their arguments out of the registers by then (`*`
+  with more than two makes a list of them first), the printer keeps
+  nothing there, and
+  compiled code loads an argument register only after every complex
+  argument is evaluated. What a multiply leaves is the product's sign
+  unless it overflowed, so `err_overflow` clears `r0`: the collector
+  takes `r0` as a root.
 - **The traps** decode draft 2's instructions. An address error's check
   is a word at `[R + d16]`: column 3 of a row that takes a mode, or a
   `JMP`'s or `CALL`'s register byte with mode 3.

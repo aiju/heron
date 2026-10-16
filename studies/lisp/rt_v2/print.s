@@ -97,7 +97,7 @@ pr_int: PUSH r7
 .pos:   MOV  r6, #0
         MOV  r5, #10
 .div:   DIVU r1, r5
-        MFHI r2
+        MOV  r2, r0
         PUSH r2
         INC  r6
         CMP  r1, #0
@@ -237,7 +237,8 @@ err_div0:
         LEA  r2, [msg_div0]
         BRA  error0
 err_overflow:
-        LEA  r2, [msg_overflow]
+        CLR  r0                 ; an overflowing MULS left a high half here,
+        LEA  r2, [msg_overflow] ; which isn't a Lisp value
         BRA  error0
 
 msg_error:      .asciz "error: "
