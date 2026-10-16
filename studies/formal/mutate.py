@@ -347,8 +347,11 @@ def proofs_catch(nl, roms, cases, jobs, budget, cap):
             for c in batch:
                 r = res[c.name()]
                 err = r.get("error") or ""
-                if r["status"] == "error" and err.startswith("CombLoop"):
-                    return f"{c.name()}: {err}"[:200], ran, unfinished    # the mutant made a loop
+                # the unmutated hardware simulates without errors, so one the
+                # simulator finds on the mutant (a combinational loop, two
+                # drivers on a bus) is the mutant's doing
+                if r["status"] == "error" and err.startswith(("SimError", "CombLoop")):
+                    return f"{c.name()}: {err}"[:200], ran, unfinished
                 if r["status"] == "error":     # a fault in the tools, not a catch
                     raise RuntimeError(f"{c.name()}: {err}")
                 if r["status"] == "fail":
