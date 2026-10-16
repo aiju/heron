@@ -47,6 +47,21 @@ geometric means over the programs: the Lisp's 12 benchmarks and Egret's
 > tables, the bugs still there on 1b), that was true of the port: the
 > fixes since changed compiler.lisp and those tables.
 
+> **Erratum (2026-10-16), the constant copier.** A bug in both drafts'
+> runtime left part of the compiler interpreted: every top-level form
+> that quotes a 0 (report 0018's erratum before its
+> [summary](0018-report-lisp.md#summary) has the details). With it
+> fixed, code space ends at `0x2A000` on both drafts and the heap halves
+> are 374 KB, so draft 2's code space is no longer larger than 1b's.
+> lisp.md is regenerated; it has measured
+> [report 0033](0033-report-lisp-arguments-draft-2.md)'s calling
+> convention since that report. The fix moves none of the mutator's
+> figures. It moves the collector's, because each collection copies far
+> less on both drafts and the collections fall elsewhere: with the
+> collector, draft 2's compiled Lisp now takes 1.4% fewer cycles than
+> 1b's. That was 3.6% with report 0033's convention before the fix, and
+> 1.0% as the erratum above has it.
+
 ## Summary
 
 - **Everything runs on draft 2:** the Lisp's 22 programs and tests,
