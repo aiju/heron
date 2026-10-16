@@ -46,27 +46,27 @@ MONO = "'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
 
 # The site's colours (heron/site/site.css), light and dark. A figure is an
 # <img>, which follows the reader's light or dark setting by itself; every
-# rule is under .fig, so the site can put a figure into its page.
+# rule is under .diagram, so the site can put a figure into its page.
 STYLE = f"""
-.fig{{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}}
-@media (prefers-color-scheme:dark){{.fig{{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}}}
-.fig text{{fill:var(--ink);font-family:{SANS};font-size:12px}}
-.fig .ink{{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}}
-.fig .thin{{fill:none;stroke:var(--ink-2);stroke-width:.9}}
-.fig .faint{{fill:none;stroke:var(--ink-3);stroke-width:.7}}
-.fig .dotted{{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}}
-.fig .dashed{{stroke-dasharray:4 3}}
-.fig .bus{{stroke-width:3.2;stroke-linecap:butt}}
-.fig .grid{{stroke:var(--rule);stroke-width:1}}
-.fig .spot{{fill:none;stroke:var(--spot);stroke-width:1.1}}
-.fig .paper{{fill:var(--paper)}}.fig .hatch{{fill:url(#fig-hatch)}}.fig #fig-hatch line{{stroke:var(--ink-3);stroke-width:.8}}
-.fig .solid{{fill:var(--ink)}}.fig .solid-2{{fill:var(--ink-2)}}.fig .solid-spot{{fill:var(--spot)}}
-.fig .b{{font-weight:600}}.fig .m{{font-family:{MONO};font-size:11.5px}}
-.fig .s{{font-size:11px;fill:var(--ink-2)}}.fig .xs{{font-size:10px;fill:var(--ink-3)}}.fig .sp{{fill:var(--spot)}}
-.fig .halo{{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}}
+.diagram{{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}}
+@media (prefers-color-scheme:dark){{.diagram{{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}}}
+.diagram text{{fill:var(--ink);font-family:{SANS};font-size:12px}}
+.diagram .ink{{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}}
+.diagram .thin{{fill:none;stroke:var(--ink-2);stroke-width:.9}}
+.diagram .faint{{fill:none;stroke:var(--ink-3);stroke-width:.7}}
+.diagram .dotted{{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}}
+.diagram .dashed{{stroke-dasharray:4 3}}
+.diagram .bus{{stroke-width:3.2;stroke-linecap:butt}}
+.diagram .grid{{stroke:var(--rule);stroke-width:1}}
+.diagram .spot{{fill:none;stroke:var(--spot);stroke-width:1.1}}
+.diagram .paper{{fill:var(--paper)}}.diagram .hatch{{fill:url(#diagram-hatch)}}.diagram #diagram-hatch line{{stroke:var(--ink-3);stroke-width:.8}}
+.diagram .solid{{fill:var(--ink)}}.diagram .solid-2{{fill:var(--ink-2)}}.diagram .solid-spot{{fill:var(--spot)}}
+.diagram .b{{font-weight:600}}.diagram .m{{font-family:{MONO};font-size:11.5px}}
+.diagram .s{{font-size:11px;fill:var(--ink-2)}}.diagram .xs{{font-size:10px;fill:var(--ink-3)}}.diagram .sp{{fill:var(--spot)}}
+.diagram .halo{{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}}
 """
 
-DEFS = ('<defs><pattern id="fig-hatch" patternUnits="userSpaceOnUse" width="4" height="4" '
+DEFS = ('<defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" '
         'patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>')
 
 
@@ -121,12 +121,18 @@ class Drawing:
         bx, by = x - length * ux, y - length * uy
         self.path([(x, y), (bx - width * uy, by + width * ux), (bx + width * uy, by - width * ux)], cls, close=True)
 
+    def extend(self, other):
+        """Draw what other has drawn, over this."""
+        self.out += other.out
+        if other.out:
+            self.cover(other.x0, other.y0, other.x1, other.y1)
+
     def svg(self, margin=4):
         """The finished SVG, sized to what was drawn."""
         x0, y0 = self.x0 - margin, self.y0 - margin
         w, h = self.x1 - self.x0 + 2 * margin, self.y1 - self.y0 + 2 * margin
         w, h = int(-(-w // 1)), int(-(-h // 1))
-        return (f'<svg xmlns="http://www.w3.org/2000/svg" class="fig" viewBox="{num(x0)} {num(y0)} {w} {h}" '
+        return (f'<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="{num(x0)} {num(y0)} {w} {h}" '
                 f'width="{w}" height="{h}"><style>{STYLE.strip()}</style>{DEFS}\n'
                 + "\n".join(self.out) + "\n</svg>\n")
 

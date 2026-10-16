@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="-4 -2 643 228" width="643" height="228"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<line class="grid" x1="70.9" y1="16" x2="70.9" y2="222"/>
+<text class="xs" x="70.9" y="11.6" text-anchor="middle">0</text>
+<line class="grid" x1="121.7" y1="16" x2="121.7" y2="222"/>
+<text class="xs" x="121.7" y="11.6" text-anchor="middle">1</text>
+<line class="grid" x1="172.5" y1="16" x2="172.5" y2="222"/>
+<text class="xs" x="172.5" y="11.6" text-anchor="middle">2</text>
+<line class="grid" x1="223.4" y1="16" x2="223.4" y2="222"/>
+<text class="xs" x="223.4" y="11.6" text-anchor="middle">3</text>
+<line class="grid" x1="274.2" y1="16" x2="274.2" y2="222"/>
+<text class="xs" x="274.2" y="11.6" text-anchor="middle">4</text>
+<line class="grid" x1="325" y1="16" x2="325" y2="222"/>
+<text class="xs" x="325" y="11.6" text-anchor="middle">5</text>
+<line class="grid" x1="375.8" y1="16" x2="375.8" y2="222"/>
+<text class="xs" x="375.8" y="11.6" text-anchor="middle">6</text>
+<line class="grid" x1="426.7" y1="16" x2="426.7" y2="222"/>
+<text class="xs" x="426.7" y="11.6" text-anchor="middle">7</text>
+<line class="grid" x1="477.5" y1="16" x2="477.5" y2="222"/>
+<text class="xs" x="477.5" y="11.6" text-anchor="middle">8</text>
+<line class="grid" x1="528.3" y1="16" x2="528.3" y2="222"/>
+<text class="xs" x="528.3" y="11.6" text-anchor="middle">9</text>
+<line class="grid" x1="579.2" y1="16" x2="579.2" y2="222"/>
+<text class="xs" x="579.2" y="11.6" text-anchor="middle">10</text>
+<line class="grid" x1="630" y1="16" x2="630" y2="222"/>
+<text class="xs" x="630" y="11.6" text-anchor="middle">11</text>
+<text class="xs" x="0" y="11.6">BCLK edge</text>
+<text class="b" x="0" y="40.3">BCLK</text>
+<path class="ink" d="M70.9 27 L93.8 27 L96.3 36"/>
+<path class="ink" d="M96.3 36 L98.8 45 L119.2 45 L121.7 36"/>
+<path class="ink" d="M121.7 36 L124.2 27 L144.6 27 L147.1 36"/>
+<path class="ink" d="M147.1 36 L149.6 45 L170 45 L172.5 36"/>
+<path class="ink" d="M172.5 36 L175 27 L195.4 27 L197.9 36"/>
+<path class="ink" d="M197.9 36 L200.4 45 L220.9 45 L223.4 36"/>
+<path class="ink" d="M223.4 36 L225.9 27 L246.3 27 L248.8 36"/>
+<path class="ink" d="M248.8 36 L251.3 45 L271.7 45 L274.2 36"/>
+<path class="ink" d="M274.2 36 L276.7 27 L297.1 27 L299.6 36"/>
+<path class="ink" d="M299.6 36 L302.1 45 L322.5 45 L325 36"/>
+<path class="ink" d="M325 36 L327.5 27 L347.9 27 L350.4 36"/>
+<path class="ink" d="M350.4 36 L352.9 45 L373.3 45 L375.8 36"/>
+<path class="ink" d="M375.8 36 L378.3 27 L398.8 27 L401.3 36"/>
+<path class="ink" d="M401.3 36 L403.8 45 L424.2 45 L426.7 36"/>
+<path class="ink" d="M426.7 36 L429.2 27 L449.6 27 L452.1 36"/>
+<path class="ink" d="M452.1 36 L454.6 45 L475 45 L477.5 36"/>
+<path class="ink" d="M477.5 36 L480 27 L500.4 27 L502.9 36"/>
+<path class="ink" d="M502.9 36 L505.4 45 L525.8 45 L528.3 36"/>
+<path class="ink" d="M528.3 36 L530.8 27 L551.3 27 L553.8 36"/>
+<path class="ink" d="M553.8 36 L556.3 45 L576.7 45 L579.2 36"/>
+<path class="ink" d="M579.2 36 L581.7 27 L602.1 27 L604.6 36"/>
+<path class="ink" d="M604.6 36 L607.1 45 L630 45"/>
+<text class="b" x="0" y="76.3">SEL</text>
+<path class="ink" d="M70.9 81 L124.3 81 L126.8 72"/>
+<path class="ink" d="M126.8 72 L129.3 63 L530.9 63 L533.4 72"/>
+<path class="ink" d="M533.4 72 L535.9 81 L630 81"/>
+<text class="b" x="0" y="112.3">WAIT</text>
+<path class="ink" d="M70.9 99 L145.5 99 L148 108"/>
+<path class="ink" d="M148 108 L150.5 117 L342.8 117 L345.3 108"/>
+<path class="ink" d="M345.3 108 L347.8 99 L630 99"/>
+<text class="b" x="0" y="168.3">D</text>
+<path class="ink" d="M70.9 164 L335.2 164"/>
+<path class="paper" d="M335.2 164 L337.7 155 L538.5 155 L541 164 L541 164 L538.5 173 L337.7 173 L335.2 164Z"/>
+<path class="ink" d="M335.2 164 L337.7 155 L538.5 155 L541 164"/>
+<path class="ink" d="M335.2 164 L337.7 173 L538.5 173 L541 164"/>
+<text class="m" x="438.1" y="168.1" text-anchor="middle">read data</text>
+<path class="ink" d="M541 164 L630 164"/>
+<line class="dotted" x1="126.8" y1="72" x2="126.8" y2="138"/>
+<line class="dotted" x1="148" y1="119" x2="148" y2="138"/>
+<line class="thin" x1="126.8" y1="134" x2="148" y2="134"/>
+<path class="solid-2" d="M126.8 134 L132.8 131.4 L132.8 136.6Z"/>
+<path class="solid-2" d="M148 134 L142 136.6 L142 131.4Z"/>
+<text class="s" x="153" y="138">≤ 30 ns</text>
+<line class="thin" x1="533.4" y1="196" x2="533.4" y2="176"/>
+<path class="solid-2" d="M533.4 176 L536 182 L530.8 182Z"/>
+<text class="s" x="538.4" y="195">taken</text>
+<line class="dotted" x1="126.8" y1="72" x2="126.8" y2="214"/>
+<line class="dotted" x1="533.4" y1="72" x2="533.4" y2="214"/>
+<line class="thin" x1="126.8" y1="210" x2="533.4" y2="210"/>
+<path class="solid-2" d="M126.8 210 L132.8 207.4 L132.8 212.6Z"/>
+<path class="solid-2" d="M533.4 210 L527.4 212.6 L527.4 207.4Z"/>
+<text class="s" x="330.1" y="207" text-anchor="middle">the strobe: STROBE clocks, more while WAIT</text>
+<line class="spot dashed" x1="533.4" y1="18" x2="533.4" y2="222"/>
+<circle class="solid-spot" cx="126.8" cy="72" r="2"/>
+<path class="spot" d="M126.8 72 L146.9 106.3"/>
+<path class="solid-spot" d="M146.9 106.3 L141.7 102.4 L146.1 99.8Z"/>
+<circle class="solid-spot" cx="335.2" cy="164" r="2"/>
+<path class="spot" d="M335.2 164 L345 110"/>
+<path class="solid-spot" d="M345 110 L346.5 116.3 L341.4 115.4Z"/>
+<text class="s sp halo" x="346.3" y="140">then released</text>
+<circle class="solid-spot" cx="345.3" cy="108" r="2"/>
+<path class="spot" d="M345.3 108.0 C439.4 108.0 439.4 72.0 531.4 72.0"/>
+<path class="solid-spot" d="M531.4 72 L525.4 74.6 L525.4 69.4Z"/>
+<text class="s sp halo" x="445.4" y="94">2 clocks after it&#x27;s seen</text>
+</svg>

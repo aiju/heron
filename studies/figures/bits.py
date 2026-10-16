@@ -24,8 +24,8 @@ NAME = 11.5  # the size of names in fields
 
 
 class Field:
-    def __init__(self, hi, lo, name, value):
-        self.hi, self.lo, self.name, self.value = hi, lo, name, value
+    def __init__(self, hi, lo, name, value, line):
+        self.hi, self.lo, self.name, self.value, self.line = hi, lo, name, value, line
 
 
 class Word:
@@ -82,7 +82,7 @@ def parse(text):
                 rest = []
             if rest:
                 raise ln.err(f"unexpected {rest[0][1]!r}")
-            words[-1].fields.append(Field(hi, lo, name, value))
+            words[-1].fields.append(Field(hi, lo, name, value, ln))
     for w in words:
         check(w)
     if words and words[0].beside:
@@ -94,10 +94,10 @@ def check(w):
     owner = [None] * w.width
     for f in w.fields:
         if f.hi >= w.width:
-            raise w.line.err(f"bit {f.hi} is outside a {w.width}-bit word")
+            raise f.line.err(f"bit {f.hi} is outside a {w.width}-bit word")
         for b in range(f.lo, f.hi + 1):
             if owner[b] is not None:
-                raise w.line.err(f"bit {b} is in two fields")
+                raise f.line.err(f"bit {b} is in two fields")
             owner[b] = f
     gaps = [b for b in range(w.width) if owner[b] is None]
     if gaps:

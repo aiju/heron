@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="-16 -6 701 427" width="701" height="427"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<line class="ink bus" x1="540" y1="270" x2="540" y2="390"/>
+<text class="b" x="540" y="264" text-anchor="middle">RES</text>
+<rect class="ink paper" x="0" y="0" width="100" height="50"/>
+<text class="b" x="50" y="21.8" text-anchor="middle">decode ROM</text>
+<text class="s" x="50" y="36.5" text-anchor="middle">2 × flash</text>
+<text class="s" x="140" y="29">data bus (the opcode being fetched)</text>
+<rect class="ink paper" x="-5" y="80" width="110" height="50"/>
+<text class="b" x="50" y="101.8" text-anchor="middle">next address Y</text>
+<text class="s" x="50" y="116.5" text-anchor="middle">153 × 6</text>
+<text class="s" x="145" y="109">NEXT, condition, dispatch, reset/fault</text>
+<rect class="ink paper" x="-10" y="160" width="120" height="50"/>
+<text class="b" x="50" y="181.8" text-anchor="middle">microcode ROMs</text>
+<text class="s" x="50" y="196.5" text-anchor="middle">15 × flash</text>
+<rect class="ink paper" x="150" y="160" width="70" height="50"/>
+<text class="b" x="185" y="181.8" text-anchor="middle">µIR</text>
+<text class="s" x="185" y="196.5" text-anchor="middle">15 × 377</text>
+<text class="s" x="260" y="189">120 control lines</text>
+<rect class="ink paper" x="0" y="250" width="80" height="50"/>
+<text class="b" x="40" y="271.8" text-anchor="middle">RF copy A</text>
+<text class="s" x="40" y="286.5" text-anchor="middle">4 × SRAM</text>
+<rect class="ink paper" x="0" y="340" width="80" height="50"/>
+<text class="b" x="40" y="361.8" text-anchor="middle">RF copy B</text>
+<text class="s" x="40" y="376.5" text-anchor="middle">4 × SRAM</text>
+<rect class="ink paper" x="170" y="250" width="90" height="140"/>
+<text class="b" x="215" y="309.3" text-anchor="middle">ALU</text>
+<text class="s" x="215" y="324" text-anchor="middle">8 × 74LS181</text>
+<text class="s" x="215" y="339" text-anchor="middle">3 × 74S182</text>
+<rect class="ink paper" x="310" y="250" width="130" height="80"/>
+<text class="b" x="375" y="271.8" text-anchor="middle">result mux</text>
+<text class="s" x="375" y="286.5" text-anchor="middle">F, F &gt;&gt; 1, ror 8, ror 16,</text>
+<text class="s" x="375" y="301.5" text-anchor="middle">per-byte clear</text>
+<text class="s" x="375" y="316.5" text-anchor="middle">153 × 16</text>
+<text class="s" x="560" y="274">R (377 × 4) → A, A × 2, B</text>
+<text class="s" x="560" y="304">MAR (377 × 3, via 157s)</text>
+<text class="s" x="560" y="334">PC (161 × 8, load)</text>
+<text class="s" x="560" y="364">LC (161 × 2)</text>
+<text class="s" x="560" y="394">data bus (541 × 5)</text>
+<text class="s" x="150" y="309" text-anchor="end">PC</text>
+<text class="s" x="150" y="324" text-anchor="end">R, 2R</text>
+<text class="s" x="150" y="339" text-anchor="end">B → A</text>
+<text class="s" x="187.5" y="411.5" text-anchor="middle">B bus also from: R, T (by byte lane, × 2), immediate unit, MQ (299 × 4), flags</text>
+<path class="ink wire" d="M136 25 L100 25"/>
+<path class="solid" d="M100 25 L106 22.4 L106 27.6Z"/>
+<path class="ink wire" d="M141 105 L105 105"/>
+<path class="solid" d="M105 105 L111 102.4 L111 107.6Z"/>
+<path class="ink wire" d="M50 50 L50 80"/>
+<path class="solid" d="M50 80 L47.4 74 L52.6 74Z"/>
+<path class="ink wire" d="M50 130 L50 160"/>
+<path class="solid" d="M50 160 L47.4 154 L52.6 154Z"/>
+<path class="ink wire" d="M110 185 L150 185"/>
+<path class="solid" d="M150 185 L144 187.6 L144 182.4Z"/>
+<path class="ink wire" d="M220 185 L256 185"/>
+<path class="solid" d="M256 185 L250 187.6 L250 182.4Z"/>
+<path class="ink wire" d="M80 275 L170 275"/>
+<path class="solid" d="M170 275 L164 277.6 L164 272.4Z"/>
+<path class="ink wire" d="M80 365 L170 365"/>
+<path class="solid" d="M170 365 L164 367.6 L164 362.4Z"/>
+<path class="ink wire" d="M154 305 L170 305"/>
+<path class="solid" d="M170 305 L164 307.6 L164 302.4Z"/>
+<path class="ink wire" d="M154 320 L170 320"/>
+<path class="solid" d="M170 320 L164 322.6 L164 317.4Z"/>
+<path class="ink wire" d="M154 335 L170 335"/>
+<path class="solid" d="M170 335 L164 337.6 L164 332.4Z"/>
+<path class="ink wire" d="M260 290 L310 290"/>
+<path class="solid" d="M310 290 L304 292.6 L304 287.4Z"/>
+<path class="ink wire" d="M440 290 L540 290"/>
+<path class="solid" d="M540 290 L534 292.6 L534 287.4Z"/>
+<path class="ink wire" d="M540 270 L556 270"/>
+<path class="solid" d="M556 270 L550 272.6 L550 267.4Z"/>
+<circle class="solid" cx="540" cy="270" r="2.6"/>
+<path class="ink wire" d="M540 300 L556 300"/>
+<path class="solid" d="M556 300 L550 302.6 L550 297.4Z"/>
+<circle class="solid" cx="540" cy="300" r="2.6"/>
+<path class="ink wire" d="M540 330 L556 330"/>
+<path class="solid" d="M556 330 L550 332.6 L550 327.4Z"/>
+<circle class="solid" cx="540" cy="330" r="2.6"/>
+<path class="ink wire" d="M540 360 L556 360"/>
+<path class="solid" d="M556 360 L550 362.6 L550 357.4Z"/>
+<circle class="solid" cx="540" cy="360" r="2.6"/>
+<path class="ink wire" d="M540 390 L556 390"/>
+<path class="solid" d="M556 390 L550 392.6 L550 387.4Z"/>
+<circle class="solid" cx="540" cy="390" r="2.6"/>
+<text class="s halo" x="125" y="271" text-anchor="middle">A bus</text>
+<text class="s halo" x="125" y="361" text-anchor="middle">B bus</text>
+<text class="s halo" x="285" y="286" text-anchor="middle">F</text>
+</svg>

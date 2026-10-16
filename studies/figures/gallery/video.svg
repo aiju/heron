@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="-6 -12.6 810 249" width="810" height="249"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<text class="s" x="300" y="4">system bus (P1 + P2)</text>
+<rect class="ink paper" x="305" y="30" width="100" height="30"/>
+<text class="b" x="355" y="49.3" text-anchor="middle">bus interface</text>
+<text class="s" x="420" y="49">posted writes; WAIT on reads</text>
+<rect class="ink paper" x="0" y="110" width="100" height="30"/>
+<text class="b" x="50" y="129.3" text-anchor="middle">timing ROMs</text>
+<text class="s" x="50" y="156.5" text-anchor="middle">syncs, slot owners</text>
+<rect class="ink paper" x="140" y="95" width="270" height="60"/>
+<text class="b" x="275" y="114.3" text-anchor="middle">VRAM</text>
+<text class="s" x="275" y="129" text-anchor="middle">4 × 512K × 8, 32 bits</text>
+<text class="s" x="275" y="144" text-anchor="middle">79 ns slots</text>
+<rect class="ink paper" x="450" y="110" width="80" height="30"/>
+<text class="b" x="490" y="129.3" text-anchor="middle">pixel path</text>
+<rect class="ink paper" x="560" y="110" width="60" height="30"/>
+<text class="b" x="590" y="129.3" text-anchor="middle">palette</text>
+<rect class="ink paper" x="650" y="110" width="60" height="30"/>
+<text class="b" x="680" y="129.3" text-anchor="middle">DACs</text>
+<text class="s" x="740" y="129">VGA / PVM</text>
+<rect class="ink paper" x="245" y="195" width="60" height="30"/>
+<text class="b" x="275" y="214.3" text-anchor="middle">copper</text>
+<rect class="ink paper" x="170" y="195" width="60" height="30"/>
+<text class="b" x="200" y="214.3" text-anchor="middle">blitter</text>
+<rect class="ink paper" x="320" y="195" width="90" height="30"/>
+<text class="b" x="365" y="214.3" text-anchor="middle">sprites, tiles</text>
+<rect class="ink paper dashed" x="435" y="180" width="110" height="50"/>
+<text class="b" x="490" y="201.8" text-anchor="middle">sprite line</text>
+<text class="s" x="490" y="216.5" text-anchor="middle">buffers (optional)</text>
+<path class="ink wire" d="M355 11.5 L355 30"/>
+<path class="solid" d="M355 30 L352.4 24 L357.6 24Z"/>
+<path class="ink wire" d="M355 60 L355 95"/>
+<path class="solid" d="M355 95 L352.4 89 L357.6 89Z"/>
+<path class="ink wire" d="M100 125 L140 125"/>
+<path class="solid" d="M140 125 L134 127.6 L134 122.4Z"/>
+<path class="ink wire" d="M410 125 L450 125"/>
+<path class="solid" d="M450 125 L444 127.6 L444 122.4Z"/>
+<path class="ink wire" d="M530 125 L560 125"/>
+<path class="solid" d="M560 125 L554 127.6 L554 122.4Z"/>
+<path class="ink wire" d="M620 125 L650 125"/>
+<path class="solid" d="M650 125 L644 127.6 L644 122.4Z"/>
+<path class="ink wire" d="M710 125 L736 125"/>
+<path class="solid" d="M736 125 L730 127.6 L730 122.4Z"/>
+<path class="ink wire" d="M200 195 L200 155"/>
+<path class="solid" d="M200 155 L202.6 161 L197.4 161Z"/>
+<path class="ink wire" d="M275 195 L275 155"/>
+<path class="solid" d="M275 155 L277.6 161 L272.4 161Z"/>
+<path class="ink wire" d="M365 195 L365 155"/>
+<path class="solid" d="M365 155 L367.6 161 L362.4 161Z"/>
+<path class="ink wire" d="M490 180 L490 140"/>
+<path class="solid" d="M490 140 L492.6 146 L487.4 146Z"/>
+<text class="s halo" x="360" y="81.5">CPU slots</text>
+</svg>
