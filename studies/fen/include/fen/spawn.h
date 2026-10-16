@@ -9,10 +9,11 @@ int spawn(const char *path, char *const argv[], char *const envp[], const int *f
 /* spawn with the program found in $PATH (or /bin) when path has no '/' */
 int spawnp(const char *file, char *const argv[], char *const envp[], const int *fds, int n);
 #define WNOHANG 1
-#define SPAWN_NEWPGRP 1
-/* spawn, with flags: SPAWN_NEWPGRP puts the child in a process group of its own */
+#define SPAWN_PGID 1            /* put the child in process group pgid, or its own if 0 */
+#define SPAWN_IO 2              /* the child may map devices and take interrupts */
+/* spawn, with flags */
 int spawnx(const char *path, char *const argv[], char *const envp[], const int *fds, int n,
-           int flags);
+           int flags, int pgid);
 /* wait for a child (pid, or any with -1): its pid, and its exit status */
 int waitpid(int pid, int *status, int options);
 int wait(int *status);

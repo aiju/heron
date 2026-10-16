@@ -53,20 +53,31 @@ PAGE = 4096
 KERNEL_SOURCES = ["entry.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c"]
 
 LIB_SOURCES = ["ipc.s", "start.c", "fd.c", "stdio.c", "stdlib.c", "string2.c", "spawn.c",
-               "time.c", "getopt.c"]
+               "time.c", "getopt.c", "srv.c"]
 CC_LIB_SOURCES = ["string.c", "ctype.c"]
 
-# programs: name -> sources, relative to the study
-PROGRAMS = {
-    "init": ["cmd/init.c"],
-    "ktest": ["cmd/ktest.c"],
-    "ktchild": ["cmd/ktchild.c"],
-    "ktcrash": ["cmd/ktcrash.c"],
-    "ktspin": ["cmd/ktspin.c"],
+# programs: name -> sources, relative to the study. Every cmd/NAME.c is
+# one too (programs()).
+SERVERS = {
+    "fs": ["srv/fs/main.c", "srv/fs/fenfs.c", "srv/fs/cache.c", "srv/fs/ide.c", "srv/fs/ideio.s"],
+    "cons": ["srv/cons/main.c"],
 }
 
-# what the boot archive holds
-BOOT = ["init"]
+# what the boot archive holds: init, and the servers it starts before
+# there's a file system
+BOOT = ["init", "fs", "cons"]
+
+# programs that are only for the boot archive or the tests, not /bin
+NOT_IN_BIN = {"init", "ktest", "ktchild", "ktcrash", "ktspin"}
+
+
+def programs():
+    """{name: [sources]} for every program."""
+    out = {n: list(s) for n, s in SERVERS.items()}
+    for f in sorted(os.listdir(os.path.join(HERE, "cmd"))):
+        if f.endswith(".c"):
+            out[f[:-2]] = [os.path.join("cmd", f)]
+    return out
 
 
 class BuildError(Exception):
@@ -261,7 +272,7 @@ def executable(img, stack=0):
 
 def program(name, sources=None, include=INCLUDE):
     """Build one program: its executable, written to build/fen/bin/NAME."""
-    sources = sources or [os.path.join(HERE, p) for p in PROGRAMS[name]]
+    sources = sources or [os.path.join(HERE, p) for p in programs()[name]]
     img = link_program(sources, include)
     fx = executable(img)
     os.makedirs(os.path.join(OUT, "bin"), exist_ok=True)
@@ -297,3 +308,39 @@ def boot_image(modules=None):
         mods.append((name, program(prog)[0]))
     pad = -len(kbytes) % PAGE
     return kbytes + b"\0" * pad + boot_archive(mods), kimg
+
+
+# ---- the disk -----------------------------------------------------------------
+
+DISK_SIZE = 8 << 20
+
+PROFILE = """\
+# /etc/profile: what a login shell does first
+export PATH=/bin
+cat /etc/motd
+"""
+
+MOTD = """\
+Welcome to Fen. Try ls /bin, ps, cat /etc/hello.txt, or help.
+"""
+
+HELLO = """\
+Fen is an operating system for Heron, draft 2: a small kernel that passes
+messages between threads in their own register banks, a file server, a
+console server and a window system in user space, and a shell.
+"""
+
+
+def disk(extra=None, size=DISK_SIZE):
+    """The CF card's image: every program in /bin, and a little in /etc."""
+    from . import mkfs
+    files = {}
+    for name in programs():
+        if name in NOT_IN_BIN:
+            continue
+        files[f"/bin/{name}"] = program(name)[0]
+    files["/etc/profile"] = PROFILE.encode()
+    files["/etc/motd"] = MOTD.encode()
+    files["/etc/hello.txt"] = HELLO.encode()
+    files.update(extra or {})
+    return mkfs.make(files, size=size, dirs=["/home", "/tmp", "/dev"], now=1792108800)

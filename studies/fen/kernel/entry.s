@@ -18,7 +18,7 @@
 ; syscalls.py (build/fen/gen/ksys.s).
 
         .far _kmain, _exception, _interrupt, _schedule, _need_resched
-        .far _kernel_fault, kstack_top, ufault_start, ufault_end, ufault
+        .far _kernel_fault, _copy_fault, kstack_top, ufault_start, ufault_end, ufault
         .global kexit, kstack_top
         .global _idle_wait, _map_get, _map_set, _map_clear, _set_bank, _get_bank
         .global _set_ctx, _get_ctx, _get_sr, _ureg_set, _ureg_get, _bank_copy
@@ -108,8 +108,9 @@ exc_common:
         ADD  sp, #8                     ; the frame, at the top of the stack
         CALL _exception                 ; exception(vector)
         JMP  kexit
-; in the kernel: a page fault in a copy of user memory resumes at the
-; copy's fault exit; anything else is a bug
+; in the kernel: a page fault in a copy of user memory is the user's
+; stack growing (copy_fault maps the page, and the copy goes on), or it
+; resumes at the copy's fault exit; anything else is a bug
 .kernel:
         CMP  r1, #0x20
         BNE  .bug
@@ -118,9 +119,14 @@ exc_common:
         BLO  .bug
         CMP  r2, #ufault_end
         BHS  .bug
+        SAVE r0-r7                      ; the copy's registers, and C's scratch
+        CALL _copy_fault
+        CMP  r1, #0
+        RESTORE r0-r7
+        BNE  .again
         MOV  r2, #ufault
         MOV  [sp + 12], r2
-        POP  r2
+.again: POP  r2
         POP  r1
         RTI
 .bug:   LEA  r2, [sp + 8]               ; the frame

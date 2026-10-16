@@ -183,6 +183,9 @@ int sys_set_priority(int tid, int prio)
     if (t->proc != current->proc && t->proc->parent != current->proc->pid &&
         current->proc->pid != 1)
         return -EPERM;
+    /* only drivers may raise a thread above where it is */
+    if (prio > t->prio && !(current->proc->flags & PROC_IO))
+        return -EPERM;
     if (t->state == T_READY) {
         unready(t);
         t->prio = prio;
@@ -200,15 +203,17 @@ int sys_proc_wait(int pid, int nohang)
     return proc_wait(pid, nohang & 1);
 }
 
+/* A process may end its own descendants; init and the drivers (which can
+ * map any memory anyway) may end any: the console's ^C ends the
+ * foreground group. */
 static int may_kill(struct proc *p)
 {
     int me = current->proc->pid;
-    return me == 1 || is_descendant(p->pid, me);
+    return me == 1 || (current->proc->flags & PROC_IO) || is_descendant(p->pid, me);
 }
 
 /* proc_kill(pid, status): end a process, or with pid < 0 every process
- * of group -pid, that the caller may: its own descendants (init may end
- * any). */
+ * of group -pid, that the caller may. */
 int sys_proc_kill(int pid, int status)
 {
     int i, n = 0;

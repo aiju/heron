@@ -103,6 +103,22 @@ static int status_of(int vector)
     return 128 + 11;                /* SIGSEGV */
 }
 
+/* A page that may grow the stack: map it, if it's in the stack's region. */
+static int grow_stack(struct proc *p, u32 va, u32 fsr)
+{
+    return (fsr & 1) && va < STACK_TOP && va >= STACK_TOP - STACK_MAX &&
+           vm_alloc(p, va & ~(PAGE - 1), 1, PROT_READ | PROT_WRITE) == 0;
+}
+
+/* A page fault in the kernel's copy of user memory (entry.s): 1 if it was
+ * the stack growing, and the copy can go on. */
+int copy_fault(void)
+{
+    if (!current)
+        return 0;
+    return grow_stack(current->proc, get_far(), get_fsr());
+}
+
 /* An exception from user mode. */
 void exception(int vector)
 {
@@ -112,8 +128,7 @@ void exception(int vector)
     if (vector == 0x20) {
         u32 va = get_far();
         u32 fsr = get_fsr();
-        if ((fsr & 1) && va < STACK_TOP && va >= STACK_TOP - STACK_MAX &&
-            vm_alloc(p, va & ~(PAGE - 1), 1, PROT_READ | PROT_WRITE) == 0)
+        if (grow_stack(p, va, fsr))
             return;
         kprintf("%s[%d]: page fault at %x (fsr %x), pc %x\n", p->name, p->pid, va, fsr, f->pc);
     } else if (vector == 0x14 || vector == 0x0C) {

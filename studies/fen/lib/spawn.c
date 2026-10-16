@@ -16,8 +16,6 @@ int __fd_get(int fd, int *port, int *handle);
 int __fd_dupto(int fd, int pid);
 const char *__cwd(void);
 
-#define SPAWN_NEWPGRP 1
-
 static int map_range(int pid, unsigned lo, unsigned hi, int prot)
 {
     lo &= ~4095;
@@ -122,7 +120,7 @@ static int startup(int pid, char *const argv[], char *const envp[], const int *f
 }
 
 int spawnx(const char *path, char *const argv[], char *const envp[], const int *fds, int nfds,
-           int flags)
+           int flags, int pgid)
 {
     struct fx_header h;
     const char *name = strrchr(path, '/');
@@ -135,7 +133,7 @@ int spawnx(const char *path, char *const argv[], char *const envp[], const int *
         errno = ENOEXEC;
         return -1;
     }
-    pid = proc_create(name ? name + 1 : path, 0);
+    pid = proc_create(name ? name + 1 : path, flags & SPAWN_IO ? PROC_IO : 0);
     if (pid < 0) {
         close(fd);
         errno = -pid;
@@ -145,8 +143,8 @@ int spawnx(const char *path, char *const argv[], char *const envp[], const int *
     close(fd);
     if (e >= 0)
         e = startup(pid, argv, envp ? envp : environ, fds, nfds);
-    if (e >= 0 && (flags & SPAWN_NEWPGRP))
-        e = setpgid(pid, pid);
+    if (e >= 0 && (flags & SPAWN_PGID))
+        e = setpgid(pid, pgid ? pgid : pid);
     if (e >= 0)
         e = thread_create(pid, (void *)h.entry, (void *)STACK_TOP, START_BLOCK);
     if (e < 0) {
@@ -160,7 +158,7 @@ int spawnx(const char *path, char *const argv[], char *const envp[], const int *
 
 int spawn(const char *path, char *const argv[], char *const envp[], const int *fds, int nfds)
 {
-    return spawnx(path, argv, envp, fds, nfds, 0);
+    return spawnx(path, argv, envp, fds, nfds, 0, 0);
 }
 
 /* the program for `file`: itself if it has a '/', else the first match in

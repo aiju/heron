@@ -3,6 +3,7 @@
 #define _STDIO_H
 #include <stddef.h>
 #include <stdarg.h>
+#include <errno.h>
 
 #define EOF (-1)
 #define BUFSIZ 1024

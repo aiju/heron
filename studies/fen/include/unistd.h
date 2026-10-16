@@ -3,6 +3,7 @@
 #ifndef _UNISTD_H
 #define _UNISTD_H
 #include <stddef.h>
+#include <errno.h>
 #include <fen/fs.h>
 #define STDIN_FILENO 0
 #define STDOUT_FILENO 1
