@@ -213,7 +213,7 @@ The extension grids, by their second byte:
 
 | `FD` | | `FE` | |
 |---|---|---|---|
-| `FD 00` | `MULFX rd, rs, #n` +1 (tentative) | `FE 00` | `EI` |
+| `FD 00` | `MULFX r0:rd, rs, #n` +1 (tentative) | `FE 00` | `EI` |
 | | | `FE 01` | `DI` |
 | | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
@@ -297,11 +297,11 @@ mode's `R`) in its low one.
 
 | Instruction | Cells | Operation | Flags |
 |---|---|---|---|
-| `MULU rd, src` | `E4`, `EC` | `r0`:`rd` ← `rd` × `src`, unsigned | NZ from `rd`; C = V = 1 if the product needs more than 32 bits, else 0 |
-| `MULS rd, src` | `E5`, `ED` | `r0`:`rd` ← `rd` × `src`, signed | the same, signed |
-| `DIVU rd, rs` | `E7` | `rd` ← `rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = V = 0 |
-| `DIVS rd, rs` | `E8` | `rd` ← `rd` ÷ `rs` rounded toward zero, `r0` ← the remainder, with the dividend's sign | NZ from `rd`; C = 0; V below |
-| `DIVUL rd, rs` | `E9` | `rd` ← `r0`:`rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = 0; V below |
+| `MULU r0:rd, src` | `E4`, `EC` | `r0`:`rd` ← `rd` × `src`, unsigned | NZ from `rd`; C = V = 1 if the product needs more than 32 bits, else 0 |
+| `MULS r0:rd, src` | `E5`, `ED` | `r0`:`rd` ← `rd` × `src`, signed | the same, signed |
+| `DIVU r0:rd, rs` | `E7` | `rd` ← `rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = V = 0 |
+| `DIVS r0:rd, rs` | `E8` | `rd` ← `rd` ÷ `rs` rounded toward zero, `r0` ← the remainder, with the dividend's sign | NZ from `rd`; C = 0; V below |
+| `DIVUL r0:rd, rs` | `E9` | `rd` ← `r0`:`rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = 0; V below |
 
 - **Dividing by zero** is a divide error, and changes nothing.
 - **`DIVS`** of −2³¹ by −1 gives −2³¹, remainder 0, and sets V.
@@ -310,9 +310,10 @@ mode's `R`) in its low one.
 - **The operands are read before anything is written,** so `src` and `rs`
   may be `r0`.
 - **Where two results meet in one register,** the later stays: an
-  addressing mode's update, then `r0`'s, then `rd`'s. So `MULU r0, src`
-  gives the low 32 bits of the product, `DIVU r0, rs` the quotient, and
-  `MULU r2, [r0]+` leaves the high half in `r0` (**open**, tentative).
+  addressing mode's update, then `r0`'s, then `rd`'s. So `MULU r0:r0, src`
+  gives the low 32 bits of the product, `DIVU r0:r0, rs` the quotient,
+  and `MULU r0:r2, [r0]+` leaves the high half in `r0` (**open**,
+  tentative).
   The alternative is that such encodings are illegal.
 
 #### 5.4 Unary operations
@@ -436,9 +437,9 @@ change or go (Emily, 2026-10-15).
 | `DC` | `FFS rd, rs` | the index of `rs`'s lowest set bit, 0…31, or 32 if `rs` = 0 | NZ |
 | `DD` | `POPC rd, rs` | the number of set bits in `rs`, 0…32 | NZ |
 | `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ |
-| `E6` | `MULA rd, rs` | `r0`:`r1` ← `r0`:`r1` + `rd` × `rs`, signed, 64 bits | – |
-| `EE` | `MERGE rd, rs` | `rd` ← (`rd` & ~`r0`) \| (`rs` & `r0`) | NZ |
-| `FD 00` | `MULFX rd, rs, #n` | `rd` ← the low 32 bits of the signed product `rd` × `rs` shifted right arithmetically by n, 0…31; `r0` ← the product's high half, as `MULS` gives it | NZ; C = V = 1 if the result needs more than 32 bits |
+| `E6` | `MULA r0:r1, rd, rs` | `r0`:`r1` ← `r0`:`r1` + `rd` × `rs`, signed, 64 bits | – |
+| `EE` | `MERGE rd, rs, r0` | `rd` ← (`rd` & ~`r0`) \| (`rs` & `r0`) | NZ |
+| `FD 00` | `MULFX r0:rd, rs, #n` | `rd` ← the low 32 bits of the signed product `rd` × `rs` shifted right arithmetically by n, 0…31; `r0` ← the product's high half, as `MULS` gives it | NZ; C = V = 1 if the result needs more than 32 bits |
 
 `MULFX`'s extension parcel holds `rd` in bits 15–12, `rs` in 11–8 and n
 in 4–0; bits 7–5 must be 0.
@@ -480,6 +481,12 @@ names may be written in either case is **open**.
   `byte` or `half` before a memory operand gives its size: `byte [r2]+`.
 - **Stores** are `MOV dst, rs`: `MOV [r2 + 8], r1`. The operand order
   says which.
+- **Implicit registers are written out** (**decided**, Emily, 2026-10-16). A
+  pair is `r0:rd`, the extra result before `rd`'s: `MULU r0:r2, r3`
+  (high:low), `DIVU r0:r2, r3` (remainder:quotient), `DIVUL r0:r2, r3`
+  (the dividend too), `MULFX r0:r2, r3, #8`, `MULA r0:r1, r2, r3` and
+  `MERGE r2, r3, r0` (the mask last). The assembler refuses any other
+  register there, and the forms without them.
 - **Shorthands,** which the disassembler prints too (**decided**, Emily,
   2026-10-15):
 
@@ -858,6 +865,16 @@ added were special registers 1 and 2.
   tentative (Emily, 2026-10-16). The alternative is to make the
   conflicting encodings illegal, so a mistake traps; Emily finds the
   proposal more useful.
+- **Written out in the syntax** (**decided**, Emily, 2026-10-16):
+  `MULU r0:r2, r3` rather than `MULU r2, r3` ([6](#6-assembler-syntax)).
+  - The clobber shows where it happens, in source, listings and traces.
+    The 68020 writes its pairs the same way (`MULU.L ea, Dh:Dl`).
+  - The assembler's error for a high register other than `r0` is a
+    feature (Emily): it catches someone expecting a register the
+    hardware won't use.
+  - If an explicit two-parcel form ever goes into `FD`, `MULU r5:r2, r3`
+    is its syntax already, and the assembler picks the short encoding
+    when the high register is `r0`.
 
 ### 10. 1b's gaps left open
 
