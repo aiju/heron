@@ -141,9 +141,11 @@ pub enum Model {
     /// The clock generator's outputs are driven by the main loop.
     ClockGen,
     IoDev(IoDev),
+    IoDevW(IoDevW),
     Sr299(Sr299),
     Jk109(Jk109),
     DReg(DReg),
+    Latch573(Latch573),
     Xcvr245(Xcvr245),
     TriBuf(TriBuf),
     Enc148(Enc148),
@@ -201,6 +203,8 @@ impl Model {
             "jk109" => Model::Jk109(Jk109::new(s, rng)?),
             "dreg" => Model::DReg(DReg::new(s, rng, false)?),
             "dreg_inv" => Model::DReg(DReg::new(s, rng, true)?),
+            "latch573" => Model::Latch573(Latch573::new(s, rng)?),
+            "iodev_w32" => Model::IoDevW(IoDevW::new(s, preload)?),
             "xcvr245" => Model::Xcvr245(Xcvr245::new(s)?),
             "tribuf" => Model::TriBuf(TriBuf::new(s)?),
             "enc148" => Model::Enc148(Enc148::new(s)?),
@@ -253,6 +257,8 @@ impl Model {
             Model::Sr299(m) => m.outputs(cx, c, 0, 0),
             Model::Jk109(m) => m.init(cx, c),
             Model::DReg(m) => m.init(cx, c),
+            Model::Latch573(m) => m.init(cx, c),
+            Model::IoDevW(m) => cx.drive(c, m.irq, 0, true, 0),
             Model::Xcvr245(m) => m.init(cx, c),
             Model::TriBuf(m) => m.init(cx, c),
             Model::Enc148(m) => m.eval_all(cx, c, 0),
@@ -282,6 +288,7 @@ impl Model {
         match self {
             Model::Sram(m) => Some(m.mem.clone()),
             Model::IoDev(m) => Some(m.output.clone()),
+            Model::IoDevW(m) => Some(m.output.clone()),
             Model::Uart(m) => Some(m.core.tx_out.clone()),
             Model::Cf(m) => Some(m.core.image().to_vec()),
             Model::Vector(m) => Some(m.log.clone()),
@@ -312,6 +319,8 @@ impl Model {
             Model::Sr299(m) => m.eval(cx, c, pin),
             Model::Jk109(m) => m.eval(cx, c, pin),
             Model::DReg(m) => m.eval(cx, c, pin),
+            Model::Latch573(m) => m.eval(cx, c, pin),
+            Model::IoDevW(m) => m.eval(cx, c, pin),
             Model::Xcvr245(m) => m.eval(cx, c, pin),
             Model::TriBuf(m) => m.eval(cx, c, pin),
             Model::Enc148(m) => m.eval(cx, c, pin),
@@ -2126,6 +2135,323 @@ impl DReg {
             cx.check_hold(c, pin, self.last_edge, self.h_e, "EN");
         } else if self.is_d[pin] && self.loaded {
             cx.check_hold(c, pin, self.last_edge, self.h_d, "D");
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 573 transparent latch
+
+/// The 74xx573 octal transparent latch with three-state outputs: Q follows
+/// D while LE is high and keeps what D was when LE fell; OE (active low)
+/// turns the outputs on. D must be steady `setup D` before LE falls and
+/// `hold D` after.
+pub struct Latch573 {
+    le: usize,
+    oe: usize,
+    d: [usize; 8],
+    q: [usize; 8],
+    d_idx: Vec<Option<usize>>,
+    state: [u8; 8],
+    enabled: bool,
+    last_fall: Option<Time>,
+    d_dq: Time,
+    d_leq: Time,
+    d_en: Time,
+    d_dis: Time,
+    su_d: Time,
+    h_d: Time,
+}
+
+impl Latch573 {
+    fn new(s: &Spec, rng: &mut Rng) -> Result<Latch573, Error> {
+        let d = s.pins(|i| format!("D{}", i + 1))?;
+        let mut state = [0; 8];
+        for b in state.iter_mut() {
+            *b = rng.bit();
+        }
+        Ok(Latch573 {
+            le: s.pin("LE")?,
+            oe: s.pin("OE")?,
+            d_idx: s.index(&d),
+            d,
+            q: s.pins(|i| format!("Q{}", i + 1))?,
+            state,
+            enabled: false,
+            last_fall: None,
+            d_dq: s.d("D->Q")?,
+            d_leq: s.d("LE->Q")?,
+            d_en: s.d("OE->Y en")?,
+            d_dis: s.d("OE->Y dis")?,
+            su_d: s.d("setup D")?,
+            h_d: s.d("hold D")?,
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        self.enabled = cx.input(c, self.oe) == 0;
+        if cx.input(c, self.le) == 1 {
+            for i in 0..8 {
+                self.state[i] = cx.input(c, self.d[i]);
+            }
+        }
+        self.out(cx, c, 0);
+    }
+
+    fn out(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        for i in 0..8 {
+            cx.drive(c, self.q[i], self.state[i], self.enabled, d);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin == self.le {
+            if cx.input(c, self.le) == 1 {
+                for i in 0..8 {
+                    self.state[i] = cx.input(c, self.d[i]);
+                }
+                self.out(cx, c, self.d_leq);
+            } else {
+                for i in 0..8 {
+                    cx.check_setup(c, self.d[i], self.su_d, "D");
+                }
+                self.last_fall = Some(cx.now());
+            }
+        } else if pin == self.oe {
+            let en = cx.input(c, pin) == 0;
+            if en != self.enabled {
+                self.enabled = en;
+                self.out(cx, c, if en { self.d_en } else { self.d_dis });
+            }
+        } else if let Some(i) = self.d_idx[pin] {
+            if cx.input(c, self.le) == 1 {
+                self.state[i] = cx.input(c, pin);
+                cx.drive(c, self.q[i], self.state[i], self.enabled, self.d_dq);
+            } else {
+                cx.check_hold(c, pin, self.last_fall, self.h_d, "D");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 32-bit I/O page
+
+/// Draft 1's I/O page (console, timer, cycle counter) as a test fixture
+/// on a 32-bit data bus: what draft 2's register-transfer model reaches
+/// through its 16-bit console card, one 16-bit register access per half
+/// whose byte enables are on, low half first. A read of one half drives
+/// it on both halves; a word read of the console register gives the
+/// input character, or 0xFFFF, and above it the end-of-input flag that
+/// read leaves behind. Pins: A2-A7 (the word), BE0-BE3 (the byte lanes),
+/// IOSEL, RD and WR active low; a write happens when WR rises. The input
+/// is the chip's preload.
+pub struct IoDevW {
+    clk: usize,
+    iosel: usize,
+    rd: usize,
+    wr: usize,
+    irq: usize,
+    a: [usize; 6],
+    be: [usize; 4],
+    d: [usize; 32],
+    prev: u8,
+    writing: bool,
+    driving: bool,
+    input: Vec<u8>,
+    input_pos: usize,
+    pub output: Vec<u8>,
+    timer_period: i64,
+    timer_count: i64,
+    timer_flag: u8,
+    last_empty: bool,
+    cycle_hi: u16,
+    d_acc: Time,
+}
+
+impl IoDevW {
+    fn new(s: &Spec, preload: Option<&[u8]>) -> Result<IoDevW, Error> {
+        Ok(IoDevW {
+            clk: s.pin("CLK")?,
+            iosel: s.pin("IOSEL")?,
+            rd: s.pin("RD")?,
+            wr: s.pin("WR")?,
+            irq: s.pin("IRQ")?,
+            a: s.pins(|i| format!("A{}", i + 2))?,
+            be: s.pins(|i| format!("BE{i}"))?,
+            d: s.pins(|i| format!("D{i}"))?,
+            prev: 0,
+            writing: false,
+            driving: false,
+            input: preload.map(|p| p.to_vec()).unwrap_or_default(),
+            input_pos: 0,
+            output: Vec::new(),
+            timer_period: 0,
+            timer_count: 0,
+            timer_flag: 0,
+            last_empty: false,
+            cycle_hi: 0,
+            d_acc: 20000,
+        })
+    }
+
+    fn word(&self, cx: &Ctx, c: &ChipInfo) -> usize {
+        (bus_value(cx, c, &self.a) << 2) & 0xFC
+    }
+
+    /// The halves an access covers (bit 0 low, bit 1 high), from its byte
+    /// enables.
+    fn halves(&self, cx: &Ctx, c: &ChipInfo) -> u8 {
+        let on = |i: usize| cx.input(c, self.be[i]) == 0;
+        b2u(on(0) || on(1)) | b2u(on(2) || on(3)) << 1
+    }
+
+    fn pending(&self) -> bool {
+        self.input_pos < self.input.len()
+    }
+
+    /// The value a read of the 16-bit register at `a` gives, and whether
+    /// the end-of-input flag is set after it (`empty`: before it).
+    fn read16(&self, cycle: i64, a: usize, empty: bool) -> (u16, bool) {
+        match a {
+            0x00 => {
+                if self.pending() {
+                    (self.input[self.input_pos] as u16, false)
+                } else {
+                    (0xFFFF, true)
+                }
+            }
+            0x02 => (if empty { 0xFFFF } else { 0 }, empty),
+            0x04 => (if self.pending() { 1 } else { 2 }, empty),
+            0x08 => (self.timer_period as u16, empty),
+            0x0A => ((self.timer_period >> 16) as u16, empty),
+            0x0C => (self.timer_flag as u16, empty),
+            0x10 => (cycle as u16, empty),
+            0x12 => (self.cycle_hi, empty),
+            _ => (0, empty),
+        }
+    }
+
+    /// The data a read drives: each half it covers, low first; one half
+    /// alone on both.
+    fn value(&self, cycle: i64, w: usize, halves: u8) -> u32 {
+        let mut empty = self.last_empty;
+        let mut v = [0u16; 2];
+        for (h, x) in v.iter_mut().enumerate() {
+            if halves >> h & 1 != 0 {
+                let a = w + 2 * h;
+                // the cycle counter's high half is what reading the low half latched
+                let (r, e) = if a == 0x12 && halves == 3 {
+                    ((cycle >> 16) as u16, empty)
+                } else {
+                    self.read16(cycle, a, empty)
+                };
+                *x = r;
+                empty = e;
+            }
+        }
+        match halves {
+            1 => v[0] as u32 * 0x10001,
+            2 => v[1] as u32 * 0x10001,
+            _ => v[0] as u32 | (v[1] as u32) << 16,
+        }
+    }
+
+    /// A read's side effects, at the clock edge that ends it.
+    fn read_edge(&mut self, cycle: i64, w: usize, halves: u8) {
+        for h in 0..2 {
+            if halves >> h & 1 == 0 {
+                continue;
+            }
+            match w + 2 * h {
+                0x00 => {
+                    if self.pending() {
+                        self.input_pos += 1;
+                        self.last_empty = false;
+                    } else {
+                        self.last_empty = true;
+                    }
+                }
+                0x10 => self.cycle_hi = (cycle >> 16) as u16,
+                _ => {}
+            }
+        }
+    }
+
+    fn write16(&mut self, a: usize, v: u16, lanes: u8) {
+        match a {
+            0x00 => {
+                if lanes & 1 != 0 {
+                    self.output.push(v as u8);
+                }
+            }
+            0x08 => {
+                self.timer_period = (self.timer_period & !0xFFFF) | v as i64;
+                self.timer_count = 0;
+                if self.timer_period == 0 {
+                    self.timer_flag = 0;
+                }
+            }
+            0x0A => {
+                self.timer_period = (self.timer_period & 0xFFFF) | (v as i64) << 16;
+                self.timer_count = 0;
+                if self.timer_period == 0 {
+                    self.timer_flag = 0;
+                }
+            }
+            0x0C | 0x0E => self.timer_flag = 0,
+            _ => {}
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if !cx.state.check_on {
+            return; // power-up and reset: the bus isn't meaningful yet
+        }
+        let cycle = cx.state.cycle;
+        let sel = cx.input(c, self.iosel) == 0;
+        if pin == self.clk {
+            let v = cx.input(c, self.clk);
+            if v == 1 && self.prev == 0 {
+                if sel && cx.input(c, self.rd) == 0 {
+                    let (w, h) = (self.word(cx, c), self.halves(cx, c));
+                    self.read_edge(cycle, w, h);
+                }
+                if self.timer_period > 0 && cycle >= 0 {
+                    self.timer_count += 1;
+                    if self.timer_count >= self.timer_period {
+                        self.timer_flag = 1;
+                        self.timer_count = 0;
+                    }
+                }
+                cx.drive(c, self.irq, self.timer_flag, true, 5000);
+            }
+            self.prev = v;
+        }
+        let wr = sel && cx.input(c, self.wr) == 0;
+        if self.writing && !wr {
+            let v: u32 = (0..32).map(|i| (cx.input(c, self.d[i]) as u32) << i).sum();
+            let w = self.word(cx, c);
+            let on: Vec<bool> = (0..4).map(|i| cx.input(c, self.be[i]) == 0).collect();
+            for h in 0..2 {
+                let lanes = b2u(on[2 * h]) | b2u(on[2 * h + 1]) << 1;
+                if lanes != 0 {
+                    self.write16(w + 2 * h, (v >> (16 * h)) as u16, lanes);
+                }
+            }
+            cx.drive(c, self.irq, self.timer_flag, true, 5000);
+        }
+        self.writing = wr;
+        if sel && cx.input(c, self.rd) == 0 {
+            let v = self.value(cycle, self.word(cx, c), self.halves(cx, c));
+            for i in 0..32 {
+                cx.drive(c, self.d[i], ((v >> i) & 1) as u8, true, self.d_acc);
+            }
+            self.driving = true;
+        } else if self.driving {
+            for i in 0..32 {
+                let v = cx.driven(c, self.d[i]);
+                cx.drive(c, self.d[i], v, false, 10000);
+            }
+            self.driving = false;
         }
     }
 }

@@ -12,7 +12,7 @@ done by the next one:
     edge;
   - the register file is written in the last tick, and its write strobe
     rises a gate after the edge: data must be there tDW before that;
-  - memory is written in a window from tick 3 to the last tick;
+  - memory is written in a window from tick 4 to the last tick;
   - the next microinstruction's address must reach the control store SRAM
     tAA + the uIR's setup before the edge.
 
@@ -32,7 +32,7 @@ from heron.infra.hw import chips
 TICK = 20.0
 K_MIN, K_MAX = 4, 19
 K_BUS = 6                   # a data access may go to the bus: the hold comes at tick 3
-K_WRITE = 5                 # the memory write window: tick 3 to the last tick
+K_WRITE = 6                 # the memory write window: tick 4 to the last tick
 
 _T = None
 

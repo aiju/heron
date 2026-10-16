@@ -204,7 +204,15 @@ pub struct State {
     /// For each kind of violation: how often, and the worst slack.
     pub violation_stats: HashMap<String, (u64, Time)>,
     pub contention: ContentionStats,
+    /// The first episodes of contention that lasted 5 ns or more: when,
+    /// how long, the net, and the output slots enabled on it when it
+    /// began, for finding who fights.
+    pub contention_log: Vec<(Time, Time, u32, Vec<u32>)>,
+    contention_drivers: HashMap<u32, Vec<u32>>,
 }
+
+/// How many contention episodes `contention_log` keeps.
+const CONTENTION_LOG: usize = 40;
 
 impl State {
     /// Schedule output slot `o` to take (v, en) at time t.
@@ -501,6 +509,8 @@ impl Sim {
             violations: Vec::new(),
             violation_stats: HashMap::new(),
             contention: ContentionStats::default(),
+            contention_log: Vec::new(),
+            contention_drivers: HashMap::new(),
         };
         (state, topo, chips)
     }
@@ -590,11 +600,25 @@ impl Sim {
             if conflict {
                 if net.cont_since.is_none() {
                     net.cont_since = Some(now);
+                    if state.check_on && state.contention_log.len() < CONTENTION_LOG {
+                        let on = drivers
+                            .iter()
+                            .copied()
+                            .filter(|&d| state.outs[d as usize].en && !state.outs[d as usize].weak)
+                            .collect();
+                        state.contention_drivers.insert(n, on);
+                    }
                 }
                 return; // the value is undefined; keep the old one
             }
             if let Some(since) = net.cont_since.take() {
                 state.record_contention(n, now - since, topo);
+                if let Some(on) = state.contention_drivers.remove(&n)
+                    && now - since >= 5000
+                    && state.contention_log.len() < CONTENTION_LOG
+                {
+                    state.contention_log.push((since, now - since, n, on));
+                }
             }
             let net = &mut state.nets[n as usize];
             if cnt == 0 && !pulled {

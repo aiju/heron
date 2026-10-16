@@ -13,6 +13,9 @@
                                    profile, where the cycles go
   report [--write]                 RFC 0031's tables (--write: its
                                    performance.md)
+  hw     test|run|sta|bom          the chip-level netlist: programs on the
+                                   chip-level simulator against the RTL
+                                   model, static timing analysis, parts
   ucode  [--list]                  the microcode: its size, length classes,
                                    and (--list) every microinstruction
 """
@@ -86,6 +89,9 @@ def main(argv=None):
     if argv[:1] == ["report"]:
         from .report import main as report_main
         return report_main(argv[1:])
+    if argv[:1] == ["hw"]:
+        from .hw import main as hw_main
+        return hw_main(argv[1:])
     p = argparse.ArgumentParser(prog="heron v2_hw", description="The draft 2 CPU")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check", help="the RTL model against the instruction-level simulator")

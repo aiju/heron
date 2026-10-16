@@ -170,7 +170,7 @@ class ConsoleCard:
 class System:
     """The memory system: translation, the CPU card's RAM, the bus."""
 
-    def __init__(self, ram_size=0x200000, prefetch_bus=False, icache=0):
+    def __init__(self, ram_size=0x200000, prefetch_bus=False, icache=0, io_local=False):
         self.ram = bytearray(ram_size)
         self.ram_mask = ram_size - 1
         self.map = [0] * (1 << 19)
@@ -185,6 +185,7 @@ class System:
         self.itag = [None] * icache
         self.idata = [0] * icache
         self.icache_hits = 0
+        self.io_local = io_local
 
     # ---- setup ---------------------------------------------------------
 
@@ -266,6 +267,14 @@ class System:
         self.bus_transfers += 1
         return (edge - t0) + TICKS_PER_BCLK * clocks + CROSS
 
+    def _xfer_hold(self, m, card, clocks):
+        """The hold of a transfer with `card`: none for the I/O page when it
+        is on the CPU card's own data bus (io_local, as the chip-level
+        test fixture is)."""
+        if self.io_local and card is self.console:
+            return 0
+        return self._hold(m, clocks)
+
     def fetch_is_fast(self, pa):
         """A fetch at pa won't go to the bus: the CPU card's RAM, or a hit
         in the instruction cache."""
@@ -300,7 +309,7 @@ class System:
     def _bus_read(self, pa, size, m):
         card, off = self._card(pa)
         if card.width == 32 and size == 3:
-            return card.read32(off), self._hold(m, card.read_clocks)
+            return card.read32(off), self._xfer_hold(m, card, card.read_clocks)
         if card.simple:
             rd = (lambda o: card.read16(o, m.cycles))
         else:
@@ -309,9 +318,9 @@ class System:
             # a 16-bit card: two transfers, the high half at A1 = 1
             lo = rd(off & ~3)
             hi = rd((off & ~3) | 2)
-            return lo | (hi << 16), self._hold(m, 2 * card.read_clocks)
+            return lo | (hi << 16), self._xfer_hold(m, card, 2 * card.read_clocks)
         half = rd(off & ~1)
-        return (half * 0x10001) & M32, self._hold(m, card.read_clocks)
+        return (half * 0x10001) & M32, self._xfer_hold(m, card, card.read_clocks)
 
     def write(self, pa, size, va, a, m):
         """A store of size `size` with A the A bus. Returns the hold."""
@@ -329,14 +338,14 @@ class System:
         card, off = self._card(pa)
         if card.width == 32 and not card.simple:
             card.write(off, d, lanes)
-            return self._hold(m, card.write_clocks)
+            return self._xfer_hold(m, card, card.write_clocks)
         if size == 3:
             card.write16(off & ~3, d & 0xFFFF, 0b11)
             card.write16((off & ~3) | 2, d >> 16, 0b11)
-            return self._hold(m, 2 * card.write_clocks)
+            return self._xfer_hold(m, card, 2 * card.write_clocks)
         sh = 16 if off & 2 else 0
         card.write16(off & ~1, (d >> sh) & 0xFFFF, (lanes >> (2 if sh else 0)) & 3)
-        return self._hold(m, card.write_clocks)
+        return self._xfer_hold(m, card, card.write_clocks)
 
     # ---- interrupts and time -------------------------------------------
 

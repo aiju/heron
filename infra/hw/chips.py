@@ -227,6 +227,15 @@ T("299", "sr299",
   desc="8-bit universal shift/storage register, 3-state I/O (S1 S0: 00 hold, "
        "01 shift toward Q7 (DS0 in), 10 toward Q0 (DS7 in), 11 load from I/O)")
 
+T("sram64k", "sram",
+  [(f"A{i}", "in") for i in range(16)] + [(f"IO{i}", "io") for i in range(8)]
+  + [("CE", "in"), ("OE", "in"), ("WE", "in")],
+  arcs=[([f"A{i}" for i in range(16)], [f"IO{i}" for i in range(8)], "tAA"),
+        (["CE"], [f"IO{i}" for i in range(8)], "tACE"),
+        (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
+  family="mem", desc="64K x 8 static RAM: one byte of a 64K x 16 part (IS61C6416), "
+                     "whose two bytes the netlist places as two of these")
+
 T("sram512", "sram",
   [(f"A{i}", "in") for i in range(19)] + [(f"IO{i}", "io") for i in range(8)]
   + [("CE", "in"), ("OE", "in"), ("WE", "in")],
@@ -279,6 +288,15 @@ T("823", "dreg",
   checks=[([f"D{i}" for i in range(1, 10)], "CLK", "rise", "setup D", "hold D"),
           (["EN"], "CLK", "rise", "setup EN", "hold EN")],
   desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE active low)")
+
+T("573", "latch573",
+  [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[([f"D{i}"], [f"Q{i}"], "D->Q") for i in range(1, 9)]
+  + [(["LE"], [f"Q{i}" for i in range(1, 9)], "LE->Q"),
+     (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "LE", "fall", "setup D", "hold D")],
+  desc="octal transparent latch, three-state outputs (Q follows D while LE is high; OE active low)")
 
 T("245", "xcvr245",
   [("DIR", "in"), ("OE", "in")] + [(f"A{i}", "io") for i in range(1, 9)]
@@ -371,6 +389,20 @@ def load_timing():
     with open(TIMING_PATH) as f:
         return json.load(f)
 
+
+T("iodev_w32", "iodev_w32",
+  [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WR", "in")]
+  + [(f"A{i}", "in") for i in range(2, 8)] + [(f"BE{i}", "in") for i in range(4)]
+  + [(f"D{i}", "io") for i in range(32)] + [("IRQ", "out")],
+  arcs=[([f"A{i}" for i in range(2, 8)] + ["IOSEL", "RD"], [f"D{i}" for i in range(32)], "tACC")],
+  family="fixture", desc="draft 1 I/O page on a 32-bit data bus, one register access per "
+                         "16-bit half (byte enables, IOSEL, RD, WR active low; input preloaded)")
+
+T("tickclk", "tickclk",
+  [("CLK", "out"), ("MWIN", "out"), ("RW", "out"), ("RSTB", "out"), ("RESET", "out")],
+  family="fixture", desc="for static timing analysis: a tick clock generator's outputs as "
+                         "functions of the cycle (CLK's edge at 0; the memory write window, "
+                         "the register file's write phase and its write strobe)")
 
 T("iodev32", "iodev32",
   [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WEL", "in"), ("WEH", "in")]

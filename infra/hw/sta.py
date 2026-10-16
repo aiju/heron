@@ -10,12 +10,19 @@ holds for all data (carry chains included).
 Arrival times are measured from the rising clock edge. A microinstruction
 needs a clock period T such that
   - every register input that loads is stable `setup` before the next edge;
-  - every SRAM write strobe (WEWIN gated by control) meets tAS, tAW, tWP, tDW,
-    where the write window is [ws*T, we*T].
+  - every SRAM write strobe (a write window gated by control) meets tAS,
+    tAW, tWP, tDW, where the write window is [ws*T, we*T].
 The machine's minimum period is the maximum over all microinstructions.
 
 The machine is a module as described in heron.infra.hw.runner: its netlist,
-control nets and distinct microinstructions come from it.
+control nets and distinct microinstructions come from it. A machine may
+also give
+  WINDOWS          {net: (open fraction, open ns, close fraction, close ns)}:
+                   write windows that open at a*T + b and close at c*T + d
+                   (by default WEWIN, [ws*T, we*T]), for a clock generator
+                   that counts fixed ticks (the `tickclk` fixture);
+  extra_checks(case, N)  requirements of its own, in the form checks()
+                   returns ("setup", c, description, net): T >= c.
 """
 
 import math
@@ -48,11 +55,12 @@ class Netlist:
 class Case:
     """Arrival/value analysis for one microinstruction at one period."""
 
-    def __init__(self, N, constants, T, ws):
+    def __init__(self, N, constants, T, ws, windows=None):
         self.N = N
         self.const = constants          # net -> value (from ROM word / mode)
         self.T = T
         self.ws = ws
+        self.windows = windows or {}
         self.memo = {}
         self.busy = {}                  # nets being evaluated, in order (a dict for speed)
 
@@ -308,6 +316,34 @@ class Case:
             t, cause = t2, c2
         return (None, t, en, cause)
 
+    def m_latch573(self, inst, pin, d):
+        oe = self.pin(inst, "OE")[0]
+        if oe == 1:
+            return (None, NEG, False, None)
+        en = True if oe == 0 else None
+        le = self.pin(inst, "LE")[0]
+        dpin = "D" + pin[1:]
+        terms = [("OE", "OE->Y en", d["OE->Y en"])]
+        if le != 0:                     # transparent: the data flows through
+            terms += [(dpin, "D->Q", d["D->Q"]), ("LE", "LE->Q", d["LE->Q"])]
+        t, cause = self.latest(inst, terms)
+        v = self.pin(inst, dpin)[0] if le == 1 else None
+        return (v, t, en, cause)
+
+    def m_tickclk(self, inst, pin, d):
+        """A tick clock generator, as the cycle's first part sees it: CLK's
+        edge at 0, the memory write window opening (its value unknown, so
+        writes are checked), and the register file still being read (its
+        write phase and strobe off)."""
+        if pin == "CLK":
+            return (None, 0.0, True, None)
+        if pin == "MWIN":
+            a, b, _, _ = self.windows["MWIN"]
+            return (None, a * self.T + b, True, (inst.ref, "MWIN", "write window opens"))
+        if pin == "RESET":
+            return (1, NEG, True, None)
+        return (0, NEG, True, None)     # RW, RSTB
+
     def m_const(self, inst, pin, d):
         return (int(pin == "HI"), NEG, True, None)
 
@@ -381,10 +417,10 @@ def checks(case, N, we_frac):
     Returns a list of (kind, data, description, endpoint net):
       ("setup", c)   the period must be at least c
       ("write", w)   an SRAM write: w = (ctrl_t, dW, gd, addr_t, data_t,
-                     tWP, tAS, tAW, tDW); see write_slack()
+                     tWP, tAS, tAW, tDW, window); see write_slack()
     Arrival times don't depend on the period, except for the write window,
     which opens at ws*T + dW (dW: gates between the clock generator and the
-    strobe gate) and closes at we*T + dW."""
+    strobe gate) and closes at we*T + dW; or as case.windows says."""
     out = []
     t0 = case.T
     for inst in N.insts:
@@ -429,28 +465,35 @@ def checks(case, N, we_frac):
                 out.append(("setup", ta + su, f"{inst.ref}.{p} setup", inst.conn[p]))
         elif t.model == "sram":
             we_net = inst.conn["WE"]
+            if not N.drivers.get(we_net):
+                continue                    # WE tied to a rail: never written
             drv, out_pin = N.drivers[we_net][0]
             gate_ins = [drv.conn[p] for p in gate_inputs(drv, out_pin)]
             wv = case.net(we_net)[0]
-            if wv == 1 or "WEWIN" not in gate_ins:
+            wins = case.windows or {"WEWIN": (case.ws, 0.0, we_frac, 0.0)}
+            win = next((n for n in gate_ins if n in wins), None)
+            if wv == 1 or win is None:
                 continue                    # no write in this microinstruction
+            a, b, c_, d_ = wins[win]
             gd = N.delay[drv.ref]["A->Y"]
-            dW = case.net("WEWIN")[1] - case.ws * t0
-            ctrl = [case.net(n)[1] for n in gate_ins if n != "WEWIN"]
+            dW = case.net(win)[1] - (a * t0 + b)
+            ctrl = [case.net(n)[1] for n in gate_ins if n != win]
             ctrl_t = max(ctrl) if ctrl else NEG
             addr_t = max(case.pin(inst, p)[1] for p in address_pins(inst))
             data = [case.pin(inst, f"IO{i}")[1] for i in range(8)]
             worst_io = max(range(8), key=lambda i: data[i])
-            w = (ctrl_t, dW, gd, addr_t, max(data), d["tWP"], d["tAS"], d["tAW"], d["tDW"])
+            w = (ctrl_t, dW, gd, addr_t, max(data), d["tWP"], d["tAS"], d["tAW"], d["tDW"],
+                 (a, b, c_, d_) if case.windows else None)
             out.append(("write", w, f"{inst.ref} write", inst.conn[f"IO{worst_io}"]))
     return out
 
 
 def write_slack(w, T, ws, we):
     """Worst slack of one SRAM write at period T, and which requirement."""
-    ctrl_t, dW, gd, addr_t, data_t, tWP, tAS, tAW, tDW = w
-    t_fall = max(ctrl_t, ws * T + dW) + gd
-    t_rise = we * T + dW + gd
+    ctrl_t, dW, gd, addr_t, data_t, tWP, tAS, tAW, tDW, win = w
+    a, b, c, d = win if win else (ws, 0.0, we, 0.0)
+    t_fall = max(ctrl_t, a * T + b + dW) + gd
+    t_rise = c * T + d + dW + gd
     return min((t_rise - t_fall - tWP, "write pulse width (tWP)"),
                (t_fall - addr_t - tAS, "address setup to write (tAS)"),
                (t_rise - addr_t - tAW, "address to end of write (tAW)"),
@@ -487,13 +530,22 @@ def worst_check(chk, T, ws, we):
     return best
 
 
-def analyse(machine, variant=chips.DEFAULT_VARIANT, corner="max", ws=0.5, we=0.875):
+def case_checks(machine, N, w, extra, T, ws, we):
+    """The Case for one microinstruction at period T, and its requirements."""
+    c = Case(N, constants_for(machine, w, dict(extra)), T, ws, getattr(machine, "WINDOWS", None))
+    chk = checks(c, N, we)
+    if hasattr(machine, "extra_checks"):
+        chk += machine.extra_checks(c, N)
+    return c, chk
+
+
+def analyse(machine, variant=chips.DEFAULT_VARIANT, corner="max", ws=0.5, we=0.875, words=None):
+    """(N, [(minimum period, word, extra, labels)]), slowest first, for the
+    machine's distinct microinstructions (or `words`, part of them)."""
     N = Netlist(machine.build(), variant, corner)
     results = []
-    for (w, extra), labels in machine.sta_words().items():
-        consts = constants_for(machine, w, dict(extra))
-        c = Case(N, consts, 1000.0, ws)
-        chk = checks(c, N, we)
+    for (w, extra), labels in (words or machine.sta_words()).items():
+        _c, chk = case_checks(machine, N, w, extra, 1000.0, ws, we)
         T = min_period(chk, ws, we)
         results.append((T, w, extra, labels))
     results.sort(key=lambda r: -r[0])
@@ -511,8 +563,8 @@ def report(machine, N, results, ws=0.5, we=0.875, paths=3):
         lines.append(f"  {T_:7.1f} ns  {lab[0]:<26} ({len(lab)} ROM addresses; e.g. {', '.join(names[:3])})")
     lines.append("")
     for T_, w_, e_, lab in results[:paths]:
-        c = Case(N, constants_for(machine, w_, dict(e_)), T_, ws)
-        worst = worst_check(checks(c, N, we), T_, ws, we)
+        c, chk = case_checks(machine, N, w_, e_, T_, ws, we)
+        worst = worst_check(chk, T_, ws, we)
         lines.append(f"critical check for {lab[0]} at {T_:.1f} ns: {worst[1]} (slack {worst[0]:.1f} ns)")
         for net, t, ref, dn in c.path(worst[2]):
             lines.append(f"    {t:7.1f} ns  {net:<14} {ref:<10} {dn}")
