@@ -412,7 +412,7 @@ def render(text):
         wire_label(d, label, pts, at)
     for s, ln in g.dots:
         d.circle(*g.point(s, ln), 2.6)
-    return d.svg(margin=6)
+    return d.svg()
 
 
 def wire_label(d, label, pts, at):

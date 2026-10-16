@@ -127,13 +127,16 @@ class Drawing:
         if other.out:
             self.cover(other.x0, other.y0, other.x1, other.y1)
 
-    def svg(self, margin=4):
+    def svg(self, margin=8):
         """The finished SVG, sized to what was drawn."""
         x0, y0 = self.x0 - margin, self.y0 - margin
         w, h = self.x1 - self.x0 + 2 * margin, self.y1 - self.y0 + 2 * margin
         w, h = int(-(-w // 1)), int(-(-h // 1))
+        # a background of its own, so that it reads on any page, in either
+        # setting, whatever the page's colour
+        back = f'<rect class="paper" x="{num(x0)}" y="{num(y0)}" width="{w}" height="{h}"/>'
         return (f'<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="{num(x0)} {num(y0)} {w} {h}" '
-                f'width="{w}" height="{h}"><style>{STYLE.strip()}</style>{DEFS}\n'
+                f'width="{w}" height="{h}"><style>{STYLE.strip()}</style>{DEFS}\n{back}\n'
                 + "\n".join(self.out) + "\n</svg>\n")
 
 
