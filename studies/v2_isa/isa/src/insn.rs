@@ -3,21 +3,29 @@
 //! The decoder (decode.rs) turns the parcels at an address into an [`Insn`]
 //! once; the machine executes it each time it comes round, which returns
 //! the timing key or stops with a trap or an error. The flags, the ALU,
-//! unary and shift functions are draft 1's, as RFC 0028 keeps them; the
-//! interrupts are still draft 1's (reports/0004-rfc-draft-1-isa.md, 25),
-//! not yet RFC 0029's. This module's shape is draft 1's too
-//! (studies/v1_isa/isa/src/insn.rs).
+//! unary and shift functions are draft 1's, as RFC 0028 keeps them. A
+//! machine without a supervisor has draft 1's interrupts
+//! (reports/0004-rfc-draft-1-isa.md, 25); one made in system mode has RFC
+//! 0029's ([`crate::sys`]): the system instructions here check the mode.
+//! This module's shape is draft 1's too (studies/v1_isa/isa/src/insn.rs).
 
 use crate::key::{Ea, How, Key, Kind};
 use crate::machine::{ADDR_VECTOR, DIV_VECTOR, ILLEGAL_VECTOR, Machine, SWI_VECTOR, TAG_VECTOR};
+use crate::sys::{
+    BANKS, MAP_SIZE, MSG_MARK, PTE_MASK, SR_I, SR_IPL_SHIFT, SR_S, SR_T, VEC_PRIV, VEC_SWI,
+};
 
 /// An instruction trapping: `fault` saves the faulting instruction's
-/// address, otherwise the next instruction's.
+/// address, otherwise the next instruction's. In system mode `vector` is
+/// the offset from the vector base, and `far` the address for `far` (a page
+/// fault, a misaligned access or a bus error), with `fsr` the reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trap {
     pub vector: u32,
     pub fault: bool,
     pub why: String,
+    pub far: Option<u32>,
+    pub fsr: u32,
 }
 
 /// Why an instruction didn't finish.
@@ -35,11 +43,42 @@ pub fn trap<T>(vector: u32, fault: bool, why: &str) -> Res<T> {
         vector,
         fault,
         why: why.into(),
+        far: None,
+        fsr: 0,
     }))
 }
 
 pub fn misaligned<T>(what: &str, a: u32) -> Res<T> {
-    trap(ADDR_VECTOR, true, &format!("misaligned {what} at {a:08X}"))
+    Err(Stop::Trap(Trap {
+        vector: ADDR_VECTOR,
+        fault: true,
+        why: format!("misaligned {what} at {a:08X}"),
+        far: Some(a),
+        fsr: 0,
+    }))
+}
+
+/// A fault at an address, with `fsr` the reason: a page fault or a bus
+/// error. Its text is made only when someone asks (trap_name).
+pub fn fault_at<T>(vector: u32, a: u32, fsr: u32) -> Res<T> {
+    Err(Stop::Trap(Trap {
+        vector,
+        fault: true,
+        why: String::new(),
+        far: Some(a),
+        fsr,
+    }))
+}
+
+/// A privileged instruction in user mode.
+fn privileged<T>() -> Res<T> {
+    Err(Stop::Trap(Trap {
+        vector: VEC_PRIV,
+        fault: true,
+        why: String::new(),
+        far: None,
+        fsr: 0,
+    }))
 }
 
 /// The link register: calls leave the return address in r7, and a return
@@ -115,7 +154,28 @@ pub enum Insn {
         a: u8,
         b: u8,
     },
-    Swi,
+    Swi {
+        n: u8,
+    },
+    /// SPL #n: IPL <- n
+    Spl {
+        n: u8,
+    },
+    /// MFUR rd, rs: rd <- register rs of bank `bank`
+    Mfur {
+        d: u8,
+        s: u8,
+    },
+    /// MTUR rd, rs: register rd of bank `bank` <- rs
+    Mtur {
+        d: u8,
+        s: u8,
+    },
+    /// BCOPY rd, rs (tentative): r0-r7 of bank rs into bank rd
+    Bcopy {
+        d: u8,
+        s: u8,
+    },
     Set {
         a: u8,
         cc: u8,
@@ -313,6 +373,95 @@ impl Machine {
             | (self.z as u32) << 2
             | (self.n as u32) << 3
             | (self.i as u32) << 4
+    }
+
+    /// The condition codes, `ccr`: `sr`'s byte 0.
+    pub fn ccr(&self) -> u32 {
+        (self.v as u32) | (self.c as u32) << 1 | (self.z as u32) << 2 | (self.n as u32) << 3
+    }
+
+    pub fn set_ccr(&mut self, x: u32) {
+        self.v = (x & 1) as u8;
+        self.c = ((x >> 1) & 1) as u8;
+        self.z = ((x >> 2) & 1) as u8;
+        self.n = ((x >> 3) & 1) as u8;
+    }
+
+    /// The status register (RFC 0029, 2), in system mode.
+    pub fn sr(&self) -> u32 {
+        let s = self.sys.as_ref().expect("system mode");
+        self.ccr()
+            | ((s.ipl as u32) << SR_IPL_SHIFT)
+            | ((s.t as u32) * SR_T)
+            | ((self.i as u32) * SR_I)
+            | if s.supervisor { SR_S } else { 0 }
+    }
+
+    /// Set the status register but S, and the mode's other effects to
+    /// follow it: what MTSR sr does (RFC 0029, 2: S is left alone).
+    fn set_sr_but_s(&mut self, x: u32) {
+        self.set_ccr(x);
+        self.i = ((x & SR_I) != 0) as u8;
+        let s = self.sys.as_mut().expect("system mode");
+        s.t = ((x & SR_T) != 0) as u8;
+        s.ipl = ((x >> SR_IPL_SHIFT) & 15) as u8;
+    }
+
+    /// Switch the registers to another bank: the ones in use go back to
+    /// theirs.
+    pub fn switch_bank(&mut self, to: usize) {
+        let (r, hi, lo) = (self.r, self.hi, self.lo);
+        let s = self.sys.as_mut().expect("system mode");
+        if s.cur_bank == to {
+            return;
+        }
+        let b = &mut s.banks[s.cur_bank];
+        b[..16].copy_from_slice(&r);
+        b[16] = hi;
+        b[17] = lo;
+        s.cur_bank = to;
+        let b = s.banks[to];
+        self.r.copy_from_slice(&b[..16]);
+        self.hi = b[16];
+        self.lo = b[17];
+    }
+
+    /// Set the mode: supervisor mode runs in bank 0, user mode in `bank`.
+    fn set_mode(&mut self, supervisor: bool) {
+        let s = self.sys.as_mut().expect("system mode");
+        if s.supervisor != supervisor {
+            s.supervisor = supervisor;
+            s.forget_pc_page();
+        }
+        let to = if supervisor { 0 } else { s.bank as usize };
+        self.switch_bank(to);
+    }
+
+    /// Register `n` of bank `bank`, which may be the one in use.
+    fn user_reg(&self, n: usize) -> u32 {
+        let s = self.sys.as_ref().expect("system mode");
+        if s.bank as usize == s.cur_bank {
+            self.r[n]
+        } else {
+            s.banks[s.bank as usize][n]
+        }
+    }
+
+    fn set_user_reg(&mut self, n: usize, v: u32) {
+        let s = self.sys.as_mut().expect("system mode");
+        if s.bank as usize == s.cur_bank {
+            self.r[n] = v;
+        } else {
+            s.banks[s.bank as usize][n] = v;
+        }
+    }
+
+    /// In system mode, user mode traps a privileged instruction.
+    fn check_privileged(&self) -> Res<()> {
+        match &self.sys {
+            Some(s) if !s.supervisor => privileged(),
+            _ => Ok(()),
+        }
     }
 
     pub fn set_flags_word(&mut self, x: u32) {
@@ -513,6 +662,112 @@ impl Machine {
         Ok(())
     }
 
+    /// Enter an exception in system mode (RFC 0029, 6): supervisor mode and
+    /// bank 0, push the PC, then sr as it was, on bank 0's sp; clear I and
+    /// T, set IPL for an interrupt; jump to the vector at `offset` from the
+    /// base.
+    pub fn enter_exception(&mut self, offset: u32, ret: u32, ipl: Option<u8>) -> Res<()> {
+        let old = self.sr();
+        self.set_mode(true);
+        let sp = self.r[15];
+        self.wr32(sp.wrapping_sub(4), ret)?;
+        self.wr32(sp.wrapping_sub(8), old)?;
+        self.r[15] = sp.wrapping_sub(8);
+        self.i = 0;
+        let s = self.sys.as_mut().expect("system mode");
+        s.t = 0;
+        if let Some(l) = ipl {
+            s.ipl = l;
+        }
+        s.exceptions[(offset / 4).min(0x40) as usize] += 1;
+        if old & SR_S == 0 {
+            s.user_entries += 1;
+        }
+        self.pc = crate::sys::VEC_BASE.wrapping_add(offset);
+        Ok(())
+    }
+
+    /// RTI in system mode: pop sr, then the PC, and with them the mode and
+    /// the bank.
+    fn rti_system(&mut self) -> Res<()> {
+        let sp = self.r[15];
+        let sr = self.rd32(sp)?;
+        let pc = self.rd32(sp.wrapping_add(4))?;
+        self.r[15] = sp.wrapping_add(8);
+        self.set_sr_but_s(sr);
+        self.set_mode(sr & SR_S != 0);
+        self.pc = pc & !1;
+        let cycles = self.cycles;
+        let s = self.sys.as_mut().expect("system mode");
+        if !s.supervisor
+            && let Some(log) = &mut s.user_runs
+            && log
+                .iter()
+                .rev()
+                .find(|&&(_, b)| b & MSG_MARK == 0)
+                .map(|&(_, b)| b as u32)
+                != Some(s.bank)
+        {
+            log.push((cycles, s.bank as u16));
+        }
+        Ok(())
+    }
+
+    /// MFSR in system mode (RFC 0029, 4).
+    fn mfsr_system(&mut self, n: u8) -> Res<u32> {
+        if n >= 8 {
+            self.check_privileged()?;
+        }
+        let s = self.sys.as_ref().expect("system mode");
+        Ok(match n {
+            0 => self.ccr(),
+            1 => self.hi,
+            2 => self.lo,
+            8 => self.sr(),
+            9 => s.far,
+            10 => s.fsr,
+            11 => s.ctx,
+            12 => s.mapa,
+            13 => s.map[s.mapa as usize],
+            14 => s.bank,
+            15 => s.bkpt,
+            _ => 0,
+        })
+    }
+
+    /// MTSR in system mode (RFC 0029, 4).
+    fn mtsr_system(&mut self, n: u8, v: u32) -> Res<()> {
+        if n >= 8 {
+            self.check_privileged()?;
+        }
+        match n {
+            0 => self.set_ccr(v),
+            1 => self.hi = v,
+            2 => self.lo = v,
+            8 => self.set_sr_but_s(v),
+            _ => {
+                let s = self.sys.as_mut().expect("system mode");
+                match n {
+                    11 => {
+                        s.ctx = v % crate::sys::CONTEXTS as u32;
+                        s.forget_pc_page();
+                    }
+                    12 => s.mapa = v % MAP_SIZE as u32,
+                    13 => {
+                        s.map[s.mapa as usize] = v & PTE_MASK;
+                        s.mapa = (s.mapa + 1) % MAP_SIZE as u32;
+                        s.forget_pc_page();
+                    }
+                    14 => s.bank = v % BANKS as u32,
+                    15 => s.bkpt = v,
+                    // far and fsr are read only; 3-7 are reserved
+                    _ => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// A memory operand's address, and whether it carried.
     fn address(&self, m: &MemOp, nxt: u32) -> (u32, u8) {
         let r = |i: u8| self.r[i as usize];
@@ -583,8 +838,13 @@ impl Machine {
         Ok(match insn {
             Insn::Illegal => return illegal(),
             Insn::Halt => {
-                self.halted = true;
+                self.check_privileged()?;
                 self.pc = nxt;
+                match &mut self.sys {
+                    // with I set, wait for an interrupt (RFC 0029, 7)
+                    Some(s) if self.i != 0 => s.waiting = true,
+                    _ => self.halted = true,
+                }
                 key(Kind::Sys)
             }
             Insn::Save { a, cnt } => {
@@ -610,40 +870,116 @@ impl Machine {
                 key(Kind::Restore { n: cnt })
             }
             Insn::Rti => {
-                let fl = self.pop()?;
-                self.set_flags_word(fl);
-                self.pc = self.pop()? & !1;
+                if self.sys.is_some() {
+                    self.check_privileged()?;
+                    self.rti_system()?;
+                } else {
+                    let fl = self.pop()?;
+                    self.set_flags_word(fl);
+                    self.pc = self.pop()? & !1;
+                }
                 key(Kind::Rti)
             }
             Insn::SetI { val } => {
+                self.check_privileged()?;
                 self.i = val;
                 self.pc = nxt;
                 key(Kind::Sys)
             }
             Insn::Mfsr { a, b } => {
-                let v = match b {
-                    0 => self.flags_word(),
-                    1 => self.hi,
-                    2 => self.lo,
-                    _ => return illegal(),
+                let v = if self.sys.is_some() {
+                    self.mfsr_system(b)?
+                } else {
+                    match b {
+                        0 => self.flags_word(),
+                        1 => self.hi,
+                        2 => self.lo,
+                        _ => return illegal(),
+                    }
                 };
                 self.r[a as usize] = v;
                 self.pc = nxt;
                 key(Kind::Alu { wb: 1 })
             }
             Insn::Mtsr { a, b } => {
-                match a {
-                    0 => self.set_flags_word(r(self, b)),
-                    1 => self.hi = r(self, b),
-                    2 => self.lo = r(self, b),
-                    _ => return illegal(),
+                if self.sys.is_some() {
+                    self.mtsr_system(a, r(self, b))?;
+                } else {
+                    match a {
+                        0 => self.set_flags_word(r(self, b)),
+                        1 => self.hi = r(self, b),
+                        2 => self.lo = r(self, b),
+                        _ => return illegal(),
+                    }
                 }
                 self.pc = nxt;
                 key(Kind::Sys)
             }
-            Insn::Swi => {
+            Insn::Swi { n } => {
                 self.pc = nxt;
+                if self.sys.is_some() {
+                    return Err(Stop::Trap(Trap {
+                        vector: VEC_SWI + 4 * n as u32,
+                        fault: false,
+                        why: String::new(),
+                        far: None,
+                        fsr: 0,
+                    }));
+                }
                 return trap(SWI_VECTOR, false, "SWI");
+            }
+            Insn::Spl { n } => {
+                if self.sys.is_none() {
+                    return illegal();
+                }
+                self.check_privileged()?;
+                self.sys.as_mut().unwrap().ipl = n;
+                self.pc = nxt;
+                key(Kind::Sys)
+            }
+            Insn::Mfur { d, s } => {
+                if self.sys.is_none() {
+                    return illegal();
+                }
+                self.check_privileged()?;
+                self.r[d as usize] = self.user_reg(s as usize);
+                self.pc = nxt;
+                key(Kind::Alu { wb: 1 })
+            }
+            Insn::Mtur { d, s } => {
+                if self.sys.is_none() {
+                    return illegal();
+                }
+                self.check_privileged()?;
+                let v = r(self, s);
+                self.set_user_reg(d as usize, v);
+                self.pc = nxt;
+                key(Kind::Alu { wb: 1 })
+            }
+            Insn::Bcopy { d, s } => {
+                if self.sys.is_none() {
+                    return illegal();
+                }
+                self.check_privileged()?;
+                let (to, from) = (r(self, d) as usize % BANKS, r(self, s) as usize % BANKS);
+                let cur = self.sys.as_ref().unwrap().cur_bank;
+                let mut vals = [0u32; 8];
+                if from == cur {
+                    vals.copy_from_slice(&self.r[..8]);
+                } else {
+                    vals.copy_from_slice(&self.sys.as_ref().unwrap().banks[from][..8]);
+                }
+                let cycles = self.cycles;
+                if let Some(log) = &mut self.sys.as_mut().unwrap().user_runs {
+                    log.push((cycles, MSG_MARK | to as u16));
+                }
+                if to == cur {
+                    self.r[..8].copy_from_slice(&vals);
+                } else {
+                    self.sys.as_mut().unwrap().banks[to][..8].copy_from_slice(&vals);
+                }
+                self.pc = nxt;
+                key(Kind::Bcopy { n: 8 })
             }
             Insn::Set { a, cc } => {
                 self.r[a as usize] = self.cond_true(cc) as u32;
