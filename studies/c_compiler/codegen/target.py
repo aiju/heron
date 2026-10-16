@@ -23,6 +23,7 @@ from heron.studies.c_compiler.ir.ir import Instr, Const, SymAddr, Param, Slot, U
 from heron.studies.c_compiler.ir.cfg import DomTree, compute_loop_depth, reverse_postorder
 from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr, MBlock, MFunction, liveness
 from .regalloc import Allocator
+from .addr import fits
 
 ARG_REGS = PHYS[1:5]
 
@@ -451,6 +452,29 @@ class Target:
 
     def is_folded(self, v, op=None):
         return isinstance(v, Instr) and v in self.foldable and (op is None or v.op in op)
+
+    STEP_DISP = 8           # the displacement bits stepped() may leave (an indexed mode's)
+
+    def stepped(self, p):
+        """x*s + d where x + c (an induction variable's step, say) has been
+        computed already on the way here: address through it, as
+        (x + c)*s + d - c*s. Once stepped, x often isn't needed any more, so
+        the step can be done in place and the loop needs no copy of it on
+        its back edge (while (a[i] < v) i++ compares a[i + 1] after the
+        step)."""
+        terms = []
+        disp = p.disp
+        for x, s in p.terms:
+            for u in self.users.get(x, ()):
+                if (u.op == "add" and u.args[0] is x and isinstance(u.args[1], Const)
+                        and u in self.selected and self.dom.dominates(u.block, self.cur)
+                        and fits(disp - u.args[1].signed * s, self.STEP_DISP)):
+                    disp -= u.args[1].signed * s
+                    x = u
+                    break
+            terms.append((x, s))
+        p.terms, p.disp = terms, disp
+        return p
 
     def divmod_partner(self, i):
         """The quotient for a remainder (or the reverse) of the same operands

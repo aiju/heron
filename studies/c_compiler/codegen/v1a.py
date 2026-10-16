@@ -26,6 +26,7 @@ class V1A(Target):
     IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR", "BIC", "TST", "MULU", "MULS",
                "DIVU", "DIVS", "ADC", "SBC")
     SMALL_ADD = (-128, 127)
+    STEP_DISP = 16          # [r + d16]
 
     @staticmethod
     def free_imm(op, c, i=None):
@@ -78,6 +79,7 @@ class V1A(Target):
 
     def encode(self, p, long_ok=True):
         """One 1a memory operand: [r + disp], [label + disp], [label + r]."""
+        p = self.stepped(p)
         disp = p.disp
         frame = Frame("local", p.slot) if p.slot is not None else None
         terms = list(p.terms)

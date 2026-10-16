@@ -90,27 +90,6 @@ class V1B(Target):
             return Mem(va, size=i.size, postinc=True)
         return self.encode(decompose(self, addr), i.size)
 
-    def stepped(self, p):
-        """x*s + d where x + c (an induction variable's step, say) has been
-        computed already on the way here: address through it, as
-        (x + c)*s + d - c*s. Once stepped, x often isn't needed any more, so
-        the step can be done in place and the loop needs no copy of it on
-        its back edge (while (a[i] < v) i++ compares a[i + 1] after the
-        step)."""
-        terms = []
-        disp = p.disp
-        for x, s in p.terms:
-            for u in self.users.get(x, ()):
-                if (u.op == "add" and u.args[0] is x and isinstance(u.args[1], Const)
-                        and u in self.selected and self.dom.dominates(u.block, self.cur)
-                        and fits(disp - u.args[1].signed * s, 8)):
-                    disp -= u.args[1].signed * s
-                    x = u
-                    break
-            terms.append((x, s))
-        p.terms, p.disp = terms, disp
-        return p
-
     def encode(self, p, size):
         """Turn an Addr into one 1b memory operand, computing what doesn't fit."""
         p = self.stepped(p)
