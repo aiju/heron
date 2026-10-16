@@ -204,7 +204,8 @@
                (cc:e 'call '(callea (mem 1 1))))))))
 
 ; a call to a letrec-bound lambda: straight to its body, past the check of
-; the argument count; a tail call to itself is a jump past its PUSH r7
+; the argument count; a tail call to itself is a jump past its PUSH r7 and
+; the stack check (it doesn't make the stack any deeper)
 (define (cc:known-call lam n tail)
   (if (cc:lam-rest lam) (cc:e 'call (list 'mov 2 (cc:imm n))))
   (cond ((not tail) (cc:e 'call (list 'bsr (cc:lam-start lam))))
@@ -331,9 +332,9 @@
     (cc:e 'entry (list 'b (if rest 'lo 'ne) (cc:err-stub 'argc)))
     (cc:emit-label (cc:lam-start lam))
     (cc:e 'entry '(link-save))
-    (cc:emit-label cc:*self-start*)
     (cc:e 'entry (list 'cmp 15 (list 'abs (cc:rt 'stack-limit))))
     (cc:e 'entry (list 'b 'lo (cc:err-stub 'stack)))
+    (cc:emit-label cc:*self-start*)
     (when rest
       (cc:e 'entry (list 'mov 9 (cc:imm nreq)))
       (cc:e 'entry (list 'rt 'call (cc:rt 'rest)))
