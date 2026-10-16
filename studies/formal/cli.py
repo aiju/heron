@@ -7,9 +7,12 @@
   prove [--kind K] [--key KEY] [--sample N] [--jobs J] [--budget S]
                                             prove decode cases of the 1b
                                             hardware against the specification
-  mutate [-n N] [--kind netlist|ucode]      mutation testing: mistakes put in
+  mutate [-n N] [--only handmade|random] [--continue] [--resume CAP]
+                                            mutation testing: mistakes put in
                                             on purpose, caught by tests or proofs
-  report [--write]                          report 0038's generated tables
+  versions [instruction]                    the spec's two versions, proved to
+                                            say the same
+  report [--write]                          RFC 0038's generated tables
 """
 
 import sys
@@ -32,6 +35,9 @@ def main(argv=None):
         return m(rest)
     if cmd == "mutate":
         from .mutate import main as m
+        return m(rest)
+    if cmd == "versions":
+        from .versions import main as m
         return m(rest)
     if cmd == "report":
         from .report import main as m
