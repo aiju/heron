@@ -24,6 +24,10 @@ SIZE_KW = {1: "byte ", 2: "half ", 4: ""}
 
 class V1B(Target):
     SMALL_ADD = (-16, 15)
+    # where a multiply leaves its high half and a divide its remainder:
+    # None for HI (read with MFHI), or a register every multiply and divide
+    # then writes (draft 2's r0)
+    HIGH = None
     IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR")
 
     @staticmethod
@@ -92,6 +96,7 @@ class V1B(Target):
 
     def encode(self, p, size):
         """Turn an Addr into one 1b memory operand, computing what doesn't fit."""
+        p = self.stepped(p)
         terms = list(p.terms)
         disp = p.disp
         frame = Frame("local", p.slot) if p.slot is not None else None
@@ -243,7 +248,7 @@ class V1B(Target):
                 if isinstance(b, Const) and b.signed in (1, -1) and not isinstance(a, Const):
                     r = self.reg(a)
                     self.emit("INC" if b.signed == 1 else "DEC", [d, r], defs=[d], uses=[r],
-                              flags="nz")
+                              flags="nz", nsw=i.signed)
                     return
                 if self.try_lea(i, d):
                     return
@@ -257,7 +262,7 @@ class V1B(Target):
             self.move_into(d, a)
             e = self.ea(b)
             self.emit(ALU[op], [d, e], defs=[d], uses=[d] + ([e] if not isinstance(e, (Imm, Mem)) else []),
-                      flags="nz")
+                      flags="nz", nsw=op in ("add", "sub") and i.signed)
             return
         if op in SHIFT:
             self.move_into(d, a)
@@ -272,7 +277,7 @@ class V1B(Target):
                 a, b = b, a
             self.move_into(d, a)
             r = self.reg(b)
-            self.emit("MULS", [d, r], defs=[d], uses=[d, r], flags="nz")
+            self.emit("MULS", [d, r], defs=self.high_defs(d), uses=[d, r], flags="nz")
             return
         if op in ("divs", "divu", "rems", "remu"):
             self.sel_divmod(i)
@@ -286,11 +291,20 @@ class V1B(Target):
         t = self.def_reg(q) if q is not None else VReg()
         self.move_into(t, a)
         rb = self.reg(b)
-        self.emit("DIVS" if i.op in ("divs", "rems") else "DIVU", [t, rb], defs=[t],
-                  uses=[t, rb], flags="nz")
+        self.emit("DIVS" if i.op in ("divs", "rems") else "DIVU", [t, rb],
+                  defs=self.high_defs(t), uses=[t, rb], flags="nz")
         if r is not None:
             d = self.def_reg(r)
-            self.emit("MFHI", [d], defs=[d])
+            if self.HIGH is None:
+                self.emit("MFHI", [d], defs=[d])
+            else:
+                self.copy(d, self.HIGH)
+
+    def high_defs(self, d):
+        """What a multiply or divide into d writes: d, and the register that
+        gets the high half or the remainder, if there is one. (Operands are
+        read first and d written last, so d may still be that register.)"""
+        return [d] if self.HIGH is None else [d, self.HIGH]
 
     def encodable(self, p):
         """p fits one addressing mode (what encode() can do without
@@ -432,6 +446,12 @@ class V1B(Target):
                 out.append(i)
             b.instrs = out
         super().peephole()
+
+    def as_add(self, d):
+        if d.op in ("INC", "DEC") and len(d.ops) == 2 and d.ops[1] is d.ops[0]:
+            d.op, d.ops = "ADD", [d.ops[0], Imm(1 if d.op == "INC" else -1)]
+            return True
+        return False
 
     def flags_used_after(self, b, i):
         k = b.instrs.index(i)

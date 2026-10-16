@@ -176,9 +176,9 @@ L1:     MOV r1, r2
         LSR r9, #7
         LSL r1, #20
         LSL r1, r5
-        MULS r1, r3
+        MULS r0:r1, r3
         TST r1, r2
-        DIVS r1, r2
+        DIVS r0:r1, r2
         SAVE r3-r5
         RESTORE r3-r8
         RET
@@ -252,17 +252,62 @@ PROGRAM = b"""
 (display "done") (newline)
 """
 
+# The calling convention's corners: 0-6 parameters, in leaves and in
+# functions that call, tail calls to themselves (with 5 and 6 parameters,
+# and with a rest parameter), more than 6 arguments, boxed parameters, and
+# calls both ways between compiled code and an interpreted closure (seven
+# parameters are more than the compiler takes).
+ARGS_PROGRAM = b"""
+(define (l0) 7)
+(define (l1 a) a)
+(define (l2 a b) (- a b))
+(define (l3 a b c) (- a (- b c)))
+(define (l4 a b c d) (- a (- b (- c d))))
+(define (l5 a b c d e) (- a (- b (- c (- d e)))))
+(define (l6 a b c d e f) (- a (- b (- c (- d (- e f))))))
+(display (list (l0) (l1 1) (l2 5 2) (l3 9 5 2) (l4 20 9 5 2) (l5 50 20 9 5 2) (l6 99 50 20 9 5 2)))
+(newline)
+(define (n0) (list 0))
+(define (n1 a) (list a))
+(define (n4 a b c d) (list a b c d))
+(define (n5 a b c d e) (list a b c d e))
+(define (n6 a b c d e f) (list a b c d e f))
+(display (list (n0) (n1 1) (n4 1 2 3 4) (n5 1 2 3 4 5) (n6 1 2 3 4 5 6)))
+(newline)
+(define (t1 n) (if (= n 0) 'done (t1 (- n 1))))
+(define (t4 n a b c) (if (= n 0) (list a b c) (t4 (- n 1) b c a)))
+(define (t5 n a b c d) (if (= n 0) (list a b c d) (t5 (- n 1) b c d a)))
+(define (t6 n a b c d e) (if (= n 0) (list a b c d e) (t6 (- n 1) b c d e a)))
+(define (u5 n a b c d) (if (= n 0) (list a b c d) (car (list (u5 (- n 1) b c d a)))))
+(display (list (t1 100) (t4 7 'a 'b 'c) (t5 7 'a 'b 'c 'd) (t6 7 'a 'b 'c 'd 'e) (u5 7 'a 'b 'c 'd)))
+(newline)
+(define (r0 . l) l)
+(define (r2 a b . l) (if (null? l) (list a b) (r2 (+ a b) (car l))))
+(define (r5 a b c d . l) (list a b c d l))
+(display (list (r0) (r0 1 2 3 4 5 6 7 8 9) (r2 1 2 3 4 5 6 7 8) (r5 1 2 3 4) (r5 1 2 3 4 5 6 7 8)))
+(newline)
+(define (bx a b) (let ((f (lambda () (set! a (+ a b)) a))) (f) (f)))
+(display (bx 1 10))
+(newline)
+(define (seven a b c d e f g) (list g f e d c b a (n6 a b c d e f) (list a b c d e f g)))
+(define (call-seven) (seven 1 2 3 4 5 6 7))
+(display (call-seven))
+(newline)
+(display (list (apply n6 '(1 2 3 4 5 6)) (apply r0 '(1 2 3 4 5 6 7 8)) (apply seven '(1 2 3 4 5 6 7))))
+(newline)
+"""
+
 
 class Compiled(unittest.TestCase):
 
-    def run_compiled(self, features, isa="v1b"):
+    def run_compiled(self, features, isa="v1b", program=PROGRAM):
         img = machine.image(features, isa)
-        inp = machine.compiler_text(False, features, isa) + PROGRAM
+        inp = machine.compiler_text(False, features, isa) + program
         if isa == "v2":
             m = Machine2(img, inp=inp)
         else:
             m = Machine32(isas.get(machine.isa_name(features)), img, inp=inp)
-        m.run(max_cycles=1_000_000_000)
+        m.run(max_cycles=4_000_000_000)    # (the compiler runs interpreted)
         return bytes(m.dev.out)
 
     def test_1b(self):
@@ -280,6 +325,12 @@ class Compiled(unittest.TestCase):
     def test_draft_2_no_leaf(self):
         self.assertEqual(self.run_compiled(("no-leaf",), "v2"), reference.run(PROGRAM))
 
+    def test_arguments(self):
+        expected = reference.run(ARGS_PROGRAM)
+        for features, isa in (((), "v1b"), ((), "v2"), (("no-leaf",), "v2")):
+            with self.subTest(features=features, isa=isa):
+                self.assertEqual(self.run_compiled(features, isa, ARGS_PROGRAM), expected)
+
 
 class Interpreted(unittest.TestCase):
     """The draft 2 runtime, interpreted: the language tests that reach its
@@ -293,6 +344,11 @@ class Interpreted(unittest.TestCase):
                     path = [p for p in testing.program_paths() if p.endswith(f"/{name}.lisp")][0]
                     r, problem = testing.run_program(path, features, isa="v2")
                     self.assertIsNone(problem)
+
+    def test_draft_2_arguments(self):
+        r = machine.run(ARGS_PROGRAM, isa="v2")
+        self.assertIsNone(r.error)
+        self.assertEqual(r.output, reference.run(ARGS_PROGRAM))
 
 
 if __name__ == "__main__":

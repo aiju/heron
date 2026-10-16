@@ -311,8 +311,11 @@ apply_list:
         ADD  r4, #4
         MOV  r3, [r3 + 3]
         BRA  .len
-.lend:  SUB  sp, r4
-        MOV  r5, sp
+.lend:  MOV  r5, sp
+        SUB  r5, r4
+        CMP  r5, [stack_limit]  ; room for the arguments?
+        BLO  err_stack
+        MOV  sp, r5
 .fill:  CMP  r2, r13
         BEQ  .go
         MOV  r3, [r2 - 1]

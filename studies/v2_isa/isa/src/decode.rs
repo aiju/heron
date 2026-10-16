@@ -167,9 +167,9 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
                 2,
             ));
         }
-        0x04..=0x07 => {
-            let mode = [3, 4, 5, 0xF][(op - 4) as usize];
-            let (o, n) = with_mode(m, pc, mode, lo)?;
+        0x03..=0x05 | 0x0E | 0x0F => {
+            // LEA: the cell's low nibble is its mode, as in rows 1-A
+            let (o, n) = with_mode(m, pc, col, lo)?;
             return Ok((
                 match o {
                     Some(Operand::Mem(mo)) => Insn::LeaMem { d, m: mo },
@@ -178,9 +178,9 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
                 n,
             ));
         }
+        0x06 => return one(Insn::Mfsr { a: d, b: s }),
+        0x07 => return one(Insn::Mtsr { a: d, b: s }),
         0x08 => return one(Insn::AluReg { f: ALU_ADDB4, d, s }),
-        0x0E => return one(Insn::Mfsr { a: d, b: s }),
-        0x0F => return one(Insn::Mtsr { a: d, b: s }),
         0x09..=0x0D => {
             // the tagged operations: TMOV TTST TADD TSUB TCMP
             let f = [ALU_MOV, ALU_TST, ALU_ADD, ALU_SUB, ALU_CMP][(op - 9) as usize];
@@ -328,7 +328,13 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
             let target = nxt.wrapping_sub(2 * (lo + 1));
             return one(Insn::Dbnz { r: d, target });
         }
-        0xFC => return one(Insn::Swi),
+        0xFC => return one(Insn::Swi { n: rb as u8 }),
+        // MFUR and MTUR, in MOVS's quick-constant cells; BCOPY (tentative)
+        // in a free cell of row F. They trap on the machine without a
+        // supervisor.
+        0x31 => return one(Insn::Mfur { d, s }),
+        0x3D => return one(Insn::Mtur { d, s }),
+        0xF9 => return one(Insn::Bcopy { d, s }),
         0xFD => {
             return match rb {
                 0x00 => {
@@ -356,14 +362,16 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
                 0x01 => one(Insn::SetI { val: 0 }),
                 0x02 => one(Insn::Rti),
                 0x03 => one(Insn::Halt),
+                0x10..=0x18 => one(Insn::Spl {
+                    n: (rb - 0x10) as u8,
+                }),
                 _ => one(Insn::Illegal),
             };
         }
         _ => {}
     }
     // rows 1-6 and 8-A: an operation with the mode as the column. MOVS
-    // has no quick constants: its cells 31 and 3D are MFUR and MTUR, the
-    // supervisor's, which trap without a supervisor yet
+    // has no quick constants: its cells 31 and 3D are MFUR and MTUR
     if !matches!(row, 1..=6 | 8..=0xA) || (row == 3 && matches!(col, 1 | 0xD)) {
         return one(Insn::Illegal);
     }

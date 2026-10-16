@@ -13,6 +13,9 @@ selector (codegen.v1b) with what changed:
   [x*s + d], and a dense switch is one JMP [pc + table + r*4].
 - INC and DEC on memory, for x++ and x-- on a variable in memory.
 - TST and MULS with a constant.
+- A multiply leaves its high half and a divide its remainder in r0 (there's
+  no HI): every one counts as writing r0, and is written MULS r0:rd, src;
+  a remainder is MOV rd, r0.
 - Calls leave the return address in r7, the link register (Target.LINK):
   a function that calls saves it with SAVE r7-rN, or pushes it, and a leaf
   that leaves r7 alone returns through it.
@@ -42,6 +45,7 @@ class V2(V1B):
     CALLER_SAVED = PHYS[0:8]
     ZERO = None
     LINK = PHYS[7]
+    HIGH = PHYS[0]          # a multiply's high half, a divide's remainder (RFC 0028, 5.3)
     IMM_OPS = V1B.IMM_OPS + ("TST", "MULS")
     COUNT_DOWN = True       # for DBNZ
 
@@ -89,10 +93,19 @@ class V2(V1B):
             return
         super().store_word(v, mem)
 
+    # Code that runs in the supervisor's window (RFC 0029, 3: a kernel at
+    # 0x8000_0000 and up) can't reach its data with 16- or 24-bit absolute
+    # addresses, so with `window` set an indexed label is the PC-relative
+    # table, [pc + label + x*s], which reaches 8 MB either way. (The driver
+    # makes all data far as well.)
+    window = False
+
     def sym_indexed(self, sym, disp, x, s, size):
         """[label + r] is [R + d16] for a near label, and the special mode's
         [abs24 + x*s] for a far one (the assembler picks); a scaled index
         always takes the table form."""
+        if self.window:
+            return Mem(None, disp=disp, sym=self.symname(sym), index=self.reg(x), scale=s, size=size)
         if s == 1:
             return Mem(self.reg(x), disp=disp, sym=self.symname(sym), size=size)
         return Mem(None, disp=disp, sym=self.symname(sym), index=self.reg(x), scale=s, size=size)
@@ -112,6 +125,8 @@ class V2(V1B):
         if m.index is not None and m.base is None:
             d = self.mem_disp(m)
             a = m.sym + (f"{d:+d}" if d else "") if m.sym is not None else str(d)
+            if self.window and m.sym is not None:
+                return f"{SIZE_KW[m.size]}[pc + {a} + {self.fmt(m.index)}*{m.scale}]"
             return f"{SIZE_KW[m.size]}[{a} + {self.fmt(m.index)}*{m.scale}]"
         return super().fmt_mem(m)
 
@@ -169,7 +184,7 @@ class V2(V1B):
                 a, b = b, a
             d = self.def_reg(i)
             self.move_into(d, a)
-            self.emit("MULS", [d, Imm(b.signed)], defs=[d], uses=[d], flags="nz")
+            self.emit("MULS", [d, Imm(b.signed)], defs=self.high_defs(d), uses=[d], flags="nz")
             return
         super().sel_binop(i)
 
@@ -205,6 +220,9 @@ class V2(V1B):
             return [f"        JMP  [pc + {i.ops[1]} + {self.fmt(i.ops[0])}*4]"]
         if i.op == "DBNZ":
             return [f"        DBNZ {self.fmt(i.ops[0])}, {i.targets[0].label}"]
+        if i.op in ("MULS", "MULU", "DIVS", "DIVU"):
+            # the syntax writes out where the high half or remainder goes
+            return [f"        {i.op} {self.fmt(self.HIGH)}:{self.fmt(i.ops[0])}, {self.fmt(i.ops[1])}"]
         return super().format_instr(i)
 
     def final_layout(self, body):
@@ -237,6 +255,8 @@ class V2(V1B):
             return 1 + 2 * len(self.epilogue())
         if op == "TAIL":
             return 3 + 2 * len(self.epilogue(tail=True))
+        if op == "PROLOGUE":
+            return 2 * len(self.prologue())
         if op in ("BCC", "JMP"):
             return 1 if i.targets[0] in inside else 2
         if op in ("BSR", "CALL") and isinstance(i.ops[0], Label):
@@ -275,8 +295,9 @@ class V2(V1B):
             return 1
         if m.sym is not None:
             return 2
-        if d == 0 or m.size == 4 and d % 4 == 0 and 0 <= d <= 60 and (
-                m.base is SP or m.base is PHYS[14] and op != "LEA"):
+        # [sp + 4R] and [r14 + 4R]: LEA's address takes the word form
+        if d == 0 or (m.size == 4 or op == "LEA") and d % 4 == 0 and 0 <= d <= 60 and (
+                m.base is SP or m.base is PHYS[14]):
             return 0
         return 1 if fits(d, 16) else 2
 
@@ -286,7 +307,7 @@ class V2(V1B):
 
     # Every instruction selected here that changes the flags says so
     # (flags "cmp", "nz" or "set"), and only BCC and SETcc read them, so the
-    # scans below look past the others: MOV, LEA, stores, CLR, MFHI.
+    # scans below look past the others: MOV, LEA, stores, CLR.
     ENDS = ("JMP", "RET", "TAIL", "BSR", "CALL", "JMPM", "JMPT", "HALT", "DBNZ")
 
     def drop_compares(self):
@@ -318,6 +339,8 @@ class V2(V1B):
                             d.op, d.flags = "MOVS", "nz"
                         for u in users:
                             self.set_cond(u, conds[self.cond_of(u)])
+                        continue
+                    if d is not None and self.sets_v(d, c, b, k):
                         continue
                 out.append(c)
             b.instrs = out

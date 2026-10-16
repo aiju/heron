@@ -24,6 +24,53 @@ All cycles are for D32-separate, the configuration of the 213-chip 1b
 hardware ([report 0012](0012-report-draft-1b-hardware.md)), which runs at
 about 3 MHz.
 
+> **Erratum (2026-10-16).** A bug in the runtime left part of the
+> compiler interpreted. `static_copy`, which copies a quoted constant
+> into constant space, returned 0 for "can't be copied", and 0 is also
+> the integer 0. So every top-level form that quotes a 0 ran
+> interpreted, among them the compiler's instruction emitters (`cc:ea`,
+> `cc:g-prim`, `cc:test-prim`, `cc:g-lambda` and four type-check
+> emitters), whose templates are full of constants like `(imm 0 1)`.
+> With the bug fixed, the compiler and the prelude compile to 59,408
+> bytes, not 50,524, and to make room code space now ends at `0x2A000`
+> and the heap halves are 374 KB, not 384 KB
+> ([implementation.md](../studies/lisp/implementation.md#memory)). The
+> benchmarks' own code and cycles barely change. But compiling takes
+> about half the cycles, and each collection copies far less: the
+> interpreted functions were most of the 21 KB of data live when a
+> program starts (2.5 KB now). [performance.md](0018-report-lisp/performance.md)
+> is regenerated, and in the text:
+>
+> - compiled code is 19.6 times faster than interpreted on the
+>   geometric mean, not 18.9 (still 13–24 times), and boyer compiled
+>   takes 53 M cycles, not 54 M;
+> - the collector's share is 0.3–3.2% interpreted and 0–11% compiled,
+>   not 0.3–3.1% and 0–15%;
+> - compiling takes 4.6–11 thousand cycles per byte of source, so a
+>   1 KB file compiles in 2–4 s. The saved image takes 1.6 billion
+>   cycles (8.8 minutes), 1.5 billion of them the compiler compiling
+>   itself. The 1.2 billion was already out of date before the fix:
+>   measured the same way, it was 1.6 billion;
+> - checking the pair and call types in software would cost 16.6% of
+>   compiled cycles (17% in the summary), not 16.0%, and up to 33.8%
+>   (meta), not 34.6% (or the 34.4% of the erratum below);
+> - the guard pages would save 5.2% (3.1–7.7%) and 1.9% (0–5.9%) of
+>   compiled cycles, not 5.0% and 1.8%; the argument count checked for
+>   free 1.9%, not 1.8%; the heap limit in a register 1.0% (0–2.9%), not
+>   0.9%. The tagged mode and the two guard pages together come to
+>   about 13.5%. The memory-indirect call is worth 1.3% on the mean and
+>   2.7% at most, not 2.5%;
+> - where the compiled cycles go: variables, constants and temporaries
+>   30.5% (39%); calls 25.3% (42%), the entry alone 11%; integer and
+>   overflow checks 8.8% (27%); `car`, `cdr` and vector elements 5.1%
+>   (13%); allocation 3.6% (15%); everything else compiled 6.8% (17%);
+>   the runtime's routines and the collector 18% (46%). The temporaries
+>   are 13% of compiled cycles, not 12%;
+> - in the memory table, the heap halves are 374 KB each and code space
+>   is 84 KB.
+>
+> The other figures in the text still match.
+
 ## Summary
 
 - **Both an interpreter and a compiler run on the machine.** The compiler
@@ -145,6 +192,15 @@ Without the trap, each of these would need a check:
 The what-if costing (below) puts that at **16.0%** of compiled cycles on
 the mean. It ranges from 0.7% (sieve, which uses vectors) to 34.6% (meta,
 an interpreter written in the Lisp). For the interpreter it's 19.3%.
+
+> **Erratum (2026-10-16).** Two bugs that [report 0032](0032-report-lisp-egret-draft-2.md#three-bugs-carried-over-from-1b)
+> found are now fixed on 1b as well: `apply` checks the stack limit
+> before it pushes the arguments, and a compiled `cons` that finds the
+> heap full calls the runtime's `cons`, which checks the limit again
+> after collecting. The check in every `apply` makes meta's compiled run
+> 0.4% slower, so its share above is now 34.4%. The other numbers in
+> the text still match [performance.md](0018-report-lisp/performance.md),
+> whose figures move by less than 0.1% elsewhere.
 
 - That's an upper bound for a compiler that inferred types and dropped
   checks it could prove unneeded. This one doesn't.

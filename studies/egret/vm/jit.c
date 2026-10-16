@@ -80,8 +80,8 @@ enum { R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, SP };
 /* Draft 2: a parcel is an opcode byte (its low byte) and a register byte
    (rd or a mode in bits 15-12, rs or the mode's register in 11-8). The
    two-operand operations are rows of the map, with the mode as the
-   column; LEA has cells of its own, and JMP and CALL take the mode from
-   the register byte. */
+   column; so is LEA, in row 0 (its modes 3-5, E and the special mode),
+   and JMP and CALL take the mode from the register byte. */
 enum { MOV = 0x10, ST = 0x20, MOVS = 0x30, ADD = 0x40, SUB = 0x50, CMP = 0x60, AND = 0x80,
        OR = 0x90, XOR = 0xA0, LEA = 0x100, JEA = 0x200 };
 #define SEND_IP R5                          /* the bytecode, for gsend: r7 is the link */
@@ -93,7 +93,7 @@ static void opw_other(int op, int d, int m, int r)
         if (m == 2)                         /* LEA rd, [R] is MOV rd, R */
             put(MOV | d << 12 | r << 8);
         else
-            put((m == 3 ? 0x04 : m == 4 ? 0x05 : m == 5 ? 0x06 : 0x07) | d << 12 | r << 8);
+            put(m | d << 12 | r << 8);
     } else
         put((0xF0 | d) | m << 12 | r << 8); /* JEA; d: 0 JMP, 1 CALL */
 }
@@ -158,7 +158,7 @@ static void ea_m(int op, int d, int base, SValue disp)
     else if (base == SP && disp >= 0 && disp <= 60 && !(disp & 3))
         OPW(op, d, 4, disp >> 2);
 #ifdef __V2__
-    else if (base == R14 && op != LEA && disp >= 0 && disp <= 60 && !(disp & 3))
+    else if (base == R14 && disp >= 0 && disp <= 60 && !(disp & 3))
         OPW(op, d, 0xE, disp >> 2);         /* [r14 + 4R], mode E */
 #endif
     else {
@@ -200,7 +200,7 @@ static void rr(int f, int d, int s) { put((0xE0 + f) | d << 12 | s << 8); }
 static void ret(void) { put(0xF0 | R7 << 8); }      /* JMP r7 */
 static void jmp_r(int s) { put(0xF0 | s << 8); }
 static void call_r(int s) { put(0xF1 | s << 8); }
-static void mfhi(int d) { put(0x0E | d << 12 | 1 << 8); }
+static void mfhi(int d) { put(MOV | d << 12 | R0 << 8); }   /* HI is r0 */
 /* CLR [base + disp] */
 static void clr_m(int base, SValue disp)
 {

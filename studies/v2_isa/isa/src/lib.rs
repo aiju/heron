@@ -13,6 +13,7 @@ pub mod decode;
 pub mod insn;
 pub mod key;
 pub mod machine;
+pub mod sys;
 pub mod timing;
 
-pub use machine::Machine;
+pub use machine::{Machine, RunStatus};

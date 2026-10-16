@@ -9,17 +9,22 @@
 //! per instruction: a store is `MOV [address], rs`, and `MOV` and `CMP`
 //! pick their 7-bit forms themselves, so `ST`, `MVI` and `CMPI` are only
 //! labels in the map. `PUSH r1` is `MOV -[sp], r1` and `POP r1` is
-//! `MOV r1, [sp]+`; `MFHI`, `MTHI`, `MFLO` and `MTLO` are the special
-//! registers HI and LO's `MFSR` and `MTSR`. The disassembler prints those
-//! names: the assembler takes what the disassembler prints.
+//! `MOV r1, [sp]+`, `RET` is `JMP r7` and `NOP` is `MOV r0, r0`. The
+//! disassembler prints those names: the assembler takes what the
+//! disassembler prints. There is no `HI` or `LO` any more: a multiply's
+//! high half and a divide's remainder are in `r0`, so `MFHI` and the like
+//! are refused with the `MOV` to write instead.
 
 use toolchain::asm::expr::Expr;
 use toolchain::asm::{AsmError, Ctx, Encoder, ExprRef, Mem, Operand, Size, kinds};
 use toolchain::obj::{ABS16S, ABS24H, ABS24L, ABS32, PC16, PC16H, PC24H, PC24L};
 
 const M32: i64 = 0xFFFF_FFFF;
-/// The assembler refuses to place anything from here on.
-const MEM_TOP: i64 = 0x10_0000;
+/// The assembler refuses to place anything from here on: the whole
+/// address space, since a kernel lives in the supervisor's window at
+/// 0x8000_0000 (RFC 0029, 3). What fits the machine is the linker's and the
+/// loader's to check.
+const MEM_TOP: i64 = 0x1_0000_0000;
 
 const COND: [&str; 15] = [
     "EQ", "NE", "CS", "CC", "MI", "PL", "VS", "VC", "HI", "LS", "GE", "LT", "GT", "LE", "RA",
@@ -141,6 +146,12 @@ impl Encoder for Draft2 {
 
 /// NOP: MOV r0, r0, which does nothing now that MOV leaves the flags alone.
 const NOP: u16 = 0x0010;
+/// MFSR and MTSR, in row 0 between LEA's cells.
+const MFSR: i64 = 0x06;
+const MTSR: i64 = 0x07;
+/// BCOPY, the tentative bank-to-bank copy of r0-r7, in a free cell of row F
+/// (RFC 0029's open question 3).
+pub const BCOPY: i64 = 0xF9;
 
 /// A parcel: the opcode byte, and the register byte's high and low
 /// nibbles.
@@ -343,15 +354,8 @@ fn table_mode(
     ))
 }
 
-/// A memory operand; `r14_slot` allows mode E, `[r14 + 4R]`, which LEA
-/// doesn't have.
-fn mem_mode(
-    ctx: &mut Ctx,
-    mem: &Mem,
-    min_ext: i64,
-    n_before: i64,
-    r14_slot: bool,
-) -> Result<Mode, AsmError> {
+/// A memory operand.
+fn mem_mode(ctx: &mut Ctx, mem: &Mem, min_ext: i64, n_before: i64) -> Result<Mode, AsmError> {
     let size = bytes(mem.size);
     let next = ctx.pc + 2 * (n_before + 1);
     let index = match &mem.index {
@@ -459,7 +463,7 @@ fn mem_mode(
     if slot && b == 15 {
         return Ok((4, sd / 4, vec![]));
     }
-    if slot && b == 14 && r14_slot {
+    if slot && b == 14 {
         return Ok((0xE, sd / 4, vec![]));
     }
     if min_ext <= 1 && (!known || fits16(sd)) {
@@ -481,7 +485,7 @@ fn ea(ctx: &mut Ctx, op: &Operand, n_before: i64, quick: bool) -> Result<Mode, A
             Ok((0, r.n as i64, vec![]))
         }
         Operand::Imm(e) => imm_mode(ctx, e, min_ext, n_before, quick),
-        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before, true),
+        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before),
         _ => err("expected a register, #constant or [memory] operand"),
     }
 }
@@ -519,20 +523,36 @@ fn reg_range(op: &Operand, top: i64) -> Result<(i64, i64), AsmError> {
     Ok((a, b))
 }
 
-/// A special register: flags, hi, lo, or a number 0-15.
+/// The special registers' names (RFC 0029, 4), by number: 0-7 are user
+/// mode's, 8-15 the supervisor's. `flags` is draft 1's name for 0, which
+/// the machine without a supervisor still has.
+pub const SR_NAMES: [(&str, i64); 10] = [
+    ("ccr", 0),
+    ("flags", 0),
+    ("sr", 8),
+    ("far", 9),
+    ("fsr", 10),
+    ("ctx", 11),
+    ("mapa", 12),
+    ("mapd", 13),
+    ("bank", 14),
+    ("bkpt", 15),
+];
+
+/// A special register: by name (SR_NAMES), or a number 0-15.
 fn sr_number(ctx: &mut Ctx, op: &Operand) -> Result<i64, AsmError> {
     if let Operand::Expr(e) = op
         && let Expr::Sym(name) = &**e
     {
-        match name.to_ascii_lowercase().as_str() {
-            "flags" => return Ok(0),
-            "hi" => return Ok(1),
-            "lo" => return Ok(2),
-            _ => {}
+        let lower = name.to_ascii_lowercase();
+        if let Some(&(_, n)) = SR_NAMES.iter().find(|(s, _)| *s == lower) {
+            return Ok(n);
         }
     }
     let Some(e) = op.expr() else {
-        return err("expected a special register: flags, hi, lo or a number");
+        return err(
+            "expected a special register: ccr, hi, lo, sr, far, fsr, ctx, mapa, mapd, bank, bkpt or a number",
+        );
     };
     let (v, _) = ctx.value(e)?;
     if !(0..=15).contains(&v) {
@@ -585,16 +605,62 @@ fn renamed(u: &str) -> Option<&'static str> {
         "MVI" => "write MOV rd, #value",
         "CMPI" => "write CMP rd, #value",
         "LI" => "write MOV rd, #value",
-        "MFF" => "write MFSR rd, flags",
-        "MTF" => "write MTSR flags, rs",
+        "MFF" => "write MFSR rd, ccr",
+        "MTF" => "write MTSR ccr, rs",
+        // HI and LO are r0 and r1 (RFC 0028, 9.9)
+        "MFHI" => "write MOV rd, r0: the high half and the remainder are in r0",
+        "MTHI" => "write MOV r0, rs: the high half and the remainder are in r0",
+        "MFLO" => "write MOV rd, r1: MULA's low word is in r1",
+        "MTLO" => "write MOV r1, rs: MULA's low word is in r1",
         "ADDI" => "write ADD rd, #value",
         _ => return None,
     })
 }
 
+/// The multiplies and divides write their implicit registers out (RFC
+/// 0028, 6): `MULU r0:rd, src`, `MULA r0:r1, rd, rs`, `MERGE rd, rs, r0`.
+/// Checks the form and returns the operands without the implicit ones, or
+/// None for every other instruction. Any other register in r0's or r1's
+/// place, or the form without them, is refused with the form to write.
+fn implicit(u: &str, ops: &[Operand]) -> Result<Option<Vec<Operand>>, AsmError> {
+    let (form, why) = match u {
+        "MULU" | "MULS" => ("r0:rd, src", "the high half goes to r0"),
+        "DIVU" | "DIVS" => ("r0:rd, rs", "the remainder goes to r0"),
+        "DIVUL" => (
+            "r0:rd, rs",
+            "r0:rd is the dividend, and the remainder goes to r0",
+        ),
+        "MULFX" => ("r0:rd, rs, #n", "the product's high half goes to r0"),
+        "MULA" => ("r0:r1, rd, rs", "the sum is in r0:r1"),
+        "MERGE" => ("rd, rs, r0", "the mask is r0"),
+        _ => return Ok(None),
+    };
+    let refuse = || err(format!("{u} is written {u} {form}: {why}"));
+    let rest = match (u, ops) {
+        ("MULA", [Operand::RegPair(h, l), rest @ ..]) if h.n == 0 && l.n == 1 => rest.to_vec(),
+        ("MERGE", [a, b, Operand::Reg(m)]) if m.n == 0 => vec![a.clone(), b.clone()],
+        ("MULA" | "MERGE", _) => return refuse(),
+        (_, [Operand::RegPair(h, rd), rest @ ..]) if h.n == 0 => {
+            let mut v = vec![Operand::Reg(rd.clone())];
+            v.extend_from_slice(rest);
+            v
+        }
+        _ => return refuse(),
+    };
+    Ok(Some(rest))
+}
+
 fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmError> {
     let u = name.to_ascii_uppercase();
     let u = u.as_str();
+    let stripped;
+    let ops = match implicit(u, ops)? {
+        Some(v) => {
+            stripped = v;
+            &stripped[..]
+        }
+        None => ops,
+    };
     let k = kinds(ops);
     let k = k.as_str();
     let one = |v: u16| Ok(vec![v]);
@@ -607,6 +673,24 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
         "DI" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x01)]),
         "RTI" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x02)]),
         "HALT" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x03)]),
+        "SPL" => {
+            // the interrupt priority level, 0-8, in the second byte's low
+            // nibble (RFC 0029, 7)
+            let [Operand::Imm(e)] = ops else {
+                return err("SPL needs '#n', 0-8");
+            };
+            let (v, known) = ctx.value(e)?;
+            if known && !(0..=8).contains(&v) {
+                return err("SPL's level must be 0-8");
+            }
+            return one(pb(0xFE, 0x10 + (v & 15)));
+        }
+        "BCOPY" => {
+            // tentative: r0-r7 of the bank numbered in rs into the bank
+            // numbered in rd, the supervisor's
+            let (d, s) = two_regs(u, ops)?;
+            return one(p(BCOPY, d, s));
+        }
         "SAVE" | "RESTORE" => {
             let [op] = ops else {
                 return err(format!("{u} needs a register range like r8-r11"));
@@ -629,7 +713,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             }
             let rd = reg_operand(&ops[0], "register")?;
             let n = sr_number(ctx, &ops[1])?;
-            return one(p(0x0E, rd, n));
+            return one(p(MFSR, rd, n));
         }
         "MTSR" => {
             if ops.len() != 2 {
@@ -637,7 +721,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             }
             let n = sr_number(ctx, &ops[0])?;
             let rs = reg_operand(&ops[1], "register")?;
-            return one(p(0x0F, n, rs));
+            return one(p(MTSR, n, rs));
         }
         "PUSH" | "POP" => {
             let [r @ Operand::Reg(_)] = ops else {
@@ -648,18 +732,6 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
                 p(0x27, r, 15)
             } else {
                 p(0x16, r, 15)
-            });
-        }
-        "MFHI" | "MFLO" | "MTHI" | "MTLO" => {
-            let [r @ Operand::Reg(_)] = ops else {
-                return err(format!("{u} needs one register"));
-            };
-            let r = reg_operand(r, "register")?;
-            let n = if u.ends_with("HI") { 1 } else { 2 };
-            return one(if u.starts_with("MF") {
-                p(0x0E, r, n)
-            } else {
-                p(0x0F, n, r)
             });
         }
         "MFUR" | "MTUR" => {
@@ -758,14 +830,12 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             // the size makes no difference to an address
             mem.size = None;
             let min_ext = (ctx.min_words() - 1).max(0);
-            let (m, r, ext) = mem_mode(ctx, &mem, min_ext, 1, false)?;
+            let (m, r, ext) = mem_mode(ctx, &mem, min_ext, 1)?;
             let cell = match m {
                 // LEA rd, [R] is a copy
                 2 => 0x10,
-                3 => 0x04,
-                4 => 0x05,
-                5 => 0x06,
-                0xF => 0x07,
+                // the cell's low nibble is the mode, as in rows 1-A
+                3..=5 | 0xE | 0xF => m,
                 _ => return err("LEA needs a memory operand without auto-increment"),
             };
             return Ok(with_ext(p(cell, rd, r), ext));

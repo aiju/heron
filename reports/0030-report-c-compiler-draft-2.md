@@ -47,6 +47,32 @@ by `heron c_compiler bench --isa v2 --write`.
   programs' own code, against 1.22× on 1b (11 programs that spend less
   than half their time in the C library).
 
+> **Erratum (2026-10-16).** The tables in
+> [performance.md](0030-report-c-compiler-draft-2/performance.md) are
+> rerun with the compiler after
+> [report 0034](0034-report-c-compiler-optimisations.md)'s optimisations
+> (shrink-wrapping, inlining and some loop optimisations), so this
+> report's numbers, from `d7458e8`, no longer match them. Compiled C now
+> takes 3.8% fewer cycles on draft 2 than on 1b in the programs' own code
+> (3.9% in the C library; 3.6–4.7% in the other configurations), and its
+> code is 4.2% smaller, the library's 6.8%. Draft 2 gains more from
+> shrink-wrapping: a call that returns at once no longer saves the link
+> register ([below](#the-link-register)). Against the hand-written draft 2
+> programs, compiled C takes 1.08× in their own code. Each feature's worth
+> moves by at most 0.2 points, except `r0` as a 15th register in the
+> library: 0.4% slower with it, not 0.4% faster.
+
+> **Erratum (2026-10-16), HI and LO.** Draft 2 now leaves a multiply's
+> high half and a divide's remainder in `r0`
+> ([RFC 0028, 5.3](0028-rfc-draft-2-isa.md#53-multiply-and-divide)), so a
+> remainder needs no `MFHI`, and performance.md is rerun again, with the
+> hand-written programs following the change too. Compiled C now takes
+> 4.1% fewer cycles on draft 2 than on 1b in the programs' own code and
+> 4.8% fewer in the C library (in the other configurations 4.0–5.1% and
+> 4.6–5.6%), with 4.5% less code; the hand-written programs take 2.9%
+> fewer. `r0` as a 15th register is now worth 0.3% (0.5% in the library),
+> since a remainder can stay where the divide leaves it.
+
 ## What the compiler does on draft 2
 
 Draft 2 keeps 1b's addressing modes in its rows, so the backend

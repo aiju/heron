@@ -30,11 +30,25 @@ UNARY = ["NOT", "NEG", "INC", "DEC", "RLC", "RRC", "SWAP", "SXB", "SXH", "ZXB", 
          "CLZ", "FFS", "POPC", "REV"]
 ROW_E = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "MULA", "DIVU", "DIVS", "DIVUL",
          "BIC", "TST", "MULU", "MULS", "MERGE"]
+# the multiplies and divides that write r0 too, written r0:rd (RFC 0028, 6);
+# MULA is written r0:r1, rd, rs and MERGE rd, rs, r0
+PAIRED = {"MULU", "MULS", "DIVU", "DIVS", "DIVUL"}
 SHIFTS = ["LSL", "LSR", "ASR", "ROR"]
-# LO is special register 2 (RFC 0029, 4)
-SR_NAMES = {0: "flags", 1: "hi", 2: "lo"}
+# the special registers (RFC 0029, 4): 0-7 user mode's, 8-15 the
+# supervisor's. 0 is ccr, the condition codes; the machine without a
+# supervisor keeps draft 1's flags word there, which the assembler also
+# takes as `flags`. 1 and 2, once HI and LO, are reserved: those are r0
+# and r1 now
+SR_NAMES = {0: "ccr", 8: "sr", 9: "far", 10: "fsr", 11: "ctx",
+            12: "mapa", 13: "mapd", 14: "bank", 15: "bkpt"}
 # the free cells, ILLEGAL, and CAS and the FPU escape, which aren't designed
-FREE = {0x00, 0x03, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFF}
+FREE = {0x00, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xFA, 0xFB, 0xFF}
+# BCOPY rd, rs: the tentative bank-to-bank copy of r0-r7 (RFC 0029's open
+# question 3), in a free cell of row F
+BCOPY = 0xF9
+# LEA's cells in row 0: the low nibble is the mode, as in rows 1-A
+LEA_CELLS = {0x03, 0x04, 0x05, 0x0E, 0x0F}
+MFSR, MTSR = 0x06, 0x07
 LINK = 7                        # calls leave the return address in r7
 
 SIZE_NAME = {1: "byte ", 2: "half ", 4: ""}
@@ -147,8 +161,8 @@ def _ext_for(op, rb):
     row, col = op >> 4, op & 15
     if op in (0x01, 0x02):
         return 1
-    if 0x04 <= op <= 0x07:
-        return mode_size((3, 4, 5, 0xF)[op - 4], lo)
+    if op in LEA_CELLS:
+        return mode_size(col, lo)
     if op in (0x20, 0x21, 0x2D, 0xF0, 0xF1):
         return mode_size(hi, lo)
     if op in TAGGED or op in FREE:
@@ -239,21 +253,16 @@ def disassemble(ws, pc=0, symbols=None):
         if e & 0xFFF or e >> 12 < hi:
             return bad
         return f"{'LDM' if op == 1 else 'STM'} {R(lo)}, {_range(hi, e >> 12)}", 2
-    if 0x04 <= op <= 0x07:
-        M = (3, 4, 5, 0xF)[op - 4]
-        opnd, _ = ea_info(M, lo, ext)
+    if op in LEA_CELLS:
+        opnd, _ = ea_info(col, lo, ext)
         if opnd is None or opnd[0] != "mem":
             return bad
-        return f"LEA {R(hi)}, {dis_ea(M, lo, ext, nxt, symbols, sized=False)}", n
+        return f"LEA {R(hi)}, {dis_ea(col, lo, ext, nxt, symbols, sized=False)}", n
     if op == 0x08:
         return f"ADD.B4 {rr}", 1
-    if op == 0x0E:
-        if lo in (1, 2):
-            return f"MF{SR_NAMES[lo].upper()} {R(hi)}", 1
+    if op == MFSR:
         return f"MFSR {R(hi)}, {SR_NAMES.get(lo, lo)}", 1
-    if op == 0x0F:
-        if hi in (1, 2):
-            return f"MT{SR_NAMES[hi].upper()} {R(lo)}", 1
+    if op == MTSR:
         return f"MTSR {SR_NAMES.get(hi, hi)}, {R(lo)}", 1
     if op in TAGGED:
         return f"{TAGGED[op]} {rr}", 1
@@ -298,12 +307,18 @@ def disassemble(ws, pc=0, symbols=None):
         # in place: one register, as it's written
         return f"{UNARY[col]} {R(hi) if hi == lo else rr}", 1
     if row == 0xE:
+        name = ROW_E[col]
+        d = f"r0:{R(hi)}" if name in PAIRED else R(hi)
         if 0xA <= col <= 0xD:
             opnd, _ = ea_info(0xF, lo, ext)
             if opnd is None:
                 return bad
-            return f"{ROW_E[col]} {R(hi)}, {dis_ea(0xF, lo, ext, nxt, symbols)}", n
-        return f"{ROW_E[col]} {rr}", 1
+            return f"{name} {d}, {dis_ea(0xF, lo, ext, nxt, symbols)}", n
+        if name == "MULA":
+            return f"MULA r0:r1, {rr}", 1
+        if name == "MERGE":
+            return f"MERGE {rr}, r0", 1
+        return f"{name} {d}, {R(lo)}", 1
     # row F
     if op in (0xF0, 0xF1):
         opnd, _ = ea_info(hi, lo, ext)
@@ -329,14 +344,18 @@ def disassemble(ws, pc=0, symbols=None):
         return f"DBNZ {R(hi)}, {sym((pc + 2 - 2 * (lo + 1)) & M32, symbols)}", 1
     if op == 0xFC:
         return f"SWI #{rb}", 1
+    if op == BCOPY:
+        return f"BCOPY {rr}", 1
     if op == 0xFD:
         if rb == 0x00:
             e = ext[0]
             if e & 0xE0:
                 return bad
-            return f"MULFX {R(e >> 12)}, {R((e >> 8) & 15)}, #{e & 31}", 2
+            return f"MULFX r0:{R(e >> 12)}, {R((e >> 8) & 15)}, #{e & 31}", 2
         return bad
     if op == 0xFE:
+        if 0x10 <= rb <= 0x18:
+            return f"SPL #{rb - 0x10}", 1
         return {0: ("EI", 1), 1: ("DI", 1), 2: ("RTI", 1), 3: ("HALT", 1)}.get(rb, bad)
     return bad
 
@@ -369,12 +388,12 @@ def kind(ws):
     first = disassemble(ws)[0].split()[0]
     if first == ".half":
         return "illegal"
-    if first in ("RET", "NOP", "MFUR", "MTUR"):
+    if first in ("RET", "NOP", "MFUR", "MTUR", "BCOPY", "SPL"):
         return first
     if op in (0x01, 0x02):
         return "LDM" if op == 1 else "STM"
-    if 0x04 <= op <= 0x07:
-        return "LEA " + mode_class((3, 4, 5, 0xF)[op - 4], lo, ext)
+    if op in LEA_CELLS:
+        return "LEA " + mode_class(col, lo, ext)
     if op in TAGGED:
         return TAGGED[op]
     if op in (0x20, 0x21, 0x2D):

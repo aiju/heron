@@ -42,6 +42,10 @@ pub struct ChipDesc {
     /// Don't report this chip's timing violations (a synchroniser).
     #[serde(default)]
     pub nocheck: bool,
+    /// Extra delay (ps) on each output pin, in pin order: what the wiring
+    /// on a printed circuit board adds (infra/pcb/wires.py). Empty: none.
+    #[serde(default)]
+    pub pin_delays: Vec<Time>,
 }
 
 /// How the run loop knows the reset sequence is over.
@@ -557,6 +561,7 @@ pub fn build(netlist: &Netlist, pre: &HashMap<&str, Vec<u8>>, rng: &mut Rng) -> 
             pins,
             outs: Vec::new(),
             checks: !c.nocheck,
+            pin_delays: c.pin_delays.clone(),
         });
     }
     let (state, topo, infos) = Sim::wire(netlist.nets.clone(), infos);

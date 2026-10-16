@@ -20,13 +20,13 @@ pub mod v2 {
     /// (instruction address or None, timing key, executions)
     type PcKey<'py> = (Option<u32>, Bound<'py, PyTuple>, u64);
 
-    fn config(name: &str) -> PyResult<Config> {
+    pub(crate) fn config(name: &str) -> PyResult<Config> {
         Config::named(name)
             .ok_or_else(|| PyValueError::new_err(format!("unknown configuration {name:?}")))
     }
 
     /// A key as the Python tuple (parcels, pc & 2, kind, *params).
-    fn key_tuple<'py>(py: Python<'py>, k: &Key) -> PyResult<Bound<'py, PyTuple>> {
+    pub(crate) fn key_tuple<'py>(py: Python<'py>, k: &Key) -> PyResult<Bound<'py, PyTuple>> {
         let mut items = vec![
             k.n.into_pyobject(py)?.into_any(),
             k.p2.into_pyobject(py)?.into_any(),
@@ -144,8 +144,8 @@ pub mod v2 {
         fn r(&self) -> [u32; 16] {
             self.m.r
         }
-        /// Set the registers, the PC, HI, LO and the flags (for tests that
-        /// start from a given state).
+        /// Set the registers, the PC and the flags (for tests that start
+        /// from a given state).
         #[setter]
         fn set_r(&mut self, r: [u32; 16]) {
             self.m.r = r;
@@ -153,14 +153,6 @@ pub mod v2 {
         #[setter]
         fn set_pc(&mut self, v: u32) {
             self.m.pc = v;
-        }
-        #[setter]
-        fn set_hi(&mut self, v: u32) {
-            self.m.hi = v;
-        }
-        #[setter]
-        fn set_lo(&mut self, v: u32) {
-            self.m.lo = v;
         }
         /// The flags as the word MFSR reads: V C Z N I from bit 0.
         #[getter]
@@ -170,14 +162,6 @@ pub mod v2 {
         #[setter]
         fn set_flags(&mut self, v: u32) {
             self.m.set_flags_word(v);
-        }
-        #[getter]
-        fn hi(&self) -> u32 {
-            self.m.hi
-        }
-        #[getter]
-        fn lo(&self) -> u32 {
-            self.m.lo
         }
         #[getter]
         fn pc(&self) -> u32 {

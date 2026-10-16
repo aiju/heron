@@ -30,6 +30,46 @@ figure here by less than 0.7 points. Changes are draft 2 against 1b, as
 geometric means over the programs: the Lisp's 12 benchmarks and Egret's
 17 programs.
 
+> **Erratum (2026-10-16).** The [three bugs carried over from 1b](#three-bugs-carried-over-from-1b)
+> are now fixed on 1b as well, the same way, so the drafts are compared
+> with the fixes on both. That moves 1b's numbers a little, and
+> lisp.md and egret.md are regenerated. In the text:
+>
+> - the Lisp compiled takes 1.0% fewer cycles on draft 2, not 0.9%
+>   (0.990 of 1b's, not 0.991), and with no leaf functions its mutator
+>   takes 1.004 of 1b's, not 1.005;
+> - where the compiled cycles moved, the runtime's routines take 709,494
+>   fewer (−0.32%), not 646,862, and the collector 323,394 fewer
+>   (−0.14%), not 329,223.
+>
+> None of Egret's figures in the text move. Where the report says the port leaves 1b
+> as it was (compiler.lisp byte for byte, report 0017's and 0018's
+> tables, the bugs still there on 1b), that was true of the port: the
+> fixes since changed compiler.lisp and those tables.
+
+> **Erratum (2026-10-16), the constant copier.** A bug in both drafts'
+> runtime left part of the compiler interpreted: every top-level form
+> that quotes a 0 (report 0018's erratum before its
+> [summary](0018-report-lisp.md#summary) has the details). With it
+> fixed, code space ends at `0x2A000` on both drafts and the heap halves
+> are 374 KB, so draft 2's code space is no longer larger than 1b's.
+> lisp.md is regenerated; it has measured
+> [report 0033](0033-report-lisp-arguments-draft-2.md)'s calling
+> convention since that report. The fix moves none of the mutator's
+> figures. It moves the collector's, because each collection copies far
+> less on both drafts and the collections fall elsewhere: with the
+> collector, draft 2's compiled Lisp now takes 1.4% fewer cycles than
+> 1b's. That was 3.6% with report 0033's convention before the fix, and
+> 1.0% as the erratum above has it.
+
+> **Erratum (2026-10-16), the C compiler.** The C compiler's
+> optimisations ([report 0034](0034-report-c-compiler-optimisations.md))
+> make Egret's VM, which is compiled C, faster on both drafts, and
+> egret.md is rerun. Draft 2's gains for Egret move by at most 0.1
+> points: on D32-separate the interpreter loop −1.8%, the C loop −7.5%,
+> the JIT −2.5% and compiling −3.5%, and start-up −4.1%. The C
+> compiler's own gain on draft 2 (report 0030's −2.8%) is now −3.8%.
+
 ## Summary
 
 - **Everything runs on draft 2:** the Lisp's 22 programs and tests,
@@ -180,6 +220,9 @@ The fixes cost the compiled Lisp 0.03 points, nearly all of it in
 `meta`, which applies its primitives to argument lists and gets 0.4%
 slower from the check in every `apply`. Egret's `SAVE` is cheaper than
 the two pushes and pops it replaces.
+
+> **Erratum (2026-10-16).** 1b now has the same fixes (the erratum
+> before the [summary](#summary)).
 
 ## The Lisp
 

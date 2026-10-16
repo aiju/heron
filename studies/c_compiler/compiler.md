@@ -18,20 +18,24 @@ C or about any of the instruction sets.
   combines with the start code, the C library and any hand-written
   assembly ([infra/linking.md](../../infra/linking.md)).
 - **How good the code is:** on the 15 benchmark programs, the code the
-  compiler makes from a program runs in about **1.2× the cycles** of the
+  compiler makes from a program runs in about **1.1× the cycles** of the
   hand-written assembly versions (geometric mean over the programs that
-  don't spend most of their time in the C library; 1.0–1.6× each).
-  Whole programs take about 1.85× as long, mostly because printf is slower
-  than the assembly versions' special-purpose print routines.
+  don't spend most of their time in the C library; 0.9–1.5× each).
+  Whole programs take about 1.7× as long, mostly because printf is slower
+  than the assembly versions' special-purpose print routines. Report
+  [0034](../../reports/0034-report-c-compiler-optimisations.md) has what
+  the optimisations below are each worth.
 - **For the ISA decision:** compiled code gains less from 1b than
-  hand-written code does: 1b takes **6% fewer cycles than 1a** for compiled
-  C, against 7.5% for the hand-written versions of the same 15 programs
+  hand-written code does: 1b takes **5% fewer cycles than 1a** for compiled
+  C (leaving out sieve, whose time in `memset` depends on where the linker
+  puts its array), against 7.5% for the hand-written versions of the same
+  15 programs
   (D16-overlap; 8.1% over all 20 draft 1 programs, as in
   [RFC 0004](../../reports/0004-rfc-draft-1-isa.md)). The compiler uses 1b's
   auto-increment and memory operands, but loses on its 4-bit constants. See
   [report 0011](../../reports/0011-report-c-compiler.md#1a-against-1b-for-compiled-code).
-- **On draft 2:** compiled C takes 2.8% fewer cycles than on 1b in the
-  programs' own code, and 3.8% fewer in the C library, with 3.7% less
+- **On draft 2:** compiled C takes 4.1% fewer cycles than on 1b in the
+  programs' own code, and 4.8% fewer in the C library, with 4.5% less
   code. `CLR`, `MOVS`, `INC` and `DEC` on memory, loops counted down for
   `DBNZ` and the link register do most of it. See
   [report 0030](../../reports/0030-report-c-compiler-draft-2.md).
@@ -116,9 +120,11 @@ The program-wide conventions of [RFC 0004](../../reports/0004-rfc-draft-1-isa.md
 
 - Arguments in `r1`–`r4`, the rest on the stack; the result in `r1`.
 - `r1`–`r7` are caller-saved, `r8`–`r14` callee-saved, `r15` is `sp`. `HI`
-  and the flags are caller-saved.
+  (draft 1) and the flags are caller-saved.
 - On draft 2, `r0` is a general register: caller-saved, and allocated
-  after `r1`–`r6`. On draft 1 it reads as zero.
+  after `r1`–`r6`. It's also where a multiply leaves its high half and a
+  divide its remainder, since draft 2 has no `HI`. On draft 1 it reads as
+  zero.
 - On draft 2, calls leave the return address in `r7`, the link register.
   A function that calls saves `r7` with the callee-saved registers it
   uses, in one `SAVE r7-rN`, or pushes it alone and returns with
@@ -264,10 +270,16 @@ whether to count loops down (`COUNT_DOWN`, for a decrement-and-branch).
    counter dies at its decrement (`while (n--)`).
 3. **Global value numbering** over the dominator tree.
 4. **Redundant load elimination** and store-to-load forwarding within a
-   block (with a simple distinct-object alias check).
+   block and down chains of blocks with one predecessor, with an alias
+   check that knows a pointer into one global or stack slot (an array
+   indexed) can't reach another.
 5. **Dead code elimination and control-flow cleanup** (unreachable blocks,
-   jump threading through empty blocks, block merging).
-6. **Loop-invariant code motion** into a made-up preheader.
+   jump threading through empty blocks and through a block that only
+   branches on a phi, each predecessor then branching on its own value;
+   block merging).
+6. **Loop-invariant code motion** into a made-up preheader, loads of
+   globals and stack slots too, out of a loop with no call and no store
+   that could overlap them.
 7. **Strength reduction of induction variables:** `base + i * k` in a loop
    becomes a pointer stepped by `k`; multiplies of the counter become
    additions; and when the counter is only left to end the loop, the test
@@ -277,10 +289,22 @@ whether to count loops down (`COUNT_DOWN`, for a decrement-and-branch).
    left, stepped down to zero, when the trip count is known (for a `!=`
    test always, modulo 2³²; for `<`, `<=`, `>` and `>=` between
    constants).
-9. **Constants into registers:** constants that the target can't take as a
-   cheap immediate are loaded once before a (call-free) loop.
-10. **Sinking:** a step like `p + 1` moves below the last use of `p`, so the
+9. **Invariant constants out of loops:** `(x + inv) + c` in a loop becomes
+   `x + (inv + c)`, computed before the loop, unless every use is an
+   address, whose displacement takes `c` for free.
+10. **Constants into registers:** constants that the target can't take as
+   a cheap immediate are loaded once before the outermost call-free loop,
+   or an inner one if an estimate of the outer one's live values leaves
+   no registers for them.
+11. **Sinking:** a step like `p + 1` moves below the last use of `p`, so the
    two share a register and the loop needs no copy on its back edge.
+
+**Inlining** (`ir.inline`) comes between two runs of these: once every
+function of a unit has been through them, a call to a function of the same
+unit with at most 16 instructions and no loop becomes a copy of its body,
+if copying it into all its call sites adds at most 8 instructions to the
+unit (the copies replace the calls, and a static original nothing else
+refers to goes); the callers then go through the passes again.
 
 The frontend helps too: loops come out rotated (the test is at the bottom
 and runs once more on entry), and blocks are placed in source order.
@@ -325,6 +349,10 @@ each backend fits as much as it can into one addressing mode.
     dense switch;
   - `INC` and `DEC` on memory for `x++`, with the address in the operand;
   - `TST` and `MULS` with a constant;
+  - a multiply's high half and a divide's remainder are in `r0` (there's
+    no `HI`), so every multiply and divide counts as writing `r0`, and is
+    written with it, `MULS r0:r2, r3` and `DIVU r0:r2, r3`; a remainder is
+    `MOV rd, r0`, or stays in `r0` if the allocator can leave it there;
   - `MOV` and `CMP` with 16…127 in one parcel (the assembler picks it);
     `free_imm` still keeps such a constant in a register across a loop
     where a compare could then take a load as its memory operand;
@@ -338,7 +366,15 @@ on 1b and 2 and the 32-bit displacement on 1a reach it wherever the linker
 puts the function.
 
 Two-address instructions are written as `COPY d, a; OP d, b`, choosing which
-operand to copy so that the copy is likely to disappear.
+operand to copy so that the copy is likely to disappear: the one that dies
+there, or a loop's phi that the result goes back into, also through more
+two-address operations (`c = (n[i] * k + c) / 10000` adds into `c`).
+
+**Stepped addresses:** once `x + c` (an induction variable's step) has
+been computed on the way to a memory access, the access addresses through
+it, with the displacement less `c` times the scale, so `x` can die at the
+step and the step be done in place: `while (a[i] < v) i++` is
+`INC r9, r9; CMP r1, [r11 + r9*4]; BHI`, with no copy on the back edge.
 
 **Register allocation** is iterated register coalescing (George and Appel,
 as in Appel's *Modern Compiler Implementation*): graph colouring with
@@ -352,10 +388,25 @@ use as few callee-saved registers as possible.
 split critical edges), the frame, a `SAVE`/`RESTORE` of exactly the
 callee-saved registers used, and some peepholes: copies that coalesced away,
 `MOV rd, rs; ADD rd, x` into `LEA`, compares against 0 or −1 dropped when
-the previous instruction already set N and Z, constants folded back into
-immediates, jump threading, return blocks duplicated into their
-predecessors, branches inverted to fall through, and **tail calls** (a call
-followed by a return, when the callee can't need this frame).
+the previous instruction already set N and Z (and against 0 for a signed
+test after an `ADD` or `SUB` that C says can't overflow, which leaves V
+clear; an `INC` or `DEC`, which leaves V, becomes an `ADD`), a compare
+dropped that repeats the one ending the block's only predecessor, constants
+folded back into immediates, jump threading, return blocks duplicated into
+their predecessors, branches inverted to fall through, and **tail calls**
+(a call followed by a return, when the callee can't need this frame).
+
+**Shrink-wrapping:** the prologue goes where the code that needs the frame
+starts, not at the entry: at the block that dominates every block that
+calls (on draft 2, which writes the link register), touches a register the
+prologue saves or uses the stack frame, as long as that block is in no loop
+and dominates everything it reaches. Returns before it don't unwind
+anything, so fib's base case is `INC [_calls]; CMP r1, #2; BGE .b3; RET`.
+Before allocation, a value made before that point that lives across a call
+after it is copied at the point (the allocator doesn't coalesce the copy),
+so only the copy needs a callee-saved register; a return block shared with
+the paths before it gets a copy of its own; and a tail call doesn't count
+as a call.
 
 ### What the code looks like
 
@@ -473,13 +524,15 @@ it says about 1a against 1b: [report 0011](../../reports/0011-report-c-compiler.
   benchmarks): with no linker relaxation, a call to another function always
   takes two parcels, and arrays over 1 KB get 32-bit addresses
   ([infra/linking.md](../../infra/linking.md#what-it-costs)).
-- **The compiler misses:**
-  - shrink-wrapping (saving callee-saved registers only on the paths that
-    need them: half of fib's calls return at once but still pay for a
-    `SAVE`/`RESTORE`);
-  - keeping a loaded value across loop iterations;
-  - inlining;
-  - splitting live ranges around calls;
+- **The compiler misses** (report 0034 measures what's left):
+  - keeping a loaded value across loop iterations (`a[j - 1]` of one
+    iteration is `a[j]` of the next);
+  - type-based aliasing: an `int` load can't overlap a pointer store, so
+    it could move out of a loop that stores pointers;
+  - unrolling, which would make sha256's rotating working variables
+    renamings rather than copies (8% of its cycles);
+  - splitting live ranges around calls, except at the start of the
+    shrink-wrapped region;
   - a better block layout than source order.
 - **Interrupt handlers can't be written in C yet:** they'd need an
   attribute that saves every register and returns with `RTI`.
@@ -496,8 +549,9 @@ it says about 1a against 1b: [report 0011](../../reports/0011-report-c-compiler.
 - **Counting loops down** only knows the trip count of a `<`-style loop
   between constants; the test that guards a loop's entry would give it
   for a variable bound. 1b would gain from it too (0.7%, report 0030),
-  but it's draft 2's only, so report 0011's numbers stand.
-- **Shrink-wrapping** would be worth more with the link register: a
-  function saves `r7` on entry whenever any of its paths calls, so fib's
-  and bst's calls that return at once still save and restore it
-  ([report 0030](../../reports/0030-report-c-compiler-draft-2.md#the-link-register)).
+  but it's only turned on for draft 2.
+- **Calls reach ±64 KB** on 1b and draft 2, and nothing makes a far call,
+  so a program's code has to fit: Egret's VM is 49 KB of compiled C plus
+  the library and its assembly. Inlining is limited by how much it grows
+  the code partly for that reason
+  ([report 0034](../../reports/0034-report-c-compiler-optimisations.md#what-the-profile-says-about-the-hardware)).

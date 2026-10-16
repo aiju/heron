@@ -261,6 +261,28 @@ n*: n entries indexed by the low bits of the page number. Never flushed,
 so these are one program's own misses. More programs in
 [performance.md](0020-report-operating-system/performance.md#page-references-of-bigger-programs).)
 
+> **Erratum (2026-10-16).** The Lisp's rows have moved, and
+> performance.md is regenerated. A fix to its runtime compiles more of
+> its compiler, and its heap now starts at `0x35000`, in two 374 KB
+> halves ([report 0018](0018-report-lisp.md)'s erratum before its
+> summary). Compiling and running boyer is now 22 + 208 pages, 27.0 PC
+> page changes per 1,000 instructions, and 0.80 / 0.12 and 10.7 / 0.01
+> misses. Boyer interpreted is 4 + 197 pages, with 5.3 / 0.00 misses
+> direct-mapped: the heap's new address changes which pages collide in
+> 64 entries. What the bullets below say still holds.
+
+> **Erratum (2026-10-16).** The C compiler's optimisations
+> ([report 0034](0034-report-c-compiler-optimisations.md)) change Egret's
+> and the graphics' compiled code, and performance.md is rerun. Egret's
+> Richards under the JIT is now 23 + 62 pages, 23.2 PC page changes per
+> 1,000 instructions, 2.03 / 0.02 and 2.0 / 0.01 misses; json
+> interpreted 41.8 PC page changes (was 25.9), 9.81 / 0.04 and
+> 33.8 / 0.01 misses; the window manager at 8 bits
+> 8 + 101 pages, 11.1, 1.34 / 0.76 and 5.1 / 0.02. The bullets below
+> still hold. Further down, the ready queue in C is now 88 cycles
+> against 64 by hand (about 1.4 times, not 1.5): it no longer reloads
+> `tail[q]` and `bits`.
+
 - **Programs use all of memory.** The Lisp's two semispaces and Egret's
   heaps fill the 1 MB machine: over 200 pages.
 - **A small cache misses a lot; a modest one hardly at all.** A

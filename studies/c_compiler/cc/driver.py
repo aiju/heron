@@ -19,6 +19,7 @@ import os
 
 from heron.studies.c_compiler.ir import ir as I
 from heron.studies.c_compiler.ir.passes import optimize
+from heron.studies.c_compiler.ir.inline import inline_module
 from heron.studies.c_compiler.ir.cfg import verify
 from .lex import CompileError
 from .cpp import Preprocessor
@@ -94,6 +95,13 @@ def optimize_unit(u, isa, opt, verify_ir=False):
         if verify_ir:
             verify(f)
         optimize(f, opt, verify=verify_ir, free_imm=free_imm, countdown=target.COUNT_DOWN)
+    if opt > 0:
+        # calls to small functions become copies of them (ir.inline), and
+        # the callers are optimised again with the copies in place
+        for f in inline_module(u.module):
+            if verify_ir:
+                verify(f)
+            optimize(f, opt, verify=verify_ir, free_imm=free_imm, countdown=target.COUNT_DOWN)
     u.optimized = True
 
 
@@ -102,19 +110,26 @@ def symname_for(module):
     return lambda n: labels.get(n, "_" + n)
 
 
-def unit_assembly(u, isa, opt=1, verify_ir=False):
-    """The assembly for one translation unit (an object file's worth)."""
+def unit_assembly(u, isa, opt=1, verify_ir=False, near_max=NEAR_MAX, window=False):
+    """The assembly for one translation unit (an object file's worth).
+    `near_max` is the biggest object addressed with 16 bits. `window` is
+    for draft 2 code that runs in the supervisor's window, at 0x8000_0000
+    and up (a kernel): all its data is far, and its tables PC-relative."""
     if u.text is not None:
         return u.text
+    if window:
+        near_max = -1
     optimize_unit(u, isa, opt, verify_ir)
     module = u.module
     symname = symname_for(module)
-    near_set = {d.name for d in module.data if d.size <= NEAR_MAX}
-    near_set |= {n for n, size in module.externs.items() if size is not None and size <= NEAR_MAX}
+    near_set = {d.name for d in module.data if d.size <= near_max}
+    near_set |= {n for n, size in module.externs.items() if size is not None and size <= near_max}
 
     def near(name, off=0):
         return name in near_set
     target = target_for(isa)(symname=symname, near=near)
+    if window:
+        target.window = True
     defined = module.functions + module.data
     used = set()
     for f in module.functions:

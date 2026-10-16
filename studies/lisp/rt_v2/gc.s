@@ -1,7 +1,22 @@
 ; Allocation and the copying garbage collector.
 
-; cons: r3 = car, r4 = cdr -> r1 = the pair. Keeps r2-r12.
+; cons: r6 = car, r5 = cdr -> r1 = the pair. Keeps r2-r12.
 cons:   CMP  r14, [cons_limit]
+        BHI  .gc
+.go:    MOV  [r14]+, r6
+        MOV  [r14]+, r5
+        LEA  r1, [r14 - 7]
+        RET
+.gc:    PUSH r7
+        BSR  gc
+        POP  r7
+        CMP  r14, [cons_limit]
+        BHI  heap_full
+        BRA  .go
+
+; cons_c: cons for compiled code, whose inline cons has the car in r3 and
+; the cdr in r4 (%rt:cons on draft 2). Keeps r2-r12.
+cons_c: CMP  r14, [cons_limit]
         BHI  .gc
 .go:    MOV  [r14]+, r3
         MOV  [r14]+, r4
@@ -81,13 +96,13 @@ gc:     MOV  [gc_save], r9
         SUB  r11, r10           ; the old half's size
         MOV  r14, r1
         ; the roots: the root block, symbol space and the stack
-        MOV  r6, #roots
+        MOV  r3, #roots
         MOV  r8, #roots_end
         BSR  fwd_range
-        MOV  r6, #SYM_BASE
+        MOV  r3, #SYM_BASE
         MOV  r8, [sym_free]
         BSR  fwd_range
-        MOV  r6, sp
+        MOV  r3, sp
         MOV  r8, #STACK_TOP
         BSR  fwd_range
         ; scan what has been copied, copying what it points to
@@ -105,18 +120,18 @@ gc:     MOV  [gc_save], r9
         BSR  fwd
         MOV  [r12]+, r1
         BRA  .scan
-.obj:   BSR  objsize            ; r1 = header -> r2 = bytes, r3 = 1 if raw
+.obj:   BSR  objsize            ; r1 = header -> r2 = bytes, r6 = 1 if raw
         MOV  r8, r12
         ADD  r12, r2
-        CMP  r3, #0
+        CMP  r6, #0
         BNE  .scan              ; a string: nothing to scan
-        MOV  r6, r1             ; the fields: words 1 .. n
-        LSR  r6, #8
-        LSL  r6, #2
-        ADD  r6, r8
-        ADD  r6, #4             ; the end of the fields
+        MOV  r3, r1             ; the fields: words 1 .. n
+        LSR  r3, #8
+        LSL  r3, #2
+        ADD  r3, r8
+        ADD  r3, #4             ; the end of the fields
         ADD  r8, #4
-.field: CMP  r8, r6
+.field: CMP  r8, r3
         BHS  .scan
         MOV  r1, [r8]
         BSR  fwd
@@ -145,89 +160,89 @@ gc:     MOV  [gc_save], r9
         MOV  r12, [gc_save + 12]
         RET
 
-; fwd_range: update every word from r6 up to r8. Uses r1-r5.
+; fwd_range: update every word from r3 up to r8. Uses r1, r2, r4-r6.
 fwd_range:
         PUSH r7
-.loop:  CMP  r6, r8
+.loop:  CMP  r3, r8
         BHS  .done
-        MOV  r1, [r6]
+        MOV  r1, [r3]
         BSR  fwd
-        MOV  [r6]+, r1
+        MOV  [r3]+, r1
         BRA  .loop
 .done:  JMP  [sp]+
 
 ; objsize: r1 = a header -> r2 = the object's size in bytes (rounded up
-; to 8), r3 = 1 for a string (its contents aren't values). Keeps r1.
+; to 8), r6 = 1 for a string (its contents aren't values). Keeps r1.
 objsize:
         MOV  r2, r1
         LSR  r2, #8             ; n
-        MOV  r3, r1
-        AND  r3, #0xF8
-        CMP  r3, #T_STR << 3
+        MOV  r6, r1
+        AND  r6, #0xF8
+        CMP  r6, #T_STR << 3
         BEQ  .str
         LSL  r2, #2             ; 4 + 4n
         ADD  r2, #4 + 7
         AND  r2, #-8
-        MOV  r3, #0
+        MOV  r6, #0
         RET
 .str:   ADD  r2, #8 + 7         ; 8 + n
         AND  r2, #-8
-        MOV  r3, #1
+        MOV  r6, #1
         RET
 
 ; fwd: r1 = a value -> r1 = its new value: if it points into the old half,
 ; the object is copied (once) and the pointer moves to the copy.
-; Uses r2-r5; r10, r11 = the old half, r14 = where copies go.
+; Uses r2, r4-r6; r10, r11 = the old half, r14 = where copies go.
 fwd:    MOV  r2, r1
         AND  r2, #5
         CMP  r2, #1
         BNE  .keep              ; not a pointer (tag 001 or 011)
         MOV  r2, r1
         AND  r2, #-8            ; the object
-        MOV  r3, r2
-        SUB  r3, r10
-        CMP  r3, r11
+        MOV  r6, r2
+        SUB  r6, r10
+        CMP  r6, r11
         BHS  .keep              ; not in the old half
-        MOV  r3, [r2]           ; its first word
-        MOV  r4, r3
-        AND  r4, #7
-        CMP  r4, #7
+        MOV  r6, [r2]           ; its first word
+        MOV  r5, r6
+        AND  r5, #7
+        CMP  r5, #7
         BEQ  .moved
-        MOV  r4, r1
-        AND  r4, #7
-        OR   r4, r14            ; the new pointer
         MOV  r5, r1
-        AND  r5, #2
+        AND  r5, #7
+        OR   r5, r14            ; the new pointer
+        MOV  r4, r1
+        AND  r4, #2
         BNE  .obj
-        MOV  [r14]+, r3         ; a pair: two words
-        MOV  r3, [r2 + 4]
-        MOV  [r14]+, r3
+        MOV  [r14]+, r6         ; a pair: two words
+        MOV  r6, [r2 + 4]
+        MOV  [r14]+, r6
         BRA  .fwd
 .obj:   PUSH r1                 ; an object: its size from the header
         PUSH r2
         PUSH r7
-        MOV  r1, r3
+        MOV  r1, r6
         BSR  objsize            ; r2 = bytes
         POP  r7
-        MOV  r5, r2
+        MOV  r4, r2
         POP  r2
         POP  r1
         PUSH r2
-.copy:  MOV  r3, [r2]+
-        MOV  [r14]+, r3
-        MOV  r3, [r2]+
-        MOV  [r14]+, r3
-        SUB  r5, #8
+.copy:  MOV  r6, [r2]+
+        MOV  [r14]+, r6
+        MOV  r6, [r2]+
+        MOV  [r14]+, r6
+        SUB  r4, #8
         BNE  .copy
         POP  r2
-.fwd:   MOV  r3, r4             ; leave a forwarding pointer
-        OR   r3, #7
-        MOV  [r2], r3
-        MOV  r1, r4
+.fwd:   MOV  r6, r5             ; leave a forwarding pointer
+        OR   r6, #7
+        MOV  [r2], r6
+        MOV  r1, r5
 .keep:  RET
-.moved: AND  r3, #-8
+.moved: AND  r6, #-8
         AND  r1, #7
-        OR   r1, r3
+        OR   r1, r6
         RET
 
 .if gcverify
@@ -252,15 +267,15 @@ gc_verify:
 .hdr:   BSR  objsize
         MOV  r8, r12
         ADD  r12, r2
-        CMP  r3, #0
+        CMP  r6, #0
         BNE  .obj
-        MOV  r6, r1
-        LSR  r6, #8
-        LSL  r6, #2
-        ADD  r6, r8
-        ADD  r6, #4
+        MOV  r3, r1
+        LSR  r3, #8
+        LSL  r3, #2
+        ADD  r3, r8
+        ADD  r3, #4
         ADD  r8, #4
-.f:     CMP  r8, r6
+.f:     CMP  r8, r3
         BHS  .obj
         MOV  r1, [r8]+
         BSR  .check

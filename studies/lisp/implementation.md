@@ -61,9 +61,9 @@ Object types:
 | `0x00100` | the runtime's variables, then jump tables (16-bit addresses reach them) |
 | `0x00400` | `nil` and the end-of-file object, then **symbol space**: the static symbols the build generates, then the ones the reader interns. Symbols never move, and 16-bit addresses reach them. |
 | `0x08000` | **constant space**: names of interned symbols, and what the compiler needs to stay put: static closures and copies of quoted constants. Never moves, and the collector doesn't scan it. |
-| `0x10000` | the runtime's code, its static data and the prelude's text, then **code space**: compiled code, up to `0x26000` |
-| `0x26000` | the category map: a byte per parcel of code space, saying what it's for ([compiler.md](compiler.md#categories)) |
-| `0x30000`, `0x90000` | the two halves of the heap, 384 KB each |
+| `0x10000` | the runtime's code, its static data and the prelude's text, then **code space**: compiled code, up to `0x2A000` |
+| `0x2A000` | the category map: a byte per parcel of code space, saying what it's for ([compiler.md](compiler.md#categories)) |
+| `0x35000`, `0x92800` | the two halves of the heap, 374 KB each |
 | `0xF0000`–`0xFFFFF` | the stack (64 KB); the stack limit is at `0xF0800` |
 
 ## The garbage collector
@@ -164,16 +164,36 @@ different:
   a constant or a variable's value without touching the stack, or
   checking the stack limit, which only a pair can need.
 - **The calling convention.** With `r7` the link, arguments 1–6 are in
-  `r3`, `r4`, `r5`, `r6`, `r8` and `r0`; with more than 6, `r3`–`r6` and
-  `r8` hold 1–5 and `r0` a list of the rest. The rest is as on 1b: `r1`
-  the procedure, `r2` the count, `CALL [r1 + 1]`, the result in `r1`;
-  `r0`–`r12` are not preserved.
+  `r6`, `r5`, `r4`, `r3`, `r8` and `r0`: the first four just below `r7`,
+  so that `SAVE r(7−n)-r7` keeps n of them and the return address
+  together ([report 0033](../../reports/0033-report-lisp-arguments-draft-2.md)).
+  With more than 6, `r6`–`r3` and `r8` hold 1–5 and `r0` a list of the
+  rest. The rest is as on 1b: `r1` the procedure, `r2` the count,
+  `CALL [r1 + 1]`, the result in `r1`; `r0`–`r12` are not preserved.
+  The runtime's own registers are 1b's with `r3` and `r6`, `r4` and `r5`
+  swapped throughout, so its routines' conventions follow (`cons` takes
+  the car in `r6` and the cdr in `r5`); compiled code's inline `cons`
+  keeps `r3` and `r4`, and calls `cons_c` when the heap is full.
+- **A call's arguments in the interpreter** are on the stack with the
+  first highest, just below the procedure (on 1b the first is at `[sp]`),
+  so that `RESTORE r(7−n)-r6` loads n of them into their registers and
+  `SAVE r(7−n)-r6` stores them.
 - **The collector's roots** are `r0`–`r8`, so `r0` keeps the same rule as
   `r1`–`r8`; `r7` holds a return address, which is even and stays as it
   is.
 - **Flags.** `MOV` and `POP` don't set the flags on draft 2. The ten
   `MOV`s whose N and Z a branch read became `MOVS`.
-- **`r0` is a general register,** so a zero store is `CLR`.
+- **`r0` is a general register,** so a zero store is `CLR`. It is also
+  `HI`: a multiply leaves its high half there and a divide its remainder
+  ([RFC 0028, 9.9](../../reports/0028-rfc-draft-2-isa.md#99-hi-and-lo-are-r0-and-r1)).
+  Nothing is live in `r0` across one: the primitives that multiply or
+  divide have taken their arguments out of the registers by then (`*`
+  with more than two makes a list of them first), the printer keeps
+  nothing there, and
+  compiled code loads an argument register only after every complex
+  argument is evaluated. What a multiply leaves is the product's sign
+  unless it overflowed, so `err_overflow` clears `r0`: the collector
+  takes `r0` as a root.
 - **The traps** decode draft 2's instructions. An address error's check
   is a word at `[R + d16]`: column 3 of a row that takes a mode, or a
   `JMP`'s or `CALL`'s register byte with mode 3.
@@ -182,6 +202,3 @@ different:
   compiled code. Their trap reports the error the software checks do: the
   first operand that isn't an integer, or an overflow. Without the
   feature, a check of one operand is `TST r, #1`.
-- **Code space** ends at `0x27000`, 4 KB later than on 1b, and the
-  category map is that much smaller: the draft 2 compiler is a bigger
-  program, and the errors test filled 1b's space.

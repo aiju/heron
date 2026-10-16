@@ -77,7 +77,7 @@ class Allocator:
                 for r in uses + defs:
                     self.node(r)
                     self.cost[r] += w
-                if i.is_copy and len(uses) == 1 and len(defs) == 1:
+                if i.is_copy and i.comment != "split" and len(uses) == 1 and len(defs) == 1:
                     live.discard(uses[0])
                     self.moves[i] = (defs[0], uses[0])
                     self.move_order[i] = len(self.move_order)

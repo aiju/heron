@@ -402,13 +402,11 @@ send:   NOT  r4, r7
         BNE  .miss
         LEA  r2, [r10 - 4]
         ST   r2, [_vm_sp]
-        PUSH r3
-        PUSH r4
+        SAVE r3-r5              ; r5 too: .newover goes back by it
         MOV  r2, [r1 + 8 + 4*C_NIVARS]
         ASR  r2, #1
         CALL _alloc_obj
-        POP  r4
-        POP  r3
+        RESTORE r3-r5
         ST   r1, [r4]           ; the object in place of the class
         ST   r8, [r11 + FR_IP]
         LEA  r11, [r11 + FRAME_SIZE]

@@ -16,7 +16,9 @@ test = false
 doctest = false
 
 [dependencies]
+fen-board = { path = "../../studies/fen/board" }
 hwsim = { path = "../../infra/hwsim" }
+pcbroute = { path = "../../infra/pcbroute" }
 sisim = { path = "../../infra/sisim" }
 toolchain = { path = "../../infra/toolchain" }
 v1b-system-model = { path = "../../studies/v1b_system/model" }

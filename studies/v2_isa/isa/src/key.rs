@@ -172,6 +172,11 @@ pub enum Kind {
     Stm {
         n: u8,
     },
+    /// BCOPY (tentative): n registers copied from one bank to another, a
+    /// microcoded loop
+    Bcopy {
+        n: u8,
+    },
 }
 
 /// One of a key's parameters, as Python sees it.
@@ -224,6 +229,7 @@ impl Key {
             Kind::Restore { .. } => "restore",
             Kind::Ldm { .. } => "ldm",
             Kind::Stm { .. } => "stm",
+            Kind::Bcopy { .. } => "bcopy",
         }
     }
 
@@ -245,7 +251,11 @@ impl Key {
             }
             Kind::Br { taken, x } | Kind::Dbnz { taken, x } => vec![i(taken), i(x)],
             Kind::Jmp { how, x } | Kind::Call { how, x } => vec![Str(how.name()), i(x)],
-            Kind::Save { n } | Kind::Restore { n } | Kind::Ldm { n } | Kind::Stm { n } => {
+            Kind::Save { n }
+            | Kind::Restore { n }
+            | Kind::Ldm { n }
+            | Kind::Stm { n }
+            | Kind::Bcopy { n } => {
                 vec![i(n)]
             }
             Kind::Rti | Kind::Trap | Kind::Irq | Kind::Sys => vec![],
@@ -319,6 +329,7 @@ impl Key {
             ("restore", [Int(n)]) => Kind::Restore { n: u8_(*n)? },
             ("ldm", [Int(n)]) => Kind::Ldm { n: u8_(*n)? },
             ("stm", [Int(n)]) => Kind::Stm { n: u8_(*n)? },
+            ("bcopy", [Int(n)]) => Kind::Bcopy { n: u8_(*n)? },
             ("rti", []) => Kind::Rti,
             ("trap", []) => Kind::Trap,
             ("irq", []) => Kind::Irq,

@@ -173,6 +173,7 @@ impl Model {
             "and_oc" => Model::Gate(Gate::new(GateFn::And, s)?.open_collector()),
             "nor" => Model::Gate(Gate::new(GateFn::Nor, s)?),
             "and" => Model::Gate(Gate::new(GateFn::And, s)?),
+            "wire" => Model::Gate(Gate::wire(s)?),
             "or" => Model::Gate(Gate::new(GateFn::Or, s)?),
             "xor" => Model::Gate(Gate::new(GateFn::Xor, s)?),
             "dff74" => Model::Dff74(Dff74::new(s, rng)?),
@@ -362,6 +363,16 @@ pub struct Gate {
 
 impl Gate {
     fn new(f: GateFn, s: &Spec) -> Result<Gate, Error> {
+        Gate::with_delay(f, s, s.d("A->Y")?)
+    }
+
+    /// A wire's far end: Y follows A with no delay of its own; the wire's
+    /// is the pin delay on Y (a routed board's flight time to one load).
+    fn wire(s: &Spec) -> Result<Gate, Error> {
+        Gate::with_delay(GateFn::And, s, 0)
+    }
+
+    fn with_delay(f: GateFn, s: &Spec, d: Time) -> Result<Gate, Error> {
         let mut sec_of = vec![0; s.info.pin_names.len()];
         let (mut ins, mut out, mut cur) = (Vec::new(), Vec::new(), Vec::new());
         for (p, &k) in s.info.kinds.iter().enumerate() {
@@ -385,7 +396,7 @@ impl Gate {
             sec_of,
             ins,
             out,
-            d: s.d("A->Y")?,
+            d,
             oc: false,
             d_release: s.d_or("release", 0),
         })

@@ -39,7 +39,7 @@ class Machine:
     """A draft 2 machine running a program: `image` an assembled image,
     `inp` the console input.
 
-    Registers, flags and memory are read-only views: r, hi, lo, pc, n, z,
+    Registers, flags and memory are read-only views: r, pc, n, z,
     c, v, i, mem. Set `trace` to a function to have it called with the
     machine before every instruction."""
 
@@ -83,8 +83,6 @@ class Machine:
     # ---- state ------------------------------------------------------------
 
     r = property(lambda self: self._m.r)
-    hi = property(lambda self: self._m.hi)
-    lo = property(lambda self: self._m.lo)
     pc = property(lambda self: self._m.pc)
     n = property(lambda self: self._m.n)
     z = property(lambda self: self._m.z)
@@ -142,4 +140,4 @@ class Machine:
         rs = " ".join(f"r{i}={r[i]:X}" for i in range(0, 16))
         fl = "".join(ch if bit else "-" for ch, bit in
                      zip("NZCVI", (self.n, self.z, self.c, self.v, self.i)))
-        return f"pc={self.pc:X} {fl} hi={self.hi:X} lo={self.lo:X} {rs}"
+        return f"pc={self.pc:X} {fl} {rs}"

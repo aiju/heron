@@ -37,15 +37,16 @@ the format of the opcode explorer it was laid out with.
   | Register | |
   |---|---|
   | `r0`–`r15` | general, 32 bits |
+  | `r0` | also the high half of a product and the remainder of a divide ([5.3](#53-multiply-and-divide)), and `MERGE`'s mask |
+  | `r1` | also the low half of `MULA`'s sum ([5.10](#510-tentative-instructions)) |
   | `r7` | also the link register: every call writes the return address into it ([5.7](#57-jumps-and-calls)) |
   | `r14` | also the base of mode E, `[r14 + 4R]` ([3](#3-addressing-modes)) |
   | `r15`, `sp` | also the stack pointer, which `SAVE`, `RESTORE`, mode 4 and exceptions use |
   | `PC` | 32 bits, always even |
-  | `HI`, `LO` | special registers 1 and 2: multiply, divide and `MULA` |
-  | flags | N (negative), Z (zero), C (carry), V (overflow), in the flags word, special register 0 |
+  | `ccr` | the condition codes N (negative), Z (zero), C (carry) and V (overflow): special register 0, the low byte of the status register `sr` |
 
-  The flags word's other bits, the special registers above 2, the modes,
-  register banks, address translation, exceptions and reset are
+  The status register's other bits, the special registers other than `ccr`, the
+  modes, register banks, address translation, exceptions and reset are
   [RFC 0029](0029-rfc-draft-2-system.md)'s. The calling convention beyond
   `r7` and `sp` is **open**.
 
@@ -95,8 +96,9 @@ in memory:  byte 0     byte 1
 ### 3. Addressing modes
 
 One numbering of 16 modes is used everywhere: as the column in rows 1–6
-and 8–A of the map, and as the mode nibble `M` of instructions that take
-it from the register byte ([below](#the-mode-from-the-register-byte)).
+and 8–A of the map and in `LEA`'s cells in row 0, and as the mode nibble
+`M` of instructions that take it from the register byte
+([below](#the-mode-from-the-register-byte)).
 
 | M | Operand | Extension parcels |
 |---|---|---:|
@@ -148,7 +150,7 @@ high nibble and `R` in its low one, so one cell takes every mode.
 | `MOV dst, rs`, a store | the memory modes: all but 0, 1, D and the special mode's constants |
 | `MOVS rd, src` | all but 1 and D; the special mode's constants are **open** |
 | `CLR`, `INC`, `DEC` | all but 1, D and the special mode's constants |
-| `LEA rd, ea` | 3, 4, 5 and the special mode's memory operands |
+| `LEA rd, ea` | 3, 4, 5, E and the special mode's memory operands |
 | `JMP`, `CALL` | all; a byte or half memory operand traps (**open**) |
 | `BIC`, `TST`, `MULU`, `MULS` | a register, or any of the special mode's operands |
 
@@ -190,7 +192,7 @@ the instructions are written `MOV` and `CMP` ([6](#6-assembler-syntax)).
 
 | | _0 | _1 | _2 | _3 | _4 | _5 | _6 | _7 | _8 | _9 | _A | _B | _C | _D | _E | _F |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 |  | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | LEA spec +1–2 | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | MFSR rd,n | MTSR n,rs |
+| 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | MFSR rd,n | MTSR n,rs | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | LEA [r14+4R] | LEA spec +1–2 |
 | 1_ | MOV rs | MOV #q | MOV [R] | MOV [R+d16] +1 | MOV [sp+4R] | MOV [R+X·s] +1 | MOV [R]+ | MOV -[R] | MOV b[R] | MOV b[R+d16] +1 | MOV b[R]+ | MOV h[R] | MOV h[R+d16] +1 | MOV #−q | MOV [r14+4R] | MOV spec +1–2 |
 | 2_ | CLR ea +0–2 | INC ea +0–2 | ST [R] | ST [R+d16] +1 | ST [sp+4R] | ST [R+X·s] +1 | ST [R]+ | ST -[R] | ST b[R] | ST b[R+d16] +1 | ST b[R]+ | ST h[R] | ST h[R+d16] +1 | DEC ea +0–2 | ST [r14+4R] | ST spec +1–2 |
 | 3_ | MOVS rs | MFUR rd,rs | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 | MTUR rd,rs | MOVS [r14+4R] | MOVS spec +1–2 |
@@ -211,15 +213,16 @@ The extension grids, by their second byte:
 
 | `FD` | | `FE` | |
 |---|---|---|---|
-| `FD 00` | `MULFX rd, rs, #n` +1 (tentative) | `FE 00` | `EI` |
+| `FD 00` | `MULFX r0:rd, rs, #n` +1 (tentative) | `FE 00` | `EI` |
 | | | `FE 01` | `DI` |
 | | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
+| | | `FE 10`–`FE 18` | `SPL #n` |
 
-Free, and so trapping: the root cells `03`, `C3`, `C7`, `CB`, `CF`, `EF`
-and `F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE FF`. `CAS` (`F7`) and the
-floating-point escape (`F8`) are **open** and trap until they're
-designed. What becomes of `FD` is **open**.
+Free, and so trapping: the root cells `C3`, `C7`, `CB`, `CF`, `EF` and
+`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE 0F` and `FE 19`–`FE FF`. `CAS`
+(`F7`) and the floating-point escape (`F8`) are **open** and trap until
+they're designed. What becomes of `FD` is **open**.
 
 ### 5. Instructions
 
@@ -253,13 +256,15 @@ mode's `R`) in its low one.
 | `CLR dst` | `20` | `dst` ← 0, at the operand's size | – |
 | `INC dst` | `21` | `dst` ← `dst` + 1, at the operand's size | NZ |
 | `DEC dst` | `2D` | `dst` ← `dst` − 1, at the operand's size | NZ |
-| `LEA rd, ea` | `04`–`07` | `rd` ← the operand's address | – |
+| `LEA rd, ea` | `03`–`05`, `0E`, `0F` | `rd` ← the operand's address | – |
 
 - **`MOV rd, #u7`** holds the constant's bits 6–3 in the register byte's
   low nibble and its bits 2–0 in the opcode's.
 - **For a byte or half operand,** `MOVS` takes N from the operand's bit 7
   or 15, and Z from the operand (**decided**, Emily, 2026-10-15). So do
   `INC` and `DEC`, from the value they store (**open**).
+- **`LEA`'s cells** are its modes' columns: `03`–`05` are modes 3–5,
+  `0E` mode E and `0F` the special mode (**decided**, Emily, 2026-10-16).
 - **`LEA`'s byte, half and word forms** give the same address.
 - **`MOV r0, r0`** (`10 00`) changes nothing: it is `NOP`.
 
@@ -292,17 +297,24 @@ mode's `R`) in its low one.
 
 | Instruction | Cells | Operation | Flags |
 |---|---|---|---|
-| `MULU rd, src` | `E4`, `EC` | `HI`:`rd` ← `rd` × `src`, unsigned | NZ from `rd`; C = V = 1 if the product needs more than 32 bits, else 0 |
-| `MULS rd, src` | `E5`, `ED` | `HI`:`rd` ← `rd` × `src`, signed | the same, signed |
-| `DIVU rd, rs` | `E7` | `rd` ← `rd` ÷ `rs`, `HI` ← the remainder, unsigned | NZ from `rd`; C = V = 0 |
-| `DIVS rd, rs` | `E8` | `rd` ← `rd` ÷ `rs` rounded toward zero, `HI` ← the remainder, with the dividend's sign | NZ from `rd`; C = 0; V below |
-| `DIVUL rd, rs` | `E9` | `rd` ← `HI`:`rd` ÷ `rs`, `HI` ← the remainder, unsigned | NZ from `rd`; C = 0; V below |
+| `MULU r0:rd, src` | `E4`, `EC` | `r0`:`rd` ← `rd` × `src`, unsigned | NZ from `rd`; C = V = 1 if the product needs more than 32 bits, else 0 |
+| `MULS r0:rd, src` | `E5`, `ED` | `r0`:`rd` ← `rd` × `src`, signed | the same, signed |
+| `DIVU r0:rd, rs` | `E7` | `rd` ← `rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = V = 0 |
+| `DIVS r0:rd, rs` | `E8` | `rd` ← `rd` ÷ `rs` rounded toward zero, `r0` ← the remainder, with the dividend's sign | NZ from `rd`; C = 0; V below |
+| `DIVUL r0:rd, rs` | `E9` | `rd` ← `r0`:`rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = 0; V below |
 
 - **Dividing by zero** is a divide error, and changes nothing.
 - **`DIVS`** of −2³¹ by −1 gives −2³¹, remainder 0, and sets V.
-- **`DIVUL`** with `HI` ≥ `rs` would overflow: it sets V and changes
+- **`DIVUL`** with `r0` ≥ `rs` would overflow: it sets V and changes
   nothing else.
-- **`MULU` and `MULS` leave `LO` alone** (**open**).
+- **The operands are read before anything is written,** so `src` and `rs`
+  may be `r0`.
+- **With `rd` = `r0`,** `rd`'s result is written last and stays: `MULU
+  r0:r0, src` gives the low 32 bits of the product, and `DIVU r0:r0, rs`
+  the quotient (**open**, tentative). The alternative is that such
+  encodings are illegal. No other register can meet `r0`'s write: the
+  multiplies take a register or the special mode, which changes no
+  register, and the rest take registers.
 
 #### 5.4 Unary operations
 
@@ -400,14 +412,15 @@ In place, in row C:
 
 | Instruction | Cell | Operation |
 |---|---|---|
-| `MFSR rd, n` | `0E` | `rd` ← special register n |
-| `MTSR n, rs` | `0F` | special register n ← `rs`; n in the high nibble |
+| `MFSR rd, n` | `06` | `rd` ← special register n |
+| `MTSR n, rs` | `07` | special register n ← `rs`; n in the high nibble |
 | `MFUR rd, rs` | `31` | `rd` ← register `rs` of the user's register bank |
 | `MTUR rd, rs` | `3D` | register `rd` of the user's register bank ← `rs` |
 | `SWI #n` | `FC` | a software interrupt, n in the register byte |
 | `EI`, `DI` | `FE 00`, `FE 01` | interrupts on, off |
 | `RTI` | `FE 02` | return from an exception |
 | `HALT` | `FE 03` | stop; with interrupts on, wait for one |
+| `SPL #n` | `FE 10`–`FE 18` | the interrupt priority level ← n, 0…8, from the second byte's low nibble |
 | `ILLEGAL` | `00`, `FF` | an illegal instruction |
 
 What each special register is, which instructions are privileged, and
@@ -424,9 +437,9 @@ change or go (Emily, 2026-10-15).
 | `DC` | `FFS rd, rs` | the index of `rs`'s lowest set bit, 0…31, or 32 if `rs` = 0 | NZ |
 | `DD` | `POPC rd, rs` | the number of set bits in `rs`, 0…32 | NZ |
 | `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ |
-| `E6` | `MULA rd, rs` | `HI`:`LO` ← `HI`:`LO` + `rd` × `rs`, signed, 64 bits | – |
-| `EE` | `MERGE rd, rs` | `rd` ← (`rd` & ~`HI`) \| (`rs` & `HI`) | NZ |
-| `FD 00` | `MULFX rd, rs, #n` | `rd` ← the low 32 bits of the signed product `rd` × `rs` shifted right arithmetically by n, 0…31; `HI` ← the product's high half | NZ; C = V = 1 if the result needs more than 32 bits |
+| `E6` | `MULA r0:r1, rd, rs` | `r0`:`r1` ← `r0`:`r1` + `rd` × `rs`, signed, 64 bits | – |
+| `EE` | `MERGE rd, rs, r0` | `rd` ← (`rd` & ~`r0`) \| (`rs` & `r0`) | NZ |
+| `FD 00` | `MULFX r0:rd, rs, #n` | `rd` ← the low 32 bits of the signed product `rd` × `rs` shifted right arithmetically by n, 0…31; `r0` ← the product's high half, as `MULS` gives it | NZ; C = V = 1 if the result needs more than 32 bits |
 
 `MULFX`'s extension parcel holds `rd` in bits 15–12, `rs` in 11–8 and n
 in 4–0; bits 7–5 must be 0.
@@ -468,6 +481,12 @@ names may be written in either case is **open**.
   `byte` or `half` before a memory operand gives its size: `byte [r2]+`.
 - **Stores** are `MOV dst, rs`: `MOV [r2 + 8], r1`. The operand order
   says which.
+- **Implicit registers are written out** (**decided**, Emily, 2026-10-16). A
+  pair is `r0:rd`, the extra result before `rd`'s: `MULU r0:r2, r3`
+  (high:low), `DIVU r0:r2, r3` (remainder:quotient), `DIVUL r0:r2, r3`
+  (the dividend too), `MULFX r0:r2, r3, #8`, `MULA r0:r1, r2, r3` and
+  `MERGE r2, r3, r0` (the mask last). The assembler refuses any other
+  register there, and the forms without them.
 - **Shorthands,** which the disassembler prints too (**decided**, Emily,
   2026-10-15):
 
@@ -477,16 +496,14 @@ names may be written in either case is **open**.
   | `POP r1` | `MOV r1, [sp]+` |
   | `RET` | `JMP r7` |
   | `NOP` | `MOV r0, r0` |
-  | `MFHI r1`, `MFLO r1` | `MFSR r1, hi`, `MFSR r1, lo` |
-  | `MTHI r1`, `MTLO r1` | `MTSR hi, r1`, `MTSR lo, r1` |
 
 - **Not accepted:** `ST`, `MVI` and `CMPI` (**decided**, Emily,
   2026-10-15), and `LI`, `MFF` and `MTF` (**open**). The assembler says
   what to write instead.
 - **One spelling per instruction:** the assembler takes what the
   disassembler prints (**open**).
-- **Special registers** are written `flags`, `hi`, `lo` or a number;
-  RFC 0029 names the rest.
+- **Special registers** are written by name (`ccr` and RFC 0029's, such as
+  `sr`) or by number.
 - **Branches and calls:** `Bcc label`, `BRA`, `BSR`; `JMP label` and
   `CALL label` are `Jcc` with cc = E and F, and `JMP #label` is `JMP ea`.
   A `Bcc` out of reach becomes the `Jcc` with the same condition, and
@@ -501,8 +518,8 @@ names may be written in either case is **open**.
     `sp` or `r14` + 0…60, then `[R + d16]`, then the special mode's D with
     `R` as its index where d needs 17–24 bits (**open**).
   - **An absolute address:** abs16, then `PC` + d16, then abs32.
-  - **`LEA`** has no mode E, so `LEA r1, [r14 + 8]` is `[R + d16]`, and
-    `LEA rd, [R]` is `MOV rd, R` (**open**).
+  - **`LEA rd, [R]`** is `MOV rd, R`, since `LEA` has no mode 2
+    (**open**).
   - **`BIC`, `TST`, `MULU` and `MULS` with a memory operand** have only
     the special mode, so `[R + d]` becomes D with `R` as its index
     (**open**).
@@ -617,7 +634,7 @@ What changed from 1b, beyond the encoding:
   forms (Emily, 2026-10-15).
 - **`NOP` is `MOV r0, r0`,** now that `MOV` doesn't set the flags, so it
   needs no cell; `.align` pads with it, where a zero parcel would trap.
-- **Shorthands** such as `PUSH` and `MFHI` name common forms of a general
+- **Shorthands** such as `PUSH` and `RET` name common forms of a general
   instruction, unlike `MVI`, which was a second name for one (Emily).
 
 #### 9.2 ALU operations and constants
@@ -715,7 +732,17 @@ What changed from 1b, beyond the encoding:
   buffer of up to 15 words in hardware. Loading the base register's word
   last, held in one temporary, restarts as cleanly
   ([12](#12-open-questions)).
-- **`LEA`** keeps `[R + d16]`, `[sp + 4R]`, indexed and the special mode.
+- **`LEA`** keeps `[R + d16]`, `[sp + 4R]`, indexed and the special
+  mode, and has mode E (Emily, 2026-10-16).
+  - Its cells sit in its modes' columns, as in rows 1–A, so throughout
+    rows 0–A a cell with a mode has that mode as the opcode's low nibble.
+    `MFSR` and `MTSR` moved to `06` and `07` to make room. The decode ROM
+    sees the whole parcel, so this costs the hardware nothing; it makes
+    hex dumps, the assembler and the disassembler regular.
+  - Mode E gives the address of a field in the first 16 words of the
+    current object in one parcel, `LEA r1, [r14 + 8]`, as mode 4 does for
+    a stack frame's. Its use isn't measured. It costs one of the free
+    cells: 9 before, 8 now.
   - `LEA rd, [R]` went: it was the compiler's copy that leaves the flags
     alone, which is now `MOV`.
   - Measured: 1.9% of hand-written and 3.1% of compiled executed
@@ -741,12 +768,13 @@ What changed from 1b, beyond the encoding:
   current object in one parcel, as `[sp + 4R]` gives a stack frame's.
   - `r14` holds the current object by convention: the kernel's thread
     control block, Egret's frame record, the VM's state.
-  - Measured on 1b with the mode added (the fixed-base report, in
-    review): 3–5% of the nucleus's message and switch paths, and its code
-    4% smaller; about 1% of Egret's cycles; nothing for the Lisp, whose
-    tagged pointers put fields at 4k ± 1. Loads and stores are 75–100%
-    of the uses, so the report suggested three cells; the whole column
-    keeps the mode table orthogonal.
+  - Measured on 1b with the mode added
+    ([fixed-base-mode.md](0028-rfc-draft-2-isa/fixed-base-mode.md)): 3–5% of the nucleus's message and
+    switch paths, and its code 4% smaller; about 1% of Egret's cycles;
+    nothing for the Lisp, whose tagged pointers put fields at 4k ± 1.
+    Loads and stores are 75–100% of the uses, so the measurements
+    suggested three cells; the whole column keeps the mode table
+    orthogonal.
 - **The special mode's tables, D and E** (Emily, 2026-10-15):
   - **A table without a base register.** Indexed accesses whose base was
     loaded with `MOV r, #label` are 1.47% of hand-written executed
@@ -770,8 +798,8 @@ What changed from 1b, beyond the encoding:
 
 - **What replaces it:** `CLR` stores zero, in memory or in a register.
 - **What still needs a zero** ([RFC 0006, 3.3](0006-rfc-ideas-isa.md#33-r0-as-a-general-register)):
-  `ADC r5, r0` in bignum, `SBC r6, r0` in sort, `MTHI r0` before a `DIVUL`
-  chain, and the kernel's `MTUR r1, r0` and `MTSR mapd, r0`. These take a
+  `ADC r5, r0` in bignum, `SBC r6, r0` in sort, and the kernel's
+  `MTUR r1, r0` and `MTSR mapd, r0`. These take a
   `CLR rX` first, or new forms ([12](#12-open-questions)). The Lisp's
   `CMP.T r1, r0` becomes `TTST r1, r1`.
 - **In the hardware:** `NEG` and the multiply and divide routines read
@@ -804,6 +832,49 @@ where they fit, so that their use can be measured (Emily, 2026-10-15).
     wrote as `CMP.T r1, r0` and `MOV.T r9, r1`.
   - The Lisp tags integers with bit 0 clear and Egret as 2n + 1; the
     tools take the Lisp's until it's settled.
+
+#### 9.9 `HI` and `LO` are `r0` and `r1`
+
+**decided** (Emily, 2026-10-16). Draft 1's `HI`, a hidden entry of 1b's
+register file reached through `MFSR` and `MTSR`, and the `LO` that `MULA`
+added were special registers 1 and 2.
+
+- **The operating system** gets a thread whose state is `r0`–`r15`, the
+  PC and the status word. `MFUR` and `MTUR` reach all of a bank, and an
+  exception frame or a switch has no special registers to save. A kernel
+  that shares register banks among threads needed a way to reach
+  another bank's `HI` and `LO`
+  ([RFC 0029's register-banks.md](0029-rfc-draft-2-system/register-banks.md#3-what-fewer-banks-would-change-in-software));
+  now it needs none.
+- **The hardware** loses `HI` and `LO`'s special-register path, and a
+  bank is sixteen registers.
+- **What it costs:** a multiply or divide writes `r0` whether or not the
+  program wanted the high half or the remainder, so assembly keeps
+  nothing in `r0` across one (nor in `r1` across `MULA`), and the
+  compiler's register allocator treats `r0` as clobbered by them. In
+  cycles, estimates put the cost close to nothing either way (Emily,
+  2026-10-16). x86's `MUL` and `DIV` use `EDX` the same way.
+- **A fixed register is a magic register,** which Emily dislikes, but a
+  separate `HI` is worse (Emily).
+- **Gone with them:** the shorthands `MFHI`, `MTHI`, `MFLO` and `MTLO`,
+  and the open question of whether `MULU` and `MULS` leave `LO` alone.
+  What happens when a multiply or divide has `rd` = `r0`, and so writes
+  it twice, is a new one. The proposal writes `rd` last, so it wins and
+  a register allocator may still pick `r0` for it
+  ([5.3](#53-multiply-and-divide)). It's sound, and stays
+  tentative (Emily, 2026-10-16). The alternative is to make the
+  conflicting encodings illegal, so a mistake traps; Emily finds the
+  proposal more useful.
+- **Written out in the syntax** (**decided**, Emily, 2026-10-16):
+  `MULU r0:r2, r3` rather than `MULU r2, r3` ([6](#6-assembler-syntax)).
+  - The clobber shows where it happens, in source, listings and traces.
+    The 68020 writes its pairs the same way (`MULU.L ea, Dh:Dl`).
+  - The assembler's error for a high register other than `r0` is a
+    feature (Emily): it catches someone expecting a register the
+    hardware won't use.
+  - If an explicit two-parcel form ever goes into `FD`, `MULU r5:r2, r3`
+    is its syntax already, and the assembler picks the short encoding
+    when the high register is `r0`.
 
 ### 10. 1b's gaps left open
 
@@ -849,7 +920,7 @@ executed instructions:
   - **A second fixed-base slot,** shaped like `[sp + 4R]`, with a register
     set aside by convention for the current object.
 - **Decided:** the second fixed-base slot, as mode E with `r14`, after
-  the fixed-base report measured it on the kernel, Egret and the Lisp
+  [the fixed-base measurements](0028-rfc-draft-2-isa/fixed-base-mode.md) on the kernel, Egret and the Lisp
   (Emily, 2026-10-15; [9.6](#96-the-addressing-modes)). Short offsets
   through any register are not proposed.
 
@@ -959,15 +1030,17 @@ Part I marks each of these **open**; the proposal is what it states.
       `.W`), only if something needs it.
 12. **The details the tools chose:** the shift count's split, `SETcc`
     with cc = F, `SAVE` and `RESTORE` within `r0`–`r14`, `DBNZ`'s offset,
-    `INC` and `DEC` on a byte taking N from bit 7, `MULU` and `MULS`
-    leaving `LO` alone, `JMP` and `CALL` refusing byte and half memory
-    operands, and a load into its own auto-incremented register.
+    `INC` and `DEC` on a byte taking N from bit 7, `JMP` and `CALL`
+    refusing byte and half memory operands, a load into its own
+    auto-incremented register, and which result stays when a multiply
+    or divide has `rd` = `r0` ([5.3](#53-multiply-and-divide); or those
+    encodings are illegal).
 13. **Syntax:** `LI`, `MFF` and `MTF` refused; one spelling per
     instruction; case.
 14. **The calling convention** beyond `r7` and `sp`.
 15. **`FD`:** kept as room for rare instructions, or freed, with `MULFX`
     moving elsewhere.
-16. **Room to grow:** 9 free cells, and `AND`, `OR` and `XOR`'s memory
+16. **Room to grow:** 8 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([9.2](#92-alu-operations-and-constants)).
 
 ### 13. Next steps
