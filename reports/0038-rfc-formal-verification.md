@@ -615,7 +615,13 @@ change state. The second, Part II's, came out of Emily's review: braces;
 would type-check; and the checks of [2.6](#26-what-is-checked). Draft 1b
 was rewritten in it. The rewrite found no mistake in the first text, and
 the checker caught one slip in the rewrite (a parameter named like a
-function). SAMENESS The text is longer, about 770 lines against 610: the
+function). The solver proved that the two texts say the same
+(`heron formal versions`): each instruction (an EA instruction one mode
+at a time) runs in both on the same symbolic inputs, and they make the
+same assumptions and give the same registers, flags, PC, faults and
+halts, with the same writes to memory in the same order. That is 835
+comparisons in 69 seconds. Comparing the memories as arrays was too hard
+for the solver; comparing the writes is stronger and easy. The text is longer, about 770 lines against 610: the
 closing braces, a `let` for each `proc` value used in an expression, and
 the named arguments.
 

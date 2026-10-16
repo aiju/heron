@@ -81,9 +81,17 @@ def _bit(b):
 
 
 def variants(ins):
-    if "m" not in ins.fields:
-        return [{}]
-    return [{"m": m} for m in range(15)] + [{"m": 15, "n": n} for n in range(16)]
+    """The fields to fix, one dict per comparison: an EA instruction's mode
+    (and n in mode F), and JMP's and Jcc's k. The first interpreter can't
+    take apart the result of a call that faulted on every path still open
+    (JMP with a reserved mode, after `if k > 1`); fixing k keeps it off
+    that path."""
+    out = [{}]
+    if "m" in ins.fields:
+        out = [{"m": m} for m in range(15)] + [{"m": 15, "n": n} for n in range(16)]
+    if "k" in ins.fields:
+        out = [dict(f, k=k) for f in out for k in range(16)]
+    return out
 
 
 def compare(A, sa, sb, ia, ib, fixed, timeout_ms=300_000):
