@@ -282,7 +282,7 @@ pub enum Insn {
         a: u8,
         cnt: u8,
     },
-    /// MULA: HI:LO <- HI:LO + rd * rs, signed
+    /// MULA: r0:r1 <- r0:r1 + rd * rs, signed
     Mula {
         d: u8,
         s: u8,
@@ -325,7 +325,7 @@ pub const ALU_DIVUL: u8 = 15;
 pub const ALU_MOV: u8 = 16;
 /// ADD.B4: four bytes added on their own (tentative).
 pub const ALU_ADDB4: u8 = 17;
-/// MERGE: rs's bits where HI has a 1, rd's elsewhere (tentative).
+/// MERGE: rs's bits where r0 has a 1, rd's elsewhere (tentative).
 pub const ALU_MERGE: u8 = 18;
 
 /// Whether ALU function f writes its result.
@@ -410,20 +410,14 @@ impl Machine {
     /// Switch the registers to another bank: the ones in use go back to
     /// theirs.
     pub fn switch_bank(&mut self, to: usize) {
-        let (r, hi, lo) = (self.r, self.hi, self.lo);
+        let r = self.r;
         let s = self.sys.as_mut().expect("system mode");
         if s.cur_bank == to {
             return;
         }
-        let b = &mut s.banks[s.cur_bank];
-        b[..16].copy_from_slice(&r);
-        b[16] = hi;
-        b[17] = lo;
+        s.banks[s.cur_bank] = r;
         s.cur_bank = to;
-        let b = s.banks[to];
-        self.r.copy_from_slice(&b[..16]);
-        self.hi = b[16];
-        self.lo = b[17];
+        self.r = s.banks[to];
     }
 
     /// Set the mode: supervisor mode runs in bank 0, user mode in `bank`.
@@ -516,16 +510,19 @@ impl Machine {
                 self.nz(a & b);
                 return Ok(None);
             }
+            // The multiplies and divides put the high half or the remainder
+            // in r0, after the operands are read and before the caller
+            // writes rd, so rd wins where it is r0 (RFC 0028, 5.3).
             ALU_MULU => {
                 let p = a as u64 * b as u64;
-                self.hi = (p >> 32) as u32;
-                let o = (self.hi != 0) as u8;
+                self.r[0] = (p >> 32) as u32;
+                let o = (p >> 32 != 0) as u8;
                 (self.c, self.v) = (o, o);
                 self.nz(p as u32)
             }
             ALU_MULS => {
                 let p = a as i32 as i64 * b as i32 as i64;
-                self.hi = (p >> 32) as u32;
+                self.r[0] = (p >> 32) as u32;
                 let o = (p != p as i32 as i64) as u8;
                 (self.c, self.v) = (o, o);
                 self.nz(p as u32)
@@ -534,7 +531,7 @@ impl Machine {
                 if b == 0 {
                     return trap(DIV_VECTOR, true, "divide by zero");
                 }
-                self.hi = a % b;
+                self.r[0] = a % b;
                 (self.c, self.v) = (0, 0);
                 self.nz(a / b)
             }
@@ -545,13 +542,13 @@ impl Machine {
                 let (sa, sb) = (a as i32, b as i32);
                 self.c = 0;
                 if sa == i32::MIN && sb == -1 {
-                    self.hi = 0;
+                    self.r[0] = 0;
                     self.v = 1;
                     return Ok(Some(self.nz(0x8000_0000)));
                 }
                 // truncating division, the remainder taking the dividend's sign
                 let q = sa / sb;
-                self.hi = sa.wrapping_sub(q.wrapping_mul(sb)) as u32;
+                self.r[0] = sa.wrapping_sub(q.wrapping_mul(sb)) as u32;
                 self.v = 0;
                 self.nz(q as u32)
             }
@@ -559,12 +556,15 @@ impl Machine {
                 if b == 0 {
                     return trap(DIV_VECTOR, true, "divide by zero");
                 }
-                if self.hi >= b {
+                // r0:rd is the dividend; with r0 >= rs the quotient
+                // wouldn't fit, and nothing but V changes
+                let high = self.r[0];
+                if high >= b {
                     self.v = 1;
                     return Ok(None);
                 }
-                let d = (self.hi as u64) << 32 | a as u64;
-                self.hi = (d % b as u64) as u32;
+                let d = (high as u64) << 32 | a as u64;
+                self.r[0] = (d % b as u64) as u32;
                 (self.c, self.v) = (0, 0);
                 self.nz((d / b as u64) as u32)
             }
@@ -573,7 +573,8 @@ impl Machine {
                 let lo7 = (a & 0x7F7F_7F7F).wrapping_add(b & 0x7F7F_7F7F);
                 self.nz(lo7 ^ ((a ^ b) & 0x8080_8080))
             }
-            _ => self.nz((a & !self.hi) | (b & self.hi)),
+            // MERGE: the mask is r0
+            _ => self.nz((a & !self.r[0]) | (b & self.r[0])),
         }))
     }
 
@@ -721,8 +722,6 @@ impl Machine {
         let s = self.sys.as_ref().expect("system mode");
         Ok(match n {
             0 => self.ccr(),
-            1 => self.hi,
-            2 => self.lo,
             8 => self.sr(),
             9 => s.far,
             10 => s.fsr,
@@ -742,8 +741,6 @@ impl Machine {
         }
         match n {
             0 => self.set_ccr(v),
-            1 => self.hi = v,
-            2 => self.lo = v,
             8 => self.set_sr_but_s(v),
             _ => {
                 let s = self.sys.as_mut().expect("system mode");
@@ -892,8 +889,6 @@ impl Machine {
                 } else {
                     match b {
                         0 => self.flags_word(),
-                        1 => self.hi,
-                        2 => self.lo,
                         _ => return illegal(),
                     }
                 };
@@ -907,8 +902,6 @@ impl Machine {
                 } else {
                     match a {
                         0 => self.set_flags_word(r(self, b)),
-                        1 => self.hi = r(self, b),
-                        2 => self.lo = r(self, b),
                         _ => return illegal(),
                     }
                 }
@@ -1218,8 +1211,9 @@ impl Machine {
             Insn::Mula { d, s } => {
                 let b = r(self, s);
                 let p = r(self, d) as i32 as i64 * b as i32 as i64;
-                let acc = ((self.hi as u64) << 32 | self.lo as u64).wrapping_add(p as u64);
-                (self.hi, self.lo) = ((acc >> 32) as u32, acc as u32);
+                // r0:r1 is the accumulator
+                let acc = ((self.r[0] as u64) << 32 | self.r[1] as u64).wrapping_add(p as u64);
+                (self.r[0], self.r[1]) = ((acc >> 32) as u32, acc as u32);
                 self.pc = nxt;
                 // a multiply, and two more ALU passes for the 64-bit add
                 key(Kind::Mul {
@@ -1230,7 +1224,8 @@ impl Machine {
             Insn::Mulfx { d, s, n: sh } => {
                 let b = r(self, s);
                 let p = r(self, d) as i32 as i64 * b as i32 as i64;
-                self.hi = (p >> 32) as u32;
+                // r0 gets the product's high half, then rd the result
+                self.r[0] = (p >> 32) as u32;
                 let q = p >> sh;
                 let o = (q != q as i32 as i64) as u8;
                 (self.c, self.v) = (o, o);

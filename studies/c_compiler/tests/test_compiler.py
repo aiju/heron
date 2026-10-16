@@ -415,6 +415,12 @@ int f(struct e *x, struct e *y) { if (before(x, y)) return 7; return 9; }"""
         loop = re.search(r"^(\.b\d+):\n(.*?)\n\s+B\w+\s+\1\n", a, re.S | re.M).group(2)
         self.assertNotRegex(loop, r"MOV\s+r\d+, r\d+\n")
 
+    def test_v2_remainder_in_r0(self):
+        # draft 2 has no HI: a divide leaves its remainder in r0
+        a = asm_of("unsigned f(unsigned a, unsigned b) { return a % b; }", "v2")
+        self.assertRegex(a, r"DIVU\s+r0:r\d+, r\d+\n\s+MOV\s+r1, r0")
+        self.assertNotIn("MFHI", a)
+
     def test_v2_no_overflow_replaces_compare(self):
         # j - 1 can't overflow (j is an int), so the ADD's flags decide
         # j > 0 on their own; an INC or DEC, which leaves V, becomes an ADD
@@ -564,6 +570,20 @@ return s; }"""
         optimized(src)
         self.check("#include <stdio.h>\n" + src + '\nint main(void) { printf("%d %d\\n", f(5, 200, 3), f(4, -7, 2)); '
                    "return 0; }", "-495 -40\n")
+
+    def test_values_live_across_multiply_and_divide(self):
+        # on draft 2 every multiply and divide writes r0, which the
+        # allocator hands out once r1-r6 are taken: nothing may live there
+        # across one, and a quotient mustn't land on the remainder
+        terms = " + ".join(f"v{i} * {i + 2}" for i in range(7))
+        src = f"""#include <stdio.h>
+int f(int x, int y) {{ {" ".join(f"int v{i} = x + {i};" for i in range(7))}
+    int p = x * y, q = x / y, r = x % y;
+    return {terms} + p + q * 3 + r * 5; }}
+int main(void) {{ printf("%d\\n", f(1234, 37)); return 0; }}"""
+        x, y = 1234, 37
+        want = sum((x + i) * (i + 2) for i in range(7)) + x * y + (x // y) * 3 + (x % y) * 5
+        self.check(src, f"{want}\n")
 
     def test_spill_pressure(self):
         # more live values than registers

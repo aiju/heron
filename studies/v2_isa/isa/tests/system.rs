@@ -11,9 +11,9 @@ use v2_isa::{Machine, RunStatus};
 
 /// A board for the tests, at physical 0x1000_0000:
 ///   +0   W: a byte to the console       R: the levels set by +4
-///   +4   W: the interrupt levels requesting (a bit per level)
+///   +4   W: the interrupt levels requesting (bit L - 1 for level L)
 ///   +8   R: the cycle count
-///   +C   W: interrupt at level 3 this many cycles from now
+///   +C   W: interrupt at level 4 this many cycles from now
 ///   +10  W: acknowledge that interrupt
 struct TestBus {
     out: Vec<u8>,
@@ -53,7 +53,7 @@ impl Bus for TestBus {
         let mut next = u64::MAX;
         if self.timer_on {
             if cycles >= self.timer_at {
-                mask |= 1 << 3;
+                mask |= 1 << (4 - 1);
             } else {
                 next = self.timer_at;
             }
@@ -118,11 +118,11 @@ const VECTORS: &str = "
         .org 0x80000024
         JMP  ex24
         .org 0x8000004C
-        JMP  irq3
-        .org 0x80000050
         JMP  irq4
-        .org 0x80000054
+        .org 0x80000050
         JMP  irq5
+        .org 0x80000054
+        JMP  irq6
         .org 0x80000114
         JMP  swi5
         .org 0x80001000
@@ -146,9 +146,9 @@ ex20:   MOV  r1, #'F'
         BRA  report
 ex24:   MOV  r1, #'T'
         BRA  report
-irq3:
 irq4:
 irq5:
+irq6:
 swi5:   MOV  r1, #'?'
 report: MOV  [r13], r1
         DI
@@ -228,7 +228,7 @@ swi5:   MOV  r1, #11                ; the supervisor's own r1
         to_user(5, 9, 0, 0),
     )
     .replace("swi5:   MOV  r1, #'?'", "")
-    .replace("irq5:\n", "irq5:   MOV  r1, #'?'\n"));
+    .replace("irq6:\n", "irq6:   MOV  r1, #'?'\n"));
     assert_eq!(out(&mut m), "usr");
     assert_eq!(m.r[1], 11, "the supervisor's r1 is its own");
     assert_eq!(m.r[6], SR_S);
@@ -470,12 +470,12 @@ fn map_entries_read_back_and_mapd_moves_on() {
 
 #[test]
 fn interrupts_by_level_with_ipl() {
-    // levels 3 and 5 request; with IPL 4 only 5 is taken, and it runs with
-    // IPL 6; an EI in its handler doesn't let 3 in until IPL drops
+    // levels 4 and 6 request; with IPL 4 only 6 is taken, above it, and it
+    // runs at IPL 6; an EI in its handler doesn't let 4 in until IPL drops
     let mut m = run(&format!(
         "{VECTORS}
         MOV  r9, #0x90000004        ; the levels
-        MOV  r1, #(1 << 3) | (1 << 5)
+        MOV  r1, #(1 << (4 - 1)) | (1 << (6 - 1))
         MOV  [r9], r1
         SPL  #4
         EI
@@ -488,27 +488,27 @@ fn interrupts_by_level_with_ipl() {
         HALT
 {FAULT}
         .org 0x80003000
-irq5:   MFSR r2, sr
-        MOV  r1, #'5'
+irq6:   MFSR r2, sr
+        MOV  r1, #'6'
         MOV  [r13], r1
-        MOV  r1, #1 << 3            ; level 5 goes away
+        MOV  r1, #1 << (4 - 1)      ; level 6 goes away
         MOV  [r9], r1
         EI
         NOP
         RTI
-irq3:   MFSR r3, sr
-        MOV  r1, #'3'
+irq4:   MFSR r3, sr
+        MOV  r1, #'4'
         MOV  [r13], r1
         CLR  [r9]
         RTI
 "
     )
-    .replace("irq3:\nirq4:\nirq5:\n", "irq4:\n"));
-    assert_eq!(out(&mut m), "5.3");
-    assert_eq!(m.r[2], SR_S | 6 << 24, "level 5 runs at IPL 6 with I clear");
+    .replace("irq4:\nirq5:\nirq6:\n", "irq5:\n"));
+    assert_eq!(out(&mut m), "6.4");
+    assert_eq!(m.r[2], SR_S | 6 << 24, "level 6 runs at IPL 6 with I clear");
     assert_eq!(m.r[3], SR_S | 4 << 24);
-    assert_eq!(m.sys().interrupts[5], 1);
-    assert_eq!(m.sys().interrupts[3], 1);
+    assert_eq!(m.sys().interrupts[6 - 1], 1);
+    assert_eq!(m.sys().interrupts[4 - 1], 1);
 }
 
 #[test]
@@ -516,7 +516,7 @@ fn no_interrupt_straight_after_ei() {
     let mut m = run(&format!(
         "{VECTORS}
         MOV  r9, #0x90000004
-        MOV  r1, #1 << 4
+        MOV  r1, #1 << (5 - 1)
         MOV  [r9], r1
         MOV  r12, #'a'
         EI
@@ -527,13 +527,13 @@ fn no_interrupt_straight_after_ei() {
         HALT
 {FAULT}
         .org 0x80003000
-irq4:   MOV  r2, #'b'
+irq5:   MOV  r2, #'b'
         MOV  [r13], r2
         CLR  [r9]
         RTI
 "
     )
-    .replace("irq3:\nirq4:\nirq5:\n", "irq3:\nirq5:\n"));
+    .replace("irq4:\nirq5:\nirq6:\n", "irq4:\nirq6:\n"));
     assert_eq!(out(&mut m), "abc");
 }
 
@@ -543,7 +543,7 @@ fn halt_waits_for_an_interrupt_and_skips_the_time() {
         "{VECTORS}
         MOV  r9, #0x9000000C
         MOV  r1, #100000
-        MOV  [r9], r1               ; level 3 in 100,000 cycles
+        MOV  [r9], r1               ; level 4 in 100,000 cycles
         EI
         HALT
         MOV  r1, #'z'
@@ -552,14 +552,14 @@ fn halt_waits_for_an_interrupt_and_skips_the_time() {
         HALT
 {FAULT}
         .org 0x80003000
-irq3:   MOV  r1, #'w'
+irq4:   MOV  r1, #'w'
         MOV  [r13], r1
         MOV  r1, #0x90000010
         MOV  [r1], r1               ; acknowledge
         RTI
 "
     )
-    .replace("irq3:\nirq4:\nirq5:\n", "irq4:\nirq5:\n"));
+    .replace("irq4:\nirq5:\nirq6:\n", "irq5:\nirq6:\n"));
     assert_eq!(out(&mut m), "wz");
     assert!(m.cycles > 100_000);
     assert!(m.idle_cycles > 99_000);
@@ -571,7 +571,7 @@ fn halt_with_nothing_to_wait_for_is_idle() {
     let mut m = machine(&format!("{VECTORS}\n        EI\n        HALT\n{FAULT}"));
     assert_eq!(m.run_system(1_000_000, u64::MAX).unwrap(), RunStatus::Idle);
     // something from outside, and it carries on
-    m.sys_mut().bus_as::<TestBus>().unwrap().levels = 1 << 3;
+    m.sys_mut().bus_as::<TestBus>().unwrap().levels = 1 << (4 - 1);
     m.sys_mut().touched();
     assert_eq!(
         m.run_system(1_000_000, u64::MAX).unwrap(),

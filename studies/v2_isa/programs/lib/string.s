@@ -8,7 +8,7 @@
 ;   memcpy   r1 = dst, r2 = src, r3 = n    -> r1 = dst                    clobbers r0, r2-r5
 ;            (copies forward: use memmove when the areas overlap)
 ;   memmove  r1 = dst, r2 = src, r3 = n    -> r1 = dst, any overlap       clobbers r0, r2-r5
-;   memset   r1 = dst, r2 = byte, r3 = n   -> r1 = dst                    clobbers r0, r2-r5, HI
+;   memset   r1 = dst, r2 = byte, r3 = n   -> r1 = dst                    clobbers r0, r2-r5
 ;
 ; memcpy and memset move whole words, 16 bytes per loop, when the addresses
 ; allow it (dst and src equally aligned for memcpy); memmove copies bytes
@@ -95,10 +95,10 @@ memmove:
         DBNZ r3, .back
         RET
 
-memset: MOV  r0, r1             ; the result
-        ZXB  r2
+memset: ZXB  r2
         MOV  r4, #0x01010101
-        MULU r2, r4             ; the byte in all four lanes of a word
+        MULU r0:r2, r4          ; the byte in all four lanes of a word
+        MOV  r0, r1             ; the result, after the MULU, which writes r0
         NEG  r4, r1
         AND  r4, #3             ; r4 = bytes before dst reaches a word boundary
         BEQ  .words

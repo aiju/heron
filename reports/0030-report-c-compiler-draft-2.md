@@ -62,6 +62,17 @@ by `heron c_compiler bench --isa v2 --write`.
 > moves by at most 0.2 points, except `r0` as a 15th register in the
 > library: 0.4% slower with it, not 0.4% faster.
 
+> **Erratum (2026-10-16), HI and LO.** Draft 2 now leaves a multiply's
+> high half and a divide's remainder in `r0`
+> ([RFC 0028, 5.3](0028-rfc-draft-2-isa.md#53-multiply-and-divide)), so a
+> remainder needs no `MFHI`, and performance.md is rerun again, with the
+> hand-written programs following the change too. Compiled C now takes
+> 4.1% fewer cycles on draft 2 than on 1b in the programs' own code and
+> 4.8% fewer in the C library (in the other configurations 4.0–5.1% and
+> 4.6–5.6%), with 4.5% less code; the hand-written programs take 2.9%
+> fewer. `r0` as a 15th register is now worth 0.3% (0.5% in the library),
+> since a remainder can stay where the divide leaves it.
+
 ## What the compiler does on draft 2
 
 Draft 2 keeps 1b's addressing modes in its rows, so the backend

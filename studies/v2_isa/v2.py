@@ -30,12 +30,16 @@ UNARY = ["NOT", "NEG", "INC", "DEC", "RLC", "RRC", "SWAP", "SXB", "SXH", "ZXB", 
          "CLZ", "FFS", "POPC", "REV"]
 ROW_E = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "MULA", "DIVU", "DIVS", "DIVUL",
          "BIC", "TST", "MULU", "MULS", "MERGE"]
+# the multiplies and divides that write r0 too, written r0:rd (RFC 0028, 6);
+# MULA is written r0:r1, rd, rs and MERGE rd, rs, r0
+PAIRED = {"MULU", "MULS", "DIVU", "DIVS", "DIVUL"}
 SHIFTS = ["LSL", "LSR", "ASR", "ROR"]
 # the special registers (RFC 0029, 4): 0-7 user mode's, 8-15 the
 # supervisor's. 0 is ccr, the condition codes; the machine without a
 # supervisor keeps draft 1's flags word there, which the assembler also
-# takes as `flags`
-SR_NAMES = {0: "ccr", 1: "hi", 2: "lo", 8: "sr", 9: "far", 10: "fsr", 11: "ctx",
+# takes as `flags`. 1 and 2, once HI and LO, are reserved: those are r0
+# and r1 now
+SR_NAMES = {0: "ccr", 8: "sr", 9: "far", 10: "fsr", 11: "ctx",
             12: "mapa", 13: "mapd", 14: "bank", 15: "bkpt"}
 # the free cells, ILLEGAL, and CAS and the FPU escape, which aren't designed
 FREE = {0x00, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xFA, 0xFB, 0xFF}
@@ -257,12 +261,8 @@ def disassemble(ws, pc=0, symbols=None):
     if op == 0x08:
         return f"ADD.B4 {rr}", 1
     if op == MFSR:
-        if lo in (1, 2):
-            return f"MF{SR_NAMES[lo].upper()} {R(hi)}", 1
         return f"MFSR {R(hi)}, {SR_NAMES.get(lo, lo)}", 1
     if op == MTSR:
-        if hi in (1, 2):
-            return f"MT{SR_NAMES[hi].upper()} {R(lo)}", 1
         return f"MTSR {SR_NAMES.get(hi, hi)}, {R(lo)}", 1
     if op in TAGGED:
         return f"{TAGGED[op]} {rr}", 1
@@ -307,12 +307,18 @@ def disassemble(ws, pc=0, symbols=None):
         # in place: one register, as it's written
         return f"{UNARY[col]} {R(hi) if hi == lo else rr}", 1
     if row == 0xE:
+        name = ROW_E[col]
+        d = f"r0:{R(hi)}" if name in PAIRED else R(hi)
         if 0xA <= col <= 0xD:
             opnd, _ = ea_info(0xF, lo, ext)
             if opnd is None:
                 return bad
-            return f"{ROW_E[col]} {R(hi)}, {dis_ea(0xF, lo, ext, nxt, symbols)}", n
-        return f"{ROW_E[col]} {rr}", 1
+            return f"{name} {d}, {dis_ea(0xF, lo, ext, nxt, symbols)}", n
+        if name == "MULA":
+            return f"MULA r0:r1, {rr}", 1
+        if name == "MERGE":
+            return f"MERGE {rr}, r0", 1
+        return f"{name} {d}, {R(lo)}", 1
     # row F
     if op in (0xF0, 0xF1):
         opnd, _ = ea_info(hi, lo, ext)
@@ -345,7 +351,7 @@ def disassemble(ws, pc=0, symbols=None):
             e = ext[0]
             if e & 0xE0:
                 return bad
-            return f"MULFX {R(e >> 12)}, {R((e >> 8) & 15)}, #{e & 31}", 2
+            return f"MULFX r0:{R(e >> 12)}, {R((e >> 8) & 15)}, #{e & 31}", 2
         return bad
     if op == 0xFE:
         if 0x10 <= rb <= 0x18:

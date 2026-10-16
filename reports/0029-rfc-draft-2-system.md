@@ -48,7 +48,7 @@ To the machine of RFC 0028 this adds:
   | 3 | N | negative |
   | 4–7 | | reserved for user flags |
   | 8–23 | | reserved |
-  | 24–27 | IPL | interrupt priority level, 0–8: requests below it are held off ([7](#7-interrupts)) |
+  | 24–27 | IPL | interrupt priority level, 0–8: requests at or below it are held off ([7](#7-interrupts)) |
   | 28 | | reserved |
   | 29 | T | trace: trap after every instruction |
   | 30 | I | interrupts enabled |
@@ -124,8 +124,7 @@ A virtual address's bit 31 picks how it is mapped:
 | n | Name | |
 |---|---|---|
 | 0 | `ccr` | the condition codes, `sr`'s byte 0 ([2](#2-modes-and-the-status-register)) |
-| 1 | `hi` | `HI` |
-| 2 | `lo` | `LO`, for `MULA` (tentative, [RFC 0028, 5.10](0028-rfc-draft-2-isa.md#510-tentative-instructions)) |
+| 1–2 | | reserved |
 | 3 | | reserved for the FPU's control and status |
 | 4–7 | | reserved |
 | 8 | `sr` | the status register ([2](#2-modes-and-the-status-register)) |
@@ -141,7 +140,7 @@ Reserved registers read as 0 and ignore writes.
 
 ### 5. Register banks
 
-- **A bank** holds `r0`–`r15`, `HI` and `LO`. There are 256.
+- **A bank** holds `r0`–`r15`. There are 256.
 - **Supervisor mode runs in bank 0,** and user mode in bank `bank`. An
   exception switches to bank 0; `RTI` into user mode switches to bank
   `bank`. With `bank` = 0 the two modes share their registers.
@@ -163,7 +162,7 @@ Reserved registers read as 0 and ignore writes.
 | `0x8000_001C` | privilege violation | the instruction |
 | `0x8000_0020` | page fault ([3](#3-the-address-space)) | the instruction |
 | `0x8000_0024` | trace | the next instruction |
-| `0x8000_0040` + 4L | interrupt at level L, 0–7 ([7](#7-interrupts)) | the next instruction |
+| `0x8000_0040` + 4(L − 1) | interrupt at level L, 1–8 ([7](#7-interrupts)) | the next instruction |
 | `0x8000_0100` + 4n | `SWI #n`, n = 0–255 | the next instruction |
 
 - **Vectors** are 4 bytes apart, room for one two-parcel instruction,
@@ -193,8 +192,11 @@ Reserved registers read as 0 and ignore writes.
 
 ### 7. Interrupts
 
-- **Eight request lines,** levels 0–7, 7 the highest. Each is one of the
-  system bus's interrupt lines IRQ0–IRQ7
+This is the design for now; the interrupt architecture as a whole is
+**open** (Emily, 2026-10-16).
+
+- **Eight request lines,** levels 1–8, 8 the highest. Each is the system
+  bus's interrupt line of the same number, IRQ1–IRQ8
   ([RFC 0014, 8.3](0014-rfc-system-bus.md#83-interrupts-and-synchronisation)),
   or, chosen by a jumper on the CPU's board, a source on that board in
   its place.
@@ -202,22 +204,22 @@ Reserved registers read as 0 and ignore writes.
   clears the cause. Several sources may share a level; the handler finds
   out which by asking them.
 - **Taken** between instructions, when I is set and the highest level L
-  requesting is at least IPL: never straight after `EI`, possibly
+  requesting is above IPL: never straight after `EI`, possibly
   straight after `DI`, and straight after `RTI` if the status it restores
   allows it. IPL above 8 holds off every level, as 8 does.
 - **Entering** an interrupt is entering an exception ([6](#6-exceptions)),
-  and also sets IPL to L + 1. The vector is `0x8000_0040` + 4L.
+  and also sets IPL to L. The vector is `0x8000_0040` + 4(L − 1).
   - I is clear in the handler. Executing `EI` lets higher levels in, which
     is how interrupts nest.
   - `RTI` restores the I and IPL of the code it returns to.
 - **`SPL #n`** sets IPL to n, 0–8, and changes nothing else
-  ([RFC 0028, 5.9](0028-rfc-draft-2-isa.md#59-system-instructions)). The
-  kernel raises IPL around a critical section and puts back what was
-  there with:
+  ([RFC 0028, 5.9](0028-rfc-draft-2-isa.md#59-system-instructions)):
+  levels n and below are then held off. The kernel raises IPL around a
+  critical section and puts back what was there with:
 
   ```
           MFSR r1, sr      ; save
-          SPL  #5          ; raise
+          SPL  #5          ; hold off levels 1-5
           ...
           MTSR sr, r1      ; restore
   ```
@@ -314,10 +316,19 @@ keeps what worked and changes the rest.
   open-collector lines and no acknowledge cycle, so a vector per level
   costs nothing on the bus and keeps simple cards simple; a vector from
   the device, as on the PDP-11, would need a bus cycle to fetch it.
-  - Raising IPL to L + 1 on entry, with I clear, holds off the level being
+  - **Levels 1–8, taken when above IPL** (Emily, 2026-10-16, for now),
+    as the PDP-11 and the 68000 number theirs: a handler for level L runs
+    at IPL L, and `SPL #L` holds off level L and those below it. Levels
+    0–7 taken at or above IPL are the same hardware with the same IPL
+    values, but put a +1 into every `SPL`: `SPL #6` to hold off a disk on
+    level 5, and `SPL #5` by mistake is a race that rarely shows. The
+    bus's lines are named IRQ1–IRQ8 to match, so no line number needs
+    translating either.
+  - Raising IPL to L on entry, with I clear, holds off the level being
     handled and everything below; a handler that executes `EI` lets
-    higher levels in, so nesting is the handler's choice. Four bits of IPL
-    are needed for that: 0 allows every level, 8 none.
+    higher levels in, so nesting is the handler's choice. Eight levels
+    need nine IPL values, so four bits: 0 allows every level, 8 none. The
+    PDP-11's priority has three bits, and so seven levels.
   - Report 0020 measured 500–640 cycles to hand an interrupt to a
     user-level driver, so devices should interrupt for a buffer, not a
     byte ([report 0020](0020-report-operating-system.md#interrupts-and-devices)).
@@ -373,9 +384,14 @@ keeps what worked and changes the rest.
 
 ### 11. Open questions
 
-1. **Interrupts:** whether each level gets a register bank, so that a
-   handler saves nothing; and the non-maskable interrupt's source,
-   triggering, and effect on I and IPL.
+1. **Interrupts,** which Emily may revisit as a whole (2026-10-16). Among
+   the questions: how many levels (Unix V6 used three device levels on
+   the PDP-11; a kernel that hands each interrupt to a user-level driver
+   hardly needs priorities, and a level shared by several devices costs
+   a few status reads against the 500–640 cycles of the hand-off);
+   whether each level gets a register bank, so that a handler saves
+   nothing; and the non-maskable interrupt's source, triggering, and
+   effect on I and IPL.
 2. **The physical memory map:** where RAM, ROM, the I/O registers and the
    slots sit, now that the window reaches only the lower 2 GB, and what
    an access that nothing answers does.

@@ -176,9 +176,9 @@ L1:     MOV r1, r2
         LSR r9, #7
         LSL r1, #20
         LSL r1, r5
-        MULS r1, r3
+        MULS r0:r1, r3
         TST r1, r2
-        DIVS r1, r2
+        DIVS r0:r1, r2
         SAVE r3-r5
         RESTORE r3-r8
         RET

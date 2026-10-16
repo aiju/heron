@@ -9,9 +9,11 @@
 //! per instruction: a store is `MOV [address], rs`, and `MOV` and `CMP`
 //! pick their 7-bit forms themselves, so `ST`, `MVI` and `CMPI` are only
 //! labels in the map. `PUSH r1` is `MOV -[sp], r1` and `POP r1` is
-//! `MOV r1, [sp]+`; `MFHI`, `MTHI`, `MFLO` and `MTLO` are the special
-//! registers HI and LO's `MFSR` and `MTSR`. The disassembler prints those
-//! names: the assembler takes what the disassembler prints.
+//! `MOV r1, [sp]+`, `RET` is `JMP r7` and `NOP` is `MOV r0, r0`. The
+//! disassembler prints those names: the assembler takes what the
+//! disassembler prints. There is no `HI` or `LO` any more: a multiply's
+//! high half and a divide's remainder are in `r0`, so `MFHI` and the like
+//! are refused with the `MOV` to write instead.
 
 use toolchain::asm::expr::Expr;
 use toolchain::asm::{AsmError, Ctx, Encoder, ExprRef, Mem, Operand, Size, kinds};
@@ -524,11 +526,9 @@ fn reg_range(op: &Operand, top: i64) -> Result<(i64, i64), AsmError> {
 /// The special registers' names (RFC 0029, 4), by number: 0-7 are user
 /// mode's, 8-15 the supervisor's. `flags` is draft 1's name for 0, which
 /// the machine without a supervisor still has.
-pub const SR_NAMES: [(&str, i64); 12] = [
+pub const SR_NAMES: [(&str, i64); 10] = [
     ("ccr", 0),
     ("flags", 0),
-    ("hi", 1),
-    ("lo", 2),
     ("sr", 8),
     ("far", 9),
     ("fsr", 10),
@@ -607,14 +607,60 @@ fn renamed(u: &str) -> Option<&'static str> {
         "LI" => "write MOV rd, #value",
         "MFF" => "write MFSR rd, ccr",
         "MTF" => "write MTSR ccr, rs",
+        // HI and LO are r0 and r1 (RFC 0028, 9.9)
+        "MFHI" => "write MOV rd, r0: the high half and the remainder are in r0",
+        "MTHI" => "write MOV r0, rs: the high half and the remainder are in r0",
+        "MFLO" => "write MOV rd, r1: MULA's low word is in r1",
+        "MTLO" => "write MOV r1, rs: MULA's low word is in r1",
         "ADDI" => "write ADD rd, #value",
         _ => return None,
     })
 }
 
+/// The multiplies and divides write their implicit registers out (RFC
+/// 0028, 6): `MULU r0:rd, src`, `MULA r0:r1, rd, rs`, `MERGE rd, rs, r0`.
+/// Checks the form and returns the operands without the implicit ones, or
+/// None for every other instruction. Any other register in r0's or r1's
+/// place, or the form without them, is refused with the form to write.
+fn implicit(u: &str, ops: &[Operand]) -> Result<Option<Vec<Operand>>, AsmError> {
+    let (form, why) = match u {
+        "MULU" | "MULS" => ("r0:rd, src", "the high half goes to r0"),
+        "DIVU" | "DIVS" => ("r0:rd, rs", "the remainder goes to r0"),
+        "DIVUL" => (
+            "r0:rd, rs",
+            "r0:rd is the dividend, and the remainder goes to r0",
+        ),
+        "MULFX" => ("r0:rd, rs, #n", "the product's high half goes to r0"),
+        "MULA" => ("r0:r1, rd, rs", "the sum is in r0:r1"),
+        "MERGE" => ("rd, rs, r0", "the mask is r0"),
+        _ => return Ok(None),
+    };
+    let refuse = || err(format!("{u} is written {u} {form}: {why}"));
+    let rest = match (u, ops) {
+        ("MULA", [Operand::RegPair(h, l), rest @ ..]) if h.n == 0 && l.n == 1 => rest.to_vec(),
+        ("MERGE", [a, b, Operand::Reg(m)]) if m.n == 0 => vec![a.clone(), b.clone()],
+        ("MULA" | "MERGE", _) => return refuse(),
+        (_, [Operand::RegPair(h, rd), rest @ ..]) if h.n == 0 => {
+            let mut v = vec![Operand::Reg(rd.clone())];
+            v.extend_from_slice(rest);
+            v
+        }
+        _ => return refuse(),
+    };
+    Ok(Some(rest))
+}
+
 fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmError> {
     let u = name.to_ascii_uppercase();
     let u = u.as_str();
+    let stripped;
+    let ops = match implicit(u, ops)? {
+        Some(v) => {
+            stripped = v;
+            &stripped[..]
+        }
+        None => ops,
+    };
     let k = kinds(ops);
     let k = k.as_str();
     let one = |v: u16| Ok(vec![v]);
@@ -686,18 +732,6 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
                 p(0x27, r, 15)
             } else {
                 p(0x16, r, 15)
-            });
-        }
-        "MFHI" | "MFLO" | "MTHI" | "MTLO" => {
-            let [r @ Operand::Reg(_)] = ops else {
-                return err(format!("{u} needs one register"));
-            };
-            let r = reg_operand(r, "register")?;
-            let n = if u.ends_with("HI") { 1 } else { 2 };
-            return one(if u.starts_with("MF") {
-                p(MFSR, r, n)
-            } else {
-                p(MTSR, n, r)
             });
         }
         "MFUR" | "MTUR" => {

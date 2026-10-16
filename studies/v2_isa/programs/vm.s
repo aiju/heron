@@ -81,20 +81,20 @@ op_sub: NEG  r9                 ; a b -> a - b = -b + a
         JMP  [r13 + r1*4]
 
 op_mul: POP  r1                 ; a b -> a * b (b is the multiplier: the
-        MULS r1, r9             ; loop stops at b's top bit, and b is the
+        MULS r0:r1, r9          ; loop stops at b's top bit, and b is the
         MOV  r9, r1             ; small one in n * 3)
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_div: POP  r1                 ; a b -> a / b, rounding toward zero
-        DIVS r1, r9
+        DIVS r0:r1, r9
         MOV  r9, r1
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
 op_mod: POP  r1                 ; a b -> a mod b, with the sign of a
-        DIVS r1, r9
-        MFHI r9
+        DIVS r0:r1, r9
+        MOV  r9, r0             ; the remainder
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 

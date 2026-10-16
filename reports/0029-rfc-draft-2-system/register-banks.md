@@ -58,6 +58,12 @@ registers, as on most machines. The method is in
    Either they get a form for `HI` and `LO`, or `HI` and `LO` leave the
    banks and every switch saves them. (Emily expects to replace them with
    fixed general registers, which would remove the question.)
+
+   > **Since decided (2026-10-16).** `HI` and `LO` are now `r0` and `r1`
+   > ([RFC 0028, 9.9](../0028-rfc-draft-2-isa.md#99-hi-and-lo-are-r0-and-r1)),
+   > so a bank is `r0`–`r15` and the question is gone. The costs below
+   > that count `HI` and `LO` beside a range of registers count two
+   > registers that no longer exist.
 5. **The shared bank address is free.** It moves the microcode's
    temporaries from bank 0 to the current bank, where no program or
    kernel can see them, so it changes nothing measured here, and its
