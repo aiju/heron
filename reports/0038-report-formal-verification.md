@@ -258,7 +258,49 @@ it isn't written anywhere else:
 
 ### 8. What it costs, and what made it cheaper
 
-COSTS
+Simulating is cheap: a few hundred milliseconds a case, most of it
+building terms. Nearly all the time goes to the solver, and three
+things decided how much:
+
+- **The same term on both sides.** Register reads: 57 seconds for ADD
+  with a register operand before the specification's register file had
+  the hardware's shape, 6.6 after ([4](#4-joining-them)). The rule
+  generalises: wherever the specification and the hardware compute the
+  same thing, let them compute it as the same term, and the solver skips
+  it.
+- **Cut-points.** A memory operand's address is computed twice: by the
+  74181s for MAR, and by the specification's `+`. Every match the solver
+  makes between a read on one side and a read on the other needs the two
+  equal, so it proves the ALU's 20 address bits equal to an adder, again
+  and again. Now, when MAR is loaded with a symbolic value, one query asks
+  whether it equals an address the specification used. If it does, MAR
+  takes the specification's term from then on, and both sides' memory
+  reads use the same index. For `XOR rd, [sp + 20]` that took the memory
+  goal from over 120 seconds (the solver gave up) to 1.5, and the case
+  from 148 seconds, unproved, to 8.7, proved. It is the standard trick of
+  equivalence checkers, at the one place it matters most here.
+- **One query per group of goals.** One query for all fifteen registers is
+  several times faster than fifteen, since the solver proves the value
+  written once rather than once per register.
+
+What is still slow, or out of reach:
+
+- **Multiply and divide.** `MULU`, `MULS`, `DIVU`, `DIVS` and `DIVUL` run
+  16 or 32 add-and-shift (or subtract-and-shift) steps. The solver has to
+  prove 32 steps of the 74181 equal to a 32 × 32-bit multiplication, or
+  to a division. That is the textbook hard case for SAT-based
+  equivalence checking, and none finished within its budget. Known ways
+  round it:
+  - prove one loop step against a specification of one step, and the
+    loop's invariant once and for all, by hand or in a proof assistant;
+  - use an algebraic multiplier checker, of the kind that verifies 64-bit
+    multipliers with Gröbner bases;
+  - or leave multiply and divide to the tests.
+- **The indexed mode** dispatches on its extension parcel's scale and size
+  and on whether its displacement is 0: up to 32 paths, each with its own
+  address arithmetic.
+- **Loops whose count is data.** A shift by a register and CLZ split once
+  per count, 32 or 33 paths, at a few seconds each.
 
 ### 9. Breaking the hardware on purpose
 
@@ -309,4 +351,21 @@ question RFC 0004 doesn't answer ([3](#3-the-specification-side)).
 
 ### 11. What next
 
-NEXT
+In order of what each buys for its cost:
+
+1. **Draft 2's specification in this language**, checked against draft 2's
+   simulator: RFC 0028's instruction set, then RFC 0029's system
+   architecture. It makes the RFCs executable and precise, and is the
+   reference everything else here needs ([10](#10-draft-2)).
+2. **Proofs as a check on microcode changes.** A change to the
+   microcode touches a few routines, and `mutate.affected()` already knows
+   which decode cases reach a given control word. Proving just those after
+   each change is minutes, not hours, and catches the mistakes the
+   mutants here stand for (section [9](#9-breaking-the-hardware-on-purpose)).
+3. **Draft 2's netlist under symbolic simulation**: phases or ticks,
+   latches, the prefetch queue and the page map in the abstraction.
+4. **Multiply and divide**, by a loop invariant proved once, or an
+   algebraic multiplier checker; until then they are the tests' job.
+5. **Closing the trusted base:** interrupts and the I/O page in the
+   specification and the proof, and symsim's models checked against
+   hwsim's on random inputs (or one generated from the other).

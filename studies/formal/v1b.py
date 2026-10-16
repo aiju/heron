@@ -5,13 +5,17 @@ machine's state by name: the registers as the nets their flip-flops
 drive, the register file and the RAM as memories.
 """
 
+import time
+from collections import defaultdict
+
 import z3
 
 from heron.studies.v1b_hw import cpu, rtl
 from heron.studies.v1b_hw import ucode as uc
 
+from . import spec as S
 from . import symsim
-from .logic import AND, NOT, OR, bits, bits_value, word
+from .logic import AND, ITE, NOT, OR, bits, bits_value, boolterm, word
 
 _cache = {}
 
@@ -217,8 +221,6 @@ def read_symbolic_rf(sim, side="A"):
     return out
 
 
-_ = z3
-
 
 # ================================================================ the proof
 #
@@ -242,12 +244,6 @@ _ = z3
 # store's address; the specification runs one instruction. Each path must
 # end in a state the abstraction maps to the specification's.
 
-from collections import defaultdict  # noqa: E402
-import time  # noqa: E402
-
-from . import spec as S  # noqa: E402
-from .logic import ITE, boolterm  # noqa: E402
-
 BV = z3.BitVecSort
 # The loop counts in register file entries 24 and 25, as the reset routine
 # writes them: as signed bytes, so sign-extended (only the low byte is used).
@@ -260,9 +256,28 @@ class Case:
     cube (mask, value), and if the routine's parcels aren't all of the cube,
     the list of them."""
 
-    def __init__(self, y, length, key, mask, value, members):
+    def __init__(self, y, length, key, mask, value, members, sub=None):
         self.y, self.length, self.key = y, length, key
         self.mask, self.value, self.members = mask, value, members
+        self.sub = sub               # for part of a routine's parcels: the opcode
+
+    def by_opcode(self):
+        """The case split by the parcel's top four bits, the major opcode:
+        the parts that have parcels, each with its own membership."""
+        out = []
+        for op in range(16):
+            ws = [w for w in (self.members or []) if w >> 12 == op]
+            if not ws:
+                continue
+            a, o = 0xFFFF, 0
+            for w in ws:
+                a &= w
+                o |= w
+            mask = ~(a ^ o) & 0xFFFF
+            exact = len(ws) == 1 << bin(~mask & 0xFFFF).count("1")
+            out.append(Case(self.y, self.length, self.key, mask, a & mask,
+                            None if exact else ws, sub=op))
+        return out
 
     @property
     def free(self):
@@ -272,7 +287,8 @@ class Case:
         return self.value if self.members is None else self.members[0]
 
     def name(self):
-        return " ".join(str(k) for k in self.key)
+        base = " ".join(str(k) for k in self.key)
+        return base if self.sub is None else f"{base} op {self.sub:X}"
 
 
 def cases():
@@ -294,7 +310,10 @@ def cases():
         mask = ~(a ^ o) & 0xFFFF
         exact = len(ws) == 1 << bin(~mask & 0xFFFF).count("1")
         y = v & ((1 << uc.Y_BITS) - 1)
-        out.append(Case(y, v >> uc.Y_BITS, key_of[y], mask, a & mask, None if exact else ws))
+        c = Case(y, v >> uc.Y_BITS, key_of[y], mask, a & mask, None if exact else ws)
+        # the illegal routine serves parcels of every opcode: the
+        # specification decodes those far more cheaply an opcode at a time
+        out += c.by_opcode() if c.key == ("illegal",) else [c]
     _cache["cases"] = out
     return out
 

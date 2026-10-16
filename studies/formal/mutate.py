@@ -154,8 +154,11 @@ def cost(c):
         return 10 if m != 4 else 15
     if k[0] == "sys":
         return 10 * (k[3] - k[2] + 1) if k[1] in (5, 6) else 2
-    return {"shift": 1, "bcc": 2, "jcc": 3, "un": 2 if k[1] < 11 else 60, "shreg": 80,
-            "rr": 3 if k[1] < 4 else 10000, "illegal": 10000}[k[0]]
+    if k[0] == "un":
+        return 2 if k[1] < 11 else 60          # CLZ loops
+    if k[0] == "rr":
+        return 3 if k[1] < 4 else 10000        # multiply and divide
+    return {"shift": 1, "bcc": 2, "jcc": 3, "shreg": 80, "illegal": 10000}[k[0]]
 
 
 # ---------------------------------------------------------------- mutants
