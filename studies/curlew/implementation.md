@@ -121,8 +121,8 @@ join points when the outer alternatives are big) and constant folding.
 dictionaries, or a recursive function applied to a function it passes on
 unchanged (`map f`, `foldr k z`), a copy for those arguments. Without it a
 class method called in a loop goes through a dictionary every time:
-`wordfreq`, which sorts and compares strings, takes three times as long
-(report 0035).
+`wordfreq`, which sorts and compares strings, takes nearly three
+times as long (report 0035).
 
 ## Strictness
 
@@ -133,7 +133,7 @@ A strict parameter is passed evaluated: the caller evaluates the argument
 (usually it already is) instead of allocating a thunk for it, and the
 function needn't check it. A `let` whose body surely evaluates its
 variable is evaluated on the spot. `tak` and `nfib` become call-by-value
-code; without the analysis they take four times as long.
+code; without the analysis they take 4 and 3.5 times as long.
 
 ## Local functions
 
