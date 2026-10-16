@@ -85,18 +85,3 @@ The ipc workload's extra cycles per call and reply, on top of Fen's 734
 | 64 | 10 |
 | 256 | 10 |
 | 1024 | 10 |
-
-## A slower MFUR, MTUR or BCOPY
-
-If the banks shared one address, so that an instruction that reads one
-bank and writes another took a step more: the cycles one more cycle on
-each MFUR and MTUR would add, and eight more on each BCOPY, as a share of
-the workload.
-
-| Workload | MFURs | MTURs | BCOPYs | +1 on MFUR, MTUR | +8 on BCOPY |
-|---|---:|---:|---:|---:|---:|
-| ipc | 6,513 | 4,394 | 4,064 | 0.51% | 1.51% |
-| shell | 6,531 | 5,206 | 1,018 | 0.05% | 0.03% |
-| pipeline | 12,808 | 6,347 | 3,390 | 0.01% | 0.01% |
-| desktop | 4,717 | 3,197 | 1,218 | 0.03% | 0.04% |
-| busy | 10,974 | 6,328 | 2,072 | 0.02% | 0.02% |

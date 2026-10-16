@@ -359,7 +359,9 @@ BOOKKEEPING_ONE = 15
 HIT = 5
 
 # The hardware, as Emily costed it (2026-10-16): chips for the banks as the
-# register file is built, and with one bank address shared by its ports.
+# register file is built, and with a shared bank address (the microcode's
+# temporaries in the current bank instead of bank 0, which software can't
+# tell).
 CHIPS = {1: (0, 0), 2: (8, 7), 4: (11, 7), 8: (14, 8), 16: (16, 8), 32: (20, 11),
          64: (23, 12), 256: (29, 13), 1024: (37, 18)}
 
@@ -435,18 +437,6 @@ def report():
     ipc = traces[0]
     for banks in BANKS:
         lines.append(f"| {banks} | {extra_cycles(ipc, banks, ref) / 2000:.0f} |")
-    lines += ["", "## A slower MFUR, MTUR or BCOPY", "",
-              "If the banks shared one address, so that an instruction that reads one",
-              "bank and writes another took a step more: the cycles one more cycle on",
-              "each MFUR and MTUR would add, and eight more on each BCOPY, as a share of",
-              "the workload.", "",
-              "| Workload | MFURs | MTURs | BCOPYs | +1 on MFUR, MTUR | +8 on BCOPY |",
-              "|---|---:|---:|---:|---:|---:|"]
-    for tr in traces:
-        a = 100 * (tr["mfur"] + tr["mtur"]) / tr["busy"]
-        b = 100 * 8 * tr["bcopy"] / tr["busy"]
-        lines.append(f"| {tr['name']} | {tr['mfur']:,} | {tr['mtur']:,} | {tr['bcopy']:,} | "
-                     f"{a:.2f}% | {b:.2f}% |")
     lines.append("")
     return "\n".join(lines), cost, traces
 
