@@ -34,7 +34,7 @@ main:   SAVE r7-r14
         MOV  r11, #0
 .inword:
         MOV  byte [r10]+, r1    ; append the letter
-        MULU r11, r12           ; h = h * 31 + c
+        MULU r0:r11, r12        ; h = h * 31 + c
         ADD  r11, r1
         MOVS r1, [r8]
         BMI  .endword           ; the end of the input also ends a word

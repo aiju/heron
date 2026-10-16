@@ -47,28 +47,28 @@ main:   SAVE r7-r11
         CLR  r1
         MOV  r2, [r6]+          ; k = 0
         MOV  r3, [r5]+
-        MULA r2, r3             ; sum += A[i][k] * B[k][j]
+        MULA r0:r1, r2, r3      ; sum += A[i][k] * B[k][j]
         MOV  r2, [r6]+          ; k = 1
         MOV  r3, [r5]+
-        MULA r2, r3
+        MULA r0:r1, r2, r3
         MOV  r2, [r6]+          ; k = 2
         MOV  r3, [r5]+
-        MULA r2, r3
+        MULA r0:r1, r2, r3
         MOV  r2, [r6]+          ; k = 3
         MOV  r3, [r5]+
-        MULA r2, r3
+        MULA r0:r1, r2, r3
         MOV  r2, [r6]+          ; k = 4
         MOV  r3, [r5]+
-        MULA r2, r3
+        MULA r0:r1, r2, r3
         MOV  r2, [r6]+          ; k = 5
         MOV  r3, [r5]+
-        MULA r2, r3
+        MULA r0:r1, r2, r3
         MOV  r2, [r6]+          ; k = 6
         MOV  r3, [r5]+
-        MULA r2, r3
+        MULA r0:r1, r2, r3
         MOV  r2, [r6]+          ; k = 7
         MOV  r3, [r5]+
-        MULA r2, r3
+        MULA r0:r1, r2, r3
         MOV  [r7]+, r1          ; the sum's low word
         CMP  r5, #bt + ROW * N  ; r5 has walked through all of bt: row done
         BNE  .col

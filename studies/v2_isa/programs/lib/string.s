@@ -97,7 +97,7 @@ memmove:
 
 memset: ZXB  r2
         MOV  r4, #0x01010101
-        MULU r2, r4             ; the byte in all four lanes of a word
+        MULU r0:r2, r4          ; the byte in all four lanes of a word
         MOV  r0, r1             ; the result, after the MULU, which writes r0
         NEG  r4, r1
         AND  r4, #3             ; r4 = bytes before dst reaches a word boundary

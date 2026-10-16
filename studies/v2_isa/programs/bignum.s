@@ -49,7 +49,7 @@ mulsmall:
         ADD  r4, r3             ; r4 = end
         MOV  r5, #0             ; r5 = carry
 .limb:  MOV  r6, [r3]
-        MULU r6, r1             ; r0:r6 = limb * k
+        MULU r0:r6, r1          ; r0:r6 = limb * k
         ADD  r6, r5             ; + carry in
         MOV  r5, #0             ; (MOV leaves the flags alone)
         ADC  r5, r0             ; carry out = the high half + C: limb * k + carry < 2^32 * k
@@ -81,7 +81,7 @@ printnum:
 .group: CLR  r0                 ; nothing above the top limb
         MOV  r3, r9
 .div:   MOV  r1, -[r3]          ; from the top limb down:
-        DIVUL r1, r8            ; (r0:limb) / 10^9, remainder to r0
+        DIVUL r0:r1, r8         ; (r0:limb) / 10^9, remainder to r0
         MOV  [r3], r1
         CMP  r3, r11
         BNE  .div

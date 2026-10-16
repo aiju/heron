@@ -617,9 +617,50 @@ fn renamed(u: &str) -> Option<&'static str> {
     })
 }
 
+/// The multiplies and divides write their implicit registers out (RFC
+/// 0028, 6): `MULU r0:rd, src`, `MULA r0:r1, rd, rs`, `MERGE rd, rs, r0`.
+/// Checks the form and returns the operands without the implicit ones, or
+/// None for every other instruction. Any other register in r0's or r1's
+/// place, or the form without them, is refused with the form to write.
+fn implicit(u: &str, ops: &[Operand]) -> Result<Option<Vec<Operand>>, AsmError> {
+    let (form, why) = match u {
+        "MULU" | "MULS" => ("r0:rd, src", "the high half goes to r0"),
+        "DIVU" | "DIVS" => ("r0:rd, rs", "the remainder goes to r0"),
+        "DIVUL" => (
+            "r0:rd, rs",
+            "r0:rd is the dividend, and the remainder goes to r0",
+        ),
+        "MULFX" => ("r0:rd, rs, #n", "the product's high half goes to r0"),
+        "MULA" => ("r0:r1, rd, rs", "the sum is in r0:r1"),
+        "MERGE" => ("rd, rs, r0", "the mask is r0"),
+        _ => return Ok(None),
+    };
+    let refuse = || err(format!("{u} is written {u} {form}: {why}"));
+    let rest = match (u, ops) {
+        ("MULA", [Operand::RegPair(h, l), rest @ ..]) if h.n == 0 && l.n == 1 => rest.to_vec(),
+        ("MERGE", [a, b, Operand::Reg(m)]) if m.n == 0 => vec![a.clone(), b.clone()],
+        ("MULA" | "MERGE", _) => return refuse(),
+        (_, [Operand::RegPair(h, rd), rest @ ..]) if h.n == 0 => {
+            let mut v = vec![Operand::Reg(rd.clone())];
+            v.extend_from_slice(rest);
+            v
+        }
+        _ => return refuse(),
+    };
+    Ok(Some(rest))
+}
+
 fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmError> {
     let u = name.to_ascii_uppercase();
     let u = u.as_str();
+    let stripped;
+    let ops = match implicit(u, ops)? {
+        Some(v) => {
+            stripped = v;
+            &stripped[..]
+        }
+        None => ops,
+    };
     let k = kinds(ops);
     let k = k.as_str();
     let one = |v: u16| Ok(vec![v]);
