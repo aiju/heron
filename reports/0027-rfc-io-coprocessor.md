@@ -491,6 +491,12 @@ At `0x7400_0000`, the range RFC 0037 left open for them:
 | – | The time of day: a DS1302 on the ports | 1 |
 | – | The watchdog: a retriggerable monostable that asserts COLD if the firmware stops kicking it for about 100 ms | 1 |
 
+- **The image flash's size** is to be confirmed (Emily, 2026-10-16).
+  1 MB holds the Forth's dictionary (up to 64 KB), the 1b's control store
+  and decode table (about 260 KB), and a boot program or a small
+  operating system. Draft 2's control store, and how many images the
+  flash should hold at once, decide it. More needs larger or more parts
+  and a wider page register.
 - **Moved to I/O cards** since the first version: the quad UART, the CF
   socket, PS/2 (with a shift register for each port on its card), sound
   and the parallel port. RFC 0037 lists such cards in
@@ -875,8 +881,10 @@ reset (about 3 chips) can go.
 
 #### 8.3 Where the images come from
 
-- **Its image flash:** 1 MB, for the Forth, the control store, and a boot
-  program or a small operating system.
+- **Its image flash:** 1 MB for now (its size is to be confirmed,
+  [section 5](#5-the-io-bus-side-and-the-devices-on-the-card)), for the
+  Forth, the control store, and a boot program or a small operating
+  system.
 - **A CF card** on an I/O card: any size, read at 3–6 MB/s.
 - **The serial line:** the monitor takes an image from the PC at 921,600
   baud, about 90 KB/s, by a native loop into the shared RAM. The 1b's
@@ -1313,3 +1321,5 @@ For Emily:
 13. **The control store in SRAM:** with the IOP it costs about 6 chips
     more on the CPU card than flash, instead of about 15 (RFC 0024, open
     question 2).
+14. **The image flash's size:** 1 MB, or more? To be confirmed, once
+    draft 2's control store and the images it should hold are known.
