@@ -107,7 +107,9 @@ def report(results, mcs):
            "of 20 ns). *Native*: the same programs in draft 2's own code, from "
            "[report 0031's performance.md](../0031-rfc-draft-2-cpu/performance.md): the C "
            "programs compiled by the Heron C compiler, and the hand-written suite. "
-           "*Slower*: the guest's time over native draft 2's.", "",
+           "*Slower*: the guest's time over native draft 2's. A guest's reset routine, which "
+           "copies its tables and constants into the register file, runs first and isn't "
+           "counted.", "",
            "## The guests", "",
            "| Instruction set | Design change | Microinstructions | Routines | Programs |",
            "|---|---|---:|---:|---|"]

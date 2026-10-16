@@ -51,7 +51,8 @@ measures native code. The tables are generated:
    instructions a second. Draft 1b's binaries run as they are, all 35
    programs, at 1.14 times draft 2's own time (1.16 for compiled C), and
    1.18 times faster than draft 1b's own fast hardware.
-2. **Thumb needs one small change, and then runs nearly at native speed.**
+2. **Thumb needs one small change, and then its instructions run at
+   native speed.**
    With D1, a decode table that also gives the instruction register to
    load and an immediate, Thumb runs at 2.4 cycles an instruction, each
    in about the time of a draft 2 instruction; it takes 2.6 times draft
@@ -76,10 +77,10 @@ measures native code. The tables are generated:
 5. **User processes in different instruction sets work, with two more
    small changes.** D2 adds two status-word bits that select the decode
    table's page; RTI loads them, and exception entry clears them, so the
-   kernel always runs draft 2. With D1, D2 and D3, a draft 2 kernel
-   of 190 instructions runs a draft 2 process and two compiled Thumb programs, each in
-   its own context and bank, switching on the timer and mapping their
-   stacks and heaps on demand, and every output is right. The kernel
+   kernel always runs draft 2. With D1, D2 and D3, a draft 2 kernel of
+   190 instructions runs a draft 2 process and two compiled Thumb
+   programs, each in its own context and bank, switching on the timer and
+   mapping their stacks and heaps on demand, and every output is right. The kernel
    doesn't know what instruction set a process runs except to print it:
    a context switch is the same for all of them.
 6. **A guest that shares the machine has to follow draft 2's conventions:**
@@ -250,8 +251,8 @@ with draft 1's simulator, but `interrupts`, whose timer interrupts arrive
 at other instructions than the simulator's and which is checked by its
 output. On the 18 hand-written programs report 0031 compares, 1b's
 binaries take 1.14 times the time of draft 2's own versions (the
-compiled C, 1.16 times draft 2's compiled C), and on the 13 that don't
-print, 1.18 times less than draft 1b's own fast system
+compiled C, 1.16 times draft 2's compiled C), and the 13 that don't print
+run 1.18 times faster than on draft 1b's own fast system
 ([RFC 0024](0024-rfc-faster-smaller/results.md#the-fast-system)). So
 draft 2's CPU could carry 1b's software with it, if that were wanted.
 
@@ -306,9 +307,9 @@ about five (the last column of the table in [2.1](#21-rv32im-unmodified)).
 By the instruction mix, that is an estimated 6.6 cycles an instruction
 against 9.9, with the shifts and multiplies as they are, or about 2.5
 times native draft 2's time; with shifts by a count in three cycles, 5.4,
-about twice native. Together
-they need five or six more control bits, which with D3 means a wider
-control word: one more byte-wide SRAM and register.
+about twice native. Together they need five or six more control bits,
+which with D3 means a wider control word: one more byte-wide SRAM and
+register.
 
 ## 4. User processes in other instruction sets
 

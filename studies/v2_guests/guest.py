@@ -58,7 +58,7 @@ class GuestMicrocode(uc.Microcode):
     """A guest's microcode, placed in the control store, with its decode
     table. Shares draft 2's placement, checks and timing."""
 
-    def __init__(self, guest, lengths=None, y_bits=uc.Y_BITS):
+    def __init__(self, guest, lengths=None):
         uc._trap_cache.clear()
         self.guest = guest
         self.reset = guest.reset()
