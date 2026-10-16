@@ -208,12 +208,17 @@ def source():
 
     # ---- MULFX
     for x, y in [(3, 5), (0x100, 0x200), (-0x234, 0x567), (0x7FFF, 0x7FFF), (-1, -1),
-                 (0x12345678, 0x9ABCDEF), (0x40000000, 4), (-0x80000000, -1)]:
+                 (0x12345678, 0x9ABCDEF), (0x40000000, 4), (-0x80000000, -1),
+                 (-0x8000, -0x8000), (-0x8000, 0x7FFF), (0x8000, 3), (3, -0x8001)]:
         for n in (0, 1, 4, 8, 12, 16, 31):
             emit(f"        MOV  r4, #{x & 0xFFFFFFFF}")
             emit(f"        MOV  r3, #{y & 0xFFFFFFFF}")
             emit(f"        MULFX r4, r3, #{n}")
             emit("        BSR  save")
+    for x in (-0x1234, 0x12345):
+        emit(f"        MOV  r4, #{x & 0xFFFFFFFF}")
+        emit("        MULFX r4, r4, #3")
+        emit("        BSR  save")
 
     # ---- the tagged operations, on integers (no traps)
     for x, y in [(0, 0), (2, 4), (0x7FFFFFFE, 2), (0xFFFFFFFE, 2), (0x80000000, 2), (6, 6)]:

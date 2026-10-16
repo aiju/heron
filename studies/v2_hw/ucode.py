@@ -121,7 +121,7 @@ LDSX = {None: 0, "d": 1, "r": 2, "qhx": 3}
 LDEX = {None: 0, "r": 1, "qhx": 2}
 CIN = {"0": 0, "1": 1, "c": 2, "a31": 3, "mq31": 4, "sgn": 5, "mq0": 6, "s33n": 7}
 MD = {None: (0, 0, None), "mqload": (3, 0, None), "mulu": (1, 1, "0"), "muls": (1, 2, "mq0"),
-      "div": (2, 3, "s33n"), "fix": (0, 3, "0")}
+      "div": (2, 3, "s33n"), "fix": (0, 3, "0"), "shr64": (1, 0, None)}
 RMS = {"f": 0, "shr": 1, "ror8": 2, "ror16": 3}
 SIN = {"0": 0, "f31": 1, "c": 2, "f0": 3}
 SINA = {"0": 0, "r31": 1, "c": 2, "mq31": 3}
@@ -1115,30 +1115,36 @@ def mulfx_routine():
 
 
 def mulfx_body(rs, name):
-    """SX = rd, TMP3 = the parcel: MULS of r[SX] by r[rs] (the multiplicand
-    in TMP1), then the 64-bit product shifted right n places, one a pair
-    of cycles."""
-    step = mi(a="r", rb=TMP1, md="mulu", rms="shr", sin="f31", ldr=1, lcinc=1)
-    last = mi(a="r", rb=TMP1, md="muls", rms="shr", sin="f31", ldr=1)
-    # the result fits iff the high word is the low word's sign extension
-    fin = chain(name,
-                mi(ra=TMP1, alu="passa", fill="a31", ldsgn=1),
-                mi(ra=TMP2, b="fillall", fill="sgn", alu="xor", ldcl="zero"),
-                end(name, ra=TMP1, alu="passa", w="x", fnz="nz", fc="ncl", fv="ncl"))
-    sh_hi = Node(mi(ra=TMP2, alu="passa", rms="shr", sin="f31", fc="f0", w=TMP2), None, name)
-    sh_lo = Node(mi(ra=TMP1, alu="passa", rms="shr", sin="c", w=TMP1, lcinc=1), None, name)
-    sh_hi.succ = ("next", sh_lo)
-    sh_lo.succ = ("branch", CONDS["tc"], sh_hi, fin)
-    after = chain(name, last,
-                  mi(a="r", alu="passa", w=HI),
-                  mi(a="r", alu="passa", w=TMP2),
-                  mi(b="mq", alu="passb", w=TMP1),
-                  mi(ra=TMP3, kv=0xE0 - 256, alu="ornb", ldlc=1),          # LC <- 255 - n
-                  branch(name, mi(lcinc=1), "tc", sh_hi, fin))
-    return chain(name, mi(ra="x", alu="passa", w=TMP1),
+    """SX = rd, TMP3 = the parcel: MULS of r[SX] by r[rs], 16 steps if both
+    fit in 16 signed bits, else 32; then R:MQ shifted right n places, one a
+    cycle (MQ shifting right with R, R's sign in)."""
+    step = mi(a="r", rb="x", md="mulu", rms="shr", sin="f31", ldr=1, lcinc=1)
+    last = mi(a="r", rb="x", md="muls", rms="shr", sin="f31", ldr=1)
+    shift = mi(a="r", alu="passa", md="shr64", rms="shr", sin="f31", ldr=1, lcinc=1)
+    nload = mi(ra=TMP3, kv=0xE0 - 256, alu="ornb", ldlc=1)            # LC <- 255 - n
+    # 32 steps: R:MQ is the product P, HI <- R; shifted, MQ is the result,
+    # and it fits iff R is MQ's sign extension
+    fin = chain(name, mi(a="r", alu="a", cin="mq31", ldcl="zero"),
+                end(name, b="mq", alu="passb", w="x", fnz="nz", fc="ncl", fv="ncl"))
+    big = chain(name, last, nload,
+                branch(name, mi(a="r", alu="passa", w=HI, lcinc=1), "tc",
+                       loop(name, shift, "tc", fin), fin))
+    # 16 steps: R:MQ is P x 2^16 (MQ's low half the multiplier's sign, not
+    # part of it); shifted, the result is R:MQ's bits 47-16. P has 31
+    # bits, so it fits and HI is its sign
+    sfin = chain(name, mi(a="r", alu="passa", rz=0b1100, w=TMP2),
+                 mi(b="mq", alu="passb", rz=0b0011, ldr=1),
+                 mi(ra=TMP2, b="r", alu="or", rms="ror16", w="x", fnz="nz"),
+                 end(name, b="fillall", fill="sgn", alu="passb", w=HI, czero=1, fv="0"))
+    small = chain(name, last, nload,
+                  branch(name, mi(a="r", fill="a31", ldsgn=1, lcinc=1), "tc",
+                         loop(name, shift, "tc", sfin), sfin))
+    return chain(name,
+                 mi(ra="x", b="fillall", fill="a31", alu="xor", ldcl="hz17"),
+                 mi(ra=rs, b="fillall", fill="a31", alu="xor", ldcl="and_hz17"),
                  mi(ra=KE1, alu="passa", ldlc=1),
-                 mi(rb=rs, md="mqload", alu="zero", ldr=1),
-                 loop(name, step, "tc", after))
+                 branch(name, mi(rb=rs, md="mqload", alu="zero", ldr=1), "cl",
+                        loop(name, step, "tc", big), loop(name, step, "tc4", small)))
 
 
 # --------------------------------------------------------------------------
