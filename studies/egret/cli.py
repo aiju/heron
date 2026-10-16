@@ -11,9 +11,10 @@
                      the first two or all three; --update: write the
                      expected output of the programs that have no suite
                      counterpart, from the host)
-  bench  [NAME...] [--write]
+  bench  [NAME...] [--write] [--isa v2]
                      cycles of every program on draft 1b, and where they go
-                     (--write: the generated part of the report)
+                     (--write: the generated part of report 0017; --isa v2:
+                     draft 2 against 1b, report 0032's)
   build  [--isa v2]   build the VM for the host and every build for 1b (or 2)
 
 A program's input (gets, read_all) follows a line __END__ in the console
@@ -97,10 +98,13 @@ def main(argv=None):
     t.add_argument("--isa", choices=build.ISAS, default="v1b", help="with --heron: draft 1b (the default) or draft 2")
     t.add_argument("--update", action="store_true", help="write the expected output of Egret's own programs")
     t.set_defaults(fn=cmd_test)
-    b = sub.add_parser("bench", help="cycles on draft 1b")
+    b = sub.add_parser("bench", help="cycles on draft 1b (--isa v2: draft 2 against 1b)")
     b.add_argument("names", nargs="*")
     b.add_argument("--write", action="store_true", help="write the generated part of the report")
-    b.set_defaults(fn=lambda a: __import__("heron.studies.egret.bench", fromlist=["x"]).main(a))
+    b.add_argument("--isa", choices=build.ISAS, default="v1b",
+                   help="v2: draft 2 against 1b, report 0032's tables")
+    b.set_defaults(fn=lambda a: __import__("heron.studies.egret." + ("bench_v2" if a.isa == "v2" else "bench"),
+                                           fromlist=["x"]).main(a))
     bl = sub.add_parser("build", help="build the VM for the host and for 1b (or 2)")
     bl.add_argument("--isa", choices=build.ISAS, default="v1b", help="draft 1b (the default) or draft 2")
     bl.set_defaults(fn=lambda a: (print(build.host()), [build.heron(a.isa, variant=v) for v in build.VARIANTS], 0)[-1])

@@ -7,7 +7,8 @@
                                          their expected output
   build  [-l FILE.lst] [--isa v2]        assemble the runtime (and write a listing)
   report [--write] [NAME...]             the measurements behind report 0018
-                                         (--write: its performance.md)
+                                         (--write: its performance.md; --isa v2:
+                                         draft 2 against 1b, report 0032's)
 """
 
 import argparse
@@ -71,7 +72,10 @@ def cmd_build(args):
 
 
 def cmd_report(args):
-    from . import report
+    if args.isa == "v2":
+        from . import report_v2 as report
+    else:
+        from . import report
     return report.main((["--write"] if args.write else []) + args.names)
 
 
@@ -106,7 +110,10 @@ def main(argv=None):
     b.set_defaults(fn=cmd_build)
     rp = sub.add_parser("report", help="the measurements behind report 0018")
     rp.add_argument("names", nargs="*")
-    rp.add_argument("--write", action="store_true", help="write reports/0018-report-lisp/performance.md")
+    rp.add_argument("--write", action="store_true",
+                    help="write reports/0018-report-lisp/performance.md (--isa v2: report 0032's lisp.md)")
+    rp.add_argument("--isa", choices=ISAS, default="v1b",
+                    help="v2: draft 2 against 1b, report 0032's tables (about 5 minutes)")
     rp.set_defaults(fn=cmd_report)
     args = p.parse_args(argv)
     return args.fn(args) or 0

@@ -21,6 +21,9 @@
 ; are the tagged TMOV, TADD, TSUB and TCMP (with the tagged feature).
 ; (link-save), (link-restore) and (link-ret) keep the return address, and
 ; cc:link makes them instructions once the function is done.
+;
+; cc:*options* has a feature of its own here, for the measurements:
+;   no-leaf   every function keeps its return address on the stack
 
 (define cc:ea-ops
   '((mov . 1) (st . 2) (movs . 3) (add . 4) (sub . 5) (cmp . 6) (and . 8) (or . 9) (xor . 10)))
@@ -363,7 +366,7 @@
 ; address goes on the stack on entry and comes back from there; a leaf
 ; keeps it in r7
 (define (cc:link mark)
-  (let ((leaf (cc:leaf? cc:*code* mark)))
+  (let ((leaf (and (not (cc:option? 'no-leaf)) (cc:leaf? cc:*code* mark))))
     (let loop ((l cc:*code*) (c cc:*cats*) (out nil) (cout nil))
       (if (eq? l mark)
           (begin (set! cc:*code* (cc:revappend out l))
