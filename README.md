@@ -91,6 +91,7 @@ heron v1_isa --isa v1a test               # every 1a program against its expecte
 heron v2_isa test                         # every draft 2 program
 heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a, v2) and run it
 heron lisp run -c studies/lisp/programs/tak.lisp --stats      # compile Lisp on the 1b simulator and run it
+heron curlew run studies/curlew/programs/queens.cw --stats   # compile Curlew (lazy, typed) for draft 2 and run it
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # the 1b hardware at chip level
 heron v1b_hw hw sta                       # static timing analysis of the 1b netlist
 ```

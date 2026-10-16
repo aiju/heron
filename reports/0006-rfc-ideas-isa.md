@@ -5,7 +5,7 @@ title: Instruction set ideas
 status: open
 date: 2026-10-15
 context:
-  studies: [v1_isa, v1b_hw, c_compiler, lisp, egret, graphics, kernel]
+  studies: [v1_isa, v1b_hw, c_compiler, lisp, egret, graphics, kernel, curlew]
   commit: 0987e76
 ---
 
@@ -490,15 +490,21 @@ and the later studies:
 
 From the Lisp ([report 0018](0018-report-lisp.md)) and Egret
 ([report 0017](0017-report-egret.md)), both on 1b, interpreted and
-compiled on the machine.
+compiled on the machine, and Curlew, a lazy, typed language compiled for
+draft 2 ([report 0035](0035-report-curlew.md)), whose checks are for
+evaluation: bit 0 set means "not evaluated yet".
 
 | Proposal | Evidence | Status |
 |---|---|---|
 | Keep misaligned-access traps **precise** (the saved PC is the faulting instruction's, nothing changed) and decodable | Tagged pointers make the Lisp's `car`, `cdr` and calls type-check themselves through the trap; checking in software would cost 16% compiled (up to 35%) and 19% interpreted. Draft 1's restartability rules already give it | **recommended** |
-| Tagged arithmetic: `ADD`, `SUB`, `CMP` (and `MOV`) that trap unless both operands are integers, `ADD`/`SUB` trapping on overflow too (SPARC's `TADDccTV`) | The Lisp built it as v1bx, a tagged register operand in 1b's mode E ([report 0018's appendix](0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)): −6.4% of compiled cycles (geometric mean), up to −16% (fib); −5.6% if it costs a cycle more; about one chip. Egret's JIT: −5.5% on average, 16–18% in the numeric programs; its interpreter only 2–3%. The two tag integers differently (the Lisp with bit 0 clear, Egret as 2n + 1); hardware fixes one, and the Lisp's adds directly. A register holding the expected tag bit would let the check serve both for a couple of gates, though Egret's adds would still need a correction. Not only for the Lisp: Smalltalk, Scheme, ML and Erlang keep small integers the same way; C, the kernel and assembly gain nothing. RFC 0028's map has `TMOV`, `TTST`, `TADD`, `TSUB` and `TCMP` on registers, in its column E ([9.2](0028-rfc-draft-2-isa.md#92-alu-operations-and-constants)) | **measured**, open |
+| Tagged arithmetic: `ADD`, `SUB`, `CMP` (and `MOV`) that trap unless both operands are integers, `ADD`/`SUB` trapping on overflow too (SPARC's `TADDccTV`) | The Lisp built it as v1bx, a tagged register operand in 1b's mode E ([report 0018's appendix](0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)): −6.4% of compiled cycles (geometric mean), up to −16% (fib); −5.6% if it costs a cycle more; about one chip. Egret's JIT: −5.5% on average, 16–18% in the numeric programs; its interpreter only 2–3%. The two tag integers differently (the Lisp with bit 0 clear, Egret as 2n + 1); hardware fixes one, and the Lisp's adds directly. A register holding the expected tag bit would let the check serve both for a couple of gates, though Egret's adds would still need a correction. Not only for the Lisp: Smalltalk, Scheme, ML and Erlang keep small integers the same way; C, the kernel and assembly gain nothing. RFC 0028's map has `TMOV`, `TTST`, `TADD`, `TSUB` and `TCMP` on registers, in its column E ([9.2](0028-rfc-draft-2-isa.md#92-alu-operations-and-constants)). Curlew: as evaluation checks, which find a thunk 24–99% of the time, `TTST` and its trap cost +26%, a trap 56 cycles or more even with the handler jumping to the check's own slow path; as overflow-checked arithmetic `TADD` and `TSUB` save 0.4% (2.8% in `nfib`) ([report 0035](0035-report-curlew.md#the-tagged-operations)) | **measured**, open |
+| A branch on a bit of a register, `BBS r, #b, label` and `BBC` (b = 0–15, a 16-bit offset, two parcels in free root cells) | Curlew's evaluation checks, `TST r, #1` and `BNE`, as one instruction: −1.8% (up to −2.9%), costed like `JNE`; a trap can't do it, since the checks fail too often ([report 0035](0035-report-curlew.md#what-would-work-better)). Also the Lisp's type bits, flag words and bitmaps | **measured**, open |
+| A one-parcel `TST r, #q` | Curlew's checks: −0.9%, and the same measured with 1 kept in `r11` and `TST r, r11`, which software can do today ([report 0035](0035-report-curlew.md#what-would-work-better)) | **measured**, open |
+| `MOVS` setting C to bit 0 of a word | A check straight after the load of the value it checks becomes `BCS`: Curlew −0.8%, no new cell ([report 0035](0035-report-curlew.md#what-would-work-better)) | **open** |
+| Storing a constant without a register, `MOV [R + d], #c` | Curlew stores headers and small integers into new objects through `r12`: at most −2.7% ([report 0035](0035-report-curlew.md#other-changes)) | **open** |
 | Keep a memory-indirect call (`CALL [r + d]`) | The Lisp calls through a code word in every object; a load and `CALL r` would cost 1.3% (up to 2.5%). 1b has it | **measured**, open |
-| Guard pages for the stack and heap limits | The Lisp: 5.0% and 1.8% of compiled cycles ([RFC 0010](0010-rfc-ideas-os.md#3-mmu)) | **open** |
-| One-parcel `[r - 1]` and `[r + 3]` (the Lisp's pair offsets); the heap limit in a register | 1.1% and 0.9%: not worth the encoding space or a register | **not recommended** |
+| Guard pages for the stack and heap limits | The Lisp: 5.0% and 1.8% of compiled cycles ([RFC 0010](0010-rfc-ideas-os.md#3-mmu)). Curlew: 4.5% and 1.1%, the stack measured; running out of stack is fatal there, so a guard page needs no user-mode handler ([report 0035](0035-report-curlew.md#other-changes)) | **open** |
+| One-parcel `[r - 1]` and `[r + 3]` (the Lisp's pair offsets); the heap limit in a register | 1.1% and 0.9%: not worth the encoding space or a register. Curlew's fields are at 4k − 2 from its pointers: a one-parcel mode for small offsets from a tagged pointer would save it 2.7% ([report 0035](0035-report-curlew.md#other-changes)) | **not recommended** |
 | Egret's smaller ones: load a value's class, three-operand `XOR`, unaligned 16-bit loads, `CHK` | About 1% or less each, interpreted or compiled. Its link-register call is [in section 5](#5-more-instruction-ideas) | **not recommended** |
 
 What would help these languages more is software: direct threading saves

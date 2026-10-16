@@ -2,7 +2,8 @@
 simplifier pass a few times, each after an occurrence analysis:
 
 - a let-bound variable that is an atom, or used once (and not inside a
-  lambda unless it's a value), is substituted; one that isn't used goes;
+  lambda unless it's a value), or a partial application of a global to
+  atoms and known dictionaries, is substituted; one that isn't used goes;
 - small non-recursive functions are inlined where they're applied to all
   their arguments: dictionary selectors, instance dictionaries and most
   instance methods among them, so a method of a known instance becomes a
@@ -371,6 +372,14 @@ class Simplifier:
                 sub = dict(sub)
                 sub[x] = r
                 return self.simp(e.body, sub, env)
+            if self.partial_app(r):
+                # a global applied to fewer arguments than it takes, all of
+                # them atoms or known dictionaries (a method of an instance
+                # with a context, say): cheap to copy, and where it's called
+                # it becomes a known call, specialised
+                sub = dict(sub)
+                sub[x] = r
+                return self.simp(e.body, sub, env)
             if type(r) is C.Let and not r.rec:
                 # let x = (let y = a in b) in c  ->  let y = a in let x = b in c
                 return C.Let(r.binds, self.simp(C.Let([(x, r.body)], e.body, False), sub, env), False)
@@ -504,7 +513,7 @@ class Simplifier:
                         a = C.clone(a)      # the expression lives on elsewhere too
                     if strict and type(scrut) is C.Con:
                         forced.append((v, a))   # the constructor would have forced it
-                    elif is_atom(a):
+                    elif is_atom(a) or self.partial_app(a):
                         sub = dict(sub)
                         sub[v] = a
                     else:
@@ -633,6 +642,13 @@ class Simplifier:
                 self.recursive.add(spec)
         rest = [a for i, a in enumerate(args) if i not in positions]
         return C.Var(spec), rest
+
+    def partial_app(self, e):
+        if type(e) is not C.App or type(e.fn) is not C.Var:
+            return False
+        g = self.tops.get(e.fn.name)
+        return (type(g) is C.Lam and len(e.args) < len(g.params)
+                and all(is_atom(a) or self.static_dict(a) for a in e.args))
 
     def static_dict(self, a):
         """A dictionary known at compile time: a global, or a global
