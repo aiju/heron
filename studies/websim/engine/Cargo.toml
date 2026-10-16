@@ -1,0 +1,20 @@
+# The simulator behind the website's page (studies/websim): one of the
+# studies' machines, set up from a description and run in slices of time
+# by a frontend, the browser's (../wasm) or Python's (heron.native.websim,
+# for the tests and the command line).
+[package]
+name = "websim"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+fen-board = { path = "../../fen/board" }
+v1-isa = { path = "../../v1_isa/isa" }
+v2-isa = { path = "../../v2_isa/isa" }
+
+[dev-dependencies]
+toolchain = { path = "../../../infra/toolchain" }
+
+[lints]
+workspace = true

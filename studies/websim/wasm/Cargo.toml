@@ -1,0 +1,17 @@
+# The simulator for the browser (studies/websim): the engine (../engine)
+# built for wasm32-unknown-unknown, as plain exported functions that
+# web/sim.js calls, without wasm-bindgen.
+[package]
+name = "websim-wasm"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+websim = { path = "../engine" }
+
+[lints]
+workspace = true

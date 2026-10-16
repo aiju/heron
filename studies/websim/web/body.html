@@ -1,0 +1,89 @@
+<link rel="stylesheet" href="sim.css">
+<div class="wrap sim" id="sim">
+  <div class="h-page"><h1>Simulator</h1><span class="label">Heron's machines in the browser, on the studies' own simulators</span></div>
+
+  <div class="sim-panel">
+    <div class="sim-bar" role="toolbar" aria-label="The machine">
+      <label class="sim-pick"><span class="label">Machine</span>
+        <select id="sim-machine" aria-label="Machine"></select></label>
+      <div class="sim-ctl">
+        <button id="sim-run" class="btn" type="button" disabled>Pause</button>
+        <button id="sim-reset" class="btn ghost" type="button" disabled>Reset</button>
+        <label class="sim-speed"><span class="label">Speed</span>
+          <select id="sim-speed" aria-label="Speed">
+            <option value="1">Real time</option>
+            <option value="2">2×</option>
+            <option value="4">4×</option>
+            <option value="10">10×</option>
+            <option value="0">Flat out</option>
+          </select></label>
+      </div>
+      <div class="sim-lamps" aria-hidden="true">
+        <span class="lamp" data-lamp="run">Run</span><span class="lamp" data-lamp="wait">Wait</span><span class="lamp" data-lamp="halt">Halt</span>
+      </div>
+      <span class="sim-clock" id="sim-clock"></span>
+      <div class="sim-more">
+        <button id="sim-more" class="btn ghost" type="button" aria-haspopup="menu" aria-expanded="false">More</button>
+        <div class="sim-menu" id="sim-menu" role="menu" hidden>
+          <button type="button" role="menuitem" data-act="inspect">Inspector: registers, memory, step</button>
+          <button type="button" role="menuitem" data-act="file" data-needs="term">Type a file…</button>
+          <button type="button" role="menuitem" data-act="eof" data-needs="line">End of input (^D)</button>
+          <button type="button" role="menuitem" data-act="clear" data-needs="term">Clear the terminal</button>
+          <button type="button" role="menuitem" data-act="transcript" data-needs="term">Save the transcript</button>
+          <button type="button" role="menuitem" data-act="shot" data-needs="screen">Save the screen as PNG</button>
+          <button type="button" role="menuitem" data-act="link">Copy a link to this machine</button>
+          <button type="button" role="menuitem" data-act="keys">Keys</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sim-tabs" id="sim-tabs" role="tablist" hidden></div>
+    <div class="sim-display" id="sim-display">
+      <div class="sim-screen" id="sim-screen" hidden>
+        <canvas id="sim-canvas" width="640" height="480" tabindex="0" aria-label="The machine's screen: click to give it the keyboard and the mouse"></canvas>
+      </div>
+      <div class="sim-term" id="sim-term" hidden></div>
+      <pre class="sim-log" id="sim-log" hidden></pre>
+      <div class="sim-overlay" id="sim-overlay">Loading the simulator…</div>
+    </div>
+    <div class="sim-status" id="sim-status" aria-live="polite"></div>
+  </div>
+
+  <aside class="sim-inspect" id="sim-inspect" hidden aria-label="Inspector">
+    <div class="sim-inspect-head"><span class="label">Inspector</span>
+      <button type="button" class="btn ghost" id="sim-step" title="Run one instruction (while paused)">Step</button>
+      <button type="button" class="sim-x" id="sim-inspect-close" aria-label="Close the inspector">×</button></div>
+    <dl class="sim-stats" id="sim-stats"></dl>
+    <div class="sim-regs" id="sim-regs"></div>
+    <div class="sim-mem">
+      <label><span class="label">Memory at</span> <input id="sim-addr" type="text" value="pc" spellcheck="false" aria-label="Address: hex, a register's name, or a symbol"></label>
+      <pre id="sim-dump"></pre>
+    </div>
+  </aside>
+
+  <section class="sim-about" id="sim-about-box">
+    <span class="kind" id="sim-group"></span>
+    <h2 id="sim-title">&nbsp;</h2>
+    <div id="sim-about"></div>
+    <div class="sim-examples" id="sim-examples" hidden><span class="label">Try</span></div>
+    <div class="sim-links" id="sim-links"></div>
+  </section>
+
+  <dialog class="sim-dialog" id="sim-keys">
+    <h2>Keys</h2>
+    <p><b>At a terminal</b>, typing goes to the machine. Where the machine doesn't echo (the
+    Lisp, Egret), the line is edited here: ←, →, Home, End, ↑ and ↓ for the history, ^A, ^E,
+    ^U, ^K, ^W; Return sends it, and ^D on an empty line ends the input. Pasting types the
+    text. Select text to copy it.</p>
+    <p><b>On a screen</b>, click it to give the machine the keyboard and the mouse; click
+    outside it to take them back. While it has them, keys go to it rather than to the
+    browser. Its keyboard is a US one: what you type arrives as the characters you meant,
+    whatever your layout, and other keys go by where they are.</p>
+    <p><b>Speed</b>: real time runs the machine at its own clock. The multiples, and flat
+    out (as fast as the browser can), run its time faster than the browser's, its timers
+    and clocks included, as a fast-forward would.</p>
+    <form method="dialog"><button class="btn">Close</button></form>
+  </dialog>
+</div>
+<script src="term.js" defer></script>
+<script src="sim.js" defer></script>

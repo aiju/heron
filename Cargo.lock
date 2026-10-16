@@ -35,6 +35,7 @@ dependencies = [
  "v1-isa",
  "v1b-system-model",
  "v2-isa",
+ "websim",
 ]
 
 [[package]]
@@ -245,6 +246,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 name = "v1-isa"
 version = "0.1.0"
 dependencies = [
+ "devices",
  "toolchain",
 ]
 
@@ -260,5 +262,23 @@ dependencies = [
 name = "v2-isa"
 version = "0.1.0"
 dependencies = [
+ "devices",
  "toolchain",
+]
+
+[[package]]
+name = "websim"
+version = "0.1.0"
+dependencies = [
+ "fen-board",
+ "toolchain",
+ "v1-isa",
+ "v2-isa",
+]
+
+[[package]]
+name = "websim-wasm"
+version = "0.1.0"
+dependencies = [
+ "websim",
 ]
