@@ -197,6 +197,10 @@ This restates RFC 0029's section 7, with this RFC's changes.
 between instructions whatever I and IPL, from the CPU's own card. Any
 master can raise it through the card's control register: the I/O
 processor's watchdog, or a debugger. What it does to I and IPL is open.
+**Recommended:** the control register's NMI bit is a latch that the
+entry clears, so that one write is one NMI, and the entry does what every
+exception's does: it clears I and T and leaves IPL alone. Setting IPL to
+8 as well would matter only to a handler that executes `EI`.
 
 ### 3. The CPU card
 
@@ -218,6 +222,7 @@ offsets are a proposal.
 | `0x300C` | Message register, its contents | read |
 | `0x4000` | Timer: the count | read |
 | `0x4004` | Timer: clear the ticks, bit 0 the tick and bit 1 the profiling tick | write |
+| `0x80_0000` + `0x2_0000` k | The control store's SRAM k, 64K × 16, halfwords, while RUN is off: k = 0–8 the microinstruction's 16-bit lanes, k = 9 the decode table ([RFC 0031, 6](0031-rfc-draft-2-cpu.md#6-the-bus-and-the-slave-port), whose slot-relative offsets predate RFC 0037) | read, write |
 
 - **The CPU reaches its own card's registers locally,** without the
   system bus, so a handler never waits for the bus to clear its level or
@@ -255,8 +260,9 @@ It is free, claimed or full:
   LOCK.
 - **The message:** a write to the message address while it is claimed
   stores the message. A 32-bit master writes it in one transfer. A 16-bit
-  master, such as the I/O processor, writes the low half and then the
-  high half, and the high half's write completes it. Then the register is
+  master, such as the I/O processor, writes the low half (the halfword at
+  `0x3004`, bits 15–0) and then the high half (`0x3006`, bits 31–16), and
+  the high half's write completes it. Then the register is
   full and requests level 7.
 - **A write to the message address** while the register is free or full
   is ignored.
