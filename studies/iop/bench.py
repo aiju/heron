@@ -87,11 +87,11 @@ def measure(wcs=False):
     # ---- booting the CPU
     start = s.ms
     s.command("boot-cpu cpu-wait", 30000)
-    what = "booting the CPU: " + ("the control store, the decode table and the program" if wcs
+    what = "booting the CPU: " + ("draft 2's control store, its decode table and the program" if wcs
                                   else "its program (no control store)")
     hw = sum(len(h) for _, h in b.cs["runs"]) if wcs else 0
     rows.append((what, f"{s.ms - start:.1f} ms" + (f" ({2 * hw / (s.ms - start) / 1e3:.1f} MB/s)" if wcs else ""),
-                 "about 35 ms (130K halfwords at 7.6 MB/s)" if wcs else "-"))
+                 "about 35 ms for the 1b's (130K halfwords at 7.6 MB/s)" if wcs else "-"))
     rows.append(("microcode", f"{len(b.mc.words)} microinstructions, {len(b.mc.prims)} primitives",
                  "1-2K; the interpreter and primitives 500-1,000"))
     rows.append(("the Forth's dictionary", f"{b.meta.here} cells", "up to 32K"))

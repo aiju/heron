@@ -73,7 +73,7 @@ variable n : counter begin 1 n +! pause again ;
 | `meta.py` | The metacompiler: the Forth source into the dictionary image |
 | `forth/kernel.fs`, `forth/monitor.fs` | The Forth |
 | `build.py` | The image flash: the dictionary, and the CPU's images as records |
-| `sw/hello.s` | The CPU's boot program |
+| `sw/hello.s`, `sw/irq.s` | CPU programs: the default boot program, and one that waits for an interrupt from the IOP |
 | `run.py`, `cli.py` | Running it; the command line |
 | `bench.py` | The measurements |
 
@@ -163,7 +163,7 @@ RFC, not decisions.
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.6 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 5.5 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 4.7 MB/s | 7.6 MB/s |
-| booting the CPU: the control store, the decode table and the program | 69.5 ms (3.5 MB/s) | about 35 ms (130K halfwords at 7.6 MB/s) |
+| booting the CPU: draft 2's control store, its decode table and the program | 69.5 ms (3.5 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
 | microcode | 1008 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
 | the Forth's dictionary | 5038 cells | up to 32K |
 
@@ -189,7 +189,21 @@ What the differences come from, so far:
 
 ## Not yet
 
-The rings, copies and fills as native jobs, and interrupts to the CPUs
-(RFC 0027, 7, stage 2-3); the I/O cards (a CF card is in
-`infra/devices`); the 32-bit paths; the stuck-transfer counter; hardware
-change detection on the INT lines; the time of day and the front panel.
+- **Stage 2-3 of RFC 0027:** the rings and their windows, copies and
+  fills as native jobs that requests start, routing events to the CPUs
+  (slow and batched, fast and vectored). What's here is the mechanism:
+  `cpu-int` sets a level in the CPU card's request register, and the
+  doorbells reach the Forth.
+- **Devices:** the I/O cards (a CF card is in `infra/devices`), the
+  serial loader, the time of day and the front panel; the stuck-transfer
+  counter; the 32-bit paths; change detection on the INT lines.
+- **Fen on this system:** RFC 0037 (28) moves Fen's devices to the IOP's
+  map, which changes Fen's drivers. Fen still runs on its own board.
+
+Where the CPU's side doesn't match this system yet, for the RFCs rather
+than this study: draft 2's CPU card in `studies/v2_hw` (`iop.py`, after
+RFC 0031, 6) has its slave port in slot 0 by RFC 0014's slots, with the
+control register at `0x600_0000` and the control store at `0x400_0000`
+in the slot. Here the card is RFC 0037's region 0, its registers at
+`0x7000_0000` with the control store's window among them, ten lanes:
+draft 2's 144-bit microinstruction in nine, the decode table in one.
