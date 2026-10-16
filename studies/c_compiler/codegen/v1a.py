@@ -187,7 +187,7 @@ class V1A(Target):
                 return
             e = self.imm_or_reg(b)
             self.emit(ALU[op], [d, e], defs=[d], uses=[d] + ([] if isinstance(e, Imm) else [e]),
-                      flags="nz")
+                      flags="nz", nsw=op in ("add", "sub") and i.signed)
             return
         if op in SHIFT:
             self.move_into(d, a)

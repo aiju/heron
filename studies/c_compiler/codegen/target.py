@@ -664,7 +664,7 @@ class Target:
                         and i.ops[0] is not prev.ops[0] and prev.ops[0] not in after[k]):
                     t = prev.ops[0]
                     out[-1] = MInstr(i.op, [i.ops[0], prev.ops[1]], i.defs,
-                                     [r for r in i.uses if r is not t], flags=i.flags)
+                                     [r for r in i.uses if r is not t], flags=i.flags, nsw=i.nsw)
                     continue
                 out.append(i)
             b.instrs = out
@@ -687,8 +687,35 @@ class Target:
                         for u in users:
                             self.set_cond(u, conds[self.cond_of(u)])
                         continue
+                    if self.sets_v(out[-1], i, b, k):
+                        continue
                 out.append(i)
             b.instrs = out
+
+    # After CMP r, #0 these read V as well, which is 0 after an add that
+    # can't overflow.
+    SIGNED_CONDS = ("GT", "LE", "GE", "LT")
+
+    def sets_v(self, d, c, b, k):
+        """Can CMP r, #0 (c, instruction k of block b) go because d, the
+        instruction that last set the flags and wrote r, leaves V = 0 and N
+        and Z from r: an ADD or SUB on r that C says can't overflow (or an
+        INC or DEC on r alone, which leaves V as it was, made an ADD), with
+        only signed conditions reading the flags after c?"""
+        r = c.ops[0]
+        if c.ops[1].value != 0 or not d.nsw or not d.ops or d.ops[0] is not r:
+            return False
+        users = self.flag_users(b, k)
+        if not users or not all(self.cond_of(u) in self.SIGNED_CONDS for u in users):
+            return False
+        if d.op in ("ADD", "SUB"):
+            return True
+        return self.as_add(d)
+
+    def as_add(self, d):
+        """Turn INC r or DEC r into ADD r, #1 or #-1 where that costs
+        nothing more, so it sets V; True if done."""
+        return False
 
     @staticmethod
     def cond_of(i):

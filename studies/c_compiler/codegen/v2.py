@@ -320,6 +320,8 @@ class V2(V1B):
                         for u in users:
                             self.set_cond(u, conds[self.cond_of(u)])
                         continue
+                    if d is not None and self.sets_v(d, c, b, k):
+                        continue
                 out.append(c)
             b.instrs = out
 

@@ -181,6 +181,39 @@ class Optimizations(unittest.TestCase):
         self.assertNotIn("shl", [i.op for b in body for i in b.instrs])
         self.assertIn("shl", [i.op for b in f.blocks if b not in body for i in b.instrs])
 
+    @staticmethod
+    def in_loops(f):
+        """f's instructions inside its loops, and outside them."""
+        loops = natural_loops(DomTree(f))
+        inside = set().union(*loops.values())
+        return ([i for b in f.blocks if b in inside for i in b.instrs],
+                [i for b in f.blocks if b not in inside for i in b.instrs])
+
+    def test_invariant_global_load(self):
+        # the loop stores only into a[], another object: n is loaded once
+        f = optimized("int n, a[10]; void f(void) { int i; for (i = 0; i < n; i++) a[i] = i; }")
+        inside, outside = self.in_loops(f)
+        self.assertNotIn("load", [i.op for i in inside])
+        self.assertIn("load", [i.op for i in outside])
+
+    def test_invariant_constant_reassociated(self):
+        # y * 3 + c - 295: c - 295 is computed before the loop
+        f = optimized("int f(int c, int n) { int i, y = 0; for (i = 0; i < n; i++) "
+                      "y = (y >> 1) * 3 + c - 295; return y; }")
+        inside, outside = self.in_loops(f)
+        self.assertFalse(any(getattr(a, "value", None) == (-295 & 0xFFFFFFFF)
+                             for i in inside for a in i.args))
+        self.assertTrue(any(i.op == "add" and f.params[0] in i.args for i in outside))
+
+    def test_constants_before_the_outermost_loop(self):
+        # crc's bit loop: the constants are loaded once, not once per byte
+        f = optimized("""unsigned f(const unsigned char *p, int n) { unsigned crc = 0xffff; int k;
+while (n--) { crc ^= *p++ << 8; for (k = 0; k < 8; k++) crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1; }
+return crc; }""")
+        inside, outside = self.in_loops(f)
+        self.assertNotIn("copy", [i.op for i in inside])
+        self.assertEqual({i.args[0].value for i in outside if i.op == "copy"}, {0x8000, 0x1021})
+
 
 class InterpretedIR(unittest.TestCase):
     """The test programs' IR, run by the IR interpreter before and after
@@ -306,6 +339,14 @@ class CodePatterns(unittest.TestCase):
         a = asm_of(f"int f(int a, int n) {{ while (n--) {{ {body}; }} return a; }}", "v2")
         self.assertRegex(a, r"DEC\s+(r\d+), \1\n\s+BNE")
         self.assertNotIn("DBNZ", a)
+
+    def test_v2_no_overflow_replaces_compare(self):
+        # j - 1 can't overflow (j is an int), so the ADD's flags decide
+        # j > 0 on their own; an INC or DEC, which leaves V, becomes an ADD
+        a = asm_of("int a[9]; int f(int j, int v) { while (j > 0 && a[j - 1] > v) "
+                   "{ a[j] = a[j - 1]; j--; } return j; }", "v2")
+        self.assertRegex(a, r"ADD\s+r1, #-1\n(\s+(LEA|MOV).*\n)*\s+BGT")
+        self.assertEqual(a.count("CMP  r1, #0"), 1)       # only the test on entry
 
     def test_v2_size_model_short_offsets(self):
         # DBNZ's reach rests on the size model: [sp + 4R] and [r14 + 4R]
