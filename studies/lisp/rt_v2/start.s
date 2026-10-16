@@ -223,8 +223,8 @@ tl_loop:
         MOV  r2, r13
         BSR  eval
         BRA  tl_loop
-.hook:  MOV  r3, r1             ; (%toplevel form): the compiler's, once loaded
-        MOV  r4, r13
+.hook:  MOV  r6, r1             ; (%toplevel form): the compiler's, once loaded
+        MOV  r5, r13
         BSR  cons
         MOV  r2, r1
         MOV  r1, [S_toplevel + 3 + SYM_VALUE]
@@ -274,26 +274,26 @@ fatal:  PUSH r1
 ; register byte's high nibble.
 trap_addr:
         SAVE r0-r14             ; r0 at [sp], ..., r14 at [sp + 56]
-        MOV  r5, [sp + 64]      ; the instruction
-        MOV  r6, byte [r5]      ; its opcode
-        MOV  r9, byte [r5 + 1]  ; its register byte
+        MOV  r4, [sp + 64]      ; the instruction
+        MOV  r3, byte [r4]      ; its opcode
+        MOV  r9, byte [r4 + 1]  ; its register byte
         MOV  r10, r9
         AND  r10, #15           ; R
-        CMP  r6, #0xF0          ; JMP, CALL: the mode from the register byte
+        CMP  r3, #0xF0          ; JMP, CALL: the mode from the register byte
         BLO  .row
-        CMP  r6, #0xF1
+        CMP  r3, #0xF1
         BHI  .other
         LSR  r9, #4
         CMP  r9, #3             ; [R + d16]
         BNE  .other
         BRA  .disp
-.row:   CMP  r6, #0xB0          ; rows 1-A: the mode is the opcode's column
+.row:   CMP  r3, #0xB0          ; rows 1-A: the mode is the opcode's column
         BHS  .other
-        MOV  r8, r6
+        MOV  r8, r3
         AND  r8, #15
         CMP  r8, #3             ; [R + d16]
         BNE  .other
-.disp:  MOV  r8, half [r5 + 2]
+.disp:  MOV  r8, half [r4 + 2]
         SXH  r8, r8             ; d16
         CMP  r10, #14
         BHI  .other
@@ -312,13 +312,13 @@ trap_addr:
 ; instruction's address.
 trap_tag:
         SAVE r0-r14             ; r0 at [sp], ..., r14 at [sp + 56]
-        MOV  r5, [sp + 64]
-        MOV  r6, byte [r5]      ; the opcode
-        MOV  r8, byte [r5 + 1]  ; the register byte: rd, rs
+        MOV  r4, [sp + 64]
+        MOV  r3, byte [r4]      ; the opcode
+        MOV  r8, byte [r4 + 1]  ; the register byte: rd, rs
         MOV  r9, r8
         LSR  r9, #4             ; rd
         AND  r8, #15            ; rs
-        CMP  r6, #0x09          ; TMOV checks only its source
+        CMP  r3, #0x09          ; TMOV checks only its source
         BEQ  .src
         MOV  r1, [sp + r9*4]
         TST  r1, #1
