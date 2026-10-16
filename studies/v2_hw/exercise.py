@@ -301,10 +301,6 @@ def emit_modes(emit):
         for k, mode in enumerate(modes):
             if mode == abs32:
                 continue
-            if op == "MOVS" and mode.startswith(("byte", "half")):
-                # RFC 0028 (5.1): N from the byte's or half's own top bit; the
-                # simulator takes it from bit 31. sw/isanotes.s checks these
-                continue
             setup(k)
             emit("        MOV  r5, #0")
             emit("        MTSR flags, r5")

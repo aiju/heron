@@ -1,9 +1,7 @@
-; isanotes: where this CPU follows RFC 0028 and draft 2's instruction-level
-; simulator doesn't (yet): MOVS of a byte or half takes N from the
-; operand's own bit 7 or 15 (RFC 0028, 5.1, decided 2026-10-15); the
-; simulator takes it from bit 31 of the zero-extended value. INC and DEC on
-; a byte or half, which both take from the operand's top bit, for
-; comparison.
+; isanotes: MOVS of a byte or half takes N from the operand's own bit 7
+; or 15 (RFC 0028, 5.1, decided 2026-10-15), not from bit 31 of the
+; zero-extended value, as the simulator once did; INC and DEC on a byte or
+; half, which both take it from the operand's top bit, for comparison.
 
         .org 0x00
         JMP  start

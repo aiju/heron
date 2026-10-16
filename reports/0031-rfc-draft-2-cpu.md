@@ -604,11 +604,8 @@ WHATIF_SUMMARY
 - **The rules the hardware relies on** are checked by the model at every
   cycle: one driver per bus lane, nothing floating used, no parcel
   consumed from an empty queue, no consume in a decode or a data access.
-- **One difference from the simulator** is known: `MOVS` of a byte or
-  half takes N from the operand's bit 7 or 15 here, as RFC 0028 says
-  (5.1, decided 2026-10-15), where the simulator takes bit 31 of the
-  zero-extended value. The exercise program leaves them out, and
-  `sw/isanotes.s` checks them against RFC 0028.
+- **`MOVS` of a byte or half** takes N from the operand's bit 7 or 15
+  (RFC 0028, 5.1); `sw/isanotes.s` checks it on its own as well.
 - **The exercise program runs in user mode** on this model, so that the
   flags words it saves are the same as the simulator's apart from S.
 
