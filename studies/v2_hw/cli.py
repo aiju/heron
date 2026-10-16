@@ -9,6 +9,8 @@
   boot   FILE.s                    the whole boot: the I/O processor loads the
                                    control store and RAM through the slave
                                    port, then RESET and RUN
+  perf   [--bus]                   the suite's time, length classes from its
+                                   profile, where the cycles go
   ucode  [--list]                  the microcode: its size, length classes,
                                    and (--list) every microinstruction
 """
@@ -75,6 +77,9 @@ def main(argv=None):
     if argv[:1] == ["check"]:
         from .check import main as check_main
         return check_main(argv[1:])
+    if argv[:1] == ["perf"]:
+        from .perf import main as perf_main
+        return perf_main(argv[1:])
     p = argparse.ArgumentParser(prog="heron v2_hw", description="The draft 2 CPU")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check", help="the RTL model against the instruction-level simulator")

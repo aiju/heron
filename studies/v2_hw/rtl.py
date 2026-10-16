@@ -183,6 +183,28 @@ class RTL:
         sysm = self.sys
         hold = 0
 
+        # ---- register file reads
+        rfk = f["RFK"]
+        A = None
+        if f["ARF"]:
+            A = self.rf[self.rf_addr(f["RFA"], rfk, f["UBR"])]
+        drv = 1 if f["ARF"] else 0
+        if f["APC"]:
+            A = (PC | f["PCK"]) & M32
+            drv += 1
+        if f["AR"]:
+            A = R
+            drv += 1
+        if f["AR2"]:
+            sina = (0, R >> 31, self.c, self.MQ >> 31)[f["SINA"]]
+            A = ((R << 1) | sina) & M32
+            drv += 1
+        if f["AMAR"]:
+            A = MAR
+            drv += 1
+        if drv > 1:
+            self.err("A bus contention")
+
         # ---- the memory port: a data access, or a fetch
         mem = f["MEM"]
         size = f["SIZE"]
@@ -190,16 +212,23 @@ class RTL:
         D = None                     # the memory data bus (32 bits)
         fetched = None               # the word a fetch brings
         fetch_fault = None
-        data_access = mem in (1, 2, 4, 5)
+        data_access = mem in (1, 2, 4, 5, 6)
+        reading = mem in (1, 6)
+        VA = MAR
+        if mem == 6:
+            # a read whose address comes from the A bus, not MAR
+            if A is None:
+                self.err("a read at the A bus with nothing on it")
+            VA = A
         if data_access:
-            if mem in (1, 2):
-                if (size == 3 and MAR & 3) or (size == 2 and MAR & 1):
-                    fault = (1, 0, MAR)
+            if mem in (1, 2, 6):
+                if (size == 3 and VA & 3) or (size == 2 and VA & 1):
+                    fault = (1, 0, VA)
                 else:
                     try:
-                        pa = sysm.translate(MAR, "write" if mem == 2 else "read", self)
+                        pa = sysm.translate(VA, "write" if mem == 2 else "read", self)
                     except Fault as e:
-                        fault = (0, e.fsr, MAR)
+                        fault = (0, e.fsr, VA)
                         pa = None
             elif not self.s:
                 self.err("a map access in user mode")
@@ -226,28 +255,6 @@ class RTL:
         QH = None
         if view:
             QH = (view[0] >> 16) if pc1 else (view[0] & 0xFFFF)
-
-        # ---- register file reads
-        rfk = f["RFK"]
-        A = None
-        if f["ARF"]:
-            A = self.rf[self.rf_addr(f["RFA"], rfk, f["UBR"])]
-        drv = 1 if f["ARF"] else 0
-        if f["APC"]:
-            A = (PC | f["PCK"]) & M32
-            drv += 1
-        if f["AR"]:
-            A = R
-            drv += 1
-        if f["AR2"]:
-            sina = (0, R >> 31, self.c, self.MQ >> 31)[f["SINA"]]
-            A = ((R << 1) | sina) & M32
-            drv += 1
-        if f["AMAR"]:
-            A = MAR
-            drv += 1
-        if drv > 1:
-            self.err("A bus contention")
 
         # immediate unit
         fsel = f["FSEL"]
@@ -301,9 +308,8 @@ class RTL:
         if bl:
             if bl <= 3:
                 # T is transparent while memory is read into it this cycle
-                if mem == 1:
-                    tv, tl = D, MAR & 3      # filled in below, once D is known
-                    tv = "pending"
+                if reading:
+                    tv, tl = "pending", VA & 3     # filled in below, once D is known
                 else:
                     tv, tl = self.T, self.TL
                 lanes_t = (bl, tl, tv)
@@ -348,12 +354,12 @@ class RTL:
 
         # ---- memory data, now that the address side is known
         if data_access and fault is None:
-            if mem == 1:
+            if reading:
                 try:
-                    D, h = sysm.read(pa, size, MAR, self)
+                    D, h = sysm.read(pa, size, VA, self)
                     hold += h
                 except BusError:
-                    fault = (2, 0, MAR)
+                    fault = (2, 0, VA)
             elif mem == 2:
                 pass                       # after the A bus has the store data
         if lanes_t is not None:
@@ -528,8 +534,8 @@ class RTL:
                 self.MAR = RES
             elif f["MARINC"]:
                 self.MAR = (MAR + 4) & M32
-            if mem == 1:
-                self.T, self.TL = D, MAR & 3
+            if reading:
+                self.T, self.TL = D, VA & 3
             if f["LDLC"]:
                 self.LC = RES & 0xFF
             elif f["LCINC"]:

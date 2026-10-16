@@ -135,7 +135,7 @@ V8 = {"bcc": 0, "k": 1, "fill": 2, "lc": 3, "q": 4, "nq": 5, "u7": 6, "s4": 7}
 FSEL = {"0": 0, "1": 1, "ir15": 2, "qh15": 3, "qh7": 4, "a31": 5, "a15": 6, "sgn": 7}
 PCCOND = {None: 0, "bcond": 1, "ncl": 2}
 CCB = {"jcc": 0, "bcc": 1, "set": 2}       # cc from IR[15:12], IR[3:0], IR[11:8]
-MEM = {None: 0, "read": 1, "write": 2, "fetch": 3, "mapr": 4, "mapw": 5}
+MEM = {None: 0, "read": 1, "write": 2, "fetch": 3, "mapr": 4, "mapw": 5, "reada": 6}
 SIZE = {None: 0, "byte": 1, "half": 2, "word": 3}
 FNZ = {None: 0, "nz": 1, "sticky": 2, "loadf": 3}
 NSEL = {31: 0, 15: 1, 7: 2}
@@ -501,13 +501,15 @@ def privileged(name, body, pcfix=2):
 
 
 class Opnd:
-    def __init__(self, kind, pre, use, size=4, consume=False, post=None):
+    def __init__(self, kind, pre, use, size=4, consume=False, post=None, base=False):
         self.kind = kind          # 'reg', 'imm', 'mem', 'idx'
         self.pre = pre            # steps before the using cycle
         self.use = use            # fields of the using cycle (operand on B)
         self.size = size
         self.consume = consume    # the using cycle consumes a parcel (it can't decode)
         self.post = post          # ('post', n): [R]+; ('pre', None): -[R], R holds the base
+        self.base = base          # [R] or [R]+: the address is R itself, so a read can
+                                  # take it from the A bus (MEM reada) without MAR
 
 
 def size_name(n):
@@ -588,7 +590,7 @@ def opnd(M, R):
     size = mode_size(M, R)
     steps, post = addr_steps(M, R, "mar")
     use = merge(mi(mem="read", size=size_name(size)), tload(size))
-    return Opnd("mem", steps, use, size=size, post=post)
+    return Opnd("mem", steps, use, size=size, post=post, base=M in (2, 6, 8, 0xA, 0xB))
 
 
 # ---- the indexed modes ---------------------------------------------------
@@ -686,11 +688,17 @@ def load_like(opname, o, name):
         acc = merge(mi(mem="read", size="word"), mi(b="r", alu="passb", w="r"))
         return chain(name, *o.pre, acc, end(name, _fields=merge(tload(4), op_fields(opname, 4))))
     if o.post:
-        # [R]+: the base stepped in the access cycle, the operation from T
-        acc = merge(mi(mem="read", size=size_name(o.size)), mi(ra="r", kv=o.post[1], alu="add",
-                                                                w="r"))
-        return chain(name, *o.pre, acc,
+        # [R]+: the base stepped in the access cycle, which reads at the
+        # base on the A bus; the operation from T
+        acc = merge(mi(mem="reada", size=size_name(o.size)), mi(ra="r", kv=o.post[1], alu="add",
+                                                                 w="r"))
+        return chain(name, acc,
                      end(name, _fields=merge(tload(o.size), op_fields(opname, o.size))))
+    if o.base and opname in ("MOV", "MOVS"):
+        # [R]: one cycle, the address from the A bus (an ALU operation
+        # needs the A bus for rd, so goes through MAR)
+        return end(name, _fields=merge(mi(mem="reada", size=size_name(o.size), ra="r"),
+                                       tload(o.size), op_fields(opname, o.size)))
     using = merge(o.use, op_fields(opname, o.size))
     if o.consume:
         return chain(name, *o.pre, merge(using, mi(consume=1)), end(name))
@@ -752,14 +760,19 @@ def mem_op(opname, o, name):
             return None
         if o.post:
             if o.post[0] == "pre":
+                pre = o.pre
                 acc = merge(mi(mem="read", size="word"), mi(b="r", alu="passb", w="r"))
             else:
-                acc = merge(mi(mem="read", size="word"), mi(ra="r", kv=o.post[1], alu="add",
-                                                            w="r"))
+                pre = []
+                acc = merge(mi(mem="reada", size="word"), mi(ra="r", kv=o.post[1], alu="add",
+                                                             w="r"))
             if call:
-                return chain(name, *o.pre, acc, mi(a="pc", alu="passa", w=LINK),
+                return chain(name, *pre, acc, mi(a="pc", alu="passa", w=LINK),
                              end(name, b="t", alu="passb", ldpc=1))
-            return chain(name, *o.pre, acc, end(name, b="t", alu="passb", ldpc=1))
+            return chain(name, *pre, acc, end(name, b="t", alu="passb", ldpc=1))
+        if o.base and not call:
+            return end(name, _fields=mi(mem="reada", size="word", ra="r", b="t", alu="passb",
+                                        ldpc=1))
         acc = mi(mem="read", size="word", b="t")
         if call:
             # r7 <- PC in the access cycle (not written if it faults)
@@ -1773,7 +1786,7 @@ class Microcode:
 
     def _check(self):
         """Rules the hardware relies on."""
-        data = (MEM["read"], MEM["write"], MEM["mapr"], MEM["mapw"])
+        data = (MEM["read"], MEM["write"], MEM["mapr"], MEM["mapw"], MEM["reada"])
         for n in self.nodes:
             f = n.f
             mem = f.get("MEM", 0)
@@ -1783,6 +1796,8 @@ class Microcode:
                 raise ValueError(f"{n.name}: consumes a parcel in a data access")
             if mem == MEM["write"] and not f.get("ARF") and not f.get("AR"):
                 raise ValueError(f"{n.name}: a write with nothing on the A bus")
+            if mem == MEM["reada"] and not f.get("ARF"):
+                raise ValueError(f"{n.name}: a read at the A bus without a register on it")
             if n.succ[0] == "dispatch" and not f.get("CONSUME"):
                 raise ValueError(f"{n.name}: a dispatch that doesn't consume its parcel")
 

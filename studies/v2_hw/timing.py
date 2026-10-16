@@ -83,8 +83,10 @@ def delays():
         mq=_d("74F299", "CLK->Q") + bufen,
         spr=reg + bufen,
         # memory: the map's address mux, the map, the window mux, the RAM
-        vaddr_mar=cnt, vaddr_fpc=cnt,
-        map=mux2 + sram, phys=mux2d, ram=ram,
+        # the VA mux has three ways (MAR, FPC, the A bus: 74F153s); MAR and
+        # FPC through its select, the A bus through its data inputs
+        vaddr_mar=cnt, vaddr_fpc=cnt, vaddr_a=mux4d - mux4,
+        map=mux4 + sram, phys=mux2d, ram=ram,
         tlat=latch + buf,                           # T, transparent, onto B by lanes
         alu_logic=alu_logic, alu_add=alu_add, carry=_d("74F181", "CN->CN4"),
         res=mux4d, rz=_d("74F153", "G->Y") - mux4d,
@@ -123,6 +125,8 @@ def estimate(f):
         a = d["r2"]
     elif f.get("AMAR"):
         a = d["mar"]
+    if mem == 6:                                     # a read at the A bus: VA from it
+        memt = a + d["vaddr_a"] + d["map"] + d["phys"] + d["ram"]
     b = 0.0
     if f.get("BRF"):
         b = max(b, d["rf"])
@@ -134,7 +138,7 @@ def estimate(f):
     if bl >= 4:
         b = max(b, d["qh"])
     elif bl:
-        b = max(b, memt + d["tlat"] if mem == 1 else d["r"])
+        b = max(b, memt + d["tlat"] if mem in (1, 6) else d["r"])
     if bx == 1:
         b = max(b, d["mq"])
     elif bx:
@@ -173,13 +177,13 @@ def estimate(f):
         cond_t = {2: d["r"], 3: d["uir"], 4: d["uir"] + 10, 7: d["uir"] + 10,
                   9: d["uir"] + 15, 12: d["uir"] + 15}.get(f["COND"], d["uir"] + 8)
         need = max(need, cond_t + d["mux2"] + d["cs"])
-    if mem in (1, 2, 4, 5):
+    if mem in (1, 2, 4, 5, 6):
         fault = memt + 13                            # the map's bits -> FAULT -> control store
         need = max(need, fault + d["cs"])
-        if mem == 1 and not bl:
+        if mem in (1, 6) and not bl:
             need = max(need, memt + d["reg_setup"])
     ticks = max(K_MIN, math.ceil((need + 1.0) / TICK))
-    if mem in (1, 2):
+    if mem in (1, 2, 6):
         ticks = max(ticks, K_BUS)                    # it may go to the bus
     if mem in (2, 5):
         ticks = max(ticks, K_WRITE)
