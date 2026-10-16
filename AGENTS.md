@@ -156,11 +156,12 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v1b_system v1b_tradeoffs v0_hw
-  graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+- `heron test v1_isa v2_isa c_compiler v1b_hw v1b_system v1b_tradeoffs
+  v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
-- `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
-  against their expected output.
+- `heron v1_isa test`, `heron v1_isa --isa v1a test` and
+  `heron v2_isa test`: the programs against their expected output, in 1b,
+  1a and draft 2.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
