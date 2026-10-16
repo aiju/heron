@@ -47,6 +47,30 @@ geometric means over the programs: the Lisp's 12 benchmarks and Egret's
 > tables, the bugs still there on 1b), that was true of the port: the
 > fixes since changed compiler.lisp and those tables.
 
+> **Erratum (2026-10-16), the constant copier.** A bug in both drafts'
+> runtime left part of the compiler interpreted: every top-level form
+> that quotes a 0 (report 0018's erratum before its
+> [summary](0018-report-lisp.md#summary) has the details). On draft 2
+> that included `cc:g-function` and `cc:many-args` as well. With it
+> fixed, the compiler compiles more of itself, so the heap holds much
+> less when a program starts and the collections fall elsewhere again.
+> Code space now ends at `0x2A000` on both drafts, and the heap halves
+> are 374 KB. lisp.md is regenerated. The mutator's figures don't move,
+> but the collector's do. In the text:
+>
+> - the Lisp compiled takes 0.2% fewer cycles on draft 2 (0.998 of
+>   1b's), not the 1.0% of the erratum above. Draft 2's collector now
+>   takes 1,288,185 more cycles than 1b's (+0.60% of 1b's compiled
+>   cycles), not 323,394 fewer, and the runtime's routines take 709,201
+>   fewer (−0.33%);
+> - 1b's compiled cycles are 3.5% fewer, so the other changes are a
+>   larger share of them: the entries +1.43%, the integer checks
+>   −1.05%. `TST` still saves 1.0%, and the link register costs about
+>   1.3%, not 1.2%;
+> - the Lisp's compiled code is 1.6% bigger on draft 2, not 1.7%;
+> - code space is no longer 4 KB larger on draft 2: the 1b compiler
+>   grew as well, and both drafts have the same memory map.
+
 ## Summary
 
 - **Everything runs on draft 2:** the Lisp's 22 programs and tests,

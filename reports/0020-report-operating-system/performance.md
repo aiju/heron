@@ -167,9 +167,9 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 
 | Workload | Instructions | Pages: code / data | PC page changes per 1000 instr. | LRU 4 | LRU 8 | LRU 16 | LRU 32 | LRU 64 | LRU 128 | direct 64 | direct 256 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| lisp-boyer-c | 28.4 M | 19 / 211 | 25.6 | 128.82 | 30.91 | 1.59 | 0.09 | 0.03 | 0.02 | 13.51 | 0.01 |
-| lisp-meta-c | 21.6 M | 19 / 209 | 21.3 | 88.52 | 29.50 | 3.29 | 0.07 | 0.02 | 0.01 | 10.39 | 0.01 |
-| lisp-boyer-i | 309.0 M | 4 / 202 | 3.9 | 51.13 | 15.21 | 0.23 | 0.06 | 0.01 | 0.01 | 24.96 | 0.00 |
+| lisp-boyer-c | 21.7 M | 22 / 208 | 27.0 | 144.47 | 29.51 | 0.80 | 0.12 | 0.03 | 0.03 | 10.66 | 0.01 |
+| lisp-meta-c | 12.2 M | 22 / 206 | 37.3 | 126.04 | 40.21 | 2.29 | 0.05 | 0.02 | 0.02 | 6.89 | 0.02 |
+| lisp-boyer-i | 309.3 M | 4 / 197 | 3.9 | 52.68 | 16.29 | 0.23 | 0.06 | 0.01 | 0.01 | 5.25 | 0.00 |
 | egret-richards-jit | 7.1 M | 23 / 61 | 24.6 | 107.61 | 19.63 | 2.07 | 0.02 | 0.01 | 0.01 | 2.06 | 0.01 |
 | egret-json-i | 32.6 M | 12 / 174 | 25.9 | 149.73 | 92.30 | 9.49 | 0.04 | 0.01 | 0.01 | 34.12 | 0.01 |
 | gfx-wm-8 | 6.5 M | 8 / 101 | 8.9 | 22.93 | 3.51 | 1.30 | 0.74 | 0.07 | 0.02 | 4.99 | 0.02 |
@@ -179,9 +179,9 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 
 | Workload | What it is | Cycles | Pages touched |
 |---|---|---:|---:|
-| lisp-boyer-c | Lisp: compile boyer on the machine, then run it | 103.0 M | 223 |
-| lisp-meta-c | Lisp: compile and run a metacircular interpreter | 76.6 M | 222 |
-| lisp-boyer-i | Lisp: boyer, interpreted | 1,056.2 M | 203 |
+| lisp-boyer-c | Lisp: compile boyer on the machine, then run it | 80.8 M | 222 |
+| lisp-meta-c | Lisp: compile and run a metacircular interpreter | 45.3 M | 221 |
+| lisp-boyer-i | Lisp: boyer, interpreted | 1,057.2 M | 198 |
 | egret-richards-jit | Egret: richards, compiled by the JIT | 29.4 M | 66 |
 | egret-json-i | Egret: json, interpreted | 133.6 M | 178 |
 | gfx-wm-8 | Graphics: the window manager scene at 8 bits per pixel | 27.3 M | 104 |
