@@ -1851,6 +1851,7 @@ class Run:
             return
         r = env.ret
         env.frame["$ret"] = v if r is None else ite(self.g, v, r)
+        env.frame["$out"] = g_or(env.frame["$out"], self.g)
         self.g = False
 
     def s_fault(self, st, env):
@@ -1873,6 +1874,10 @@ class Run:
         if c is False and self.g is True:
             raise Unspecified(st.why)
         self.assumptions.append((z3.Implies(boolterm(self.g), boolterm(c)), st.why))
+        # where it doesn't hold the specification says nothing, so the rest
+        # runs where it does: what follows is guarded by c too, as the
+        # hardware's own conditions are (an access is to RAM)
+        self.g = g_and(self.g, c)
 
     def s_call_st(self, st, env):
         self.eval(st.call, env)
@@ -2042,9 +2047,11 @@ class Run:
         for p, a in zip(g.params, args):
             env.define(p.name, a)
         env.frame["$ret"] = None
-        g0 = self.g
+        env.frame["$out"] = False       # the guard of the paths that have returned
         self.block(g.body, env)
-        self.g = g_and(g0, g_not(self.fault_g)) if self.fault_g is not False else g0
+        # carry on where the call returned or ran off its end: not where it
+        # faulted, nor where an assumption in it failed
+        self.g = g_or(env.frame["$out"], self.g)
         if self.g is False:
             raise _Dead
         return env.frame["$ret"]
