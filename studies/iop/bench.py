@@ -6,6 +6,8 @@ Times on the system bus are the model's: the CPU card's slave port takes
 the bus is granted 4 clocks after a request, with nobody else using it.
 """
 
+import os
+
 from heron.studies.iop import build as bld
 from heron.studies.iop.run import Session
 
@@ -111,6 +113,12 @@ def measure(wcs=False):
     hw = sum(len(h) for _, h in b.cs["runs"]) if wcs else 0
     rows.append((what, f"{s.ms - start:.1f} ms" + (f" ({2 * hw / (s.ms - start) / 1e3:.1f} MB/s)" if wcs else ""),
                  "about 35 ms for the 1b's (130K halfwords at 7.6 MB/s)" if wcs else "-"))
+    for what, done, irq in iop_latency():
+        rows.append((f"a request, the IOP's side: {what}, from the doorbell to its completion, and to the interrupt",
+                     f"{done:.1f} us, {irq:.1f} us", "~5 us on top of the transfer"))
+    for what, cycles, us in request_costs():
+        rows.append((f"a request from the CPU at 6 MHz: {what}, its cycles (the handler included), and the time from one to the next",
+                     f"{cycles:.0f} cycles, {us:.0f} us", "200-700 cycles"))
     rows.append(("microcode", f"{len(b.mc.words)} microinstructions, {len(b.mc.prims)} primitives",
                  "1-2K; the interpreter and primitives 500-1,000"))
     rows.append(("the Forth's dictionary", f"{b.meta.here} cells", "up to 32K"))
@@ -125,6 +133,93 @@ def counted(s, b, line):
     command_ms(s, line)
     counts = s.s.counts()
     return (s.s.clock - c0, s.s.stats()["micro"] - st0["micro"], words_run(b, counts), native_micro(b, counts))
+
+
+RING_PROGRAM = os.path.join(bld.HERE, "sw", "ring.s")
+GO, DONE, STATUS, RESULT, TABLE = 0x1000, 0x1004, 0x1008, 0x100C, 0x2000
+
+
+def word(x):
+    return (x & 0xFFFF_FFFF).to_bytes(4, "little")
+
+
+def requests(s, reqs, timeout_ms=200):
+    """The CPU (sw/ring.s, booted and waiting) makes reqs, [(op, a, b, len,
+    tag)], one at a time. ({cycles, idle, done, status, result}, simulated
+    ms)."""
+    table = word(len(reqs)) + b"".join(word(op) + word(a) + word(b) + word(n | tag << 16)
+                                       for op, a, b, n, tag in reqs)
+    s.s.cpu_mem_write(TABLE, table)
+    c0 = s.s.cpu()
+    start = s.ms
+    s.s.cpu_mem_write(GO, word(1))
+    while not s.s.cpu()["halted"]:
+        if s.ms - start > timeout_ms:
+            raise RuntimeError("the CPU didn't finish its requests")
+        s.run_ms(0.05)
+    c1 = s.s.cpu()
+    mem = lambda a: int.from_bytes(s.s.cpu_mem(a, 4), "little")
+    return {"cycles": c1["cycles"] - c0["cycles"], "idle": c1["idle_cycles"] - c0["idle_cycles"],
+            "done": mem(DONE), "status": mem(STATUS), "result": mem(RESULT)}, s.ms - start
+
+
+def ring_session():
+    """The system with sw/ring.s booted, waiting for its requests."""
+    s = Session(bld.Build(RING_PROGRAM))
+    s.boot()
+    s.command("boot-cpu", 5000)
+    s.run_ms(2)
+    return s
+
+
+def request_costs():
+    """[(what, CPU cycles a request, us a request)]: the CPU making the
+    same request n times, each waiting for its completion's interrupt."""
+    import heron.studies.iop.layout as L
+    n = 16
+    out = []
+    for what, req in [
+        ("fill 64 bytes", (L.OP_FILL, 0x10000, 0x5555, 64, 1)),
+        ("copy a 4 KB page", (L.OP_COPY, 0x20000, 0x10000, 4096, 2)),
+        ("a request to the Forth's server (OP_NOP)", (L.OP_NOP, 0, 0, 0, 3)),
+    ]:
+        s = ring_session()
+        got, ms = requests(s, [req] * n)
+        assert got["done"] == n and got["status"] == 0, got
+        out.append((what, (got["cycles"] - got["idle"]) / n, 1000 * ms / n))
+    return out
+
+
+def iop_latency():
+    """[(what, us from the doorbell to the completion in the ring, to the
+    interrupt's bit on the bus)]: the IOP's side of a request, the test
+    playing the client (tests/test_rings.py)."""
+    import heron.studies.iop.layout as L
+    from heron.studies.iop.tests.test_rings import kernel
+    s = Session(bld.Build(bld.DEFAULT_PROGRAM))
+    s.boot()
+    k = kernel(s)
+    k.do((L.OP_NOTIFY, 0, 3 << 16, 0, 0))
+    out = []
+    for what, req in [("fill 64 bytes", (L.OP_FILL, 0x10000, 0x5555, 64, 1)),
+                      ("copy a 4 KB page", (L.OP_COPY, 0x20000, 0x10000, 4096, 2)),
+                      ("OP_NOP, through the Forth's server", (L.OP_NOP, 0, 0, 0, 3))]:
+        s.run_ms(0.1)
+        k.put(*req)
+        s.s.breakpoints = [s.b.mc.labels["cpost"]]
+        start = s.s.clock
+        k.ring()
+        times = []
+        for label in ["cpost", "po_now"]:
+            s.s.breakpoints = [s.b.mc.labels[label]]
+            if s.s.run(s.s.clock + int(20e6 / s.bclk)) != "break":
+                raise RuntimeError(f"{what}: no {label}")
+            times.append((s.s.clock - start) * s.bclk / 1e3)
+        s.s.breakpoints = []
+        s.run_ms(0.5)
+        k.completions()
+        out.append((what, *times))
+    return out
 
 
 def table(rows):

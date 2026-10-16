@@ -173,11 +173,9 @@ cp_full: X <- #DROPPED
 .endm
 
 ; Attention between slices: the tick alone is counted and cleared here,
-; and the slice goes on; anything else is the native layer's (jattn).
-.macro TAIL name S off
-        \off
-        ifnot attn goto \name_sl
-        AC <- #\S
+; and the job goes on at back with AC set to ac; anything else is the
+; native layer's (jattn).
+.macro TICK back ac
         F <- ev1 | ifnot F15 goto jattn            ; not the tick: a doorbell
         X <- #TICKS
         F <- ev1 - 1 | if F15 goto jattn           ; an ATN line too
@@ -187,9 +185,16 @@ cp_full: X <- #DROPPED
         [X] <- [X] - 1 | ifnot carry goto jattn_t   ; held levels are due
         F <- ([X] & AC) - 1
         ifnot carry goto jattn_t                    ; the turn is over
-        AC <- #\S
-        ev1 <- F | goto \name_sl
+        AC <- #\ac
+        ev1 <- F | goto \back
         nop
+.endm
+
+.macro TAIL name S off
+        \off
+        ifnot attn goto \name_sl
+        AC <- #\S
+        TICK \name_sl \S
 .endm
 
 ; jchunk is less than a slice now, S less what's left.
@@ -728,8 +733,7 @@ jr_next: jirq <- #1
 jr_on:  jres <- #jring
         ifnot attn goto jring
         nop
-        goto jattn
-        nop
+        TICK jring 0
 
 ; The ring is empty: the client's interrupt, if it has completions it
 ; hasn't been told of, and out of the queue until its doorbell.

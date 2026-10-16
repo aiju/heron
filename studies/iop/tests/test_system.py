@@ -105,3 +105,20 @@ class Interrupt(unittest.TestCase):
         self.assertEqual(s.command("3 cpu-int cpu-wait", 3000),
                          "3 cpu-int cpu-wait Level 3 from the IOP\r\n ok\r\n")
         self.assertEqual(s.s.cpu()["irq"], 0)
+
+
+class CpuClient(unittest.TestCase):
+    def test_requests(self):
+        """The CPU as the kernel's client (sw/ring.s): its requests in the
+        shared RAM, its doorbell, the completions' interrupt at level 3,
+        the events drained."""
+        from heron.studies.iop import bench, layout as L
+        s = bench.ring_session()
+        reqs = [(L.OP_FILL, 0x10000 + 64 * i, 0x1000 + i, 64, i) for i in range(5)]
+        reqs += [(L.OP_COPY, 0x30000, 0x10000, 320, 9), (L.OP_NOP, 0, 0, 0, 10)]
+        got, ms = bench.requests(s, reqs)
+        self.assertEqual((got["done"], got["status"]), (len(reqs), 0))
+        for i in range(5):
+            self.assertEqual(s.s.cpu_mem(0x10000 + 64 * i, 64), (0x1000 + i).to_bytes(2, "little") * 32)
+        self.assertEqual(s.s.cpu_mem(0x30000, 320), s.s.cpu_mem(0x10000, 320))
+        self.assertEqual(s.s.cpu()["irq"], 0)
