@@ -6,7 +6,7 @@ status: current
 date: 2026-10-16
 context:
   studies: [lisp, v2_isa]
-  commit: ee0238c
+  commit: fcb3243
 ---
 
 # Report 0033: The Lisp's arguments below the link register
@@ -21,7 +21,7 @@ address together. This report tries it.
 The Lisp on draft 2 now uses that convention. Report 0032's generated
 tables ([lisp.md](0032-report-lisp-egret-draft-2/lisp.md)) follow the code,
 so they measure it now; the figures here compare it with draft 2 as report
-0032 left it (`main` at `ee0238c`). Cycles are the timing model's for
+0032 left it (`main` at `fcb3243`). Cycles are the timing model's for
 D32-separate, as geometric means over the Lisp's 12 benchmarks.
 
 ## Summary
@@ -40,7 +40,7 @@ D32-separate, as geometric means over the Lisp's 12 benchmarks.
     convention, it alone made draft 2 1.4% faster. 1b's compiler still
     checks on every iteration.
 - **Against 1b,** draft 2's compiled Lisp now takes 2.5% fewer mutator
-  cycles (0.3% fewer before) and 3.6% fewer with the collector (0.9%).
+  cycles (0.3% fewer before) and 3.6% fewer with the collector (1.0%).
   Its function entries now cost 0.5% less than 1b's, where they cost 1.4%
   more. About 1.4 points of that lead is the tail-call change, which 1b's
   compiler could make too.
@@ -143,13 +143,13 @@ The compiled mutator's cycles, program by program:
 
 | Program | Report 0032 | Now | Tail calls | Convention | Change | Draft 2 / 1b, before | Now |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| boyer | 49,742,189 | 49,075,623 | −0.0% | −1.3% | −1.3% | +2.5% | +1.1% |
+| boyer | 49,742,189 | 49,075,623 | −0.0% | −1.3% | −1.3% | +2.4% | +1.1% |
 | closures | 11,680,375 | 11,502,694 | −0.6% | −0.9% | −1.5% | +0.0% | −1.5% |
 | deriv | 14,717,879 | 14,537,733 | −0.1% | −1.1% | −1.2% | +1.9% | +0.6% |
 | destruct | 11,600,536 | 11,062,497 | −4.6% | −0.0% | −4.6% | −4.1% | −8.5% |
 | div | 7,961,254 | 7,653,504 | −3.1% | −0.8% | −3.9% | +0.7% | −3.2% |
 | fib | 8,752,251 | 8,590,875 | −0.0% | −1.8% | −1.8% | −3.5% | −5.3% |
-| meta | 15,230,341 | 15,044,177 | −0.1% | −1.1% | −1.2% | +3.0% | +1.8% |
+| meta | 15,230,341 | 15,044,177 | −0.1% | −1.1% | −1.2% | +2.6% | +1.4% |
 | nqueens | 9,009,524 | 8,986,167 | −0.0% | −0.2% | −0.3% | −1.0% | −1.2% |
 | sieve | 13,917,901 | 13,345,366 | −4.1% | −0.0% | −4.1% | −2.8% | −6.8% |
 | sort | 44,979,680 | 43,842,627 | −2.4% | −0.1% | −2.5% | −2.5% | −4.9% |
@@ -169,12 +169,13 @@ Summed over the programs, the function entries take 4.2M cycles fewer:
 compiled cycles. The collector's cycles are 2.7M fewer, because its
 collections fall elsewhere. Nothing else moved by more than 0.01%.
 
-Against 1b, from report 0032's tables now:
+Against 1b (with the three bugs report 0032 found fixed there too), from
+report 0032's tables:
 
 | | Before | Now |
 |---|---:|---:|
-| Interpreted | −2.3% | −2.3% |
-| Compiled | −0.9% | −3.6% |
+| Interpreted | −2.3% | −2.2% |
+| Compiled | −1.0% | −3.6% |
 | Compiled, the mutator alone | −0.3% | −2.5% |
 | Compiled with tagged operations, against v1bx (mutator) | +0.6% | −1.7% |
 | No leaf functions, against draft 2 (mutator) | +0.8% | +0.6% |

@@ -695,9 +695,10 @@ What changed from 1b, beyond the encoding:
 #### 9.5 Calls, multiple registers and rows 0 and F
 
 - **The link register** (Emily, 2026-10-15). Measured on 1b with the
-  convention ported (the link-register report, in review): −2.3% of the
-  hand-written suite's cycles, −0.2% of compiled C's, −0.9% of Egret's
-  JIT, and at worst +0.24%. A leaf call and return takes 5 cycles instead
+  convention ported
+  ([link-register.md](0028-rfc-draft-2-isa/link-register.md)): −2.3% of
+  the hand-written suite's cycles, −0.2% of compiled C's, −0.9% of
+  Egret's JIT, and at worst +0.24%. A leaf call and return takes 5 cycles instead
   of 10. The microcode is 74 microinstructions shorter, and a call no
   longer writes memory, so `CALL [r]+` no longer needs care to be
   restartable. `r7` is the last caller-saved register, next to the

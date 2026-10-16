@@ -146,6 +146,15 @@ The what-if costing (below) puts that at **16.0%** of compiled cycles on
 the mean. It ranges from 0.7% (sieve, which uses vectors) to 34.6% (meta,
 an interpreter written in the Lisp). For the interpreter it's 19.3%.
 
+> **Erratum (2026-10-16).** Two bugs that [report 0032](0032-report-lisp-egret-draft-2.md#three-bugs-carried-over-from-1b)
+> found are now fixed on 1b as well: `apply` checks the stack limit
+> before it pushes the arguments, and a compiled `cons` that finds the
+> heap full calls the runtime's `cons`, which checks the limit again
+> after collecting. The check in every `apply` makes meta's compiled run
+> 0.4% slower, so its share above is now 34.4%. The other numbers in
+> the text still match [performance.md](0018-report-lisp/performance.md),
+> whose figures move by less than 0.1% elsewhere.
+
 - That's an upper bound for a compiler that inferred types and dropped
   checks it could prove unneeded. This one doesn't.
 - The trap must be **precise**: the saved PC must be the faulting
