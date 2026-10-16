@@ -283,6 +283,13 @@ Two bus clocks, from edge E0 through E1 to E2:
   decrementing it and branching on the borrow, and for equality with an
   XOR first. Bit 15 is on R in the second half, where the branch samples
   it.
+- **Testing AC for zero** (**tentative**, Emily, 2026-10-16): AC is the
+  ALU's B input, so the A side needs −1, and K is taken by the branch
+  target. A register that holds −1 in the bank (`m1` in a Forth task's)
+  gives it: `F ← m1 + AC` carries exactly when AC isn't 0. That costs no
+  chip. A spare device on T reading all ones through pull-up resistors
+  would be too slow: T carries about 100 pF, and its value goes straight
+  into the 56 ns path from T through the ALU.
 - ***Attention*** is set by the polling tick, by any doorbell, and by a
   control-register bit that the microcode sets while native work is
   waiting ([6.4](#64-tasks-native-jobs-and-events)).
@@ -533,7 +540,8 @@ At `0x7400_0000`, the range RFC 0037 left open for them:
   | `resume` | The microaddress the task goes on at: NEXT for a Forth task |
   | `link` | The next task's bank |
   | `wait` | The event the task waits for, or 0 if it can run |
-  | `t0`–`t7` | Scratch for primitives |
+  | `m1` | −1, for testing the top of the stack for zero ([3.3](#33-the-microinstruction), **tentative**) |
+  | `t0`–`t7` | Scratch for primitives; `w`, the word `execute` runs, is `t0` |
   | 16–63 | The task's user variables: `base`, `state`, `>in`, its terminal, and so on |
 
 - **Stacks** grow down in `0x8000`–`0xBFFF`, 64 cells each by default.
@@ -593,6 +601,28 @@ exit:   X ← rp
 - **Why bit 15:** the dispatch tells a primitive from a colon definition
   in the same microinstruction that fetches the cell, so no word needs a
   code field and no fetch is spent on one.
+- **`execute`** runs a word that isn't in the thread, so `nest` can't
+  re-read its address from `[ip]`. It goes through a second entry,
+  `nest-w`, that takes the address from a register instead. That is about
+  half a dozen microinstructions more microcode, and a colon definition
+  through `execute` takes about 13 microcycles:
+
+  ```
+  execute: w ← AC                                  ; the word to run
+           X ← sp
+           AC ← [X]                                ; pop: the new top
+           F ← w; to F if F15, else nest-w         ; a primitive, or a colon definition
+           sp ← sp + 1                             ; the delay slot
+  nest-w:  rp, X ← rp − 1
+           F ← ip
+           [X] ← F (hold)                          ; push ip, which points at execute's cell
+           F ← w − 1                               ; the body, less one
+           ip ← F (hold)
+           ...                                     ; NEXT
+  ```
+
+  A primitive run this way ends with its own NEXT and carries on after
+  `execute`, as `ip` hasn't moved.
 - **`branch`, `0branch`, `exit` and `pause`** also look at attention, one
   microinstruction each ([6.4](#64-tasks-native-jobs-and-events)).
 
@@ -1139,6 +1169,7 @@ microcode for the same job. That's enough for what it does:
 |---|---:|---|---|
 | **Bit 15 picks a primitive or a colon definition,** with the dispatch of 3.3 | ~0–1 | NEXT is 2 microinstructions and a delay slot | **recommended** |
 | Indirect threading: a code field in every word | 0 | A fetch more per word; no dispatch needed | **not recommended** |
+| `execute` through a two-cell thread built in the task's registers, the word and a primitive that returns | 0 | Works if the real `ip` goes on the return stack, so that a nested `execute` can't overwrite it | **not recommended**: `nest-w` ([6.2](#62-the-inner-interpreter)) is plainer |
 | A second memory pointer, Y, for `ip` or the stacks | +2–6, and a microinstruction bit | About 30% faster Forth | **not recommended**: speed isn't the goal |
 | Carry in from the carry flag, through another repeated ALU code | a gate | Double-cell arithmetic about twice as fast | **optional** |
 | A register machine's bytecode instead of Forth | 0 | 6–10 microinstructions an instruction; better for a C compiler | **not recommended**: Emily chose the Forth |
