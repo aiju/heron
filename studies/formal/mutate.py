@@ -1,7 +1,8 @@
 """Mutation testing: small mistakes put into the 1b hardware on purpose,
 and which of them the tests catch and which the proofs do.
 
-    heron formal mutate [-n 30] [--seed 1] [--jobs 4] [--budget 120]
+    heron formal mutate [-n 12] [--seed 1] [--jobs 4] [--budget 300] [--cap 1200]
+    heron formal mutate ... --resume CAP
 
 Two sets of mutants:
 
@@ -356,6 +357,35 @@ def proofs_catch(nl, roms, cases, jobs, budget, cap):
         v1b.roms()
 
 
+def _cases(kind, change, pins):
+    if kind == "netlist":
+        return apply_netlist(change), v1b.roms(), relevant(change, pins)
+    return v1b.netlist(), apply_ucode(change), affected(change[0])
+
+
+def resume(muts, pins, args):
+    """--resume: the proofs of the mutants they missed for lack of time,
+    from the case where they stopped."""
+    with open(args.out) as f:
+        results = json.load(f)
+    if [r["mutation"] for r in results] != [m[2] for m in muts]:
+        raise SystemExit(f"{args.out} is from other mutants (another -n, --seed or --only)")
+    for i, ((kind, origin, desc, change), r) in enumerate(zip(muts, results)):
+        if r["proofs"] or r["cases_run"] >= r["cases"]:
+            continue
+        t0 = time.time()
+        nl, roms, cases = _cases(kind, change, pins)
+        todo = sorted(cases, key=cost)[r["cases_run"]:]
+        proved, ran = proofs_catch(nl, roms, todo, args.jobs, args.budget, args.resume)
+        r["proofs"], r["cases_run"] = proved, r["cases_run"] + ran
+        r["seconds"] += time.time() - t0
+        print(f"[{i + 1}/{len(muts)}] {origin} {kind}: {desc}\n"
+              f"    proofs: {proved or '-'} ({r['cases_run']} of {r['cases']} cases)", flush=True)
+        with open(args.out, "w") as f:
+            json.dump(results, f, indent=1)
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="heron formal mutate")
     p.add_argument("-n", type=int, default=12, help="random mutants of each kind")
@@ -365,6 +395,9 @@ def main(argv=None):
     p.add_argument("--cap", type=int, default=1200, help="seconds of proving per mutant")
     p.add_argument("--only", choices=("handmade", "random"), help="one set of mutants")
     p.add_argument("--out", default=OUT)
+    p.add_argument("--resume", type=int, metavar="CAP",
+                   help="carry on proving the mutants that the last run's proofs (in --out) "
+                        "didn't catch before their time ran out, CAP more seconds each")
     args = p.parse_args(argv)
     rng = random.Random(args.seed)
     v1b.netlist()
@@ -378,15 +411,12 @@ def main(argv=None):
     if args.only != "handmade":
         muts += [("netlist", "random", d, c) for d, c in netlist_mutants(args.n, rng)]
         muts += [("ucode", "random", d, c) for d, c in ucode_mutants(args.n, rng)]
+    if args.resume:
+        return resume(muts, pins, args)
     results = []
     for i, (kind, origin, desc, change) in enumerate(muts):
         t0 = time.time()
-        if kind == "netlist":
-            nl, roms = apply_netlist(change), v1b.roms()
-            cases = relevant(change, pins)
-        else:
-            nl, roms = v1b.netlist(), apply_ucode(change)
-            cases = affected(change[0])
+        nl, roms, cases = _cases(kind, change, pins)
         tested = tests_catch(nl, roms)
         proved, ran = proofs_catch(nl, roms, cases, args.jobs, args.budget, args.cap)
         results.append({"kind": kind, "origin": origin, "mutation": desc, "tests": tested,
