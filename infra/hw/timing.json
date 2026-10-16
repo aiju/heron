@@ -28,6 +28,29 @@
   "part_number": "SN74ABT125",
   "source": "https://www.ti.com/lit/ds/symlink/sn74abt125.pdf"
  },
+ "74ABT16244A": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 4.1,
+    "min": 1,
+    "typ": 2.6
+   },
+   "OE->Y dis": {
+    "max": 4.8,
+    "min": 1,
+    "typ": 3.6
+   },
+   "OE->Y en": {
+    "max": 4.8,
+    "min": 1,
+    "typ": 3.2
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT16244A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt16244a.pdf"
+ },
  "74ABT16245": {
   "checks": {},
   "delays": {
@@ -55,6 +78,103 @@
   "estimated": [],
   "part_number": "SN74ABT16245A",
   "source": "https://www.ti.com/lit/ds/symlink/sn74abt16245a.pdf"
+ },
+ "74ABT16373A": {
+  "checks": {
+   "hold D": 1,
+   "setup D": 1.5,
+   "tw LE": 3.3
+  },
+  "delays": {
+   "D->Q": {
+    "max": 6.3,
+    "min": 1.4,
+    "typ": 4
+   },
+   "LE->Q": {
+    "max": 6.7,
+    "min": 1.7,
+    "typ": 4.3
+   },
+   "OE->Y dis": {
+    "max": 8.1,
+    "min": 1.6,
+    "typ": 5.1
+   },
+   "OE->Y en": {
+    "max": 6.1,
+    "min": 1.1,
+    "typ": 3.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT16373A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt16373a.pdf"
+ },
+ "74ABT16374A": {
+  "checks": {
+   "fmax MHz": 150,
+   "hold D": 1.3,
+   "setup D": 1.1,
+   "tw CLK": 3.3
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 6.2,
+    "min": 1.8,
+    "typ": 4.7
+   },
+   "OE->Y dis": {
+    "max": 8.2,
+    "min": 2.2,
+    "typ": 5.5
+   },
+   "OE->Y en": {
+    "max": 5.6,
+    "min": 1.2,
+    "typ": 3.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT16374A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt16374a.pdf"
+ },
+ "74ABT16823": {
+  "checks": {
+   "fmax MHz": 150,
+   "hold D": 1.2,
+   "hold EN": 0.6,
+   "recovery CLR": 1.6,
+   "setup D": 1.7,
+   "setup EN": 2.8,
+   "tw CLK": 3.3,
+   "tw CLR": 3.3
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 6.8,
+    "min": 1.6,
+    "typ": 3.9
+   },
+   "CLR->Q": {
+    "max": 6.1,
+    "min": 1.9,
+    "typ": 4.1
+   },
+   "OE->Y dis": {
+    "max": 8.7,
+    "min": 1.6,
+    "typ": 4.3
+   },
+   "OE->Y en": {
+    "max": 5.5,
+    "min": 1,
+    "typ": 3.5
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT16823",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt16823.pdf"
  },
  "74ABT245": {
   "checks": {},
@@ -177,6 +297,38 @@
   "estimated": [],
   "part_number": "SN74ABT541B",
   "source": "https://www.ti.com/lit/ds/symlink/sn74abt541b.pdf"
+ },
+ "74ABT573": {
+  "checks": {
+   "hold D": 1.8,
+   "setup D": 1.9,
+   "tw LE": 3.3
+  },
+  "delays": {
+   "D->Q": {
+    "max": 6.2,
+    "min": 1.9,
+    "typ": 4.2
+   },
+   "LE->Q": {
+    "max": 7.2,
+    "min": 2.2,
+    "typ": 5.2
+   },
+   "OE->Y dis": {
+    "max": 7.1,
+    "min": 2,
+    "typ": 4.9
+   },
+   "OE->Y en": {
+    "max": 6.7,
+    "min": 1.2,
+    "typ": 4.7
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74ABT573A",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74abt573a.pdf"
  },
  "74ABT574": {
   "checks": {

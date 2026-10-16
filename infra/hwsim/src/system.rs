@@ -120,6 +120,9 @@ pub struct SysOutcome {
     pub trace: Vec<String>,
     /// The probed nets' changes: (time, net name, value).
     pub probe: Vec<(Time, String, u8)>,
+    /// The first episodes of bus contention of 5 ns or more: (time, how
+    /// long, net, the enabled drivers as chip.pin).
+    pub contention_log: Vec<(Time, Time, String, Vec<String>)>,
 }
 
 const FNV_PRIME: u64 = 1099511628211;
@@ -281,6 +284,32 @@ pub fn run_system(
     worst_nets.sort_by(|a, b| (-a.max_ps, &a.net).cmp(&(-b.max_ps, &b.net)));
     worst_nets.truncate(12);
     let start_ps = prog_start.map_or(end_ps, |(_, t)| t);
+    let mut out_name: HashMap<u32, String> = HashMap::new();
+    for chip in &sim.chips {
+        for (pin, o) in chip.info.outs.iter().enumerate() {
+            if let Some(o) = o {
+                out_name.insert(
+                    *o,
+                    format!("{}.{}", chip.info.reference, chip.info.pin_names[pin]),
+                );
+            }
+        }
+    }
+    let contention_log = sim
+        .state
+        .contention_log
+        .iter()
+        .map(|(t, d, n, outs)| {
+            (
+                *t,
+                *d,
+                sim.topo.net_names[*n as usize].clone(),
+                outs.iter()
+                    .map(|o| out_name.get(o).cloned().unwrap_or_default())
+                    .collect(),
+            )
+        })
+        .collect();
     Ok(SysOutcome {
         halted,
         reason: reason.into(),
@@ -332,6 +361,7 @@ pub fn run_system(
             .iter()
             .map(|&(t, n, v)| (t, sim.topo.net_names[n as usize].clone(), v))
             .collect(),
+        contention_log,
     })
 }
 

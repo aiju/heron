@@ -159,6 +159,12 @@ Change the generator and rerun it rather than editing the output by hand:
 - `reports/0024-rfc-faster-smaller/results.md`:
   `heron v1b_tradeoffs report --write` (`--hw` reruns the chip-level
   suites, about 30 minutes);
+- `reports/0031-rfc-draft-2-cpu/performance.md`:
+  `heron v2_hw report --write` (its profiles take a few minutes each and
+  are cached in `build/v2_hw/`);
+- `studies/v2_hw/ticks.json`, the microcode's cycle lengths:
+  `heron v2_hw hw sta --write`, after any change to draft 2's netlist or
+  microcode (`heron test v2_hw` fails while it's stale);
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -168,12 +174,17 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa v2_isa c_compiler v1b_hw v1b_system v1b_tradeoffs
-  v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+- `heron test v1_isa v2_isa v2_hw c_compiler v1b_hw v1b_system
+  v1b_tradeoffs v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
   `heron v2_isa test`: the programs against their expected output, in 1b,
   1a and draft 2.
+- `heron v2_hw check`, `heron v2_hw check --c` and `heron v2_hw check
+  exercise systest`: draft 2's CPU against the instruction-level
+  simulator, a few minutes in all. `heron v2_hw hw test`: its netlist on
+  the chip-level simulator against the RTL model, about 10 minutes for the
+  suite.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
