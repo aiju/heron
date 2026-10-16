@@ -5,8 +5,9 @@ The measurements behind the number of register banks in
 Fen ([report 0036](../0036-report-fen.md)) gives every thread one, so
 that a switch saves no registers and a message is one `BCOPY`. The banks
 are expensive in hardware, and Emily is considering fewer (2026-10-16).
-Her counts of the chips, as the register file is built and with one bank
-address shared by its ports:
+Her counts of the chips, as the register file is built and with a shared
+bank address, which keeps the microcode's temporaries in the current bank
+instead of bank 0 ([4](#4-the-shared-bank-address)):
 
 | Banks | Bank bits | Chips as built | With a shared bank address |
 |---:|---:|---:|---:|
@@ -55,13 +56,12 @@ registers, as on most machines. The method is in
    holds `HI` and `LO` (special registers 1 and 2), and nothing lets the
    supervisor reach another bank's: `MFUR` and `MTUR` name `r0`–`r15`.
    Either they get a form for `HI` and `LO`, or `HI` and `LO` leave the
-   banks and every switch saves them.
-5. **A shared bank address costs little.** If it means an instruction
-   that reads one bank and writes another (`MFUR`, `MTUR`, `BCOPY`)
-   takes a step more, Fen spends 0.5% more on the IPC loop with one more
-   cycle on each `MFUR` and `MTUR`, and 0.01–0.05% on the rest. `BCOPY` is
-   already timed as a read, a write and a step per register, one after
-   another.
+   banks and every switch saves them. (Emily expects to replace them with
+   fixed general registers, which would remove the question.)
+5. **The shared bank address is free.** It moves the microcode's
+   temporaries from bank 0 to the current bank, where no program or
+   kernel can see them, so it changes nothing measured here, and its
+   column is the one to compare.
 6. **What the numbers suggest:** 16 banks with a shared bank address, 8
    chips against 13 for 256 (and 29 as built), at no cost that this
    measures, provided the kernel shares banks and the ISA lets it save
@@ -216,16 +216,14 @@ banks pay off only for system calls that don't switch.
   banks less one threads (255 now); with shared banks, as many as its
   thread table holds.
 
-## 4. A shared bank address
+## 4. The shared bank address
 
-Read as one bank address for the register file's ports, so that an
-instruction that reads one bank and writes another takes a step for
-each: Fen's workloads run 8,000–19,000 `MFUR`s and `MTUR`s and
-1,000–4,000 `BCOPY`s each. One cycle more on every `MFUR` and `MTUR`
-costs the IPC loop 0.51% and the others 0.01–0.05%; even eight more on
-every `BCOPY` costs the IPC loop 1.5% and the others under 0.05%. The
-saving is 6 chips at 8 banks, 8 at 16 and 16 at 256. If "shared" means something
-else, this section is the one to revisit.
+The last column of the chip counts keeps the microcode's temporaries in
+the current bank instead of bank 0 (Emily, 2026-10-16). They live only
+within an instruction, so nothing a program or the kernel does can tell
+where they are, a bank saved or loaded needn't include them, and no cost
+here changes. It is what makes 2 to 16 banks cost 7 or 8 chips, and 256
+cost 13 instead of 29.
 
 ## 5. What this doesn't measure
 
