@@ -52,7 +52,6 @@ class Build:
     params: dict
     loads: list                     # [(target, address, bytes)]
     symbols: dict = field(default_factory=dict)    # name -> address, for the debugger
-    clock_hz: float = 0
 
 
 # How the terminal treats what's typed. "line": the machine doesn't echo,
@@ -212,7 +211,7 @@ def fen(serial):
         from heron.studies.fen import build
         img, kimg = build.boot_image()
         return Build("fen", {"boot_flags": 1 if serial else 0, "epoch": "now"},
-                     [("ram", 0, img), ("cf", 0, build.disk())], code_symbols(kimg.symbols), clock_hz=6e6)
+                     [("ram", 0, img), ("cf", 0, build.disk())], code_symbols(kimg.symbols))
     return make
 
 
