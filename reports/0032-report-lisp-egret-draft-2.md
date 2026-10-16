@@ -38,7 +38,7 @@ geometric means over the programs: the Lisp's 12 benchmarks and Egret's
 - **The Lisp interpreted takes 2.3% fewer cycles** (every program between
   −1.7% and −2.6%), and 0.5% fewer again with the tagged operations in its
   arithmetic primitives.
-- **The Lisp compiled takes 1.0% fewer** (0.3% fewer leaving out the
+- **The Lisp compiled takes 0.9% fewer** (0.3% fewer leaving out the
   collector, whose collections fall elsewhere). Two features pull
   against each other: `TST r, #1` for the integer checks saves 1.0% of
   the compiled cycles, and the link register costs about 1.2%, because
@@ -54,7 +54,7 @@ geometric means over the programs: the Lisp's 12 benchmarks and Egret's
 - **Mode E pays for Egret:** with its frame record as the current object
   in `r14`, the JIT gains 0.9 points, and the interpreter loop 0.6 with
   `DBNZ` in two of its loops.
-- **Code:** the Lisp's compiled code is 1.7% bigger and its runtime 2.0%;
+- **Code:** the Lisp's compiled code is 1.7% bigger and its runtime 2.2%;
   Egret's VM image is 1.0% smaller (0.4% with the JIT), and the JIT writes
   4.5% less native code.
 - **One porting hazard needs care:** 1b's `MOV` set N and Z, and code
@@ -92,6 +92,9 @@ two folders that three open pull requests build on.
    the stack) through every path and flags a `RET`, a `JMP [sp]+` or a
    tail branch that gets it wrong.
 
+The translator and both checkers were one-off scripts for this port and
+aren't in the repository; the method above is what they did.
+
 ### The Lisp
 
 - **The calling convention** loses `r7` to the link: arguments 1–6 are in
@@ -115,9 +118,10 @@ two folders that three open pull requests build on.
   ([compiler.md](../studies/lisp/compiler.md#on-draft-2)).
 - **Leaf functions:** a function's entry, returns and tail calls are
   placeholders until its code is done; then a function that calls pushes
-  `r7` on entry and a leaf keeps it. The collector's stub saves `r7`
-  itself, so consing doesn't make a function a caller, and a tail call to
-  itself jumps past the push.
+  `r7` on entry and a leaf keeps it. When an inline `cons` finds the heap
+  full, it calls the runtime from a stub that saves `r7` itself, so
+  consing doesn't make a function a caller; and a tail call to itself
+  jumps past the push.
 - **Code space** is 4 KB larger on draft 2: the draft 2 compiler is a
   bigger program than the 1b one, and with it compiled into code space the
   errors test ran out.
@@ -131,7 +135,9 @@ two folders that three open pull requests build on.
   count, in `r7`, is never live across a call to C. `asm_run` saves `r7`
   with `r8`–`r14`.
 - **The JIT** got a draft 2 encoder beside the 1b one, and the link
-  register's changes as the link_register study made them for v1bl: the
+  register's changes as the link_register study made them for v1bl
+  ([pull request #39](https://github.com/aiju/heron/pull/39), not yet
+  merged): the
   method prologue stores `r7` into the caller's frame record, the stubs
   that call C keep `r7` on the stack meanwhile, and a send through the
   method cache passes its bytecode in `r5`. Five templates read the flags
@@ -145,13 +151,43 @@ two folders that three open pull requests build on.
   prologue and the return. RFC 0028 names Egret's frame record as a use of
   mode E.
 
+### Three bugs carried over from 1b
+
+A review of the port found three bugs in the 1b code it started from.
+Each is fixed on draft 2 and left as it is on 1b, where fixing it would
+move report 0017's and 0018's numbers:
+
+- **Egret's `new` when the frame stack is full:** the interpreter loop's
+  fast path for `new` doesn't keep `r5`, the send's length in bytecode,
+  across its call to `alloc_obj`. When the frame stack then turns out to
+  be full, it hands the send back to C at the wrong place in the
+  bytecode: a program that recurses too deep through `new` reports
+  "internal: bad bytecode" on 1b, not the stack overflow. Draft 2 keeps
+  `r5` with `SAVE r3-r5`.
+- **The compiled Lisp's inline `cons` when the heap is full:** its stub
+  collects and goes back to the stores without checking the limit again,
+  so a collection that frees too little writes the pair past the end of
+  the heap. On 1b a program that fills the heap fails with a wrong error
+  ("not a number") rather than "heap full". On draft 2 the stub calls the
+  runtime's `cons`, which checks again.
+- **`apply` with a long list:** it moves the stack pointer down by the
+  list's length without checking the stack limit, so a list longer than
+  the stack has room for (about 15,800 elements) runs it past its limit
+  and into the heap; on 1b the program stops without a word. On draft 2
+  it's a stack overflow.
+
+The fixes cost the compiled Lisp 0.03 points, nearly all of it in
+`meta`, which applies its primitives to argument lists and gets 0.4%
+slower from the check in every `apply`. Egret's `SAVE` is cheaper than
+the two pushes and pops it replaces.
+
 ## The Lisp
 
 | | 1b | Draft 2 |
 |---|---:|---:|
 | Interpreted | 1 | 0.977 |
 | Interpreted, tagged primitives | – | 0.972 |
-| Compiled | 1 | 0.990 |
+| Compiled | 1 | 0.991 |
 | Compiled, the mutator alone | 1 | 0.997 |
 | Compiled with tagged operations (v1bx on 1b), mutator | 0.936 | 0.941 |
 | Compiled, no leaf functions, mutator | – | 1.005 |
@@ -163,11 +199,11 @@ Where the compiled programs' own cycles moved, summed over the programs
 |---|---:|---:|
 | function entries (`entry`) | +3,087,336 | +1.38% |
 | integer checks (`type`) | −2,262,247 | −1.01% |
-| runtime routines | −709,548 | −0.32% |
-| collector | −324,209 | −0.15% |
+| runtime routines | −646,862 | −0.29% |
+| collector | −329,223 | −0.15% |
 | calls (`call`) | −222,989 | −0.10% |
 | returns (`return`) | −160,480 | −0.07% |
-| the rest | −72,874 | −0.03% |
+| the rest | −72,994 | −0.03% |
 
 The integer checks are `TST r, #1` instead of a copy and an `AND`. The
 interpreter gains in every routine that is a leaf, and in `eval` for
@@ -245,7 +281,7 @@ already makes each one a single `TST`, so there is less left to save.
 | Feature | The Lisp | Egret |
 |---|---|---|
 | The link register | interpreter: leaves (atoms, most primitives) gain; compiled: +1.2%, leaves save 0.8% of it | the JIT's prologue and returns gain; the stubs that call C pay a push |
-| `MOV` without flags, `MOVS` | 10 `MOVS` in the runtime | 7 in the interpreter loop, 5 in the JIT's templates, one `MOVS` that saves a `TST` |
+| `MOV` without flags, `MOVS` | 10 `MOVS` in the runtime | 7 in the interpreter loop and start code, 5 in the JIT's templates; one `MOVS` saves a `TST` |
 | `TST` with a constant | the integer checks, compiled and interpreted: −1.0% compiled | – |
 | The tagged operations | −5.6% compiled, −0.5% interpreted (feature `tagged`) | can't be used: Egret tags a SmallInt as 2n + 1 |
 | Mode E, `[r14 + 4R]` | nothing: `r14` is the heap pointer, and the tagged pointers put fields at 4k ± 1 (as RFC 0028 found) | the frame record: −0.6 points interpreted, −0.9 JIT |
@@ -271,4 +307,5 @@ Not used: `LDM` and `STM`, and the other tentative instructions.
   measuring it would mean flipping Egret's tagging, in the C and both
   drafts' assembly. Whether the tag should be selectable is RFC 0028's
   open question.
-- **Report status:** this report is marked `current`.
+- **The three bugs in 1b's code**
+  ([above](#three-bugs-carried-over-from-1b)) are still there on 1b.

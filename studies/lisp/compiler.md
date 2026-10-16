@@ -168,8 +168,10 @@ over a draft 2 one; and compiler.lisp, the 1b compiler, doesn't change
   anything (a `CALL`, a `BSR` to a known function, a call into the
   runtime) pushes `r7` on entry, below its frame, returns with
   `JMP [sp]+` and restores `r7` before a tail call; a leaf leaves `r7`
-  alone and returns with `RET`. The collector's stub keeps `r7` on the
-  stack itself, so consing doesn't make a function a caller. A tail call
+  alone and returns with `RET`. An inline `cons` that finds the heap
+  full calls the runtime's `cons` (which collects, checks again and makes
+  the pair) from a stub that keeps `r7` on the stack itself, so consing
+  doesn't make a function a caller. A tail call
   to itself jumps past the push, so a loop doesn't push.
 - **`no-leaf`** (a feature, for the measurements) makes every function
   keep its return address on the stack.
