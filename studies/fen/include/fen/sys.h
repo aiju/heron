@@ -43,7 +43,7 @@ int vm_map_phys(void *va, unsigned pa, unsigned npages, int prot);
 int vm_share(int pid, void *va, void *my_va, unsigned npages);
 int thread_create(int pid, void *pc, void *sp, unsigned arg);
 int thread_exit(void);
-int proc_wait(int pid, int *status);
+int proc_wait(int pid, int options, int *status);  /* options: WNOHANG */
 int proc_kill(int pid, int status);
 int proc_list(struct proc_info *buf, int n);
 int set_priority(int tid, int prio);

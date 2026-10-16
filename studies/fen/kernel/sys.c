@@ -86,7 +86,7 @@ u32 sys_sysinfo(int key)
     case SI_TICKS: return ticks;
     case SI_EPOCH:
         if (!epoch)
-            epoch = REG(0xA0000300) - now_us() / 1000000;
+            epoch = REG(0xA0003000) - now_us() / 1000000;
         return epoch;
     }
     return 0;
@@ -195,9 +195,9 @@ int sys_set_priority(int tid, int prio)
     return 0;
 }
 
-int sys_proc_wait(int pid)
+int sys_proc_wait(int pid, int nohang)
 {
-    return proc_wait(pid);
+    return proc_wait(pid, nohang & 1);
 }
 
 static int may_kill(struct proc *p)

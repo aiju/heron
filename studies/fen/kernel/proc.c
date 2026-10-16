@@ -56,12 +56,15 @@ void q_remove(struct thread **q, struct thread *t)
     t->next = t->prev = 0;
 }
 
+/* A thread that wakes runs before one of its own level that was running:
+ * threads that wait for something (input, a reply, the time) get it at
+ * once, and the ones that compute run when they're all waiting. */
 void ready(struct thread *t)
 {
     t->state = T_READY;
     q_append(&runq[t->prio], t);
     ready_bits |= 1u << t->prio;
-    if (!current || t->prio > current->prio)
+    if (!current || t->prio >= current->prio)
         need_resched = 1;
 }
 
@@ -163,6 +166,17 @@ int is_descendant(int pid, int of)
     return 0;
 }
 
+struct thread *rcvid_thread(int rcvid)
+{
+    struct thread *t;
+    if (rcvid <= 0)
+        return 0;
+    t = &threads[rcvid & 0xFF];
+    if (t->state == T_FREE || RCVID(t) != rcvid)
+        return 0;
+    return t;
+}
+
 struct proc *proc_new(const char *name, int parent, int flags)
 {
     int i;
@@ -191,6 +205,7 @@ struct thread *thread_new(struct proc *p, u32 pc, u32 sp, u32 arg, int prio)
         struct thread *t = &threads[i];
         if (t->state == T_FREE) {
             t->proc = p;
+            t->gen++;
             t->prio = prio;
             t->slice = SLICE_TICKS;
             t->pc = pc;
@@ -293,8 +308,9 @@ void proc_exit(struct proc *p, int status)
         reap(p);
 }
 
-/* proc_wait(pid, 0): a zombie child now, or block until one exits. */
-int proc_wait(int pid)
+/* proc_wait(pid): a zombie child now, or block until one exits (or with
+ * nohang, 0). */
+int proc_wait(int pid, int nohang)
 {
     int i;
     struct proc *me = current->proc;
@@ -312,6 +328,8 @@ int proc_wait(int pid)
     }
     if (!any)
         return -ECHILD;
+    if (nohang)
+        return 0;
     current->wait_pid = pid;
     block(current, T_WAIT);
     return 0;

@@ -52,12 +52,17 @@ PAGE = 4096
 
 KERNEL_SOURCES = ["entry.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c"]
 
-LIB_SOURCES = ["ipc.s", "start.c"]
+LIB_SOURCES = ["ipc.s", "start.c", "fd.c", "stdio.c", "stdlib.c", "string2.c", "spawn.c",
+               "time.c", "getopt.c"]
 CC_LIB_SOURCES = ["string.c", "ctype.c"]
 
 # programs: name -> sources, relative to the study
 PROGRAMS = {
     "init": ["cmd/init.c"],
+    "ktest": ["cmd/ktest.c"],
+    "ktchild": ["cmd/ktchild.c"],
+    "ktcrash": ["cmd/ktcrash.c"],
+    "ktspin": ["cmd/ktspin.c"],
 }
 
 # what the boot archive holds
@@ -281,9 +286,14 @@ def boot_archive(modules):
 
 def boot_image(modules=None):
     """The kernel, and the boot archive from the page after it: bytes to put
-    at physical 0. Also the kernel's linked image (for its symbols)."""
+    at physical 0. Also the kernel's linked image (for its symbols).
+    `modules` are the archive's programs: names, or (name, program) to put
+    a program in under another name."""
     kbytes, kimg = kernel()
     names = modules if modules is not None else BOOT
-    mods = [(n, program(n)[0]) for n in names]
+    mods = []
+    for n in names:
+        name, prog = n if isinstance(n, tuple) else (n, n)
+        mods.append((name, program(prog)[0]))
     pad = -len(kbytes) % PAGE
     return kbytes + b"\0" * pad + boot_archive(mods), kimg

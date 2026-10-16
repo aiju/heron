@@ -90,7 +90,12 @@ struct thread {
     int wait_pid;               /* T_WAIT: the child, or 0 for any */
     int peer_pid;               /* T_REPLY: the process that owes it a reply */
     u32 cycles;                 /* run time, in timer ticks */
+    u32 gen;                    /* how many threads have had this bank: part of a rcvid */
 };
+
+/* A rcvid names a thread waiting for a reply: its id and generation, so a
+ * stale one can't reach a new thread in the same bank. */
+#define RCVID(t) ((int)((((t)->gen & 0x7FFFFF) << 8) | (t)->id))
 
 enum pstate { P_FREE, P_LIVE, P_ZOMBIE };
 
@@ -181,7 +186,7 @@ void q_append(struct thread **q, struct thread *t);
 void q_remove(struct thread **q, struct thread *t);
 void runq_to_front(struct thread *t);
 void sleep_until(struct thread *t, u32 when);
-int proc_wait(int pid);
+int proc_wait(int pid, int nohang);
 int is_descendant(int pid, int of);
 void ready(struct thread *t);
 void unready(struct thread *t);
@@ -193,6 +198,7 @@ void thread_kill(struct thread *t);
 void proc_exit(struct proc *p, int status);
 struct proc *proc_get(int pid);
 struct thread *thread_get(int tid);
+struct thread *rcvid_thread(int rcvid);
 void timer_tick(void);
 void wake_sleepers(void);
 u32 now_us(void);

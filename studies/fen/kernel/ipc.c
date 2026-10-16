@@ -4,8 +4,8 @@
  * A message is 8 words in r0-r7. ipc_call leaves it in the caller's bank
  * and blocks the caller; when a thread of the port's owner receives it,
  * BCOPY copies r0-r7 from the caller's bank into the receiver's, and the
- * receiver gets the caller's thread id (the rcvid) in r8 and its pid in
- * r9. The caller then waits until a thread of that process replies, with
+ * receiver gets a rcvid for the caller (its thread id and the bank's
+ * generation) in r8 and its pid in r9. The caller then waits until a thread of that process replies, with
  * the reply copied back the same way. Nothing is buffered in the kernel:
  * a message waits in its sender's registers. A server may receive others
  * before it replies (a deferred reply), and reads and writes a waiting
@@ -62,7 +62,7 @@ static void ready_front(struct thread *t)
 static void deliver(struct thread *s, struct thread *c)
 {
     bank_copy(s->id, c->id);
-    ureg_set(s->id, 8, c->id);
+    ureg_set(s->id, 8, RCVID(c));
     ureg_set(s->id, 9, c->proc->pid);
     c->state = T_REPLY;
     c->peer = s;
@@ -183,7 +183,7 @@ static void receive(struct thread *t, struct port *p)
 
 static int reply(struct thread *t, int rcvid)
 {
-    struct thread *c = thread_get(rcvid);
+    struct thread *c = rcvid_thread(rcvid);
     if (!c || c->state != T_REPLY || c->peer_pid != t->proc->pid)
         return -ESRCH;
     bank_copy(c->id, t->id);
@@ -231,7 +231,7 @@ void sys_ipc_reply_recv(void)
 /* The client a server is answering: waiting for this process's reply. */
 static struct thread *client(int rcvid)
 {
-    struct thread *c = thread_get(rcvid);
+    struct thread *c = rcvid_thread(rcvid);
     if (!c || c->state != T_REPLY || c->peer_pid != current->proc->pid)
         return 0;
     return c;

@@ -13,13 +13,18 @@
 //! | `0x0F00_1000` | the board's information: +0 R the RAM's size in bytes, +4 R the clock in Hz, +C R boot flags the host sets; and the simulator's debug port, +8 W a byte to the host's log (not hardware) |
 //! | `0x0F00_2000` | the interrupt mask: +0 R the levels requesting, +4 R/W the mask, a bit per level, 1 to let it through (0 after reset) |
 //! | `0x1000_0000` | slot 1, the video card ([`video`]): VRAM, its registers at `0x1FF0_0000` |
-//! | `0x2000_0000` | slot 2, the I/O card: a 16C550 UART at +0x000, a CompactFlash card in True IDE mode at +0x100 (CS0, the task file) and +0x120 (CS1, the control block), two PS/2 ports at +0x200 (keyboard) and +0x210 (mouse) ([`ps2`]), a clock at +0x300, and the card's ID at +0xFFC |
+//! | `0x2000_0000` | slot 2, the I/O card, a 4 KB page for each device: a 16C550 UART at +0x0000, a CompactFlash card in True IDE mode at +0x1000 (CS0, the task file) and +0x1020 (CS1, the control block), two PS/2 ports at +0x2000 (keyboard) and +0x2010 (mouse) ([`ps2`]), and a clock at +0x3000, with the card's ID at +0x3FFC |
 //! | anything else | nothing answers: a bus error |
 //!
 //! The I/O card's devices are 8-bit, on D0-D7, their registers 4 bytes
 //! apart, except the CF card's data register, which is 16 bits. The clock
 //! is one register: seconds since 1970, as the host set them at power-on
 //! and counted since.
+//!
+//! **A page for each device**, so that the page map can give each to its
+//! own user-level driver: the file server the CF card, the window system
+//! the PS/2 ports, and nothing else. On the card that is decoding A12-A13
+//! instead of bits further down, which costs nothing.
 //!
 //! Interrupt levels (RFC 0029, 7), as the cards' jumpers would set them:
 //! 6 the timer, 5 the UART, 4 the CF card, 3 the PS/2 ports, 2 the video
@@ -195,20 +200,21 @@ impl Board {
     fn io_read(&mut self, off: u32, size: u32) -> Option<u32> {
         let t = self.now_ns;
         let reg = ((off >> 2) & 7) as u8;
-        Some(match off & 0xF00 {
-            0x000 if off < 0x20 => self.uart.read(reg) as u32,
-            0x100 if off < 0x140 => {
-                let v = self.cf.read(off >= 0x120, reg, t) as u32;
-                if reg == 0 && off < 0x120 && size >= 2 {
+        let low = off & 0xFFF;
+        Some(match off >> 12 {
+            0 if low < 0x20 => self.uart.read(reg) as u32,
+            1 if low < 0x40 => {
+                let v = self.cf.read(low >= 0x20, reg, t) as u32;
+                if reg == 0 && low < 0x20 && size >= 2 {
                     v & 0xFFFF
                 } else {
                     v & 0xFF
                 }
             }
-            0x200 if off < 0x208 => self.kbd.read(off & 4, t),
-            0x200 if (0x210..0x218).contains(&off) => self.mouse.read(off & 4, t),
-            0x300 if off == 0x300 => (self.cfg.epoch + t / 1_000_000_000) as u32,
-            0xF00 if off == 0xFFC => IO_ID,
+            2 if low < 0x08 => self.kbd.read(low & 4, t),
+            2 if (0x10..0x18).contains(&low) => self.mouse.read(low & 4, t),
+            3 if low == 0 => (self.cfg.epoch + t / 1_000_000_000) as u32,
+            3 if low == 0xFFC => IO_ID,
             _ => return None,
         })
     }
@@ -216,14 +222,15 @@ impl Board {
     fn io_write(&mut self, off: u32, v: u32) -> bool {
         let t = self.now_ns;
         let reg = ((off >> 2) & 7) as u8;
-        match off & 0xF00 {
-            0x000 if off < 0x20 => self.uart.write(reg, v as u8),
-            0x100 if off < 0x140 => {
-                let data = if reg == 0 && off < 0x120 { v & 0xFFFF } else { v & 0xFF };
-                self.cf.write(off >= 0x120, reg, data as u16, t)
+        let low = off & 0xFFF;
+        match off >> 12 {
+            0 if low < 0x20 => self.uart.write(reg, v as u8),
+            1 if low < 0x40 => {
+                let data = if reg == 0 && low < 0x20 { v & 0xFFFF } else { v & 0xFF };
+                self.cf.write(low >= 0x20, reg, data as u16, t)
             }
-            0x200 if off < 0x208 => self.kbd.write(off & 4, v, t),
-            0x200 if (0x210..0x218).contains(&off) => self.mouse.write(off & 4, v, t),
+            2 if low < 0x08 => self.kbd.write(low & 4, v, t),
+            2 if (0x10..0x18).contains(&low) => self.mouse.write(low & 4, v, t),
             _ => return false,
         }
         true
@@ -269,7 +276,7 @@ impl Bus for Board {
             VIDEO_SLOT if off & !0xFF == video::REGS => {
                 Some(self.video.read_reg(off & 0xFF, self.now_ns))
             }
-            IO_SLOT if off < 0x1000 => self.io_read(off, size),
+            IO_SLOT if off < 0x4000 => self.io_read(off, size),
             _ => None,
         }
     }
@@ -290,7 +297,7 @@ impl Bus for Board {
             VIDEO_SLOT if off & !0xFF == video::REGS => {
                 self.video.write_reg(off & 0xFF, v, self.now_ns)
             }
-            IO_SLOT if off < 0x1000 => return self.io_write(off, v),
+            IO_SLOT if off < 0x4000 => return self.io_write(off, v),
             _ => return false,
         }
         true

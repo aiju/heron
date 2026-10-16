@@ -49,7 +49,7 @@ SYSCALLS = [
     (27, "vm_write", 4, "c"),
     (28, "vm_protect", 4, "c"),
     (29, "thread_create", 4, "c"),
-    (30, "proc_wait", 2, "c2"),
+    (30, "proc_wait", 3, "c2"),
     (31, "proc_kill", 2, "c"),
     (32, "vm_map_phys", 4, "c"),
     (33, "vm_share", 4, "c"),
