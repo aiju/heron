@@ -6,7 +6,7 @@ status: current
 date: 2026-10-16
 context:
   studies: [lisp, egret, v2_isa, c_compiler]
-  commit: dd84baa
+  commit: bddf7f1
 ---
 
 # Report 0032: The Lisp and Egret on draft 2
