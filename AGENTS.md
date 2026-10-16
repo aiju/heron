@@ -127,6 +127,9 @@ Change the generator and rerun it rather than editing the output by hand:
   - `heron lisp report --write`
   - `heron graphics bench --write` (also the screenshots next to it)
   - `heron kernel report --write`
+- `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
+  `heron lisp report --isa v2 --write` and
+  `heron egret bench --isa v2 --write`;
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and
@@ -158,15 +161,19 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v1b_system v1b_tradeoffs v0_hw
-  graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+- `heron test v1_isa v2_isa c_compiler v1b_hw v1b_system v1b_tradeoffs
+  v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
-- `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
-  against their expected output.
+- `heron v1_isa test`, `heron v1_isa --isa v1a test` and
+  `heron v2_isa test`: the programs against their expected output, in 1b,
+  1a and draft 2.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
-  tests, interpreted and compiled (`-c --features tagged`: on v1bx).
+  tests, interpreted and compiled (`-c --features tagged`: on v1bx). With
+  `--isa v2`, on draft 2 (`--features tagged`: its tagged operations).
+- `heron egret test --heron [--isa v2]`: Egret's programs on every build
+  of the VM, on 1b or draft 2.
 - `heron graphics test` and `heron graphics selftest`: the graphics
   scenes against the host reference, and the kernels against pixel
   references.

@@ -1,7 +1,7 @@
-"""Build the Lisp system's image: the runtime (rt/*.s), the tables the
-build generates (the static symbols, the primitive objects, the special
-forms) and the prelude (prelude.lisp), assembled into one absolute image
-for the draft 1b simulator.
+"""Build the Lisp system's image: the runtime (rt/*.s for draft 1b,
+rt_v2/*.s for draft 2), the tables the build generates (the static
+symbols, the primitive objects, the special forms) and the prelude
+(prelude.lisp), assembled into one absolute image for the simulator.
 
 The runtime sources may contain feature blocks, for the ISA experiments:
 
@@ -22,11 +22,15 @@ from heron import ROOT
 from heron.infra import asm as asmcore
 from heron.infra import isas
 import heron.studies.v1_isa  # noqa: F401  (registers the ISAs)
+import heron.studies.v2_isa  # noqa: F401
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RT = os.path.join(HERE, "rt")
 BUILD = os.path.join(ROOT, "build", "lisp")
 ISA = "v1b"
+ISAS = ("v1b", "v2")
+# the runtime's sources for each ISA
+RT_DIRS = {"v1b": os.path.join(HERE, "rt"), "v2": os.path.join(HERE, "rt_v2")}
+RT = RT_DIRS[ISA]
 
 # The runtime's sources, in the order they're assembled.
 RT_FILES = ["start.s", "gc.s", "read.s", "print.s", "eval.s", "prims.s", "code.s"]
@@ -205,16 +209,16 @@ def preprocess(text, features):
     return "\n".join(out)
 
 
-def build(features=()):
-    """Assemble the runtime with the given features: the image."""
-    isa = isas.get(ISA)
-    a = asmcore.Assembler(isa)
+def build(features=(), isa=ISA):
+    """Assemble the runtime for an ISA (v1b or v2) with the given features:
+    the image."""
+    a = asmcore.Assembler(isas.get(isa))
     for name in RT_FILES:
-        path = os.path.join(RT, name)
+        path = os.path.join(RT_DIRS[isa], name)
         with open(path) as f:
             a.load(path, preprocess(f.read(), set(features)))
     os.makedirs(BUILD, exist_ok=True)
-    gen = os.path.join(BUILD, "generated.s")
+    gen = os.path.join(BUILD, "generated.s" if isa == ISA else f"generated_{isa}.s")
     text = generate()
     with open(gen, "w") as f:
         f.write(text)

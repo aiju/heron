@@ -1,6 +1,7 @@
 # The compiler
 
-`compiler.lisp` compiles the language to draft 1b machine code. It is
+`compiler.lisp` compiles the language to draft 1b machine code, and with
+`compiler_v2.lisp` to draft 2's ([below](#on-draft-2)). It is
 written in the language and runs on the machine: loading it replaces the
 top level, so every later form is compiled, installed in code space and
 run. Its code follows the conventions of
@@ -142,3 +143,35 @@ it's for. `cc:install` writes one byte per parcel into the category map
 
 That takes 1.7 billion cycles (about 20 seconds in the simulator), 1.2
 billion of them step 3.
+
+## On draft 2
+
+`compiler_v2.lisp` holds what draft 2 changes. `machine.compiler_source`
+puts the draft 2 compiler together: compiler.lisp with each top-level
+definition that compiler_v2.lisp also makes replaced by
+compiler_v2.lisp's, and its new ones after them. The compiler compiles
+itself from that text, so no 1b definition is left in it to be installed
+over a draft 2 one; and draft 2 leaves compiler.lisp, the 1b compiler,
+as it is (and report 0018's numbers with it).
+
+- **The assembler** writes draft 2's parcels (an opcode byte and a
+  register byte, [RFC 0028](../../reports/0028-rfc-draft-2-isa.md)): the
+  7-bit constants of `MOV` and `CMP`, `TST` with a constant (the integer
+  checks are `TST r, #1`), `[r14 + 4R]`, and with `tagged` the tagged
+  operations (`TADD`, `TSUB`, `TCMP`; `TTST r, r` checks one operand and
+  is `zero?`). An encoder test checks every form against the assembler
+  (tests/test_compiler.py).
+- **Registers:** arguments in `r3`, `r4`, `r5`, `r6`, `r8`, `r0`, as the
+  runtime's convention has them ([implementation.md](implementation.md#on-draft-2)).
+- **The link register.** A function's entry, returns and tail calls are
+  placeholders until its code is done (`cc:link`). A function that calls
+  anything (a `CALL`, a `BSR` to a known function, a call into the
+  runtime) pushes `r7` on entry, below its frame, returns with
+  `JMP [sp]+` and restores `r7` before a tail call; a leaf leaves `r7`
+  alone and returns with `RET`. An inline `cons` that finds the heap
+  full calls the runtime's `cons` (which collects, checks again and makes
+  the pair) from a stub that keeps `r7` on the stack itself, so consing
+  doesn't make a function a caller. A tail call
+  to itself jumps past the push, so a loop doesn't push.
+- **`no-leaf`** (a feature, for the measurements) makes every function
+  keep its return address on the stack.

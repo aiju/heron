@@ -7,9 +7,11 @@ global value numbering over the dominator tree, redundant load elimination
 within a block, dead code elimination and control-flow cleanup, to a fixed
 point; loop-invariant code motion and the fixed point again; strength
 reduction of induction variables (with linear function test replacement)
-and the fixed point again; given the target's free_imm, constants it can't
-take as cheap immediates loaded into registers before loops; and last,
-sinking steps like p + 1 below p's last use.
+and the fixed point again; for a target with a decrement-and-branch,
+counters that only count turned into counts down to zero, and the fixed
+point again; given the target's free_imm, constants it can't take as
+cheap immediates loaded into registers before loops; and last, sinking
+steps like p + 1 below p's last use.
 """
 
 from .ir import Instr, Const, SymAddr, Param, Slot, Undef, M32, s32, BINOPS, CMPOPS, UNOPS, COMMUTATIVE, PURE, CMP_SWAP, CMP_NEG
@@ -1090,6 +1092,97 @@ def strength_reduce(func):
 
 
 # --------------------------------------------------------------------------
+# Counting loops down to zero
+
+
+def trip_count(op, step, init, bound):
+    """How often a loop body runs whose counter starts at init, steps by
+    step (1 or -1) at the end of each run, and goes round again while the
+    stepped counter op bound holds: ("sub", a, b) for a - b, an int, or
+    None if that can't be known. The count is modulo 2^32, with 0 for 2^32
+    runs."""
+    if op == "ne":
+        # the counter meets the bound after (bound - init) * step steps,
+        # wrapping around if need be
+        return ("sub", bound, init) if step == 1 else ("sub", init, bound)
+    if not (isinstance(init, Const) and isinstance(bound, Const)):
+        return None
+    if op in ("lt", "le", "gt", "ge"):
+        a, b = init.signed, bound.signed
+    else:
+        a, b = init.value & M32, bound.value & M32
+    n = {(1, "lt"): b - a, (1, "ltu"): b - a, (1, "le"): b - a + 1, (1, "leu"): b - a + 1,
+         (-1, "gt"): a - b, (-1, "gtu"): a - b, (-1, "ge"): a - b + 1,
+         (-1, "geu"): a - b + 1}.get((step, op))
+    if n is None:
+        return None
+    return max(1, n) & M32              # the body runs once before the first test
+
+
+def count_down(func):
+    """A loop counter that only counts (a header phi stepped by 1 or -1 at
+    the latch, used for nothing but the latch's exit test against an
+    invariant bound) becomes a count of the runs left, stepped down to
+    zero: c = trip count; ...; c = c - 1; if c != 0 go round. A target
+    with a decrement-and-branch (draft 2's DBNZ) makes that one
+    instruction."""
+    loops = natural_loops(DomTree(func))
+    changed = False
+    for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
+        latches = [b for b in h.preds if b in body]
+        if len(latches) != 1 or len(h.preds) != 2:
+            continue
+        latch = latches[0]
+        t = latch.terminator
+        if t.op != "br" or h not in t.targets or t.targets[0] is t.targets[1]:
+            continue
+        users = func.users()
+        cmp = t.args[0]
+        if not (isinstance(cmp, Instr) and cmp.op in CMPOPS and users.get(cmp) == [t]):
+            continue
+        op = cmp.op if t.targets[0] is h else CMP_NEG[cmp.op]   # goes round while op
+        nxt, bound = cmp.args
+        if not (isinstance(nxt, Instr) and nxt.op == "add"):
+            bound, nxt, op = nxt, bound, CMP_SWAP[op]
+        if not (isinstance(nxt, Instr) and nxt.op == "add" and nxt.block in body
+                and isinstance(nxt.args[1], Const) and nxt.args[1].signed in (1, -1)):
+            continue
+        p = nxt.args[0]
+        if not (isinstance(p, Instr) and p.op == "phi" and p.block is h
+                and users.get(p) == [nxt] and len(users.get(nxt, ())) == 2
+                and set(users[nxt]) == {p, cmp}):
+            continue
+        inside = {i for b in body for i in b.instrs}
+        if isinstance(bound, Instr) and bound in inside:
+            continue
+        pre = make_preheader(func, h, body)
+        if pre is None or p.args[p.incoming.index(latch)] is not nxt:
+            continue
+        init = p.args[p.incoming.index(pre)]
+        n = trip_count(op, nxt.args[1].signed, init, bound)
+        if n is None:
+            continue
+        if isinstance(n, tuple):
+            n = Instr(n[0], [n[1], n[2]])
+            pre.insert(len(pre.instrs) - 1, n)
+        else:
+            n = Const(n)
+        c = Instr("phi", [], incoming=[])
+        h.insert(0, c)
+        cn = Instr("add", [c, Const(-1)])
+        test = Instr("ne", [cn, Const(0)])
+        latch.insert(len(latch.instrs) - 1, cn)
+        latch.insert(len(latch.instrs) - 1, test)
+        c.args, c.incoming = [n, cn], [pre, latch]
+        t.args = [test]
+        t.targets = [h, t.targets[1] if t.targets[0] is h else t.targets[0]]
+        changed = True
+    if changed:
+        dce(func)
+    return changed
+
+
+# --------------------------------------------------------------------------
 # Sinking
 
 
@@ -1125,7 +1218,7 @@ def sink(func):
 
 def hoist_constants(func, free_imm):
     """A constant that an instruction in a loop can't take as a cheap
-    immediate (free_imm(op, value) says, per target) is loaded into a
+    immediate (free_imm(op, value, instr) says, per target) is loaded into a
     register before the loop instead. Runs last: the simplifier would fold
     the copies away again."""
     loops = natural_loops(DomTree(func))
@@ -1160,14 +1253,14 @@ def hoist_constants(func, free_imm):
                             continue
                         if op in ("add", "sub"):
                             continue        # displacements and LEA take any constant
-                        if isinstance(v, (Const, SymAddr)) and not free_imm(op, v):
+                        if isinstance(v, (Const, SymAddr)) and not free_imm(op, v, i):
                             i.args[k] = reg_for(v)
 
 
 # --------------------------------------------------------------------------
 
 
-def optimize(func, level=1, verify=False, free_imm=None):
+def optimize(func, level=1, verify=False, free_imm=None, countdown=False):
     from .cfg import verify as check
     cleanup_cfg(func)
     mem2reg(func)
@@ -1175,7 +1268,7 @@ def optimize(func, level=1, verify=False, free_imm=None):
         check(func)
     if level <= 0:
         return
-    loop_passes = [licm, strength_reduce, None]
+    loop_passes = [licm, strength_reduce] + ([count_down] if countdown else []) + [None]
     for loop_pass in loop_passes:
         for _ in range(20):
             changed = False

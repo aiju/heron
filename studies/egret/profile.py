@@ -1,4 +1,4 @@
-"""Where a program's cycles go on draft 1b.
+"""Where a program's cycles go on draft 1b (or draft 2).
 
 The simulator records the cycles spent at every instruction address, for
 every hardware configuration. A program's own cycles are its run's minus
@@ -24,7 +24,7 @@ CONFIGS = ["D16-overlap", "D32-separate", "D32-wide"]
 
 GROUPS = [
     ("C slow path", r"_(step|egret_step|egret_raise|egret_prim_failed)$"),
-    ("JIT compiler", r"_(jit_compile|put|ea_\w+|un|shk|shr|rr|ret|jmp_r|call_r|mfhi|push|pop|"
+    ("JIT compiler", r"_(jit_compile|put|ea_\w+|opw_other|clr_m|un|shk|shr|rr|ret|jmp_r|call_r|mfhi|push|pop|"
                      r"jcc_\w+|patch_fwd|patch32|stub|to_slow|emit_stubs|go_slow|branch_to|pop2|tag2|"
                      r"push_bool|opcode_len|send_site|lit_of|template|prologue|begin_code|end_code|"
                      r"reserve_sites|finish_stub|begin_stub|prim_stub|block_stub|new_stub|"
@@ -65,8 +65,9 @@ class Layout:
     """What every code address of the VM is: function, and in the
     interpreter, bytecode."""
 
-    def __init__(self, img, m=None):
+    def __init__(self, img, m=None, isa=None):
         self.img = img
+        self.isa = isa or getattr(m, "isa", "v1b")
         syms = img.symbols
         self.native = None
         if m is not None and "_jit_run" in syms:
@@ -120,7 +121,7 @@ class Layout:
         self.asm_starts = [a for a, _ in labels]
         self.asm_names = [n for _, n in labels]
         # the dispatches: MOV r1, byte [r8]+ then JMP [r13 + r1*4]
-        isa = isas.get("v1b")
+        isa = isas.get(self.isa)
         mem = self.img.mem
         def parcel(a):
             return mem.get(a, 0) | mem.get(a + 1, 0) << 8
@@ -206,7 +207,7 @@ class Layout:
         """Each block's successors, from the disassembly: branch targets and
         the fall-through."""
         from heron.infra import isas
-        isa = isas.get("v1b")
+        isa = isas.get(self.isa)
         mem = self.img.mem
         def parcel(a):
             return mem.get(a, 0) | mem.get(a + 1, 0) << 8
@@ -318,12 +319,12 @@ class Layout:
 _empty = {}
 
 
-def empty_cycles(config, variant="asm"):
+def empty_cycles(config, variant="asm", isa="v1b"):
     """Per-address cycles of the empty program: start-up."""
-    if (variant, config) not in _empty:
-        m = build.machine(b"", variant=variant)
-        _empty.update({(variant, c): m.pc_cycles(c) for c in CONFIGS})
-    return _empty[(variant, config)]
+    if (isa, variant, config) not in _empty:
+        m = build.machine(b"", isa=isa, variant=variant)
+        _empty.update({(isa, variant, c): m.pc_cycles(c) for c in CONFIGS})
+    return _empty[(isa, variant, config)]
 
 
 def variant_of(m):
@@ -333,7 +334,8 @@ def variant_of(m):
 
 def own_cycles(m, config, base_machine=None):
     """A run's cycles per address, start-up (or base_machine's run) taken out."""
-    base = base_machine.pc_cycles(config) if base_machine else empty_cycles(config, variant_of(m))
+    base = (base_machine.pc_cycles(config) if base_machine
+            else empty_cycles(config, variant_of(m), getattr(m, "isa", "v1b")))
     out = Counter(m.pc_cycles(config))
     out.subtract(base)
     return {pc: c for pc, c in out.items() if c and pc is not None}

@@ -25,6 +25,7 @@ dependencies = [
  "toolchain",
  "v1-isa",
  "v1b-system-model",
+ "v2-isa",
 ]
 
 [[package]]
@@ -244,4 +245,11 @@ version = "0.1.0"
 dependencies = [
  "devices",
  "v1-isa",
+]
+
+[[package]]
+name = "v2-isa"
+version = "0.1.0"
+dependencies = [
+ "toolchain",
 ]

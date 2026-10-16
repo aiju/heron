@@ -684,24 +684,27 @@
     "ov": "ext",
     "s": 1
    },
-   "root/04": {
+   "root/03": {
     "i": "lea",
     "m": "d16.w",
     "s": 1
    },
-   "root/05": {
+   "root/04": {
     "i": "lea",
     "m": "sp",
     "s": 1
    },
-   "root/06": {
+   "root/05": {
     "i": "lea",
     "m": "idx",
     "s": 1
    },
+   "root/06": {
+    "i": "mfsr",
+    "s": 1
+   },
    "root/07": {
-    "i": "lea",
-    "m": "spc",
+    "i": "mtsr",
     "s": 1
    },
    "root/08": {
@@ -709,11 +712,13 @@
     "s": 1
    },
    "root/0E": {
-    "i": "mfsr",
+    "i": "lea",
+    "m": "r14slot",
     "s": 1
    },
    "root/0F": {
-    "i": "mtsr",
+    "i": "lea",
+    "m": "spc",
     "s": 1
    },
    "root/70": {

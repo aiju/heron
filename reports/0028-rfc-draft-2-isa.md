@@ -95,8 +95,9 @@ in memory:  byte 0     byte 1
 ### 3. Addressing modes
 
 One numbering of 16 modes is used everywhere: as the column in rows 1–6
-and 8–A of the map, and as the mode nibble `M` of instructions that take
-it from the register byte ([below](#the-mode-from-the-register-byte)).
+and 8–A of the map and in `LEA`'s cells in row 0, and as the mode nibble
+`M` of instructions that take it from the register byte
+([below](#the-mode-from-the-register-byte)).
 
 | M | Operand | Extension parcels |
 |---|---|---:|
@@ -148,7 +149,7 @@ high nibble and `R` in its low one, so one cell takes every mode.
 | `MOV dst, rs`, a store | the memory modes: all but 0, 1, D and the special mode's constants |
 | `MOVS rd, src` | all but 1 and D; the special mode's constants are **open** |
 | `CLR`, `INC`, `DEC` | all but 1, D and the special mode's constants |
-| `LEA rd, ea` | 3, 4, 5 and the special mode's memory operands |
+| `LEA rd, ea` | 3, 4, 5, E and the special mode's memory operands |
 | `JMP`, `CALL` | all; a byte or half memory operand traps (**open**) |
 | `BIC`, `TST`, `MULU`, `MULS` | a register, or any of the special mode's operands |
 
@@ -190,7 +191,7 @@ the instructions are written `MOV` and `CMP` ([6](#6-assembler-syntax)).
 
 | | _0 | _1 | _2 | _3 | _4 | _5 | _6 | _7 | _8 | _9 | _A | _B | _C | _D | _E | _F |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 |  | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | LEA spec +1–2 | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | MFSR rd,n | MTSR n,rs |
+| 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | MFSR rd,n | MTSR n,rs | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | LEA [r14+4R] | LEA spec +1–2 |
 | 1_ | MOV rs | MOV #q | MOV [R] | MOV [R+d16] +1 | MOV [sp+4R] | MOV [R+X·s] +1 | MOV [R]+ | MOV -[R] | MOV b[R] | MOV b[R+d16] +1 | MOV b[R]+ | MOV h[R] | MOV h[R+d16] +1 | MOV #−q | MOV [r14+4R] | MOV spec +1–2 |
 | 2_ | CLR ea +0–2 | INC ea +0–2 | ST [R] | ST [R+d16] +1 | ST [sp+4R] | ST [R+X·s] +1 | ST [R]+ | ST -[R] | ST b[R] | ST b[R+d16] +1 | ST b[R]+ | ST h[R] | ST h[R+d16] +1 | DEC ea +0–2 | ST [r14+4R] | ST spec +1–2 |
 | 3_ | MOVS rs | MFUR rd,rs | MOVS [R] | MOVS [R+d16] +1 | MOVS [sp+4R] | MOVS [R+X·s] +1 | MOVS [R]+ | MOVS -[R] | MOVS b[R] | MOVS b[R+d16] +1 | MOVS b[R]+ | MOVS h[R] | MOVS h[R+d16] +1 | MTUR rd,rs | MOVS [r14+4R] | MOVS spec +1–2 |
@@ -216,8 +217,8 @@ The extension grids, by their second byte:
 | | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
 
-Free, and so trapping: the root cells `03`, `C3`, `C7`, `CB`, `CF`, `EF`
-and `F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE FF`. `CAS` (`F7`) and the
+Free, and so trapping: the root cells `C3`, `C7`, `CB`, `CF`, `EF` and
+`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE FF`. `CAS` (`F7`) and the
 floating-point escape (`F8`) are **open** and trap until they're
 designed. What becomes of `FD` is **open**.
 
@@ -253,13 +254,15 @@ mode's `R`) in its low one.
 | `CLR dst` | `20` | `dst` ← 0, at the operand's size | – |
 | `INC dst` | `21` | `dst` ← `dst` + 1, at the operand's size | NZ |
 | `DEC dst` | `2D` | `dst` ← `dst` − 1, at the operand's size | NZ |
-| `LEA rd, ea` | `04`–`07` | `rd` ← the operand's address | – |
+| `LEA rd, ea` | `03`–`05`, `0E`, `0F` | `rd` ← the operand's address | – |
 
 - **`MOV rd, #u7`** holds the constant's bits 6–3 in the register byte's
   low nibble and its bits 2–0 in the opcode's.
 - **For a byte or half operand,** `MOVS` takes N from the operand's bit 7
   or 15, and Z from the operand (**decided**, Emily, 2026-10-15). So do
   `INC` and `DEC`, from the value they store (**open**).
+- **`LEA`'s cells** are its modes' columns: `03`–`05` are modes 3–5,
+  `0E` mode E and `0F` the special mode (**decided**, Emily, 2026-10-16).
 - **`LEA`'s byte, half and word forms** give the same address.
 - **`MOV r0, r0`** (`10 00`) changes nothing: it is `NOP`.
 
@@ -400,8 +403,8 @@ In place, in row C:
 
 | Instruction | Cell | Operation |
 |---|---|---|
-| `MFSR rd, n` | `0E` | `rd` ← special register n |
-| `MTSR n, rs` | `0F` | special register n ← `rs`; n in the high nibble |
+| `MFSR rd, n` | `06` | `rd` ← special register n |
+| `MTSR n, rs` | `07` | special register n ← `rs`; n in the high nibble |
 | `MFUR rd, rs` | `31` | `rd` ← register `rs` of the user's register bank |
 | `MTUR rd, rs` | `3D` | register `rd` of the user's register bank ← `rs` |
 | `SWI #n` | `FC` | a software interrupt, n in the register byte |
@@ -501,8 +504,8 @@ names may be written in either case is **open**.
     `sp` or `r14` + 0…60, then `[R + d16]`, then the special mode's D with
     `R` as its index where d needs 17–24 bits (**open**).
   - **An absolute address:** abs16, then `PC` + d16, then abs32.
-  - **`LEA`** has no mode E, so `LEA r1, [r14 + 8]` is `[R + d16]`, and
-    `LEA rd, [R]` is `MOV rd, R` (**open**).
+  - **`LEA rd, [R]`** is `MOV rd, R`, since `LEA` has no mode 2
+    (**open**).
   - **`BIC`, `TST`, `MULU` and `MULS` with a memory operand** have only
     the special mode, so `[R + d]` becomes D with `R` as its index
     (**open**).
@@ -695,9 +698,10 @@ What changed from 1b, beyond the encoding:
 #### 9.5 Calls, multiple registers and rows 0 and F
 
 - **The link register** (Emily, 2026-10-15). Measured on 1b with the
-  convention ported (the link-register report, in review): −2.3% of the
-  hand-written suite's cycles, −0.2% of compiled C's, −0.9% of Egret's
-  JIT, and at worst +0.24%. A leaf call and return takes 5 cycles instead
+  convention ported
+  ([link-register.md](0028-rfc-draft-2-isa/link-register.md)): −2.3% of
+  the hand-written suite's cycles, −0.2% of compiled C's, −0.9% of
+  Egret's JIT, and at worst +0.24%. A leaf call and return takes 5 cycles instead
   of 10. The microcode is 74 microinstructions shorter, and a call no
   longer writes memory, so `CALL [r]+` no longer needs care to be
   restartable. `r7` is the last caller-saved register, next to the
@@ -714,7 +718,17 @@ What changed from 1b, beyond the encoding:
   buffer of up to 15 words in hardware. Loading the base register's word
   last, held in one temporary, restarts as cleanly
   ([12](#12-open-questions)).
-- **`LEA`** keeps `[R + d16]`, `[sp + 4R]`, indexed and the special mode.
+- **`LEA`** keeps `[R + d16]`, `[sp + 4R]`, indexed and the special
+  mode, and has mode E (Emily, 2026-10-16).
+  - Its cells sit in its modes' columns, as in rows 1–A, so throughout
+    rows 0–A a cell with a mode has that mode as the opcode's low nibble.
+    `MFSR` and `MTSR` moved to `06` and `07` to make room. The decode ROM
+    sees the whole parcel, so this costs the hardware nothing; it makes
+    hex dumps, the assembler and the disassembler regular.
+  - Mode E gives the address of a field in the first 16 words of the
+    current object in one parcel, `LEA r1, [r14 + 8]`, as mode 4 does for
+    a stack frame's. Its use isn't measured. It costs one of the free
+    cells: 9 before, 8 now.
   - `LEA rd, [R]` went: it was the compiler's copy that leaves the flags
     alone, which is now `MOV`.
   - Measured: 1.9% of hand-written and 3.1% of compiled executed
@@ -966,7 +980,7 @@ Part I marks each of these **open**; the proposal is what it states.
 14. **The calling convention** beyond `r7` and `sp`.
 15. **`FD`:** kept as room for rare instructions, or freed, with `MULFX`
     moving elsewhere.
-16. **Room to grow:** 9 free cells, and `AND`, `OR` and `XOR`'s memory
+16. **Room to grow:** 8 free cells, and `AND`, `OR` and `XOR`'s memory
     columns ([9.2](#92-alu-operations-and-constants)).
 
 ### 13. Next steps

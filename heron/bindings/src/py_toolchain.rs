@@ -2,7 +2,7 @@
 //! infra/obj.py, infra/link.py and infra/asm.py keep their classes, and
 //! call these to read and write files, to link and to assemble. The
 //! assembler finds an ISA's encoder by its name; the ISAs that have one
-//! are draft 1a and 1b (studies/v1_isa/isa).
+//! are draft 1a and 1b (studies/v1_isa/isa) and draft 2 (studies/v2_isa/isa).
 //!
 //! An object file crosses as a tuple (isa, flags, entry, sections,
 //! symbols, relocs), with sections (name, flags, addr, size, align, data,
@@ -218,6 +218,7 @@ pub mod toolchain {
         #[new]
         fn new(isa: &str, relocatable: bool) -> PyResult<Self> {
             let enc = v1_isa::asm::encoder(isa)
+                .or_else(|| v2_isa::asm::encoder(isa))
                 .ok_or_else(|| PyValueError::new_err(format!("no assembler for ISA {isa}")))?;
             Ok(Assembler {
                 a: Engine::new(enc, relocatable),
