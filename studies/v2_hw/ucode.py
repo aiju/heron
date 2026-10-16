@@ -171,14 +171,16 @@ ALU = {
     "xnor": (1, 0b1001, None),
 }
 
-# Register file: per bank, r0-r15, HI (16), LO (17); RFK >= 32 is the G
-# half, the microcode's own: scratch and constants the reset routine
-# writes, and the special registers that live in the register file. Each
-# bank has its own G half, so that both copies of the register file always
-# use the same bank: the reset routine writes the constants into every
-# bank, scratch is never live across a change of bank, and the special
-# registers, which only privileged instructions use, are bank 0's.
-SP, LINK, OBJ, HI, LO = 15, 7, 14, 16, 17
+# Register file: per bank, r0-r15 (HI and LO are r0 and r1, RFC 0028,
+# 9.9: a multiply's high word or a divide's remainder, MULA's sum, MERGE's
+# mask); RFK >= 32 is the G half, the microcode's own: scratch and
+# constants the reset routine writes, and the special registers that live
+# in the register file. Each bank has its own G half, so that both copies
+# of the register file always use the same bank: the reset routine writes
+# the constants into every bank, scratch is never live across a change of
+# bank, and the special registers, which only privileged instructions use,
+# are bank 0's.
+SP, LINK, OBJ, HI, LO = 15, 7, 14, 0, 1
 G = 32
 TMP1, TMP2, TMP3 = G + 0, G + 1, G + 2
 ZERO, ONES, VBASE, K0FFF, KE1, KE0, K1000 = G + 3, G + 4, G + 5, G + 6, G + 7, G + 8, G + 9
@@ -195,7 +197,7 @@ CONSTS = {ZERO: 0, ONES: 0xFFFFFFFF, VBASE: 0x80000000, K0FFF: 0x0FFF, KE1: 0xE1
           MAPMASK: 0x7FFFF000, KMULFX: 0xE0}
 CONSTS.update({VEC[n]: 0x80000000 | v for n, v in VECTORS.items()})
 CONSTS.update({VSWI[k]: 0x80000100 + 0x100 * k for k in range(4)})
-RF_NAMES = {SP: "sp", HI: "HI", LO: "LO", TMP1: "TMP1", TMP2: "TMP2", TMP3: "TMP3",
+RF_NAMES = {SP: "sp", TMP1: "TMP1", TMP2: "TMP2", TMP3: "TMP3",
             ZERO: "ZERO", ONES: "ONES", VBASE: "VBASE", K0FFF: "K0FFF", KE1: "KE1",
             KE0: "KE0", K1000: "K1000", CTXC: "CTXC", BANKC: "BANKC", MAPAS: "MAPAS",
             K80: "K80", K7F: "K7F", MAPMASK: "MAPMASK", KMULFX: "KMULFX"}
@@ -961,7 +963,7 @@ def mul_mem(opname, name, o):
 
 
 def mul_core(opname, name, src):
-    """HI:rd <- rd x src, src a register field ('r') or a location. The
+    """r0:rd <- rd x src, src a register field ('r') or a location. The
     multiplier goes to MQ; R accumulates the high half; 16 steps when the
     operands fit in 16 bits, else 32."""
     if opname == "MULU":
@@ -991,16 +993,17 @@ def mul_core(opname, name, src):
     # -2^31 (or -2^15)
     step = mi(a="r", rb="d", md="mulu", rms="shr", sin="f31", ldr=1, lcinc=1)
     last = mi(a="r", rb="d", md="muls", rms="shr", sin="f31", ldr=1)
-    # overflow iff HI isn't the sign extension of the low word
+    # overflow iff r0 isn't the sign extension of the low word
     tail32 = chain(name, last, mi(a="r", alu="passa", w=HI),
                    mi(a="r", alu="a", cin="mq31", ldcl="zero"),
                    end(name, b="mq", alu="passb", w="d", fnz="nz", fc="ncl", fv="ncl"))
     big = chain(name, mi(rb=src, md="mqload", alu="zero", ldr=1),
                 loop(name, step, "tc", tail32))
+    # (r0, the high half, before rd: with rd = r0, rd's result stays)
     small16 = chain(name, last, mi(a="r", alu="passa", rz=0b1100, ldr=1),
                     mi(a="r", b="mq", alu="or", rms="ror16", ldr=1),
-                    mi(a="r", alu="passa", w="d", fnz="nz", fill="a31", ldsgn=1),
-                    end(name, b="fillall", fill="sgn", alu="passb", w=HI, czero=1, fv="0"))
+                    mi(a="r", b="fillall", fill="a31", alu="passb", w=HI),
+                    end(name, a="r", alu="passa", w="d", fnz="nz", czero=1, fv="0"))
     small = chain(name, mi(b="r", md="mqload", alu="zero", ldr=1),
                   loop(name, step, "tc4", small16))
     # x fits in 16 signed bits iff x ^ (32 copies of its sign) < 2^15
@@ -1011,9 +1014,11 @@ def mul_core(opname, name, src):
                  branch(name, mi(ra=src, alu="passa", rz=0b1100, ldr=1), "cl", big, small))
 
 
-def div_routine(name):
+def div_routine(name, r0=False):
     """Non-restoring, the partial remainder in R (its sign in S33), the
-    quotient's bits shifted into MQ."""
+    quotient's bits shifted into MQ. r0: DIVS with rd or rs r0, whose
+    quotient's sign is worked out from them after the remainder is in:
+    the remainder waits in TMP2 and goes to r0 a cycle later."""
     divz = trap("divide", 2)
     if name in ("DIVU", "DIVUL"):
         out = chain(name, mi(a="r", rb="r", md="fix", ldr=1),
@@ -1025,7 +1030,7 @@ def div_routine(name):
                          mi(ra=KE0, alu="passa", ldlc=1),
                          branch(name, mi(rb="d", md="mqload", alu="zero", ldr=1), "cl",
                                 body, divz))
-        # DIVUL: HI >= rs would overflow: V, and nothing else changes
+        # DIVUL: r0 >= rs would overflow: V, and nothing else changes
         ovf = end(name, fv="1")
         return chain(name, mi(ra="r", alu="passa", ldcl="zero"),
                      mi(ra=KE0, alu="passa", ldlc=1),
@@ -1034,13 +1039,14 @@ def div_routine(name):
                                    body, ovf),
                             divz))
     # DIVS: on magnitudes, the signs fixed at the end
+    sign = [mi(ra="d", rb="r", alu="xor", ldr=1),
+            mi(a="r", fill="a31", ldsgn=1, b="mq", alu="passb", ldr=1),
+            mi(a="r", b="fillall", fill="sgn", alu="xor", ldr=1)]
     quot = chain(name,
                  mi(a="r", b="fillall", fill="sgn", alu="xor", ldr=1),
                  mi(a="r", alu="a", cin="sgn", ldr=1),            # remainder, sign of rd
-                 mi(a="r", alu="passa", w=HI),
-                 mi(ra="d", rb="r", alu="xor", ldr=1),
-                 mi(a="r", fill="a31", ldsgn=1, b="mq", alu="passb", ldr=1),
-                 mi(a="r", b="fillall", fill="sgn", alu="xor", ldr=1),
+                 *([mi(a="r", alu="passa", w=TMP2)] + sign + [mi(ra=TMP2, alu="passa", w=HI)]
+                   if r0 else [mi(a="r", alu="passa", w=HI)] + sign),
                  end(name, a="r", alu="a", cin="sgn", w="d", fnz="nz", czero=1, fv="0"))
     # |rd| = 2^31 and |rs| = 1: the quotient is 0x80000000 either way, and
     # V is set if the signs were equal
@@ -1076,8 +1082,10 @@ def rr_routine(name):
         return mul_core(name, name, "r")
     if name in ("DIVU", "DIVS", "DIVUL"):
         return div_routine(name)
+    if name == "DIVS r0":
+        return div_routine(name, r0=True)
     if name == "MERGE":
-        # tentative: (rd & ~HI) | (rs & HI)
+        # tentative: (rd & ~r0) | (rs & r0)
         return chain(name, mi(ra="d", rb=HI, alu="bic", w=TMP2),
                      mi(ra="r", rb=HI, alu="and", ldr=1),
                      end(name, a="r", rb=TMP2, alu="or", w="d", fnz="nz"))
@@ -1094,7 +1102,8 @@ def rr_routine(name):
 
 
 def mula_routine():
-    """Tentative MULA rd, rs: HI:LO <- HI:LO + rd x rs, signed; no flags.
+    """Tentative MULA r0:r1, rd, rs: r0:r1 <- r0:r1 + rd x rs, signed; no
+    flags.
     MULS's 32-step loop, then a 64-bit add."""
     name = "MULA"
     step = mi(a="r", rb="d", md="mulu", rms="shr", sin="f31", ldr=1, lcinc=1)
@@ -1113,7 +1122,7 @@ def mula_routine():
 
 def mulfx_routine():
     """Tentative MULFX rd, rs, #n (FD 00, then a parcel: rd in 15-12, rs in
-    11-8, n in 4-0, 7-5 zero): rd <- (rd x rs) >> n, signed, HI <- the
+    11-8, n in 4-0, 7-5 zero): rd <- (rd x rs) >> n, signed, r0 <- the
     product's high half. The parcel is checked, then a dispatch on its
     bits 11-8 picks a routine per rs, with SX = rd."""
     name = "MULFX"
@@ -1132,7 +1141,7 @@ def mulfx_body(rs, name):
     last = mi(a="r", rb="x", md="muls", rms="shr", sin="f31", ldr=1)
     shift = mi(a="r", alu="passa", md="shr64", rms="shr", sin="f31", ldr=1, lcinc=1)
     nload = mi(ra=TMP3, kv=0xE0 - 256, alu="ornb", ldlc=1)            # LC <- 255 - n
-    # 32 steps: R:MQ is the product P, HI <- R; shifted, MQ is the result,
+    # 32 steps: R:MQ is the product P, r0 <- R; shifted, MQ is the result,
     # and it fits iff R is MQ's sign extension
     fin = chain(name, mi(a="r", alu="a", cin="mq31", ldcl="zero"),
                 end(name, b="mq", alu="passb", w="x", fnz="nz", fc="ncl", fv="ncl"))
@@ -1141,11 +1150,12 @@ def mulfx_body(rs, name):
                        loop(name, shift, "tc", fin), fin))
     # 16 steps: R:MQ is P x 2^16 (MQ's low half the multiplier's sign, not
     # part of it); shifted, the result is R:MQ's bits 47-16. P has 31
-    # bits, so it fits and HI is its sign
+    # bits, so it fits and r0 is its sign
     sfin = chain(name, mi(a="r", alu="passa", rz=0b1100, w=TMP2),
                  mi(b="mq", alu="passb", rz=0b0011, ldr=1),
-                 mi(ra=TMP2, b="r", alu="or", rms="ror16", w="x", fnz="nz"),
-                 end(name, b="fillall", fill="sgn", alu="passb", w=HI, czero=1, fv="0"))
+                 mi(b="fillall", fill="sgn", alu="passb", w=HI),
+                 end(name, ra=TMP2, b="r", alu="or", rms="ror16", w="x", fnz="nz", czero=1,
+                     fv="0"))
     small = chain(name, last, nload,
                   branch(name, mi(a="r", fill="a31", ldsgn=1, lcinc=1), "tc",
                          loop(name, shift, "tc", sfin), sfin))
@@ -1266,9 +1276,7 @@ def mfsr_routine(n):
         return end(name, _fields=merge(mi(**kw), mi(w="d")))
     if n == 0:
         return rd(b="flags", alu="passb")
-    if n in (1, 2):
-        return rd(rb=HI if n == 1 else LO, alu="passb")
-    if n < 8:
+    if n < 8:                                   # 1 and 2, once HI and LO: reserved
         return rd(rb=ZERO, alu="passb")
     if n == 8:
         body = rd(b="far", alu="passb")
@@ -1299,8 +1307,6 @@ def mtsr_routine(n):
     if n == 0:
         return branch(name, {}, "sup", end(name, ra="r", loadf="nzcv"),
                       end(name, ra="r", loadf="sup"))
-    if n in (1, 2):
-        return end(name, ra="r", alu="passa", w=HI if n == 1 else LO)
     if n < 8:
         return end(name)
     if n in (8, 9, 14, 15):
@@ -1425,9 +1431,10 @@ def classify(w):
         return ill
     if op in (0x01, 0x02):
         return ("ldm", op == 0x02), 2
-    if 0x04 <= op <= 0x07:
-        M = [3, 4, 5, 0xF][op - 4]
-        R = lo if M in (4, 0xF) else 0
+    if op in v2.LEA_CELLS:
+        # LEA rd, ea: the cell's low nibble is the mode, as in rows 1-A
+        M = col
+        R = _sub(M, lo)
         n = 1 + ext_parcels(M, lo)
         if M == 0xF and (lo <= 3 or lo == 0xF):
             return ("illegal",), n
@@ -1436,10 +1443,12 @@ def classify(w):
         return ("rr", "ADD.B4"), 1
     if 0x09 <= op <= 0x0D:
         return ("tag", op), 1
-    if op == 0x0E:
+    if op == v2.MFSR:
         return ("mfsr", lo), 1
-    if op == 0x0F:
+    if op == v2.MTSR:
         return ("mtsr", hi), 1
+    if op == v2.BCOPY:
+        return ill                  # tentative (RFC 0029's open question 3), not built
     if op in (0x20, 0x21, 0x2D):
         name = {0x20: "CLR", 0x21: "INC", 0x2D: "DEC"}[op]
         n = 1 + ext_parcels(hi, lo)
@@ -1463,6 +1472,8 @@ def classify(w):
         return (("setcc", lo), 1) if lo != 15 else ill
     if op == 0xE6:
         return ("mula",), 1
+    if op == 0xE8 and (hi == 0 or lo == 0):
+        return ("rr", "DIVS r0"), 1
     if 0xE0 <= op <= 0xE9:
         return ("rr", v2.ROW_E[col]), 1
     if 0xEA <= op <= 0xED:
@@ -1516,7 +1527,7 @@ def routine(key):
         return ea_routine(name, M, R, rname)
     if kind == "lea":
         _, M, R = key
-        return lea_routine(M, R, f"LEA m{M:X}" + (f"/{R:X}" if M in (4, 0xF) else ""))
+        return lea_routine(M, R, f"LEA m{M:X}" + (f"/{R:X}" if M in (4, 0xE, 0xF) else ""))
     if kind == "u7":
         if key[1]:
             return end("CMP #u7", ra="d", imm="u7", alu="sub", fnz="nz", fc="aluc", fv="ovf")
@@ -1583,8 +1594,7 @@ def reset_routine():
             steps += const(loc, CONSTS[loc])
     # banks 1-255 (LC): bank <- LC, then each constant from bank 0 into
     # that bank's (UBW); the special registers are only needed in bank 0
-    rest = chain("reset", mi(alu="zero", w=HI, ldbank=1),
-                 mi(alu="zero", w=LO),
+    rest = chain("reset", mi(alu="zero", ldbank=1),
                  end("reset", rb=VEC["reset"], alu="passb", ldpc=1))
     copies = [mi(ra=k, alu="passa", w=k, ubw=1)
               for k in sorted(CONSTS) if k not in (CTXC, BANKC, MAPAS)]

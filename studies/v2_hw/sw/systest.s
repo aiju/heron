@@ -8,6 +8,17 @@
 ; this table, in the window.
 ;
 ;! max-cycles: 20000000
+;
+; The special registers by the numbers this CPU gives them: its system half
+; is RFC 0029's before the status register and the eight interrupt levels
+; renumbered them (far 9, fsr 10 ... bank 14 now), so they are named here.
+
+SR_FAR = 8
+SR_FSR = 9
+SR_CTX = 10
+SR_MAPA = 11
+SR_MAPD = 12
+SR_BANK = 13
 
         .org 0x00
         JMP  start              ; reset
@@ -53,9 +64,9 @@ trapped:
         MOV  [t_vec], r1
         MOV  r1, [sp + 4]       ; the saved PC
         MOV  [t_pc], r1
-        MFSR r1, FAR
+        MFSR r1, SR_FAR
         MOV  [t_far], r1
-        MFSR r1, FSR
+        MFSR r1, SR_FSR
         MOV  [t_fsr], r1
         MOV  r1, [sp]           ; the saved flags word
         MOV  [t_flags], r1
@@ -88,12 +99,12 @@ h_page: MOV  [t_save1], r1
         MOVS r1, [fixpage]
         BEQ  .rec
         SAVE r2-r3
-        MFSR r2, FAR
+        MFSR r2, SR_FAR
         LSR  r2, #12            ; the page
-        MTSR MAPA, r2
+        MTSR SR_MAPA, r2
         LSL  r2, #12
         OR   r2, [fixentry]
-        MTSR MAPD, r2
+        MTSR SR_MAPD, r2
         RESTORE r2-r3
         CLR  [fixpage]
 .rec:   MOV  r1, #0x20
@@ -130,7 +141,7 @@ h_swi1: SAVE r1-r2
 ; does SWI #0
 run_user:
         MOV  r2, #1
-        MTSR BANK, r2
+        MTSR SR_BANK, r2
         MOV  r2, #0xF0000
         MTUR sp, r2
         LEA  r2, [.back]
@@ -153,9 +164,9 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         BSR  puts
         MFSR r2, flags
         AND  r2, #0x70          ; S, T and I
-        MFSR r3, CTX
+        MFSR r3, SR_CTX
         OR   r2, r3
-        MFSR r3, BANK
+        MFSR r3, SR_BANK
         OR   r2, r3
         MOV  r1, #0x20
         BSR  expect
@@ -164,18 +175,18 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         LEA  r1, [s_spr]
         BSR  puts
         MOV  r2, #0xFF
-        MTSR CTX, r2
-        MFSR r4, CTX            ; 0x7F
+        MTSR SR_CTX, r2
+        MFSR r4, SR_CTX            ; 0x7F
         CLR  r2
-        MTSR CTX, r2
+        MTSR SR_CTX, r2
         MOV  r2, #0x1234
-        MTSR BANK, r2
-        MFSR r5, BANK           ; 0x34
+        MTSR SR_BANK, r2
+        MFSR r5, SR_BANK           ; 0x34
         CLR  r2
-        MTSR BANK, r2
+        MTSR SR_BANK, r2
         MOV  r2, #0x12345
-        MTSR MAPA, r2
-        MFSR r6, MAPA
+        MTSR SR_MAPA, r2
+        MFSR r6, SR_MAPA
         MOV  r2, #7
         MTSR 3, r2              ; reserved: ignored, reads 0
         MFSR r3, 3
@@ -200,22 +211,22 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         LEA  r1, [s_mapd]
         BSR  puts
         MOV  r2, #0x1F00        ; context 1, page 0xF00
-        MTSR MAPA, r2
+        MTSR SR_MAPA, r2
         MOV  r3, #0x12345007
-        MTSR MAPD, r3
+        MTSR SR_MAPD, r3
         MOV  r3, #0xABCDE003
-        MTSR MAPD, r3           ; mapa moved on: page 0xF01
+        MTSR SR_MAPD, r3           ; mapa moved on: page 0xF01
         MOV  r3, #0x55555FF5    ; bits 11-3 read as 0
-        MTSR MAPD, r3
-        MTSR MAPA, r2
-        MFSR r4, MAPD
+        MTSR SR_MAPD, r3
+        MTSR SR_MAPA, r2
+        MFSR r4, SR_MAPD
         MOV  r1, #0x1F01
-        MTSR MAPA, r1
-        MFSR r5, MAPD
+        MTSR SR_MAPA, r1
+        MFSR r5, SR_MAPD
         MOV  r1, #0x1F02
-        MTSR MAPA, r1
-        MFSR r6, MAPD
-        MFSR r7, MAPA
+        MTSR SR_MAPA, r1
+        MFSR r6, SR_MAPD
+        MFSR r7, SR_MAPA
         XOR  r4, #0x12345007
         XOR  r5, #0xABCDE003
         XOR  r6, #0x55555005
@@ -229,21 +240,21 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
 
         ; set up the test pages in context 0
         MOV  r2, #USERPAGE
-        MTSR MAPA, r2
+        MTSR SR_MAPA, r2
         MOV  r3, #USERPAGE << 12 | 7
-        MTSR MAPD, r3
+        MTSR SR_MAPD, r3
         MOV  r2, #NOPAGE
-        MTSR MAPA, r2
+        MTSR SR_MAPA, r2
         CLR  r3
-        MTSR MAPD, r3           ; invalid
+        MTSR SR_MAPD, r3           ; invalid
         MOV  r2, #ROPAGE
-        MTSR MAPA, r2
+        MTSR SR_MAPA, r2
         MOV  r3, #ROPAGE << 12 | 5      ; X and V, no W
-        MTSR MAPD, r3
+        MTSR SR_MAPD, r3
         MOV  r2, #NXPAGE
-        MTSR MAPA, r2
+        MTSR SR_MAPA, r2
         MOV  r3, #NXPAGE << 12 | 3      ; W and V, no X
-        MTSR MAPD, r3
+        MTSR SR_MAPD, r3
         MOV  r1, #0x2468ACE0
         MOV  [USERPAGE << 12], r1       ; the user's data
         MOV  r1, #0x0FF1CE
@@ -260,7 +271,7 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         LEA  r1, [s_user]
         BSR  puts
         MOV  r2, #1
-        MTSR BANK, r2
+        MTSR SR_BANK, r2
         MOV  r2, #0x1111
         MTUR r1, r2
         MOV  r2, #0x2222
@@ -343,9 +354,9 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
 
         ; unmap the page again for the next test
         MOV  r2, #NOPAGE
-        MTSR MAPA, r2
+        MTSR SR_MAPA, r2
         CLR  r3
-        MTSR MAPD, r3
+        MTSR SR_MAPD, r3
 
         ; ---- a store to a page without W
         LEA  r1, [s_wfault]
@@ -451,7 +462,7 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         MOV  [skip], r1
         CLR  r2
         MOV  r3, #5
-        DIVU r3, r2
+        DIVU r0:r3, r2
         MOV  r5, [t_vec]
         .align 4
         .word 0x00FF00FF        ; two ILLEGAL parcels
@@ -485,7 +496,7 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
 ; run_user_traced: as run_user, with T set in the flags RTI restores
 run_user_traced:
         MOV  r2, #1
-        MTSR BANK, r2
+        MTSR SR_BANK, r2
         MOV  r2, #0xF0000
         MTUR sp, r2
         LEA  r2, [.back]
@@ -529,8 +540,8 @@ u_priv: EI
         DI
         HALT
         RTI
-        MFSR r1, FAR
-        MTSR CTX, r1
+        MFSR r1, SR_FAR
+        MTSR SR_CTX, r1
         MFUR r1, r2
         MTUR r1, r2
         SWI  #0

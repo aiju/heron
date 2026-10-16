@@ -789,14 +789,6 @@ class RTL:
         return [self.reg(i) for i in range(16)]
 
     @property
-    def hi(self):
-        return self.reg(uc.HI)
-
-    @property
-    def lo(self):
-        return self.reg(uc.LO)
-
-    @property
     def pc(self):
         """The address of the instruction the next decode starts."""
         return self.PC
