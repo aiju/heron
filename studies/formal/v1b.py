@@ -722,7 +722,7 @@ class ResetProver(Prover):
     register file held."""
 
     def __init__(self, **kw):
-        super().__init__(None, **kw)
+        super().__init__(None, cutpoints=False, **kw)        # no specification to cut to
 
     def setup(self):
         self.hyps = []
