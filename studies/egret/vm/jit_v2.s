@@ -3,7 +3,7 @@
 ; gets the C headers' constants from build.py.
 ;
 ; The native code keeps some of the interpreter's registers (interp_v2.s):
-; r9 bp, r10 the value stack's next free slot, r11 the frame, r14 nil, and
+; r9 bp, r10 the value stack's next free slot, r14 the frame, r11 nil, and
 ; r8 the bytecode's address when C needs it. It doesn't keep r12, the
 ; literals: the glue finds them (jsave) before it goes to C.
 
@@ -20,7 +20,7 @@ _jit_run:
         MOV  r2, [_egret_st]
         PUSH r2
         MOV  [_egret_st], r1
-        MOV  r14, #NIL
+        MOV  r11, #NIL
         BRA  resume
 
 jexit:  POP  r2
@@ -34,7 +34,7 @@ resume: MOV  r1, [_egret_st]
         MOV  r10, [r1 + VS_SP]
         LEA  r10, [r10 + 4]
         MOV  r9, [r1 + VS_BP]
-        MOV  r11, [r1 + VS_FP]
+        MOV  r14, [r1 + VS_FP]
         MOV  r8, [r1 + VS_IP]
         MOV  r12, [r1 + VS_LITS]
         CALL _jit_resume
@@ -42,7 +42,7 @@ resume: MOV  r1, [_egret_st]
 
 ; The registers into egret_st, as the asm loop's save does, with r12 the
 ; frame's method's literals.
-jsave:  MOV  r12, [r11 + FR_METHOD]
+jsave:  MOV  r12, [r14 + FR_METHOD]
         MOV  r12, [r12 + 8 + 4*M_LITSP]
         BRA  _egret_save
 

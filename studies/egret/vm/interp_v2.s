@@ -14,10 +14,11 @@
 ;   r9   bp: the frame's receiver slot; slot i is [r9 + 4i]
 ;   r10  the value stack's next free slot, so the top is [r10 - 4]
 ;        (VMState.sp and vm_sp point at the top value itself)
-;   r11  the frame record
+;   r11  nil
 ;   r12  the method's literals
 ;   r13  the dispatch table
-;   r14  nil
+;   r14  the frame record: the current object, whose fields mode E,
+;        [r14 + 4R], reaches in one parcel
 ;   r0-r7 scratch; C calls keep r8-r14, and leave their return address
 ;        in r7, the link register: nothing is kept in r7 across one
 ;
@@ -44,7 +45,7 @@ _asm_run:
         PUSH r2
         MOV  [_egret_st], r1
         MOV  r13, #optable
-        MOV  r14, #NIL
+        MOV  r11, #NIL
         BRA  reload
 
 exit:   POP  r2
@@ -60,10 +61,10 @@ save:   MOV  r1, [_egret_st]
         LEA  r2, [r10 - 4]
         MOV  [r1 + VS_SP], r2
         MOV  [r1 + VS_BP], r9
-        MOV  [r1 + VS_FP], r11
+        MOV  [r1 + VS_FP], r14
         MOV  [r1 + VS_IP], r8
         MOV  [r1 + VS_LITS], r12
-        MOV  r2, [r11 + FR_METHOD]
+        MOV  r2, [r14 + FR_METHOD]
         MOV  [r1 + VS_METHOD], r2
         RET
 
@@ -78,7 +79,7 @@ reload: MOV  r1, [_egret_st]
         MOV  r10, [r1 + VS_SP]
         LEA  r10, [r10 + 4]
         MOV  r9, [r1 + VS_BP]
-        MOV  r11, [r1 + VS_FP]
+        MOV  r14, [r1 + VS_FP]
         MOV  r8, [r1 + VS_IP]
         MOV  r12, [r1 + VS_LITS]
         MOV  r1, byte [r8]+
@@ -87,7 +88,7 @@ reload: MOV  r1, [_egret_st]
 ; ---- pushes and stores ----------------------------------------------------------
 
 op_push_nil:
-        MOV  [r10]+, r14
+        MOV  [r10]+, r11
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 
@@ -302,14 +303,14 @@ send:   NOT  r4, r7
 ;@end
 ; Call Egret method r3 with its frame at r4.
 ;@frame
-.call:  MOV  [r11 + FR_IP], r8  ; where the caller goes on
-        LEA  r11, [r11 + FRAME_SIZE]
-        CMP  r11, [_egret_frames_end]
+.call:  MOV  [r14 + FR_IP], r8  ; where the caller goes on
+        LEA  r14, [r14 + FRAME_SIZE]
+        CMP  r14, [_egret_frames_end]
         BHS  .overflow
-        MOV  [r11 + FR_BP], r4
-        MOV  [r11 + FR_METHOD], r3
-        CLR  [r11 + FR_SERIAL]
-        CLR  [r11 + FR_FLAGS]
+        MOV  [r14 + FR_BP], r4
+        MOV  [r14 + FR_METHOD], r3
+        CLR  [r14 + FR_SERIAL]
+        CLR  [r14 + FR_FLAGS]
         MOV  r9, r4
         MOVS r1, [r3 + 8 + 4*M_NLOCALS]
         BEQ  .go
@@ -317,9 +318,8 @@ send:   NOT  r4, r7
 ;@clear
         CMP  r10, [_egret_vstack_end]
         BHS  .overflow2
-.clear: MOV  [r10]+, r14
-        DEC  r1
-        BNE  .clear
+.clear: MOV  [r10]+, r11
+        DBNZ r1, .clear
 ;@end
 ;@enter
 .go:    MOV  r12, [r3 + 8 + 4*M_LITSP]
@@ -334,9 +334,9 @@ send:   NOT  r4, r7
 ;@end
 
 .overflow2:
-        MOV  r9, [r11 - FRAME_SIZE + FR_BP]
+        MOV  r9, [r14 - FRAME_SIZE + FR_BP]
 .overflow:
-        LEA  r11, [r11 - FRAME_SIZE]
+        LEA  r14, [r14 - FRAME_SIZE]
 .miss:  SUB  r8, r5
         BRA  slow
 
@@ -411,15 +411,15 @@ send:   NOT  r4, r7
         POP  r4
         POP  r3
         MOV  [r4], r1           ; the object in place of the class
-        MOV  [r11 + FR_IP], r8
-        LEA  r11, [r11 + FRAME_SIZE]
-        CMP  r11, [_egret_frames_end]
+        MOV  [r14 + FR_IP], r8
+        LEA  r14, [r14 + FRAME_SIZE]
+        CMP  r14, [_egret_frames_end]
         BHS  .newover
-        MOV  [r11 + FR_BP], r4
-        MOV  [r11 + FR_METHOD], r3
-        CLR  [r11 + FR_SERIAL]
+        MOV  [r14 + FR_BP], r4
+        MOV  [r14 + FR_METHOD], r3
+        CLR  [r14 + FR_SERIAL]
         MOV  r1, #FR_CONSTRUCT
-        MOV  [r11 + FR_FLAGS], r1
+        MOV  [r14 + FR_FLAGS], r1
         MOV  r9, r4
         MOVS r1, [r3 + 8 + 4*M_NLOCALS]
         BEQ  .go
@@ -427,9 +427,9 @@ send:   NOT  r4, r7
         BLO  .clear
         ; too deep: put the class back, and C starts the new over and
         ; raises the error
-        MOV  r9, [r11 - FRAME_SIZE + FR_BP]
+        MOV  r9, [r14 - FRAME_SIZE + FR_BP]
 .newover:
-        LEA  r11, [r11 - FRAME_SIZE]
+        LEA  r14, [r14 - FRAME_SIZE]
         MOV  r1, [r4]
         MOV  r1, [r1]
         MOV  [r4], r1
@@ -442,10 +442,10 @@ op_send_super:                  ; SEND_SUPER literal argc: look up from above th
         MOV  r5, #3
         NOT  r4, r7
         LEA  r4, [r10 + r4*4]
-        MOV  r2, [r11 + FR_METHOD]
+        MOV  r2, [r14 + FR_METHOD]
         MOV  r2, [r2 + 8 + 4*M_OWNER]
         MOV  r2, [r2 + 8 + 4*C_SUPER]
-        CMP  r2, r14            ; no superclass: C says so
+        CMP  r2, r11            ; no superclass: C says so
         BNE  send.probe
         SUB  r8, r5
         BRA  slow
@@ -453,17 +453,17 @@ op_send_super:                  ; SEND_SUPER literal argc: look up from above th
 op_return:
 ;@retcheck
         MOV  r1, -[r10]
-        MOVS r2, [r11 + FR_FLAGS]
+        MOVS r2, [r14 + FR_FLAGS]
         BNE  .flags
 ;@end
 ;@ret
 .ret:   MOV  [r9], r1           ; the result in the receiver's slot
         LEA  r10, [r9 + 4]
-        LEA  r11, [r11 - FRAME_SIZE]
-        MOV  r9, [r11 + FR_BP]
-        MOV  r2, [r11 + FR_METHOD]
+        LEA  r14, [r14 - FRAME_SIZE]
+        MOV  r9, [r14 + FR_BP]
+        MOV  r2, [r14 + FR_METHOD]
         MOV  r12, [r2 + 8 + 4*M_LITSP]
-        MOV  r8, [r11 + FR_IP]
+        MOV  r8, [r14 + FR_IP]
 ;@end
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
@@ -803,7 +803,7 @@ op_at_put:
 
 op_not: MOV  r1, -[r10]
         OR   r1, #8             ; nil or false
-        CMP  r1, r14
+        CMP  r1, r11
         BEQ  push_true
         BRA  push_false
 
@@ -824,7 +824,7 @@ op_jump_false:
         MOV  r1, -[r10]
 ;@truthy
         OR   r1, #8
-        CMP  r1, r14
+        CMP  r1, r11
 ;@end
         BEQ  op_jump
         LEA  r8, [r8 + 2]
@@ -835,7 +835,7 @@ op_jump_true:
         MOV  r1, -[r10]
 ;@truthy
         OR   r1, #8
-        CMP  r1, r14
+        CMP  r1, r11
 ;@end
         BNE  op_jump
         LEA  r8, [r8 + 2]
@@ -846,7 +846,7 @@ op_jump_false_or_pop:
         MOV  r1, [r10 - 4]
 ;@truthy
         OR   r1, #8
-        CMP  r1, r14
+        CMP  r1, r11
 ;@end
         BEQ  op_jump
         SUB  r10, #4
@@ -858,7 +858,7 @@ op_jump_true_or_pop:
         MOV  r1, [r10 - 4]
 ;@truthy
         OR   r1, #8
-        CMP  r1, r14
+        CMP  r1, r11
 ;@end
         BNE  op_jump
         SUB  r10, #4
@@ -941,18 +941,18 @@ op_closure:                     ; CLOSURE method n (kind index)*n
         MOV  r2, [r12 + r2*4]
         MOV  [r1 + 8 + 4*CL_METHOD], r2
         MOV  r4, [r9]
-        MOV  r3, [r11 + FR_METHOD]
+        MOV  r3, [r14 + FR_METHOD]
         MOV  r3, [r3 + 8 + 4*M_INFO]
         AND  r3, #MF_BLOCK
         BNE  .inblock
         MOV  [r1 + 8 + 4*CL_SELF], r4
-        MOV  [r1 + 8 + 4*CL_HOME], r11
-        MOVS r3, [r11 + FR_SERIAL]      ; this frame's serial, made now if
+        MOV  [r1 + 8 + 4*CL_HOME], r14
+        MOVS r3, [r14 + FR_SERIAL]      ; this frame's serial, made now if
         BNE  .serial                    ; it has none yet
         MOV  r3, [_egret_serial]
         ADD  r3, #2
         MOV  [_egret_serial], r3
-        MOV  [r11 + FR_SERIAL], r3
+        MOV  [r14 + FR_SERIAL], r3
 .serial:
         MOV  [r1 + 8 + 4*CL_SERIAL], r3
         BRA  .capts
@@ -966,17 +966,15 @@ op_closure:                     ; CLOSURE method n (kind index)*n
 .capts: MOVS r2, byte [r8]+
         BEQ  .done
         LEA  r3, [r1 + 8 + 4*CL_CAPT]
-.loop:  MOV  r4, byte [r8]+     ; CK_LOCAL (0) or CK_CAPT
-        MOV  r5, byte [r8]+
-        TST  r4, r4
+.loop:  MOVS r4, byte [r8]+     ; CK_LOCAL (0) or CK_CAPT
+        MOV  r5, byte [r8]+     ; (MOV leaves the flags alone)
         BNE  .capt
         MOV  r4, [r9 + r5*4]
         BRA  .put
 .capt:  MOV  r4, [r9]
         MOV  r4, [r4 + r5*4 + 8 + 4*CL_CAPT]
 .put:   MOV  [r3]+, r4
-        DEC  r2
-        BNE  .loop
+        DBNZ r2, .loop
 .done:  MOV  [r10]+, r1
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
