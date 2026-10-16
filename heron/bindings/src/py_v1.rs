@@ -286,7 +286,7 @@ pub mod v1 {
             PyBytes::new(py, &self.m.dev.out)
         }
 
-        // ---- the display, keyboard and mouse (v1_isa/isa/src/display.rs)
+        // ---- the display, keyboard and mouse (studies/egret_gui/display)
 
         /// Run until the cycle count reaches `until` or the machine
         /// halts, for at most `steps` instructions; returns whether it

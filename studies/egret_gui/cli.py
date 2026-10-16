@@ -9,8 +9,8 @@
                      WebAssembly, and snapshots of the machine
   serve  [--port N] [--source F.eg]
                      build the browser version and serve it on localhost
-  bench  [--write]   what the desktop costs on the machine (--write: the
-                     report's performance.md)
+  bench  [--write]   what the desktop costs on the machine, on draft 1b
+                     and draft 2 (--write: the report's performance.md)
   test               the study's unit tests (heron test egret_gui)
 
 Actions for shot, separated by ';': `click X Y`, `drag X0 Y0 X1 Y1`,
@@ -47,7 +47,7 @@ def do_actions(s, actions):
 
 def cmd_shot(args):
     source = open(args.source).read() if args.source else None
-    s = run.Session(source, args.depth).boot()
+    s = run.Session(source, args.depth, isa=args.isa).boot()
     if args.do:
         do_actions(s, args.do)
     s.run(0.2)
@@ -86,9 +86,10 @@ def cmd_serve(args):
 def cmd_bench(args):
     from . import bench
     r = bench.measure()
-    print(bench.tables(r))
+    r2 = bench.measure(isa="v2")
+    print(bench.tables(r, r2))
     if args.write:
-        print(f"wrote {os.path.relpath(bench.write(r))}")
+        print(f"wrote {os.path.relpath(bench.write(r, r2))}")
     return 0
 
 
@@ -103,6 +104,7 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("shot")
     s.add_argument("--depth", type=int, default=3, choices=range(4))
+    s.add_argument("--isa", default="v1b", choices=build.ISAS)
     s.add_argument("--source")
     s.add_argument("--do")
     s.add_argument("-o", "--out", default="egret_gui.png")

@@ -11,6 +11,7 @@ name = "egret-gui-web"
 version = "0.1.0"
 dependencies = [
  "v1-isa",
+ "v2-isa",
 ]
 
 [[package]]
@@ -20,6 +21,10 @@ dependencies = [
  "devices",
  "v2-isa",
 ]
+
+[[package]]
+name = "gui-display"
+version = "0.1.0"
 
 [[package]]
 name = "heck"
@@ -252,6 +257,7 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 name = "v1-isa"
 version = "0.1.0"
 dependencies = [
+ "gui-display",
  "toolchain",
 ]
 
@@ -267,5 +273,6 @@ dependencies = [
 name = "v2-isa"
 version = "0.1.0"
 dependencies = [
+ "gui-display",
  "toolchain",
 ]

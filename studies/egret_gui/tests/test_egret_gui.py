@@ -58,8 +58,10 @@ def workspace_do(s, code, settle=3):
 
 
 class Desktop(unittest.TestCase):
+    ISA = "v1b"
+
     def setUp(self):
-        self.s = run.Session().boot()
+        self.s = run.Session(isa=self.ISA).boot()
         self.s.run(3)
 
     def test_boots(self):
@@ -78,7 +80,7 @@ class Desktop(unittest.TestCase):
     def test_class_source_with_edits(self):
         # a class's source is its class statement as booted, with what a
         # Workspace changed in place and what it added at the end
-        workspace_do(self.s, 'print(class_source(Clock).first, class_source(Clock).last)')
+        workspace_do(self.s, 'print(class_source(Clock).first, class_source(Clock).last)', 6)
         self.assertIn("class Clock < Window end", self.s.output)
         workspace_do(self.s, 'record_edits("class Clock\\n  def tick(t) = nil\\n  def hello = 1\\nend")')
         workspace_do(self.s, 'c = class_source(Clock); print(c.index("  def tick(t) = nil") != nil, c[-2])', 4)
@@ -106,6 +108,11 @@ class Desktop(unittest.TestCase):
         self.assertIn("bin Balloon", self.s.output)
 
 
+class DesktopV2(Desktop):
+    """The same on draft 2."""
+    ISA = "v2"
+
+
 class Snapshots(unittest.TestCase):
     def test_one_bit_boots(self):
         s = run.Session(depth=0).boot()
@@ -116,11 +123,13 @@ class Snapshots(unittest.TestCase):
         self.assertEqual(set(s.rgb()), {0, 255})
 
     def test_layout(self):
-        snap = snapshot.cold()
-        self.assertEqual(snap[:8], b"HERONSNP")
-        ram, vram, inp = struct.unpack("<3I", snap[124:136])
-        self.assertEqual(len(snap), 1160 + ram + vram + inp)
-        self.assertIn(b"DESK.run", snap[-inp:])
+        for isa, draft in (("v1b", 1), ("v2", 2)):
+            snap = snapshot.cold(isa=isa)
+            self.assertEqual(snap[:8], b"HERONSNP")
+            ram, vram, inp = struct.unpack("<3I", snap[124:136])
+            self.assertEqual(struct.unpack("<I", snap[1160:1164])[0], draft)
+            self.assertEqual(len(snap), 1164 + ram + vram + inp)
+            self.assertIn(b"DESK.run", snap[-inp:])
 
 
 if __name__ == "__main__":

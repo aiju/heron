@@ -1,6 +1,6 @@
 """The graphics study's command line: heron graphics <command> ...
 
-  run SCENE [--isa v1a|v1b] [--depth N] [--asm | --stm] [--png DIR] [--profile]
+  run SCENE [--isa v1a|v1b|v2] [--depth N] [--asm | --stm] [--png DIR] [--profile]
                     run a scene: every phase's cycles, checked against the
                     host reference
   test [SCENE...] [--isa ...]   every scene at every depth, for both ISAs,
@@ -22,7 +22,7 @@ import sys
 from . import build, run as runmod
 
 VARIANTS = (("v1a", False, False), ("v1a", True, False), ("v1b", False, False),
-            ("v1b", True, False), ("v1b", True, True))
+            ("v1b", True, False), ("v1b", True, True), ("v2", False, False), ("v2", True, False))
 
 
 def png_writer(folder, scene, depth):
@@ -117,7 +117,7 @@ def cmd_selftest(args):
         r = subprocess.run([build.selftest_binary()], capture_output=True, text=True)
         print(f"host (C kernels): {r.stdout.strip()}")
         fails += r.returncode != 0
-    for isa, stm in (("v1a", False), ("v1b", False), ("v1b", True)):
+    for isa, stm in (("v1a", False), ("v1b", False), ("v1b", True), ("v2", False)):
         m = driver.run_image(build.selftest_image(isa, args.iters, stm), isa, max_cycles=20_000_000_000)
         out = bytes(m.dev.out).decode(errors="replace").strip()
         ok = m.error is None and not m.traps and out == "all good"

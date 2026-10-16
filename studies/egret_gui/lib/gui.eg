@@ -8,7 +8,7 @@
 UI = 0                  # DejaVu Sans, 12 pixels, a bitmap font
 MONO = 1                # DejaVu Sans Mono, 12 pixels
 
-# key codes (studies/v1_isa/isa/src/display.rs) and modifiers
+# key codes (studies/egret_gui/display/src/lib.rs) and modifiers
 K_BACKSPACE = 8
 K_TAB = 9
 K_RETURN = 13

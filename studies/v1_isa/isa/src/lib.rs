@@ -12,7 +12,7 @@
 //! for 1a and 1b, as the Python ISA modules' `assemble` hooks did.
 
 pub mod asm;
-pub mod display;
+pub use gui_display as display; // (studies/egret_gui's display: a hack)
 pub mod insn;
 pub mod key;
 pub mod machine;

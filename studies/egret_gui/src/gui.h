@@ -6,7 +6,7 @@
 
 #include "gfx.h"
 
-/* ---- the devices (studies/v1_isa/isa/src/display.rs) ---- */
+/* ---- the devices (studies/egret_gui/display/src/lib.rs) ---- */
 
 #define VRAM ((unsigned char *)0x01000000)       /* 1 MB, outside RAM */
 #define VRAM_SIZE 0x100000

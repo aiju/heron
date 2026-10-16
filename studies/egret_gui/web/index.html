@@ -122,7 +122,7 @@
 <main class="machine">
   <header>
     <h1>Heron <small>· Egret desktop</small></h1>
-    <p>A Smalltalk-style desktop written in Egret, running on a simulated Heron draft 1b minicomputer, cycle by cycle, at the speed you choose.</p>
+    <p>A Smalltalk-style desktop written in Egret, running on a simulated Heron minicomputer, draft 1b or draft 2, cycle by cycle, at the speed you choose.</p>
   </header>
 
   <div class="bezel">
@@ -144,6 +144,13 @@
       <div class="switches" role="group" aria-labelledby="depth-label" id="depths">
         <button type="button" data-depth="3" aria-pressed="true">8-bit<span>256 colours</span></button>
         <button type="button" data-depth="0" aria-pressed="false">1-bit<span>black &amp; white</span></button>
+      </div>
+    </div>
+    <div class="group">
+      <span class="label" id="draft-label">Instruction set</span>
+      <div class="switches" role="group" aria-labelledby="draft-label" id="drafts">
+        <button type="button" data-isa="v1b" aria-pressed="true">Draft 1b<span>RFC 0004</span></button>
+        <button type="button" data-isa="v2" aria-pressed="false">Draft 2<span>RFC 0028</span></button>
       </div>
     </div>
     <div class="readouts">
@@ -172,6 +179,7 @@
         <li><b>In a Workspace</b>, put the cursor on a line (or select some) and press <kbd>Ctrl</kbd>+<kbd>D</kbd> to do it, <kbd>Ctrl</kbd>+<kbd>P</kbd> to print it. <kbd>Cmd</kbd> works too.</li>
         <li><b>Gadgets</b> (on the menu) is a table of parts with cartoon physics. Run it, take parts from the bin, drag them about. Right-click a part and Edit its class: change its colour, gravity or bounce and press <kbd>Ctrl</kbd>+<kbd>D</kbd>, and it changes as it runs. New part… makes a new kind.</li>
         <li><b>In the Browser</b>, double-click a class (or a method) to open it in a Workspace, change it, and run it again with <kbd>Ctrl</kbd>+<kbd>D</kbd>. Running windows pick up the change.</li>
+        <li><b>Instruction set</b> switches between the same desktop built for draft 1b and for draft 2: the Egret VM, the C, the graphics kernels and the simulator are each draft's own.</li>
         <li><b>Restart</b> starts from the desktop just booted; <b>Cold boot</b> starts the machine from nothing, compiling the whole desktop as it boots. A Workspace loop that never ends needs a Restart.</li>
       </ul>
     </div>

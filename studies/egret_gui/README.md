@@ -1,13 +1,14 @@
 ---
 status: active
-depends-on: [egret, graphics, c_compiler, v1_isa]
+depends-on: [egret, graphics, c_compiler, v1_isa, v2_isa]
 reports: [21]
 ---
 
 # A graphical desktop for Egret
 
 A demo more than a design study: a small Smalltalk-style desktop for
-[Egret](../egret/README.md), running on the simulated draft 1b machine.
+[Egret](../egret/README.md), running on the simulated draft 1b machine,
+and on draft 2's ([below](#on-draft-2)), built from the same sources.
 There are overlapping windows, a mouse and a keyboard, a Workspace where
 you type Egret and run it, a Transcript, a class browser, a few demos
 (a clock, Life, the Mandelbrot set, Paint), and Gadgets, a playground of
@@ -28,7 +29,8 @@ heron egret_gui serve                 # build the browser version and serve it o
 heron egret_gui web [-o DIR]          # the same as static files (default build/egret_gui/web/)
 heron egret_gui shot --do "click 550 300; wait 1" -o desk.png   # without a browser: do things, save the screen
 heron egret_gui shot --depth 0        # at 1 bit per pixel
-heron egret_gui bench [--write]       # report 0021's tables (--write: the file, and its screenshots)
+heron egret_gui shot --isa v2         # on draft 2
+heron egret_gui bench [--write]       # report 0021's tables, on 1b and draft 2 (--write: the file, and its screenshots)
 heron test egret_gui                  # the unit tests
 ```
 
@@ -94,15 +96,17 @@ The browser version needs Rust's WebAssembly target:
 | `src/gui_prims.c` | Egret's primitives for the screen, events, windows, drawing, fonts, the Workspace's compiler and the Browser |
 | `src/splash.c` | The splash at a cold boot: a heron and an egret, 450 bytes of vector paths, and a progress bar |
 | `src/gui.h`, `src/gui_map.h` | The devices, and Egret's memory map for this build |
-| `src/rt_v1b.s` | Egret's start code, with a timer interrupt and `gui_wait` |
+| `src/rt_v1b.s`, `src/rt_v2.s` | Egret's start code for each draft, with a timer interrupt and `gui_wait` |
 | `build.py` | The image: Egret's VM, the graphics library and kernels, the fonts, `src/` |
 | `run.py` | A session without a browser: input events by the clock, the screen as PNG |
 | `snapshot.py` | The machine's state as bytes, for the browser to start from |
-| `web/` | The browser version: `index.html`, `app.js`, and the simulator crate for WebAssembly |
+| `display/` | The display, keyboard and mouse, for draft 1's and draft 2's simulators |
+| `web/` | The browser version: `index.html`, `app.js`, and the simulators' crate for WebAssembly |
 | `bench.py` | What things cost on the machine: report 0021's tables and screenshots |
 | `web.py`, `cli.py` | Putting the site together; the command line |
 
-**The devices** (`studies/v1_isa/isa/src/display.rs`). The frame buffer
+**The devices** (`display/`, a crate both drafts' simulators put in
+their machines). The frame buffer
 is 1 MB of VRAM at `0x01000000`, outside the 1 MB of RAM, laid out as
 the graphics study draws: 640 × 480 at 1, 2, 4 or 8 bits per pixel. The
 I/O page gains a queue of input events (keys, buttons, the wheel), the
@@ -173,19 +177,39 @@ keys, buttons and wheel into events. The snapshots are written by
 the desktop's source as console input, and `booted` is the same machine
 once the desktop is up.
 
+## On draft 2
+
+The same sources build for draft 2 ([RFC 0028](../../reports/0028-rfc-draft-2-isa.md)),
+`build.image("v2")`, and run on draft 2's simulator (`v2_isa`), whose
+plain machine has draft 1's memory map and I/O page: Egret's VM through
+the C compiler's draft 2 backend, its interpreter loop in `interp_v2.s`,
+this study's C, `src/rt_v2.s`, and the graphics study's kernels for draft
+2 (`asm/v2/`, translated from 1b's for this; with only the C kernels,
+filling and copying took two to five times as long). The page's
+instruction-set switch loads either. Draft 2 takes 1 to 5% fewer cycles
+for everything the bench measures (report 0021's
+[performance.md](../../reports/0021-report-egret-gui/performance.md#on-draft-2)),
+about what Egret's own programs show ([report 0032](../../reports/0032-report-lisp-egret-draft-2.md)):
+the desktop's time is mostly Egret's interpreter.
+
 ## Before a PR
 
 This was built to be shown, not merged. Before it goes to `main`, these
 changes outside the study need doing properly or taking out:
 
-- `studies/v1_isa/isa/src/display.rs` and `machine.rs`: the display,
-  keyboard and mouse are wired into every draft 1 machine, and VRAM is
-  allocated for each (1 MB, to give Gadgets its layers). They should be
-  optional (a feature, or a device the machine is given), or be replaced
-  by whatever RFC 0016 becomes.
-- `heron/bindings/src/py_v1.rs`: the display's getters and setters,
-  `run_until`, and setters for the timer and the cycle count (for
-  snapshots).
+- `studies/v1_isa/isa` and `studies/v2_isa/isa`: `machine.rs` and
+  `lib.rs` wire the display, keyboard and mouse (this study's `display`
+  crate) into every draft 1 and draft 2 machine (draft 2's plain one),
+  and VRAM is allocated for each (1 MB, to give Gadgets its layers);
+  draft 2's gains `run_until`. They should be optional (a feature, or a
+  device the machine is given), or be replaced by whatever RFC 0016
+  becomes.
+- `heron/bindings/src/py_v1.rs` and `py_v2.rs`: the display's getters
+  and setters, `run_until`, and setters for the timer and the cycle
+  count (for snapshots).
+- `studies/graphics`: the kernels for draft 2 (`asm/v2/`), and draft 2
+  in its build, scene runner, command line and tests. That could go to
+  `main` on its own, as the graphics study's.
 - `studies/egret/vm`: `EGRET_GUI` hooks in `egret.h` (the memory map from
   `gui_map.h`, 256 primitives), `prims.c` (a second table of primitives;
   `PrimDef` moved to `egret.h`) and `main.c` (output copied to the
@@ -197,8 +221,9 @@ changes outside the study need doing properly or taking out:
   defined but empty, and since a class can't be given instance variables
   after its first statement, the corrected class then failed too. Now
   the failed statement's new class is forgotten.
-- `Cargo.toml`: the new crate, `studies/egret_gui/web`, is a workspace
-  member, so `cargo test` and clippy build it (as a native library).
+- `Cargo.toml`: the new crates, `studies/egret_gui/display` and
+  `studies/egret_gui/web`, are workspace members, so `cargo test` and
+  clippy build them (the web one as a native library).
 - The graphics study's sources are patched at build time
   (`build.py`'s `SHRINK`): its `MAXE` and glyph edge table could take a
   define instead.

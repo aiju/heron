@@ -42,10 +42,18 @@ def screen_bytes(mem, img, depth):
     return mem[base:base + ((SCREEN_W << depth) >> 3) * SCREEN_H]
 
 
+def new_machine(isa, img, inp):
+    """The simulator for a draft, with an image and console input."""
+    if isa == "v2":
+        from heron.studies.v2_isa.sim import Machine
+        return Machine(img, inp=inp)
+    return Machine32(isas.get(isa), img, inp=inp)
+
+
 def run(img, isa, scene, depth, profile=False, screens=None, max_cycles=4_000_000_000):
     """The phases of a scene at a depth: [Phase]. With screens, a function
     called with (phase name, screen bytes) at every mark."""
-    m = Machine32(isas.get(isa), img, inp=f"{scene} {depth}\n".encode())
+    m = new_machine(isa, img, f"{scene} {depth}\n".encode())
     mark_pc = img.symbols["_mark_n"] + 2        # just after its HALT
     phases = []
     prev_cyc = {c: 0 for c in CONFIGS}

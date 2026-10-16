@@ -46,18 +46,18 @@ def page():
             + head + "</head>\n<body>\n<main" + rest + "</body>\n</html>\n")
 
 
-def _snapshots(depth, source):
+def _snapshots(depth, source, isa):
     """(cold, booted), compressed, cached by what they're made from."""
     files = build._inputs() + [os.path.join(build.LIB, f) for f in os.listdir(build.LIB)]
-    key = build.egret._digest(files, f"{depth}{source or ''}")
+    key = build.egret._digest(files, f"{isa}{depth}{source or ''}")
     cache = os.path.join(build.BUILD, "snapshots")
     os.makedirs(cache, exist_ok=True)
     out = []
     for kind in ("cold", "booted"):
-        path = os.path.join(cache, f"{kind}-{depth}-{key}.bin")
+        path = os.path.join(cache, f"{kind}-{isa}-{depth}-{key}.bin")
         if not os.path.exists(path):
             fn = snapshot.cold if kind == "cold" else snapshot.booted
-            data = zlib.compress(fn(depth, source), 9)
+            data = zlib.compress(fn(depth, source, isa), 9)
             with open(path + ".tmp", "wb") as f:
                 f.write(data)
             os.replace(path + ".tmp", path)
@@ -73,11 +73,12 @@ def site(out=SITE, depths=DEPTHS, source=None, log=print):
     with open(os.path.join(out, "index.html"), "w") as f:
         f.write(page())
     shutil.copyfile(os.path.join(WEB, "app.js"), os.path.join(out, "app.js"))
-    for d in depths:
-        log(f"booting the desktop at {1 << d} bit{'s' if d else ''} per pixel for the snapshot")
-        for kind, path in zip(("cold", "booted"), _snapshots(d, source)):
-            # as base64 text: wherever the site is served from takes that
-            # (claude.ai's artifacts don't serve raw binary files)
-            with open(path, "rb") as f, open(os.path.join(out, f"{kind}-{d}.txt"), "w") as g:
-                g.write(base64.b64encode(f.read()).decode())
+    for isa in build.ISAS:
+        for d in depths:
+            log(f"booting the desktop on {isa} at {1 << d} bit{'s' if d else ''} per pixel for the snapshot")
+            for kind, path in zip(("cold", "booted"), _snapshots(d, source, isa)):
+                # as base64 text: wherever the site is served from takes that
+                # (claude.ai's artifacts don't serve raw binary files)
+                with open(path, "rb") as f, open(os.path.join(out, f"{kind}-{isa}-{d}.txt"), "w") as g:
+                    g.write(base64.b64encode(f.read()).decode())
     return out

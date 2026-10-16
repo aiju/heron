@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 toolchain = { path = "../../../infra/toolchain" }
+gui-display = { path = "../../egret_gui/display" }
 
 [lints]
 workspace = true

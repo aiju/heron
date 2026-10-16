@@ -1,4 +1,4 @@
-"""The graphics study: every scene at every depth, for drafts 1a and 1b,
+"""The graphics study: every scene at every depth, for drafts 1a, 1b and 2,
 compiled C and with the assembly kernels, must draw the same screens as
 the host build with gcc (expected/, written by heron graphics expected);
 and the kernels must match pixel-at-a-time references (src/selftest.c)."""
@@ -9,7 +9,7 @@ from heron.studies.c_compiler.cc import driver
 from heron.studies.graphics import build, fonts, run
 
 VARIANTS = [("v1a", False, False), ("v1a", True, False), ("v1b", False, False),
-            ("v1b", True, False), ("v1b", True, True)]
+            ("v1b", True, False), ("v1b", True, True), ("v2", False, False), ("v2", True, False)]
 
 
 class Scenes(unittest.TestCase):
@@ -35,7 +35,7 @@ class Kernels(unittest.TestCase):
     blits, expansion, ramps, lines and spans at random places."""
 
     def test_selftest(self):
-        for isa, stm in (("v1a", False), ("v1b", False), ("v1b", True)):
+        for isa, stm in (("v1a", False), ("v1b", False), ("v1b", True), ("v2", False)):
             m = driver.run_image(build.selftest_image(isa, 60, stm), isa, max_cycles=2_000_000_000)
             self.assertIsNone(m.error)
             self.assertEqual(bytes(m.dev.out), b"all good\n", f"{isa}{' stm' if stm else ''}")

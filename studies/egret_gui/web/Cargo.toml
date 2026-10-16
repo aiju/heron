@@ -1,6 +1,6 @@
-# The draft 1 simulator for the browser (studies/egret_gui): the machine
-# and its display, built for wasm32-unknown-unknown and driven by
-# app.js. Plain functions, no wasm-bindgen.
+# The draft 1b and draft 2 simulators for the browser (studies/egret_gui):
+# the machines and their display, built for wasm32-unknown-unknown and
+# driven by app.js. Plain functions, no wasm-bindgen.
 [package]
 name = "egret-gui-web"
 version = "0.1.0"
@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 v1-isa = { path = "../../v1_isa/isa" }
+v2-isa = { path = "../../v2_isa/isa" }
 
 [lints]
 workspace = true

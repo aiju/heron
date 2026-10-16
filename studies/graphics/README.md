@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v1_isa, c_compiler]
+depends-on: [v1_isa, v2_isa, c_compiler]
 reports: [19]
 ---
 
@@ -12,7 +12,8 @@ the graphics side of a window manager, in C with the inner loops in
 assembly for each draft, measured on the instruction-level simulator.
 The results are in [report 0019](../../reports/0019-report-graphics.md).
 
-It depends on `v1_isa` for the ISAs, the simulator and the timing model,
+It depends on `v1_isa` for the ISAs, the simulator and the timing model
+(and `v2_isa` for draft 2's, which the kernels were later ported to),
 and on `c_compiler` for the C compiler and its library.
 
 | File | What's in it |
@@ -25,7 +26,7 @@ and on `c_compiler` for the C compiler and its library.
 | `src/scenes.c` | The benchmark scenes: `prims`, `text` and `wm` |
 | `src/main.c`, `src/host.c` | Their mains on the machine, and on the host with gcc (the reference) |
 | `src/selftest.c` | The word-level code against pixel-at-a-time references |
-| `asm/v1a/`, `asm/v1b/` | The kernels in assembly; `asm/v1b/stm/` is the store-multiple experiment |
+| `asm/v1a/`, `asm/v1b/`, `asm/v2/` | The kernels in assembly; `asm/v1b/stm/` is the store-multiple experiment. Draft 2's are 1b's, translated as the program suite was (stores written `MOV`, `MOVS` where a branch reads a load's flags, `r0` for `r7`, the link register, and stack arguments a word nearer), for studies/egret_gui |
 | `fonts/` | The fonts, made from DejaVu by `make_fonts.py` (license: `fonts/LICENSE.txt`) |
 | `build.py`, `fonts.py`, `run.py`, `png.py` | Building the programs, the fonts as data, running a scene phase by phase, screens as PNG |
 | `bench.py` | Report 0019's tables (`reports/0019-report-graphics/performance.md`) |
@@ -77,7 +78,7 @@ from the previous mark. Phases whose names start with `_` are set-up.
 
 **Checking.** The same C, built with gcc on the host, prints every
 phase's screen checksum (`expected/`). Every scene at every depth matches
-it for 1a and 1b, compiled C and with the assembly kernels. The kernels
+it for 1a, 1b and 2, compiled C and with the assembly kernels. The kernels
 are also checked against pixel-at-a-time references at random sizes and
 alignments, on the host and on the simulator.
 

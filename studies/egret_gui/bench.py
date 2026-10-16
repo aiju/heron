@@ -24,7 +24,7 @@ REPORT_DIR = os.path.join(ROOT, "reports", "0021-report-egret-gui")
 
 def busy(s):
     """Cycles spent executing instructions so far (the waits not counted)."""
-    return s.m.cycles_for(native.v1.reference())
+    return s.m.cycles_for(run.reference(s.isa))
 
 
 def ms(cycles):
@@ -34,8 +34,8 @@ def ms(cycles):
 class Probe:
     """A booted desktop to measure things on."""
 
-    def __init__(self, depth=3, clock=False):
-        self.s = run.Session(depth=depth).boot()
+    def __init__(self, depth=3, clock=False, isa="v1b"):
+        self.s = run.Session(depth=depth, isa=isa).boot()
         self.s.run(4)
         if not clock:
             self.s.click(510, 19)               # the clock's close box
@@ -66,7 +66,7 @@ class Probe:
         return self.cost(lambda: s.key("d", ["ctrl"]), settle)
 
 
-def measure(log=print):
+def measure(log=print, isa="v1b"):
     rows = []                                   # (section, what, cycles)
 
     def row(section, what, cycles):
@@ -74,22 +74,22 @@ def measure(log=print):
         log(f"{what}: {cycles:,} cycles, {ms(cycles):.0f} ms")
 
     # booting: up to "ready", then until the first windows are painted
-    s = run.Session(source='print("ready")')
+    s = run.Session(source='print("ready")', isa=isa)
     s.m.run_until(10 ** 10)                     # it halts when it's done
     vm = s.cycles
     row("Booting", "Start the VM, draw the splash, read the source, compile the prelude (408 lines)", vm)
-    s = run.Session().boot()
+    s = run.Session(isa=isa).boot()
     lines = sum(open(os.path.join(build.LIB, f)).read().count("\n") for f in build.DESKTOP)
     row("Booting", f"Compile the desktop ({lines} lines of Egret) and open its first windows",
         s.cycles - vm)
     b, c = busy(s), s.cycles
     s.run(6)
-    p = Probe()
+    p = Probe(isa=isa)
     row("Booting", "Paint the first windows", round(busy(s) - b - p.rate * (s.cycles - c)))
 
     # idle
     row("Idle", "The event loop, a second with nothing to do", round(p.rate * MHZ * 1e6))
-    pc = Probe(clock=True)
+    pc = Probe(clock=True, isa=isa)
     row("Idle", "The same with the clock moving its hands", round(pc.rate * MHZ * 1e6))
 
     # the Workspace
@@ -108,7 +108,7 @@ def measure(log=print):
     row("Workspace", "Scroll to the end (Ctrl-End)", p.cost(lambda: t.key("end", ["ctrl"]), 1))
 
     # windows and the menu
-    q = Probe()
+    q = Probe(isa=isa)
     u = q.s
     row("Windows", "Open the desktop menu and close it (Escape)",
         q.cost(lambda: (u.click(550, 300, dt=0.2), u.key("escape")), 1))
@@ -122,21 +122,21 @@ def measure(log=print):
     # the applications, opened from a Workspace (its line, compiled and run)
     for name, code, settle in [("Transcript", "Transcript()", 3), ("Browser", "Browser()", 4),
                                ("Paint", "Paint()", 3), ("About", "About()", 3)]:
-        r = Probe()
+        r = Probe(isa=isa)
         row("Opening", f"{name}", r.workspace_do(code, settle))
-    r = Probe()
+    r = Probe(isa=isa)
     r.workspace_do("Browser()", 4)
     row("Browser", "Pick a class (Ball)", r.cost(lambda: r.s.click(100, 120), 2))
     row("Browser", "Pick a method and show its source (draw)", r.cost(lambda: r.s.click(300, 135), 2))
 
     # Life and the Mandelbrot set
-    life = Probe()
+    life = Probe(isa=isa)
     life.workspace_do("Life()", 0.1)
     life.s.run(30)
     life.workspace_do("print(\"generation \" + DESK.find(Life).generation.to_s)", 1)
     m = re.search(r"generation (\d+)", life.s.output)
     gens = int(m.group(1))
-    mandel = Probe()
+    mandel = Probe(isa=isa)
     mandel.workspace_do("Mandel()", 0.1)
     t0, c0 = time.perf_counter(), mandel.s.cycles
     i0 = mandel.s.m.instructions
@@ -147,31 +147,31 @@ def measure(log=print):
     speed = ((mandel.s.cycles - c0) / host / 1e6, (mandel.s.m.instructions - i0) / host / 1e6)
 
     # Gadgets' table, as it opens, running for 20 s where nothing covers it
-    gad = Probe()
+    gad = Probe(isa=isa)
     gad.workspace_do("G = Gadgets(); G.move_to(175, 120); G.run", 0.1)
     b0, c0 = busy(gad.s), gad.s.cycles
     gad.s.run(20)
     gbusy = busy(gad.s) - b0 - gad.rate * (gad.s.cycles - c0)
-    gad.workspace_do('print("gadgets", G.run_frames, G.statics.find { |p| p.is_a?(Bucket) }.count)', 1)
+    gad.workspace_do('print("gadgets", G.run_frames, G.statics.find { |p| p.is_a?(Bucket) }.count)', 3)
     m = re.search(r"gadgets (\d+) (\d+)", gad.s.output)
     gframes, gcaught = int(m.group(1)), int(m.group(2))
     row("Gadgets", "A frame of the table it opens with (two to five balls moving), on average",
         round(gbusy / gframes))
 
     # memory, once the desktop is up
-    st = Probe()
+    st = Probe(isa=isa)
     st.workspace_do("print(\"stats \" + gui_stats().inspect)", 1)
     mem = [int(x) for x in re.search(r"stats \[([\d, ]+)\]", st.s.output).group(1).split(",")]
-    return {"rows": rows, "life": gens / 30, "mandel": secs, "image": build.image(), "host": speed,
+    return {"rows": rows, "life": gens / 30, "mandel": secs, "image": build.image(isa), "host": speed,
             "gadgets": (gframes / 20, gcaught),
-            "profiles": profiles(),
+            "profiles": profiles() if isa == "v1b" else None,
             "mem": mem,
             "lines": {f: open(os.path.join(build.LIB, f)).read().count("\n") for f in build.DESKTOP},
             "c_lines": {os.path.basename(f): open(f).read().count("\n")
                         for f in sorted(glob.glob(os.path.join(build.SRC, "*.[chs]")))}}
 
 
-def tables(r):
+def tables(r, r2=None):
     out = ["<!-- generated by heron egret_gui bench --write; don't edit -->", "",
            "# The desktop's costs", "",
            "Cycles of the reference configuration (D16-overlap) spent executing",
@@ -214,7 +214,30 @@ def tables(r):
         out.append(f"| `lib/{f}`, lines of Egret | {n} |")
     for f, n in r["c_lines"].items():
         out.append(f"| `src/{f}`, lines | {n} |")
+    if r2:
+        out += compare(r, r2)
     return "\n".join(out) + "\n"
+
+
+def compare(r, r2):
+    """The same on draft 2: every row against 1b's."""
+    out = ["", "## On draft 2", "",
+           "The same desktop built for draft 2 (RFC 0028): the VM's C through the",
+           "C compiler's draft 2 backend, its interpreter in `interp_v2.s`, the",
+           "graphics study's draft 2 kernels, on draft 2's simulator in the same",
+           "reference configuration.", "",
+           "| | 1b | 2 | 2 against 1b |", "|---|---:|---:|---:|"]
+    theirs = {(sec, what): c for sec, what, c in r2["rows"]}
+    for sec, what, c in r["rows"]:
+        c2 = theirs.get((sec, what))
+        if c2 is not None:
+            out.append(f"| {what} | {ms(c):,.0f} ms | {ms(c2):,.0f} ms | {100 * c2 / c:.0f}% |")
+    out += [f"| Life, generations a second | {r['life']:.1f} | {r2['life']:.1f} | {100 * r2['life'] / r['life']:.0f}% |",
+            f"| The Mandelbrot set | {r['mandel']:.1f} s | {r2['mandel']:.1f} s | {100 * r2['mandel'] / r['mandel']:.0f}% |",
+            f"| Gadgets' table, frames a second (of 30) | {r['gadgets'][0]:.0f} | {r2['gadgets'][0]:.0f} | {100 * r2['gadgets'][0] / r['gadgets'][0]:.0f}% |",
+            f"| The image: code | {r['image'].code_bytes() // 1024} KB | {r2['image'].code_bytes() // 1024} KB | {100 * r2['image'].code_bytes() / r['image'].code_bytes():.0f}% |",
+            f"| Egret's permanent space once the desktop is up | {r['mem'][0] // 1024} KB | {r2['mem'][0] // 1024} KB | |"]
+    return out
 
 
 # ---- where the cycles go: functions by kind
@@ -251,7 +274,7 @@ class Profile:
 
     def __init__(self, s):
         import bisect
-        img = build.image()
+        img = build.image(s.isa)
         syms = sorted((v, k) for k, v in img.symbols.items()
                       if not k.startswith(".") and "." not in k[1:] and v < run.RAM_SIZE)
         self.addrs = [v for v, _ in syms]
@@ -260,7 +283,7 @@ class Profile:
         self.s = s
 
     def snap(self):
-        return self.s.m.pc_cycles(native.v1.reference())
+        return self.s.m.pc_cycles(run.reference(self.s.isa))
 
     def by_kind(self, a, b):
         out = dict.fromkeys(KINDS, 0)
@@ -378,10 +401,10 @@ def screenshots(out=REPORT_DIR, log=print):
     return paths
 
 
-def write(r):
+def write(r, r2=None):
     os.makedirs(REPORT_DIR, exist_ok=True)
     path = os.path.join(REPORT_DIR, "performance.md")
     with open(path, "w") as f:
-        f.write(tables(r))
+        f.write(tables(r, r2))
     screenshots()
     return path

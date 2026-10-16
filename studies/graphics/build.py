@@ -3,8 +3,8 @@
 For the machine: the C sources in src/ through the C compiler, the
 assembly in asm/ISA/ (mark.s always; the kernels with asm=True, which also
 compiles the C with GFX_ASM so that it leaves its own kernels out), and
-the fonts as data (fonts.py), linked with the C library, for draft 1a or
-1b. For the host: the same C with gcc, as the reference (host.c).
+the fonts as data (fonts.py), linked with the C library, for draft 1a,
+1b or 2. For the host: the same C with gcc, as the reference (host.c).
 """
 
 import functools
@@ -23,7 +23,7 @@ OUT = os.path.join(ROOT, "build", "graphics")
 # the library and the scenes; main.c (machine) or host.c (gcc) is added
 LIB = ["scenes.c", "theme.c", "gfx.c", "line.c", "ellipse.c", "raster.c", "blit.c",
        "expand.c", "font.c", "ttf.c", "wm.c"]
-ISAS = ("v1a", "v1b")
+ISAS = ("v1a", "v1b", "v2")
 
 
 class BuildError(Exception):

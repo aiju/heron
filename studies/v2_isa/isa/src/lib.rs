@@ -10,6 +10,7 @@
 
 pub mod asm;
 pub mod decode;
+pub use gui_display as display; // (studies/egret_gui's display: a hack)
 pub mod insn;
 pub mod key;
 pub mod machine;

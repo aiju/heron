@@ -5,14 +5,15 @@ title: A graphical desktop for Egret on draft 1b
 status: draft
 date: 2026-10-14
 context:
-  studies: [egret_gui, egret, graphics, c_compiler, v1_isa]
-  commit: c953ae7
+  studies: [egret_gui, egret, graphics, c_compiler, v1_isa, v2_isa]
+  commit: ce6d92f
 ---
 
 # Report 0021: A graphical desktop for Egret on draft 1b
 
 A demo more than a measurement: a small Smalltalk-style desktop for
-[Egret](0017-report-egret.md) on the simulated draft 1b machine, with
+[Egret](0017-report-egret.md) on the simulated draft 1b machine (and,
+[later](#on-draft-2), draft 2's), with
 overlapping windows, a mouse, a keyboard, a Workspace to run Egret in, a
 Transcript, a class browser, a few demos, and Gadgets, a playground of
 parts with cartoon physics where a new class is a new part. The desktop
@@ -33,11 +34,11 @@ by Egret a slice at a time while the desktop went on, and the clock.
 ## Short version
 
 - **It works, and at 3 MHz it's usable.** A keystroke in the Workspace
-  takes 22 ms of the machine's time, printing `3 + 4 * 5` 59 ms (compiling
+  takes 21 ms of the machine's time, printing `3 + 4 * 5` 58 ms (compiling
   it on the machine included), opening the menu 250 ms, dragging a window
-  300 ms, and opening the Browser 0.7 s. Booting takes 25 s: 4 s to
-  draw the splash and compile the prelude, 19.6 s to compile the
-  desktop, 1.3 s to paint it. Life runs
+  300 ms, and opening the Browser 0.7 s. Booting takes 24 s: 3.9 s to
+  draw the splash and compile the prelude, 18.7 s to compile the
+  desktop, 1.2 s to paint it. Life runs
   at 3 generations a second; the Mandelbrot set takes 108 s. Gadgets'
   table runs at 25 frames a second of its 30, a frame with a few balls
   moving taking 37 ms. At 4× (12 MHz) it all feels quick.
@@ -59,6 +60,11 @@ by Egret a slice at a time while the desktop went on, and the clock.
 - **The simulator runs in a browser unchanged.** The Rust crate compiles to
   WebAssembly as it is, and runs at 55–65 MHz in Chromium (about 20 times
   the real machine), against 120–150 MHz natively.
+- **It runs on draft 2 too,** from the same sources: Egret's draft 2
+  build, the graphics kernels translated from 1b's, draft 2's simulator
+  with the same display. Draft 2 takes 1 to 5% fewer cycles for
+  everything measured, about what Egret's own programs show (report
+  0032); the page switches between the two.
 
 ## What was built
 
@@ -112,17 +118,17 @@ loop would have spent in the same time (all of them in
 | | at 3 MHz |
 |---|---:|
 | Type a character in the Workspace | 21 ms |
-| Return, with the lines below it redrawn | 183 ms |
-| Print it: `3 + 4 * 5` | 57 ms |
-| Print it: `2 ** 100` | 73 ms |
-| Open the desktop menu and close it | 250 ms |
+| Return, with the lines below it redrawn | 182 ms |
+| Print it: `3 + 4 * 5` | 58 ms |
+| Print it: `2 ** 100` | 75 ms |
+| Open the desktop menu and close it | 247 ms |
 | Drag a window by 100 pixels and move it | 297 ms |
 | Close a window, and paint the desktop under it | 112 ms |
-| Open the Browser | 686 ms |
-| Pick a method in the Browser and show its source (the first time: it indexes the source's lines) | 1,239 ms |
+| Open the Browser | 683 ms |
+| Pick a method in the Browser and show its source (the first time: it indexes the source's lines) | 1,121 ms |
 | A frame of Gadgets' table, with two to five balls moving | 37 ms |
-| Open About (TrueType at 30 pixels, rasterised the first time) | 2,752 ms |
-| Boot: the splash, the prelude, the desktop's 3,400 lines, the first paint | 24.9 s |
+| Open About (TrueType at 30 pixels, rasterised the first time) | 2,740 ms |
+| Boot: the splash, the prelude, the desktop's 3,400 lines, the first paint | 23.8 s |
 
 - **The first second is the budget.** Typing keeps up with a fast typist;
   everything that redraws a window's worth of text takes a few hundred
@@ -166,6 +172,38 @@ part in the bin.
   boundary of the screen, as the Macintosh kept its windows: otherwise
   every word of a copy is shifted, and a shift takes a step per bit.
 
+## On draft 2
+
+The desktop was built for draft 1b, then ported to draft 2
+([RFC 0028](0028-rfc-draft-2-isa.md)) when its tools could run Egret
+([report 0032](0032-report-lisp-egret-draft-2.md)). Nothing in the
+desktop's Egret or C changed. What did:
+
+- **The machine:** draft 2's simulator, the plain machine without RFC
+  0029's supervisor, has draft 1's memory map and I/O page, so the same
+  display device went into it (it's a crate of its own now, used by both
+  simulators).
+- **The start code:** Egret's for draft 2 with the GUI's timer interrupt
+  and `gui_wait`, as on 1b; `CALL` leaves the return address in `r7`.
+- **The graphics kernels:** the study had them for 1a and 1b only. With
+  the library's C versions, filling and copying took two to five times as
+  long (opening the Transcript 578 ms against 1b's 123), which says
+  nothing about the instruction set. So 1b's were translated, mechanically
+  as draft 1's programs were (stores written `MOV`, `MOVS` where a branch
+  reads a load's flags, `r0` in place of `r7`, stack arguments a word
+  nearer since `CALL` pushes nothing), and the graphics study's own checks
+  pass with them: every scene at every depth against the host build, and
+  the kernels against pixel references.
+
+Then draft 2 takes 1 to 5% fewer cycles than 1b for everything the bench
+measures ([performance.md](0021-report-egret-gui/performance.md#on-draft-2)):
+a keystroke and a frame of Gadgets 1–3%, compiling the desktop 4%, About
+5% (the TrueType rasteriser, compiled C), and the code is 3% smaller. The
+desktop's time is mostly Egret's interpreter, which report 0032 found
+1.7% faster on draft 2; the C the compiler's draft 2 backend makes gains
+a little more. Neither draft's kernels use what draft 2 adds (`LDM` and
+`STM`, `DBNZ`), which the fills and copies could.
+
 ## Where the cycles go
 
 By the kind of function, everything from the event to the end of a short
@@ -202,7 +240,7 @@ wait after it, idle loop included:
   to move up (console input at 0x50000 instead of 0x30000, and 96 KB of
   it for the desktop's source) and its semispaces to shrink to 120 KB.
   After booting, the desktop uses 173 KB of its 224 KB of permanent space
-  and 44 KB of heap; every Workspace line done adds a method that's never
+  and 45 KB of heap; every Workspace line done adds a method that's never
   collected, and running out of permanent space stops the machine. A
   desktop on the real machine wants 2 MB or more.
 - **A separate frame buffer suits it,** as [RFC 0016](0016-rfc-video.md)

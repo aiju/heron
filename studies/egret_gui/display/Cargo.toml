@@ -1,0 +1,11 @@
+# A display, a keyboard and a mouse for the draft 1 and draft 2
+# simulators: studies/egret_gui's hack, not a proposal (RFC 0016 is the
+# video proposal). v1-isa and v2-isa put it in their machines.
+[package]
+name = "gui-display"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

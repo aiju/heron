@@ -1,5 +1,7 @@
-//! A display, a keyboard and a mouse for the draft 1 machine: a hack for
-//! studies/egret_gui, not a proposal (RFC 0016 is the video proposal).
+//! A display, a keyboard and a mouse for the draft 1 and draft 2
+//! machines: a hack for studies/egret_gui, not a proposal (RFC 0016 is
+//! the video proposal). Each machine's I/O page gives it registers 0x20
+//! on, and its memory map VRAM.
 //!
 //! The frame buffer is VRAM_SIZE bytes at VRAM_BASE, outside the 1 MB of
 //! RAM, as on a card: 640 x 480 pixels, `pitch` bytes a row, at 1, 2, 4 or

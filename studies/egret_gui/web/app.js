@@ -1,8 +1,9 @@
-// The Heron in the browser: heron.wasm is the draft 1 simulator
-// (web/src/lib.rs); the snapshots are the machine with the desktop up
-// (booted-D.txt) or about to boot (cold-D.txt), D the screen's depth.
+// The Heron in the browser: heron.wasm is the draft 1b and draft 2
+// simulators (web/src/lib.rs); the snapshots are the machine with the desktop up
+// (booted-I-D.txt) or about to boot (cold-I-D.txt), I the instruction set
+// (v1b or v2) and D the screen's depth.
 // This runs the machine by the clock, shows its screen, and hands it
-// the keyboard and mouse as events (studies/v1_isa/isa/src/display.rs).
+// the keyboard and mouse as events (studies/egret_gui/display).
 "use strict";
 
 (() => {
@@ -24,6 +25,7 @@
   let wasm = null;
   let speed = 1;                // 0: flat out
   let depth = 3;
+  let isa = "v1b";
   let running = false;
   let budget = 0;
   let last = 0;
@@ -51,7 +53,7 @@
 
   // a snapshot is zlib-compressed and then base64 text
   async function snapshot(kind, d) {
-    const name = `${kind}-${d}.txt`;
+    const name = `${kind}-${isa}-${d}.txt`;
     if (!snapshots[name]) {
       const r = await fetch(name);
       if (!r.ok) throw new Error(`couldn't load ${name} (${r.status})`);
@@ -287,6 +289,13 @@
     if (wasm) setTimer();
     press($("speeds"), b);
     canvas.focus({ preventScroll: true });
+  });
+  $("drafts").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b || b.dataset.isa === isa) return;
+    isa = b.dataset.isa;
+    press($("drafts"), b);
+    start("booted").catch(fail);
   });
   $("depths").addEventListener("click", (e) => {
     const b = e.target.closest("button");

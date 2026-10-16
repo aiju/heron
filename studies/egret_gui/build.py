@@ -1,6 +1,7 @@
-"""Building the GUI: one image for draft 1b with Egret's VM (its
-hand-written interpreter loop), the graphics library with its 1b
-kernels and fonts, and this study's C (src/), started by src/rt_v1b.s.
+"""Building the GUI: one image for draft 1b (or draft 2) with Egret's VM
+(its hand-written interpreter loop), the graphics library with its
+kernels for the draft and fonts, and this study's C (src/), started by
+src/rt_v1b.s (rt_v2.s).
 And the desktop's source (lib/*.eg), which the VM reads from the console
 and compiles at start-up, as it would any program.
 
@@ -20,9 +21,9 @@ SRC = os.path.join(HERE, "src")
 LIB = os.path.join(HERE, "lib")
 GFX = os.path.join(ROOT, "studies", "graphics")
 GFX_SRC = os.path.join(GFX, "src")
-GFX_ASM = os.path.join(GFX, "asm", "v1b")
+GFX_ASM = os.path.join(GFX, "asm")          # and the draft
 BUILD = os.path.join(ROOT, "build", "egret_gui")
-ISA = "v1b"
+ISAS = ("v1b", "v2")
 
 OURS = ["gui_prims.c", "gwm.c", "splash.c"]
 GFX_LIB = ["theme.c", "gfx.c", "line.c", "ellipse.c", "raster.c", "blit.c", "expand.c",
@@ -34,35 +35,36 @@ DESKTOP = ["gui.eg", "widgets.eg", "apps.eg", "gadgets.eg", "desktop.eg"]
 def _inputs():
     files = [os.path.join(SRC, f) for f in os.listdir(SRC)] + [os.path.abspath(__file__)]
     files += [os.path.join(GFX_SRC, f) for f in GFX_LIB + ["gfx.h", "theme.h"]]
-    files += glob.glob(os.path.join(GFX_ASM, "*.s"))
+    for isa in ISAS:
+        files += glob.glob(os.path.join(GFX_ASM, isa, "*.s"))
     files += glob.glob(os.path.join(GFX, "fonts", "*"))
     return files + egret._vm_files() + egret._compiler_files()
 
 
-def image():
+def image(isa="v1b"):
     """The linked image (heron.infra.link.LinkedImage), built if needed."""
     from heron.infra import obj as O
     from heron.infra.link import load_executable
-    key = egret._digest(_inputs(), ISA)
-    path = os.path.join(BUILD, f"egret-gui-{key}.out")
+    key = egret._digest(_inputs(), isa)
+    path = os.path.join(BUILD, f"egret-gui-{isa}-{key}.out")
     if not os.path.exists(path):
         os.makedirs(BUILD, exist_ok=True)
-        img = compile_image()
+        img = compile_image(isa)
         img.obj.write(path + ".tmp")
         os.replace(path + ".tmp", path)
     return load_executable(O.read_object(path))
 
 
-def _assemble_units(p):
+def _assemble_units(p, isa):
     from heron.studies.c_compiler.cc import driver
     objs = []
     for u in p.units:
-        text = driver.unit_assembly(u, ISA)
+        text = driver.unit_assembly(u, isa)
         # as studies/egret/build.py does: switch tables past 32 KB need .far
         tables = re.findall(r"^(\w+_jt\d+):", text, re.M)
-        if tables:
+        if tables and isa == "v1b":
             text = "        .far " + ", ".join(tables) + "\n" + text
-        objs.append(driver.assemble(ISA, text, os.path.basename(u.path)[:-2] + ".o"))
+        objs.append(driver.assemble(isa, text, os.path.basename(u.path)[:-2] + ".o"))
     return objs
 
 
@@ -84,7 +86,7 @@ def _shrunk(path):
     return text
 
 
-def compile_image():
+def compile_image(isa="v1b"):
     from heron.infra import link as L
     from heron.infra.objtools import assemble_object
     from heron.studies.c_compiler.cc import driver
@@ -103,27 +105,27 @@ def compile_image():
     # interpreter, which calls the VM. Its method cache, near data that it
     # reaches with 32-bit addresses, goes last, after the near data the C
     # code needs below 32 KB.
-    g = driver.Program(ISA)
+    g = driver.Program(isa)
     for s in GFX_LIB:
         path = os.path.join(GFX_SRC, s)
         g.add_file(path, [GFX_SRC], gfx, text=_shrunk(path))
-    kernels = [assemble_object(ISA, path) for path in sorted(glob.glob(os.path.join(GFX_ASM, "*.s")))
+    kernels = [assemble_object(isa, path) for path in sorted(glob.glob(os.path.join(GFX_ASM, isa, "*.s")))
                if os.path.basename(path) != "mark.s"]
-    v = driver.Program(ISA)
+    v = driver.Program(isa)
     for s in egret.SOURCES:
         v.add_file(os.path.join(egret.VM, s), inc, vm)
     v.add_file(egret.prelude_c(), [egret.VM])
-    ours = driver.Program(ISA)
+    ours = driver.Program(isa)
     for s in OURS:
         ours.add_file(os.path.join(SRC, s), inc, vm)
-    with open(os.path.join(SRC, "rt_v1b.s")) as f:
-        rt = driver.assemble(ISA, f.read(), "rt_v1b.o")
-    objs = _assemble_units(g) + kernels + _assemble_units(ours)
-    objs += [o for _, o in driver.library(ISA)[0]]
-    objs += [rt] + _assemble_units(v)
-    objs.append(driver.assemble(ISA, egret.asm_interpreter(ISA), "interp_v1b.o"))
-    objs.append(driver.assemble(ISA, fonts.data_asm(), "fonts.o"))
-    return L.link(objs, [], ISA)
+    with open(os.path.join(SRC, f"rt_{isa}.s")) as f:
+        rt = driver.assemble(isa, f.read(), f"rt_{isa}.o")
+    objs = _assemble_units(g, isa) + kernels + _assemble_units(ours, isa)
+    objs += [o for _, o in driver.library(isa)[0]]
+    objs += [rt] + _assemble_units(v, isa)
+    objs.append(driver.assemble(isa, egret.asm_interpreter(isa), f"interp_{isa}.o"))
+    objs.append(driver.assemble(isa, fonts.data_asm(), "fonts.o"))
+    return L.link(objs, [], isa)
 
 
 def console_input(depth=3, source=None):

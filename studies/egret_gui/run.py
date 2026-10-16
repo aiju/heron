@@ -16,7 +16,7 @@ CLOCK_HZ = 3_000_000
 TICK = CLOCK_HZ // 60
 W, H = 640, 480
 
-# event kinds (studies/v1_isa/isa/src/display.rs)
+# event kinds (studies/egret_gui/display/src/lib.rs)
 KEY_DOWN, KEY_UP, BUTTON_DOWN, BUTTON_UP, WHEEL = 1, 2, 3, 4, 5
 KEYS = {"backspace": 8, "tab": 9, "return": 13, "enter": 13, "escape": 27, "delete": 127,
         "left": 0x100, "right": 0x101, "up": 0x102, "down": 0x103, "home": 0x104,
@@ -26,6 +26,19 @@ MODS = {"shift": 1, "ctrl": 2, "alt": 4, "meta": 8}
 
 class Halted(Exception):
     pass
+
+
+def new_machine(isa, ram, inp):
+    """The draft 1b or draft 2 simulator, with RAM and console input."""
+    if isa == "v2":
+        return native.v2.Machine(ram, inp)
+    return native.v1.Machine("v1b", ram, inp)
+
+
+def reference(isa):
+    """The name of the reference timing configuration (the timer counts
+    its cycles)."""
+    return native.v2.reference() if isa == "v2" else native.v1.reference()
 
 
 def ram_image(img):
@@ -38,9 +51,10 @@ def ram_image(img):
 class Session:
     """The machine running the desktop (or another program, `source`)."""
 
-    def __init__(self, source=None, depth=3, time_of_day=10 * 3600 + 8 * 60):
+    def __init__(self, source=None, depth=3, time_of_day=10 * 3600 + 8 * 60, isa="v1b"):
         inp = build.console_input(depth, source)
-        self.m = native.v1.Machine("v1b", ram_image(build.image()), inp)
+        self.isa = isa
+        self.m = new_machine(isa, ram_image(build.image(isa)), inp)
         self.time_of_day = time_of_day
         self.m.time_of_day = time_of_day
         self.mouse = (0, 0)
