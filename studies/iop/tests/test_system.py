@@ -49,3 +49,44 @@ class ControlStore(unittest.TestCase):
         self.assertEqual(s.s.lane(3)[:3], [0xAAAA, 0x5555, 0])
         self.assertEqual(s.s.lane(build.DEC_LANE)[0xFFF0:], list(range(16)))
         self.assertEqual(s.s.cpu()["lane_errors"], 0)
+
+
+class Blocks(unittest.TestCase):
+    """The native block words, through the CPU card's slave port, exactly
+    to their ends and across 64 KB on the bus."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Session(build.Build(build.DEFAULT_PROGRAM))
+        cls.s.boot()
+
+    def mem(self, pa, n):
+        return [int.from_bytes(self.s.s.cpu_mem(pa + 2 * i, 2), "little") for i in range(n)]
+
+    def run_(self, line):
+        out = self.s.command(line, timeout_ms=5000)
+        self.assertTrue(out.endswith(" ok\r\n"), out)
+
+    def test_fill(self):
+        self.run_("$1111 $2000. 300 bus-fill $5555 $2002. 101 bus-fill")
+        self.assertEqual(self.mem(0x2000, 104), [0x1111] + [0x5555] * 101 + [0x1111] * 2)
+        self.run_("$1234 $FFFC. 3 bus-fill")
+        self.assertEqual(self.mem(0xFFFC, 4), [0x1234] * 3 + [0])
+
+    def test_move(self):
+        self.run_("$7777 $3000. 40 bus-fill $1111 $3000. d $2222 $3048. d")
+        self.run_("$3000. $FFF0. 37 bus-move")
+        self.assertEqual(self.mem(0xFFF0, 38), [0x1111] + [0x7777] * 35 + [0x2222, 0])
+
+    def test_shared_ram(self):
+        self.run_("$ABCD $4000. d $1234 $400C. d")
+        after = self.s.s.shared(12, 1)
+        self.run_("$4000. 5 0 7 bus>sr")
+        self.assertEqual(self.s.s.shared(5, 8), self.mem(0x4000, 7) + after)
+        self.run_("5 0 $5000. 7 sr>bus")
+        self.assertEqual(self.mem(0x5000, 8), self.mem(0x4000, 7) + [0])
+
+    def test_bytes(self):
+        self.run_("$1122 $6000. d $33 $6001. busc! $44 $6000. busc!")
+        self.assertEqual(self.s.s.cpu_mem(0x6000, 2), b"\x44\x33")
+        self.assertIn("51 68  ok", self.s.command("$6001. busc@ . $6000. busc@ ."))

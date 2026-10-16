@@ -25,11 +25,12 @@
 //! - it reads BA before the last read's data is in it: BA onto R in the
 //!   first half waits at E0, BA into AB or a device in the second half at
 //!   E1. RFC 0027 doesn't say what happens here; this model interlocks;
-//! - it accesses the I/O bus: the microcycle takes the access's length,
-//!   (1 + SETUP) + STROBE + (1 + HOLD) clocks from the timing table, if
-//!   that is more than 2. (A simplification: the access is taken to
-//!   overlap the microcycle's own two clocks, which RFC 0037's figures for
-//!   one-microinstruction loops assume.)
+//! - it accesses the I/O bus: the access starts when the last one's hold
+//!   has ended, and the microcycle lasts until its strobe ends (RFC 0027,
+//!   3.5), 1 + SETUP + STROBE clocks from the timing table, if that is
+//!   more than 2; the hold, 1 + HOLD clocks, overlaps what follows. (So the
+//!   I/O side is taken to hold A0-A7, WRITE and the data through the hold,
+//!   whatever X does.)
 //!
 //! **The system bus:** a transfer's address is R in the first half,
 //! loaded into AL at E1, with AH0 or AH1 for A16-A31. Its address clock is
@@ -199,6 +200,8 @@ pub struct Iop {
     bus_free: u64,
     write_end: u64,
     gnt_at: u64,
+    /// When the I/O bus's last access, its hold included, ends.
+    io_free: u64,
     /// D0-D15 on the system bus: what an unanswered read returns.
     d_hold: u16,
     next_dev: u64,
@@ -264,6 +267,7 @@ impl Iop {
             bus_free: 0,
             write_end: 0,
             gnt_at: 0,
+            io_free: 0,
             d_hold: 0,
             next_dev: 0,
             stats: Stats::default(),
@@ -380,14 +384,15 @@ impl Iop {
         Ok(0)
     }
 
-    /// The I/O bus clocks a microinstruction's device access will take,
-    /// for the stretch; checks the timing table.
-    fn io_clocks(&self, u: &Micro) -> Result<u32, String> {
+    /// A microinstruction's access to the I/O bus, if it makes one: the
+    /// clocks to the strobe's end, and the hold after it. Checks the
+    /// timing table.
+    fn io_timing(&self, u: &Micro) -> Result<Option<(u64, u64)>, String> {
         if u.uses_dev() && u.dev() == DEV_IO {
             let e = self.io.entry(((self.x >> 8) & 15) as usize)?;
-            return Ok(iobus::access_clocks(e));
+            return Ok(Some((iobus::strobe_end(e) as u64, iobus::hold(e) as u64)));
         }
-        Ok(0)
+        Ok(None)
     }
 
     fn here(&self) -> String {
@@ -433,10 +438,12 @@ impl Iop {
             self.stats.stall_ba += self.ba_ready - start;
             start = self.ba_ready;
         }
-        let io = self.io_clocks(&u)? as u64;
-        let len = io.max(2);
-        if io > 2 {
-            self.stats.stall_io += io - 2;
+        let mut len = 2;
+        if let Some((strobe_end, hold)) = self.io_timing(&u)? {
+            let astart = start.max(self.io_free);
+            len = len.max(astart - start + strobe_end);
+            self.stats.stall_io += len - 2;
+            self.io_free = astart + strobe_end + hold;
         }
         let first_io = u.rs == RS_T && u.t == T_FROM_DEV;
         let mut e1 = start + if first_io { len - 1 } else { 1 };

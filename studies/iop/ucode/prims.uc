@@ -628,13 +628,22 @@ bcw_end: CTRL <- #CTRL_SESSION
         AC <- [X]
         NEXT | sp <- sp + 1
 
-; ---- blocks: at most 16 halfwords, one session on the bus, so that the
-; Forth around them can pause between slices.
+; ---- blocks, native (RFC 0027, 6.3 and 11): any number of halfwords,
+; in slices of at most 16 transfers, each a session on the bus, with a look
+; at attention between them (the native layer runs, and the slice starts
+; again). i2 counts what's left; i3 and i4 hold CTRL's values for the
+; session off and on. A slice: k = min(16, left), LC <- -k. The ranges
+; must stay within 64K on the bus, and within the page they start in for
+; the image flash and the shared RAM: the Forth around them cuts them.
 
-; ( reg page lo hi n -- ) from the image flash to the bus, within a page
-; of each
+; ( reg page lo hi n -- reg' page' ) from the image flash to the bus,
+; crossing the flash's pages: a slice is also cut at a page's end (t3
+; halfwords left in it), and the page register (t4 here) moves on. It
+; leaves where in the flash it stopped (reg' may be 256: the next page).
 .prim (flash>bus)
-        LC <- (#0 | ~AC) + 1
+        i2 <- AC
+        i3 <- #CTRL_SESSION
+        i4 <- #(8 | CTRL_SESSION)
         X <- sp
         AH0 <- [X]
         sp, X <- sp + 1
@@ -642,27 +651,84 @@ bcw_end: CTRL <- #CTRL_SESSION
         i0 <- F                 ; the bus address
         sp, X <- sp + 1
         F <- [X] | pg1 <- F
-        sp, X <- sp + 1
+        F <- [X]
+        t4 <- F                 ; the flash's page
+        sp, X <- sp + 1         ; sp: reg's cell, for reg'
         AC <- #((DEV_FLASH << 8) - 1)
         F <- [X] + AC
         i1 <- F                 ; X for the flash, less one
-        sp, X <- sp + 1
-        AC <- [X]
-        tos <- AC               ; the new top, while AC is the step
-        sp <- sp + 1
+fb_slice: AC <- i1
+        t3 <- #((DEV_FLASH << 8) + 0xFF) - AC
+        F <- t3 - 1 | ifnot carry goto fb_page
+        AC <- #16
+        F <- t3 - AC | ifnot carry goto fb_t3
+        F <- i2 - AC
+        ifnot carry goto fb_i2
+        nop
+        i2 <- i2 - AC
+        LC <- #0
+fb_go:  CTRL <- i4              ; the session: GNT comes during what follows
         AC <- #2
-        CTRL <- #(8 | CTRL_SESSION)
         i1, X <- i1 + 1
 fb_loop: i0 <- i0 + AC | AB <- io | wr.h AH0 | if lc goto fb_loop
         i1, X <- i1 + 1
-        CTRL <- #CTRL_SESSION
-        AC <- tos
+        CTRL <- i3 | if attn goto fb_attn
+        i1 <- i1 - 1
+        goto fb_slice
+        nop
+fb_t3:  AC <- t3                ; k = min(left, t3)
+        F <- i2 - AC | ifnot carry goto fb_i2
+        nop
+fb_k:   F <- (ones & AC) - 1 | ifnot carry goto fb_end
+        LC <- (#0 | ~AC) + 1
+        i2 <- i2 - AC | goto fb_go
+        nop
+fb_i2:  AC <- i2 | goto fb_k    ; k = left
+        nop
+fb_page: t4 <- t4 + 1
+        F <- t4
+        pg1 <- F | goto fb_slice
+        i1 <- #((DEV_FLASH << 8) - 1)
+fb_attn: goto nat
+        nret <- #fb_slice
+fb_end: CTRL <- i3
+        X <- sp
+        AC <- #((DEV_FLASH << 8) - 1)
+        F <- i1 - AC
+        [X] <- F                ; reg'
+        AC <- t4                ; page'
+        NEXT
+
+; ( reg page -- reg' page' x ) a halfword from the image flash, and on
+.prim (fl@+)
+        t4 <- AC
+        X <- sp
+        AC <- #256
+        F <- [X] - AC | ifnot carry goto fa_in
+        nop
+        t4 <- t4 + 1            ; past the page's end: the next
+        [X] <- 0
+fa_in:  F <- t4
+        pg1 <- F
+        AC <- #(DEV_FLASH << 8)
+        F <- [X] | AC | X <- F
+        AC <- io
+        t5 <- AC
+        X <- sp
+        [X] <- [X] + 1
+        sp, X <- sp - 1
+        F <- t4
+        [X] <- F
+        AC <- t5
         NEXT
 
 ; ( src-lo src-hi dst-lo dst-hi n -- ) bus to bus, a read and a write a
-; halfword, AH0 the source's segment and AH1 the destination's
+; halfword (so 8 a slice), AH0 the source's segment and AH1 the
+; destination's
 .prim (move)
-        LC <- (#0 | ~AC) + 1
+        i2 <- AC
+        i3 <- #CTRL_SESSION
+        i4 <- #(8 | CTRL_SESSION)
         X <- sp
         AH1 <- [X]
         sp, X <- sp + 1
@@ -677,17 +743,35 @@ fb_loop: i0 <- i0 + AC | AB <- io | wr.h AH0 | if lc goto fb_loop
         AC <- [X]
         tos <- AC
         sp <- sp + 1
-        AC <- #2
-        CTRL <- #(8 | CTRL_SESSION)
+mv_slice: AC <- #8
+        F <- i2 - AC | ifnot carry goto mv_last
+        CTRL <- i4              ; the session: GNT comes during what follows
+        i2 <- i2 - AC
+        LC <- #8
+mv_go:  AC <- #2
 mv_loop: i0 <- i0 + AC | rd.h AH0 | if lc goto mv_loop
         i1 <- i1 + AC | AB <- BA | wr.h AH1
-        CTRL <- #CTRL_SESSION
+        CTRL <- i3 | if attn goto mv_attn
+        nop
+        goto mv_slice
+        nop
+mv_end: CTRL <- i3
         AC <- tos
         NEXT
-
-; ( x dst-lo dst-hi n -- )
-.prim (fill)
+mv_last: AC <- i2
+        F <- (ones & AC) - 1 | ifnot carry goto mv_end
         LC <- (#0 | ~AC) + 1
+        i2 <- i2 - AC | goto mv_go
+        nop
+mv_attn: goto nat
+        nret <- #mv_slice
+
+; ( x lo hi n -- ) n pairs of halfwords: two writes a pass, so that a
+; write starts every microinstruction, and waits only for the one before
+.prim (fill)
+        i2 <- AC
+        i3 <- #CTRL_SESSION
+        i4 <- #(8 | CTRL_SESSION)
         X <- sp
         AH0 <- [X]
         sp, X <- sp + 1
@@ -699,13 +783,116 @@ mv_loop: i0 <- i0 + AC | rd.h AH0 | if lc goto mv_loop
         AC <- [X]
         tos <- AC
         sp <- sp + 1
-        AC <- #2
-        CTRL <- #(8 | CTRL_SESSION)
+fl_slice: AC <- #8
+        F <- i2 - AC | ifnot carry goto fl_last
+        CTRL <- i4              ; the session: GNT comes during what follows
+        i2 <- i2 - AC
+        LC <- #8
+fl_go:  AC <- #2
 fl_loop: i0 <- i0 + AC | wr.h AH0 | if lc goto fl_loop
+        i0 <- i0 + AC | wr.h AH0
+        CTRL <- i3 | if attn goto fl_attn
         nop
-        CTRL <- #CTRL_SESSION
+        goto fl_slice
+        nop
+fl_end: CTRL <- i3
         AC <- tos
         NEXT
+fl_last: AC <- i2
+        F <- (ones & AC) - 1 | ifnot carry goto fl_end
+        LC <- (#0 | ~AC) + 1
+        i2 <- i2 - AC | goto fl_go
+        nop
+fl_attn: goto nat
+        nret <- #fl_slice
+
+; ( sr-lo page lo hi n -- ) from the shared RAM to the bus: its side is
+; local, so a halfword is one transfer (RFC 0027, 4.3). t0 is X for the
+; shared RAM, t1 the bus address.
+.prim (sr>bus)
+        i2 <- AC
+        i3 <- #CTRL_SESSION
+        i4 <- #(8 | CTRL_SESSION)
+        X <- sp
+        AH0 <- [X]
+        sp, X <- sp + 1
+        F <- [X]
+        t1 <- F
+        sp, X <- sp + 1
+        F <- [X] | pg0 <- F
+        sp, X <- sp + 1
+        F <- [X] - 1
+        t0 <- F
+        sp, X <- sp + 1
+        AC <- [X]
+        tos <- AC
+        sp <- sp + 1
+sb_slice: AC <- #16
+        F <- i2 - AC | ifnot carry goto sb_last
+        CTRL <- i4              ; the session: GNT comes during what follows
+        i2 <- i2 - AC
+        LC <- #0
+sb_go:  AC <- #2
+        t0, X <- t0 + 1
+sb_loop: t1 <- t1 + AC | AB <- sr | wr.h AH0 | if lc goto sb_loop
+        t0, X <- t0 + 1
+        CTRL <- i3 | if attn goto sb_attn
+        t0 <- t0 - 1
+        goto sb_slice
+        nop
+sb_end: CTRL <- i3
+        AC <- tos
+        NEXT
+sb_last: AC <- i2
+        F <- (ones & AC) - 1 | ifnot carry goto sb_end
+        LC <- (#0 | ~AC) + 1
+        i2 <- i2 - AC | goto sb_go
+        nop
+sb_attn: goto nat
+        nret <- #sb_slice
+
+; ( lo hi sr-lo page n -- ) from the bus to the shared RAM
+.prim (bus>sr)
+        i2 <- AC
+        i3 <- #CTRL_SESSION
+        i4 <- #(8 | CTRL_SESSION)
+        X <- sp
+        F <- [X] | pg0 <- F
+        sp, X <- sp + 1
+        F <- [X] - 1
+        t0 <- F
+        sp, X <- sp + 1
+        AH0 <- [X]
+        sp, X <- sp + 1
+        F <- [X]
+        t1 <- F
+        sp, X <- sp + 1
+        AC <- [X]
+        tos <- AC
+        sp <- sp + 1
+bs_slice: AC <- #16
+        F <- i2 - AC | ifnot carry goto bs_last
+        CTRL <- i4              ; the session: GNT comes during what follows
+        i2 <- i2 - AC
+        LC <- #0
+bs_go:  AC <- #2
+        t0, X <- t0 + 1
+bs_loop: t1 <- t1 + AC | rd.h AH0 | if lc goto bs_loop
+        t0, X <- t0 + 1 | sr <- BA
+        CTRL <- i3 | if attn goto bs_attn
+        t0 <- t0 - 1
+        goto bs_slice
+        nop
+bs_end: CTRL <- i3
+        AC <- tos
+        NEXT
+bs_last: AC <- i2
+        F <- (ones & AC) - 1 | ifnot carry goto bs_end
+        LC <- (#0 | ~AC) + 1
+        i2 <- i2 - AC | goto bs_go
+        nop
+bs_attn: goto nat
+        nret <- #bs_slice
 
 ; ---- the rest
 

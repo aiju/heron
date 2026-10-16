@@ -26,15 +26,18 @@ it leaves open, it chose (below).
   with RFC 0027's control register, interrupt request register, slave port
   and control store window. The CPU starts with RUN off; the IOP loads it
   and starts it.
-- **The microcode** (`ucode/`, ~820 microinstructions): reset (the timing
-  table, the SRAM's self test, the dictionary out of the image flash), the
-  inner interpreter, about 75 primitives, the task switch, and the native
-  layer that the tick and the doorbells call.
-- **The Forth** (`forth/`, ~4,800 cells): the console *is* its
+- **The microcode** (`ucode/`, about 1,000 microinstructions): reset (the
+  timing table, the SRAM's self test, the dictionary out of the image
+  flash), the inner interpreter, 76 primitives, the task switch, and the
+  native layer that the tick and the doorbells call. The block primitives
+  (`(flash>bus)`, `(move)`, `(fill)`, `(sr>bus)`, `(bus>sr)`) are native:
+  any length, in slices of 16 transfers, a session on the bus each, with
+  a look at attention between slices.
+- **The Forth** (`forth/`, about 5,000 cells): the console *is* its
   interpreter. A kernel with the compiler, the monitor (examine, deposit,
-  dump anywhere on the system bus), the image flash and `save`, tasks, and
-  booting the CPU: records played from the image flash into the CPU card,
-  then RESET and RUN.
+  dump anywhere on the system bus), block moves and fills, the image flash
+  and `save`, tasks, and booting the CPU: records played from the image
+  flash into the CPU card, then RESET and RUN.
 
 ```sh
 heron iop console                # the Forth in this terminal (Ctrl-] quits)
@@ -44,6 +47,7 @@ heron iop boot --wcs             # with draft 2's control store, checked (v2_hw'
 heron iop build                  # build/iop: ucode.bin, ucode.lst, flash.bin
 heron iop ucode [--list]         # the microcode's size by primitive, and its listing
 heron iop words                  # the dictionary
+heron iop bench [--wcs]          # what RFC 0027 estimates, measured (below)
 heron test iop                   # the unit tests
 ```
 
@@ -53,7 +57,8 @@ At the console, for example:
 boot-cpu cpu-wait          \ load and start the CPU, wait for it to halt
 $1000. e                   \ examine the CPU's RAM at 0x1000, through its slave port
 $BEEF $1000. d             \ deposit
-$40000000. 16 dump         \ the shared RAM, from the system bus's side (here: the IOP's own range)
+$0. 16 dump                \ the CPU's RAM from 0
+0 $10000. 4096 bus-fill    \ halfwords on the bus; bus-move, sr>bus, bus>sr likewise
 variable n : counter begin 1 n +! pause again ;
 ' counter 3 spawn          \ a second task, in bank 3
 : hi ." hello" ; save      \ into the image flash, for the next cold start
@@ -70,6 +75,7 @@ variable n : counter begin 1 n +! pause again ;
 | `build.py` | The image flash: the dictionary, and the CPU's images as records |
 | `sw/hello.s` | The CPU's boot program |
 | `run.py`, `cli.py` | Running it; the command line |
+| `bench.py` | The measurements |
 
 ## The machine, as this study has it
 
@@ -99,9 +105,12 @@ RFC, not decisions.
 - **BA interlocks:** a microinstruction that reads BA before the last
   read's data is there waits (RFC 0027 says only that the next transfer
   waits at E1).
-- **An I/O bus access** stretches its microinstruction to the access's
-  length from the timing table, (1 + SETUP) + STROBE + (1 + HOLD) clocks,
-  when that is more than 2.
+- **An I/O bus access** starts when the last one's hold has ended, and
+  stretches its microinstruction to its strobe's end, (1 + SETUP) +
+  STROBE clocks from the timing table, when that is more than 2 ("stalls
+  the core until its strobe ends", RFC 0027, 3.5). The hold overlaps what
+  follows, so the I/O side is taken to keep A0-A7, WRITE and the data
+  through it.
 - **REQ and GNT:** GNT comes 4 clocks after SESSION rises (an idle bus;
   the CPU's own use of the bus isn't modelled). A transfer without
   SESSION is a microcode error here.
@@ -126,11 +135,57 @@ RFC, not decisions.
   table of the address of each owner's `wait`) and masks them until they
   wait again; doorbells are kept in a cell for the Forth for now.
 - **The image flash's layout:** a header page, the dictionary from page 1,
-  the CPU's images from halfword 0x10000 (`build.py`).
+  the CPU's images from halfword 0x10000 (`build.py`), as records of
+  {bus address, n, n halfwords}.
+- **The polling tick's fast path:** at a primitive's end, a tick with no
+  INT line up is cleared and Forth goes on, 5 microcycles, without saving
+  AC or entering the native layer. The INT lines are looked at only when
+  one is up.
 - **The CPU card's registers** at `0x7000_0000` (`sim/src/system.rs`):
   board information at +0, control at +0x1000 (RUN, RESET, STEP, NMI),
   interrupt requests at +0x2000 (set, and clear at +4), and the control
   store's ten lanes at +0x40_0000.
+
+## Measurements
+
+`heron iop bench --wcs`, against RFC 0027's estimates:
+
+| | Measured | RFC 0027 |
+|---|---:|---|
+| SRAM self test (64K cells, two patterns) | 102.2 ms | - |
+| dictionary out of the flash (5038 cells, 20 pages) | 3.4 ms | 32K cells in ~30 ms |
+| power-up to the banner | 106.6 ms | - |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,286,449 | about 1,000,000 |
+| microcycles a Forth word, there | 6.48 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
+| the tick's share of the IOP while Forth computes | 7.2% | 5-10% (0.5-1 us a tick) |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,259,063 | - |
+| fill, the CPU's RAM, 8192 halfwords | 6.6 MB/s | 9.9 MB/s |
+| copy, the CPU's RAM to its RAM, 8192 halfwords | 3.6 MB/s | 4.9 MB/s |
+| copy, the shared RAM to the CPU's RAM, 8192 halfwords | 5.5 MB/s | 7.6 MB/s |
+| copy, the CPU's RAM to the shared RAM, 8192 halfwords | 4.7 MB/s | 7.6 MB/s |
+| booting the CPU: the control store, the decode table and the program | 69.5 ms (3.5 MB/s) | about 35 ms (130K halfwords at 7.6 MB/s) |
+| microcode | 1008 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
+| the Forth's dictionary | 5038 cells | up to 32K |
+
+What the differences come from, so far:
+
+- **The copies** run at the loop's rate in each slice (fill 3 clocks a
+  halfword, two writes a microinstruction pair; copies 4-6), but a slice
+  costs about 10 microinstructions more than RFC 0027's 6 clocks of
+  re-arbitration: working out the next slice, the session off and on, the
+  look at attention. The RFC's figures leave that out.
+- **Into the shared RAM** a halfword waits a clock for BA: the CPU card's
+  slave port takes 2 data clocks, so the read's data comes a clock after
+  the next microinstruction's E1.
+- **Out of the image flash** a halfword is 5 clocks, not 4: the
+  SST39SF040-70 needs a 2-clock strobe (0/2/0), so the read stretches its
+  microinstruction to 3. A 45 ns part (0/1/0) would make it 4.
+- **The Forth** is faster than the RFC's estimate in ordinary code; the
+  slow words are the ones with microcode loops (`um*`, `um/mod`, `rshift`
+  and so `2/`: 80-160 microcycles).
+- **The tick** was 20% of the IOP before its fast path: every tick through
+  the native layer, AC saved and the INT lines masked, is about 17
+  microcycles in 83.
 
 ## Not yet
 

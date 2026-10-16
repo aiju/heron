@@ -101,7 +101,7 @@ $C00 constant uart
 $E00 constant timer
 : timer-init ( -- ) $34 timer 3 + io!  40 timer io!  0 timer io! ;
 : 1ms ( -- ) $B0 timer 3 + io!  4000 dup $FF and timer 2 + io!  swab $FF and timer 2 + io!
-   14 wait-int ;
+   14 wait-int  $B0 timer 3 + io! ;      \ OUT2 low again: INT 14 down
 : ms ( n -- ) 0 ?do 1ms loop ;
 
 \ ---- characters in and out

@@ -50,12 +50,19 @@ pub trait IoCard: Send {
 }
 
 /// The number of bus clocks an access takes, by its device's timing
-/// table entry.
+/// table entry: to the strobe's end, then the hold.
 pub fn access_clocks(entry: u16) -> u32 {
-    let setup = (entry & 3) as u32;
-    let strobe = ((entry >> 2) & 63) as u32 + 1;
-    let hold = ((entry >> 8) & 15) as u32;
-    1 + setup + strobe + 1 + hold
+    strobe_end(entry) + hold(entry)
+}
+
+/// Clocks from an access's start to its strobe's end: (1 + SETUP) + STROBE.
+pub fn strobe_end(entry: u16) -> u32 {
+    1 + (entry & 3) as u32 + ((entry >> 2) & 63) as u32 + 1
+}
+
+/// Clocks of hold after the strobe: 1 + HOLD.
+pub fn hold(entry: u16) -> u32 {
+    1 + ((entry >> 8) & 15) as u32
 }
 
 pub struct IoBus {

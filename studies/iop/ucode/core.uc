@@ -28,7 +28,7 @@ reset:  BANK <- #NATIVE_BANK
 ; address, then its complement, each read back, from the top down. A
 ; cell is tested for zero by writing it to the swap register and reading
 ; it back less one.
-        AC <- #-1
+sramtest: AC <- #-1
         X <- AC
 mt1:    [X] <- AC
         AC <- (ones & AC) - 1 | if carry goto mt1
@@ -46,7 +46,7 @@ mt3:    F <- [X] ^ ~AC | swap <- F
 
 ; The dictionary, out of the image flash: whole pages of 256 halfwords
 ; from FL_DICT on, to the SRAM from 0.
-        F <- #0 | pg1 <- F      ; the header, in page 0
+dictcopy: F <- #0 | pg1 <- F    ; the header, in page 0
         X <- #(0x0D00 + FL_PAGES)
         np <- io
         X <- #(0x0D00 + FL_COLD)
@@ -122,15 +122,29 @@ ret_false: AC <- #0
 
 ; ---- attention: native work is waiting (the tick, a doorbell, WORK)
 
-; From a primitive that has finished: ip is the cell it was.
-attn_next: tos <- AC | goto nat
+; From a primitive that has finished: ip is the cell it was. The common
+; case is the tick with no INT line up: cleared, and straight on.
+attn_next: F <- ev1 | ifnot F15 goto attn_slow
+        F <- ev0 - 1            ; a line up?
+        if carry goto attn_slow
+        nop
+        ev1 <- F | goto next1   ; only the tick: cleared
+        ip, X <- ip + 1
+attn_slow: tos <- AC | goto nat
         nret <- #fresume
 fresume: AC <- tos | goto next1
         ip, X <- ip + 1
 
 ; The native layer runs in whatever bank is current, with AC free and
-; registers 24-31 as its scratch, and goes back to nret.
-nat:    F <- ev1 | if F15 goto ntick
+; registers 24-31 as its scratch, and goes back to nret. A tick with no
+; INT line up is only cleared.
+nat:    F <- ev1 | ifnot F15 goto nslow
+        F <- ev0 - 1
+        if carry goto nslow
+        F <- nret
+        ev1 <- F | goto F
+        nop
+nslow:  F <- ev1 | if F15 goto ntick
         X <- #EVMASK
         if bell goto nbell
         nop
@@ -175,6 +189,8 @@ nbnext: ex <- ex + 1
         nop
         goto nat
         nop
+
+native_end:
 
 ; ---- tasks (RFC 0027, 6.4): a round robin through link, skipping those
 ; whose wait isn't 0, and looking at attention while it skips.

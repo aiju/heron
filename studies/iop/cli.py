@@ -9,6 +9,8 @@
                                 checked against what the CPU card's window holds
   ucode [--list]                the microcode: its size, the primitives, a listing
   words                         the dictionary's words, and their sizes
+  bench [--wcs]                 what RFC 0027 estimates, measured: the boot, the Forth's
+                                speed, the tick's cost, copy rates, booting the CPU
 """
 
 import argparse
@@ -94,7 +96,8 @@ def cmd_boot(args):
         for k in range(bld.CS_LANES):
             lane = s.s.lane(k)
             bad += sum(1 for a, w in b.cs["rom"].items() if lane[a] != (w >> (16 * k)) & 0xFFFF)
-        bad += sum(1 for a, w in enumerate(b.cs["decode"]) if s.s.lane(bld.DEC_LANE)[a] != w)
+        dec = s.s.lane(bld.DEC_LANE)
+        bad += sum(1 for a, w in enumerate(b.cs["decode"]) if dec[a] != w)
         print(f"the control store: {len(b.cs['rom'])} microinstructions and the decode table, "
               f"{'as built' if not bad else f'{bad} halfwords wrong'}")
         if bad:
@@ -130,6 +133,12 @@ def cmd_words(args):
     return 0
 
 
+def cmd_bench(args):
+    from heron.studies.iop import bench
+    print(bench.table(bench.measure(args.wcs)))
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="heron iop", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -146,6 +155,8 @@ def main(argv=None):
     q = sub.add_parser("boot")
     add_image_args(q)
     q.add_argument("--timeout", type=float, default=10, help="seconds simulated the CPU may take")
+    q = sub.add_parser("bench")
+    q.add_argument("--wcs", action="store_true")
     args = p.parse_args(argv)
-    return {"build": cmd_build, "console": cmd_console, "run": cmd_run, "boot": cmd_boot,
+    return {"bench": cmd_bench, "build": cmd_build, "console": cmd_console, "run": cmd_run, "boot": cmd_boot,
             "ucode": cmd_ucode, "words": cmd_words}[args.cmd](args)

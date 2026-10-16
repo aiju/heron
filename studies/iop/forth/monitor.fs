@@ -53,30 +53,59 @@ $70002000. 2constant cpu-irq
 : cpu-int ( level -- ) 1 swap 1- lshift cpu-irq bus! ;
 : cpu-wait ( -- ) begin pause cpu? 2 and until ;     \ until it halts
 
-\ Records from the image flash onto the bus: {address (low, high), n,
-\ n halfwords}, until n is 0. Slices of at most 16 halfwords that stay in
-\ a page of the flash and 64 KB of the bus, with a pause between.
-2variable fp
-2variable dst
+\ ---- blocks on the bus (RFC 0027, 11): the primitives move any number of
+\ halfwords natively, slicing them for the bus; here they're cut where an
+\ address would leave its 64 KB on the bus, or its page in the shared RAM.
+
+: seg ( d -- n ) drop negate u2/ ?dup 0= if $8000 then ;      \ halfwords left in d's 64 KB
+: srseg ( d -- n ) drop negate ?dup 0= if $FFFF then ;         \ in its page of the shared RAM
+: d+n ( d n -- d' ) 0 d+ ;
+2variable from
+2variable to
 variable left
-: fp+ ( n -- ) fp 2@ rot 0 d+ fp 2! ;
-: dst+ ( n -- ) dst 2@ rot 0 d+ dst 2! ;
-: fnext ( -- x ) fp 2@ fl@ 1 fp+ ;
-: slice ( -- n )
-   left @ 16 min  256 fp 2@ drop $FF and - min
-   dst 2@ drop negate u2/ ?dup if min then ;
-: copy-out ( -- )
+: step ( k -- ) dup negate left +!  2* to 2@ rot d+n to 2! ;
+: bus-move ( src dst n -- )      \ n halfwords, between bus addresses
+   left ! to 2! from 2!
    begin left @ while
-      slice >r
-      fp 2@ fl-split dst 2@ r@ (flash>bus)
-      r@ fp+  r@ 2* dst+  r> negate left +!
+      left @ from 2@ seg umin to 2@ seg umin >r
+      from 2@ to 2@ r@ (move)
+      r@ 2* from 2@ rot d+n from 2!  r> step  pause
+   repeat ;
+: bus-fill ( x d n -- )          \ n halfwords of x, (fill) by pairs
+   left ! to 2!
+   begin left @ while
+      left @ to 2@ seg umin u2/ ?dup if
+         >r dup to 2@ r@ (fill) r> 2* step
+      else dup to 2@ bus! 1 step then
       pause
+   repeat drop ;
+: sr>bus ( sr d n -- )           \ from the shared RAM (halfword index lo, page) to the bus
+   left ! to 2! from 2!
+   begin left @ while
+      left @ from 2@ srseg umin to 2@ seg umin >r
+      from 2@ to 2@ r@ (sr>bus)
+      from 2@ r@ d+n from 2!  r> step  pause
+   repeat ;
+: bus>sr ( d sr n -- )           \ from the bus to the shared RAM
+   left ! from 2! to 2!
+   begin left @ while
+      left @ from 2@ srseg umin to 2@ seg umin >r
+      to 2@ from 2@ r@ (bus>sr)
+      from 2@ r@ d+n from 2!  r> step  pause
+   repeat ;
+
+\ Records from the image flash onto the bus: {address (low, high), n,
+\ n halfwords}, until n is 0. The flash's position is kept as (reg page).
+: copy-out ( reg page -- reg' page' )
+   begin left @ while
+      left @ to 2@ seg umin >r
+      to 2@ r@ (flash>bus)  r> step  pause
    repeat ;
 : play ( d -- )
-   fp 2!
-   begin fnext fnext fnext ?dup while
-      left ! dst 2! copy-out
-   repeat 2drop ;
+   fl-split
+   begin (fl@+) >r (fl@+) >r (fl@+) ?dup while
+      left !  r> r> swap to 2!  copy-out
+   repeat rdrop rdrop 2drop ;
 
 \ The control store (image 0, if there is one), then the boot program
 \ (image 1), then RESET and RUN (RFC 0027, 8.2).
