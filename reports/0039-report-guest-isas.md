@@ -2,7 +2,7 @@
 number: 39
 type: report
 title: Other instruction sets in draft 2's microcode store
-status: draft
+status: current
 date: 2026-10-16
 context:
   studies: [v2_guests, v2_hw, v2_isa, v1_isa, c_compiler]
