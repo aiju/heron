@@ -61,9 +61,9 @@ To the machine of RFC 0028 this adds:
   is privileged, to read and to write (**decided**, Emily, 2026-10-16).
   `MTSR sr, rs` changes every bit but S, and ignores what `rs` has in bit
   31 (**open**).
-- **Privileged instructions:** `HALT`, `EI`, `DI`, `RTI`, `MFUR`, `MTUR`,
-  and `MFSR` and `MTSR` of special registers 8–15. In user mode they raise
-  a privilege violation ([6](#6-exceptions)).
+- **Privileged instructions:** `HALT`, `EI`, `DI`, `SPL`, `RTI`, `MFUR`,
+  `MTUR`, and `MFSR` and `MTSR` of special registers 8–15. In user mode
+  they raise a privilege violation ([6](#6-exceptions)).
 
 ### 3. The address space
 
@@ -210,6 +210,19 @@ Reserved registers read as 0 and ignore writes.
   - I is clear in the handler. Executing `EI` lets higher levels in, which
     is how interrupts nest.
   - `RTI` restores the I and IPL of the code it returns to.
+- **`SPL #n`** sets IPL to n, 0–8, and changes nothing else
+  ([RFC 0028, 5.9](0028-rfc-draft-2-isa.md#59-system-instructions)). The
+  kernel raises IPL around a critical section and puts back what was
+  there with:
+
+  ```
+          MFSR r1, sr      ; save
+          SPL  #5          ; raise
+          ...
+          MTSR sr, r1      ; restore
+  ```
+
+  The restore puts back I, T and the condition codes as well.
 - **A request that has gone** by the time its handler asks is answered by
   returning.
 - **`HALT`** with I set waits for an interrupt, and resumes after the
@@ -308,6 +321,10 @@ keeps what worked and changes the rest.
   - Report 0020 measured 500–640 cycles to hand an interrupt to a
     user-level driver, so devices should interrupt for a buffer, not a
     byte ([report 0020](0020-report-operating-system.md#interrupts-and-devices)).
+  - **`SPL #n`** is the PDP-11's. Without it, raising IPL takes a read,
+    two masks and a write, five instructions and seven parcels; with it,
+    saving and raising take two parcels. Its nine values fit the `FE`
+    grid's second byte, so it needs no root cell.
   - The non-maskable interrupt is for a front-panel halt or a debugger
     button, which helps most while the hardware is being brought up. The
     bus has no line for it.

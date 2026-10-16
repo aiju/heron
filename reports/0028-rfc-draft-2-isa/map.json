@@ -1051,6 +1051,42 @@
    "gmv9svl31r3yb/00": {
     "i": "mulfx",
     "s": 1
+   },
+   "gmv9sqwj9jo7q/10": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/11": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/12": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/13": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/14": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/15": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/16": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/17": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/18": {
+    "i": "ispl",
+    "s": 1
    }
   },
   "grids": {
@@ -1079,6 +1115,24 @@
     ],
     "st": "custom",
     "r": ""
+   },
+   "ispl": {
+    "id": "ispl",
+    "m": "SPL",
+    "syn": "#n",
+    "f": "",
+    "ea": null,
+    "ext": 0,
+    "xl": "",
+    "g": "sys",
+    "d": "The interrupt priority level ← n, 0–8, from the second byte's low nibble (FE 10–FE 18; FE 19–FE 1F trap), as the PDP-11's SPL: a critical section is MFSR r1, sr; SPL #n; …; MTSR sr, r1",
+    "cs": "",
+    "wr": false,
+    "src": [
+     "custom"
+    ],
+    "st": "custom",
+    "r": "RFC 0029 §7"
    }
   },
   "modes": {

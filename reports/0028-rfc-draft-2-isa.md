@@ -216,11 +216,12 @@ The extension grids, by their second byte:
 | | | `FE 01` | `DI` |
 | | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
+| | | `FE 10`–`FE 18` | `SPL #n` |
 
 Free, and so trapping: the root cells `C3`, `C7`, `CB`, `CF`, `EF` and
-`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE FF`. `CAS` (`F7`) and the
-floating-point escape (`F8`) are **open** and trap until they're
-designed. What becomes of `FD` is **open**.
+`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE 0F` and `FE 19`–`FE FF`. `CAS`
+(`F7`) and the floating-point escape (`F8`) are **open** and trap until
+they're designed. What becomes of `FD` is **open**.
 
 ### 5. Instructions
 
@@ -411,6 +412,7 @@ In place, in row C:
 | `EI`, `DI` | `FE 00`, `FE 01` | interrupts on, off |
 | `RTI` | `FE 02` | return from an exception |
 | `HALT` | `FE 03` | stop; with interrupts on, wait for one |
+| `SPL #n` | `FE 10`–`FE 18` | the interrupt priority level ← n, 0…8, from the second byte's low nibble |
 | `ILLEGAL` | `00`, `FF` | an illegal instruction |
 
 What each special register is, which instructions are privileged, and
