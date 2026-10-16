@@ -139,7 +139,7 @@ store is SRAM, a write port into it. Simulate it before any netlist
   could go.
 - **I/O.** Every access the CPU makes to a simple card holds its
   microcycle for 880–960 ns
-  ([report 0025, section 5](0025-report-draft-1b-system.md#5-what-a-bus-transfer-costs)),
+  ([report 0025, section 13](0025-report-draft-1b-system.md#13-what-a-bus-transfer-costs)),
   and every interrupt handed to a user-level driver costs 500–640 cycles
   ([report 0020](0020-report-operating-system.md#interrupts-and-devices)).
   Characters and polled disk sectors are where that adds up.
@@ -522,7 +522,7 @@ Assumptions:
 
 - a 60 ns bus clock;
 - the memory card reads in 2 clocks and writes in 3
-  ([report 0025](0025-report-draft-1b-system.md#5-what-a-bus-transfer-costs));
+  ([report 0025](0025-report-draft-1b-system.md#13-what-a-bus-transfer-costs));
 - the CPU card's slave port takes 3 clocks either way, one WAIT with
   55 ns RAM (RFC 0014, section 10), longer when it collides with the CPU;
 - every 16 transfers the IOP lets go of the bus and takes about 6 clocks
@@ -696,7 +696,7 @@ Against a system that has the same things without an IOP (*estimates*):
 | The CPU card's boot ROM and its overlay at reset | ~3 | – | [RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system) |
 | Filling an SRAM control store | ~22 and 1–3 flash | ~14 (the write port) | [RFC 0024](0024-rfc-faster-smaller.md#5-faster-parts) |
 | The CPU card's control register | ~2 | ~2 | RFC 0014 |
-| The I/O card: UART, timer, CF and its bus glue | 16 | – (on the IOP's card) | [report 0025](0025-report-draft-1b-system.md#3-chips) |
+| The I/O card: UART, timer, CF and its bus glue | 16 | – (on the IOP's card) | [report 0025](0025-report-draft-1b-system.md#11-chips) |
 | DMA: RFC 0014's card, or bus mastering on the disk and Ethernet cards | ~34 | – | [RFC 0014](0014-rfc-system-bus.md#12-example-cards) |
 | The DMA window in the slave port | ~3–4 | – | [RFC 0008](0008-rfc-ideas-memory-and-buses.md#1-memory) |
 | PS/2 keyboard and mouse | ~8 | – (on the IOP's card) | [RFC 0009](0009-rfc-ideas-io.md#1-io) |
