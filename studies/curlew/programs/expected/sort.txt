@@ -1,0 +1,4 @@
+quicksort: [41,43,89,108,144,193,200,203,222,245] sorted: True
+merge sort: [41,43,89,108,144,193,200,203,222,245] agrees: True
+insertion sort of 500: [268,362,666,920,997,1078,1647,1671,1679,1843] agrees: True
+the median: 33503

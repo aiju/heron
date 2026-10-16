@@ -1,0 +1,3 @@
+before
+
+error: divide by zero

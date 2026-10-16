@@ -1,0 +1,6 @@
+f    = Add (Add (Mul (Num 3) (Pow (Var 'x') 2)) (Mul (Num 2) (Var 'x'))) (Num 5)
+f'   = Add (Mul (Num 3) (Mul (Num 2) (Var 'x'))) (Num 2)
+f''  = Num 6
+sizes of the first 6 derivatives, unsimplified: [10,31,105,399,1747,8943]
+simplified: [10,21,43,82,144,234]
+values at 2: [5103,13122,30132,60588,103680,144720]

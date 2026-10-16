@@ -130,6 +130,10 @@ Change the generator and rerun it rather than editing the output by hand:
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;
+- `reports/0035-report-curlew/performance.md`: `heron curlew report --write`
+  (about 10 minutes on four cores; the runs are cached in `build/curlew/`);
+- `studies/curlew/programs/expected/` and `studies/curlew/tests/cw/expected/`:
+  `python3 studies/curlew/reference.py --write-expected`;
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and
@@ -162,7 +166,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
 - `heron test v1_isa v2_isa c_compiler v1b_hw v1b_system v1b_tradeoffs
-  v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+  v0_hw graphics kernel bus_si curlew`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
   `heron v2_isa test`: the programs against their expected output, in 1b,
@@ -177,6 +181,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron graphics test` and `heron graphics selftest`: the graphics
   scenes against the host reference, and the kernels against pixel
   references.
+- `heron curlew test [--features F]`: Curlew's programs and tests on
+  draft 2, as built or with an experiment (`tagged`, `onereg`, ...).
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.

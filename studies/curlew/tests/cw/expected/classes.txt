@@ -1,0 +1,10 @@
+square of area 9
+a rectangle, 10
+(40,120)
+(Pair 6 8,True,True)
+32
+41 ["got 20","doubled 40"]
+(5,'w',[3])
+2
+(["1=1","2=2","3=3"],["'a'='a'","'b'='b'"])
+(GT,Right 'x',[LT,EQ,GT])

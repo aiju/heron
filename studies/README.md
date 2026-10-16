@@ -27,5 +27,6 @@ commands, and `heron test <study>` runs its unit tests.
 | [lisp](lisp/README.md) | A Lisp for drafts 1b and 2: interpreter, compiler and collector on the machine, and what it wants from the ISA |
 | [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane: loading, ground bounce, crosstalk, the clock tree, the strobes |
 | [egret](egret/README.md) | Egret, a small object language, interpreted and compiled on drafts 1b and 2 |
+| [curlew](curlew/README.md) | Curlew, a lazy, typed language compiled for draft 2, and what laziness wants from the ISA |
 | [graphics](graphics/README.md) | Graphics on draft 1: a library, bitmap and TrueType fonts, and a window manager, in C and assembly for 1a and 1b |
 | [kernel](kernel/README.md) | An operating system for Heron: system extensions to 1b, a benchmark nucleus that measures an OS's hot paths, and page statistics for the MMU |

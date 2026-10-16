@@ -1,0 +1,32 @@
+The curlew is a wading bird with a long curved bill, and it is in no hurry.
+It walks the mud at low tide and probes for what the water left behind. It
+does not dig where nothing is. It waits until the tide has done the work,
+and then it takes what it needs, and no more.
+
+A lazy program is like the curlew. It does not compute a value until a
+value is needed. When the value is needed it computes it once, and then it
+remembers it, so that the next time the value is needed it is already
+there. A list can be infinite, as long as nobody asks for all of it. A
+value that nobody asks for is never computed at all.
+
+The price of this is bookkeeping. Every value that has not been computed
+yet is a promise, and a promise has to be kept somewhere: in the heap, as a
+small object with the code that will compute the value and the values that
+code needs. When the promise is kept, the object is overwritten with the
+value, so that everyone who holds the promise sees the value. Most of the
+time a program spends is spent making promises, checking whether they have
+been kept, and keeping them.
+
+A machine can help with the checking. If a value carries a mark that says
+whether it has been computed, one instruction can look at the mark, and
+another can jump to the code that keeps the promise. If the mark is in the
+right place, the instruction that adds two numbers can look at both marks
+at once, and trap when either promise has not been kept. Whether that
+helps depends on how often promises are found unkept, and that is a
+question a program can answer, but a machine cannot.
+
+So we wrote programs, and we counted. We counted the promises made and the
+promises kept, the checks that found a value and the checks that found a
+promise, the instructions that moved values and the instructions that
+computed them. The curlew does not count, but it would, if it could; it
+has a long bill and a lot of patience, and it is in no hurry at all.
