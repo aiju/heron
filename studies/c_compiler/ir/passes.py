@@ -4,18 +4,22 @@ Nothing clever. `optimize` runs, per function: mem2reg (ir.ssa), and
 at level 0 nothing else; then constant folding and algebraic simplification
 (including strength reduction of multiplies and divides by powers of two),
 global value numbering over the dominator tree, redundant load elimination
-within a block, dead code elimination and control-flow cleanup, to a fixed
-point; loop-invariant code motion and the fixed point again; strength
-reduction of induction variables (with linear function test replacement)
-and the fixed point again; for a target with a decrement-and-branch,
-counters that only count turned into counts down to zero, and the fixed
-point again; given the target's free_imm, constants it can't take as
-cheap immediates loaded into registers before loops; and last, sinking
-steps like p + 1 below p's last use.
+within a block and down chains of single-predecessor blocks, dead code
+elimination, jump threading of branches on a phi, and control-flow cleanup,
+to a fixed point; loop-invariant code motion (loads of globals and stack
+slots too) and the fixed point again; strength reduction of induction
+variables (with linear function test replacement) and the fixed point
+again; for a target with a decrement-and-branch, counters that only count
+turned into counts down to zero, and the fixed point again; invariant
+constants reassociated out of loops; given the target's free_imm,
+constants it can't take as cheap immediates loaded into registers before
+the outermost loop that has registers for them; and last, sinking steps
+like p + 1 below p's last use. (Inlining, between two runs of this, is in
+ir.inline.)
 """
 
 from .ir import Instr, Const, SymAddr, Param, Slot, Undef, M32, s32, BINOPS, CMPOPS, UNOPS, COMMUTATIVE, PURE, CMP_SWAP, CMP_NEG
-from .cfg import DomTree, natural_loops, remove_unreachable
+from .cfg import DomTree, natural_loops, remove_unreachable, reverse_postorder
 from .ssa import mem2reg
 
 
@@ -728,10 +732,16 @@ def _may_alias(a1, s1, a2, s2):
 
 
 def load_cse(func):
+    """Redundant loads, within a block and down a chain of blocks that each
+    have one predecessor (whatever is known at the end of the predecessor
+    is known at the start of the block)."""
     changed = False
     mapping = {}
-    for b in func.blocks:
-        avail = {}          # (addr, size, signed) -> value
+    func.compute_preds()
+    known = {}
+    for b in reverse_postorder(func):
+        p = b.preds[0] if len(b.preds) == 1 else None
+        avail = dict(known[p]) if p in known else {}   # (addr, size, signed) -> value
         for i in list(b.instrs):
             i.args = [mapping.get(a, a) for a in i.args]
             if i.op == "load":
@@ -753,6 +763,7 @@ def load_cse(func):
                     avail[(addr, 4, False)] = i.args[0]
             elif i.op in ("call", "memcpy"):
                 avail.clear()
+        known[b] = avail
     func.replace_uses(mapping)
     return changed
 
@@ -850,6 +861,50 @@ def cleanup_cfg(func):
             t.op, t.args, t.targets = "jmp", [], [t.targets[0]]
             changed = True
     func.compute_preds()
+    return changed
+
+
+# --------------------------------------------------------------------------
+# Jump threading
+
+
+def thread_branches(func):
+    """A block that only branches on a phi (a boolean that an inlined
+    predicate returned from several places, say): a predecessor that jumps
+    to it branches on its own value instead, which is often a compare it
+    just made, or goes straight to the target for a constant."""
+    changed = False
+    func.compute_preds()
+    users = func.users()
+    for b in list(func.blocks[1:]):
+        t = b.terminator
+        if t is None or t.op != "br" or len(b.instrs) != 2 or b.instrs[0].op != "phi":
+            continue
+        p = b.instrs[0]
+        dests = t.targets
+        if t.args[0] is not p or users.get(p) != [t] or b in dests or dests[0] is dests[1]:
+            continue
+        for q, v in list(zip(p.incoming, p.args)):
+            qt = q.terminator
+            if qt.op != "jmp" or v is Undef:
+                continue
+            if isinstance(v, (Const, SymAddr)):
+                new = [dests[0] if not isinstance(v, Const) or v.value else dests[1]]
+                q.instrs[-1] = Instr("jmp", [], targets=new)
+            else:
+                new = list(dests)
+                q.instrs[-1] = Instr("br", [v], targets=new)
+            q.instrs[-1].block = q
+            for d in new:
+                for ph in d.phis():
+                    ph.args.append(ph.args[ph.incoming.index(b)])
+                    ph.incoming.append(q)
+            k = p.incoming.index(q)
+            del p.args[k], p.incoming[k]
+            changed = True
+        func.compute_preds()
+    if changed:
+        remove_unreachable(func)
     return changed
 
 
@@ -1435,7 +1490,7 @@ def optimize(func, level=1, verify=False, free_imm=None, countdown=False):
     for loop_pass in loop_passes:
         for _ in range(20):
             changed = False
-            for p in (simplify, gvn, load_cse, simplify, dce, cleanup_cfg):
+            for p in (simplify, gvn, load_cse, simplify, dce, thread_branches, cleanup_cfg):
                 changed |= bool(p(func))
                 if verify:
                     check(func)

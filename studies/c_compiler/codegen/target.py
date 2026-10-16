@@ -840,6 +840,7 @@ class Target:
         """Target-independent clean-ups on the allocated code."""
         mf = self.mf
         self.fold_constants()
+        self.drop_repeated_compares()
         for b in mf.blocks:
             out = []
             for k, i in enumerate(b.instrs):
@@ -858,6 +859,31 @@ class Target:
                         continue
                 out.append(i)
             b.instrs = out
+
+    def drop_repeated_compares(self):
+        """A compare that starts a block whose only predecessor ends with
+        the same compare, followed by nothing but branches: the flags are
+        still those (x == y, then x > y on the way out of an inlined
+        predicate)."""
+        def same(a, b):
+            if isinstance(a, Imm) and isinstance(b, Imm):
+                return a.value == b.value
+            if isinstance(a, Mem) and isinstance(b, Mem):
+                return not a.postinc and all(getattr(a, k) is getattr(b, k) or getattr(a, k) == getattr(b, k)
+                                             for k in ("base", "index", "scale", "disp", "sym", "frame",
+                                                       "size", "postinc"))
+            return a is b
+        mf = self.mf
+        self.compute_succs()
+        mf.compute_preds()
+        for b in mf.blocks:
+            if len(b.preds) != 1 or b.preds[0] is b or not b.instrs or b.instrs[0].op != "CMP":
+                continue
+            last = next((i for i in reversed(b.preds[0].instrs) if i.op not in ("BCC", "JMP")), None)
+            c = b.instrs[0]
+            if (last is not None and last.op == "CMP" and len(last.ops) == len(c.ops)
+                    and all(same(x, y) for x, y in zip(last.ops, c.ops))):
+                del b.instrs[0]
 
     # After CMP r, #0 these read V as well, which is 0 after an add that
     # can't overflow.

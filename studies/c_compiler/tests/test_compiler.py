@@ -215,6 +215,26 @@ return crc; }""")
         self.assertEqual({i.args[0].value for i in outside if i.op == "copy"}, {0x8000, 0x1021})
 
 
+    def test_loads_reused_down_a_chain_of_blocks(self):
+        # p[1] is loaded once: the block that uses it again has one predecessor
+        ir = ir_of("int f(int *p) { if (p[1] != 3) return p[1] + 1; return 0; }")
+        self.assertEqual(ir.count("load"), 1)
+
+    def test_inlining(self):
+        # a small function's calls become copies of it, and a static one
+        # nothing refers to any more goes; a bigger or recursive one stays
+        src = """static int sq(int x) { return x * x; }
+static int fact(int n) { return n < 2 ? 1 : n * fact(n - 1); }
+int f(int a, int b) { return sq(a) + sq(b) + fact(a); }"""
+        u = compile_unit("t.c", "v1b", text=src)
+        optimize_unit(u, "v1b", 1, verify_ir=True)
+        self.assertEqual([f.name for f in u.module.functions], ["fact", "f"])
+        ir = str(u.module.function("f"))
+        self.assertNotIn("@sq", ir)
+        self.assertEqual(ir.count("mul"), 2)
+        self.assertIn("call @fact", ir)
+
+
 class InterpretedIR(unittest.TestCase):
     """The test programs' IR, run by the IR interpreter before and after
     optimisation: checks the optimiser without either backend."""
@@ -364,6 +384,21 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(a, r"DEC\s+(r\d+), \1\n\s+BNE")
         self.assertNotIn("DBNZ", a)
 
+    def test_inlined_predicate_branches_directly(self):
+        # the predicate's boolean result isn't made: each of its returns
+        # branches where the caller's if goes (jump threading), and the
+        # second compare of the same operands goes too
+        src = """struct e { char *w; int n; };
+int strcmp(const char *, const char *);
+static int before(const struct e *a, const struct e *b)
+{ if (a->n != b->n) return a->n > b->n; return strcmp(a->w, b->w) < 0; }
+int f(struct e *x, struct e *y) { if (before(x, y)) return 7; return 9; }"""
+        for isa in ("v1b", "v2"):
+            a = asm_of(src, isa)
+            self.assertNotIn("SET", a, isa)
+            self.assertEqual(a.count("CMP"), 2, isa)        # the counts, and strcmp's result
+            self.assertNotIn("BSR  _before", a, isa)
+
     def test_v2_no_overflow_replaces_compare(self):
         # j - 1 can't overflow (j is an int), so the ADD's flags decide
         # j > 0 on their own; an INC or DEC, which leaves V, becomes an ADD
@@ -492,7 +527,8 @@ extern void pad(void) __asm__("pad");
 volatile int zero;
 int f(int x) { switch (x) { case 0: return 5; case 1: return 7; case 2: return 9;
                case 3: return 11; case 4: return 2; } return 0; }
-int main(void) { if (zero) pad(); printf("%d %d\\n", f(3), f(9)); return 0; }
+int (*volatile fp)(int) = f;       /* called through a pointer: not inlined */
+int main(void) { if (zero) pad(); printf("%d %d\\n", fp(3), fp(9)); return 0; }
 """
         pad = "        .global pad\n        .section .text.pad\npad:    .space 40000\n"
         for isa in ("v1a", "v1b", "v2"):
