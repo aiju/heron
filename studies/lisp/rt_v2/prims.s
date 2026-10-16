@@ -420,14 +420,16 @@ str_eq: MOV  r5, [r3 - 3]
 p_add:  CMP  r2, #2
         BNE  .gen
         MOV  r1, r3
-        AND  r1, #1
+.if tagged
+        TADD r1, r4             ; traps unless both are integers and the sum fits
+.else
+        TST  r3, #1
         BNE  nn3
-        MOV  r1, r4
-        AND  r1, #1
+        TST  r4, #1
         BNE  nn4
-        MOV  r1, r3
         ADD  r1, r4
         BVS  err_overflow
+.endif
         RET
 .gen:   PUSH r7
         BSR  args_list
@@ -436,11 +438,14 @@ p_add:  CMP  r2, #2
 .loop:  CMP  r4, r13
         BEQ  .done
         MOV  r3, [r4 - 1]
-        MOV  r5, r3
-        AND  r5, #1
+.if tagged
+        TADD r1, r3
+.else
+        TST  r3, #1
         BNE  nn3
         ADD  r1, r3
         BVS  err_overflow
+.endif
         MOV  r4, [r4 + 3]
         BRA  .loop
 .done:  JMP  [sp]+
@@ -448,52 +453,65 @@ p_add:  CMP  r2, #2
 p_sub:  CMP  r2, #2
         BNE  .gen
         MOV  r1, r3
-        AND  r1, #1
+.if tagged
+        TSUB r1, r4
+.else
+        TST  r3, #1
         BNE  nn3
-        MOV  r1, r4
-        AND  r1, #1
+        TST  r4, #1
         BNE  nn4
-        MOV  r1, r3
         SUB  r1, r4
         BVS  err_overflow
+.endif
         RET
 .gen:   CMP  r2, #1
         BLO  err_argc
         BNE  .many
-        MOV  r1, r3             ; (- n)
-        AND  r1, #1
+.if tagged                      ; (- n)
+        TTST r3, r3
+.else
+        TST  r3, #1
         BNE  nn3
+.endif
         NEG  r1, r3
         BVS  err_overflow
         RET
 .many:  PUSH r7
         BSR  args_list
         MOV  r3, [r1 - 1]
-        MOV  r5, r3
-        AND  r5, #1
+.if tagged
+        TTST r3, r3
+.else
+        TST  r3, #1
         BNE  nn3
+.endif
         MOV  r4, [r1 + 3]
         MOV  r1, r3
 .loop:  CMP  r4, r13
         BEQ  .done
         MOV  r3, [r4 - 1]
-        MOV  r5, r3
-        AND  r5, #1
+.if tagged
+        TSUB r1, r3
+.else
+        TST  r3, #1
         BNE  nn3
         SUB  r1, r3
         BVS  err_overflow
+.endif
         MOV  r4, [r4 + 3]
         BRA  .loop
 .done:  JMP  [sp]+
 
 p_mul:  CMP  r2, #2
         BNE  .gen
-        MOV  r1, r3
-        AND  r1, #1
+.if tagged
+        TTST r3, r4
+.else
+        TST  r3, #1
         BNE  nn3
-        MOV  r1, r4
-        AND  r1, #1
+        TST  r4, #1
         BNE  nn4
+.endif
         MOV  r1, r3
         ASR  r1, #1
         MULS r1, r4
@@ -506,9 +524,12 @@ p_mul:  CMP  r2, #2
 .loop:  CMP  r4, r13
         BEQ  .done
         MOV  r3, [r4 - 1]
-        MOV  r5, r3
-        AND  r5, #1
+.if tagged
+        TTST r3, r3
+.else
+        TST  r3, #1
         BNE  nn3
+.endif
         ASR  r1, #1
         MULS r1, r3
         BVS  err_overflow
@@ -520,12 +541,14 @@ p_mul:  CMP  r2, #2
 div_args:
         CMP  r2, #2
         BNE  err_argc
-        MOV  r1, r3
-        AND  r1, #1
+.if tagged
+        TTST r3, r4
+.else
+        TST  r3, #1
         BNE  nn3
-        MOV  r1, r4
-        AND  r1, #1
+        TST  r4, #1
         BNE  nn4
+.endif
         CMP  r4, #0
         BEQ  err_div0
         MOV  r1, r3
@@ -565,13 +588,15 @@ p_modulo:
 ; num2: check two number arguments, then compare them.
 num2:   CMP  r2, #2
         BNE  err_argc
-        MOV  r1, r3
-        AND  r1, #1
+.if tagged
+        TCMP r3, r4
+.else
+        TST  r3, #1
         BNE  nn3
-        MOV  r1, r4
-        AND  r1, #1
+        TST  r4, #1
         BNE  nn4
         CMP  r3, r4
+.endif
         RET
 
 p_numeq:
@@ -604,10 +629,13 @@ p_ge:   PUSH r7
 p_zerop:
         CMP  r2, #1
         BNE  err_argc
-        MOV  r1, r3
-        AND  r1, #1
+.if tagged
+        TTST r3, r3
+.else
+        TST  r3, #1
         BNE  nn3
         CMP  r3, #0
+.endif
         BEQ  ret_t
         BRA  ret_nil
 
