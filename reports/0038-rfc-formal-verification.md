@@ -77,12 +77,22 @@ Terms:
   the current one, has a specification. It defines every instruction,
   every fault, and the state they act on.
 - **S2 Checked against the simulator.** The specification and the
-  instruction-level simulator agree on random machine states and random
-  instructions, one step each. Compare everything: registers, flags, PC,
-  every byte of memory, and faults with their stack frames. Count
-  coverage: every instruction and every kind of fault must be reached.
-  Run a few hundred cases in the unit tests, and 100,000 when either side
-  changes. A disagreement is a bug in one of the two.
+  instruction-level simulator agree on one step from a given state.
+  Compare everything: registers, flags, PC, every byte of memory, and
+  faults with their stack frames. The cases are of two kinds:
+  - **chosen by the specification:** each instruction runs once on
+    symbolic inputs, and every outcome of every decision it meets is a
+    goal: each arm of an `if` or `case`, each flag set to 0 and to 1,
+    each fault. The solver finds inputs that reach each goal, a few times
+    over, with the inputs the goal doesn't decide random (`heron formal
+    isagen`, [3.3](#33-the-specification-side));
+  - **random:** random states and instructions (`heron formal isacheck`).
+
+  Count coverage on the cases' concrete runs: every outcome the solver
+  can reach must be reached. An outcome it proves unreachable is dead
+  text, to remove or explain. Run a few cases in the unit tests, and all
+  the goals and 100,000 random cases when either side changes. A
+  disagreement is a bug in one of the two.
 - **S3 What it leaves out, it says.** Behaviour outside the specification
   is an `assume` with its reason: memory that isn't there, the I/O page,
   a fault while entering a fault. A proof holds only where the
