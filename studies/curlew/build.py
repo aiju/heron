@@ -69,9 +69,13 @@ FEATURES = {
 }
 
 
-def layout(heap_a=HEAP_A):
+def layout(heap_a=HEAP_A, heap_size=None):
+    """The memory map; heap_size makes each half of the heap smaller (the
+    tests' small heap, to collect often)."""
     stack_limit = STACK_TOP - STACK_SIZE + STACK_MARGIN
     half = ((STACK_TOP - STACK_SIZE - heap_a) // 2) & ~0xFFF
+    if heap_size is not None:
+        half = min(half, heap_size)
     return {
         "CODE_BASE": CODE_BASE,
         "HEAP_A": heap_a,
@@ -156,7 +160,7 @@ def compile_core(text, options):
     return out
 
 
-def compile_program(text, features=()):
+def compile_program(text, features=(), heap_size=None):
     """Compile and assemble a program (str): a Compiled with .image."""
     options = Options(features)
     out = compile_core(text, options)
@@ -164,13 +168,13 @@ def compile_program(text, features=()):
     cg = codegen.generate(out.stg, options.codegen)
     out.check_sites = cg.check_sites
     out.asm, out.cats = cg.text()
-    out.image, out.where_cats = assemble(out.asm, out.cats, set(options.features))
+    out.image, out.where_cats = assemble(out.asm, out.cats, set(options.features), heap_size)
     return out
 
 
-def assemble(program_asm, cats, features):
+def assemble(program_asm, cats, features, heap_size=None):
     a = asmcore.Assembler(isas.get("v2"))
-    lay = layout()
+    lay = layout(heap_size=heap_size)
     head = "\n".join(f"{k} = {v:#x}" for k, v in lay.items()) + "\n"
     a.load("layout.s", head)
     for name in RT_FILES:

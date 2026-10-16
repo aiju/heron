@@ -33,10 +33,10 @@ class Run:
         }
 
 
-def run(text, inp=b"", features=(), max_cycles=4_000_000_000, compiled=None, trace=None):
+def run(text, inp=b"", features=(), max_cycles=4_000_000_000, compiled=None, trace=None, heap_size=None):
     """Compile (unless given a Compiled) and run a program: a Run."""
     if compiled is None:
-        compiled = build.compile_program(text, features)
+        compiled = build.compile_program(text, features, heap_size)
     m = sim2.Machine(compiled.image, inp=inp)
     if trace is not None:
         m.trace = trace

@@ -112,10 +112,14 @@ class State:
         self.regs = {}          # variable -> register
         self.held = {}          # register -> set of variables
         self.fun_ctx = fun_ctx  # r7 holds the return address
+        self.checked = False    # the stack limit was checked on this path
+        self.room = 0           # bytes a heap check on this path left free at r14
 
     def copy(self):
         s = State(self.fun_ctx)
         s.allocs = self.allocs
+        s.checked = self.checked
+        s.room = self.room
         s.regs = dict(self.regs)
         s.held = {r: set(v) for r, v in self.held.items()}
         return s
@@ -155,6 +159,7 @@ class Ctx:
 
     def __init__(self, kind, label=None, reg=None, keep=frozenset()):
         self.kind, self.label, self.reg, self.keep = kind, label, reg, keep
+        self.checked = []       # 'cont': State.checked on each path to the label
 
 
 class CodeGen:
@@ -415,6 +420,7 @@ class CodeGen:
         self.emit("SAVE r6-r7", "update")
         self.stack_check()
         st = State(False)
+        st.checked = True
         st.bind("%node", NODE)
         self.load_fvs(st, fvs, 1, G.free(body, self.prog.joins), "fvload")
         self.gen(body, st, Ctx("upd"))
@@ -536,6 +542,7 @@ class CodeGen:
         number of values found unevaluated), {cat}ind an indirection
         followed, {cat}slow the rest of the slow path."""
         saved = self.live_regs(st, live) | {reg}
+        st.room = 0             # the slow path allocates
         slow, back = self.label("S"), self.label("B")
         site = self.label("C")
         self.check_sites.append((site, slow, cat))
@@ -631,6 +638,7 @@ class CodeGen:
             if reg != ctx.reg:
                 self.emit(f"MOV  r{ctx.reg}, r{reg}", "return")
             self.emit(f"BRA  {ctx.label}", "return")
+            ctx.checked.append(st.checked)
 
     def gen_ret(self, a, st, ctx):
         a = self.resolve(a)
@@ -703,8 +711,12 @@ class CodeGen:
         code, slots, restore = self.save(saved, "save")
         for t, c in code:
             self.emit(t, c)
-        if code:
+        # once on a path: what a call saves is popped again before the
+        # next, and STACK_MARGIN covers a frame and the callee's first one
+        if code and not st.checked:
             self.stack_check()
+            st.checked = True
+        st.room = 0
         self.pmove(st, moves, cat)
         self.emit(f"CALL {target}", cat)
         held = {st.regs[v] for v in live if v in st.regs}
@@ -795,6 +807,12 @@ class CodeGen:
         self.emit(f"ADD  r14, #{total}", "alloc")
 
     def heap_check(self, st, live, total):
+        # a check leaves SLACK bytes free (r13 is the end less SLACK), so
+        # allocations that follow on the path, with no call between, share it
+        if total <= st.room:
+            st.room -= total
+            return
+        st.room = max(0, SLACK - total)
         gc, back = self.label("G"), self.label("H")
         self.put_label(back)
         if total <= SLACK:
@@ -1056,8 +1074,11 @@ class CodeGen:
             held = {st.regs[v] for v in alive if v in st.regs}
             r = st.free(avoid=held)[0]
             lab = self.label("K")
-            self.gen(s, st.copy(), Ctx("cont", lab, r, frozenset(alive)))
+            k = Ctx("cont", lab, r, frozenset(alive))
+            self.gen(s, st.copy(), k)
             self.put_label(lab)
+            st.checked = bool(k.checked) and all(k.checked)
+            st.room = 0
             st.prune(alive)
             st.bind(e.binder, r)
         self.dispatch(e, st, ctx, st.regs[e.binder])
@@ -1203,6 +1224,7 @@ class CodeGen:
         lab = self.label("J")
         self.joins[e.name] = (lab, params)
         js = State(st.fun_ctx)
+        js.checked = st.checked     # the jumps come from paths through here
         for v in jfv:
             if v in st.regs:
                 js.bind(v, st.regs[v])
@@ -1284,10 +1306,15 @@ def plan_save(regs, cat):
 
 
 def peephole(lines):
-    """Drop a branch to the label that follows it."""
+    """Drop a branch to the label that follows it, and a pop of r7
+    straight before its push (between two calls)."""
     out = []
     for i, (text, cat) in enumerate(lines):
         t = text.strip()
+        if t == "MOV  r7, [sp]+" and i + 1 < len(lines) and lines[i + 1][0].strip() == "MOV  -[sp], r7":
+            continue
+        if t == "MOV  -[sp], r7" and i > 0 and lines[i - 1][0].strip() == "MOV  r7, [sp]+":
+            continue
         if t.startswith(("BRA ", "JMP ")) and i + 1 < len(lines):
             target = t.split(None, 1)[1].strip()
             j = i + 1

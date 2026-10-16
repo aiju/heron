@@ -1,6 +1,7 @@
 """Curlew: the front end's errors, the reference interpreter against the
 expected output, and the compiled programs on the draft 2 simulator
-against it too, as built and with draft 2's tagged operations."""
+against it too, as built, with draft 2's tagged operations, and with a
+small heap."""
 
 import unittest
 
@@ -66,6 +67,18 @@ class Machine(unittest.TestCase):
 
     def test_tagged(self):
         self.run_all(("tagged",))
+
+    def test_small_heap(self):
+        """32 KB halves: the collector runs at many more of the heap
+        checks, the merged ones too."""
+        for p in testing.programs(["hamming", "parser", "peano", "apply", "laziness", "features"]):
+            for features in ((), ("tagged",)):
+                with self.subTest(p.name, features=features):
+                    r = machine.run(p.text, p.input, features, heap_size=0x8000)
+                    self.assertIsNone(r.error)
+                    self.assertGreater(r.stats()["gc_count"], 0)
+                    if r.output != p.expected:
+                        self.fail(testing.diff(r.output, p.expected))
 
 
 if __name__ == "__main__":
