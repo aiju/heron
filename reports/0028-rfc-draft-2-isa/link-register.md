@@ -16,8 +16,9 @@ ported to v1bl and both were measured on the 1b hardware's microcode and
 in draft 1's timing model.
 
 The code is `studies/link_register`, in
-[pull request 39](https://github.com/aiju/heron/pull/39), not on main. It
-is at
+[pull request 39](https://github.com/aiju/heron/pull/39), which was closed
+without merging: draft 2 already has what of it carries forward. It stays
+at
 [bee497d](https://github.com/aiju/heron/tree/bee497d10460bd2f97bac0e1a81b6de895e8fd77/studies/link_register),
 and the tables here are a snapshot of its `heron link_register report`
 there.
