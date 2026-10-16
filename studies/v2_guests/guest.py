@@ -60,6 +60,7 @@ class GuestMicrocode(uc.Microcode):
 
     def __init__(self, guest, lengths=None):
         uc._trap_cache.clear()
+        _stops.clear()          # a guest's microcode doesn't depend on what was built before
         self.guest = guest
         self.reset = guest.reset()
         self.reset.fixed = 0

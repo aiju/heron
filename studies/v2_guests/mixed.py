@@ -84,6 +84,7 @@ class MixedMicrocode(uc.Microcode):
 
     def __init__(self, guests, lengths=None):
         uc._trap_cache.clear()
+        gm._stops.clear()
         self.guests = guests
         # reset: the guests' constants, then draft 2's reset
         steps = []
