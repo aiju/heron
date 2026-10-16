@@ -99,9 +99,10 @@ def trace_buses():
                    "FIRQ", "W2", "W3", "FITS1", "FOK", "PC1F"]}
 
 
-def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE):
+def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
+    """seed: the simulator's random power-up state of every flip-flop."""
     cfg = {
-        "seed": 1, "max_cycles": max_cycles,
+        "seed": seed, "max_cycles": max_cycles,
         "clock_net": "CLK", "reset_net": "RESET_n",
         "fetch_net": "DECGO", "fetch_level": 1,
         "addr_nets": ["GND"] + [f"PC{i}" for i in range(1, 32)],
@@ -118,9 +119,10 @@ def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE):
     return cfg
 
 
-def run(mem, inp=b"", max_cycles=20_000_000, trace=None, lengths=None):
+def run(mem, inp=b"", max_cycles=20_000_000, trace=None, lengths=None, seed=1):
     """Run a RAM image at chip level: the outcome, decoded."""
-    hw = native.hwsim.run_system(netlist(lengths), config(max_cycles, trace), preloads(mem, inp))
+    hw = native.hwsim.run_system(netlist(lengths), config(max_cycles, trace, seed=seed),
+                                 preloads(mem, inp))
     d = hw["dumps"]
     hw["output"] = bytes(d["X_IO"])
     ram = bytearray(4 << 19)

@@ -98,11 +98,17 @@ def clock_generator(nl, lengths, por_ps):
     nl.add("163", "U_TC", part="74ACT163", CLK="MCLK", CLR="T1_n", LOAD="H1_n", ENP="VCC",
            ENT="VCC", A="PSEL0", B="PSEL1", C="PSEL2", D="PSEL3",
            QA="TC0", QB="TC1", QC="TC2", QD="TC3", RCO="TCRCO")
+    # T1, H0, H1: the tick after the count's carry, and one and two ticks
+    # later. Nothing resets them, and with 4-tick cycles two pulses could
+    # chase each other round (T1 and H0 each two ticks wide, the clock's
+    # edge inside the register file's write): H0 never stays on two ticks,
+    # so the second pulse dies whatever the flops powered up as
     nl.add("175", "U_TH", CLK="MCLK", CLR="VCC",
            **{"1D": "TCRCO", "1Q": "T1", "1QN": "T1_n",
-              "2D": "T1", "2Q": "H0", "2QN": "H0_n",
+              "2D": "H0_D", "2Q": "H0", "2QN": "H0_n",
               "3D": "H0", "3Q": "H1", "3QN": "H1_n",
               "4D": "CLK_D", "4Q": "CLK"})
+    g("08", ["T1", "H0_n"], "H0_D")
     g("32", ["T1", "H0"], "CLK_D")
     # H2, H3: H1 a tick and two later; the write window opens entering
     # tick 4, once a write's address has been translated and checked

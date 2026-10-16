@@ -18,6 +18,18 @@ class ChipLevel(unittest.TestCase):
         self.assertEqual(out["violation_total"], 0)
         self.assertEqual(out["output"], b"Hello, world!\n")
 
+    def test_power_up(self):
+        # whatever state the flip-flops come up in (the clock generator's
+        # are never reset), the machine runs: hello from other power-ups
+        from heron.infra import asm, isas
+        from heron.studies.v2_hw import iop
+        img = asm.assemble_file(isas.get("v2"), chk.program_paths(["hello"])[0])
+        mem = iop.boot_image(img)
+        for seed in (2, 3, 4):
+            out = hw.run(mem, max_cycles=3000, seed=seed)
+            self.assertEqual(out["violation_total"], 0, seed)
+            self.assertEqual(out["output"], b"Hello, world!\n", seed)
+
 
 class Timing(unittest.TestCase):
     def test_every_microinstruction_measured(self):

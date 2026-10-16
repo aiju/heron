@@ -114,7 +114,12 @@ map and the card's RAM.
     6 ticks.
 - **The clock generator** is RFC 0024's for short cycles (section 6
   there): a tick counter preloaded by the length class, flip-flops for
-  the head and tail ticks and the phases above, and the hold.
+  the head and tail ticks and the phases above, and the hold. Nothing
+  resets its flip-flops, and with 4-tick cycles two pulses could chase
+  each other through T1, H0 and H1, each phase two ticks wide and the
+  clock's edge inside the register file's write; so H0 loads T1 only
+  while H0 is off, which kills a second pulse from any state the
+  flip-flops power up in.
 
 ### 3. Datapath
 
@@ -712,18 +717,18 @@ against the estimate this RFC first gave for the same sections:
 | Section | Netlist | Estimate | |
 |---|---:|---:|---|
 | Control store, decode table, uIR | 28 | 19 | 10 SRAMs; the uIR is 18 × 74ABT377 |
-| Sequencer, IR, conditions, forced entries | 32 | 10 | |
+| Sequencer, IR, conditions, forced entries | 33 | 10 | |
 | Clock and reset | 13 | 12 | |
 | Register file and its addresses | 46 | 18 | a 74F151 per register bit and copy, the bank shared; latches and write buffers |
 | A bus | 17 | 10 | |
-| B bus and immediate unit | 49 | 24 | |
+| B bus and immediate unit | 48 | 24 | |
 | ALU, its control, MQ | 20 | 14 | |
 | Result multiplexer | 18 | 18 | |
 | R, T, MAR, LC, SX, EX | 34 | 24 | |
 | PC, FPC, the fetch's translation, the queue | 65 | 28 | |
-| Flags, CL, branch condition | 36 | 12 | |
+| Flags, CL, branch condition | 37 | 12 | |
 | Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 81 | 42 | 7 SRAMs |
-| **The netlist's core** | **439** | **231** | |
+| **The netlist's core** | **440** | **231** | |
 | Bus interface, master | (30) | 30 | not drawn: the estimate |
 | Slave port, control store writes, control register | (14) | 14 | not drawn: the estimate |
 | **Total** | **about 485** | **about 275** | |
@@ -808,6 +813,11 @@ the branch-target adder from the profile:
   timing violation; at long cycles (`--lengths 10,11,12,14`) they match
   too, which separates logic from timing. Its log of bus contention
   found the turn-off problem of [15](#15-the-netlist-and-its-timing).
+  The simulator powers every flip-flop up at random; hello also runs
+  from three more power-ups, which found the clock generator's lock-up
+  ([2](#2-clock-and-cycles)): 52 of the 128 states of its flip-flops and
+  counter kept two pulses going while the cycles were 4 ticks, so that
+  every register file write failed.
 - **`ticks.json` is current:** `heron test v2_hw` runs the analysis and
   compares it with the table the microcode uses.
 
