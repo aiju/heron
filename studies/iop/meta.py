@@ -23,7 +23,8 @@ cells `branch` to its code.
 definition, the metacompiler interprets a small host language: numbers,
 `constant` `2constant` `variable` `2variable` `create` `,` `allot` `user`
 `immediate` `'` `here`, arithmetic, and the names in layout.py, which it
-knows as numbers. Inside one it compiles: the target's words, numbers as
+knows as numbers, with the microcode's labels as `U.name` and the
+registers' numbers as `R.name` (a task's) and `J.name` (a job's). Inside one it compiles: the target's words, numbers as
 literals, and its own versions of the control words (`if` ... `then`,
 `begin` ... `until`, `do` ... `loop` and `leave`, `."`, `s"`, `abort"`,
 `[char]`, `[']`, `literal`, `[` `]`, `postpone`, `recurse`, `does>`). The
@@ -65,6 +66,10 @@ class Meta:
         self.host = {k: v for k, v in vars(layout).items() if isinstance(v, int) and not k.startswith("_")}
         for name, addr in (labels or {}).items():
             self.host[f"U.{name}"] = addr
+        for name, r in layout.REGS.items():
+            self.host[f"R.{name}"] = r
+        for name, r in layout.JOB_REGS.items():
+            self.host[f"J.{name}"] = r
         self.stack = []
         self.user_next = layout.USER_FIRST
         self.state = False

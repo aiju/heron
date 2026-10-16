@@ -1,17 +1,22 @@
-; The IOP's microcode, part 1: reset, the inner interpreter, the task
-; switch and the native layer (RFC 0027, 6.2-6.5). The primitives are in
-; prims.uc. The notation is the microassembler's (uasm.py); the line after
-; a branch is its delay slot, and always runs.
+; The IOP's microcode, part 1: reset, the inner interpreter, attention,
+; the task switch and the native layer (RFC 0027, 6.2-6.5). jobs.uc has
+; the native jobs (the movers, the clients' rings, posting events to the
+; CPUs) and prims.uc the Forth's primitives. The notation is the
+; microassembler's (uasm.py); the line after a branch is its delay slot,
+; and always runs.
+;
+; m1, register 7, is -1 in every bank, so `BANK <- m1` goes to bank 255,
+; the native layer's, while K holds a branch target.
 
 ; ---- reset: uIR and uPC are cleared, and this runs from 0
 
 .org 0
-.reg np 3                       ; (the reset's registers, in bank 255)
-.reg dst 4
-.reg rx 5
-.reg cnt 6
-.reg pg 7
-.reg cold 8
+.reg np 0                       ; (the reset's registers, in bank 255)
+.reg dst 1
+.reg rx 2
+.reg cnt 3
+.reg pg 4
+.reg cold 5
 
 reset:  BANK <- #NATIVE_BANK
         X <- #0x0C00            ; the timing table: the card's own devices
@@ -24,24 +29,27 @@ reset:  BANK <- #NATIVE_BANK
         F <- #TT_PORTS | ttab <- F
         F <- #1 | io <- F       ; the LEDs: 1, alive
 
-; The SRAM's self test, with nothing but AC, X and F: every cell its own
-; address, then its complement, each read back, from the top down. A
-; cell is tested for zero by writing it to the swap register and reading
-; it back less one.
-sramtest: AC <- #-1
+; The SRAM's self test, with nothing but AC, X and F, as the registers are
+; in the SRAM too: every cell its own address, then its complement, each
+; read back. AC counts up, and its carry out of 0xFFFF, held into the
+; next microinstruction, ends a pass.
+sramtest: AC <- #0
         X <- AC
 mt1:    [X] <- AC
-        AC <- (ones & AC) - 1 | if carry goto mt1
+        AC <- #1 + AC
+        ifnot carry goto mt1
         X <- AC
-mt2:    F <- [X] ^ AC | swap <- F
+mt2:    F <- [X] ^ AC | swap <- F       ; 0 if the cell held its address
         F <- swap - 1 | if carry goto memfail
         [X] <- ~AC
-        AC <- (ones & AC) - 1 | if carry goto mt2
+        AC <- #1 + AC
+        ifnot carry goto mt2
         X <- AC
 mt3:    F <- [X] ^ ~AC | swap <- F
         F <- swap - 1 | if carry goto memfail
         nop
-        AC <- (ones & AC) - 1 | if carry goto mt3
+        AC <- #1 + AC
+        ifnot carry goto mt3
         X <- AC
 
 ; The dictionary, out of the image flash: whole pages of 256 halfwords
@@ -73,9 +81,22 @@ ccell:  AC <- io
         np <- np - 1 | if carry goto cpage
         nop
 
-; The console task, bank 0: its registers through memory, then NEXT at
-; the cold start's first cell.
-        X <- #(BANKS + 64 * NATIVE_BANK + 8)
+; The system variables, zeroed: no jobs, no sources routed, no rings.
+        dst <- #DICT_END
+        X <- #DICT_END
+        cnt <- #255
+zcell:  [X] <- 0
+        cnt <- cnt - 1 | if carry goto zcell
+        dst, X <- dst + 1
+        X <- #TICKS
+        AC <- #TICKS_IDLE
+        [X] <- AC
+        m1 <- #-1
+        nturnc <- #(TURN_TICKS - 1)
+
+; The console task, bank 0: its registers, then NEXT at the cold start's
+; first cell.
+        X <- #(BANKS + 64 * NATIVE_BANK + 5)
         BANK <- #CONSOLE_BANK
         F <- [X] - 1
         ip <- F
@@ -84,6 +105,7 @@ ccell:  AC <- io
         resume <- #next
         link <- #CONSOLE_BANK
         wait <- #0
+        m1 <- #-1
         me <- #CONSOLE_BANK
         up <- #(BANKS + 64 * CONSOLE_BANK)
         X <- #0x0F00            ; the LEDs: 3, running Forth
@@ -106,11 +128,20 @@ next:   ip, X <- ip + 1
 next1:  F <- [X] | X <- F | dispatch nest
         nop
 
-; A colon definition: X is its body, and ip the cell that named it.
+; A colon definition: ip is the cell that named it.
 nest:   rp, X <- rp - 1
         F <- ip
         [X] <- F | X <- F       ; push ip; X = ip
         F <- [X] | X <- F       ; the body
+        ip <- F
+        F <- [X] | X <- F | dispatch nest
+        nop
+
+; nest-w: a colon definition `execute` runs, at w; ip is execute's cell.
+nestw:  rp, X <- rp - 1
+        F <- ip
+        [X] <- F                ; push ip
+        F <- w | X <- F         ; the body
         ip <- F
         F <- [X] | X <- F | dispatch nest
         nop
@@ -123,72 +154,256 @@ ret_false: AC <- #0
 ; ---- attention: native work is waiting (the tick, a doorbell, WORK)
 
 ; From a primitive that has finished: ip is the cell it was. The common
-; case is the tick with no INT line up: cleared, and straight on.
-attn_next: F <- ev1 | ifnot F15 goto attn_slow
-        F <- ev0 - 1            ; a line up?
-        if carry goto attn_slow
-        nop
-        ev1 <- F | goto next1   ; only the tick: cleared
+; case is the tick with no INT line up: TICKS counted down, the tick
+; cleared, and straight on, unless held levels are due.
+attn_next: F <- ev1 | ifnot F15 goto attn_slow    ; not the tick: a doorbell, or WORK
+        X <- #TICKS
+        F <- ev0 - 1 | if carry goto attn_line    ; an INT line is up
+        [X] <- [X] - 1                             ; (delay) the countdown
+        ev1 <- F | if carry goto next1             ; the tick cleared; on, unless it ran out
         ip, X <- ip + 1
-attn_slow: tos <- AC | goto nat
-        nret <- #fresume
-fresume: AC <- tos | goto next1
-        ip, X <- ip + 1
+        ip <- ip - 1            ; held levels are due: back to the finished cell
+        tos <- AC
+        BANK <- m1 | goto ndue
+        nret <- #ret_task
+attn_slow: tos <- AC
+        BANK <- m1 | goto nloop
+        nret <- #ret_task
+attn_line: tos <- AC            ; X is TICKS, counted down
+        BANK <- m1 | goto ntick2
+        nret <- #ret_task
 
-; The native layer runs in whatever bank is current, with AC free and
-; registers 24-31 as its scratch, and goes back to nret. A tick with no
-; INT line up is only cleared.
-nat:    F <- ev1 | ifnot F15 goto nslow
-        F <- ev0 - 1
-        if carry goto nslow
-        F <- nret
-        ev1 <- F | goto F
-        nop
-nslow:  F <- ev1 | if F15 goto ntick
-        X <- #EVMASK
+; Back from the native layer: X is CURTASK.
+ret_task: F <- [X] | BANK <- F
+        ip, X <- ip + 1 | goto next1
+        AC <- tos
+
+; ---- the native layer (RFC 0027, 6.4), in bank 255: the tick, the
+; doorbells, and the jobs' slices, the head of their queue first. It goes
+; back to nret, with X at CURTASK. A job's turn lasts TURN_TICKS ticks;
+; then the queue moves on and the Forth gets a turn.
+
+nloop:  F <- ev1 | if F15 goto ntick
+        X <- #JQHEAD
         if bell goto nbell
+        F <- [X] - 1
+        if carry goto nrun
         nop
-        CTRL <- #CTRL_WORK      ; no native jobs yet: WORK off
+        CTRL <- #CTRL_WORK      ; nothing to do: WORK off
         F <- nret | goto F
+        X <- #CURTASK
+
+nrun:   F <- nturnf - 1 | if carry goto nrot   ; the turn is over
+        nop
+        F <- [X] | BANK <- F    ; the job at the head
+        F <- jres | goto F
+        CTRL <- #CTRL_WORK      ; WORK off while it runs: attention is the tick and doorbells
+
+; The head job's turn is over: it goes to the back, and the Forth gets a
+; turn, with WORK on so that the jobs come back.
+nrot:   nturnf <- #0
+        AC <- [X]               ; the head
+        X <- #JQTAIL
+        [X] <- AC
+        X <- #JLINK + AC
+        AC <- [X]
+        X <- #JQHEAD
+        [X] <- AC
+        CTRL <- #(8 | CTRL_WORK)
+        F <- nret | goto F
+        X <- #CURTASK
+
+; A job's slice found attention: to the native layer, and back to it at
+; jres.
+jattn:  BANK <- m1 | goto nloop
         nop
 
-; The tick: route the INT lines that are up and enabled to the tasks that
-; wait for them, and mask each until its task waits again.
-ntick:  AC <- [X] | ev1 <- F    ; the enabled lines; the tick cleared
-        ints <- ev0 & AC
-        F <- ints - 1 | ifnot carry goto nat
-        bit <- #1
-        ex <- #(EVTAB - 1)
-nroute: AC <- bit
-        F <- (ints & AC) - 1 | ifnot carry goto nrnext
-        ex, X <- ex + 1
-        F <- [X] | X <- F       ; the owner's wait register
+; A job leaves the queue, from its head.
+jstop:  BANK <- m1
+        X <- #JQTAIL
+        AC <- [X]
+        X <- #JQHEAD
+        AC <- [X] ^ AC
+        F <- m1 + AC | ifnot carry goto js_last    ; it was the only one
+        AC <- [X]
+        X <- #JLINK + AC
+        F <- [X]
+        t0 <- F                 ; its successor
+        [X] <- 0                ; not queued
+        X <- #JQTAIL
+        AC <- [X]
+        X <- #JLINK + AC
+        AC <- t0
+        [X] <- AC               ; the tail's successor
+        X <- #JQHEAD
+        [X] <- AC | goto nloop
+        nop
+js_last: X <- #JLINK + AC
         [X] <- 0
-        X <- #EVMASK
-        [X] <- [X] & ~AC
-        ints <- ints & ~AC
-nrnext: F <- ints - 1 | ifnot carry goto nat
-        bit <- bit + bit
-        goto nroute
+        X <- #JQHEAD
+        [X] <- 0 | goto nloop
         nop
 
-; Doorbells: for now, kept in BELLS for the Forth, and cleared one by one
-; (RFC 0027, 4.4).
-nbell:  bells <- ev2
-        AC <- bells
+; Enqueue the job in bank AC, which isn't queued, at the back. t0 and t1
+; are scratch; back to t7.
+jenq:   t0 <- AC
+        X <- #JQHEAD
+        F <- [X] - 1 | ifnot carry goto jq_empty
+        AC <- [X]
+        t1 <- AC                ; the head
+        AC <- t0
+        X <- #JLINK + AC
+        AC <- t1
+        [X] <- AC               ; its successor: the head
+        X <- #JQTAIL
+        AC <- [X]
+        X <- #JLINK + AC
+        AC <- t0
+        [X] <- AC               ; the tail's: it
+        X <- #JQTAIL
+        [X] <- AC
+        F <- t7 | goto F
+        nop
+jq_empty: AC <- t0
+        X <- #JLINK + AC
+        [X] <- AC               ; a ring of one
+        X <- #JQHEAD
+        [X] <- AC
+        X <- #JQTAIL
+        [X] <- AC
+        F <- t7 | goto F
+        nop
+
+; ---- the tick: held levels when TICKS runs out, the INT lines and
+; ATN0-3 that are up and enabled to their owners, each masked until it
+; has been served. Every TURN_TICKS ticks the running job's turn ends.
+
+ntick:  X <- #TICKS
+        [X] <- [X] - 1
+ntick2: ev1 <- F                ; the tick cleared
+        F <- [X] + 1 | if carry goto ndue      ; TICKS ran out
+        nop
+nturn:  nturnc <- nturnc - 1 | if carry goto nlines
+        nop
+        nturnc <- #(TURN_TICKS - 1)
+        nturnf <- #1
+
+nlines: AC <- ev0
+        X <- #EVMASK
+        AC <- [X] & AC          ; up and enabled
+        F <- m1 + AC | ifnot carry goto natn
+        nint <- AC
+        [X] <- [X] & ~AC        ; masked until served
+        nwhich <- #natn
+        AC <- #1
+        nsrc <- #SRC_ATN        ; the bits come out from the top: INT 15 first
+nl_loop: nint <- nint + nint | ifnot carry goto nl_loop
+        nsrc <- nsrc - AC
+        goto nroute
+        t7 <- #nl_back
+nl_back: AC <- #1
+        F <- nint - 1 | if carry goto nl_loop
+        nop
+        F <- nwhich | goto F
+        nop
+
+natn:   AC <- ev1
+        X <- #ATNMASK
+        AC <- [X] & AC
+        F <- m1 + AC | ifnot carry goto nloop
+        F <- AC | swap <- F     ; (delay) bits 0-3 to 8-11
+        [X] <- [X] & ~AC
+        AC <- swap
+        nint <- AC
+        nint <- nint + nint
+        nint <- nint + nint
+        nint <- nint + nint
+        nint <- nint + nint     ; bits 12-15
+        nwhich <- #nloop
+        AC <- #1
+        goto nl_loop
+        nsrc <- #(SRC_ATN + 4)
+
+; Source nsrc to its owner (EVTAB): a task's wait register cleared, or an
+; event to a CPU. Back to t7.
+nroute: AC <- nsrc
+        AC <- nsrc + AC
+        t6 <- AC
+        AC <- t6 + AC
+        t6 <- #EVTAB + AC       ; the source's entry
+        X <- t6
+        AC <- [X]               ; the owner
+        F <- AC | if F15 goto nr_task
+        X <- AC
+        F <- m1 + AC | ifnot carry goto nr_none
+        F <- nsrc
+        t0 <- F                 ; the event: the source's number
+        t6, X <- t6 + 1
+        F <- [X]
+        t1 <- F                 ; 16 x the CPU
+        t6, X <- t6 + 1
+        F <- [X]
+        t2 <- F                 ; the level
+        t6, X <- t6 + 1
+        F <- [X]
+        t3 <- F | goto post     ; the hold
+        nop
+nr_task: [X] <- 0 | goto nr_none
+        nop
+nr_none: F <- t7 | goto F
+        nop
+
+; Held levels are due: each CPU's, at once; TICKS back to idle.
+ndue:   X <- #TICKS
+        AC <- #TICKS_IDLE
+        [X] <- AC
+        nsrc <- #(EVRING + E_PEND - 16)
+        nint <- #(CPUS - 1)
+nd_cpu: AC <- #16
+        nsrc, X <- nsrc + AC
+        F <- [X] - 1 | ifnot carry goto nd_next     ; none held
+        AC <- [X]
+        [X] <- 0
+        F <- nsrc - 1 | X <- F                      ; E_SEG
+        AH0 <- [X]
+        CTRL <- #(8 | CTRL_SESSION)
+        F <- AC | AB <- F
+        F <- #IRQ_SET | wr.h AH0
+        CTRL <- #CTRL_SESSION
+nd_next: nint <- nint - 1 | if carry goto nd_cpu
+        nop
+        goto nturn
+        nop
+
+; ---- doorbells (RFC 0027, 7.1): each one rung cleared, and its client's
+; ring job queued if it isn't. A doorbell with no ring goes to BELLS, for
+; the Forth.
+
+nbell:  AC <- ev2
+        nint <- AC
+        nsrc <- #0
+        nbit <- #1
+nb_loop: AC <- nbit
+        F <- (nint & AC) - 1 | ifnot carry goto nb_next
+        X <- nsrc
+        ev2 <- F                ; doorbell X[3:0] cleared
+        nint <- nint & ~AC
+        X <- #CLIENTS
+        F <- ([X] & AC) - 1 | ifnot carry goto nb_none
+        AC <- nsrc
+        X <- #(JLINK + CLIENT_BANK) + AC
+        F <- [X] - 1 | if carry goto nb_next       ; queued already
+        AC <- #CLIENT_BANK + AC
+        t7 <- #nb_next
+        goto jenq
+        nop
+nb_none: AC <- nbit
         X <- #BELLS
         [X] <- [X] | AC
-        bit <- #1
-        ex <- #0
-nbloop: AC <- bit
-        F <- (bells & AC) - 1 | ifnot carry goto nbnext
-        X <- ex
-        ev2 <- F
-nbnext: ex <- ex + 1
-        bit <- bit + bit | ifnot carry goto nbloop
-        nop
-        goto nat
-        nop
+nb_next: F <- nint - 1 | ifnot carry goto nloop    ; none left
+        nsrc <- nsrc + 1
+        goto nb_loop
+        nbit <- nbit + nbit
 
 native_end:
 
@@ -197,15 +412,21 @@ native_end:
 
 .org 0x8000
 .prim pause
-        tos <- AC
-        F <- link | BANK <- F
+xpause: tos <- AC
+pause1: F <- link | BANK <- F
 ploop:  F <- wait - 1 | ifnot carry goto prun
-        nop
+        X <- #CURTASK
         if attn goto pnat
         F <- link
         BANK <- F | goto ploop
         nop
-pnat:   goto nat
-        nret <- #ploop
-prun:   F <- resume | goto F
+prun:   F <- me
+        [X] <- F
+        F <- resume | goto F
         AC <- tos
+pnat:   F <- me
+        [X] <- F                ; the task to look at again
+        BANK <- m1 | goto nloop
+        nret <- #ret_pause
+ret_pause: F <- [X] | BANK <- F | goto ploop
+        nop

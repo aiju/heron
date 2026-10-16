@@ -14,6 +14,7 @@ user >in
 user #tib
 user 'tib               \ the input line
 user hld
+user handler            \ the innermost catch's frame
 
 -1 constant true
 0 constant false
@@ -86,13 +87,13 @@ $C00 constant uart
 
 \ ---- tasks and events (RFC 0027, 6.4)
 
-\ A task waits for INT line n: its wait register set, the line routed to
-\ it and enabled; the native layer clears wait and masks the line at the
-\ next tick after the line is up.
-: wait-reg ( -- a ) up@ 35 + ;
+\ A task waits for INT line n: its wait register set, then the line routed
+\ to it and enabled; the native layer clears wait and masks the line at
+\ the next tick that finds it up.
+: wait-reg ( -- a ) up@ R.wait + ;
 : wait-int ( n -- )
    1 wait-reg !
-   wait-reg over evtab + !
+   wait-reg over 4 * evtab + !
    1 swap lshift evmask @ or evmask !
    pause ;
 
@@ -114,11 +115,19 @@ $E00 constant timer
 : spaces ( n -- ) 0 max 0 ?do space loop ;
 : type ( a n -- ) 0 ?do dup @ emit 1+ loop drop ;
 
+\ ---- catch and throw; abort throws -1 to the innermost catch, or runs
+\ 'abort when there's none
+
+: catch ( xt -- 0 | n )
+   sp@ >r  handler @ >r  rp@ handler !  execute  r> handler !  r> drop  0 ;
+: throw ( n -- )
+   ?dup if  handler @ rp!  r> handler !  r> swap >r sp! drop r>  then ;
+: abort ( -- ) handler @ if -1 throw then 'abort @ execute ;
+
 \ ---- strings inline in a thread: a count, then a cell a character
 
 : (s") ( -- a n ) r> 1+ dup @ 2dup + >r swap 1+ swap ;
 : (.") ( -- ) r> 1+ dup @ 2dup + >r swap 1+ swap type ;
-: abort ( -- ) 'abort @ execute ;
 : (abort") ( f -- ) r> 1+ dup @ 2dup + >r swap 1+ swap rot if type cr abort then 2drop ;
 
 \ ---- numbers out
@@ -232,6 +241,10 @@ create wbuf 66 allot
       ?stack
    repeat drop ;
 : query ( -- ) tib0 'tib !  tib0 TIB_SIZE accept #tib !  0 >in ! ;
+: evaluate ( a n -- )
+   'tib @ >r  #tib @ >r  >in @ >r
+   #tib !  'tib !  0 >in !  ['] interpret catch
+   r> >in !  r> #tib !  r> 'tib !  throw ;
 : quit ( -- )
    r0 rp!  0 state !
    begin query space interpret state @ 0= if ."  ok" then cr again ;

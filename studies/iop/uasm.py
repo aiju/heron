@@ -1,4 +1,4 @@
-"""The IOP's microassembler: RFC 0027's notation (6.2), one line a
+r"""The IOP's microassembler: RFC 0027's notation (6.2), one line a
 microinstruction, into the 48-bit words of 3.3 (the field table is in
 studies/iop/sim/src/micro.rs; FIELDS below is the same).
 
@@ -17,8 +17,7 @@ one source, A, which is R in the first half, and AC, B:
 
 - the source: a register (`ip`), memory at X (`[X]`), a constant (`#12`,
   `#name`, `#(expr)`), bus read data (`BA`) or a device on T (`io`, `sr`,
-  `swap`, `ev0`-`ev2`, `pg0`, `pg1`, `ttab`, `d6`, and `ones`, device 7,
-  which reads all ones);
+  `swap`, `ev0`-`ev2`, `pg0`, `pg1`, `ttab`, `d6`, `d7`);
 - the functions, spelt with `A` for the source and `AC`: `A`, `A + AC`,
   `A - AC`, `A + 1`, `A - 1`, `A + A`, `A & AC`, `A | AC`, `A ^ AC`, `~A`,
   `AC`, `~AC`, `0`, `-1`, `A & ~AC`, `(A & AC) - 1` and the rest of the
@@ -46,8 +45,13 @@ and `count` (count LC without branching). Conditions: `carry`, `F15`, `lc`
 step, three lines, with the clauses after it on the line as the last
 one's, the delay slot: `NEXT | sp <- sp + 1`.
 
-**Directives:** `.equ name expr`, `.reg name n`, `.org expr`, and `.prim
-name`, which makes the next line a Forth primitive by that name.
+**Constants** are Python expressions over layout.py's names, the labels
+and the registers' numbers.
+
+**Directives:** `.equ name expr`, `.reg name n`, `.org expr`, `.prim
+name`, which makes the next line a Forth primitive by that name, and
+`.macro name params` ... `.endm`: a use `name args` stands for the lines,
+`\param` for its argument and `\@` for a number of the use's own.
 
 REG is shared by a register and a device: a line that names both must
 name a register whose number REG can be for that device too.
@@ -73,7 +77,7 @@ DEVICES = {
     "io": (0, None), "sr": (1, None), "swap": (2, None),
     "ev0": (3, 0), "ev1": (3, 1), "ev2": (3, 2),
     "pg0": (4, 0), "pg1": (4, 1),
-    "ttab": (5, None), "d6": (6, None), "ones": (7, None),
+    "ttab": (5, None), "d6": (6, None), "d7": (7, None),
 }
 
 
@@ -203,7 +207,7 @@ class Assembler:
     def __init__(self):
         self.symbols = {k: v for k, v in vars(layout).items()
                         if isinstance(v, int) and not k.startswith("_")}
-        self.regs = dict(layout.REGS)
+        self.regs = {**layout.REGS, **layout.JOB_REGS, **layout.NAT_REGS}
         self.lines = []          # (address, Line)
         self.prims = {}          # Forth name -> address
         self.labels = {}
@@ -211,12 +215,14 @@ class Assembler:
         self.pending_prim = None
         self.prim_at = {}
         self.used = set()
+        self.macros = {}
+        self.uses = 0
 
     # ---- expressions
 
     def value(self, text, where, labels_ok=True):
         text = text.strip()
-        env = dict(self.symbols)
+        env = {**self.regs, **self.symbols}
         if labels_ok:
             env.update(self.labels)
         try:
@@ -230,9 +236,9 @@ class Assembler:
     # ---- the source
 
     def assemble(self, text, name="<microcode>"):
-        """First pass over a source file: lines placed, labels defined."""
-        for n, raw in enumerate(text.split("\n"), 1):
-            where = f"{name}:{n}"
+        """First pass over a source file: macros expanded, lines placed,
+        labels defined."""
+        for where, raw in self.expand([(f"{name}:{n}", raw) for n, raw in enumerate(text.split("\n"), 1)]):
             line = raw.split(";", 1)[0].rstrip()
             if not line.strip():
                 continue
@@ -258,6 +264,48 @@ class Assembler:
                     self.place(e, raw if i == 0 else f"    (NEXT) {e}", where)
                 continue
             self.place(s, raw, where)
+
+    def expand(self, lines):
+        r"""Macros: `.macro name p1 p2 ...` to `.endm` defines one; a line
+        `[label:] name a1 a2 ...` uses it, `\p1` in its body standing for
+        a1, and `\@` for a number of the use's own, for labels."""
+        out = []
+        i = 0
+        while i < len(lines):
+            where, raw = lines[i]
+            code = raw.split(";", 1)[0].strip()
+            if code.startswith(".macro"):
+                parts = code.split()
+                body = []
+                i += 1
+                while i < len(lines) and lines[i][1].split(";", 1)[0].strip() != ".endm":
+                    body.append(lines[i][1])
+                    i += 1
+                if i == len(lines):
+                    raise AsmError(f"{where}: .macro without .endm")
+                self.macros[parts[1]] = (parts[2:], body)
+                i += 1
+                continue
+            m = re.match(r"\s*(?:([A-Za-z_][\w.]*):)?\s*([A-Za-z_][\w.]*)\b(.*)$", code)
+            if m and m.group(2) in self.macros:
+                params, body = self.macros[m.group(2)]
+                args = m.group(3).split()
+                if len(args) != len(params):
+                    raise AsmError(f"{where}: {m.group(2)} takes {len(params)} arguments")
+                self.uses += 1
+                expanded = []
+                for b in body:
+                    for p, a in sorted(zip(params, args), key=lambda x: -len(x[0])):
+                        b = b.replace("\\" + p, a)
+                    expanded.append((f"{where} ({m.group(2)})", b.replace("\\@", str(self.uses))))
+                if m.group(1):
+                    expanded.insert(0, (where, m.group(1) + ":"))
+                lines[i + 1:i + 1] = expanded
+                i += 1
+                continue
+            out.append((where, raw))
+            i += 1
+        return out
 
     def directive(self, s, where):
         parts = s.split(None, 2)

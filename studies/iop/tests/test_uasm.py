@@ -20,8 +20,8 @@ class Encoding(unittest.TestCase):
         self.assertEqual(native.iop.disassemble(w), "reg As0+c r0 | wb | ld X")
         w = one("F <- [X] | X <- F | dispatch here")
         self.assertEqual(native.iop.disassemble(w), "[X] LsF r0 | ld X | if F15 F else 0001")
-        w = one("i0 <- i0 + AC | AB <- io | wr.h AH0 | if lc goto here")
-        self.assertEqual(native.iop.disassemble(w), "reg As9 r3 | wb | wr.h AH0 | AB<-dev | if lc 0001")
+        w = one("jp2 <- jp2 + AC | AB <- io | wr.h AH0 | if lc goto here")
+        self.assertEqual(native.iop.disassemble(w), "reg As9 r1 | wb | wr.h AH0 | AB<-dev | if lc 0001")
         self.assertEqual(one("nop"), 0)
         self.assertEqual(native.iop.disassemble(one("ip <- F")), "reg hold r0 | wb")
 

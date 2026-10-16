@@ -24,8 +24,8 @@ class Boot(unittest.TestCase):
         self.assertIn("7  ok", self.s.command("cpu? ."))
 
     def test_shared_ram_and_doorbell(self):
-        self.assertIn("1234 ok", self.s.command("$100 0 sr@ h.4"))
-        self.assertIn(" 1  ok", self.s.command("bells ?"))
+        self.assertIn("1234 ok", self.s.command("$200 0 sr@ h.4"))
+        self.assertIn(" 32  ok", self.s.command("bells ?"))
 
     def test_examine_and_deposit(self):
         """The monitor's e and d on the CPU card's RAM, through its slave port."""
@@ -53,8 +53,8 @@ class ControlStore(unittest.TestCase):
 
 
 class Blocks(unittest.TestCase):
-    """The native block words, through the CPU card's slave port, exactly
-    to their ends and across 64 KB on the bus."""
+    """The block words, as native jobs, through the CPU card's slave port,
+    exactly to their ends and across 64 KB on the bus."""
 
     @classmethod
     def setUpClass(cls):
@@ -82,9 +82,9 @@ class Blocks(unittest.TestCase):
     def test_shared_ram(self):
         self.run_("$ABCD $4000. d $1234 $400C. d")
         after = self.s.s.shared(12, 1)
-        self.run_("$4000. 5 0 7 bus>sr")
+        self.run_("$4000. $A. 7 bus>sr")
         self.assertEqual(self.s.s.shared(5, 8), self.mem(0x4000, 7) + after)
-        self.run_("5 0 $5000. 7 sr>bus")
+        self.run_("$A. $5000. 7 sr>bus")
         self.assertEqual(self.mem(0x5000, 8), self.mem(0x4000, 7) + [0])
 
     def test_bytes(self):

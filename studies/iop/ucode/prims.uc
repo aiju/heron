@@ -1,8 +1,9 @@
-; The IOP's microcode, part 2: the Forth's primitives (RFC 0027, 6.3),
+; The IOP's microcode, part 3: the Forth's primitives (RFC 0027, 6.3),
 ; from 0x8000 on, after `pause` in core.uc. Each ends in NEXT, whose delay
 ; slot takes the primitive's last step when it has one. The top of the
 ; data stack is in AC; sp addresses the second item; the stacks grow down.
-; t0-t7, i0-i4 and s0-s7 are scratch.
+; t0-t7 are scratch. AC is tested for zero with m1, -1: m1 + AC carries
+; unless AC is 0, and K stays free for the branch.
 
 ; ---- the inner interpreter's words
 
@@ -29,7 +30,7 @@ xbranch: ip, X <- ip + 1
         NEXT
 
 .prim 0branch
-        F <- (ones & AC) - 1 | if carry goto zb_no     ; not zero: don't branch
+        F <- m1 + AC | if carry goto zb_no     ; not zero: don't branch
         X <- sp
         AC <- [X]
         sp <- sp + 1
@@ -44,21 +45,14 @@ zb_no:  AC <- [X] | if attn goto zb_attn
 zb_attn: ip <- ip + 1 | goto attn_next
         nop
 
-; nest finds a colon definition's body in the cell ip addresses, so
-; execute makes a thread of two cells in the task's registers 38-39, the
-; xt and exit, calls it, and comes back through that exit.
+; execute: a primitive is jumped to, and ends with its own NEXT, as ip
+; hasn't moved; a colon definition goes through nest-w (core.uc).
 .prim execute
-        xa <- AC
-        xb <- #xexit
-        rp, X <- rp - 1
-        F <- ip
-        [X] <- F
-        AC <- #37
-        F <- up + AC
-        ip <- F                 ; the cell before xa
+        w <- AC
         X <- sp
         AC <- [X]
-        NEXT | sp <- sp + 1
+        F <- w | dispatch nestw
+        sp <- sp + 1
 
 ; Loops keep the limit and index - limit on the return stack, so that the
 ; index reaching the limit is a carry out of index - limit.
@@ -155,7 +149,7 @@ pl_end: X <- sp
         NEXT
 
 .prim ?dup
-        F <- (ones & AC) - 1 | ifnot carry goto next
+        F <- m1 + AC | ifnot carry goto next
         nop
         sp, X <- sp - 1
         [X] <- AC
@@ -415,14 +409,12 @@ dv_big: t0 <- t0 + t0 | ifnot carry goto dv_sub
         AC <- swap
         NEXT
 
-; ---- comparisons: true is -1. AC is tested for zero against `ones`,
-; which reads all ones: (ones & AC) - 1 borrows only when AC is zero, and
-; leaves K free for the branch.
+; ---- comparisons: true is -1
 
 .prim =
         X <- sp
         AC <- [X] ^ AC
-        F <- (ones & AC) - 1 | ifnot carry goto ret_true
+        F <- m1 + AC | ifnot carry goto ret_true
         sp <- sp + 1
         AC <- #0
         NEXT
@@ -430,18 +422,18 @@ dv_big: t0 <- t0 + t0 | ifnot carry goto dv_sub
 .prim <>
         X <- sp
         AC <- [X] ^ AC
-        F <- (ones & AC) - 1 | if carry goto ret_true
+        F <- m1 + AC | if carry goto ret_true
         sp <- sp + 1
         AC <- #0
         NEXT
 
 .prim 0=
-        F <- (ones & AC) - 1 | ifnot carry goto ret_true
+        F <- m1 + AC | ifnot carry goto ret_true
         AC <- #0
         NEXT
 
 .prim 0<>
-        F <- (ones & AC) - 1 | if carry goto ret_true
+        F <- m1 + AC | if carry goto ret_true
         AC <- #0
         NEXT
 
@@ -583,16 +575,17 @@ bcw_end: CTRL <- #CTRL_SESSION
         AC <- [X]
         NEXT | sp <- sp + 1
 
-; ---- the shared RAM, by halfword: ( lo page ), 64K halfwords a page
+; ---- the shared RAM, by byte offset ( lo hi ): X takes the low half, its
+; bit 0 ignored, and the page register the high
 
-.prim sr@                       ; ( lo page -- x )
+.prim sr@                       ; ( lo hi -- x )
         F <- AC | pg0 <- F
         X <- sp
         F <- [X] | X <- F
         AC <- sr
         NEXT | sp <- sp + 1
 
-.prim sr!                       ; ( x lo page -- )
+.prim sr!                       ; ( x lo hi -- )
         F <- AC | pg0 <- F
         F <- sp + 1 | X <- F
         AC <- [X]
@@ -617,87 +610,17 @@ bcw_end: CTRL <- #CTRL_SESSION
 .prim flash!                    ; ( x reg page -- ) one write cycle
         F <- AC | pg1 <- F
         F <- sp + 1 | X <- F
-        F <- [X]
-        i0 <- F
+        AC <- [X]
+        t0 <- AC
         X <- sp
         AC <- #(DEV_FLASH << 8)
         F <- [X] | AC | X <- F
-        F <- i0 | io <- F
+        AC <- t0
+        F <- AC | io <- F
         sp <- sp + 1
         sp, X <- sp + 1
         AC <- [X]
         NEXT | sp <- sp + 1
-
-; ---- blocks, native (RFC 0027, 6.3 and 11): any number of halfwords,
-; in slices of at most 16 transfers, each a session on the bus, with a look
-; at attention between them (the native layer runs, and the slice starts
-; again). i2 counts what's left; i3 and i4 hold CTRL's values for the
-; session off and on. A slice: k = min(16, left), LC <- -k. The ranges
-; must stay within 64K on the bus, and within the page they start in for
-; the image flash and the shared RAM: the Forth around them cuts them.
-
-; ( reg page lo hi n -- reg' page' ) from the image flash to the bus,
-; crossing the flash's pages: a slice is also cut at a page's end (t3
-; halfwords left in it), and the page register (t4 here) moves on. It
-; leaves where in the flash it stopped (reg' may be 256: the next page).
-.prim (flash>bus)
-        i2 <- AC
-        i3 <- #CTRL_SESSION
-        i4 <- #(8 | CTRL_SESSION)
-        X <- sp
-        AH0 <- [X]
-        sp, X <- sp + 1
-        F <- [X]
-        i0 <- F                 ; the bus address
-        sp, X <- sp + 1
-        F <- [X] | pg1 <- F
-        F <- [X]
-        t4 <- F                 ; the flash's page
-        sp, X <- sp + 1         ; sp: reg's cell, for reg'
-        AC <- #((DEV_FLASH << 8) - 1)
-        F <- [X] + AC
-        i1 <- F                 ; X for the flash, less one
-fb_slice: AC <- i1
-        t3 <- #((DEV_FLASH << 8) + 0xFF) - AC
-        F <- t3 - 1 | ifnot carry goto fb_page
-        AC <- #16
-        F <- t3 - AC | ifnot carry goto fb_t3
-        F <- i2 - AC
-        ifnot carry goto fb_i2
-        nop
-        i2 <- i2 - AC
-        LC <- #0
-fb_go:  CTRL <- i4              ; the session: GNT comes during what follows
-        AC <- #2
-        i1, X <- i1 + 1
-fb_loop: i0 <- i0 + AC | AB <- io | wr.h AH0 | if lc goto fb_loop
-        i1, X <- i1 + 1
-        CTRL <- i3 | if attn goto fb_attn
-        i1 <- i1 - 1
-        goto fb_slice
-        nop
-fb_t3:  AC <- t3                ; k = min(left, t3)
-        F <- i2 - AC | ifnot carry goto fb_i2
-        nop
-fb_k:   F <- (ones & AC) - 1 | ifnot carry goto fb_end
-        LC <- (#0 | ~AC) + 1
-        i2 <- i2 - AC | goto fb_go
-        nop
-fb_i2:  AC <- i2 | goto fb_k    ; k = left
-        nop
-fb_page: t4 <- t4 + 1
-        F <- t4
-        pg1 <- F | goto fb_slice
-        i1 <- #((DEV_FLASH << 8) - 1)
-fb_attn: goto nat
-        nret <- #fb_slice
-fb_end: CTRL <- i3
-        X <- sp
-        AC <- #((DEV_FLASH << 8) - 1)
-        F <- i1 - AC
-        [X] <- F                ; reg'
-        AC <- t4                ; page'
-        NEXT
 
 ; ( reg page -- reg' page' x ) a halfword from the image flash, and on
 .prim (fl@+)
@@ -722,147 +645,120 @@ fa_in:  F <- t4
         AC <- t5
         NEXT
 
-; ( src-lo src-hi dst-lo dst-hi n -- ) bus to bus, a read and a write a
-; halfword (so 8 a slice), AH0 the source's segment and AH1 the
-; destination's
-.prim (move)
-        i2 <- AC
-        i3 <- #CTRL_SESSION
-        i4 <- #(8 | CTRL_SESSION)
+; ---- native jobs (RFC 0027, 6.4): a block moves in a pool job (jobs.uc),
+; while the task that started it waits
+
+; ( alo ahi blo bhi len start -- ) a <- b, len bytes, in a job that begins
+; at start (js_copy, js_fill, ...); the task waits until it's done. With
+; no bank free, it pauses and tries again.
+.prim (job)
+        X <- #JFREE
+        F <- [X] - 1 | ifnot carry goto job_full
+        F <- [X]
+        t6 <- F                 ; the job's register 0
+        t0 <- AC                ; the job's start
         X <- sp
-        AH1 <- [X]
+        F <- [X]
+        t1 <- F                 ; len
         sp, X <- sp + 1
         F <- [X]
-        i1 <- F
-        sp, X <- sp + 1
-        AH0 <- [X]
+        t2 <- F                 ; bhi
         sp, X <- sp + 1
         F <- [X]
-        i0 <- F
+        t3 <- F                 ; blo
+        sp, X <- sp + 1
+        F <- [X]
+        t4 <- F                 ; ahi
+        sp, X <- sp + 1
+        F <- [X]
+        t5 <- F                 ; alo
         sp, X <- sp + 1
         AC <- [X]
-        tos <- AC
+        tos <- AC               ; the new top, for pause
         sp <- sp + 1
-mv_slice: AC <- #8
-        F <- i2 - AC | ifnot carry goto mv_last
-        CTRL <- i4              ; the session: GNT comes during what follows
-        i2 <- i2 - AC
-        LC <- #8
-mv_go:  AC <- #2
-mv_loop: i0 <- i0 + AC | rd.h AH0 | if lc goto mv_loop
-        i1 <- i1 + AC | AB <- BA | wr.h AH1
-        CTRL <- i3 | if attn goto mv_attn
-        nop
-        goto mv_slice
-        nop
-mv_end: CTRL <- i3
-        AC <- tos
-        NEXT
-mv_last: AC <- i2
-        F <- (ones & AC) - 1 | ifnot carry goto mv_end
-        LC <- (#0 | ~AC) + 1
-        i2 <- i2 - AC | goto mv_go
-        nop
-mv_attn: goto nat
-        nret <- #mv_slice
-
-; ( x lo hi n -- ) n pairs of halfwords: two writes a pass, so that a
-; write starts every microinstruction, and waits only for the one before
-.prim (fill)
-        i2 <- AC
-        i3 <- #CTRL_SESSION
-        i4 <- #(8 | CTRL_SESSION)
-        X <- sp
-        AH0 <- [X]
-        sp, X <- sp + 1
+        AC <- up
+        F <- #wait + AC
+        t7 <- F                 ; the task's wait register
+        AC <- t6
+        X <- #jres + AC
+        F <- t0
+        [X] <- F
+        X <- #jkind + AC
         F <- [X]
-        i0 <- F
-        sp, X <- sp + 1
-        F <- [X] | AB <- F
-        sp, X <- sp + 1
+        t0 <- F
+        X <- #JFREE
+        F <- t0
+        [X] <- F                ; out of the free list
+        X <- #jkind + AC
+        F <- #JK_WAKE
+        [X] <- F
+        X <- #jarg + AC
+        F <- t7
+        [X] <- F
+        X <- #jleft + AC
+        F <- t1
+        [X] <- F
+        X <- #jbhi + AC
+        F <- t2
+        [X] <- F
+        X <- #jblo + AC
+        F <- t3
+        [X] <- F
+        X <- #jahi + AC
+        F <- t4
+        [X] <- F
+        X <- #jalo + AC
+        F <- t5
+        [X] <- F
+        X <- #jend + AC
+        F <- #jfin
+        [X] <- F
+        X <- #jme + AC
         AC <- [X]
-        tos <- AC
-        sp <- sp + 1
-fl_slice: AC <- #8
-        F <- i2 - AC | ifnot carry goto fl_last
-        CTRL <- i4              ; the session: GNT comes during what follows
-        i2 <- i2 - AC
-        LC <- #8
-fl_go:  AC <- #2
-fl_loop: i0 <- i0 + AC | wr.h AH0 | if lc goto fl_loop
-        i0 <- i0 + AC | wr.h AH0
-        CTRL <- i3 | if attn goto fl_attn
+        wait <- #1              ; until the job is done
+        t7 <- #job_q
+        goto jenq
         nop
-        goto fl_slice
+job_q:  CTRL <- #(8 | CTRL_WORK)
+        goto pause1
         nop
-fl_end: CTRL <- i3
-        AC <- tos
-        NEXT
-fl_last: AC <- i2
-        F <- (ones & AC) - 1 | ifnot carry goto fl_end
-        LC <- (#0 | ~AC) + 1
-        i2 <- i2 - AC | goto fl_go
+job_full: ip <- ip - 1 | goto xpause
         nop
-fl_attn: goto nat
-        nret <- #fl_slice
 
-; ( sr-lo page lo hi n -- ) from the shared RAM to the bus: its side is
-; local, so a halfword is one transfer (RFC 0027, 4.3). t0 is X for the
-; shared RAM, t1 the bus address.
-.prim (sr>bus)
-        i2 <- AC
-        i3 <- #CTRL_SESSION
-        i4 <- #(8 | CTRL_SESSION)
+; ( event cpu16 level hold -- ) an event to a CPU (jobs.uc's post)
+.prim (post)
+        t3 <- AC
         X <- sp
-        AH0 <- [X]
+        F <- [X]
+        t2 <- F
         sp, X <- sp + 1
         F <- [X]
         t1 <- F
         sp, X <- sp + 1
-        F <- [X] | pg0 <- F
-        sp, X <- sp + 1
-        F <- [X] - 1
+        F <- [X]
         t0 <- F
         sp, X <- sp + 1
         AC <- [X]
         tos <- AC
         sp <- sp + 1
-sb_slice: AC <- #16
-        F <- i2 - AC | ifnot carry goto sb_last
-        CTRL <- i4              ; the session: GNT comes during what follows
-        i2 <- i2 - AC
-        LC <- #0
-sb_go:  AC <- #2
-        t0, X <- t0 + 1
-sb_loop: t1 <- t1 + AC | AB <- sr | wr.h AH0 | if lc goto sb_loop
-        t0, X <- t0 + 1
-        CTRL <- i3 | if attn goto sb_attn
-        t0 <- t0 - 1
-        goto sb_slice
-        nop
-sb_end: CTRL <- i3
-        AC <- tos
+        goto post
+        t7 <- #prim_ret
+prim_ret: AC <- tos
         NEXT
-sb_last: AC <- i2
-        F <- (ones & AC) - 1 | ifnot carry goto sb_end
-        LC <- (#0 | ~AC) + 1
-        i2 <- i2 - AC | goto sb_go
-        nop
-sb_attn: goto nat
-        nret <- #sb_slice
 
-; ( lo hi sr-lo page n -- ) from the bus to the shared RAM
-.prim (bus>sr)
-        i2 <- AC
-        i3 <- #CTRL_SESSION
-        i4 <- #(8 | CTRL_SESSION)
+; ( tag status rlo rhi settings -- ) a completion into a client's ring
+; (jobs.uc's cpost)
+.prim (complete)
+        t0 <- AC
         X <- sp
-        F <- [X] | pg0 <- F
+        F <- [X]
+        t4 <- F
         sp, X <- sp + 1
-        F <- [X] - 1
-        t0 <- F
+        F <- [X]
+        t3 <- F
         sp, X <- sp + 1
-        AH0 <- [X]
+        F <- [X]
+        t2 <- F
         sp, X <- sp + 1
         F <- [X]
         t1 <- F
@@ -870,29 +766,22 @@ sb_attn: goto nat
         AC <- [X]
         tos <- AC
         sp <- sp + 1
-bs_slice: AC <- #16
-        F <- i2 - AC | ifnot carry goto bs_last
-        CTRL <- i4              ; the session: GNT comes during what follows
-        i2 <- i2 - AC
-        LC <- #0
-bs_go:  AC <- #2
-        t0, X <- t0 + 1
-bs_loop: t1 <- t1 + AC | rd.h AH0 | if lc goto bs_loop
-        t0, X <- t0 + 1 | sr <- BA
-        CTRL <- i3 | if attn goto bs_attn
-        t0 <- t0 - 1
-        goto bs_slice
+        goto cpost
+        t7 <- #prim_ret
+
+; ( bank -- ) a job queued, if it isn't, and WORK on: a ring job, once its
+; ring is set up
+.prim (enqueue)
+        X <- #JLINK + AC
+        F <- [X] - 1 | if carry goto enq_done
         nop
-bs_end: CTRL <- i3
-        AC <- tos
-        NEXT
-bs_last: AC <- i2
-        F <- (ones & AC) - 1 | ifnot carry goto bs_end
-        LC <- (#0 | ~AC) + 1
-        i2 <- i2 - AC | goto bs_go
+        t7 <- #enq_done
+        goto jenq
         nop
-bs_attn: goto nat
-        nret <- #bs_slice
+enq_done: CTRL <- #(8 | CTRL_WORK)
+        X <- sp
+        AC <- [X]
+        NEXT | sp <- sp + 1
 
 ; ---- the rest
 

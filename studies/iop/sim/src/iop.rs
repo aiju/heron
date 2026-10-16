@@ -52,13 +52,17 @@
 //!
 //! **The devices on T** (REG bits 5-3, register bits 2-0):
 //! - 0 the I/O bus at X (see [`crate::iobus`]);
-//! - 1 the shared RAM at {page, X}, halfwords;
+//! - 1 the shared RAM at {page, X}: X is a byte address, its bit 0
+//!   ignored, and the page register holds address bits 16-22, so that a
+//!   CPU's physical address in region 4 splits into the two without a
+//!   shift (RFC 0027 has X count halfwords, with a 4-bit page register
+//!   for 2 MB);
 //! - 2 the swap register: written from T, read with its bytes swapped;
 //! - 3 the event ports: register 0 R the INT lines; 1 R ATN0-3 in bits
 //!   0-3 and the tick in bit 15, W clears the tick; 2 R the doorbells, W
 //!   clears doorbell X[3:0];
-//! - 4 page registers, write-only: 0 the shared RAM's (6 bits), 1 the
-//!   image flash's (11 bits);
+//! - 4 page registers, write-only: 0 the shared RAM's (7 bits, 64 KB
+//!   pages), 1 the image flash's (11 bits);
 //! - 5 the timing table, write-only, entry X[11:8];
 //! - 6, 7 spare.
 //!
@@ -349,7 +353,7 @@ impl Iop {
     }
 
     fn sr_index(&self) -> usize {
-        ((self.sr_page as usize) << 16 | self.x as usize) % self.shared.len()
+        ((self.sr_page as usize) << 15 | (self.x >> 1) as usize) % self.shared.len()
     }
 
     /// A device on T, written. Returns the I/O bus clocks.
@@ -374,7 +378,7 @@ impl Iop {
                 _ => {}
             },
             DEV_PAGE => match r {
-                0 => self.sr_page = v & 63,
+                0 => self.sr_page = v & 127,
                 1 => self.io.flash_page = v & 0x7FF,
                 _ => {}
             },

@@ -53,58 +53,29 @@ $70002000. 2constant cpu-irq
 : cpu-int ( level -- ) 1 swap 1- lshift cpu-irq bus! ;
 : cpu-wait ( -- ) begin pause cpu? 2 and until ;     \ until it halts
 
-\ ---- blocks on the bus (RFC 0027, 11): the primitives move any number of
-\ halfwords natively, slicing them for the bus; here they're cut where an
-\ address would leave its 64 KB on the bus, or its page in the shared RAM.
+\ ---- blocks (RFC 0027, 11): each a native job (`(job)`, ucode/jobs.uc),
+\ which slices it for the bus while this task waits. Addresses are
+\ physical, as doubles; region 4 is the shared RAM. Lengths in halfwords.
 
-: seg ( d -- n ) drop negate u2/ ?dup 0= if $8000 then ;      \ halfwords left in d's 64 KB
-: srseg ( d -- n ) drop negate ?dup 0= if $FFFF then ;         \ in its page of the shared RAM
-: d+n ( d n -- d' ) 0 d+ ;
-2variable from
-2variable to
-variable left
-: step ( k -- ) dup negate left +!  2* to 2@ rot d+n to 2! ;
-: bus-move ( src dst n -- )      \ n halfwords, between bus addresses
-   left ! to 2! from 2!
-   begin left @ while
-      left @ from 2@ seg umin to 2@ seg umin >r
-      from 2@ to 2@ r@ (move)
-      r@ 2* from 2@ rot d+n from 2!  r> step  pause
-   repeat ;
-: bus-fill ( x d n -- )          \ n halfwords of x, (fill) by pairs
-   left ! to 2!
-   begin left @ while
-      left @ to 2@ seg umin u2/ ?dup if
-         >r dup to 2@ r@ (fill) r> 2* step
-      else dup to 2@ bus! 1 step then
-      pause
-   repeat drop ;
-: sr>bus ( sr d n -- )           \ from the shared RAM (halfword index lo, page) to the bus
-   left ! to 2! from 2!
-   begin left @ while
-      left @ from 2@ srseg umin to 2@ seg umin >r
-      from 2@ to 2@ r@ (sr>bus)
-      from 2@ r@ d+n from 2!  r> step  pause
-   repeat ;
-: bus>sr ( d sr n -- )           \ from the bus to the shared RAM
-   left ! from 2! to 2!
-   begin left @ while
-      left @ from 2@ srseg umin to 2@ seg umin >r
-      to 2@ from 2@ r@ (bus>sr)
-      from 2@ r@ d+n from 2!  r> step  pause
-   repeat ;
+: >sr ( offset. -- phys. ) $4000 + ;
+: bus-move ( src. dst. n -- ) 2* >r 2swap r> U.js_copy (job) ;
+: bus-fill ( x dst. n -- ) 2* >r rot 0 r> U.js_fill (job) ;
+: sr>bus ( sr. dst. n -- ) >r 2swap >sr 2swap r> bus-move ;     \ sr: an offset in the shared RAM
+: bus>sr ( src. sr. n -- ) >r >sr r> bus-move ;
+: io>bus ( reg dst. n -- ) 2* >r rot 0 r> U.js_fromio (job) ;   \ a device's register, n a multiple of 2
+: bus>io ( src. reg n -- ) 2* >r 0 2swap r> U.js_toio (job) ;
 
 \ Records from the image flash onto the bus: {address (low, high), n,
 \ n halfwords}, until n is 0. The flash's position is kept as (reg page).
-: copy-out ( reg page -- reg' page' )
-   begin left @ while
-      left @ to 2@ seg umin >r
-      to 2@ r@ (flash>bus)  r> step  pause
-   repeat ;
+: fl+ ( reg page n -- reg' page' ) rot + dup swab $FF and rot + swap $FF and swap ;
+2variable to
+variable left
 : play ( d -- )
    fl-split
    begin (fl@+) >r (fl@+) >r (fl@+) ?dup while
-      left !  r> r> swap to 2!  copy-out
+      left !  r> r> swap to 2!
+      to 2@ 2over left @ 2* U.js_flash (job)
+      left @ fl+
    repeat rdrop rdrop 2drop ;
 
 \ The control store (image 0, if there is one), then the boot program
@@ -115,28 +86,23 @@ variable left
 \ ---- tasks: a bank each, in the ring through link
 
 : reg ( bank r -- a ) swap 64 * + BANKS + ;
-: me ( -- bank ) up@ 36 + @ ;
+: me ( -- bank ) up@ R.me + @ ;
 \ A task in a bank, running a colon definition's body for ever.
 : spawn ( xt bank -- )
    >r
-   1- r@ 0 reg !
-   r@ 128 * STACKS + dup 64 + r@ 1 reg !  128 + r@ 2 reg !
-   U.next r@ 33 reg !
-   0 r@ 35 reg !
-   r@ r@ 36 reg !
-   r@ 0 reg r@ 37 reg !
-   10 r@ 40 reg !
-   me 34 reg @ r@ 34 reg !  r> me 34 reg ! ;
+   1- r@ R.ip reg !
+   r@ 128 * STACKS + dup 64 + r@ R.sp reg !  128 + r@ R.rp reg !
+   U.next r@ R.resume reg !
+   0 r@ R.wait reg !
+   -1 r@ R.m1 reg !
+   r@ r@ R.me reg !
+   r@ 0 reg r@ R.up reg !
+   10 r@ USER_FIRST reg !               \ base
+   0 r@ USER_FIRST 5 + reg !            \ handler
+   me R.link reg @ r@ R.link reg !  r> me R.link reg ! ;
 
 \ ---- the LEDs, device 15
 
 $F00 constant ports
 : leds ( x -- ) ports io! ;
 
-\ ---- the cold start
-
-: banner ( -- ) ." Heron IOP Forth, " here u. ." cells" cr ;
-: cold ( -- )
-   decimal  0 state !  0 evmask !  0 bells !
-   uart-init  timer-init  7 leds
-   banner  quit ;
