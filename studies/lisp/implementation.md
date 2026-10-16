@@ -164,10 +164,20 @@ different:
   a constant or a variable's value without touching the stack, or
   checking the stack limit, which only a pair can need.
 - **The calling convention.** With `r7` the link, arguments 1–6 are in
-  `r3`, `r4`, `r5`, `r6`, `r8` and `r0`; with more than 6, `r3`–`r6` and
-  `r8` hold 1–5 and `r0` a list of the rest. The rest is as on 1b: `r1`
-  the procedure, `r2` the count, `CALL [r1 + 1]`, the result in `r1`;
-  `r0`–`r12` are not preserved.
+  `r6`, `r5`, `r4`, `r3`, `r8` and `r0`: the first four just below `r7`,
+  so that `SAVE r(7−n)-r7` keeps n of them and the return address
+  together ([report 0033](../../reports/0033-report-lisp-arguments-draft-2.md)).
+  With more than 6, `r6`–`r3` and `r8` hold 1–5 and `r0` a list of the
+  rest. The rest is as on 1b: `r1` the procedure, `r2` the count,
+  `CALL [r1 + 1]`, the result in `r1`; `r0`–`r12` are not preserved.
+  The runtime's own registers are 1b's with `r3` and `r6`, `r4` and `r5`
+  swapped throughout, so its routines' conventions follow (`cons` takes
+  the car in `r6` and the cdr in `r5`); compiled code's inline `cons`
+  keeps `r3` and `r4`, and calls `cons_c` when the heap is full.
+- **A call's arguments in the interpreter** are on the stack with the
+  first highest, just below the procedure (on 1b the first is at `[sp]`),
+  so that `RESTORE r(7−n)-r6` loads n of them into their registers and
+  `SAVE r(7−n)-r6` stores them.
 - **The collector's roots** are `r0`–`r8`, so `r0` keeps the same rule as
   `r1`–`r8`; `r7` holds a return address, which is even and stays as it
   is.
@@ -182,6 +192,7 @@ different:
   compiled code. Their trap reports the error the software checks do: the
   first operand that isn't an integer, or an overflow. Without the
   feature, a check of one operand is `TST r, #1`.
-- **Code space** ends at `0x27000`, 4 KB later than on 1b, and the
-  category map is that much smaller: the draft 2 compiler is a bigger
-  program, and the errors test filled 1b's space.
+- **Code space** ends at `0x28000`, 8 KB later than on 1b: the draft 2
+  compiler is a bigger program, and the errors test filled 1b's space.
+  The heap gives 4 KB of each half (it starts at `0x32000`), so that the
+  category map still covers all of code space.

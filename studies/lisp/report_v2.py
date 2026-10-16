@@ -53,6 +53,10 @@ say, and [report 0018](../0018-report-lisp.md) for the Lisp on 1b. Cycles
 are the timing model's for D32-separate, the configuration of the 213-chip
 1b hardware ([report 0012](../0012-report-draft-1b-hardware.md)), unless a
 table says otherwise; draft 2 is costed as if it were built the same way.
+These tables follow the code: since [report 0033](../0033-report-lisp-arguments-draft-2.md),
+draft 2's Lisp keeps its arguments below the link register, and its
+compiled tail calls to themselves skip the stack check, which 1b's still
+make; report 0032's text describes draft 2 before that.
 
 - **Interpreted:** the whole run less an empty program's (start-up and the
   prelude).

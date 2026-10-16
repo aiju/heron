@@ -161,17 +161,27 @@ over a draft 2 one; and compiler.lisp, the 1b compiler, doesn't change
   operations (`TADD`, `TSUB`, `TCMP`; `TTST r, r` checks one operand and
   is `zero?`). An encoder test checks every form against the assembler
   (tests/test_compiler.py).
-- **Registers:** arguments in `r3`, `r4`, `r5`, `r6`, `r8`, `r0`, as the
-  runtime's convention has them ([implementation.md](implementation.md#on-draft-2)).
+- **Registers:** arguments in `r6`, `r5`, `r4`, `r3`, `r8`, `r0`, as the
+  runtime's convention has them ([implementation.md](implementation.md#on-draft-2)):
+  argument k of the first four in r(7 − k), just below the link register.
+- **The frame.** A function saves its arguments on entry with the first
+  highest, `SAVE r(7−n)-r6` for n ≤ 4 parameters (`SAVE r3-r6` and then
+  `r8` and `r0` below it for 5 and 6), so its parameters are numbered in
+  order from the top of the frame.
 - **The link register.** A function's entry, returns and tail calls are
   placeholders until its code is done (`cc:link`). A function that calls
   anything (a `CALL`, a `BSR` to a known function, a call into the
-  runtime) pushes `r7` on entry, below its frame, returns with
-  `JMP [sp]+` and restores `r7` before a tail call; a leaf leaves `r7`
+  runtime) saves `r7` with its arguments, `SAVE r(7−n)-r7`, so the
+  return address is above them; it returns with `JMP [sp]+` and restores
+  `r7` before a tail call. A leaf saves only the arguments, leaves `r7`
   alone and returns with `RET`. An inline `cons` that finds the heap
   full calls the runtime's `cons` (which collects, checks again and makes
-  the pair) from a stub that keeps `r7` on the stack itself, so consing
-  doesn't make a function a caller. A tail call
-  to itself jumps past the push, so a loop doesn't push.
+  the pair; `%rt:cons`, which takes the car in `r3` and the cdr in `r4`)
+  from a stub that keeps `r7` on the stack itself, so consing doesn't
+  make a function a caller.
+- **A tail call to itself** pops the frame down to the return address,
+  saves the new arguments where the old ones were and jumps past the
+  entry: past the stack check too, since the stack is no deeper than when
+  the function was entered.
 - **`no-leaf`** (a feature, for the measurements) makes every function
   keep its return address on the stack.
