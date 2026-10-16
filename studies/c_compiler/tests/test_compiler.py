@@ -418,7 +418,7 @@ int f(struct e *x, struct e *y) { if (before(x, y)) return 7; return 9; }"""
     def test_v2_remainder_in_r0(self):
         # draft 2 has no HI: a divide leaves its remainder in r0
         a = asm_of("unsigned f(unsigned a, unsigned b) { return a % b; }", "v2")
-        self.assertRegex(a, r"DIVU\s+r\d+, r\d+\n\s+MOV\s+r1, r0")
+        self.assertRegex(a, r"DIVU\s+r0:r\d+, r\d+\n\s+MOV\s+r1, r0")
         self.assertNotIn("MFHI", a)
 
     def test_v2_no_overflow_replaces_compare(self):

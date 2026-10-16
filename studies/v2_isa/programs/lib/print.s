@@ -35,7 +35,7 @@ print_u32z:
         MOV  r5, #10
 __pr_digits:                    ; print_u64 joins here, with r4 and r5 set up
 .div:   DEC  r2                 ; count down the minimum width
-        DIVU r1, r5             ; r1 /= 10, r0 = digit; Z = nothing left
+        DIVU r0:r1, r5          ; r1 /= 10, r0 = digit; Z = nothing left
         PUSH r0                 ; (stores leave the flags alone)
         BNE  .div
         MOV  r3, #'0'
@@ -56,8 +56,8 @@ print_u64:
         BEQ  print_u32          ; the high word is 0: a 32-bit number
         MOV  r4, sp
         MOV  r5, #10
-.div:   DIVU  r2, r5            ; high word / 10, remainder in r0...
-        DIVUL r1, r5            ; ...on top of the low word: (r0:low) / 10, r0 = digit
+.div:   DIVU  r0:r2, r5         ; high word / 10, remainder in r0...
+        DIVUL r0:r1, r5         ; ...on top of the low word: (r0:low) / 10, r0 = digit
         PUSH  r0
         TST   r2, r2
         BNE   .div
