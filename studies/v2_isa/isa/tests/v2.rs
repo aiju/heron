@@ -103,12 +103,12 @@ fn encodings() {
         ("CALL [r1]", &[b(0xF1, 0x21)]),
         ("CALL #0x1234", &[b(0xF1, 0xF0), 0x1234]),
         // LEA
-        ("LEA r1, [r2 + 8]", &[b(0x04, 0x12), 0x0008]),
-        ("LEA r1, [sp + 8]", &[b(0x05, 0x12)]),
-        ("LEA r1, [r2 + r3*2]", &[b(0x06, 0x12), 0x3600]),
-        ("LEA r1, here", &[b(0x07, 0x14), 0x0100]),
-        ("LEA r1, [pc + here]", &[b(0x07, 0x1A), 0xFFFC]),
-        ("LEA r1, [table + r2*4]", &[b(0x07, 0x1D), 0x2A23, 0x4560]),
+        ("LEA r1, [r2 + 8]", &[b(0x03, 0x12), 0x0008]),
+        ("LEA r1, [sp + 8]", &[b(0x04, 0x12)]),
+        ("LEA r1, [r2 + r3*2]", &[b(0x05, 0x12), 0x3600]),
+        ("LEA r1, here", &[b(0x0F, 0x14), 0x0100]),
+        ("LEA r1, [pc + here]", &[b(0x0F, 0x1A), 0xFFFC]),
+        ("LEA r1, [table + r2*4]", &[b(0x0F, 0x1D), 0x2A23, 0x4560]),
         ("LEA r1, [r2]", &[b(0x10, 0x12)]),
         // registers only
         ("ADC r1, r2", &[b(0xE0, 0x12)]),
@@ -130,7 +130,8 @@ fn encodings() {
         ("MOV r1, [r14]", &[b(0x12, 0x1E)]),
         ("MOV r1, [r14 + 64]", &[b(0x13, 0x1E), 0x0040]),
         ("MOV r1, byte [r14 + 4]", &[b(0x19, 0x1E), 0x0004]),
-        ("LEA r1, [r14 + 8]", &[b(0x04, 0x1E), 0x0008]),
+        ("LEA r1, [r14 + 8]", &[b(0x0E, 0x12)]),
+        ("LEA r1, [r14 + 64]", &[b(0x03, 0x1E), 0x0040]),
         ("MULFX r1, r2, #16", &[b(0xFD, 0x00), 0x1210]),
         // row D, shifts
         ("SXH r1, r2", &[b(0xD8, 0x12)]),
@@ -152,15 +153,15 @@ fn encodings() {
         ("RESTORE r0-r14", &[b(0xF5, 0x0E)]),
         ("LDM r1, r4-r7", &[b(0x01, 0x41), 0x7000]),
         ("STM sp, r0", &[b(0x02, 0x0F), 0x0000]),
-        ("MFSR r1, hi", &[b(0x0E, 0x11)]),
-        ("MTSR lo, r2", &[b(0x0F, 0x22)]),
+        ("MFSR r1, hi", &[b(0x06, 0x11)]),
+        ("MTSR lo, r2", &[b(0x07, 0x22)]),
         ("PUSH r1", &[b(0x27, 0x1F)]),
         ("POP r2", &[b(0x16, 0x2F)]),
-        ("MFHI r1", &[b(0x0E, 0x11)]),
-        ("MFLO r3", &[b(0x0E, 0x32)]),
-        ("MTHI r2", &[b(0x0F, 0x12)]),
-        ("MTLO r2", &[b(0x0F, 0x22)]),
-        ("MFSR r1, flags", &[b(0x0E, 0x10)]),
+        ("MFHI r1", &[b(0x06, 0x11)]),
+        ("MFLO r3", &[b(0x06, 0x32)]),
+        ("MTHI r2", &[b(0x07, 0x12)]),
+        ("MTLO r2", &[b(0x07, 0x22)]),
+        ("MFSR r1, flags", &[b(0x06, 0x10)]),
         ("SWI #42", &[b(0xFC, 0x2A)]),
         ("NOP", &[b(0x10, 0x00)]),
         ("JMP r7", &[b(0xF0, 0x07)]),
@@ -396,9 +397,9 @@ fn mode_e_is_a_slot_at_r14() {
          \x20       MOV r9, #-1\n        MOV [r14 + 60], r9\n        CLR [r14 + 60]\n\
          \x20       MOV r3, #there\n        MOV [r14 + 20], r3\n        JMP [r14 + 20]\n\
          \x20       HALT\n\
-         there:  MOV r4, #9",
+         there:  MOV r4, #9\n        LEA r5, [r14 + 60]",
     );
-    assert_eq!((m.r[1], m.r[2], m.r[4]), (10, 6, 9));
+    assert_eq!((m.r[1], m.r[2], m.r[4], m.r[5]), (10, 6, 9, 0x33C));
     assert_eq!(&m.mem[0x308..0x30C], &6u32.to_le_bytes());
     assert_eq!(&m.mem[0x33C..0x340], &0u32.to_le_bytes());
 }
@@ -453,7 +454,7 @@ fn tagged_operations_check_bit_0() {
 fn illegal_cells_trap() {
     // MFUR is the supervisor's, and there is no supervisor yet
     for cell in [
-        "0x00", "0x03", "0x31", "0xC3", "0xF7", "0xFF", "0x10FE", "0xFDFD",
+        "0x00", "0x31", "0xC3", "0xEF", "0xF7", "0xFF", "0x10FE", "0xFDFD",
     ] {
         let m = run(&format!("        .half {cell}"));
         assert_eq!(m.r[14], 0x7E, "{cell}");
