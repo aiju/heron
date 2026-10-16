@@ -8,11 +8,10 @@ reports: []
 
 Heron's machines in a browser: the studies' own instruction-level
 simulators, built for WebAssembly, with a terminal, a screen, the
-keyboard and the mouse, on the website's Apps page
-(`apps/sim/`). The Lisp and Egret at their terminals, on draft 1b and
-draft 2, and Fen with its shell on the serial console or its desktop on
-the video card, at the machine's own clock or as fast as the browser
-goes. A machine is a description, so a new one, or one whose study has
+keyboard and the mouse, in the website's Simulator tab (`sim/`). The
+Lisp and Egret at their terminals, on draft 1b and draft 2, and Fen with
+its shell on the serial console or its desktop on the video card, at the
+machine's own clock or as fast as the browser goes. A machine is a description, so a new one, or one whose study has
 changed its memory map, is a few lines of Python here.
 
 ```sh
@@ -39,8 +38,8 @@ The browser's engine needs Rust's WebAssembly target:
 | `fen-serial` | [Fen](../fen/README.md) with its shell on the serial console |
 | `fen-desktop` | Fen's desktop, on the video card, the PS/2 keyboard and the mouse |
 
-The page's address names a machine (`apps/sim/#fen-desktop`), so a
-report can link to one.
+The page's address names a machine (`sim/#fen-desktop`), so a report
+can link to one.
 
 ## How it works
 

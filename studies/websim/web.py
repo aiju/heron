@@ -7,8 +7,8 @@ the machines, which any web server can serve.
     machines.json           every machine's description (machines.py), what the page shows
     blobs/HASH.gz           what the machines load, gzipped, named by their contents
 
-heron site --apps puts them in the website at apps/sim/ (heron/site), and
-`heron websim serve` serves them on their own.
+heron site --apps puts them in the website at sim/, its Simulator tab
+(heron/site), and `heron websim serve` serves them on their own.
 """
 
 import gzip
@@ -144,51 +144,3 @@ def write(out=OUT, ids=None, page=None, log=print):
             os.remove(os.path.join(blobs.dir, name))
     return os.path.join(out, "index.html")
 
-
-def picture(path):
-    """A picture of the simulator for the website's apps page: Fen's
-    desktop with a command run in its terminal and the clock open, made on
-    the engine here (a browser on the page from disk can't fetch the
-    machines)."""
-    from heron.studies.fen.run import key_name, write_png
-
-    from . import run
-    r = run.Running(M.get("fen-desktop"))
-
-    def press(name, down):
-        r.s.key(name, down)
-        r.run(10)
-
-    def mouse(x, y, b):
-        r.s.mouse(x, y, b)
-        while r.s.mouse_busy:
-            r.run(25)
-        r.run(60)
-
-    r.run(2500)
-    mouse(300, 300, 1)
-    mouse(300, 300, 0)
-    for ch in "ls /bin | head -3\n":
-        name, shift = key_name(ch)
-        if shift:
-            press("ShiftLeft", True)
-        press(name, True)
-        press(name, False)
-        if shift:
-            press("ShiftLeft", False)
-    r.run(1500)
-    # the desktop's menu (wsys: Terminal, Clock, 18 pixels each), and Clock
-    mouse(600, 250, 1)
-    mouse(605, 280, 1)
-    mouse(605, 280, 0)
-    r.run(1500)
-    # the clock opens over the terminal's text: out of the way, by its title bar
-    mouse(130, 53, 1)
-    mouse(450, 250, 1)
-    mouse(450, 250, 0)
-    r.run(1500)
-    rgba = r.s.screen(True)
-    w, h = r.s.screen_size
-    rgb = bytearray(w * h * 3)
-    rgb[0::3], rgb[1::3], rgb[2::3] = rgba[0::4], rgba[1::4], rgba[2::4]
-    write_png(path, bytes(rgb), w, h)
