@@ -130,7 +130,7 @@ PITCH = {("smd", 6): (8.25, 14.25), ("smd", 4): (8.25, 14.25),
          ("dip", 6): (11.8, 30.4), ("dip", 4): (12.07, 33.0)}
 
 # The CPU card's 50 MHz clock generator allows one 74F gate between
-# flip-flops in a 20 ns tick (studies/v1b_system/design.md): its wires must be
+# flip-flops in a 20 ns tick (report 0025, section 5.1): its wires must be
 # short, so its nets weigh more in placement.
 CRITICAL_SECTIONS = {"Clock generator", "Bus hold and crossings", "Length class"}
 CRITICAL_WEIGHT = 8.0
