@@ -1004,6 +1004,104 @@
       }
     }
   },
+  "74ABT573": {
+    "family": "ABT",
+    "function": "octal transparent D-type latch, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT573A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt573a.pdf",
+    "datasheet": "TI SCBS190F (Jan 1991, rev Sep 2003)",
+    "availability": "TI SN74ABT573AN (DIP) active, also DW, DB, NS, PW, RGY, GQN, ZQN.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "D->Q": {
+        "min": 1.9,
+        "typ": 4.2,
+        "max": 6.2
+      },
+      "LE->Q": {
+        "min": 2.2,
+        "typ": 5.2,
+        "max": 7.2
+      },
+      "OE->Y en": {
+        "min": 1.2,
+        "typ": 4.7,
+        "max": 6.7
+      },
+      "OE->Y dis": {
+        "min": 2,
+        "typ": 4.9,
+        "max": 7.1
+      }
+    },
+    "checks": {
+      "setup D": 1.9,
+      "hold D": 1.8,
+      "tw LE": 3.3
+    },
+    "estimated": [],
+    "notes": "Setup is data before LE falling: 1.9 ns (data high) / 1.5 ns (data low). Hold 1.8 ns, the tPZL min 2.5 and the tPHZ max 7.1 are marked 'may vary among suppliers'.",
+    "detail": {
+      "D->Q": {
+        "tPLH": [
+          1.9,
+          3.2,
+          5.4,
+          5.9
+        ],
+        "tPHL": [
+          2.2,
+          4.2,
+          5.7,
+          6.2
+        ]
+      },
+      "LE->Q": {
+        "tPLH": [
+          2.2,
+          4,
+          6.1,
+          6.6
+        ],
+        "tPHL": [
+          3.2,
+          5.2,
+          6.7,
+          7.2
+        ]
+      },
+      "/OE->Q enable": {
+        "tPZH": [
+          1.2,
+          3.2,
+          4.7,
+          5.2
+        ],
+        "tPZL": [
+          2.5,
+          4.7,
+          6.2,
+          6.7
+        ]
+      },
+      "/OE->Q disable": {
+        "tPHZ": [
+          2.5,
+          4.9,
+          6.4,
+          7.1
+        ],
+        "tPLZ": [
+          2,
+          4.2,
+          6,
+          6.5
+        ]
+      }
+    }
+  },
   "74ABT534": {
     "family": "ABT",
     "function": "octal D flip-flop with inverting 3-state outputs",

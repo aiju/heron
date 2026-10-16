@@ -1,0 +1,1666 @@
+<title>Heron Draft 2 Explorer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: an app shell. Outline | drawing | inspector, one screen high; the
+   run strip (timeline, transport, the cycle's buses) along the bottom in
+   Run. On phones: drawing, then the inspector, then the run strip. */
+:root {
+  --bg: #EDF0ED; --panel: #F7F9F7; --paper: #FBFCFA; --dot: #D9E0DB; --fg: #182125; --muted: #5C686D;
+  --rule: #D1D9D4; --node: #FFFFFF; --node-line: #8C989C; --box: #F3F6F3; --box-2: #E9EEEA; --box-line: #BAC5C0;
+  --accent: #0B6B76; --accent-soft: #D3EBED; --on-accent: #FFFFFF;
+  --live: #E26F00; --live-soft: #FCE7D2; --crit: #CC1F3A; --load: #E26F00;
+  --wire: #44545B; --wire-ctl: #A3AFB3; --wire-clk: #7B6CB0; --bus: #2C5D7C; --halo: #FBFCFA;
+  --f-memory: #6B5BA6; --f-register: #2D6FA3; --f-buffer: #3B8A5A; --f-mux: #9A8F12; --f-decoder: #A4572E;
+  --f-alu: #A8336B; --f-gate: #7B878C; --f-other: #A7AEB1;
+  --heat-0: #F4F1E8; --heat-1: #F7D9A8; --heat-2: #F0A858; --heat-3: #D96A1B; --heat-4: #9C3B0B;
+  --heat-ink-0: #182125; --heat-ink-1: #182125; --heat-ink-2: #182125; --heat-ink-3: #FFFFFF; --heat-ink-4: #FFFFFF;
+  --f-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-cond: "IBM Plex Sans Condensed", "IBM Plex Sans", "Arial Narrow", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0C1114; --panel: #11171A; --paper: #0E1417; --dot: #1A2327; --fg: #DBE3E6; --muted: #8B989D;
+  --rule: #253036; --node: #152024; --node-line: #4A5A61; --box: #111B1E; --box-2: #142125; --box-line: #2C3B41;
+  --accent: #5BC3CF; --accent-soft: #15383E; --on-accent: #0C1114;
+  --live: #FFA23A; --live-soft: #3A2610; --crit: #FF5C72; --load: #FFA23A;
+  --wire: #9AAEB6; --wire-ctl: #4C5D64; --wire-clk: #A597E0; --bus: #7FB2D3; --halo: #0E1417;
+  --f-memory: #A497E0; --f-register: #6FA8D8; --f-buffer: #6CC08E; --f-mux: #CFC458; --f-decoder: #DA8C62;
+  --f-alu: #E07AA8; --f-gate: #8E9CA1; --f-other: #5F6A6E;
+  --heat-0: #1A1E1C; --heat-1: #4A3518; --heat-2: #8A5420; --heat-3: #D47A25; --heat-4: #FFB65C;
+  --heat-ink-0: #DBE3E6; --heat-ink-1: #DBE3E6; --heat-ink-2: #F3F6F7; --heat-ink-3: #0C1114; --heat-ink-4: #0C1114;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0C1114; --panel: #11171A; --paper: #0E1417; --dot: #1A2327; --fg: #DBE3E6; --muted: #8B989D;
+  --rule: #253036; --node: #152024; --node-line: #4A5A61; --box: #111B1E; --box-2: #142125; --box-line: #2C3B41;
+  --accent: #5BC3CF; --accent-soft: #15383E; --on-accent: #0C1114;
+  --live: #FFA23A; --live-soft: #3A2610; --crit: #FF5C72; --load: #FFA23A;
+  --wire: #9AAEB6; --wire-ctl: #4C5D64; --wire-clk: #A597E0; --bus: #7FB2D3; --halo: #0E1417;
+  --f-memory: #A497E0; --f-register: #6FA8D8; --f-buffer: #6CC08E; --f-mux: #CFC458; --f-decoder: #DA8C62;
+  --f-alu: #E07AA8; --f-gate: #8E9CA1; --f-other: #5F6A6E;
+  --heat-0: #1A1E1C; --heat-1: #4A3518; --heat-2: #8A5420; --heat-3: #D47A25; --heat-4: #FFB65C;
+  --heat-ink-0: #DBE3E6; --heat-ink-1: #DBE3E6; --heat-ink-2: #F3F6F7; --heat-ink-3: #0C1114; --heat-ink-4: #0C1114;
+  color-scheme: dark }
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-ui); font-size: 14px; margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.app { height: 100%; display: grid; grid-template-columns: 252px minmax(0, 1fr) 340px; grid-template-rows: auto minmax(0, 1fr) auto; }
+/* top bar */
+header.top { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding-block: 9px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--rule); background: var(--panel); }
+.brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.brand h1 { font-family: var(--f-cond); font-size: 17px; font-weight: 600; margin: 0; letter-spacing: 0.01em; white-space: nowrap; }
+.brand span { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.crumbs { flex: 1 1 200px; min-width: 0; display: flex; gap: 2px; align-items: center; overflow: hidden; white-space: nowrap; font-size: 13px; color: var(--muted); }
+.crumbs button { border: 0; background: none; padding: 2px 4px; border-radius: 4px; cursor: pointer; color: var(--muted); }
+.crumbs button:hover { color: var(--fg); background: var(--accent-soft); }
+.crumbs button:last-child { color: var(--fg); font-weight: 500; }
+.crumbs i { font-style: normal; opacity: 0.5; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 7px; overflow: hidden; background: var(--paper); }
+.seg button { border: 0; background: none; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button.on { background: var(--accent); color: var(--on-accent); }
+.search { position: relative; flex: 0 1 260px; min-width: 150px; }
+.search input { width: 100%; box-sizing: border-box; font-size: 13px; padding: 6px 10px; border: 1px solid var(--rule); border-radius: 7px; background: var(--paper); }
+.results { position: absolute; top: 100%; right: 0; left: 0; margin-top: 4px; background: var(--paper); border: 1px solid var(--rule); border-radius: 7px; max-height: 380px; overflow: auto; z-index: 20; box-shadow: 0 8px 28px rgb(0 0 0 / 0.14); }
+.results button { display: flex; gap: 8px; width: 100%; text-align: left; border: 0; background: none; font-size: 12.5px; padding: 6px 10px; cursor: pointer; }
+.results button:hover, .results button.on { background: var(--accent-soft); }
+.results .k { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; min-width: 46px; padding-top: 1px; }
+.results .w { color: var(--muted); margin-left: auto; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+button.tool { font-size: 13px; min-width: 30px; height: 30px; border: 1px solid var(--rule); background: var(--paper); border-radius: 7px; cursor: pointer; padding: 0 9px; }
+button.tool:hover { border-color: var(--accent); }
+button.tool:disabled { opacity: 0.45; cursor: default; }
+.tools { display: flex; gap: 4px; }
+/* outline */
+nav.outline { overflow: auto; border-right: 1px solid var(--rule); background: var(--panel); padding: 8px 6px 28px max(6px, env(safe-area-inset-left, 0px)); font-size: 13px; }
+nav.outline .head { display: flex; justify-content: space-between; align-items: baseline; margin: 6px 8px 8px; }
+nav.outline .head b { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 600; }
+nav.outline .head button { border: 0; background: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 0 2px; }
+nav.outline .head button:hover { color: var(--accent); }
+.tree { list-style: none; margin: 0; padding: 0; }
+.tree .tree { padding-left: 13px; }
+.row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 2px; border-radius: 5px; padding: 1px 6px 1px 2px; cursor: pointer; }
+.row:hover { background: var(--accent-soft); }
+.row.sel { background: var(--accent); color: var(--on-accent); }
+.row.sel .n, .row.sel .tw { color: var(--on-accent); }
+.row .tw { border: 0; background: none; padding: 0; width: 18px; height: 20px; cursor: pointer; color: var(--muted); font-size: 10px; display: grid; place-items: center; }
+.row .tw.leaf { visibility: hidden; }
+.row .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 0; }
+.row .n { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.row.u > .t { font-weight: 600; }
+.row .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--live); margin-right: 5px; vertical-align: 1px; }
+/* canvas */
+main.canvas { position: relative; min-width: 0; min-height: 0; background-color: var(--paper);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px); background-size: 18px 18px; overflow: hidden; }
+main.canvas svg { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+main.canvas svg.drag { cursor: grabbing; }
+.status { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); background: var(--paper); padding: 3px 7px; border-radius: 5px; pointer-events: none; border: 1px solid var(--rule); }
+.legend { position: absolute; right: 12px; bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; max-width: 62%; font-size: 11.5px; color: var(--muted); background: var(--paper); padding: 5px 9px; border-radius: 6px; border: 1px solid var(--rule); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.legend .ramp { width: 90px; height: 8px; border-radius: 2px; background: linear-gradient(90deg, var(--heat-0), var(--heat-1), var(--heat-2), var(--heat-3), var(--heat-4)); }
+.wires { position: absolute; left: 12px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.chipb { border: 1px solid var(--rule); background: var(--paper); border-radius: 14px; padding: 3px 10px 3px 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.chipb i { width: 14px; height: 0; border-top: 2px solid var(--wire); display: inline-block; }
+.chipb.ctl i { border-top: 2px dashed var(--wire-ctl); }
+.chipb.clk i { border-top: 2px dotted var(--wire-clk); }
+.chipb.flt i { border-top: 2px solid var(--crit); }
+.chipb[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); background: var(--accent-soft); }
+.busy { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.busy span { background: var(--paper); border: 1px solid var(--rule); padding: 8px 14px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+/* inspector */
+aside.info { overflow: auto; border-left: 1px solid var(--rule); background: var(--panel); padding: 14px max(16px, env(safe-area-inset-right, 0px)) 28px 16px; font-size: 13px; }
+aside.info .eyebrow { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+aside.info h2 { font-family: var(--f-cond); font-size: 20px; line-height: 1.2; margin: 2px 0 6px; text-wrap: balance; overflow-wrap: anywhere; }
+aside.info h2.mono { font-family: var(--f-mono); font-size: 16px; }
+aside.info h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin: 18px 0 6px; font-weight: 600; }
+aside.info p { line-height: 1.5; margin: 0 0 8px; max-width: 62ch; }
+aside.info .muted { color: var(--muted); }
+aside.info .acts { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+aside.info ul.l { list-style: none; padding: 0; margin: 0; display: grid; gap: 1px; }
+aside.info ul.l button { border: 0; background: none; padding: 3px 5px; margin: 0 -5px; border-radius: 4px; text-align: left; cursor: pointer; width: calc(100% + 10px); display: flex; gap: 8px; align-items: baseline; }
+aside.info ul.l button:hover { background: var(--accent-soft); }
+aside.info ul.l .p { font-family: var(--f-mono); font-size: 12px; }
+aside.info ul.l .q { color: var(--muted); font-size: 11.5px; margin-left: auto; text-align: right; }
+.stat { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0 6px; }
+.stat div { border-top: 2px solid var(--rule); padding-top: 4px; }
+.stat b { display: block; font-family: var(--f-cond); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 11.5px; }
+.bars { display: grid; gap: 4px; }
+.bar { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr) 3.4em; align-items: center; gap: 8px; font-size: 12.5px; }
+.bar button { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar button:hover { color: var(--accent); }
+.bar .track { height: 10px; background: var(--box-2); border-radius: 2px; overflow: hidden; display: flex; }
+.bar .track i { display: block; height: 100%; }
+.bar .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+table.kv { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+table.kv td { padding: 3px 6px 3px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.kv td:first-child { color: var(--muted); white-space: nowrap; }
+table.kv .mono, .mono { font-family: var(--f-mono); font-size: 12px; }
+table.kv button { border: 0; background: none; padding: 0; color: var(--accent); font-family: var(--f-mono); font-size: 12px; cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.famkey { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.famkey span { display: inline-flex; align-items: center; gap: 5px; }
+.famkey i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.rt { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; font-size: 12.5px; margin: 6px 0; }
+.rt b { font-family: var(--f-mono); font-size: 10.5px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; padding-top: 1px; }
+.rt span { font-family: var(--f-mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.pill { display: inline-block; font-size: 11px; border-radius: 10px; padding: 1px 8px; border: 1px solid var(--rule); color: var(--muted); margin: 0 4px 4px 0; }
+.pill.live { border-color: var(--live); color: var(--live); }
+.pill.crit { border-color: var(--crit); color: var(--crit); }
+/* run strip */
+section.run { grid-column: 1 / -1; border-top: 1px solid var(--rule); background: var(--panel); display: grid; grid-template-columns: minmax(0, 1fr) 380px;
+  padding-block: 8px 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); gap: 14px; }
+.run .left { min-width: 0; display: grid; gap: 6px; }
+.transport { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.transport select { border: 1px solid var(--rule); border-radius: 7px; background: var(--paper); padding: 4px 6px; font-size: 13px; }
+.transport .where { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.transport .where b { color: var(--fg); font-weight: 600; }
+.timeline { position: relative; height: 74px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); overflow: hidden; touch-action: none; cursor: crosshair; }
+.timeline canvas { display: block; width: 100%; height: 100%; }
+.now { display: grid; gap: 4px; min-width: 0; align-content: start; font-size: 12.5px; }
+.now .ins { font-family: var(--f-mono); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.now .ins i { font-style: normal; color: var(--muted); }
+.buses { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 10px; font-family: var(--f-mono); font-size: 11.5px; }
+.buses span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.buses b { color: var(--muted); font-weight: 500; display: inline-block; min-width: 3.4em; }
+.buses .hot b { color: var(--live); }
+/* the drawing */
+svg text { font-family: var(--f-mono); }
+.grp > rect.frame { fill: var(--box); stroke: var(--box-line); stroke-width: 1; }
+.grp.d1 > rect.frame { fill: var(--box-2); }
+.grp > text.gl { font-family: var(--f-cond); font-size: 12.5px; font-weight: 600; fill: var(--fg); }
+.grp > text.gk { font-size: 9.5px; fill: var(--muted); letter-spacing: 0.06em; }
+.leaf > rect.frame { fill: var(--node); stroke: var(--node-line); stroke-width: 1.2; }
+.leaf > text.nl { font-family: var(--f-cond); font-size: 13px; font-weight: 600; fill: var(--fg); }
+.leaf > text.nk { font-size: 9px; fill: var(--muted); letter-spacing: 0.07em; }
+.leaf > text.ns { font-size: 10.5px; fill: var(--muted); }
+.tog { cursor: pointer; }
+.tog circle { fill: var(--paper); stroke: var(--node-line); stroke-width: 1; }
+.tog path { stroke: var(--fg); stroke-width: 1.4; fill: none; }
+.tog:hover circle { stroke: var(--accent); fill: var(--accent-soft); }
+.nd { cursor: pointer; }
+.nd:hover > rect.frame { stroke: var(--accent); }
+.nd.sel > rect.frame, .sym.sel rect.box, .sym.sel path.g { stroke: var(--accent); stroke-width: 2.4; }
+.sym rect.box { fill: var(--node); stroke: var(--fg); stroke-width: 1.1; }
+.sym .ref { font-size: 11px; font-weight: 600; fill: var(--fg); }
+.sym .part { font-size: 10px; fill: var(--muted); }
+.sym .pin { font-size: 9.5px; fill: var(--fg); }
+.sym .pin.bus { font-weight: 600; }
+.sym path.g, .sym circle.g { fill: var(--node); stroke: var(--fg); stroke-width: 1.2; }
+.sym .stub { stroke: var(--fg); stroke-width: 1.2; }
+.sym .gref { font-size: 8.5px; fill: var(--muted); }
+.sym .mark { fill: none; stroke: var(--fg); stroke-width: 1; }
+.jn rect { fill: var(--bus); }
+.jn text { font-size: 10.5px; font-weight: 600; fill: var(--bus); }
+.e { fill: none; stroke: var(--wire); stroke-width: 1.1; }
+.e.thin { stroke-width: 0.9; stroke-opacity: 0.8; }
+.e.few { stroke-width: 1.5; }
+.e.bus { stroke: var(--bus); stroke-width: 2.4; }
+.e.wide { stroke: var(--bus); stroke-width: 3.4; }
+.e.control { stroke: var(--wire-ctl); stroke-dasharray: 4 3; }
+.e.clock { stroke: var(--wire-clk); stroke-dasharray: 1.5 3; }
+.e.fault { stroke: var(--crit); stroke-opacity: 0.6; }
+.ehit { fill: none; stroke: transparent; stroke-width: 9; cursor: pointer; }
+.el { font-size: 9.5px; fill: var(--muted); paint-order: stroke; stroke: var(--halo); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.el.v { fill: var(--live); font-weight: 600; font-size: 10px; }
+.e.sel { stroke: var(--accent); stroke-width: 3; }
+svg.focus .e:not(.hl):not(.sel), svg.focus .el:not(.hl) { opacity: 0.18; }
+.e.hl { stroke: var(--accent); }
+.el.hl { fill: var(--accent); }
+.comp rect { shape-rendering: crispEdges; }
+/* overlays */
+svg.run .nd:not(.live) > *, svg.run .sym:not(.live), svg.run .e:not(.live), svg.run .el:not(.v) { opacity: 0.34; }
+svg.run .nd.live > rect.frame { stroke: var(--live); stroke-width: 2; }
+svg.run .grp.live > rect.frame { stroke: var(--live); stroke-width: 1.4; stroke-dasharray: 5 3; }
+svg.run .sym.live rect.box, svg.run .sym.live path.g { stroke: var(--live); stroke-width: 1.8; }
+svg.run .e.live { stroke: var(--live); stroke-opacity: 0.9; }
+svg.run .e.live.bus, svg.run .e.live.wide { stroke-width: 3.4; }
+.ldmark { fill: var(--live); }
+.ldmark-t { font-size: 9px; font-weight: 600; fill: var(--on-accent); }
+.crit-e { fill: none; stroke: var(--crit); stroke-width: 3.2; stroke-linecap: round; pointer-events: none; }
+.crit-n { fill: none; stroke: var(--crit); stroke-width: 2.4; pointer-events: none; }
+.crit-t { font-size: 10px; font-weight: 600; fill: var(--crit); paint-order: stroke; stroke: var(--halo); stroke-width: 3px; pointer-events: none; }
+.heatfill { pointer-events: none; }
+svg.heat .leaf > rect.frame { stroke-width: 1.4; }
+svg.heat .e { opacity: 0.4; }
+@media (prefers-reduced-motion: no-preference) {
+  .efade { animation: efade 0.25s ease-out both; }
+}
+@keyframes efade { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 1100px) { .app { grid-template-columns: 220px minmax(0, 1fr) 300px; } section.run { grid-template-columns: minmax(0, 1fr) 320px; } }
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(340px, 62vh) auto auto; height: auto; min-height: 100%; }
+  nav.outline { display: none; }
+  main.canvas { grid-row: 2; }
+  section.run { grid-row: 3; grid-template-columns: minmax(0, 1fr); }
+  aside.info { grid-row: 4; border-left: 0; border-top: 1px solid var(--rule); padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+  .crumbs { order: 9; flex-basis: 100%; }
+  .legend { max-width: calc(100% - 24px); left: 12px; right: auto; bottom: 40px; justify-content: flex-start; }
+}
+</style>
+
+<div class="app" id="app">
+  <header class="top">
+    <div class="brand"><h1>Heron draft 2</h1><span id="sub">CPU explorer</span></div>
+    <div class="seg" role="tablist" aria-label="View">
+      <button id="m-structure" class="on" role="tab" aria-selected="true">Structure</button>
+      <button id="m-run" role="tab" aria-selected="false">Run</button>
+      <button id="m-heat" role="tab" aria-selected="false">Heat</button>
+    </div>
+    <div class="crumbs" id="crumbs" aria-label="Selection"></div>
+    <div class="search"><input id="q" type="search" placeholder="Find a unit, chip, part or net" autocomplete="off" aria-label="Find a unit, chip, part or net"><div class="results" id="results" hidden></div></div>
+    <div class="tools"><button class="tool" id="zout" aria-label="Zoom out">−</button><button class="tool" id="zfit">Fit</button><button class="tool" id="zin" aria-label="Zoom in">+</button></div>
+  </header>
+  <nav class="outline" id="outline" aria-label="Outline">
+    <div class="head"><b>Outline</b><span><button id="collapse-all">Collapse all</button></span></div>
+    <ul class="tree" id="tree"></ul>
+  </nav>
+  <main class="canvas" id="canvas">
+    <svg id="svg" role="img" aria-label="Block diagram of the CPU"><g id="view"></g></svg>
+    <div class="wires" id="wires"></div>
+    <div class="legend" id="legend"></div>
+    <div class="status" id="status">Loading…</div>
+    <div class="busy" id="busy" hidden><span>Laying out…</span></div>
+  </main>
+  <aside class="info" id="info"></aside>
+  <section class="run" id="run" hidden>
+    <div class="left">
+      <div class="transport">
+        <select id="prog" aria-label="Program"></select>
+        <button class="tool" id="t-start" aria-label="First cycle">⏮</button>
+        <button class="tool" id="t-prev-i" aria-label="Previous instruction">«</button>
+        <button class="tool" id="t-prev" aria-label="Previous cycle">‹</button>
+        <button class="tool" id="t-play" aria-label="Play">▶</button>
+        <button class="tool" id="t-next" aria-label="Next cycle">›</button>
+        <button class="tool" id="t-next-i" aria-label="Next instruction">»</button>
+        <select id="speed" aria-label="Speed"><option value="1">1 cycle/s</option><option value="4" selected>4 cycles/s</option><option value="15">15 cycles/s</option><option value="60">60 cycles/s</option></select>
+        <span class="where" id="where"></span>
+      </div>
+      <div class="timeline" id="timeline" tabindex="0" aria-label="Timeline of the run: drag to move, scroll to zoom"><canvas id="tl"></canvas></div>
+    </div>
+    <div class="now" id="now"></div>
+  </section>
+</div>
+
+<script src="%%ELK%%"></script>
+<script type="application/octet-stream" id="data">%%DATA%%</script>
+<script>
+(async function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function h(tag, attrs, html) {
+    const e = document.createElement(tag);
+    for (const k in (attrs || {})) e.setAttribute(k, attrs[k]);
+    if (html !== undefined) e.innerHTML = html;
+    return e;
+  }
+  const reduced = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const store = {
+    get(k) { try { return localStorage.getItem("heron-explorer:" + k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem("heron-explorer:" + k, v); } catch (e) {} },
+  };
+
+  // ---- data ----------------------------------------------------------------------
+  async function load() {
+    const b64 = $("data").textContent.trim();
+    const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    if (typeof DecompressionStream === "undefined") throw new Error("This browser can't unpack the design's data (no DecompressionStream). A current Chrome, Firefox or Safari can.");
+    const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return JSON.parse(await new Response(stream).text());
+  }
+  let M;
+  try { M = await load(); } catch (err) { $("status").textContent = String(err.message || err); return; }
+  const NODES = M.nodes, SYM = M.symbols, NETS = M.nets;
+  const netIx = {}; NETS.forEach((n, i) => { netIx[n.n] = i; });
+  const isGroup = (id) => !!NODES[id];
+  const parentOf = (id) => (NODES[id] ? NODES[id].parent : SYM[id] ? SYM[id].parent : null);
+  const FAM = M.families.map((f) => f[0]);
+  const FAMLABEL = Object.fromEntries(M.families);
+  const famColor = (f) => `var(--f-${f})`;
+
+  // chains, descendants, counts
+  const chain = {};          // symbol -> [root, ..., symbol]
+  for (const sid in SYM) {
+    const c = []; let x = sid;
+    while (x) { c.push(x); x = parentOf(x); }
+    chain[sid] = c.reverse();
+  }
+  const symsUnder = {};      // group -> [symbols]
+  const famUnder = {};       // group -> {family: packages}
+  const pkgUnder = {};
+  (function walk(id) {
+    const n = NODES[id]; const out = []; const fam = {}; let pkg = 0;
+    for (const c of n.children) {
+      if (NODES[c]) {
+        walk(c);
+        out.push(...symsUnder[c]);
+        for (const f in famUnder[c]) fam[f] = (fam[f] || 0) + famUnder[c][f];
+        pkg += pkgUnder[c];
+      } else {
+        out.push(c);
+        const s = SYM[c];
+        fam[s.fam] = (fam[s.fam] || 0) + s.pkg;
+        pkg += s.pkg;
+      }
+    }
+    symsUnder[id] = out; famUnder[id] = fam; pkgUnder[id] = pkg;
+  })("root");
+  const depthOf = (id) => { let d = 0, x = parentOf(id); while (x) { d++; x = parentOf(x); } return d; };
+  const KIND = { root: "CPU", unit: "Unit", section: "Section", block: "Block", array: "Array" };
+  const chipsText = (id) => { const p = pkgUnder[id]; return Number.isInteger(p) ? `${p}` : p.toFixed(1); };
+  const pkgRound = (p) => Math.round(p);
+  // nets each symbol drives and takes
+  const symOut = {}, symIn = {};
+  NETS.forEach((n, i) => {
+    for (const e of n.d) (symOut[e[0]] = symOut[e[0]] || []).push(i);
+    for (const e of n.l) (symIn[e[0]] = symIn[e[0]] || []).push(i);
+  });
+  const symName = (sid) => { const s = SYM[sid]; return s.kind === "gate" ? `${s.ref} gate ${sid.split("#")[1]}` : s.ref; };
+  const gateFnName = { and: "AND", or: "OR", xor: "XOR", buf: "buffer" };
+  const symTitle = (sid) => {
+    const s = SYM[sid];
+    if (s.kind === "gate") {
+      const out = s.ports[s.ports.length - 1].nets[0];
+      return out;
+    }
+    return s.ref;
+  };
+
+  // bus names: numbered nets of one prefix
+  const NUMRE = /^(.*?)(\d+)$/;
+  function busLabel(netIdxs) {
+    const by = {}; const singles = [];
+    for (const i of netIdxs) {
+      const n = NETS[i].n, m = NUMRE.exec(n);
+      if (m) (by[m[1]] = by[m[1]] || []).push(+m[2]); else singles.push(n);
+    }
+    const parts = [];
+    for (const p in by) {
+      const v = by[p].sort((a, b) => a - b);
+      if (v.length === 1) parts.push(p + v[0]);
+      else {
+        const contiguous = v[v.length - 1] - v[0] === v.length - 1;
+        parts.push(contiguous ? `${p}${v[0]}–${v[v.length - 1]}` : `${p} ×${v.length}`);
+      }
+    }
+    parts.push(...singles);
+    parts.sort((a, b) => b.length - a.length);
+    return parts.length > 2 ? `${parts.slice(0, 2).join(", ")} +${parts.length - 2}` : parts.join(", ");
+  }
+
+  // traced buses: net -> [bus, bit]
+  const tbit = {};
+  for (const b in M.tnets) M.tnets[b].forEach((n, i) => { if (n !== "GND" && !(n in tbit)) tbit[n] = [b, i]; });
+  const hex32 = (v, bits) => {
+    const digits = Math.max(1, Math.ceil(bits / 4));
+    const s = (v >>> 0).toString(16).toUpperCase().padStart(digits, "0");
+    return digits > 4 ? s.slice(0, s.length - 4) + "_" + s.slice(-4) : s;
+  };
+
+  // ---- state ----------------------------------------------------------------------
+  let expanded = new Set(["root"]);
+  let sel = null;             // {type: "node"|"edge"|"net", id}
+  let mode = "structure";
+  let heatMetric = "work";
+  const show = { signals: false, control: false, clock: false, fault: false };   // signals: all, not only local
+  try { const saved = JSON.parse(store.get("wires") || "null"); if (saved) Object.assign(show, saved); } catch (e) {}
+
+  // ---- the graph ------------------------------------------------------------------
+  const BUSJ = /^(ABUS|BBUS|DB|MD|RFAIO|RFBIO|RES)(\d+)$/;
+  const LEAF_H = 64;
+  let measurer = null;
+  function textW(text, font) {
+    if (!measurer) measurer = document.createElement("canvas").getContext("2d");
+    measurer.font = font;
+    return Math.ceil(measurer.measureText(text).width);
+  }
+  const condFont = () => `600 13px ${getComputedStyle(document.documentElement).getPropertyValue("--f-cond")}`;
+  const monoFont = (px) => `${px}px ${getComputedStyle(document.documentElement).getPropertyValue("--f-mono")}`;
+
+  function leafOf(sid) {
+    const c = chain[sid];
+    for (let i = 0; i < c.length; i++) if (!isGroup(c[i]) || !expanded.has(c[i])) return c[i];
+    return sid;
+  }
+  function lca(ids) {
+    const chains = ids.map((id) => (SYM[id] ? chain[id] : id.startsWith("J:") ? null : chainOfGroup(id))).filter(Boolean);
+    if (!chains.length) return "root";
+    let out = "root";
+    for (let d = 0; ; d++) {
+      const x = chains[0][d];
+      if (x === undefined || !chains.every((c) => c[d] === x)) break;
+      if (isGroup(x) && expanded.has(x)) out = x; else break;
+    }
+    return out;
+  }
+  const gchain = {};
+  function chainOfGroup(id) {
+    if (gchain[id]) return gchain[id];
+    const c = []; let x = id;
+    while (x) { c.push(x); x = parentOf(x); }
+    return (gchain[id] = c.reverse());
+  }
+
+  // which edges, ports and junctions the current expansion shows
+  function edgesNow() {
+    const vis = {};
+    for (const sid in SYM) vis[sid] = leafOf(sid);
+    const bundles = new Map();           // key -> {src, dst, nets:Set, cls, srcNode, dstNode}
+    const ports = {};                     // node -> Map(portId -> side)
+    const junctions = {};                 // prefix -> {drivers: Map, loads: Map}
+    const addPort = (node, pid, side) => { (ports[node] = ports[node] || new Map()).set(pid, side); };
+    const endPort = (sid, k, peer, dir) => {
+      const v = vis[sid];
+      if (v === sid) return `${sid}|${k}`;
+      return `${v}|${dir}|${peer}`;
+    };
+    const add = (src, dst, srcNode, dstNode, i, cls) => {
+      const key = `${src}>${dst}>${srcNode}>${dstNode}>${cls}`;
+      let b = bundles.get(key);
+      if (!b) { b = { src, dst, srcNode, dstNode, nets: new Set(), cls }; bundles.set(key, b); }
+      b.nets.add(i);
+    };
+    NETS.forEach((net, i) => {
+      if (net.c !== "data" && !show[net.c]) return;
+      if (!net.d.length || !net.l.length) return;
+      const m = BUSJ.exec(net.n);
+      const drivers = net.d, dset = new Set(drivers.map((e) => e[0] + "|" + e[1]));
+      const loads = net.l.filter((e) => !dset.has(e[0] + "|" + e[1]));
+      if (m && drivers.length + loads.length > 2) {
+        const ends = new Set([...drivers, ...loads].map((e) => vis[e[0]]));
+        if (ends.size > 2) {
+          const J = junctions[m[1]] = junctions[m[1]] || { drivers: [], loads: [], nets: new Set(), leaves: new Set() };
+          J.nets.add(i);
+          drivers.forEach((e) => { J.drivers.push([e, i]); J.leaves.add(vis[e[0]]); });
+          loads.forEach((e) => { J.loads.push([e, i]); J.leaves.add(vis[e[0]]); });
+          return;
+        }
+      }
+      for (const d of drivers) {
+        const vd = vis[d[0]];
+        for (const l of (loads.length ? loads : net.l)) {
+          const vl = vis[l[0]];
+          if (vd === vl) continue;
+          if (!loads.length && d[0] + "|" + d[1] >= l[0] + "|" + l[1]) continue;     // io to io: once
+          add(endPort(d[0], d[1], vl, "o"), endPort(l[0], l[1], vd, "i"), vd, vl, i, net.c);
+        }
+      }
+    });
+    const jnodes = [];
+    for (const p in junctions) {
+      const J = junctions[p];
+      if (J.leaves.size < 3) {
+        // few enough ends: plain edges
+        for (const [d, i] of J.drivers) for (const [l] of J.loads) {
+          const vd = vis[d[0]], vl = vis[l[0]];
+          if (vd !== vl) add(endPort(d[0], d[1], vl, "o"), endPort(l[0], l[1], vd, "i"), vd, vl, i, NETS[i].c);
+        }
+        if (J.loads.length === 0) {
+          const ds = J.drivers;
+          for (let a = 0; a < ds.length; a++) for (let b = a + 1; b < ds.length; b++) {
+            const va = vis[ds[a][0][0]], vb = vis[ds[b][0][0]];
+            if (va !== vb && ds[a][1] === ds[b][1]) add(endPort(ds[a][0][0], ds[a][0][1], vb, "o"), endPort(ds[b][0][0], ds[b][0][1], va, "i"), va, vb, ds[a][1], NETS[ds[a][1]].c);
+          }
+        }
+        continue;
+      }
+      const jid = `J:${p}`;
+      const parent = lca([...J.leaves]);
+      jnodes.push({ id: jid, prefix: p, parent, nets: J.nets, drivers: J.drivers });
+      for (const [d, i] of J.drivers) add(endPort(d[0], d[1], jid, "o"), `${jid}|i|${vis[d[0]]}`, vis[d[0]], jid, i, NETS[i].c);
+      for (const [l, i] of J.loads) add(`${jid}|o|${vis[l[0]]}`, endPort(l[0], l[1], jid, "i"), jid, vis[l[0]], i, NETS[i].c);
+    }
+    // signals (fewer than four nets) between blocks in different units only on request
+    const kept = [...bundles.values()].filter((b) => {
+      if (b.nets.size >= 4 || show.signals || b.cls !== "data") return true;
+      if (b.srcNode.startsWith("J:") || b.dstNode.startsWith("J:")) return true;
+      return lca([b.srcNode, b.dstNode]) !== "root";
+    });
+    for (const b of kept) {
+      addPort(b.srcNode, b.src, "EAST");
+      addPort(b.dstNode, b.dst, "WEST");
+    }
+    return { vis, bundles: kept, ports, jnodes };
+  }
+
+  function leafSize(id) {
+    const n = NODES[id];
+    const big = n.kind === "unit";
+    const w = Math.max(big ? 190 : 150, textW(n.name, condFont()) + 46, textW(leafSub(id), monoFont(10.5)) + 30);
+    return { w: Math.min(w, 300), h: big ? 76 : LEAF_H };
+  }
+  function leafSub(id) {
+    const n = NODES[id];
+    if (n.kind === "array") return n.desc;
+    const p = pkgUnder[id];
+    return `${Number.isInteger(p) ? p : p.toFixed(1)} chip${p === 1 ? "" : "s"}`;
+  }
+
+  function buildElk(E) {
+    const jByParent = {};
+    for (const j of E.jnodes) (jByParent[j.parent] = jByParent[j.parent] || []).push(j);
+    function portsFor(id, fixed) {
+      const ps = E.ports[id];
+      if (!ps) return [];
+      const out = [];
+      for (const [pid, side] of ps) {
+        if (fixed) {
+          const k = +pid.split("|").pop();
+          const p = SYM[id].ports[k];
+          out.push({ id: pid, x: p.x, y: p.y, width: 0, height: 0, layoutOptions: { "elk.port.side": p.side === "W" ? "WEST" : "EAST" } });
+        } else {
+          out.push({ id: pid, width: 0, height: 0, layoutOptions: { "elk.port.side": side } });
+        }
+      }
+      return out;
+    }
+    function node(id) {
+      if (SYM[id]) {
+        const s = SYM[id];
+        return { id, width: s.w, height: s.h, ports: portsFor(id, true),
+          layoutOptions: { "elk.portConstraints": "FIXED_POS" } };
+      }
+      if (expanded.has(id)) {
+        return { id, children: kidsOf(id), layoutOptions: { "elk.padding": "[top=40,left=16,bottom=16,right=16]" } };
+      }
+      const sz = leafSize(id);
+      return { id, width: sz.w, height: sz.h, ports: portsFor(id, false),
+        layoutOptions: { "elk.portConstraints": "FIXED_SIDE", "elk.portAlignment.default": "DISTRIBUTED" } };
+    }
+    function jnode(j) {
+      return { id: j.id, width: 10, height: 44, ports: portsFor(j.id, false),
+        layoutOptions: { "elk.portConstraints": "FIXED_SIDE" } };
+    }
+    // a bus's bar goes, in the model order the layout follows, right after
+    // the first block that drives it
+    function kidsOf(id) {
+      const kids = NODES[id].children;
+      const out = kids.map(node);
+      const js = jByParent[id] || [];
+      const at = js.map((j) => {
+        let best = kids.length;
+        for (const [d] of j.drivers) {
+          const c = (SYM[d[0]] ? chain[d[0]] : []).find((x) => kids.includes(x));
+          if (c !== undefined) best = Math.min(best, kids.indexOf(c));
+        }
+        return best;
+      });
+      js.map((j, i) => [j, at[i]]).sort((a, b) => b[1] - a[1]).forEach(([j, k]) => out.splice(Math.min(out.length, k + 1), 0, jnode(j)));
+      return out;
+    }
+    const children = kidsOf("root");
+    const edges = E.bundles.map((b, i) => ({ id: `e${i}`, sources: [b.src], targets: [b.dst] }));
+    return {
+      id: "root",
+      layoutOptions: {
+        "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+        "elk.edgeRouting": "ORTHOGONAL", "elk.layered.spacing.nodeNodeBetweenLayers": "40",
+        "elk.spacing.nodeNode": "22", "elk.spacing.edgeEdge": "5", "elk.spacing.edgeNode": "10",
+        "elk.layered.spacing.edgeEdgeBetweenLayers": "4", "elk.layered.spacing.edgeNodeBetweenLayers": "8",
+        "elk.padding": "[top=30,left=30,bottom=30,right=30]", "elk.spacing.componentComponent": "60",
+        "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+        "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+        "elk.layered.cycleBreaking.strategy": "MODEL_ORDER",
+        "elk.layered.crossingMinimization.thoroughness": "8",
+      },
+      children, edges,
+    };
+  }
+
+  // ---- layout and drawing ---------------------------------------------------------------
+  const elk = typeof ELK !== "undefined" ? new ELK() : null;
+  const svg = $("svg"), view = $("view");
+  let current = null;          // {E, abs, edges}
+  let prevAbs = {};
+  let layoutSeq = 0;
+  let tf = { x: 0, y: 0, k: 1 }, bbox = null;
+
+  async function relayout(opts) {
+    opts = opts || {};
+    if (!elk) { $("status").textContent = "The layout library didn't load, so the diagram can't be drawn."; return; }
+    const seq = ++layoutSeq;
+    const E = edgesNow();
+    const g = buildElk(E);
+    const t0 = performance.now();
+    const busy = setTimeout(() => { $("busy").hidden = false; }, 200);
+    let res;
+    try { res = await elk.layout(g); } catch (err) {
+      clearTimeout(busy); $("busy").hidden = true;
+      $("status").textContent = "Layout failed: " + (err.message || err); return;
+    }
+    clearTimeout(busy); $("busy").hidden = true;
+    if (seq !== layoutSeq) return;
+    const abs = {};
+    (function walk(n, ox, oy, depth) {
+      for (const c of n.children || []) {
+        const x = ox + c.x, y = oy + c.y;
+        abs[c.id] = { x, y, w: c.width, h: c.height, depth, container: !!(c.children && c.children.length) || (NODES[c.id] && expanded.has(c.id)) };
+        walk(c, x, y, depth + 1);
+      }
+    })(res, 0, 0, 0);
+    // ELK gives an edge's points relative to the container it puts the
+    // edge in (the lowest one holding both ends), whatever it was given
+    const edges = (res.edges || []).map((e, i) => {
+      const o = e.container && e.container !== "root" ? abs[e.container] : null;
+      const mv = (q) => (o ? { x: q.x + o.x, y: q.y + o.y } : q);
+      const sections = (e.sections || []).map((s) => ({ startPoint: mv(s.startPoint), endPoint: mv(s.endPoint), bendPoints: (s.bendPoints || []).map(mv) }));
+      return { b: E.bundles[i], sections };
+    });
+    const jn = {}; for (const j of E.jnodes) jn[j.id] = j;
+    current = { E, abs, edges, jn, ms: performance.now() - t0 };
+    draw(opts);
+    status();
+  }
+
+  function status() {
+    if (!current) return;
+    const leaves = Object.keys(current.abs).filter((id) => !current.abs[id].container).length;
+    $("status").textContent = `${leaves} blocks shown · ${current.edges.length} wires`;
+  }
+
+  // shapes
+  function gateShape(g, s) {
+    const hh = s.h, x0 = 8, inv = s.inv ? 7 : 0, x1 = s.w - 6 - inv;
+    let d, back = x0;
+    if (s.fn === "and") {
+      const r = hh / 2, xm = Math.max(x0 + 4, x1 - r);
+      d = `M${x0},0 H${xm} A${r},${r} 0 0 1 ${xm},${hh} H${x0} Z`;
+    } else if (s.fn === "or" || s.fn === "xor") {
+      const xo = s.fn === "xor" ? x0 + 4 : x0;
+      d = `M${xo},0 Q${x1 - 8},0 ${x1},${hh / 2} Q${x1 - 8},${hh} ${xo},${hh} Q${xo + 8},${hh / 2} ${xo},0 Z`;
+      back = xo + 4;
+      if (s.fn === "xor") el("path", { d: `M${x0 - 1},0 Q${x0 + 7},${hh / 2} ${x0 - 1},${hh}`, class: "mark" }, g);
+    } else {
+      d = `M${x0},2 L${x1},${hh / 2} L${x0},${hh - 2} Z`;
+    }
+    el("path", { d, class: "g" }, g);
+    if (s.inv) el("circle", { cx: x1 + 3.5, cy: hh / 2, r: 3.2, class: "g" }, g);
+    if (s.schmitt) el("path", { d: `M${x0 + 6},${hh / 2 + 3} h5 v-6 h3 M${x0 + 9},${hh / 2 + 3} v-6 h5`, class: "mark" }, g);
+    if (s.oc) el("path", { d: `M${x1 - 12},${hh / 2 - 3} l3,3 l-3,3 l-3,-3 z`, class: "mark" }, g);
+    s.ports.forEach((p) => {
+      if (p.side === "W") el("line", { x1: 0, y1: p.y, x2: back, y2: p.y, class: "stub" }, g);
+      else el("line", { x1: x1 + inv, y1: p.y, x2: s.w, y2: p.y, class: "stub" }, g);
+    });
+    el("text", { x: x0, y: -4, class: "gref" }, g).textContent = s.ports[s.ports.length - 1].nets[0];
+  }
+  function chipShape(g, s) {
+    el("rect", { x: 0, y: 0, width: s.w, height: s.h, rx: 3, class: "box" }, g);
+    el("text", { x: 7, y: 13, class: "ref" }, g).textContent = s.ref;
+    el("text", { x: 7, y: 25, class: "part" }, g).textContent = s.part;
+    s.ports.forEach((p) => {
+      const t = el("text", { x: p.side === "W" ? 6 : s.w - 6, y: p.y + 3.5, class: "pin" + ((p.nets || []).length > 1 ? " bus" : ""), "text-anchor": p.side === "W" ? "start" : "end" }, g);
+      t.textContent = p.pin;
+    });
+  }
+  function compBar(g, id, x, y, w) {
+    const fam = famUnder[id], tot = pkgUnder[id] || 1;
+    const bar = el("g", { class: "comp" }, g);
+    let cx = x;
+    for (const f of FAM) {
+      if (!fam[f]) continue;
+      const ww = (fam[f] / tot) * w;
+      el("rect", { x: cx, y, width: Math.max(ww, 0.5), height: 4, fill: famColor(f) }, bar);
+      cx += ww;
+    }
+  }
+  function toggle(g, x, y, open, id) {
+    const t = el("g", { class: "tog", transform: `translate(${x},${y})`, role: "button", "aria-label": open ? "Collapse" : "Expand" }, g);
+    el("circle", { cx: 0, cy: 0, r: 8 }, t);
+    el("path", { d: open ? "M-4,0 H4" : "M-4,0 H4 M0,-4 V4" }, t);
+    t.addEventListener("click", (ev) => { ev.stopPropagation(); setExpanded(id, !open); });
+    t.addEventListener("dblclick", (ev) => ev.stopPropagation());
+  }
+
+  let layers = {};
+  function draw(opts) {
+    const { abs, edges } = current;
+    view.innerHTML = "";
+    layers = { grp: el("g", {}, view), heat: el("g", {}, view), edge: el("g", {}, view), node: el("g", {}, view), label: el("g", {}, view), over: el("g", {}, view) };
+    const nodeEls = {};
+    // containers, outermost first
+    const ids = Object.keys(abs).sort((a, b) => abs[a].depth - abs[b].depth);
+    for (const id of ids) {
+      const r = abs[id];
+      if (current.jn[id]) {
+        const j = current.jn[id];
+        const g = el("g", { class: "jn", "data-id": id }, layers.node);
+        el("rect", { x: 0, y: 0, width: r.w, height: r.h, rx: 2 }, g);
+        el("text", { x: r.w / 2, y: -5, "text-anchor": "middle" }, g).textContent = j.prefix;
+        const t = el("title", {}, g); t.textContent = `${j.prefix}: ${M.buses[j.prefix] || "bus"} (${j.nets.size} nets)`;
+        g.addEventListener("click", (ev) => { ev.stopPropagation(); selectNets([...j.nets], j.prefix); });
+        nodeEls[id] = g; continue;
+      }
+      if (SYM[id]) {
+        const s = SYM[id];
+        const g = el("g", { class: "sym nd-s", "data-id": id }, layers.node);
+        if (s.kind === "gate") gateShape(g, s); else chipShape(g, s);
+        const t = el("title", {}, g); t.textContent = `${s.ref}${s.kind === "gate" ? " gate " + id.split("#")[1] : ""}: ${s.part}${s.desc ? " — " + s.desc : ""}`;
+        g.addEventListener("click", (ev) => { ev.stopPropagation(); select({ type: "node", id }); });
+        nodeEls[id] = g; continue;
+      }
+      const n = NODES[id];
+      if (r.container) {
+        const g = el("g", { class: `grp nd d${r.depth % 2}`, "data-id": id }, layers.grp);
+        el("rect", { class: "frame", x: 0, y: 0, width: r.w, height: r.h, rx: 8 }, g);
+        el("text", { class: "gk", x: 12, y: 15 }, g).textContent = `${KIND[n.kind].toUpperCase()} · ${chipsText(id)} CHIPS`;
+        el("text", { class: "gl", x: 12, y: 31 }, g).textContent = n.name;
+        toggle(g, r.w - 16, 16, true, id);
+        g.addEventListener("click", (ev) => { ev.stopPropagation(); select({ type: "node", id }); });
+        nodeEls[id] = g;
+      } else {
+        const g = el("g", { class: "leaf nd", "data-id": id }, layers.node);
+        el("rect", { class: "frame", x: 0, y: 0, width: r.w, height: r.h, rx: 6 }, g);
+        el("text", { class: "nk", x: 11, y: 15 }, g).textContent = KIND[n.kind].toUpperCase();
+        el("text", { class: "nl", x: 11, y: 33 }, g).textContent = n.name;
+        el("text", { class: "ns", x: 11, y: 49 }, g).textContent = leafSub(id);
+        compBar(g, id, 0.6, r.h - 5, r.w - 1.2);
+        toggle(g, r.w - 15, 15, false, id);
+        g.addEventListener("click", (ev) => { ev.stopPropagation(); select({ type: "node", id }); });
+        g.addEventListener("dblclick", (ev) => { ev.stopPropagation(); setExpanded(id, true); });
+        g.addEventListener("pointerenter", (ev) => { if (ev.pointerType === "mouse") { hoverId = id; emphasise(sel && sel.id); } });
+        g.addEventListener("pointerleave", () => { if (hoverId === id) { hoverId = null; emphasise(sel && sel.type === "node" ? sel.id : null); } });
+        nodeEls[id] = g;
+      }
+    }
+    current.nodeEls = nodeEls;
+    current.edgeEls = [];
+    // animate from where things were
+    const start = {};
+    for (const id of ids) {
+      if (prevAbs[id]) start[id] = prevAbs[id];
+      else {
+        let p = parentOf(id) || (current.jn[id] && current.jn[id].parent);
+        while (p && !prevAbs[p]) p = parentOf(p);
+        const pr = p && prevAbs[p];
+        start[id] = pr ? { x: pr.x + pr.w / 2 - abs[id].w / 2, y: pr.y + pr.h / 2 - abs[id].h / 2, w: abs[id].w, h: abs[id].h, fresh: true } : abs[id];
+      }
+    }
+    const animate = !reduced && Object.keys(prevAbs).length > 0 && !opts.instant;
+    const place = (t) => {
+      for (const id of ids) {
+        const a = start[id], b = abs[id];
+        const x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t;
+        const g = nodeEls[id];
+        g.setAttribute("transform", `translate(${x},${y})`);
+        if (b.container) {
+          const fr = g.firstChild;
+          const w = a.w + (b.w - a.w) * t, hh = a.h + (b.h - a.h) * t;
+          fr.setAttribute("width", w); fr.setAttribute("height", hh);
+          const tog = g.querySelector(".tog");
+          if (tog) tog.setAttribute("transform", `translate(${w - 16},16)`);
+        }
+        if (a.fresh) g.style.opacity = String(t);
+      }
+    };
+    const finish = () => {
+      place(1);
+      for (const id of ids) nodeEls[id].style.opacity = "";
+      drawEdges();
+      overlay();
+      const bb = view.getBBox();
+      bbox = { x: bb.x - 30, y: bb.y - 30, w: bb.width + 60, h: bb.height + 60 };
+      if (opts.fit) fit(); else if (opts.focus) focusOn(opts.focus);
+      else if (opts.focusPath) {
+        const cs = caseNow();
+        const ids = cs ? [...new Set(cs.path.filter((p) => p[2] && SYM[p[2]]).map((p) => current.E.vis[p[2]]))] : [];
+        focusBox(ids);
+      }
+    };
+    prevAbs = abs;
+    const seqAtDraw = layoutSeq;
+    if (animate) {
+      const t0 = performance.now(), dur = 320;
+      const ease = (t) => 1 - Math.pow(1 - t, 3);
+      place(0);
+      const step = (now) => {
+        const t = Math.max(0, Math.min(1, (now - t0) / dur));
+        if (layoutSeq !== seqAtDraw) return;          // a newer layout took over
+        if (t < 1) { place(ease(t)); requestAnimationFrame(step); } else finish();
+      };
+      requestAnimationFrame(step);
+    } else finish();
+  }
+
+  function drawEdges() {
+    const { edges } = current;
+    layers.edge.innerHTML = ""; layers.label.innerHTML = "";
+    current.edgeEls = [];
+    const placed = [];
+    // wide buses first, so that their labels win
+    const order = edges.map((e, i) => i).sort((a, b) => edges[b].b.nets.size - edges[a].b.nets.size);
+    const els = new Array(edges.length);
+    order.forEach((i) => {
+      const e = edges[i];
+      const b = e.b, n = b.nets.size;
+      const cls = `e ${b.cls} ${n >= 16 ? "wide" : n >= 4 ? "bus" : n > 1 ? "few" : "thin"}`;
+      const pts = [];
+      for (const s of e.sections) {
+        const ps = [s.startPoint, ...(s.bendPoints || []), s.endPoint];
+        pts.push(ps);
+      }
+      const g = el("g", { class: reduced ? "" : "efade", "data-e": i, "data-src": b.srcNode, "data-dst": b.dstNode }, layers.edge);
+      const lines = [];
+      for (const ps of pts) {
+        const str = ps.map((q) => `${q.x},${q.y}`).join(" ");
+        lines.push(el("polyline", { points: str, class: cls }, g));
+        const hit = el("polyline", { points: str, class: "ehit" }, g);
+        hit.addEventListener("click", (ev) => { ev.stopPropagation(); select({ type: "edge", id: i }); });
+        const t = el("title", {}, hit); t.textContent = `${busLabel([...b.nets])} (${n} net${n > 1 ? "s" : ""})`;
+      }
+      // a label on the longest horizontal run
+      let best = null;
+      for (const ps of pts) for (let k = 0; k + 1 < ps.length; k++) {
+        const a = ps[k], c = ps[k + 1];
+        if (Math.abs(a.y - c.y) < 0.5) { const L = Math.abs(c.x - a.x); if (!best || L > best.L) best = { L, x: (a.x + c.x) / 2, y: a.y }; }
+      }
+      let lab = null;
+      const text = n > 1 ? busLabel([...b.nets]) : NETS[[...b.nets][0]].n;
+      const lw = text.length * 5.9 + 6;
+      if (best && best.L > Math.max(50, lw * 0.8) && !placed.some((q) => Math.abs(q.x - best.x) < (q.w + lw) / 2 && Math.abs(q.y - best.y) < 11)) {
+        placed.push({ x: best.x, y: best.y, w: lw });
+        lab = el("text", { class: "el", x: best.x, y: best.y - 4, "text-anchor": "middle" }, layers.label);
+        lab.textContent = text;
+      }
+      els[i] = { g, lines, lab, best };
+    });
+    current.edgeEls = els;
+  }
+
+  // ---- overlays: selection, run, heat --------------------------------------------------
+  const heatStop = (v) => (v <= 0 ? 0 : Math.min(4, 1 + Math.floor(v * 3.999)));
+  const heatColor = (v) => `var(--heat-${heatStop(v)})`;
+  function metricOf(id) {
+    const tab = M.suite[heatMetric];
+    if (SYM[id]) return tab[id] || 0;
+    const ss = symsUnder[id];
+    if (heatMetric === "crit") { let m = 0; for (const s of ss) m = Math.max(m, tab[s] || 0); return m; }
+    let a = 0, w = 0;
+    for (const s of ss) { a += (tab[s] || 0) * SYM[s].pkg; w += SYM[s].pkg; }
+    return w ? a / w : 0;
+  }
+
+  function overlay() {
+    if (!current || !current.nodeEls) return;
+    const { abs, nodeEls } = current;
+    layers.over.innerHTML = ""; layers.heat.innerHTML = "";
+    svg.classList.toggle("run", mode === "run");
+    svg.classList.toggle("heat", mode === "heat");
+    // selection
+    for (const id in nodeEls) nodeEls[id].classList.toggle("sel", !!sel && sel.type === "node" && sel.id === id);
+    emphasise(sel && sel.type === "node" ? sel.id : null);
+    (current.edgeEls || []).forEach((ee, i) => {
+      const on = !!sel && ((sel.type === "edge" && sel.id === i) || (sel.type === "net" && sel.nets && [...current.edges[i].b.nets].some((n) => sel.nets.includes(n))));
+      ee.lines.forEach((l) => l.classList.toggle("sel", on));
+    });
+    if (mode === "heat") {
+      for (const id in abs) {
+        if (abs[id].container || current.jn[id]) continue;
+        const v = metricOf(id), r = abs[id];
+        const fill = heatColor(v);
+        if (SYM[id]) {
+          el("rect", { x: r.x - 3, y: r.y - 3, width: r.w + 6, height: r.h + 6, rx: 5, fill, class: "heatfill" }, layers.heat);
+        } else {
+          const fr = nodeEls[id].querySelector("rect.frame");
+          fr.style.fill = fill;
+          const ink = `var(--heat-ink-${heatStop(v)})`;
+          nodeEls[id].querySelectorAll(":scope > text").forEach((t) => { t.style.fill = ink; });
+          const t = el("text", { x: r.x + r.w - 10, y: r.y + r.h - 12, "text-anchor": "end", style: `fill:${ink};font-size:11px;font-weight:600` }, layers.over);
+          t.textContent = `${Math.round(v * 100)}%`;
+        }
+      }
+    } else {
+      for (const id in nodeEls) {
+        const fr = nodeEls[id].querySelector(":scope > rect.frame");
+        if (fr) fr.style.fill = "";
+        nodeEls[id].querySelectorAll(":scope > text").forEach((t) => { t.style.fill = ""; });
+      }
+    }
+    if (mode === "run") runOverlay(); else clearRun();
+    legend();
+  }
+
+  // a block's wires stand out (selected, or under the pointer); the rest fade
+  let hoverId = null;
+  function emphasise(id) {
+    id = hoverId || id;
+    if (!current || !current.edgeEls) return;
+    const on = !!id && mode !== "run";
+    svg.classList.toggle("focus", on);
+    const inside = (n) => n === id || (NODES[id] && (SYM[n] ? chain[n].includes(id) : NODES[n] && chainOfGroup(n).includes(id)));
+    current.edges.forEach((e, i) => {
+      const ee = current.edgeEls[i];
+      if (!ee) return;
+      const hl = on && (inside(e.b.srcNode) || inside(e.b.dstNode));
+      ee.lines.forEach((l) => l.classList.toggle("hl", hl));
+      if (ee.lab) ee.lab.classList.toggle("hl", hl);
+    });
+  }
+
+  // ---- runs ----------------------------------------------------------------------------
+  let T = null, cyc = 0, playing = null;
+  const cyclesOf = (t) => t.cols.u.length;
+  function setTrace(i) {
+    T = M.traces[i];
+    T.ix = i;
+    // cumulative ticks, and the instruction at each cycle
+    const n = cyclesOf(T);
+    T.at = new Float64Array(n + 1);
+    for (let c = 0; c < n; c++) T.at[c + 1] = T.at[c] + T.cols.ticks[c];
+    T.ins = new Int32Array(n).fill(-1);
+    let d = 0;
+    for (let c = 0; c < n; c++) {
+      while (d + 1 < T.decodes.length && T.decodes[d + 1][0] < c) d++;
+      T.ins[c] = T.decodes[d] && T.decodes[d][0] < c ? d : -1;
+    }
+    const span = Math.min(T.at[n], T.whole ? 360 : 220);
+    tlView = T.whole ? { a: Math.max(0, T.at[n] - span), b: T.at[n] } : { a: 0, b: span };
+    setCycle(T.whole ? Math.max(0, n - 110) : 0);
+    if (!sel) info();
+  }
+  function setCycle(c) {
+    if (!T) return;
+    cyc = Math.max(0, Math.min(cyclesOf(T) - 1, c));
+    const x = T.at[cyc];
+    if (x < tlView.a || T.at[cyc + 1] > tlView.b) {
+      const w = tlView.b - tlView.a;
+      tlView.a = Math.max(0, Math.min(T.at[cyclesOf(T)] - w, x - w * 0.3));
+      tlView.b = tlView.a + w;
+    }
+    drawTimeline();
+    nowPanel();
+    if (mode === "run") overlay();
+    tree();
+  }
+  function caseNow() { return T ? M.cases[T.cols.case[cyc]] : null; }
+  function liveOf(cs) {
+    if (cs._live) return cs._live;
+    const live = new Map();
+    for (let i = 0; i < cs.live.length; i += 2) live.set(cs.live[i], cs.live[i + 1] / 10);
+    const syms = new Set(), loads = new Map();
+    for (const [n] of live) for (const e of NETS[n].d) syms.add(e[0]);
+    for (const [sid, kind] of cs.loads) { if (SYM[sid]) { syms.add(sid); loads.set(sid, kind); } }
+    cs._live = { live, syms, loads };
+    return cs._live;
+  }
+  function busValue(netIdxs) {
+    // the value on a bundle whose nets are all bits of one traced bus
+    let bus = null; const bits = [];
+    for (const i of netIdxs) {
+      const tb = tbit[NETS[i].n];
+      if (!tb || (bus && tb[0] !== bus)) return null;
+      bus = tb[0]; bits.push(tb[1]);
+    }
+    if (!bus) return null;
+    bits.sort((a, b) => a - b);
+    const word = T.cols[bus][cyc];
+    let v = 0;
+    bits.forEach((b, k) => { if (Math.floor(word / Math.pow(2, b)) % 2) v += Math.pow(2, k); });
+    return { bus, v, n: bits.length, lo: bits[0] };
+  }
+  function runOverlay() {
+    const cs = caseNow();
+    if (!cs) return;
+    const { live, syms, loads } = liveOf(cs);
+    const { abs, nodeEls } = current;
+    // a node is live if anything under it is
+    const liveNode = new Set();
+    for (const sid of syms) for (const x of chain[sid]) liveNode.add(x);
+    for (const id in nodeEls) {
+      const isLive = current.jn[id] ? [...current.jn[id].nets].some((n) => live.has(n)) : liveNode.has(id);
+      nodeEls[id].classList.toggle("live", isLive);
+    }
+    // what loads: a mark on each shown block that holds a register loading
+    const loadAt = new Map();
+    for (const [sid, kind] of loads) {
+      const v = current.E.vis[sid];
+      if (!loadAt.has(v)) loadAt.set(v, new Set());
+      loadAt.get(v).add(kind);
+    }
+    for (const [v, kinds] of loadAt) {
+      const r = abs[v];
+      if (!r) continue;
+      const kind = kinds.has("write") ? "W" : kinds.has("load") ? "L" : "+";
+      const g = el("g", {}, layers.over);
+      el("rect", { x: r.x + r.w - 15, y: r.y + r.h - 15, width: 13, height: 13, rx: 3, class: "ldmark" }, g);
+      el("text", { x: r.x + r.w - 8.5, y: r.y + r.h - 5.2, "text-anchor": "middle", class: "ldmark-t" }, g).textContent = kind;
+      const t = el("title", {}, g); t.textContent = kind === "W" ? "writes memory or the register file" : kind === "L" ? "a register here loads" : "a counter here counts";
+    }
+    // wires that carry data, with their values
+    current.edges.forEach((e, i) => {
+      const ee = current.edgeEls[i];
+      if (!ee) return;
+      const on = [...e.b.nets].some((n) => live.has(n));
+      ee.lines.forEach((l) => l.classList.toggle("live", on));
+      if (ee.lab) {
+        ee.lab.classList.remove("v");
+        ee.lab.textContent = e.b.nets.size > 1 ? busLabel([...e.b.nets]) : NETS[[...e.b.nets][0]].n;
+        if (on) {
+          const bv = busValue([...e.b.nets]);
+          if (bv && bv.n > 1) { ee.lab.textContent = `${bv.bus}${bv.n < 32 ? `[${bv.lo + bv.n - 1}:${bv.lo}]` : ""} ${hex32(bv.v, bv.n)}`; ee.lab.classList.add("v"); }
+          else if (bv) { ee.lab.textContent = `${NETS[[...e.b.nets][0]].n}=${bv.v}`; ee.lab.classList.add("v"); }
+        }
+      }
+    });
+    critOverlay(cs);
+  }
+  function clearRun() {
+    for (const id in current.nodeEls) current.nodeEls[id].classList.remove("live");
+    (current.edgeEls || []).forEach((ee, i) => {
+      if (!ee) return;
+      ee.lines.forEach((l) => l.classList.remove("live"));
+      if (ee.lab) {
+        const b = current.edges[i].b;
+        ee.lab.classList.remove("v");
+        ee.lab.textContent = b.nets.size > 1 ? busLabel([...b.nets]) : NETS[[...b.nets][0]].n;
+      }
+    });
+  }
+  function critOverlay(cs) {
+    const { abs } = current;
+    const vis = current.E.vis;
+    const steps = [];
+    for (const [ni, t, sid] of cs.path) {
+      if (sid == null || !SYM[sid]) continue;
+      const v = vis[sid];
+      if (steps.length && steps[steps.length - 1].v === v) { steps[steps.length - 1].t = t; steps[steps.length - 1].net = ni; continue; }
+      steps.push({ v, t, net: ni });
+    }
+    // edges between consecutive steps that carry the path's net
+    for (let k = 0; k + 1 < steps.length; k++) {
+      const a = steps[k], b = steps[k + 1];
+      current.edges.forEach((e, i) => {
+        const bd = e.b;
+        if (!bd.nets.has(a.net)) return;
+        const ok = (bd.srcNode === a.v && (bd.dstNode === b.v || current.jn[bd.dstNode])) || (current.jn[bd.srcNode] && bd.dstNode === b.v);
+        if (!ok) return;
+        for (const s of e.sections) {
+          const ps = [s.startPoint, ...(s.bendPoints || []), s.endPoint].map((q) => `${q.x},${q.y}`).join(" ");
+          el("polyline", { points: ps, class: "crit-e" }, layers.over);
+        }
+      });
+    }
+    for (const s of steps) {
+      const r = abs[s.v];
+      if (!r) continue;
+      el("rect", { x: r.x - 3, y: r.y - 3, width: r.w + 6, height: r.h + 6, rx: 7, class: "crit-n" }, layers.over);
+      const t = el("text", { x: r.x + r.w + 4, y: r.y - 5, class: "crit-t" }, layers.over);
+      t.textContent = `${s.t.toFixed(1)} ns`;
+    }
+  }
+
+  // ---- the timeline -------------------------------------------------------------------
+  let tlView = { a: 0, b: 1 };
+  const tlCanvas = $("tl"), tlBox = $("timeline");
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  const CLASS_COLOR = (k) => ({ 4: cssVar("--f-buffer"), 5: cssVar("--f-register"), 6: cssVar("--f-memory"), 9: cssVar("--f-alu") }[k] || cssVar("--f-other"));
+  function drawTimeline() {
+    if (!T || $("run").hidden) return;
+    const dpr = window.devicePixelRatio || 1;
+    const W = tlBox.clientWidth, H = tlBox.clientHeight;
+    tlCanvas.width = W * dpr; tlCanvas.height = H * dpr;
+    const ctx = tlCanvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const xs = (t) => ((t - tlView.a) / (tlView.b - tlView.a)) * W;
+    const n = cyclesOf(T);
+    const mono = cssVar("--f-mono");
+    // find visible range
+    let lo = 0, hi = n - 1;
+    while (lo < n - 1 && T.at[lo + 1] < tlView.a) lo++;
+    while (hi > 0 && T.at[hi] > tlView.b) hi--;
+    const barY = 34, barH = 16;
+    for (let c = lo; c <= hi; c++) {
+      const x0 = xs(T.at[c]), x1 = xs(T.at[c + 1]);
+      ctx.fillStyle = CLASS_COLOR(T.cols.ticks[c]);
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(x0, barY, Math.max(0.6, x1 - x0 - (x1 - x0 > 3 ? 1 : 0)), barH);
+    }
+    ctx.globalAlpha = 1;
+    // instructions above
+    ctx.font = `11px ${mono}`;
+    ctx.textBaseline = "alphabetic";
+    let lastX = -1e9;
+    for (let d = 0; d < T.decodes.length; d++) {
+      const c = T.decodes[d][0] + 1;
+      if (c < lo - 40 || c > hi + 1) continue;
+      const x = xs(T.at[Math.max(0, Math.min(n, c))]);
+      ctx.strokeStyle = cssVar("--rule");
+      ctx.beginPath(); ctx.moveTo(x + 0.5, 6); ctx.lineTo(x + 0.5, barY + barH); ctx.stroke();
+      const next = d + 1 < T.decodes.length ? xs(T.at[Math.min(n, T.decodes[d + 1][0] + 1)]) : W;
+      const label = T.decodes[d][2];
+      const room = next - x - 6;
+      if (room > 24 && x > lastX) {
+        ctx.fillStyle = cssVar("--fg");
+        let s = label;
+        while (s.length > 2 && ctx.measureText(s).width > room) s = s.slice(0, -2);
+        if (s !== label) s = s.slice(0, -1) + "…";
+        ctx.fillText(s, x + 3, 20);
+        lastX = x + ctx.measureText(s).width;
+      }
+    }
+    // time axis
+    ctx.fillStyle = cssVar("--muted");
+    ctx.font = `10px ${mono}`;
+    const ns = (tlView.b - tlView.a) * M.tick_ns;
+    const step = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000].find((s) => (s / ns) * W > 70) || 100000;
+    const t0 = Math.ceil((tlView.a * M.tick_ns) / step) * step;
+    for (let t = t0; t <= tlView.b * M.tick_ns; t += step) {
+      const x = xs(t / M.tick_ns);
+      ctx.fillRect(x, barY + barH + 2, 1, 4);
+      ctx.fillText(t >= 1000 ? `${(t / 1000).toFixed(t % 1000 ? 2 : 0)} µs` : `${t} ns`, x + 3, H - 6);
+    }
+    // the cycle
+    const cx0 = xs(T.at[cyc]), cx1 = xs(T.at[cyc + 1]);
+    ctx.strokeStyle = cssVar("--live"); ctx.lineWidth = 2;
+    ctx.strokeRect(cx0 - 1, barY - 4, Math.max(3, cx1 - cx0) + 2, barH + 8);
+    ctx.lineWidth = 1;
+  }
+  function tlCycleAt(px) {
+    const W = tlBox.clientWidth;
+    const t = tlView.a + (px / W) * (tlView.b - tlView.a);
+    let lo = 0, hi = cyclesOf(T) - 1;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (T.at[m] <= t) lo = m; else hi = m - 1; }
+    return lo;
+  }
+  (function timelineInput() {
+    let drag = null;
+    tlBox.addEventListener("pointerdown", (e) => {
+      const r = tlBox.getBoundingClientRect();
+      drag = { x: e.clientX, a: tlView.a, b: tlView.b, moved: false };
+      tlBox.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      setCycle(tlCycleAt(e.clientX - r.left));
+    });
+    tlBox.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      const r = tlBox.getBoundingClientRect();
+      setCycle(tlCycleAt(e.clientX - r.left));
+    });
+    const up = () => { drag = null; };
+    tlBox.addEventListener("pointerup", up); tlBox.addEventListener("pointercancel", up);
+    tlBox.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const r = tlBox.getBoundingClientRect();
+      const f = Math.exp(e.deltaY * 0.0015);
+      const px = (e.clientX - r.left) / r.width;
+      const t = tlView.a + px * (tlView.b - tlView.a);
+      const total = T.at[cyclesOf(T)];
+      let w = Math.max(8, Math.min(total, (tlView.b - tlView.a) * f));
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { w = tlView.b - tlView.a; tlView.a += e.deltaX * w / r.width; }
+      else tlView.a = t - px * w;
+      tlView.a = Math.max(0, Math.min(total - w, tlView.a)); tlView.b = tlView.a + w;
+      drawTimeline();
+    }, { passive: false });
+    tlBox.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight") { setCycle(cyc + 1); e.preventDefault(); }
+      if (e.key === "ArrowLeft") { setCycle(cyc - 1); e.preventDefault(); }
+    });
+  })();
+
+  function nowPanel() {
+    const box = $("now");
+    if (!T) { box.innerHTML = ""; return; }
+    const u = T.cols.u[cyc], w = M.words[u] || { name: "?", rt: [], fields: "" };
+    const cs = caseNow();
+    const ticks = T.cols.ticks[cyc];
+    const d = T.ins[cyc] >= 0 ? T.decodes[T.ins[cyc]] : null;
+    $("where").innerHTML = `cycle <b>${T.start + cyc}</b> · ${((T.at[cyc]) * M.tick_ns / 1000).toFixed(2)} µs into the ${T.whole ? "run" : "window"} · <b>${ticks}</b> ticks (${ticks * M.tick_ns} ns)`;
+    const flags = T.cols.FL[cyc];
+    const fl = "NZCVIST".split("").map((f, i) => ((flags >> i) & 1 ? f : "·")).join("");
+    const live = liveOf(cs).live;
+    const hot = (bus) => (M.tnets[bus] || []).some((n) => live.has(netIx[n]));
+    const row = (bus, label, bits) => `<span class="${hot(bus) ? "hot" : ""}"><b>${label || bus}</b>${hex32(T.cols[bus][cyc], bits || 32)}</span>`;
+    box.innerHTML = `
+      <div class="ins">${d ? `<i>${(d[1] >>> 0).toString(16).toUpperCase().padStart(8, "0")}</i> ${esc(d[2])}${d[3] ? ` <i>${esc(d[3])}</i>` : ""}` : "<i>before the first decode</i>"}</div>
+      <div><span class="mono">${esc(w.name)}</span> <span class="muted mono">@${u.toString(16).toUpperCase().padStart(4, "0")}</span>
+        <span class="pill">class ${w.cls}</span><span class="pill crit" title="the period the static timing analysis gives this microinstruction in this state">${cs.T.toFixed(1)} ns needed</span>
+        <button class="tool" id="open-path" style="height:24px;font-size:12px" title="Open the units and sections the critical path runs through">Open the path</button></div>
+      <div class="muted" style="font-size:11.5px">${esc(cs.check)}</div>
+      <div class="rt">${w.rt.map(([k, v]) => `<b>${esc(k)}</b><span>${esc(v)}</span>`).join("")}</div>
+      <div class="buses">
+        ${row("ABUS", "A")}${row("BBUS", "B")}${row("RES")}
+        ${row("VA")}${row("PA")}${row("DB")}
+        ${row("MAR")}${row("R")}${row("T")}
+        ${row("PC")}${row("FPC")}${row("IR", "IR", 16)}
+        ${row("QH", "QH", 16)}<span><b>V0 V1</b>${T.cols.V[cyc] & 1} ${(T.cols.V[cyc] >> 1) & 1}</span><span><b>flags</b>${fl}</span>
+      </div>`;
+    $("open-path").onclick = () => {
+      for (const [, , sid] of cs.path) {
+        if (!sid || !SYM[sid]) continue;
+        for (const x of chain[sid]) if (NODES[x] && (NODES[x].kind === "unit" || NODES[x].kind === "section")) expanded.add(x);
+      }
+      tree();
+      relayout({ focusPath: true });
+    };
+  }
+
+  async function play() {
+    if (playing) { clearInterval(playing); playing = null; $("t-play").textContent = "▶"; $("t-play").setAttribute("aria-label", "Play"); return; }
+    $("t-play").textContent = "❚❚"; $("t-play").setAttribute("aria-label", "Pause");
+    const rate = +$("speed").value;
+    playing = setInterval(() => {
+      if (cyc >= cyclesOf(T) - 1) { play(); return; }
+      setCycle(cyc + 1);
+    }, 1000 / rate);
+  }
+  $("speed").onchange = () => { if (playing) { play(); play(); } };
+  $("t-play").onclick = play;
+  $("t-next").onclick = () => setCycle(cyc + 1);
+  $("t-prev").onclick = () => setCycle(cyc - 1);
+  $("t-start").onclick = () => setCycle(0);
+  $("t-next-i").onclick = () => { const i = T.ins[cyc]; const nx = T.decodes[i + 1]; if (nx) setCycle(nx[0] + 1); };
+  $("t-prev-i").onclick = () => { const i = T.ins[cyc]; const d = T.decodes[i]; if (d && d[0] + 1 < cyc) setCycle(d[0] + 1); else if (T.decodes[i - 1]) setCycle(T.decodes[i - 1][0] + 1); };
+  M.traces.forEach((t, i) => {
+    $("prog").appendChild(h("option", { value: i }, t.whole ? `${t.name}: from reset to HALT (${cyclesOf(t)} cycles)` : `${t.name}: ${cyclesOf(t)} cycles from cycle ${t.start}`));
+  });
+  $("prog").onchange = () => setTrace(+$("prog").value);
+
+  // ---- modes ----------------------------------------------------------------------------
+  function setMode(m) {
+    mode = m;
+    for (const k of ["structure", "run", "heat"]) {
+      $(`m-${k}`).classList.toggle("on", k === m);
+      $(`m-${k}`).setAttribute("aria-selected", k === m ? "true" : "false");
+    }
+    $("run").hidden = m !== "run";
+    if (m !== "run" && playing) play();
+    if (m === "run") { if (!T) setTrace(0); requestAnimationFrame(drawTimeline); }
+    overlay();
+    tree();
+    if (!sel) info();
+    try { history.replaceState(null, "", "#" + m); } catch (e) {}
+  }
+  for (const k of ["structure", "run", "heat"]) $(`m-${k}`).onclick = () => setMode(k);
+
+  function legend() {
+    const L = $("legend");
+    if (mode === "heat") {
+      L.innerHTML = `<span>${heatMetric === "work" ? "Share of the suite's cycles it works in" : "Share of the suite's time it's on the critical path"}</span><span>0%<i class="ramp"></i>100%</span>
+        <span><button class="chipb" id="heat-switch" aria-pressed="false">${heatMetric === "work" ? "Show critical path" : "Show work"}</button></span>`;
+      $("heat-switch").onclick = () => { heatMetric = heatMetric === "work" ? "crit" : "work"; overlay(); if (!sel) info(); };
+    } else if (mode === "run") {
+      L.innerHTML = `<span><i style="background:var(--live)"></i>carries data this cycle</span><span><i style="background:var(--crit)"></i>critical path, arrival after the clock edge</span><span><i style="background:var(--live);border-radius:3px"></i>L loads, W writes</span>`;
+    } else {
+      L.innerHTML = FAM.filter((f) => famUnder.root[f]).map((f) => `<span><i style="background:${famColor(f)}"></i>${FAMLABEL[f]}</span>`).join("");
+    }
+  }
+
+  // wire toggles
+  function wires() {
+    const W = $("wires"); W.innerHTML = "";
+    for (const [k, label, c] of [["signals", "All signals", ""], ["control", "Microcode fields", "ctl"], ["clock", "Clock", "clk"], ["fault", "FAULT", "flt"]]) {
+      const tip = k === "signals" ? "Show single signals between units too, not only buses (four nets or more) and wiring inside an open unit" : `Show ${label.toLowerCase()} wires`;
+      const b = h("button", { class: `chipb ${c}`, "aria-pressed": show[k] ? "true" : "false", title: tip }, `<i></i>${label}`);
+      b.onclick = () => { show[k] = !show[k]; store.set("wires", JSON.stringify(show)); wires(); relayout({ fit: true }); };
+      W.appendChild(b);
+    }
+  }
+
+  // ---- expansion ---------------------------------------------------------------------------
+  function setExpanded(id, on, opts) {
+    if (!isGroup(id) || id === "root") return;
+    if (on) { let x = id; while (x) { expanded.add(x); x = parentOf(x); } }
+    else {
+      expanded.delete(id);
+      for (const e of [...expanded]) if (e !== "root" && chainOfGroup(e).includes(id)) expanded.delete(e);
+    }
+    tree();
+    relayout(opts || { focus: id });
+  }
+  $("collapse-all").onclick = () => { expanded = new Set(["root"]); tree(); relayout({ fit: true }); };
+
+  // ---- outline ----------------------------------------------------------------------------
+  function tree() {
+    const ul = $("tree"); ul.innerHTML = "";
+    let liveNode = null;
+    if (mode === "run" && T) { liveNode = new Set(); for (const sid of liveOf(caseNow()).syms) for (const x of chain[sid]) liveNode.add(x); }
+    (function rows(id, parentUl, depth) {
+      for (const c of NODES[id].children) {
+        if (!NODES[c]) continue;
+        const n = NODES[c];
+        const hasKids = n.children.some((x) => NODES[x]) || n.children.length > 0;
+        const li = h("li");
+        const row = h("div", { class: `row ${n.kind[0]}${sel && sel.type === "node" && sel.id === c ? " sel" : ""}`, role: "treeitem", "aria-expanded": expanded.has(c) ? "true" : "false" });
+        const tw = h("button", { class: `tw${hasKids ? "" : " leaf"}`, "aria-label": expanded.has(c) ? "Collapse" : "Expand" }, expanded.has(c) ? "▾" : "▸");
+        tw.onclick = (ev) => { ev.stopPropagation(); setExpanded(c, !expanded.has(c)); };
+        const t = h("span", { class: "t" }, `${liveNode && liveNode.has(c) ? '<i class="live-dot"></i>' : ""}${esc(n.name)}`);
+        const cnt = h("span", { class: "n" }, String(Math.round(pkgUnder[c])));
+        row.append(tw, t, cnt);
+        row.onclick = () => reveal(c);
+        li.appendChild(row);
+        if (expanded.has(c) && n.children.some((x) => NODES[x])) {
+          const sub = h("ul", { class: "tree" });
+          rows(c, sub, depth + 1);
+          li.appendChild(sub);
+        }
+        parentUl.appendChild(li);
+      }
+    })("root", ul, 0);
+  }
+
+  // ---- selection and the inspector ----------------------------------------------------------
+  function select(s) { sel = s; overlay(); info(); crumbs(); tree(); }
+  function selectNets(nets, label) { select({ type: "net", nets, label }); }
+  function reveal(id, then) {
+    // make it visible: expand its ancestors
+    const ch = SYM[id] ? chain[id] : chainOfGroup(id);
+    let changed = false;
+    for (const x of ch.slice(0, -1)) if (isGroup(x) && !expanded.has(x)) { expanded.add(x); changed = true; }
+    sel = { type: "node", id };
+    tree(); info(); crumbs();
+    if (changed) relayout({ focus: id }); else { overlay(); focusOn(id); }
+  }
+  function crumbs() {
+    const C = $("crumbs"); C.innerHTML = "";
+    const add = (label, fn) => { const b = h("button", {}, esc(label)); b.onclick = fn; C.appendChild(b); };
+    add("CPU", () => select(null));
+    if (sel && sel.type === "node") {
+      const ch = SYM[sel.id] ? chain[sel.id] : chainOfGroup(sel.id);
+      for (const x of ch.slice(1)) { C.appendChild(h("i", {}, "›")); add(NODES[x] ? NODES[x].name : symTitle(x), () => reveal(x)); }
+    } else if (sel) {
+      C.appendChild(h("i", {}, "›"));
+      add(sel.type === "edge" ? busLabel([...current.edges[sel.id].b.nets]) : (sel.label || busLabel(sel.nets)), () => {});
+    }
+  }
+
+  function famBars(id) {
+    const fam = famUnder[id], tot = pkgUnder[id];
+    return `<div class="bar"><span class="muted">Parts</span><span class="track">${FAM.filter((f) => fam[f]).map((f) => `<i style="width:${(fam[f] / tot) * 100}%;background:${famColor(f)}" title="${FAMLABEL[f]}: ${fam[f].toFixed(fam[f] % 1 ? 1 : 0)}"></i>`).join("")}</span><span class="v">${chipsText(id)}</span></div>
+      <div class="famkey">${FAM.filter((f) => fam[f]).map((f) => `<span><i style="background:${famColor(f)}"></i>${FAMLABEL[f]} ${fam[f] % 1 ? fam[f].toFixed(1) : fam[f]}</span>`).join("")}</div>`;
+  }
+  function partsTable(id) {
+    const by = {};
+    for (const s of symsUnder[id]) { const sy = SYM[s]; const k = sy.part; by[k] = by[k] || { n: 0, fam: sy.fam, refs: new Set() }; by[k].n += sy.pkg; by[k].refs.add(sy.ref); }
+    const rows = Object.entries(by).sort((a, b) => b[1].n - a[1].n);
+    return `<table class="kv">${rows.map(([p, v]) => `<tr><td class="mono">${esc(p)}</td><td style="text-align:right;font-variant-numeric:tabular-nums">${v.n % 1 ? v.n.toFixed(1) : v.n}</td><td class="muted" style="font-size:11.5px">${esc([...v.refs].slice(0, 4).join(" "))}${v.refs.size > 4 ? " …" : ""}</td></tr>`).join("")}</table>`;
+  }
+  function boundary(id) {
+    // nets crossing the node's edge, as buses in and out
+    const inside = new Set(symsUnder[id] || [id]);
+    const ins = new Set(), outs = new Set();
+    for (const s of inside) {
+      for (const i of symOut[s] || []) { const n = NETS[i]; if (n.l.some((e) => !inside.has(e[0]))) outs.add(i); }
+      for (const i of symIn[s] || []) { const n = NETS[i]; if (n.d.some((e) => !inside.has(e[0]))) ins.add(i); }
+    }
+    const group = (set) => {
+      const by = {};
+      for (const i of set) { const c = NETS[i].c; if (c === "clock") continue; const m = NUMRE.exec(NETS[i].n); const k = (m ? m[1] : NETS[i].n) + "|" + c; (by[k] = by[k] || []).push(i); }
+      return Object.values(by).sort((a, b) => b.length - a.length);
+    };
+    return { ins: group(ins), outs: group(outs) };
+  }
+  function netList(groups, max) {
+    const items = groups.slice(0, max);
+    return `<ul class="l">${items.map((g) => { const c = NETS[g[0]].c; return `<li><button data-nets="${g.join(",")}"><span class="p">${esc(busLabel(g))}</span><span class="q">${c === "control" ? "microcode" : c === "fault" ? "fault" : g.length > 1 ? g.length + " nets" : ""}</span></button></li>`; }).join("")}${groups.length > max ? `<li class="muted">and ${groups.length - max} more</li>` : ""}</ul>`;
+  }
+  function wireNetButtons(root) {
+    root.querySelectorAll("[data-nets]").forEach((b) => { b.onclick = () => selectNets(b.dataset.nets.split(",").map(Number)); });
+    root.querySelectorAll("[data-node]").forEach((b) => { b.onclick = () => reveal(b.dataset.node); });
+  }
+
+  function info() {
+    const I = $("info");
+    if (!sel) { I.innerHTML = overviewHTML(); wireNetButtons(I); I.querySelectorAll("[data-unit]").forEach((b) => { b.onclick = () => reveal(b.dataset.unit); }); return; }
+    if (sel.type === "node") {
+      const id = sel.id;
+      if (SYM[id]) { I.innerHTML = symbolHTML(id); wireNetButtons(I); actions(I, id); return; }
+      const n = NODES[id];
+      const bd = boundary(id);
+      const kids = n.children.filter((c) => NODES[c]);
+      let runHTML = "";
+      if (mode === "run" && T) {
+        const L = liveOf(caseNow());
+        const ss = symsUnder[id];
+        const liveIn = ss.filter((s) => L.syms.has(s));
+        const lds = ss.filter((s) => L.loads.has(s));
+        runHTML = `<h3>This cycle</h3><p>${liveIn.length ? `${liveIn.length} of its ${ss.length} chips and gates carry data${lds.length ? `; ${lds.map((s) => SYM[s].ref).filter((v, i, a) => a.indexOf(v) === i).slice(0, 6).join(", ")} ${lds.length === 1 ? "loads" : "load"}` : ""}.` : "Idle: nothing here carries data that a register loads."}</p>`;
+      }
+      const heat = `<div class="stat"><div><b>${chipsText(id)}</b><span>chips</span></div><div><b>${Math.round(metricOfSuite(id, "work") * 100)}%</b><span>of cycles working</span></div><div><b>${Math.round(metricOfSuite(id, "crit") * 100)}%</b><span>of time critical</span></div></div>`;
+      I.innerHTML = `<div class="eyebrow">${KIND[n.kind]}</div><h2>${esc(n.name)}</h2>
+        ${n.desc ? `<p>${esc(n.desc)}</p>` : ""}
+        <div class="acts"><button class="tool" id="a-exp">${expanded.has(id) ? "Collapse" : "Open"}</button><button class="tool" id="a-focus">Show</button></div>
+        ${heat}
+        ${runHTML}
+        ${famBars(id)}
+        ${kids.length ? `<h3>Inside</h3><ul class="l">${kids.map((c) => `<li><button data-node="${c}"><span>${esc(NODES[c].name)}</span><span class="q">${chipsText(c)}</span></button></li>`).join("")}</ul>` : ""}
+        <h3>Parts</h3>${partsTable(id)}
+        <h3>Comes in</h3>${netList(bd.ins, 14)}
+        <h3>Goes out</h3>${netList(bd.outs, 14)}`;
+      $("a-exp").onclick = () => setExpanded(id, !expanded.has(id));
+      $("a-focus").onclick = () => reveal(id);
+      wireNetButtons(I);
+      return;
+    }
+    // a wire or a set of nets
+    const nets = sel.type === "edge" ? [...current.edges[sel.id].b.nets] : sel.nets;
+    I.innerHTML = netsHTML(nets);
+    wireNetButtons(I);
+  }
+  function metricOfSuite(id, metric) { const keep = heatMetric; heatMetric = metric; const v = metricOf(id); heatMetric = keep; return v; }
+  function actions(I, id) { const b = I.querySelector("#a-focus"); if (b) b.onclick = () => reveal(id); }
+
+  function overviewHTML() {
+    const units = NODES.root.children;
+    const max = Math.max(...units.map((u) => pkgUnder[u]));
+    const total = pkgUnder.root;
+    let runP = "";
+    if (mode === "run" && T) runP = `<p>The run is <b>${esc(T.name)}</b> on the chip-level simulator, at the microcode's own cycle lengths. Orange is what carries data this cycle: the nets behind every register that loads, as the timing analysis' case analysis for this microinstruction finds them. Red is the critical path, with the time each step settles after the clock edge.</p>`;
+    if (mode === "heat") runP = `<p>The program suite's profile (7 million cycles) weighted onto the chips: ${heatMetric === "work" ? "the share of cycles in which each chip carries data that something loads" : "the share of the time each chip is on its microinstruction's critical path"}. A block shows the ${heatMetric === "work" ? "average over its chips" : "most critical of its chips"}.</p>`;
+    return `<div class="eyebrow">Overview</div><h2>The draft 2 CPU card</h2>
+      <p>The chip-level netlist of RFC 0031's CPU: ${M.packages} chips, 74F and 74ABT logic with 12 ns SRAM, ${NETS.length} nets. Each box is a unit; open one (<b>+</b>, or double-click) to see its sections, then their blocks, then the chips. Wires are the nets between whatever is shown, bundled into buses; a bar is a bus with many drivers.</p>
+      ${runP}
+      <h3>Chips by unit</h3>
+      <div class="bars">${units.map((u) => `<div class="bar"><button data-unit="${u}">${esc(NODES[u].name)}</button><span class="track">${FAM.filter((f) => famUnder[u][f]).map((f) => `<i style="width:${(famUnder[u][f] / max) * 100}%;background:${famColor(f)}" title="${FAMLABEL[f]}"></i>`).join("")}</span><span class="v">${Math.round(pkgUnder[u])}</span></div>`).join("")}</div>
+      <div class="famkey">${FAM.filter((f) => famUnder.root[f]).map((f) => `<span><i style="background:${famColor(f)}"></i>${FAMLABEL[f]} ${Math.round(famUnder.root[f])}</span>`).join("")}</div>
+      <h3>How to read it</h3>
+      <p class="muted">Counts are packages: each IS61C6416 counts once though it's drawn as two halves, and a gate counts as its share of its package, so the blocks add up to ${total.toFixed(1)}: the other ${(M.packages - total).toFixed(1)} are spare gates. The bar under a block is what its chips are. Microcode fields, the clock and FAULT are wires you can switch on at the top left; they reach nearly everything.</p>`;
+  }
+
+  function symbolHTML(id) {
+    const s = SYM[id];
+    const isGate = s.kind === "gate";
+    let runHTML = "";
+    if (mode === "run" && T) {
+      const L = liveOf(caseNow());
+      const outs = (symOut[id] || []).filter((n) => L.live.has(n));
+      runHTML = `<h3>This cycle</h3><p>${L.loads.has(id) ? `<span class="pill live">${L.loads.get(id) === "write" ? "writes" : L.loads.get(id) === "count" ? "counts" : "loads"}</span>` : ""}${outs.length ? `Drives data: ${outs.slice(0, 6).map((n) => `${esc(NETS[n].n)} at ${L.live.get(n).toFixed(1)} ns`).join(", ")}${outs.length > 6 ? " …" : ""}.` : L.loads.has(id) ? "" : "Idle."}</p>`;
+    }
+    const pins = s.ports.map((p) => `<tr><td class="mono">${esc(p.pin)}</td><td class="muted" style="font-size:11px">${esc(p.kind)}</td><td>${p.nets.map((n) => (n === "GND" || n === "VCC") ? `<span class="muted mono">${n}</span>` : `<button data-nets="${netIx[n]}">${esc(n)}</button>`).join(" ")}</td></tr>`).join("");
+    const parent = s.parent;
+    return `<div class="eyebrow">${isGate ? "Gate" : "Chip"}</div><h2 class="mono">${esc(isGate ? symTitle(id) : s.ref)}</h2>
+      <p><b>${esc(s.part)}</b>${isGate ? ` · gate ${esc(id.split("#")[1])} of ${esc(s.ref)}, ${s.inv ? "N" : ""}${gateFnName[s.fn] || s.fn}` : s.desc ? " · " + esc(s.desc) : ""}</p>
+      <p class="muted">In <button class="tool" data-node="${parent}">${esc(NODES[parent].name)}</button></p>
+      <div class="stat"><div><b>${Math.round((M.suite.work[id] || 0) * 100)}%</b><span>of cycles working</span></div><div><b>${Math.round((M.suite.crit[id] || 0) * 100)}%</b><span>of time critical</span></div><div><b>${s.pkg % 1 ? s.pkg.toFixed(2) : s.pkg}</b><span>package</span></div></div>
+      ${runHTML}
+      <h3>Pins</h3><table class="kv">${pins}</table>`;
+  }
+
+  function netsHTML(nets) {
+    const title = busLabel(nets);
+    const m = NUMRE.exec(NETS[nets[0]].n);
+    const desc = m && M.buses[m[1]] ? M.buses[m[1]] : "";
+    let val = "";
+    if (mode === "run" && T) {
+      const bv = busValue(nets);
+      const L = liveOf(caseNow());
+      const liveN = nets.filter((n) => L.live.has(n));
+      val = `<h3>This cycle</h3><p>${bv ? `<span class="mono">${bv.bus} = ${hex32(bv.v, bv.n)}</span> · ` : ""}${liveN.length ? `${liveN.length} of ${nets.length} carry data, settled by ${Math.max(...liveN.map((n) => L.live.get(n))).toFixed(1)} ns.` : "Not carrying data that anything loads."}</p>`;
+    }
+    const ends = (key) => {
+      const by = new Map();
+      for (const i of nets) for (const e of NETS[i][key]) { const k = e[0]; by.set(k, (by.get(k) || 0) + 1); }
+      return [...by.entries()].sort((a, b) => b[1] - a[1]);
+    };
+    const list = (arr) => `<ul class="l">${arr.slice(0, 40).map(([sid, k]) => `<li><button data-node="${sid}"><span class="p">${esc(symName(sid))}</span><span class="q">${esc(NODES[SYM[sid].parent].name)}${k > 1 ? ` · ${k}` : ""}</span></button></li>`).join("")}${arr.length > 40 ? `<li class="muted">and ${arr.length - 40} more</li>` : ""}</ul>`;
+    return `<div class="eyebrow">${nets.length > 1 ? `${nets.length} nets` : "Net"}</div><h2 class="mono">${esc(title)}</h2>
+      ${desc ? `<p>${esc(desc[0].toUpperCase() + desc.slice(1))}.</p>` : ""}
+      ${val}
+      <h3>Driven by</h3>${list(ends("d"))}
+      <h3>Goes to</h3>${list(ends("l").filter(([sid]) => !NETS[nets[0]].d.some((e) => e[0] === sid) || true))}
+      ${nets.length > 1 && nets.length <= 64 ? `<h3>Nets</h3><p class="mono" style="font-size:11.5px;line-height:1.7">${nets.map((i) => `<button class="tool" style="height:22px;font-size:11px;margin:0 2px 2px 0" data-nets="${i}">${esc(NETS[i].n)}</button>`).join("")}</p>` : ""}`;
+  }
+
+  // ---- pan and zoom ---------------------------------------------------------------------------
+  function apply() { view.setAttribute("transform", `translate(${tf.x},${tf.y}) scale(${tf.k})`); }
+  function fit() {
+    if (!bbox) return;
+    const r = svg.getBoundingClientRect();
+    const top = 44, bottom = 40;
+    const hh = r.height - top - bottom;
+    const k = Math.min(r.width / bbox.w, hh / bbox.h, 1.5);
+    tf = { k, x: (r.width - bbox.w * k) / 2 - bbox.x * k, y: top + Math.max(0, (hh - bbox.h * k) / 2) - bbox.y * k };
+    apply();
+  }
+  function focusBox(ids) {
+    const rs = ids.map((id) => current.abs[id]).filter(Boolean);
+    if (!rs.length) { fit(); return; }
+    const x0 = Math.min(...rs.map((r) => r.x)), y0 = Math.min(...rs.map((r) => r.y));
+    const x1 = Math.max(...rs.map((r) => r.x + r.w)), y1 = Math.max(...rs.map((r) => r.y + r.h));
+    focusRect({ x: x0 - 20, y: y0 - 30, w: x1 - x0 + 40, h: y1 - y0 + 50 });
+  }
+  function focusOn(id) {
+    if (!current) return;
+    const r = current.abs[id] || (SYM[id] && current.abs[current.E.vis[id]]);
+    if (!r) { fit(); return; }
+    focusRect(r);
+  }
+  function focusRect(r) {
+    const box = svg.getBoundingClientRect();
+    const k = Math.min(1.4, Math.max(0.25, Math.min((box.width - 80) / r.w, (box.height - 120) / r.h)));
+    const target = { k, x: box.width / 2 - (r.x + r.w / 2) * k, y: box.height / 2 - (r.y + r.h / 2) * k };
+    if (reduced) { tf = target; apply(); return; }
+    const from = { ...tf }, t0 = performance.now();
+    const step = (now) => {
+      const t = Math.max(0, Math.min(1, (now - t0) / 300)), e = 1 - Math.pow(1 - t, 3);
+      tf = { k: from.k + (target.k - from.k) * e, x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e };
+      apply();
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  function zoomAt(f, cx, cy) {
+    const k = Math.min(5, Math.max(0.05, tf.k * f));
+    tf.x = cx - (cx - tf.x) * (k / tf.k); tf.y = cy - (cy - tf.y) * (k / tf.k); tf.k = k;
+    apply();
+  }
+  svg.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const r = svg.getBoundingClientRect();
+    if (!e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 0.5 && e.deltaMode === 0 && Math.abs(e.deltaY) < 40) {
+      tf.x -= e.deltaX; tf.y -= e.deltaY; apply(); return;
+    }
+    zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  const ptrs = new Map(); let last = null, moved = false, pinch = null;
+  svg.addEventListener("pointerdown", (e) => {
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 1) { last = { x: e.clientX, y: e.clientY }; moved = false; }
+    if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
+  });
+  svg.addEventListener("pointermove", (e) => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (ptrs.size === 2 && pinch) {
+      const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+      const r = svg.getBoundingClientRect();
+      zoomAt(d / pinch, (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+      pinch = d; moved = true; return;
+    }
+    if (!last) return;
+    const dx = e.clientX - last.x, dy = e.clientY - last.y;
+    if (!moved && Math.hypot(dx, dy) < 4) return;
+    if (!moved) { moved = true; svg.setPointerCapture(e.pointerId); svg.classList.add("drag"); }
+    tf.x += dx; tf.y += dy; last = { x: e.clientX, y: e.clientY }; apply();
+  });
+  const up = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; if (ptrs.size === 0) { last = null; svg.classList.remove("drag"); } };
+  svg.addEventListener("pointerup", up); svg.addEventListener("pointercancel", up);
+  svg.addEventListener("click", (e) => {
+    if (moved) { moved = false; e.stopPropagation(); return; }
+    if (!e.target.closest(".nd, .sym, .ehit, .jn, .tog")) select(null);
+  }, true);
+  $("zin").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(1.3, r.width / 2, r.height / 2); };
+  $("zout").onclick = () => { const r = svg.getBoundingClientRect(); zoomAt(1 / 1.3, r.width / 2, r.height / 2); };
+  $("zfit").onclick = fit;
+  window.addEventListener("resize", () => { drawTimeline(); });
+
+  // ---- search ------------------------------------------------------------------------------------
+  const index = [];
+  for (const id in NODES) if (id !== "root") index.push({ k: NODES[id].kind, text: NODES[id].name, label: NODES[id].name, where: NODES[NODES[id].parent].name, go: () => reveal(id) });
+  const seenRef = new Set();
+  for (const sid in SYM) {
+    const s = SYM[sid];
+    if (s.kind === "gate") index.push({ k: "gate", text: `${symTitle(sid)} ${s.ref}`, label: symTitle(sid), where: `${s.part} · ${NODES[s.parent].name}`, go: () => reveal(sid) });
+    else if (!seenRef.has(s.ref)) { seenRef.add(s.ref); index.push({ k: "chip", text: `${s.ref} ${s.part}`, label: s.ref, where: `${s.part} · ${NODES[s.parent].name}`, go: () => reveal(sid) }); }
+  }
+  const busSeen = new Set();
+  NETS.forEach((n, i) => {
+    index.push({ k: "net", text: n.n, label: n.n, where: "", go: () => selectNets([i]) });
+    const m = NUMRE.exec(n.n);
+    if (m && !busSeen.has(m[1])) {
+      busSeen.add(m[1]);
+      const all = NETS.map((x, j) => [x, j]).filter(([x]) => { const mm = NUMRE.exec(x.n); return mm && mm[1] === m[1]; }).map(([, j]) => j);
+      if (all.length > 1) index.push({ k: "bus", text: m[1], label: `${m[1]} (${all.length})`, where: M.buses[m[1]] || "", go: () => selectNets(all, m[1]) });
+    }
+  });
+  const q = $("q"), results = $("results");
+  let hits = [], hi = 0;
+  function search() {
+    const t = q.value.trim().toLowerCase();
+    results.innerHTML = "";
+    if (!t) { results.hidden = true; return; }
+    const rank = { unit: 0, section: 1, block: 2, array: 3, bus: 4, chip: 5, gate: 6, net: 7 };
+    hits = index.filter((x) => x.text.toLowerCase().includes(t)).sort((a, b) => {
+      const ea = a.text.toLowerCase() === t || a.label.toLowerCase().startsWith(t), eb = b.text.toLowerCase() === t || b.label.toLowerCase().startsWith(t);
+      return (eb - ea) || (rank[a.k] - rank[b.k]) || a.text.length - b.text.length;
+    }).slice(0, 40);
+    hi = 0;
+    hits.forEach((x, i) => {
+      const b = h("button", { class: i === 0 ? "on" : "" }, `<span class="k">${x.k}</span><span>${esc(x.label)}</span><span class="w">${esc(x.where)}</span>`);
+      b.onclick = () => { results.hidden = true; x.go(); };
+      results.appendChild(b);
+    });
+    results.hidden = hits.length === 0;
+  }
+  q.addEventListener("input", search);
+  q.addEventListener("keydown", (e) => {
+    if (results.hidden) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      hi = (hi + (e.key === "ArrowDown" ? 1 : hits.length - 1)) % hits.length;
+      [...results.children].forEach((b, i) => b.classList.toggle("on", i === hi));
+    } else if (e.key === "Enter" && hits[hi]) { results.hidden = true; hits[hi].go(); }
+    else if (e.key === "Escape") results.hidden = true;
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".search")) results.hidden = true; });
+  document.addEventListener("keydown", (e) => {
+    if (e.target.closest("input, select")) return;
+    if (mode === "run" && (e.key === "." || e.key === ",")) { setCycle(cyc + (e.key === "." ? 1 : -1)); }
+    if (e.key === "Escape") select(null);
+  });
+
+  // ---- start ----------------------------------------------------------------------------------------
+  $("sub").textContent = `${M.packages} chips · ${M.variant}`;
+  wires();
+  tree();
+  crumbs();
+  info();
+  legend();
+  const fontsReady = Promise.race([document.fonts ? document.fonts.ready : null, new Promise((r) => setTimeout(r, 2500))]).catch(() => {});
+  await fontsReady;
+  await relayout({ fit: true, instant: true });
+  const want = (location.hash || "").slice(1);
+  if (want === "run" || want === "heat") setMode(want);
+})();
+</script>
