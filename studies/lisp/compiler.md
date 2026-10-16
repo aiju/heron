@@ -151,8 +151,8 @@ puts the draft 2 compiler together: compiler.lisp with each top-level
 definition that compiler_v2.lisp also makes replaced by
 compiler_v2.lisp's, and its new ones after them. The compiler compiles
 itself from that text, so no 1b definition is left in it to be installed
-over a draft 2 one; and compiler.lisp, the 1b compiler, doesn't change
-(nor do report 0018's numbers).
+over a draft 2 one; and draft 2 leaves compiler.lisp, the 1b compiler,
+as it is (and report 0018's numbers with it).
 
 - **The assembler** writes draft 2's parcels (an opcode byte and a
   register byte, [RFC 0028](../../reports/0028-rfc-draft-2-isa.md)): the
