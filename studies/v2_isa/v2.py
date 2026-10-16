@@ -31,10 +31,17 @@ UNARY = ["NOT", "NEG", "INC", "DEC", "RLC", "RRC", "SWAP", "SXB", "SXH", "ZXB", 
 ROW_E = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "MULA", "DIVU", "DIVS", "DIVUL",
          "BIC", "TST", "MULU", "MULS", "MERGE"]
 SHIFTS = ["LSL", "LSR", "ASR", "ROR"]
-# LO is special register 2 (RFC 0029, 4)
-SR_NAMES = {0: "flags", 1: "hi", 2: "lo"}
+# the special registers (RFC 0029, 4): 0-7 user mode's, 8-15 the
+# supervisor's. 0 is ccr, the condition codes; the machine without a
+# supervisor keeps draft 1's flags word there, which the assembler also
+# takes as `flags`
+SR_NAMES = {0: "ccr", 1: "hi", 2: "lo", 8: "sr", 9: "far", 10: "fsr", 11: "ctx",
+            12: "mapa", 13: "mapd", 14: "bank", 15: "bkpt"}
 # the free cells, ILLEGAL, and CAS and the FPU escape, which aren't designed
-FREE = {0x00, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB, 0xFF}
+FREE = {0x00, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xFA, 0xFB, 0xFF}
+# BCOPY rd, rs: the tentative bank-to-bank copy of r0-r7 (RFC 0029's open
+# question 3), in a free cell of row F
+BCOPY = 0xF9
 # LEA's cells in row 0: the low nibble is the mode, as in rows 1-A
 LEA_CELLS = {0x03, 0x04, 0x05, 0x0E, 0x0F}
 MFSR, MTSR = 0x06, 0x07
@@ -331,6 +338,8 @@ def disassemble(ws, pc=0, symbols=None):
         return f"DBNZ {R(hi)}, {sym((pc + 2 - 2 * (lo + 1)) & M32, symbols)}", 1
     if op == 0xFC:
         return f"SWI #{rb}", 1
+    if op == BCOPY:
+        return f"BCOPY {rr}", 1
     if op == 0xFD:
         if rb == 0x00:
             e = ext[0]
@@ -339,6 +348,8 @@ def disassemble(ws, pc=0, symbols=None):
             return f"MULFX {R(e >> 12)}, {R((e >> 8) & 15)}, #{e & 31}", 2
         return bad
     if op == 0xFE:
+        if 0x10 <= rb <= 0x18:
+            return f"SPL #{rb - 0x10}", 1
         return {0: ("EI", 1), 1: ("DI", 1), 2: ("RTI", 1), 3: ("HALT", 1)}.get(rb, bad)
     return bad
 
@@ -371,7 +382,7 @@ def kind(ws):
     first = disassemble(ws)[0].split()[0]
     if first == ".half":
         return "illegal"
-    if first in ("RET", "NOP", "MFUR", "MTUR"):
+    if first in ("RET", "NOP", "MFUR", "MTUR", "BCOPY", "SPL"):
         return first
     if op in (0x01, 0x02):
         return "LDM" if op == 1 else "STM"
