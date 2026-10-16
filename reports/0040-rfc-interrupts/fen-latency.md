@@ -24,6 +24,13 @@ conventions ([7](../0040-rfc-interrupts.md#7-the-kernels-conventions),
 - **The gaps** between thread switches (a change of register bank) and
   between returns to user mode bound how long a lazy event waits for a
   kernel that only looks at its rings then.
+- **The message register's busy claims:** fast events at random moments,
+  100 to 10,000 a second, sent through the traced spans. Each event's
+  entry waits until interrupts are let in, then frees its place and takes
+  the CPU for 10 µs (an assumption: the entry and a short handler). A
+  claim fails while another message waits. The same events also go to a
+  FIFO of four messages, and to a kernel that never holds interrupts off,
+  the best one at `SPL #6` could do.
 - **Five workloads:** boot, eight short commands at the serial shell,
   the kernel's benchmark `kbench`, two idle seconds, and the desktop with
   a click, some typing and a drag.
@@ -84,6 +91,25 @@ machine. With the I/O processor moving whole requests, the CF card's
 would drop to one per request. So batching slow events saves little in
 interrupts; its value is in fewer hand-offs to drivers.
 
+### Busy claims depend on the kernel, not on the FIFO
+
+| Fast events a second | Register, as Fen is | FIFO of 4, as Fen is | Register, never held off |
+|---:|---:|---:|---:|
+| 100 | 2–29% | 0–19% | 0% |
+| 1,000 | 6–39% | 0–29% | 0% |
+| 10,000 | 10–54% | 8–45% | 0.5–0.7% |
+
+The ranges run over the shell, the desktop, boot and `kbench`, the last
+two the worst. While Fen holds interrupts off for milliseconds, every
+event that comes during a long span after the first fails its claim, and
+a FIFO of four only moves the point where they start failing. With
+interrupts let in at once, the single register drops under 1% even at
+10,000 a second, and the FIFO drops none. A failed claim isn't lost: the
+event goes the slow way. So the kernel's convention, not the FIFO, decides
+whether busy claims are common, and with the convention they are rare.
+This leaves out the short spans a kernel at `SPL #6` still has, at
+exception entry and in level 8, so its real figure is a little higher.
+
 ### Lazy events wait milliseconds when the machine is busy
 
 Between thread switches the median gap is 4–165 µs, and 90% of gaps are
@@ -109,6 +135,9 @@ Under RFC 0040's convention Fen's timer would move from RFC 0029's level
   is far more than the I/O processor's few µs.
 - **The message level only pays** if the kernel moves to IPL 6 at entry,
   which is cheap.
+- **The single message register is enough** under that convention: a FIFO
+  is worth its chips only for a kernel that holds interrupts off, and
+  even there it helps little.
 - **The long spans** are worth fixing in Fen whatever RFC 0040 decides:
   background zeroing and a point between pages.
 - **Batching** saves little, at Fen's interrupt rates.
@@ -122,3 +151,6 @@ Under RFC 0040's convention Fen's timer would move from RFC 0029's level
   network would change the rates, though probably not the shape.
 - The waits leave out each handler's own time and the hand-off to a
   user-level driver (report 0020's 500–640 cycles).
+- The busy claims assume a 10 µs handler and events independent of one
+  another; bursts from one source would fail more often, though each
+  source has at most one event outstanding (RFC 0040, 4.4).

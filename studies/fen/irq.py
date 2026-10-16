@@ -12,6 +12,11 @@ and records:
   between returns to user mode, which bound how long an event the kernel
   only looks at then would wait.
 
+Then it sends fast events at random moments through those spans, to see how
+often the message register would be busy (RFC 0040's section 10): each
+event's entry waits for interrupts to be let in, and takes the CPU for a
+handler's time.
+
 An interrupt that arrives at a random moment lands in a span of length T
 with probability T over the whole time, and then waits T / 2 on average, so
 its mean wait is the sum of T squared over twice the time.
@@ -25,8 +30,10 @@ level 7. The tables name devices instead.
 document that discusses them (fen-latency.md).
 """
 
+import bisect
 import collections
 import os
+import random
 import sys
 
 from heron import ROOT
@@ -40,6 +47,9 @@ EXCEPTIONS = {0x00: "reset", 0x04: "NMI", 0x08: "illegal", 0x0C: "bus error",
               0x20: "page fault", 0x24: "trace"}
 SWI = {n: name for n, name, *_ in syscalls.SYSCALLS}
 DEVICE = {7: "timer", 6: "UART", 5: "CF card", 4: "PS/2", 3: "video"}
+RATES = (100, 1_000, 10_000)  # fast events a second
+HANDLER_US = 10               # a message's entry and handler (an assumption)
+DEPTHS = (1, 4)               # the message register, and a FIFO of four
 
 
 def cause(off):
@@ -61,6 +71,7 @@ class Tracer:
         self.off_start = None
         self.off_cause = None
         self.spans = []                     # (cycles, cause)
+        self.off = []                       # (start, end) cycles of each span
         self.taken = collections.Counter()  # device
         self.switches = []                  # cycles at each change of bank
         self.exits = []                     # cycles at each return to user mode
@@ -85,6 +96,7 @@ class Tracer:
                 self.off_start, self.off_cause = c.cycles, why or "`DI`"
             elif on and not was_on and self.off_start is not None:
                 self.spans.append((c.cycles - self.off_start, self.off_cause))
+                self.off.append((self.off_start, c.cycles))
                 self.off_start = None
             if self.last_sr >> 31 & 1 and not sr >> 31 & 1:
                 self.exits.append(c.cycles)
@@ -144,9 +156,50 @@ def measure(name):
     if boot_first:
         s.boot()
     t = trace(s)
-    start = s.c.cycles
+    t.start = s.c.cycles
     body(s)
-    return t, s.c.cycles - start, s.c.cycles_at(10**9)
+    return t, s.c.cycles - t.start, s.c.cycles_at(10**9)
+
+
+def busy(t, total, hz, rate, depth, off=True, seed=1):
+    """The fraction of fast events that find the message register (depth 1)
+    or a FIFO of messages (depth > 1) full, for events at random moments at
+    rate a second. An event waits until interrupts are let in, then its entry
+    frees its place and the CPU handles it for HANDLER_US; the next waits for
+    that. With off false, interrupts are never held off: the best a kernel
+    following RFC 0040's convention could do."""
+    spans = t.off if off else []
+    ends = [e for _, e in spans]
+    service = HANDLER_US * hz / 1e6
+
+    def let_in(x):
+        # the first moment at or after x outside every span
+        i = bisect.bisect_right(ends, x)
+        if i < len(spans) and spans[i][0] <= x:
+            return spans[i][1]
+        return x
+
+    rng = random.Random(seed)
+    waiting = collections.deque()
+    free = t.start
+    sent = dropped = 0
+    x = t.start
+    while True:
+        x += rng.expovariate(rate) * hz
+        if x >= t.start + total:
+            break
+        while waiting:
+            go = let_in(max(free, waiting[0]))
+            if go > x:
+                break
+            waiting.popleft()
+            free = go + service
+        sent += 1
+        if len(waiting) < depth:
+            waiting.append(x)
+        else:
+            dropped += 1
+    return dropped / sent if sent else 0
 
 
 def quantiles(xs):
@@ -231,6 +284,24 @@ def tables(results):
                 continue
             out.append(f"| {name} | {what} | {q['n']:,} | {us(q['p50'], hz):,.0f} | {us(q['p90'], hz):,.0f}"
                        f" | {us(q['p99'], hz):,.0f} | {us(q['max'], hz):,.0f} |")
+    out += ["",
+            "## How often the message register would be busy",
+            "",
+            f"Fast events at random moments, a handler of {HANDLER_US} µs each."
+            " Each event's entry waits until interrupts are let in: as Fen holds"
+            " them off now, or never held off, the best a kernel at `SPL #6` could"
+            " do. The table gives the share of events whose claim fails, with the"
+            " message register and with a FIFO of four messages.",
+            "",
+            "| Workload | Fast events a second | Register, as Fen is | FIFO of 4, as Fen is"
+            " | Register, never held off | FIFO of 4, never held off |",
+            "|---|---:|---:|---:|---:|---:|"]
+    for name, (t, total, hz) in results.items():
+        if not t.off:
+            continue
+        for rate in RATES:
+            cells = [busy(t, total, hz, rate, d, off) for off in (True, False) for d in DEPTHS]
+            out.append(f"| {name} | {rate:,} | " + " | ".join(f"{100 * c:.1f}%" for c in cells) + " |")
     return "\n".join(out) + "\n"
 
 

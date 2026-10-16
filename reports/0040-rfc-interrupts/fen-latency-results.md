@@ -75,3 +75,25 @@ The gaps between thread switches (a change of register bank) and between returns
 | kbench | returns to user mode | 19,234 | 56 | 186 | 1,784 | 45,979 |
 | desktop | thread switches | 1,031 | 4 | 2,538 | 61,823 | 547,974 |
 | desktop | returns to user mode | 1,854 | 132 | 1,226 | 10,005 | 548,046 |
+
+## How often the message register would be busy
+
+Fast events at random moments, a handler of 10 µs each. Each event's entry waits until interrupts are let in: as Fen holds them off now, or never held off, the best a kernel at `SPL #6` could do. The table gives the share of events whose claim fails, with the message register and with a FIFO of four messages.
+
+| Workload | Fast events a second | Register, as Fen is | FIFO of 4, as Fen is | Register, never held off | FIFO of 4, never held off |
+|---|---:|---:|---:|---:|---:|
+| boot | 100 | 28.1% | 3.1% | 0.0% | 0.0% |
+| boot | 1,000 | 28.7% | 19.2% | 0.0% | 0.0% |
+| boot | 10,000 | 47.2% | 39.2% | 0.7% | 0.0% |
+| commands | 100 | 2.2% | 0.0% | 0.0% | 0.0% |
+| commands | 1,000 | 8.3% | 0.1% | 0.0% | 0.0% |
+| commands | 10,000 | 20.0% | 12.1% | 0.6% | 0.0% |
+| kbench | 100 | 28.6% | 19.3% | 0.0% | 0.0% |
+| kbench | 1,000 | 38.6% | 29.2% | 0.0% | 0.0% |
+| kbench | 10,000 | 54.2% | 45.2% | 0.5% | 0.0% |
+| idle | 100 | 0.0% | 0.0% | 0.0% | 0.0% |
+| idle | 1,000 | 0.0% | 0.0% | 0.0% | 0.0% |
+| idle | 10,000 | 0.6% | 0.0% | 0.5% | 0.0% |
+| desktop | 100 | 3.8% | 0.3% | 0.0% | 0.0% |
+| desktop | 1,000 | 5.9% | 3.9% | 0.0% | 0.0% |
+| desktop | 10,000 | 10.2% | 7.6% | 0.5% | 0.0% |

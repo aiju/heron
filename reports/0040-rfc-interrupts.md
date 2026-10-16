@@ -524,12 +524,18 @@ The rule for devices that follows:
 - **Slow events never use it.** They come in bursts that would keep it
   full, so fast senders would keep failing their claims. Rings queue any
   number of events, and batch them.
+- **How often a claim fails** depends on how the kernel holds
+  interrupts off, more than on the register. Measured against Fen's
+  spans ([fen-latency.md](0040-rfc-interrupts/fen-latency.md#busy-claims-depend-on-the-kernel-not-on-the-fifo)):
+  with a kernel at `SPL #6`, under 1% of claims fail even at 10,000 fast
+  events a second; with Fen's kernel as it is, 6–39% at 1,000 a second,
+  and a FIFO of four still loses 0–29%.
 
 | Semantics | Chips | Behaviour | Status |
 |---|---:|---|---|
 | **Claim, then write** | ~4–5 | No message is lost; a busy claim falls back to a ring | **tentative** |
 | First write wins; later ones set an overflow bit | ~3–4 | One transfer, but a dropped message's sender never learns of it, so the message must be in memory too | **not recommended** |
-| A small FIFO of messages (Emily's alternative) | ~5 more | Writes queue and the handler takes them off; no claim; messages are dropped only when it is full | **an alternative**, if busy claims turn out to be common |
+| A small FIFO of messages (Emily's alternative) | ~5 more | Writes queue and the handler takes them off; no claim; messages are dropped only when it is full | **an alternative**, if busy claims turn out to be common; measured, they are rare with the kernel at `SPL #6` |
 | A mailbox word in memory for each fast level, and one source to a level | 0 | Three fast levels for three sources, and the handler reads memory | **superseded** (RFC 0027 as revised on 2026-10-16) |
 
 ### 11. Vectoring through the SWI entries
