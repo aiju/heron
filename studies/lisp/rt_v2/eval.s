@@ -18,31 +18,31 @@
 ; address in r7. The result comes back in r1; r0-r12 are not preserved.
 ;
 ; Inside the interpreter, the return address is on the stack, where 1b's
-; calls left it: eval pushes r7 on entry, the special forms are jumped to
-; with it there and return with JMP [sp]+, and tail calls (eval_t,
-; eval_body) leave it there. apply_stack pops it into r7 when it jumps to
-; a procedure.
+; calls left it: eval pushes r7 when it evaluates a pair, the special forms
+; are jumped to with it there and return with JMP [sp]+, and tail calls
+; (eval_t, eval_body) leave it there. apply_stack pops it into r7 when it
+; jumps to a procedure. An atom is a leaf: a constant or a variable comes
+; back with RET, without touching the stack.
 
 LOCAL   = 2                     ; the "has been a local" bit of the special field
 
-; eval: r1 = an expression, r2 = an environment -> r1 = its value.
-eval:   PUSH r7
-eval_p: CMP  sp, [stack_limit]  ; (with the return address pushed)
-        BLO  err_stack
-eval_t:                         ; for tail calls: the stack hasn't grown
-        MOV  r3, r1
+; eval_t: eval for a tail call, with the return address on the stack.
+eval_t: MOV  r3, r1
         AND  r3, #3
         CMP  r3, #1
         BEQ  ev_pair
+        POP  r7
+; eval_atom: r1 = a value that isn't a pair, r3 = its low two bits.
+eval_atom:
         CMP  r3, #3
         BNE  .self              ; a number
         MOV  r3, byte [r1 - 3]
         CMP  r3, #B_SYM
         BEQ  ev_var
-.self:  JMP  [sp]+
+.self:  RET
 
 ; ev_var: r1 = a symbol, r2 = an environment -> r1 = its value. Uses r2,
-; r4, r5. Jumped to with the return address on the stack.
+; r4, r5.
 ev_var: MOV  r4, [r1 + SYM_SPECIAL]
         AND  r4, #LOCAL
         BEQ  .global
@@ -60,7 +60,7 @@ ev_var: MOV  r4, [r1 + SYM_SPECIAL]
         ADD  r5, #4
         BRA  .slot
 .found: MOV  r1, [r5]
-        JMP  [sp]+
+        RET
 .up:    MOV  r2, [r2 + 1]       ; the parent
         CMP  r2, r13
         BNE  .frame
@@ -69,9 +69,24 @@ ev_var: MOV  r4, [r1 + SYM_SPECIAL]
         CMP  r2, #UNB
         BEQ  err_unbound
         MOV  r1, r2
-        JMP  [sp]+
+        RET
 
-; ev_pair: r1 = a form (a pair), r2 = an environment.
+; eval: r1 = an expression, r2 = an environment -> r1 = its value. A pair
+; puts the return address on the stack, checks the stack and goes on in
+; ev_pair. (eval_one is 1b's eval without the stack check for an atom,
+; which eval is too now.)
+eval:
+eval_one:
+        MOV  r3, r1
+        AND  r3, #3
+        CMP  r3, #1
+        BNE  eval_atom
+        PUSH r7
+        CMP  sp, [stack_limit]
+        BLO  err_stack
+
+; ev_pair: r1 = a form (a pair), r2 = an environment; the return address
+; on the stack.
 ev_pair:
         MOV  r3, [r1 - 1]       ; the operator
         MOV  r4, r3
@@ -353,22 +368,6 @@ apply_list_t:
         BRA  apply_stack
 .bad:   MOV  r1, r2
         BRA  err_notlist
-
-; eval_one: eval, with the common cases (a variable, a constant) done
-; without the dispatch, and a constant without touching the stack.
-eval_one:
-        MOV  r3, r1
-        AND  r3, #3
-        CMP  r3, #1
-        BEQ  eval
-        CMP  r3, #3
-        BNE  .self
-        MOV  r3, byte [r1 - 3]
-        CMP  r3, #B_SYM
-        BNE  .self
-        PUSH r7                 ; (ev_var returns with JMP [sp]+)
-        BRA  ev_var
-.self:  RET
 
 ; eval_into: evaluate a list of expressions into stack slots.
 ; r1 = the list, r2 = the environment, r3 = the first slot, r4 = 0 for
