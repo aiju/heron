@@ -344,6 +344,23 @@ with bits 2–0:
   address counter for the shared RAM and the spare T code (the shared
   RAM takes a device's data from T) would make it one: about 3 chips,
   **optional**.
+- **Registers come in groups, one per device on T.** A microinstruction
+  that uses a register and a device on T at once has only REG's 6 bits
+  for both, so the register's bits 5–3 must be the device's number:
+
+  | Registers | Go with | |
+  |---|---|---|
+  | 0–7 | device 0, the I/O bus | any of the eight, as the address comes from X |
+  | 8–15 | device 1, the shared RAM | any of the eight, likewise |
+  | 16–63 | devices 2–7 | exactly one: bits 2–0 also pick the device's own register, so reading event port 2 while stepping a register steps register 26 |
+
+  So a native loop between a device and the bus keeps its pointers in
+  that device's group. The Forth's own registers can sit anywhere: NEXT,
+  `nest` and the stack words never use a device, and the words that do
+  (`io@`, `sr@`) combine it with AC and X, not with a bank register. This
+  is a numbering convention, which costs nothing. A separate device field
+  would need a seventh microcode flash, 56 bits; worth looking into only
+  if the convention turns out to be a problem.
 
 #### 3.6 Timing
 
