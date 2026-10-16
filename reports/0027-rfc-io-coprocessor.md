@@ -435,6 +435,16 @@ fixed, so the card needs no jumpers:
   I/O device use no bus time at all.
 - **32 bits (optional):** two more SRAM lanes and P2's transceivers, once
   a master makes word transfers.
+- **Room for more** (**open**, a proposal of Emily's, 2026-10-16): space on
+  the card for more shared RAM than 2 MB, fitted as wanted, say up to
+  8 MB.
+  - The page register grows from 4 bits to 6, which still fits its chip.
+  - The slave side already registers A1–A23, enough for 16 MB.
+  - A decoder picks the bank: about 1 chip.
+  - The SRAMs: 4 more for each 2 MB with these parts, or 2 with 512K × 16
+    ones.
+  - Board space is what limits it, and more T loading; the card may take
+    two positions anyway ([section 2](#2-the-card)).
 - **The status block:** its first 64 bytes are the IOP's, written by its
   firmware: a count that changes while the firmware runs, its state, the
   firmware's version, and where its log is. That saves a status register
@@ -1282,7 +1292,8 @@ For Emily:
    register, the banks at the top of the SRAM (recommended, about 2
    chips)? And the optional shift register and carry in from the flag?
 3. **The shared RAM** on the IOP's card, 2 MB at 16 bits, instead of a
-   memory card (recommended)?
+   memory card (recommended)? And space on the card for more of it,
+   up to 8 MB, as Emily proposed (open, [4.3](#43-the-shared-ram))?
 4. **Rings in the shared RAM** (recommended), rather than in a CPU's RAM?
 5. **Slow and fast interrupts:** levels 1–5 slow and batched, 6–8 fast
    with one source each; the kernel's critical sections at `SPL #5`
