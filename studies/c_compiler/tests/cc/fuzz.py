@@ -3,7 +3,7 @@
 Generates small random C programs (integer arithmetic of every width,
 arrays, pointers, structs, loops, switches, calls, many live values) without
 undefined behaviour, compiles each with gcc -funsigned-char and with this
-compiler for drafts 1a and 1b, and compares the output. The generator keeps a
+compiler for drafts 1a, 1b and 2, and compares the output. The generator keeps a
 bound on each int value: arithmetic that stays in int's range is left signed
 (the optimiser assumes signed arithmetic doesn't overflow, and this tests
 that), and arithmetic that might overflow is done in unsigned, which wraps.
@@ -312,7 +312,7 @@ def main():
     ap.add_argument("--keep", help="save failing programs here")
     ap.add_argument("--isa", action="append")
     args = ap.parse_args()
-    isas = args.isa or ["v1a", "v1b"]
+    isas = args.isa or ["v1a", "v1b", "v2"]
     bad = 0
     with tempfile.TemporaryDirectory() as tmp:
         for n in range(args.count):
