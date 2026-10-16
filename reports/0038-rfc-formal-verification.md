@@ -606,6 +606,19 @@ the specification's 220 decision outcomes is reached by no instruction:
 the last arm of the `case` in `condition()` can't fall through, because
 the `case` is exhaustive.
 
+The language had two versions. The first was untyped and looked like
+Python: every value a bit vector, a bare number taking whatever width it
+met, a flag a 1-bit value, blocks by indentation, and functions free to
+change state. The second, Part II's, came out of Emily's review: braces;
+`@` for state; `fn` apart from `proc`; types, with `bool` apart from
+`u1`, enums and records; sized numbers; named arguments where a swap
+would type-check; and the checks of [2.6](#26-what-is-checked). Draft 1b
+was rewritten in it. The rewrite found no mistake in the first text, and
+the checker caught one slip in the rewrite (a parameter named like a
+function). SAMENESS The text is longer, about 770 lines against 610: the
+closing braces, a `let` for each `proc` value used in an expression, and
+the named arguments.
+
 Making the coverage count honest took four fixes to the tools. Each would
 have reported a goal as missed, or as reached, wrongly:
 
