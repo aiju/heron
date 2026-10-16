@@ -10,14 +10,14 @@ rtlx.py):
   table's address (and D1's tables). RTI loads them with the rest of the
   word; exception entry clears them, so the supervisor always runs draft
   2. Nothing else in the CPU knows which instruction set it is running.
-- **Room:** draft 2's microcode is 6,235 of the 8K words the sequencer
+- **Room:** draft 2's microcode is 6,296 of the 8K words the sequencer
   reaches; Thumb's is some 4,700. With NEXT widened to 16 bits the whole
   64K store is reachable; decode entries stay 13 bits, so every routine
   starts in the first 8K, and their continuations go anywhere.
 - **Sharing the register file:** a guest's registers must be locations
   0-15 of the bank (draft 2's, which the kernel's context switch and
   MFUR/MTUR already handle), its scratch draft 2's scratch, and its
-  constants in the two global locations draft 2 leaves (or KONST).
+  constants in the two G locations draft 2 leaves (or KONST), in every bank.
 - **Traps:** a guest's system call is draft 2's SWI, its undefined
   instructions draft 2's illegal instruction trap, and its faults draft
   2's: the fault entries save the instruction's own PC, so a guest

@@ -28,7 +28,7 @@ the undefined encodings stop. Beside draft 2's own microcode (mixed.py),
 SVC #n is draft 2's SWI #n and the undefined encodings its illegal
 instruction trap, and an instruction that faults can be restarted: no
 register is written before its last memory access (but LDM with the base
-in the list). Its constants are in the two global locations draft 2's
+in the list). Its constants are in the two G locations draft 2's
 microcode leaves free. BL's 32-bit form assumes J1 = J2 = 1 (offsets
 within 4 MB).
 """
@@ -41,7 +41,7 @@ from . import guest as gm
 M32 = 0xFFFFFFFF
 G = uc.G
 TMP1, TMP2, TMP3, ZERO = uc.TMP1, uc.TMP2, uc.TMP3, uc.ZERO      # draft 2's
-K8000, K0FFE = G + 30, G + 31             # the two global locations draft 2 leaves
+K8000, K0FFE = G + 30, G + 31             # the two G locations draft 2 leaves
 CONSTS = {K8000: 0x8000, K0FFE: 0x0FFE}
 assert not set(CONSTS) & set(uc.CONSTS)
 SP, LR = 13, 14

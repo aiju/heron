@@ -71,25 +71,25 @@ measures native code. The tables are generated:
 4. **The control store's reach is the other limit.** The sequencer
    reaches 8K words of the 64K store. 1b takes 7,856 of them, after its
    loops and dispatch tables were shared to get it from 14,275; draft 2's
-   own microcode is 6,235, Thumb's 4,770, RV32's 2,931, the 6502's 795.
+   own microcode is 6,296, Thumb's 4,770, RV32's 2,931, the 6502's 795.
    No guest fits beside draft 2's own but the 6502. D3, a 16-bit NEXT
    field, reaches all 64K, and takes the control word's three spare bits.
 5. **User processes in different instruction sets work, with two more
    small changes.** D2 adds two status-word bits that select the decode
    table's page; RTI loads them, and exception entry clears them, so the
    kernel always runs draft 2. With D1, D2 and D3, a draft 2 kernel of
-   190 instructions runs a draft 2 process and two compiled Thumb
-   programs, each in its own context and bank, switching on the timer and
+   190 instructions runs C programs compiled for draft 2 and for Thumb
+   side by side as user processes, each in its own context and bank, switching on the timer and
    mapping their stacks and heaps on demand, and every output is right. The kernel
    doesn't know what instruction set a process runs except to print it:
    a context switch is the same for all of them.
 6. **A guest that shares the machine has to follow draft 2's conventions:**
    its registers in the bank's locations 0-15, its scratch draft 2's
-   scratch, its constants in the two global locations draft 2 leaves free
+   scratch, its constants in the two G locations draft 2 leaves free
    (or in KONST), its system calls draft 2's `SWI`, its faults draft 2's,
    and every instruction restartable after a fault, writing no register
    before its last memory access. Thumb needed four small changes for it
-   (one more cycle on `PUSH`); RV32 (all 256 banks), the 6502 (21 global
+   (one more cycle on `PUSH`); RV32 (all 256 banks), the 6502 (21 G
    constants) and 1b (32 banks of condition tables) couldn't share as they
    are.
 7. **Byte-granular instruction sets work by keeping every byte twice.**
@@ -129,7 +129,7 @@ gives:
 Everything else is draft 2's as it is: the prefetch queue, parcels,
 the decode and its 16-way dispatch on the head parcel, the immediate
 unit's fields, the register file with its 256 banks of 32 locations and
-32 global ones, the ALU, the shifter (by 1, 8 or 16), the multiply and
+a G half of 32 more for each (the microcode's scratch and constants), the ALU, the shifter (by 1, 8 or 16), the multiply and
 divide steps, the condition latch, the flags with N from bit 7, 15 or
 31, the page map, the bus. The cycle lengths are draft 2's length
 classes, chosen for its own microcode; the guests' microinstructions
@@ -316,7 +316,7 @@ register.
 ## 4. User processes in other instruction sets
 
 The mixed machine (`studies/v2_guests/mixed.py`) puts draft 2's microcode
-and Thumb's in one control store, 10,958 words up to 0x3A13 (D3), with a
+and Thumb's in one control store, 11,034 words up to 0x3A4E (D3), with a
 decode table page each (D2) and Thumb's D1 halves on its page. A kernel
 in draft 2 code (`sw/mixed/kernel.s`) runs in supervisor mode, in the
 window; each process has a context of the page map and a register bank,
@@ -325,9 +325,9 @@ and its bss, heap and stack mapped by the kernel's page-fault handler as
 they are touched. The timer switches processes round robin; `SWI #0`
 (Thumb's `SVC #0`) ends one.
 
-Draft 2's sieve (hand-written) and Thumb's compiled `queens` and
-`wordfreq` run together, about 40 time slices between them, and each
-prints what it should (the run is in
+The suite's `sieve` compiled for draft 2 by the Heron C compiler, and its
+`queens` and `wordfreq` compiled for Thumb by clang, run together, about
+40 time slices between them, and each prints what it should (the run is in
 [performance.md](0039-report-guest-isas/performance.md#the-mixed-machine)).
 
 What it takes:
@@ -340,12 +340,14 @@ What it takes:
 - **The registers stay where draft 2's are.** Thumb's r0-r14 are the
   bank's locations 0-14, so `MFUR`, `MTUR` and the kernel's switch handle
   them as they are; its PC is draft 2's PC and its flags draft 2's.
-- **The register file's global locations are draft 2's.** Its microcode
-  uses 30 of the 32 for scratch, constants and special registers; Thumb's
-  two constants went into the other two, and its other constants into
-  KONST (one more cycle on `LDRSB`). The 6502 uses 21 global constants,
-  which beside draft 2 would have to move into the process's bank
-  (locations 16-31); RV32's registers use all 256 banks, and 1b's
+- **The register file's G half is draft 2's.** Its microcode uses 30 of
+  the 32 G locations for scratch, constants and special registers; each
+  bank has its own G half, and draft 2's reset writes the constants into
+  every bank, since a user process reads its own bank's. Thumb's two
+  constants went into the other two, copied into every bank the same way,
+  and its other constants into KONST (one more cycle on `LDRSB`). The
+  6502 uses 21 G constants, which beside draft 2 would have to move into
+  the bank's locations 16-31; RV32's registers use all 256 banks, and 1b's
   condition tables 32 of them, so neither could share the machine as it
   is (RV32 could, with SX from the B bus).
 - **Traps are draft 2's.** Thumb's `SVC #n` is draft 2's `SWI #n` (its
@@ -359,14 +361,6 @@ What it takes:
   right. (`LDM` with its base register in the list can still clobber the
   base before a later load faults, as on ARM, where the base is
   restored; not handled.)
-
-One snag is not the design's: draft 2's tools in this tree have moved on
-since the v2_hw microcode was written (RFC 0028's new row 0, RFC 0029's
-special register numbers, HI and LO as r0 and r1). The mixed machine's
-draft 2 page maps the new row 0 onto the old routines (the decode table is
-RAM, so it can), and its draft 2 code uses no multiply or divide. Once
-the microcode follows RFC 0028, the mapping is an identity and the
-draft 2 process can be compiled C.
 
 ## 5. Other instruction sets, on paper
 
