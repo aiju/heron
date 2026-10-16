@@ -21,6 +21,7 @@ Needs markdown-it-py and mdit-py-plugins: pip install -e '.[site]'.
 """
 
 import argparse
+import difflib
 import html
 import json
 import os
@@ -139,8 +140,51 @@ def sources():
 
 
 STUB = re.compile(r"Reserved; being written on the branch `([^`]+)`")
-SECNO = re.compile(r'<h([1-6]) id="([^"]*)">(Part [IVX]+|\d+(?:\.\d+)*\.?)(:?)\s+')
-FIGURE = re.compile(r'<p>(<img [^>]*alt="([^"]*)"[^>]*>)</p>')
+SECNO = re.compile(r'<h([1-6]) id="([^"]*)"([^>]*)>(Part [IVX]+|\d+(?:\.\d+)*\.?)(:?)\s+')
+FIGURE = re.compile(r'<p((?: class="[^"]*")?)>(<img [^>]*alt="([^"]*)"[^>]*>)</p>')
+# The blocks a revision bar can mark.
+REVISABLE = {"paragraph_open", "heading_open", "fence", "code_block", "tr_open", "hr", "math_block"}
+
+
+def changes(old, new, offset):
+    """Where new differs from old: (its lines that are new or changed, the
+    lines before which old had lines it doesn't), counted from the end of
+    new's front matter, offset lines in."""
+    a, b = old.splitlines(), new.splitlines()
+    changed, gone = set(), set()
+    for tag, _, _, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag in ("replace", "insert"):
+            changed.update(j - offset for j in range(j1, j2))
+        elif tag == "delete":
+            gone.add(j1 - offset)
+    return changed, gone
+
+
+def mark(tokens, changed, gone):
+    """Revision bars, as in a printed manual: the class rev on every block
+    that changed, and on the block after anything taken out. A paragraph
+    in a tight list has no tag of its own, so its list item takes it."""
+    items, blocks = [], []
+    for t in tokens:
+        if t.type == "list_item_open":
+            items.append(t)
+        elif t.type == "list_item_close":
+            items.pop()
+        elif t.type in REVISABLE and t.map:
+            blocks.append((t.map[0], t.map[1], items[-1] if t.type == "paragraph_open" and t.hidden and items else t))
+    hit = {id(t): t for a, b, t in blocks if changed.intersection(range(a, b))}
+    for j in gone:
+        after = next((t for _, b, t in blocks if b > j), blocks[-1][2] if blocks else None)
+        if after is not None:
+            hit[id(after)] = after
+    for t in hit.values():
+        t.attrJoin("class", "rev")
+
+
+def stamp(iso):
+    """A commit's time, as the site shows it."""
+    m = re.match(r"(\d{4}-\d\d-\d\d)T(\d\d:\d\d)", iso or "")
+    return f"{date(m.group(1))}, {m.group(2)}" if m else esc(iso)
 
 
 class Site:
@@ -170,6 +214,7 @@ class Site:
         self.studies = meta.studies()
         self.branch = {}        # repository path -> (commit, branch) for files read from a branch
         self.branch_text = {}   # repository path -> its text there
+        self.versions = {}      # repository path -> other branches' versions of a live page
 
     @staticmethod
     def describe(d, fm):
@@ -183,11 +228,28 @@ class Site:
             "discussion": fm.get("discussion"),
         })
 
-    def fetch_drafts(self):
+    def fetch(self):
+        """Fetch every branch on GitHub, into FETCH_HEAD only, so no local
+        branch or ref changes: {branch: commit}, empty if it can't."""
+        r = subprocess.run(["git", "ls-remote", "--heads", "origin"], cwd=ROOT, capture_output=True, text=True)
+        heads = {}
+        for line in r.stdout.splitlines() if r.returncode == 0 else []:
+            sha, _, ref = line.partition("\t")
+            if ref.startswith("refs/heads/"):
+                heads[ref[len("refs/heads/"):]] = sha
+        shallow = git("rev-parse", "--is-shallow-repository") == "true"
+        if heads:
+            r = subprocess.run(["git", "fetch", "--quiet", *(["--depth=1"] if shallow else []), "origin",
+                                *(f"refs/heads/{b}" for b in heads)], cwd=ROOT, capture_output=True, text=True)
+        if r.returncode or not heads:
+            print("can't fetch the branches: the drafts show their stubs, and no other versions", file=sys.stderr)
+            return {}
+        return heads
+
+    def fetch_drafts(self, heads):
         """Drafts reserved on main and being written on a branch: read them,
         and their folders, from the branch, so the site shows the work so
-        far. A branch that can't be fetched leaves the stub."""
-        shallow = git("rev-parse", "--is-shallow-repository") == "true"
+        far. A branch that isn't on GitHub leaves the stub."""
         for d in self.docs:
             if d["status"] != "draft":
                 continue
@@ -196,12 +258,10 @@ class Site:
             if not m:
                 continue
             branch = m.group(1)
-            r = subprocess.run(["git", "fetch", "--quiet", *(["--depth=1"] if shallow else []),
-                                "origin", f"refs/heads/{branch}"], cwd=ROOT, capture_output=True, text=True)
-            if r.returncode:
-                print(f"{d['label']} {d['n']}: can't fetch {branch}; showing the stub", file=sys.stderr)
+            sha = heads.get(branch)
+            if not sha:
+                print(f"{d['label']} {d['n']}: no branch {branch} on GitHub; showing the stub", file=sys.stderr)
                 continue
-            sha = git("rev-parse", "FETCH_HEAD")
             # A new title or type renames the file: find it by its number.
             there = d["src"]
             if show(sha, there) is None:
@@ -234,9 +294,41 @@ class Site:
                     if f not in d["subs"]:
                         d["subs"].append(f)
 
+    def find_versions(self, heads):
+        """Other versions of the live pages: for every branch not merged
+        into this checkout, each rendered file it has changed since it left
+        main, unless its text is main's after all."""
+        if git("rev-parse", "--is-shallow-repository") == "true":
+            print("a shallow checkout has no history to compare branches with: "
+                  "no other versions (git fetch --unshallow)", file=sys.stderr)
+            return
+        head = git("rev-parse", "HEAD")
+        drafts = {d["src"] for d in self.docs if d["status"] == "draft"}
+        live = {s for s in self.pages if s not in self.branch_text and s not in drafts}
+        for branch, sha in sorted(heads.items()):
+            merged = subprocess.run(["git", "merge-base", "--is-ancestor", sha, head], cwd=ROOT, capture_output=True)
+            base = git("merge-base", sha, head)
+            if merged.returncode == 0 or not base:
+                continue
+            when = git("log", "-1", "--format=%cI", sha)
+            for f in git("diff", "--name-only", "--no-renames", base, sha, "--").splitlines():
+                text = show(sha, f) if f in live else None
+                if text is None:
+                    continue
+                with open(os.path.join(ROOT, f), "rb") as fh:
+                    if fh.read() == text:
+                        continue
+                self.add_version(f, branch, sha, when, text.decode())
+
+    def add_version(self, src, branch, sha, when, text):
+        """A branch's version of a live page, next to it: page.BRANCH.html."""
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "-", branch)
+        self.versions.setdefault(src, []).append({"branch": branch, "sha": sha, "when": when, "text": text,
+                                                  "path": f"{self.pages[src][:-5]}.{slug}.html"})
+
     # -------------------------------------------------------------- rendering
 
-    def url(self, src, href, links):
+    def url(self, src, href, links, ref=None):
         """A link in the repository file src, as a URL from src's page."""
         if re.match(r"[a-z][a-z0-9+.-]*:", href) or href.startswith("//"):
             return href
@@ -246,31 +338,46 @@ class Site:
         target = posixpath.normpath(posixpath.join(posixpath.dirname(src), path))
         readme = "README.md" if target == "." else posixpath.join(target, "README.md")
         site = self.targets.get(target) or self.targets.get(readme)
+        branch = ref or (self.branch[src][1] if src in self.branch else None)
         if site:
             links.add(site)
-            return rel(site, self.pages[src]) + sep + anchor
-        ref = self.branch[src][1] if src in self.branch else "main"
+            # From a branch's version or draft, to that branch's version of
+            # the page where it has one: its sections may have moved.
+            key = target if target in self.targets else readme
+            v = next((v for v in self.versions.get(key, ()) if v["branch"] == branch), None) if branch else None
+            return rel(v["path"] if v else site, self.pages[src]) + sep + anchor
+        ref = branch or "main"
         kind = "tree" if os.path.isdir(os.path.join(ROOT, target)) else "blob"
         return f"{GH}/{kind}/{ref}/{target}{sep}{anchor}"
 
-    def image(self, src, url):
+    def image(self, src, url, sha=None):
         if re.match(r"[a-z][a-z0-9+.-]*:", url) or url.startswith("//"):
             return url
         target = posixpath.normpath(posixpath.join(posixpath.dirname(src), url))
-        if not (src in self.branch and target in self.branch) and not os.path.isfile(os.path.join(ROOT, target)):
+        if target in self.branch or os.path.isfile(os.path.join(ROOT, target)):
+            pass
+        elif sha and show(sha, target) is not None:
+            self.branch[target] = (sha, "")  # a picture only another branch's version has
+        else:
             return url
         self.images.add(target)
         return rel(target, self.pages[src])
 
-    def render(self, src):
-        """A Markdown file of the repository as the body of its page."""
-        text = self.branch_text.get(src)
+    def render(self, src, text=None, ref=None, against=None, sha=None):
+        """A Markdown file of the repository as the body of its page; with
+        text, another branch's version of it (ref, at sha), its revision
+        bars marking where it differs from against."""
+        text = text if text is not None else self.branch_text.get(src)
         if text is None:
             with open(os.path.join(ROOT, src)) as f:
                 text = f.read()
+        full, offset = text, 0
         if text.startswith("---\n"):
-            text = text[text.index("\n---\n", 3) + 5:]
+            cut = text.index("\n---\n", 3) + 5
+            offset, text = text[:cut].count("\n"), text[cut:]
         tokens = self.md.parse(text)
+        if against is not None:
+            mark(tokens, *changes(against, full, offset))
         title, toc, h1, title_id = None, [], None, ""
         for i, t in enumerate(tokens):
             if t.type == "heading_open":
@@ -284,23 +391,23 @@ class Site:
         body = self.md.renderer.render(tokens, self.md.options, {})
 
         def secno(m):
-            hang = " hang" if m.group(3)[0].isdigit() and m.group(1) in "23" else ""
-            return f'<h{m.group(1)} id="{m.group(2)}"><span class="secno{hang}">{m.group(3)}</span> '
+            hang = " hang" if m.group(4)[0].isdigit() and m.group(1) in "23" else ""
+            return f'<h{m.group(1)} id="{m.group(2)}"{m.group(3)}><span class="secno{hang}">{m.group(4)}</span> '
         body = SECNO.sub(secno, body)
         figures = iter(range(1, 1000))
-        body = FIGURE.sub(lambda m: f'<figure>{m.group(1)}<figcaption><span class="fig">Figure {next(figures)}</span> '
-                                    f'{m.group(2)}</figcaption></figure>', body)
+        body = FIGURE.sub(lambda m: f'<figure{m.group(1)}>{m.group(2)}<figcaption><span class="fig">Figure {next(figures)}</span> '
+                                    f'{m.group(3)}</figcaption></figure>', body)
         body = body.replace("<table>", '<div class="table-wrap"><table>').replace("</table>", "</table></div>")
         links = set()
         body = re.sub(r'(<img [^>]*?)src="([^"]*)"',
-                      lambda m: f'{m.group(1)}src="{esc(self.image(src, html.unescape(m.group(2))))}"', body)
+                      lambda m: f'{m.group(1)}src="{esc(self.image(src, html.unescape(m.group(2)), sha))}"', body)
 
         def href(m):
-            url = self.url(src, html.unescape(m.group(1)), links)
+            url = self.url(src, html.unescape(m.group(1)), links, ref)
             ext = ' class="ext"' if url.startswith(("http:", "https:")) else ""
             return f'href="{esc(url)}"{ext}'
         body = re.sub(r'href="([^"]*)"', href, body)
-        first = next((p for p in re.findall(r"<p>(.*?)</p>", body, re.S) if "<img" not in p), "")
+        first = next((p for p in re.findall(r"<p(?: [^>]*)?>(.*?)</p>", body, re.S) if "<img" not in p), "")
         return {"html": body, "title": title or src, "title_id": title_id, "toc": toc, "links": links,
                 "math": 'class="math ' in body, "text": plain(body), "abstract": plain(first)}
 
@@ -324,7 +431,8 @@ class Site:
 
     # -------------------------------------------------------------- pieces
 
-    def shell(self, path, title, body, nav=None, description="", math=False, src=None, ref="main", cls=""):
+    def shell(self, path, title, body, nav=None, description="", math=False, src=None, ref="main", cls="",
+              noindex=False):
         root = "../" * path.count("/")
 
         def cur(k):
@@ -340,7 +448,7 @@ class Site:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(title)}</title>
-{f'<meta name="description" content="{esc(description[:300])}">' if description else ""}
+{f'<meta name="description" content="{esc(description[:300])}">' if description else ""}{'<meta name="robots" content="noindex">' if noindex else ""}
 <link rel="icon" href="{root}heron.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -400,14 +508,16 @@ class Site:
         n = f"<span>{count}</span>" if count is not None else ""
         return f'<section><p class="label"><span>{esc(label)}</span>{n}</p>{inner}</section>'
 
-    def document(self, src, head, side=(), after="", listed=()):
+    def document(self, src, head, side=(), after="", listed=(), version=None):
         """A rendered file's page: its contents, cross-references and text.
-        listed: pages the side already links to, left out of the references."""
-        path, r = self.pages[src], self.rendered[src]
+        listed: pages the side already links to, left out of the references;
+        version: another branch's version of it, in its place."""
+        path, r = (version["path"], version["r"]) if version else (self.pages[src], self.rendered[src])
         toc = [t for t in r["toc"] if t[0] == 2 or len(r["toc"]) < 70]
         parts = [self.section("Contents", self.toc(toc))] if toc else []
         parts += side
-        refs = sorted(set(self.refs.get(path, ())) - set(listed), key=lambda p: (self.label(p)[0] == "", p))
+        refs = [] if version else sorted(set(self.refs.get(path, ())) - set(listed),
+                                         key=lambda p: (self.label(p)[0] == "", p))
         if refs:
             parts.append(self.section("Referenced by", self.xref(refs, path), len(refs)))
         aside = "".join(parts)
@@ -431,6 +541,42 @@ class Site:
 <h1>{esc(title)}</h1>
 {f'<p class="dh-meta">{meta_html}</p>' if meta_html else ""}{extra}
 </header>"""
+
+    def versions_note(self, src, here):
+        """The line on a live page that names its other versions."""
+        vs = self.versions.get(src)
+        if not vs:
+            return ""
+        links = "".join(f'<span><a class="mono" href="{esc(rel(v["path"], here))}">{esc(v["branch"])}</a> '
+                        f'<span class="when">({stamp(v["when"])})</span></span>' for v in vs)
+        return f'<p class="versions"><b>Also changed on</b>{links}</p>'
+
+    def version_page(self, src, v):
+        """Another branch's version of a live page, its changes from main
+        marked by revision bars in the margin."""
+        path, r, main = v["path"], v["r"], self.pages[src]
+        no, what, title = self.label(main)
+        if src.startswith("reports/") and src.count("/") == 1:
+            fm = meta.parse_front_matter(v["text"]) or {}
+            title = fm.get("title") or title
+        else:
+            title = r["title"]
+        compare = f"{GH}/compare/main...{urllib.parse.quote(v['branch'])}"
+        notice = (f'<p class="notice">The version on the branch <a class="mono" href="{GH}/tree/{esc(v["branch"])}">'
+                  f'{esc(v["branch"])}</a> at <a class="mono" href="{GH}/commit/{v["sha"]}">{v["sha"][:7]}</a>, '
+                  f'last changed {stamp(v["when"])}. <span class="revbar"></span>Bars in the margin mark where it '
+                  f'differs from <a href="{esc(rel(main, path))}">main</a>.</p>')
+        acts = [("Compare", compare), ("Source", f"{GH}/blob/{v['branch']}/{src}"),
+                ("History", f"{GH}/commits/{v['branch']}/{src}")]
+        head = self.header(f"{what.rstrip(' ›')} \u00b7 on a branch", title, (), acts, notice)
+        others = "".join(f'<li><a class="nonum" href="{esc(rel(o["path"], path))}"><span class="x-t mono">'
+                         f'{esc(o["branch"])}</span></a></li>' for o in self.versions[src] if o is not v)
+        side = [self.section("Versions", f'<ul class="xref"><li><a class="nonum" href="{esc(rel(main, path))}">'
+                                         f'<span class="x-t">main</span></a></li>{others}</ul>')]
+        body = self.document(src, head, side, version=v)
+        nav = "studies" if src.startswith("studies/") else "design" if src.startswith("docs/") else "library"
+        self.write(path, self.shell(path, f"{what.rstrip(' ›')} ({v['branch']}): {title}", body, nav,
+                                    r["abstract"], r["math"], src, v["branch"], noindex=True))
 
     # -------------------------------------------------------------- pages
 
@@ -460,6 +606,7 @@ class Site:
                      f'still being written, and not on main yet.</p>')
         elif d["status"] == "draft":
             extra = '<p class="notice">Draft: still being written, and it may change.</p>'
+        extra += self.versions_note(d["src"], path)
         head = self.header(f"{d['label']} {d['n']}", d["title"], meta_items, acts, extra, self.chip(d["status"]))
         side = []
         if d["subs"]:
@@ -486,7 +633,8 @@ class Site:
         meta_items = [("Part of", f'<a href="{esc(rel(d["path"], path))}">{d["label"]} {d["n"]}, {esc(d["title"])}</a>')]
         ref = self.branch[src][1] if src in self.branch else "main"
         acts = [("Source", f"{GH}/blob/{ref}/{src}"), ("History", f"{GH}/commits/{ref}/{src}")]
-        head = self.header(f"{d['label']} {d['n']} · supplement", r["title"], meta_items, acts)
+        head = self.header(f"{d['label']} {d['n']} · supplement", r["title"], meta_items, acts,
+                           self.versions_note(src, path))
         others = [d["path"]] + [self.pages[s] for s in d["subs"] if s != src]
         body = self.document(src, head, [self.section("The rest of it", self.xref(others, path))])
         self.write(path, self.shell(path, f"{r['title']} · {d['label']} {d['n']}", body, "library",
@@ -502,7 +650,7 @@ class Site:
             meta_items.append(("Frozen at", f'<a class="mono" href="{GH}/tree/{esc(fm["frozen-at"])}">{esc(fm["frozen-at"])}</a>'))
         acts = [("Folder", f"{GH}/tree/main/studies/{name}"), ("History", f"{GH}/commits/main/studies/{name}")]
         status = fm.get("status", "")
-        head = self.header(f"Study · {name}", r["title"], meta_items, acts,
+        head = self.header(f"Study · {name}", r["title"], meta_items, acts, self.versions_note(src, path),
                            top=f'<span class="lamp {esc(status)}">{esc(status)}</span>')
         reps = [self.by_no[f"{int(x):04d}"]["path"] for x in fm.get("reports") or [] if f"{int(x):04d}" in self.by_no]
         side = [self.section("Its reports", self.xref(reps, path))] if reps else []
@@ -517,8 +665,17 @@ class Site:
             others = [p for s, p in self.pages.items() if s.startswith("docs/") and s != src]
             if others:
                 side.append(self.section("Also in the design", self.xref(others, path)))
-        body = self.document(src, self.header(kind, r["title"], (), acts), side)
+        body = self.document(src, self.header(kind, r["title"], (), acts, self.versions_note(src, path)), side)
         self.write(path, self.shell(path, f"{r['title']} · Heron", body, nav, r["abstract"], r["math"], src))
+
+    def alts(self, src):
+        """The index's mark on a document other branches change."""
+        vs = self.versions.get(src)
+        if not vs:
+            return ""
+        n = len(vs)
+        return (f'<span class="alts" title="Also changed on {esc(", ".join(v["branch"] for v in vs))}">'
+                f'{n} branch{"es" if n > 1 else ""}</span>')
 
     def index_page(self):
         rows = []
@@ -529,7 +686,7 @@ class Site:
             kind = {"rfc": "RFC", "ideas": "Ideas", "report": "Report"}[d["type"]]
             rows.append(f"""<tr data-type="{d["type"]}" data-status="{esc(d["status"])}" data-n="{d["n"]}" data-date="{esc(d["date"])}" data-title="{esc(d["title"].lower())}"{' class="is-obsolete"' if d["status"] == "obsolete" else ""}>
 <td class="c-no">{d["n"]}</td><td class="c-kind"><span class="kind">{kind}</span></td>
-<td class="c-title"><a href="{esc(d["path"])}">{esc(d["title"])}</a><span class="abs">{esc(r["abstract"])}</span></td>
+<td class="c-title"><a href="{esc(d["path"])}">{esc(d["title"])}</a>{self.alts(d["src"])}<span class="abs">{esc(r["abstract"])}</span></td>
 <td class="c-st">{self.chip(d["status"])}{sup}</td>
 <td class="c-studies"><span title="{esc(", ".join(d["studies"]))}">{" · ".join(esc(s) for s in d["studies"])}</span></td>
 <td class="c-date">{date(d["date"])}</td></tr>""")
@@ -615,7 +772,7 @@ class Site:
         with open(full, mode) as f:
             f.write(text)
 
-    def build(self, apps=False, drafts=True):
+    def build(self, apps=False, branches=True):
         if os.path.isdir(self.out) and os.listdir(self.out):
             if not os.path.exists(os.path.join(self.out, MARKER)):
                 raise RuntimeError(f"{self.out} isn't empty and wasn't built by heron site; not writing over it")
@@ -629,10 +786,17 @@ class Site:
                     os.remove(full)
         os.makedirs(self.out, exist_ok=True)
         self.write(MARKER, "built by heron site; it rebuilds this folder\n")
-        if drafts:
-            self.fetch_drafts()
+        heads = self.fetch() if branches else {}
+        if heads:
+            self.fetch_drafts(heads)
+            self.find_versions(heads)
         for src in self.pages:
             self.rendered[src] = self.render(src)
+        for src, vs in self.versions.items():
+            with open(os.path.join(ROOT, src)) as f:
+                mine = f.read()
+            for v in vs:
+                v["r"] = self.render(src, v["text"], v["branch"], mine, v["sha"])
         for src, r in self.rendered.items():
             here = self.pages[src]
             for target in r["links"]:
@@ -649,6 +813,9 @@ class Site:
             if src.startswith("docs/"):
                 self.plain_page(src, "The current design", "design")
         self.plain_page("README.md", "About", None)
+        for src, vs in self.versions.items():
+            for v in vs:
+                self.version_page(src, v)
         if apps:
             build_apps(os.path.join(self.out, "apps"))
         self.index_page()
@@ -671,7 +838,7 @@ class Site:
             index.append({"u": self.pages[src], "id": what, "no": no, "title": title,
                           "meta": f"{what} {title} {extra}".lower(), "t": r["text"]})
         self.write("search.json", json.dumps(index, ensure_ascii=False, separators=(",", ":")))
-        return len(self.pages)
+        return len(self.pages) + sum(len(vs) for vs in self.versions.values())
 
 
 # ------------------------------------------------------------------ apps
@@ -771,8 +938,8 @@ def main(argv):
     p = argparse.ArgumentParser(prog="heron site", description="Build the website into build/site")
     p.add_argument("--out", default=OUT, help="where to write it (default build/site)")
     p.add_argument("--apps", action="store_true", help="also build the browser tools (a few minutes)")
-    p.add_argument("--no-drafts", action="store_true",
-                   help="show drafts' stubs, not the text on their branches (which needs a fetch)")
+    p.add_argument("--no-branches", action="store_true",
+                   help="only this checkout: drafts' stubs, and no other branches' versions (both need a fetch)")
     p.add_argument("--serve", action="store_true", help="then serve it on localhost")
     p.add_argument("--port", type=int, default=8000)
     a = p.parse_args(argv)
@@ -780,7 +947,7 @@ def main(argv):
         print(msg, file=sys.stderr)
         return 1
     try:
-        n = Site(os.path.abspath(a.out)).build(a.apps, not a.no_drafts)
+        n = Site(os.path.abspath(a.out)).build(a.apps, not a.no_branches)
     except RuntimeError as e:
         print(f"heron site: {e}", file=sys.stderr)
         return 1

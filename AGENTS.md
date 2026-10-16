@@ -190,8 +190,10 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron site --serve`: the website as GitHub Pages publishes it from
   `main` (`.github/workflows/pages.yml`), served on localhost:8000;
   `--apps` adds the browser tools. A draft shows the text on the branch
-  its stub names. `heron test` checks the site's links; its code is in
-  `heron/site/`.
+  its stub names, and a page other branches change links to their
+  versions, with revision bars where they differ from main
+  (`--no-branches` skips both). `heron test` checks the site's links; its
+  code is in `heron/site/`.
 - **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
   about 5 for every program, `heron v1b_system test --jobs 4` (the whole
   system on the bus) about 8, and `heron v1b_hw report --hw` longer.
