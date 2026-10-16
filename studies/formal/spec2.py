@@ -113,13 +113,28 @@ def g_not(a):
 
 
 def decided(c):
-    """A condition simplified, as a Python bool if it is constant."""
+    """A condition simplified, as a Python bool if it is constant. For the
+    conditions that choose a path (if, match, decode)."""
     if isinstance(c, bool):
         return c
     c = z3.simplify(c)
     if z3.is_true(c):
         return True
     if z3.is_false(c):
+        return False
+    return c
+
+
+def folded(c):
+    """A condition as a Python bool if it is constant, else as it is: z3's
+    simplifier rewrites comparisons (a < 2^20 into bit slices and <=) into
+    forms the solver finds harder, so values and assumptions keep theirs."""
+    if isinstance(c, bool):
+        return c
+    s = z3.simplify(c)
+    if z3.is_true(s):
+        return True
+    if z3.is_false(s):
         return False
     return c
 
@@ -139,7 +154,7 @@ def ite(c, a, b):
     if isinstance(a, (bool, z3.BoolRef)):
         if isinstance(a, bool) and isinstance(b, bool) and a == b:
             return a
-        return decided(z3.If(c, boolterm(a), boolterm(b)))
+        return folded(z3.If(c, boolterm(a), boolterm(b)))
     if a.known and b.known and a.x == b.x:
         return a
     return mk(a.w, z3.If(c, term(a), term(b)))
@@ -168,7 +183,7 @@ def _compare(op, a, b):
         if isinstance(a, bool) and isinstance(b, bool):
             return (a == b) if op == "==" else (a != b)
         x, y = boolterm(a), boolterm(b)
-        return decided(x == y if op == "==" else x != y)
+        return folded(x == y if op == "==" else x != y)
     if a.known and b.known:
         x, y = a.x, b.x
         return {"==": x == y, "!=": x != y, "<": x < y, "<=": x <= y, ">": x > y, ">=": x >= y}[op]
@@ -1851,7 +1866,7 @@ class Run:
         self.halt_g = g_or(self.halt_g, self.g)
 
     def s_assume(self, st, env):
-        c = decided(self.eval(st.cond, env))
+        c = folded(self.eval(st.cond, env))
         self.note(("assume", st.line), c)
         if c is True:
             return
@@ -1971,19 +1986,19 @@ class Run:
     def binary(self, e, env):
         op = e.op
         if op in ("&&", "||"):
-            a = decided(self.eval(e.a, env))
+            a = folded(self.eval(e.a, env))
             if a is (op == "||"):
                 return a
             # the right side runs only where the left doesn't decide: under
             # that guard, so that what it notes is what a run on known
-            # values would note
+            # values would note. It can't fault (it calls only fns), so the
+            # guard is the same after it.
             g0 = self.g
-            rhs = a if op == "&&" else g_not(a)
-            self.g = g_and(g0, rhs)
+            self.g = g_and(g0, a if op == "&&" else g_not(a))
             b = self.eval(e.b, env) if self.g is not False else False
-            self.g = g_or(g_and(g0, g_not(rhs)), self.g)
+            self.g = g0
             f = g_and if op == "&&" else g_or
-            return decided(f(a, b))
+            return folded(f(a, b))
         a, b = self.eval(e.a, env), self.eval(e.b, env)
         if op in ("==", "!=", "<", "<=", ">", ">="):
             return _compare(op, a, b)

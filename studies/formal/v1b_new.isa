@@ -97,10 +97,6 @@ proc enter(vector: u32, ret: u32) {
 
 enum Size { Byte, Half, Word }
 
-fn bytes(size: Size) -> u32 {
-    return match size { Size.Byte => 1, Size.Half => 2, Size.Word => 4 }
-}
-
 proc check(at: u32, size: Size) {
     match size {
         Size.Byte => {}
@@ -314,8 +310,9 @@ proc special(n: u4) -> Operand {
 // their register back.
 proc update(m: u4, n: u4, op: Operand) {
     match m {
-        0x6 | 0xA => @r[n] := op.value + bytes(op.size)                   // [rn]+, byte [rn]+
+        0x6 => @r[n] := op.value + 4                                      // [rn]+
         0x7 => @r[n] := op.value                                          // -[rn]
+        0xA => @r[n] := op.value + 1                                      // byte [rn]+
         _ => {}
     }
 }

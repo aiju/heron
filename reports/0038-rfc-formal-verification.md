@@ -726,6 +726,13 @@ decided how much:
 - **One query per group of goals.** One query for all fifteen registers is
   several times faster than fifteen, since the solver proves the value
   written once rather than once per register.
+- **The terms as written.** z3's simplifier rewrites `a < 0x10_0000` into
+  slices and `<=`, a form the solver handles worse. The second version of
+  the interpreter ran it on every condition, and a Jcc case took 229
+  seconds where the first version's took 30. It now simplifies only the
+  conditions that choose a path (to find the constant ones), and keeps
+  values and assumptions as the specification wrote them: 9 seconds
+  against the first version's 32, run side by side.
 
 What is still slow, or out of reach:
 
