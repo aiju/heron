@@ -2,7 +2,7 @@
 and which of them the tests catch and which the proofs do.
 
     heron formal mutate [-n 12] [--seed 1] [--jobs 4] [--budget 300] [--cap 1200]
-    heron formal mutate ... --resume CAP
+    heron formal mutate ... --resume CAP [--budget 1800]
 
 Two sets of mutants:
 
@@ -328,13 +328,14 @@ def relevant(changes, pins):
 def proofs_catch(nl, roms, cases, jobs, budget, cap):
     """Prove `cases`, cheapest first, on the mutant
     until one fails or `cap` seconds have gone: (the failing case and what
-    failed, or None; how many cases were run)."""
+    failed, or None; how many cases were run; those of them that ran out of
+    their budget)."""
     v1b._cache["nl"], v1b._cache["roms"] = nl, roms
     try:
         todo = sorted(cases, key=cost)
         out = os.path.join(BUILD, "formal", "mutant-run.json")
         t0 = time.time()
-        ran = 0
+        ran, unfinished = 0, []
         for i in range(0, len(todo), jobs):
             if time.time() - t0 > cap:
                 break
@@ -347,13 +348,15 @@ def proofs_catch(nl, roms, cases, jobs, budget, cap):
                 r = res[c.name()]
                 err = r.get("error") or ""
                 if r["status"] == "error" and err.startswith("CombLoop"):
-                    return f"{c.name()}: {err}"[:200], ran    # the mutant made a loop
+                    return f"{c.name()}: {err}"[:200], ran, unfinished    # the mutant made a loop
                 if r["status"] == "error":     # a fault in the tools, not a catch
                     raise RuntimeError(f"{c.name()}: {err}")
                 if r["status"] == "fail":
                     detail = next((p[2] for p in r["paths"] if p[0] == "fail"), "")
-                    return f"{c.name()}: {detail}"[:200], ran
-        return None, ran
+                    return f"{c.name()}: {detail}"[:200], ran, unfinished
+                if r["status"] != "proved":
+                    unfinished.append(c.name())
+        return None, ran, unfinished
     finally:
         del v1b._cache["nl"], v1b._cache["roms"]
         v1b.netlist()
@@ -367,23 +370,23 @@ def _cases(kind, change, pins):
 
 
 def resume(muts, pins, args):
-    """--resume: the proofs of the mutants they missed for lack of time,
-    from the case where they stopped."""
+    """--resume: the proofs of the mutants they missed, again from the
+    start, with the time of this run (--cap, --budget)."""
     with open(args.out) as f:
         results = json.load(f)
     if [r["mutation"] for r in results] != [m[2] for m in muts]:
         raise SystemExit(f"{args.out} is from other mutants (another -n, --seed or --only)")
     for i, ((kind, origin, desc, change), r) in enumerate(zip(muts, results)):
-        if r["proofs"] or r["cases_run"] >= r["cases"]:
+        if r["proofs"] or (r["cases_run"] >= r["cases"] and r.get("unfinished") == []):
             continue
         t0 = time.time()
         nl, roms, cases = _cases(kind, change, pins)
-        todo = sorted(cases, key=cost)[r["cases_run"]:]
-        proved, ran = proofs_catch(nl, roms, todo, args.jobs, args.budget, args.resume)
-        r["proofs"], r["cases_run"] = proved, r["cases_run"] + ran
+        proved, ran, unfinished = proofs_catch(nl, roms, cases, args.jobs, args.budget, args.resume)
+        r.update(proofs=proved, cases_run=ran, unfinished=unfinished, resumed=True)
         r["seconds"] += time.time() - t0
         print(f"[{i + 1}/{len(muts)}] {origin} {kind}: {desc}\n"
-              f"    proofs: {proved or '-'} ({r['cases_run']} of {r['cases']} cases)", flush=True)
+              f"    proofs: {proved or '-'} ({ran} of {len(cases)} cases, "
+              f"{len(unfinished)} out of time)", flush=True)
         with open(args.out, "w") as f:
             json.dump(results, f, indent=1)
     return 0
@@ -401,8 +404,8 @@ def main(argv=None):
     p.add_argument("--continue", dest="cont", action="store_true",
                    help="keep the mutants already in --out, and run the rest")
     p.add_argument("--resume", type=int, metavar="CAP",
-                   help="carry on proving the mutants that the last run's proofs (in --out) "
-                        "didn't catch before their time ran out, CAP more seconds each")
+                   help="prove again the mutants that the last run's proofs (in --out) "
+                        "didn't catch, CAP seconds each")
     args = p.parse_args(argv)
     rng = random.Random(args.seed)
     v1b.netlist()
@@ -430,10 +433,10 @@ def main(argv=None):
         t0 = time.time()
         nl, roms, cases = _cases(kind, change, pins)
         tested = tests_catch(nl, roms)
-        proved, ran = proofs_catch(nl, roms, cases, args.jobs, args.budget, args.cap)
+        proved, ran, unfinished = proofs_catch(nl, roms, cases, args.jobs, args.budget, args.cap)
         results.append({"kind": kind, "origin": origin, "mutation": desc, "tests": tested,
                         "proofs": proved, "cases_run": ran, "cases": len(cases),
-                        "seconds": time.time() - t0})
+                        "unfinished": unfinished, "seconds": time.time() - t0})
         print(f"[{i + 1}/{len(muts)}] {origin} {kind}: {desc}\n"
               f"    tests:  {tested or '-'}\n"
               f"    proofs: {proved or '-'} ({ran} of {len(cases)} cases)", flush=True)

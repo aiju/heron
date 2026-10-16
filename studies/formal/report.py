@@ -117,11 +117,25 @@ def tables(results, mutants):
                 "| Made | Mutation | Tests | Proofs | Cases |", "|---|---|---|---|---:|"]
         for m in mutants:
             t = _cell(m["tests"])
-            p = _cell(m["proofs"])
+            p = _cell(m["proofs"]) if m["proofs"] else _missed(m)
             out.append(f"| {m['origin']} {m['kind']} | {m['mutation']} | {t} | {p} | "
                        f"{m['cases_run']} of {m['cases']} |")
         out.append("")
     return "\n".join(out)
+
+
+def _missed(m):
+    """Why the proofs didn't catch a mutant."""
+    if m["cases"] == 0:
+        return "– (no case reads the change)"
+    out = m.get("unfinished")
+    if out is None:
+        return "–"
+    if out:
+        return f"– ({len(out)} out of time)"
+    if m["cases_run"] < m["cases"]:
+        return "– (not every case run)"
+    return "– (every case proved: no change the proofs see)"
 
 
 def _cell(s):
