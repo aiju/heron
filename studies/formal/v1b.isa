@@ -1,0 +1,612 @@
+# Draft 1b: the instruction set
+#
+# The machine's state, how its instructions are encoded, and what each one
+# does. RFC 0004, Part II, is the prose; this is the same thing, precise
+# enough to run. studies/formal runs it on known values, against the
+# instruction-level simulator, and on symbolic ones, against the hardware.
+# The language is described in studies/formal/language.md.
+#
+# Reading it: values are bit vectors; a bare number takes the width of
+# what it meets. x[7:0] is a slice and x[31] a bit; a ++ b puts a above b;
+# zext and sext widen to 32 bits unless given a width. Comparisons, / and
+# >> are unsigned. `:=` changes state; `let` names a value.
+
+
+# ======================================================================
+# State
+
+register r[16] : 32     # general registers; r15 is the stack pointer
+hardwired r[0] = 0      # r0 reads as 0, and writing it does nothing
+register hi : 32        # the high word of a product, the remainder of a quotient
+register pc : 32        # the next parcel to fetch; always even
+flag N Z C V            # negative, zero, carry, overflow
+flag I                  # interrupts enabled
+memory mem : 32 -> 8    # bytes, little-endian
+
+const SP = 15
+
+const RAM_SIZE = 0x0010_0000        # RAM is 0 to RAM_SIZE - 1
+const IO_BASE = 0xFFFF_FF00         # the I/O page is IO_BASE to the top
+
+# Vectors: where a fault or trap goes (reset is at 0)
+const VEC_IRQ = 0x04
+const VEC_ILLEGAL = 0x08
+const VEC_SWI = 0x0C
+const VEC_DIVIDE = 0x10
+const VEC_ADDRESS = 0x14
+
+
+# ======================================================================
+# Executing an instruction
+#
+# An instruction is a first parcel of 16 bits, which says what it is,
+# and up to two extension parcels after it. The PC moves past each parcel
+# as it is read, so it is the next instruction's address by the time the
+# instruction uses it (in relative branches and PC-relative addresses).
+#
+# `fault v` abandons the instruction (what it has done stays done) and
+# enters vector v with the instruction's own address, so that it can be
+# run again; `trap v` enters it with the next instruction's address.
+
+fn step():
+    decode parcel():
+        fault VEC_ILLEGAL               # no instruction is encoded this way
+
+fn parcel():
+    assume pc < RAM_SIZE - 1 "code is in RAM"
+    let p = mem[pc + 1] ++ mem[pc]
+    pc := pc + 2
+    return p
+
+# Entering a fault, trap or interrupt: push the return address, then the
+# flags, disable interrupts, and go to the vector.
+fn enter(vector, ret):
+    assume r[SP][1:0] == 0 "an aligned stack when entering a vector (else the simulator stops)"
+    push(ret)
+    push(flags())
+    I := 0
+    pc := vector
+
+# Interrupts are taken between instructions, not straight after EI, and
+# HALT with I = 1 waits for one. Neither is part of this specification,
+# which is of the instructions only.
+
+
+# ======================================================================
+# Memory
+#
+# A half must be at an even address and a word at a multiple of 4;
+# anything else is an address error. RAM and the I/O page are all there
+# is: the I/O page's registers (RFC 0004, section 26) aren't specified
+# here, and an address in neither stops the simulator.
+
+fn check(a, size):
+    if size == 4 and a[1:0] != 0:
+        fault VEC_ADDRESS
+    if size == 2 and a[0] != 0:
+        fault VEC_ADDRESS
+    assume a < RAM_SIZE or a >= IO_BASE "data in RAM or the I/O page (else the simulator stops)"
+    assume a < RAM_SIZE "not the I/O page, which this specification leaves out"
+
+fn load(a, size):
+    check(a, size)
+    if size == 1:
+        return zext(mem[a])
+    if size == 2:
+        return zext(mem[a + 1] ++ mem[a])
+    return mem[a + 3] ++ mem[a + 2] ++ mem[a + 1] ++ mem[a]
+
+fn store(a, size, x):
+    check(a, size)
+    mem[a] := x[7:0]
+    if size >= 2:
+        mem[a + 1] := x[15:8]
+    if size == 4:
+        mem[a + 2] := x[23:16]
+        mem[a + 3] := x[31:24]
+
+# The stack grows down; sp points at the last word pushed.
+fn push(x):
+    store(r[SP] - 4, 4, x)
+    r[SP] := r[SP] - 4
+
+fn pop():
+    let x = load(r[SP], 4)
+    r[SP] := r[SP] + 4
+    return x
+
+
+# ======================================================================
+# Flags
+
+# The flags word, as faults push it and MFSR reads it: I N Z C V in bits 4-0.
+fn flags():
+    return zext(I ++ N ++ Z ++ C ++ V)
+
+fn set_flags(x):
+    V := x[0]
+    C := x[1]
+    Z := x[2]
+    N := x[3]
+    I := x[4]
+
+fn nz(x):
+    N := x[31]
+    Z := x == 0
+    return x
+
+# a + b + carry in, setting all four flags. C is the carry out, so after a
+# subtraction (a + ~b + 1) it means "no borrow".
+fn add(a, b, cin):
+    let sum = zext(a, 33) + zext(b, 33) + zext(cin, 33)
+    let x = sum[31:0]
+    C := sum[32]
+    V := a[31] == b[31] and x[31] != a[31]
+    return nz(x)
+
+# The same with a sticky Z: it can be cleared but never set, so that the
+# last of a chain of ADC or SBC says whether the whole result is zero.
+fn add_sticky(a, b, cin):
+    let z = Z
+    let x = add(a, b, cin)
+    Z := Z and z
+    return x
+
+# Condition codes: bits 3-1 pick a test, bit 0 inverts it.
+#   0 EQ  1 NE  2 CS/HS  3 CC/LO  4 MI  5 PL  6 VS  7 VC
+#   8 HI  9 LS  A GE     B LT     C GT  D LE  E always  (F: BSR and CALL)
+fn condition(cc):
+    let t = 0
+    case cc[3:1]:
+        0: t := Z
+        1: t := C
+        2: t := N
+        3: t := V
+        4: t := C and not Z
+        5: t := N == V
+        6: t := not Z and N == V
+        7: t := 1
+    return t != cc[0]
+
+
+# ======================================================================
+# Addressing modes
+#
+# The main format is F D M R: the operation, a register d, and the
+# effective address (EA) of the other operand, mode m with register (or
+# small constant) n. operand(m, n) decodes the EA, reading its extension
+# parcels: a register or a constant comes back as its value, a memory
+# operand as its address and size (1, 2 or 4 bytes).
+
+const REG = 0
+const IMM = 1
+const MEM = 2
+
+fn operand(m, n):
+    case m:
+        0x0: return (REG, r[n], 4)                          # rn
+        0x1: return (IMM, zext(n), 4)                       # #n, 0 to 15
+        0xD: return (IMM, ~zext(n), 4)                      # #-(n + 1), -1 to -16
+        0x2: return (MEM, r[n], 4)                          # [rn]
+        0x3: return (MEM, r[n] + sext(parcel()), 4)         # [rn + d16]
+        0x4: return (MEM, r[SP] + (zext(n) << 2), 4)        # [sp + 4n], a stack slot
+        0x5: return indexed(n)                              # [rn + rx * scale + d8]
+        0x6: return (MEM, r[n], 4)                          # [rn]+   (see update)
+        0x7: return (MEM, r[n] - 4, 4)                      # -[rn]
+        0x8: return (MEM, r[n], 1)                          # byte [rn]
+        0x9: return (MEM, r[n] + sext(parcel()), 1)         # byte [rn + d16]
+        0xA: return (MEM, r[n], 1)                          # byte [rn]+
+        0xB: return (MEM, r[n], 2)                          # half [rn]
+        0xC: return (MEM, r[n] + sext(parcel()), 2)         # half [rn + d16]
+        0xF: return special(n)
+        else: fault VEC_ILLEGAL                             # mode E is reserved
+
+# Mode 5: the extension parcel is x s z dd: index register x, scale 1 << s,
+# size z (byte, half, word; 3 is reserved) and a signed 8-bit displacement.
+fn indexed(n):
+    let e = parcel()
+    if e[9:8] == 3:
+        fault VEC_ILLEGAL
+    let size = 1
+    if e[9:8] == 1:
+        size := 2
+    if e[9:8] == 2:
+        size := 4
+    return (MEM, r[n] + sext(e[7:0]) + (r[e[15:12]] << e[11:10]), size)
+
+# Mode F: operands that need no register, chosen by n.
+fn special(n):
+    case n:
+        0x0: return (IMM, sext(parcel()), 4)                # #simm16
+        0x1: return (IMM, zext(parcel()), 4)                # #imm16
+        0x2: return (IMM, zext(parcel()) << 16, 4)          # #imm16 << 16
+        0x3: return (IMM, imm32(), 4)                       # #imm32
+        0x4: return (MEM, sext(parcel()), 4)                # [abs16], sign-extended
+        0x5: return (MEM, sext(parcel()), 1)                # byte [abs16]
+        0x6: return (MEM, sext(parcel()), 2)                # half [abs16]
+        0x7: return (MEM, imm32(), 4)                       # [abs32]
+        0x8: return (MEM, imm32(), 1)                       # byte [abs32]
+        0x9: return (MEM, imm32(), 2)                       # half [abs32]
+        0xA: return pc_relative(4)                          # [pc + d16]
+        0xB: return pc_relative(1)                          # byte [pc + d16]
+        0xC: return pc_relative(2)                          # half [pc + d16]
+        else: fault VEC_ILLEGAL                             # D to F are reserved
+
+# A 32-bit constant: two parcels, the low half first.
+fn imm32():
+    let lo = parcel()
+    let hi16 = parcel()
+    return hi16 ++ lo
+
+fn pc_relative(size):
+    let d = sext(parcel())
+    return (MEM, pc + d, size)                              # pc: the next instruction
+
+# After the access, the auto-increment and auto-decrement modes write
+# their register back.
+fn update(m, n, a, size):
+    if m == 0x6 or m == 0xA:
+        r[n] := a + size
+    if m == 0x7:
+        r[n] := a
+
+# An EA's value: a memory operand is read (bytes and halves zero-extended)
+# and its register updated.
+fn source(m, n):
+    let (kind, x, size) = operand(m, n)
+    if kind == MEM:
+        let a = x
+        x := load(a, size)
+        update(m, n, a, size)
+    return x
+
+
+# ======================================================================
+# The EA instructions: ops 1 to 9 and B
+#
+# The register operand is read after the EA, so after any update of the
+# EA's register: ADD r1, [r1]+ adds the incremented r1.
+
+instruction "MOV rd, ea"  0001 dddd mmmm nnnn:
+    r[d] := nz(source(m, n))
+
+instruction "ST rd, ea"  0010 dddd mmmm nnnn:
+    let x = r[d]                                # before the EA's register changes
+    let (kind, a, size) = operand(m, n)
+    if kind != MEM:
+        fault VEC_ILLEGAL                       # only memory operands
+    store(a, size, x)
+    update(m, n, a, size)
+
+instruction "LEA rd, ea"  0011 dddd mmmm nnnn:
+    if m == 0x6 or m == 0x7 or m == 0xA:
+        fault VEC_ILLEGAL                       # not the updating modes
+    let (kind, a, size) = operand(m, n)
+    if kind != MEM:
+        fault VEC_ILLEGAL
+    r[d] := a
+
+instruction "ADD rd, ea"  0100 dddd mmmm nnnn:
+    let x = source(m, n)
+    r[d] := add(r[d], x, 0)
+
+instruction "SUB rd, ea"  0101 dddd mmmm nnnn:
+    let x = source(m, n)
+    r[d] := add(r[d], ~x, 1)
+
+instruction "CMP rd, ea"  0110 dddd mmmm nnnn:
+    let x = source(m, n)
+    add(r[d], ~x, 1)
+
+instruction "AND rd, ea"  0111 dddd mmmm nnnn:
+    let x = source(m, n)
+    r[d] := nz(r[d] & x)
+
+instruction "OR rd, ea"  1000 dddd mmmm nnnn:
+    let x = source(m, n)
+    r[d] := nz(r[d] | x)
+
+instruction "XOR rd, ea"  1001 dddd mmmm nnnn:
+    let x = source(m, n)
+    r[d] := nz(r[d] ^ x)
+
+# JMP and CALL take the EA's value as the target, like a MOV into the PC:
+# JMP r3 goes to the address in r3, JMP [r3 + 8] to the one stored there.
+# A memory operand must be a word.
+instruction "JMP ea / CALL ea"  1011 kkkk mmmm nnnn:
+    if k > 1:
+        fault VEC_ILLEGAL                       # k = 0 JMP, 1 CALL
+    let (kind, x, size) = operand(m, n)
+    if kind == MEM:
+        if size != 4:
+            fault VEC_ILLEGAL
+        let a = x
+        x := load(a, 4)
+        update(m, n, a, 4)
+    if k == 1:
+        push(pc)
+    pc := x & ~1
+
+
+# ======================================================================
+# Branches and jumps
+
+# Bcc: PC + 2 * simm8; c = 15 is BSR, a call.
+instruction "Bcc target / BSR target"  1110 cccc iiii iiii:
+    let target = pc + (sext(i) << 1)
+    if c == 15:
+        push(pc)
+        pc := target
+    elif condition(c):
+        pc := target
+
+# Jcc, JMP (c = 14) and CALL (c = 15) with k = 0: PC + 2 * simm16 from one
+# extension parcel; k = 1: an absolute address in two.
+instruction "Jcc target / JMP target / CALL target"  1010 cccc kkkk 0000:
+    if k > 1:
+        fault VEC_ILLEGAL
+    let target = 0
+    if k == 0:
+        let d = sext(parcel())
+        target := pc + (d << 1)
+    else:
+        target := imm32() & ~1
+    if c == 15:
+        push(pc)
+        pc := target
+    elif c == 14 or condition(c):
+        pc := target
+
+
+# ======================================================================
+# Unary group, op C: rd <- f(rs)
+
+instruction "NOT rd, rs"  1100 dddd ssss 0000:
+    r[d] := nz(~r[s])
+
+instruction "NEG rd, rs"  1100 dddd ssss 0001:
+    r[d] := add(0, ~r[s], 1)
+
+instruction "INC rd, rs"  1100 dddd ssss 0010:
+    r[d] := nz(r[s] + 1)                        # N and Z only, unlike ADD #1
+
+instruction "DEC rd, rs"  1100 dddd ssss 0011:
+    r[d] := nz(r[s] - 1)
+
+instruction "RLC rd, rs"  1100 dddd ssss 0100:
+    let x = r[s]
+    let y = x[30:0] ++ C
+    C := x[31]
+    V := 0
+    r[d] := nz(y)
+
+instruction "RRC rd, rs"  1100 dddd ssss 0101:
+    let x = r[s]
+    let y = C ++ x[31:1]
+    C := x[0]
+    V := 0
+    r[d] := nz(y)
+
+instruction "SWAP rd, rs"  1100 dddd ssss 0110:
+    let x = r[s]
+    r[d] := nz(x[15:0] ++ x[31:16])
+
+instruction "SXB rd, rs"  1100 dddd ssss 0111:
+    r[d] := nz(sext(r[s][7:0]))
+
+instruction "ZXB rd, rs"  1100 dddd ssss 1000:
+    r[d] := nz(zext(r[s][7:0]))
+
+instruction "SXH rd, rs"  1100 dddd ssss 1001:
+    r[d] := nz(sext(r[s][15:0]))
+
+instruction "ZXH rd, rs"  1100 dddd ssss 1010:
+    r[d] := nz(zext(r[s][15:0]))
+
+instruction "CLZ rd, rs"  1100 dddd ssss 1011:
+    let x = r[s]
+    let count = 32                              # the leading zero bits, 0 to 32
+    for b in 0 .. 31:
+        if x[b] == 1:
+            count := 31 - b
+    r[d] := nz(zext(count))
+
+
+# ======================================================================
+# Shift group, op D: in place on rd, by a constant n (0 to 31, its top
+# bit h) or by rs (its low 5 bits). C is the last bit shifted out (for
+# ROR, the new bit 31), unchanged for a count of 0; V is cleared.
+
+instruction "LSL rd, #n"  1101 dddd nnnn 0h00:
+    r[d] := shift_left(r[d], h ++ n)
+
+instruction "LSR rd, #n"  1101 dddd nnnn 0h01:
+    r[d] := shift_right(r[d], h ++ n)
+
+instruction "ASR rd, #n"  1101 dddd nnnn 0h10:
+    r[d] := shift_arith(r[d], h ++ n)
+
+instruction "ROR rd, #n"  1101 dddd nnnn 0h11:
+    r[d] := rotate(r[d], h ++ n)
+
+instruction "LSL rd, rs"  1101 dddd ssss 1000:
+    r[d] := shift_left(r[d], r[s][4:0])
+
+instruction "LSR rd, rs"  1101 dddd ssss 1001:
+    r[d] := shift_right(r[d], r[s][4:0])
+
+instruction "ASR rd, rs"  1101 dddd ssss 1010:
+    r[d] := shift_arith(r[d], r[s][4:0])
+
+instruction "ROR rd, rs"  1101 dddd ssss 1011:
+    r[d] := rotate(r[d], r[s][4:0])
+
+fn shift_left(x, n):
+    if n != 0:
+        C := (x >> (32 - zext(n)))[0]
+    V := 0
+    return nz(x << n)
+
+fn shift_right(x, n):
+    if n != 0:
+        C := (x >> (zext(n) - 1))[0]
+    V := 0
+    return nz(x >> n)
+
+fn shift_arith(x, n):
+    if n != 0:
+        C := asr(x, zext(n) - 1)[0]
+    V := 0
+    return nz(asr(x, n))
+
+fn rotate(x, n):
+    let y = ror(x, n)
+    if n != 0:
+        C := y[31]
+    V := 0
+    return nz(y)
+
+
+# ======================================================================
+# Register-only ALU functions, op F: rd <- rd op rs. f = 9 to F is illegal.
+
+instruction "ADC rd, rs"  1111 dddd ssss 0000:
+    r[d] := add_sticky(r[d], r[s], C)
+
+instruction "SBC rd, rs"  1111 dddd ssss 0001:
+    r[d] := add_sticky(r[d], ~r[s], C)
+
+instruction "BIC rd, rs"  1111 dddd ssss 0010:
+    r[d] := nz(r[d] & ~r[s])
+
+instruction "TST rd, rs"  1111 dddd ssss 0011:
+    nz(r[d] & r[s])
+
+# Multiplies: HI:rd <- rd * rs, a 64-bit product. C and V say it didn't fit
+# in 32 bits.
+instruction "MULU rd, rs"  1111 dddd ssss 0100:
+    let p = zext(r[d], 64) * zext(r[s], 64)
+    hi := p[63:32]
+    C := p[63:32] != 0
+    V := C
+    r[d] := nz(p[31:0])
+
+instruction "MULS rd, rs"  1111 dddd ssss 0101:
+    let p = sext(r[d], 64) * sext(r[s], 64)
+    hi := p[63:32]
+    C := p != sext(p[31:0], 64)
+    V := C
+    r[d] := nz(p[31:0])
+
+# Divides: rd <- quotient, HI <- remainder. Dividing by zero is a fault,
+# with everything unchanged.
+instruction "DIVU rd, rs"  1111 dddd ssss 0110:
+    let a = r[d]
+    let b = r[s]
+    if b == 0:
+        fault VEC_DIVIDE
+    hi := a % b
+    C := 0
+    V := 0
+    r[d] := nz(a / b)
+
+# Rounded toward zero; the remainder has the dividend's sign. -2^31 / -1
+# overflows: it gives -2^31, remainder 0, and sets V.
+instruction "DIVS rd, rs"  1111 dddd ssss 0111:
+    let a = r[d]
+    let b = r[s]
+    if b == 0:
+        fault VEC_DIVIDE
+    C := 0
+    if a == 0x8000_0000 and b == 0xFFFF_FFFF:
+        hi := 0
+        V := 1
+        r[d] := nz(a)
+    else:
+        hi := srem(a, b)
+        V := 0
+        r[d] := nz(sdiv(a, b))
+
+# HI:rd / rs. If the quotient wouldn't fit (HI >= rs), V is set and
+# nothing else changes, so a chain of them divides a bignum by a word.
+instruction "DIVUL rd, rs"  1111 dddd ssss 1000:
+    let b = r[s]
+    if b == 0:
+        fault VEC_DIVIDE
+    if hi >= b:
+        V := 1
+    else:
+        let n = hi ++ r[d]
+        hi := (n % zext(b, 64))[31:0]
+        C := 0
+        V := 0
+        r[d] := nz((n / zext(b, 64))[31:0])
+
+
+# ======================================================================
+# System group, op 0: 0 a b f
+
+instruction "HALT"  0000 ---- ---- 0000:
+    halt                                        # stop (or wait for an interrupt)
+
+instruction "NOP"  0000 ---- ---- 0001:
+    pass
+
+instruction "JMP rs"  0000 ---- ssss 0010:
+    pc := r[s] & ~1
+
+instruction "CALL rs"  0000 ---- ssss 0011:
+    let target = r[s] & ~1
+    push(pc)
+    pc := target
+
+instruction "RET"  0000 ---- ---- 0100:
+    pc := pop() & ~1
+
+# SAVE ra-rb pushes ra to rb, ra lowest: sp <- sp - 4n, then ra at [sp],
+# ra+1 at [sp + 4] and so on.
+instruction "SAVE ra-rb"  0000 aaaa bbbb 0101  when 1 <= a and a <= b and b <= 14:
+    let base = r[SP] - (zext(b - a + 1) << 2)
+    for k in a .. b:
+        store(base + (zext(k - a) << 2), 4, r[k])
+    r[SP] := base
+
+# RESTORE ra-rb: the reverse, sp <- sp + 4n after. All the words are read
+# before any register changes, so a fault leaves them as they were (they
+# are all aligned or none is).
+instruction "RESTORE ra-rb"  0000 aaaa bbbb 0110  when 1 <= a and a <= b and b <= 14:
+    let base = r[SP]
+    check(base, 4)
+    for k in a .. b:
+        r[k] := load(base + (zext(k - a) << 2), 4)
+    r[SP] := base + (zext(b - a + 1) << 2)
+
+instruction "RTI"  0000 ---- ---- 0111:
+    set_flags(pop())
+    pc := pop() & ~1
+
+instruction "EI"  0000 ---- ---- 1000:
+    I := 1
+
+instruction "DI"  0000 ---- ---- 1001:
+    I := 0
+
+# Special registers: 0 is the flags word, 1 is HI.
+instruction "MFSR rd, n"  0000 dddd nnnn 1010  when n <= 1:
+    if n == 0:
+        r[d] := flags()
+    else:
+        r[d] := hi
+
+instruction "MTSR n, rs"  0000 nnnn ssss 1011  when n <= 1:
+    if n == 0:
+        set_flags(r[s])
+    else:
+        hi := r[s]
+
+# The handler finds the number in the instruction at [saved PC - 2].
+instruction "SWI #n"  0000 nnnn nnnn 1100:
+    trap VEC_SWI
+
+instruction "SETcc rd"  0000 dddd cccc 1101  when c != 15:
+    r[d] := zext(condition(c))
