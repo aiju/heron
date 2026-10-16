@@ -144,7 +144,7 @@ def _cell(s):
     return s.replace("|", "/")[:90]
 
 
-BUDGET_NOTE = "1800 s a case"
+BUDGET_NOTE = "900 s a case"
 
 
 def main(argv=None):

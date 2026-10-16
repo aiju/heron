@@ -135,7 +135,7 @@ Terms:
   hardware's shape (the register file's lanes and addresses, the RAM
   chips), and cut memory addresses where they are loaded (MAR). Both are
   what make the proofs fast enough ([6](#6-what-it-costs)).
-- **P8 Budgets.** Every decode case has a time budget (30 minutes on 1b).
+- **P8 Budgets.** Every decode case has a time budget (15 minutes on 1b).
   A case that runs out is listed with the results, not dropped, and is
   left to the tests (W4).
 

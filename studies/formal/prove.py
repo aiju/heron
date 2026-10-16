@@ -104,8 +104,19 @@ def save(results, out):
     os.replace(tmp, out)
 
 
+def slow_last(c):
+    """The kinds of case known to run out of time go last, so that a run
+    has most of its results early: illegal instructions, then multiply and
+    divide, then the indexed mode."""
+    if c.key[0] == "illegal":
+        return 3
+    if c.key[0] == "rr" and c.key[1] >= 4:
+        return 2
+    return 1 if c.key[0] == "ea" and c.key[3] == 5 else 0
+
+
 def select(kind=None, keys=None, sample=None, seed=1, skip_done=None):
-    cs = v1b.cases()
+    cs = sorted(v1b.cases(), key=slow_last)
     if kind:
         cs = [c for c in cs if c.key[0] == kind]
     if keys:
@@ -124,7 +135,7 @@ def main(argv=None):
     p.add_argument("--sample", type=int, help="a random sample of the cases")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--jobs", type=int, default=4)
-    p.add_argument("--budget", type=int, default=600, help="seconds per case")
+    p.add_argument("--budget", type=int, default=900, help="seconds per case")
     p.add_argument("--out", default=DEFAULT_OUT)
     p.add_argument("--resume", action="store_true", help="skip cases already in the results")
     args = p.parse_args(argv)
