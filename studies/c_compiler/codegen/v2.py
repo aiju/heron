@@ -275,8 +275,9 @@ class V2(V1B):
             return 1
         if m.sym is not None:
             return 2
-        if d == 0 or m.size == 4 and d % 4 == 0 and 0 <= d <= 60 and (
-                m.base is SP or m.base is PHYS[14] and op != "LEA"):
+        # [sp + 4R] and [r14 + 4R]: LEA's address takes the word form
+        if d == 0 or (m.size == 4 or op == "LEA") and d % 4 == 0 and 0 <= d <= 60 and (
+                m.base is SP or m.base is PHYS[14]):
             return 0
         return 1 if fits(d, 16) else 2
 
