@@ -1,17 +1,20 @@
 //! The simulator in the browser (studies/websim): the engine's [`Setup`]
 //! and [`Session`] as plain exported functions, which web/sim.js calls.
 //!
+//! Each is named `sim_...`: a native build of this crate (clippy, the
+//! tests) must not define the C library's symbols (`close`, `send`).
+//!
 //! Numbers go in and out as arguments and results. Bytes and text go in
-//! through the inbox: JavaScript asks for room (`inbox`), writes there,
+//! through the inbox: JavaScript asks for room (`sim_inbox`), writes there,
 //! then calls the function that takes them. They come out through the
 //! outbox: a function puts them there and returns their length, and
-//! JavaScript reads them at `outbox`. Both are reused from call to call,
+//! JavaScript reads them at `sim_outbox`. Both are reused from call to call,
 //! and the module's memory can move when it grows, so JavaScript makes a
 //! fresh view of it after every call.
 //!
-//! One machine at a time: `setup` starts a description, `param` and
-//! `load` add to it, and `start` makes the machine from it, in place of
-//! the one before.
+//! One machine at a time: `sim_setup` starts a description, `sim_param`
+//! and `sim_load` add to it, and `sim_start` makes the machine from it, in
+//! place of the one before.
 
 // `#[unsafe(no_mangle)]` is how a function is exported to JavaScript;
 // nothing here is unsafe otherwise.
@@ -52,7 +55,7 @@ fn out(s: &mut State, bytes: &[u8]) -> u32 {
 
 /// Room for `n` bytes going in; where to write them.
 #[unsafe(no_mangle)]
-pub extern "C" fn inbox(n: u32) -> *mut u8 {
+pub extern "C" fn sim_inbox(n: u32) -> *mut u8 {
     with(|s| {
         s.inbox.clear();
         s.inbox.resize(n as usize, 0);
@@ -62,13 +65,13 @@ pub extern "C" fn inbox(n: u32) -> *mut u8 {
 
 /// Where the bytes coming out are.
 #[unsafe(no_mangle)]
-pub extern "C" fn outbox() -> *const u8 {
+pub extern "C" fn sim_outbox() -> *const u8 {
     with(|s| s.outbox.as_ptr())
 }
 
 /// The last error, into the outbox: its length.
 #[unsafe(no_mangle)]
-pub extern "C" fn error() -> u32 {
+pub extern "C" fn sim_error() -> u32 {
     with(|s| {
         let e = std::mem::take(&mut s.error);
         let n = out(s, e.as_bytes());
@@ -79,7 +82,7 @@ pub extern "C" fn error() -> u32 {
 
 /// A new description, for the board named in the inbox.
 #[unsafe(no_mangle)]
-pub extern "C" fn setup() {
+pub extern "C" fn sim_setup() {
     with(|s| {
         let board = String::from_utf8_lossy(&s.inbox).into_owned();
         s.setup = Some(Setup::new(&board));
@@ -88,7 +91,7 @@ pub extern "C" fn setup() {
 
 /// A parameter of the description: `name=value` in the inbox.
 #[unsafe(no_mangle)]
-pub extern "C" fn param() -> u32 {
+pub extern "C" fn sim_param() -> u32 {
     with(|s| {
         let text = String::from_utf8_lossy(&s.inbox).into_owned();
         match (s.setup.as_mut(), text.split_once('=')) {
@@ -107,7 +110,7 @@ pub extern "C" fn param() -> u32 {
 /// Something to load at `at`: the inbox has the target's name, a 0 byte,
 /// then the bytes.
 #[unsafe(no_mangle)]
-pub extern "C" fn load(at: u32) -> u32 {
+pub extern "C" fn sim_load(at: u32) -> u32 {
     with(|s| {
         let inbox = std::mem::take(&mut s.inbox);
         let Some(i) = inbox.iter().position(|&b| b == 0) else {
@@ -124,9 +127,9 @@ pub extern "C" fn load(at: u32) -> u32 {
     })
 }
 
-/// Make the machine: 1, or 0 if the description is wrong (see `error`).
+/// Make the machine: 1, or 0 if the description is wrong (see `sim_error`).
 #[unsafe(no_mangle)]
-pub extern "C" fn start() -> u32 {
+pub extern "C" fn sim_start() -> u32 {
     with(|s| {
         let made = match s.setup.as_ref() {
             Some(setup) => setup.start(),
@@ -148,9 +151,9 @@ pub extern "C" fn start() -> u32 {
 
 /// Run for `cycles` more cycles or `steps` instructions: 0 ran, 1 waits for
 /// the terminal, 2 asleep with nothing to wake it, 3 halted, -1 stopped
-/// with an error (see `error`).
+/// with an error (see `sim_error`).
 #[unsafe(no_mangle)]
-pub extern "C" fn run(cycles: f64, steps: f64) -> i32 {
+pub extern "C" fn sim_run(cycles: f64, steps: f64) -> i32 {
     with(|s| {
         let Some(m) = s.session.as_mut() else {
             s.error = "no machine".into();
@@ -170,29 +173,29 @@ pub extern "C" fn run(cycles: f64, steps: f64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn cycles() -> f64 {
+pub extern "C" fn sim_cycles() -> f64 {
     with_session(0.0, |m| m.board_ref().cycles() as f64)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn instructions() -> f64 {
+pub extern "C" fn sim_instructions() -> f64 {
     with_session(0.0, |m| m.board_ref().instructions() as f64)
 }
 
 /// Cycles spent asleep in HALT.
 #[unsafe(no_mangle)]
-pub extern "C" fn idle_cycles() -> f64 {
+pub extern "C" fn sim_idle_cycles() -> f64 {
     with_session(0.0, |m| m.board_ref().idle_cycles() as f64)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn clock_hz() -> f64 {
+pub extern "C" fn sim_clock_hz() -> f64 {
     with_session(0.0, |m| m.board_ref().clock_hz())
 }
 
 /// The inbox's bytes, typed at the terminal.
 #[unsafe(no_mangle)]
-pub extern "C" fn send() {
+pub extern "C" fn sim_send() {
     with(|s| {
         let bytes = std::mem::take(&mut s.inbox);
         if let Some(m) = s.session.as_mut() {
@@ -203,13 +206,13 @@ pub extern "C" fn send() {
 
 /// The end of the terminal's input.
 #[unsafe(no_mangle)]
-pub extern "C" fn close() {
+pub extern "C" fn sim_close() {
     with_session((), |m| m.board().close())
 }
 
 /// What the machine printed since the last call, into the outbox.
 #[unsafe(no_mangle)]
-pub extern "C" fn output() -> u32 {
+pub extern "C" fn sim_output() -> u32 {
     with(|s| {
         let bytes = s
             .session
@@ -222,7 +225,7 @@ pub extern "C" fn output() -> u32 {
 
 /// What it wrote to its log since the last call, into the outbox.
 #[unsafe(no_mangle)]
-pub extern "C" fn log() -> u32 {
+pub extern "C" fn sim_log() -> u32 {
     with(|s| {
         let bytes = s
             .session
@@ -235,19 +238,19 @@ pub extern "C" fn log() -> u32 {
 
 /// The screen's width and height, 0 without one.
 #[unsafe(no_mangle)]
-pub extern "C" fn screen_width() -> u32 {
+pub extern "C" fn sim_screen_width() -> u32 {
     with_session(0, |m| m.board_ref().screen_size().map_or(0, |s| s.0))
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn screen_height() -> u32 {
+pub extern "C" fn sim_screen_height() -> u32 {
     with_session(0, |m| m.board_ref().screen_size().map_or(0, |s| s.1))
 }
 
 /// The screen as RGBA, if it changed since the last call (or `always`):
 /// where it is, or null.
 #[unsafe(no_mangle)]
-pub extern "C" fn screen(always: u32) -> *const u8 {
+pub extern "C" fn sim_screen(always: u32) -> *const u8 {
     with_session(std::ptr::null(), |m| {
         m.screen_rgba(always != 0)
             .map_or(std::ptr::null(), |p| p.as_ptr())
@@ -257,7 +260,7 @@ pub extern "C" fn screen(always: u32) -> *const u8 {
 /// A key down (1) or up (0), named in the inbox as a browser names it:
 /// 1 if the machine has the key.
 #[unsafe(no_mangle)]
-pub extern "C" fn key(down: u32) -> u32 {
+pub extern "C" fn sim_key(down: u32) -> u32 {
     with(|s| {
         let name = String::from_utf8_lossy(&s.inbox).into_owned();
         s.session
@@ -268,19 +271,19 @@ pub extern "C" fn key(down: u32) -> u32 {
 
 /// Whether there's a mouse.
 #[unsafe(no_mangle)]
-pub extern "C" fn has_mouse() -> u32 {
+pub extern "C" fn sim_has_mouse() -> u32 {
     with_session(0, |m| m.board_ref().has_mouse() as u32)
 }
 
 /// The mouse to (x, y) on the screen, with `buttons` held.
 #[unsafe(no_mangle)]
-pub extern "C" fn mouse(x: i32, y: i32, buttons: u32) {
+pub extern "C" fn sim_mouse(x: i32, y: i32, buttons: u32) {
     with_session((), |m| m.mouse_to(x, y, buttons as u8))
 }
 
 /// The registers into the outbox, a line `name value` each.
 #[unsafe(no_mangle)]
-pub extern "C" fn registers() -> u32 {
+pub extern "C" fn sim_registers() -> u32 {
     with(|s| {
         let text: String = s
             .session
@@ -299,7 +302,7 @@ pub extern "C" fn registers() -> u32 {
 
 /// `len` bytes of RAM at `addr` into the outbox (fewer past its end).
 #[unsafe(no_mangle)]
-pub extern "C" fn peek(addr: u32, len: u32) -> u32 {
+pub extern "C" fn sim_peek(addr: u32, len: u32) -> u32 {
     with(|s| {
         let bytes = s
             .session

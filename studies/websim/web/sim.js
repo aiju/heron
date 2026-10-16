@@ -54,15 +54,15 @@
 
   const mem = () => new Uint8Array(E.memory.buffer);
   function put(bytes) {
-    const p = E.inbox(bytes.length);
+    const p = E.sim_inbox(bytes.length);
     mem().set(bytes, p);
   }
   const putText = (s) => put(enc.encode(s));
   function take(n) {
-    const p = E.outbox();
+    const p = E.sim_outbox();
     return mem().slice(p, p + n);
   }
-  const errorText = () => utf8.decode(take(E.error()));
+  const errorText = () => utf8.decode(take(E.sim_error()));
   function latin1(bytes) {
     let s = "";
     for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
@@ -110,10 +110,10 @@
     if (mine !== generation) return;
     E = e;
     putText(m.board);
-    E.setup();
+    E.sim_setup();
     for (const [k, v] of Object.entries(m.params)) {
       putText(`${k}=${v === "now" ? Math.floor(Date.now() / 1000) : v}`);
-      if (!E.param()) return setOverlay(errorText(), true);
+      if (!E.sim_param()) return setOverlay(errorText(), true);
     }
     for (let i = 0; i < m.loads.length; i++) {
       const t = enc.encode(m.loads[i].target), d = data[i];
@@ -121,17 +121,17 @@
       b.set(t);
       b.set(d, t.length + 1);
       put(b);
-      if (!E.load(m.loads[i].at)) return setOverlay(errorText(), true);
+      if (!E.sim_load(m.loads[i].at)) return setOverlay(errorText(), true);
     }
-    if (!E.start()) return setOverlay(`The machine didn't start: ${errorText()}`, true);
+    if (!E.sim_start()) return setOverlay(`The machine didn't start: ${errorText()}`, true);
     state = {
-      status: RUN, running: true, error: null, clock: E.clock_hz(), started: performance.now(),
+      status: RUN, running: true, error: null, clock: E.sim_clock_hz(), started: performance.now(),
       seen: { t: performance.now(), cycles: 0, instructions: 0, idle: 0 }, rate: 0, mips: 0, lagging: false,
     };
     ui.run.disabled = ui.reset.disabled = false;
     ui.log.textContent = "";
     if (m.screen) {
-      const w = E.screen_width(), h = E.screen_height();
+      const w = E.sim_screen_width(), h = E.sim_screen_height();
       ui.canvas.width = w;
       ui.canvas.height = h;
       ctx = ui.canvas.getContext("2d");
@@ -185,12 +185,12 @@
         onInput: (text) => {
           if (!E || !state) return;
           put(enc.encode(text));
-          E.send();
+          E.sim_send();
           resume();
         },
         onEnd: () => {
           if (!E || !state) return;
-          E.close();
+          E.sim_close();
           resume();
         },
       }));
@@ -262,9 +262,9 @@
     state.lagging = false;
     try {
       while (want > 0) {
-        const c0 = E.cycles();
-        const st = E.run(Math.min(want, 1e15), STEPS);
-        want -= E.cycles() - c0;
+        const c0 = E.sim_cycles();
+        const st = E.sim_run(Math.min(want, 1e15), STEPS);
+        want -= E.sim_cycles() - c0;
         if (st === FAILED) {
           state.error = errorText();
           state.status = FAILED;
@@ -292,10 +292,10 @@
       return;
     }
     if (state.status === FAILED) return;
-    const out = take(E.output());
+    const out = take(E.sim_output());
     if (out.length && term) term.write(latin1(out));
     if (M.log) {
-      const log = take(E.log());
+      const log = take(E.sim_log());
       if (log.length) {
         ui.log.append(latin1(log));
         ui.log.scrollTop = ui.log.scrollHeight;
@@ -303,7 +303,7 @@
     }
     if (term) term.waiting(state.status === WAITING);
     if (ctx && !ui.screen.hidden) {
-      const p = E.screen(0);
+      const p = E.sim_screen(0);
       if (p) {
         image.data.set(mem().subarray(p, p + image.data.length));
         ctx.putImageData(image, 0, 0);
@@ -326,12 +326,12 @@
     ui.run.textContent = s.running ? "Pause" : "Run";
     ui.run.disabled = s.status === HALTED || s.status === FAILED;
     ui.step.disabled = s.running || s.status === HALTED || s.status === FAILED;
-    const cycles = s.status === FAILED ? s.seen.cycles : E.cycles();
+    const cycles = s.status === FAILED ? s.seen.cycles : E.sim_cycles();
     ui.clock.textContent = `${mhz(s.clock)} · ${seconds(cycles / s.clock)}`;
     // the speed it went at, over the last second or so
     const now = performance.now(), dt = (now - s.seen.t) / 1000;
     if (dt > 0.9 && s.status !== FAILED) {
-      const ins = E.instructions(), idle = E.idle_cycles();
+      const ins = E.sim_instructions(), idle = E.sim_idle_cycles();
       s.rate = (cycles - s.seen.cycles) / dt;
       s.mips = (ins - s.seen.instructions) / dt / 1e6;
       s.busy = cycles > s.seen.cycles ? 1 - (idle - s.seen.idle) / (cycles - s.seen.cycles) : 0;
@@ -374,7 +374,7 @@
     const r = ui.canvas.getBoundingClientRect();
     const x = Math.floor((e.clientX - r.left) * ui.canvas.width / r.width);
     const y = Math.floor((e.clientY - r.top) * ui.canvas.height / r.height);
-    E.mouse(x, y, e.buttons & 7);
+    E.sim_mouse(x, y, e.buttons & 7);
     resume();
   }
   ui.canvas.addEventListener("pointermove", pointer);
@@ -414,7 +414,7 @@
 
   function machineKey(code, down) {
     putText(code);
-    return E.key(down ? 1 : 0);
+    return E.sim_key(down ? 1 : 0);
   }
 
   function keyEvent(e, down) {
@@ -497,7 +497,7 @@
   const hex = (v, n = 8) => (v >>> 0).toString(16).toUpperCase().padStart(n, "0");
 
   function registers() {
-    return utf8.decode(take(E.registers())).split("\n").filter(Boolean).map((l) => {
+    return utf8.decode(take(E.sim_registers())).split("\n").filter(Boolean).map((l) => {
       const [n, v] = l.split(" ");
       return [n, Number(v) >>> 0];
     });
@@ -505,7 +505,7 @@
 
   function inspect() {
     if (!state || state.status === FAILED) return;
-    const s = state, cycles = E.cycles(), ins = E.instructions();
+    const s = state, cycles = E.sim_cycles(), ins = E.sim_instructions();
     const rows = [
       ["Simulated", seconds(cycles / s.clock)],
       ["Cycles", cycles.toLocaleString("en")],
@@ -513,7 +513,7 @@
       ["Cycles each", ins ? (cycles / ins).toFixed(2) : "–"],
       ["Speed", s.running && s.status === RUN && s.rate ? `${mhz(s.rate)}, ${s.mips.toFixed(1)} MIPS` : "–"],
     ];
-    if (M.board === "fen") rows.push(["Asleep", cycles ? `${(100 * E.idle_cycles() / cycles).toFixed(1)} %` : "–"]);
+    if (M.board === "fen") rows.push(["Asleep", cycles ? `${(100 * E.sim_idle_cycles() / cycles).toFixed(1)} %` : "–"]);
     ui.stats.textContent = "";
     for (const [k, v] of rows) {
       const dt = document.createElement("dt"), dd = document.createElement("dd");
@@ -563,7 +563,7 @@
     // Fen's supervisor sees physical memory through its window at 2 GB
     if (M.board === "fen" && a >= 0x80000000) a -= 0x80000000;
     a = Math.max(0, a - (a % 8) - 32);
-    const bytes = take(E.peek(a, 128));
+    const bytes = take(E.sim_peek(a, 128));
     const lines = [];
     for (let i = 0; i < bytes.length; i += 8) {
       const row = bytes.subarray(i, i + 8);
@@ -578,7 +578,7 @@
   ui.step.addEventListener("click", () => {
     if (!state || state.running) return;
     try {
-      const st = E.run(1e15, 1);
+      const st = E.sim_run(1e15, 1);
       state.status = st === FAILED ? FAILED : st === RUN ? RUN : st;
       if (st === FAILED) state.error = errorText();
     } catch (err) {
@@ -677,7 +677,7 @@
       f.click();
     } else if (what === "eof") {
       if (E && state) {
-        E.close();
+        E.sim_close();
         resume();
       }
     } else if (what === "clear") {
