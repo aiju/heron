@@ -35,14 +35,14 @@ SYM_END     = 0x8000
 CONST_BASE  = 0x8000            ; constant space: names of new symbols, compiled constants
 CONST_END   = 0x10000
 RT_BASE     = 0x10000           ; the runtime's code, then compiled code
-CCODE_END   = 0x26000
-CATMAP      = 0x26000           ; a byte per parcel of compiled code: what it's for
-CATMAP_END  = 0x30000           ; (the compiler fills it in, for the profiles)
-HEAP_A      = 0x30000           ; the two halves of the heap
-HEAP_B      = 0x90000
+CCODE_END   = 0x2A000
+CATMAP      = 0x2A000           ; a byte per parcel of compiled code: what it's for
+CATMAP_END  = 0x35000           ; (the compiler fills it in, for the profiles)
+HEAP_A      = 0x35000           ; the two halves of the heap
+HEAP_B      = 0x95000
 HEAP_SIZE   = 0x60000
 STACK_TOP   = 0x100000
-STACK_LIMIT = 0xF0800           ; below this, eval reports a stack overflow
+STACK_LIMIT = 0xF5800           ; below this, eval reports a stack overflow
 
 ; ---- object types and headers: size << 8 | type << 3 | 5
 T_SYM   = 0                     ; [hdr][call][value][name][special][macro][next][plist]
