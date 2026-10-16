@@ -345,8 +345,11 @@ def proofs_catch(nl, roms, cases, jobs, budget, cap):
             ran += len(batch)
             for c in batch:
                 r = res[c.name()]
+                err = r.get("error") or ""
+                if r["status"] == "error" and err.startswith("CombLoop"):
+                    return f"{c.name()}: {err}"[:200], ran    # the mutant made a loop
                 if r["status"] == "error":     # a fault in the tools, not a catch
-                    raise RuntimeError(f"{c.name()}: {r.get('error')}")
+                    raise RuntimeError(f"{c.name()}: {err}")
                 if r["status"] == "fail":
                     detail = next((p[2] for p in r["paths"] if p[0] == "fail"), "")
                     return f"{c.name()}: {detail}"[:200], ran
@@ -395,6 +398,8 @@ def main(argv=None):
     p.add_argument("--cap", type=int, default=1200, help="seconds of proving per mutant")
     p.add_argument("--only", choices=("handmade", "random"), help="one set of mutants")
     p.add_argument("--out", default=OUT)
+    p.add_argument("--continue", dest="cont", action="store_true",
+                   help="keep the mutants already in --out, and run the rest")
     p.add_argument("--resume", type=int, metavar="CAP",
                    help="carry on proving the mutants that the last run's proofs (in --out) "
                         "didn't catch before their time ran out, CAP more seconds each")
@@ -414,7 +419,14 @@ def main(argv=None):
     if args.resume:
         return resume(muts, pins, args)
     results = []
+    if args.cont and os.path.exists(args.out):
+        with open(args.out) as f:
+            results = json.load(f)
+        if [r["mutation"] for r in results] != [m[2] for m in muts[:len(results)]]:
+            raise SystemExit(f"{args.out} is from other mutants (another -n, --seed or --only)")
     for i, (kind, origin, desc, change) in enumerate(muts):
+        if i < len(results):
+            continue
         t0 = time.time()
         nl, roms, cases = _cases(kind, change, pins)
         tested = tests_catch(nl, roms)

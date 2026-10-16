@@ -34,7 +34,7 @@ from collections import defaultdict
 import z3
 
 from . import isacheck
-from . import spec2 as S
+from . import spec as S
 
 RAM = 0x10_0000
 BOUNDARY = [0, 1, 2, 0xFFFFFFFF, 0xFFFFFFFE, 0x7FFFFFFF, 0x80000000, 0x80000001,
@@ -264,9 +264,9 @@ def main(argv=None):
     p.add_argument("--show", type=int, default=10)
     p.add_argument("-v", action="store_true", help="every goal not reached")
     args = p.parse_args(argv)
-    spec = S.load("v1b_new.isa")
+    spec = S.load("v1b.isa")
     rng = random.Random(args.seed)
-    lines = S.HERE and open(S.HERE + "/v1b_new.isa").read().split("\n")
+    lines = S.HERE and open(S.HERE + "/v1b.isa").read().split("\n")
     total = defaultdict(int)
     reached_all, all_goals = set(), set()
     bad = 0

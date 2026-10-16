@@ -69,19 +69,19 @@ MISTAKES = [
 @unittest.skipIf(z3 is None, "needs z3 (pip install z3-solver)")
 class Spec(unittest.TestCase):
     def test_parses(self):
-        from heron.studies.formal import spec2 as S
-        sp = S.load("v1b_new.isa")
+        from heron.studies.formal import spec as S
+        sp = S.load("v1b.isa")
         self.assertGreater(len(sp.instructions), 50)
 
     def test_against_simulator(self):
-        from heron.studies.formal import isacheck, spec2 as S
-        sp = S.load("v1b_new.isa")
+        from heron.studies.formal import isacheck, spec as S
+        sp = S.load("v1b.isa")
         rng = random.Random(3)
         bad = [r for r in (isacheck.run_one(sp, rng) for _ in range(400)) if r]
         self.assertEqual(bad, [])
 
     def test_language(self):
-        from heron.studies.formal import spec2 as S
+        from heron.studies.formal import spec as S
         sp = S.Spec(LANGUAGE + """
 proc step() {
     let a = @x ++ @x[3:0]
@@ -99,7 +99,7 @@ proc step() {
     def test_mistakes_rejected(self):
         """Each slip the language is meant to catch is an error when the
         specification is loaded, saying what is wrong."""
-        from heron.studies.formal import spec2 as S
+        from heron.studies.formal import spec as S
         good = """proc step() {
     let a: u8 = 3
     var b = @x ++ a
@@ -155,10 +155,10 @@ class Proofs(unittest.TestCase):
 
     def test_wrong_spec_fails(self):
         """ADD rd, #3 specified as a subtraction: the proof must fail, naming rd."""
-        from heron.studies.formal import spec2 as S, v1b
+        from heron.studies.formal import spec as S, v1b
         p = v1b.Prover(self.case("ea 4 None 1 3"))
         right = "    @r[d] := nzcv(add(a: @r[d], b: x, carry: false))"
-        src = open(S.HERE + "/v1b_new.isa").read()
+        src = open(S.HERE + "/v1b.isa").read()
         self.assertIn(right, src)
         p.spec = S.Spec(src.replace(right, "    @r[d] := nzcv(add(a: @r[d], b: ~x, carry: true))"))
         r = p.prove()
@@ -171,8 +171,8 @@ class Generated(unittest.TestCase):
     def test_every_goal_of_rrc_reached(self):
         """RRC's decisions (N and Z, C from bit 0, V cleared): every
         outcome is reached by a generated case, and the simulator agrees."""
-        from heron.studies.formal import isacheck, isagen, spec2 as S
-        sp = S.load("v1b_new.isa")
+        from heron.studies.formal import isacheck, isagen, spec as S
+        sp = S.load("v1b.isa")
         ins = next(i for i in sp.instructions if i.syntax.startswith("RRC"))
         status, cases = isagen.generate(sp, ins, 1, random.Random(2))
         took = set()

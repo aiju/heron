@@ -13,7 +13,7 @@ import random
 from heron import native
 from heron.studies.v1_isa import timing32
 
-from . import spec2 as S
+from . import spec as S
 
 WINDOW = 0x10000          # code and most data in the first 64 KB
 
@@ -186,7 +186,7 @@ def main(argv=None):
     p.add_argument("--show", type=int, default=10, help="how many disagreements to show")
     p.add_argument("--coverage", action="store_true", help="count instructions and outcomes")
     args = p.parse_args(argv)
-    spec = S.load("v1b_new.isa")
+    spec = S.load("v1b.isa")
     rng = random.Random(args.seed)
     isa = isas.get("v1b")
     bad = 0
