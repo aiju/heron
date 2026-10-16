@@ -42,10 +42,10 @@ the format of the opcode explorer it was laid out with.
   | `r15`, `sp` | also the stack pointer, which `SAVE`, `RESTORE`, mode 4 and exceptions use |
   | `PC` | 32 bits, always even |
   | `HI`, `LO` | special registers 1 and 2: multiply, divide and `MULA` |
-  | flags | N (negative), Z (zero), C (carry), V (overflow), in the flags word, special register 0 |
+  | `ccr` | the condition codes N (negative), Z (zero), C (carry) and V (overflow): special register 0, the low byte of the status register `sr` |
 
-  The flags word's other bits, the special registers above 2, the modes,
-  register banks, address translation, exceptions and reset are
+  The status register's other bits, the special registers above 2, the
+  modes, register banks, address translation, exceptions and reset are
   [RFC 0029](0029-rfc-draft-2-system.md)'s. The calling convention beyond
   `r7` and `sp` is **open**.
 
@@ -488,8 +488,8 @@ names may be written in either case is **open**.
   what to write instead.
 - **One spelling per instruction:** the assembler takes what the
   disassembler prints (**open**).
-- **Special registers** are written `flags`, `hi`, `lo` or a number;
-  RFC 0029 names the rest.
+- **Special registers** are written by name (`ccr`, `hi`, `lo`, and
+  RFC 0029's, such as `sr`) or by number.
 - **Branches and calls:** `Bcc label`, `BRA`, `BSR`; `JMP label` and
   `CALL label` are `Jcc` with cc = E and F, and `JMP #label` is `JMP ea`.
   A `Bcc` out of reach becomes the `Jcc` with the same condition, and

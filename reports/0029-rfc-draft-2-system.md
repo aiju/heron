@@ -23,7 +23,7 @@ from and why. The instructions' encodings are in
 
 To the machine of RFC 0028 this adds:
 
-- **two modes,** supervisor and user ([2](#2-modes-and-the-flags-word));
+- **two modes,** supervisor and user ([2](#2-modes-and-the-status-register));
 - **an address space** whose upper half is a window onto physical memory
   for the supervisor, and whose lower part is translated by a page map
   ([3](#3-the-address-space));
@@ -31,12 +31,13 @@ To the machine of RFC 0028 this adds:
 - **register banks,** one per thread ([5](#5-register-banks));
 - **exceptions** that are precise and vectored ([6](#6-exceptions)).
 
-### 2. Modes and the flags word
+### 2. Modes and the status register
 
-- **Supervisor and user mode.** The S bit of the flags word says which.
-  Reset enters supervisor mode, every exception enters it, and `RTI` takes
-  the mode from the flags word it pops. Nothing else changes S.
-- **The flags word:**
+- **Supervisor and user mode.** The S bit of the status register `sr`
+  says which. Reset enters supervisor mode, every exception enters it, and
+  `RTI` takes the mode from the status word it pops. Nothing else changes
+  S.
+- **The status register** `sr`, special register 8:
 
   | Bit | Name | |
   |---|---|---|
@@ -52,10 +53,12 @@ To the machine of RFC 0028 this adds:
   | 30 | I | interrupts enabled |
   | 31 | S | supervisor mode |
 
-  Byte 0 is user mode's; the bits from 8 up are the supervisor's.
   Reserved bits read as 0 and must be written as 0.
-- **`MTSR flags, rs`** writes byte 0 in user mode, and every bit but S in
-  supervisor mode.
+- **The condition-code register** `ccr`, special register 0, is `sr`'s
+  byte 0, the condition codes: reading it gives byte 0 zero-extended, and
+  writing it changes byte 0 alone. User mode reads and writes `ccr`; `sr`
+  is privileged, to read and to write, and `MTSR sr, rs` changes every bit
+  but S (**decided**, Emily, 2026-10-16).
 - **Privileged instructions:** `HALT`, `EI`, `DI`, `RTI`, `MFUR`, `MTUR`,
   and `MFSR` and `MTSR` of special registers 8–15. In user mode they raise
   a privilege violation ([6](#6-exceptions)).
@@ -118,19 +121,19 @@ A virtual address's bit 31 picks how it is mapped:
 
 | n | Name | |
 |---|---|---|
-| 0 | `flags` | the flags word ([2](#2-modes-and-the-flags-word)) |
+| 0 | `ccr` | the condition codes, `sr`'s byte 0 ([2](#2-modes-and-the-status-register)) |
 | 1 | `hi` | `HI` |
 | 2 | `lo` | `LO`, for `MULA` (tentative, [RFC 0028, 5.10](0028-rfc-draft-2-isa.md#510-tentative-instructions)) |
 | 3 | | reserved for the FPU's control and status |
 | 4–7 | | reserved |
-| 8 | `far` | read only: the address of the last page fault or address error |
-| 9 | `fsr` | read only: why the last page fault happened ([3](#3-the-address-space)) |
-| 10 | `ctx` | the page map context, 0–127 |
-| 11 | `mapa` | the map address: context × 4096 + page, 0–524,287 |
-| 12 | `mapd` | the map entry at `mapa`; writing it moves `mapa` on by one |
-| 13 | `bank` | the register bank user mode runs in, 0–255 |
-| 14 | `bkpt` | open: a breakpoint address |
-| 15 | | reserved |
+| 8 | `sr` | the status register ([2](#2-modes-and-the-status-register)) |
+| 9 | `far` | read only: the address of the last page fault or address error |
+| 10 | `fsr` | read only: why the last page fault happened ([3](#3-the-address-space)) |
+| 11 | `ctx` | the page map context, 0–127 |
+| 12 | `mapa` | the map address: context × 4096 + page, 0–524,287 |
+| 13 | `mapd` | the map entry at `mapa`; writing it moves `mapa` on by one |
+| 14 | `bank` | the register bank user mode runs in, 0–255 |
+| 15 | `bkpt` | open: a breakpoint address |
 
 Reserved registers read as 0 and ignore writes.
 
@@ -164,11 +167,10 @@ Reserved registers read as 0 and ignore writes.
   normally a relative `JMP` to the handler.
 - **Entering an exception:**
   1. switch to supervisor mode and bank 0;
-  2. push the PC, then the flags word as it was, on bank 0's `sp`;
+  2. push the PC, then `sr` as it was, on bank 0's `sp`;
   3. clear I and T;
   4. jump to the vector.
-- **`RTI`** pops the flags word, then the PC, and with them the mode and
-  the bank.
+- **`RTI`** pops `sr`, then the PC, and with them the mode and the bank.
 - **Precise faults.** Where the saved PC is the instruction's own, the
   instruction has changed neither the flags nor the PC, nor any register
   it addresses memory with. It may already have loaded registers or
@@ -218,15 +220,26 @@ keeps what worked and changes the rest.
   set it, and the nucleus once dropped into user mode by writing the
   flags back without it
   ([report 0020](0020-report-operating-system.md#protection-modes-and-the-stack)).
-- **The supervisor's bits at the top of the flags word** (Emily,
-  2026-10-16), where draft 1 had I next to N, Z, C and V:
-  - byte 0 is all the user's, so user-mode `MTSR flags` writes one byte
-    lane instead of masking bits;
+- **The supervisor's bits at the top of `sr`** (Emily, 2026-10-16),
+  where draft 1 had I next to N, Z, C and V:
+  - byte 0 is all the user's, so `ccr` is one byte lane, with no bits to
+    mask;
   - S is the sign bit, so a handler tests where an exception came from
-    with `MOVS` on the saved flags word and `BMI`, and it means
+    with `MOVS` on the saved status word and `BMI`, and it means
     supervisor as bit 31 of an address does ([3](#3-the-address-space));
   - both ends have room: user flags in bits 4–7, the supervisor's below
     bit 29.
+- **`ccr` as `sr`'s low byte** (Emily, 2026-10-16), as the 68000's
+  `CCR` is its `SR`'s:
+  - one status word goes into the exception frame and comes back with
+    `RTI`;
+  - user code sees only the condition codes, and the rest traps, so a
+    kernel run deprivileged can't read or quietly fail to set S, I or T.
+    That is what classical virtualisation needs from the status word; the
+    68010 made reading the 68000's `SR` privileged for the same reason.
+  - user code rarely writes `ccr` at all: a switch between user threads is
+    a call, which keeps no flags. It's for upcalls that return without a
+    system call, and for emulators.
 - **The window at bit 31,** proposed by Emily (2026-10-15), instead of
   v1bs's flag bits XL and XS, which made the supervisor's loads or stores
   go through the user's map.
@@ -301,8 +314,8 @@ keeps what worked and changes the rest.
 
 ### 11. Open questions
 
-1. **Interrupt levels:** how many, how they're masked (bits 24–26 of the
-   flags word are reserved for it), and whether a vector comes from the
+1. **Interrupt levels:** how many, how they're masked (bits 24–26 of `sr`
+   are reserved for it), and whether a vector comes from the
    level or from the device, as
    [RFC 0009](0009-rfc-ideas-io.md#1-io) proposes. Whether each level
    gets a register bank, so that a handler saves nothing.
@@ -311,11 +324,17 @@ keeps what worked and changes the rest.
    an access that nothing answers does.
 3. **A bank-to-bank copy** of `r0`–`r7`, which would win back most of the
    message cost of full banks.
-4. **The breakpoint register** (special register 14).
+4. **The breakpoint register** (special register 15).
 5. **Boot:** the reset vector is physical address 0, so a ROM has to be
    there at reset ([RFC 0010, 2](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)).
 6. **`LDM` and `STM` with the base register in their range.**
 7. **When, if ever, a tagged translation cache replaces the map.**
+8. **Virtualisation.** With `ccr` and `sr` split, the status word no
+   longer stands in the way, but the address space does: a guest kernel
+   lives in the window, which user mode can't map, so a hypervisor can't
+   run it natively. Guests could be paravirtualised (linked into the low
+   16 MB, calling the hypervisor with `SWI`), a context could map the
+   window in user mode, or virtualisation needn't be a goal.
 
 ### 12. Next steps
 
