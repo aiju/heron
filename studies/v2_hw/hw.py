@@ -148,6 +148,8 @@ def reference(mem, inp=b"", max_cycles=200_000_000):
     m.fetch_log = []
 
     def log(mm):
+        if not mm.fetch_log:
+            mm.ticks0 = mm.ticks                # the program's time leaves reset out
         mm.fetch_log.append((mm.cycles - 1, (mm.PC - 2) & 0xFFFFFFFF, mm.IR))
     m.trace = log
     m.run(max_cycles)
@@ -201,7 +203,7 @@ def check(path, trace=None, lengths=None):
     inp = metadata(path)["input"]
     mem = iop.boot_image(img)
     m = reference(mem, inp)
-    hw = run(mem, inp, max_cycles=m.prog_cycles + 1000, trace=trace, lengths=lengths)
+    hw = run(mem, inp, max_cycles=m.cycles + 1000, trace=trace, lengths=lengths)   # reset too
     return m, hw, compare(m, hw)
 
 
@@ -233,7 +235,7 @@ def cmd_test(args):
         ok = not diffs and not hw["violation_total"]
         bad += not ok
         print(f"{name:12s} {'ok  ' if ok else 'FAIL'} {hw['cycles']:9d} cycles "
-              f"{hw['time_ps'] / 1e9:8.3f} ms (RTL {m.ticks * 20 / 1e6:8.3f} ms)  "
+              f"{hw['time_ps'] / 1e9:8.3f} ms (RTL {(m.ticks - m.ticks0) * 20 / 1e6:8.3f} ms)  "
               f"violations {hw['violation_total']:5d}  ({time.time() - t0:.0f} s)")
         for d in diffs[:6]:
             print(f"    {d}")

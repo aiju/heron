@@ -25,6 +25,18 @@ class Microcode(unittest.TestCase):
         self.assertEqual(len(mc.decode_table()), 0x10000)
         self.assertEqual(len(mc.lengths), 4)
 
+    def test_constants_in_every_bank(self):
+        # both copies of the register file share the bank address, so the
+        # reset routine leaves each bank's G half with the constants
+        from heron.studies.v2_hw import rtl, system
+        m = rtl.RTL(system.System())
+        check.boot(m)
+        for bank in range(256):
+            for k, v in uc.CONSTS.items():
+                if k not in (uc.CTXC, uc.BANKC, uc.MAPAS):
+                    self.assertEqual(m.rf[rtl.GLB | bank << 5 | k - uc.G], v, (bank, k))
+        self.assertEqual(m.BANK, 0)
+
 
 class Programs(unittest.TestCase):
     def check(self, name):

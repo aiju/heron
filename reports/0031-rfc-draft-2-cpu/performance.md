@@ -9,43 +9,43 @@ The program suite on the register-transfer model, code and data in the CPU card'
 | Program | Instructions | Cycles | CPI | Time | Per instruction | 1b fast | Speed-up |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | arith (prints) | 16950 | 51156 | 3.02 | 6.88 ms | 406 ns | 27.20 ms |  |
-| bignum | 5393 | 22853 | 4.24 | 2.66 ms | 493 ns | 4.21 ms | 1.58x |
+| bignum | 5393 | 22853 | 4.24 | 2.66 ms | 492 ns | 4.21 ms | 1.59x |
 | bst | 10451 | 20218 | 1.93 | 2.27 ms | 217 ns | 4.21 ms | 1.85x |
-| crc | 61552 | 111597 | 1.81 | 11.88 ms | 193 ns | 15.40 ms | 1.30x |
+| crc | 61552 | 111597 | 1.81 | 11.86 ms | 193 ns | 15.40 ms | 1.30x |
 | fib | 81901 | 177692 | 2.17 | 20.36 ms | 249 ns | 39.80 ms | 1.96x |
 | hello (prints) | 53 | 109 | 2.06 | 0.02 ms | 363 ns | 0.17 ms |  |
 | life | 164178 | 308843 | 1.88 | 39.59 ms | 241 ns | 63.50 ms | 1.60x |
-| lines (prints) | 24034 | 43278 | 1.80 | 5.90 ms | 245 ns | 26.40 ms |  |
-| mandel | 107711 | 920479 | 8.55 | 92.12 ms | 855 ns | 82.40 ms | 0.89x |
-| matmul | 5973 | 32565 | 5.45 | 3.64 ms | 609 ns | 4.25 ms | 1.17x |
+| lines (prints) | 24034 | 43278 | 1.80 | 5.88 ms | 245 ns | 26.40 ms |  |
+| mandel | 107711 | 920479 | 8.55 | 91.69 ms | 851 ns | 82.40 ms | 0.90x |
+| matmul | 5973 | 32565 | 5.45 | 3.63 ms | 607 ns | 4.25 ms | 1.17x |
 | monitor (prints) | 14597 | 28668 | 1.96 | 3.98 ms | 273 ns | 16.50 ms |  |
-| queens | 60248 | 102023 | 1.69 | 10.23 ms | 170 ns | 19.40 ms | 1.90x |
+| queens | 60248 | 102023 | 1.69 | 10.10 ms | 168 ns | 19.40 ms | 1.92x |
 | rpn (prints) | 10340 | 20356 | 1.97 | 2.88 ms | 278 ns | 11.30 ms |  |
-| sha256 | 86727 | 135152 | 1.56 | 13.00 ms | 150 ns | 24.10 ms | 1.85x |
+| sha256 | 86727 | 135152 | 1.56 | 12.99 ms | 150 ns | 24.10 ms | 1.85x |
 | sieve | 71558 | 119183 | 1.67 | 13.32 ms | 186 ns | 18.30 ms | 1.37x |
 | sort | 35004 | 63143 | 1.80 | 6.82 ms | 195 ns | 11.30 ms | 1.66x |
 | strings (prints) | 5730 | 11895 | 2.08 | 1.66 ms | 290 ns | 8.33 ms |  |
-| vm | 592294 | 1978454 | 3.34 | 213.85 ms | 361 ns | 278.60 ms | 1.30x |
-| wordfreq | 65935 | 146528 | 2.22 | 18.18 ms | 276 ns | 36.90 ms | 2.03x |
+| vm | 592294 | 1978454 | 3.34 | 210.65 ms | 356 ns | 278.60 ms | 1.32x |
+| wordfreq | 65935 | 146528 | 2.22 | 18.16 ms | 275 ns | 36.90 ms | 2.03x |
 | interrupts (timer) | 10384 | 80138 | 7.72 | 7.98 ms | 769 ns | 20.60 ms |  |
 | c/arith | 76611 | 189891 | 2.48 | 23.61 ms | 308 ns |  |  |
 | c/bignum | 18978 | 68551 | 3.61 | 7.79 ms | 410 ns |  |  |
 | c/bst | 16731 | 40295 | 2.41 | 4.60 ms | 275 ns |  |  |
-| c/crc | 84141 | 145707 | 1.73 | 15.06 ms | 179 ns |  |  |
+| c/crc | 84141 | 145707 | 1.73 | 15.04 ms | 179 ns |  |  |
 | c/fib | 114453 | 284559 | 2.49 | 31.78 ms | 278 ns |  |  |
 | c/hello | 210 | 356 | 1.70 | 0.05 ms | 257 ns |  |  |
 | c/life | 202370 | 355400 | 1.76 | 44.70 ms | 221 ns |  |  |
 | c/mandel | 212903 | 792281 | 3.72 | 83.66 ms | 393 ns |  |  |
 | c/matmul | 12344 | 37895 | 3.07 | 4.14 ms | 335 ns |  |  |
-| c/queens | 69627 | 129048 | 1.85 | 13.46 ms | 193 ns |  |  |
+| c/queens | 69627 | 129048 | 1.85 | 13.34 ms | 192 ns |  |  |
 | c/sha256 | 112917 | 190539 | 1.69 | 19.13 ms | 169 ns |  |  |
 | c/sieve | 92565 | 159777 | 1.73 | 17.97 ms | 194 ns |  |  |
-| c/sort | 50882 | 94090 | 1.85 | 10.40 ms | 204 ns |  |  |
+| c/sort | 50882 | 94090 | 1.85 | 10.34 ms | 203 ns |  |  |
 | c/strings | 18831 | 32186 | 1.71 | 4.37 ms | 232 ns |  |  |
 | c/wordfreq | 115999 | 245215 | 2.11 | 28.05 ms | 242 ns |  |  |
-| **hand-written, total** | 1420576 | 4294083 | 3.02 | 469.23 ms | 330 ns |  |  |
-| **compiled C, total** | 1199562 | 2765790 | 2.31 | 308.78 ms | 257 ns |  |  |
-| **the programs that don't print, against 1b** |  |  |  | 447.92 ms |  | 602.4 ms | 1.34x |
+| **hand-written, total** | 1420576 | 4294083 | 3.02 | 465.39 ms | 328 ns |  |  |
+| **compiled C, total** | 1199562 | 2765790 | 2.31 | 308.57 ms | 257 ns |  |  |
+| **the programs that don't print, against 1b** |  |  |  | 444.10 ms |  | 602.4 ms | 1.36x |
 
 ## Length classes
 
@@ -53,10 +53,10 @@ Each microinstruction's need from static timing analysis of the netlist (`ticks.
 
 | Ticks | Microinstructions | Executed | Share |
 |---|---:|---:|---:|
-| 4 | 3135 | 1989352 | 28.2% |
-| 5 | 1214 | 1092624 | 15.5% |
-| 6 | 1856 | 3742299 | 53.0% |
-| 7 | 18 | 64119 | 0.9% |
+| 4 | 3162 | 2011043 | 28.5% |
+| 5 | 1341 | 1229419 | 17.4% |
+| 6 | 1729 | 3591458 | 50.9% |
+| 7 | 17 | 56474 | 0.8% |
 | 8 | 9 | 23116 | 0.3% |
 | 9 | 3 | 148363 | 2.1% |
 
@@ -66,14 +66,14 @@ The suite's microcycles by what they do, and their share of the time.
 
 | Kind | Cycles | Of the cycles | Of the time |
 |---|---:|---:|---:|
-| ALU, address or shift | 2812908 | 39.8% | 34.3% |
-| multiply or divide step | 1494004 | 21.2% | 21.8% |
-| data read | 815362 | 11.5% | 14.3% |
-| refill after a jump | 586109 | 8.3% | 9.0% |
+| ALU, address or shift | 2812908 | 39.8% | 34.0% |
+| multiply or divide step | 1494004 | 21.2% | 21.9% |
+| data read | 815362 | 11.5% | 14.4% |
+| refill after a jump | 586109 | 8.3% | 9.1% |
 | extension parcel | 507212 | 7.2% | 6.9% |
 | jump or branch | 489780 | 6.9% | 6.2% |
 | data write | 275746 | 3.9% | 4.3% |
-| decode only | 78752 | 1.1% | 0.8% |
+| decode only | 78752 | 1.1% | 0.9% |
 | bus holds (the console) |  |  | 2.3% |
 
 ## The busiest routines
@@ -82,12 +82,12 @@ Microcode routines by their share of the suite's time. A routine is named by its
 
 | Routine | Cycles | Ticks a cycle | Of the time |
 |---|---:|---:|---:|
-| `MULFX` | 768600 | 4.97 | 9.8% |
-| `refill` | 586109 | 6.00 | 9.0% |
-| `MULS` | 521371 | 5.62 | 7.5% |
-| `DIVS` | 342608 | 5.48 | 4.8% |
+| `MULFX` | 768600 | 4.94 | 9.8% |
+| `refill` | 586109 | 6.00 | 9.1% |
+| `MULS` | 521371 | 5.62 | 7.6% |
+| `DIVS` | 342608 | 5.46 | 4.8% |
 | `MOV mA` | 366132 | 5.00 | 4.7% |
-| `JMP mF s3z2` | 243056 | 6.00 | 3.7% |
+| `JMP mF s3z2` | 243056 | 5.50 | 3.5% |
 | `ADD mF/E s3z0` | 143360 | 9.00 | 3.3% |
 | `DIVU` | 215388 | 5.81 | 3.2% |
 | `MOV m0` | 206521 | 4.00 | 2.1% |
@@ -122,7 +122,7 @@ A refill is a cycle that fetches the next instruction's first word and decodes f
 | `CALL` | the jump | 13138 | 2.2% |
 | `LSL #1` | the queue short of the instruction | 11360 | 1.9% |
 
-**A branch-target adder** (not built): `BRA`, `Bcc`, `BSR` and `DBNZ` have their target worked out while they are decoded, so a taken branch's own cycle fetches at the target and decodes from it, as a refill does. Each taken one saves its first cycle (256109 of them); each one not taken gets a cycle as long as a refill's (6 ticks) unless the length class follows the condition. Net: 2.8% of the suite's time (3.3% saved, 0.5% lost).
+**A branch-target adder** (not built): `BRA`, `Bcc`, `BSR` and `DBNZ` have their target worked out while they are decoded, so a taken branch's own cycle fetches at the target and decodes from it, as a refill does. Each taken one saves its first cycle (256109 of them); each one not taken gets a cycle as long as a refill's (6 ticks) unless the length class follows the condition. Net: 2.9% of the suite's time (3.3% saved, 0.5% lost).
 
 ## Code over the bus
 
@@ -133,37 +133,37 @@ The same programs with code and data on a memory card in slot 1 (a 32-bit card, 
 | arith | 6.88 ms | 11.21 ms (1.63x) | 7.70 ms (1.12x) | 7.70 ms (1.12x) |
 | bignum | 2.66 ms | 3.94 ms (1.48x) | 2.98 ms (1.12x) | 2.98 ms (1.12x) |
 | bst | 2.27 ms | 5.02 ms (2.21x) | 3.15 ms (1.39x) | 3.15 ms (1.39x) |
-| crc | 11.88 ms | 26.20 ms (2.21x) | 13.20 ms (1.11x) | 13.20 ms (1.11x) |
+| crc | 11.86 ms | 26.20 ms (2.21x) | 13.13 ms (1.11x) | 13.13 ms (1.11x) |
 | fib | 20.36 ms | 48.46 ms (2.38x) | 31.79 ms (1.56x) | 31.79 ms (1.56x) |
-| life | 39.59 ms | 107.91 ms (2.73x) | 65.67 ms (1.66x) | 65.67 ms (1.66x) |
-| lines | 5.90 ms | 11.31 ms (1.92x) | 6.55 ms (1.11x) | 6.55 ms (1.11x) |
-| mandel | 92.12 ms | 118.95 ms (1.29x) | 92.35 ms (1.00x) | 92.35 ms (1.00x) |
-| matmul | 3.64 ms | 5.32 ms (1.46x) | 4.13 ms (1.14x) | 4.13 ms (1.14x) |
+| life | 39.59 ms | 107.90 ms (2.73x) | 65.67 ms (1.66x) | 65.67 ms (1.66x) |
+| lines | 5.88 ms | 11.25 ms (1.91x) | 6.52 ms (1.11x) | 6.52 ms (1.11x) |
+| mandel | 91.69 ms | 118.95 ms (1.30x) | 91.92 ms (1.00x) | 91.92 ms (1.00x) |
+| matmul | 3.63 ms | 5.30 ms (1.46x) | 4.11 ms (1.13x) | 4.11 ms (1.13x) |
 | monitor | 3.98 ms | 7.71 ms (1.93x) | 4.67 ms (1.17x) | 4.65 ms (1.17x) |
-| queens | 10.23 ms | 28.09 ms (2.75x) | 17.18 ms (1.68x) | 17.18 ms (1.68x) |
+| queens | 10.10 ms | 27.97 ms (2.77x) | 17.06 ms (1.69x) | 17.06 ms (1.69x) |
 | rpn | 2.88 ms | 5.49 ms (1.91x) | 3.31 ms (1.15x) | 3.31 ms (1.15x) |
-| sha256 | 13.00 ms | 31.30 ms (2.41x) | 16.00 ms (1.23x) | 16.00 ms (1.23x) |
+| sha256 | 12.99 ms | 31.30 ms (2.41x) | 16.00 ms (1.23x) | 16.00 ms (1.23x) |
 | sieve | 13.32 ms | 36.66 ms (2.75x) | 20.19 ms (1.51x) | 20.19 ms (1.51x) |
 | sort | 6.82 ms | 16.10 ms (2.36x) | 9.54 ms (1.40x) | 9.54 ms (1.40x) |
 | strings | 1.66 ms | 3.26 ms (1.96x) | 2.16 ms (1.30x) | 2.14 ms (1.29x) |
-| vm | 213.85 ms | 462.68 ms (2.16x) | 330.92 ms (1.55x) | 330.92 ms (1.55x) |
-| wordfreq | 18.18 ms | 39.33 ms (2.16x) | 23.92 ms (1.32x) | 23.92 ms (1.32x) |
+| vm | 210.65 ms | 462.49 ms (2.20x) | 321.72 ms (1.53x) | 321.72 ms (1.53x) |
+| wordfreq | 18.16 ms | 39.28 ms (2.16x) | 23.89 ms (1.32x) | 23.89 ms (1.32x) |
 | c/arith | 23.61 ms | 43.02 ms (1.82x) | 30.47 ms (1.29x) | 27.59 ms (1.17x) |
-| c/bignum | 7.79 ms | 12.79 ms (1.64x) | 9.86 ms (1.27x) | 9.01 ms (1.16x) |
+| c/bignum | 7.79 ms | 12.78 ms (1.64x) | 9.85 ms (1.27x) | 9.01 ms (1.16x) |
 | c/bst | 4.60 ms | 10.07 ms (2.19x) | 6.74 ms (1.46x) | 6.58 ms (1.43x) |
-| c/crc | 15.06 ms | 33.45 ms (2.22x) | 16.41 ms (1.09x) | 16.36 ms (1.09x) |
+| c/crc | 15.04 ms | 33.39 ms (2.22x) | 16.41 ms (1.09x) | 16.36 ms (1.09x) |
 | c/fib | 31.78 ms | 75.58 ms (2.38x) | 52.51 ms (1.65x) | 51.20 ms (1.61x) |
 | c/hello | 0.05 ms | 0.12 ms (2.18x) | 0.08 ms (1.55x) | 0.08 ms (1.55x) |
 | c/life | 44.70 ms | 122.02 ms (2.73x) | 71.07 ms (1.59x) | 70.68 ms (1.58x) |
 | c/mandel | 83.66 ms | 128.99 ms (1.54x) | 83.89 ms (1.00x) | 83.89 ms (1.00x) |
 | c/matmul | 4.14 ms | 7.47 ms (1.81x) | 5.07 ms (1.22x) | 4.89 ms (1.18x) |
-| c/queens | 13.46 ms | 35.95 ms (2.67x) | 23.12 ms (1.72x) | 22.97 ms (1.71x) |
-| c/sha256 | 19.13 ms | 45.02 ms (2.35x) | 23.92 ms (1.25x) | 23.14 ms (1.21x) |
+| c/queens | 13.34 ms | 35.82 ms (2.69x) | 23.00 ms (1.72x) | 22.85 ms (1.71x) |
+| c/sha256 | 19.13 ms | 45.01 ms (2.35x) | 23.92 ms (1.25x) | 23.13 ms (1.21x) |
 | c/sieve | 17.97 ms | 40.27 ms (2.24x) | 25.36 ms (1.41x) | 25.19 ms (1.40x) |
-| c/sort | 10.40 ms | 25.01 ms (2.40x) | 14.32 ms (1.38x) | 14.22 ms (1.37x) |
+| c/sort | 10.34 ms | 25.01 ms (2.42x) | 14.32 ms (1.38x) | 14.21 ms (1.37x) |
 | c/strings | 4.37 ms | 9.48 ms (2.17x) | 5.87 ms (1.34x) | 5.60 ms (1.28x) |
-| c/wordfreq | 28.05 ms | 64.13 ms (2.29x) | 37.33 ms (1.33x) | 37.06 ms (1.32x) |
-| **total** | 778.01 ms | 1622.28 ms (2.09x) | 1061.42 ms (1.36x) | 1053.79 ms (1.35x) |
+| c/wordfreq | 28.05 ms | 64.12 ms (2.29x) | 37.32 ms (1.33x) | 37.04 ms (1.32x) |
+| **total** | 773.95 ms | 1621.61 ms (2.10x) | 1051.36 ms (1.36x) | 1043.73 ms (1.35x) |
 
 ## What some changes would buy
 
@@ -171,14 +171,14 @@ From `timing.py`'s path estimate, not the netlist's timing that the rest of this
 
 | Design | Length classes | Suite | Change |
 |---|---|---:|---:|
-| as estimated | 4, 5, 6, 8 | 777.91 ms | +0.0% |
-| Z and V from registers: the cycle that sets them clocks RES and the operands' signs, and Z and V are worked out after the edge | 4, 5, 6, 7 | 768.57 ms | -1.2% |
-| the register file's addresses a cycle early: muxed from the control store's output into a register beside the uIR | 4, 5, 6, 8 | 778.49 ms | +0.1% |
-| both | 4, 5, 6, 7 | 752.73 ms | -3.2% |
+| as estimated | 4, 5, 6, 8 | 777.92 ms | +0.0% |
+| Z and V from registers: the cycle that sets them clocks RES and the operands' signs, and Z and V are worked out after the edge | 4, 5, 6, 7 | 768.58 ms | -1.2% |
+| the register file's addresses a cycle early: muxed from the control store's output into a register beside the uIR | 4, 5, 6, 8 | 778.50 ms | +0.1% |
+| both | 4, 5, 6, 7 | 752.74 ms | -3.2% |
 
 ## The microcode
 
-6235 microinstructions of 144 bits; the decode table maps all 65,536 first parcels onto 1985 entry points.
+6261 microinstructions of 144 bits; the decode table maps all 65,536 first parcels onto 1985 entry points.
 
 | Routines | Microinstructions |
 |---|---:|
@@ -189,9 +189,9 @@ From `timing.py`'s path estimate, not the netlist's timing that the rest of this
 | SWI (a routine per number) | 261 |
 | the tentative instructions | 356 |
 | illegal instructions (unused slots in tables) | 294 |
-| reset, traps, interrupts, refill | 178 |
+| reset, traps, interrupts, refill | 204 |
 | everything else | 244 |
-| **total** | 6235 |
+| **total** | 6261 |
 
 The tentative instructions' share:
 

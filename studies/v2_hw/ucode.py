@@ -171,9 +171,13 @@ ALU = {
     "xnor": (1, 0b1001, None),
 }
 
-# Register file: per bank, r0-r15, HI (16), LO (17); RFK >= 32 is outside
-# the banks, the microcode's own: scratch and constants the reset routine
-# writes, and the special registers that live in the register file.
+# Register file: per bank, r0-r15, HI (16), LO (17); RFK >= 32 is the G
+# half, the microcode's own: scratch and constants the reset routine
+# writes, and the special registers that live in the register file. Each
+# bank has its own G half, so that both copies of the register file always
+# use the same bank: the reset routine writes the constants into every
+# bank, scratch is never live across a change of bank, and the special
+# registers, which only privileged instructions use, are bank 0's.
 SP, LINK, OBJ, HI, LO = 15, 7, 14, 16, 17
 G = 32
 TMP1, TMP2, TMP3 = G + 0, G + 1, G + 2
@@ -448,26 +452,29 @@ def loop(name, f, cond, exit_node):
 # --------------------------------------------------------------------------
 # Traps
 #
-# Entering an exception (RFC 0029, 6): the flags word as it was into TMP1,
-# then S <- 1 (bank 0), I <- 0, T <- 0; the PC and the flags pushed on
+# Entering an exception (RFC 0029, 6): the flags word as it was into R,
+# and S <- 1 (bank 0), I <- 0, T <- 0; the PC and the flags pushed on
 # bank 0's sp; the jump to the vector, whose address is a constant in the
-# register file. Five cycles, then the refill at the vector.
+# register file. Five cycles, then the refill at the vector. Nothing goes
+# into the register file before S changes: that would be in the bank that
+# was in use, and the rest reads bank 0's.
 
 _trap_cache = {}
-SAVE_FLAGS = mi(w=TMP1, b="flags", alu="passb")
+SAVE_FLAGS = mi(ldr=1, b="flags", alu="passb", sset=1)
 
 
-def trap_tail(vecreg, pcfix, name):
-    """Everything after the flags word has gone into TMP1: the saved PC is
-    the PC less pcfix bytes."""
-    key = (vecreg, pcfix)
+def trap_tail(vecreg, pcfix, name, ubr=0):
+    """Everything after the flags word has gone into R: the saved PC is
+    the PC less pcfix bytes; ubr, the vector is read from bank's G half."""
+    key = (vecreg, pcfix, ubr)
     if key in _trap_cache:
         return _trap_cache[key]
     pc = mi(a="pc", kv=pcfix, alu="sub") if pcfix else mi(a="pc", alu="passa")
     node = chain(name,
-                 merge(pc, mi(ldr=1, sset=1)),                        # R <- saved PC
+                 merge(pc, mi(w=TMP1)),                               # TMP1 <- saved PC
                  mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),           # bank 0's sp
-                 mi(ra=TMP1, mem="write", size="word", marinc=1),
+                 mi(a="r", mem="write", size="word", marinc=1,        # the flags word;
+                    rb=TMP1, alu="passb", ldr=1, ubr=ubr),            # R <- saved PC
                  end(name, a="r", mem="write", size="word", rb=vecreg, alu="passb",
                      ldpc=1))
     _trap_cache[key] = node
@@ -1329,8 +1336,10 @@ def mtur_routine():
 def swi_routine(n):
     """SWI #n: through vector 0x8000_0100 + 4n, the next instruction saved."""
     name = f"SWI #{n}"
-    return chain(name, mi(ra=VSWI[n >> 6], kv=4 * (n & 63), alu="add", w=TMP2),
-                 Node(SAVE_FLAGS, ("next", trap_tail(TMP2, 0, "SWI")), name))
+    # the vector into bank's TMP2 (UBW), whatever the mode, and read back
+    # from there (UBR) after S has changed
+    return chain(name, mi(ra=VSWI[n >> 6], kv=4 * (n & 63), alu="add", w=TMP2, ubw=1),
+                 Node(SAVE_FLAGS, ("next", trap_tail(TMP2, 0, "SWI", ubr=1)), name))
 
 
 def rti_routine():
@@ -1545,13 +1554,14 @@ def routine(key):
 
 
 def reset_routine():
-    """Reset (control store address 0): the register file's constants, the
-    flags (S set, nothing else), ctx and bank 0, then the jump to the reset
-    vector, 0x8000_0000."""
-    steps = [mi(kv=0, alu="passb", w=ZERO, ldctx=1, ldbank=1),
+    """Reset (control store address 0): ctx and bank 0, the flags (S set,
+    nothing else), the register file's constants in bank 0 and then copied
+    into the other banks' G halves, then the jump to the reset vector,
+    0x8000_0000."""
+    steps = [mi(kv=0, alu="passb", ldr=1, ldctx=1, ldbank=1),
+             mi(a="r", alu="passa", w=ZERO, loadf="nzcv", sset=1),   # S; I, T, N Z C V 0
              mi(kv=-1, alu="passb", w=ONES),
-             mi(kv=1, alu="passb", rms="shr", sin="f0", w=VBASE),    # 0x8000_0000
-             mi(ra=ZERO, loadf="nzcv", sset=1)]                       # S; I, T, N Z C V 0
+             mi(kv=1, alu="passb", rms="shr", sin="f0", w=VBASE)]    # 0x8000_0000
 
     def const(loc, val):
         sv = val - (1 << 32) if val & 0x80000000 else val
@@ -1571,9 +1581,19 @@ def reset_routine():
     for loc in sorted(CONSTS):
         if loc not in (ZERO, ONES, VBASE):
             steps += const(loc, CONSTS[loc])
-    steps.append(mi(alu="zero", w=HI))
-    steps.append(mi(alu="zero", w=LO))
-    return chain("reset", *steps, end("reset", rb=VEC["reset"], alu="passb", ldpc=1))
+    # banks 1-255 (LC): bank <- LC, then each constant from bank 0 into
+    # that bank's (UBW); the special registers are only needed in bank 0
+    rest = chain("reset", mi(alu="zero", w=HI, ldbank=1),
+                 mi(alu="zero", w=LO),
+                 end("reset", rb=VEC["reset"], alu="passb", ldpc=1))
+    copies = [mi(ra=k, alu="passa", w=k, ubw=1)
+              for k in sorted(CONSTS) if k not in (CTXC, BANKC, MAPAS)]
+    last = branch("reset", merge(copies.pop(), mi(lcinc=1)), "tc", None, rest)
+    head = chain("reset", mi(b="simm", v8="lc", fill="0", alu="passb", ldbank=1),
+                 *copies, last)
+    last.succ = ("branch", CONDS["tc"], head, rest)
+    steps.append(mi(kv=1, alu="passb", ldlc=1))
+    return chain("reset", *steps, head)
 
 
 # --------------------------------------------------------------------------

@@ -281,10 +281,11 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
 
     # ---- register file -----------------------------------------------------------
     # two copies of 16K x 32 ({G, bank, register}); read through latches in
-    # the cycle's first part, written in its last tick
+    # the cycle's first part, written in its last tick. Every bank has its
+    # own copy of the G locations, so both copies always see the same bank
     nl.section("Register file")
     # the write address {G, bank, register}, from the IR's fields, SX or a
-    # constant (RFKW); the bank in user mode or with UBW
+    # constant (RFKW); the bank in user mode or with UBW, for G too
     g("32", [u["UBW"], "SFLAG_n"], "USEBW")
     g("11", [u["RFW0"], u["RFW1"], u["RFKW5"]], "GW")
     g("04", ["GW"], "GW_n")
@@ -298,20 +299,19 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
             m[f"{sec + 1}Y"] = RWA[i]
     g("11", [u["RFW0"], u["RFW1"], u["RFKW4"]], RWA[4])
     for i in range(8):
-        g("11", [BANK[i], "USEBW", "GW_n"], RWA[5 + i])
+        g("08", [BANK[i], "USEBW"], RWA[5 + i])
     g("10", [u["RFWE"], "T1", "FAULT_n"], "RFWE_n")
     g("00", [u["RFWE"], "T1"], "RFWB_n")
     # the read address's bank: BANK in user mode, or if the cycle before set
     # UBR; kept in a register (EB, loaded every cycle with what BANK and S
-    # will be) so that it is there at the edge; not for a constant that is a
-    # global register
+    # will be) so that it is there at the edge
     g("04", ["SNEXT"], "SNEXT_n")
     nl.add("157", "U_UBM", S="FAULT", G="GND",
            **{"1A": "SNEXT_n", "1B": "SFLAG_n", "1Y": "SNX_n", "2A": "GND", "2B": "GND",
               "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     g("32", [u["UBR"], "SNX_n"], "USEBR_D")
     g("04", ["BANKLD_n"], "BANKLD")
-    BANKN, EB, EBK = bus("BANKN", 8), bus("EB", 8), bus("EBK", 8)
+    BANKN, EB = bus("BANKN", 8), bus("EB", 8)
     for k in range(2):
         m = nl.add("157", f"U_BKN{k}", S="BANKLD", G="GND")
         for j in range(4):
@@ -321,25 +321,30 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         g("08", [BANKN[i], "USEBR_D"], f"EBD{i}")
     nl.add("377", "U_EB", CLK="CLK", EN="GND", **{f"D{i + 1}": f"EBD{i}" for i in range(8)},
            **{f"Q{i + 1}": EB[i] for i in range(8)})
-    for i in range(8):
-        g("08", [EB[i], u["RFK5_n"]], EBK[i])
-    # each copy's address: RFA (RFB) selects the read address, RW switches
-    # to the write address for the last two ticks, in one 74F151 a bit
+    # the bank, for both copies: EB, and the write's for the last two ticks
+    RFBK = bus("RFBK", 8)
+    for k in range(2):
+        m = nl.add("157", f"U_RFBK{k}", S="RW", G="GND")
+        for j in range(4):
+            i = 4 * k + j
+            m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = EB[i], RWA[5 + i], RFBK[i]
+    # each copy's register and G: RFA (RFB) selects the read address, RW
+    # switches to the write address for the last two ticks, in one 74F151 a
+    # bit
     for side, sel, out, oe in (("A", "RFA", ABUS, u["ARF_n"]), ("B", "RFB", BBUS, "BRFE_n")):
         AM = bus(f"RF{side}M", 14)
-        for i in range(14):
+        for i in [*range(5), 13]:
             m = nl.add("151", f"U_RF{side}A{i}", A=u[f"{sel}0"], B=u[f"{sel}1"], C="RW", G="GND")
             if i < 4:
                 rd = [IR[12 + i], IR[8 + i], SX[i], u[f"RFK{i}"]]
             elif i == 4:
                 rd = ["GND", "GND", "GND", u["RFK4"]]
-            elif i < 13:
-                rd = [EB[i - 5]] * 3 + [EBK[i - 5]]
             else:                           # G, from the inverted output
                 rd = ["VCC", "VCC", "VCC", u["RFK5_n"]]
             for c in range(4):
                 m[f"D{c}"], m[f"D{4 + c}"] = rd[c], RWA[i] if i < 13 else "GW_n"
             m["W" if i == 13 else "Y"] = AM[i]
+        AM[5:13] = RFBK
         IO = bus(f"RF{side}IO", 32)
         for k in range(4):
             ram = nl.add("sram64k", f"U_RF{side}{k}", role="rf", CE="GND", OE="RW", WE="RFWE_n")

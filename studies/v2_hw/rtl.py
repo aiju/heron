@@ -86,7 +86,7 @@ def cond_true(n, z, c, v, cc):
     return t ^ (cc & 1)
 
 
-GLB = 0x2000          # register file address of the locations outside the banks
+GLB = 0x2000          # register file address of the G locations (each bank has its own)
 
 
 class RTL:
@@ -159,10 +159,10 @@ class RTL:
         elif sel == 2:
             reg = self.SX
         else:
-            if k >= uc.G:
-                return GLB | k
             reg = k
         bank = self.BANK if (user or not self.s) else 0
+        if reg >= uc.G:
+            return GLB | (bank << 5) | (reg - uc.G)
         return (bank << 5) | reg
 
     def queue_words(self):
