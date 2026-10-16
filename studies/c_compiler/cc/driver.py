@@ -19,6 +19,7 @@ import os
 
 from heron.studies.c_compiler.ir import ir as I
 from heron.studies.c_compiler.ir.passes import optimize
+from heron.studies.c_compiler.ir.inline import inline_module
 from heron.studies.c_compiler.ir.cfg import verify
 from .lex import CompileError
 from .cpp import Preprocessor
@@ -94,6 +95,13 @@ def optimize_unit(u, isa, opt, verify_ir=False):
         if verify_ir:
             verify(f)
         optimize(f, opt, verify=verify_ir, free_imm=free_imm, countdown=target.COUNT_DOWN)
+    if opt > 0:
+        # calls to small functions become copies of them (ir.inline), and
+        # the callers are optimised again with the copies in place
+        for f in inline_module(u.module):
+            if verify_ir:
+                verify(f)
+            optimize(f, opt, verify=verify_ir, free_imm=free_imm, countdown=target.COUNT_DOWN)
     u.optimized = True
 
 

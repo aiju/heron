@@ -94,6 +94,18 @@ measured its nucleus in. The tables are generated:
    while output streams: `seq 200` takes 0.7 s in a window, 0.2 s on the
    serial console.
 
+> **Erratum (2026-10-16).** The C compiler's optimisations
+> ([report 0034](0034-report-c-compiler-optimisations.md)) make Fen's C
+> a little faster, and [performance.md](0036-report-fen/performance.md)
+> is rerun. A call and reply between processes is now 732 cycles (791 on
+> D32-separate), still 50 fewer than without `BCOPY`; `notify` and
+> `ipc_recv` 520 (87 µs), `vm_alloc` and `vm_free` a page 5,097 (0.8 ms),
+> `spawn` and `waitpid` 114,687; booting 5.4M cycles, 0.98 s; moving the
+> window 673,000 cycles, 112 ms; `seq 200` 0.65 s in a window and 0.16 s
+> on the serial console. Data moves at 937 KB/s through a pipe and
+> 137 KB/s writing a file; reading a cached file doesn't change, and
+> neither does the null system call, which is assembly.
+
 ## 1. What Fen is
 
 ### 1.1 The tools

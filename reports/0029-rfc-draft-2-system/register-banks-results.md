@@ -28,11 +28,11 @@ choosing the victim (15 with one user bank) and 5 a switch marking the bank used
 
 | Workload | What | busy cycles | threads | most live at once | switches | kernel entries | BCOPYs |
 |---|---|---:|---:|---:|---:|---:|---:|
-| ipc | kbench: 2,000 calls and replies between two processes | 2,154,338 | 7 | 6 | 4,084 | 4,335 | 4,064 |
-| shell | eight command lines on the serial console (ls -l, pipelines, cp, ps, ...) | 23,536,040 | 26 | 6 | 1,257 | 4,450 | 1,018 |
-| pipeline | a five-process pipeline over 44 KB: cat, xd, sort, uniq, wc | 199,129,443 | 10 | 9 | 3,989 | 9,422 | 3,390 |
-| desktop | the desktop: the clock, three commands in the terminal, a window moved, 2 s idle | 23,807,477 | 11 | 8 | 1,432 | 2,927 | 1,218 |
-| busy | three terminals running at once, and the clock | 101,559,576 | 21 | 13 | 2,530 | 6,827 | 2,072 |
+| ipc | kbench: 2,000 calls and replies between two processes | 2,132,862 | 7 | 6 | 4,084 | 4,334 | 4,064 |
+| shell | eight command lines on the serial console (ls -l, pipelines, cp, ps, ...) | 22,636,009 | 26 | 6 | 1,249 | 4,430 | 1,020 |
+| pipeline | a five-process pipeline over 44 KB: cat, xd, sort, uniq, wc | 186,691,374 | 10 | 9 | 3,866 | 9,078 | 3,312 |
+| desktop | the desktop: the clock, three commands in the terminal, a window moved, 2 s idle | 23,386,455 | 11 | 8 | 1,429 | 2,918 | 1,218 |
+| busy | three terminals running at once, and the clock | 97,939,452 | 21 | 13 | 2,531 | 6,719 | 2,058 |
 
 ## Misses
 
@@ -41,9 +41,9 @@ supervisor has one of the banks).
 
 | Banks | ipc | shell | pipeline | desktop | busy |
 |---:|---:|---:|---:|---:|---:|
-| 2 | 4,083 | 1,256 | 3,988 | 1,432 | 2,530 |
-| 4 | 8 | 83 | 550 | 66 | 333 |
-| 8 | 0 | 0 | 4 | 1 | 32 |
+| 2 | 4,083 | 1,248 | 3,865 | 1,429 | 2,531 |
+| 4 | 8 | 86 | 502 | 61 | 310 |
+| 8 | 0 | 0 | 4 | 1 | 28 |
 | 16 | 0 | 0 | 0 | 0 | 0 |
 | 32 | 0 | 0 | 0 | 0 | 0 |
 | 64 | 0 | 0 | 0 | 0 | 0 |
@@ -59,20 +59,21 @@ which costs nothing while there are fewer threads than banks.
 
 | Banks | chips | shared address | threads, a bank each | ipc | shell | pipeline | desktop | busy |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 0 | 0 | – | 20.8% | 1.4% | 0.4% | 1.0% | 0.5% |
-| 2 | 8 | 7 | 1 | 25.5% | 0.8% | 0.3% | 0.9% | 0.4% |
+| 1 | 0 | 0 | – | 21.0% | 1.4% | 0.4% | 1.0% | 0.5% |
+| 2 | 8 | 7 | 1 | 25.7% | 0.8% | 0.3% | 0.9% | 0.5% |
 | 4 | 11 | 7 | 3 | 1.0% | 0.1% | 0.1% | 0.1% | 0.1% |
-| 8 | 14 | 8 | 7 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 16 | 16 | 8 | 15 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 32 | 20 | 11 | 31 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 64 | 23 | 12 | 63 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 256 | 29 | 13 | 255 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 1024 | 37 | 18 | 1,023 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 8 | 14 | 8 | 7 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 16 | 16 | 8 | 15 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 32 | 20 | 11 | 31 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 64 | 23 | 12 | 63 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 256 | 29 | 13 | 255 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 1024 | 37 | 18 | 1,023 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
 
 ## Per IPC round trip
 
-The ipc workload's extra cycles per call and reply, on top of Fen's 734
-(D16-overlap; the workload includes starting kbench's server).
+The ipc workload's extra cycles per call and reply, on top of what one
+takes with a bank each (kbench's, in report 0036's performance.md;
+D16-overlap; the workload includes starting kbench's server).
 
 | Banks | extra cycles |
 |---:|---:|

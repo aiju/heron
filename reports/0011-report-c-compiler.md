@@ -50,6 +50,20 @@ the C library (arith, bignum, hello, strings), which mostly measure printf.
 - printf costs about 3× the assembly programs' own print routines; it
   parses the format string at run time and handles every option.
 
+> **Erratum (2026-10-16).** The tables in
+> [performance.md](0011-report-c-compiler/performance.md) are rerun with
+> the compiler after [report 0034](0034-report-c-compiler-optimisations.md)'s
+> optimisations (shrink-wrapping, inlining and some loop optimisations),
+> so this report's numbers, from `e494b0c`, no longer match them.
+> Compiled C now takes 1.11× the hand-written programs' cycles in their
+> own code on both 1a and 1b (0.9–1.5× each), and 1.68× and 1.74× over
+> whole programs. fib and bst no longer save registers on the calls that
+> return at once, and wordfreq inlines its comparison. 1a against 1b
+> doesn't change: without sieve, compiled C on 1b takes 0.949× its 1a
+> cycles, against 0.950× before; with sieve the mean below moves from
+> 0.943 to 0.957, because sieve's time in `memset` depends on where the
+> linker puts its array, and its 1a build now gets a good place.
+
 ## 1a against 1b for compiled code
 
 | | asm: 1b / 1a | C: 1b / 1a |

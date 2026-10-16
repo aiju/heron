@@ -92,6 +92,7 @@ class V1B(Target):
 
     def encode(self, p, size):
         """Turn an Addr into one 1b memory operand, computing what doesn't fit."""
+        p = self.stepped(p)
         terms = list(p.terms)
         disp = p.disp
         frame = Frame("local", p.slot) if p.slot is not None else None
@@ -243,7 +244,7 @@ class V1B(Target):
                 if isinstance(b, Const) and b.signed in (1, -1) and not isinstance(a, Const):
                     r = self.reg(a)
                     self.emit("INC" if b.signed == 1 else "DEC", [d, r], defs=[d], uses=[r],
-                              flags="nz")
+                              flags="nz", nsw=i.signed)
                     return
                 if self.try_lea(i, d):
                     return
@@ -257,7 +258,7 @@ class V1B(Target):
             self.move_into(d, a)
             e = self.ea(b)
             self.emit(ALU[op], [d, e], defs=[d], uses=[d] + ([e] if not isinstance(e, (Imm, Mem)) else []),
-                      flags="nz")
+                      flags="nz", nsw=op in ("add", "sub") and i.signed)
             return
         if op in SHIFT:
             self.move_into(d, a)
@@ -432,6 +433,12 @@ class V1B(Target):
                 out.append(i)
             b.instrs = out
         super().peephole()
+
+    def as_add(self, d):
+        if d.op in ("INC", "DEC") and len(d.ops) == 2 and d.ops[1] is d.ops[0]:
+            d.op, d.ops = "ADD", [d.ops[0], Imm(1 if d.op == "INC" else -1)]
+            return True
+        return False
 
     def flags_used_after(self, b, i):
         k = b.instrs.index(i)

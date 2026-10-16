@@ -105,9 +105,11 @@ class Label:
 
 
 class MInstr:
-    __slots__ = ("op", "ops", "defs", "uses", "cond", "targets", "flags", "comment", "remat_of")
+    __slots__ = ("op", "ops", "defs", "uses", "cond", "targets", "flags", "comment", "remat_of",
+                 "nsw")
 
-    def __init__(self, op, ops=(), defs=(), uses=(), cond=None, targets=None, flags=None):
+    def __init__(self, op, ops=(), defs=(), uses=(), cond=None, targets=None, flags=None,
+                 nsw=False):
         self.op = op            # mnemonic, or COPY / JMP / BCC / RET / CALL ...
         self.ops = list(ops)
         self.defs = list(defs)
@@ -115,6 +117,7 @@ class MInstr:
         self.cond = cond        # BCC / SET: the condition name
         self.targets = targets  # control flow: list of MBlocks
         self.flags = flags      # 'nz': sets N and Z from its first operand (for the peepholes)
+        self.nsw = nsw          # an ADD or SUB that C's signed arithmetic says can't overflow
         self.comment = None
         self.remat_of = None
 

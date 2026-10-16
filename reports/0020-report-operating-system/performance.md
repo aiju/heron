@@ -159,7 +159,7 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 | | D32-separate | D32-wide |
 |---|---:|---:|
 | assembly | 64 | 40 |
-| C | 99 | 61 |
+| C | 88 | 56 |
 
 ## Page references of bigger programs
 
@@ -170,11 +170,11 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 | lisp-boyer-c | 21.7 M | 22 / 208 | 27.0 | 144.47 | 29.51 | 0.80 | 0.12 | 0.03 | 0.03 | 10.66 | 0.01 |
 | lisp-meta-c | 12.2 M | 22 / 206 | 37.3 | 126.04 | 40.21 | 2.29 | 0.05 | 0.02 | 0.02 | 6.89 | 0.02 |
 | lisp-boyer-i | 309.3 M | 4 / 197 | 3.9 | 52.68 | 16.29 | 0.23 | 0.06 | 0.01 | 0.01 | 5.25 | 0.00 |
-| egret-richards-jit | 7.1 M | 23 / 61 | 24.6 | 107.61 | 19.63 | 2.07 | 0.02 | 0.01 | 0.01 | 2.06 | 0.01 |
-| egret-json-i | 32.6 M | 12 / 174 | 25.9 | 149.73 | 92.30 | 9.49 | 0.04 | 0.01 | 0.01 | 34.12 | 0.01 |
-| gfx-wm-8 | 6.5 M | 8 / 101 | 8.9 | 22.93 | 3.51 | 1.30 | 0.74 | 0.07 | 0.02 | 4.99 | 0.02 |
-| gfx-text-1 | 11.2 M | 8 / 35 | 10.5 | 28.72 | 1.05 | 0.21 | 0.00 | 0.00 | 0.00 | 0.29 | 0.00 |
-| c-wordfreq | 0.1 M | 1 / 5 | 0.0 | 36.62 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 |
+| egret-richards-jit | 7.0 M | 23 / 62 | 23.2 | 108.56 | 19.99 | 2.03 | 0.02 | 0.01 | 0.01 | 2.04 | 0.01 |
+| egret-json-i | 32.1 M | 12 / 174 | 41.8 | 163.25 | 100.50 | 9.81 | 0.04 | 0.01 | 0.01 | 33.76 | 0.01 |
+| gfx-wm-8 | 6.4 M | 8 / 101 | 11.1 | 25.74 | 3.82 | 1.34 | 0.76 | 0.07 | 0.02 | 5.12 | 0.02 |
+| gfx-text-1 | 10.7 M | 8 / 35 | 7.0 | 25.32 | 1.10 | 0.23 | 0.00 | 0.00 | 0.00 | 0.24 | 0.00 |
+| c-wordfreq | 0.1 M | 1 / 5 | 0.0 | 38.20 | 0.06 | 0.06 | 0.06 | 0.06 | 0.06 | 0.06 | 0.06 |
 | asm-vm | 0.6 M | 1 / 2 | 0.0 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 
 | Workload | What it is | Cycles | Pages touched |
@@ -182,9 +182,9 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 | lisp-boyer-c | Lisp: compile boyer on the machine, then run it | 80.8 M | 222 |
 | lisp-meta-c | Lisp: compile and run a metacircular interpreter | 45.3 M | 221 |
 | lisp-boyer-i | Lisp: boyer, interpreted | 1,057.2 M | 198 |
-| egret-richards-jit | Egret: richards, compiled by the JIT | 29.4 M | 66 |
-| egret-json-i | Egret: json, interpreted | 133.6 M | 178 |
-| gfx-wm-8 | Graphics: the window manager scene at 8 bits per pixel | 27.3 M | 104 |
-| gfx-text-1 | Graphics: the text scene at 1 bit per pixel | 45.2 M | 38 |
-| c-wordfreq | C: word frequencies with a hash table | 0.4 M | 5 |
+| egret-richards-jit | Egret: richards, compiled by the JIT | 29.0 M | 66 |
+| egret-json-i | Egret: json, interpreted | 131.2 M | 178 |
+| gfx-wm-8 | Graphics: the window manager scene at 8 bits per pixel | 26.6 M | 104 |
+| gfx-text-1 | Graphics: the text scene at 1 bit per pixel | 43.0 M | 38 |
+| c-wordfreq | C: word frequencies with a hash table | 0.3 M | 5 |
 | asm-vm | Assembly: the bytecode interpreter | 2.9 M | 2 |

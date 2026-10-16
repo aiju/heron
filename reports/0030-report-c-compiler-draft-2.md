@@ -47,6 +47,21 @@ by `heron c_compiler bench --isa v2 --write`.
   programs' own code, against 1.22× on 1b (11 programs that spend less
   than half their time in the C library).
 
+> **Erratum (2026-10-16).** The tables in
+> [performance.md](0030-report-c-compiler-draft-2/performance.md) are
+> rerun with the compiler after
+> [report 0034](0034-report-c-compiler-optimisations.md)'s optimisations
+> (shrink-wrapping, inlining and some loop optimisations), so this
+> report's numbers, from `d7458e8`, no longer match them. Compiled C now
+> takes 3.8% fewer cycles on draft 2 than on 1b in the programs' own code
+> (3.9% in the C library; 3.6–4.7% in the other configurations), and its
+> code is 4.2% smaller, the library's 6.8%. Draft 2 gains more from
+> shrink-wrapping: a call that returns at once no longer saves the link
+> register ([below](#the-link-register)). Against the hand-written draft 2
+> programs, compiled C takes 1.08× in their own code. Each feature's worth
+> moves by at most 0.2 points, except `r0` as a 15th register in the
+> library: 0.4% slower with it, not 0.4% faster.
+
 ## What the compiler does on draft 2
 
 Draft 2 keeps 1b's addressing modes in its rows, so the backend

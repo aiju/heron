@@ -181,6 +181,59 @@ class Optimizations(unittest.TestCase):
         self.assertNotIn("shl", [i.op for b in body for i in b.instrs])
         self.assertIn("shl", [i.op for b in f.blocks if b not in body for i in b.instrs])
 
+    @staticmethod
+    def in_loops(f):
+        """f's instructions inside its loops, and outside them."""
+        loops = natural_loops(DomTree(f))
+        inside = set().union(*loops.values())
+        return ([i for b in f.blocks if b in inside for i in b.instrs],
+                [i for b in f.blocks if b not in inside for i in b.instrs])
+
+    def test_invariant_global_load(self):
+        # the loop stores only into a[], another object: n is loaded once
+        f = optimized("int n, a[10]; void f(void) { int i; for (i = 0; i < n; i++) a[i] = i; }")
+        inside, outside = self.in_loops(f)
+        self.assertNotIn("load", [i.op for i in inside])
+        self.assertIn("load", [i.op for i in outside])
+
+    def test_invariant_constant_reassociated(self):
+        # y * 3 + c - 295: c - 295 is computed before the loop
+        f = optimized("int f(int c, int n) { int i, y = 0; for (i = 0; i < n; i++) "
+                      "y = (y >> 1) * 3 + c - 295; return y; }")
+        inside, outside = self.in_loops(f)
+        self.assertFalse(any(getattr(a, "value", None) == (-295 & 0xFFFFFFFF)
+                             for i in inside for a in i.args))
+        self.assertTrue(any(i.op == "add" and f.params[0] in i.args for i in outside))
+
+    def test_constants_before_the_outermost_loop(self):
+        # crc's bit loop: the constants are loaded once, not once per byte
+        f = optimized("""unsigned f(const unsigned char *p, int n) { unsigned crc = 0xffff; int k;
+while (n--) { crc ^= *p++ << 8; for (k = 0; k < 8; k++) crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1; }
+return crc; }""")
+        inside, outside = self.in_loops(f)
+        self.assertNotIn("copy", [i.op for i in inside])
+        self.assertEqual({i.args[0].value for i in outside if i.op == "copy"}, {0x8000, 0x1021})
+
+
+    def test_loads_reused_down_a_chain_of_blocks(self):
+        # p[1] is loaded once: the block that uses it again has one predecessor
+        ir = ir_of("int f(int *p) { if (p[1] != 3) return p[1] + 1; return 0; }")
+        self.assertEqual(ir.count("load"), 1)
+
+    def test_inlining(self):
+        # a small function's calls become copies of it, and a static one
+        # nothing refers to any more goes; a bigger or recursive one stays
+        src = """static int sq(int x) { return x * x; }
+static int fact(int n) { return n < 2 ? 1 : n * fact(n - 1); }
+int f(int a, int b) { return sq(a) + sq(b) + fact(a); }"""
+        u = compile_unit("t.c", "v1b", text=src)
+        optimize_unit(u, "v1b", 1, verify_ir=True)
+        self.assertEqual([f.name for f in u.module.functions], ["fact", "f"])
+        ir = str(u.module.function("f"))
+        self.assertNotIn("@sq", ir)
+        self.assertEqual(ir.count("mul"), 2)
+        self.assertIn("call @fact", ir)
+
 
 class InterpretedIR(unittest.TestCase):
     """The test programs' IR, run by the IR interpreter before and after
@@ -290,9 +343,33 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(asm_of(src, "v2"), r"SAVE r7-r8(.*\n)*\s+RESTORE r7-r8\n\s+RET")
         a = asm_of("int g(int); int f(int x) { return g(x) + 1; }", "v2")
         self.assertRegex(a, r"PUSH r7(.*\n)*\s+JMP  \[sp\]\+")
+        a = asm_of("int g(int); int h(int); int f(int x) { g(x); return h(2); }", "v2")
+        self.assertRegex(a, r"MOV  r7, \[sp\]\+\n\s+BRA  _h")
+        # (on a path without another call, the tail call leaves r7 alone)
         a = asm_of("int g(int); int h(int); int f(int x) { if (x) return g(x) + 1; return h(2); }",
                    "v2")
-        self.assertRegex(a, r"MOV  r7, \[sp\]\+\n\s+BRA  _h")
+        self.assertRegex(a, r"\.b\d+:\n\s+MOV  r1, #2\n\s+BRA  _h")
+
+    def test_shrink_wrapping(self):
+        # fib's base case returns before the prologue: the copy of n into a
+        # callee-saved register is made on the path that calls
+        src = ("int calls; int fib(int n) { calls++; if (n < 2) return n; "
+               "return fib(n - 1) + fib(n - 2); }")
+        for isa in ("v1a", "v1b", "v2"):
+            a = asm_of(src, isa, "fib")
+            before, _, after = a.partition("SAVE")
+            self.assertIn("RET", before, isa)
+            self.assertNotRegex(before, r"r(8|9|1[0-4])\b", isa)
+            self.assertRegex(after, r"MOV  r(8|9|1[0-4]), r1", isa)
+        # queens' loop: a value that flows into a phi kept across the call
+        # is copied at the region's start too, and a return block shared
+        # with the early exit is duplicated
+        a = asm_of("void g(unsigned *, unsigned); void f(unsigned *row, unsigned free, unsigned l) {"
+                   " unsigned s = free & ~l; while (s) { unsigned bit = s & -s; s &= ~bit;"
+                   " *row = bit; g(row + 1, free & ~bit); } }", "v2")
+        before, _, after = a.partition("SAVE")
+        self.assertIn("RET", before)
+        self.assertNotRegex(before, r"r(8|9|1[0-4])\b")
 
     def test_v2_dbnz(self):
         # a counter that only counts is counted down to zero, and the loop
@@ -306,6 +383,45 @@ class CodePatterns(unittest.TestCase):
         a = asm_of(f"int f(int a, int n) {{ while (n--) {{ {body}; }} return a; }}", "v2")
         self.assertRegex(a, r"DEC\s+(r\d+), \1\n\s+BNE")
         self.assertNotIn("DBNZ", a)
+
+    def test_inlined_predicate_branches_directly(self):
+        # the predicate's boolean result isn't made: each of its returns
+        # branches where the caller's if goes (jump threading), and the
+        # second compare of the same operands goes too
+        src = """struct e { char *w; int n; };
+int strcmp(const char *, const char *);
+static int before(const struct e *a, const struct e *b)
+{ if (a->n != b->n) return a->n > b->n; return strcmp(a->w, b->w) < 0; }
+int f(struct e *x, struct e *y) { if (before(x, y)) return 7; return 9; }"""
+        for isa in ("v1b", "v2"):
+            a = asm_of(src, isa)
+            self.assertNotIn("SET", a, isa)
+            self.assertEqual(a.count("CMP"), 2, isa)        # the counts, and strcmp's result
+            self.assertNotIn("BSR  _before", a, isa)
+
+    def test_stepped_index_addresses_the_element(self):
+        # while (a[i] < v) i++: the load after the step uses the stepped
+        # index, so the step is done in place and the loop needs no copy
+        a = asm_of("unsigned f(unsigned *a, unsigned v, int i) { while (a[i] < v) i++; return i; }",
+                   "v2")
+        self.assertRegex(a, r"INC\s+(r\d+), \1\n\s+CMP\s+r\d+, \[r\d+ \+ \1\*4\]\n\s+BHI")
+
+    def test_carry_through_a_divide_needs_no_copy(self):
+        # c = (n[i] * k + c) / 10000: the add starts from c, which the divide
+        # then overwrites in place with the next c
+        a = asm_of("unsigned f(unsigned *n, int len, unsigned k) { unsigned c = 0; int i; "
+                   "for (i = 0; i < len; i++) { unsigned v = n[i] * k + c; n[i] = v % 10000; "
+                   "c = v / 10000; } return c; }", "v2")
+        loop = re.search(r"^(\.b\d+):\n(.*?)\n\s+B\w+\s+\1\n", a, re.S | re.M).group(2)
+        self.assertNotRegex(loop, r"MOV\s+r\d+, r\d+\n")
+
+    def test_v2_no_overflow_replaces_compare(self):
+        # j - 1 can't overflow (j is an int), so the ADD's flags decide
+        # j > 0 on their own; an INC or DEC, which leaves V, becomes an ADD
+        a = asm_of("int a[9]; int f(int j, int v) { while (j > 0 && a[j - 1] > v) "
+                   "{ a[j] = a[j - 1]; j--; } return j; }", "v2")
+        self.assertRegex(a, r"ADD\s+r1, #-1\n(\s+(LEA|MOV).*\n)*\s+BGT")
+        self.assertEqual(a.count("CMP  r1, #0"), 1)       # only the test on entry
 
     def test_v2_size_model_short_offsets(self):
         # DBNZ's reach rests on the size model: [sp + 4R] and [r14 + 4R]
@@ -427,7 +543,8 @@ extern void pad(void) __asm__("pad");
 volatile int zero;
 int f(int x) { switch (x) { case 0: return 5; case 1: return 7; case 2: return 9;
                case 3: return 11; case 4: return 2; } return 0; }
-int main(void) { if (zero) pad(); printf("%d %d\\n", f(3), f(9)); return 0; }
+int (*volatile fp)(int) = f;       /* called through a pointer: not inlined */
+int main(void) { if (zero) pad(); printf("%d %d\\n", fp(3), fp(9)); return 0; }
 """
         pad = "        .global pad\n        .section .text.pad\npad:    .space 40000\n"
         for isa in ("v1a", "v1b", "v2"):

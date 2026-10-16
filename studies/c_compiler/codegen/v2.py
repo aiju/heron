@@ -248,6 +248,8 @@ class V2(V1B):
             return 1 + 2 * len(self.epilogue())
         if op == "TAIL":
             return 3 + 2 * len(self.epilogue(tail=True))
+        if op == "PROLOGUE":
+            return 2 * len(self.prologue())
         if op in ("BCC", "JMP"):
             return 1 if i.targets[0] in inside else 2
         if op in ("BSR", "CALL") and isinstance(i.ops[0], Label):
@@ -330,6 +332,8 @@ class V2(V1B):
                             d.op, d.flags = "MOVS", "nz"
                         for u in users:
                             self.set_cond(u, conds[self.cond_of(u)])
+                        continue
+                    if d is not None and self.sets_v(d, c, b, k):
                         continue
                 out.append(c)
             b.instrs = out
