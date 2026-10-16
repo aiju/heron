@@ -773,7 +773,64 @@ What is still slow, or out of reach:
 
 ### 7. Breaking the hardware on purpose
 
-MUTANTS
+A proof that passes says little until it has been seen to fail. 29
+mistakes were put into the 1b hardware, one at a time (`heron formal
+mutate`), and each was given to the tests and to the proofs:
+
+- **Made by hand:** nine, each wrong only in a corner. Seven in the
+  netlist: a 16-bit displacement sign-extended from the wrong bit, one
+  bit of one byte lane, a carry-lookahead generate taken from its
+  propagate, RRC shifting in V instead of C, ADC and SBC's Z not sticky,
+  two bits of store data swapped, and the PC's carry into bits 25–28
+  coming early (wrong only above 1 MB). Two in the microcode: a constant
+  bit in `CMP rd, #-9`, and `MOV rd, half [rn + d16]` sign-extending.
+- **At random:** ten in the netlist (an input pin stuck at 0 or 1, two
+  input pins of a part swapped, a pin moved to the next wire of its bus)
+  and ten in the microcode (one bit of one control word flipped).
+- **The tests:** the exercise program at chip level against the RTL
+  model, as `heron v1b_hw hw test` compares it (results, cycles, every
+  fetch), and, if that passes, the whole program suite.
+- **The proofs:** the decode cases the mistake can affect, cheapest
+  first, until one fails. For the microcode, the cases whose routines
+  reach the changed word; for the netlist, those that read a changed pin
+  on some path of the correct netlist (until the first such read a run
+  on the mistake is the same). 300 seconds a case and 15 minutes a
+  mistake, then an hour more for any that ran out (`--resume`).
+  Anything the simulator finds wrong with the mistake itself (a
+  combinational loop, two drivers on a bus) counts as caught.
+
+[results.md](0038-rfc-formal-verification/results.md) has every mistake
+and what caught it. In short:
+
+| | Mistakes |
+|---|---:|
+| Caught by both | 16 |
+| By the proofs only | 6 |
+| By the tests only | 1 |
+| By neither | 6 |
+
+- **The proofs caught six the tests missed,** each wrong only where no
+  program goes: the PC's carry above 1 MB (RTI can return anywhere, so
+  its proof fails); `CMP` with the constant −9; bit 15 of a doubled
+  branch displacement taken from the displacement's bit 15, not its bit
+  14 (wrong only for jumps 32 KB or more away); bits 15 and 16 of the PC
+  swapped when it is loaded (wrong only for targets that differ in
+  them); and two of RESTORE's routines (r4–r5 and r5–r13), whose mistakes
+  the test programs' RESTOREs don't show. This is what proofs are for: a
+  mistake in a corner is found without anyone thinking of the corner.
+- **The tests caught one the proofs missed:** a microcode bit in MULS,
+  which no proof finishes ([6](#6-what-it-costs)).
+- **Two of those that survived are harmless.** One changes the unused
+  half of a flip-flop, which no case reads. The other flips a bit of
+  `OR rd, #14`'s routine, and the case still proves: in that word the
+  bit makes no difference.
+- **Four survived both because their cases ran out of time:** the
+  indexed mode, a shift by a register, and two more RESTOREs. The tests
+  missed them too. They are the gap the budgets leave (W4).
+- **What to prove first matters.** At first the proofs ran a fixed
+  sample of quick cases of every kind, and the time for a mistake ran out
+  on cases it can't touch. Running only the cases that can see the mistake (W1),
+  cheapest first, found most within four cases; the PC's carry took 380.
 
 ### 8. Draft 2
 
