@@ -46,7 +46,7 @@ START, END = 0x01000000, 0x02000000       # kernel/kernel.h's TRACE_START, TRACE
 
 def _harness(body, n):
     """A bare system-mode program: body n times, then HALT. r1 is a bank
-    (5), r4 another (6), r2 a buffer, r11 and r12 r2 + 64 and r2 + 32."""
+    (5), r4 another (6), r2 a buffer, r12 r2 + 32."""
     text = f"""
         .org 0x80000000
         JMP  start
@@ -55,7 +55,6 @@ start:  MOV  sp, #0x80010000
         MOV  r1, #5
         MOV  r4, #6
         MOV  r2, #area
-        LEA  r11, [r2 + 64]
         LEA  r12, [r2 + 32]
         MOV  r13, #{n}
 loop:
@@ -95,30 +94,23 @@ def _mtur(dst, src):
     return [f"MTUR r{d}, r{s}" for d, s in zip(dst, src)]
 
 
-# The bodies. HI and LO: RFC 0029 has no way for the supervisor to reach
-# another bank's (MFUR and MTUR name r0-r15), so they stand in as two more
-# MFURs or MTURs, the cost such an instruction would most likely have.
+# The bodies.
 R8 = list(range(3, 11))
 OPS = {
-    # a bank's 18 registers to memory, and back
-    "save18": _lines("MTSR bank, r1", _mfur(R8, range(8)), "STM  r2, r3-r10",
-                     _mfur(R8, range(8, 16)), "STM  r12, r3-r10",
-                     _mfur([3, 4], [0, 0]), "STM  r11, r3-r4"),
-    "load18": _lines("MTSR bank, r1", "LDM  r2, r3-r10", _mtur(range(8), R8),
-                     "LDM  r12, r3-r10", _mtur(range(8, 16), R8),
-                     "LDM  r11, r3-r4", _mtur([0, 0], [3, 4])),
+    # a bank's 16 registers to memory, and back
+    "save16": _lines("MTSR bank, r1", _mfur(R8, range(8)), "STM  r2, r3-r10",
+                     _mfur(R8, range(8, 16)), "STM  r12, r3-r10"),
+    "load16": _lines("MTSR bank, r1", "LDM  r2, r3-r10", _mtur(range(8), R8),
+                     "LDM  r12, r3-r10", _mtur(range(8, 16), R8)),
     # without r0-r7, which a message makes dead (the sender's) or brings
-    "save10": _lines("MTSR bank, r1", _mfur(R8, range(8, 16)), "STM  r12, r3-r10",
-                     _mfur([3, 4], [0, 0]), "STM  r11, r3-r4"),
-    "load10": _lines("MTSR bank, r1", "LDM  r12, r3-r10", _mtur(range(8, 16), R8),
-                     "LDM  r11, r3-r4", _mtur([0, 0], [3, 4])),
+    "save8": _lines("MTSR bank, r1", _mfur(R8, range(8, 16)), "STM  r12, r3-r10"),
+    "load8": _lines("MTSR bank, r1", "LDM  r12, r3-r10", _mtur(range(8, 16), R8)),
     # a message as Fen copies it, and memory to memory
     "bcopy": _lines("BCOPY r1, r4"),
     "msgmem": _lines("LDM  r2, r3-r10", "STM  r12, r3-r10"),
-    # no banks: an entry saves and restores what C may change (r0-r7, HI,
-    # LO), and a switch the rest (r8-r14; sp goes with the stack)
-    "entry": _lines("SAVE r0-r7", "MFSR r0, hi", "MFSR r1, lo", "SAVE r0-r1",
-                    "RESTORE r0-r1", "MTSR hi, r0", "MTSR lo, r1", "RESTORE r0-r7"),
+    # no banks: an entry saves and restores what C may change (r0-r7), and
+    # a switch the rest (r8-r14; sp goes with the stack)
+    "entry": _lines("SAVE r0-r7", "RESTORE r0-r7"),
     "switch7": _lines("SAVE r8-r14", "RESTORE r8-r14"),
     # a user register through MFUR, or from a frame in memory
     "mfur": _lines(_mfur([3], [5])),
@@ -324,7 +316,7 @@ def replay(tr, user_banks):
         if user_banks is not None and len(lru) >= user_banks:
             victim, _ = lru.popitem(last=False)
             if counting:
-                c["saves10" if victim == sender else "saves18"] += 1
+                c["saves8" if victim == sender else "saves16"] += 1
         lru[t] = None
     c["max_live"] = max_live
     c["threads"] = len({(b, g) for b in gen for g in range(1, gen[b] + 1)})
@@ -334,18 +326,18 @@ def replay(tr, user_banks):
 def extra_cycles(tr, banks, cost):
     """What a workload would take more with `banks` banks, by the model."""
     if banks == 1:
-        # no banks: every entry from user mode saves and restores r0-r7,
-        # HI and LO; every switch r8-r14; messages move memory to memory;
+        # no banks: every entry from user mode saves and restores r0-r7;
+        # every switch r8-r14; messages move memory to memory;
         # the user's registers are in a frame, not reached with MFUR/MTUR
         r = replay(tr, None)
         return (tr["entries"] * cost["entry"] + r["switches"] * cost["switch7"]
                 + tr["bcopy"] * (cost["msgmem"] - cost["bcopy"])
                 + (tr["mfur"] + tr["mtur"]) * (cost["load"] - cost["mfur"]))
     r = replay(tr, banks - 1)
-    loads18 = r["misses"] - r["ipc_misses"]
+    loads16 = r["misses"] - r["ipc_misses"]
     keep = BOOKKEEPING_ONE if banks == 2 else BOOKKEEPING
-    return (r["saves18"] * cost["save18"] + r["saves10"] * cost["save10"]
-            + loads18 * cost["load18"] + r["ipc_misses"] * cost["load10"]
+    return (r["saves16"] * cost["save16"] + r["saves8"] * cost["save8"]
+            + loads16 * cost["load16"] + r["ipc_misses"] * cost["load8"]
             + r["misses"] * keep + r["switches"] * HIT)
 
 
@@ -380,13 +372,13 @@ def report():
              "Cycles, timed in a bare system-mode program on the simulator.", "",
              "| Operation | D16-overlap | D32-separate |", "|---|---:|---:|"]
     what = {
-        "save18": "save a bank's 18 registers to memory (MFUR, STM)",
-        "load18": "load a bank's 18 registers from memory (LDM, MTUR)",
-        "save10": "save r8-r15, HI and LO",
-        "load10": "load r8-r15, HI and LO",
+        "save16": "save a bank's 16 registers to memory (MFUR, STM)",
+        "load16": "load a bank's 16 registers from memory (LDM, MTUR)",
+        "save8": "save r8-r15",
+        "load8": "load r8-r15",
         "bcopy": "BCOPY a message (r0-r7) between banks",
         "msgmem": "copy a message memory to memory (LDM, STM)",
-        "entry": "no banks: save and restore r0-r7, HI and LO on the stack",
+        "entry": "no banks: save and restore r0-r7 on the stack",
         "switch7": "no banks: save and restore r8-r14 on a switch",
         "mfur": "MFUR a user register",
         "load": "load a user register from a frame in memory",

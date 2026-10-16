@@ -106,6 +106,13 @@ measured its nucleus in. The tables are generated:
 > 137 KB/s writing a file; reading a cached file doesn't change, and
 > neither does the null system call, which is assembly.
 
+> **Erratum (2026-10-16).** Interrupt levels are now numbered 1–8
+> ([RFC 0029, 7](0029-rfc-draft-2-system.md#7-interrupts)), so the
+> timer interrupts at level 7, not 6, and each of the other devices is a
+> level higher too ([1.2](#12-the-board)); the hardware is the same.
+> [performance.md](0036-report-fen/performance.md) is rerun again, and
+> nothing in it moves by more than a few cycles.
+
 ## 1. What Fen is
 
 ### 1.1 The tools

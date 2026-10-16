@@ -10,7 +10,7 @@
 
 #define IDE_PA 0x20001000       /* the I/O card's CF page (studies/fen/board) */
 #define IDE_VA 0x00EFF000
-#define IDE_IRQ 4
+#define IDE_IRQ 5
 
 #define R(n) (*(volatile unsigned *)(IDE_VA + 4 * (n)))
 #define DATA ((volatile unsigned short *)IDE_VA)

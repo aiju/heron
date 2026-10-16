@@ -9,13 +9,13 @@ Cycles, timed in a bare system-mode program on the simulator.
 
 | Operation | D16-overlap | D32-separate |
 |---|---:|---:|
-| save a bank's 18 registers to memory (MFUR, STM) | 100 | 101 |
-| load a bank's 18 registers from memory (LDM, MTUR) | 100 | 104 |
-| save r8-r15, HI and LO | 57 | 58 |
-| load r8-r15, HI and LO | 57 | 60 |
+| save a bank's 16 registers to memory (MFUR, STM) | 87 | 88 |
+| load a bank's 16 registers from memory (LDM, MTUR) | 87 | 90 |
+| save r8-r15 | 44 | 45 |
+| load r8-r15 | 44 | 46 |
 | BCOPY a message (r0-r7) between banks | 25 | 26 |
 | copy a message memory to memory (LDM, STM) | 38 | 39 |
-| no banks: save and restore r0-r7, HI and LO on the stack | 56 | 60 |
+| no banks: save and restore r0-r7 on the stack | 36 | 37 |
 | no banks: save and restore r8-r14 on a switch | 32 | 33 |
 | MFUR a user register | 3 | 3 |
 | load a user register from a frame in memory | 5 | 6 |
@@ -28,11 +28,11 @@ choosing the victim (15 with one user bank) and 5 a switch marking the bank used
 
 | Workload | What | busy cycles | threads | most live at once | switches | kernel entries | BCOPYs |
 |---|---|---:|---:|---:|---:|---:|---:|
-| ipc | kbench: 2,000 calls and replies between two processes | 2,132,862 | 7 | 6 | 4,084 | 4,334 | 4,064 |
-| shell | eight command lines on the serial console (ls -l, pipelines, cp, ps, ...) | 22,636,009 | 26 | 6 | 1,249 | 4,430 | 1,020 |
-| pipeline | a five-process pipeline over 44 KB: cat, xd, sort, uniq, wc | 186,691,374 | 10 | 9 | 3,866 | 9,078 | 3,312 |
-| desktop | the desktop: the clock, three commands in the terminal, a window moved, 2 s idle | 23,386,455 | 11 | 8 | 1,429 | 2,918 | 1,218 |
-| busy | three terminals running at once, and the clock | 97,939,452 | 21 | 13 | 2,531 | 6,719 | 2,058 |
+| ipc | kbench: 2,000 calls and replies between two processes | 2,133,117 | 7 | 6 | 4,085 | 4,334 | 4,064 |
+| shell | eight command lines on the serial console (ls -l, pipelines, cp, ps, ...) | 22,569,315 | 26 | 6 | 1,257 | 4,429 | 1,020 |
+| pipeline | a five-process pipeline over 44 KB: cat, xd, sort, uniq, wc | 186,130,400 | 10 | 9 | 3,849 | 9,043 | 3,298 |
+| desktop | the desktop: the clock, three commands in the terminal, a window moved, 2 s idle | 23,020,926 | 11 | 8 | 1,428 | 2,926 | 1,224 |
+| busy | three terminals running at once, and the clock | 97,012,515 | 21 | 13 | 2,529 | 6,720 | 2,064 |
 
 ## Misses
 
@@ -41,8 +41,8 @@ supervisor has one of the banks).
 
 | Banks | ipc | shell | pipeline | desktop | busy |
 |---:|---:|---:|---:|---:|---:|
-| 2 | 4,083 | 1,248 | 3,865 | 1,429 | 2,531 |
-| 4 | 8 | 86 | 502 | 61 | 310 |
+| 2 | 4,084 | 1,256 | 3,848 | 1,428 | 2,529 |
+| 4 | 10 | 87 | 497 | 60 | 319 |
 | 8 | 0 | 0 | 4 | 1 | 28 |
 | 16 | 0 | 0 | 0 | 0 | 0 |
 | 32 | 0 | 0 | 0 | 0 | 0 |
@@ -59,8 +59,8 @@ which costs nothing while there are fewer threads than banks.
 
 | Banks | chips | shared address | threads, a bank each | ipc | shell | pipeline | desktop | busy |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 0 | 0 | – | 21.0% | 1.4% | 0.4% | 1.0% | 0.5% |
-| 2 | 8 | 7 | 1 | 25.7% | 0.8% | 0.3% | 0.9% | 0.5% |
+| 1 | 0 | 0 | – | 16.9% | 1.0% | 0.3% | 0.8% | 0.4% |
+| 2 | 8 | 7 | 1 | 20.8% | 0.7% | 0.3% | 0.8% | 0.4% |
 | 4 | 11 | 7 | 3 | 1.0% | 0.1% | 0.1% | 0.1% | 0.1% |
 | 8 | 14 | 8 | 7 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
 | 16 | 16 | 8 | 15 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
@@ -77,8 +77,8 @@ D16-overlap; the workload includes starting kbench's server).
 
 | Banks | extra cycles |
 |---:|---:|
-| 1 | 224 |
-| 2 | 274 |
+| 1 | 181 |
+| 2 | 221 |
 | 4 | 11 |
 | 8 | 10 |
 | 16 | 10 |

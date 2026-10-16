@@ -31,61 +31,51 @@ registers, as on most machines. The method is in
 `heron fen banks --write`, are in
 [register-banks-results.md](register-banks-results.md).
 
+> **Rerun (2026-10-16)** for two changes since the first version. `HI`
+> and `LO` are now `r0` and `r1`
+> ([RFC 0028, 9.9](../0028-rfc-draft-2-isa.md#99-hi-and-lo-are-r0-and-r1)),
+> so a bank is `r0`–`r15`, and Fen's C is built by the optimised compiler
+> ([report 0034](../0034-report-c-compiler-optimisations.md)). Saving a
+> bank now takes 87 cycles, not 100. With no banks or two, a call and
+> reply costs 181 or 221 cycles more, not 224 or 274. Finding 4's
+> question is gone. The first version is in the history, at `e700e7f`.
+
 ## Summary
 
 1. **Fen never needs many banks at once.** Five workloads, from an IPC
    loop to a desktop with three terminals running at once and the
    clock, had at most 13 threads alive, and fewer than that taking
    turns. With 16 banks (15 for threads) no workload ever ran a thread
-   without its bank; with 8, the busiest did 32 times in 17 seconds; with
+   without its bank; with 8, the busiest did 28 times in 16 seconds; with
    4, the workloads lose 0.1%.
 2. **So 8 or 16 banks keep what 256 give, if the kernel shares them.** It
    must once threads can outnumber banks. Fen's one-bank-per-thread
    design caps the threads at the banks less one: 15 with 16 banks,
    against 13 alive on the busy desktop. Sharing costs about 5 cycles a
-   switch for marking the bank used (10 of a 734-cycle call and reply,
-   1.4%; nothing measurable elsewhere), and about 200 cycles a miss.
-3. **One or two banks lose a quarter to a third of the IPC.** Real work
-   loses at most 1.4%, but a call and reply costs 224 more cycles (31%)
-   with no banks and 274 more (37%) with two. Two banks are the worse of
-   the pair for messages: with one user bank, every switch moves the
-   registers through `MFUR` and `MTUR` (5.6 cycles a register), where a
-   kernel with no banks saves them with `SAVE` and `RESTORE` (2.3 cycles
-   a register), but on every entry.
-4. **Sharing the banks needs one instruction the ISA hasn't got.** A bank
-   holds `HI` and `LO` (special registers 1 and 2), and nothing lets the
-   supervisor reach another bank's: `MFUR` and `MTUR` name `r0`–`r15`.
-   Either they get a form for `HI` and `LO`, or `HI` and `LO` leave the
-   banks and every switch saves them. (Emily expects to replace them with
-   fixed general registers, which would remove the question.)
-
-   > **Since decided (2026-10-16).** `HI` and `LO` are now `r0` and `r1`
-   > ([RFC 0028, 9.9](../0028-rfc-draft-2-isa.md#99-hi-and-lo-are-r0-and-r1)),
-   > so a bank is `r0`–`r15` and the question is gone. The costs below
-   > that count `HI` and `LO` beside a range of registers count two
-   > registers that no longer exist.
+   switch for marking the bank used (10 of a 732-cycle call and reply,
+   1.4%; nothing measurable elsewhere), and about 180 to 220 cycles a
+   miss.
+3. **One or two banks lose a quarter to almost a third of the IPC.**
+   Real work loses at most 1.0%, but a call and reply costs 181 more
+   cycles (25%) with no banks and 221 more (30%) with two. Two banks are
+   the worse of the pair for messages: with one user bank, every switch
+   moves the registers through `MFUR` and `MTUR` (5.4 cycles a register),
+   where a kernel with no banks saves them with `SAVE` and `RESTORE` (2.3
+   cycles a register), but on every entry.
+4. **Sharing the banks needs nothing new in the ISA.** A bank is
+   `r0`–`r15`, which `MFUR` and `MTUR` reach. In the first version it
+   also held `HI` and `LO`, which nothing let the supervisor reach in
+   another bank; now that they are `r0` and `r1`, the question is
+   gone.
 5. **The shared bank address is free.** It moves the microcode's
    temporaries from bank 0 to the current bank, where no program or
    kernel can see them, so it changes nothing measured here, and its
    column is the one to compare.
 6. **What the numbers suggest:** 16 banks with a shared bank address, 8
    chips against 13 for 256 (and 29 as built), at no cost that this
-   measures, provided the kernel shares banks and the ISA lets it save
-   `HI` and `LO`; 8 banks the same chips and nearly as good; 4 the
-   least that keeps IPC within a few percent of 256.
-
-> **Erratum (2026-10-16).** The C compiler's optimisations
-> ([report 0034](../0034-report-c-compiler-optimisations.md)) make Fen's
-> C a little faster, and [register-banks-results.md](register-banks-results.md)
-> is rerun. The workloads are a little shorter (shell 22.6 M busy cycles,
-> pipeline 187 M, desktop 23.4 M, busy 98 M) and the numbers here move a
-> little with them: with 8 banks the busiest workload ran a thread
-> without its bank 28 times in 16 seconds, not 32 in 17; with 4, the
-> pipeline missed 502 times, not 550; marking the bank is 1.0% of the
-> IPC loop, not 0.9%, and no banks or one bank cost it 21.0% and 25.7%
-> (20.8% and 25.5%); a call and reply is 732 cycles, not 734. The extra
-> cycles per call and reply, and what the summary concludes, don't
-> change.
+   measures, provided the kernel shares banks; 8 banks the same chips
+   and nearly as good; 4 the least that keeps IPC within a few percent
+   of 256.
 
 ## 1. How it was measured
 
@@ -99,21 +89,21 @@ registers, as on most machines. The method is in
   one of them the supervisor's, for 2 to 1,024 banks. A thread that
   starts while a bank is free starts in it, as in Fen. A switch to a
   thread without a bank is a miss: the least recently run thread's
-  registers are saved (all 18, or 10 when the victim is the thread whose
+  registers are saved (all 16, or 8 when the victim is the thread whose
   message is being delivered, since its `r0`–`r7` are dead), and the new
-  thread's are loaded (10 when a message has just been copied in, else
-  18). A thread that ends frees its bank without a save.
+  thread's are loaded (8 when a message has just been copied in, else
+  16). A thread that ends frees its bank without a save.
 - **The costs** were timed on the simulator in a bare system-mode
   program, in the reference timing (D16-overlap) and D32-separate, which
   differ by a few percent:
 
   | | cycles |
   |---|---:|
-  | save a bank's 18 registers (`MFUR` and `STM`) | 100 |
-  | load them (`LDM` and `MTUR`) | 100 |
-  | save or load `r8`–`r15`, `HI` and `LO` | 57 |
+  | save a bank's 16 registers (`MFUR` and `STM`) | 87 |
+  | load them (`LDM` and `MTUR`) | 87 |
+  | save or load `r8`–`r15` | 44 |
   | `BCOPY` a message | 25 |
-  | no banks: save and restore `r0`–`r7`, `HI` and `LO` on an entry | 56 |
+  | no banks: save and restore `r0`–`r7` on an entry | 36 |
   | no banks: save and restore `r8`–`r14` on a switch | 32 |
 
   Besides moving registers, a miss would cost about 50 cycles of
@@ -121,7 +111,7 @@ registers, as on most machines. The method is in
   a single user bank), and every switch about 5 for marking the bank
   used; these two are estimates, not measured.
 - **No banks** is modelled as a kernel that saves what its C may change
-  (`r0`–`r7`, `HI`, `LO`) on every entry from user mode, the rest
+  (`r0`–`r7`) on every entry from user mode, the rest
   (`r8`–`r14`) on every switch, copies messages from memory to memory
   instead of with `BCOPY`, and reads the user's registers from a frame in
   memory instead of with `MFUR`.
@@ -129,11 +119,11 @@ registers, as on most machines. The method is in
 
   | Workload | What | busy cycles | threads | live at once | switches |
   |---|---|---:|---:|---:|---:|
-  | ipc | 2,000 calls and replies between two processes | 2.2 M | 7 | 6 | 4,084 |
-  | shell | eight command lines on the serial console | 23.5 M | 26 | 6 | 1,257 |
-  | pipeline | cat, xd, sort, uniq and wc over 44 KB | 199 M | 10 | 9 | 3,989 |
-  | desktop | the clock, three commands, a window moved | 23.8 M | 11 | 8 | 1,432 |
-  | busy | three terminals running at once, and the clock | 102 M | 21 | 13 | 2,530 |
+  | ipc | 2,000 calls and replies between two processes | 2.1 M | 7 | 6 | 4,085 |
+  | shell | eight command lines on the serial console | 22.6 M | 26 | 6 | 1,257 |
+  | pipeline | cat, xd, sort, uniq and wc over 44 KB | 186 M | 10 | 9 | 3,849 |
+  | desktop | the clock, three commands, a window moved | 23.0 M | 11 | 8 | 1,428 |
+  | busy | three terminals running at once, and the clock | 97.0 M | 21 | 13 | 2,529 |
 
 ## 2. What each number of banks costs
 
@@ -142,32 +132,32 @@ shared (and, for 1, none):
 
 | Banks | Chips | Shared address | Threads with a bank each | ipc | shell | pipeline | desktop | busy |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 0 | 0 | – | 20.8% | 1.4% | 0.4% | 1.0% | 0.5% |
-| 2 | 8 | 7 | 1 | 25.5% | 0.8% | 0.3% | 0.9% | 0.4% |
+| 1 | 0 | 0 | – | 16.9% | 1.0% | 0.3% | 0.8% | 0.4% |
+| 2 | 8 | 7 | 1 | 20.8% | 0.7% | 0.3% | 0.8% | 0.4% |
 | 4 | 11 | 7 | 3 | 1.0% | 0.1% | 0.1% | 0.1% | 0.1% |
-| 8 | 14 | 8 | 7 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 16 | 16 | 8 | 15 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 32 | 20 | 11 | 31 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 64 | 23 | 12 | 63 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 256 | 29 | 13 | 255 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
-| 1024 | 37 | 18 | 1,023 | 0.9% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 8 | 14 | 8 | 7 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 16 | 16 | 8 | 15 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 32 | 20 | 11 | 31 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 64 | 23 | 12 | 63 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 256 | 29 | 13 | 255 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+| 1024 | 37 | 18 | 1,023 | 1.0% | 0.0% | 0.0% | 0.0% | 0.0% |
 
-The 0.9% of the IPC loop from 8 banks up is the marking of the bank on
+The 1.0% of the IPC loop from 8 banks up is the marking of the bank on
 each switch, which a kernel that gives every thread its bank doesn't
 pay; that is Fen today, and works while the threads are fewer than the
-banks ("threads with a bank each"). Per call and reply, on top of 734:
+banks ("threads with a bank each"). Per call and reply, on top of 732:
 
 | Banks | 1 | 2 | 4 | 8 and up |
 |---|---:|---:|---:|---:|
-| extra cycles | 224 | 274 | 11 | 10 (0 with a bank each) |
+| extra cycles | 181 | 221 | 11 | 10 (0 with a bank each) |
 
 The misses behind the shares:
 
 | Banks | ipc | shell | pipeline | desktop | busy |
 |---:|---:|---:|---:|---:|---:|
-| 2 | 4,083 | 1,256 | 3,988 | 1,432 | 2,530 |
-| 4 | 8 | 83 | 550 | 66 | 333 |
-| 8 | 0 | 0 | 4 | 1 | 32 |
+| 2 | 4,084 | 1,256 | 3,848 | 1,428 | 2,529 |
+| 4 | 10 | 87 | 497 | 60 | 319 |
+| 8 | 0 | 0 | 4 | 1 | 28 |
 | 16 and up | 0 | 0 | 0 | 0 | 0 |
 
 ### 2.1 Why so few banks are enough
@@ -183,10 +173,10 @@ those, and the rest waits in memory.
 ### 2.2 Where it would stop being enough
 
 When more threads take turns than there are banks for them, LRU misses
-on every switch: a message's hop then costs about 200 cycles more (save
-the victim, 100; load the new thread's `r8`–`r15`, `HI` and `LO`, 57;
-choose, 50), and a call and reply about 400 more, 1,150 against 734.
-The pipeline shows the edge at 4 banks: 550 misses, with three user
+on every switch: a message's hop then costs about 180 cycles more (save
+the victim, 87; load the new thread's `r8`–`r15`, 44; choose, 50), and
+a call and reply about 360 more, 1,090 against 732.
+The pipeline shows the edge at 4 banks: 497 misses, with three user
 banks for its five stages and the file server between them. A system with more servers on a request's path
 (a network stack, a disk driver apart from the file system) would move
 it up; 16 banks leave room for about twice what Fen's busiest workload
@@ -195,22 +185,22 @@ out of the same banks.
 
 ### 2.3 No banks, and two
 
-With **no banks** the kernel pays on every entry, not every switch: 56
-cycles to save and restore `r0`–`r7`, `HI` and `LO`, and 32 more on a
-switch. The IPC loop enters the kernel twice a round trip, so a call
-and reply costs about 224 cycles more. It also needs what RFC 0029's
+With **no banks** the kernel pays on every entry, not every switch: 36
+cycles to save and restore `r0`–`r7`, and 32 more on a switch. The IPC
+loop enters the kernel twice a round trip, so a call and reply costs
+about 181 cycles more. It also needs what RFC 0029's
 exception entry assumes from bank 0: a supervisor stack pointer apart
 from the user's (or the entry pushes onto the user's stack). Report
 0020 measured the same policy ("none") on 1b's nucleus.
 
 With **two banks**, the supervisor's and one for every thread, the
 kernel saves nothing on an entry, but every switch to another thread
-swaps the user bank's registers through `MFUR` and `MTUR`, 5.6 cycles a
+swaps the user bank's registers through `MFUR` and `MTUR`, 5.4 cycles a
 register each way against `SAVE`'s and `RESTORE`'s 2.3. A message needs no
-copy (it is in the one user bank already, and only `r8`–`r15`, `HI` and
-`LO` change hands, 57 cycles each way), and `BCOPY` has nothing to do. A
-call and reply costs about 274 cycles more, more than with no banks; two
-banks pay off only for system calls that don't switch.
+copy (it is in the one user bank already, and only `r8`–`r15` change
+hands, 44 cycles each way), and `BCOPY` has nothing to do. A call and
+reply costs about 221 cycles more, more than with no banks; two banks
+pay off only for system calls that don't switch.
 
 ## 3. What fewer banks would change in software
 
@@ -222,12 +212,6 @@ banks pay off only for system calls that don't switch.
   for a thread that waits) instead of using `MTUR`. The switch checks
   that the thread has its bank, which the fast path (`fastipc.s`) can do
   in two instructions, and goes to C on a miss.
-- **`HI` and `LO`.** Saving a bank means saving its `HI` and `LO`, and
-  the supervisor can't reach another bank's. The measurements count two
-  `MFUR`-like instructions for them. Without such an instruction, `HI`
-  and `LO` would have to be shared by all banks, saved on every switch
-  (whatever the bank count), and the kernel's own multiplies and divides
-  (its C uses `MULS` to index tables) would have to save them first.
 - **No banks** is a different kernel: a frame of the user's registers on
   the kernel stack for every entry, messages copied between frames, and
   no `MFUR` or `MTUR` at all.
@@ -251,6 +235,6 @@ cost 13 instead of 29.
   are LRU's, which a kernel would approximate.
 - **A kernel that shares banks** hasn't been written; the costs are the
   timed operations times the replayed counts. Writing it in Fen would
-  check them, and needs the `HI` and `LO` access first.
+  check them.
 - **Bigger systems** than Fen's workloads, and other programs that might
   use banks (a JIT, coroutines in user mode) aren't in the traces.

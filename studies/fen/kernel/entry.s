@@ -48,7 +48,6 @@
         .org 0x80000024
         JMP  exc_trace
         .org 0x80000040
-        JMP  irq0
         JMP  irq1
         JMP  irq2
         JMP  irq3
@@ -56,6 +55,7 @@
         JMP  irq5
         JMP  irq6
         JMP  irq7
+        JMP  irq8
 
         .section .text.entry
 
@@ -133,11 +133,8 @@ exc_common:
 .bug:   LEA  r2, [sp + 8]               ; the frame
         CALL _kernel_fault              ; kernel_fault(vector, frame): panics
 
-; ---- interrupts: r1 the level
+; ---- interrupts: r1 the level, 1-8
 
-irq0:   PUSH r1
-        MOV  r1, #0
-        BRA  irq_common
 irq1:   PUSH r1
         MOV  r1, #1
         BRA  irq_common
@@ -158,6 +155,9 @@ irq6:   PUSH r1
         BRA  irq_common
 irq7:   PUSH r1
         MOV  r1, #7
+        BRA  irq_common
+irq8:   PUSH r1
+        MOV  r1, #8
 
 ; from user mode, or from idle_wait, where only r7 is live and it keeps
 ; that itself: either way the handler may use every register

@@ -10,8 +10,8 @@
 
 #include "kernel.h"
 
-static int irq_port[8];
-static u32 irq_bits[8];
+static int irq_port[9];                 /* by level, 1-8 */
+static u32 irq_bits[9];
 static u32 next_tick;
 
 void irq_init(void)
@@ -21,7 +21,7 @@ void irq_init(void)
     ticks = now_us() / TICK_US;
     next_tick = (ticks + 1) * TICK_US;
     TIMER_COMPARE = next_tick;
-    IRQ_MASK = 1 << IRQ_TIMER;
+    IRQ_MASK = LEVEL_BIT(IRQ_TIMER);
 }
 
 /* The tick, and the ticks missed while the kernel had interrupts off for
@@ -45,7 +45,7 @@ void interrupt(int level)
         tick();
         return;
     }
-    IRQ_MASK = IRQ_MASK & ~(1u << level);
+    IRQ_MASK = IRQ_MASK & ~LEVEL_BIT(level);
     if (irq_port[level])
         notify_port(irq_port[level], irq_bits[level]);
 }
@@ -54,11 +54,11 @@ int sys_irq_bind(int level, int port, u32 bits)
 {
     if (!(current->proc->flags & PROC_IO))
         return -EPERM;
-    if (level < 0 || level > 7 || level == IRQ_TIMER)
+    if (level < 1 || level > 8 || level == IRQ_TIMER)
         return -EINVAL;
     irq_port[level] = port;
     irq_bits[level] = bits;
-    IRQ_MASK = IRQ_MASK | (1u << level);
+    IRQ_MASK = IRQ_MASK | LEVEL_BIT(level);
     return 0;
 }
 
@@ -66,19 +66,19 @@ int sys_irq_ack(int level)
 {
     if (!(current->proc->flags & PROC_IO))
         return -EPERM;
-    if (level < 0 || level > 7 || level == IRQ_TIMER || !irq_port[level])
+    if (level < 1 || level > 8 || level == IRQ_TIMER || !irq_port[level])
         return -EINVAL;
-    IRQ_MASK = IRQ_MASK | (1u << level);
+    IRQ_MASK = IRQ_MASK | LEVEL_BIT(level);
     return 0;
 }
 
 void irq_port_gone(int port)
 {
     int l;
-    for (l = 0; l < 8; l++)
+    for (l = 1; l <= 8; l++)
         if (irq_port[l] == port) {
             irq_port[l] = 0;
-            IRQ_MASK = IRQ_MASK & ~(1u << l);
+            IRQ_MASK = IRQ_MASK & ~LEVEL_BIT(l);
         }
 }
 

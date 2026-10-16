@@ -16,7 +16,7 @@
 
 #define UART_PA 0x20000000
 #define UART_VA 0x00EFF000
-#define UART_IRQ 5
+#define UART_IRQ 6
 #define UART_BIT 1
 
 #define R(n) (*(volatile unsigned *)(UART_VA + 4 * (n)))

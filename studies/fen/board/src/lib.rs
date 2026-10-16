@@ -11,7 +11,7 @@
 //! | `0x0000_0000` | slot 0, the CPU board: RAM from 0 (4 MB by default) |
 //! | `0x0F00_0000` | the CPU board's timer ([`timer`]) |
 //! | `0x0F00_1000` | the board's information: +0 R the RAM's size in bytes, +4 R the clock in Hz, +C R boot flags the host sets; and the simulator's debug port, +8 W a byte to the host's log, and trace port, +4 W a word to the host's trace when it keeps one (not hardware) |
-//! | `0x0F00_2000` | the interrupt mask: +0 R the levels requesting, +4 R/W the mask, a bit per level, 1 to let it through (0 after reset) |
+//! | `0x0F00_2000` | the interrupt mask: +0 R the levels requesting, +4 R/W the mask, bit L − 1 for level L, 1 to let it through (0 after reset) |
 //! | `0x1000_0000` | slot 1, the video card ([`video`]): VRAM, its registers at `0x1FF0_0000` |
 //! | `0x2000_0000` | slot 2, the I/O card, a 4 KB page for each device: a 16C550 UART at +0x0000, a CompactFlash card in True IDE mode at +0x1000 (CS0, the task file) and +0x1020 (CS1, the control block), two PS/2 ports at +0x2000 (keyboard) and +0x2010 (mouse) ([`ps2`]), and a clock at +0x3000, with the card's ID at +0x3FFC |
 //! | anything else | nothing answers: a bus error |
@@ -26,9 +26,10 @@
 //! the PS/2 ports, and nothing else. On the card that is decoding A12-A13
 //! instead of bits further down, which costs nothing.
 //!
-//! Interrupt levels (RFC 0029, 7), as the cards' jumpers would set them:
-//! 6 the timer, 5 the UART, 4 the CF card, 3 the PS/2 ports, 2 the video
-//! card's vertical blank.
+//! Interrupt levels (RFC 0029, 7), 1-8, as the cards' jumpers would set
+//! them: 7 the timer, 6 the UART, 5 the CF card, 4 the PS/2 ports, 3 the
+//! video card's vertical blank. Level L is bit L − 1 of the lines the
+//! machine sees, as in v2_isa's `Bus`, and of the mask.
 //!
 //! **The interrupt mask** isn't in RFC 0029, which has the eight lines go
 //! straight to the priority encoder. A kernel that hands an interrupt to a
@@ -59,11 +60,11 @@ pub const VIDEO_SLOT: u32 = 1;
 pub const IO_SLOT: u32 = 2;
 pub const IO_ID: u32 = 0x0009_0001;
 
-pub const IRQ_TIMER: u8 = 6;
-pub const IRQ_UART: u8 = 5;
-pub const IRQ_CF: u8 = 4;
-pub const IRQ_PS2: u8 = 3;
-pub const IRQ_VIDEO: u8 = 2;
+pub const IRQ_TIMER: u8 = 7;
+pub const IRQ_UART: u8 = 6;
+pub const IRQ_CF: u8 = 5;
+pub const IRQ_PS2: u8 = 4;
+pub const IRQ_VIDEO: u8 = 3;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -161,12 +162,12 @@ impl Board {
         self.mouse.advance(t);
     }
 
-    /// The levels requesting, before the mask.
+    /// The levels requesting, before the mask: level L in bit L − 1.
     fn requests(&self) -> u8 {
         let mut m = 0u8;
         let mut set = |on: bool, l: u8| {
             if on {
-                m |= 1 << l
+                m |= 1 << (l - 1)
             }
         };
         set(self.timer.fired, IRQ_TIMER);

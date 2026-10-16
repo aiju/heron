@@ -17,10 +17,10 @@ second, and its own loop; the desktop's are the machine's busy cycles
 | getpid(), a system call that does nothing | 10.6 | 63 | 67 | 63 |
 | notify() a port of one's own, and ipc_recv() it | 86.8 | 520 | 548 | 520 |
 | ipc_call() to a thread of the same process, and its reply | 121.4 | 728 | 782 | 778 |
-| ipc_call() to another process, and its reply | 122.1 | 732 | 791 | 782 |
-| vm_alloc() and vm_free() a page (which is zeroed) | 849.5 | 5,097 | 5,025 | 5,098 |
-| vm_alloc() and vm_free() 64 pages | 48,446.2 | 290,677 | 284,549 | 290,636 |
-| spawn() /bin/true and waitpid() for it | 19,114.6 | 114,687 | 120,710 | 115,121 |
+| ipc_call() to another process, and its reply | 122.1 | 732 | 792 | 782 |
+| vm_alloc() and vm_free() a page (which is zeroed) | 849.7 | 5,098 | 5,025 | 5,098 |
+| vm_alloc() and vm_free() 64 pages | 48,446.4 | 290,678 | 284,549 | 290,647 |
+| spawn() /bin/true and waitpid() for it | 19,115.4 | 114,692 | 120,689 | 115,128 |
 
 | Data | KB/s |
 |---|---:|
@@ -32,9 +32,9 @@ second, and its own loop; the desktop's are the machine's busy cycles
 
 | What | busy cycles | ms |
 |---|---:|---:|
-| boot to the terminal's prompt | 5,390,885 | 980 |
-| move the terminal's window (562 × 381) by (100, 60) | 673,443 | 112 |
-| `seq 200` in the terminal | 3,851,311 | 646 |
-| `seq 200` on the serial console (115,200 baud) | 941,114 | 160 |
+| boot to the terminal's prompt | 5,387,460 | 980 |
+| move the terminal's window (562 × 381) by (100, 60) | 673,514 | 112 |
+| `seq 200` in the terminal | 3,849,369 | 646 |
+| `seq 200` on the serial console (115,200 baud) | 939,710 | 160 |
 
 ![The desktop](desktop.png)

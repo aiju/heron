@@ -18,6 +18,8 @@
 #define SCREEN_H 480
 /* VRAM below the screen: what a menu covers */
 #define SAVE_UNDER (VRAM + STRIDE * 512)
+/* the PS/2 ports' interrupt level (board/src/lib.rs) */
+#define PS2_IRQ 4
 
 /* ---- the window manager (gwm.c) ----
 

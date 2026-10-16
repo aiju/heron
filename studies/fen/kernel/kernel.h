@@ -38,9 +38,11 @@ typedef unsigned char u8;
 #define INFO_TRACE REG(INFO_BASE + 4)
 #define TRACE_START 0x01000000u
 #define TRACE_END 0x02000000u
+/* the interrupt mask: level L (1-8, RFC 0029, 7) is bit L - 1 */
 #define IRQ_PENDING REG(IMASK_BASE)
 #define IRQ_MASK REG(IMASK_BASE + 4)
-#define IRQ_TIMER 6
+#define LEVEL_BIT(l) (1u << ((l) - 1))
+#define IRQ_TIMER 7
 
 /* the page map's entries (RFC 0029, 3) */
 #define PTE_V 1

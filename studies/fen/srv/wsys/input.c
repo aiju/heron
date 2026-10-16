@@ -197,5 +197,5 @@ void input_poll(void (*key)(int code, int mods, int down),
             again = 1;
         }
     }
-    irq_ack(3);
+    irq_ack(PS2_IRQ);
 }

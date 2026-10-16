@@ -744,7 +744,7 @@ int main(void)
     gwm_init(DEPTH);
     if (input_init() < 0)
         kdebug("wsys: no keyboard or mouse\n", 27);
-    irq_bind(3, port, PS2_BIT);
+    irq_bind(PS2_IRQ, port, PS2_BIT);
     name_register("wsys", port);
     run_command("/bin/term");
     for (;;) {
