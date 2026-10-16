@@ -27,7 +27,7 @@ It follows from two decisions (Emily, 2026-10-16): the I/O processor of
 the system's DMA engine. Once the slow devices leave the system bus, most
 of what RFC 0014 added for them can go: the class straps, SEL, RDY, DPH,
 BERR, the bus monitor and the card IDs. With so few cards, so can the
-slots in the address: each card answers a fixed range from a static map.
+slots in the address: each card answers fixed ranges from a static map.
 
 Three parts:
 
@@ -94,7 +94,7 @@ worst-case datasheet figures from the repository's timing data, with
 |---|---|
 | Timing | **Synchronous**: one bus clock, BCLK. Every signal changes just after a rising edge and is sampled at a later one. **decided** |
 | Bus clock | Period T chosen when the system is built: the main CPU card's master clock divided by N. Every card works at 60 ns and at any longer period. Working value 60 ns |
-| Address | 32 bits. **decided**. Each card answers a fixed range from a static map, all below `0x8000_0000`, inside draft 2's supervisor window ([5.1](#51-addresses)). The address doesn't carry a slot |
+| Address | 32 bits. **decided**. A static map, all below `0x8000_0000`, inside draft 2's supervisor window ([5.1](#51-addresses)): seven regions of memory, 256 MB each, then 16 MB of registers for each region's card and the I/O bus's window. The address doesn't carry a slot |
 | Cards | A few fast cards, realistically 3–4: 16-bit on P1, 32-bit on P1 and P2. A card compares the top address bits with its own base. No class straps |
 | Positions | Up to 8 on the backplane. A card may be two positions wide and connect to one |
 | Transfers | An address clock and one data clock, 2 clocks in all, unless the addressed card adds data clocks with WAIT |
@@ -120,7 +120,7 @@ Peak rates:
 **Every card is a slave.** Its slave side must:
 
 - register, at the end of every address clock, whether the address is in
-  its range, decided from at most 8 of A31–A24 ([5.1](#51-addresses)),
+  one of its ranges, decided from at most 8 of A31–A24 ([5.1](#51-addresses)),
   with the address bits, byte enables and WRITE it needs;
 - decide in that same address clock whether it will need more than one
   data clock, and if so drive WAIT from the start of the first data clock
@@ -258,34 +258,40 @@ reference assignment's spread of returns.
   static map makes it easy.
 - **Heron's map,** a convention rather than a rule, puts every card
   below `0x8000_0000`, where RFC 0029's supervisor window reaches it: the
-  kernel sees physical address p at `0x8000_0000` + p. Memory is at the
-  bottom and the I/O bus near the top, so that the kernel finds register
-  RRRR of the I/O bus's device S at `0xF00S_RRRR` (Emily, 2026-10-16):
+  kernel sees physical address p at `0x8000_0000` + p. Below
+  `0x7000_0000` are seven regions of memory, 256 MB each; above it
+  are registers, 16 MB for each region's card, and the I/O bus's window
+  (Emily, 2026-10-16):
 
-  | Physical | Kernel | Card |
+  | Physical | Kernel | What |
   |---|---|---|
-  | `0x0000_0000`–`0x0FFF_FFFF` | `0x8000_0000` | the main CPU card: RAM from 0; its registers at `0x0F00_0000` (Fen's timer, board information and interrupt mask, and the control and interrupt request registers of [section 9](#9-cpu-cards)) |
-  | `0x1000_0000`–`0x1FFF_FFFF` | `0x9000_0000` | video: Fen's, VRAM from `0x1000_0000` and registers at `0x1FF0_0000` |
-  | `0x2000_0000`–`0x2FFF_FFFF` | `0xA000_0000` | the I/O processor's shared RAM, if it has one ([section 26](#26-chips)) |
-  | `0x3000_0000`–`0x3FFF_FFFF` | `0xB000_0000` | a memory card, if any |
-  | `0x4000_0000`–`0x4FFF_FFFF` | `0xC000_0000` | a second CPU card, if any |
-  | `0x5000_0000`–`0x6FFF_FFFF` | `0xD000_0000` | free |
-  | `0x7000_0000`–`0x70FF_FFFF` | `0xF000_0000` | the I/O processor: the I/O bus's window, device S at `0x700S_0000` ([section 20](#20-the-window-from-the-system-bus)); its own registers from `0x7010_0000` |
-  | `0x7100_0000`–`0x7FFF_FFFF` | `0xF100_0000` | free, for registers |
+  | `0x0000_0000`–`0x3FFF_FFFF` | `0x8000_0000` | regions 0–3: CPU or memory cards, the main CPU card in region 0 |
+  | `0x4000_0000`–`0x4FFF_FFFF` | `0xC000_0000` | region 4: the I/O processor's shared RAM, if it has one ([section 26](#26-chips)) |
+  | `0x5000_0000`–`0x6FFF_FFFF` | `0xD000_0000` | regions 5–6: video, a single video card in region 6 |
+  | `0x7000_0000`–`0x76FF_FFFF` | `0xF000_0000` | registers: those of the card in region N at `0x7N00_0000` |
+  | `0x7700_0000`–`0x7EFF_FFFF` | `0xF700_0000` | free |
+  | `0x7F00_0000`–`0x7FFF_FFFF` | `0xFF00_0000` | the I/O bus's window: register RRRR of device S at `0x7F0S_RRRR` ([section 20](#20-the-window-from-the-system-bus)) |
   | `0x8000_0000` and up | – | unused: outside the supervisor window |
 
+  - **A card's region number N** sets both its ranges, from one set of
+    jumpers: its memory at N × 256 MB, its registers at `0x7N00_0000`.
+    That is two comparisons, a 74F521 each; a card with only one kind
+    needs one. The I/O processor's card answers three: its RAM, its
+    registers at `0x7400_0000` and the window.
+  - **To the kernel,** everything from `0xF000_0000` up is a register
+    and everything below it memory.
+  - **The main CPU card's registers** at `0x7000_0000` are Fen's timer,
+    board information and interrupt mask, and the control and interrupt
+    request registers of [section 9](#9-cpu-cards).
+  - **The I/O processor's registers** are **open**, and few if any: a
+    doorbell, whose write wakes it, and its status, say. Requests,
+    replies and the ring of events ([section 8](#8-interrupts)) are in
+    memory.
   - **The CPU's RAM is at 0** because draft 2's reset and exception
     vectors are at `0x8000_0000` and up, physical 0
     ([RFC 0029, 6](0029-rfc-draft-2-system.md#6-exceptions)): they and
     the kernel want the fast RAM. The I/O processor writes the boot
     image there while it holds the CPU in reset.
-  - **The I/O bus is at `0x7000_0000`** because `0xF00S_RRRR` is a
-    kernel address: the window clears bit 31. Physical `0xF00S_RRRR`
-    would be outside the window, reachable only through the page map,
-    which covers 16 MB per context.
-  - **The I/O processor's card answers two ranges,** its RAM's and its
-    registers', for one more comparator. Its RAM at `0x7800_0000` would
-    save the chip, with slow RAM among the registers.
 
 - **The main CPU** sits in position 0, the lowest-priority master
   position, wherever its range is.
@@ -483,8 +489,9 @@ and a warm reset (Emily, 2026-10-15).
 
 ### 9. CPU cards
 
-Guidance for every CPU card, not part of the specification proper. In
-its own range:
+Guidance for every CPU card, not part of the specification proper.
+Among its registers, at `0x7N00_0000` for a card in region N
+([5.1](#51-addresses)):
 
 | Register | What it does | Chips |
 |---|---|---:|
@@ -493,8 +500,8 @@ its own range:
 | **Slave port** into its RAM | DMA, booting, other CPUs; shares the RAM by ticks, honours LOCK and the deadlock rule (RFC 0014, section 10) | ~12–15 |
 | **Control store write port** | For an SRAM control store: each SRAM a 16-bit lane in a window, written and read back while RUN is off ([RFC 0027, 4.1](0027-rfc-io-coprocessor.md#41-what-the-cpu-card-provides)) | ~14 |
 
-A CPU card compares its range like every card, for its slave side. It
-needs no logic for BERR, RDY or DPH.
+A CPU card compares its two ranges like every card: its RAM's for the
+slave port, and its registers'. It needs no logic for BERR, RDY or DPH.
 
 ### 10. Electrical rules
 
@@ -717,8 +724,8 @@ CPU can reach a device directly, as on a PDP-11, without the I/O
 processor's firmware.
 
 - **Layout:** device S at offset S × 64 KB, register r at 4r. At
-  `0x7000_0000` in the map of [5.1](#51-addresses), the kernel finds
-  register r of device S at `0xF00S_0000` + 4r: `0xF00S_RRRR` with
+  `0x7F00_0000` in the map of [5.1](#51-addresses), the kernel finds
+  register r of device S at `0xFF0S_0000` + 4r: `0xFF0S_RRRR` with
   RRRR = 4r (Emily, 2026-10-16).
   - **Each register is a word:** 8-bit registers on D0–D7, 16-bit ones
     on D0–D15. A word access is one device access with an upper half of
@@ -726,8 +733,14 @@ processor's firmware.
     half at A1 = 1: an access at 4r + 2 reaches nothing, and reads zero.
     A halfword or byte access at 4r reaches the register.
   - **The eight register bits use 1 KB** of each device's 64 KB. A10–A15
-    are ignored, so the registers repeat; software uses the first copy.
-    The room is there if the I/O bus ever gets more address lines.
+    and A20–A23 are ignored, so the registers repeat. The room is there
+    if the I/O bus ever gets more address lines.
+  - **The kernel's copy:** the one at `0x7F8S_0000`, which the kernel
+    reaches at `0xFF8S_RRRR` with mode D's sign-extended 24-bit absolute
+    addresses, a parcel shorter than a 32-bit one
+    ([report 0036, 2.3](0036-report-fen.md#23-the-window-and-the-short-addresses)).
+    A driver in user mode has its device's page mapped wherever it
+    likes.
   - **A page per device:** all of a device's registers are in its first
     4 KB page and nothing else is in its 64 KB, so the page map can give
     a driver its device and nothing else, as with
@@ -751,9 +764,8 @@ processor's firmware.
   (a CPU reading a UART's receive register under the I/O processor's line
   discipline, say) is a software error the hardware doesn't prevent.
 
-Above the window, from `0x7010_0000`, are the I/O processor's own
-registers; their layout, and that of its shared RAM at `0x2000_0000`
-([section 26](#26-chips)), are RFC 0027's business.
+The I/O processor's own registers at `0x7400_0000`, and its shared RAM
+in region 4 ([section 26](#26-chips)), are RFC 0027's business.
 
 ### 21. Electrical rules and cards
 
@@ -874,7 +886,7 @@ It reverses decisions of 2026-10-13 and 14, so these are Emily's:
 |---|---:|---:|
 | Backplane | 51 | ~10 |
 | Memory card | 31 | ~28 (no ID; a W32 driver) |
-| CPU card's bus interface | 35 | ~33 (no BERR handling; an address comparison for its slave side) |
+| CPU card's bus interface | 35 | ~34 (no BERR handling; address comparisons for its RAM and its registers) |
 | I/O card | 16 | – (its devices go on I/O cards) |
 | I/O processor card | – | RFC 0027's ~60, plus ~12 for the I/O bus and ~6 for the window |
 
@@ -937,16 +949,18 @@ assume RFC 0014's bus in four places:
   CPU card a way to raise one, for a pin and a driver on each card.
 - **The supervisor window** reaches physical addresses below
   `0x8000_0000`. The static map puts every card there
-  ([5.1](#51-addresses)). It is Fen's map but for the I/O: the CPU card
-  stays at 0 and video at `0x1000_0000`, and the I/O bus moves from
-  `0x2000_0000`, where Fen's I/O card was, to `0x7000_0000`, which the
-  kernel sees at `0xF000_0000`. Fen's drivers change a base address and
-  a stride. That answers part of RFC 0029's open question 2, where
-  things sit.
+  ([5.1](#51-addresses)). Against Fen's map, RAM stays at 0 and the
+  rest moves: the CPU card's registers from `0x0F00_0000` to
+  `0x7000_0000`; video from `0x1000_0000` to `0x6000_0000`, its
+  registers from `0x1FF0_0000` to `0x7600_0000`; and the I/O bus from
+  `0x2000_0000`, where Fen's I/O card was, to `0x7F00_0000`, 64 KB
+  apart. Fen's drivers change their base addresses and the I/O bus's
+  stride. That answers part of RFC 0029's open question 2, where things
+  sit.
 - **A page per device.** Fen's I/O card gives each device a 4 KB page so
   that the page map can grant a driver exactly one device. The window
   keeps that: device S's registers are all in the page at
-  `0x7000_0000` + S × 64 KB
+  `0x7F00_0000` + S × 64 KB
   ([section 20](#20-the-window-from-the-system-bus)).
 
 ### 29. Alternatives
@@ -1034,8 +1048,9 @@ For Emily:
    bus, or IRQ1–IRQ8 as bused lines? The interrupt architecture is open
    as a whole (RFC 0029).
 4. **The static map** of [5.1](#51-addresses) instead of slots in the
-   address: every card below 2 GB, memory at the bottom, and the I/O bus
-   at `0x7000_0000`, `0xF00S_RRRR` to the kernel?
+   address: seven 256 MB regions of memory below `0x7000_0000`, the
+   registers of region N's card at `0x7N00_0000`, and the I/O bus at
+   `0x7F00_0000`, `0xFF0S_RRRR` to the kernel?
 5. **Master positions:** four, of up to 8?
 6. **The bus period:** 60 ns as the working value, with any longer period
    allowed?
