@@ -754,12 +754,13 @@ What changed from 1b, beyond the encoding:
   current object in one parcel, as `[sp + 4R]` gives a stack frame's.
   - `r14` holds the current object by convention: the kernel's thread
     control block, Egret's frame record, the VM's state.
-  - Measured on 1b with the mode added (the fixed-base report, in
-    review): 3–5% of the nucleus's message and switch paths, and its code
-    4% smaller; about 1% of Egret's cycles; nothing for the Lisp, whose
-    tagged pointers put fields at 4k ± 1. Loads and stores are 75–100%
-    of the uses, so the report suggested three cells; the whole column
-    keeps the mode table orthogonal.
+  - Measured on 1b with the mode added
+    ([fixed-base-mode.md](0028-rfc-draft-2-isa/fixed-base-mode.md)): 3–5% of the nucleus's message and
+    switch paths, and its code 4% smaller; about 1% of Egret's cycles;
+    nothing for the Lisp, whose tagged pointers put fields at 4k ± 1.
+    Loads and stores are 75–100% of the uses, so the measurements
+    suggested three cells; the whole column keeps the mode table
+    orthogonal.
 - **The special mode's tables, D and E** (Emily, 2026-10-15):
   - **A table without a base register.** Indexed accesses whose base was
     loaded with `MOV r, #label` are 1.47% of hand-written executed
@@ -862,7 +863,7 @@ executed instructions:
   - **A second fixed-base slot,** shaped like `[sp + 4R]`, with a register
     set aside by convention for the current object.
 - **Decided:** the second fixed-base slot, as mode E with `r14`, after
-  the fixed-base report measured it on the kernel, Egret and the Lisp
+  [the fixed-base measurements](0028-rfc-draft-2-isa/fixed-base-mode.md) on the kernel, Egret and the Lisp
   (Emily, 2026-10-15; [9.6](#96-the-addressing-modes)). Short offsets
   through any register are not proposed.
 

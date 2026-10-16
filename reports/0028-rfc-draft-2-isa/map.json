@@ -1094,7 +1094,7 @@
     "src": [
      "custom"
     ],
-    "d": "A word of the current object, 0–60 (R is the offset): mode 4's shape with r14 for sp. Report 0029: 3–5% of the nucleus's paths, about 1% of Egret"
+    "d": "A word of the current object, 0–60 (R is the offset): mode 4's shape with r14 for sp. Measured on 1b (fixed-base-mode.md): 3–5% of the nucleus's paths, about 1% of Egret"
    }
   },
   "sets": {
