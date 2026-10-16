@@ -34,8 +34,9 @@ SHIFTS = ["LSL", "LSR", "ASR", "ROR"]
 # the special registers (RFC 0029, 4): 0-7 user mode's, 8-15 the
 # supervisor's. 0 is ccr, the condition codes; the machine without a
 # supervisor keeps draft 1's flags word there, which the assembler also
-# takes as `flags`
-SR_NAMES = {0: "ccr", 1: "hi", 2: "lo", 8: "sr", 9: "far", 10: "fsr", 11: "ctx",
+# takes as `flags`. 1 and 2, once HI and LO, are reserved: those are r0
+# and r1 now
+SR_NAMES = {0: "ccr", 8: "sr", 9: "far", 10: "fsr", 11: "ctx",
             12: "mapa", 13: "mapd", 14: "bank", 15: "bkpt"}
 # the free cells, ILLEGAL, and CAS and the FPU escape, which aren't designed
 FREE = {0x00, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xFA, 0xFB, 0xFF}
@@ -257,12 +258,8 @@ def disassemble(ws, pc=0, symbols=None):
     if op == 0x08:
         return f"ADD.B4 {rr}", 1
     if op == MFSR:
-        if lo in (1, 2):
-            return f"MF{SR_NAMES[lo].upper()} {R(hi)}", 1
         return f"MFSR {R(hi)}, {SR_NAMES.get(lo, lo)}", 1
     if op == MTSR:
-        if hi in (1, 2):
-            return f"MT{SR_NAMES[hi].upper()} {R(lo)}", 1
         return f"MTSR {SR_NAMES.get(hi, hi)}, {R(lo)}", 1
     if op in TAGGED:
         return f"{TAGGED[op]} {rr}", 1

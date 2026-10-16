@@ -153,14 +153,10 @@ fn encodings() {
         ("RESTORE r0-r14", &[b(0xF5, 0x0E)]),
         ("LDM r1, r4-r7", &[b(0x01, 0x41), 0x7000]),
         ("STM sp, r0", &[b(0x02, 0x0F), 0x0000]),
-        ("MFSR r1, hi", &[b(0x06, 0x11)]),
-        ("MTSR lo, r2", &[b(0x07, 0x22)]),
+        ("MFSR r1, 1", &[b(0x06, 0x11)]),
+        ("MTSR 2, r2", &[b(0x07, 0x22)]),
         ("PUSH r1", &[b(0x27, 0x1F)]),
         ("POP r2", &[b(0x16, 0x2F)]),
-        ("MFHI r1", &[b(0x06, 0x11)]),
-        ("MFLO r3", &[b(0x06, 0x32)]),
-        ("MTHI r2", &[b(0x07, 0x12)]),
-        ("MTLO r2", &[b(0x07, 0x22)]),
         ("MFSR r1, flags", &[b(0x06, 0x10)]),
         ("MFSR r1, ccr", &[b(0x06, 0x10)]),
         ("MTSR ccr, r2", &[b(0x07, 0x02)]),
@@ -202,6 +198,14 @@ fn errors() {
         ),
         ("MVI r1, #3", "draft 2 has no MVI: write MOV rd, #value"),
         ("LI r1, #3", "draft 2 has no LI: write MOV rd, #value"),
+        (
+            "MFHI r1",
+            "draft 2 has no MFHI: write MOV rd, r0: the high half and the remainder are in r0",
+        ),
+        (
+            "MTLO r2",
+            "draft 2 has no MTLO: write MOV r1, rs: MULA's low word is in r1",
+        ),
         (
             "MOV [r1], #3",
             "there is no store of a constant: only MOV [address], #0 (CLR)",
@@ -446,19 +450,53 @@ fn tentative_instructions() {
     );
     assert_eq!(m.r[1], 0x0201_8300);
     assert_eq!((m.r[4], m.r[5], m.r[6], m.r[7]), (7, 5, 0x4433_2211, 32));
-    // MULA accumulates into HI:LO; MERGE takes rs's bits where HI has a 1
+    // MULA accumulates into r0:r1: -15, then +25
     let m = run(
-        "        MOV r1, #-3\n        MOV r2, #5\n        MTSR hi, r0\n        MTSR lo, r0\n\
-         \x20       MULA r1, r2\n        MULA r2, r2\n        MFSR r3, hi\n        MFSR r4, lo\n\
-         \x20       MOV r5, #0xFF00\n        MTSR hi, r5\n        MOV r6, #0x1234\n\
-         \x20       MOV r7, #0xABCD\n        MERGE r6, r7",
+        "        CLR r0\n        CLR r1\n        MOV r2, #-3\n        MOV r3, #5\n\
+         \x20       MULA r2, r3\n        MULA r3, r3",
     );
-    assert_eq!((m.r[3], m.r[4]), (0, 10));
+    assert_eq!((m.r[0], m.r[1]), (0, 10));
+    // MERGE takes rs's bits where r0 has a 1
+    let m = run(
+        "        MOV r0, #0xFF00\n        MOV r6, #0x1234\n        MOV r7, #0xABCD\n\
+         \x20       MERGE r6, r7",
+    );
     assert_eq!(m.r[6], 0xAB34);
-    // MULFX: a fixed-point product, 16.16
+    // MULFX: a fixed-point product, 16.16; r0 gets the unshifted product's
+    // high half, -0x3_C000_0000 >> 32
     let m = run("        MOV r1, #0x18000\n        MOV r2, #-0x28000\n        MULFX r1, r2, #16");
     assert_eq!(m.r[1] as i32, -0x3C000);
+    assert_eq!(m.r[0], 0xFFFF_FFFC);
     assert_eq!(flags(&m), "N---");
+}
+
+#[test]
+fn multiplies_and_divides_write_r0() {
+    // the high half and the remainder go to r0
+    let m = run(
+        "        MOV r1, #0x10000\n        MULU r1, r1\n        MOV r8, r0\n\
+         \x20       MOV r2, #-2\n        MOV r3, #3\n        MULS r2, r3\n        MOV r9, r0\n\
+         \x20       MOV r4, #17\n        MOV r5, #5\n        DIVU r4, r5",
+    );
+    assert_eq!((m.r[1], m.r[8]), (0, 1));
+    assert_eq!((m.r[2] as i32, m.r[9]), (-6, 0xFFFF_FFFF));
+    assert_eq!((m.r[4], m.r[0]), (3, 2));
+    // DIVUL divides r0:rd: 0x1_0000_0000 / 2
+    let m = run("        MOV r0, #1\n        CLR r4\n        MOV r5, #2\n        DIVUL r4, r5");
+    assert_eq!((m.r[4], m.r[0]), (0x8000_0000, 0));
+    // with r0 >= rs it overflows: V, and nothing else changes
+    let m = run("        MOV r0, #5\n        CLR r4\n        MOV r5, #5\n        DIVUL r4, r5");
+    assert_eq!((m.r[4], m.r[0], m.v), (0, 5, 1));
+    // the operands are read first, so rs may be r0; where rd is r0, rd's
+    // result stays
+    let m = run(
+        "        MOV r0, #4\n        MOV r6, #22\n        DIVU r6, r0\n        MOV r10, r0\n\
+         \x20       MOV r0, #17\n        MOV r5, #5\n        DIVU r0, r5\n        MOV r11, r0\n\
+         \x20       MOV r0, #0x10000\n        MULU r0, r0",
+    );
+    assert_eq!((m.r[6], m.r[10]), (5, 2));
+    assert_eq!(m.r[11], 3);
+    assert_eq!(m.r[0], 0);
 }
 
 #[test]

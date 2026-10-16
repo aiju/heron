@@ -94,7 +94,7 @@ op_div: POP  r1                 ; a b -> a / b, rounding toward zero
 
 op_mod: POP  r1                 ; a b -> a mod b, with the sign of a
         DIVS r1, r9
-        MFHI r9
+        MOV  r9, r0             ; the remainder
         MOV  r1, byte [r8]+
         JMP  [r13 + r1*4]
 

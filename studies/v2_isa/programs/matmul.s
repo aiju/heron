@@ -7,8 +7,8 @@
 ; Every number is a word. B is stored transposed as it is generated, so
 ; C[i][j] is the dot product of two consecutive runs of words (row i of A,
 ; row j of B transposed), each walked with an auto-increment operand. The
-; k loop is unrolled, each step a MULA: the sum builds up in HI:LO, 64 bits,
-; and its low word is C[i][j] mod 2^32.
+; k loop is unrolled, each step a MULA: the sum builds up in r0:r1, 64 bits,
+; and its low word, r1, is C[i][j] mod 2^32.
 
         .include "lib/start.s"
 
@@ -39,39 +39,37 @@ main:   SAVE r7-r11
         BNE  .fillb
 
         ; ---- multiply: no calls in here, so scratch registers only ----
-        CLR  r0
         LEA  r4, [mat_a]        ; r4 = row i of A
         LEA  r7, [mat_c]        ; r7 = C[i][j], filled in order
 .row:   LEA  r5, [bt]           ; r5 = row j of bt = column j of B
 .col:   MOV  r6, r4             ; r6 walks along row i of A
-        MTHI r0                 ; HI:LO = sum = 0
-        MTLO r0
-        MOV  r1, [r6]+          ; k = 0
-        MOV  r2, [r5]+
-        MULA r1, r2             ; sum += A[i][k] * B[k][j]
-        MOV  r1, [r6]+          ; k = 1
-        MOV  r2, [r5]+
-        MULA r1, r2
-        MOV  r1, [r6]+          ; k = 2
-        MOV  r2, [r5]+
-        MULA r1, r2
-        MOV  r1, [r6]+          ; k = 3
-        MOV  r2, [r5]+
-        MULA r1, r2
-        MOV  r1, [r6]+          ; k = 4
-        MOV  r2, [r5]+
-        MULA r1, r2
-        MOV  r1, [r6]+          ; k = 5
-        MOV  r2, [r5]+
-        MULA r1, r2
-        MOV  r1, [r6]+          ; k = 6
-        MOV  r2, [r5]+
-        MULA r1, r2
-        MOV  r1, [r6]+          ; k = 7
-        MOV  r2, [r5]+
-        MULA r1, r2
-        MFLO r3                 ; the sum's low word
-        MOV  [r7]+, r3
+        CLR  r0                 ; r0:r1 = sum = 0
+        CLR  r1
+        MOV  r2, [r6]+          ; k = 0
+        MOV  r3, [r5]+
+        MULA r2, r3             ; sum += A[i][k] * B[k][j]
+        MOV  r2, [r6]+          ; k = 1
+        MOV  r3, [r5]+
+        MULA r2, r3
+        MOV  r2, [r6]+          ; k = 2
+        MOV  r3, [r5]+
+        MULA r2, r3
+        MOV  r2, [r6]+          ; k = 3
+        MOV  r3, [r5]+
+        MULA r2, r3
+        MOV  r2, [r6]+          ; k = 4
+        MOV  r3, [r5]+
+        MULA r2, r3
+        MOV  r2, [r6]+          ; k = 5
+        MOV  r3, [r5]+
+        MULA r2, r3
+        MOV  r2, [r6]+          ; k = 6
+        MOV  r3, [r5]+
+        MULA r2, r3
+        MOV  r2, [r6]+          ; k = 7
+        MOV  r3, [r5]+
+        MULA r2, r3
+        MOV  [r7]+, r1          ; the sum's low word
         CMP  r5, #bt + ROW * N  ; r5 has walked through all of bt: row done
         BNE  .col
         MOV  r4, r6             ; r6 has walked on to row i + 1

@@ -237,13 +237,11 @@ pub mod fen {
                 .collect()
         }
 
-        /// Registers of a bank (r0-r15, HI, LO).
+        /// Registers of a bank (r0-r15).
         fn bank_regs(&self, n: usize) -> Vec<u32> {
             let s = self.c.m.sys();
             if n == s.cur_bank {
-                let mut v = self.c.m.r.to_vec();
-                v.extend([self.c.m.hi, self.c.m.lo]);
-                v
+                self.c.m.r.to_vec()
             } else {
                 s.banks[n % s.banks.len()].to_vec()
             }

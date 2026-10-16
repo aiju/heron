@@ -51,7 +51,7 @@ main:   SAVE r7-r11
         CALL puts
         MOV  r1, r9
         DIVU r1, r10
-        MFHI r11                ; the remainder survives the calls in r11
+        MOV  r11, r0            ; the remainder survives the calls in r11
         CALL print_u32
         LEA  r1, [s_r]
         CALL puts
@@ -62,7 +62,7 @@ main:   SAVE r7-r11
         SXH  r1, r9
         SXH  r2, r10
         DIVS r1, r2
-        MFHI r11
+        MOV  r11, r0
         SXH  r1                 ; the 16-bit quotient: 32768 wraps to -32768
         CALL print_s32
         LEA  r1, [s_r]
@@ -136,7 +136,7 @@ main:   SAVE r7-r11
         CALL puts
         MOV  r1, r9
         DIVU r1, r10            ; 32 / 32: quotients above 16 bits are no problem
-        MFHI r11
+        MOV  r11, r0
         CALL print_u32
         LEA  r1, [s_r]
         CALL puts
