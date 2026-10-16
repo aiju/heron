@@ -84,19 +84,19 @@ enum { R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, SP };
 enum { MOV = 0x10, ST = 0x20, MOVS = 0x30, ADD = 0x40, SUB = 0x50, CMP = 0x60, AND = 0x80,
        OR = 0x90, XOR = 0xA0, LEA = 0x100, JEA = 0x200 };
 #define SEND_IP R5                          /* the bytecode, for gsend: r7 is the link */
-static void opw(int op, int d, int m, int r)
+static void opw_other(int op, int d, int m, int r)
 {
     if (op == LEA) {
         if (m == 2)                         /* LEA rd, [R] is MOV rd, R */
             put(MOV | d << 12 | r << 8);
         else
             put((m == 3 ? 0x04 : m == 4 ? 0x05 : m == 5 ? 0x06 : 0x07) | d << 12 | r << 8);
-    } else if (op == JEA)
-        put((0xF0 | d) | m << 12 | r << 8); /* d: 0 JMP, 1 CALL */
-    else
-        put(op | m | d << 12 | r << 8);
+    } else
+        put((0xF0 | d) | m << 12 | r << 8); /* JEA; d: 0 JMP, 1 CALL */
 }
-#define OPW(op, d, m, r) opw(op, d, m, r)
+/* a macro for the rows, as put is (the C compiler doesn't inline) */
+#define OPW(op, d, m, r) do { if ((op) < LEA) put((op) | (m) | (d) << 12 | (r) << 8); \
+                              else opw_other(op, d, m, r); } while (0)
 /* a short branch: cc and the 8-bit offset in parcels from the next */
 #define BCC(c, d) put(0xB0 | (c) | ((d) & 0xFF) << 8)
 #else

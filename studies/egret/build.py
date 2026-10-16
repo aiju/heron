@@ -175,6 +175,7 @@ def machine(source, inp=b"", isa="v1b", defines=None, max_cycles=MAX_CYCLES, var
     m = new_machine(isa, img, data)
     m.run(max_cycles=max_cycles)
     m.image = img
+    m.isa = isa
     return m
 
 
