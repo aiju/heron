@@ -267,7 +267,8 @@ reference assignment's spread of returns.
   |---|---|---|
   | `0x0000_0000`–`0x3FFF_FFFF` | `0x8000_0000` | regions 0–3: CPU or memory cards, the main CPU card in region 0 |
   | `0x4000_0000`–`0x4FFF_FFFF` | `0xC000_0000` | region 4: the I/O processor's shared RAM, if it has one ([section 26](#26-chips)) |
-  | `0x5000_0000`–`0x6FFF_FFFF` | `0xD000_0000` | regions 5–6: video, a single video card in region 6 |
+  | `0x5000_0000`–`0x5FFF_FFFF` | `0xD000_0000` | region 5: a second video card, or another fast card that is neither video nor a CPU (Emily, 2026-10-16) |
+  | `0x6000_0000`–`0x6FFF_FFFF` | `0xE000_0000` | region 6: video |
   | `0x7000_0000`–`0x76FF_FFFF` | `0xF000_0000` | registers: those of the card in region N at `0x7N00_0000` |
   | `0x7700_0000`–`0x7EFF_FFFF` | `0xF700_0000` | free |
   | `0x7F00_0000`–`0x7FFF_FFFF` | `0xFF00_0000` | the I/O bus's window: register RRRR of device S at `0x7F0S_RRRR` ([section 20](#20-the-window-from-the-system-bus)) |
