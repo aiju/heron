@@ -164,6 +164,15 @@ pub mod iop {
             })
         }
 
+        fn shared_write(&mut self, index: usize, data: Vec<u16>) {
+            self.with_iop_mut(|i| {
+                let l = i.shared.len();
+                for (k, v) in data.into_iter().enumerate() {
+                    i.shared[(index + k) % l] = v;
+                }
+            })
+        }
+
         /// The image flash's contents.
         fn flash<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
             let v = self.with_iop(|i| i.io.flash.bytes());
@@ -277,6 +286,16 @@ pub mod iop {
             let a = (pa as usize).min(mem.len());
             let b = (a + n as usize).min(mem.len());
             PyBytes::new(py, &mem[a..b])
+        }
+
+        fn cpu_mem_write(&mut self, pa: u32, data: Vec<u8>) {
+            let mem = &mut self.s.cpu.mem;
+            for (k, v) in data.into_iter().enumerate() {
+                if let Some(b) = mem.get_mut(pa as usize + k) {
+                    *b = v;
+                }
+            }
+            self.s.cpu.forget_code();
         }
 
         /// A lane of the CPU card's control store, k = 0-9.

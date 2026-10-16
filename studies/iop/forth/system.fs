@@ -41,6 +41,7 @@
    0 r@ cbank J.jrtail reg !  r@ rset R_IDX + @ r@ cbank J.jidx reg !
    0 r@ cbank J.jirq reg !  U.jring r@ cbank J.jres reg !
    0 r@ rset R_CHEAD + !  r@ r@ rset R_CL + !
+   r@ r@ cbank J.jcl reg !  r@ rset r@ cbank J.jset reg !
    0 r@ rset R_IDX + @ I_REQTAIL + r@ rset R_IDX + 1+ @ sr!
    0 r@ rset R_IDX + @ I_CMPHEAD + r@ rset R_IDX + 1+ @ sr!
    1 r> lshift CLIENTS @ or CLIENTS ! ;
