@@ -142,7 +142,6 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     IR, QH, DEC, Y = bus("IR", 16), bus("QH", 16), bus("DEC", 16), bus("Y", uc.Y_BITS)
     RQ, TQ = bus("RQ", 32), bus("TQ", 32)
     MAR, PC, FPC = bus("MAR", 32), ["GND"] + bus("PC", 31, 1), ["GND", "GND"] + bus("FPC", 30, 2)
-    QA, QB = bus("QA", 32), bus("QB", 32)
     LC, SX, EX = bus("LC", 8), bus("SX", 4), bus("EX", 4)
     BANK, CTX = bus("BANK", 8), bus("CTX", 7)
 
@@ -274,8 +273,8 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("08", [u["LDPC"], "JC"], "JUMP")
     g("00", [u["LDPC"], "JC"], "JUMP_n")
     nl.add("74", "U_TS", **{"1D": "TS_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n",
-                            "1Q": "TSQ", "1QN": "TSQ_n",
-                            "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+                            "1Q": "TSQ", "1QN": "TSQ_n", "2D": "HS_D", "2CLK": "CLK",
+                            "2PRE": "VCC", "2CLR": "VCC", "2Q": "HS", "2QN": "HS_n"})
 
     nl.section("Interrupt request")
     # synchronised, then held a cycle more: pending = that & I (now)
@@ -671,22 +670,26 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("11", ["FETCHED", "FAULT_n", "JUMP_n"], "FPCINC")
     g("08", ["CONSC", "PC1F"], "SHIFTC")
     g("32", ["SHIFTC", "DECGOP"], "SHIFT")
-    g("04", ["SHIFT"], "SHIFT_n")
-    g("08", ["V0_n", "FPCINC"], "Q0NEW")
-    g("02", ["SHIFT", "Q0NEW"], "QALD_n")
-    g("20", ["FPCINC", "V0", "SHIFT_n", "VCC"], "QBLD_n")
-    QAD = bus("QAD", 32)
-    for k in range(8):
-        m = nl.add("157", f"U_QAM{k}", S="V1", G="GND")
-        for j in range(4):
-            i = 4 * k + j
-            m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = DB[i], QB[i], QAD[i]
-    for k in range(4):
-        ra = nl.add("16823h", f"U_QA{k}", CLK="CLK", EN="QALD_n", CLR="VCC", OE="GND", D9="GND")
-        rb = nl.add("16823h", f"U_QB{k}", CLK="CLK", EN="QBLD_n", CLR="VCC", OE="GND", D9="GND")
-        for i in range(8):
-            ra[f"D{i + 1}"], ra[f"Q{i + 1}"] = QAD[8 * k + i], QA[8 * k + i]
-            rb[f"D{i + 1}"], rb[f"Q{i + 1}"] = DB[8 * k + i], QB[8 * k + i]
+    # two slots, loaded straight from the card's data bus: Q0 is slot HS, Q1
+    # the other, and a shift toggles HS (in TS's spare flip-flop) instead of
+    # moving a word. A slot loads in every cycle its entry is empty (V0 or
+    # V1 off), so the word a fetch brings is there when V0 or V1 comes on,
+    # and the load enables don't wait for the shift. Each half reaches the
+    # head through a 74ABT16244 half, which turns off as fast as it turns on
+    g("86", ["HS", "SHIFT"], "HS_D")
+    nl.add("157", "U_QSL", S="HS", G="GND",
+           **{"1A": "V0", "1B": "V1", "1Y": "QS0LD_n", "2A": "V1", "2B": "V0", "2Y": "QS1LD_n",
+              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
+    for sl in range(2):
+        QS = bus(f"QS{sl}_", 32)
+        for k in range(4):
+            r = nl.add("16823h", f"U_QS{sl}{k}", CLK="CLK", EN=f"QS{sl}LD_n", CLR="VCC",
+                       OE="GND", D9="GND")
+            oe = f"QH{sl}{'LH'[k >> 1]}_n"
+            b = nl.add("16244h", f"U_QB{sl}{k}", OE1=oe, OE2=oe)
+            for i in range(8):
+                r[f"D{i + 1}"], r[f"Q{i + 1}"] = DB[8 * k + i], QS[8 * k + i]
+                b[f"A{i + 1}"], b[f"Y{i + 1}"] = QS[8 * k + i], QH[8 * (k & 1) + i]
     # V0, V1: a jump empties the queue, a fault leaves it; the shift (late:
     # it follows the decode) selects last
     g("11", ["V0", "W3", "JUMP_n"], "V0S")              # shifted: a second word
@@ -703,14 +706,18 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
                            "1Q": "V0", "1QN": "V0_n",
                            "2D": "V1_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "VCC",
                            "2Q": "V1", "2QN": "V1_n"})
-    # the head parcel: Q0's half, or the word this cycle fetches if the queue is empty
-    for k in range(8):
-        m = nl.add("153", f"U_QH{k}", A="V0", B="PC1F", **{"1G": "GND", "2G": "GND"})
-        for sec in (0, 1):
-            i = 2 * k + sec
-            for c, s in enumerate([DB[i], QA[i], DB[16 + i], QA[16 + i]]):
-                m[f"{sec + 1}C{c}"] = s
-            m[f"{sec + 1}Y"] = QH[i]
+    # the head parcel, a three-state bus: Q0's half (by PC1F), or the word
+    # this cycle fetches if the queue is empty
+    for sl, hs in ((0, "HS_n"), (1, "HS")):
+        g("20", ["V0", hs, "PC1F_n", "VCC"], f"QH{sl}L_n")
+        g("20", ["V0", hs, "PC1F", "VCC"], f"QH{sl}H_n")
+    g("32", ["V0", "PC1F"], "QHDL_n")
+    g("32", ["V0", "PC1F_n"], "QHDH_n")
+    for k in range(4):
+        oe = "QHDH_n" if k >> 1 else "QHDL_n"
+        b = nl.add("16244h", f"U_QD{k}", OE1=oe, OE2=oe)
+        for i in range(8):
+            b[f"A{i + 1}"], b[f"Y{i + 1}"] = DB[8 * k + i], QH[8 * (k & 1) + i]
 
     # ---- memory: the virtual address, the map, the window, faults, RAM ----------------------
     nl.section("Memory")

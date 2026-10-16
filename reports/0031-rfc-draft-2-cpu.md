@@ -239,6 +239,15 @@ The flags word of RFC 0029, 2: V, C, Z, N, I, S, T.
   word to fetch. Both are 74F161 counters loaded from RES.
 - **The queue** holds two 32-bit words, Q0 and Q1, each with a valid bit;
   QH, the head parcel, is Q0's low or high half by PC[1].
+  - **Two slots and a head pointer:** the words sit in two slots that
+    load straight from the card's data bus; Q0 is slot HS and Q1 the
+    other, and a shift toggles HS instead of moving a word. A slot loads
+    in every cycle its entry is empty (V0 or V1 off), so the word a fetch
+    brings is there when its valid bit comes on, and a slot's load
+    enable doesn't wait for the decode.
+  - **QH is a three-state bus,** driven through 74ABT16244 halves by
+    V0, HS and PC1F: the head slot's half, or with the queue empty the
+    half of the word this cycle fetches.
 - **The fetch's translation.** FOK and FPPN keep FPC's page as last
   translated: set from the map's translation of FPC (as a fetch, checked
   for X) by a refill, or by a cycle that doesn't use the memory port
@@ -716,7 +725,7 @@ Still open:
 Counted from the netlist (`heron v2_hw hw bom`), against the estimate
 this RFC first gave for the same sections. A 16-bit part counts once: a
 half of one (each IS61C6416AL byte, each 8- or 9-bit half of a 74ABT16xxx)
-counts ½ where it is used, and pairing the halves makes the core 385:
+counts ½ where it is used, and pairing the halves makes the core 378:
 
 | Section | Netlist | Estimate | |
 |---|---:|---:|---|
@@ -729,13 +738,13 @@ counts ½ where it is used, and pairing the halves makes the core 385:
 | ALU, its control, MQ | 20 | 14 | |
 | Result multiplexer | 18 | 18 | |
 | R, T, MAR, LC, SX, EX | 29 | 24 | |
-| PC, FPC, the fetch's translation, the queue | 60½ | 28 | |
+| PC, FPC, the fetch's translation, the queue | 52½ | 28 | |
 | Flags, CL, branch condition | 35½ | 12 | |
-| Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 76½ | 42 | 7 SRAMs |
-| **The netlist's core** | **385** | **231** | |
+| Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 77½ | 42 | 7 SRAMs |
+| **The netlist's core** | **378** | **231** | |
 | Bus interface, master | (30) | 30 | not drawn: the estimate |
 | Slave port, control store writes, control register | (14) | 14 | not drawn: the estimate |
-| **Total** | **about 430** | **about 275** | |
+| **Total** | **about 420** | **about 275** | |
 
 - **The estimate was low by two thirds** with 8-bit parts: 440 chips.
   The 16-bit parts it assumed take 55 of that back: 41 registers, 52
@@ -743,8 +752,8 @@ counts ½ where it is used, and pairing the halves makes the core 385:
   74ABT16374, 16823, 16244 and 16373 instead of 112. Ten buffers whose
   outputs need two enables at once stay 74ABT541s (a 16244 has one
   enable per four bits). The rest is real: the register file's
-  addressing and two-phase write, the queue's multiplexers, the
-  translation and fault logic, and gates the timing fixes of
+  addressing and two-phase write, the translation and fault logic, and
+  gates the timing fixes of
   [15](#15-the-netlist-and-its-timing) duplicate so that late signals
   come in last.
 - **What the 16-bit parts cost.** No time: the suite takes 774.0 ms
@@ -758,8 +767,18 @@ counts ½ where it is used, and pairing the halves makes the core 385:
   about 1 ns: the simulator logs about twice the contention (29 µs to
   56 µs in `strings`), the worst still the T lanes' 6 ns. And they come
   only in fine-pitch packages (SSOP and TSSOP, 48 and 56 pins).
+- **The queue without multiplexers** (Part I, [4](#4-fetch-and-decode)):
+  the 8 × 74F157 of Q0's input and the 8 × 74F153 of the head parcel
+  become 74ABT16244 halves onto a three-state QH and a head pointer, 7
+  chips fewer. It costs no time: the head parcel arrives sooner (a refill
+  is 0.6 ns shorter) and the load enables no longer follow the decode.
+  The 16244 turns off as fast as it turns on, which is why the slots
+  drive QH through one rather than with their own outputs (a 16823's
+  8.7 ns turn-off made a refill 7 ticks); as its drivers hand over at a
+  decode, the simulator logs many more overlaps on QH, all under 2 ns
+  (58 µs of overlap in `strings`, against 56).
 - **Against draft 1b:** its CPU card as built is 269 chips, with 8-bit
-  parts; this one about 430, for a 32-bit memory path, the queue, the
+  parts; this one about 420, for a 32-bit memory path, the queue, the
   page map and the window, the register banks and the writable control
   store, and the short cycles.
 - **Where to look for fewer:** the register file's
