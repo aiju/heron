@@ -3,18 +3,25 @@ and which of them the tests catch and which the proofs do.
 
     heron formal mutate [-n 30] [--seed 1] [--jobs 4] [--budget 120]
 
-A mutant is the netlist with one input pin stuck at 0 or 1, two input
-pins of a part swapped, or one pin moved to the next wire of its bus; or
-the microcode with one bit of one control word flipped. For each:
+Two sets of mutants:
+
+  - made by hand (HANDMADE, HANDMADE_UCODE): one wire or one control bit
+    each, chosen to be wrong only for some values, flags or encodings;
+  - random: one input pin of the netlist stuck at 0 or 1, two input pins
+    of a part swapped, or a pin moved to the next wire of its bus; or one
+    bit of one control word flipped. Some of these change nothing that
+    matters (a control bit no path reads), and survive everything.
+
+For each mutant:
 
   - the tests: the exercise program (every instruction class, 1.5 million
     cycles) on the chip-level simulator, against the RTL model, as
-    `heron v1b_hw hw test` compares (results, cycles, every fetch);
-  - the proofs: a fixed sample of decode cases (SAMPLE), cheapest first,
-    until one fails.
-
-The mutants are random, so some change nothing that matters (a pin of an
-unused part, a control bit no path reads): those survive both.
+    `heron v1b_hw hw test` compares (results, cycles, every fetch); if
+    that passes, the whole program suite too;
+  - the proofs: the decode cases the mutant can affect (for the microcode,
+    those whose routines reach the changed word; for the netlist, all),
+    the SAMPLE first and then the rest cheapest first, until one fails or
+    the time per mutant runs out.
 """
 
 import argparse
@@ -48,6 +55,107 @@ SAMPLE = [
 ]
 
 OUT = os.path.join(BUILD, "formal", "mutants.json")
+
+# Mutants made by hand: (description, {(reference, pin): new net}). Each is
+# one wire, wrong only for some values.
+HANDMADE = [
+    ("immediate unit: a 16-bit displacement sign-extended from T[14], not T[15]",
+     {("U_FILLM", "D4"): "TQ14"}),
+    ("byte lanes: a byte at an odd address gets its bit 3 from T[12], not T[11]",
+     {("U_BT10", "A4"): "TQ12"}),
+    ("carry lookahead: nibble 2's generate taken from its propagate",
+     {("U_CLA0", "G2"): "ALUP2"}),
+    ("result multiplexer: RRC shifts in V, not C",
+     {("U_SINM", "D2"): "VFLAG"}),
+    ("flags: ADC and SBC's Z not sticky (the gate's Z input tied high)",
+     {("@ZSTICKY", "ZFLAG"): "VCC"}),
+    ("store data: bits 14 and 15 of the low half swapped",
+     {("U_DR1", "A7"): "RES15", ("U_DR1", "A8"): "RES14"}),
+    ("PC: the carry into bits 25-28 comes early (only above 1 MB)",
+     {("@PCE6", "PCRCO5"): "VCC"}),
+]
+
+
+def _resolve(nl, changes):
+    """{(ref, pin): net}, with ("@NET", input net) naming the gate that
+    drives NET and its pin on that input."""
+    out = {}
+    for (ref, pin), net in changes.items():
+        if ref.startswith("@"):
+            g = next(g for g in nl.gates if nl.refs[g.ref].conn.get(g.output) == ref[1:])
+            inst = nl.refs[g.ref]
+            pin = next(p for p in g.inputs if inst.conn[p] == pin)
+            ref = g.ref
+        out[(ref, pin)] = net
+    return out
+
+
+def handmade_ucode():
+    """Microcode mutants made by hand: (description, (address, bit))."""
+    mc = v1b.microcode()
+    pos = v1b.uc._pos
+    out = []
+    # CMP rd, #-9: its own routine; the constant's bit 1 flipped (-9 -> -11)
+    node = mc.entry[("ea", 6, None, 13, 8)]
+    while "KONST" not in node.f:
+        node = node.succ[1]
+    out.append(("CMP rd, #-9 compares with -11 (a constant bit in its routine)",
+                (node.addr, pos["KONST"][0] + 1)))
+    # MOV rd, half [rn + d16]: the fill above the half from T[15], not 0
+    for n in _reachable(mc.entry[("ea", 1, None, 12, None)]):
+        if n.f.get("BF23") and n.f.get("FSEL", 0) == 0 and n.f.get("BT1"):
+            out.append(("MOV rd, half [rn + d16] sign-extends (fill select 0 -> T[15])",
+                        (n.addr, pos["FSEL"][0] + 2)))
+            break
+    return out
+
+
+def _reachable(entry):
+    seen, todo, out = set(), [entry], []
+    while todo:
+        n = todo.pop()
+        if id(n) in seen:
+            continue
+        seen.add(id(n))
+        out.append(n)
+        s = n.succ
+        if s[0] == "next":
+            todo.append(s[1])
+        elif s[0] == "branch":
+            todo += [s[2], s[3]]
+        elif s[0] == "dispatch":
+            todo += list(s[1])
+    return out
+
+
+def affected(addr):
+    """The decode cases whose routines reach the control word at addr."""
+    mc = v1b.microcode()
+    out = []
+    for c in v1b.cases():
+        if any(n.addr == addr for n in _reachable(mc.entry[c.key])):
+            out.append(c)
+    return out
+
+
+def cost(c):
+    """A rough order of how long a case takes to prove."""
+    k = c.key
+    if k[0] == "ea":
+        m = k[3]
+        if m in (1, 13):
+            return 1
+        if m == 15 and k[4] <= 3:
+            return 2
+        if m == 0:
+            return 4
+        if m == 5:
+            return 200
+        return 10 if m != 4 else 15
+    if k[0] == "sys":
+        return 10 * (k[3] - k[2] + 1) if k[1] in (5, 6) else 2
+    return {"shift": 1, "bcc": 2, "jcc": 3, "un": 2 if k[1] < 11 else 60, "shreg": 80,
+            "rr": 3 if k[1] < 4 else 10000, "illegal": 10000}[k[0]]
 
 
 # ---------------------------------------------------------------- mutants
@@ -102,7 +210,7 @@ def netlist_mutants(n, rng):
 
 def apply_netlist(changes):
     nl = copy.deepcopy(v1b.netlist())
-    for (ref, pin), net in changes.items():
+    for (ref, pin), net in _resolve(nl, changes).items():
         nl.refs[ref].conn[pin] = net
     return nl
 
@@ -146,52 +254,78 @@ def reference():
     return _ref["ex"]
 
 
-def tests_catch(nl, roms):
-    """The exercise program on the chip-level simulator: the first
-    difference from the RTL model, or None."""
+def suite():
+    """The program suite's references: [(name, input, image, Reference)]."""
+    if "suite" not in _ref:
+        from heron.infra.hw import runner
+        from heron.studies.v1b_hw import machine
+        out = []
+        for p in machine.program_paths():
+            inp = runner.program_input(p)
+            img, m = machine.run_isa(p, inp)
+            out.append((os.path.basename(p), inp, img, m))
+        _ref["suite"] = out
+    return _ref["suite"]
+
+
+def _run(nl_json, roms, img, m, inp):
     from heron import native
-    from heron.infra.hw import chips
     from heron.studies.v1b_hw import machine
-    img, m = reference()
     cfg = {"period_ps": 340_000, "seed": 1, "we_start": 0.5, "we_end": 0.875,
-           "max_cycles": m.cycles + 1000, "input": b"", "fetch_trace": 200_000,
+           "max_cycles": m.cycles + 1000, "input": inp, "fetch_trace": 200_000,
            "zero_regs": True}
     cfg.update(machine.CONFIG)
     try:
-        nl.finish()
-        hw = native.hwsim.run(nl.export(variant=chips.DEFAULT_VARIANT, corner="max"), cfg,
-                              roms, img.to_bytes(machine.RAM_BYTES))
+        hw = native.hwsim.run(nl_json, cfg, roms, img.to_bytes(machine.RAM_BYTES))
     except Exception as e:                      # noqa: BLE001
         return f"the simulator stopped: {e}"[:200]
-    diffs = machine.compare(m, hw)
+    diffs = machine.compare(m, hw, check_cycles=m.irqs == 0)
     return diffs[0] if diffs else None
 
 
-def proofs_catch(nl, roms, jobs, budget):
-    """The sample of decode cases, until one fails: (its name and what failed,
-    cases run), or (None, cases run)."""
+def tests_catch(nl, roms, whole_suite=True):
+    """The exercise program on the chip-level simulator, then (if it passes)
+    the program suite: the first difference from the RTL model, or None."""
+    from heron.infra.hw import chips
+    nl_json = nl.export(variant=chips.DEFAULT_VARIANT, corner="max")
+    img, m = reference()
+    d = _run(nl_json, roms, img, m, b"")
+    if d or not whole_suite:
+        return f"exercise: {d}" if d else None
+    for name, inp, img, m in suite():
+        d = _run(nl_json, roms, img, m, inp)
+        if d:
+            return f"{name}: {d}"
+    return None
+
+
+def proofs_catch(nl, roms, cases, jobs, budget, cap):
+    """Prove `cases` (the SAMPLE first, then cheapest first) on the mutant
+    until one fails or `cap` seconds have gone: (the failing case and what
+    failed, or None; how many cases were run)."""
     v1b._cache["nl"], v1b._cache["roms"] = nl, roms
     try:
-        cases = {c.name(): c for c in v1b.cases()}
-        todo = [cases[k] for k in SAMPLE]
+        names = {c.name(): c for c in cases}
+        first = [names[k] for k in SAMPLE if k in names]
+        rest = sorted((c for c in cases if c.name() not in SAMPLE), key=cost)
+        todo = first + rest
         out = os.path.join(BUILD, "formal", "mutant-run.json")
-        if os.path.exists(out):
-            os.remove(out)
-        first = None
+        t0 = time.time()
         ran = 0
         for i in range(0, len(todo), jobs):
+            if time.time() - t0 > cap:
+                break
             batch = todo[i:i + jobs]
+            if os.path.exists(out):
+                os.remove(out)
             res = prove.run(batch, jobs, budget, out, quiet=True)
             ran += len(batch)
             for c in batch:
                 r = res[c.name()]
                 if r["status"] in ("fail", "error"):
                     detail = r.get("error") or next((p[2] for p in r["paths"] if p[0] != "proved"), "")
-                    first = f"{c.name()}: {r['status']}: {detail}"[:200]
-                    break
-            if first:
-                break
-        return first, ran
+                    return f"{c.name()}: {detail}"[:200], ran
+        return None, ran
     finally:
         del v1b._cache["nl"], v1b._cache["roms"]
         v1b.netlist()
@@ -200,11 +334,12 @@ def proofs_catch(nl, roms, jobs, budget):
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="heron formal mutate")
-    p.add_argument("-n", type=int, default=30, help="mutants of each kind")
+    p.add_argument("-n", type=int, default=12, help="random mutants of each kind")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--jobs", type=int, default=4)
-    p.add_argument("--budget", type=int, default=120, help="seconds per decode case")
-    p.add_argument("--kind", choices=("netlist", "ucode", "both"), default="both")
+    p.add_argument("--budget", type=int, default=300, help="seconds per decode case")
+    p.add_argument("--cap", type=int, default=1200, help="seconds of proving per mutant")
+    p.add_argument("--only", choices=("handmade", "random"), help="one set of mutants")
     p.add_argument("--out", default=OUT)
     args = p.parse_args(argv)
     rng = random.Random(args.seed)
@@ -212,24 +347,29 @@ def main(argv=None):
     v1b.roms()
     reference()
     muts = []
-    if args.kind in ("netlist", "both"):
-        muts += [("netlist", d, c) for d, c in netlist_mutants(args.n, rng)]
-    if args.kind in ("ucode", "both"):
-        muts += [("ucode", d, c) for d, c in ucode_mutants(args.n, rng)]
+    if args.only != "random":
+        muts += [("netlist", "handmade", d, c) for d, c in HANDMADE]
+        muts += [("ucode", "handmade", d, c) for d, c in handmade_ucode()]
+    if args.only != "handmade":
+        muts += [("netlist", "random", d, c) for d, c in netlist_mutants(args.n, rng)]
+        muts += [("ucode", "random", d, c) for d, c in ucode_mutants(args.n, rng)]
     results = []
-    for i, (kind, desc, change) in enumerate(muts):
+    for i, (kind, origin, desc, change) in enumerate(muts):
         t0 = time.time()
         if kind == "netlist":
             nl, roms = apply_netlist(change), v1b.roms()
+            cases = v1b.cases()
         else:
-            nl, roms = copy.deepcopy(v1b.netlist()), apply_ucode(change)
-        tested = tests_catch(copy.deepcopy(nl), roms)
-        proved, ran = proofs_catch(nl, roms, args.jobs, args.budget)
-        results.append({"kind": kind, "mutation": desc, "tests": tested, "proofs": proved,
-                        "cases_run": ran, "seconds": time.time() - t0})
-        print(f"[{i + 1}/{len(muts)}] {kind:<7} {desc}\n"
-              f"    tests:  {tested or '-'}\n    proofs: {proved or '-'} ({ran} cases)",
-              flush=True)
+            nl, roms = v1b.netlist(), apply_ucode(change)
+            cases = affected(change[0])
+        tested = tests_catch(nl, roms)
+        proved, ran = proofs_catch(nl, roms, cases, args.jobs, args.budget, args.cap)
+        results.append({"kind": kind, "origin": origin, "mutation": desc, "tests": tested,
+                        "proofs": proved, "cases_run": ran, "cases": len(cases),
+                        "seconds": time.time() - t0})
+        print(f"[{i + 1}/{len(muts)}] {origin} {kind}: {desc}\n"
+              f"    tests:  {tested or '-'}\n"
+              f"    proofs: {proved or '-'} ({ran} of {len(cases)} cases)", flush=True)
         os.makedirs(os.path.dirname(args.out), exist_ok=True)
         with open(args.out, "w") as f:
             json.dump(results, f, indent=1)
