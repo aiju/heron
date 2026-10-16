@@ -2,7 +2,7 @@
 number: 31
 type: rfc
 title: Draft 2's CPU
-status: draft
+status: open
 date: 2026-10-16
 context:
   studies: [v2_hw, v2_isa, v1b_hw, v1b_tradeoffs, c_compiler]
@@ -110,13 +110,13 @@ map and the card's RAM.
 - **Two copies,** A and B, each two 64K × 16 SRAMs, written together and
   read separately: copy A drives the A bus, copy B the B bus. Each read
   goes through a latch (74ABT573) that closes before the write.
-- **Addresses, 14 bits:** `{G, bank[7:0], reg[4:0]}`.
-  - `G = 0`: the banks of RFC 0029, 5. In each, 0–15 are `r0`–`r15`, 16 is
-    `HI` and 17 is `LO`.
-  - `G = 1`: the microcode's own locations: scratch (`TMP1`–`TMP3`),
-    constants the reset routine writes (0, all ones, `0x8000_0000`, the
-    vectors, masks), and the copies of `ctx`, `bank` and `mapa` that
-    `MFSR` reads.
+- **Addresses, 14 bits:**
+  - `{0, bank[7:0], reg[4:0]}`: the banks of RFC 0029, 5. In each, 0–15
+    are `r0`–`r15`, 16 is `HI` and 17 is `LO`.
+  - `{1, 0000000, k[5:0]}`, k = 32–63: the microcode's own locations:
+    scratch (`TMP1`–`TMP3`), constants the reset routine writes (0, all
+    ones, `0x8000_0000`, the vectors, masks), and the copies of `ctx`,
+    `bank` and `mapa` that `MFSR` reads.
 - **The register number** comes from `rd` (IR[15:12]), `R` (IR[11:8]),
   the counter SX, or the microinstruction's constant: `RFA`, `RFB` and
   `RFW` pick it for each port, `RFK` is the read constant and `RFKW` the
@@ -245,8 +245,8 @@ The flags word of RFC 0029, 2: V, C, Z, N, I, S, T.
   B, or comes from B.
 - **Alignment.** A half at an odd address or a word at an address that
   isn't a multiple of 4 is an address error.
-- **The card's RAM:** 2 MB (four 512K × 8 SRAMs), in slot 0
-  ([6](#6-the-bus-and-the-slave-port)). A read latches the aligned word into T;
+- **The card's RAM:** 2 MB (four 512K × 8 SRAMs), repeated through
+  slot 0 as the CPU sees it ([6](#6-the-bus-and-the-slave-port)). A read latches the aligned word into T;
   the B lanes take the bytes the size and address pick. A store puts the
   A bus on the data lanes, replicated by size, with byte enables from the
   size and address.
