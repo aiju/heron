@@ -48,16 +48,16 @@ measures native code. The tables are generated:
    runs every C program right, at 9.9 cycles an instruction: 3.7 times
    native draft 2's time for the same programs. The 6502 passes the
    functional test, 30.6 million instructions in 15.4 s, about 2 million
-   instructions a second. Draft 1b's binaries run as they are, all 34
-   programs, at 1.14 times draft 2's own time and 1.18 times faster than
-   draft 1b's own fast hardware.
+   instructions a second. Draft 1b's binaries run as they are, all 35
+   programs, at 1.14 times draft 2's own time (1.16 for compiled C), and
+   1.18 times faster than draft 1b's own fast hardware.
 2. **Thumb needs one small change, and then runs nearly at native speed.**
    With D1, a decode table that also gives the instruction register to
-   load and an immediate, Thumb runs at 2.2 cycles an instruction, 2.3
-   times draft 2's time; it executes 2.7 times as many instructions as
-   draft 2 does for the same C. D1 is two more 64K × 16 SRAMs beside the
-   decode table, a 16-bit register and its B-bus drivers, and no control
-   bits.
+   load and an immediate, Thumb runs at 2.4 cycles an instruction, each
+   in about the time of a draft 2 instruction; it takes 2.6 times draft
+   2's time because it executes 2.7 times as many instructions for the
+   same C. D1 is two more 64K × 16 SRAMs beside the decode table, a
+   16-bit register and its B-bus drivers, and no control bits.
 3. **What decides how well a guest fits is where its register numbers
    are.** Draft 2 addresses the register file by IR[15:12], IR[11:8], the
    counter SX (loaded from a nibble of IR or of the head parcel) or a
@@ -245,12 +245,13 @@ where the branch-condition logic doesn't look: a table in the register
 file (the bank named by the flags byte, location 17 + cc) gives the
 answer in two cycles.
 
-All 34 programs (19 hand-written, 15 compiled) run right, in lockstep
+All 35 programs (20 hand-written, 15 compiled) run right, in lockstep
 with draft 1's simulator, but `interrupts`, whose timer interrupts arrive
 at other instructions than the simulator's and which is checked by its
 output. On the 18 hand-written programs report 0031 compares, 1b's
-binaries take 1.14 times the time of draft 2's own versions, and on the
-13 that don't print, 1.18 times less than draft 1b's own fast system
+binaries take 1.14 times the time of draft 2's own versions (the
+compiled C, 1.16 times draft 2's compiled C), and on the 13 that don't
+print, 1.18 times less than draft 1b's own fast system
 ([RFC 0024](0024-rfc-faster-smaller/results.md#the-fast-system)). So
 draft 2's CPU could carry 1b's software with it, if that were wanted.
 
@@ -268,11 +269,11 @@ selectors `d` and `r` look (a third register is a constant of the
 routine), and the instruction's immediate, already shifted, scaled and
 offset as the routine wants it, which BX = 6 (a free code) puts on the
 B bus. Then most Thumb instructions are one or two cycles, as draft 2's
-are: 2.2 cycles an instruction. It takes 2.3 times draft 2's time, but
-because Thumb needs 2.7 times as many instructions for the same C
-(Cortex-M0 code has eight registers for most things, no indexed modes
-with scaling, and short immediates); a Thumb instruction takes 13% less
-time than a draft 2 one.
+are: 2.4 cycles an instruction, 245 ns against draft 2's 257 ns for the
+same programs. It takes 2.6 times draft 2's time because Thumb needs 2.7
+times as many instructions for the same C: Cortex-M0 code has eight
+registers for most things, two-address arithmetic, no scaled or
+displaced indexed modes, and short immediates.
 
 Without D1, Thumb would be done as RV32 is, through BANK, at some 6 to 8
 cycles an instruction.
@@ -285,7 +286,7 @@ cycle for cycle):
 
 | Change | What | Cost | Who needs it |
 |---|---|---|---|
-| **D1** a wider decode table | for each first parcel, also the IR to load and a 16-bit immediate (sign-extended, on B by BX = 6) | two 64K × 16 SRAMs, a 16-bit register, B-bus drivers, a mux on the IR's input; no control bits | Thumb (2.2 cycles an instruction against RV32-like 6-8), and on paper the PDP-11 and 68000 |
+| **D1** a wider decode table | for each first parcel, also the IR to load and a 16-bit immediate (sign-extended, on B by BX = 6) | two 64K × 16 SRAMs, a 16-bit register, B-bus drivers, a mux on the IR's input; no control bits | Thumb (2.4 cycles an instruction against RV32-like 6-8), and on paper the PDP-11 and 68000 |
 | **D2** decode table pages | two status-word bits (9-8, ISA) extend the decode table's address, and D1's; RTI loads them, exception entry clears them | 256K-deep decode SRAMs (or four times as many), two flip-flops | user processes in different instruction sets |
 | **D3** a 64K-word reachable control store | NEXT 16 bits wide; decode entries stay 13 bits, so routines start in the first 8K and continue anywhere | the control word's three spare bits, three more bits of next-address path | draft 2 beside any guest but the 6502; the 68000, the 8086, the VAX on paper |
 
