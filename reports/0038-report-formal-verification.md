@@ -222,4 +222,91 @@ A proof here is only as good as what it stands on:
 
 ## Part II: Findings
 
-Being written.
+### 6. Results
+
+RESULTS
+
+### 7. What the microcode relies on
+
+The abstraction in [section 1](#1-what-is-proved) is the list of what
+the microcode assumes at an instruction boundary. Writing it down was
+part of the work, since a proof fails until it is complete, and some of
+it isn't written anywhere else:
+
+- **The loop counts are sign-extended.** Register file entries 24 and 25
+  hold the counts the multiply, divide and shift loops start from. The
+  reset routine writes them as the signed bytes −31 and −32, so they are
+  `0xFFFFFFE1` and `0xFFFFFFE0`, not the `0xE1` and `0xE0` of
+  `ucode.RF_CONSTS`. Only their low byte is ever loaded into LC, so it
+  doesn't matter, but the first reset proof failed on it.
+- **Both register file copies must agree, and reset doesn't make them.**
+  The A copy feeds the A bus and the B copy the B bus, so `ADD r1, r1`
+  adds one copy's r1 to the other's. Every write goes to both copies.
+  But reset writes only r0, HI and the two loop counts. Until a program
+  writes r1–r15, their two copies hold whatever the RAMs powered up
+  with, and an instruction that reads one of them on both buses sees two
+  different values. The instruction-level simulator starts with every
+  register 0, and so do the chip-level runs (`zero_regs`), so no test
+  can see it. Either RFC 0004 says the registers are undefined after
+  reset and programs mustn't read them before writing them, or the reset
+  routine clears r1–r15: 15 more cycles at reset.
+- **The rest is as expected:** entry 0 holds 0, entry 16 is HI, no
+  interrupt is pending, and the scratch entries (17 is `TMP1`) are
+  written before they are read. Nothing else carries over from one
+  instruction to the next. R, T, MAR, MQ, LC and the condition latches
+  can be anything at a boundary.
+
+### 8. What it costs, and what made it cheaper
+
+COSTS
+
+### 9. Breaking the hardware on purpose
+
+MUTANTS
+
+### 10. Draft 2
+
+The draft 2 CPU ([RFC 0031](0031-rfc-draft-2-cpu.md), on its branch) is
+the design this would matter for. Most of the method carries over:
+
+- the specification language: RFC 0028's instruction set can be written
+  in it as it is, and checked against draft 2's simulator the same way;
+- symsim's models of the parts the two netlists share, and the splitting
+  at the control store's address. The control store and the decode
+  table are SRAMs there, which the I/O processor fills at boot; with the
+  boot image's contents they are ROMs to the proof;
+- decode cases, cut-points, proving goals in groups.
+
+What doesn't:
+
+- **Phases within a cycle.** Draft 2's cycle is 4 to 19 ticks of a
+  50 MHz clock. The register file is read through transparent latches
+  (74F573) and written in the last tick; T loads through latches late in
+  the cycle; the memory write window opens at tick 4. 1b's two phases
+  (write window, then edge) aren't enough. The simulator would need
+  either a sequence of phases per microcycle, with latch models, or a
+  step per tick with the clock generator itself in the netlist (its tick
+  counter, the length classes from the uIR). The second proves the clock
+  generator too, and costs more steps, each cheap.
+- **The prefetch queue.** At an instruction boundary the queue holds
+  some parcels ahead of the PC, depending on what came before. The
+  abstraction must say that what it holds is memory at FPC, and the
+  cases split on how full it is.
+- **The system architecture.** The page map, supervisor mode, the fault
+  registers and forced microcode entries are in RFC 0029. The
+  specification must have them, and translation adds splits (a page
+  fault or not) and array reads (the map) to every access.
+- **Size:** 456 parts against 1b's 216, with eight kinds 1b's netlist
+  doesn't use: the 573 latches, the 574 registers, a 74x109, a 138
+  decoder, a 163 counter, and the oscillator, power-on reset and pull-ups
+  of a card that makes its own clock.
+
+None of this looks out of reach, and the multiply and divide will be as
+hard as 1b's. The specification is useful on its own and the cheapest
+step: written in this language and checked against the simulator, it
+makes RFC 0028 executable and precise. On 1b, writing it found one
+question RFC 0004 doesn't answer ([3](#3-the-specification-side)).
+
+### 11. What next
+
+NEXT

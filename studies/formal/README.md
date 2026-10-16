@@ -27,7 +27,7 @@ specification of draft 1b, run the same way, one instruction at a time.
   path; and reset reaches a boundary.
 
 It uses z3 (`pip install z3-solver`), which nothing else in the
-repository needs.
+repository needs. Report: [0038](../../reports/0038-report-formal-verification.md).
 
 | File | What's in it |
 |---|---|
@@ -38,11 +38,15 @@ repository needs.
 | `symsim.py` | Symbolic simulation of a netlist, cycle by cycle: models of the chip library's parts, three-state buses (contention as proof obligations), splits at the ROMs |
 | `v1b.py` | The 1b hardware under it: the state by name, the I/O page fixture, the abstraction at an instruction boundary, the decode cases, the proofs (and reset) |
 | `prove.py` | Proving decode cases in parallel, each with a time budget |
+| `mutate.py` | Mutation testing: mistakes put into the netlist or the microcode on purpose (by hand, and at random), and whether the chip-level tests and the proofs catch them |
+| `report.py` | Report 0038's generated tables, from the proof and mutation runs |
 
 ```sh
 heron formal isacheck -n 20000 --coverage      # the specification against the simulator
 heron formal prove --kind un                    # prove the unary group's decode cases
 heron formal prove --key "ea 4 None 0 None"     # one case: ADD rd, rn
-heron formal prove --jobs 4 --budget 600        # every case (hours; results in build/formal/)
+heron formal prove --jobs 4 --budget 1800       # every case (hours; results in build/formal/)
+heron formal mutate                             # mutation testing (hours)
+heron formal report --write                     # report 0038's results.md, from both
 heron test formal                               # the unit tests
 ```
