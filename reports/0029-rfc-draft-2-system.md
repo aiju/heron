@@ -23,20 +23,22 @@ from and why. The instructions' encodings are in
 
 To the machine of RFC 0028 this adds:
 
-- **two modes,** supervisor and user ([2](#2-modes-and-the-flags-word));
+- **two modes,** supervisor and user ([2](#2-modes-and-the-status-register));
 - **an address space** whose upper half is a window onto physical memory
   for the supervisor, and whose lower part is translated by a page map
   ([3](#3-the-address-space));
 - **special registers** 8–15, for the supervisor ([4](#4-special-registers));
 - **register banks,** one per thread ([5](#5-register-banks));
-- **exceptions** that are precise and vectored ([6](#6-exceptions)).
+- **exceptions** that are precise and vectored ([6](#6-exceptions));
+- **interrupts** at eight priority levels ([7](#7-interrupts)).
 
-### 2. Modes and the flags word
+### 2. Modes and the status register
 
-- **Supervisor and user mode.** The S bit of the flags word says which.
-  Reset enters supervisor mode, every exception enters it, and `RTI` takes
-  the mode from the flags word it pops. Nothing else changes S.
-- **The flags word:**
+- **Supervisor and user mode.** The S bit of the status register `sr`
+  says which. Reset enters supervisor mode, every exception enters it, and
+  `RTI` takes the mode from the status word it pops. Nothing else changes
+  S.
+- **The status register** `sr`, special register 8:
 
   | Bit | Name | |
   |---|---|---|
@@ -44,19 +46,24 @@ To the machine of RFC 0028 this adds:
   | 1 | C | carry |
   | 2 | Z | zero |
   | 3 | N | negative |
-  | 4 | I | interrupts enabled |
-  | 5 | S | supervisor mode |
-  | 6 | T | trace: trap after every instruction |
-  | 7 | | reserved |
-  | 8–10 | | reserved for an interrupt priority level ([7](#7-interrupts), open) |
-  | 11–31 | | reserved |
+  | 4–7 | | reserved for user flags |
+  | 8–23 | | reserved |
+  | 24–27 | IPL | interrupt priority level, 0–8: requests below it are held off ([7](#7-interrupts)) |
+  | 28 | | reserved |
+  | 29 | T | trace: trap after every instruction |
+  | 30 | I | interrupts enabled |
+  | 31 | S | supervisor mode |
 
   Reserved bits read as 0 and must be written as 0.
-- **`MTSR flags, rs`** sets N, Z, C and V in user mode, and every bit but
-  S in supervisor mode.
-- **Privileged instructions:** `HALT`, `EI`, `DI`, `RTI`, `MFUR`, `MTUR`,
-  and `MFSR` and `MTSR` of special registers 8–15. In user mode they raise
-  a privilege violation ([6](#6-exceptions)).
+- **The condition-code register** `ccr`, special register 0, is `sr`'s
+  byte 0, the condition codes: reading it gives byte 0 zero-extended, and
+  writing it changes byte 0 alone. User mode reads and writes `ccr`; `sr`
+  is privileged, to read and to write (**decided**, Emily, 2026-10-16).
+  `MTSR sr, rs` changes every bit but S, and ignores what `rs` has in bit
+  31 (**open**).
+- **Privileged instructions:** `HALT`, `EI`, `DI`, `SPL`, `RTI`, `MFUR`,
+  `MTUR`, and `MFSR` and `MTSR` of special registers 8–15. In user mode
+  they raise a privilege violation ([6](#6-exceptions)).
 
 ### 3. The address space
 
@@ -116,19 +123,19 @@ A virtual address's bit 31 picks how it is mapped:
 
 | n | Name | |
 |---|---|---|
-| 0 | `flags` | the flags word ([2](#2-modes-and-the-flags-word)) |
+| 0 | `ccr` | the condition codes, `sr`'s byte 0 ([2](#2-modes-and-the-status-register)) |
 | 1 | `hi` | `HI` |
 | 2 | `lo` | `LO`, for `MULA` (tentative, [RFC 0028, 5.10](0028-rfc-draft-2-isa.md#510-tentative-instructions)) |
 | 3 | | reserved for the FPU's control and status |
 | 4–7 | | reserved |
-| 8 | `far` | read only: the address of the last page fault or address error |
-| 9 | `fsr` | read only: why the last page fault happened ([3](#3-the-address-space)) |
-| 10 | `ctx` | the page map context, 0–127 |
-| 11 | `mapa` | the map address: context × 4096 + page, 0–524,287 |
-| 12 | `mapd` | the map entry at `mapa`; writing it moves `mapa` on by one |
-| 13 | `bank` | the register bank user mode runs in, 0–255 |
-| 14 | `bkpt` | open: a breakpoint address |
-| 15 | | reserved |
+| 8 | `sr` | the status register ([2](#2-modes-and-the-status-register)) |
+| 9 | `far` | read only: the address of the last page fault or address error |
+| 10 | `fsr` | read only: why the last page fault happened ([3](#3-the-address-space)) |
+| 11 | `ctx` | the page map context, 0–127 |
+| 12 | `mapa` | the map address: context × 4096 + page, 0–524,287 |
+| 13 | `mapd` | the map entry at `mapa`; writing it moves `mapa` on by one |
+| 14 | `bank` | the register bank user mode runs in, 0–255 |
+| 15 | `bkpt` | open: a breakpoint address |
 
 Reserved registers read as 0 and ignore writes.
 
@@ -147,7 +154,7 @@ Reserved registers read as 0 and ignore writes.
 | Vector | Exception | Saved PC |
 |---|---|---|
 | `0x8000_0000` | reset | – |
-| `0x8000_0004` | interrupt ([7](#7-interrupts)) | the next instruction |
+| `0x8000_0004` | non-maskable interrupt ([7](#7-interrupts), open) | the next instruction |
 | `0x8000_0008` | illegal instruction | the instruction |
 | `0x8000_000C` | reserved | |
 | `0x8000_0010` | divide error | the instruction |
@@ -156,17 +163,17 @@ Reserved registers read as 0 and ignore writes.
 | `0x8000_001C` | privilege violation | the instruction |
 | `0x8000_0020` | page fault ([3](#3-the-address-space)) | the instruction |
 | `0x8000_0024` | trace | the next instruction |
+| `0x8000_0040` + 4L | interrupt at level L, 0–7 ([7](#7-interrupts)) | the next instruction |
 | `0x8000_0100` + 4n | `SWI #n`, n = 0–255 | the next instruction |
 
 - **Vectors** are 4 bytes apart, room for one two-parcel instruction,
   normally a relative `JMP` to the handler.
 - **Entering an exception:**
   1. switch to supervisor mode and bank 0;
-  2. push the PC, then the flags word as it was, on bank 0's `sp`;
+  2. push the PC, then `sr` as it was, on bank 0's `sp`;
   3. clear I and T;
   4. jump to the vector.
-- **`RTI`** pops the flags word, then the PC, and with them the mode and
-  the bank.
+- **`RTI`** pops `sr`, then the PC, and with them the mode and the bank.
 - **Precise faults.** Where the saved PC is the instruction's own, the
   instruction has changed neither the flags nor the PC, nor any register
   it addresses memory with. It may already have loaded registers or
@@ -186,16 +193,52 @@ Reserved registers read as 0 and ignore writes.
 
 ### 7. Interrupts
 
-**Open:** priority levels, their masking and where each one's vector
-comes from. Until then there is one interrupt request, level-triggered,
-taken between instructions when I is set, through vector `0x8000_0004`:
-never straight after `EI`, possibly straight after `DI`, and straight
-after `RTI` if the flags it restores enable it. `HALT` with I set waits
-for an interrupt.
+- **Eight request lines,** levels 0–7, 7 the highest. Each is one of the
+  system bus's interrupt lines IRQ0–IRQ7
+  ([RFC 0014, 8.3](0014-rfc-system-bus.md#83-interrupts-and-synchronisation)),
+  or, chosen by a jumper on the CPU's board, a source on that board in
+  its place.
+- **Level-sensitive:** a source holds its request until its handler
+  clears the cause. Several sources may share a level; the handler finds
+  out which by asking them.
+- **Taken** between instructions, when I is set and the highest level L
+  requesting is at least IPL: never straight after `EI`, possibly
+  straight after `DI`, and straight after `RTI` if the status it restores
+  allows it. IPL above 8 holds off every level, as 8 does.
+- **Entering** an interrupt is entering an exception ([6](#6-exceptions)),
+  and also sets IPL to L + 1. The vector is `0x8000_0040` + 4L.
+  - I is clear in the handler. Executing `EI` lets higher levels in, which
+    is how interrupts nest.
+  - `RTI` restores the I and IPL of the code it returns to.
+- **`SPL #n`** sets IPL to n, 0–8, and changes nothing else
+  ([RFC 0028, 5.9](0028-rfc-draft-2-isa.md#59-system-instructions)). The
+  kernel raises IPL around a critical section and puts back what was
+  there with:
+
+  ```
+          MFSR r1, sr      ; save
+          SPL  #5          ; raise
+          ...
+          MTSR sr, r1      ; restore
+  ```
+
+  The restore puts back I, T and the condition codes as well.
+- **A request that has gone** by the time its handler asks is answered by
+  returning.
+- **`HALT`** with I set waits for an interrupt, and resumes after the
+  `HALT` once the handler returns. With I clear it stops until reset.
+- **A non-maskable interrupt (open):** room for one, from the CPU's own
+  board, through vector `0x8000_0004`, taken between instructions whatever
+  I and IPL. Its source, how it's triggered, and what it does to I and
+  IPL are open.
+- **A register bank per level,** so that a handler saves nothing, is
+  open: interrupts enter bank 0, as every exception does.
+- **The timer** and other sources on the CPU's board are devices, outside
+  this RFC.
 
 ### 8. Reset
 
-Supervisor mode, bank 0, I and T clear, `ctx` and `bank` 0, and the PC at
+Supervisor mode, bank 0, I and T clear, IPL, `ctx` and `bank` 0, and the PC at
 the reset vector, which is physical address 0. Everything else is
 undefined.
 
@@ -216,6 +259,26 @@ keeps what worked and changes the rest.
   set it, and the nucleus once dropped into user mode by writing the
   flags back without it
   ([report 0020](0020-report-operating-system.md#protection-modes-and-the-stack)).
+- **The supervisor's bits at the top of `sr`** (Emily, 2026-10-16),
+  where draft 1 had I next to N, Z, C and V:
+  - byte 0 is all the user's, so `ccr` is one byte lane, with no bits to
+    mask;
+  - S is the sign bit, so a handler tests where an exception came from
+    with `MOVS` on the saved status word and `BMI`, and it means
+    supervisor as bit 31 of an address does ([3](#3-the-address-space));
+  - both ends have room: user flags in bits 4–7, the supervisor's below
+    bit 29.
+- **`ccr` as `sr`'s low byte** (Emily, 2026-10-16), as the 68000's
+  `CCR` is its `SR`'s:
+  - one status word goes into the exception frame and comes back with
+    `RTI`;
+  - user code sees only the condition codes, and the rest traps, so a
+    kernel run deprivileged can't read or quietly fail to set S, I or T.
+    That is what classical virtualisation needs from the status word; the
+    68010 made reading the 68000's `SR` privileged for the same reason.
+  - user code rarely writes `ccr` at all: a switch between user threads is
+    a call, which keeps no flags. It's for upcalls that return without a
+    system call, and for emulators.
 - **The window at bit 31,** proposed by Emily (2026-10-15), instead of
   v1bs's flag bits XL and XS, which made the supervisor's loads or stores
   go through the user's map.
@@ -247,6 +310,24 @@ keeps what worked and changes the rest.
   each number gets its own microcode entry. A null system call spent 16
   of its 39 cycles dispatching
   ([report 0020](0020-report-operating-system.md#the-paths-measured)).
+- **Interrupts by level, with vectors from the CPU.** The bus has eight
+  open-collector lines and no acknowledge cycle, so a vector per level
+  costs nothing on the bus and keeps simple cards simple; a vector from
+  the device, as on the PDP-11, would need a bus cycle to fetch it.
+  - Raising IPL to L + 1 on entry, with I clear, holds off the level being
+    handled and everything below; a handler that executes `EI` lets
+    higher levels in, so nesting is the handler's choice. Four bits of IPL
+    are needed for that: 0 allows every level, 8 none.
+  - Report 0020 measured 500–640 cycles to hand an interrupt to a
+    user-level driver, so devices should interrupt for a buffer, not a
+    byte ([report 0020](0020-report-operating-system.md#interrupts-and-devices)).
+  - **`SPL #n`** is the PDP-11's. Without it, raising IPL takes a read,
+    two masks and a write, five instructions and seven parcels; with it,
+    saving and raising take two parcels. Its nine values fit the `FE`
+    grid's second byte, so it needs no root cell.
+  - The non-maskable interrupt is for a front-panel halt or a debugger
+    button, which helps most while the hardware is being brought up. The
+    bus has no line for it.
 - **Special registers 8–15 are the supervisor's,** so the privilege check
   is one bit. v1bs's numbering grew one register at a time.
 - **Full banks, the kernel in bank 0.** v1bs offered three policies;
@@ -290,21 +371,33 @@ keeps what worked and changes the rest.
 
 ### 11. Open questions
 
-1. **Interrupt levels:** how many, how they're masked (bits 8–10 of the
-   flags word are reserved for it), and whether a vector comes from the
-   level or from the device, as
-   [RFC 0009](0009-rfc-ideas-io.md#1-io) proposes. Whether each level
-   gets a register bank, so that a handler saves nothing.
+1. **Interrupts:** whether each level gets a register bank, so that a
+   handler saves nothing; and the non-maskable interrupt's source,
+   triggering, and effect on I and IPL.
 2. **The physical memory map:** where RAM, ROM, the I/O registers and the
    slots sit, now that the window reaches only the lower 2 GB, and what
    an access that nothing answers does.
 3. **A bank-to-bank copy** of `r0`–`r7`, which would win back most of the
    message cost of full banks.
-4. **The breakpoint register** (special register 14).
+4. **The breakpoint register** (special register 15).
 5. **Boot:** the reset vector is physical address 0, so a ROM has to be
    there at reset ([RFC 0010, 2](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)).
 6. **`LDM` and `STM` with the base register in their range.**
 7. **When, if ever, a tagged translation cache replaces the map.**
+8. **Virtualisation.** With `ccr` and `sr` split, the status word no
+   longer stands in the way, but the address space does: a guest kernel
+   lives in the window, which user mode can't map, so a hypervisor can't
+   run it natively. Guests could be paravirtualised (linked into the low
+   16 MB, calling the hypervisor with `SWI`), a context could map the
+   window in user mode, or virtualisation needn't be a goal.
+9. **`MTSR sr` and S.** The proposal: it leaves S alone and ignores bit
+   31 of what it writes. Leaving supervisor mode always goes with a jump,
+   which `RTI` does in one step; clearing S on its own would switch the
+   register bank under the next instruction and fetch it from the window,
+   which user mode can't reach. Ignoring the bit also keeps a
+   read-modify-write of `sr` from dropping privilege. The alternative is
+   to trap when bit 31 is clear, which would catch the mistake report
+   0020's nucleus made instead of hiding it.
 
 ### 12. Next steps
 

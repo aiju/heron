@@ -42,10 +42,10 @@ the format of the opcode explorer it was laid out with.
   | `r15`, `sp` | also the stack pointer, which `SAVE`, `RESTORE`, mode 4 and exceptions use |
   | `PC` | 32 bits, always even |
   | `HI`, `LO` | special registers 1 and 2: multiply, divide and `MULA` |
-  | flags | N (negative), Z (zero), C (carry), V (overflow), in the flags word, special register 0 |
+  | `ccr` | the condition codes N (negative), Z (zero), C (carry) and V (overflow): special register 0, the low byte of the status register `sr` |
 
-  The flags word's other bits, the special registers above 2, the modes,
-  register banks, address translation, exceptions and reset are
+  The status register's other bits, the special registers above 2, the
+  modes, register banks, address translation, exceptions and reset are
   [RFC 0029](0029-rfc-draft-2-system.md)'s. The calling convention beyond
   `r7` and `sp` is **open**.
 
@@ -216,11 +216,12 @@ The extension grids, by their second byte:
 | | | `FE 01` | `DI` |
 | | | `FE 02` | `RTI` |
 | | | `FE 03` | `HALT` |
+| | | `FE 10`–`FE 18` | `SPL #n` |
 
 Free, and so trapping: the root cells `C3`, `C7`, `CB`, `CF`, `EF` and
-`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE FF`. `CAS` (`F7`) and the
-floating-point escape (`F8`) are **open** and trap until they're
-designed. What becomes of `FD` is **open**.
+`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE 0F` and `FE 19`–`FE FF`. `CAS`
+(`F7`) and the floating-point escape (`F8`) are **open** and trap until
+they're designed. What becomes of `FD` is **open**.
 
 ### 5. Instructions
 
@@ -411,6 +412,7 @@ In place, in row C:
 | `EI`, `DI` | `FE 00`, `FE 01` | interrupts on, off |
 | `RTI` | `FE 02` | return from an exception |
 | `HALT` | `FE 03` | stop; with interrupts on, wait for one |
+| `SPL #n` | `FE 10`–`FE 18` | the interrupt priority level ← n, 0…8, from the second byte's low nibble |
 | `ILLEGAL` | `00`, `FF` | an illegal instruction |
 
 What each special register is, which instructions are privileged, and
@@ -488,8 +490,8 @@ names may be written in either case is **open**.
   what to write instead.
 - **One spelling per instruction:** the assembler takes what the
   disassembler prints (**open**).
-- **Special registers** are written `flags`, `hi`, `lo` or a number;
-  RFC 0029 names the rest.
+- **Special registers** are written by name (`ccr`, `hi`, `lo`, and
+  RFC 0029's, such as `sr`) or by number.
 - **Branches and calls:** `Bcc label`, `BRA`, `BSR`; `JMP label` and
   `CALL label` are `Jcc` with cc = E and F, and `JMP #label` is `JMP ea`.
   A `Bcc` out of reach becomes the `Jcc` with the same condition, and
