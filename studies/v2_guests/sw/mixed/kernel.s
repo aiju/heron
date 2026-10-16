@@ -11,7 +11,6 @@
 ; procs. The kernel is linked at 0x8000_0000, in the supervisor's window,
 ; so its code and data are where they are whatever context is current.
 ;
-;! max-cycles: 400000000
 
 P_CTX    = 0
 P_BANK   = 4
@@ -238,22 +237,33 @@ s_done:   .asciz "kernel: no process left\n"
 
         .include "../../../v2_isa/programs/lib/console.s"
 
-; print_u32: r1 unsigned, in decimal. Clobbers r1-r5 and HI. (The
-; library's print.s indexes a table by a 24-bit address, which the window
-; isn't.)
+; print_u32: r1 unsigned, in decimal. Clobbers r1-r5. By subtracting
+; powers of ten: no divide, whose remainder the tools in this tree and the
+; v2_hw microcode put in different places. (And the library's print.s
+; indexes a table by a 24-bit address, which the window isn't.)
 print_u32:
-        MOV  r4, sp
-        MOV  r5, #10
-.div:   DIVU r1, r5             ; r1 /= 10, HI = the digit; Z: nothing left
-        MFHI r3
-        PUSH r3
-        BNE  .div
-.out:   POP  r1
-        ADD  r1, #'0'
-        MOV  byte [CONSOLE], r1
-        CMP  sp, r4
-        BNE  .out
+        MOV  r4, #pow10
+        CLR  r5                 ; not 0 once a digit isn't
+.next:  MOV  r2, [r4]+
+        CLR  r3
+.sub:   CMP  r1, r2
+        BLO  .digit
+        SUB  r1, r2
+        INC  r3
+        BRA  .sub
+.digit: OR   r5, r3
+        CMP  r2, #1
+        BEQ  .out               ; the units always print
+        TST  r5, r5
+        BEQ  .next              ; no leading zeros
+.out:   ADD  r3, #'0'
+        MOV  byte [CONSOLE], r3
+        CMP  r2, #1
+        BNE  .next
         RET
+
+        .align 4
+pow10:  .word 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1
 
 ; print_hex: the low r2 hex digits of r1. Clobbers r1-r4
 print_hex:

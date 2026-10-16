@@ -54,12 +54,15 @@ P_SIZE = 32
 # The draft 2 tools in this tree follow RFC 0028's new row 0 (LEA in its
 # modes' columns 03-05, 0E, 0F; MFSR and MTSR at 06 and 07) and RFC 0029's
 # special register numbers (FAR 9 ... BANK 14); the v2_hw study's
-# microcode predates both. Page 0 of the decode table is RAM, so it maps
-# them onto that microcode's routines, until the microcode follows.
+# microcode (PR #46) predates both. Page 0 of the decode table is RAM, so
+# it maps them onto that microcode's routines while it does.
 SR_OLD = {1: 1, 2: 2, 9: 8, 10: 9, 11: 10, 12: 11, 13: 12, 14: 13}
+ROW0_OLD = uc.classify(0x0006)[0][0] != "mfsr"
 
 
 def native_classify(w):
+    if not ROW0_OLD:
+        return uc.classify(w)
     op, hi, lo = w & 0xFF, w >> 12, (w >> 8) & 15
     ill = (("illegal",), 1)
     if op in (0x03, 0x04, 0x05, 0x0E, 0x0F):
@@ -253,33 +256,19 @@ def built():
 # --------------------------------------------------------------------------
 # The processes
 
-def native_user_image(name):
-    """A C program compiled by the Heron C compiler for draft 2, as a user
-    process: sw/mixed's start-up and console. (bytes from VA 0, entry)"""
-    import heron.studies.v2_isa  # noqa: F401  (registers the ISA)
-    from heron.studies.c_compiler.cc import driver
-    inc = [os.path.join(SW, "include")]
-    p = driver.Program("v2")
-    p.add_file(os.path.join(toolchain.PROGRAMS, name + ".c"), inc)
-    lib = []
-    for f in toolchain.LIB:
-        u = driver.compile_unit(os.path.join(toolchain.CC, "cc", "lib", f), "v2", inc)
-        obj = f[:-2] + ".o"
-        lib.append((obj, driver.assemble("v2", driver.unit_assembly(u, "v2", p.opt), obj)))
-    p.add_archive(lib)
-    with open(os.path.join(SW, "start_user.s")) as f:
-        p.add_object(driver.assemble("v2", f.read(), "start_user.o"))
-    p.need_main = False         # the start-up is ours: no standard one
-    img = p.link()
-    data = bytearray(max(img.mem) + 1)
-    for a, b in img.mem.items():
-        data[a] = b
-    return bytes(data), img.symbols["__start"]
-
-
 def user_image(name, isa):
+    """(bytes from VA 0, entry). Draft 2's processes are hand-written
+    (sw/mixed/NAME.s): this tree's C compiler follows main's draft 2,
+    whose multiply and divide leave HI and LO in r0 and r1, and the v2_hw
+    microcode doesn't yet."""
     if isa == "v2":
-        return native_user_image(name)
+        import heron.studies.v2_isa  # noqa: F401
+        from heron.infra import asm, isas
+        img = asm.assemble_file(isas.get("v2"), os.path.join(SW, name + ".s"))
+        data = bytearray(max(img.mem) + 1)
+        for a, b in img.mem.items():
+            data[a] = b
+        return bytes(data), img.symbols["start"]
     img = toolchain.build("thumb-user", name)
     return img.data, img.symbols["_start"]
 
