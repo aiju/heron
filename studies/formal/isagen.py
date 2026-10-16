@@ -42,21 +42,37 @@ BOUNDARY = [0, 1, 2, 0xFFFFFFFF, 0xFFFFFFFE, 0x7FFFFFFF, 0x80000000, 0x80000001,
 
 
 class SymMem:
-    """The specification's memory as one z3 array of bytes."""
+    """The specification's memory as two z3 arrays of bytes, the even ones
+    and the odd ones, at address bits 31-1: the instruction's own parcel,
+    stored at pc, then reads back as itself, so the decode folds."""
 
-    def __init__(self, array):
-        self.array = array
+    def __init__(self, lo, hi):
+        self.lanes = [lo, hi]
+
+    @staticmethod
+    def _split(a):
+        t = S.term(a)
+        return z3.simplify(z3.Extract(31, 1, t)), z3.simplify(z3.Extract(0, 0, t))
 
     def read(self, a):
-        return S.mk(8, z3.simplify(z3.Select(self.array, S.term(a))))
+        idx, lane = self._split(a)
+        if z3.is_bv_value(lane):
+            return S.mk(8, z3.simplify(z3.Select(self.lanes[lane.as_long()], idx)))
+        return S.mk(8, z3.simplify(z3.If(lane == 1, z3.Select(self.lanes[1], idx),
+                                         z3.Select(self.lanes[0], idx))))
 
     def write(self, a, v, g):
         if g is False:
             return
-        idx, d = S.term(a), S.term(v)
-        if g is not True:
-            d = z3.If(g, d, z3.Select(self.array, idx))
-        self.array = z3.Store(self.array, idx, d)
+        idx, lane = self._split(a)
+        d = S.term(v)
+        for k in (0, 1):
+            cond = z3.simplify(z3.And(z3.BoolVal(g) if isinstance(g, bool) else g, lane == k))
+            if z3.is_false(cond):
+                continue
+            arr = self.lanes[k]
+            new = d if z3.is_true(cond) else z3.If(cond, d, z3.Select(arr, idx))
+            self.lanes[k] = z3.Store(arr, idx, new)
 
 
 class Inputs:
@@ -68,7 +84,7 @@ class Inputs:
         self.hi = z3.BitVec("hi", 32)
         self.pc_hi = z3.BitVec("pc_hi", 31)
         self.flags = {f: z3.Bool(f) for f in "NZCVI"}
-        self.mem = z3.Array("mem", z3.BitVecSort(32), z3.BitVecSort(8))
+        self.mem = [z3.Array(f"mem{k}", z3.BitVecSort(31), z3.BitVecSort(8)) for k in (0, 1)]
         self.pbits = [bool((ins.value >> i) & 1) if (ins.mask >> i) & 1 else z3.Bool(f"p{i}")
                       for i in range(ins.width)]
 
@@ -82,12 +98,12 @@ class Inputs:
 
     def state(self, spec):
         p = self.parcel()
-        mem = z3.Store(z3.Store(self.mem, self.pc, z3.Extract(7, 0, p)),
-                       self.pc + 1, z3.Extract(15, 8, p))
+        lo = z3.Store(self.mem[0], self.pc_hi, z3.Extract(7, 0, p))
+        hi = z3.Store(self.mem[1], self.pc_hi, z3.Extract(15, 8, p))
         regs = {"r": [S.mk(32, x) for x in self.r], "hi": S.mk(32, self.hi),
                 "pc": S.mk(32, self.pc)}
         regs.update({f: S.mk(1, v) for f, v in self.flags.items()})
-        return S.State(spec, regs, {"mem": SymMem(mem)})
+        return S.State(spec, regs, {"mem": SymMem(lo, hi)})
 
     def scalars(self):
         """(variable, how to pick a random value for it)."""
@@ -131,11 +147,13 @@ def concretize(inp, m, rng):
     hi = val(inp.hi, "word")
     pc = val(inp.pc_hi, "pc") << 1
     fl = sum(int(val(inp.flags[f], "bit")) << i for i, f in enumerate("VCZNI"))
-    entries, default = array_entries(m, inp.mem)
-    image = bytearray([default]) * RAM            # memory the model doesn't care about
-    for a, v in entries:
-        if a < RAM:
-            image[a] = v
+    image = bytearray(RAM)
+    for k in (0, 1):
+        entries, default = array_entries(m, inp.mem[k])
+        image[k::2] = bytes([default]) * (RAM // 2)    # memory the model doesn't care about
+        for i, v in entries:
+            if 2 * i + k < RAM:
+                image[2 * i + k] = v
     p = sum(int(val(b, "bit") if not isinstance(b, bool) else b) << i
             for i, b in enumerate(inp.pbits))
     image[pc] = p & 0xFF
