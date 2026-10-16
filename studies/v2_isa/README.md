@@ -123,7 +123,8 @@ They were ported in four steps, which the history keeps apart.
    the decimal printer pushes each digit straight from `r0`, a `DIVUL`
    chain starts with `CLR r0`, and `MULA` accumulates into `r0:r1`.
    `memset`, which keeps its result in `r0`, now saves it after its
-   `MULU`.
+   `MULU`. The implicit registers are written out, as RFC 0028 now
+   spells them: `DIVU r0:r1, r5`, `MULA r0:r1, r2, r3`.
 
 Every program also passes with `r0` holding garbage from the start, which
 `tests/` checks, and linked from relocatable object files.
