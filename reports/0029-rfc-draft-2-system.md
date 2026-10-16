@@ -57,8 +57,9 @@ To the machine of RFC 0028 this adds:
 - **The condition-code register** `ccr`, special register 0, is `sr`'s
   byte 0, the condition codes: reading it gives byte 0 zero-extended, and
   writing it changes byte 0 alone. User mode reads and writes `ccr`; `sr`
-  is privileged, to read and to write, and `MTSR sr, rs` changes every bit
-  but S (**decided**, Emily, 2026-10-16).
+  is privileged, to read and to write (**decided**, Emily, 2026-10-16).
+  `MTSR sr, rs` changes every bit but S, and ignores what `rs` has in bit
+  31 (**open**).
 - **Privileged instructions:** `HALT`, `EI`, `DI`, `RTI`, `MFUR`, `MTUR`,
   and `MFSR` and `MTSR` of special registers 8–15. In user mode they raise
   a privilege violation ([6](#6-exceptions)).
@@ -335,6 +336,14 @@ keeps what worked and changes the rest.
    run it natively. Guests could be paravirtualised (linked into the low
    16 MB, calling the hypervisor with `SWI`), a context could map the
    window in user mode, or virtualisation needn't be a goal.
+9. **`MTSR sr` and S.** The proposal: it leaves S alone and ignores bit
+   31 of what it writes. Leaving supervisor mode always goes with a jump,
+   which `RTI` does in one step; clearing S on its own would switch the
+   register bank under the next instruction and fetch it from the window,
+   which user mode can't reach. Ignoring the bit also keeps a
+   read-modify-write of `sr` from dropping privilege. The alternative is
+   to trap when bit 31 is clear, which would catch the mistake report
+   0020's nucleus made instead of hiding it.
 
 ### 12. Next steps
 
