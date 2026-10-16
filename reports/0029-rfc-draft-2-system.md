@@ -344,7 +344,9 @@ keeps what worked and changes the rest.
     copy cheap
     ([RFC 0028, 5.9](0028-rfc-draft-2-isa.md#59-system-instructions)).
   - **256 banks** cover as many threads as a few MB will hold; past that,
-    the kernel saves a bank's registers when it reuses it.
+    the kernel saves a bank's registers when it reuses it. What fewer
+    would cost, measured with Fen, is in
+    [register-banks.md](0029-rfc-draft-2-system/register-banks.md).
   - **In the hardware:** banks are spare address lines of the register
     file's SRAMs, about 4 chips. The microcode's own constants, and the
     zero that `r0` no longer gives it, stay outside the banks.

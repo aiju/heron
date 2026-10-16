@@ -12,7 +12,8 @@
                                 drag:X0,Y0,X1,Y1, menu:N (the desktop menu's Nth item,
                                 from 0) or wait:MS
   bench [--write]               the kernel's hot paths, measured in the machine
-  banks [--write]               what fewer register banks would cost (report 0037)
+  banks [--write]               what fewer register banks would cost (RFC 0029's
+                                register-banks.md)
 """
 
 import argparse
@@ -155,7 +156,7 @@ def main(argv=None):
     b.add_argument("--write", action="store_true", help="write the report's performance.md")
     b.set_defaults(fn=cmd_bench)
     k = sub.add_parser("banks")
-    k.add_argument("--write", action="store_true", help="write report 0037's results.md")
+    k.add_argument("--write", action="store_true", help="write RFC 0029's register-banks-results.md")
     k.set_defaults(fn=cmd_banks)
     args = p.parse_args(argv)
     return args.fn(args)
