@@ -650,7 +650,14 @@ svg.heat .e { opacity: 0.4; }
         walk(c, x, y, depth + 1);
       }
     })(res, 0, 0, 0);
-    const edges = (res.edges || []).map((e, i) => ({ b: E.bundles[i], sections: e.sections || [] }));
+    // ELK gives an edge's points relative to the container it puts the
+    // edge in (the lowest one holding both ends), whatever it was given
+    const edges = (res.edges || []).map((e, i) => {
+      const o = e.container && e.container !== "root" ? abs[e.container] : null;
+      const mv = (q) => (o ? { x: q.x + o.x, y: q.y + o.y } : q);
+      const sections = (e.sections || []).map((s) => ({ startPoint: mv(s.startPoint), endPoint: mv(s.endPoint), bendPoints: (s.bendPoints || []).map(mv) }));
+      return { b: E.bundles[i], sections };
+    });
     const jn = {}; for (const j of E.jnodes) jn[j.id] = j;
     current = { E, abs, edges, jn, ms: performance.now() - t0 };
     draw(opts);
@@ -843,7 +850,7 @@ svg.heat .e { opacity: 0.4; }
         const ps = [s.startPoint, ...(s.bendPoints || []), s.endPoint];
         pts.push(ps);
       }
-      const g = el("g", { class: reduced ? "" : "efade", "data-e": i }, layers.edge);
+      const g = el("g", { class: reduced ? "" : "efade", "data-e": i, "data-src": b.srcNode, "data-dst": b.dstNode }, layers.edge);
       const lines = [];
       for (const ps of pts) {
         const str = ps.map((q) => `${q.x},${q.y}`).join(" ");
