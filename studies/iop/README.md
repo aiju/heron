@@ -225,27 +225,27 @@ RFC, not decisions.
 | | Measured | RFC 0027 |
 |---|---:|---|
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
-| dictionary out of the flash (8724 cells, 35 pages) | 6.0 ms | 32K cells in ~30 ms |
-| power-up to the banner | 147.9 ms | - |
-| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,250,057 | about 1,000,000 |
-| microcycles a Forth word, there | 6.67 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
-| the tick's share of the IOP while Forth computes | 9.6% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,245,194 | - |
+| dictionary out of the flash (8705 cells, 35 pages) | 6.0 ms | 32K cells in ~30 ms |
+| power-up to the banner | 149.9 ms | - |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,257,041 | about 1,000,000 |
+| microcycles a Forth word, there | 6.63 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
+| the tick's share of the IOP while Forth computes | 9.5% | 5-10% (0.5-1 us a tick) |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,253,234 | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.0 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
 | booting the CPU: draft 2's control store, its decode table and the program | 80.0 ms (3.1 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
-| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 43.3 us, 58.9 us | ~5 us on top of the transfer |
-| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1368.7 us, 1384.3 us | ~5 us on top of the transfer |
-| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 144.6 us, 195.0 us | ~5 us on top of the transfer |
-| a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 255 cycles, 100 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 255 cycles, 1435 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 255 cycles, 241 us | 200-700 cycles |
-| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 378 ms, 82% busy, 7,260 cycles a KB | the CPU's time back |
-| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1607 ms, 70% busy, 26,369 cycles a KB | the CPU's time back |
-| microcode | 2222 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
-| the Forth's dictionary | 8724 cells | up to 32K |
+| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 41.2 us, 59.8 us | ~5 us on top of the transfer |
+| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1375.8 us, 1394.4 us | ~5 us on top of the transfer |
+| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 148.2 us, 234.7 us | ~5 us on top of the transfer |
+| a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 281 cycles, 103 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 281 cycles, 1435 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 281 cycles, 278 us | 200-700 cycles |
+| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 379 ms, 82% busy, 7,290 cycles a KB | the CPU's time back |
+| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1612 ms, 70% busy, 26,567 cycles a KB | the CPU's time back |
+| microcode | 2227 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
+| the Forth's dictionary | 8705 cells | up to 32K |
 
 The copies are a job's time from its first slice to its end, with the
 ticks and the Forth's turns. A request's CPU cycles are `sw/ring.s`'s,
@@ -281,11 +281,13 @@ What the differences come from, so far:
   decoding, the checks and starting the mover (about 40), the move, the
   completion (56: its settings are read through X, 3 microinstructions a
   value), and ticks and turns meanwhile. The interrupt is another 55 or
-  so: the event into the CPU's ring, then the level. So a request pays
+  so: the routing table read, the event into the CPU's ring, then the
+  level. So a request pays
   from about 200 bytes up, which is what RFC 0027 (11.4) expects of the
   CPU's side; with the IOP's side as measured, from about 500.
 - **The server** is the Forth's: about 150 us for a request that does
-  nothing, from the queue through `serve` to `(complete)` and `(post)`.
+  nothing, from the queue through `serve` to `(complete)`, and its event
+  another 85 us, as the ring job posts it once it runs again.
 - **The disk** was the server's at first, as RFC 0027 (7.2) has it: a
   1 KB read took the IOP 811 us, 3,700 of its 6,000 microcycles the
   Forth's (reading the request's fields, dispatching, the CF card's task
@@ -312,8 +314,9 @@ What the differences come from, so far:
 - **Devices:** the serial loader, PS/2, the time of day and the front
   panel; the stuck-transfer counter; the 32-bit paths; change detection
   on the INT lines; a timer request (a completion after a delay).
-- **The rings:** a full completion ring drops the completion (and counts
-  it); requests from the CPU's RAM rather than the shared RAM; the
+- **The rings:** a completion ring or a ring of events is never checked
+  for room (RFC 0040, 5.1's rule keeps them from filling, if the client
+  keeps it); requests from the CPU's RAM rather than the shared RAM; the
   server's own windows for Forth from the kernel. The disk's errors only
   as ST_DEVICE, and a card that stays busy holds its ring job for ever.
 - **The netlist** (RFC 0027, 16, step 4).
