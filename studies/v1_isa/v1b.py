@@ -1,6 +1,6 @@
 """ISA draft 1b: 32-bit, 16-bit parcels, register + addressing mode (CISC-like).
 
-See isa-v1b.md. Main format `F D M R`: operation, register, mode,
+See RFC 0004, Part II (reports/0004-rfc-draft-1-isa.md). Main format `F D M R`: operation, register, mode,
 register-or-constant for the mode. This is the disassembler's side;
 decoding and executing is Rust (studies/v1_isa/isa/src/v1b.rs), and so is
 the encoder the assembler uses (studies/v1_isa/isa/src/asm/v1b.rs). Shared

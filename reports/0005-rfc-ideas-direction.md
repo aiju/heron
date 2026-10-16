@@ -70,9 +70,9 @@ Chip counts are rough estimates unless they come from a netlist.
 - **Built narrow first** (a 16-bit datapath and bus, as the System/360
   Model 30 and the 68000 did): **rejected** (Emily, 2026-10-15). A 32-bit
   ISA on them is *slower* than draft 0 on ordinary code, and only gains
-  on multiply and divide ([report 0004](0004-report-draft-1-evaluation.md)).
+  on multiply and divide ([RFC 0004](0004-rfc-draft-1-isa.md)).
 - **Draft 2 builds on 1b.** **decided** (Emily, 2026-10-15). The 1a
-  recommendation of report 0004 is withdrawn
+  recommendation of RFC 0004 is withdrawn
   ([RFC 0006](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 - **Keep 16-bit instruction parcels with 0–2 extension parcels**
   (precedents: SuperH, 68000, Thumb). **adopted.**

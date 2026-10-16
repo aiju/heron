@@ -104,7 +104,7 @@ By runtime routine, over the whole run (start-up and the prelude included); the 
 
 ## The tagged register mode
 
-Compiled with `tagged` (the v1bx mode E, [isa.md](../../studies/lisp/isa.md)) against plain 1b: the cycles outside the collector, which the change doesn't touch (a collection's cost depends on where it happens to fall). The timing model costs a tagged operation as the same operation on a register; the last column charges each one a cycle more, for a microcode that checks before it writes the result back.
+Compiled with `tagged` (the v1bx mode E, [report 0018's appendix](../0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)) against plain 1b: the cycles outside the collector, which the change doesn't touch (a collection's cost depends on where it happens to fall). The timing model costs a tagged operation as the same operation on a register; the last column charges each one a cycle more, for a microcode that checks before it writes the result back.
 
 | Program | 1b | v1bx | Tagged operations | Change | Change, +1 cycle |
 |---|---:|---:|---:|---:|---:|

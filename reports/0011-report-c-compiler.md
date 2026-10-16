@@ -60,9 +60,9 @@ the C library (arith, bignum, hello, strings), which mostly measure printf.
 
 The asm column covers the 15 programs that have C versions, so it differs a
 little from the means over all 20 programs in
-[evaluation-v1.md](0004-report-draft-1-evaluation.md) (0.919, 0.932 and 0.915).
+[RFC 0004](0004-rfc-draft-1-isa.md) (0.919, 0.932 and 0.915).
 
-The [draft 1 evaluation](0004-report-draft-1-evaluation.md) expected compiled code to favour
+The [draft 1 evaluation](0004-rfc-draft-1-isa.md) expected compiled code to favour
 1b more than hand-written code, through stack frames and memory operands.
 It's the other way round here:
 
@@ -93,7 +93,7 @@ gets from 1b.
 > 0.978 of 1a's cycles, with seven programs slower on 1b, and it stayed
 > when the numbers were corrected. With them, the support for 1a is much
 > weaker. The evaluation's recommendation of 1a is withdrawn
-> ([report 0004](0004-report-draft-1-evaluation.md)), and draft 2 builds
+> ([RFC 0004](0004-rfc-draft-1-isa.md)), and draft 2 builds
 > on 1b. The finding stands: auto-increment is most of what compiled code
 > gains from 1b.
 

@@ -10,7 +10,7 @@ D32-wide (a 32-bit bus with a prefetch buffer); microseconds are at
 
 ## The nucleus's paths
 
-Cycles per operation, for each register-bank policy (system.md). Each scenario's own user code is included, except where marked †: those count only the nucleus's cycles.
+Cycles per operation, for each register-bank policy (v1bs, the appendix). Each scenario's own user code is included, except where marked †: those count only the nucleus's cycles.
 
 | Operation | none | half | full | half, D32-wide | none, at 3 MHz |
 |---|---:|---:|---:|---:|---:|

@@ -1,10 +1,11 @@
-//! Decoded instructions and what they do (RFC 0028, isa-v2.md).
+//! Decoded instructions and what they do (RFC 0028, 5).
 //!
 //! The decoder (decode.rs) turns the parcels at an address into an [`Insn`]
 //! once; the machine executes it each time it comes round, which returns
 //! the timing key or stops with a trap or an error. The flags, the ALU,
-//! unary and shift functions and the interrupts are draft 1's
-//! (studies/v1_isa/isa-v1.md), as is this module's shape
+//! unary and shift functions are draft 1's, as RFC 0028 keeps them; the
+//! interrupts are still draft 1's (reports/0004-rfc-draft-1-isa.md, 25),
+//! not yet RFC 0029's. This module's shape is draft 1's too
 //! (studies/v1_isa/isa/src/insn.rs).
 
 use crate::key::{Ea, How, Key, Kind};
@@ -709,7 +710,9 @@ impl Machine {
                 let v = self.read(m.size, a)?;
                 self.post(&m, a);
                 if nz {
-                    self.nz(v);
+                    // N from the operand's own top bit: bit 7 of a byte
+                    self.n = ((v >> (8 * m.size as u32 - 1)) & 1) as u8;
+                    self.z = (v == 0) as u8;
                 }
                 self.r[d as usize] = v;
                 self.pc = nxt;

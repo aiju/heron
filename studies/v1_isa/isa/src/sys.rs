@@ -1,5 +1,5 @@
 //! v1bs: draft 1b with the system extensions of the kernel study
-//! (studies/kernel/system.md): a supervisor mode, register banks, the flat
+//! (report 0020's appendix): a supervisor mode, register banks, the flat
 //! page map of RFC 0010 and cross-mode loads and stores. Plain 1a and 1b
 //! have none of this, and every machine runs exactly as before unless the
 //! ISA is v1bs.

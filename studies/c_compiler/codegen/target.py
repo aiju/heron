@@ -4,7 +4,7 @@ the calling convention, phi copies, switch lowering, the stack frame, the
 peepholes and the assembly text. codegen.v1a, v1b and v2 subclass Target
 with their instruction selection.
 
-Calling convention (the v1_isa study's isa-v1.md): arguments in r1-r4, the rest on the
+Calling convention (draft 1's, RFC 0004): arguments in r1-r4, the rest on the
 stack; result in r1; r1-r7 caller-saved, r8-r14 callee-saved; sp is r15.
 On draft 1 r0 reads as zero; on draft 2 it's a general register, and
 caller-saved. Calls to variadic functions pass every argument on the stack.

@@ -6,12 +6,13 @@ reports: []
 
 # Draft 2: the instruction set of RFC 0028
 
-Draft 2's encoding ([RFC 0028](../../reports/0028-rfc-draft-2-isa.md)) in
-an assembler, a disassembler and an instruction-level simulator with the
-timing model, and draft 1's 20 programs ported to it. It's a study until
-RFC 0028 is accepted; then draft 2 moves to the root's `isa/` and
-`tools/` as the current design
-([RFC 0000](../../reports/0000-rfc-repository-layout.md#where-work-happens)).
+Draft 2's instruction set in an assembler, a disassembler and an
+instruction-level simulator with the timing model, and draft 1's 20
+programs ported to it. The specification they implement is Part I of
+[RFC 0028](../../reports/0028-rfc-draft-2-isa.md); this README is only how
+the tools work. It's a study until RFC 0028 is accepted; then the
+specification moves to `docs/` and the code to the root's `isa/` and
+`tools/` ([RFC 0000](../../reports/0000-rfc-repository-layout.md#where-work-happens)).
 
 It depends on `v1_isa` only for the program suite: the expected output
 every draft is checked against, the shared input in `programs/common/`,
@@ -21,7 +22,6 @@ change them without moving draft 1's numbers.
 
 | File | What's in it |
 |---|---|
-| [isa-v2.md](isa-v2.md) | Draft 2 as these tools have it: the syntax, how the assembler picks encodings, and the details RFC 0028 leaves open |
 | `isa/` | The engine, in Rust ([RFC 0015](../../reports/0015-rfc-languages.md)): the decoder (`decode.rs`) and semantics (`insn.rs`), the machine, the timing model and the encoder the assembler uses (`asm.rs`). Python reaches it as `heron.native.v2` |
 | `v2.py` | The disassembler, and what the tools need to know about the ISA |
 | `sim.py` | The simulator as the studies use it |
@@ -36,6 +36,56 @@ heron v2_isa bench                            # instructions, cycles and run tim
 heron test v2_isa                             # the unit tests
 cargo test -p v2-isa                          # the encoder, the semantics and the timing keys
 ```
+
+## The machine around the instructions
+
+What the CPU gives an operating system is
+[RFC 0029](../../reports/0029-rfc-draft-2-system.md), which the simulator
+doesn't have yet. Until it does, the machine around the instructions is
+draft 1's ([RFC 0004, 25 and 26](../../reports/0004-rfc-draft-1-isa.md#25-calls-the-stack-and-interrupts)):
+
+- 1 MB of RAM from address 0, and the I/O page at `0xFFFFFF00`.
+- Draft 1's vectors from address 0: reset, IRQ, illegal instruction,
+  `SWI`, divide error and address error, then the tag trap at `0x18`.
+  An exception pushes the PC and the flags. RFC 0029's vectors start at
+  `0x8000_0000`.
+- Every register is zero at reset.
+- There's no supervisor, so `MFUR` and `MTUR` trap, and `MFSR` and
+  `MTSR` know only `flags`, `hi` and `lo`.
+
+## Listings, timing and linking
+
+- **Listings,** `dis` and `objdump` show an instruction's first parcel as
+  its two bytes, opcode first, as RFC 0028 writes them, and the extension
+  parcels as 16-bit values: `13 34 0008` is `MOV r3, [r4 + 8]`.
+- **Timing:** draft 1's [timing model](../v1_isa/timing-model-v1.md),
+  the same six configurations, so it estimates a draft 2 machine built
+  like the 1b hardware; the microcode estimate is still to come
+  ([RFC 0028, 13](../../reports/0028-rfc-draft-2-isa.md#13-next-steps)).
+  It adds draft 2's kinds of work:
+  - `INC` and `DEC` on memory (`rmw`) read, add in the ALU, and write
+    back.
+  - `DBNZ` (`dbnz`) decrements in one ALU step, which also detects zero,
+    writes the register back and, when it branches, adds the offset to
+    `PC`.
+  - `LDM` and `STM` (`ldm`, `stm`) stream words like `RESTORE` and `SAVE`,
+    without updating `sp`.
+  - A call (`call`, `callm`) writes `r7` instead of pushing: one register
+    write, then the jump. `RET` is a jump to a register, and `JMP [sp]+`
+    a jump through memory.
+  - The tables without a base register: `[abs24 + x·s]` (`absx`) is one
+    full add; `[pc + d24 + x·s]` (`pcx`) is an address add, then a full
+    one.
+  - `MULA` is a multiply and two more steps for the 64-bit add. `MULFX` is
+    a multiply, then two steps per step of its shift: one over each half
+    of the product.
+  - `MULU` and `MULS` with a word from memory cost the multiply alone.
+  - Mode E, `[r14 + 4R]`, costs what mode 4, `[sp + 4R]`, does: a
+    register plus a displacement.
+- **Linking:** the tables' 24-bit address has its top byte in the index
+  parcel, so the linker fills it in with two relocations, `abs24h` and
+  `abs24l` (`pc24h` and `pc24l` PC-relative)
+  ([linking.md](../../infra/linking.md)).
 
 ## The programs
 

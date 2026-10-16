@@ -16,7 +16,7 @@ hardware gives it, each with its own status
 ([RFC 0000](0000-rfc-repository-layout.md#ideas-rfcs)). Most of the
 evidence is [report 0020](0020-report-operating-system.md), which built
 v1bs, draft 1b with system extensions
-([studies/kernel/system.md](../studies/kernel/system.md)), and a small
+([report 0020's appendix](0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)), and a small
 message-passing kernel on it. Draft 2's system architecture is drafted
 in [RFC 0029](0029-rfc-draft-2-system.md).
 
@@ -197,7 +197,7 @@ growing stacks, guard pages), and sharing.
   PC or `sp`, except 1b's `CALL [r]+` and `CALL -[r]`, which move `r`
   first ([report 0020](0020-report-operating-system.md#what-was-hard)).
   Draft 2's calls push nothing: the return address goes to `r7`
-  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  ([RFC 0028, 5.7](0028-rfc-draft-2-isa.md#57-jumps-and-calls)).
 - `SAVE` writes first and moves `sp` last; re-running it is idempotent.
 - `RESTORE` re-runs idempotently (`sp` is never in the range).
 - Prefetch faults are held back until the parcel is used.
@@ -206,7 +206,7 @@ growing stacks, guard pages), and sharing.
 - On a fault the microcode: stops the write, latches the address and reason,
   saves the PC of the faulting instruction, and traps.
 
-**ISA additions** (as v1bs has them, [system.md](../studies/kernel/system.md)):
+**ISA additions** (as v1bs has them, [report 0020's appendix](0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)):
 the S, XL and XS flag bits; a supervisor `sp` or banks; privileged
 instructions; special registers for the fault address and reason, the
 context, the map address and data, the bank and the banking policy;

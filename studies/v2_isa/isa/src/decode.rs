@@ -1,9 +1,9 @@
-//! Draft 2's decoder (RFC 0028, isa-v2.md). A parcel is an opcode byte,
+//! Draft 2's decoder (RFC 0028, 2-4). A parcel is an opcode byte,
 //! first in memory, and a register byte: `rd` in its high nibble, the
 //! mode's register `R` in its low one. The opcode byte is a table, not
 //! fields: rows 1-6 and 8-A give an operation its modes as columns, and
 //! one-operand instructions take the mode from the register byte. The
-//! modes are draft 1b's (studies/v1_isa/isa-v1b.md), with mode E,
+//! modes (RFC 0028, 3) are draft 1b's, with mode E,
 //! `[r14 + 4R]`, a second slot mode, and two tables without a base register
 //! in the special mode.
 
