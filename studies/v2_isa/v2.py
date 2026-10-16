@@ -1,9 +1,9 @@
 """ISA draft 2: 32-bit, 16-bit parcels of an opcode byte and a register byte.
 
-See reports/0028-rfc-draft-2-isa.md and isa-v2.md. A parcel's opcode byte
+See reports/0028-rfc-draft-2-isa.md, Part I. A parcel's opcode byte
 comes first in memory, so it is the parcel's low byte; the register byte
 holds `rd` in its high nibble and the mode's register `R` in its low one.
-The modes are draft 1b's (studies/v1_isa/isa-v1b.md), with mode E,
+The modes (RFC 0028, 3) are draft 1b's, with mode E,
 `[r14 + 4R]`, a second slot mode, and two tables added to the special
 mode. This is the disassembler's side; decoding and
 executing is Rust (isa/src/decode.rs, insn.rs), and so is the encoder the

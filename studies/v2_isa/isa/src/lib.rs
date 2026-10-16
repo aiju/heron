@@ -1,4 +1,4 @@
-//! Draft 2 (reports/0028-rfc-draft-2-isa.md, studies/v2_isa/isa-v2.md): its
+//! Draft 2 (reports/0028-rfc-draft-2-isa.md, Part I): its
 //! decoder and semantics, the instruction-level simulator, the timing
 //! model, and the encoder the assembler core (infra/toolchain) uses.
 //!

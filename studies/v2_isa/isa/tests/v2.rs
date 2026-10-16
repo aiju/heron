@@ -304,6 +304,14 @@ fn mov_leaves_the_flags_and_movs_sets_n_and_z() {
     assert_eq!(flags(&m), "-Z--");
     let m = run("        MOV r1, #-1\n        MOVS r2, r1");
     assert_eq!(flags(&m), "N---");
+    // a byte or half takes N from its own top bit; the register still gets
+    // the value zero-extended
+    let m = run("        MOV r1, #0x80\n        MOV [0x200], r1\n        MOVS r2, byte [0x200]");
+    assert_eq!((m.r[2], flags(&m).as_str()), (0x80, "N---"));
+    let m = run("        MOV r1, #0x8000\n        MOV [0x200], r1\n        MOVS r2, half [0x200]");
+    assert_eq!((m.r[2], flags(&m).as_str()), (0x8000, "N---"));
+    let m = run("        MOV r1, #0x80\n        MOV [0x200], r1\n        MOVS r2, half [0x200]");
+    assert_eq!(flags(&m), "----");
 }
 
 #[test]
