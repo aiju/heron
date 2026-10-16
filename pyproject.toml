@@ -8,6 +8,10 @@ version = "0"
 description = "A minicomputer built from 7400-series logic: designs, studies and tools"
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+# heron site, the website
+site = ["markdown-it-py>=3", "mdit-py-plugins>=0.4"]
+
 [project.scripts]
 heron = "heron.__main__:main"
 
