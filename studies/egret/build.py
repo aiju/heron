@@ -3,8 +3,9 @@
 The VM is C (vm/). It's built twice from the same sources:
 
 - for the host, with gcc: fast, for the tests and for writing programs;
-- for draft 1b, with the C compiler study, linked with vm/rt_v1b.s in
-  place of the C start code, and run on the instruction-level simulator.
+- for draft 1b or draft 2, with the C compiler study, linked with
+  vm/rt_v1b.s or vm/rt_v2.s in place of the C start code, and run on the
+  instruction-level simulator.
 
 Both builds go to build/egret/, named by a hash of everything they're
 made from (so a change to the VM, the prelude, the defines or the C
@@ -100,7 +101,7 @@ def run_host(source, inp=b"", defines=None, timeout=120):
     return r.stdout + r.stderr, r.returncode
 
 
-# ---- the draft 1b build --------------------------------------------------------------
+# ---- the draft 1b and draft 2 builds -------------------------------------------------
 
 def _compiler_files():
     cc = os.path.join(ROOT, "studies", "c_compiler")
@@ -109,12 +110,14 @@ def _compiler_files():
 
 
 VARIANTS = ("asm", "c", "jit")
+ISAS = ("v1b", "v2")
 
 
 def heron(isa="v1b", defines=None, variant="asm"):
-    """The VM for draft 1b as a linked image, compiled if needed. Variant
-    "asm" has the hand-written interpreter loop (vm/interp_v1b.s), "c" the
-    one in interp.c, as the C compiler compiles it."""
+    """The VM for draft 1b (or draft 2: isa "v2") as a linked image,
+    compiled if needed. Variant "asm" has the hand-written interpreter loop
+    (vm/interp_v1b.s, interp_v2.s), "c" the one in interp.c, as the C
+    compiler compiles it, "jit" the JIT as well."""
     from heron.infra import obj as O
     from heron.infra.link import load_executable
     key = _digest(_vm_files() + _compiler_files(), isa + _defines_key(defines) + variant)
@@ -153,22 +156,30 @@ def compile_heron(isa="v1b", defines=None, variant="asm"):
     return L.link(objs, [driver.library(isa)[0]], isa)
 
 
-def machine(source, inp=b"", isa="v1b", defines=None, max_cycles=MAX_CYCLES, variant="asm"):
-    """A simulated machine that has run a program (run(), output in m.dev.out)."""
+def new_machine(isa, img, data):
+    """A machine for the ISA, with an image and console input."""
+    if isa == "v2":
+        from heron.studies.v2_isa.sim import Machine
+        return Machine(img, inp=data)
     from heron.infra import isas
     from heron.studies.v1_isa.sim32 import Machine32
+    return Machine32(isas.get(isa), img, inp=data)
+
+
+def machine(source, inp=b"", isa="v1b", defines=None, max_cycles=MAX_CYCLES, variant="asm"):
+    """A simulated machine that has run a program (run(), output in m.dev.out)."""
     img = heron(isa, defines, variant)
     data = source if isinstance(source, bytes) else source.encode()
     if inp:
         data += b"\n__END__\n" + inp
-    m = Machine32(isas.get(isa), img, inp=data)
+    m = new_machine(isa, img, data)
     m.run(max_cycles=max_cycles)
     m.image = img
     return m
 
 
 def run_heron(source, inp=b"", isa="v1b", defines=None, max_cycles=MAX_CYCLES, variant="asm"):
-    """(output, machine) of a program on the simulated draft 1b machine."""
+    """(output, machine) of a program on the simulated draft 1b (or 2) machine."""
     m = machine(source, inp, isa, defines, max_cycles, variant)
     return bytes(m.dev.out), m
 
@@ -207,7 +218,8 @@ def _struct_fields(text, name):
 
 
 def asm_layout():
-    """The C headers' constants, as assembler equates, for interp_v1b.s."""
+    """The C headers' constants, as assembler equates, for interp_v1b.s and
+    interp_v2.s."""
     egret = open(os.path.join(VM, "egret.h")).read()
     comp = open(os.path.join(VM, "compiler.h")).read()
     interp = open(os.path.join(VM, "interp.c")).read()
@@ -248,7 +260,8 @@ def mark_idioms(src):
 
 
 def asm_interpreter(isa="v1b"):
-    """interp_v1b.s with its constants in front and its dispatch table after."""
+    """interp_v1b.s (interp_v2.s) with its constants in front and its
+    dispatch table after."""
     from .vm_ops import OPCODES
     with open(os.path.join(VM, f"interp_{isa}.s")) as f:
         src = f.read()
