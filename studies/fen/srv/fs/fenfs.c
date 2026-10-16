@@ -82,12 +82,18 @@ static void bfree(unsigned blk)
 
 int fs_free_blocks(void)
 {
-    unsigned blk, n = 0;
-    for (blk = sb.data_start; blk < sb.nblocks; blk++) {
-        struct buf *b = bread(sb.bitmap_start + blk / (BLOCK * 8));
-        unsigned bit = blk % (BLOCK * 8);
-        if (b && !(b->data[bit / 8] & (1 << (bit % 8))))
-            n++;
+    unsigned blk = 0, n = 0, i;
+    for (i = 0; i < sb.bitmap_blocks; i++) {
+        struct buf *b = bread(sb.bitmap_start + i);
+        unsigned k;
+        if (!b)
+            break;
+        for (k = 0; k < BLOCK && blk < sb.nblocks; k++) {
+            unsigned byte = b->data[k], bit;
+            for (bit = 0; bit < 8 && blk < sb.nblocks; bit++, blk++)
+                if (blk >= sb.data_start && !(byte & (1 << bit)))
+                    n++;
+        }
     }
     return n;
 }
@@ -175,10 +181,16 @@ struct inode *ialloc(unsigned mode)
 int fs_free_inodes(void)
 {
     unsigned ino, n = 0;
-    for (ino = FENFS_ROOT + 1; ino < sb.ninodes; ino++) {
+    for (ino = 0; ino < sb.ninodes; ino += FENFS_INODES_PER_BLOCK) {
+        struct buf *b = bread(sb.inode_start + ino / FENFS_INODES_PER_BLOCK);
         struct fenfs_inode *d;
-        if (inode_block(ino, &d) && d->mode == 0)
-            n++;
+        unsigned k;
+        if (!b)
+            break;
+        d = (struct fenfs_inode *)b->data;
+        for (k = 0; k < FENFS_INODES_PER_BLOCK && ino + k < sb.ninodes; k++)
+            if (ino + k > FENFS_ROOT && d[k].mode == 0)
+                n++;
     }
     return n;
 }
