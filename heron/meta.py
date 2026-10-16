@@ -21,7 +21,11 @@ def front_matter(path):
     YAML used here: `key: value`, `key: [a, b]`, and one level of nested
     `key:` blocks indented two spaces. Comments after # are dropped."""
     with open(path) as f:
-        text = f.read()
+        return parse_front_matter(f.read())
+
+
+def parse_front_matter(text):
+    """front_matter() of a file's text."""
     if not text.startswith("---\n"):
         return None
     block = text[4:text.index("\n---\n", 3)]
