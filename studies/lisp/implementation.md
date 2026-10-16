@@ -1,13 +1,15 @@
 # The implementation on draft 1b
 
 How the Lisp of [language.md](language.md) runs on the draft 1b machine
-([isa-v1b.md](../v1_isa/isa-v1b.md)). The runtime is 1b assembly in
+([RFC 0004, Part II](../../reports/0004-rfc-draft-1-isa.md#part-ii-draft-1b)). The runtime is 1b assembly in
 `rt/`, plus the prelude in Lisp; the compiler, in Lisp, has its own
 document ([compiler.md](compiler.md)). It runs on the instruction-level
 simulator, with the timing model costing it for the hardware
 configurations ([timing-model-v1.md](../v1_isa/timing-model-v1.md)); the
 numbers this study quotes are for D32-separate, the configuration the
 213-chip 1b hardware has ([report 0012](../../reports/0012-report-draft-1b-hardware.md)).
+The runtime also runs on draft 2; [the last section](#on-draft-2) says
+what's different there.
 
 ## Values
 
@@ -129,7 +131,7 @@ instead of evaluating it; that's how the compiler takes over.
 An error prints `error: message: irritants` ([language.md](language.md))
 and returns to the top level, which drops the stack and goes on with the
 next form. The traps are errors too: an address error from `car`, `cdr` or
-a call, and (in v1bx, [isa.md](isa.md)) a tag check.
+a call, and (in v1bx, [report 0018's appendix](../../reports/0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)) a tag check.
 
 The prelude is text in the image, read at start-up as if it came before
 the console input. `(%reload-prelude)` reads it again, so that once the
@@ -143,3 +145,43 @@ counter, so the tools can tell compiled code's running from the compiling
 around it (measure.py). `(%save-image)` stops the machine for the tools to
 copy memory: the saved image the compiled runs start from
 ([compiler.md](compiler.md#the-saved-image)).
+
+## On draft 2
+
+`rt_v2/` is the same runtime in draft 2 assembly
+([RFC 0028](../../reports/0028-rfc-draft-2-isa.md)): the same values,
+memory map, collector and interpreter, ported from `rt/`
+([report 0032](../../reports/0032-report-lisp-egret-draft-2.md)). What's
+different:
+
+- **The link register.** A call leaves the return address in `r7`. A
+  routine that calls nothing returns with `RET` (`JMP r7`); one that calls
+  pushes `r7` on entry and returns with `JMP [sp]+`, so its stack is as
+  1b's call left it. Inside the interpreter the return address stays on
+  the stack, as on 1b: `eval` pushes `r7` when it evaluates a pair, the
+  special forms are jumped to with it there, and `apply_stack` pops it
+  into `r7` as it jumps to a procedure. An atom is a leaf: `eval` returns
+  a constant or a variable's value without touching the stack, or
+  checking the stack limit, which only a pair can need.
+- **The calling convention.** With `r7` the link, arguments 1–6 are in
+  `r3`, `r4`, `r5`, `r6`, `r8` and `r0`; with more than 6, `r3`–`r6` and
+  `r8` hold 1–5 and `r0` a list of the rest. The rest is as on 1b: `r1`
+  the procedure, `r2` the count, `CALL [r1 + 1]`, the result in `r1`;
+  `r0`–`r12` are not preserved.
+- **The collector's roots** are `r0`–`r8`, so `r0` keeps the same rule as
+  `r1`–`r8`; `r7` holds a return address, which is even and stays as it
+  is.
+- **Flags.** `MOV` and `POP` don't set the flags on draft 2. The ten
+  `MOV`s whose N and Z a branch read became `MOVS`.
+- **`r0` is a general register,** so a zero store is `CLR`.
+- **The traps** decode draft 2's instructions. An address error's check
+  is a word at `[R + d16]`: column 3 of a row that takes a mode, or a
+  `JMP`'s or `CALL`'s register byte with mode 3.
+- **The tagged feature** uses draft 2's tagged operations (`TADD`,
+  `TSUB`, `TCMP`, `TTST`) in the arithmetic primitives as well as in
+  compiled code. Their trap reports the error the software checks do: the
+  first operand that isn't an integer, or an overflow. Without the
+  feature, a check of one operand is `TST r, #1`.
+- **Code space** ends at `0x27000`, 4 KB later than on 1b, and the
+  category map is that much smaller: the draft 2 compiler is a bigger
+  program, and the errors test filled 1b's space.

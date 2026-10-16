@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v1_isa, egret, lisp, kernel, c_compiler]
-reports: [29]
+reports: [28]
 ---
 
 # A fixed-base mode for struct fields
@@ -12,8 +12,10 @@ mode's register field, in one parcel, so that 16 fields of one struct
 are as cheap as stack slots
 ([RFC 0028, 10.1](../../reports/0028-rfc-draft-2-isa.md#101-short-offsets)).
 This study measures what it would save Egret, the Lisp and the kernel
-study's nucleus, on draft 1b with the mode added. The findings are
-[report 0029](../../reports/0029-report-fixed-base-mode.md).
+study's nucleus, on draft 1b with the mode added. The findings are in
+RFC 0028's folder,
+[fixed-base-mode.md](../../reports/0028-rfc-draft-2-isa/fixed-base-mode.md);
+draft 2 took the mode as mode E with `r14`.
 
 **The mode on 1b.** Draft 1b reserves mode E. In the ISAs `v1b+rtN`,
 `v1bx+rtN` and `v1bs+rtN` it is the word at `rN + 4R`, any of rN's 16
@@ -39,13 +41,13 @@ functions 9–E instead, as draft 2 would put them elsewhere too.
 | `__init__.py` | The `+rtN` ISAs for the tools: disassembly, registration |
 | `scan.py` | What one-parcel forms of field accesses would save, from a baseline run's counts |
 | `experiments.py` | Egret and the nucleus run with the mode; the Lisp's estimate |
-| `report.py` | Report 0029's tables |
+| `report.py` | The findings' tables |
 
 ```sh
 heron fixed_base scan egret [--variant asm|c|jit] [NAME...]   # by base register: what rT there would save
 heron fixed_base scan lisp [NAME...]
 heron fixed_base scan kernel [SCENARIO...]
-heron fixed_base report [--write]     # report 0029's tables (about 15 minutes; --write: its results.md)
+heron fixed_base report [--write]     # the findings' tables (about 15 minutes; --write: fixed-base-mode-results.md)
 heron test fixed_base                 # the unit tests
 cargo test -p v1-isa --test rt        # the simulator's and the assembler's side
 ```

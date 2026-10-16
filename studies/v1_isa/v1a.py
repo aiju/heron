@@ -1,6 +1,6 @@
 """ISA draft 1a: 32-bit, 16-bit parcels, load/store (RISC-like).
 
-See isa-v1a.md. This is the disassembler's side; decoding and executing
+See RFC 0004, Part I (reports/0004-rfc-draft-1-isa.md). This is the disassembler's side; decoding and executing
 is Rust (studies/v1_isa/isa/src/v1a.rs), and so is the encoder the
 assembler uses (studies/v1_isa/isa/src/asm/v1a.rs). Shared parts live in
 v1common.

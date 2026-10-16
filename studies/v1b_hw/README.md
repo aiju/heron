@@ -14,9 +14,12 @@ them to the instruction-level simulator.
 It depends on `v1_isa` for the ISA and the programs, and on `v0_hw` only
 for `baseline.json`, which its report compares against.
 
+The design is described in
+[report 0012](../../reports/0012-report-draft-1b-hardware.md), Part I:
+datapath, pipelined microcode, timing, known issues.
+
 | File | What's in it |
 |---|---|
-| [hardware.md](hardware.md) | The design: datapath, pipelined microcode, timing, known issues |
 | [microcode.md](microcode.md) | Generated: the microcode for a selection of instructions, cycle by cycle |
 | `ucode.py` | The control word, the microcode generator and the decode ROM |
 | `rtl.py` | The register-transfer model the netlist was built from (it runs the ROM images) |

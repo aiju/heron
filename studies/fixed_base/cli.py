@@ -1,7 +1,7 @@
 """The fixed-base mode study's command line: heron fixed_base <command> ...
 
-  report [--write]  report 0029's tables (about 15 minutes; --write: its
-                    results.md)
+  report [--write]  the findings' tables (about 15 minutes; --write:
+                    reports/0028-rfc-draft-2-isa/fixed-base-mode-results.md)
   scan egret [--variant asm|c|jit] [NAME...]
   scan lisp [NAME...]
   scan kernel [SCENARIO...]

@@ -1,5 +1,5 @@
 //! Draft 1b's decoder: 32-bit, 16-bit parcels, register + addressing mode
-//! (isa-v1b.md and studies/v1_isa/v1b.py). The main format is `F D M R`:
+//! (RFC 0004, Part II, and studies/v1_isa/v1b.py). The main format is `F D M R`:
 //! operation, register, mode, register-or-constant for the mode.
 
 use crate::insn::{self, Insn, MemOp, Res, sext8, sext16};

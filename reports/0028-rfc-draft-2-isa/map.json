@@ -2,7 +2,7 @@
  "format": "heron-opcode-map",
  "version": 1,
  "name": "Draft 2",
- "exported": "2026-10-15T18:54:55.447Z",
+ "exported": "2026-10-15T21:03:06.000Z",
  "state": {
   "cells": {
    "root/10": {
@@ -670,26 +670,6 @@
     "m": "ea:s1b",
     "s": 1
    },
-   "root/1E": {
-    "i": "tmov",
-    "s": 1
-   },
-   "root/2E": {
-    "i": "ttst",
-    "s": 1
-   },
-   "root/4E": {
-    "i": "tadd",
-    "s": 1
-   },
-   "root/5E": {
-    "i": "tsub",
-    "s": 1
-   },
-   "root/6E": {
-    "i": "tcmp",
-    "s": 1
-   },
    "root/00": {
     "i": "illegal",
     "s": 1
@@ -974,18 +954,6 @@
     "i": "illegal",
     "s": 1
    },
-   "gmv9svl31r3yb/00": {
-    "i": "ret",
-    "s": 1
-   },
-   "gmv9svl31r3yb/10": {
-    "i": "mulfx",
-    "s": 1
-   },
-   "gmv9svl31r3yb/FD": {
-    "i": "nop",
-    "s": 1
-   },
    "gmv9sqwj9jo7q/00": {
     "i": "ei",
     "s": 1
@@ -1002,12 +970,81 @@
     "i": "halt",
     "s": 1
    },
-   "gmv9sqwj9jo7q/10": {
+   "root/09": {
+    "i": "tmov",
+    "s": 1
+   },
+   "root/0A": {
+    "i": "ttst",
+    "s": 1
+   },
+   "root/0B": {
+    "i": "tadd",
+    "s": 1
+   },
+   "root/0C": {
+    "i": "tsub",
+    "s": 1
+   },
+   "root/0D": {
+    "i": "tcmp",
+    "s": 1
+   },
+   "root/1E": {
+    "i": "mov",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/2E": {
+    "i": "st",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/3E": {
+    "i": "movs",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/4E": {
+    "i": "add",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/5E": {
+    "i": "sub",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/6E": {
+    "i": "cmp",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/8E": {
+    "i": "and",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/9E": {
+    "i": "or",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/AE": {
+    "i": "xor",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/31": {
     "i": "mfur",
     "s": 1
    },
-   "gmv9sqwj9jo7q/11": {
+   "root/3D": {
     "i": "mtur",
+    "s": 1
+   },
+   "gmv9svl31r3yb/00": {
+    "i": "mulfx",
     "s": 1
    }
   },
@@ -1039,10 +1076,25 @@
     "r": ""
    }
   },
-  "modes": {},
+  "modes": {
+   "r14slot": {
+    "id": "r14slot",
+    "kind": "r14slot",
+    "syn": "[r14 + 4R]",
+    "short": "[r14+4R]",
+    "f": "R:4",
+    "cls": "mem",
+    "ext": 0,
+    "xl": "",
+    "src": [
+     "custom"
+    ],
+    "d": "A word of the current object, 0–60 (R is the offset): mode 4's shape with r14 for sp. Measured on 1b (fixed-base-mode.md): 3–5% of the nucleus's paths, about 1% of Egret"
+   }
+  },
   "sets": {
    "s1b": {
-    "name": "1b’s 16 modes",
+    "name": "Draft 2’s 16 modes",
     "slots": [
      "r",
      "q",
@@ -1058,7 +1110,7 @@
      "ind.h",
      "d16.h",
      "nq",
-     null,
+     "r14slot",
      "spc"
     ]
    },

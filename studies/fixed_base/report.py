@@ -1,6 +1,8 @@
-"""The tables of report 0029: Egret, the Lisp and the nucleus on 1b with
-[rT + 4R]. `heron fixed_base report` prints them (about 15 minutes);
---write puts them in the report's results.md."""
+"""The tables of RFC 0028's fixed-base measurements
+(reports/0028-rfc-draft-2-isa/fixed-base-mode.md): Egret, the Lisp and
+the nucleus on 1b with [rT + 4R]. `heron fixed_base report` prints them
+(about 15 minutes); --write puts them in fixed-base-mode-results.md next
+to it."""
 
 import os
 import sys
@@ -9,7 +11,7 @@ from heron import ROOT
 
 from . import experiments as X
 
-REPORT_DIR = os.path.join(ROOT, "reports", "0029-report-fixed-base-mode")
+RESULTS = os.path.join(ROOT, "reports", "0028-rfc-draft-2-isa", "fixed-base-mode-results.md")
 SEP, WIDE = X.CONFIGS
 MOVST = {"MOV", "ST"}
 SHORT = range(4, 17, 4)         # RFC 0028 10.1's MOV/ST [R + 4k], k = 1-4
@@ -151,7 +153,8 @@ def generate(log=None):
     lisp = X.lisp(log=log)
     kernel = X.kernel([6, 8, 14], log=log)
     sizes = X.nucleus_size([6, 8, 14])
-    head = ("# Report 0029: generated tables\n\n"
+    head = ("# A fixed-base mode for struct fields: generated tables\n\n"
+            "The tables of [fixed-base-mode.md](fixed-base-mode.md). "
             "Written by `heron fixed_base report --write` "
             "([studies/fixed_base](../../studies/fixed_base/README.md)); "
             "don't edit by hand.\n\n")
@@ -161,7 +164,6 @@ def generate(log=None):
 def main(write=False):
     text = generate(log=lambda m: print(m, file=sys.stderr, flush=True))
     if write:
-        os.makedirs(REPORT_DIR, exist_ok=True)
-        with open(os.path.join(REPORT_DIR, "results.md"), "w") as f:
+        with open(RESULTS, "w") as f:
             f.write(text)
     print(text)

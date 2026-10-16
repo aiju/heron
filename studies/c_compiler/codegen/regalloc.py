@@ -3,12 +3,12 @@
 Implementation"), with spilling to stack slots and rematerialisation of
 constants.
 
-Both draft 1 ISAs are two-address, so the instruction selector writes
+All the targets are two-address, so the instruction selector writes
 `a = b + c` as `COPY a, b; ADD a, c`. Coalescing removes the copy whenever
 b dies there, which is what makes the code look hand-written.
 """
 
-from .mir import PHYS, VReg, MInstr, Mem, Frame, SP, is_alloc, liveness
+from .mir import PHYS, VReg, MInstr, Mem, Frame, SP, liveness
 
 INF = 1 << 30
 
@@ -64,6 +64,7 @@ class Allocator:
         self.worklist_moves = set()
         self.moves = {}
         self.move_order = {}        # moves are taken in a fixed order, so output is reproducible
+        is_alloc = mf.is_alloc
         live_in, live_out = liveness(mf)
         for b in mf.blocks:
             w = 10 ** min(b.loop_depth, 5)
@@ -102,7 +103,7 @@ class Allocator:
         self.coalesced_moves, self.constrained_moves, self.frozen_moves = set(), set(), set()
         self.active_moves = set()
         self.alias = {}
-        self.color = {p: p for p in PHYS[1:15]}
+        self.color = {p: p for p in PHYS if self.mf.is_alloc(p)}
         for n in sorted(self.initial, key=lambda r: r.id):
             if self.degree[n] >= K:
                 self.spill_wl.add(n)

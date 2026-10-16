@@ -6,7 +6,7 @@
   test   [NAME...]                            the test programs against their expected output
   bench  [--markdown]                         instructions, cycles and run times per program
   analyze                                     ISA usage statistics over all programs
-  report [--hw]                               write the generated part of report 0001
+  report [--hw]                               write the generated part of RFC 0001
   ucode  [-o DIR] [--doc]                     microcode ROM images (--doc: microcode.md)
   hw     ...                                  chip-level tools (see heron.infra.hw.runner)
 
@@ -150,7 +150,7 @@ def main(argv=None):
     an = sub.add_parser("analyze", help="ISA usage statistics over all programs")
     an.set_defaults(fn=lambda args: __import__("heron.studies.v0_hw.analyze", fromlist=["x"]).main())
 
-    rp = sub.add_parser("report", help="write the generated part of report 0001")
+    rp = sub.add_parser("report", help="write the generated part of RFC 0001")
     rp.add_argument("--hw", action="store_true", help="also run every program on the chip-level simulator")
     rp.add_argument("--jobs", type=int, default=4)
     rp.set_defaults(fn=lambda args: __import__("heron.studies.v0_hw.report", fromlist=["x"]).main(

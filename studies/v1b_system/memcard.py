@@ -1,5 +1,5 @@
 """The memory card: 2 MB of 12 ns SRAM as a fast 32-bit card (RFC 0014
-section 12's example). See design.md for the design and its timing.
+section 12's example). See report 0025, Part I, for the design and its timing.
 
 - The address, byte enables and WRITE are registered at the end of every
   address clock.

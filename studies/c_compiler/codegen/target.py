@@ -1,24 +1,30 @@
-"""The parts of code generation that both draft 1 encodings share: walking
-the IR, deciding which values can be folded into the instructions that use
-them, the calling convention, phi copies, switch lowering, the stack frame,
-the peepholes and the assembly text. codegen.v1a and v1b subclass Target
+"""The parts of code generation that every target shares: walking the IR,
+deciding which values can be folded into the instructions that use them,
+the calling convention, phi copies, switch lowering, the stack frame, the
+peepholes and the assembly text. codegen.v1a, v1b and v2 subclass Target
 with their instruction selection.
 
-Calling convention (the v1_isa study's isa-v1.md): arguments in r1-r4, the rest on the
+Calling convention (draft 1's, RFC 0004): arguments in r1-r4, the rest on the
 stack; result in r1; r1-r7 caller-saved, r8-r14 callee-saved; sp is r15.
-Calls to variadic functions pass every argument on the stack. The caller
-reserves the outgoing argument area at the bottom of its frame, so sp
-doesn't move inside a function body.
+On draft 1 r0 reads as zero; on draft 2 it's a general register, and
+caller-saved. Calls to variadic functions pass every argument on the stack.
+The caller reserves the outgoing argument area at the bottom of its frame,
+so sp doesn't move inside a function body.
+
+With a link register (LINK: r7 on draft 2, and on the v1bl variant of
+studies/link_register), calls leave the return address in it instead of
+pushing it. The allocator treats it like a callee-saved register: a
+function that calls, or that needs the register, saves it with the others
+(SAVE r7-rN) or pushes it; a leaf that doesn't returns through it.
 """
 
 from heron.studies.c_compiler.ir import ir as I
 from heron.studies.c_compiler.ir.ir import Instr, Const, SymAddr, Param, Slot, Undef, PURE, s32
 from heron.studies.c_compiler.ir.cfg import compute_loop_depth, reverse_postorder
-from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr, MBlock, MFunction, liveness, is_alloc
+from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr, MBlock, MFunction, liveness
 from .regalloc import Allocator
 
 ARG_REGS = PHYS[1:5]
-CALLER_SAVED = PHYS[1:8]
 
 COND = {"eq": "EQ", "ne": "NE", "lt": "LT", "le": "LE", "gt": "GT", "ge": "GE",
         "ltu": "LO", "leu": "LS", "gtu": "HI", "geu": "HS"}
@@ -63,6 +69,10 @@ def split_critical_edges(func):
 class Target:
     FOLD_LOADS = True       # loads can be operands of other instructions
     ALLOC_ORDER = PHYS[1:15]
+    CALLER_SAVED = PHYS[1:8]     # what a call clobbers
+    ZERO = R0               # a register that reads as zero, or None
+    COUNT_DOWN = False      # loops that only count, counted down to zero (ir.passes.count_down)
+    LINK = None             # the link register, if calls leave the return address in one
     SMALL_ADD = (-16, 15)        # add constants that fit the one-parcel form
 
     def __init__(self, symname=None, near=None):
@@ -76,7 +86,7 @@ class Target:
         split_critical_edges(f)
         compute_loop_depth(f)
         self.f = f
-        mf = self.mf = MFunction(self.symname(f.name), f)
+        mf = self.mf = MFunction(self.symname(f.name), f, self.ALLOC_ORDER)
         # locals: fixed offsets (spill slots go above them)
         off = 0
         for s in f.slots:
@@ -252,8 +262,8 @@ class Target:
                 raise AssertionError("use of an absorbed increment before its access")
             raise AssertionError(f"value {v} ({getattr(v, 'op', '?')}) used before it's computed")
         if isinstance(v, Const):
-            if v.value == 0:
-                return R0
+            if v.value == 0 and self.ZERO is not None:
+                return self.ZERO
             return self.const_reg(v.value)
         if isinstance(v, SymAddr):
             return self.const_reg(self.sym_expr(v))
@@ -262,7 +272,7 @@ class Target:
             self.emit("LEA", [t, Mem(SP, frame=Frame("local", v))], defs=[t])
             return t
         if v is Undef:
-            return R0
+            return self.ZERO if self.ZERO is not None else self.const_reg(0)
         raise AssertionError(v)
 
     def const_reg(self, value):
@@ -488,9 +498,9 @@ class Target:
 
     def emit_call(self, target, uses):
         if isinstance(target, Label):
-            self.emit("BSR", [target], defs=list(CALLER_SAVED), uses=uses)
+            self.emit("BSR", [target], defs=list(self.CALLER_SAVED), uses=uses)
         else:
-            self.emit("CALL", [target], defs=list(CALLER_SAVED), uses=uses + [target])
+            self.emit("CALL", [target], defs=list(self.CALLER_SAVED), uses=uses + [target])
 
     def new_label(self):
         self.label_count = getattr(self, "label_count", 0) + 1
@@ -499,7 +509,7 @@ class Target:
     def call_runtime(self, name, args, result=None):
         for k, a in enumerate(args):
             self.copy(ARG_REGS[k], a)
-        self.emit("BSR", [Label(self.symname(name))], defs=list(CALLER_SAVED),
+        self.emit("BSR", [Label(self.symname(name))], defs=list(self.CALLER_SAVED),
                   uses=list(ARG_REGS[:len(args)]))
         if result is not None:
             self.copy(result, PHYS[1])
@@ -544,6 +554,8 @@ class Target:
                 for r in i.defs:
                     if r.is_phys and 8 <= r.n <= 14:
                         used.add(r.n)
+                    if r is self.LINK:
+                        mf.link_used = True
         mf.saved = (min(used), max(used)) if used else None
         nsaved = mf.saved[1] - mf.saved[0] + 1 if mf.saved else 0
         mf.layout_frame(nsaved)
@@ -551,6 +563,32 @@ class Target:
             b.instrs = [i for i in b.instrs if not (i.is_copy and i.ops[0] is i.ops[1])]
         self.peephole()
         self.thread_jumps()
+        self.tail_calls()
+        if self.LINK is not None:
+            # a function whose only calls are tail calls is a leaf: the
+            # link register survives until the jump
+            mf.leaf = mf.leaf or not any(i.op in ("BSR", "CALL") for b in mf.blocks
+                                         for i in b.instrs)
+            # the return address stays on the stack (in the saved link
+            # register) unless this is a leaf that leaves the register alone
+            mf.ret_words = int(self.saves_link())
+            if mf.saved and self.saves_link():
+                mf.saved = (self.LINK.n + 1, mf.saved[1])     # SAVE r7-rN takes them all
+                mf.nsaved = mf.saved[1] - mf.saved[0] + 1
+
+    def tail_calls(self):
+        """A call followed by a return becomes a jump (TAIL), unless the
+        callee might see this frame's locals or takes stack arguments."""
+        if self.mf.locals_size:
+            return
+        for b in self.mf.blocks:
+            out = []
+            for i in b.instrs:
+                if i.op == "RET" and out and out[-1].op == "BSR" and out[-1].comment == "tail-ok":
+                    out[-1] = MInstr("TAIL", [out[-1].ops[0]])
+                    continue
+                out.append(i)
+            b.instrs = out
 
     def retarget(self, i, mapping):
         if not i.targets:
@@ -607,6 +645,7 @@ class Target:
     def fold_constants(self):
         """MOV rt, #c; OP rd, rt  ->  OP rd, #c, when rt dies there (left
         over from constants rematerialised by the register allocator)."""
+        is_alloc = self.mf.is_alloc
         live_in, live_out = liveness(self.mf)
         for b in self.mf.blocks:
             live = set(live_out[b])
@@ -721,6 +760,7 @@ class Target:
             if instrs and instrs[-1].op == "JMP" and instrs[-1].targets and instrs[-1].targets[0] is nxt:
                 instrs = instrs[:-1]
             body.append((b, instrs))
+        self.final_layout(body)
         # labels only where needed
         used_labels = set()
         for b, instrs in body:
@@ -732,14 +772,9 @@ class Target:
         for b, instrs in body:
             if b in used_labels:
                 lines.append(f"{b.label}:")
-            for k, i in enumerate(instrs):
-                # a tail call, unless the callee might see this frame's locals
-                if (i.op == "BSR" and i.comment == "tail-ok" and k + 1 < len(instrs)
-                        and instrs[k + 1].op == "RET" and mf.locals_size == 0):
-                    instrs[k + 1] = MInstr("TAIL", [i.ops[0]])
-                    continue
+            for i in instrs:
                 if i.op == "TAIL":
-                    lines += self.epilogue() + [f"        BRA  {self.fmt(i.ops[0])}"]
+                    lines += self.epilogue(tail=True) + [f"        BRA  {self.fmt(i.ops[0])}"]
                     continue
                 lines += self.format_instr(i)
         for label, table in mf.consts:
@@ -749,10 +784,14 @@ class Target:
                 lines.append(f"        .word {mf.name}{t.label}")
         return "\n".join(lines) + "\n"
 
+    def final_layout(self, body):
+        """Last changes, with the blocks in their final order: body is
+        [(block, instructions)]."""
+
     def format_instr(self, i):
         op = i.op
         if op == "RET":
-            return self.epilogue() + ["        RET"]
+            return self.epilogue() + self.return_instr()
         if op == "COPY":
             return [f"        MOV  {self.fmt(i.ops[0])}, {self.fmt(i.ops[1])}"]
         if op == "JMP":
@@ -764,20 +803,46 @@ class Target:
         args = ", ".join(self.fmt(x) for x in i.ops)
         return [f"        {op:<4} {args}".rstrip()]
 
+    def saves_link(self):
+        return self.LINK is not None and (not self.mf.leaf or self.mf.link_used)
+
     def prologue(self):
         mf = self.mf
         out = []
-        if mf.saved:
+        if self.saves_link():
+            # the return address goes below the callee-saved registers, so
+            # one SAVE takes both; without them, a push
+            if mf.saved:
+                out.append(f"        SAVE r{self.LINK.n}-r{mf.saved[1]}")
+            else:
+                out.append(self.push(self.LINK))
+        elif mf.saved:
             out.append(f"        SAVE r{mf.saved[0]}-r{mf.saved[1]}")
         if mf.frame_size:
             out += self.adjust_sp(-mf.frame_size)
         return out
 
-    def epilogue(self):
+    def epilogue(self, tail=False):
+        """Unwind the frame. Before a return, with a link register saved and
+        nothing else, return_instr pops the return address itself; before a
+        tail call it goes back into the link register."""
         mf = self.mf
         out = []
         if mf.frame_size:
             out += self.adjust_sp(mf.frame_size)
-        if mf.saved:
+        if self.saves_link():
+            if mf.saved:
+                out.append(f"        RESTORE r{self.LINK.n}-r{mf.saved[1]}")
+            elif tail:
+                out.append(f"        MOV  r{self.LINK.n}, [sp]+")
+        elif mf.saved:
             out.append(f"        RESTORE r{mf.saved[0]}-r{mf.saved[1]}")
         return out
+
+    def push(self, r):
+        return f"        ST   {self.fmt(r)}, -[sp]"
+
+    def return_instr(self):
+        if self.saves_link() and not self.mf.saved:
+            return ["        JMP  [sp]+"]
+        return ["        RET"]

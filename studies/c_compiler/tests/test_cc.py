@@ -1,5 +1,5 @@
-"""The C compiler: every tests/cc/*.c program, compiled for drafts 1a and
-1b, must print what the host's gcc build of it prints
+"""The C compiler: every tests/cc/*.c program, compiled for drafts 1a, 1b
+and 2, must print what the host's gcc build of it prints
 (tests/cc/expected/, written by tests/cc/gen_expected.py)."""
 
 import glob
@@ -38,7 +38,7 @@ def make(path, isa):
 
 
 for _p in programs():
-    for _isa in ("v1a", "v1b"):
+    for _isa in ("v1a", "v1b", "v2"):
         setattr(CPrograms, f"test_{os.path.basename(_p)[:-2]}_{_isa}", make(_p, _isa))
 
 
