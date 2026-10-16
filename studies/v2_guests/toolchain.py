@@ -25,12 +25,10 @@ PROGRAMS = os.path.join(CC, "programs")
 LIB = ["stdio.c", "stdlib.c", "string.c", "ctype.c"]
 OUT = os.path.join(BUILD, "v2_guests", "cc")
 
-# target: (clang triple and flags, big-endian?)
+# target: clang's triple and flags
 TARGETS = {
-    "rv32": (["--target=riscv32-unknown-elf", "-march=rv32im", "-mabi=ilp32", "-mno-relax"],
-             False),
-    "thumb": (["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0"], False),
-    "m68k": (["--target=m68k-unknown-elf", "-mcpu=M68000"], True),
+    "rv32": ["--target=riscv32-unknown-elf", "-march=rv32im", "-mabi=ilp32", "-mno-relax"],
+    "thumb": ["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0"],
 }
 # a user process under mixed.py's kernel: its own start-up (exit is SVC #0)
 # and console (a page of its own address space, not the supervisor's I/O
@@ -93,7 +91,7 @@ def _run(cmd):
 def build(target, name):
     """Compile and link program `name` for `target`. Returns an image:
     .data (bytes from address 0), .symbols {name: address}, .path (the ELF)."""
-    flags, _ = TARGETS[target]
+    flags = TARGETS[target]
     tag = _tag(target, name)
     odir = os.path.join(OUT, target)
     elf = os.path.join(odir, f"{name}-{tag}.elf")

@@ -7,7 +7,12 @@
                           --profile: the busiest routines)
   test ISA [PROGRAMS]     programs against their expected output
   ucode ISA [--list]      the microcode's size (--list: every word)
-  bench [ISAS] [--write]  every guest's programs: time against native draft 2
+  mixed [NAME:ISA ...]    the mixed machine: draft 2's kernel running user
+                          processes in draft 2 (sw/mixed/NAME.s) and Thumb
+                          (the suite's C); default sieve:v2 queens:thumb
+                          wordfreq:thumb
+  bench [ISAS] [--write]  every guest's programs (and "mixed": the mixed
+                          machine's run), against native draft 2
 """
 
 import argparse
@@ -55,11 +60,19 @@ def compare_state(a, b):
 
 
 def run(isa, name, lockstep=False, profile=False, max_cycles=200_000_000):
-    """Run one program; returns a result dict."""
-    from . import guest as gm
-    mod = guest_module(isa)
-    mc = mod.built()
+    """Run one of the guest's programs; returns a result dict."""
     image, inp, exp = programs(isa)[name]()
+    return run_image(isa, name, image, inp, exp, lockstep, profile, max_cycles)
+
+
+def run_image(isa, name, image, inp=b"", exp=None, lockstep=False, profile=False,
+              max_cycles=200_000_000):
+    """Run an image on the guest's microcode: with lockstep, against the
+    reference interpreter after every instruction; else it stops where a
+    guest that can say where its PC is loops on one instruction (a failed
+    self-test's trap). Returns a result dict."""
+    from . import guest as gm
+    mc = guest_module(isa).built()
     r = gm.Run(mc, image, inp, profile=profile)
     trace = None
     info = {"lockstep": None}
@@ -159,9 +172,26 @@ def cmd_ucode(args):
     return 0
 
 
+def cmd_mixed(args):
+    from . import mixed
+    procs = [tuple(p.split(":")) for p in args.procs] or \
+        [("sieve", "v2"), ("queens", "thumb"), ("wordfreq", "thumb")]
+    t0 = time.time()
+    res = mixed.run(procs, period=args.period)
+    sys.stdout.write(res["kernel"].decode("latin-1"))
+    for p in res["procs"]:
+        print(f"{p['name']:10s} {p['isa']:6s} {'ok' if p['ok'] else 'FAIL'}")
+        if not p["ok"]:
+            print(f"    output {p['out'][:120]!r}\n    wanted {p['expected'][:120]!r}")
+    print(f"{res['instructions']} instructions, {res['cycles']} cycles, {res['ms']:.2f} ms "
+          f"({time.time() - t0:.0f} s)")
+    print(mixed.built().summary())
+    return 0 if res["ok"] else 1
+
+
 def cmd_bench(args):
     from . import bench
-    return bench.main(args.isas or list(GUESTS), write=args.write)
+    return bench.main(args.isas or list(GUESTS) + ["mixed"], write=args.write)
 
 
 def main(argv=None):
@@ -184,6 +214,10 @@ def main(argv=None):
     u.add_argument("isa", choices=sorted(GUESTS))
     u.add_argument("--list", action="store_true")
     u.set_defaults(fn=cmd_ucode)
+    x = sub.add_parser("mixed", help="draft 2's kernel with user processes in two ISAs")
+    x.add_argument("procs", nargs="*", metavar="NAME:ISA")
+    x.add_argument("--period", type=int, default=20000, help="the time slice, in cycles")
+    x.set_defaults(fn=cmd_mixed)
     b = sub.add_parser("bench", help="every guest's programs against native draft 2")
     b.add_argument("isas", nargs="*")
     b.add_argument("--write", action="store_true")

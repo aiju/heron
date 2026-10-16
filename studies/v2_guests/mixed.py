@@ -3,7 +3,7 @@
 Draft 2's own microcode and a guest's (Thumb) share the control store; a
 draft 2 kernel (sw/mixed/kernel.s) runs in supervisor mode and switches
 between user processes on the timer, each with its own context and bank,
-some in draft 2's code, some in Thumb. What it takes ([D5] and [D6] in
+some in draft 2's code, some in Thumb. What it takes ([D2] and [D3] in
 rtlx.py):
 
 - **Decode pages:** two bits of the status word, ISA, extend the decode
@@ -42,7 +42,7 @@ from .rtlx import RTLX
 HERE = os.path.dirname(os.path.abspath(__file__))
 SW = os.path.join(HERE, "sw", "mixed")
 KERNEL = os.path.join(SW, "kernel.s")
-STORE = 1 << 16                 # [D6] the reachable control store
+STORE = 1 << 16                 # [D3] the reachable control store
 ENTRY_LIMIT = 1 << uc.Y_BITS    # decode entries are 13 bits
 
 ISAS = {"v2": 0, "thumb": 1}
@@ -148,7 +148,7 @@ class MixedMicrocode(uc.Microcode):
                        for w in range(0x10000)] for keys, lens in self.page_keys]
 
     def _place(self):
-        """[D6] Routines' first words in the first 8K, the rest anywhere in
+        """[D3] Routines' first words in the first 8K, the rest anywhere in
         64K; dispatch tables and branch pairs aligned as draft 2's are."""
         used = [None] * STORE
         used[0] = self.reset
@@ -200,7 +200,7 @@ class MixedMicrocode(uc.Microcode):
         assert all(n.addr < ENTRY_LIMIT for n in self.entry.values())
 
     def word(self, n):
-        """Field dict of node n: draft 2's, with NEXT 16 bits wide [D6]."""
+        """Field dict of node n: draft 2's, with NEXT 16 bits wide [D3]."""
         f = dict(n.f)
         f["VAS"] = uc.VAS_OF_MEM.get(f.get("MEM", 0), 0)
         f["MAPA"] = int(f.get("MEM", 0) in (uc.MEM["mapr"], uc.MEM["mapw"]))
@@ -233,7 +233,7 @@ class MixedMicrocode(uc.Microcode):
 
     def summary(self):
         names = ", ".join(["draft 2"] + [g.name for g in self.guests])
-        top = max(n.addr for n in self.nodes)
+        top = max(n.addr for n in self.nodes if n.fixed is None)
         return (f"{names}: {len(self.nodes)} microinstructions (up to {top:04X}), "
                 f"{len(self.entry)} routines")
 
@@ -279,15 +279,31 @@ def kernel_image():
     return asm.assemble_file(isas.get("v2"), KERNEL)
 
 
+class Process:
+    """A user process: its image from VA 0, entry point, ISA ("v2" or
+    "thumb"), console input and expected output."""
+
+    def __init__(self, name, isa, image, entry, inp=b"", expected=None):
+        self.name, self.isa, self.image, self.entry = name, isa, image, entry
+        self.inp, self.expected = inp, expected
+
+
+def program(name, isa):
+    """A suite program as a process: draft 2's from sw/mixed, Thumb's
+    compiled with clang."""
+    image, entry = user_image(name, isa)
+    inp, exp = toolchain.expected(name)
+    return Process(name, isa, image, entry, inp, exp)
+
+
 def make_system(procs, period=20000):
-    """procs: [(program name, isa)]. Returns (system, kernel image, the
-    processes' consoles)."""
+    """procs: [Process]. Returns (system, kernel image, the processes'
+    consoles)."""
     assert len(procs) <= 3
     s = System()
     consoles = []
-    for i, (name, isa) in enumerate(procs):
-        inp, _ = toolchain.expected(name)
-        c = ConsoleCard(inp)
+    for i, p in enumerate(procs):
+        c = ConsoleCard(p.inp)
         s.add(12 + i, c)
         consoles.append(c)
     s.add(15, ConsoleCard())        # the kernel's, with the timer: added last
@@ -301,33 +317,33 @@ def make_system(procs, period=20000):
             s.poke((va & 0x7FFFFFFF) + j, (v >> (8 * j)) & 0xFF)
     poke32(sym["period"], period)
     poke32(sym["nproc"], len(procs))
-    for i, (name, isa) in enumerate(procs):
-        data, entry = user_image(name, isa)
+    for i, p in enumerate(procs):
         base = PROC_BASE * (i + 1)
-        assert len(data) <= PROC_BASE, name
-        s.ram[base:base + len(data)] = data
+        assert len(p.image) <= PROC_BASE, p.name
+        s.ram[base:base + len(p.image)] = p.image
         ctx = i + 1
-        s.identity_map(ctx, (len(data) + 0xFFF) >> 12, base=base)
+        s.identity_map(ctx, (len(p.image) + 0xFFF) >> 12, base=base)
         s.map[(ctx << 12) | (USER_CONSOLE >> 12)] = ((12 + i) << 27) | 0b011    # V, W
         e = sym["procs"] + P_SIZE * i
-        for off, v in enumerate([ctx, ctx, entry, ISAS[isa] << 8 | 0x10, 1, 0, 0, 0]):
+        for off, v in enumerate([ctx, ctx, p.entry, ISAS[p.isa] << 8 | 0x10, 1, 0, 0, 0]):
             poke32(e + 4 * off, v)
     return s, k, consoles
 
 
 def run(procs, period=20000, max_cycles=400_000_000):
-    """Run the kernel and its processes to the end. Returns a result dict."""
+    """Run the kernel and its processes ([Process], or (name, isa) for
+    suite programs) to the end. Returns a result dict."""
+    procs = [p if isinstance(p, Process) else program(*p) for p in procs]
     mc = built()
     s, k, consoles = make_system(procs, period)
     m = RTLX(s, mc=mc)
     m.run(max_cycles)
     res = {"kernel": bytes(s.console.dev.out), "procs": [], "cycles": m.cycles,
-           "ms": m.ticks * 20 / 1e6, "halted": m.halted}
-    for (name, isa), c in zip(procs, consoles):
+           "instructions": m.instructions, "ms": m.ticks * 20 / 1e6, "halted": m.halted}
+    for p, c in zip(procs, consoles):
         out = bytes(c.dev.out)
-        exp = toolchain.expected(name)[1]
-        res["procs"].append({"name": name, "isa": isa, "out": out, "expected": exp,
-                             "ok": out == exp})
+        res["procs"].append({"name": p.name, "isa": p.isa, "out": out, "expected": p.expected,
+                             "ok": p.expected is None or out == p.expected})
     res["ok"] = m.halted and all(p["ok"] for p in res["procs"]) and \
         res["kernel"].count(b"exited") == len(procs)
     return res

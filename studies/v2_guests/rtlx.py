@@ -1,6 +1,6 @@
 """The draft 2 CPU with design changes: the register-transfer model of
 studies/v2_hw/rtl.py, its step() copied here with the changes added where
-they are marked [D1]..[D5]. With none of them it is the same machine (the
+they are marked [D1]..[D3]. With none of them it is the same machine (the
 unit tests check cycle for cycle); each is an option.
 
 [D1] The decode table is wider: besides the microaddress and the length,
@@ -9,23 +9,15 @@ unit tests check cycle for cycle); each is an option.
      IR[11:8]) and an immediate (`ximm`, 16 bits sign-extended, put on the
      B bus by BX = 6). Two more 64K x 16 SRAMs beside the decode table, a
      16-bit register for the immediate and its B-bus drivers.
-[D2] A lookup table on the head parcel: BX = 7 puts function QK (a new
-     2-bit field) of QH on the B bus: rs2, an immediate, any field of an
-     extension parcel in one cycle. A 256K x 16 SRAM addressed by {QK, QH}.
-[D3] SX loads from the B bus (LDSXB, a new bit), and is five bits: a
-     register number computed by the microcode addresses the register file
-     directly, in the current bank, without going through BANK.
-[D4] CCB = 3 takes the condition code from the microinstruction's constant
-     (KONST[3:0]), so the microcode can test any condition of the flags.
-[D5] Decode table pages: the decode table (and D1's halves) is addressed
+[D2] Decode table pages: the decode table (and D1's halves) is addressed
      by {ISA, QH}, ISA two bits of the status word (bits 9-8). RTI loads
      them with the rest of the word; exception entry clears them, so that
      the supervisor always runs draft 2 (see mixed.py).
-[D6] The control store is reachable to 64K words: NEXT is 16 bits. Decode
+[D3] The control store is reachable to 64K words: NEXT is 16 bits. Decode
      table entries stay 13 bits, so routines start in the first 8K; the
      model needs no change for it, only the placement (mixed.py).
 
-QK and LDSXB are the control word's three spare bits (141 of 144 used).
+D3 takes the control word's three spare bits (141 of 144 used).
 """
 
 from heron.studies.v2_hw import ucode as uc
@@ -36,11 +28,9 @@ M32 = 0xFFFFFFFF
 
 
 class RTLX(RTL):
-    """mc: a Microcode whose words may use the new fields, and which may
-    carry the tables: xir, ximm (D1, 64K entries each), qfun (D2: a list of
-    up to four 64K-entry tables), pages (D5: a list of decode tables, and
-    xir_pages, ximm_pages: D1's per page, None for draft 2's own).
-    sx5: SX is five bits (D3)."""
+    """mc: a Microcode which may carry the tables: xir, ximm (D1, 64K
+    entries each), pages (D2: a list of decode tables, and xir_pages,
+    ximm_pages: D1's per page, None for draft 2's own)."""
 
     def __init__(self, system, mc=None, check=True, lengths=None):
         super().__init__(system, mc=mc, check=check, lengths=lengths)
@@ -55,30 +45,23 @@ class RTLX(RTL):
         self.uir = self.rom[0]
         self.xir = getattr(self.mc, "xir", None)
         self.ximm = getattr(self.mc, "ximm", None)
-        self.qfun = getattr(self.mc, "qfun", None)
         self.pages = getattr(self.mc, "pages", None)
         self.xir_pages = getattr(self.mc, "xir_pages", None)
         self.ximm_pages = getattr(self.mc, "ximm_pages", None)
-        self.sx_mask = 31 if getattr(self.mc, "sx5", False) else 15
         self.IMM = 0
         self.isa = 0
 
     def flags_word(self):
-        return super().flags_word() | (self.isa << 8)          # [D5]
+        return super().flags_word() | (self.isa << 8)          # [D2]
 
     def _flags(self, f, RES, F, C32, OVF, zero, A, B, fill):
         super()._flags(f, RES, F, C32, OVF, zero, A, B, fill)
         if self.pages:
-            # [D5] RTI loads ISA; exception entry clears it
+            # [D2] RTI loads ISA; exception entry clears it
             if f["FNZ"] == 3 and f["LFM"] == 2:
                 self.isa = (A >> 8) & 3
             if f["SSET"]:
                 self.isa = 0
-
-    def cc_of(self, ccb):
-        if ccb == 3:
-            return self.uir["KONST"] & 15          # [D4]
-        return super().cc_of(ccb)
 
     def step(self):
         f = self.uir
@@ -275,11 +258,6 @@ class RTLX(RTL):
         elif bx == 6:
             # [D1] the predecoded immediate, sign-extended from 16 bits
             put32(self.IMM)
-        elif bx == 7:
-            # [D2] a function of the head parcel, from the lookup table
-            if QH is None:
-                self.err("the head parcel's function while the queue is empty")
-            put32(self.qfun[f.get("QK", 0)][QH])
 
         # ---- memory data, now that the address side is known
         if data_access and fault is None:
@@ -500,11 +478,8 @@ class RTLX(RTL):
                 self.SX = (IR >> 8) & 15
             elif ldsx == 3:
                 self.SX = (QH >> 12) & 15
-            elif f.get("LDSXB"):
-                # [D3] a register number from the B bus
-                self.SX = B & 31
             elif f["SXINC"]:
-                self.SX = (self.SX + 1) & self.sx_mask
+                self.SX = (self.SX + 1) & 15
             ldex = f["LDEX"]
             if ldex == 1:
                 self.EX = (IR >> 8) & 15

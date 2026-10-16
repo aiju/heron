@@ -5,7 +5,7 @@ title: Microarchitecture and clocking ideas
 status: open
 date: 2026-10-15
 context:
-  studies: [v1_isa, v1b_hw, graphics]
+  studies: [v1_isa, v1b_hw, graphics, v2_guests]
   commit: 0987e76
 ---
 
@@ -156,3 +156,18 @@ microcycles 1.14 times as fast
   no DIP ([RFC 0014, section 17](0014-rfc-system-bus.md#17-signal-integrity)).
 - PLDs: Emily would rather not use them, though it isn't a definite no
   ([RFC 0014](0014-rfc-system-bus.md#14-open-questions)).
+
+## 4. Other instruction sets in the control store
+
+Draft 2's control store and decode table are RAM, so the CPU can run
+another instruction set's microcode: RV32IM, the 6502 and draft 1b's
+binaries run on it as it is, and Thumb with D1 below
+([report 0039](0039-report-guest-isas.md)). The changes below were
+measured on the register-transfer model, not built.
+
+| Proposal | Status | Notes |
+|---|---|---|
+| A wider decode table: for every first parcel, also the IR to load and a 16-bit immediate (D1) | **measured**, **open** | Moves a guest's register fields to where draft 2's selectors look, and gives its immediate ready-made. Thumb runs at 2.2 cycles an instruction with it, against some 6 to 8 without; it would do the same for the PDP-11 and the 68000. Two 64K × 16 SRAMs, a 16-bit register and its B-bus drivers, a mux on the IR's input; no control bits (BX = 6 is free) |
+| Decode table pages selected by two status-word bits (D2) | **measured**, **open** | User processes in different instruction sets: RTI loads the bits with the status word, exception entry clears them, so the kernel always runs draft 2 and a context switch is the same for every process. A draft 2 kernel time-slices draft 2 and Thumb processes with it. Decode SRAMs four times as deep, two flip-flops |
+| The whole 64K control store reachable: NEXT 16 bits wide (D3) | **measured**, **open** | The sequencer reaches 8K words; draft 2's own microcode is 6,235 of them, 1b's 7,856, Thumb's 4,770, so no guest but the 6502 fits beside draft 2's. Decode entries can stay 13 bits (routines start in the first 8K). Takes the control word's three spare bits |
+| A lookup table on the head parcel, on the B bus, and SX loaded from the B bus, five bits | **open** (estimated) | For guests whose register fields aren't in the first parcel or are five bits (RV32, AVR, ARM): one cycle for a register number or an immediate from the second parcel. RV32 from 9.9 cycles an instruction to an estimated 6.6, and to 5.4 with shifts by a count (the barrel shifter above). A 256K × 16 SRAM, a mux on SX, three or four control bits: with D3, a wider control word |
