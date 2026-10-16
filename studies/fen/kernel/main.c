@@ -122,6 +122,7 @@ void kmain(void)
     mem_init(first_free);
     sched_init();
     ipc_init();
+    iop_init();
     kprintf("%u KB of RAM, %u KB free; clock %u Hz\n", ram_size >> 10, pages_free() * 4,
             INFO_CLOCK);
     pid = boot_spawn("init", 0, PROC_IO, 16);

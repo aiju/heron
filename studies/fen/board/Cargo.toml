@@ -1,6 +1,7 @@
 # The machine Fen runs on, for the instruction-level simulator: draft 2 in
 # system mode (studies/v2_isa) with RAM, a timer, a video card and an I/O
-# card, behind RFC 0029's Bus. Python uses it as heron.native.fen.
+# card, behind RFC 0029's Bus, and optionally the I/O processor of RFC 0027
+# (studies/iop). Python uses it as heron.native.fen.
 [package]
 name = "fen-board"
 version = "0.1.0"
@@ -9,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 devices = { path = "../../../infra/devices" }
+iop = { path = "../../iop/sim" }
 v2-isa = { path = "../../v2_isa/isa" }
 
 [lints]

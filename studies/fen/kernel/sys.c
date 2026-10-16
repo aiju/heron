@@ -302,3 +302,16 @@ int sys_boot_spawn(const char *uname, int flags)
         return -EPERM;
     return boot_spawn(name, current->proc->pid, flags, current->prio);
 }
+
+/* vm_phys(va): the physical address va is mapped to, for a driver that
+ * hands it to a device: the I/O processor's requests. */
+int sys_vm_phys(u32 va)
+{
+    u32 pte;
+    if (!(current->proc->flags & PROC_IO))
+        return -EPERM;
+    pte = pte_of(current->proc, va);
+    if (!(pte & PTE_V))
+        return -EFAULT;
+    return (pte & ~(PAGE - 1)) | (va & (PAGE - 1));
+}

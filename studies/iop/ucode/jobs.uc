@@ -708,6 +708,152 @@ jr_fz:  F <- jq2
 jrf_go: goto js_fill
         jend <- #jr_done
 
+; ---- the disk (RFC 0027, 7.2): a CF card in True IDE mode at DISKX, its
+; task file written, then each sector, when its status says DRQ, moved by
+; a mover between its data register and a. The job polls the status,
+; going to the native layer between looks. Whole sectors, a a multiple
+; of 4. jkind holds the command, jwn the sectors left.
+jr_read: goto jr_disk
+        jkind <- #0x20          ; READ SECTORS
+jr_write: goto jr_disk
+        jkind <- #0x30          ; WRITE SECTORS
+jr_disk: X <- #DISKX
+        F <- [X] - 1 | ifnot carry goto jr_nodev
+        F <- [X]
+        jx <- F                 ; the data register's X
+        AC <- jq6
+        F <- m1 + AC | ifnot carry goto jr_align   ; nothing
+        AC <- #0x1FF & AC
+        F <- m1 + AC | if carry goto jr_align      ; part of a sector
+        AC <- jq2
+        AC <- #3 & AC
+        F <- m1 + AC | if carry goto jr_align
+        F <- jq2
+        jalo <- F
+        F <- jq3
+        jahi <- F
+        F <- jcl - 1 | ifnot carry goto jd_go     ; the kernel's ring: no windows
+        F <- jq2
+        jt2 <- F
+        F <- jq3
+        jt3 <- F
+        F <- jq6
+        jleft <- F
+        jret <- #jd_go
+        goto jwcheck
+        nop
+jd_go:  AC <- jq6               ; the sectors: len >> 9, as len >> 8 << 7 >> 8
+        F <- AC | swap <- F
+        AC <- swap
+        AC <- #0xFF & AC
+        jt <- AC
+        jt <- jt + jt
+        jt <- jt + jt
+        jt <- jt + jt
+        jt <- jt + jt
+        jt <- jt + jt
+        jt <- jt + jt
+        jt <- jt + jt
+        F <- jt
+        swap <- F
+        AC <- swap
+        AC <- #0xFF & AC
+        jwn <- AC
+        F <- jq4                ; the sector, while jq4-5 are there
+        jt2 <- F
+        F <- jq5
+        jt3 <- F
+        jres <- #jd_cmd
+jd_cmd: AC <- jx                ; the task file free first
+        X <- #7 + AC
+        AC <- #0x80
+        F <- (io & AC) - 1 | if carry goto jd_later
+        AC <- jx
+        F <- #1 + AC
+        jp <- F
+        AC <- jwn
+        jt <- AC
+        jp, X <- jp + 1
+        F <- jt | io <- F       ; 2: the count
+        F <- jt2
+        jt <- F
+        jp, X <- jp + 1
+        F <- jt | io <- F       ; 3: LBA 0-7
+        F <- jt2
+        swap <- F
+        AC <- swap
+        jt <- AC
+        jp, X <- jp + 1
+        F <- jt | io <- F       ; 4: LBA 8-15
+        F <- jt3
+        jt <- F
+        jp, X <- jp + 1
+        F <- jt | io <- F       ; 5: LBA 16-23
+        F <- jt3
+        swap <- F
+        AC <- swap
+        AC <- #0x0F & AC
+        AC <- #0xE0 | AC
+        jt <- AC
+        jp, X <- jp + 1
+        F <- jt | io <- F       ; 6: LBA mode, LBA 24-27
+        F <- jkind
+        jt <- F
+        jp, X <- jp + 1
+        F <- jt | io <- F       ; 7: the command
+        jres <- #jd_sec
+jd_sec: AC <- jx                ; a sector: its status
+        X <- #7 + AC
+        AC <- #0x80
+        F <- (io & AC) - 1 | if carry goto jd_later    ; BSY
+        AC <- #0x01
+        F <- (io & AC) - 1 | if carry goto jd_err      ; ERR
+        AC <- #0x08
+        F <- (io & AC) - 1 | ifnot carry goto jd_later ; no DRQ yet
+        jleft <- #512
+        jend <- #jd_next
+        AC <- jkind
+        AC <- #0x10 & AC
+        F <- m1 + AC | if carry goto jd_out           ; a write
+        nop
+        F <- jx                 ; read: a <- the data register
+        jblo <- F
+        goto js_fromio
+        nop
+jd_out: F <- jalo               ; write: the data register <- a, which is b now
+        jblo <- F
+        F <- jahi
+        jbhi <- F
+        F <- jx
+        jalo <- F
+        goto js_toio
+        jahi <- 0
+jd_next: jres <- #jd_sec        ; the sector is done
+        AC <- jkind
+        AC <- #0x10 & AC
+        F <- m1 + AC | ifnot carry goto jd_n2
+        nop
+        F <- jblo               ; a write: a is in b
+        jalo <- F
+        F <- jbhi
+        jahi <- F
+jd_n2:  jwn <- jwn - 1
+        F <- jwn - 1 | if carry goto jd_sec            ; more
+        jres <- #jd_end
+jd_end: AC <- jx                ; the last: done when BSY ends, without ERR
+        X <- #7 + AC
+        AC <- #0x80
+        F <- (io & AC) - 1 | if carry goto jd_later
+        AC <- #0x01
+        F <- (io & AC) - 1 | ifnot carry goto jr_done
+        nop
+jd_err: goto jr_fail
+        jstat <- #ST_DEVICE
+jd_later: goto jattn            ; not yet: the native layer, and back at jres
+        nop
+jr_nodev: goto jr_fail
+        jstat <- #ST_DEVICE
+
 jr_badop: goto jr_fail
         jstat <- #ST_BADOP
 jr_align: goto jr_fail

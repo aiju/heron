@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v2_isa, c_compiler, graphics]
+depends-on: [v2_isa, c_compiler, graphics, iop]
 reports: [0036]
 ---
 
@@ -38,7 +38,7 @@ instruction-level simulator, on a board of the study's own
 
 | Folder | What's in it |
 |---|---|
-| `board/` | The machine, in Rust: draft 2 in system mode, RAM, the timer, the video card, the I/O card (UART, CF card, PS/2, clock), the interrupt mask. Python uses it as `heron.native.fen` |
+| `board/` | The machine, in Rust: draft 2 in system mode, RAM, the timer, the video card, the I/O card (UART, CF card, PS/2, clock), the interrupt mask, RFC 0037's interrupt request register, and optionally the I/O processor (`studies/iop`). Python uses it as `heron.native.fen` |
 | `kernel/` | The kernel |
 | `include/`, `lib/` | The headers, the C library and the window system's client library (`gui.c`) |
 | `srv/fs/`, `srv/cons/`, `srv/wsys/` | The file server, the serial console and the window system (with its fill and blit kernels in draft 2's assembly) |
@@ -60,6 +60,17 @@ heron fen bench [--write]       # the measurements (report 0036's performance.md
 heron fen banks [--write]       # fewer register banks (RFC 0029's register-banks-results.md)
 heron test fen                  # the unit tests
 ```
+
+**With the I/O processor** (`Session(iop=True)` in run.py) the board has
+the IOP of [studies/iop](../iop/README.md) and [RFC
+0027](../../reports/0027-rfc-io-coprocessor.md), its own CF card holding
+the disk. The host sets boot flag 2; the kernel (`kernel/iop.c`) waits for
+the IOP, then gives the file server a ring of its own in the IOP's shared
+RAM, with a window onto RAM and its completions at the CF card's level,
+and the file server (`fs-iop`: `srv/fs/ide_iop.c`) has the IOP move each
+block between the card and its cache, which is in pages of its own, by
+their physical addresses (`vm_phys`). The IOP study's bench compares the
+two drivers.
 
 The desktop boots when the host leaves the boot flags' bit 0 clear
 (`Session(serial=False)` in run.py): init starts the window system, which

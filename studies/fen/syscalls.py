@@ -62,6 +62,7 @@ SYSCALLS = [
     (40, "boot_spawn", 2, "c"),
     (41, "getpgid", 1, "c"),
     (42, "alarm", 3, "c"),
+    (43, "vm_phys", 1, "c"),
 ]
 
 VECTORS = 0x80000100

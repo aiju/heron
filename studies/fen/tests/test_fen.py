@@ -80,6 +80,28 @@ class Shell(unittest.TestCase):
         self.assertEqual(self.run_("cat /nonesuch"), "cat: /nonesuch: no such file or directory\n")
 
 
+class IopDisk(unittest.TestCase):
+    """The disk behind the I/O processor of studies/iop: the kernel gives
+    the file server a ring of the IOP's, and the file server's requests
+    move the sectors straight into its cache (srv/fs/ide_iop.c)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Session(serial=True, iop=True)
+        cls.s.boot()
+
+    def test_files(self):
+        s = self.s
+        self.assertIn("IOP: 8192 KB disk", s.log.decode())
+        self.assertEqual(s.command("cat /etc/hello.txt | grep -c Heron"), "1\n")
+        self.assertEqual(s.command("cat /bin/sh | wc -c"), s.command("wc -c < /bin/sh"))
+        s.command("cp /bin/sh /home/sh2; echo kept > /home/note")
+        self.assertEqual(s.command("wc < /home/sh2"), s.command("wc < /bin/sh"))
+        r = mkfs.Reader(s.cf_image())
+        self.assertEqual(r.read("/home/note"), b"kept\n")
+        self.assertEqual(r.read("/home/sh2"), r.read("/bin/sh"))
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -26,14 +26,26 @@ class Session:
     """A booted machine. `serial`: a shell on the serial console instead of
     the window system. `disk`: the CF card's image (build.disk() by
     default). `reference`: the timing configuration the machine's cycles
-    follow (the simulator's reference, D16-overlap, by default)."""
+    follow (the simulator's reference, D16-overlap, by default). `iop`: the
+    board has the I/O processor of studies/iop, with the disk on its CF
+    card instead of the I/O card's, and the file server reaches it through
+    the IOP's rings (srv/fs/ide_iop.c)."""
 
     def __init__(self, serial=True, disk=None, ram=4 << 20, clock_hz=6e6, boot=None,
-                 reference=None):
-        img, self.kernel = boot if boot is not None else build.boot_image()
+                 reference=None, iop=False):
+        if boot is None:
+            boot = build.boot_image(["init", ("fs", "fs-iop"), "cons"] if iop else None)
+        img, self.kernel = boot
         self.disk = disk if disk is not None else build.disk()
-        self.c = native.fen.Computer(cf_image=self.disk, ram_size=ram, clock_hz=clock_hz,
-                                     boot_flags=1 if serial else 0, reference=reference)
+        flags = (1 if serial else 0) | (2 if iop else 0)
+        kw = {}
+        if iop:
+            from heron.studies.iop import build as iop_build
+            b = iop_build.Build()
+            kw = {"iop_ucode": b.ucode_bytes(), "iop_flash": b.flash, "iop_disk": self.disk}
+        self.iop = iop
+        self.c = native.fen.Computer(cf_image=b"" if iop else self.disk, ram_size=ram,
+                                     clock_hz=clock_hz, boot_flags=flags, reference=reference, **kw)
         self.c.load(0, img)
         self.out = bytearray()      # what the console printed
         self.log = bytearray()      # the kernel's log (the debug port)
@@ -160,7 +172,8 @@ class Session:
         self.run(60)
 
     def cf_image(self):
-        return bytes(self.c.cf_image())
+        """The disk's image: the I/O card's CF card, or the IOP's."""
+        return bytes(self.c.iop_disk() if self.iop else self.c.cf_image())
 
 
 _SHIFTED = dict(zip('!@#$%^&*()', '1234567890'))

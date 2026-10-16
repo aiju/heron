@@ -232,6 +232,8 @@ void exit_notify(int pid);
 
 /* trap.c */
 void irq_init(void);
+void iop_init(void);
+extern u32 iop_sectors;
 void irq_port_gone(int port);
 u32 get_far(void);
 u32 get_fsr(void);

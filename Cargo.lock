@@ -11,6 +11,7 @@ name = "fen-board"
 version = "0.1.0"
 dependencies = [
  "devices",
+ "iop",
  "v2-isa",
 ]
 

@@ -119,6 +119,9 @@ def measure(wcs=False):
     for what, cycles, us in request_costs():
         rows.append((f"a request from the CPU at 6 MHz: {what}, its cycles (the handler included), and the time from one to the next",
                      f"{cycles:.0f} cycles, {us:.0f} us", "200-700 cycles"))
+    for what, pio, iop in fen_disk():
+        rows.append((f"{what}: its own PIO driver; through the IOP", f"{pio}; {iop}",
+                     "the CPU's time back"))
     rows.append(("microcode", f"{len(b.mc.words)} microinstructions, {len(b.mc.prims)} primitives",
                  "1-2K; the interpreter and primitives 500-1,000"))
     rows.append(("the Forth's dictionary", f"{b.meta.here} cells", "up to 32K"))
@@ -220,6 +223,32 @@ def iop_latency():
         k.completions()
         out.append((what, *times))
     return out
+
+
+def fen_disk(kb=256):
+    """[(what, PIO's result, the IOP's)]: Fen (studies/fen) reading and
+    copying a file bigger than its file server's cache, with its own PIO
+    driver for the I/O card's CF card, and with the disk behind the IOP
+    (srv/fs/ide_iop.c): the time, the CPU's busy share, and its busy
+    cycles a KB."""
+    from heron.studies.fen import build as fen_build
+    from heron.studies.fen.run import Session as FenSession
+    data = bytes((i * 7 + (i >> 9)) & 0xFF for i in range(kb * 1024))
+    disk = fen_build.disk(extra={"/tmp/big": data})
+    got = {}
+    for iop in (False, True):
+        s = FenSession(iop=iop, disk=disk)
+        s.boot(timeout_ms=5000)
+        s.command("true")
+        for cmd in ("cat /tmp/big > /dev/null", "cp /tmp/big /tmp/copy"):
+            c0, i0, t0 = s.c.cycles, s.c.idle_cycles, s.ms
+            s.type(cmd + "\n")
+            s.wait_for("% ", step_ms=0.2)
+            c1, i1, t1 = s.c.cycles, s.c.idle_cycles, s.ms
+            busy = (c1 - c0) - (i1 - i0)
+            got[cmd, iop] = f"{t1 - t0:.0f} ms, {100 * busy / (c1 - c0):.0f}% busy, {busy / kb:,.0f} cycles a KB"
+    return [(f"Fen: `{cmd}`, {kb} KB", got[cmd, False], got[cmd, True])
+            for cmd in ("cat /tmp/big > /dev/null", "cp /tmp/big /tmp/copy")]
 
 
 def table(rows):

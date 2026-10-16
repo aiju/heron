@@ -99,6 +99,7 @@ SERVER = 0x800B          # the server task's wait register, 0 none
 CLIENTS = 0x800C         # the clients whose rings are set up, a bit each
 DROPPED = 0x800D         # events and completions dropped: their rings were full
 WOKE = 0x800E            # not 0 when the native layer has woken a task
+DISKX = 0x800F           # the CF card's X (with bit 15 set), 0 for none
 TICKS_IDLE = 0x7FFF      # TICKS with nothing held
 
 # ---- tables
@@ -290,6 +291,8 @@ C_TAG, C_STATUS, C_RLO, C_RHI = range(4)
 OP_COPY = 1                # len bytes from b to a
 OP_FILL = 2                # len bytes at a, of the halfword blo
 OP_ZERO = 3                # len bytes at a
+OP_READ = 4                # disk: len bytes (whole sectors) from sector b to a
+OP_WRITE = 5               # disk: len bytes (whole sectors) from a to sector b
 OP_SERVER = 16             # this and up go to the Forth
 OP_NOP = 16
 OP_RING = 17               # kernel: client blo's rings, from the settings at a (below)
@@ -299,8 +302,6 @@ OP_UNMASK = 20             # source blo, served: routed again
 OP_EVRING = 21             # kernel: CPU blo's events, from the settings at a (below)
 OP_FORTH = 22              # kernel: len bytes of Forth source at a, interpreted
 OP_NOTIFY = 23             # kernel: client blo's completions interrupt CPU bhi >> 8 at level bhi & 0xFF, held len ticks
-OP_READ = 32               # disk: len bytes from sector (blo, bhi) to a
-OP_WRITE = 33              # disk: len bytes from a to sector (blo, bhi)
 OP_SEND = 40               # serial line blo: len bytes from a
 OP_RECV = 41               # serial line blo: up to len bytes into a: a line, or what's come if raw
 OP_MODE = 42               # serial line blo: flags bit 0 raw, bit 1 no echo
@@ -323,6 +324,9 @@ ST_BUSY = 6                # a line already has a receive waiting
 # indices at 0x40, the requests (64) at 0x1000, the completions (64) at
 # 0x1400, CPU 0's block at 0x1800 and its ring of events (64) at 0x1820.
 STATUS_BYTES = 0x40
+S_READY = 0                # the status block: STATUS_READY once the cold start is done
+S_SECTORS = 4              # the CF card's sectors (low, high), 0 for none
+STATUS_READY = 0x494F
 K_IDX = 0x40
 K_REQ = 0x1000
 K_REQS = 64

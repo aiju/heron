@@ -10,6 +10,7 @@
    0 LEVELBIT !  9 1 do  1 i 1- lshift  LEVELBIT i + !  loop
    16 0 do  U.jr_badop OPTAB i + !  loop
    U.jr_copy OPTAB OP_COPY + !  U.jr_fill OPTAB OP_FILL + !  U.jr_zero OPTAB OP_ZERO + !
+   U.jr_read OPTAB OP_READ + !  U.jr_write OPTAB OP_WRITE + !
    EVTAB SOURCES 4 * erase
    RINGS 512 erase  REQQ 256 erase  EVRING 64 erase
    JLINK 256 erase ;

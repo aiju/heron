@@ -283,6 +283,20 @@ impl Iop {
         }
     }
 
+    /// An IOP from its microcode ROMs' contents as the microassembler
+    /// writes them (six bytes a word, little-endian, from address 0).
+    pub fn from_rom(cfg: Config, rom: &[u8], flash: &[u8]) -> Iop {
+        let words: Vec<u64> = rom
+            .chunks(6)
+            .map(|c| {
+                let mut b = [0u8; 8];
+                b[..c.len()].copy_from_slice(c);
+                u64::from_le_bytes(b)
+            })
+            .collect();
+        Iop::new(cfg, &words, flash)
+    }
+
     /// COLD: the core and the devices reset; the SRAMs, the flash and the
     /// timing table keep their contents.
     pub fn cold(&mut self) {

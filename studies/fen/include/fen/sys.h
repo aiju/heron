@@ -43,6 +43,7 @@ int vm_free(int pid, void *va, unsigned npages);
 int vm_write(int pid, void *va, const void *src, unsigned n);
 int vm_protect(int pid, void *va, unsigned npages, int prot);
 int vm_map_phys(void *va, unsigned pa, unsigned npages, int prot);
+int vm_phys(void *va);          /* the physical address, for a driver (PROC_IO) */
 int vm_share(int pid, void *va, void *my_va, unsigned npages);
 int thread_create(int pid, void *pc, void *sp, unsigned arg);
 int thread_exit(void);

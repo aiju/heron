@@ -36,16 +36,29 @@ variable pcv
 
 \ ---- the CF card in slot DISK_SLOT: the task file at 0-7, the device
 \ control at 8 + 6. Its interrupt stays off: the driver polls, pausing,
-\ as a sector is there in a few microseconds.
+\ as a sector is there in a few microseconds. The rings' disk requests
+\ are native (ucode/jobs.uc's jr_read and jr_write); these words are the
+\ console's, and find the card and its size at the cold start.
 
 DISK_SLOT 256 * constant cf
 : cf@ ( r -- c ) cf + io@ $FF and ;
 : cf! ( c r -- ) cf + io! ;
 variable disk?
-: cf-init ( -- )
-   2 14 cf!  $55 2 cf! 2 cf@ $55 =  $AA 2 cf! 2 cf@ $AA = and disk? ! ;
+2variable disk-sectors
 : cf-ready ( -- s ) begin 7 cf@ dup $80 and while drop pause repeat ;
 : cf-drq ( -- f ) cf-ready dup 1 and if drop false exit then 8 and 0<> ;
+\ IDENTIFY DEVICE: its words 60-61 are the sectors addressable by LBA.
+: cf-identify ( -- )
+   0. disk-sectors 2!
+   cf-ready drop  $E0 6 cf!  $EC 7 cf!
+   cf-drq 0= if exit then
+   256 0 do  cf io@  i 60 = if dup disk-sectors 1+ ! then  i 61 = if dup disk-sectors ! then  drop  loop ;
+\ A card is there if its registers keep what's written: an empty slot
+\ reads what was last on D, so each is read after the other's write.
+: cf-init ( -- )
+   2 14 cf!  $55 2 cf!  $AA 3 cf!  2 cf@ $55 =  3 cf@ $AA = and disk? !
+   disk? @ if cf-identify  cf $8000 or DISKX ! then
+   disk-sectors 2@ swap S_SECTORS 0 sr!  S_SECTORS 2 + 0 sr! ;
 : cf-cmd ( sector. n cmd -- )
    >r  cf-ready drop  2 cf!
    over 3 cf!  over swab 4 cf!  dup 5 cf!  swab $0F and $E0 or 6 cf!  drop
@@ -66,22 +79,13 @@ variable disk?
       2dup cf 256 bus>io  512 0 d+
    loop 2drop  cf-ready 1 and 0= ;
 
-: disk-ok? ( -- f )
-   disk? @ 0= if ST_DEVICE status ! false exit then
-   Q_LEN rq 511 and if ST_ALIGN status ! false exit then
-   q-a Q_LEN rq window? ;
-: sectors ( -- n ) Q_LEN rq swab $FF and u2/ ;
-: disk-done ( f -- ) if Q_LEN rq result ! else ST_DEVICE status ! then ;
-: disk-read ( -- ) disk-ok? if q-b q-a sectors cf-read disk-done then ;
-: disk-write ( -- ) disk-ok? if q-b q-a sectors cf-write disk-done then ;
-
 \ ---- the serial card in slot SERIAL_SLOT: two 16C550s from CLKA, line
 \ n's registers at 8n + r
 
 SERIAL_SLOT 256 * constant serial
 : sl@ ( r n -- c ) 8 * + serial + io@ $FF and ;
 : sl! ( c r n -- ) 8 * + serial + io! ;
-: serial? ( -- f ) $5A 7 0 sl!  7 0 sl@ $5A = ;
+: serial? ( -- f ) $5A 7 0 sl!  $A5 7 1 sl!  7 0 sl@ $5A = ;   \ (as cf-init)
 : line-init ( n -- )
    >r  $80 3 r@ sl!  1 0 r@ sl!  0 1 r@ sl!  3 3 r@ sl!   \ 115,200 baud, 8 bits
    $07 2 r@ sl!  $2B 4 r@ sl!  1 1 r> sl! ;              \ FIFOs, a trigger at 1; an interrupt on input
@@ -143,8 +147,6 @@ variable dk
 : op-mode ( -- ) Q_FLAGS rq line# lmode + ! ;
 
 : dev-op ( op -- )
-   dup OP_READ = if drop disk-read exit then
-   dup OP_WRITE = if drop disk-write exit then
    dup OP_SEND = if drop op-send exit then
    dup OP_RECV = if drop op-recv exit then
    dup OP_MODE = if drop op-mode exit then

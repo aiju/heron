@@ -7,6 +7,8 @@ use pyo3::prelude::*;
 #[pymodule]
 pub mod fen {
     use fen_board::{Computer as Engine, Config, ps2};
+    use iop::cards;
+    use iop::iop::{Config as IopConfig, Iop};
     use pyo3::prelude::*;
     use pyo3::types::{PyBytes, PyDict};
     use v2_isa::RunStatus;
@@ -25,7 +27,9 @@ pub mod fen {
     }
 
     /// The machine and its board. `cf_image` is the CompactFlash card's
-    /// contents.
+    /// contents. With `iop_ucode` and `iop_flash`, the board has the I/O
+    /// processor's card (studies/iop) too, its own CF card holding
+    /// `iop_disk` if that's given.
     #[pyclass]
     struct Computer {
         c: Engine,
@@ -35,7 +39,8 @@ pub mod fen {
     #[pymethods]
     impl Computer {
         #[new]
-        #[pyo3(signature = (cf_image=b"".as_slice(), ram_size=4 << 20, clock_hz=6e6, epoch=None, reference=None, boot_flags=0))]
+        #[pyo3(signature = (cf_image=b"".as_slice(), ram_size=4 << 20, clock_hz=6e6, epoch=None, reference=None, boot_flags=0, iop_ucode=None, iop_flash=None, iop_disk=None))]
+        #[allow(clippy::too_many_arguments)]
         fn new(
             cf_image: &[u8],
             ram_size: u32,
@@ -43,6 +48,9 @@ pub mod fen {
             epoch: Option<u64>,
             reference: Option<&str>,
             boot_flags: u32,
+            iop_ucode: Option<&[u8]>,
+            iop_flash: Option<&[u8]>,
+            iop_disk: Option<Vec<u8>>,
         ) -> PyResult<Computer> {
             let mut cfg = Config {
                 ram_size,
@@ -56,8 +64,16 @@ pub mod fen {
             if let Some(r) = reference {
                 cfg.timing = crate::py_v2::v2::config(r)?;
             }
+            let c = match (iop_ucode, iop_flash) {
+                (Some(rom), Some(flash)) => {
+                    let mut iop = Iop::from_rom(IopConfig::default(), rom, flash);
+                    cards::fit(&mut iop, iop_disk, false, &[]);
+                    Engine::with_iop(cfg, cf_image.to_vec(), iop)
+                }
+                _ => Engine::new(cfg, cf_image.to_vec()),
+            };
             Ok(Computer {
-                c: Engine::new(cfg, cf_image.to_vec()),
+                c,
                 screen: Vec::new(),
             })
         }
@@ -91,6 +107,48 @@ pub mod fen {
                     RunStatus::Steps if left == 0 => return Ok("steps"),
                     RunStatus::Steps => py.check_signals()?,
                 }
+            }
+        }
+
+        /// What the I/O processor's console printed since the last call.
+        fn iop_uart_take<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+            let v = match self.c.iop() {
+                Some(i) => std::mem::take(&mut i.lock().unwrap().io.uart.tx_out),
+                None => Vec::new(),
+            };
+            PyBytes::new(py, &v)
+        }
+
+        /// Bytes typed at the I/O processor's console.
+        fn iop_uart_send(&mut self, data: &[u8]) {
+            if let Some(i) = self.c.iop() {
+                i.lock().unwrap().io.uart.rx_in.extend(data.iter().copied());
+            }
+        }
+
+        /// The I/O processor's microinstructions so far, and its CF card's
+        /// image.
+        fn iop_micro(&self) -> u64 {
+            self.c.iop().map_or(0, |i| i.lock().unwrap().stats.micro)
+        }
+
+        fn iop_disk<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+            let v = match self.c.iop() {
+                Some(i) => cards::disk_image(&mut i.lock().unwrap()).unwrap_or_default(),
+                None => Vec::new(),
+            };
+            PyBytes::new(py, &v)
+        }
+
+        /// The I/O processor's shared RAM, halfwords from `index`.
+        fn iop_shared(&self, index: usize, n: usize) -> Vec<u16> {
+            match self.c.iop() {
+                Some(i) => {
+                    let i = i.lock().unwrap();
+                    let l = i.shared.len();
+                    i.shared[index.min(l)..(index + n).min(l)].to_vec()
+                }
+                None => Vec::new(),
             }
         }
 

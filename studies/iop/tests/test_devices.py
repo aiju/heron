@@ -83,3 +83,14 @@ class Lines(unittest.TestCase):
         h = self.s.s.shared(0x30000 // 2, 2)
         self.assertEqual(b"".join(x.to_bytes(2, "little") for x in h)[:3], b"\x1b[A")
         self.assertEqual(self.s.s.serial_take(1), b"")
+
+
+class Status(unittest.TestCase):
+    def test_ready_and_disk_size(self):
+        """The cold start says it's done in the status block, with the CF
+        card's size."""
+        s = Session(build.Build(build.DEFAULT_PROGRAM), disk=bytes(512 * SECTORS))
+        s.boot()
+        st = s.s.shared(0, 4)
+        self.assertEqual(st[L.S_READY // 2], L.STATUS_READY)
+        self.assertEqual(st[L.S_SECTORS // 2] | st[L.S_SECTORS // 2 + 1] << 16, SECTORS)

@@ -50,7 +50,8 @@ FX_MAGIC = 0x584E4546
 BOOT_MAGIC = 0x424E4546
 PAGE = 4096
 
-KERNEL_SOURCES = ["entry.s", "fastipc.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c"]
+KERNEL_SOURCES = ["entry.s", "fastipc.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c",
+                  "iop.c"]
 
 LIB_SOURCES = ["ipc.s", "start.c", "fd.c", "stdio.c", "stdlib.c", "string2.c", "spawn.c",
                "time.c", "getopt.c", "srv.c", "gui.c"]
@@ -66,6 +67,8 @@ FONTS = os.path.join(GEN, "fonts.s")
 # cmd/NAME.c is one too (programs()).
 SERVERS = {
     "fs": ["srv/fs/main.c", "srv/fs/fenfs.c", "srv/fs/cache.c", "srv/fs/ide.c", "srv/fs/ideio.s"],
+    # the file server with the disk behind the I/O processor (studies/iop)
+    "fs-iop": ["srv/fs/main.c", "srv/fs/fenfs.c", "srv/fs/cache.c", "srv/fs/ide_iop.c"],
     "cons": ["srv/cons/main.c"],
     "wsys": ["srv/wsys/main.c", "srv/wsys/gwm.c", "srv/wsys/input.c", "srv/wsys/kernels.s", FONTS]
             + [os.path.join(GRAPHICS_SRC, f) for f in GRAPHICS_LIB],
@@ -73,15 +76,15 @@ SERVERS = {
 # the include directories a program needs besides INCLUDE
 PROGRAM_INCLUDE = {"wsys": [os.path.join(HERE, "srv", "wsys"), GRAPHICS_SRC]}
 # and the defines: wsys has the fill and blit kernels in draft 2's
-# assembly (srv/wsys/kernels.s)
-PROGRAM_DEFINES = {"wsys": {"GFX_ASM": "1"}}
+# assembly (srv/wsys/kernels.s); fs-iop's cache is in pages of its own
+PROGRAM_DEFINES = {"wsys": {"GFX_ASM": "1"}, "fs-iop": {"IOP_DISK": "1"}}
 
 # what the boot archive holds: init, and the servers it starts before
 # there's a file system
 BOOT = ["init", "fs", "cons"]
 
 # programs that are only for the boot archive or the tests, not /bin
-NOT_IN_BIN = {"init", "ktest", "ktchild", "ktcrash", "ktspin"}
+NOT_IN_BIN = {"init", "ktest", "ktchild", "ktcrash", "ktspin", "fs-iop"}
 
 
 def programs():

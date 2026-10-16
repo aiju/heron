@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 #[pymodule]
 pub mod iop {
-    use iop::cards::{Cf, Gpio, Serial};
+    use iop::cards::{self, Gpio, SERIAL_SLOT, Serial};
     use iop::iop::{Config, Iop, Status};
     use iop::micro;
     use iop::system::{CS_LANES, System as Engine};
@@ -34,10 +34,6 @@ pub mod iop {
     struct System {
         s: Engine,
     }
-
-    /// The slots the cards go in.
-    const DISK_SLOT: usize = 0;
-    const SERIAL_SLOT: usize = 1;
 
     fn serial(i: &mut Iop) -> Option<&mut Serial> {
         i.io.slots[SERIAL_SLOT]
@@ -83,14 +79,6 @@ pub mod iop {
             serial: bool,
             gpio: Vec<usize>,
         ) -> PyResult<System> {
-            let words: Vec<u64> = ucode
-                .chunks(6)
-                .map(|c| {
-                    let mut b = [0u8; 8];
-                    b[..c.len()].copy_from_slice(c);
-                    u64::from_le_bytes(b)
-                })
-                .collect();
             let cfg = Config {
                 watchdog,
                 shared_bytes,
@@ -100,21 +88,8 @@ pub mod iop {
                 Some(r) => crate::py_v2::v2::config(r)?,
                 None => v2_isa::timing::Config::named(v2_isa::timing::REFERENCE).unwrap(),
             };
-            let mut iop = Iop::new(cfg, &words, flash);
-            if let Some(image) = disk {
-                iop.io.slots[DISK_SLOT] = Some(Box::new(Cf::new(image)));
-            }
-            if serial {
-                iop.io.slots[SERIAL_SLOT] = Some(Box::new(Serial::default()));
-            }
-            for slot in gpio {
-                if slot < iop.io.slots.len() {
-                    iop.io.slots[slot] = Some(Box::new(Gpio {
-                        int_mask: 0xFFFF,
-                        ..Gpio::default()
-                    }));
-                }
-            }
+            let mut iop = Iop::from_rom(cfg, ucode, flash);
+            cards::fit(&mut iop, disk, serial, &gpio);
             Ok(System {
                 s: Engine::new(iop, ram_size, cpu_hz, timing),
             })
@@ -186,13 +161,7 @@ pub mod iop {
 
         /// The CF card's image.
         fn disk<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-            let v = self.with_iop_mut(|i| {
-                i.io.slots[DISK_SLOT]
-                    .as_mut()
-                    .and_then(|c| c.as_any().downcast_mut::<Cf>())
-                    .map(|c| c.card.image().to_vec())
-                    .unwrap_or_default()
-            });
+            let v = self.with_iop_mut(|i| cards::disk_image(i).unwrap_or_default());
             PyBytes::new(py, &v)
         }
 

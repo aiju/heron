@@ -4,12 +4,16 @@
  * date and nothing is lost when the machine stops. */
 
 #include <string.h>
+#include <fen/sys.h>
 #include "fs.h"
 
 #define NBUF 96
 #define NHASH 64
 
 static struct buf bufs[NBUF];
+#ifdef IOP_DISK
+#define CACHE_VA 0x00E00000     /* NBUF blocks, page aligned */
+#endif
 static struct buf *hash[NHASH];
 static struct buf *newest, *oldest;     /* the list by last use */
 unsigned cache_hits, cache_misses;
@@ -51,9 +55,16 @@ struct buf *bread(unsigned blk)
 {
     struct buf *b;
     int i;
-    if (!newest)
+    if (!newest) {
+#ifdef IOP_DISK
+        if (vm_alloc(0, (void *)CACHE_VA, NBUF * BLOCK / 4096, PROT_READ | PROT_WRITE) < 0)
+            return 0;
+        for (i = 0; i < NBUF; i++)
+            bufs[i].data = (unsigned char *)CACHE_VA + i * BLOCK;
+#endif
         for (i = 0; i < NBUF; i++)
             make_newest(&bufs[i]);
+    }
     for (b = hash[blk % NHASH]; b; b = b->hnext)
         if (b->blk == blk) {
             unlink_use(b);

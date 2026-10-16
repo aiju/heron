@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v2_isa, v2_hw]
+depends-on: [v2_isa, v2_hw, fen]
 reports: [27]
 ---
 
@@ -38,15 +38,16 @@ needed something it leaves open, it chose (below).
   movers (copies, fills and blocks between the bus, the shared RAM, the
   image flash and a device's register, in slices of 16 transfers), each
   client's ring job (requests fetched, checked against the client's
-  windows, done or passed to the Forth, completed), and posting events
-  and interrupts to the CPUs.
+  windows, done or passed to the Forth, completed; the CF card's sectors
+  among them), and posting events and interrupts to the CPUs.
 - **The Forth** (`forth/`, about 8,700 cells): the console *is* its
   interpreter. A kernel with the compiler, catch and throw; the monitor
   (examine, deposit, dump anywhere on the system bus), blocks as native
   jobs, the image flash and `save`, tasks, booting the CPU; the system:
   the server for the requests the ring jobs pass on (setting up rings,
   windows, routes, the CPUs' rings of events, Forth from the kernel), the
-  CF card's sectors, and the serial lines with a line discipline.
+  CF card's words for the console, and the serial lines with a line
+  discipline.
 
 ```sh
 heron iop console                # the Forth in this terminal (Ctrl-] quits)
@@ -164,9 +165,10 @@ RFC, not decisions.
 - **The rings** (layout.py): a client's request ring, completion ring and
   four indices (byte offsets, each with one writer) in one 64 KB page of
   the shared RAM. The ring job reads a request into its registers, and
-  does copies, fills and zeroing itself, checked against up to 4 windows
-  of the client's (the kernel's ring, client 0, has none to check); the
-  rest go through a queue to a Forth task, the server. A completion
+  does copies, fills, zeroing and the disk's reads and writes itself,
+  checked against up to 4 windows of the client's (the kernel's ring,
+  client 0, has none to check); the rest go through a queue to a Forth
+  task, the server. A completion
   interrupts its client when the ring is next empty, so a run of requests
   costs one interrupt.
 - **Events to a CPU** (RFC 0027, 7.3, RFC 0037, 8): an event table of 4
@@ -193,30 +195,36 @@ RFC, not decisions.
 | | Measured | RFC 0027 |
 |---|---:|---|
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
-| dictionary out of the flash (8727 cells, 35 pages) | 6.0 ms | 32K cells in ~30 ms |
-| power-up to the banner | 148.4 ms | - |
-| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,250,150 | about 1,000,000 |
+| dictionary out of the flash (8724 cells, 35 pages) | 6.0 ms | 32K cells in ~30 ms |
+| power-up to the banner | 147.9 ms | - |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,250,057 | about 1,000,000 |
 | microcycles a Forth word, there | 6.67 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
-| the tick's share of the IOP while Forth computes | 9.7% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,245,220 | - |
+| the tick's share of the IOP while Forth computes | 9.6% | 5-10% (0.5-1 us a tick) |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,245,194 | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.0 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
-| booting the CPU: draft 2's control store, its decode table and the program | 80.5 ms (3.0 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
-| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 35.4 us, 51.0 us | ~5 us on top of the transfer |
-| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1367.9 us, 1389.4 us | ~5 us on top of the transfer |
-| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 147.7 us, 198.1 us | ~5 us on top of the transfer |
-| a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 254 cycles, 100 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 254 cycles, 1435 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 254 cycles, 244 us | 200-700 cycles |
-| microcode | 2082 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
-| the Forth's dictionary | 8727 cells | up to 32K |
+| booting the CPU: draft 2's control store, its decode table and the program | 80.0 ms (3.1 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
+| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 43.3 us, 58.9 us | ~5 us on top of the transfer |
+| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1368.7 us, 1384.3 us | ~5 us on top of the transfer |
+| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 144.6 us, 195.0 us | ~5 us on top of the transfer |
+| a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 255 cycles, 100 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 255 cycles, 1435 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 255 cycles, 241 us | 200-700 cycles |
+| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 378 ms, 82% busy, 7,260 cycles a KB | the CPU's time back |
+| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1607 ms, 70% busy, 26,369 cycles a KB | the CPU's time back |
+| microcode | 2222 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
+| the Forth's dictionary | 8724 cells | up to 32K |
 
 The copies are a job's time from its first slice to its end, with the
 ticks and the Forth's turns. A request's CPU cycles are `sw/ring.s`'s,
 whose handler takes one completion and drains the events: a kernel's
-would do more.
+would do more. Fen's rows are [studies/fen](../fen/README.md) on its own
+board with the IOP's card added, the CPU at 6 MHz, a file bigger than its
+file server's cache of 96 KB: the time from typing the command to the
+prompt, how much of it the CPU wasn't waiting in HALT, and its busy
+cycles a KB.
 
 What the differences come from, so far:
 
@@ -248,6 +256,17 @@ What the differences come from, so far:
   CPU's side; with the IOP's side as measured, from about 500.
 - **The server** is the Forth's: about 150 us for a request that does
   nothing, from the queue through `serve` to `(complete)` and `(post)`.
+- **The disk** was the server's at first, as RFC 0027 (7.2) has it: a
+  1 KB read took the IOP 811 us, 3,700 of its 6,000 microcycles the
+  Forth's (reading the request's fields, dispatching, the CF card's task
+  file, a job a sector, the completion). With Fen that was as slow as
+  Fen's own PIO driver, if half the CPU's time. As native ops in the ring
+  job (`jr_read`, `jr_write`: the task file written, the status polled
+  between visits to the native layer, a mover a sector) it is 315 us,
+  most of it the transfer, and Fen reads a file 28% faster than with its
+  own driver, with 41% fewer of the CPU's cycles; copying one, 31% faster
+  with 52% fewer. RFC 0027's line between microcode and Forth wants
+  moving for the disk, at least: what's per request is too slow in Forth.
 - **The Forth** is faster than the RFC's estimate in ordinary code; the
   slow words are the ones with microcode loops (`um*`, `um/mod`, `rshift`
   and so `2/`: 80-160 microcycles).
@@ -256,15 +275,17 @@ What the differences come from, so far:
 
 ## Not yet
 
-- **Fen on this system** (RFC 0027, 16, step 3's request costs with Fen's
-  kernel): RFC 0037 (28) moves Fen's devices to the IOP's map, which
-  changes Fen's drivers. Fen still runs on its own board.
+- **More of Fen behind the IOP:** its console on the IOP's serial card,
+  pages zeroed and copied by the IOP, user-level drivers with rings of
+  their own; Fen's board is still its own (RFC 0014's slots, its own
+  timer and interrupt mask), with the IOP's card added on RFC 0037's map.
 - **Devices:** the serial loader, PS/2, the time of day and the front
   panel; the stuck-transfer counter; the 32-bit paths; change detection
   on the INT lines; a timer request (a completion after a delay).
 - **The rings:** a full completion ring drops the completion (and counts
   it); requests from the CPU's RAM rather than the shared RAM; the
-  server's own windows for Forth from the kernel.
+  server's own windows for Forth from the kernel. The disk's errors only
+  as ST_DEVICE, and a card that stays busy holds its ring job for ever.
 - **The netlist** (RFC 0027, 16, step 4).
 
 Where the CPU's side doesn't match this system yet, for the RFCs rather

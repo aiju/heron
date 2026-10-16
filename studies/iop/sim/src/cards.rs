@@ -13,11 +13,43 @@
 //!   INT. Its inputs are the host's, so a test can raise INT.
 
 use crate::iobus::IoCard;
+use crate::iop::Iop;
 use devices::cf::CfCard;
 use devices::uart16550::Uart;
 use std::any::Any;
 
 pub const CLKA_HZ: f64 = 1_843_200.0;
+
+/// The slots the study's firmware looks for its cards in (layout.py).
+pub const DISK_SLOT: usize = 0;
+pub const SERIAL_SLOT: usize = 1;
+
+/// Cards into an IOP's slots: a CF card holding `disk`, the serial card,
+/// GPIO cards.
+pub fn fit(iop: &mut Iop, disk: Option<Vec<u8>>, serial: bool, gpio: &[usize]) {
+    if let Some(image) = disk {
+        iop.io.slots[DISK_SLOT] = Some(Box::new(Cf::new(image)));
+    }
+    if serial {
+        iop.io.slots[SERIAL_SLOT] = Some(Box::new(Serial::default()));
+    }
+    for &slot in gpio {
+        if slot < iop.io.slots.len() {
+            iop.io.slots[slot] = Some(Box::new(Gpio {
+                int_mask: 0xFFFF,
+                ..Gpio::default()
+            }));
+        }
+    }
+}
+
+/// The CF card's image, if the IOP has one.
+pub fn disk_image(iop: &mut Iop) -> Option<Vec<u8>> {
+    iop.io.slots[DISK_SLOT]
+        .as_mut()
+        .and_then(|c| c.as_any().downcast_mut::<Cf>())
+        .map(|c| c.card.image().to_vec())
+}
 
 pub struct Cf {
     pub card: CfCard,

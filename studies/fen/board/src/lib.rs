@@ -14,6 +14,9 @@
 //! | `0x0F00_2000` | the interrupt mask: +0 R the levels requesting, +4 R/W the mask, a bit per level, 1 to let it through (0 after reset) |
 //! | `0x1000_0000` | slot 1, the video card ([`video`]): VRAM, its registers at `0x1FF0_0000` |
 //! | `0x2000_0000` | slot 2, the I/O card, a 4 KB page for each device: a 16C550 UART at +0x0000, a CompactFlash card in True IDE mode at +0x1000 (CS0, the task file) and +0x1020 (CS1, the control block), two PS/2 ports at +0x2000 (keyboard) and +0x2010 (mouse) ([`ps2`]), and a clock at +0x3000, with the card's ID at +0x3FFC |
+//! | `0x4000_0000` | the I/O processor's shared RAM, when the machine has one (RFC 0037's region 4) |
+//! | `0x7000_2000` | the interrupt request register of RFC 0037 (8, 9): +0 W set the levels whose bits are 1 (bit L - 1 for level L), R the requests; +4 W clear them |
+//! | `0x7400_0000`, `0x7F00_0000` | the I/O processor's doorbells and the window onto its I/O bus, when there is one |
 //! | anything else | nothing answers: a bus error |
 //!
 //! The I/O card's devices are 8-bit, on D0-D7, their registers 4 bytes
@@ -38,6 +41,15 @@
 //! register and eight AND gates on the board, about 2 chips (the 8259's
 //! IMR).
 //!
+//! **The interrupt request register** is ORed into the levels, under the
+//! mask, so that another master can raise one: the I/O processor posting
+//! an event (RFC 0027, 7.3). Its levels stay up until the CPU clears them.
+//!
+//! **The I/O processor** ([`Computer::with_iop`]) is studies/iop's model, a
+//! card in region 4 that takes turns with the CPU, a slice of time each
+//! (as studies/iop's own system does): it reaches the board's RAM, and
+//! sets levels in the request register.
+//!
 //! Time is the machine's cycle count (its reference configuration) at the
 //! clock rate in [`Config`]: each device is brought up to that time when
 //! it's accessed, or when the machine asks for the interrupt lines.
@@ -48,6 +60,8 @@ pub mod video;
 
 use devices::cf::CfCard;
 use devices::uart16550::Uart;
+use iop::iop::{Answer, Iop, Status, SystemBus};
+use std::sync::{Arc, Mutex};
 use v2_isa::sys::Bus;
 use v2_isa::timing::Config as Timing;
 use v2_isa::{Machine, RunStatus};
@@ -58,6 +72,10 @@ pub const IMASK: u32 = 0x0F00_2000;
 pub const VIDEO_SLOT: u32 = 1;
 pub const IO_SLOT: u32 = 2;
 pub const IO_ID: u32 = 0x0009_0001;
+pub const IREQ: u32 = 0x7000_2000;
+
+/// The I/O processor and the CPU take turns of this long.
+pub const IOP_SLICE_NS: u64 = 16_000;
 
 pub const IRQ_TIMER: u8 = 6;
 pub const IRQ_UART: u8 = 5;
@@ -109,6 +127,12 @@ pub struct Board {
     pub trace: Option<Vec<(u64, u32)>>,
     /// The interrupt mask register.
     pub imask: u8,
+    /// The interrupt request register, and whether the I/O processor has
+    /// changed it since the CPU last looked.
+    pub ireq: u8,
+    ireq_changed: bool,
+    /// The I/O processor's card, if there is one.
+    pub iop: Option<Arc<Mutex<Iop>>>,
     now_ns: u64,
     uart_frac: f64,
 }
@@ -126,6 +150,9 @@ impl Board {
             debug: Vec::new(),
             trace: None,
             imask: 0,
+            ireq: 0,
+            ireq_changed: false,
+            iop: None,
             now_ns: 0,
             uart_frac: 0.0,
         }
@@ -174,7 +201,7 @@ impl Board {
         set(self.cf.intrq(), IRQ_CF);
         set(self.kbd.irq() || self.mouse.irq(), IRQ_PS2);
         set(self.video.irq(), IRQ_VIDEO);
-        m
+        m | self.ireq
     }
 
     fn levels(&self) -> u8 {
@@ -284,6 +311,11 @@ impl Bus for Board {
                 Some(self.video.read_reg(off & 0xFF, self.now_ns))
             }
             IO_SLOT if off < 0x4000 => self.io_read(off, size),
+            7 if pa & !0xF == IREQ => Some(self.ireq as u32),
+            4 | 7 => {
+                let t = self.now_ns;
+                self.iop.as_ref()?.lock().unwrap().slave_read(pa, size, t)
+            }
             _ => None,
         }
     }
@@ -310,6 +342,16 @@ impl Bus for Board {
                 self.video.write_reg(off & 0xFF, v, self.now_ns)
             }
             IO_SLOT if off < 0x4000 => return self.io_write(off, v),
+            7 if pa == IREQ => self.ireq |= v as u8,
+            7 if pa == IREQ + 4 => self.ireq &= !(v as u8),
+            7 if pa & !0xF == IREQ => {}
+            4 | 7 => {
+                let t = self.now_ns;
+                return match &self.iop {
+                    Some(iop) => iop.lock().unwrap().slave_write(pa, size, v, t),
+                    None => false,
+                };
+            }
             _ => return false,
         }
         true
@@ -321,6 +363,55 @@ impl Bus for Board {
             .next_ns()
             .map_or(u64::MAX, |t| self.cycles_at(t).max(cycles + 1));
         (self.levels(), next)
+    }
+}
+
+/// The I/O processor's master side on the bus: the board's RAM, which its
+/// slave port gives in 2 data clocks, and the interrupt request register.
+struct IopSide<'a> {
+    mem: &'a mut [u8],
+    board: &'a mut Board,
+    written: bool,
+}
+
+impl SystemBus for IopSide<'_> {
+    fn read(&mut self, addr: u32, _size: u32, _now: u64) -> Answer {
+        if (addr as usize) < self.mem.len() {
+            let a = addr as usize & !1;
+            return Answer {
+                data: Some(u16::from_le_bytes([self.mem[a], self.mem[a + 1]])),
+                clocks: 2,
+            };
+        }
+        let data = (addr & !3 == IREQ).then_some(self.board.ireq as u16);
+        Answer { data, clocks: 1 }
+    }
+
+    fn write(&mut self, addr: u32, size: u32, data: u16, _now: u64) -> Answer {
+        let a = addr as usize;
+        if a < self.mem.len() {
+            if size == 1 {
+                self.mem[a] = (data >> (8 * (a & 1))) as u8;
+            } else {
+                self.mem[a & !1..(a & !1) + 2].copy_from_slice(&data.to_le_bytes());
+            }
+            self.written = true;
+            return Answer {
+                data: None,
+                clocks: 2,
+            };
+        }
+        let v = data as u8;
+        match addr {
+            IREQ => self.board.ireq |= v,
+            a if a == IREQ + 4 => self.board.ireq &= !v,
+            _ => {}
+        }
+        self.board.ireq_changed = true;
+        Answer {
+            data: None,
+            clocks: 1,
+        }
     }
 }
 
@@ -352,9 +443,70 @@ impl Computer {
         self.m.mem[a..a + bytes.len()].copy_from_slice(bytes);
     }
 
+    /// The machine with the I/O processor's card: `iop`, at power-up.
+    pub fn with_iop(cfg: Config, cf_image: Vec<u8>, iop: Iop) -> Computer {
+        let mut c = Computer::new(cfg, cf_image);
+        c.board().iop = Some(Arc::new(Mutex::new(iop)));
+        c
+    }
+
     /// Run until the cycle count reaches `until`, or `steps` instructions.
+    /// With the I/O processor, the two take turns of IOP_SLICE_NS.
     pub fn run(&mut self, until: u64, steps: u64) -> Result<RunStatus, String> {
-        self.m.run_system(until, steps)
+        let Some(iop) = self.board_ref().iop.clone() else {
+            return self.m.run_system(until, steps);
+        };
+        let slice = self.cycles_at(IOP_SLICE_NS).max(1);
+        let mut left = steps;
+        loop {
+            if self.m.cycles >= until {
+                return Ok(RunStatus::Limit);
+            }
+            let end = until.min(self.m.cycles + slice);
+            let end_ns = (end as f64 * 1e9 / self.board_ref().cfg.clock_hz) as u64;
+            let written = {
+                let mut iop = iop.lock().unwrap();
+                let clock = end_ns / iop.cfg.bclk_ns;
+                let Machine { mem, sys, .. } = &mut self.m;
+                let board = sys.as_mut().unwrap().bus_as::<Board>().unwrap();
+                let mut side = IopSide {
+                    mem,
+                    board,
+                    written: false,
+                };
+                if iop.clock < clock {
+                    match iop.run(clock, &mut side)? {
+                        Status::Stopped => {
+                            return Err("the I/O processor's microcode stopped".into());
+                        }
+                        Status::Break | Status::Limit => {}
+                    }
+                }
+                side.written
+            };
+            if written {
+                self.m.forget_code();
+            }
+            if std::mem::take(&mut self.board().ireq_changed) {
+                self.m.sys_mut().touched();
+            }
+            let n0 = self.m.instructions;
+            let st = self.m.run_system(end, left)?;
+            left -= (self.m.instructions - n0).min(left);
+            match st {
+                RunStatus::Idle => {
+                    self.m.idle_cycles += end.saturating_sub(self.m.cycles);
+                    self.m.cycles = self.m.cycles.max(end);
+                }
+                RunStatus::Limit => {}
+                other => return Ok(other),
+            }
+        }
+    }
+
+    /// The I/O processor's card, if the machine has one.
+    pub fn iop(&self) -> Option<Arc<Mutex<Iop>>> {
+        self.board_ref().iop.clone()
     }
 
     /// The board's time.

@@ -1,4 +1,5 @@
-/* The file server's parts: the CF card's driver (ide.c), the block cache
+/* The file server's parts: the CF card's driver (ide.c, or ide_iop.c
+ * through the I/O processor), the block cache
  * (cache.c), the file system (fenfs.c), and the protocol (main.c). */
 
 #ifndef FS_H
@@ -20,14 +21,20 @@ extern unsigned ide_sectors;
 void wait_irq(unsigned bit);
 #define IDE_BIT 1
 
-/* cache.c */
+/* cache.c. With the disk behind the I/O processor (IOP_DISK, ide_iop.c)
+ * the blocks are in pages of their own, so that one is a single request
+ * straight into it. */
 struct buf {
     unsigned blk;
     int valid;
     int dirty;
     struct buf *hnext;          /* the block number's hash chain */
     struct buf *newer, *older;  /* the list by last use */
+#ifdef IOP_DISK
+    unsigned char *data;
+#else
     unsigned char data[BLOCK];
+#endif
 };
 struct buf *bread(unsigned blk);        /* 0 on an I/O error */
 int bwrite(struct buf *b);

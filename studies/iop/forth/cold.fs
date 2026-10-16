@@ -19,4 +19,5 @@
    uart-init  timer-init  7 leds
    kernel-rings  devices-init
    ['] server 1 spawn
+   STATUS_READY S_READY 0 sr!
    banner  quit ;
