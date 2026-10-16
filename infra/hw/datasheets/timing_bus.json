@@ -1,0 +1,2049 @@
+{
+  "_conditions": "All times in ns unless stated otherwise. Values transcribed from the cited manufacturer datasheets (downloaded Oct 2026). 'delays' and 'checks' use the names the simulator's models read; some entries also carry extra, clearly named delays or checks (fmax, pulse widths, recovery) that no model reads yet. Per delay: 'max' = the larger of tPLH/tPHL (enable: tPZH/tPZL; disable: tPHZ/tPLZ) at the worst-case corner below; 'typ' = the larger typical; 'min' = the smaller guaranteed minimum over the same range as max. Where one name covers several datasheet arcs (several inputs or outputs), max and typ are the largest and min the smallest of them; 'detail' rows are [min, typ, max at 25 C, max over the corner range] per datasheet arc and transition, as printed (null = not given). Corners by family. 74F: max and min over the commercial range 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm; typ at 25 C, 5 V, 50 pF. 74ABT: max and min over -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm; typ at 25 C, 5 V. 74HCT: max over -40..85 C at VCC 4.5 V, CL 50 pF; as in timing_logic.json, 'typ' is the 25 C, 5 V, CL 15 pF typical (TI CD74HCT sheets) and 'typ_4V5_50pF' the 25 C, 4.5 V, 50 pF typical (TI SN74HCT sheets); build_timing.py prefers typ_4V5_50pF for HCT. HCT sheets give no min. 74ACT: max and min over -40..85 C, VCC 5 V +-0.5 V, CL 50 pF; typ at 25 C. Where a logic datasheet gives no typical, typ is estimated as build_timing.py does (0.6 x max for ACT) and listed under 'estimated' as '<name> typ'. Devices and memories (TL16C550C, 82C54, CF card, SRAM) have only guaranteed limits: their delays carry 'typ' equal to 'max' (the convention build_timing.py uses for the existing memories, so not listed as an estimate; a fraction-of-max typical would be optimistic for an access time) and 'min' where given. 'checks' are datasheet minimum requirements (setup, hold, pulse width, cycle) over the same range as max; names ending in 'MHz' are frequencies. 'estimated' lists every number that is not printed in the datasheet; 'notes' gives the reason. 'alt' lists a second source or second family with its own numbers: for worst-case use the datasheet of the vendor you buy, or the worse of the two. Where TI has two versions of an HCT part (SN74HCT and CD74HCT) the primary entry is the one with the worse maxima on most arcs. Availability is from each manufacturer's package addendum or product page (checked Oct 2026). Pin names are TI style (CLK, /CLR, /LOAD, ENP, ENT, RCO, /OE, /G); notes give the datasheet's own names where they differ.",
+  "74F00": {
+    "family": "F",
+    "function": "quad 2-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F00",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f00.pdf",
+    "datasheet": "TI SDFS035A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F00N (DIP) active, also D/DR (SOIC); the plain tube SN74F00D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.3,
+        "max": 6
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [1.6, 3.3, 5, 6],
+        "tPHL": [1, 2.8, 4.3, 5.3]
+      }
+    }
+  },
+  "74F02": {
+    "family": "F",
+    "function": "quad 2-input NOR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F02",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f02.pdf",
+    "datasheet": "TI SDFS036A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F02N (DIP) active, also D/DR (SOIC); the plain tube SN74F02D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 4,
+        "max": 6.5
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [1.7, 4, 5.5, 6.5],
+        "tPHL": [1, 2.8, 4.3, 5.3]
+      }
+    }
+  },
+  "74F04": {
+    "family": "F",
+    "function": "hex inverter",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F04",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f04.pdf",
+    "datasheet": "TI SDFS037A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F04N (DIP) active, also D/DR (SOIC); the plain tube SN74F04D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.3,
+        "max": 6
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [1.6, 3.3, 5, 6],
+        "tPHL": [1, 2.8, 4.3, 5.3]
+      }
+    }
+  },
+  "74F08": {
+    "family": "F",
+    "function": "quad 2-input AND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F08",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f08.pdf",
+    "datasheet": "TI SDFS038A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F08N (DIP) active, also D/DR (SOIC); the plain tube SN74F08D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1.7,
+        "typ": 3.8,
+        "max": 6.6
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [2.2, 3.8, 5.6, 6.6],
+        "tPHL": [1.7, 3.6, 5.3, 6.3]
+      }
+    }
+  },
+  "74F11": {
+    "family": "F",
+    "function": "triple 3-input AND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F11",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f11.pdf",
+    "datasheet": "TI SDFS040A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F11N (DIP) active, also D/DR (SOIC); the plain tube SN74F11D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1.7,
+        "typ": 3.8,
+        "max": 6.6
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [2.2, 3.8, 5.6, 6.6],
+        "tPHL": [1.7, 3.7, 5.5, 6.5]
+      }
+    }
+  },
+  "74F20": {
+    "family": "F",
+    "function": "dual 4-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F20",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f20.pdf",
+    "datasheet": "TI SDFS041A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F20N (DIP) active, also D/DR (SOIC); the plain tube SN74F20D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.3,
+        "max": 6
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [1.6, 3.3, 5, 6],
+        "tPHL": [1, 2.8, 4.3, 5.3]
+      }
+    }
+  },
+  "74F21": {
+    "family": "F",
+    "function": "dual 4-input AND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F21",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f21.pdf",
+    "datasheet": "TI SDFS006A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F21N (DIP) active, also D/DR (SOIC); the plain tube SN74F21D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.4,
+        "max": 5.5
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [1, 3.2, 4.7, 5.3],
+        "tPHL": [1.5, 3.4, 5.1, 5.5]
+      }
+    }
+  },
+  "74F27": {
+    "family": "F",
+    "function": "triple 3-input NOR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F27",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f27.pdf",
+    "datasheet": "TI SDFS042A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F27N (DIP) active, also D/DR (SOIC); the plain tube SN74F27D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.1,
+        "max": 5.5
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [1, 3.1, 5, 5.5],
+        "tPHL": [1, 2.1, 4.5, 4.5]
+      }
+    }
+  },
+  "74F32": {
+    "family": "F",
+    "function": "quad 2-input OR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F32",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f32.pdf",
+    "datasheet": "TI SDFS044B (Mar 1987, rev May 1999)",
+    "availability": "TI SN74F32N (DIP) active, also D/DR (SOIC); the plain tube SN74F32D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 2.2,
+        "typ": 3.8,
+        "max": 6.6
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "This revision's switching table prints no CL/RL in its header; Figure 1 is the standard 74F load (CL 50 pF, 500 Ohm).",
+    "detail": {
+      "A->Y": {
+        "tPLH": [2.2, 3.8, 5.6, 6.6],
+        "tPHL": [2.2, 3.6, 5.3, 6.3]
+      }
+    }
+  },
+  "74F86": {
+    "family": "F",
+    "function": "quad 2-input XOR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F86",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f86.pdf",
+    "datasheet": "TI SDFS019B (Jan 1989, rev Jan 1997)",
+    "availability": "TI SN74F86N (DIP) active, also D/DR (SOIC); the plain tube SN74F86D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 3,
+        "typ": 5.3,
+        "max": 8
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "The inverting path (other input high) is the slow one: 8 ns max.",
+    "detail": {
+      "A->Y (other input low)": {
+        "tPLH": [3, 4, 5.5, 6.5],
+        "tPHL": [3, 4.2, 5.5, 6.5]
+      },
+      "A->Y (other input high)": {
+        "tPLH": [3.5, 5.3, 7, 8],
+        "tPHL": [3, 4.7, 6.5, 7.5]
+      }
+    }
+  },
+  "74F74": {
+    "family": "F",
+    "function": "dual D flip-flop with preset and clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F74",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f74.pdf",
+    "datasheet": "TI SDFS046A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F74N (DIP) active, also D/DR (SOIC); the plain tube SN74F74D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 3,
+        "typ": 5.8,
+        "max": 9.2
+      },
+      "PRE/CLR->Q": {
+        "min": 2.4,
+        "typ": 6.6,
+        "max": 10.5
+      }
+    },
+    "checks": {
+      "setup D": 3,
+      "hold D": 1,
+      "tw CLK": 5,
+      "tw PRE/CLR": 4,
+      "recovery PRE/CLR": 2,
+      "fmax MHz": 100
+    },
+    "estimated": [],
+    "notes": "Setup is 2 ns for data high, 3 ns for data low; hold 1 ns either way. tw CLK: 4 ns high, 5 ns low. Recovery is the datasheet's 'inactive-state setup time' of /PRE or /CLR before CLK.",
+    "detail": {
+      "CLK->Q,/Q": {
+        "tPLH": [3, 4.9, 6.8, 7.8],
+        "tPHL": [3.6, 5.8, 8, 9.2]
+      },
+      "/PRE,/CLR->Q,/Q": {
+        "tPLH": [2.4, 4.2, 6.1, 7.1],
+        "tPHL": [2.7, 6.6, 9, 10.5]
+      }
+    }
+  },
+  "74F109": {
+    "family": "F",
+    "function": "dual J-/K flip-flop with preset and clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F109",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f109.pdf",
+    "datasheet": "TI SDFS047A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F109N (DIP) active, also D/DR (SOIC); the plain tube SN74F109D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 3,
+        "typ": 5.8,
+        "max": 9.2
+      },
+      "PRE/CLR->Q": {
+        "min": 2.4,
+        "typ": 6.6,
+        "max": 10.5
+      }
+    },
+    "checks": {
+      "setup JK": 3,
+      "hold JK": 1,
+      "tw CLK": 5,
+      "tw PRE/CLR": 4,
+      "recovery PRE/CLR": 2,
+      "fmax MHz": 90
+    },
+    "estimated": [],
+    "notes": "Inputs are J and /K. Setup 3 ns (high) / 3 ns (low); hold 1 ns. tw CLK: 4 ns high, 5 ns low. The timing-requirements table is headed 'F74' (a typo in the datasheet; it is the F109 table).",
+    "detail": {
+      "CLK->Q,/Q": {
+        "tPLH": [3, 4.9, 7, 8],
+        "tPHL": [3.6, 5.8, 8, 9.2]
+      },
+      "/PRE,/CLR->Q,/Q": {
+        "tPLH": [2.4, 4.8, 7, 8],
+        "tPHL": [2.7, 6.6, 9, 10.5]
+      }
+    }
+  },
+  "74F138": {
+    "family": "F",
+    "function": "3-to-8 decoder",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F138",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f138.pdf",
+    "datasheet": "TI SDFS051B (Mar 1987, rev Jul 1996)",
+    "availability": "TI SN74F138N (DIP) active, also D/DR (SOIC); the plain tube SN74F138D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 2.7,
+        "typ": 5.7,
+        "max": 9
+      },
+      "G->Y": {
+        "min": 2.2,
+        "typ": 5.8,
+        "max": 9
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A,B,C->Y": {
+        "tPLH": [2.7, 5.2, 7.5, 8.5],
+        "tPHL": [3.2, 5.7, 8, 9]
+      },
+      "/G2A,/G2B->Y": {
+        "tPLH": [2.7, 5, 7, 8],
+        "tPHL": [2.2, 4.9, 7, 7.5]
+      },
+      "G1->Y": {
+        "tPLH": [3.2, 5.8, 8, 9],
+        "tPHL": [2.7, 5.2, 7.5, 8.5]
+      }
+    }
+  },
+  "74F148": {
+    "family": "F",
+    "function": "8-to-3 priority encoder",
+    "manufacturer": "Texas Instruments",
+    "part_number": "74F148",
+    "source": "http://peshkin.mech.northwestern.edu/datasheets/LogicChips/Encoder_8to3_74F148.pdf",
+    "datasheet": "Fairchild 74F148, DS009480, March 1998",
+    "availability": "OBSOLETE. TI never made an SN74F148 (no datasheet at ti.com). onsemi (ex-Fairchild) no longer has a 74F148 datasheet (its datasheet URL redirects to 'notFound'), and Philips/NXP's N74F148 was discontinued long ago. Only new-old-stock 74F148PC (DIP) is available.",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "I->Y": {
+        "min": 2.5,
+        "typ": 8.0,
+        "max": 12.0
+      },
+      "EI->Y": {
+        "min": 2.5,
+        "typ": 8.0,
+        "max": 12.0
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "No current manufacturer, so the numbers are from Fairchild's last datasheet (copy hosted by Northwestern University; the 'Com' column is TA 0..70 C, VCC 5 V +-10%, CL 50 pF). Pin names: inputs /I0../I7, enable input /EI, outputs /A0../A2, /GS, /EO, all active low. Min is the same at 25 C and over the range in this datasheet. The slowest arcs are In->An and EI->EO (12 ns), noticeably slower than the other 74F parts here. Motorola's MC74F148 (alt) has the same maxima.",
+    "detail": {
+      "In->An": {
+        "tPLH": [3.0, 7.0, 9.0, 10.0],
+        "tPHL": [3.0, 8.0, 10.5, 12.0]
+      },
+      "In->EO": {
+        "tPLH": [2.5, 5.0, 6.5, 7.5],
+        "tPHL": [2.5, 5.5, 7.5, 8.5]
+      },
+      "In->GS": {
+        "tPLH": [2.5, 7.0, 9.0, 10.0],
+        "tPHL": [2.5, 6.0, 8.0, 9.0]
+      },
+      "EI->An": {
+        "tPLH": [2.5, 6.5, 8.5, 9.5],
+        "tPHL": [2.5, 6.0, 8.0, 9.0]
+      },
+      "EI->GS": {
+        "tPLH": [2.5, 5.0, 7.0, 8.0],
+        "tPHL": [2.5, 6.0, 7.5, 8.5]
+      },
+      "EI->EO": {
+        "tPLH": [2.5, 5.5, 7.0, 8.0],
+        "tPHL": [3.0, 8.0, 10.5, 12.0]
+      }
+    },
+    "alt": [
+      {
+        "manufacturer": "Motorola",
+        "part_number": "MC74F148",
+        "source": "https://shop.griederbauteile.ch/info/7/74F148.pdf",
+        "datasheet": "Motorola FAST and LS TTL Data, MC54/74F148, p. 4-61 (undated scan, 1990s)",
+        "max_cond": "max/min: 0..70 C, VCC 5 V +-10%, CL 50 pF",
+        "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+        "delays": {
+          "I->Y": {
+            "min": 2.0,
+            "typ": 8.0,
+            "max": 12
+          },
+          "EI->Y": {
+            "min": 2.5,
+            "typ": 8.0,
+            "max": 12
+          }
+        },
+        "notes": "Same maxima as Fairchild; Motorola's mins differ a little (In->An 3.5/4.0, EI->EO 3.0/4.5, In->EO and In->GS tPHL 2.0). Also obsolete."
+      }
+    ]
+  },
+  "74F151": {
+    "family": "F",
+    "function": "8-to-1 multiplexer with true and inverted outputs",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F151B",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f151b.pdf",
+    "datasheet": "TI SDFS023A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F151BN (DIP) active, also D/DR (SOIC); the plain tube SN74F151BD is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "D->Y": {
+        "min": 2.5,
+        "typ": 4.2,
+        "max": 7.5
+      },
+      "D->W": {
+        "min": 1,
+        "typ": 3.6,
+        "max": 7
+      },
+      "S->Y": {
+        "min": 3.6,
+        "typ": 6,
+        "max": 12
+      },
+      "S->W": {
+        "min": 2.7,
+        "typ": 5.2,
+        "max": 9.5
+      },
+      "G->Y": {
+        "min": 2.5,
+        "typ": 5.3,
+        "max": 10.5
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "TI names: select inputs A, B, C; strobe /G; data D0..D7; Y true output, W inverted output. 'G->Y' covers both outputs (the larger of /G->Y and /G->W, the smaller min).",
+    "detail": {
+      "A,B,C->W": {
+        "tPLH": [3.5, 5.2, 9, 9.5],
+        "tPHL": [2.7, 4.3, 7.5, 7.5]
+      },
+      "A,B,C->Y": {
+        "tPLH": [4, 6, 10.5, 12],
+        "tPHL": [3.6, 5.6, 9, 9]
+      },
+      "/G->W": {
+        "tPLH": [2.5, 4.1, 6.1, 7],
+        "tPHL": [2.5, 3.5, 6, 6]
+      },
+      "/G->Y": {
+        "tPLH": [3.8, 5.3, 9.5, 10.5],
+        "tPHL": [3, 4.5, 7, 7.5]
+      },
+      "D->W": {
+        "tPLH": [2.3, 3.6, 6.5, 7],
+        "tPHL": [1, 1.9, 4, 5]
+      },
+      "D->Y": {
+        "tPLH": [2.5, 3.7, 6.5, 7.5],
+        "tPHL": [2.6, 4.2, 7, 7.5]
+      }
+    }
+  },
+  "74F153": {
+    "family": "F",
+    "function": "dual 4-to-1 multiplexer",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F153",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f153.pdf",
+    "datasheet": "TI SDFS052A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F153N (DIP) active, also D/DR (SOIC); the plain tube SN74F153D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "C->Y": {
+        "min": 1.7,
+        "typ": 4.9,
+        "max": 8
+      },
+      "S->Y": {
+        "min": 2.7,
+        "typ": 7.7,
+        "max": 12
+      },
+      "G->Y": {
+        "min": 1.7,
+        "typ": 6.7,
+        "max": 10.5
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "TI names: select inputs A, B; data 1C0..1C3 / 2C0..2C3; strobes 1/G, 2/G.",
+    "detail": {
+      "A,B->Y": {
+        "tPLH": [3.7, 7.7, 10.5, 12],
+        "tPHL": [2.7, 6.6, 9, 10.5]
+      },
+      "/G->Y": {
+        "tPLH": [3.7, 6.7, 9, 10.5],
+        "tPHL": [1.7, 5.3, 7, 8]
+      },
+      "C->Y": {
+        "tPLH": [2.2, 4.9, 7, 8],
+        "tPHL": [1.7, 4.7, 6.5, 7.5]
+      }
+    }
+  },
+  "74F157": {
+    "family": "F",
+    "function": "quad 2-to-1 multiplexer",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F157A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f157a.pdf",
+    "datasheet": "TI SDFS053A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F157AN (DIP) active, also D/DR (SOIC); the plain tube SN74F157AD is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1.2,
+        "typ": 4.1,
+        "max": 7
+      },
+      "S->Y": {
+        "min": 2.2,
+        "typ": 6.6,
+        "max": 11
+      },
+      "G->Y": {
+        "min": 1.7,
+        "typ": 6.6,
+        "max": 11
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "TI names: data inputs A and B, select A/B, strobe /G. Data->Y tPHL max over 0..70 C is 7 ns, above its 25 C max of 5.5.",
+    "detail": {
+      "A,B->Y": {
+        "tPLH": [1.7, 4.1, 6, 6.5],
+        "tPHL": [1.2, 3.6, 5.5, 7]
+      },
+      "A/B->Y": {
+        "tPLH": [3.2, 6.6, 10, 11],
+        "tPHL": [2.2, 4.6, 7, 8]
+      },
+      "/G->Y": {
+        "tPLH": [4.2, 6.6, 9.5, 11],
+        "tPHL": [1.7, 4.1, 6.5, 7]
+      }
+    }
+  },
+  "74F163": {
+    "family": "F",
+    "function": "4-bit synchronous binary counter, synchronous clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F163A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f163a.pdf",
+    "datasheet": "TI SDFS088A (Mar 1987, rev Aug 2001)",
+    "availability": "TI SN74F163AN (DIP) active, also D/DR (SOIC); the plain tube SN74F163AD is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 2.7,
+        "typ": 7.1,
+        "max": 11
+      },
+      "CLK->RCO": {
+        "min": 4.2,
+        "typ": 9.6,
+        "max": 15
+      },
+      "ENT->RCO": {
+        "min": 1.7,
+        "typ": 4.1,
+        "max": 8.5
+      }
+    },
+    "checks": {
+      "setup data": 5,
+      "hold data": 2,
+      "setup LOAD": 11.5,
+      "hold LOAD": 2,
+      "setup EN": 11.5,
+      "hold EN": 0,
+      "setup CLR": 11.5,
+      "hold CLR": 2,
+      "tw CLK": 7,
+      "fmax MHz": 90
+    },
+    "estimated": [],
+    "notes": "Setup of /LOAD and /CLR: 11.5 ns high, 9.5 ns low; of ENP/ENT: 11.5 ns high, 5 ns low (the given value is the larger). Hold of /LOAD and /CLR: 2 ns high, 0 low. tw CLK: 7 ns low and 4 ns high when counting, 5 ns when loading. These setup times are long for 74F: CLK->RCO (15) + setup EN (11.5) = 26.5 ns, so RCO->ENT cascading does not fit a 20 ns clock, and nor does CLK->Q (11) + setup LOAD (11.5).",
+    "detail": {
+      "CLK->Q (/LOAD high)": {
+        "tPLH": [2.7, 5.1, 7.5, 8.5],
+        "tPHL": [2.7, 7.1, 10, 11]
+      },
+      "CLK->Q (/LOAD low)": {
+        "tPLH": [3.2, 5.6, 8.5, 9.5],
+        "tPHL": [3.2, 5.6, 8.5, 9.5]
+      },
+      "CLK->RCO": {
+        "tPLH": [4.2, 9.6, 14, 15],
+        "tPHL": [4.2, 9.6, 14, 15]
+      },
+      "ENT->RCO": {
+        "tPLH": [1.7, 4.1, 7.5, 8.5],
+        "tPHL": [1.7, 4.1, 7.5, 8.5]
+      }
+    }
+  },
+  "74F175": {
+    "family": "F",
+    "function": "quad D flip-flop with clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F175",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f175.pdf",
+    "datasheet": "TI SDFS058B (Mar 1987, rev May 2002)",
+    "availability": "TI SN74F175N (DIP) active, also D/DR (SOIC); the plain tube SN74F175D is obsolete (package addendum, Sep-Oct 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 3.2,
+        "typ": 6.1,
+        "max": 9.5
+      },
+      "CLR->Q": {
+        "min": 3.2,
+        "typ": 8.6,
+        "max": 13
+      }
+    },
+    "checks": {
+      "setup D": 3,
+      "hold D": 1,
+      "tw CLK": 5,
+      "tw CLR": 5,
+      "recovery CLR": 5,
+      "fmax MHz": 100
+    },
+    "estimated": [],
+    "notes": "The switching table's range column is headed 'VCC = 4.5 V to 5.5 V' (the device is characterized for 0..70 C). tw CLK: 4 ns high, 5 ns low. Recovery is /CLR inactive before CLK.",
+    "detail": {
+      "CLK->Q,/Q": {
+        "tPLH": [3.2, 4.6, 6.5, 7.5],
+        "tPHL": [3.2, 6.1, 8.5, 9.5]
+      },
+      "/CLR->/Q": {
+        "tPLH": [3.2, 6.1, 8.5, 9]
+      },
+      "/CLR->Q": {
+        "tPHL": [3.7, 8.6, 11.5, 13]
+      }
+    }
+  },
+  "74F521": {
+    "family": "F",
+    "function": "8-bit identity comparator",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F521",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f521.pdf",
+    "datasheet": "TI SDFS091 (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F521N (DIP) and DWR active; plain-tube DW obsolete (package addendum, Sep 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "P->PEQ": {
+        "min": 2.7,
+        "typ": 6.6,
+        "max": 11
+      },
+      "G->PEQ": {
+        "min": 2.2,
+        "typ": 6.1,
+        "max": 10
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Output /P=Q is active low. The enable is labelled OE in the switching table (/G in the pinout).",
+    "detail": {
+      "P,Q->/P=Q": {
+        "tPLH": [2.7, 6.6, 10, 11],
+        "tPHL": [3.2, 6.6, 10, 11]
+      },
+      "/G->/P=Q": {
+        "tPLH": [2.2, 4.6, 6.5, 7.5],
+        "tPHL": [2.7, 6.1, 9, 10]
+      }
+    }
+  },
+  "74ABT245": {
+    "family": "ABT",
+    "function": "octal bus transceiver, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT245B",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt245b.pdf",
+    "datasheet": "TI SCBS081L (Jan 1991, rev Apr 2005)",
+    "availability": "TI SN74ABT245BN (DIP) active, also DW, DB, NS, PW, DGV, RGY.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "A->B": {
+        "min": 1,
+        "typ": 2.6,
+        "max": 3.9
+      },
+      "B->A": {
+        "min": 1,
+        "typ": 2.6,
+        "max": 3.9
+      },
+      "OE->Y en": {
+        "min": 1.9,
+        "typ": 4,
+        "max": 6.2
+      },
+      "OE->Y dis": {
+        "min": 1.5,
+        "typ": 4.4,
+        "max": 5.9
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "No DIR->output spec: a DIR change disables one port and enables the other, so use 'OE->Y dis' then 'OE->Y en'. Output skew tsk(o) 0.5 ns max.",
+    "detail": {
+      "A->B, B->A": {
+        "tPLH": [1, 2, 3.2, 3.6],
+        "tPHL": [1, 2.6, 3.5, 3.9]
+      },
+      "/OE->A,B enable": {
+        "tPZH": [2, 3.5, 4.5, 5.6],
+        "tPZL": [1.9, 4, 5.3, 6.2]
+      },
+      "/OE->A,B disable": {
+        "tPHZ": [2.2, 4.4, 5.4, 5.9],
+        "tPLZ": [1.5, 3, 4, 4.5]
+      }
+    }
+  },
+  "74ABT16245": {
+    "family": "ABT",
+    "function": "16-bit bus transceiver, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT16245A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt16245a.pdf",
+    "datasheet": "TI SCBS300G (Mar 1994, rev Jan 2006)",
+    "availability": "TI SN74ABT16245ADGGR (48-pin TSSOP) active, also DL (SSOP) and DGV (TVSOP). TI's part is the 'A' version; there is no SN74ABT16245B (Nexperia's 74ABT16245B was not checked: nexperia.com refuses downloads from here).",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "A->B": {
+        "min": 1,
+        "typ": 2.3,
+        "max": 4.2
+      },
+      "B->A": {
+        "min": 1,
+        "typ": 2.3,
+        "max": 4.2
+      },
+      "OE->Y en": {
+        "min": 1,
+        "typ": 3.7,
+        "max": 6.4
+      },
+      "OE->Y dis": {
+        "min": 1.5,
+        "typ": 4.4,
+        "max": 6.3
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "No DIR->output spec: a DIR change disables one port and enables the other, so use 'OE->Y dis' then 'OE->Y en'. Two independent 8-bit halves (1DIR/1/OE, 2DIR/2/OE).",
+    "detail": {
+      "A->B, B->A": {
+        "tPLH": [1, 2.2, 3.4, 3.9],
+        "tPHL": [1, 2.3, 3.7, 4.2]
+      },
+      "/OE->A,B enable": {
+        "tPZH": [1, 3.6, 5.2, 6.3],
+        "tPZL": [1, 3.7, 5.4, 6.4]
+      },
+      "/OE->A,B disable": {
+        "tPHZ": [2, 4.4, 5.8, 6.3],
+        "tPLZ": [1.5, 3.3, 4.7, 5.2]
+      }
+    }
+  },
+  "74ABT541": {
+    "family": "ABT",
+    "function": "octal buffer, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT541B",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt541b.pdf",
+    "datasheet": "TI SCBS093L (Dec 1993, rev Dec 2006)",
+    "availability": "TI SN74ABT541BN (DIP) active, also DW, DB, NS, PW.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 2.6,
+        "max": 3.9
+      },
+      "OE->Y en": {
+        "min": 1.9,
+        "typ": 4,
+        "max": 5.9
+      },
+      "OE->Y dis": {
+        "min": 1.5,
+        "typ": 4.4,
+        "max": 5.8
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Two enables (/OE1, /OE2, both must be low). tPZH max over -40..85 C is printed as 4.0 ns, below its own 25 C max of 4.5 (a datasheet oddity; the enable max comes from tPZL anyway). Output skew 0.5 ns max.",
+    "detail": {
+      "A->Y": {
+        "tPLH": [1, 2, 3.2, 3.9],
+        "tPHL": [1, 2.6, 3.5, 3.9]
+      },
+      "/OE->Y enable": {
+        "tPZH": [2, 3.5, 4.5, 4],
+        "tPZL": [1.9, 4, 5.1, 5.9]
+      },
+      "/OE->Y disable": {
+        "tPHZ": [2.2, 4.4, 5.4, 5.8],
+        "tPLZ": [1.5, 3, 4, 4.4]
+      }
+    }
+  },
+  "74ABT540": {
+    "family": "ABT",
+    "function": "octal inverting buffer, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT540",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt540.pdf",
+    "datasheet": "TI SCBS188C (Feb 1991, rev Jan 1997)",
+    "availability": "TI SN74ABT540N (DIP) active, also DW, DB, NS.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.1,
+        "max": 4.8
+      },
+      "OE->Y en": {
+        "min": 1.1,
+        "typ": 3.4,
+        "max": 6.4
+      },
+      "OE->Y dis": {
+        "min": 1.2,
+        "typ": 5.3,
+        "max": 7.3
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Two enables (/OE1, /OE2). The 'product preview' footnote in this datasheet applies to the SN54ABT540 column, which is blank; the SN74ABT540 numbers are production data. Slightly slower than the 541 (4.8 vs 3.9 ns).",
+    "detail": {
+      "A->Y": {
+        "tPLH": [1, 2.9, 4.1, 4.8],
+        "tPHL": [1, 3.1, 4.3, 4.8]
+      },
+      "/OE->Y enable": {
+        "tPZH": [1.1, 3.4, 4.9, 5.9],
+        "tPZL": [1.1, 3, 5.8, 6.4]
+      },
+      "/OE->Y disable": {
+        "tPHZ": [1.5, 5.3, 6.8, 7.3],
+        "tPLZ": [1.2, 4.4, 5.7, 6.2]
+      }
+    }
+  },
+  "74ABT574": {
+    "family": "ABT",
+    "function": "octal D flip-flop, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT574A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt574a.pdf",
+    "datasheet": "TI SCBS191F (Jan 1991, rev Sep 2003)",
+    "availability": "TI SN74ABT574AN (DIP) active, also DW, DB, NS, PW.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CLK->Q": {
+        "min": 2.2,
+        "typ": 4.8,
+        "max": 7.1
+      },
+      "OE->Y en": {
+        "min": 1,
+        "typ": 4.7,
+        "max": 6.7
+      },
+      "OE->Y dis": {
+        "min": 2,
+        "typ": 4.9,
+        "max": 7
+      }
+    },
+    "checks": {
+      "setup D": 1.5,
+      "hold D": 1.8,
+      "tw CLK": 3.3,
+      "fmax MHz": 150
+    },
+    "estimated": [],
+    "notes": "Setup 1 ns (data high) / 1.5 ns (data low). Hold 1.8 ns is marked 'may vary among suppliers'. Hold margin flop-to-flop on one clock is min CLK->Q (2.2) - hold (1.8) = 0.4 ns, less than the CDC341's 0.6 ns output-to-output skew.",
+    "detail": {
+      "CLK->Q": {
+        "tPLH": [2.2, 3.9, 6.2, 6.8],
+        "tPHL": [3, 4.8, 6.6, 7.1]
+      },
+      "/OE->Q enable": {
+        "tPZH": [1, 3.3, 4.3, 5.1],
+        "tPZL": [2.1, 4.7, 5.9, 6.7]
+      },
+      "/OE->Q disable": {
+        "tPHZ": [2.4, 4.9, 6.2, 7],
+        "tPLZ": [2, 4, 5.8, 6.5]
+      }
+    }
+  },
+  "74ABT534": {
+    "family": "ABT",
+    "function": "octal D flip-flop with inverting 3-state outputs",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT534A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt534a.pdf",
+    "datasheet": "TI SCBS187F (Jan 1991, rev Jan 1997)",
+    "availability": "TI SN74ABT534AN (DIP) active, also DW, DB.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CLK->Q": {
+        "min": 2.6,
+        "typ": 5.5,
+        "max": 7.6
+      },
+      "OE->Y en": {
+        "min": 1,
+        "typ": 4,
+        "max": 6.8
+      },
+      "OE->Y dis": {
+        "min": 2.3,
+        "typ": 4.7,
+        "max": 7.3
+      }
+    },
+    "checks": {
+      "setup D": 1.6,
+      "hold D": 2,
+      "tw CLK": 3.5,
+      "fmax MHz": 125
+    },
+    "estimated": [],
+    "notes": "Still made by TI. 374-style pinout (D and Q pins interleaved), not the 574's flow-through pinout. Hold 2 ns is marked 'may vary among suppliers'; flop-to-flop hold margin is 2.6 - 2 = 0.6 ns.",
+    "detail": {
+      "CLK->/Q": {
+        "tPLH": [2.6, 4.5, 5.9, 6.7],
+        "tPHL": [3.4, 5.5, 6.7, 7.6]
+      },
+      "/OE->/Q enable": {
+        "tPZH": [1, 3.4, 4.2, 5],
+        "tPZL": [2.6, 4, 5.8, 6.8]
+      },
+      "/OE->/Q disable": {
+        "tPHZ": [2.4, 4.7, 6.6, 7.3],
+        "tPLZ": [2.3, 3.8, 5.8, 6.5]
+      }
+    }
+  },
+  "74ABT823": {
+    "family": "ABT",
+    "function": "9-bit D flip-flop with clock enable, clear, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT823",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt823.pdf",
+    "datasheet": "TI SCBS158E (Jan 1991, rev May 1997)",
+    "availability": "TI SN74ABT823DW (SOIC-24) and DBR (SSOP) active; no DIP.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CLK->Q": {
+        "min": 2.1,
+        "typ": 4.4,
+        "max": 6.8
+      },
+      "CLR->Q": {
+        "min": 2,
+        "typ": 4.1,
+        "max": 7.1
+      },
+      "OE->Y en": {
+        "min": 1,
+        "typ": 4.1,
+        "max": 6.5
+      },
+      "OE->Y dis": {
+        "min": 1.9,
+        "typ": 5,
+        "max": 7.5
+      }
+    },
+    "checks": {
+      "setup D": 2.1,
+      "hold D": 1.3,
+      "setup EN": 3.3,
+      "hold EN": 2,
+      "tw CLK": 3.8,
+      "tw CLR": 5.5,
+      "recovery CLR": 2.5,
+      "fmax MHz": 125
+    },
+    "estimated": [],
+    "notes": "TI does make it. Pin names: /CLKEN (active-low clock enable), /CLR (asynchronous: Q low regardless of CLK), /OE. Setup of /CLKEN: 2 ns high, 3.3 ns low; hold: 1 ns high, 2 ns low. tw CLK: 2.9 ns high, 3.8 ns low. Recovery is /CLR inactive before CLK. Several limits are marked 'may vary among suppliers'.",
+    "detail": {
+      "CLK->Q": {
+        "tPLH": [2.1, 4.3, 5.9, 6.8],
+        "tPHL": [2.2, 4.4, 6.1, 6.7]
+      },
+      "/CLR->Q": {
+        "tPHL": [2, 4.1, 6.3, 7.1]
+      },
+      "/OE->Q enable": {
+        "tPZH": [1, 3, 4.7, 6],
+        "tPZL": [2.2, 4.1, 5.6, 6.5]
+      },
+      "/OE->Q disable": {
+        "tPHZ": [2.7, 4.8, 6.5, 7.5],
+        "tPLZ": [1.9, 5, 6.4, 6.9]
+      }
+    }
+  },
+  "74ABT377": {
+    "family": "ABT",
+    "function": "octal D flip-flop with clock enable",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT377A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt377a.pdf",
+    "datasheet": "TI SCBS156E (Feb 1991, rev Jan 1997)",
+    "availability": "TI SN74ABT377AN (DIP) active, also DW, DB, NS, PW.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CLK->Q": {
+        "min": 2.2,
+        "typ": 5.3,
+        "max": 7.3
+      }
+    },
+    "checks": {
+      "setup D": 2.5,
+      "hold D": 1.8,
+      "setup EN": 3,
+      "hold EN": 1.2,
+      "tw CLK": 3.3,
+      "fmax MHz": 150
+    },
+    "estimated": [],
+    "notes": "Data setup is 2 ns at 25 C, 2.5 ns over -40..85 C. Hold limits and the tPHL min are marked 'may vary among suppliers'. /CLKEN is the active-low enable.",
+    "detail": {
+      "CLK->Q": {
+        "tPLH": [2.2, 4.5, 6, 6.5],
+        "tPHL": [2.6, 5.3, 6.8, 7.3]
+      }
+    }
+  },
+  "74ABT125": {
+    "family": "ABT",
+    "function": "quad bus buffer, 3-state (active-low enables)",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT125",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt125.pdf",
+    "datasheet": "TI SCBS182I (Feb 1997, rev Nov 2002)",
+    "availability": "TI SN74ABT125N (DIP) active, also D, DB, NS, PW, RGY.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.2,
+        "max": 4.9
+      },
+      "OE->Y en": {
+        "min": 1,
+        "typ": 3.6,
+        "max": 6.8
+      },
+      "OE->Y dis": {
+        "min": 1,
+        "typ": 3.8,
+        "max": 6.2
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Several limits are marked 'may vary among suppliers'.",
+    "detail": {
+      "A->Y": {
+        "tPLH": [1, 3.2, 4.6, 4.9],
+        "tPHL": [1, 2.5, 4.6, 4.9]
+      },
+      "/OE->Y enable": {
+        "tPZH": [1, 3.6, 5, 5.9],
+        "tPZL": [1, 2.5, 6.2, 6.8]
+      },
+      "/OE->Y disable": {
+        "tPHZ": [1, 3.8, 5.4, 6.2],
+        "tPLZ": [1, 3.3, 5.3, 6.2]
+      }
+    }
+  },
+  "74ABT74": {
+    "family": "ABT",
+    "function": "dual D flip-flop with set and reset",
+    "manufacturer": "Nexperia (ex-NXP)",
+    "part_number": "74ABT74",
+    "source": "https://atta.szlcsc.com/upload/public/pdf/source/20240116/77C8EE5B84FCDBB9B8CEF5490E8423C2.pdf",
+    "datasheet": "NXP 74ABT74 product data sheet Rev. 2, 12 Aug 2016",
+    "availability": "TI does not make an ABT74. Nexperia 74ABT74D (SO14) and 74ABT74PW (TSSOP14) in production per nexperia.com search listings (74ABT74DB discontinued); no DIP.",
+    "max_cond": "max/min: -40..85 C, VCC 5 V +-0.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CLK->Q": {
+        "min": 1.0,
+        "typ": 3.0,
+        "max": 4.7
+      },
+      "PRE/CLR->Q": {
+        "min": 1.0,
+        "typ": 3.4,
+        "max": 6.2
+      }
+    },
+    "checks": {
+      "setup D": 2.6,
+      "hold D": 0,
+      "tw CLK": 2.1,
+      "tw PRE/CLR": 2.2,
+      "recovery PRE/CLR": 2.4,
+      "fmax MHz": 150
+    },
+    "estimated": [],
+    "notes": "Numbers from NXP Rev. 2 (2016), copy hosted by LCSC. Nexperia's current datasheet is Rev. 4, 23 Jan 2024 (https://assets.nexperia.com/documents/data-sheet/74ABT74.pdf), which could not be downloaded from here (nexperia.com returns 403); check it for changes. Nexperia names: CP = CLK, /SD = /PRE, /RD = /CLR. Setup 2.6 ns (D high) / 2.4 ns (D low); hold 0. Recovery is /SD,/RD inactive before CP.",
+    "detail": {
+      "CP->Q,/Q": {
+        "tPLH": [1.0, 3.0, 4.2, 4.7],
+        "tPHL": [1.0, 2.5, 3.5, 4.0]
+      },
+      "/SD,/RD->Q,/Q": {
+        "tPLH": [1.0, 3.4, 4.9, 6.2],
+        "tPHL": [1.0, 2.9, 4.5, 5.2]
+      }
+    }
+  },
+  "74HCT132": {
+    "family": "HCT",
+    "function": "quad 2-input NAND, Schmitt-trigger inputs",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT132",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct132.pdf",
+    "datasheet": "TI SCHS399 (Jan 2021)",
+    "availability": "TI CD74HCT132E (DIP) and M96 active.",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "delays": {
+      "A->Y": {
+        "typ": 13,
+        "max": 41
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Max at 25 C is 33 ns. TI has no SN74HCT132; Nexperia's 74HCT132 was not checked (nexperia.com refuses downloads from here). The slowest gate in this file."
+  },
+  "74HCT14": {
+    "family": "HCT",
+    "function": "hex inverter, Schmitt-trigger inputs",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT14",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct14.pdf",
+    "datasheet": "TI SCHS402 (Aug 2019, rev Jun 2021)",
+    "availability": "TI CD74HCT14E (DIP), M96, PWR active; SN74HCT14N (DIP) also active.",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "delays": {
+      "A->Y": {
+        "typ": 16,
+        "max": 48
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Max at 25 C is 38 ns. TI's SN74HCT14 (alt) is faster (40 ns max); the CD74HCT14 is primary because it is the worse.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT14",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct14.pdf",
+        "datasheet": "TI SCLS225G (Jul 1995, rev Nov 2016)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+        "delays": {
+          "A->Y": {
+            "typ_4V5_50pF": 20,
+            "max": 40
+          }
+        },
+        "notes": "Max at 25 C 32 ns; at 5.5 V: 18 typ, 38 max."
+      }
+    ]
+  },
+  "74HCT20": {
+    "family": "HCT",
+    "function": "dual 4-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT20",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct20.pdf",
+    "datasheet": "TI SCHS417 (Jun 2020)",
+    "availability": "TI CD74HCT20E (DIP) and M96 active.",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "delays": {
+      "A->Y": {
+        "typ": 11,
+        "max": 35
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Same datasheet and numbers as the 74HCT20 entry in timing_logic.json. Max at 25 C is 28 ns."
+  },
+  "74HCT27": {
+    "family": "HCT",
+    "function": "triple 3-input NOR",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT27",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct27.pdf",
+    "datasheet": "TI SCHS406 (Aug 2019)",
+    "availability": "TI CD74HCT27E (DIP) and M96 active.",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "delays": {
+      "A->Y": {
+        "typ": 9,
+        "max": 29
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Max at 25 C is 23 ns. TI has no SN74HCT27."
+  },
+  "74HCT11": {
+    "family": "HCT",
+    "function": "triple 3-input AND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT11",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct11.pdf",
+    "datasheet": "TI SCHS405 (Aug 2019, rev Jun 2021)",
+    "availability": "TI CD74HCT11E (DIP) and M96 active.",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "delays": {
+      "A->Y": {
+        "typ": 11,
+        "max": 35
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Max at 25 C is 28 ns. TI has no SN74HCT11."
+  },
+  "74HCT05": {
+    "family": "HCT",
+    "function": "hex inverter, open-drain outputs",
+    "manufacturer": "onsemi (ex-Fairchild)",
+    "part_number": "MM74HCT05",
+    "source": "https://www.onsemi.com/pdf/datasheet/mm74hct05-d.pdf",
+    "datasheet": "onsemi MM74HCT05/D Rev. 4 (May 2025); same numbers as Fairchild's Feb 1999 revision",
+    "availability": "onsemi MM74HCT05MX (SOIC-14) and MM74HCT05MTCX (TSSOP-14); no DIP. TI makes no HCT05 (only SN74HC05).",
+    "max_cond": "max: -40..85 C, VCC 5 V +-10% (covers 4.5 V), CL 50 pF, RL = 1 kOhm pull-up",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF, RL 1 kOhm; typ_5V_50pF: 25 C, VCC 5 V, CL 50 pF, RL 1 kOhm (no 4.5 V typical given)",
+    "delays": {
+      "A->Y": {
+        "typ": 8,
+        "typ_5V_50pF": 10,
+        "max": 28
+      },
+      "release": {
+        "typ": 9,
+        "typ_5V_50pF": 12,
+        "max": 25
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Test load: RL = 1 kOhm to VCC, CL = 50 pF (15 pF for the 'typ' column). 'A->Y' is tPZL (output pulled low, input rising); 'release' is tPLZ (output let go, input falling). Max at 25 C: 22 (tPZL), 20 (tPLZ). tPLZ only times the output transistor turning off (in Nexperia's 74HC05 waveform: output 10% of VCC above VOL); the rise to a logic high is then set by the pull-up and the net capacitance (about 0.7 RC to cross 1.5 V-2 V from 0 V), which the simulator must add. TTL input levels (VIH 2.0 V, VIL 0.8 V). Output may only be pulled up to VCC + 0.5 V.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HC05",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hc05.pdf",
+        "datasheet": "TI SCLS080F (Mar 1984, rev Apr 2021)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF",
+        "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+        "delays": {
+          "A->Y": {
+            "typ_4V5_50pF": 9,
+            "max": 21
+          },
+          "release": {
+            "typ_4V5_50pF": 13,
+            "max": 29
+          }
+        },
+        "notes": "HC, not HCT: CMOS input levels (VIH 3.15 V at 4.5 V), so it cannot be driven by TTL/74F/ABT outputs. TI labels the arcs tPHL and tPLH but measures them as tPZL and tPLZ (10% VCC point). The load figure shows CL = 50 pF and a pull-up RL with no value printed. SN74HC05N (DIP) active."
+      },
+      {
+        "manufacturer": "Nexperia",
+        "part_number": "74HC05",
+        "source": "https://static.chipdip.ru/lib/439/DOC012439511.pdf",
+        "datasheet": "Nexperia 74HC05 Rev. 3, 8 Jul 2020 (copy hosted by chipdip.ru)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF, RL 1 kOhm",
+        "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF, RL 1 kOhm",
+        "delays": {
+          "A->Y": {
+            "typ_4V5_50pF": 9,
+            "max": 23
+          },
+          "release": {
+            "typ_4V5_50pF": 11,
+            "max": 23
+          }
+        },
+        "notes": "HC (CMOS input levels). tPLZ measured to VOL + 0.1 VCC. Nexperia makes no 74HCT05."
+      }
+    ]
+  },
+  "74HCT245": {
+    "family": "HCT",
+    "function": "octal bus transceiver, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74HCT245",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74hct245.pdf",
+    "datasheet": "TI SCLS020H (Mar 1984, rev Dec 2022)",
+    "availability": "TI SN74HCT245N (DIP) active, also DWR, DBR, NSR, PWR, DGSR; CD74HCT245E (DIP) also active.",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+    "delays": {
+      "A->B": {
+        "typ_4V5_50pF": 16,
+        "max": 28
+      },
+      "B->A": {
+        "typ_4V5_50pF": 16,
+        "max": 28
+      },
+      "OE->Y en": {
+        "typ_4V5_50pF": 25,
+        "max": 58
+      },
+      "OE->Y dis": {
+        "typ_4V5_50pF": 26,
+        "max": 50
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "No DIR->output spec: a DIR change disables one port and enables the other, so use 'OE->Y dis' then 'OE->Y en'. Max at 25 C: 22 (tpd), 46 (ten), 40 (tdis). TI's enable/disable maxima are much longer than the CD74HCT245's (alt) and Nexperia's 74HCT245 (38/38 ns, in timing_logic.json, which also has a 74HCT245 key: whoever merges the two files must pick one).",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "CD74HCT245",
+        "source": "https://www.ti.com/lit/ds/symlink/cd74hct245.pdf",
+        "datasheet": "TI SCHS119B (Nov 1998, rev Jul 2022)",
+        "typ_cond": "not given",
+        "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+        "delays": {
+          "A->B": {
+            "max": 33
+          },
+          "B->A": {
+            "max": 33
+          },
+          "OE->Y en": {
+            "max": 40
+          },
+          "OE->Y dis": {
+            "max": 38
+          }
+        },
+        "notes": "No typical values in this revision. Max at 25 C: 26 / 32 / 30."
+      }
+    ]
+  },
+  "74HCT125": {
+    "family": "HCT",
+    "function": "quad bus buffer, 3-state (active-low enables)",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT125",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct125.pdf",
+    "datasheet": "TI SCHS415A (Jun 2020, rev Aug 2024)",
+    "availability": "TI CD74HCT125E (DIP), M96 active; SN74HCT125N (DIP) also active.",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF (TI CD74HCT sheets give no 4.5 V/50 pF typical)",
+    "delays": {
+      "A->Y": {
+        "typ": 10,
+        "max": 31
+      },
+      "OE->Y en": {
+        "typ": 10,
+        "max": 31
+      },
+      "OE->Y dis": {
+        "typ": 11,
+        "max": 35
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "Max at 25 C: 25 / 25 / 28. Primary is the CD74HCT125, worse than the SN74HCT125 (alt) on A->Y and disable.",
+    "alt": [
+      {
+        "manufacturer": "Texas Instruments",
+        "part_number": "SN74HCT125",
+        "source": "https://www.ti.com/lit/ds/symlink/sn74hct125.pdf",
+        "datasheet": "TI SCLS069G (Nov 1988, rev Oct 2022)",
+        "typ_cond": "typ_4V5_50pF: 25 C, VCC 4.5 V, CL 50 pF (TI SN74HCT sheets give no 5 V typical)",
+        "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+        "delays": {
+          "A->Y": {
+            "typ_4V5_50pF": 11,
+            "max": 25
+          },
+          "OE->Y en": {
+            "typ_4V5_50pF": 18,
+            "max": 35
+          },
+          "OE->Y dis": {
+            "typ_4V5_50pF": 15,
+            "max": 33
+          }
+        },
+        "notes": "Max at 25 C: 20 / 28 / 26."
+      }
+    ]
+  },
+  "74ACT11": {
+    "family": "ACT",
+    "function": "triple 3-input AND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT11",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act11.pdf",
+    "datasheet": "TI SCAS531E (Aug 1995, rev Feb 2025)",
+    "availability": "TI SN74ACT11N (DIP) active, also DR, DBR, PWR, BQAR.",
+    "max_cond": "max/min: -40..85 C, VCC 5 V +-0.5 V (covers 4.5 V), CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V +-0.5 V, CL 50 pF",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 6,
+        "max": 10.5
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "tPLH and tPHL identical (1 / 6 / 10.5 ns; 9.5 ns max at 25 C)."
+  },
+  "74ACT20": {
+    "family": "ACT",
+    "function": "dual 4-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74ACT20",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74act20.pdf",
+    "datasheet": "TI SCHS320 (Nov 2002)",
+    "availability": "TI CD74ACT20E (DIP) and M96 active. Same datasheet as the 74ACT20 entry in timing_logic.json.",
+    "max_cond": "max/min: -40..85 C, VCC 5 V +-0.5 V (covers 4.5 V), CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: estimated (datasheet gives none)",
+    "delays": {
+      "A->Y": {
+        "min": 3.5,
+        "typ": 7.4,
+        "max": 12.3
+      }
+    },
+    "checks": {},
+    "estimated": [
+      "A->Y typ"
+    ],
+    "notes": "The CD74ACT (ex-Harris) sheet gives only min/max over temperature; typ = 0.6 x max, as build_timing.py estimates ACT typicals."
+  },
+  "74ACT27": {
+    "family": "ACT",
+    "function": "triple 3-input NOR",
+    "manufacturer": "Integral (Belarus)",
+    "part_number": "IN74ACT27",
+    "source": "https://en.integral.by/upload/iblock/293/IN74ACT27.pdf",
+    "datasheet": "Integral IN74ACT27 technical data (undated; PDF dated Jun 2006)",
+    "availability": "No 74ACT27 from TI, onsemi, Nexperia, Toshiba or ST (TI has no ACT27 datasheet; onsemi's datasheet URL redirects to 'notFound'). Integral lists IN74ACT27N (DIP-14) and IN74ACT27D (SOIC); small manufacturers IK Semicon / Kodenshi (IN74ACT27, KK74ACT27) also appear in datasheet indexes. Stock at Western distributors not checked.",
+    "max_cond": "max/min: -40..85 C, VCC 5 V +-10%, CL 50 pF",
+    "typ_cond": "typ: estimated (datasheet gives none)",
+    "delays": {
+      "A->Y": {
+        "min": 1.0,
+        "typ": 6.3,
+        "max": 10.5
+      }
+    },
+    "checks": {},
+    "estimated": [
+      "A->Y typ"
+    ],
+    "notes": "Same approach as the 74ACT21 entry in timing_logic.json (Integral IN74ACT21). 25 C max 9.5 ns. typ = 0.6 x max (build_timing.py's ACT rule); TI's SN74ACT11 (same pinout, 3-input AND) has typ 6 / max 10.5. Practical substitutes from major vendors with the same pinout: SN74F27 or CD74HCT27 (both in this file)."
+  },
+  "74ACT125": {
+    "family": "ACT",
+    "function": "quad bus buffer, 3-state (active-low enables)",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ACT125",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74act125.pdf",
+    "datasheet": "TI SLVSKF7 (Nov 2025)",
+    "availability": "TI SN74ACT125PWR (TSSOP-14) and SN74ACT125BQAR (WQFN) active; no DIP or SOIC. A new TI part (first released Nov 2025); onsemi and TI CD74 have no ACT125.",
+    "max_cond": "max/min: -40..125 C (the only range given; covers -40..85), VCC 4.5-5.5 V, CL 50 pF",
+    "typ_cond": "typ: VCC 4.5 V, CL 50 pF (the larger of the 4.5 V and 5.5 V typicals; temperature not stated)",
+    "delays": {
+      "A->Y": {
+        "min": 2.8,
+        "typ": 5.7,
+        "max": 8.7
+      },
+      "OE->Y en": {
+        "min": 3.1,
+        "typ": 6.7,
+        "max": 10.2
+      },
+      "OE->Y dis": {
+        "min": 1.7,
+        "typ": 5.2,
+        "max": 8.1
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "New-style table per VCC: at CL 50 pF, 4.5 V: A->Y 2.9/5.2/8.1 (LH), 3.3/5.7/8.7 (HL); tPZL 3.5/6/9.1, tPZH 3.9/6.7/10.2; tPLZ 1.8/3.1/4.8, tPHZ 2.9/5.2/8.1. At 5.5 V the maxima are lower (7.6, 8.8, 7.0) and the mins slightly lower (taken as min). Output skew 0.2 ns max."
+  },
+  "CDC341": {
+    "family": "clock",
+    "function": "1-line to 8-line clock driver (two banks of 4, gated by 1G/2G), BiCMOS, TTL levels",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CDC341",
+    "source": "https://www.ti.com/lit/ds/symlink/cdc341.pdf",
+    "datasheet": "TI SCAS333D (Dec 1992, rev Oct 1998)",
+    "availability": "TI CDC341DW (SOIC-20) and DWR active (package addendum, Oct 2026). Not obsolete.",
+    "max_cond": "max/min: 0..70 C, VCC 4.75-5.25 V, CL 50 pF",
+    "typ_cond": "typ: estimated (25 C, 5 V limits are 3.5..4.5 ns)",
+    "delays": {
+      "A->Y": {
+        "min": 3.1,
+        "typ": 4.0,
+        "max": 4.9
+      },
+      "G->Y": {
+        "min": 2,
+        "typ": 2.9,
+        "max": 4
+      }
+    },
+    "checks": {
+      "skew out": 0.6,
+      "skew part": 1.0,
+      "skew pulse": 0.9,
+      "fclock max MHz one bank loaded": 80,
+      "fclock max MHz both banks loaded": 40
+    },
+    "estimated": [
+      "A->Y typ",
+      "G->Y typ"
+    ],
+    "notes": "tsk(o) (output to output, same part) 0.6 ns over 0..70 C (0.5 at 25 C); tsk(pr) (process skew, part to part under identical conditions) 1 ns; tsk(p) (|tPLH - tPHL|) 0.9 ns. typ is the midpoint of the 25 C min/max (no typical printed; A->Y 3.5..4.5, G->Y 2..3.8). G->Y is the 1G/2G gate input to the outputs. Supply must be 4.75-5.25 V, tighter than the logic. The recommended input clock is at most 80 MHz with one output bank loaded and 40 MHz with both banks loaded, so a 50 MHz (20 ns) clock driving all 8 outputs is outside the datasheet's operating conditions. Datasheet drift figures: about -0.05 ns per 10 C and +0.02..0.03 ns per 100 mV."
+  },
+  "TL7705A": {
+    "family": "supervisor",
+    "function": "supply voltage supervisor (power-on reset), 4.55 V threshold",
+    "manufacturer": "Texas Instruments",
+    "part_number": "TL7705A",
+    "source": "https://www.ti.com/lit/ds/symlink/tl7705a.pdf",
+    "datasheet": "TI SLVS028K (Apr 1983, rev Sep 2016)",
+    "availability": "TI TL7705ACD/ACDR (SOIC-8), ACPSR, AID/AIDR active; the DIP TL7705ACP and TL7705AIP are NRND. TI also makes a newer TL7705B (SLVS037O; not compared here).",
+    "max_cond": "TL7705AC: 0..70 C; TL7705AI: -40..85 C; VCC up to 18 V",
+    "delays": {},
+    "checks": {
+      "td": 13.0,
+      "td min": 6.5,
+      "td max": 26.0
+    },
+    "units": "td in ms per uF of CT",
+    "reset_output": "Two outputs. /RESET (pin 5, active low): open collector, sinks 16 mA at 0.4 V, needs a pull-up. RESET (pin 6, active high): open emitter, sources 16 mA at VCC - 1.5 V, needs a pull-down. Both rated to 18 V; both active while VCC is below threshold and for td after it recovers or after /RESIN is released.",
+    "estimated": [
+      "td min",
+      "td max"
+    ],
+    "notes": "td = 1.3e4 x CT (s, F), i.e. 13 ms per uF, from the 'externally adjustable pulse duration' text. The switching table gives the output pulse duration only at CT = 0.1 uF: 0.65 min, 1.2 typ, 2.6 max ms; 'td min'/'td max' scale that linearly to per-uF figures (an assumption). Other timing: /RESIN pulse >= 0.4 us, /RESIN to RESET <= 1 us; output rise/fall 0.2 us driven, 3.5 us through a 4.7 kOhm pull-up/down. SENSE threshold 4.5-4.6 V at 25 C (15 mV hysteresis). Outputs are defined from VCC = 3 V (typ 2.5 V); function guaranteed from 3.6 V."
+  },
+  "TL16C550C": {
+    "family": "device",
+    "function": "UART (asynchronous communications element) with 16-byte FIFOs",
+    "manufacturer": "Texas Instruments",
+    "part_number": "TL16C550C",
+    "source": "https://www.ti.com/lit/ds/symlink/tl16c550c.pdf",
+    "datasheet": "TI SLLS177I (Mar 1994, rev Mar 2021)",
+    "availability": "TI TL16C550CFNR (PLCC-44, socketable), PTR (LQFP-48), PFBR (TQFP-48) active; industrial TL16C550CIFNR, CIPTR. No DIP.",
+    "max_cond": "0..70 C, VCC 4.75-5.25 V (5 V operation), data outputs CL 75 pF",
+    "delays": {
+      "RD->D": {
+        "typ": 45,
+        "max": 45
+      },
+      "RD->D dis": {
+        "typ": 20,
+        "max": 20
+      }
+    },
+    "checks": {
+      "tAS": 7,
+      "tAH": 20,
+      "tCS": 7,
+      "tCH": 10,
+      "tRD": 40,
+      "tWR": 40,
+      "tDS": 15,
+      "tDH": 5,
+      "tRC": 87,
+      "xin max MHz": 16,
+      "tAH WR": 10,
+      "recovery": 40,
+      "tw XIN": 25
+    },
+    "estimated": [],
+    "notes": "For a non-multiplexed bus with ADS tied low. tAS = tAR/tAW (td8/td5, address valid before RD/WR active) 7 ns; with ADS used instead, address setup to ADS rising (tsu1) is 8 ns. tCS = tCSR/tCSW (td7/td4) 7 ns (8 ns to ADS). tAH = tRA (th7, address hold after RD) 20 ns; after WR (tWA, th4) only 10 ns, given as 'tAH WR'. tCH = tRCS/tWCS (th6/th3) 10 ns. tRD (tw7) and tWR (tw6) 40 ns. tDS (tsu3) 15 ns before WR inactive, tDH (th5) 5 ns. tRC = cycle time tcR = tcW = 87 ns (strobe 40 + address setup 7 + recovery 40); 'recovery' = td9/td6, RD or WR inactive to the next cycle, 40 ns. RD->D = td10 (tRVD) 45 ns, RD->D dis = td11 (tHZ) 20 ns, both at CL 75 pF. 'xin max MHz': oscillator/clock 16 MHz at 5 V (14.9 MHz at 3.3 V); XIN high and low 25 ns each. Strobes: /RD1 and /WR1 active low, RD2 and WR2 active high (use one, tie the other inactive). The 5 V supply range is 4.75-5.25 V.",
+    "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
+  },
+  "82C54": {
+    "family": "device",
+    "function": "CMOS programmable interval timer (three 16-bit counters)",
+    "manufacturer": "Renesas (ex-Intersil, ex-Harris)",
+    "part_number": "CP82C54-10Z",
+    "source": "https://www.renesas.com/us/en/document/dst/82c54-datasheet",
+    "datasheet": "Intersil/Renesas FN2970 Rev 6.00 (Sep 15, 2015)",
+    "availability": "Renesas lists CP82C54-10Z (DIP-24, 0..70 C; out of stock at the Renesas store, Oct 2026), IP82C54-10Z (DIP-24, -40..85 C, in stock), CS/IS82C54-10Z (PLCC-28) and the fastest grade CS82C54-12Z (PLCC-28 only; the DIP CP82C54-12 is discontinued).",
+    "max_cond": "VCC 5 V +-10%, all temperature ranges; load: the datasheet refers to 'test condition 1/2' but this revision prints no load circuit",
+    "delays": {
+      "RD->D": {
+        "typ": 85,
+        "max": 85
+      },
+      "RD->D dis": {
+        "min": 5,
+        "typ": 65,
+        "max": 65
+      },
+      "CLK->OUT": {
+        "typ": 100,
+        "max": 100
+      },
+      "GATE->OUT": {
+        "typ": 100,
+        "max": 100
+      },
+      "WR->OUT": {
+        "typ": 240,
+        "max": 240
+      },
+      "A->D": {
+        "typ": 185,
+        "max": 185
+      }
+    },
+    "checks": {
+      "tAR": 25,
+      "tRA": 0,
+      "tRR": 95,
+      "tAW": 0,
+      "tWA": 0,
+      "tWW": 95,
+      "tDW": 95,
+      "tWD": 0,
+      "tRV": 165,
+      "clk max MHz": 10,
+      "tSR": 0,
+      "tSW": 0,
+      "tPWH": 30,
+      "tPWL": 40,
+      "tGS": 40,
+      "tGH": 50,
+      "tGW": 50,
+      "tGL": 50
+    },
+    "estimated": [],
+    "notes": "82C54-10 column. The -12 grade (CS82C54-12Z) has identical bus timings; only TCLK min 80 ns (12.5 MHz) and TPWL 30 ns differ. The plain 8 MHz 82C54 is slower on the bus (tAR 30, tRR 150, TRD 120, TDF 85, TDW 140, TWD 25, TRV 200). RD->D = TRD (data delay from /RD); data is also not valid before TAD = 185 ns after the address ('A->D'). RD->D dis = TDF (5..65). tDW (95) equals the minimum /WR width, so write data must be valid by the time /WR falls. tRV (165) is the command recovery between any two strobes (read or write). WR->OUT = TWO (OUT delay from mode write); CLK->OUT = TOD; GATE->OUT = TODG. CLK and GATE timing (TGS, TGH, TPWH, TPWL) is referenced to the rising CLK edge. Not all parameters are tested (note 1). TTL-compatible inputs (VIH 2.0 V); outputs 2.5 mA.",
+    "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
+  },
+  "CF": {
+    "family": "device",
+    "function": "CompactFlash card in True IDE mode, PIO mode 0",
+    "manufacturer": "CompactFlash Association (spec), as repeated by card makers",
+    "part_number": "CF+ & CompactFlash spec rev 4.1, True IDE PIO mode 0",
+    "source": "https://www.farnell.com/datasheets/2625955.pdf",
+    "datasheet": "Delkin Devices C400 Series SLC Industrial CompactFlash Engineering Specification L5ENG00049 Rev. F (2018), section 4.14 'True IDE PIO Mode Read/Write Timing' (card states compliance with CF spec rev 4.1); cross-checked against Innodisk iCF4000 Rev 3.0 (Feb 2014), section 5.9.2.7 Table 12 (https://static.chipdip.ru/lib/012/DOC004012395.pdf): identical mode 0 numbers.",
+    "availability": "Industrial CF cards (e.g. Delkin, Innodisk, Transcend, Apacer) still sold; every CF card must support PIO mode 0 in True IDE mode. The CFA sells the spec itself; no free official copy found.",
+    "max_cond": "spec limits (all cards); the spec states loading only for -IOCS16 (1 LSTTL + 50 pF)",
+    "delays": {
+      "RD->D": {
+        "typ": 240,
+        "max": 240
+      },
+      "RD->D dis": {
+        "min": 5,
+        "typ": 30,
+        "max": 30
+      }
+    },
+    "checks": {
+      "t0": 600,
+      "t1": 70,
+      "t2": 290,
+      "t2i": 0,
+      "t3": 60,
+      "t4": 30,
+      "t5": 50,
+      "t6": 5,
+      "t9": 20,
+      "t2 16-bit": 165,
+      "t7": 90,
+      "t8": 60,
+      "tA": 35,
+      "tB": 1250
+    },
+    "estimated": [
+      "t2i"
+    ],
+    "notes": "Mode 0 column. RD->D = t2 (8-bit register access, 290) - t5 (read data setup to -IORD rising, 50) = 240 ns: the latest a compliant card can put data out after -IORD falls if the host uses the minimum strobe width (derived, as requested). RD->D dis: t6 = 5 ns data hold (min), t6z = 30 ns tri-state (max) after -IORD rises. t2 is 290 ns for 8-bit register access and 165 ns for 16-bit data transfers ('t2 16-bit'). t2i: the spec gives no recovery time for modes 0-2 ('-'); 0 is entered so the check is vacuous, and the binding limit is t0 = 600 ns from one strobe assertion to the next (so after a 290 ns register strobe the strobe must stay negated >= 310 ns). t9 = address (and CS) hold after -IORD/-IOWR negation. t7/t8 = address valid to -IOCS16 assert/release (max), tA = IORDY setup, tB = IORDY pulse width (max); a card may extend a cycle with IORDY.",
+    "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
+  },
+  "AS7C4096A-12": {
+    "family": "SRAM",
+    "function": "512K x 8 fast asynchronous SRAM, 5 V",
+    "manufacturer": "Alliance Memory",
+    "part_number": "AS7C4096A-12",
+    "source": "https://www.alliancememory.com/wp-content/uploads/as7c4096a_v1.3.pdf",
+    "datasheet": "Alliance AS7C4096A v1.3 (Oct 2021)",
+    "availability": "Active: alliancememory.com lists AS7C4096A-12JCN/-12JIN (36-pin 400-mil SOJ) and -12TCN/-12TIN (44-pin TSOP-II), plus -15 and -20, with distributor stock links (Oct 2026). The -10 grade in the datasheet is no longer listed, so -12 is the fastest sold. No DIP.",
+    "max_cond": "VCC 5 V +-0.5 V; commercial 0..70 C or industrial -40..85 C. Load 30 pF with 480/255 Ohm (Thevenin 168 Ohm to 1.728 V); tCLZ/tCHZ and other Z parameters at 5 pF, +-500 mV",
+    "delays": {
+      "tAA": {
+        "typ": 12,
+        "max": 12
+      },
+      "tACE": {
+        "typ": 12,
+        "max": 12
+      },
+      "tOE": {
+        "typ": 6,
+        "max": 6
+      },
+      "tOHZ": {
+        "typ": 6,
+        "max": 6
+      },
+      "tCHZ": {
+        "typ": 6,
+        "max": 6
+      },
+      "tWHZ": {
+        "min": 2,
+        "typ": 6,
+        "max": 6
+      }
+    },
+    "checks": {
+      "tAS": 0,
+      "tAW": 8,
+      "tWP": 12,
+      "tDW": 6,
+      "tDH": 0,
+      "tWR": 0,
+      "tOH": 3,
+      "tWP OE high": 8,
+      "tAH": 0,
+      "tCW": 8,
+      "tRC": 12,
+      "tWC": 12,
+      "tCLZ": 3,
+      "tOLZ": 0,
+      "tOW": 3
+    },
+    "estimated": [],
+    "notes": "tWP = 12 ns is the write pulse with /OE low (tWP2); with /OE high during the write it is 8 ns ('tWP OE high', tWP1), the same convention as IS61C256AL in timing_alu_mem.json. tWHZ is the datasheet's tWZ (2..6 ns). tAH (address hold from end of write) and tWR (write recovery) are both 0. Z parameters and tDH are guaranteed, not tested. TTL inputs (VIH 2.2 V, VIL 0.8 V). The 4 Mbit JEDEC pinout differs from the 32Kx8 parts in timing_alu_mem.json.",
+    "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
+  },
+
+  "74F161": {
+    "family": "F",
+    "function": "4-bit synchronous binary counter, asynchronous clear",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F161A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f161a.pdf",
+    "datasheet": "TI SDFS087A (Mar 1987, rev Oct 1993)",
+    "availability": "Not checked. The SN74F163A (the same counter with a synchronous clear) is active in DIP.",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 2.7,
+        "typ": 7.1,
+        "max": 11
+      },
+      "CLK->RCO": {
+        "min": 4.2,
+        "typ": 9.6,
+        "max": 15
+      },
+      "ENT->RCO": {
+        "min": 1.7,
+        "typ": 4.1,
+        "max": 8.5
+      },
+      "CLR->Q": {
+        "min": 4.7,
+        "typ": 8.6,
+        "max": 13
+      }
+    },
+    "checks": {
+      "setup data": 5,
+      "hold data": 2,
+      "setup LOAD": 11.5,
+      "hold LOAD": 2,
+      "setup EN": 11.5,
+      "hold EN": 0,
+      "tw CLK": 7,
+      "fmax MHz": 90
+    },
+    "estimated": [],
+    "notes": "The SN74F163A's switching characteristics, with an asynchronous clear (/CLR->Q 13 ns, /CLR->RCO 11.5 ns). CLK->Q is 9.5 ns when loading, 11 when counting. Setup of /LOAD 11.5 ns high, 9.5 low; of ENP/ENT 11.5 high, 5 low (the larger is given). Hold of /LOAD 2 ns high, 0 low."
+  },
+
+  "74F299": {
+    "family": "F",
+    "function": "8-bit universal shift/storage register, three-state I/O",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F299",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f299.pdf",
+    "datasheet": "TI SDFS071B (Mar 1987, rev Apr 2004)",
+    "availability": "Not checked (the datasheet marks the SN54F299 obsolete).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "CLK->Q": {
+        "min": 3.2,
+        "typ": 8.1,
+        "max": 12
+      },
+      "CLK->QS": {
+        "min": 2.7,
+        "typ": 6.6,
+        "max": 10
+      },
+      "CLR->Q": {
+        "min": 5.7,
+        "typ": 10.6,
+        "max": 15
+      },
+      "OE->Y en": {
+        "min": 2.7,
+        "typ": 6.6,
+        "max": 11
+      },
+      "OE->Y dis": {
+        "min": 1.2,
+        "typ": 4.1,
+        "max": 7
+      }
+    },
+    "checks": {
+      "setup S": 8.5,
+      "hold S": 0,
+      "setup DS": 5.5,
+      "hold DS": 2,
+      "setup IO": 5.5,
+      "hold IO": 2,
+      "recovery CLR": 7,
+      "tw CLK": 7,
+      "fmax MHz": 70
+    },
+    "estimated": [],
+    "notes": "CLK->Q is to QA-QH (tPHL 12, tPLH 10); CLK->QS to QA'/QH' (tPLH 10, tPHL 9.5); CLR->Q to QA-QH (15; 10.5 to QA'/QH'). Enable: tPZL 11, tPZH 9; disable: tPHZ 7, tPLZ 6.5. The serial inputs SR/SL and the I/O pins in a parallel load share the 5.5 ns setup."
+  },
+
+  "IS61C6416AL-12": {
+    "family": "SRAM",
+    "function": "64K x 16 fast asynchronous SRAM, 5 V; also a writable control store, read like a ROM",
+    "manufacturer": "ISSI",
+    "part_number": "IS61C6416AL-12",
+    "source": "https://static.chipdip.ru/lib/414/DOC012414509.pdf",
+    "datasheet": "ISSI IS61C6416AL/IS64C6416AL Rev. B1 (2020); Rev. B2 (Jan 2025) is on mouser.com",
+    "availability": "Distributors list IS61C6416AL-12TLI (44-pin TSOP-II) as active and some SOJ (-12KLI) listings as obsolete (Oct 2026). No DIP.",
+    "max_cond": "VCC 5 V +-10%, -40..85 C (I grade)",
+    "delays": {
+      "tAA": {
+        "typ": 12,
+        "max": 12
+      },
+      "tACE": {
+        "typ": 12,
+        "max": 12
+      },
+      "tOE": {
+        "typ": 6,
+        "max": 6
+      },
+      "tOHZ": {
+        "typ": 6,
+        "max": 6
+      },
+      "tCHZ": {
+        "typ": 7,
+        "max": 7
+      },
+      "tWHZ": {
+        "typ": 6,
+        "max": 6
+      },
+      "tACC": {
+        "typ": 12,
+        "max": 12
+      },
+      "tCE": {
+        "typ": 12,
+        "max": 12
+      },
+      "tDF": {
+        "typ": 6,
+        "max": 6
+      }
+    },
+    "checks": {
+      "tAS": 0,
+      "tAW": 9,
+      "tWP": 9,
+      "tDW": 6,
+      "tDH": 0,
+      "tWR": 0,
+      "tOH": 3,
+      "tAH": 0,
+      "tCW": 9,
+      "tRC": 12,
+      "tWC": 12
+    },
+    "estimated": [],
+    "notes": "tACC, tCE and tDF repeat tAA, tACE and tHZOE under the ROM model's names, for the part used as a control store: loaded at power-up, then only read. tWP is tPWE (9 ns with /OE high or low); tAW and tCW are tAW and tSCE (9 ns); tDW is tSD (6 ns). Byte enables: tBA 6 ns."
+  }
+}

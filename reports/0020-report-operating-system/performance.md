@@ -10,7 +10,7 @@ D32-wide (a 32-bit bus with a prefetch buffer); microseconds are at
 
 ## The nucleus's paths
 
-Cycles per operation, for each register-bank policy (system.md). Each scenario's own user code is included, except where marked †: those count only the nucleus's cycles.
+Cycles per operation, for each register-bank policy (v1bs, the appendix). Each scenario's own user code is included, except where marked †: those count only the nucleus's cycles.
 
 | Operation | none | half | full | half, D32-wide | none, at 3 MHz |
 |---|---:|---:|---:|---:|---:|
@@ -159,7 +159,7 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 | | D32-separate | D32-wide |
 |---|---:|---:|
 | assembly | 64 | 40 |
-| C | 99 | 61 |
+| C | 88 | 56 |
 
 ## Page references of bigger programs
 
@@ -167,24 +167,24 @@ The ready queue (an enqueue and a dequeue, the nucleus's scheduling core) in C t
 
 | Workload | Instructions | Pages: code / data | PC page changes per 1000 instr. | LRU 4 | LRU 8 | LRU 16 | LRU 32 | LRU 64 | LRU 128 | direct 64 | direct 256 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| lisp-boyer-c | 28.4 M | 19 / 211 | 25.6 | 128.82 | 30.91 | 1.59 | 0.09 | 0.03 | 0.02 | 13.51 | 0.01 |
-| lisp-meta-c | 21.6 M | 19 / 209 | 21.3 | 88.52 | 29.50 | 3.29 | 0.07 | 0.02 | 0.01 | 10.39 | 0.01 |
-| lisp-boyer-i | 309.0 M | 4 / 202 | 3.9 | 51.13 | 15.21 | 0.23 | 0.06 | 0.01 | 0.01 | 24.96 | 0.00 |
-| egret-richards-jit | 7.1 M | 23 / 61 | 24.5 | 107.60 | 19.61 | 2.07 | 0.02 | 0.01 | 0.01 | 2.06 | 0.01 |
-| egret-json-i | 32.6 M | 12 / 174 | 25.9 | 149.73 | 92.30 | 9.49 | 0.04 | 0.01 | 0.01 | 34.12 | 0.01 |
-| gfx-wm-8 | 6.5 M | 8 / 102 | 11.9 | 25.40 | 3.78 | 1.31 | 0.74 | 0.07 | 0.02 | 5.07 | 0.02 |
-| gfx-text-1 | 11.2 M | 8 / 35 | 10.1 | 28.26 | 1.14 | 0.27 | 0.00 | 0.00 | 0.00 | 0.26 | 0.00 |
-| c-wordfreq | 0.1 M | 1 / 5 | 0.0 | 36.62 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 | 0.04 |
+| lisp-boyer-c | 21.7 M | 22 / 208 | 27.0 | 144.47 | 29.51 | 0.80 | 0.12 | 0.03 | 0.03 | 10.66 | 0.01 |
+| lisp-meta-c | 12.2 M | 22 / 206 | 37.3 | 126.04 | 40.21 | 2.29 | 0.05 | 0.02 | 0.02 | 6.89 | 0.02 |
+| lisp-boyer-i | 309.3 M | 4 / 197 | 3.9 | 52.68 | 16.29 | 0.23 | 0.06 | 0.01 | 0.01 | 5.25 | 0.00 |
+| egret-richards-jit | 7.0 M | 23 / 62 | 23.2 | 108.56 | 19.99 | 2.03 | 0.02 | 0.01 | 0.01 | 2.04 | 0.01 |
+| egret-json-i | 32.1 M | 12 / 174 | 41.8 | 163.25 | 100.50 | 9.81 | 0.04 | 0.01 | 0.01 | 33.76 | 0.01 |
+| gfx-wm-8 | 6.4 M | 8 / 101 | 11.1 | 25.74 | 3.82 | 1.34 | 0.76 | 0.07 | 0.02 | 5.12 | 0.02 |
+| gfx-text-1 | 10.7 M | 8 / 35 | 7.0 | 25.32 | 1.10 | 0.23 | 0.00 | 0.00 | 0.00 | 0.24 | 0.00 |
+| c-wordfreq | 0.1 M | 1 / 5 | 0.0 | 38.20 | 0.06 | 0.06 | 0.06 | 0.06 | 0.06 | 0.06 | 0.06 |
 | asm-vm | 0.6 M | 1 / 2 | 0.0 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
 
 | Workload | What it is | Cycles | Pages touched |
 |---|---|---:|---:|
-| lisp-boyer-c | Lisp: compile boyer on the machine, then run it | 103.0 M | 223 |
-| lisp-meta-c | Lisp: compile and run a metacircular interpreter | 76.6 M | 222 |
-| lisp-boyer-i | Lisp: boyer, interpreted | 1,056.2 M | 203 |
-| egret-richards-jit | Egret: richards, compiled by the JIT | 29.5 M | 66 |
-| egret-json-i | Egret: json, interpreted | 133.6 M | 178 |
-| gfx-wm-8 | Graphics: the window manager scene at 8 bits per pixel | 27.3 M | 105 |
-| gfx-text-1 | Graphics: the text scene at 1 bit per pixel | 45.2 M | 38 |
-| c-wordfreq | C: word frequencies with a hash table | 0.4 M | 5 |
+| lisp-boyer-c | Lisp: compile boyer on the machine, then run it | 80.8 M | 222 |
+| lisp-meta-c | Lisp: compile and run a metacircular interpreter | 45.3 M | 221 |
+| lisp-boyer-i | Lisp: boyer, interpreted | 1,057.2 M | 198 |
+| egret-richards-jit | Egret: richards, compiled by the JIT | 29.0 M | 66 |
+| egret-json-i | Egret: json, interpreted | 131.2 M | 178 |
+| gfx-wm-8 | Graphics: the window manager scene at 8 bits per pixel | 26.6 M | 104 |
+| gfx-text-1 | Graphics: the text scene at 1 bit per pixel | 43.0 M | 38 |
+| c-wordfreq | C: word frequencies with a hash table | 0.3 M | 5 |
 | asm-vm | Assembly: the bytecode interpreter | 2.9 M | 2 |

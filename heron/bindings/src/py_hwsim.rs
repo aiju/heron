@@ -54,4 +54,41 @@ pub mod hwsim {
         let outcome = outcome.map_err(|e| PyValueError::new_err(e.0))?;
         Ok(pythonize::pythonize(py, &outcome)?)
     }
+
+    /// Run a whole system from power-up (infra/hwsim/src/system.rs):
+    /// `netlist` as Netlist.export() makes it, `config` a SysConfig as a
+    /// dict, `pre` the chips' preloaded contents by reference (ROM and
+    /// RAM images, device inputs). Returns the outcome as a dict. Ctrl-C
+    /// stops the run.
+    #[pyfunction]
+    fn run_system<'py>(
+        py: Python<'py>,
+        netlist: &Bound<'py, PyAny>,
+        config: &Bound<'py, PyAny>,
+        pre: HashMap<String, Bound<'py, PyBytes>>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let netlist: ::hwsim::Netlist = pythonize::depythonize(netlist)?;
+        let config: ::hwsim::SysConfig = pythonize::depythonize(config)?;
+        let pre: HashMap<String, Vec<u8>> = pre
+            .into_iter()
+            .map(|(k, v)| (k, v.as_bytes().to_vec()))
+            .collect();
+        let mut signal = None;
+        let outcome = py.detach(|| {
+            ::hwsim::run_system(&netlist, &config, &pre, &mut || match Python::attach(|py| {
+                py.check_signals()
+            }) {
+                Ok(()) => false,
+                Err(e) => {
+                    signal = Some(e);
+                    true
+                }
+            })
+        });
+        if let Some(e) = signal {
+            return Err(e);
+        }
+        let outcome = outcome.map_err(|e| PyValueError::new_err(e.0))?;
+        Ok(pythonize::pythonize(py, &outcome)?)
+    }
 }

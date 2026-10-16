@@ -1,5 +1,5 @@
 """The test suite: every program in programs/ and tests/lisp/ runs on the
-1b simulator, and its output is checked against expected/NAME.txt next to
+1b (or the draft 2) simulator, and its output is checked against expected/NAME.txt next to
 it, which the reference interpreter wrote (reference.py --write-expected).
 """
 
@@ -30,12 +30,12 @@ def expected(path):
         return f.read()
 
 
-def run_program(path, features=(), compiled=False):
+def run_program(path, features=(), compiled=False, isa="v1b"):
     """Run one program: (Run, problem or None)."""
     from . import machine
     with open(path, "rb") as f:
         text = f.read()
-    r = machine.run(text, features, compiled=compiled)
+    r = machine.run(text, features, compiled=compiled, isa=isa)
     exp = expected(path)
     if r.error:
         return r, r.error
@@ -46,7 +46,7 @@ def run_program(path, features=(), compiled=False):
     return r, None
 
 
-def run_suite(names=None, features=(), verbose=False, compiled=False):
+def run_suite(names=None, features=(), verbose=False, compiled=False, isa="v1b"):
     paths = program_paths(names)
     if not paths:
         print("no programs found")
@@ -55,7 +55,7 @@ def run_suite(names=None, features=(), verbose=False, compiled=False):
     print(f"{'program':<14} {'result':<6} {'instructions':>13} {'cycles':>14} {'GCs':>4} {'secs':>6}")
     for p in paths:
         t = time.time()
-        r, problem = run_program(p, features, compiled)
+        r, problem = run_program(p, features, compiled, isa)
         m = r.machine
         print(f"{os.path.basename(p)[:-5]:<14} {'ok' if problem is None else 'FAIL':<6} "
               f"{m.instructions:>13,} {m.cycles_for('D32-separate'):>14,} "

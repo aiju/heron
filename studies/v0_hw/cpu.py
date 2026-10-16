@@ -9,7 +9,7 @@ Buses
   ADDR  memory address <- PC or MAR
 
 Register file: two copies of 16 x 16 bits in fast SRAM (4 chips), one per
-ALU input, written together from R. See hardware.md.
+ALU input, written together from R. See RFC 0001, Part II.
 """
 
 from heron.infra.hw.netlist import Netlist

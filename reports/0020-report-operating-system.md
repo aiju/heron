@@ -23,9 +23,9 @@ Two questions:
 To answer the first with numbers rather than guesses, the
 [kernel study](../studies/kernel/README.md) built three things:
 
-- **v1bs** ([system.md](../studies/kernel/system.md)): draft 1b with a
-  supervisor mode, register banks, the flat page map of
-  [RFC 0010](0010-rfc-ideas-os.md#11-mmu), loads and stores across
+- **v1bs** ([the appendix](#appendix-v1bs-draft-1b-with-system-extensions)):
+  draft 1b with a supervisor mode, register banks, the flat page map of
+  [RFC 0010](0010-rfc-ideas-os.md#3-mmu), loads and stores across
   modes, and precise page faults, as an ISA variant of the draft 1
   simulator.
 - **A benchmark nucleus**: a small message-passing kernel in 1b assembly,
@@ -167,7 +167,7 @@ hardware) every path takes 53–68% of these cycles: a null system call
 
 ### Protection: modes and the stack
 
-The minimum is the list in [RFC 0010](0010-rfc-ideas-os.md#10-operating-system-support),
+The minimum is the list in [RFC 0010](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system),
 and the nucleus confirms it: a supervisor bit in the flags word, a
 supervisor stack pointer the trap switches to before it pushes, `HALT`,
 `EI`, `DI`, `RTI` and the system registers trapping in user mode, and
@@ -261,6 +261,28 @@ n*: n entries indexed by the low bits of the page number. Never flushed,
 so these are one program's own misses. More programs in
 [performance.md](0020-report-operating-system/performance.md#page-references-of-bigger-programs).)
 
+> **Erratum (2026-10-16).** The Lisp's rows have moved, and
+> performance.md is regenerated. A fix to its runtime compiles more of
+> its compiler, and its heap now starts at `0x35000`, in two 374 KB
+> halves ([report 0018](0018-report-lisp.md)'s erratum before its
+> summary). Compiling and running boyer is now 22 + 208 pages, 27.0 PC
+> page changes per 1,000 instructions, and 0.80 / 0.12 and 10.7 / 0.01
+> misses. Boyer interpreted is 4 + 197 pages, with 5.3 / 0.00 misses
+> direct-mapped: the heap's new address changes which pages collide in
+> 64 entries. What the bullets below say still holds.
+
+> **Erratum (2026-10-16).** The C compiler's optimisations
+> ([report 0034](0034-report-c-compiler-optimisations.md)) change Egret's
+> and the graphics' compiled code, and performance.md is rerun. Egret's
+> Richards under the JIT is now 23 + 62 pages, 23.2 PC page changes per
+> 1,000 instructions, 2.03 / 0.02 and 2.0 / 0.01 misses; json
+> interpreted 41.8 PC page changes (was 25.9), 9.81 / 0.04 and
+> 33.8 / 0.01 misses; the window manager at 8 bits
+> 8 + 101 pages, 11.1, 1.34 / 0.76 and 5.1 / 0.02. The bullets below
+> still hold. Further down, the ready queue in C is now 88 cycles
+> against 64 by hand (about 1.4 times, not 1.5): it no longer reloads
+> `tail[q]` and `bits`.
+
 - **Programs use all of memory.** The Lisp's two semispaces and Egret's
   heaps fill the 1 MB machine: over 200 pages.
 - **A small cache misses a lot; a modest one hardly at all.** A
@@ -323,7 +345,7 @@ nucleus would translate those addresses itself, by reading the map
 **Referenced and dirty bits** in software (map read-only, take the first
 write's fault) cost a fault each, about 100 cycles: cheap next to
 writing the page back to a CompactFlash card (~9 ms per 4 KB by polled
-I/O, [RFC 0009](0009-rfc-ideas-io.md#7-channels-and-dma)).
+I/O, [RFC 0009](0009-rfc-ideas-io.md#2-channels-and-dma)).
 
 ### Zeroing and copying
 
@@ -348,7 +370,7 @@ the page. Copying is twice that. On 1b, per 4 KB page:
   operating system for Heron should create processes by spawning a
   program, not by copying one.
 - **Zero pages in advance**, when the machine is idle, or with DMA: the
-  tick-level RAM sharing of [RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)
+  tick-level RAM sharing of [RFC 0008](0008-rfc-ideas-memory-and-buses.md#1-memory)
   would let a bus master clear pages while the CPU runs.
 - **The nucleus can't take interrupts while it zeroes** a page with
   interrupts off: 1.5 ms of latency. A real kernel zeroes with
@@ -845,3 +867,139 @@ Stages, each usable:
   no status to poll. A real UART would make every write path slower by
   the same amount.
 - **The chip counts are rough,** in the style of RFC 0010's.
+
+## Appendix: v1bs, draft 1b with system extensions
+
+The system extensions the kernel study built, as the simulator runs them:
+draft 1b ([RFC 0004, Part II](0004-rfc-draft-1-isa.md#part-ii-draft-1b))
+with a supervisor mode, register banks, a flat page map and cross-mode
+loads and stores. They use no new opcodes except two system-group
+functions, so they would fit draft 1a just as well. Draft 2's version of
+them, without XL and XS, is [RFC 0029](0029-rfc-draft-2-system.md).
+
+The simulator is `Isa::V1bs` in the draft 1 crate
+([sys.rs](../studies/v1_isa/isa/src/sys.rs)), the assembler's encoder is
+[asm/v1bs.rs](../studies/v1_isa/isa/src/asm/v1bs.rs), and the
+disassembler is [v1bs.py](../studies/kernel/v1bs.py). Plain 1a and 1b
+are unchanged: on them, everything below traps as an illegal instruction.
+
+### Modes
+
+- **Supervisor and user mode.** Reset starts in supervisor mode. Every
+  trap and interrupt enters supervisor mode; `RTI` takes the mode from
+  the flags word it pops.
+- **The flags word** gains three bits:
+
+  | Bit | Name | Meaning |
+  |---|---|---|
+  | 0–4 | V C Z N I | as in draft 1 |
+  | 5 | S | supervisor mode |
+  | 6 | XL | supervisor loads go through the map (cross loads) |
+  | 7 | XS | supervisor stores go through the map (cross stores) |
+
+- **Entering a trap or interrupt** saves the flags word as it was (with
+  the old S, XL and XS), switches to supervisor mode with XL and XS off
+  and I off, and pushes the PC and the flags on the supervisor's stack.
+- **Privileged in user mode:** `HALT`, `EI`, `DI`, `RTI`, `MFUR`, `MTUR`,
+  and `MFSR`/`MTSR` of every special register above `HI`. They trap to
+  the privilege vector with the PC of the instruction. `MTSR flags` (`MTF`)
+  in user mode changes only N, Z, C and V.
+- **`MTSR flags` in supervisor mode** sets S, XL and XS too, so writing a
+  word without S enters user mode, as on the 68000. The nucleus fell into
+  that once; [What was hard](#what-was-hard) suggests keeping S out of
+  `MTSR`'s reach.
+
+### Registers and banks
+
+The register file has room for many banks of registers (its SRAMs have
+15 address lines and draft 1b uses 5). The `sysctl` special register
+picks how supervisor mode and user mode share them:
+
+| `sysctl` | Policy | Supervisor mode uses | User mode uses |
+|---|---|---|---|
+| 0 | none | the same registers, but its own `sp` | `r1`–`r15`, `HI` |
+| 1 | full | bank 0: `r1`–`r15` and `HI` | bank `bank`: `r1`–`r15` and `HI` |
+| 2 | half | `r1`–`r7` and `HI` (shared), bank 0's `r8`–`r15` | the shared `r1`–`r7` and `HI`, bank `bank`'s `r8`–`r15` |
+
+- With **none**, the two modes have one `sp` each, as on the 68000.
+- With **full** banks the supervisor never has to save a user register,
+  and switching threads is choosing another bank.
+- With **half** banks a system call's arguments and results, and a
+  message between threads in `r1`–`r5`, pass through untouched; a
+  preempted thread's `r1`–`r7` and `HI` still have to be saved.
+- `bank` (special register 7) names the bank user mode runs in: 256 in
+  the simulator. Bank 0 is the supervisor's, so threads use the others.
+- **`MFUR rd, rs`** (`0 d s E`) reads the user's register `rs` from
+  supervisor mode: from bank `bank` where the policy banks it, else the
+  shared register (and, with none, the user's `sp` for `rs` = 15).
+  **`MTUR rd, rs`** (`0 d s F`) writes the user's `rd`. Both are
+  privileged and take 2 cycles in the timing model, like a register move.
+
+### Special registers
+
+`MFSR rd, n` and `MTSR n, rs`, with these names in the assembler:
+
+| n | Name | |
+|---|---|---|
+| 0 | `flags` | the flags word (above) |
+| 1 | `hi` | `HI` |
+| 2 | `far` | the address of the last page fault (read only) |
+| 3 | `fsr` | why it faulted (read only, below); after `SWI #n`, n |
+| 4 | `ctx` | the map context user mode runs in, 0–15 |
+| 5 | `mapa` | the map address: context × 4096 + virtual page |
+| 6 | `mapd` | the map entry at `mapa`; writing it moves `mapa` on by one |
+| 7 | `bank` | user mode's register bank |
+| 8 | `sysctl` | the banking policy, 0–2 |
+
+Writing `mapd` with `mapa` auto-incremented loads a run of map entries
+with one `MTSR` each.
+
+### The page map
+
+The flat page map of [RFC 0010](0010-rfc-ideas-os.md#3-mmu):
+
+- **16 contexts of 4096 entries,** 4 KB pages, so 16 MB of virtual
+  space per context. An address of 16 MB or more faults.
+- **An entry** is a physical page address in bits 31–12 and V (valid),
+  W (writable) and X (executable) in bits 0–2. Bits 3–11 are the
+  software's. A physical page above RAM can be mapped: the I/O page
+  (`0xFFFFF000` + V W) puts the console and the timer in a user
+  process, for a user-level driver.
+- **Translated:** every fetch and data access in user mode, through
+  context `ctx`; in supervisor mode, data loads while XL is set and data
+  stores while XS is set, as user accesses (so they fault where the user
+  would). Everything else in supervisor mode is physical.
+- **Referenced and dirty bits** are left to software (map a page
+  read-only and take the first write's fault).
+
+### Faults
+
+A page fault traps to vector `0x20` with the PC of the faulting
+instruction, which hasn't changed anything, so `RTI` runs it again. The
+privilege vector is `0x1C`. `far` holds the address and `fsr` why:
+
+| `fsr` bit | Meaning |
+|---|---|
+| 0 | the page isn't valid |
+| 1 | a store to a page without W |
+| 2 | a fetch from a page without X |
+| 3 | the address is 16 MB or more |
+| 4 | the access was a store |
+| 5 | the access was a fetch |
+| 6 | a supervisor access with XL or XS (a cross access) |
+
+One draft 1b form can't be restarted: `CALL` through an auto-incremented
+or auto-decremented operand (`CALL [r]+`) changes the register before
+it pushes the return address, so a fault on the push would run it again
+with the register moved. The simulator does it in that order, as it
+does for plain 1b; see [What was hard](#what-was-hard).
+
+### What the simulator leaves out
+
+- **Time.** Mode switches, bank switches and translation cost no cycles;
+  the timing model costs `MFUR`/`MTUR` like a register move, `MTSR` like
+  any system instruction and a fault like any trap. That is close for
+  banks, which are address lines, and for a map that stays off the
+  instruction fetch ([Translation: the page map](#translation-the-page-map)).
+- **DMA and other bus masters**, and so any protection from them.
+- **Interrupt priorities:** there is one interrupt, the timer's.

@@ -2,8 +2,8 @@
 number: 0
 type: rfc
 title: Repository layout, studies, reports and RFCs
-status: open
-date: 2026-10-13
+status: accepted
+date: 2026-10-15
 context:
   commit: 852df5e (main, after the cleanup in PR #9)
 discussion: https://github.com/aiju/heron/pull/11
@@ -60,15 +60,36 @@ exist at first. Draft 2 fills them.
   them (see [Studies](#studies)).
 - Nothing depends on `reports/`. Reports cite code by study and commit.
 
+### What goes where
+
+By what a document does, not where its code lives:
+
+- **What the machine should be:** an RFC, even when a study built the
+  design to measure it.
+- **What was found:** a report, which may carry the specification of
+  what it measured.
+- **How an experiment or a tool works:** the study.
+- **The current design:** `docs/`.
+
+**The machine** is whatever would be documented in `docs/` if Emily said
+yes: the hardware, the ISA, the bus, the software that is part of the
+machine (boot ROM, operating system, C library) and the conventions
+between them (ABI, system calls, assembler syntax, file formats). Tool
+internals aren't, and neither is something built only to measure, like
+v1bx, the Lisp or Egret, unless it's proposed as part of the machine.
+
+A study's code implements what its RFC says. Where the RFC leaves a gap,
+the choice goes into the RFC for Emily, not into the study.
+
 ### Where work happens
 
 This isn't a rule to be dogmatic about. Usually:
 
-- New design ideas start as studies, for example the candidates for
-  draft 2.
-- When Emily picks one, it moves to the root. The study's folder keeps
-  only its README, with `status: moved`, saying where the code went and in
-  which commit.
+- A new design starts as an RFC, with a study for its code, for example
+  the candidates for draft 2.
+- When Emily accepts it, its specification moves to `docs/` and its code
+  to the root. The study's folder keeps only its README, with
+  `status: moved`, saying where the code went and in which commit.
 - When the current design is replaced, it becomes a frozen study.
 
 But work can happen in the root directly when that's the natural place for
@@ -112,8 +133,8 @@ self-contained.
   ```
 
   After that, the README says what the study is and how to run it.
-- **Documentation:** a study's own documentation (an ISA spec, a hardware
-  description) lives in the study. Its findings are reports.
+- **Documentation:** how the study works lives in the study. Its
+  findings are reports, and what it proposes for the machine is an RFC.
 - **Command line:** each study has its own, reached through the `heron`
   command (see [Python packaging](#python-packaging)), for example
   `heron v1b_hw hw run fib.s`. There is no `--isa` across machines; a study knows its machine.
@@ -131,14 +152,38 @@ self-contained.
 ### What each is
 
 - **Report:** what was done and what was found. A report doesn't ask for
-  decisions. If it suggests one, it points to an RFC.
+  decisions. If it suggests one, it points to an RFC. A report can carry
+  the specification of the design it measured, as a part or an appendix
+  (reports 0012, 0018, 0020 and 0025 do).
 - **RFC:** proposes something and invites decisions: a design choice, a
   process, a set of ideas. Once the decision is made, the RFC records it.
   An RFC can include findings that support it; an ISA RFC might include
-  measurements of the ISA, for example. Whether those findings deserve a
-  report of their own is a judgement call.
+  measurements of the ISA, for example. Findings that exist to inform
+  one RFC's decision go in that RFC's folder as a sub-document,
+  `reports/NNNN-rfc-slug/topic.md`, titled "RFC NNNN: what was measured,
+  and how". It has no number or front matter, the RFC's discussion links
+  to it, and its generated files sit beside it. RFC 0028's
+  `link-register.md` is one. Findings that stand on their own, such as a
+  study's results or ones several documents draw on, get a report of
+  their own.
 
 Reports and RFCs share one numbering space.
+
+### Specifications
+
+An RFC proposing part of the machine contains a specification that
+someone building or programming to it can read on its own, and that
+moves to `docs/` unchanged once accepted. So it:
+
+- states the design in full, not as a diff against an older one;
+- builds only on live specifications, not on superseded ones, reports
+  or a study's documentation;
+- marks what isn't decided **open** rather than leaving it out;
+- keeps the reasons apart from it.
+
+By default, Part I is the specification and Part II the discussion, as
+in [RFC 0029](0029-rfc-draft-2-system.md). A different layout, or more
+parts, is fine where it suits the document.
 
 ### Files
 
@@ -220,9 +265,11 @@ stays `open` while any item is.
 text isn't rewritten. Only its status, `superseded-by` and clearly marked
 errata change.
 
-The exception is generated files in a report's folder: the report names
-the command that writes them. While its study is active, rerunning the
-command updates them and the report's `commit`.
+The exceptions are generated files in a report's folder, whose command
+the report names, and a specification the report carries. While its
+study is active, both follow the code: rerunning the command updates the
+files, a change to the design updates the specification, and either
+updates the report's `commit`.
 
 **Index:** `reports/README.md` lists every report and RFC with its status.
 It is generated from the front matter. Every PR that adds a report or
@@ -239,6 +286,10 @@ holds ideas not yet worth an RFC of their own, each with a status.
 - An idea worth pursuing gets its own RFC, linked from the list.
 - When a scratchpad gets stale, it is marked `obsolete` and a new one
   starts with whatever is still live.
+- Ideas RFCs are living documents: they may be edited, unlike reports.
+- An idea that comes out of an investigation is either discussed in its
+  report and linked from the ideas RFC, or described in the ideas RFC
+  itself. Which one is a judgement call.
 
 ## docs/
 
@@ -360,7 +411,19 @@ Emily has decided, in the discussion of this RFC:
 - a study whose design becomes current is moved to the root, not copied;
 - a new document's number is reserved by pushing its stub to `main`, and
   the index merges with git's `union` driver (2026-10-14, replacing "for
-  now, a new document takes the next free number").
+  now, a new document takes the next free number");
+- ideas RFCs are living documents, and an idea from an investigation is
+  discussed in its report and linked, or described in the ideas RFC
+  (2026-10-15);
+- the RFC as a whole is accepted (2026-10-15);
+- a document goes where what it does puts it: a proposal for the
+  machine, its software included, is an RFC with a self-contained
+  specification (2026-10-15);
+- a report can carry the specification of the design it measured. The
+  specifications in `studies/` moved: draft 0's and draft 1's into
+  RFCs 0001 and 0004, which were reports, and the draft 1b hardware,
+  the draft 1b system, v1bx and v1bs into reports 0012, 0025, 0018 and
+  0020 (2026-10-15).
 
 ## Open questions
 

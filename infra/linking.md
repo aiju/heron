@@ -2,7 +2,7 @@
 
 The assembler can write object files, the C compiler makes them, and a
 linker puts them together, so C and hand-written assembly can be mixed in
-one program. This is for the draft 1 machines (1a and 1b).
+one program. This is for the draft 1 machines (1a and 1b), and draft 2.
 
 **Short version.**
 
@@ -125,6 +125,11 @@ the field):
 | `abs16` | 16 bits of data (`.half`) | S + A | -32768..65535 |
 | `pc16` | 16 bits, PC-relative | S + A - P | ±32 KB |
 | `pc16h` | 16 bits, PC-relative in parcels (`Jcc`) | (S + A - P) / 2 | ±64 KB, even |
+| `abs24h`, `abs24l` | draft 2's tables (`[table + r2*4]`): bits 23–16 in a byte, bits 15–0 in the next parcel | S + A | -8 MB..8 MB, sign-extended |
+| `pc24h`, `pc24l` | the same, PC-relative (`[pc + table + r2*4]`) | S + A - P | ±8 MB |
+
+The 24-bit fields are split: their high byte shares a parcel with the
+index register, so each is two relocations, one per part.
 
 PC-relative fields count from the end of the instruction; the assembler
 folds that distance into A. The assembler leaves relocated fields zero.
@@ -237,6 +242,9 @@ How the compiler uses all this:
   `MOV r1, #_f` (calls are PC-relative and don't care). Two files can't
   disagree in a dangerous way: a far reference to a near variable works,
   and a near reference to a far one fails to link.
+- **Switch tables** go in their function's section. 1b loads a table's
+  address PC-relative and 1a declares it `.far`, so it's in reach wherever
+  the function lies.
 - **The C library** (`studies/c_compiler/cc/lib/*.c`) is compiled once per process into
   a library of four object files; `lib/start_v1a.s` and `start_v1b.s`
   (vectors, stack, `CALL _main`, `_exit`) are an absolute object file.

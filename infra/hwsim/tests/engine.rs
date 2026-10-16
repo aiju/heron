@@ -43,6 +43,9 @@ impl Circuit {
             kinds: pins.iter().map(|p| p.1.to_string()).collect(),
             nets,
             delays: delays.iter().map(|&(k, v)| (k.to_string(), v)).collect(),
+            params: HashMap::new(),
+            nocheck: false,
+            pin_delays: vec![],
         });
     }
 

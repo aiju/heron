@@ -1,4 +1,4 @@
-"""Compile C for draft 1a or 1b.
+"""Compile C for draft 1a, 1b or 2.
 
 Each translation unit becomes an object file: the backend writes its
 assembly, with a section per function and per data object and `.global`
@@ -19,6 +19,7 @@ import os
 
 from heron.studies.c_compiler.ir import ir as I
 from heron.studies.c_compiler.ir.passes import optimize
+from heron.studies.c_compiler.ir.inline import inline_module
 from heron.studies.c_compiler.ir.cfg import verify
 from .lex import CompileError
 from .cpp import Preprocessor
@@ -38,7 +39,10 @@ def target_for(isa):
     if isa == "v1b":
         from heron.studies.c_compiler.codegen.v1b import V1B
         return V1B
-    raise CompileError(f"no C compiler backend for ISA {isa} (use v1a or v1b)")
+    if isa == "v2":
+        from heron.studies.c_compiler.codegen.v2 import V2
+        return V2
+    raise CompileError(f"no C compiler backend for ISA {isa} (use v1a, v1b or v2)")
 
 
 class Unit:
@@ -85,11 +89,19 @@ def rename_symbols(module, mapping):
 def optimize_unit(u, isa, opt, verify_ir=False):
     if u.optimized:
         return
-    free_imm = target_for(isa).free_imm if opt > 0 else None
+    target = target_for(isa)
+    free_imm = target.free_imm if opt > 0 else None
     for f in u.module.functions:
         if verify_ir:
             verify(f)
-        optimize(f, opt, verify=verify_ir, free_imm=free_imm)
+        optimize(f, opt, verify=verify_ir, free_imm=free_imm, countdown=target.COUNT_DOWN)
+    if opt > 0:
+        # calls to small functions become copies of them (ir.inline), and
+        # the callers are optimised again with the copies in place
+        for f in inline_module(u.module):
+            if verify_ir:
+                verify(f)
+            optimize(f, opt, verify=verify_ir, free_imm=free_imm, countdown=target.COUNT_DOWN)
     u.optimized = True
 
 
@@ -98,19 +110,26 @@ def symname_for(module):
     return lambda n: labels.get(n, "_" + n)
 
 
-def unit_assembly(u, isa, opt=1, verify_ir=False):
-    """The assembly for one translation unit (an object file's worth)."""
+def unit_assembly(u, isa, opt=1, verify_ir=False, near_max=NEAR_MAX, window=False):
+    """The assembly for one translation unit (an object file's worth).
+    `near_max` is the biggest object addressed with 16 bits. `window` is
+    for draft 2 code that runs in the supervisor's window, at 0x8000_0000
+    and up (a kernel): all its data is far, and its tables PC-relative."""
     if u.text is not None:
         return u.text
+    if window:
+        near_max = -1
     optimize_unit(u, isa, opt, verify_ir)
     module = u.module
     symname = symname_for(module)
-    near_set = {d.name for d in module.data if d.size <= NEAR_MAX}
-    near_set |= {n for n, size in module.externs.items() if size is not None and size <= NEAR_MAX}
+    near_set = {d.name for d in module.data if d.size <= near_max}
+    near_set |= {n for n, size in module.externs.items() if size is not None and size <= near_max}
 
     def near(name, off=0):
         return name in near_set
     target = target_for(isa)(symname=symname, near=near)
+    if window:
+        target.window = True
     defined = module.functions + module.data
     used = set()
     for f in module.functions:
@@ -388,9 +407,13 @@ def build(paths, isa, opt=1, include=(), defines=None, library=True, verify_ir=F
 
 def run_image(img, isa, inp=b"", max_cycles=200_000_000):
     """Run on the instruction-level simulator; returns the machine."""
-    from heron.infra import isas
-    from heron.studies.v1_isa.sim32 import Machine32, SimError
-    m = Machine32(isas.get(isa), img, inp=inp)
+    if isa == "v2":
+        from heron.studies.v2_isa.sim import Machine, SimError
+        m = Machine(img, inp=inp)
+    else:
+        from heron.infra import isas
+        from heron.studies.v1_isa.sim32 import Machine32, SimError
+        m = Machine32(isas.get(isa), img, inp=inp)
     try:
         m.run(max_cycles=max_cycles)
     except SimError as e:

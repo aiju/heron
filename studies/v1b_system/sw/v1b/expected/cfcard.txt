@@ -1,0 +1,21 @@
+CF card
+after reset:     status 50 error 01 count 01 lba 0000001
+8-bit transfers: status 50 error 00 count 00 lba 0000000
+identify: configuration 848A, model "HERON SIMULATED CF", serial "HERON-0001", firmware "1.0", 2048 sectors
+          status 50 error 00 count 01 lba 0000000
+read:
+  "sector 3", ok
+  "sector 4", ok
+  "sector 2047", ok
+status 50 error 00 count 00 lba 00007FF
+write 3 sectors: status 50 error 00 count 00 lba 0000066
+  read back "written by cfcard, 1", ok
+verify:          status 50 error 00 count 00 lba 00007FF
+verify past end: status 51 error 10 count 04 lba 0000800
+read past end:   status 51 error 10 count 01 lba 0000800
+NOP:             status 51 error 04 count 00 lba 0000000
+with interrupts:
+  "sector 9", ok
+  "sector 10", ok
+  read back "written by cfcard, 2", ok
+  interrupts: 4, last status 58

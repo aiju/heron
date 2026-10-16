@@ -22,7 +22,8 @@ has the reasons.
 | What | Where |
 |---|---|
 | The current design, as reference: what it is, not why or what else was considered | `docs/` (and, from draft 2, `isa/`, `hw/`, `sw/`, `tools/`) |
-| An experiment: a design, a measurement, a tool | its own folder in `studies/` |
+| What the machine should be (hardware, ISA, its software and their conventions), even if a study built it | an RFC with a self-contained specification |
+| An experiment: the code that builds or measures a design, a tool, and how it works | its own folder in `studies/` |
 | Code any design can reuse, with no opcodes, microcode fields or memory map in it | `infra/` |
 | An engine: a simulator, an assembler or linker | a Rust crate, in the folder it belongs to ([RFC 0015](reports/0015-rfc-languages.md#where-the-rust-code-lives)) |
 | What you did and found | a report in `reports/` |
@@ -85,9 +86,31 @@ The engines are Rust, everything else is Python
   unless she has made that choice. A rejected idea keeps its reason, so it
   isn't proposed again without new evidence.
 - **Reports are snapshots:** once a report is `current`, don't rewrite its
-  text. Only its status, `superseded-by` and clearly marked errata change.
+  text. Only its status, `superseded-by`, clearly marked errata and
+  (below) a specification it carries change.
 - **RFCs may carry findings:** an RFC can include the findings behind it.
-  Whether they deserve a report of their own is a judgement call.
+  Findings that exist to inform one RFC's decision go in its folder as an
+  unnumbered sub-document (`reports/NNNN-rfc-slug/topic.md`), linked from
+  its discussion, like RFC 0028's `link-register.md`; findings that stand
+  on their own get a report ([RFC 0000](reports/0000-rfc-repository-layout.md#what-each-is)).
+- **Reports may carry specifications:** a report can include the
+  specification of the design it measured, as a part or an appendix
+  (0012, 0018, 0020, 0025). While its study is active, that part follows
+  the code, like the report's generated files.
+- **Specifications:** written to be read on its own and moved to
+  `docs/` unchanged: in full rather than as a diff, built only on live
+  specifications, undecided parts marked **open**, reasons kept apart.
+  By default Part I is the specification and Part II the discussion;
+  deviate, or add parts, where that suits the document. Where your code
+  needs something its RFC leaves open, add it to the RFC for Emily
+  rather than deciding it in the study.
+- **Mentioning one to Emily:** in chat, a PR description or a comment,
+  link a report, an RFC or any other file on GitHub, at the branch that
+  has the version you mean: your PR's branch if you changed it there,
+  `main` otherwise. For example
+  `[RFC 0006](https://github.com/aiju/heron/blob/main/reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)`.
+  A bare "RFC 0006" leaves her to find the right version. Inside the
+  repository's own files, keep relative links.
 - **The index:** after adding a report or changing a status, run
   `python3 -m heron reports`. It rewrites `reports/README.md` and checks
   the front matter. Git merges the index by keeping both sides' lines
@@ -98,16 +121,23 @@ The engines are Rust, everything else is Python
 
 Change the generator and rerun it rather than editing the output by hand:
 
-- the `performance.md` in reports 0001, 0004, 0011, 0012, 0018, 0019,
+- the `performance.md` in reports 0004, 0011, 0012, 0017, 0018, 0019,
   0020 and 0021:
-  - `heron v0_hw report`
   - `heron v1_isa report`
   - `heron c_compiler bench --write`
   - `heron v1b_hw report`
+  - `heron egret bench --write`
   - `heron lisp report --write`
   - `heron graphics bench --write` (also the screenshots next to it)
   - `heron kernel report --write`
   - `heron egret_gui bench --write` (also the screenshots next to it)
+- `reports/0036-report-fen/performance.md` and `desktop.png`:
+  `heron fen bench --write`;
+- `reports/0029-rfc-draft-2-system/register-banks-results.md`:
+  `heron fen banks --write`;
+- `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
+  `heron lisp report --isa v2 --write` and
+  `heron egret bench --isa v2 --write`;
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and
@@ -123,6 +153,13 @@ Change the generator and rerun it rather than editing the output by hand:
   `infra/hw/datasheets/`;
 - `studies/v0_hw/baseline.json`: `baseline.write()` in that study (it's
   frozen, so this shouldn't be needed);
+- `reports/0022-report-bus-si-revised/results.md`: `heron bus_si report`;
+  the figures next to it: `heron bus_si traces`;
+- `reports/0023-rfc-pcb-flow/results.md`: `heron pcb sweep --write` (needs
+  KiCad; about an hour and a half);
+- `reports/0024-rfc-faster-smaller/results.md`:
+  `heron v1b_tradeoffs report --write` (`--hw` reruns the chip-level
+  suites, about 30 minutes);
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -132,15 +169,19 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa c_compiler v1b_hw v0_hw graphics kernel`: a study's unit
-  tests. Run the ones for the studies you touched, or `--active` for every
-  active one.
-- `heron v1_isa test` and `heron v1_isa --isa v1a test`: the programs
-  against their expected output.
+- `heron test v1_isa v2_isa c_compiler v1b_hw v1b_system v1b_tradeoffs
+  v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+  `--active` for every active one.
+- `heron v1_isa test`, `heron v1_isa --isa v1a test` and
+  `heron v2_isa test`: the programs against their expected output, in 1b,
+  1a and draft 2.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
-  tests, interpreted and compiled (`-c --features tagged`: on v1bx).
+  tests, interpreted and compiled (`-c --features tagged`: on v1bx). With
+  `--isa v2`, on draft 2 (`--features tagged`: its tagged operations).
+- `heron egret test --heron [--isa v2]`: Egret's programs on every build
+  of the VM, on 1b or draft 2.
 - `heron graphics test` and `heron graphics selftest`: the graphics
   scenes against the host reference, and the kernels against pixel
   references.
@@ -148,9 +189,12 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.
 - **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
-  about 5 for every program, and `heron v1b_hw report --hw` longer.
-- **Never in a cloud session:** the signal-integrity sweeps take over an
-  hour on a fast laptop and are meant for a local machine
+  about 5 for every program, `heron v1b_system test --jobs 4` (the whole
+  system on the bus) about 8, and `heron v1b_hw report --hw` longer.
+- **Signal integrity:** `heron bus_si report` runs report 0022's sweeps
+  on the native engine, about 15 minutes on four cores; a single preset
+  takes seconds to minutes. Run long ones in the background: they resume
+  where they stopped, and no job can hang
   ([studies/bus_si](studies/bus_si/README.md)).
 
 ## Big files

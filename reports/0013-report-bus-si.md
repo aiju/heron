@@ -2,11 +2,12 @@
 number: 13
 type: report
 title: Signal integrity of the backplane bus, quick and full sweeps
-status: current
+status: obsolete
 date: 2026-10-12
 context:
   studies: [bus_si]
   commit: e494b0c
+superseded-by: 22
 ---
 
 # Report 0013: Signal integrity of the backplane bus, quick and full sweeps
@@ -31,3 +32,11 @@ is numerically unreliable, so those results shouldn't be relied on yet.
 
 The sweeps write these files (`heron bus_si sweep --preset quick|full`);
 the bus_si study's README says how to run them on a local machine.
+
+> **Erratum (2026-10-14).** [Report 0022](0022-report-bus-si-revised.md)
+> reran the `full` preset on a simulator of the study's own. All 68 failed
+> jobs ran, and none changes a worst case here. The ground-bounce (`sso`)
+> results here are unphysical in the FCT and ACT cases; report 0022's
+> section 2 supersedes them. The sweeps now run in a cloud session too,
+> and the instructions above for running them on a local machine are out
+> of date: the study's README has the current ones.

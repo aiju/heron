@@ -8,6 +8,10 @@
 //! the pending one at the later time ("latest arrival wins"), so outputs
 //! settle no earlier than their slowest input path, as static timing
 //! analysis assumes.
+//!
+//! A pull-up is a weak driver: it sets a net's value only while no other
+//! driver is enabled, and never contends. Open-collector outputs are
+//! three-state outputs that only ever drive 0.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -28,6 +32,8 @@ pub enum Kind {
     Out,
     Tri,
     Io,
+    /// A pull-up resistor to VCC: a weak driver of 1.
+    Pull,
 }
 
 /// A chip as the models see it: its pins and where they go.
@@ -40,6 +46,12 @@ pub struct ChipInfo {
     pub pins: Vec<Option<u32>>,
     /// The output slot of each pin, if it's connected and can drive.
     pub outs: Vec<Option<u32>>,
+    /// Whether the chip's timing violations count. A synchroniser's
+    /// flip-flops sample asynchronous inputs and are expected to see
+    /// setup violations, so the netlist can turn them off.
+    pub checks: bool,
+    /// Extra delay on each output pin (the wiring); empty for none.
+    pub pin_delays: Vec<Time>,
 }
 
 pub struct Chip {
@@ -54,6 +66,8 @@ pub struct Topology {
     pub drivers: Vec<Vec<u32>>,
     /// The (chip, pin) inputs on each net.
     pub fanout: Vec<Vec<(u32, u32)>>,
+    /// Whether each net has a weak driver (a pull-up) among its drivers.
+    pub weak: Vec<bool>,
 }
 
 #[derive(Clone)]
@@ -73,6 +87,8 @@ pub struct Out {
     pub net: u32,
     pub val: u8,
     pub en: bool,
+    /// A pull-up: it only counts when no other driver is enabled.
+    pub weak: bool,
     /// The latest change pending for this output.
     pub pend: Option<u32>,
 }
@@ -178,6 +194,13 @@ pub struct State {
     /// Whether timing checks are on (they're off while reset is held).
     pub check_on: bool,
 
+    /// Nets whose changes are recorded (by net number), between
+    /// probe_from and probe_to, into probe_log as (time, net, value).
+    pub probe: Vec<bool>,
+    pub probe_from: Time,
+    pub probe_to: Time,
+    pub probe_log: Vec<(Time, u32, u8)>,
+
     /// The first 200 violations.
     pub violations: Vec<Violation>,
     /// For each kind of violation: how often, and the worst slack.
@@ -221,6 +244,35 @@ impl State {
         };
         self.queue.push(t, idx);
         self.outs[o as usize].pend = Some(idx);
+    }
+
+    /// Schedule output slot `o` to take (v, en) at time t, whatever else is
+    /// pending for it. This is for a model's own timers (a device's wake-up
+    /// pin), not for logic: it skips the latest-arrival rule.
+    pub fn schedule_force(&mut self, o: u32, t: Time, v: u8, en: bool) {
+        let ev = Event {
+            t,
+            out: o,
+            val: v,
+            en,
+        };
+        let idx = match self.free.pop() {
+            Some(i) => {
+                self.events[i as usize] = ev;
+                i
+            }
+            None => {
+                self.events.push(ev);
+                (self.events.len() - 1) as u32
+            }
+        };
+        self.queue.push(t, idx);
+        let pend_t = self.outs[o as usize]
+            .pend
+            .map(|p| self.events[p as usize].t);
+        if pend_t.is_none_or(|pt| pt <= t) {
+            self.outs[o as usize].pend = Some(idx);
+        }
     }
 
     fn record_contention(&mut self, net: u32, d: Time, topo: &Topology) {
@@ -282,7 +334,26 @@ impl Ctx<'_> {
     pub fn drive_at(&mut self, c: &ChipInfo, pin: usize, v: u8, en: bool, t: Time) {
         // a pin has an output slot only if it's connected
         if let Some(o) = c.outs[pin] {
+            let t = t + c.pin_delays.get(pin).copied().unwrap_or(0);
             self.state.schedule(o, t, v, en);
+        }
+    }
+
+    /// Ask to be woken at time t: a model's wake-up pin (an "io" pin on a
+    /// net of its own) goes high then, and the model sets it low again
+    /// when it sees it.
+    pub fn wake(&mut self, c: &ChipInfo, pin: usize, t: Time) {
+        if let Some(o) = c.outs[pin] {
+            let t = t.max(self.state.now);
+            self.state.schedule_force(o, t, 1, true);
+        }
+    }
+
+    /// Set a wake-up pin low again, now.
+    pub fn wake_done(&mut self, c: &ChipInfo, pin: usize) {
+        if let Some(o) = c.outs[pin] {
+            let now = self.state.now;
+            self.state.schedule_force(o, now, 0, true);
         }
     }
 
@@ -304,7 +375,7 @@ impl Ctx<'_> {
 
     pub fn violate(&mut self, c: &ChipInfo, pin: usize, kind: &str, slack: Time) {
         let s = &mut *self.state;
-        if !s.check_on {
+        if !s.check_on || !c.checks {
             return;
         }
         let key = format!("{}.{} {}", c.reference, c.pin_names[pin], kind);
@@ -378,6 +449,7 @@ impl Sim {
             net_names,
             drivers: vec![Vec::new(); n],
             fanout: vec![Vec::new(); n],
+            weak: vec![false; n],
         };
         let mut outs = Vec::new();
         let mut chips = chips;
@@ -386,16 +458,19 @@ impl Sim {
             for p in 0..c.pins.len() {
                 let Some(net) = c.pins[p] else { continue };
                 let k = c.kinds[p];
-                if matches!(k, Kind::Out | Kind::Tri | Kind::Io) {
+                if matches!(k, Kind::Out | Kind::Tri | Kind::Io | Kind::Pull) {
                     let o = outs.len() as u32;
+                    let weak = k == Kind::Pull;
                     outs.push(Out {
                         net,
-                        val: 0,
-                        en: k == Kind::Out,
+                        val: weak as u8,
+                        en: matches!(k, Kind::Out | Kind::Pull),
+                        weak,
                         pend: None,
                     });
                     c.outs[p] = Some(o);
                     topo.drivers[net as usize].push(o);
+                    topo.weak[net as usize] |= weak;
                 }
                 if matches!(k, Kind::In | Kind::Io) {
                     topo.fanout[net as usize].push((ci as u32, p as u32));
@@ -422,6 +497,10 @@ impl Sim {
             cycle: 0,
             cycle_start: 0,
             check_on: false,
+            probe: vec![false; n],
+            probe_from: 0,
+            probe_to: 0,
+            probe_log: Vec::new(),
             violations: Vec::new(),
             violation_stats: HashMap::new(),
             contention: ContentionStats::default(),
@@ -429,17 +508,33 @@ impl Sim {
         (state, topo, chips)
     }
 
-    /// Let every model drive its initial outputs, in chip order.
+    /// Let every model drive its initial outputs, in chip order, and the
+    /// pull-ups take hold of their nets (a pull-up never changes, so
+    /// nothing else would resolve a net only it drives).
     pub fn init(&mut self) {
         let Sim { state, topo, chips } = self;
         for chip in chips.iter_mut() {
             let mut cx = Ctx { state, topo };
             chip.model.init(&mut cx, &chip.info);
         }
+        for n in 0..self.topo.weak.len() {
+            if self.topo.weak[n] {
+                self.resolve(n as u32);
+            }
+        }
     }
 
     /// Process every event strictly before `until`.
     pub fn run(&mut self, until: Time) {
+        self.run_watch(until, None);
+    }
+
+    /// Process events strictly before `until`, but stop just after the
+    /// event that makes net `watch` rise, and return its time. The chips
+    /// that net goes to have seen the edge, but none of their outputs has
+    /// changed yet (every delay is positive), so every other net still
+    /// shows its value from before the edge.
+    pub fn run_watch(&mut self, until: Time, watch: Option<u32>) -> Option<Time> {
         while let Some((t, idx)) = self.state.queue.pop(until) {
             self.state.free.push(idx);
             self.state.now = t;
@@ -455,8 +550,13 @@ impl Sim {
             out.en = ev.en;
             let net = out.net;
             self.state.event_count += 1;
+            let before = self.state.nets[net as usize].val;
             self.resolve(net);
+            if watch == Some(net) && before == 0 && self.state.nets[net as usize].val == 1 {
+                return Some(t);
+            }
         }
+        None
     }
 
     /// A driver of net n changed: work out the net's value, and if it
@@ -464,7 +564,7 @@ impl Sim {
     fn resolve(&mut self, n: u32) {
         let Sim { state, topo, chips } = self;
         let drivers = &topo.drivers[n as usize];
-        let v = if drivers.len() == 1 {
+        let v = if drivers.len() == 1 && !topo.weak[n as usize] {
             let o = &state.outs[drivers[0] as usize];
             let net = &mut state.nets[n as usize];
             if !o.en {
@@ -474,10 +574,12 @@ impl Sim {
             net.float = false;
             o.val
         } else {
-            let (mut cnt, mut conflict, mut val) = (0, false, 0);
+            let (mut cnt, mut conflict, mut val, mut pulled) = (0, false, 0, false);
             for &d in drivers {
                 let o = &state.outs[d as usize];
-                if o.en {
+                if o.weak {
+                    pulled = true;
+                } else if o.en {
                     if cnt == 0 {
                         val = o.val;
                     } else if o.val != val {
@@ -498,12 +600,12 @@ impl Sim {
                 state.record_contention(n, now - since, topo);
             }
             let net = &mut state.nets[n as usize];
-            if cnt == 0 {
+            if cnt == 0 && !pulled {
                 net.float = true;
                 return;
             }
             net.float = false;
-            val
+            if cnt == 0 { 1 } else { val }
         };
         let net = &mut state.nets[n as usize];
         if v == net.val {
@@ -511,6 +613,9 @@ impl Sim {
         }
         net.val = v;
         net.last = state.now;
+        if state.probe[n as usize] && state.now >= state.probe_from && state.now < state.probe_to {
+            state.probe_log.push((state.now, n, v));
+        }
         for &(ci, pin) in &topo.fanout[n as usize] {
             let chip = &mut chips[ci as usize];
             let mut cx = Ctx { state, topo };

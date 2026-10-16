@@ -9,7 +9,8 @@
   dis     FILE.bin [--from ADDR] [--to ADDR]   disassemble a binary image
   test    [NAME...]                            the program suite against its expected output
   bench   [--markdown]                         instructions, cycles and run times per program
-  report                                       write the generated part of report 0004 (1a vs 1b)
+  report                                       write the generated part of RFC 0004 (1a vs 1b)
+  refcard                                      the quick reference cards, into build/refcard/ (needs Chromium)
 
 --isa picks the encoding (default v1b). run and ld take it from object files
 and executables; an --isa that disagrees with them is an error.
@@ -230,8 +231,11 @@ def main(argv=None):
     b.add_argument("--markdown", action="store_true")
     b.set_defaults(fn=lambda args: __import__("heron.studies.v1_isa.testing", fromlist=["x"]).cmd_bench(args))
 
-    rp = sub.add_parser("report", help="write the generated part of report 0004 (1a vs 1b)")
+    rp = sub.add_parser("report", help="write the generated part of RFC 0004 (1a vs 1b)")
     rp.set_defaults(fn=lambda args: __import__("heron.studies.v1_isa.report", fromlist=["x"]).main())
+
+    rc = sub.add_parser("refcard", help="make the quick reference cards, in build/refcard/")
+    rc.set_defaults(fn=lambda args: __import__("heron.studies.v1_isa.refcard", fromlist=["x"]).main(args))
 
     args = p.parse_args(argv)
     # Commands that read object files take the ISA from them, so remember

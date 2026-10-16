@@ -12,7 +12,7 @@ superseded-by: 3
 
 # Report 0002: Programming notes: a program suite for ISA draft 0
 
-> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [evaluation-v1.md](0004-report-draft-1-evaluation.md) and [hardware-v1b.md](../studies/v1b_hw/hardware.md).
+> **Draft 0 is superseded.** This is the 16-bit first draft, kept as a record. Draft 1 replaced it: see [RFC 0004](0004-rfc-draft-1-isa.md) and [report 0012](0012-report-draft-1b-hardware.md).
 
 This is a first-hand log of writing the library and the 15 test programs in
 `programs/v0/` for ISA draft 0 (`docs/isa-v0.md`). It's meant as evidence for

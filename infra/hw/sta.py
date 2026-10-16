@@ -35,7 +35,7 @@ class Netlist:
             if inst.type.family == "fixture":
                 self.delay[inst.ref] = {}
             else:
-                part = chips.part_number(variant, inst.type.name, inst.role)
+                part = inst.part_number(variant)
                 self.delay[inst.ref] = {k: v / 1000.0 for k, v in chips.delays_for(timing, part, corner).items()}
         self.drivers = defaultdict(list)    # net -> [(inst, pin)]
         for inst in self.insts:
@@ -95,11 +95,16 @@ class Case:
         return self.net(inst.conn[p]) if p in inst.conn else (0, NEG, None)
 
     def output(self, inst, pin):
-        """(value, arrival, enabled, cause) of one output pin."""
+        """(value, arrival, enabled, cause) of one output pin, with the
+        pin's wiring delay if it has one (Instance.add_pin_delay)."""
         model = inst.type.model
         d = self.N.delay[inst.ref]
         f = getattr(self, "m_" + model)
-        return f(inst, pin, d)
+        v, t, en, cause = f(inst, pin, d)
+        extra = inst.pin_extra.get(pin) if hasattr(inst, "pin_extra") else None
+        if extra and t != NEG:
+            t += extra / 1000.0
+        return v, t, en, cause
 
     # ---- helpers ----
     def latest(self, inst, terms):
@@ -251,19 +256,22 @@ class Case:
 
     def m_alu181(self, inst, pin, d):
         ab = [f"A{i}" for i in range(4)] + [f"B{i}" for i in range(4)]
-        sm = [f"S{i}" for i in range(4)] + ["M"]
+        sel = [f"S{i}" for i in range(4)]
         logic = self.pin(inst, "M")[0] == 1
         if pin.startswith("F") or pin == "AEQB":
-            terms = [(p, "AB->F logic" if logic else "AB->F", d["AB->F logic" if logic else "AB->F"]) for p in ab]
+            dn = "AB->AEQB" if pin == "AEQB" else "AB->F logic" if logic else "AB->F"
+            terms = [(p, dn, d[dn]) for p in ab]
             if not logic:
                 terms.append(("CN", "CN->F", d["CN->F"]))
-            terms += [(p, "S->F", d["S->F"]) for p in sm]
+            # M only reaches the carry-inhibit gates in front of the output
+            # XORs: not P, G or CN4
+            terms += [(p, "S->F", d["S->F"]) for p in sel] + [("M", "M->F", d["M->F"])]
         elif pin == "CN4":
             terms = [(p, "AB->CN4", d["AB->CN4"]) for p in ab] + [("CN", "CN->CN4", d["CN->CN4"])] \
-                + [(p, "S->F", d["S->F"]) for p in sm]
+                + [(p, "S->F", d["S->F"]) for p in sel]
         else:   # P, G
             dn = "AB->P" if pin == "P" else "AB->G"
-            terms = [(p, dn, d[dn]) for p in ab] + [(p, "S->F", d["S->F"]) for p in sm]
+            terms = [(p, dn, d[dn]) for p in ab] + [(p, "S->F", d["S->F"]) for p in sel]
         t, cause = self.latest(inst, terms)
         return (None, t, True, cause)
 
@@ -307,6 +315,11 @@ class Case:
 
     def m_const(self, inst, pin, d):
         return (int(pin == "HI"), NEG, True, None)
+
+    def m_wire(self, inst, pin, d):
+        # its delay is its pin delay, which output() adds
+        v, t, _ = self.pin(inst, "A")
+        return (v, t, True, (inst.ref, inst.conn["A"], "wire"))
 
     def m_clockgen(self, inst, pin, d):
         if pin == "CLK":

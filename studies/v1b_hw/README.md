@@ -14,13 +14,16 @@ them to the instruction-level simulator.
 It depends on `v1_isa` for the ISA and the programs, and on `v0_hw` only
 for `baseline.json`, which its report compares against.
 
+The design is described in
+[report 0012](../../reports/0012-report-draft-1b-hardware.md), Part I:
+datapath, pipelined microcode, timing, known issues.
+
 | File | What's in it |
 |---|---|
-| [hardware.md](hardware.md) | The design: datapath, pipelined microcode, timing, known issues |
 | [microcode.md](microcode.md) | Generated: the microcode for a selection of instructions, cycle by cycle |
 | `ucode.py` | The control word, the microcode generator and the decode ROM |
 | `rtl.py` | The register-transfer model the netlist was built from (it runs the ROM images) |
-| `cpu.py`, `machine.py` | The chip-level netlist, and the machine the hardware tools run |
+| `cpu.py`, `machine.py` | The chip-level netlist, and the machine the hardware tools run. `cpu.build(card=True)` is the CPU without its clock and I/O fixtures and with a 32-bit MAR: the `system` study's CPU card |
 | `check.py`, `exercise.py` | The RTL model against the instruction-level simulator; a generated program that exercises every instruction class |
 
 Report: [0012](../../reports/0012-report-draft-1b-hardware.md).

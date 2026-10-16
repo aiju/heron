@@ -21,7 +21,7 @@ So far there has been:
   per pixel, bitmap and TrueType fonts and the graphics side of a window
   manager, in C and assembly for 1a and 1b.
 - **The system bus:** a draft specification, with signal-integrity
-  simulations of the backplane.
+  simulations of the backplane on a simulator of our own.
 - **An operating system study:** what the hardware should give an
   operating system, measured with a small message-passing kernel on 1b
   with proposed system extensions, and what the operating system could
@@ -30,7 +30,15 @@ So far there has been:
   with windows, a mouse and a Workspace, on a simulated 1b with a
   display, keyboard and mouse added, in the browser as WebAssembly.
 
-Draft 2 is next. Which of 1a and 1b it builds on is still open.
+Draft 2 is next, built on 1b
+([RFC 0006](reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
+Its encoding is drafted in
+[RFC 0028](reports/0028-rfc-draft-2-isa.md), and a study has it in an
+assembler and the instruction-level simulator, with the 20 programs
+ported ([studies/v2_isa](studies/v2_isa/README.md)). The C compiler
+compiles for it too, and Fen, an operating system with a kernel, servers,
+a shell and a desktop, runs on its system half
+([studies/fen](studies/fen/README.md), [report 0036](reports/0036-report-fen.md)).
 
 ## Layout
 
@@ -40,7 +48,7 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 |---|---|
 | [docs/](docs/README.md) | The current design: what has been decided, as reference |
 | [reports/](reports/README.md) | Numbered reports (what was done and found) and RFCs (proposals that need decisions) |
-| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, the C compiler, a Lisp, the bus signal integrity, graphics, an operating system |
+| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, draft 2, the 1b system on the bus, the C compiler, a Lisp, the bus signal integrity, graphics, operating systems |
 | [infra/](infra/README.md) | Reusable code: assembler and linker core, netlist language, static timing analysis, the chip-level simulator |
 | `heron/` | The `heron` command, the glue that makes the folders importable as `heron.*`, and `bindings/`, the crate that makes the Rust engines a Python module (`heron.native`) |
 | `tests/` | Tests of the repository itself |
@@ -52,17 +60,19 @@ The tools are Python, except the engines (the simulators, the assembler
 and the linker), which are Rust: crates in one Cargo workspace, with
 `Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
-**Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
-(draft 1a against 1b, and the hardware options), then the
+**Start here:** [RFC 0004](reports/0004-rfc-draft-1-isa.md)
+(draft 1a against 1b, and the hardware options), then
+[RFC 0005](reports/0005-rfc-ideas-direction.md) (where the ideas stand,
+and what the measurements point to), the other
 [ideas RFCs](reports/README.md) and [RFC 0014](reports/0014-rfc-system-bus.md)
 (the system bus).
 
 ## Running things
 
 Needs Python 3.10+ and Rust (stable, from [rustup](https://rustup.rs)). No
-other dependencies; the signal-integrity tools also need numpy and
-[ngspice](https://ngspice.sourceforge.io/), and are meant for a local
-machine ([studies/bus_si](studies/bus_si/README.md)).
+other dependencies; the signal-integrity tools also need numpy, and
+[ngspice](https://ngspice.sourceforge.io/) only to cross-check their own
+engine ([studies/bus_si](studies/bus_si/README.md)).
 
 The Rust engines' Python module is built into `build/` the first time it's
 used, and again whenever the Rust sources change; `heron build` builds it
@@ -83,7 +93,8 @@ cargo test                                # the Rust crates' tests
 
 heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # draft 1b: cycles for six configurations, mix, profile
 heron v1_isa --isa v1a test               # every 1a program against its expected output
-heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a: 1a) and run it
+heron v2_isa test                         # every draft 2 program
+heron c_compiler cc studies/c_compiler/programs/life.c --run  # compile C for 1b (--isa v1a, v2) and run it
 heron lisp run -c studies/lisp/programs/tak.lisp --stats      # compile Lisp on the 1b simulator and run it
 heron v1b_hw hw run studies/v1_isa/programs/v1b/fib.s --period 340   # the 1b hardware at chip level
 heron v1b_hw hw sta                       # static timing analysis of the 1b netlist

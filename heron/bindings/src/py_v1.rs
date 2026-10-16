@@ -98,7 +98,10 @@ pub mod v1 {
 
     /// A draft 1 machine running a program: `isa` is "v1a" or "v1b",
     /// `image` RAM from address 0, `inp` the console input, `reference`
-    /// the configuration its own cycle count follows.
+    /// the configuration its own cycle count follows. With `system` (a dict:
+    /// uart_in, cf_image, ns_per_cycle), the machine is the system of
+    /// studies/v1b_system: everything outside its RAM is on the system bus
+    /// (studies/v1b_system/model), and the I/O page isn't there.
     #[pyclass]
     struct Machine {
         m: Engine,
@@ -107,13 +110,48 @@ pub mod v1 {
     #[pymethods]
     impl Machine {
         #[new]
-        #[pyo3(signature = (isa, image, inp=b"".as_slice(), reference=REFERENCE))]
-        fn new(isa: &str, image: &[u8], inp: &[u8], reference: &str) -> PyResult<Machine> {
+        #[pyo3(signature = (isa, image, inp=b"".as_slice(), reference=REFERENCE, system=None))]
+        fn new(
+            isa: &str,
+            image: &[u8],
+            inp: &[u8],
+            reference: &str,
+            system: Option<&Bound<'_, PyDict>>,
+        ) -> PyResult<Machine> {
             let isa = Isa::named(isa)
                 .ok_or_else(|| PyValueError::new_err(format!("no draft 1 ISA {isa:?}")))?;
-            Ok(Machine {
-                m: Engine::new(isa, image, inp, config(reference)?),
-            })
+            let mut m = Engine::new(isa, image, inp, config(reference)?);
+            if let Some(d) = system {
+                let get = |k: &str| d.get_item(k);
+                let uart_in: Vec<u8> = match get("uart_in")? {
+                    Some(v) => v.extract()?,
+                    None => Vec::new(),
+                };
+                let cf: Vec<u8> = match get("cf_image")? {
+                    Some(v) => v.extract()?,
+                    None => vec![0; 512 * 2048],
+                };
+                let mut cfg = v1b_system_model::Config::default();
+                if let Some(v) = get("ns_per_cycle")? {
+                    cfg.ns_per_cycle = v.extract()?;
+                }
+                m.bus = Some(Box::new(v1b_system_model::System::new(cfg, &uart_in, cf)));
+            }
+            Ok(Machine { m })
+        }
+
+        /// What a system's device holds: "uart" (what the terminal
+        /// received), "cf" (the disk image), "mem" (the memory card).
+        fn bus_dump<'py>(&self, py: Python<'py>, what: &str) -> PyResult<Bound<'py, PyBytes>> {
+            let b = self
+                .m
+                .bus
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("not a system machine"))?;
+            let d = b
+                .dump(what)
+                .ok_or_else(|| PyValueError::new_err(format!("no device {what:?}")))?;
+            Ok(PyBytes::new(py, &d))
         }
 
         /// Execute one instruction (and take an interrupt if one is due).

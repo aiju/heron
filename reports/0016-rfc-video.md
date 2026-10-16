@@ -15,7 +15,7 @@ depends-on: [9, 14]
 A proposal for the machine's video: what the screen is for, which monitors
 it drives, where its memory lives, and a menu of features with rough chip
 costs to choose from. It starts from the video notes in
-[RFC 0009, section 8](0009-rfc-ideas-io.md#8-video) but doesn't hold to
+[RFC 0009, section 3](0009-rfc-ideas-io.md#3-video) but doesn't hold to
 them; [section 13](#13-against-rfc-0009) lists where it differs.
 
 Statuses: **recommended**, **open** (a real choice either way),
@@ -92,7 +92,7 @@ but the console doesn't need one.
 The draft 1b CPU runs about a million instructions a second: 3 MHz, 3–4
 cycles per instruction ([report 0012](0012-report-draft-1b-hardware.md)).
 Draft 2 will probably be similar. A word-copy loop moves about 1 MB/s
-([RFC 0009, section 9](0009-rfc-ideas-io.md#9-networking)); a fill perhaps
+([RFC 0009, section 4](0009-rfc-ideas-io.md#4-networking)); a fill perhaps
 2 MB/s (an estimate). Stores to the card are posted, so the bus isn't the
 limit for writes, but every read of VRAM crosses the bus and takes about
 half a microsecond.
@@ -261,7 +261,7 @@ a border.
   not enough even for 640×480 at 4 bits.
 - Interleaving video into main memory was rejected along with fixed memory
   slots, since they don't fit variable-length cycles
-  ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#5-memory-system-and-buses)).
+  ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#1-memory)).
 
 What it costs: the CPU reaches VRAM over the bus (writes are posted, reads
 take about half a microsecond), and graphics such as fonts and sprite
@@ -272,7 +272,7 @@ sheets live in main memory and are copied into VRAM when loaded.
 - **Four 512K×8 SRAMs, 10–15 ns:** 2 MB, 32 bits wide. **recommended.**
   - 5 V parts this size are still made in SOJ and TSOP (IS61C5128,
     AS7C4096); fast SRAM no longer comes in DIP
-    ([RFC 0007](0007-rfc-ideas-microarchitecture.md#4-microarchitecture)).
+    ([RFC 0007](0007-rfc-ideas-microarchitecture.md#3-parts)).
   - Each chip is a byte lane, so byte write enables come free. The blitter
     relies on them.
   - 2 MB is plenty: a 640×480 screen at 8 bits is 300 KB, so there's room
@@ -350,7 +350,7 @@ copper and sprites take their share (blanking is 27% of a frame):
   address space on 16-bit machines, and the CPU has auto-increment
   addressing modes anyway. **not recommended.**
 - **The card is a synchronous slave** on the bus
-  ([RFC 0014, section 2](0014-rfc-system-bus.md#2-kinds-of-card)), 32 bits
+  ([RFC 0014, section 2](0014-rfc-system-bus.md#2-cards-and-the-backplane)), 32 bits
   wide.
   - **Writes are posted:** registered transceivers (74ABT652) take a
     write, and the card does it in the next free slot. The CPU only waits
@@ -470,7 +470,7 @@ cheap too ([9.3](#93-a-hardware-cursor)).
   same number of chips (~35–45), but several microcycles per word, so
   ~8–12 MB/s. **open.**
 - **BitBLT in the CPU's microcode,** given a writable control store
-  ([RFC 0005, section 13](0005-rfc-ideas-direction.md#13-big-ideas)), as
+  ([RFC 0005, section 3](0005-rfc-ideas-direction.md#3-big-ideas)), as
   on the Alto: no chips on the card, but limited by the CPU's bus writes,
   perhaps 2–4 times a software loop. **open**, and worth having anyway if
   the writable control store comes.
@@ -665,11 +665,13 @@ interrupt) would be about 55.
   copper need more room, and they can't easily go on a neighbouring card:
   they need the VRAM bus (32 data lines, 19 address lines, strobes and slot
   signals, about 60), more than P2's ~54 user-defined pins. So: one large
-  card, SOIC parts, or a mezzanine on the base card. **open.**
+  card, SOIC parts, or a mezzanine on the base card. **open.** Emily is
+  open to an SMT build (2026-10-15).
 - **PLDs.** GALs would absorb the timing decode, the slot arbitration, the
   sequencers and the glue: perhaps a third fewer chips, so a base card of
   about 50 and stages 1–3 in about 100. **open**; the same question comes
-  up for the backplane.
+  up for the backplane. Emily would rather not use them, though it isn't
+  a definite no (2026-10-15).
 - **Stages.** Build stage 1 first. A VGA monitor and a PVM both work from
   the first day, and the console works with glyphs drawn by software. The
   blitter and the copper are additions that don't change stage 1, so long
@@ -696,14 +698,15 @@ interrupt) would be about 55.
    checked against the behavioural model frame by frame. Timing analysis
    covers the 25 MHz pixel path and the VRAM slot.
 
-[RFC 0005, section 16](0005-rfc-ideas-direction.md#16-offered-next-steps)
+[RFC 0005, section 5](0005-rfc-ideas-direction.md#5-next-steps)
 already offers a simulated display-list card rendering PNGs; this is that
 offer, for this design.
 
 ## 13. Against RFC 0009
 
-Where this RFC differs from
-[RFC 0009, section 8](0009-rfc-ideas-io.md#8-video), which stays as it was:
+Where this RFC differs from RFC 0009's video notes. Since this RFC,
+[RFC 0009, section 3](0009-rfc-ideas-io.md#3-video) keeps only the ones
+set aside here, as alternatives:
 
 | RFC 0009 | Here | Why |
 |---|---|---|
@@ -729,7 +732,8 @@ For Emily:
    high-resolution monochrome mode (800×600 or 1024×768) wanted for a
    workstation look?
 3. **VRAM width:** 32 bits (recommended) or 16?
-4. **Palette:** fast SRAM and resistor DACs, or a RAMDAC chip?
+4. **Palette:** fast SRAM and resistor DACs, or a RAMDAC chip? Undecided
+   (Emily, 2026-10-15).
 5. **The PVM:** which model, a 15 kHz-only one or one that also takes
    31 kHz? Interlace and 50 Hz too?
 6. **The blitter:** which tier, and byte-aligned (for 8-bit colour) or
@@ -737,7 +741,8 @@ For Emily:
 7. **The copper:** yes?
 8. **Sprites and tiles:** both, one, or neither? Perhaps after the game
    demo in simulation.
-9. **PLDs:** may the card use GALs?
+9. **PLDs:** may the card use GALs? A preference against, not a definite
+   no (Emily, 2026-10-15).
 10. **Board:** one large card, a card with a mezzanine, or SOIC parts? This
     waits on the card size.
 11. **Sound:** on the video card, in the horizontal-blanking slots, or on a

@@ -2,7 +2,7 @@
 number: 17
 type: report
 title: An object language on draft 1b, interpreted and compiled on the machine
-status: draft
+status: current
 date: 2026-10-13
 context:
   studies: [egret, c_compiler, v1_isa]
@@ -110,6 +110,25 @@ and after compiling its source:
   KB of permanent space. Compiling a program's own source costs up to
   3.9M cycles; Richards' 300 lines take 1.3 s.
 
+> **Erratum (2026-10-15).** The C compiler now loads a switch table's
+> address PC-relative, and `build.py` no longer declares the tables
+> `.far` to work around its 16-bit addresses (issue #18). That makes the
+> C loop's dispatch a parcel shorter: it takes 1.70× the hand-written
+> loop's cycles on D16-overlap, 1.72× on D32-separate and 1.69× on
+> D32-wide. [performance.md](0017-report-egret/performance.md) has the
+> current numbers.
+
+> **Erratum (2026-10-16).** The C compiler's optimisations
+> ([report 0034](0034-report-c-compiler-optimisations.md)) make both the
+> suite's C versions and the VM, which is compiled C, faster, and
+> performance.md is rerun. The interpreter now takes 18.3×, 19.7× and
+> 18.7× the C versions' cycles (D16-overlap, D32-separate, D32-wide) and
+> 29.2×, 31.5× and 29.2× the assembly versions'; the JIT 19.1×, 20.7× and
+> 18.5× C's; the C loop 1.69×, 1.72× and 1.68× the hand-written loop's.
+> Against C, the interpreter is 10–46× on the suite's programs (bignum
+> 2.6×). Start-up is 4.7M cycles, 1.56 s at 3 MHz, and compiling
+> Richards 3.7M, 1.2 s.
+
 ### Where the interpreter's cycles go
 
 Means over the programs, D32-separate (per program in
@@ -162,11 +181,10 @@ programs, D32-separate:
 - **The loop leans on 1b's addressing.** In Richards, sieve and json,
   auto-increment loads and stores (the value stack, fetching bytecode)
   are 21–37% of the loop's executed instructions, `JMP [r + r*4]` 7–14%,
-  indexed loads and stores 4–8%. A 1a-based draft 2, as
-  [report 0004](0004-report-draft-1-evaluation.md) recommends, would
-  want the auto-increment forms and the table jump that
-  [RFC 0006](0006-rfc-ideas-isa.md#23-recommended-for-draft-2) already
-  recommends for it.
+  indexed loads and stores 4–8%. A 1b-based draft 2 keeps them; a
+  1a-based one would want the auto-increment forms and the table jump
+  that [RFC 0006](0006-rfc-ideas-isa.md#4-what-a-1a-based-draft-2-would-want)
+  lists for it.
 
 ## Compiling on the machine
 
@@ -293,8 +311,8 @@ Percentages of each program's run with the JIT, D32-separate:
   run compiled dynamic languages well: 5.5% on average, a sixth of the
   numeric programs. They cost an opcode or a mode and a trap vector.
   For an interpreter alone they're worth 2–3%.
-- **Keep auto-increment and the table jump** in a 1a-based draft 2;
-  an interpreter uses them on every bytecode.
+- **Keep auto-increment and the table jump** in draft 2 (1b has them;
+  1a would need them added); an interpreter uses them on every bytecode.
 - **Not worth an instruction:** a class load, a three-operand XOR,
   unaligned 16-bit loads, a link-register call, a bounds-check trap. Each
   saves about 1% or less on average, interpreted or compiled.
