@@ -411,6 +411,19 @@ impl Config {
                     prev_mem = Some(ops.len() - 1);
                 }
             }
+            Kind::Bcopy { n } => {
+                // a microcoded loop (Emily, 2026-10-16): per register a read
+                // from one bank, a write to the other, and the loop's step,
+                // one after another
+                ops.push(op(A, 1, &[])); // the two bank numbers, the count
+                let mut prev = 0;
+                for _ in 0..n {
+                    ops.push(op(R, 1, &[prev]));
+                    ops.push(op(R, 1, &[ops.len() - 1]));
+                    ops.push(op(A, 1, &[ops.len() - 1]));
+                    prev = ops.len() - 1;
+                }
+            }
             Kind::Sys => ops.push(op(0, 1, &[])),
         }
         ops

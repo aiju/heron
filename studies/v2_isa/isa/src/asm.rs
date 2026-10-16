@@ -18,8 +18,11 @@ use toolchain::asm::{AsmError, Ctx, Encoder, ExprRef, Mem, Operand, Size, kinds}
 use toolchain::obj::{ABS16S, ABS24H, ABS24L, ABS32, PC16, PC16H, PC24H, PC24L};
 
 const M32: i64 = 0xFFFF_FFFF;
-/// The assembler refuses to place anything from here on.
-const MEM_TOP: i64 = 0x10_0000;
+/// The assembler refuses to place anything from here on: the whole
+/// address space, since a kernel lives in the supervisor's window at
+/// 0x8000_0000 (RFC 0029, 3). What fits the machine is the linker's and the
+/// loader's to check.
+const MEM_TOP: i64 = 0x1_0000_0000;
 
 const COND: [&str; 15] = [
     "EQ", "NE", "CS", "CC", "MI", "PL", "VS", "VC", "HI", "LS", "GE", "LT", "GT", "LE", "RA",
@@ -144,6 +147,9 @@ const NOP: u16 = 0x0010;
 /// MFSR and MTSR, in row 0 between LEA's cells.
 const MFSR: i64 = 0x06;
 const MTSR: i64 = 0x07;
+/// BCOPY, the tentative bank-to-bank copy of r0-r7, in a free cell of row F
+/// (RFC 0029's open question 3).
+pub const BCOPY: i64 = 0xF9;
 
 /// A parcel: the opcode byte, and the register byte's high and low
 /// nibbles.
@@ -515,20 +521,38 @@ fn reg_range(op: &Operand, top: i64) -> Result<(i64, i64), AsmError> {
     Ok((a, b))
 }
 
-/// A special register: flags, hi, lo, or a number 0-15.
+/// The special registers' names (RFC 0029, 4), by number: 0-7 are user
+/// mode's, 8-15 the supervisor's. `flags` is draft 1's name for 0, which
+/// the machine without a supervisor still has.
+pub const SR_NAMES: [(&str, i64); 12] = [
+    ("ccr", 0),
+    ("flags", 0),
+    ("hi", 1),
+    ("lo", 2),
+    ("sr", 8),
+    ("far", 9),
+    ("fsr", 10),
+    ("ctx", 11),
+    ("mapa", 12),
+    ("mapd", 13),
+    ("bank", 14),
+    ("bkpt", 15),
+];
+
+/// A special register: by name (SR_NAMES), or a number 0-15.
 fn sr_number(ctx: &mut Ctx, op: &Operand) -> Result<i64, AsmError> {
     if let Operand::Expr(e) = op
         && let Expr::Sym(name) = &**e
     {
-        match name.to_ascii_lowercase().as_str() {
-            "flags" => return Ok(0),
-            "hi" => return Ok(1),
-            "lo" => return Ok(2),
-            _ => {}
+        let lower = name.to_ascii_lowercase();
+        if let Some(&(_, n)) = SR_NAMES.iter().find(|(s, _)| *s == lower) {
+            return Ok(n);
         }
     }
     let Some(e) = op.expr() else {
-        return err("expected a special register: flags, hi, lo or a number");
+        return err(
+            "expected a special register: ccr, hi, lo, sr, far, fsr, ctx, mapa, mapd, bank, bkpt or a number",
+        );
     };
     let (v, _) = ctx.value(e)?;
     if !(0..=15).contains(&v) {
@@ -581,8 +605,8 @@ fn renamed(u: &str) -> Option<&'static str> {
         "MVI" => "write MOV rd, #value",
         "CMPI" => "write CMP rd, #value",
         "LI" => "write MOV rd, #value",
-        "MFF" => "write MFSR rd, flags",
-        "MTF" => "write MTSR flags, rs",
+        "MFF" => "write MFSR rd, ccr",
+        "MTF" => "write MTSR ccr, rs",
         "ADDI" => "write ADD rd, #value",
         _ => return None,
     })
@@ -603,6 +627,24 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
         "DI" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x01)]),
         "RTI" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x02)]),
         "HALT" => return no_operands(u, ops).map(|_| vec![pb(0xFE, 0x03)]),
+        "SPL" => {
+            // the interrupt priority level, 0-8, in the second byte's low
+            // nibble (RFC 0029, 7)
+            let [Operand::Imm(e)] = ops else {
+                return err("SPL needs '#n', 0-8");
+            };
+            let (v, known) = ctx.value(e)?;
+            if known && !(0..=8).contains(&v) {
+                return err("SPL's level must be 0-8");
+            }
+            return one(pb(0xFE, 0x10 + (v & 15)));
+        }
+        "BCOPY" => {
+            // tentative: r0-r7 of the bank numbered in rs into the bank
+            // numbered in rd, the supervisor's
+            let (d, s) = two_regs(u, ops)?;
+            return one(p(BCOPY, d, s));
+        }
         "SAVE" | "RESTORE" => {
             let [op] = ops else {
                 return err(format!("{u} needs a register range like r8-r11"));

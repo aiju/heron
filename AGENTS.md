@@ -89,7 +89,10 @@ The engines are Rust, everything else is Python
   text. Only its status, `superseded-by`, clearly marked errata and
   (below) a specification it carries change.
 - **RFCs may carry findings:** an RFC can include the findings behind it.
-  Whether they deserve a report of their own is a judgement call.
+  Findings that exist to inform one RFC's decision go in its folder as an
+  unnumbered sub-document (`reports/NNNN-rfc-slug/topic.md`), linked from
+  its discussion, like RFC 0028's `link-register.md`; findings that stand
+  on their own get a report ([RFC 0000](reports/0000-rfc-repository-layout.md#what-each-is)).
 - **Reports may carry specifications:** a report can include the
   specification of the design it measured, as a part or an appendix
   (0012, 0018, 0020, 0025). While its study is active, that part follows
@@ -127,6 +130,10 @@ Change the generator and rerun it rather than editing the output by hand:
   - `heron lisp report --write`
   - `heron graphics bench --write` (also the screenshots next to it)
   - `heron kernel report --write`
+- `reports/0036-report-fen/performance.md` and `desktop.png`:
+  `heron fen bench --write`;
+- `reports/0029-rfc-draft-2-system/register-banks-results.md`:
+  `heron fen banks --write`;
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;

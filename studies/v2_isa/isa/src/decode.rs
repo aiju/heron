@@ -328,7 +328,13 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
             let target = nxt.wrapping_sub(2 * (lo + 1));
             return one(Insn::Dbnz { r: d, target });
         }
-        0xFC => return one(Insn::Swi),
+        0xFC => return one(Insn::Swi { n: rb as u8 }),
+        // MFUR and MTUR, in MOVS's quick-constant cells; BCOPY (tentative)
+        // in a free cell of row F. They trap on the machine without a
+        // supervisor.
+        0x31 => return one(Insn::Mfur { d, s }),
+        0x3D => return one(Insn::Mtur { d, s }),
+        0xF9 => return one(Insn::Bcopy { d, s }),
         0xFD => {
             return match rb {
                 0x00 => {
@@ -356,14 +362,16 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
                 0x01 => one(Insn::SetI { val: 0 }),
                 0x02 => one(Insn::Rti),
                 0x03 => one(Insn::Halt),
+                0x10..=0x18 => one(Insn::Spl {
+                    n: (rb - 0x10) as u8,
+                }),
                 _ => one(Insn::Illegal),
             };
         }
         _ => {}
     }
     // rows 1-6 and 8-A: an operation with the mode as the column. MOVS
-    // has no quick constants: its cells 31 and 3D are MFUR and MTUR, the
-    // supervisor's, which trap without a supervisor yet
+    // has no quick constants: its cells 31 and 3D are MFUR and MTUR
     if !matches!(row, 1..=6 | 8..=0xA) || (row == 3 && matches!(col, 1 | 0xD)) {
         return one(Insn::Illegal);
     }

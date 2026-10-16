@@ -29,3 +29,4 @@ commands, and `heron test <study>` runs its unit tests.
 | [egret](egret/README.md) | Egret, a small object language, interpreted and compiled on drafts 1b and 2 |
 | [graphics](graphics/README.md) | Graphics on draft 1: a library, bitmap and TrueType fonts, and a window manager, in C and assembly for 1a and 1b |
 | [kernel](kernel/README.md) | An operating system for Heron: system extensions to 1b, a benchmark nucleus that measures an OS's hot paths, and page statistics for the MMU |
+| [fen](fen/README.md) | Fen, an operating system for draft 2 in system mode: a message-passing kernel, servers for files, the console and windows, a shell and a desktop, on a board of its own |

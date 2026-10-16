@@ -20,13 +20,13 @@ pub mod v2 {
     /// (instruction address or None, timing key, executions)
     type PcKey<'py> = (Option<u32>, Bound<'py, PyTuple>, u64);
 
-    fn config(name: &str) -> PyResult<Config> {
+    pub(crate) fn config(name: &str) -> PyResult<Config> {
         Config::named(name)
             .ok_or_else(|| PyValueError::new_err(format!("unknown configuration {name:?}")))
     }
 
     /// A key as the Python tuple (parcels, pc & 2, kind, *params).
-    fn key_tuple<'py>(py: Python<'py>, k: &Key) -> PyResult<Bound<'py, PyTuple>> {
+    pub(crate) fn key_tuple<'py>(py: Python<'py>, k: &Key) -> PyResult<Bound<'py, PyTuple>> {
         let mut items = vec![
             k.n.into_pyobject(py)?.into_any(),
             k.p2.into_pyobject(py)?.into_any(),

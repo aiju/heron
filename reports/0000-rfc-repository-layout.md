@@ -158,8 +158,14 @@ self-contained.
 - **RFC:** proposes something and invites decisions: a design choice, a
   process, a set of ideas. Once the decision is made, the RFC records it.
   An RFC can include findings that support it; an ISA RFC might include
-  measurements of the ISA, for example. Whether those findings deserve a
-  report of their own is a judgement call.
+  measurements of the ISA, for example. Findings that exist to inform
+  one RFC's decision go in that RFC's folder as a sub-document,
+  `reports/NNNN-rfc-slug/topic.md`, titled "RFC NNNN: what was measured,
+  and how". It has no number or front matter, the RFC's discussion links
+  to it, and its generated files sit beside it. RFC 0028's
+  `link-register.md` is one. Findings that stand on their own, such as a
+  study's results or ones several documents draw on, get a report of
+  their own.
 
 Reports and RFCs share one numbering space.
 
