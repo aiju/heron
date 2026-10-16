@@ -20,7 +20,7 @@ returns through it.
 
 from heron.studies.c_compiler.ir import ir as I
 from heron.studies.c_compiler.ir.ir import Instr, Const, SymAddr, Param, Slot, Undef, PURE, s32
-from heron.studies.c_compiler.ir.cfg import compute_loop_depth, reverse_postorder
+from heron.studies.c_compiler.ir.cfg import DomTree, compute_loop_depth, reverse_postorder
 from .mir import PHYS, R0, SP, VReg, Imm, Mem, Frame, Label, MInstr, MBlock, MFunction, liveness
 from .regalloc import Allocator
 
@@ -66,6 +66,52 @@ def split_critical_edges(func):
     func.compute_preds()
 
 
+class _MachineCFG:
+    """An MFunction as ir.cfg's analyses see a function."""
+
+    def __init__(self, mf):
+        self.mf = mf
+        self.entry = mf.blocks[0]
+
+    def compute_preds(self):
+        self.mf.compute_preds()
+
+
+def wrap_region(func, need, fix=None):
+    """Shrink-wrapping: the block where the prologue can go so that every
+    block in `need` runs with the frame, and the blocks reachable from it,
+    which run with it; None if that's only the entry. The block must
+    dominate everything it reaches (so a block runs with the frame on every
+    path or on none) and be in no loop (so the prologue runs once). func is
+    an IR Function or a _MachineCFG. fix(dom, p, blocks), if given, may
+    change the CFG so that p dominates the blocks it reaches but doesn't
+    dominate; it returns True if it did."""
+    while True:
+        dom = DomTree(func)
+        live = [b for b in need if b in dom.pre]
+        if not live:
+            return None
+        p = live[0]
+        for b in live[1:]:
+            p = DomTree._intersect(p, b, dom.idom, dom.order)
+        while p is not func.entry:
+            reach, work = set(), list(p.succs)
+            while work:
+                b = work.pop()
+                if b not in reach:
+                    reach.add(b)
+                    work.extend(b.succs)
+            if p not in reach:
+                bad = [b for b in reach if not dom.dominates(p, b)]
+                if not bad:
+                    return p, reach | {p}
+                if fix is not None and fix(dom, p, bad):
+                    break
+            p = dom.idom[p]
+        else:
+            return None
+
+
 class Target:
     FOLD_LOADS = True       # loads can be operands of other instructions
     ALLOC_ORDER = PHYS[1:15]
@@ -84,7 +130,10 @@ class Target:
 
     def compile_function(self, f):
         split_critical_edges(f)
+        self.wrap_copies = self.split_for_wrap(f)
         compute_loop_depth(f)
+        self.wrap = None        # shrink-wrapping: (block with the prologue, blocks with the frame)
+        self.in_frame = True    # while emitting: does this block run with the frame?
         self.f = f
         mf = self.mf = MFunction(self.symname(f.name), f, self.ALLOC_ORDER)
         # locals: fixed offsets (spill slots go above them)
@@ -111,6 +160,96 @@ class Target:
         Allocator(mf, self).run()
         self.finish()
         return self.emit_text()
+
+    def split_for_wrap(self, f):
+        """Shrink-wrapping's half before allocation. The calls (and stack
+        slots) need the frame, so it can only start where the region that
+        holds them starts (wrap_region). A value from before that point
+        that lives across a call there would be in a callee-saved register
+        from where it's made, needing the frame from the start: copy it at
+        the region's entry instead, so only the copy needs the callee-saved
+        register. Returns the copies, which the allocator mustn't coalesce
+        with the values they copy."""
+        def returns(b):
+            """b only returns: phis, then ret of nothing, a phi or a value
+            from elsewhere."""
+            *rest, t = b.instrs
+            return (t.op == "ret" and all(i.op == "phi" for i in rest)
+                    and (not t.args or t.args[0] in rest or not t.args[0] in b.instrs))
+
+        def tail(i):
+            # a call that tail_calls will make a jump, which needs no frame
+            nxt = i.block.instrs[i.block.instrs.index(i) + 1]
+            if nxt.op == "jmp" and returns(nxt.targets[0]) and len(nxt.targets[0].instrs) == 1:
+                nxt = nxt.targets[0].instrs[0]
+            return (not f.slots and i.nfixed is None and len(i.args) <= 5
+                    and nxt.op == "ret" and nxt.args in ([], [i]))
+
+        def fix(dom, p, bad):
+            """A return block that's reached from inside and outside the
+            region: the preds inside get their own copy of it."""
+            if not all(returns(b) for b in bad):
+                return False
+            for b in bad:
+                t = b.terminator
+                for q in [q for q in b.preds if dom.dominates(p, q)]:
+                    v = t.args[0] if t.args else None
+                    if v is not None and v in b.instrs:
+                        v = v.args[v.incoming.index(q)]
+                    nb = f.new_block("ret")
+                    nb.append(Instr("ret", [] if v is None else [v]))
+                    q.terminator.targets = [nb if x is b else x for x in q.terminator.targets]
+                    for ph in b.phis():
+                        k = ph.incoming.index(q)
+                        del ph.args[k], ph.incoming[k]
+            f.compute_preds()
+            return True
+        need = [b for b in f.blocks
+                if any(i.op == "call" and not tail(i) or i.op == "vastart"
+                       or i.op == "memcpy" and i.size > self.INLINE_COPY
+                       or any(isinstance(a, Slot) for a in i.args) for i in b.instrs)]
+        region = wrap_region(f, need, fix)
+        if region is None:
+            return set()
+        p, inside = region
+        from heron.studies.c_compiler.ir.passes import live_values
+        _, live_out = live_values(f)
+        made = {i for b in inside for i in b.instrs}
+        across = set()
+        for b in inside:
+            live = set(live_out[b])
+            for i in reversed(b.instrs):
+                live.discard(i)
+                if i.op == "call":
+                    across |= live
+                if i.op != "phi":
+                    live |= {a for a in i.args if isinstance(a, (Instr, Param))}
+        # a phi and its operands share a register if they can: a value that
+        # flows into a phi web that lives across a call needs the copy too
+        webs = [[ph] + [v for v, q in zip(ph.args, ph.incoming)
+                        if q in inside and isinstance(v, (Instr, Param))]
+                for b in inside if b is not p for ph in b.phis()]
+        grew = True
+        while grew:
+            grew = False
+            for web in webs:
+                if any(v in across for v in web) and not all(v in across for v in web):
+                    across |= set(web)
+                    grew = True
+        order = {v: n for n, v in enumerate(list(f.params) + list(f.instructions()))}
+        copies = {}
+        at = p.first_non_phi()
+        for v in sorted(across - made, key=order.__getitem__):
+            c = Instr("copy", [v])
+            p.insert(at, c)
+            at += 1
+            copies[v] = c
+        for b in inside:
+            for i in b.instrs:
+                if i in copies.values() or (b is p and i.op == "phi"):
+                    continue
+                i.args = [copies.get(a, a) if isinstance(a, (Instr, Param)) else a for a in i.args]
+        return set(copies.values())
 
     # ======================================================================
     # Instruction selection: framework
@@ -219,6 +358,12 @@ class Target:
         """Overridden by targets with auto-increment addressing."""
 
     def select(self, i):
+        if i in self.wrap_copies:
+            d = self.def_reg(i)
+            self.copy(d, self.reg(i.args[0]))
+            if self.blk.instrs and self.blk.instrs[-1].is_copy:
+                self.blk.instrs[-1].comment = "split"   # not coalesced (split_for_wrap)
+            return
         if i.op in I.BINOPS:
             return self.sel_binop(i)
         if i.op in I.CMPOPS:
@@ -575,6 +720,28 @@ class Target:
             if mf.saved and self.saves_link():
                 mf.saved = (self.LINK.n + 1, mf.saved[1])     # SAVE r7-rN takes them all
                 mf.nsaved = mf.saved[1] - mf.saved[0] + 1
+        self.shrink_wrap()
+
+    def shrink_wrap(self):
+        """Shrink-wrapping's half after allocation: the prologue goes where
+        the blocks that need the frame start (wrap_region), and the returns
+        before it don't unwind anything. A block needs the frame if it
+        touches a register the prologue saves (on draft 2 that includes
+        every call, which writes the link register) or the stack frame."""
+        mf = self.mf
+        if not (mf.saved or mf.frame_size or self.saves_link()):
+            return
+        regs = set(range(mf.saved[0], mf.saved[1] + 1)) if mf.saved else set()
+        if self.saves_link():
+            regs.add(self.LINK.n)
+
+        def needs(i):
+            if any(r.is_phys and (r.n in regs or r is SP) for r in i.defs + i.uses):
+                return True
+            return any(isinstance(x, Mem) and (SP in x.regs() or x.frame is not None) for x in i.ops)
+        self.compute_succs()
+        self.wrap = wrap_region(_MachineCFG(mf), [b for b in mf.blocks
+                                                  if any(needs(i) for i in b.instrs)])
 
     def tail_calls(self):
         """A call followed by a return becomes a jump (TAIL), unless the
@@ -767,7 +934,8 @@ class Target:
     def emit_text(self):
         mf = self.mf
         lines = [f"{mf.name}:"]
-        lines += self.prologue()
+        if self.wrap is None:
+            lines += self.prologue()
         blocks = mf.blocks
         targets = set()
         for b in blocks:
@@ -786,6 +954,8 @@ class Target:
                                       targets=j.targets)]
             if instrs and instrs[-1].op == "JMP" and instrs[-1].targets and instrs[-1].targets[0] is nxt:
                 instrs = instrs[:-1]
+            if self.wrap is not None and b is self.wrap[0]:
+                instrs.insert(0, MInstr("PROLOGUE"))
             body.append((b, instrs))
         self.final_layout(body)
         # labels only where needed
@@ -799,11 +969,13 @@ class Target:
         for b, instrs in body:
             if b in used_labels:
                 lines.append(f"{b.label}:")
+            self.in_frame = self.wrap is None or b in self.wrap[1]
             for i in instrs:
                 if i.op == "TAIL":
                     lines += self.epilogue(tail=True) + [f"        BRA  {self.fmt(i.ops[0])}"]
                     continue
                 lines += self.format_instr(i)
+        self.in_frame = True
         for label, table in mf.consts:
             lines.append("        .align 4")
             lines.append(f"{label}:")
@@ -819,6 +991,8 @@ class Target:
         op = i.op
         if op == "RET":
             return self.epilogue() + self.return_instr()
+        if op == "PROLOGUE":
+            return self.prologue()
         if op == "COPY":
             return [f"        MOV  {self.fmt(i.ops[0])}, {self.fmt(i.ops[1])}"]
         if op == "JMP":
@@ -852,9 +1026,12 @@ class Target:
     def epilogue(self, tail=False):
         """Unwind the frame. Before a return, with a link register saved and
         nothing else, return_instr pops the return address itself; before a
-        tail call it goes back into the link register."""
+        tail call it goes back into the link register. Nothing where the
+        code runs without the frame (shrink_wrap)."""
         mf = self.mf
         out = []
+        if not self.in_frame:
+            return out
         if mf.frame_size:
             out += self.adjust_sp(mf.frame_size)
         if self.saves_link():
@@ -870,6 +1047,6 @@ class Target:
         return f"        ST   {self.fmt(r)}, -[sp]"
 
     def return_instr(self):
-        if self.saves_link() and not self.mf.saved:
+        if self.in_frame and self.saves_link() and not self.mf.saved:
             return ["        JMP  [sp]+"]
         return ["        RET"]

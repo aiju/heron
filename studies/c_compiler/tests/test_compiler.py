@@ -323,9 +323,33 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(asm_of(src, "v2"), r"SAVE r7-r8(.*\n)*\s+RESTORE r7-r8\n\s+RET")
         a = asm_of("int g(int); int f(int x) { return g(x) + 1; }", "v2")
         self.assertRegex(a, r"PUSH r7(.*\n)*\s+JMP  \[sp\]\+")
+        a = asm_of("int g(int); int h(int); int f(int x) { g(x); return h(2); }", "v2")
+        self.assertRegex(a, r"MOV  r7, \[sp\]\+\n\s+BRA  _h")
+        # (on a path without another call, the tail call leaves r7 alone)
         a = asm_of("int g(int); int h(int); int f(int x) { if (x) return g(x) + 1; return h(2); }",
                    "v2")
-        self.assertRegex(a, r"MOV  r7, \[sp\]\+\n\s+BRA  _h")
+        self.assertRegex(a, r"\.b\d+:\n\s+MOV  r1, #2\n\s+BRA  _h")
+
+    def test_shrink_wrapping(self):
+        # fib's base case returns before the prologue: the copy of n into a
+        # callee-saved register is made on the path that calls
+        src = ("int calls; int fib(int n) { calls++; if (n < 2) return n; "
+               "return fib(n - 1) + fib(n - 2); }")
+        for isa in ("v1a", "v1b", "v2"):
+            a = asm_of(src, isa, "fib")
+            before, _, after = a.partition("SAVE")
+            self.assertIn("RET", before, isa)
+            self.assertNotRegex(before, r"r(8|9|1[0-4])\b", isa)
+            self.assertRegex(after, r"MOV  r(8|9|1[0-4]), r1", isa)
+        # queens' loop: a value that flows into a phi kept across the call
+        # is copied at the region's start too, and a return block shared
+        # with the early exit is duplicated
+        a = asm_of("void g(unsigned *, unsigned); void f(unsigned *row, unsigned free, unsigned l) {"
+                   " unsigned s = free & ~l; while (s) { unsigned bit = s & -s; s &= ~bit;"
+                   " *row = bit; g(row + 1, free & ~bit); } }", "v2")
+        before, _, after = a.partition("SAVE")
+        self.assertIn("RET", before)
+        self.assertNotRegex(before, r"r(8|9|1[0-4])\b")
 
     def test_v2_dbnz(self):
         # a counter that only counts is counted down to zero, and the loop
