@@ -32,6 +32,13 @@ TARGETS = {
     "thumb": (["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0"], False),
     "m68k": (["--target=m68k-unknown-elf", "-mcpu=M68000"], True),
 }
+# a user process under mixed.py's kernel: its own start-up (exit is SVC #0)
+# and console (a page of its own address space, not the supervisor's I/O
+# window); the rest from the plain target
+TARGETS["thumb-user"] = TARGETS["thumb"]
+# sw/ files and include directories, for a target that isn't just sw/<target>
+SW_FILES = {"thumb-user": ["mixed/crt0_thumb.s", "thumb/rt.c"]}
+SW_INCLUDE = {"thumb-user": ["mixed/include"]}
 CFLAGS = ["-O2", "-ffreestanding", "-nostdinc", "-fno-pic", "-ffunction-sections",
           "-fdata-sections"]
 
@@ -46,9 +53,11 @@ def program_names():
 
 
 def _sources(target, name):
-    tdir = os.path.join(HERE, "sw", target)
     srcs = [os.path.join(PROGRAMS, name + ".c")]
     srcs += [os.path.join(CC, "cc", "lib", f) for f in LIB]
+    if target in SW_FILES:
+        return srcs + [os.path.join(HERE, "sw", f) for f in SW_FILES[target]]
+    tdir = os.path.join(HERE, "sw", target)
     for f in sorted(os.listdir(tdir)):
         if f.endswith((".c", ".s", ".S")):
             srcs.append(os.path.join(tdir, f))
@@ -56,8 +65,8 @@ def _sources(target, name):
 
 
 def _includes(target):
-    own = os.path.join(HERE, "sw", target, "include")
-    inc = [own] if os.path.isdir(own) else []
+    own = [os.path.join(HERE, "sw", d) for d in SW_INCLUDE.get(target, [target + "/include"])]
+    inc = [d for d in own if os.path.isdir(d)]
     return inc + [os.path.join(HERE, "sw", "include"), os.path.join(CC, "cc", "include")]
 
 

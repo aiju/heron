@@ -22,9 +22,15 @@ to load and an immediate, it runs much as draft 2's own code does:
   branch (the native PC is the instruction + 2, ARM's PC the
   instruction + 4), and so on. BX = 6 puts it on the B bus.
 
-r0-r14 are bank 0's locations 0-14; r15 is the native PC. BKPT halts, SVC
-and the undefined encodings stop. BL's 32-bit form assumes J1 = J2 = 1
-(offsets within 4 MB).
+r0-r14 are locations 0-14 of the bank (bank 0 in supervisor mode, BANK
+in user mode); r15 is the native PC. On its own, BKPT halts, and SVC and
+the undefined encodings stop. Beside draft 2's own microcode (mixed.py),
+SVC #n is draft 2's SWI #n and the undefined encodings its illegal
+instruction trap, and an instruction that faults can be restarted: no
+register is written before its last memory access (but LDM with the base
+in the list). Its constants are in the two global locations draft 2's
+microcode leaves free. BL's 32-bit form assumes J1 = J2 = 1 (offsets
+within 4 MB).
 """
 
 from heron.studies.v2_hw import ucode as uc
@@ -34,13 +40,29 @@ from . import guest as gm
 
 M32 = 0xFFFFFFFF
 G = uc.G
-TMP1, TMP2, TMP3 = G, G + 1, G + 2
-ZERO, K80, K8000, KNOT3, K0FFE = G + 3, G + 4, G + 5, G + 6, G + 7
-CONSTS = {ZERO: 0, K80: 0x80, K8000: 0x8000, KNOT3: 0xFFFFFFFC, K0FFE: 0x0FFE}
+TMP1, TMP2, TMP3, ZERO = uc.TMP1, uc.TMP2, uc.TMP3, uc.ZERO      # draft 2's
+K8000, K0FFE = G + 30, G + 31             # the two global locations draft 2 leaves
+CONSTS = {K8000: 0x8000, K0FFE: 0x0FFE}
+assert not set(CONSTS) & set(uc.CONSTS)
 SP, LR = 13, 14
 IMM = {"BX": 6}                       # [D1] the predecoded immediate onto B
 NZ = dict(fnz="nz")
 NZCV = dict(fnz="nz", fc="aluc", fv="ovf")
+
+
+_MIXED = [False]        # building for mixed.py
+
+
+def undefined():
+    return uc.illegal(2) if _MIXED[0] else gm.stop("thumb illegal")
+
+
+def svc(n):
+    """SVC #n: draft 2's SWI #n beside its microcode, else a stop."""
+    if not _MIXED[0]:
+        return gm.stop("thumb svc")
+    return chain(f"SVC #{n}", mi(ra=uc.VSWI[n >> 6], kv=4 * (n & 63), alu="add", w=TMP2),
+                 Node(uc.SAVE_FLAGS, ("next", uc.trap_tail(TMP2, 0, "SWI")), f"SVC #{n}"))
 
 
 def sext(v, bits):
@@ -117,7 +139,7 @@ def decode(i):
     if i >> 12 == 13:
         cc = (i >> 8) & 15
         if cc == 15:
-            return ("svc",), 1, 0, 0
+            return ("svc", i & 0xFF), 1, 0, 0
         if cc == 14:
             return ("illegal",), 1, 0, 0
         return ("bcc",), 1, x(lo=cc), imm16(2 * sext(i, 8) + 2)
@@ -225,7 +247,7 @@ def hi(op, d15, m15, link):
         val = mi(a="pc", pck=1, alu="a", cin="1") if op == 2 else \
             mi(a="pc", pck=1, rb="d", alu="addc", cin="1")
         if op == 1:
-            return gm.stop("thumb unsupported")
+            return undefined()
     elif op == 0 and d15:
         val = mi(a="pc", pck=1, rb="r", alu="addc", cin="1")       # ADD PC, Rm
     elif op == 0:
@@ -239,7 +261,7 @@ def hi(op, d15, m15, link):
 
 def ldrlit():
     return chain("LDR lit", merge(mi(a="pc", alu="add", ldr=1), IMM),
-                 mi(a="r", rb=KNOT3, alu="and", ldmar=1),
+                 mi(a="r", kv=-4, alu="and", ldmar=1),
                  end("LDR lit", mem="read", size="word", b="t", alu="passb", w="d"))
 
 
@@ -253,10 +275,14 @@ def access(name, size, load, signed=False):
         return end(name, ra="d", mem="write", size=SIZES[size])
     if not signed:
         return end(name, mem="read", size=SIZES[size], b=LANE[size], alu="passb", w="d")
-    k, rz = (K80, 0b1110) if size == 1 else (K8000, 0b1100)
-    return chain(name, mi(mem="read", size=SIZES[size], b=LANE[size], ra=k, alu="xor", rz=rz,
+    if size == 1:
+        # (x ^ 0x80) - 0x80, the constant from KONST
+        return chain(name, mi(mem="read", size="byte", b="tbyte", alu="passb", ldr=1),
+                     mi(a="r", kv=0x80, alu="xor", ldr=1),
+                     end(name, a="r", kv=0x80, alu="sub", w="d"))
+    return chain(name, mi(mem="read", size="half", b="thalf", ra=K8000, alu="xor", rz=0b1100,
                           ldr=1),
-                 end(name, a="r", rb=k, alu="sub", w="d"))
+                 end(name, a="r", rb=K8000, alu="sub", w="d"))
 
 
 def rofs(op, rm):
@@ -314,17 +340,18 @@ def push(lst, m):
     regs = regs_of(lst) + ([LR] if m else [])
     name = "PUSH"
     if not regs:
-        return gm.stop("thumb illegal")
+        return undefined()
+    # SP is written after the stores, so that a fault in one restarts PUSH
     stores = [mi(ra=k, mem="write", size="word", marinc=1) for k in regs]
-    return chain(name, mi(ra=SP, kv=4 * len(regs), alu="sub", w=SP, ldmar=1),
-                 *stores[:-1], end(name, _fields=stores[-1]))
+    return chain(name, mi(ra=SP, kv=4 * len(regs), alu="sub", ldmar=1), *stores,
+                 end(name, a="mar", kv=4 * len(regs), alu="sub", w=SP))
 
 
 def pop(lst, p):
     regs = regs_of(lst)
     name = "POP"
     if not regs and not p:
-        return gm.stop("thumb illegal")
+        return undefined()
     loads = [mi(mem="read", size="word", b="t", alu="passb", w=k, marinc=1) for k in regs]
     if p:
         return chain(name, mi(ra=SP, alu="passa", ldmar=1), *loads,
@@ -337,7 +364,7 @@ def pop(lst, p):
 def stm(lst):
     regs = regs_of(lst)
     if not regs:
-        return gm.stop("thumb illegal")
+        return undefined()
     stores = [mi(ra=k, mem="write", size="word", marinc=1) for k in regs]
     return chain("STM", mi(ra="r", alu="passa", ldmar=1), *stores,
                  end("STM", a="mar", alu="passa", w="r"))
@@ -346,7 +373,7 @@ def stm(lst):
 def ldm(lst, wb):
     regs = regs_of(lst)
     if not regs:
-        return gm.stop("thumb illegal")
+        return undefined()
     loads = [mi(mem="read", size="word", b="t", alu="passb", w=k, marinc=1) for k in regs]
     last = end("LDM", a="mar", alu="passa", w="r") if wb else end("LDM")
     return chain("LDM", mi(ra="r", alu="passa", ldmar=1), *loads, last)
@@ -366,9 +393,13 @@ def bl():
 class Thumb:
     name = "thumb"
     needs = ("D1",)
+    consts = CONSTS                 # what mixed.py's reset writes
+
+    def __init__(self, mixed=False):
+        self.mixed = mixed
 
     def reset(self):
-        steps = [mi(alu="zero", ldr=1), mi(a="r", loadf="nzcv", sset=1)]
+        steps = [mi(alu="zero", ldr=1, w=ZERO), mi(a="r", loadf="nzcv", sset=1)]
         for loc, v in sorted(CONSTS.items()):
             steps += _const(loc, v)
         steps += [mi(alu="zero", w=k) for k in range(15)]
@@ -389,6 +420,7 @@ class Thumb:
         return xir, ximm
 
     def routine(self, key):
+        _MIXED[0] = self.mixed
         k = key[0]
         table = {"shi": shift_imm, "as": addsub, "i8": imm8, "alu": alu, "hi": hi,
                  "rofs": rofs, "iofs": iofs, "ext": ext, "rev": rev, "push": push, "pop": pop,
@@ -401,7 +433,7 @@ class Thumb:
             return end("ADD SP", _fields=merge(mi(ra="r", alu="add", w="d"), IMM))
         if k == "adr":
             return chain("ADR", merge(mi(a="pc", alu="add", ldr=1), IMM),
-                         end("ADR", a="r", rb=KNOT3, alu="and", w="d"))
+                         end("ADR", a="r", kv=-4, alu="and", w="d"))
         if k == "bcc":
             return end("B<cond>", _fields=merge(mi(a="pc", alu="add", ldpc=1, pccond="bcond",
                                                    ccb="bcc"), IMM))
@@ -412,10 +444,10 @@ class Thumb:
         if k == "nop":
             return end("NOP")
         if k == "bkpt":
-            return gm.stop("thumb halt")
+            return undefined() if _MIXED[0] else gm.stop("thumb halt")
         if k == "svc":
-            return gm.stop("thumb svc")
-        return gm.stop("thumb illegal")
+            return svc(key[1])
+        return undefined()
 
     def state(self, m):
         return {"r": [m.rf[k] for k in range(15)], "pc": (m.PC - 2) & M32,
