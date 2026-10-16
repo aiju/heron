@@ -7,11 +7,11 @@ reports: []
 # Figures in documents
 
 Small languages for the pictures in reports and RFCs, in place of ASCII
-art: timing diagrams, bit fields, block diagrams, address maps and
-charts of tables such as an opcode map. A
-figure's source sits in a comment in the document, and the SVG it draws
-in the document's folder, where GitHub and the site show it. Everything
-is in plain Python with no dependencies.
+art: timing diagrams, bit fields, block diagrams, address maps, and
+tables drawn as charts, such as an opcode map. A figure's source sits in
+a comment in the document, and the SVG it draws in the document's
+folder, where GitHub and the site show it. Everything is plain Python
+with no dependencies.
 
 The [gallery](gallery.md) draws every picture on `main` (at `198d40a`)
 in these languages, with the ASCII next to it, and a few new ones.
@@ -209,9 +209,21 @@ is its title; words that start with `+` or `×` go small under the rest.
   AGENTS.md says not to commit, but GitHub can only show a committed
   file. They would be the exception, and `heron figures check` could go
   into `heron test`; drawing all of them takes well under a second.
-- **timing's notation** is denser than the others'. A spelled-out form
-  (`clock BCLK 11`, `at 1.1 as on`) is possible, but timepic's is short
-  and, once known, quick to read.
+- **timing's notation** is denser than the others'. A spelled-out form,
+  an event a line, is possible (a sketch, not built):
+
+  ```
+  SEL   :0 2.1[on]:1 5.1[off]:0        # as it is
+
+  signal SEL                           # spelled out
+    0
+    at 2.1, on: 1
+    at 5.1, off: 0
+  ```
+
+  It reads without knowing the notation and diffs an event at a time,
+  but a diagram gets three or four times as long, and timepic's lines
+  line up as the waveforms do.
 - **Labels can collide:** nothing moves a wire's or an arrow's label
   out of the way of another; the source does, by moving things.
 - **Not converted in place:** report 0012 is `current` and can't be

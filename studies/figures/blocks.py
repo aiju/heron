@@ -19,7 +19,7 @@ say. A box is as big as its text unless width= or height= say.
 
 import re
 
-from .svg import Drawing, Error, lines, textwidth
+from .svg import Drawing, lines, textwidth
 
 LINE, PADX, PADY = 15, 9, 6
 ARROWS = ("->", "<-", "<->", "-")
@@ -194,8 +194,8 @@ class Diagram:
         b.x += float(b.attrs.get("dx", 0)) * u
         b.y += float(b.attrs.get("dy", 0)) * u
 
-    def point(self, s, ln, toward=None):
-        """A point: (x, y, side or None, bus or None)."""
+    def point(self, s, ln):
+        """A point of the grid, x,y, in pixels."""
         u = self.unit
         m = re.fullmatch(r"(-?[\d.]+),(-?[\d.]+)", s)
         if m:
@@ -281,7 +281,8 @@ def other_point(e):
 
 
 def bus_side(bus, box):
-    (ax, ay), (bx, by) = bus.a, bus.b
+    """The side of box that faces bus."""
+    (ax, ay), (_, by) = bus.a, bus.b
     if ay == by:
         return "top" if ay < box.y else "bottom"
     return "left" if ax < box.x else "right"

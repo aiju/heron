@@ -165,6 +165,9 @@ Change the generator and rerun it rather than editing the output by hand:
 - `studies/v2_hw/ticks.json`, the microcode's cycle lengths:
   `heron v2_hw hw sta --write`, after any change to draft 2's netlist or
   microcode (`heron test v2_hw` fails while it's stale);
+- the SVGs of figures whose source is in a document (`<!-- timing`
+  and the other languages of [studies/figures](studies/figures/README.md)),
+  the gallery's among them: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
