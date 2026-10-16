@@ -29,7 +29,7 @@ class Run:
             "gc_count": self.word("gc_count"),
             "allocated": (self.word("gc_alloc") + hp - cur) & 0xFFFFFFFF,
             "copied": self.word("gc_copied"),
-            "tag_traps": self.word("tag_traps"),
+            "tag_traps": sum(1 for _, what in m.traps if what == "tag check"),
         }
 
 

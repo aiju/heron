@@ -57,7 +57,6 @@ gc_need:        .word 0         ; bytes the allocation that collected wants
 gc_count:       .word 0
 gc_copied:      .word 0         ; bytes copied by all collections
 gc_alloc:       .word 0         ; bytes allocated before the current half was started
-tag_traps:      .word 0         ; tag traps that evaluated something
 ; the runtime's own roots
 rt_roots:
 input_obj:      .word input_entry + 1, 0    ; the console input, a thunk

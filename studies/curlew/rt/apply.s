@@ -162,35 +162,33 @@ argslot:
         .byte 8 + 4, 8 + 8, 8 + 12, 8 + 16, 8 + 20, 8 + 0, 8 + 32, 8 + 36, 8 + 40
         .align 2
 
-; ---- the tag trap: a TMOV found bit 0 set (a value not yet evaluated),
+; ---- the tag trap: a TTST found bit 0 set (a value not yet evaluated),
 ; or TADD, TSUB or TCMP overflowed. The stack has the flags, then the
-; instruction's address. A TMOV is a check the code generator made: the
+; instruction's address. A TTST is a check the code generator made: the
 ; trap jumps to that check's own slow path (found in trap_hash, which
 ; boot fills from trap_table), which evaluates the value, knowing what
 ; is live there, and returns with RTI to run the check again. Anything
-; else is an overflow.
+; else is an overflow. The simulator counts the traps.
 trap_tag:
         MOV  -[sp], r1
-        MOV  -[sp], r2
-        MOV  r1, [sp + 12]          ; the instruction
-        MOV  r2, r1
-        LSR  r2, #1
-        AND  r2, #TRAP_HASH_SIZE - 1
-        LSL  r2, #3
-.probe: MOV  r12, [trap_hash + r2]
-        CMP  r12, r1
-        BEQ  .found
-        TST  r12, r12
-        BEQ  .over
-        ADD  r2, #8
-        AND  r2, #TRAP_HASH_SIZE * 8 - 1
-        BRA  .probe
-.found: MOV  r12, [trap_hash + 4 + r2]
-        INC  [tag_traps]
-        MOV  r2, [sp]+
+        MOV  r1, [sp + 8]           ; the instruction
+        MOV  r12, r1                ; its slot: 8 * ((pc / 2) mod size)
+        AND  r12, #(TRAP_HASH_SIZE - 1) * 2
+        LSL  r12, #2
+.probe: CMP  r1, [trap_hash + r12]
+        BNE  .next
+        MOV  r12, [trap_hash + 4 + r12]
         MOV  r1, [sp]+
         JMP  r12
-.over:  JMP  rt_overflow
+.next:  MOV  r1, [trap_hash + r12]  ; an empty slot: not a check
+        TST  r1, r1
+        BEQ  .over
+        MOV  r1, [sp + 8]
+        ADD  r12, #8
+        AND  r12, #TRAP_HASH_SIZE * 8 - 1
+        BRA  .probe
+.over:  MOV  r1, [sp]+
+        JMP  rt_overflow
 
 ; trap_hash_init: fill trap_hash from trap_table, (check, slow path) pairs.
 trap_hash_init:
@@ -199,9 +197,8 @@ trap_hash_init:
         BHS  .done
         MOV  r1, [r3]
         MOV  r2, r1
-        LSR  r2, #1
-        AND  r2, #TRAP_HASH_SIZE - 1
-        LSL  r2, #3
+        AND  r2, #(TRAP_HASH_SIZE - 1) * 2
+        LSL  r2, #2
 .probe: MOV  r12, [trap_hash + r2]
         TST  r12, r12
         BEQ  .put

@@ -69,7 +69,7 @@ CATS = ("evalt", "evalb", "evalhit", "evalind", "evalthunk", "evalslow",
 class Options:
     def __init__(self, tagged=False, indcheck=True, stack_check=True, one_reg=False,
                  upd_tail=True, tag_arith=False):
-        self.tagged = tagged            # draft 2's tagged operations: TMOV checks, TADD/TSUB
+        self.tagged = tagged            # draft 2's tagged operations: TTST checks, TADD/TSUB/TCMP
         self.tag_arith = tagged or tag_arith    # TADD, TSUB, TCMP for arithmetic only
         self.indcheck = indcheck        # a slow path follows an indirection itself
         self.stack_check = stack_check  # check the stack limit (else a guard page would)
@@ -542,8 +542,8 @@ class CodeGen:
         self.put_label(site)
         if self.opt.tagged:
             # the check traps; the trap goes to this site's slow path, which
-            # ends in RTI, and the TMOV runs again
-            self.emit(f"TMOV r{reg}, r{reg}", cat + "t")
+            # ends in RTI, and the TTST runs again
+            self.emit(f"TTST r{reg}, r{reg}", cat + "t")
             self.trap_sites.append((site, slow))
             ret = "RTI"
         else:

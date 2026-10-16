@@ -12,6 +12,7 @@ import json
 import os
 import re
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 
 from . import build, machine, testing
 from .profile import Profile
@@ -25,7 +26,7 @@ CONFIG = machine.CONFIG
 TST_IMM = 3         # TST r, #1 (two parcels)
 TST_QUICK = 2       # TST r, rs: what a one-parcel TST r, #q would cost
 BRANCH = 2          # Bcc, taken or not
-ONE_INSN_CHECK = 2  # a test of bit 0 that branches, or a trap check (TTST)
+ONE_INSN_CHECK = 3  # a two-parcel branch on bit 0, as JNE label costs
 
 
 def source_hash():
@@ -193,7 +194,13 @@ def trap_cycles(r, prof):
     return {"handler": prof.by_cat.get("rt:trap", 0), "traps": r.stats()["tag_traps"]}
 
 
-def measure(names=None, configs=CONFIGS, refresh=False, verbose=True):
+def _run(args):
+    name, config = args
+    (p,) = testing.programs([name], tests=False)
+    return run_one(p, config)
+
+
+def measure(names=None, configs=CONFIGS, refresh=False, verbose=True, jobs=None):
     """{program: {config: numbers}}, from the cache where it's current."""
     os.makedirs(build.BUILD, exist_ok=True)
     key = source_hash()
@@ -202,17 +209,22 @@ def measure(names=None, configs=CONFIGS, refresh=False, verbose=True):
     if os.path.exists(path) and not refresh:
         with open(path) as f:
             cache = json.load(f)
-    out = {}
+    todo, keys = [], {}
     for p in testing.programs(names, tests=False):
         ph = hashlib.sha256((p.text + repr(p.input)).encode()).hexdigest()[:12]
-        out[p.name] = {}
         for c in configs:
-            k = f"{p.name}:{c}:{ph}"
+            keys[p.name, c] = k = f"{p.name}:{c}:{ph}"
             if k not in cache:
+                todo.append((p.name, c))
+    if todo:
+        with ProcessPoolExecutor(jobs or os.cpu_count()) as ex:
+            for (name, c), result in zip(todo, ex.map(_run, todo)):
                 if verbose:
-                    print(f"  {p.name} ({c})", flush=True)
-                cache[k] = run_one(p, c)
+                    print(f"  {name} ({c})", flush=True)
+                cache[keys[name, c]] = result
                 with open(path, "w") as f:
                     json.dump(cache, f)
-            out[p.name][c] = cache[k]
+    out = {}
+    for (name, c), k in keys.items():
+        out.setdefault(name, {})[c] = cache[k]
     return out
