@@ -379,8 +379,11 @@ def resume(muts, pins, args):
         results = json.load(f)
     if [r["mutation"] for r in results] != [m[2] for m in muts]:
         raise SystemExit(f"{args.out} is from other mutants (another -n, --seed or --only)")
+    which = {int(x) for x in args.which.split(",")} if args.which else None
     for i, ((kind, origin, desc, change), r) in enumerate(zip(muts, results)):
         if r["proofs"] or (r["cases_run"] >= r["cases"] and r.get("unfinished") == []):
+            continue
+        if which is not None and i + 1 not in which:
             continue
         t0 = time.time()
         nl, roms, cases = _cases(kind, change, pins)
@@ -409,6 +412,7 @@ def main(argv=None):
     p.add_argument("--resume", type=int, metavar="CAP",
                    help="prove again the mutants that the last run's proofs (in --out) "
                         "didn't catch, CAP seconds each")
+    p.add_argument("--which", help="with --resume: only these mutants, by number (3,14)")
     args = p.parse_args(argv)
     rng = random.Random(args.seed)
     v1b.netlist()
