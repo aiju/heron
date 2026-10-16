@@ -29,7 +29,8 @@ To the machine of RFC 0028 this adds:
   ([3](#3-the-address-space));
 - **special registers** 8–15, for the supervisor ([4](#4-special-registers));
 - **register banks,** one per thread ([5](#5-register-banks));
-- **exceptions** that are precise and vectored ([6](#6-exceptions)).
+- **exceptions** that are precise and vectored ([6](#6-exceptions));
+- **interrupts** at eight priority levels ([7](#7-interrupts)).
 
 ### 2. Modes and the status register
 
@@ -47,8 +48,8 @@ To the machine of RFC 0028 this adds:
   | 3 | N | negative |
   | 4–7 | | reserved for user flags |
   | 8–23 | | reserved |
-  | 24–26 | | reserved for an interrupt priority level ([7](#7-interrupts), open) |
-  | 27, 28 | | reserved |
+  | 24–27 | IPL | interrupt priority level, 0–8: requests below it are held off ([7](#7-interrupts)) |
+  | 28 | | reserved |
   | 29 | T | trace: trap after every instruction |
   | 30 | I | interrupts enabled |
   | 31 | S | supervisor mode |
@@ -153,7 +154,7 @@ Reserved registers read as 0 and ignore writes.
 | Vector | Exception | Saved PC |
 |---|---|---|
 | `0x8000_0000` | reset | – |
-| `0x8000_0004` | interrupt ([7](#7-interrupts)) | the next instruction |
+| `0x8000_0004` | non-maskable interrupt ([7](#7-interrupts), open) | the next instruction |
 | `0x8000_0008` | illegal instruction | the instruction |
 | `0x8000_000C` | reserved | |
 | `0x8000_0010` | divide error | the instruction |
@@ -162,6 +163,7 @@ Reserved registers read as 0 and ignore writes.
 | `0x8000_001C` | privilege violation | the instruction |
 | `0x8000_0020` | page fault ([3](#3-the-address-space)) | the instruction |
 | `0x8000_0024` | trace | the next instruction |
+| `0x8000_0040` + 4L | interrupt at level L, 0–7 ([7](#7-interrupts)) | the next instruction |
 | `0x8000_0100` + 4n | `SWI #n`, n = 0–255 | the next instruction |
 
 - **Vectors** are 4 bytes apart, room for one two-parcel instruction,
@@ -191,16 +193,39 @@ Reserved registers read as 0 and ignore writes.
 
 ### 7. Interrupts
 
-**Open:** priority levels, their masking and where each one's vector
-comes from. Until then there is one interrupt request, level-triggered,
-taken between instructions when I is set, through vector `0x8000_0004`:
-never straight after `EI`, possibly straight after `DI`, and straight
-after `RTI` if the flags it restores enable it. `HALT` with I set waits
-for an interrupt.
+- **Eight request lines,** levels 0–7, 7 the highest. Each is one of the
+  system bus's interrupt lines IRQ0–IRQ7
+  ([RFC 0014, 8.3](0014-rfc-system-bus.md#83-interrupts-and-synchronisation)),
+  or, chosen by a jumper on the CPU's board, a source on that board in
+  its place.
+- **Level-sensitive:** a source holds its request until its handler
+  clears the cause. Several sources may share a level; the handler finds
+  out which by asking them.
+- **Taken** between instructions, when I is set and the highest level L
+  requesting is at least IPL: never straight after `EI`, possibly
+  straight after `DI`, and straight after `RTI` if the status it restores
+  allows it. IPL above 8 holds off every level, as 8 does.
+- **Entering** an interrupt is entering an exception ([6](#6-exceptions)),
+  and also sets IPL to L + 1. The vector is `0x8000_0040` + 4L.
+  - I is clear in the handler. Executing `EI` lets higher levels in, which
+    is how interrupts nest.
+  - `RTI` restores the I and IPL of the code it returns to.
+- **A request that has gone** by the time its handler asks is answered by
+  returning.
+- **`HALT`** with I set waits for an interrupt, and resumes after the
+  `HALT` once the handler returns. With I clear it stops until reset.
+- **A non-maskable interrupt (open):** room for one, from the CPU's own
+  board, through vector `0x8000_0004`, taken between instructions whatever
+  I and IPL. Its source, how it's triggered, and what it does to I and
+  IPL are open.
+- **A register bank per level,** so that a handler saves nothing, is
+  open: interrupts enter bank 0, as every exception does.
+- **The timer** and other sources on the CPU's board are devices, outside
+  this RFC.
 
 ### 8. Reset
 
-Supervisor mode, bank 0, I and T clear, `ctx` and `bank` 0, and the PC at
+Supervisor mode, bank 0, I and T clear, IPL, `ctx` and `bank` 0, and the PC at
 the reset vector, which is physical address 0. Everything else is
 undefined.
 
@@ -272,6 +297,20 @@ keeps what worked and changes the rest.
   each number gets its own microcode entry. A null system call spent 16
   of its 39 cycles dispatching
   ([report 0020](0020-report-operating-system.md#the-paths-measured)).
+- **Interrupts by level, with vectors from the CPU.** The bus has eight
+  open-collector lines and no acknowledge cycle, so a vector per level
+  costs nothing on the bus and keeps simple cards simple; a vector from
+  the device, as on the PDP-11, would need a bus cycle to fetch it.
+  - Raising IPL to L + 1 on entry, with I clear, holds off the level being
+    handled and everything below; a handler that executes `EI` lets
+    higher levels in, so nesting is the handler's choice. Four bits of IPL
+    are needed for that: 0 allows every level, 8 none.
+  - Report 0020 measured 500–640 cycles to hand an interrupt to a
+    user-level driver, so devices should interrupt for a buffer, not a
+    byte ([report 0020](0020-report-operating-system.md#interrupts-and-devices)).
+  - The non-maskable interrupt is for a front-panel halt or a debugger
+    button, which helps most while the hardware is being brought up. The
+    bus has no line for it.
 - **Special registers 8–15 are the supervisor's,** so the privilege check
   is one bit. v1bs's numbering grew one register at a time.
 - **Full banks, the kernel in bank 0.** v1bs offered three policies;
@@ -315,11 +354,9 @@ keeps what worked and changes the rest.
 
 ### 11. Open questions
 
-1. **Interrupt levels:** how many, how they're masked (bits 24–26 of `sr`
-   are reserved for it), and whether a vector comes from the
-   level or from the device, as
-   [RFC 0009](0009-rfc-ideas-io.md#1-io) proposes. Whether each level
-   gets a register bank, so that a handler saves nothing.
+1. **Interrupts:** whether each level gets a register bank, so that a
+   handler saves nothing; and the non-maskable interrupt's source,
+   triggering, and effect on I and IPL.
 2. **The physical memory map:** where RAM, ROM, the I/O registers and the
    slots sit, now that the window reaches only the lower 2 GB, and what
    an access that nothing answers does.
