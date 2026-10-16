@@ -899,15 +899,17 @@
 
 ; ---- primitives
 
+; when the heap is full, the runtime's cons collects, checks again and
+; makes the pair
 (define (cc:gen-cons)                  ; r3 = car, r4 = cdr -> r1
-  (let ((back (cc:label)))
+  (let ((done (cc:label)))
     (cc:e 'alloc (list 'cmp 14 (list 'abs (cc:rt 'cons-limit))))
-    (cc:e 'alloc (list 'b 'hi (cc:stub (list 'gc back)
-                                   (list (list 'rt 'call (cc:rt 'gc)) (list 'b 'ra back)))))
-    (cc:emit-label back)
+    (cc:e 'alloc (list 'b 'hi (cc:stub (list 'gc done)
+                                   (list (list 'rt 'call (cc:rt 'cons)) (list 'b 'ra done)))))
     (cc:e 'alloc '(st 3 (pinc 14)))
     (cc:e 'alloc '(st 4 (pinc 14)))
-    (cc:e 'alloc '(lea 1 (mem 14 -7)))))
+    (cc:e 'alloc '(lea 1 (mem 14 -7)))
+    (cc:emit-label done)))
 
 (define (cc:check-num r)               ; r is a fixnum, else "not a number"
   (if (cc:option? 'tagged)

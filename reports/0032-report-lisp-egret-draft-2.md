@@ -30,6 +30,23 @@ figure here by less than 0.7 points. Changes are draft 2 against 1b, as
 geometric means over the programs: the Lisp's 12 benchmarks and Egret's
 17 programs.
 
+> **Erratum (2026-10-16).** The [three bugs carried over from 1b](#three-bugs-carried-over-from-1b)
+> are now fixed on 1b as well, the same way, so the drafts are compared
+> with the fixes on both. That moves 1b's numbers a little, and
+> lisp.md and egret.md are regenerated. In the text:
+>
+> - the Lisp compiled takes 1.0% fewer cycles on draft 2, not 0.9%
+>   (0.990 of 1b's, not 0.991), and with no leaf functions its mutator
+>   takes 1.004 of 1b's, not 1.005;
+> - where the compiled cycles moved, the runtime's routines take 709,494
+>   fewer (−0.32%), not 646,862, and the collector 323,394 fewer
+>   (−0.14%), not 329,223.
+>
+> None of Egret's figures in the text move. Where the report says the port leaves 1b
+> as it was (compiler.lisp byte for byte, report 0017's and 0018's
+> tables, the bugs still there on 1b), that was true of the port: the
+> fixes since changed compiler.lisp and those tables.
+
 ## Summary
 
 - **Everything runs on draft 2:** the Lisp's 22 programs and tests,
@@ -180,6 +197,9 @@ The fixes cost the compiled Lisp 0.03 points, nearly all of it in
 `meta`, which applies its primitives to argument lists and gets 0.4%
 slower from the check in every `apply`. Egret's `SAVE` is cheaper than
 the two pushes and pops it replaces.
+
+> **Erratum (2026-10-16).** 1b now has the same fixes (the erratum
+> before the [summary](#summary)).
 
 ## The Lisp
 
