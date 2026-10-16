@@ -1,6 +1,6 @@
 """The specification language for instruction sets: parser and interpreter.
 
-language.md describes the language; v1b.isa is draft 1b written in it.
+RFC 0038, Part II, describes the language; v1b.isa is draft 1b written in it.
 
 The interpreter runs a specification's `step()` on a machine state whose
 values are known (ints) or symbolic (z3 bit-vectors). It never forks: a
@@ -117,6 +117,18 @@ def g_not(a):
     return z3.Not(a)
 
 
+def decided(c):
+    """A condition simplified, as a Python bool if it is constant."""
+    if isinstance(c, bool):
+        return c
+    c = z3.simplify(c)
+    if z3.is_true(c):
+        return True
+    if z3.is_false(c):
+        return False
+    return c
+
+
 def sized(v, w):
     """v as a Bits of width w (a number takes it; a Bits must have it)."""
     if isinstance(v, int):
@@ -132,6 +144,10 @@ def ite(c, a, b):
         return a
     if c is False:
         return b
+    if a is None:                    # no value: only on a path that has faulted
+        return b
+    if b is None:
+        return a
     if isinstance(a, tuple):
         return tuple(ite(c, x, y) for x, y in zip(a, b))
     if isinstance(a, int) and isinstance(b, int):
@@ -974,7 +990,7 @@ class Run:
         rest, out = self.g, False
         for cond, blk in st[1]:
             self.g = rest
-            c = guard(self.eval(cond, env))
+            c = decided(guard(self.eval(cond, env)))
             rest = self.g                       # (a call in the condition may fault)
             self.g = g_and(rest, c)
             if self.g is not False:
@@ -1073,7 +1089,7 @@ class Run:
                 w = p if isinstance(p, int) else p.x
                 m = ins.matches(w)
             else:
-                m = guard(binop("==", binop("&", p, ins.mask), ins.value))
+                m = decided(guard(binop("==", binop("&", p, ins.mask), ins.value)))
             if m is False:
                 continue
             fields = {f: extract(p, hi, lo) for f, (hi, lo) in ins.fields.items()}

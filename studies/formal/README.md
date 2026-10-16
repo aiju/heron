@@ -17,7 +17,8 @@ specification of draft 1b, run the same way, one instruction at a time.
   reaches it, the run splits in two, each side with that bit decided.
   That is the case-splitting heuristic: control known, data symbolic.
 - **The instruction set side** is a specification in a small language made
-  for it ([language.md](language.md), [v1b.isa](v1b.isa)), interpreted on
+  for it ([RFC 0038, Part II](../../reports/0038-rfc-formal-verification.md#part-ii-the-specification-language),
+  [v1b.isa](v1b.isa)), interpreted on
   known values (checked against the instruction-level simulator) or on
   symbolic ones, where it gives the next state as terms in one pass,
   without forking.
@@ -27,11 +28,11 @@ specification of draft 1b, run the same way, one instruction at a time.
   path; and reset reaches a boundary.
 
 It uses z3 (`pip install z3-solver`), which nothing else in the
-repository needs. Report: [0038](../../reports/0038-report-formal-verification.md).
+repository needs. The flow it suggests, the language, and the results: [RFC 0038](../../reports/0038-rfc-formal-verification.md).
 
 | File | What's in it |
 |---|---|
-| [language.md](language.md), `spec.py` | The specification language, its parser and interpreter (known or symbolic values) |
+| `spec.py` | The specification language ([RFC 0038, Part II](../../reports/0038-rfc-formal-verification.md#part-ii-the-specification-language)): its parser and interpreter, on known or symbolic values |
 | [v1b.isa](v1b.isa) | Draft 1b, specified |
 | `isacheck.py` | The specification against the instruction-level simulator: random states and instructions, one step each |
 | `logic.py` | Bits that are known or z3 terms, with constant folding |
@@ -39,7 +40,7 @@ repository needs. Report: [0038](../../reports/0038-report-formal-verification.m
 | `v1b.py` | The 1b hardware under it: the state by name, the I/O page fixture, the abstraction at an instruction boundary, the decode cases, the proofs (and reset) |
 | `prove.py` | Proving decode cases in parallel, each with a time budget |
 | `mutate.py` | Mutation testing: mistakes put into the netlist or the microcode on purpose (by hand, and at random), and whether the chip-level tests and the proofs catch them |
-| `report.py` | Report 0038's generated tables, from the proof and mutation runs |
+| `report.py` | RFC 0038's generated tables, from the proof and mutation runs |
 
 ```sh
 heron formal isacheck -n 20000 --coverage      # the specification against the simulator
@@ -47,6 +48,6 @@ heron formal prove --kind un                    # prove the unary group's decode
 heron formal prove --key "ea 4 None 0 None"     # one case: ADD rd, rn
 heron formal prove --jobs 4 --budget 1800       # every case (hours; results in build/formal/)
 heron formal mutate                             # mutation testing (hours)
-heron formal report --write                     # report 0038's results.md, from both
+heron formal report --write                     # RFC 0038's results.md, from both
 heron test formal                               # the unit tests
 ```

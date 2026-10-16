@@ -137,7 +137,7 @@ Change the generator and rerun it rather than editing the output by hand:
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;
-- `reports/0038-report-formal-verification/results.md`:
+- `reports/0038-rfc-formal-verification/results.md`:
   `heron formal report --write`, from the results of `heron formal prove`
   and `heron formal mutate` (hours each);
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:

@@ -325,8 +325,10 @@ def proofs_catch(nl, roms, cases, jobs, budget, cap):
             ran += len(batch)
             for c in batch:
                 r = res[c.name()]
-                if r["status"] in ("fail", "error"):
-                    detail = r.get("error") or next((p[2] for p in r["paths"] if p[0] != "proved"), "")
+                if r["status"] == "error":     # a fault in the tools, not a catch
+                    raise RuntimeError(f"{c.name()}: {r.get('error')}")
+                if r["status"] == "fail":
+                    detail = next((p[2] for p in r["paths"] if p[0] == "fail"), "")
                     return f"{c.name()}: {detail}"[:200], ran
         return None, ran
     finally:

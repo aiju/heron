@@ -4,7 +4,7 @@
 # does. RFC 0004, Part II, is the prose; this is the same thing, precise
 # enough to run. studies/formal runs it on known values, against the
 # instruction-level simulator, and on symbolic ones, against the hardware.
-# The language is described in studies/formal/language.md.
+# The language is described in RFC 0038, Part II.
 #
 # Reading it: values are bit vectors; a bare number takes the width of
 # what it meets. x[7:0] is a slice and x[31] a bit; a ++ b puts a above b;
