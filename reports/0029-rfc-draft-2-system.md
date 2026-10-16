@@ -44,16 +44,18 @@ To the machine of RFC 0028 this adds:
   | 1 | C | carry |
   | 2 | Z | zero |
   | 3 | N | negative |
-  | 4 | I | interrupts enabled |
-  | 5 | S | supervisor mode |
-  | 6 | T | trace: trap after every instruction |
-  | 7 | | reserved |
-  | 8–10 | | reserved for an interrupt priority level ([7](#7-interrupts), open) |
-  | 11–31 | | reserved |
+  | 4–7 | | reserved for user flags |
+  | 8–23 | | reserved |
+  | 24–26 | | reserved for an interrupt priority level ([7](#7-interrupts), open) |
+  | 27, 28 | | reserved |
+  | 29 | T | trace: trap after every instruction |
+  | 30 | I | interrupts enabled |
+  | 31 | S | supervisor mode |
 
+  Byte 0 is user mode's; the bits from 8 up are the supervisor's.
   Reserved bits read as 0 and must be written as 0.
-- **`MTSR flags, rs`** sets N, Z, C and V in user mode, and every bit but
-  S in supervisor mode.
+- **`MTSR flags, rs`** writes byte 0 in user mode, and every bit but S in
+  supervisor mode.
 - **Privileged instructions:** `HALT`, `EI`, `DI`, `RTI`, `MFUR`, `MTUR`,
   and `MFSR` and `MTSR` of special registers 8–15. In user mode they raise
   a privilege violation ([6](#6-exceptions)).
@@ -216,6 +218,15 @@ keeps what worked and changes the rest.
   set it, and the nucleus once dropped into user mode by writing the
   flags back without it
   ([report 0020](0020-report-operating-system.md#protection-modes-and-the-stack)).
+- **The supervisor's bits at the top of the flags word** (Emily,
+  2026-10-16), where draft 1 had I next to N, Z, C and V:
+  - byte 0 is all the user's, so user-mode `MTSR flags` writes one byte
+    lane instead of masking bits;
+  - S is the sign bit, so a handler tests where an exception came from
+    with `MOVS` on the saved flags word and `BMI`, and it means
+    supervisor as bit 31 of an address does ([3](#3-the-address-space));
+  - both ends have room: user flags in bits 4–7, the supervisor's below
+    bit 29.
 - **The window at bit 31,** proposed by Emily (2026-10-15), instead of
   v1bs's flag bits XL and XS, which made the supervisor's loads or stores
   go through the user's map.
@@ -290,7 +301,7 @@ keeps what worked and changes the rest.
 
 ### 11. Open questions
 
-1. **Interrupt levels:** how many, how they're masked (bits 8–10 of the
+1. **Interrupt levels:** how many, how they're masked (bits 24–26 of the
    flags word are reserved for it), and whether a vector comes from the
    level or from the device, as
    [RFC 0009](0009-rfc-ideas-io.md#1-io) proposes. Whether each level
