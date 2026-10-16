@@ -92,7 +92,6 @@ zcell:  [X] <- 0
         AC <- #TICKS_IDLE
         [X] <- AC
         m1 <- #-1
-        nturnc <- #(TURN_TICKS - 1)
 
 ; The console task, bank 0: its registers, then NEXT at the cold start's
 ; first cell.
@@ -154,11 +153,13 @@ ret_false: AC <- #0
 ; ---- attention: native work is waiting (the tick, a doorbell, WORK)
 
 ; From a primitive that has finished: ip is the cell it was. The common
-; case is the tick with no INT line up: TICKS counted down, the tick
-; cleared, and straight on, unless held levels are due.
+; case is the tick with no INT line and no ATN line up: TICKS counted
+; down, the tick cleared, and straight on, unless held levels are due.
 attn_next: F <- ev1 | ifnot F15 goto attn_slow    ; not the tick: a doorbell, or WORK
         X <- #TICKS
-        F <- ev0 - 1 | if carry goto attn_line    ; an INT line is up
+        F <- ev1 - 1 | if F15 goto attn_slow      ; an ATN line is up too
+        F <- ev0 - 1
+        if carry goto attn_line                    ; an INT line is up
         [X] <- [X] - 1                             ; (delay) the countdown
         ev1 <- F | if carry goto next1             ; the tick cleared; on, unless it ran out
         ip, X <- ip + 1
@@ -200,7 +201,9 @@ nrun:   F <- nturnf - 1 | if carry goto nrot   ; the turn is over
         CTRL <- #CTRL_WORK      ; WORK off while it runs: attention is the tick and doorbells
 
 ; The head job's turn is over: it goes to the back, and the Forth gets a
-; turn, with WORK on so that the jobs come back.
+; turn, with WORK on so that the jobs come back. When the Forth was idle,
+; in pause with every task waiting, it gets one only if a task has been
+; woken since; otherwise the next job runs.
 nrot:   nturnf <- #0
         AC <- [X]               ; the head
         X <- #JQTAIL
@@ -209,13 +212,21 @@ nrot:   nturnf <- #0
         AC <- [X]
         X <- #JQHEAD
         [X] <- AC
-        CTRL <- #(8 | CTRL_WORK)
+        AC <- nret
+        AC <- #ret_pause ^ AC
+        F <- m1 + AC | if carry goto nr_forth   ; from a running task: its turn
+        X <- #WOKE
+        F <- [X] - 1 | ifnot carry goto nloop  ; idle, and nobody woken
+        [X] <- 0
+nr_forth: CTRL <- #(8 | CTRL_WORK)
         F <- nret | goto F
         X <- #CURTASK
 
-; A job's slice found attention: to the native layer, and back to it at
-; jres.
+; A job's slice found attention (TAIL, jobs.uc): to the native layer, and
+; back to the job at jres. jattn_t: the tick, counted, has more to do.
 jattn:  BANK <- m1 | goto nloop
+        nop
+jattn_t: BANK <- m1 | goto ntick2
         nop
 
 ; A job leaves the queue, from its head.
@@ -276,16 +287,16 @@ jq_empty: AC <- t0
 
 ; ---- the tick: held levels when TICKS runs out, the INT lines and
 ; ATN0-3 that are up and enabled to their owners, each masked until it
-; has been served. Every TURN_TICKS ticks the running job's turn ends.
+; has been served. Every TURN_TICKS ticks, by TICKS's low bits, the
+; running job's turn ends.
 
 ntick:  X <- #TICKS
         [X] <- [X] - 1
 ntick2: ev1 <- F                ; the tick cleared
         F <- [X] + 1 | if carry goto ndue      ; TICKS ran out
+        AC <- #(TURN_TICKS - 1)
+nturn:  F <- ([X] & AC) - 1 | if carry goto nlines
         nop
-nturn:  nturnc <- nturnc - 1 | if carry goto nlines
-        nop
-        nturnc <- #(TURN_TICKS - 1)
         nturnf <- #1
 
 nlines: AC <- ev0
@@ -348,7 +359,9 @@ nroute: AC <- nsrc
         F <- [X]
         t3 <- F | goto post     ; the hold
         nop
-nr_task: [X] <- 0 | goto nr_none
+nr_task: [X] <- 0
+        X <- #WOKE
+        [X] <- -1 | goto nr_none
         nop
 nr_none: F <- t7 | goto F
         nop
@@ -372,8 +385,9 @@ nd_cpu: AC <- #16
         CTRL <- #CTRL_SESSION
 nd_next: nint <- nint - 1 | if carry goto nd_cpu
         nop
+        X <- #TICKS
         goto nturn
-        nop
+        AC <- #(TURN_TICKS - 1)
 
 ; ---- doorbells (RFC 0027, 7.1): each one rung cleared, and its client's
 ; ring job queued if it isn't. A doorbell with no ring goes to BELLS, for

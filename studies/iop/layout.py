@@ -98,6 +98,7 @@ REQTAIL = 0x800A         # and read by the Forth
 SERVER = 0x800B          # the server task's wait register, 0 none
 CLIENTS = 0x800C         # the clients whose rings are set up, a bit each
 DROPPED = 0x800D         # events and completions dropped: their rings were full
+WOKE = 0x800E            # not 0 when the native layer has woken a task
 TICKS_IDLE = 0x7FFF      # TICKS with nothing held
 
 # ---- tables
@@ -170,8 +171,8 @@ JOB_REGS = {
 }
 
 # The native layer's (bank 255), beside m1 and t0-t7:
-NAT_REGS = {"nret": 16, "nint": 17, "nbit": 18, "nsrc": 19, "nwhich": 20, "nturnc": 21, "nturnf": 22}
-TURN_TICKS = 2           # ticks in a job's turn: then the queue moves on, and the Forth runs
+NAT_REGS = {"nret": 16, "nint": 17, "nbit": 18, "nsrc": 19, "nwhich": 20, "nturnf": 22}
+TURN_TICKS = 4           # ticks in a job's turn, a power of two: then the queue moves on, and the Forth runs
 
 # A pool job's end (jkind)
 JK_NONE = 0

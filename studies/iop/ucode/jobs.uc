@@ -162,31 +162,45 @@ cp_full: X <- #DROPPED
 ; movers (ib, bi) multiples of 4.
 
 ; A slice: TOP, the mover's go line and loop, TAIL, LAST. S is a full
-; slice's bytes, full LC for it; on and off what CTRL does around it.
+; slice's bytes, full LC for it; on and off what CTRL does around it. sl
+; takes a slice's bytes off jchunk and goes to last when there isn't a
+; whole slice left; last does what is, or ends the chunk.
 .macro TOP name S full on
 \name_top: AC <- #\S
-        F <- jchunk - AC
-\name_sl: ifnot carry goto \name_last
+\name_sl: jchunk <- jchunk - AC | ifnot carry goto \name_last
         \on
-        jchunk <- jchunk - AC
         LC <- #\full
 .endm
 
+; Attention between slices: the tick alone is counted and cleared here,
+; and the slice goes on; anything else is the native layer's (jattn).
 .macro TAIL name S off
         \off
-        F <- jchunk - 1 | ifnot carry goto \name_end
-        AC <- #\S
         ifnot attn goto \name_sl
-        F <- jchunk - AC
-        goto jattn
+        AC <- #\S
+        F <- ev1 | ifnot F15 goto jattn            ; not the tick: a doorbell
+        X <- #TICKS
+        F <- ev1 - 1 | if F15 goto jattn           ; an ATN line too
+        F <- ev0 - 1
+        if carry goto jattn                         ; an INT line
+        AC <- #(TURN_TICKS - 1)
+        [X] <- [X] - 1 | ifnot carry goto jattn_t   ; held levels are due
+        F <- ([X] & AC) - 1
+        ifnot carry goto jattn_t                    ; the turn is over
+        AC <- #\S
+        ev1 <- F | goto \name_sl
         nop
 .endm
 
-.macro LAST name tab
+; jchunk is less than a slice now, S less what's left.
+.macro LAST name tab S off
 \name_last: AC <- jchunk
+        AC <- #\S + AC
+        F <- m1 + AC | ifnot carry goto \name_e0
         X <- #\tab + AC
         LC <- [X] | goto \name_go
-        jchunk <- #0
+        jchunk <- 0
+\name_e0: \off
 .endm
 
 mv_start: F <- jleft - 1 | ifnot carry goto mv_done     ; nothing to move
@@ -259,7 +273,7 @@ bb_go:  AC <- #2
 bb_loop: jp2 <- jp2 + AC | rd.h AH0 | if lc goto bb_loop
         jp <- jp + AC | AB <- BA | wr.h AH1
         TAIL bb 16 CTRL<-jsoff
-        LAST bb NEGHALF
+        LAST bb NEGHALF 16 CTRL<-jsoff
 bb_end: F <- jp
         jalo <- F
         F <- jp2
@@ -282,7 +296,7 @@ bs_go:  AC <- #2
 bs_loop: jsb <- jsb + AC | AB <- sr | wr.h AH1 | if lc goto bs_loop
         jsx, X <- jsx + AC
         TAIL bs 32 CTRL<-jsoff
-        LAST bs NEGHALF
+        LAST bs NEGHALF 32 CTRL<-jsoff
 bs_end: F <- jsb
         jalo <- F
         F <- jsx
@@ -304,7 +318,7 @@ sb_go:  AC <- #2
 sb_loop: jp2 <- jp2 + AC | rd.h AH0 | if lc goto sb_loop
         jsx, X <- jsx + AC | sr <- BA
         TAIL sb 32 CTRL<-jsoff
-        LAST sb NEGHALF
+        LAST sb NEGHALF 32 CTRL<-jsoff
 sb_end: F <- jsx
         jalo <- F
         F <- jp2
@@ -331,7 +345,7 @@ ss_loop: F <- jbhi
         jp2 <- jp2 + AC | if lc goto ss_loop
         jsx <- jsx + AC
         TAIL ss 32 nop
-        LAST ss NEGHALF
+        LAST ss NEGHALF 32 nop
 ss_end: F <- jsx
         jalo <- F
         F <- jp2
@@ -352,19 +366,23 @@ fb_loop: jp <- jp + AC | wr.h AH1 | if lc goto fb_loop
         jp <- jp + AC | wr.h AH1
 fb_tail: TAIL fb 32 CTRL<-jsoff
 fb_last: AC <- jchunk
+        AC <- #32 + AC          ; what's left: less than a slice
+        F <- m1 + AC | ifnot carry goto fb_e0      ; nothing
         X <- #NEGQUART + AC
+        jchunk <- AC
         AC <- #2 & AC
-        F <- m1 + AC | ifnot carry goto fb_pairs  ; a multiple of 4
+        F <- m1 + AC | ifnot carry goto fb_pairs   ; a multiple of 4
         LC <- [X]
         AC <- #2
-        jp <- jp + AC | wr.h AH1                   ; the odd halfword
+        jp <- jp + AC | wr.h AH1                    ; the odd halfword
         AC <- #4
-        F <- jchunk - AC | ifnot carry goto fb_one ; that was all
+        F <- jchunk - AC | ifnot carry goto fb_one  ; that was all
         nop
 fb_pairs: jchunk <- 0 | goto fb_go
         nop
 fb_one: jchunk <- 0 | goto fb_tail
         nop
+fb_e0:  CTRL <- jsoff
 fb_end: F <- jp
         jalo <- F | goto mv_next
         nop
@@ -383,7 +401,7 @@ fs_go:  AC <- #2
 fs_loop: F <- jsb | sr <- F | if lc goto fs_loop
         jsx, X <- jsx + AC
         TAIL fs 32 nop
-        LAST fs NEGHALF
+        LAST fs NEGHALF 32 nop
 fs_end: F <- jsx
         jalo <- F | goto mv_next
         nop
@@ -404,7 +422,7 @@ lb_go:  AC <- #2
 lb_loop: jp <- jp + AC | AB <- io | wr.h AH1 | if lc goto lb_loop
         jx, X <- jx + 1
         TAIL lb 32 CTRL<-jsoff
-        LAST lb NEGHALF
+        LAST lb NEGHALF 32 CTRL<-jsoff
 lb_end: F <- jp
         jalo <- F
         AC <- #(DEV_FLASH << 8)
@@ -425,7 +443,7 @@ ib_go:  AC <- #2
 ib_loop: jp <- jp + AC | AB <- io | wr.h AH1 | if lc goto ib_loop
         jp <- jp + AC | AB <- io | wr.h AH1
         TAIL ib 32 CTRL<-jsoff
-        LAST ib NEGQUART
+        LAST ib NEGQUART 32 CTRL<-jsoff
 ib_end: F <- jp
         jalo <- F | goto mv_next
         nop
@@ -448,7 +466,7 @@ is_loop: AC <- io
         jsx <- jsx + 1 | if lc goto is_loop
         X <- jx
         TAIL is 32 nop
-        LAST is NEGHALF
+        LAST is NEGHALF 32 nop
 is_end: AC <- jsx
         F <- #1 + AC
         jalo <- F | goto mv_next
@@ -470,7 +488,7 @@ bi_loop: jp2 <- jp2 + AC | rd.h AH0
         jp2 <- jp2 + AC | rd.h AH0 | if lc goto bi_loop
         io <- BA
         TAIL bi 32 CTRL<-jsoff
-        LAST bi NEGQUART
+        LAST bi NEGQUART 32 CTRL<-jsoff
 bi_end: F <- jp2
         jblo <- F | goto mv_next
         nop
@@ -492,7 +510,7 @@ si_loop: jsx, X <- jsx + 1
         F <- AC | io <- F | if lc goto si_loop
         jsx <- jsx + 1
         TAIL si 32 nop
-        LAST si NEGHALF
+        LAST si NEGHALF 32 nop
 si_end: AC <- jsx
         F <- #1 + AC
         jblo <- F | goto mv_next
@@ -566,6 +584,8 @@ jso_s:  goto mv_start
 jfin:   F <- jkind - 1 | ifnot carry goto jf_free
         X <- jarg
         [X] <- 0
+        X <- #WOKE
+        [X] <- -1
 jf_free: X <- #JFREE
         F <- [X]
         jkind <- F
@@ -780,7 +800,9 @@ jr_server: X <- #REQHEAD
         X <- #SERVER
         F <- [X] - 1 | ifnot carry goto jr_on
         F <- [X] | X <- F
-        [X] <- 0 | goto jr_on   ; the server can run
+        [X] <- 0                ; the server can run
+        X <- #WOKE
+        [X] <- -1 | goto jr_on
         nop
 jr_full: goto jattn
         jres <- #jr_server

@@ -25,6 +25,23 @@ def delta_ms(s, fmt, n):
     return command_ms(s, fmt % n) - command_ms(s, fmt % 0)
 
 
+def job_ms(s, b, line):
+    """Simulated ms of the native job a line starts, from its first slice
+    to its end."""
+    s.s.breakpoints = [b.mc.labels["mv_start"]]
+    s.s.uart_send(line.encode() + b"\r")
+    if s.s.run(s.s.clock + int(1e9 / s.bclk)) != "break":
+        raise RuntimeError(f"{line!r} started no job")
+    start = s.s.clock
+    s.s.breakpoints = [b.mc.labels["jfin"]]
+    if s.s.run(s.s.clock + int(1e9 / s.bclk)) != "break":
+        raise RuntimeError(f"{line!r}: its job didn't end")
+    end = s.s.clock
+    s.s.breakpoints = []
+    s.until(b" ok\r\n", 1000)
+    return (end - start) * s.bclk / 1e6
+
+
 def words_run(b, counts):
     """Forth words executed, by the counts at the primitives' entries and
     nest."""
@@ -73,15 +90,17 @@ def measure(wcs=False):
     rows.append(("Forth words a second, `words` (the console, `emit` waiting on the UART)",
                  f"{(a[2] - z[2]) / ((a[0] - z[0]) * bclk / 1e9):,.0f}", "-"))
 
-    # ---- copies, into the CPU card's RAM through its slave port
+    # ---- copies, into the CPU card's RAM through its slave port: a job's
+    # time from its first slice to its end, the ticks and the Forth's turns
+    # included
     n = 8192
     for name, line, rfc in [
-        ("fill, the CPU's RAM", "0 $10000. %05d bus-fill", "9.9 MB/s"),
-        ("copy, the CPU's RAM to its RAM", "$10000. $20000. %05d bus-move", "4.9 MB/s"),
-        ("copy, the shared RAM to the CPU's RAM", "0 0 $10000. %05d sr>bus", "7.6 MB/s"),
-        ("copy, the CPU's RAM to the shared RAM", "$10000. 0 0 %05d bus>sr", "7.6 MB/s"),
+        ("fill, the CPU's RAM", "0 $10000. %d bus-fill", "9.9 MB/s"),
+        ("copy, the CPU's RAM to its RAM", "$10000. $20000. %d bus-move", "4.9 MB/s"),
+        ("copy, the shared RAM to the CPU's RAM", "0. $10000. %d sr>bus", "7.6 MB/s"),
+        ("copy, the CPU's RAM to the shared RAM", "$10000. 0. %d bus>sr", "7.6 MB/s"),
     ]:
-        t = delta_ms(s, line, n)
+        t = job_ms(s, b, line % n)
         rows.append((name + f", {n} halfwords", f"{2 * n / t / 1e3:.1f} MB/s", rfc))
 
     # ---- booting the CPU
