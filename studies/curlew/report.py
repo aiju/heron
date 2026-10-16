@@ -253,7 +253,7 @@ def render(d):
     w("Shares of the base run's cycles each change would save, costed from the "
       "run's counts; the stack guard is measured (`nostackcheck`).\n")
     keys = [("quick_tst", "One-parcel TST #q"), ("one_insn_check", "Branch on bit 0"),
-            ("sign_tag", "Sign-bit mark"), ("guard_stack", "Stack guard"), ("guard_heap", "Heap guard"),
+            ("sign_tag_checks", "MOVS sets C"), ("sign_tag", "Sign-bit mark"), ("guard_stack", "Stack guard"), ("guard_heap", "Heap guard"),
             ("store_imm", "Store immediate"), ("field_mode", "Short field mode")]
     rows = []
     for n in names:
@@ -279,6 +279,9 @@ def render(d):
 - **One-parcel `TST r, #q`:** the check's `TST r, #1` in one parcel, 2
   cycles where it takes 3.
 - **Branch on bit 0:** `TST` and `BNE` as one two-parcel instruction.
+- **MOVS sets C:** a word `MOVS` sets C to bit 0 of the value, so that a
+  check straight after the load of the value it checks is just `BCS`:
+  the `TST` goes.
 - **Sign-bit mark:** marking an unevaluated value with bit 31 rather than
   bit 0, so that the load before a check sets N and the `TST` goes; less
   the cost of setting the bit when a thunk is made and clearing it when one
