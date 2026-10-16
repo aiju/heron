@@ -90,7 +90,7 @@ where it was.
   primitive it held when the compiler was loaded. `car` and `cdr` are one
   instruction each, checked by the alignment trap; arithmetic checks both
   operands' tags in software (or with `tagged`, in one instruction,
-  [isa.md](isa.md)) and the V flag for overflow.
+  [report 0018's appendix](../../reports/0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)) and the V flag for overflow.
 - **Tests.** An `if` whose test is a comparison or a predicate compiles to
   a compare and a branch, without making `t` or `nil`.
 - **Errors** branch to a shared stub at the end of the function, which

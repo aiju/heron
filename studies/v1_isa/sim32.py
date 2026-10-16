@@ -7,7 +7,7 @@ can work out the cycle count for every hardware configuration from one run.
 The machine's own `cycles` counter (used by the timer and the cycle limit)
 follows the reference configuration.
 
-I/O page at 0xFFFFFF00 (32-bit registers, see isa-v1.md):
+I/O page at 0xFFFFFF00 (32-bit registers, see RFC 0004):
   +00  R: console input byte, or -1     W: console output (low byte)
   +04  R: bit 0 = input waiting, bit 1 = end of input
   +08  R/W: timer period in cycles (0 = off)

@@ -37,7 +37,7 @@ the rest as fast cards.
   ([section 4](#4-networking)), video ([section 3](#3-video)), a keyboard
   and a mouse. The MMU's registers are
   special registers in the kernel study's v1bs, not devices
-  ([studies/kernel/system.md](../studies/kernel/system.md)).
+  ([report 0020's appendix](0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)).
 - **Memory-mapped I/O.** **adopted.**
   - In draft 1 the I/O page is at `0xFFFFFF00`, reachable with a
     sign-extended 16-bit absolute address. The draft 1b hardware decodes

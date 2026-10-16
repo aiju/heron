@@ -29,6 +29,8 @@ So far there has been:
 
 Draft 2 is next, built on 1b
 ([RFC 0006](reports/0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
+Its encoding is drafted in
+[RFC 0028](reports/0028-rfc-draft-2-isa.md).
 
 ## Layout
 
@@ -50,7 +52,7 @@ The tools are Python, except the engines (the simulators, the assembler
 and the linker), which are Rust: crates in one Cargo workspace, with
 `Cargo.toml` at the root ([RFC 0015](reports/0015-rfc-languages.md)).
 
-**Start here:** [report 0004](reports/0004-report-draft-1-evaluation.md)
+**Start here:** [RFC 0004](reports/0004-rfc-draft-1-isa.md)
 (draft 1a against 1b, and the hardware options), then
 [RFC 0005](reports/0005-rfc-ideas-direction.md) (where the ideas stand,
 and what the measurements point to), the other

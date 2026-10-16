@@ -2,7 +2,7 @@
 //! the instruction-level simulator that runs it (the Rust version of
 //! studies/v1_isa/sim32.py).
 //!
-//! I/O page at 0xFFFFFF00 (32-bit registers, see isa-v1.md):
+//! I/O page at 0xFFFFFF00 (32-bit registers, see RFC 0004):
 //!   +00  R: console input byte, or -1     W: console output (low byte)
 //!   +04  R: bit 0 = input waiting, bit 1 = end of input
 //!   +08  R/W: timer period in cycles (0 = off)
@@ -35,7 +35,7 @@ pub enum Isa {
     V1a,
     V1b,
     /// 1b with the experimental extensions of the Lisp study
-    /// (studies/lisp/isa.md): the reserved mode E is a tagged register.
+    /// (report 0018's appendix): the reserved mode E is a tagged register.
     V1bx,
     /// 1b with the system extensions of the kernel study (sys.rs).
     V1bs,

@@ -1,4 +1,4 @@
-//! The draft 1a encoder: load/store, 16-bit parcels (isa-v1a.md).
+//! The draft 1a encoder: load/store, 16-bit parcels (RFC 0004, Part I).
 
 use toolchain::asm::{AsmError, Ctx, Encoder, Operand, kinds};
 use toolchain::obj::{ABS16S, ABS32, PC16};

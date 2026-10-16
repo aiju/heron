@@ -1,7 +1,7 @@
 """The backplane's logic (RFC 0014 sections 5, 7 and 13.9): slot decode,
 the class straps, transfer timing, the arbiter, the bus monitor, the clock
 driver, the power-on reset and the pull-ups. Every register is clocked by
-the bus clock at the edge that ends a clock; see design.md for the
+the bus clock at the edge that ends a clock; see report 0025, Part I, for the
 design and its timing.
 
 Its nets that are bus lines have the bus's names (bus.py): D0, START_n,

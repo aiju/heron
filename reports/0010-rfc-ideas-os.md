@@ -16,8 +16,9 @@ hardware gives it, each with its own status
 ([RFC 0000](0000-rfc-repository-layout.md#ideas-rfcs)). Most of the
 evidence is [report 0020](0020-report-operating-system.md), which built
 v1bs, draft 1b with system extensions
-([studies/kernel/system.md](../studies/kernel/system.md)), and a small
-message-passing kernel on it.
+([report 0020's appendix](0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)), and a small
+message-passing kernel on it. Draft 2's system architecture is drafted
+in [RFC 0029](0029-rfc-draft-2-system.md).
 
 | Status | Meaning |
 |---|---|
@@ -169,8 +170,13 @@ growing stacks, guard pages), and sharing.
   flag bits, XL and XS, send its loads or stores through the user's map
   (the 68010's `MOVES` without a new instruction). Copying to and from user
   memory runs at full speed with any instruction, and a bad pointer is
-  just a page fault. ~1–2 chips. **measured**, **recommended**. They
-  replace the `LDU`/`STU` instructions first proposed.
+  just a page fault. ~1–2 chips. **measured**; **rejected** for draft 2
+  (Emily, 2026-10-15): they're a mode on every load or store, so while one
+  is set the kernel's own stack goes through the user's map and copy loops
+  can't be compiled. RFC 0029 has the supervisor reach user memory through
+  the translated space instead, with physical memory in a window at bit 31
+  ([RFC 0029, 3](0029-rfc-draft-2-system.md#3-the-address-space)). They
+  replaced the `LDU`/`STU` instructions first proposed.
 - **Writing the map:** `MTSR mapd` with `mapa` stepping on by one, so a
   run of entries takes one instruction each (v1bs).
 - **More than 16 processes:** reassign contexts. Reusing one costs about 7
@@ -190,6 +196,8 @@ growing stacks, guard pages), and sharing.
 - `CALL` and `JMP/CALL [mem]` read the target and push before changing the
   PC or `sp`, except 1b's `CALL [r]+` and `CALL -[r]`, which move `r`
   first ([report 0020](0020-report-operating-system.md#what-was-hard)).
+  Draft 2's calls push nothing: the return address goes to `r7`
+  ([RFC 0028, 5.7](0028-rfc-draft-2-isa.md#57-jumps-and-calls)).
 - `SAVE` writes first and moves `sp` last; re-running it is idempotent.
 - `RESTORE` re-runs idempotently (`sp` is never in the range).
 - Prefetch faults are held back until the parcel is used.
@@ -198,7 +206,7 @@ growing stacks, guard pages), and sharing.
 - On a fault the microcode: stops the write, latches the address and reason,
   saves the PC of the faulting instruction, and traps.
 
-**ISA additions** (as v1bs has them, [system.md](../studies/kernel/system.md)):
+**ISA additions** (as v1bs has them, [report 0020's appendix](0020-report-operating-system.md#appendix-v1bs-draft-1b-with-system-extensions)):
 the S, XL and XS flag bits; a supervisor `sp` or banks; privileged
 instructions; special registers for the fault address and reason, the
 context, the map address and data, the bank and the banking policy;

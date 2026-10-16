@@ -36,7 +36,7 @@ def us(c):
 
 def nucleus_tables(res):
     out = ["## The nucleus's paths", "",
-           "Cycles per operation, for each register-bank policy (system.md). "
+           "Cycles per operation, for each register-bank policy (v1bs, the appendix). "
            "Each scenario's own user code is included, except where marked †: "
            "those count only the nucleus's cycles.", "",
            "| Operation | none | half | full | half, D32-wide | none, at 3 MHz |",

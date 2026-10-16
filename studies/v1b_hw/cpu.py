@@ -21,7 +21,7 @@ Buses
 
 The control signals are the outputs of the microinstruction register (uIR,
 15 x 74HCT377) which loads the microcode ROMs' outputs at every clock edge.
-See hardware.md and ucode.py (field meanings) and rtl.py (the
+See report 0012, Part I, and ucode.py (field meanings) and rtl.py (the
 register-transfer model this netlist implements).
 """
 

@@ -38,7 +38,7 @@ Cycle counts are exact for this implementation: they come from the microcode and
 | strings | 8,936 | 20,045 | 2.24 | 1,162 | 20.0 ms | 9.7 ms | 5.9 ms | 5.4 ms | 4.0 ms | matches, cycle-exact |
 | **total** | 2,291,544 | 4,875,984 | 2.13 | | 4.88 s | 2.37 s | 1.45 s | 1.31 s | 974.3 ms | |
 
-Chip-level runs: every program at 487 ns (2.05 MHz) with worst-case delays (hct-ls181), comparing console output, registers, flags, PC, all of RAM and (for programs without interrupts) the cycle of every instruction fetch with the instruction-level simulator. Longest bus contention seen: 67 ns (see [hardware.md](../../studies/v0_hw/hardware.md#known-issues-and-what-a-second-iteration-would-change)).
+Chip-level runs: every program at 487 ns (2.05 MHz) with worst-case delays (hct-ls181), comparing console output, registers, flags, PC, all of RAM and (for programs without interrupts) the cycle of every instruction fetch with the instruction-level simulator. Longest bus contention seen: 67 ns (see [RFC 0001, Part II](../0001-rfc-draft-0.md#15-known-issues-and-what-a-second-iteration-would-change)).
 
 ## Where the cycles go
 
