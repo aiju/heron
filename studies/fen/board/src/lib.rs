@@ -10,7 +10,7 @@
 //! |---|---|
 //! | `0x0000_0000` | slot 0, the CPU board: RAM from 0 (4 MB by default) |
 //! | `0x0F00_0000` | the CPU board's timer ([`timer`]) |
-//! | `0x0F00_1000` | the board's information: +0 R the RAM's size in bytes, +4 R the clock in Hz, +C R boot flags the host sets; and the simulator's debug port, +8 W a byte to the host's log (not hardware) |
+//! | `0x0F00_1000` | the board's information: +0 R the RAM's size in bytes, +4 R the clock in Hz, +C R boot flags the host sets; and the simulator's debug port, +8 W a byte to the host's log, and trace port, +4 W a word to the host's trace when it keeps one (not hardware) |
 //! | `0x0F00_2000` | the interrupt mask: +0 R the levels requesting, +4 R/W the mask, a bit per level, 1 to let it through (0 after reset) |
 //! | `0x1000_0000` | slot 1, the video card ([`video`]): VRAM, its registers at `0x1FF0_0000` |
 //! | `0x2000_0000` | slot 2, the I/O card, a 4 KB page for each device: a 16C550 UART at +0x0000, a CompactFlash card in True IDE mode at +0x1000 (CS0, the task file) and +0x1020 (CS1, the control block), two PS/2 ports at +0x2000 (keyboard) and +0x2010 (mouse) ([`ps2`]), and a clock at +0x3000, with the card's ID at +0x3FFC |
@@ -105,6 +105,8 @@ pub struct Board {
     pub mouse: ps2::Port,
     /// What was written to the debug port.
     pub debug: Vec<u8>,
+    /// When it's there, what was written to the trace port, with the cycle.
+    pub trace: Option<Vec<(u64, u32)>>,
     /// The interrupt mask register.
     pub imask: u8,
     now_ns: u64,
@@ -122,6 +124,7 @@ impl Board {
             kbd: ps2::Port::new(ps2::Kind::Keyboard),
             mouse: ps2::Port::new(ps2::Kind::Mouse),
             debug: Vec::new(),
+            trace: None,
             imask: 0,
             now_ns: 0,
             uart_frac: 0.0,
@@ -291,6 +294,11 @@ impl Bus for Board {
         match pa >> 28 {
             0 if pa & !0xF == TIMER => self.timer.write(pa & 0xF, v, self.now_ns),
             0 if pa == INFO + 8 => self.debug.push(v as u8),
+            0 if pa == INFO + 4 => {
+                if let Some(t) = &mut self.trace {
+                    t.push((cycles, v));
+                }
+            }
             0 if pa & !0xF == INFO => {}
             0 if pa == IMASK + 4 => self.imask = v as u8,
             0 if pa & !0xF == IMASK => {}

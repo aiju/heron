@@ -234,6 +234,7 @@ struct thread *thread_new(struct proc *p, u32 pc, u32 sp, u32 arg, int prio)
             t->proc = p;
             t->gen++;
             t->rcvid = MAKE_RCVID(t);
+            INFO_TRACE = TRACE_START | t->id;
             t->prio = prio;
             t->slice = SLICE_TICKS;
             t->pc = pc;
@@ -281,6 +282,7 @@ void thread_kill(struct thread *t)
         }
     p->nthreads--;
     t->state = T_FREE;
+    INFO_TRACE = TRACE_END | t->id;
     if (t == current) {
         current = 0;
         need_resched = 1;

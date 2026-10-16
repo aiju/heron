@@ -33,6 +33,11 @@ typedef unsigned char u8;
 #define INFO_CLOCK REG(INFO_BASE + 4)
 #define INFO_DEBUG REG(INFO_BASE + 8)
 #define INFO_FLAGS REG(INFO_BASE + 12)
+/* the simulator's trace port (not hardware): TRACE_START | bank when a
+ * thread starts in a bank, TRACE_END | bank when it ends */
+#define INFO_TRACE REG(INFO_BASE + 4)
+#define TRACE_START 0x01000000u
+#define TRACE_END 0x02000000u
 #define IRQ_PENDING REG(IMASK_BASE)
 #define IRQ_MASK REG(IMASK_BASE + 4)
 #define IRQ_TIMER 6

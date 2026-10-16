@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v2_isa, c_compiler, graphics]
-reports: [0036]
+reports: [0036, 0037]
 ---
 
 # Fen: an operating system for draft 2
@@ -47,6 +47,7 @@ instruction-level simulator, on a board of the study's own
 | `build.py`, `mkfs.py` | Building everything; the file system image |
 | `run.py`, `cli.py` | Running it, with the keyboard, the mouse and the screen; the command line |
 | `profile.py`, `bench.py` | Cycles by process and function; the measurements in report 0036 |
+| `banks.py` | What fewer register banks would cost: traces of the threads that run, replayed through fewer banks (report 0037) |
 
 ```sh
 heron fen build                 # the kernel, the programs, the boot image and a disk, in build/fen
@@ -56,6 +57,7 @@ heron fen shot menu:1 'click:300,300' 'type:ls\n' -o screen.png
                                 # boot the desktop, do things, save the screen
 heron fen ktest                 # the kernel's own test
 heron fen bench [--write]       # the measurements (report 0036's performance.md)
+heron fen banks [--write]       # fewer register banks (report 0037's results.md)
 heron test fen                  # the unit tests
 ```
 

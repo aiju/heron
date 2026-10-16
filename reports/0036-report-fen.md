@@ -348,7 +348,7 @@ C's `bank_copy_ur` in `entry.s`):
 |---|---:|---:|
 | a call and reply to another process | 734 | 784 |
 | a call and reply to a thread of the same process | 730 | 780 |
-| `spawn` and `waitpid` of `/bin/true` | 116,171 | 116,587 |
+| `spawn` and `waitpid` of `/bin/true` | 116,192 | 116,613 |
 
 That is 25 cycles a message, two messages a round trip, 6.4% of it.
 (Before the fast path, when the C called a function for the copy, it was
@@ -368,7 +368,7 @@ From [performance.md](0036-report-fen/performance.md):
 | `notify` a port, and `ipc_recv` the notification | 560 | 93 µs |
 | a call and reply between processes | 734 | 122 µs |
 | `vm_alloc` and `vm_free` a page (zeroed) | 5,154 | 0.9 ms |
-| `spawn` and `waitpid` a program | 116,171 | 19 ms |
+| `spawn` and `waitpid` a program | 116,192 | 19 ms |
 | boot to the desktop's prompt | 5.5 M | 1.01 s |
 | move a 562 × 381 window | 685,000 | 114 ms |
 

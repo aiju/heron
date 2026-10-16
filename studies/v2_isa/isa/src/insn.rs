@@ -11,7 +11,9 @@
 
 use crate::key::{Ea, How, Key, Kind};
 use crate::machine::{ADDR_VECTOR, DIV_VECTOR, ILLEGAL_VECTOR, Machine, SWI_VECTOR, TAG_VECTOR};
-use crate::sys::{BANKS, MAP_SIZE, PTE_MASK, SR_I, SR_IPL_SHIFT, SR_S, SR_T, VEC_PRIV, VEC_SWI};
+use crate::sys::{
+    BANKS, MAP_SIZE, MSG_MARK, PTE_MASK, SR_I, SR_IPL_SHIFT, SR_S, SR_T, VEC_PRIV, VEC_SWI,
+};
 
 /// An instruction trapping: `fault` saves the faulting instruction's
 /// address, otherwise the next instruction's. In system mode `vector` is
@@ -678,6 +680,9 @@ impl Machine {
             s.ipl = l;
         }
         s.exceptions[(offset / 4).min(0x40) as usize] += 1;
+        if old & SR_S == 0 {
+            s.user_entries += 1;
+        }
         self.pc = crate::sys::VEC_BASE.wrapping_add(offset);
         Ok(())
     }
@@ -692,6 +697,19 @@ impl Machine {
         self.set_sr_but_s(sr);
         self.set_mode(sr & SR_S != 0);
         self.pc = pc & !1;
+        let cycles = self.cycles;
+        let s = self.sys.as_mut().expect("system mode");
+        if !s.supervisor
+            && let Some(log) = &mut s.user_runs
+            && log
+                .iter()
+                .rev()
+                .find(|&&(_, b)| b & MSG_MARK == 0)
+                .map(|&(_, b)| b as u32)
+                != Some(s.bank)
+        {
+            log.push((cycles, s.bank as u16));
+        }
         Ok(())
     }
 
@@ -950,6 +968,10 @@ impl Machine {
                     vals.copy_from_slice(&self.r[..8]);
                 } else {
                     vals.copy_from_slice(&self.sys.as_ref().unwrap().banks[from][..8]);
+                }
+                let cycles = self.cycles;
+                if let Some(log) = &mut self.sys.as_mut().unwrap().user_runs {
+                    log.push((cycles, MSG_MARK | to as u16));
                 }
                 if to == cur {
                     self.r[..8].copy_from_slice(&vals);

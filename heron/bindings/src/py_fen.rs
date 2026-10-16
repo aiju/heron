@@ -192,6 +192,38 @@ pub mod fen {
         fn bank(&self) -> u32 {
             self.c.m.sys().bank
         }
+        /// Exceptions and interrupts taken from user mode.
+        #[getter]
+        fn user_entries(&self) -> u64 {
+            self.c.m.sys().user_entries
+        }
+
+        /// Start (or with `on` false, stop) the trace of threads run:
+        /// each RTI into user mode in another bank than the last.
+        #[pyo3(signature = (on=true))]
+        fn trace_banks(&mut self, on: bool) {
+            self.c.m.sys_mut().user_runs = if on { Some(Vec::new()) } else { None };
+            self.c.board().trace = if on { Some(Vec::new()) } else { None };
+        }
+
+        /// The trace so far, [(cycle, bank)], with 0x100 | bank for a
+        /// BCOPY into the bank, and empty it.
+        fn bank_runs(&mut self) -> Vec<(u64, u16)> {
+            match &mut self.c.m.sys_mut().user_runs {
+                Some(v) => std::mem::take(v),
+                None => Vec::new(),
+            }
+        }
+
+        /// What the kernel wrote to the board's trace port so far,
+        /// [(cycle, word)], and empty it.
+        fn trace_port(&mut self) -> Vec<(u64, u32)> {
+            match &mut self.c.board().trace {
+                Some(v) => std::mem::take(v),
+                None => Vec::new(),
+            }
+        }
+
         /// A context's valid page map entries: [(virtual page, entry)].
         fn page_map(&self, ctx: usize) -> Vec<(u32, u32)> {
             use v2_isa::sys::{CONTEXTS, PAGES, PTE_V};

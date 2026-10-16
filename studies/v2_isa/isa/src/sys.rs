@@ -48,6 +48,8 @@ pub const MAP_SIZE: usize = CONTEXTS * PAGES;
 pub const PTE_V: u32 = 1;
 pub const PTE_W: u32 = 2;
 pub const PTE_X: u32 = 4;
+/// In [`Sys::user_runs`], a BCOPY into the bank rather than a run in it.
+pub const MSG_MARK: u16 = 0x100;
 /// Bits 11-3 of an entry read as 0.
 pub const PTE_MASK: u32 = 0xFFFF_F007;
 
@@ -128,6 +130,13 @@ pub struct Sys {
     /// Exceptions taken, by vector offset / 4 (SWIs all count at 0x40).
     pub exceptions: [u64; 0x41],
     pub interrupts: [u64; 8],
+    /// Exceptions and interrupts taken from user mode.
+    pub user_entries: u64,
+    /// When it's there, a trace of the threads that ran, for measuring
+    /// register banks: (cycle, bank) at each RTI into user mode whose bank
+    /// isn't the last one's, and (cycle, MSG_MARK | bank) at each BCOPY,
+    /// the bank it copies into.
+    pub user_runs: Option<Vec<(u64, u16)>>,
 }
 
 impl Sys {
@@ -155,6 +164,8 @@ impl Sys {
             pc_valid: false,
             exceptions: [0; 0x41],
             interrupts: [0; 8],
+            user_entries: 0,
+            user_runs: None,
         }
     }
 
