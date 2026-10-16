@@ -202,16 +202,28 @@ class Site:
                 print(f"{d['label']} {d['n']}: can't fetch {branch}; showing the stub", file=sys.stderr)
                 continue
             sha = git("rev-parse", "FETCH_HEAD")
-            text = show(sha, d["src"])
+            # A new title or type renames the file: find it by its number.
+            there = d["src"]
+            if show(sha, there) is None:
+                for f in git("ls-tree", "--name-only", sha, "--", "reports/").split("\n"):
+                    m = meta.REPORT_RE.match(posixpath.basename(f))
+                    if m and m.group(4) and m.group(1) == d["n"]:
+                        there = f
+            text = show(sha, there)
             if text is None or STUB.search(text.decode(errors="replace")):
                 continue
             text = text.decode()
             fm = meta.parse_front_matter(text) or {}
-            if fm.get("number") == int(d["n"]) and fm.get("title"):
+            if fm.get("number") == int(d["n"]) and fm.get("title") and fm.get("type") in meta.STATUSES:
                 self.describe(d, fm)
-            d["branch"], d["sha"] = branch, sha
+                d["type"] = "ideas" if "-rfc-ideas-" in there else fm["type"]
+            # The page keeps the stub's address, which main links to; links
+            # to the name on the branch land on it too.
+            d["branch"], d["sha"], d["there"] = branch, sha, there
             self.branch[d["src"]], self.branch_text[d["src"]] = (sha, branch), text
-            folder = d["src"][:-3]
+            self.branch[there] = (sha, branch)
+            self.targets.setdefault(there, d["path"])
+            folder = there[:-3]
             for f in git("ls-tree", "-r", "--name-only", sha, "--", folder + "/").split("\n"):
                 if not f:
                     continue
@@ -259,12 +271,12 @@ class Site:
         if text.startswith("---\n"):
             text = text[text.index("\n---\n", 3) + 5:]
         tokens = self.md.parse(text)
-        title, toc, h1 = None, [], None
+        title, toc, h1, title_id = None, [], None, ""
         for i, t in enumerate(tokens):
             if t.type == "heading_open":
                 words = inline_text(tokens[i + 1])
                 if t.tag == "h1" and title is None:
-                    title, h1 = words, i
+                    title, h1, title_id = words, i, t.attrs.get("id", "")
                 elif t.tag in ("h2", "h3"):
                     toc.append((int(t.tag[1]), t.attrs.get("id", ""), words))
         if h1 is not None:
@@ -289,7 +301,7 @@ class Site:
             return f'href="{esc(url)}"{ext}'
         body = re.sub(r'href="([^"]*)"', href, body)
         first = next((p for p in re.findall(r"<p>(.*?)</p>", body, re.S) if "<img" not in p), "")
-        return {"html": body, "title": title or src, "toc": toc, "links": links,
+        return {"html": body, "title": title or src, "title_id": title_id, "toc": toc, "links": links,
                 "math": 'class="math ' in body, "text": plain(body), "abstract": plain(first)}
 
     # -------------------------------------------------------------- labels
@@ -312,7 +324,7 @@ class Site:
 
     # -------------------------------------------------------------- pieces
 
-    def shell(self, path, title, body, nav=None, description="", math=False, src=None, cls=""):
+    def shell(self, path, title, body, nav=None, description="", math=False, src=None, ref="main", cls=""):
         root = "../" * path.count("/")
 
         def cur(k):
@@ -336,7 +348,7 @@ class Site:
 <link rel="stylesheet" href="{root}site.css">
 <script src="{root}site.js" defer></script>
 {head}</head>
-<body data-root="{root}"{f' data-src="{esc(src)}"' if src else ""}{f' class="{cls}"' if cls else ""}>
+<body data-root="{root}"{f' data-src="{esc(src)}" data-ref="{esc(ref)}"' if src else ""}{f' class="{cls}"' if cls else ""}>
 <header class="mast gutter">
   <div class="mast-in wrap">
     <a class="brand" href="{root}index.html" aria-label="Heron Reference Library: the index">{self.heron}<span class="wm">heron</span><span class="lib">Reference Library</span></a>
@@ -403,7 +415,7 @@ class Site:
                   f'<div class="in">{aside}</div></details>') if parts else ""
         return f"""<article class="wrap"><div class="doc-grid">
 <aside class="side" aria-label="Contents and cross-references">{aside}</aside>
-<div class="doc-main">
+<div class="doc-main"{f' id="{esc(r["title_id"])}"' if r["title_id"] else ""}>
 {head}
 {mobile}
 <div class="prose" id="prose">
@@ -433,9 +445,9 @@ class Site:
             ("Context", f'<a class="mono" href="{GH}/commit/{esc(d["commit"])}">{esc(d["commit"])}</a>' if d["commit"] else ""),
             ("Supersedes", ", ".join(f'<a href="{esc(rel(x["path"], path))}">{x["label"]} {x["n"]}</a>' for x in supersedes)),
         ]
-        ref = d.get("branch", "main")
-        acts = [("Discussion", d["discussion"]), ("Source", f"{GH}/blob/{ref}/{d['src']}"),
-                ("History", f"{GH}/commits/{ref}/{d['src']}"),
+        ref, there = d.get("branch", "main"), d.get("there", d["src"])
+        acts = [("Discussion", d["discussion"]), ("Source", f"{GH}/blob/{ref}/{there}"),
+                ("History", f"{GH}/commits/{ref}/{there}"),
                 ("Comment", f"{GH}/issues/new?title=" + urllib.parse.quote(f"{d['label']} {d['n']}: "))]
         extra = ""
         if d["status"] == "obsolete" and d["sup"] in self.by_no:
@@ -467,7 +479,7 @@ class Site:
         r = self.rendered[d["src"]]
         body = self.document(d["src"], head, side, pn)
         self.write(path, self.shell(path, f"{d['label']} {d['n']}: {d['title']}", body, "library",
-                                    r["abstract"], r["math"], d["src"]))
+                                    r["abstract"], r["math"], there, ref))
 
     def sub_page(self, d, src):
         path, r = self.pages[src], self.rendered[src]
@@ -478,7 +490,7 @@ class Site:
         others = [d["path"]] + [self.pages[s] for s in d["subs"] if s != src]
         body = self.document(src, head, [self.section("The rest of it", self.xref(others, path))])
         self.write(path, self.shell(path, f"{r['title']} · {d['label']} {d['n']}", body, "library",
-                                    r["abstract"], r["math"], src))
+                                    r["abstract"], r["math"], src, ref))
 
     def study_page(self, name, fm):
         src = f"studies/{name}/README.md"
