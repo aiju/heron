@@ -749,13 +749,21 @@ decided how much:
 - **One query per group of goals.** One query for all fifteen registers is
   several times faster than fifteen, since the solver proves the value
   written once rather than once per register.
-- **The terms as written.** z3's simplifier rewrites `a < 0x10_0000` into
-  slices and `<=`, a form the solver handles worse. The second version of
-  the interpreter ran it on every condition, and a Jcc case took 229
-  seconds where the first version's took 30. It now simplifies only the
-  conditions that choose a path (to find the constant ones), and keeps
-  values and assumptions as the specification wrote them: 9 seconds
-  against the first version's 32, run side by side.
+- **The shape of a term, not only its meaning.** Two ways of writing
+  the same condition can differ thirtyfold in proof time, and not the
+  same way for every case. The second version of the interpreter
+  first took 229 seconds on a Jcc case that the first version proved in
+  30. Two changes together brought it to 9: keeping comparisons as the
+  specification wrote them (z3's simplifier rewrites `a < 0x10_0000`
+  into slices), and leaving the guard after `a || b` as it was before,
+  rather than as "where `a` held, or where it didn't". Putting that
+  guard back alone made the Jcc case slow again (268 seconds), and made
+  `ST rd, half [rn]` fast (43 seconds, against more than 600 without it).
+  A rewrite of the specification or of the interpreter that changes no
+  meaning moves cases in and out of the budget. One defence is to write
+  the specification's terms the way the hardware computes them (P7).
+  Another, untried here, is to race two shapes of each case and take the
+  first proof. **Open:** whether that race belongs in the flow.
 
 What is still slow, or out of reach:
 
