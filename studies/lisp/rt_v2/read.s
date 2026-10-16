@@ -111,11 +111,11 @@ read:   PUSH r7
         MOV  r1, #S_unquote_splicing + 3
 .wrap:  PUSH r1                 ; (sym datum)
         BSR  read_datum
-        MOV  r3, r1
-        MOV  r4, r13
+        MOV  r6, r1
+        MOV  r5, r13
         BSR  cons
-        MOV  r4, r1
-        POP  r3
+        MOV  r5, r1
+        POP  r6
         POP  r7
         BRA  cons
 
@@ -140,8 +140,8 @@ read_list:
         BEQ  .dot
 .elt:   BSR  ungetc
         BSR  read_datum
-.add:   MOV  r3, r1
-        MOV  r4, [sp]
+.add:   MOV  r6, r1
+        MOV  r5, [sp]
         BSR  cons
         MOV  [sp], r1
         BRA  .loop
@@ -183,10 +183,10 @@ ungetc2:
 nreverse:
 .loop:  CMP  r1, r13
         BEQ  .done
-        MOV  r3, [r1 + 3]
+        MOV  r6, [r1 + 3]
         MOV  [r1 + 3], r2
         MOV  r2, r1
-        MOV  r1, r3
+        MOV  r1, r6
         BRA  .loop
 .done:  MOV  r1, r2
         RET
@@ -194,7 +194,7 @@ nreverse:
 ; read_string: after the opening quote. Jumped to from read, with the
 ; return address on the stack.
 read_string:
-        MOV  r5, #tokbuf
+        MOV  r4, #tokbuf
 .loop:  BSR  getc
         CMP  r1, #-1
         BEQ  err_eoi
@@ -208,11 +208,11 @@ read_string:
         CMP  r1, #'n'
         BNE  .put
         MOV  r1, #10
-.put:   CMP  r5, #tokbuf_end
+.put:   CMP  r4, #tokbuf_end
         BHS  .loop              ; too long: drop the rest
-        MOV  byte [r5]+, r1
+        MOV  byte [r4]+, r1
         BRA  .loop
-.end:   MOV  r1, r5
+.end:   MOV  r1, r4
         SUB  r1, #tokbuf
         MOV  r2, #tokbuf
         BRA  make_string_t
@@ -230,12 +230,12 @@ make_string_t:
         BSR  alloc
         POP  r10                ; the bytes
         POP  r2                 ; the length
-        MOV  r4, r2
-        LSL  r4, #8
-        OR   r4, #B_STR
-        MOV  [r1], r4
-        LEA  r4, [not_proc]
-        MOV  [r1 + 4], r4
+        MOV  r5, r2
+        LSL  r5, #8
+        OR   r5, #B_STR
+        MOV  [r1], r5
+        LEA  r5, [not_proc]
+        MOV  [r1 + 4], r5
         LEA  r9, [r1 + 8]       ; (byte pointers into the heap stay in r9-r12)
 .copy:  SUB  r2, #1
         BLO  .done
@@ -248,49 +248,49 @@ make_string_t:
 ; read_token: r1 = its first character. Jumped to from read, with the
 ; return address on the stack.
 read_token:
-        MOV  r5, #tokbuf
+        MOV  r4, #tokbuf
         MOVS r2, [tokpre]       ; a "." pushed back by read_list
         BEQ  .first
-        MOV  byte [r5]+, r2
+        MOV  byte [r4]+, r2
         CLR  [tokpre]
-.first: MOV  byte [r5]+, r1
+.first: MOV  byte [r4]+, r1
 .loop:  BSR  getc
         BSR  delim
         BEQ  .end
-        CMP  r5, #tokbuf_end
+        CMP  r4, #tokbuf_end
         BHS  .loop
-        MOV  byte [r5]+, r1
+        MOV  byte [r4]+, r1
         BRA  .loop
 .end:   BSR  ungetc
-        MOV  r6, r5             ; the end
+        MOV  r3, r4             ; the end
         ; an integer? [+-]?[0-9]+
-        MOV  r5, #tokbuf
+        MOV  r4, #tokbuf
         MOV  r8, #0             ; negative?
-        MOV  r1, byte [r5]
+        MOV  r1, byte [r4]
         CMP  r1, #'-'
         BEQ  .sign
         CMP  r1, #'+'
         BNE  .digits
         BRA  .sign2
 .sign:  MOV  r8, #1
-.sign2: ADD  r5, #1
-        CMP  r5, r6
+.sign2: ADD  r4, #1
+        CMP  r4, r3
         BEQ  .symbol            ; just a sign
 .digits:
         MOV  r2, #0             ; the value
-        MOV  r3, r5
-.dig:   MOV  r1, byte [r3]+
+        MOV  r6, r4
+.dig:   MOV  r1, byte [r6]+
         SUB  r1, #'0'
         CMP  r1, #9
         BHI  .symbol
         CMP  r2, #107374182     ; would value * 10 + 9 overflow 2^30?
         BHI  .ovf
-        MOV  r4, r2
+        MOV  r5, r2
         LSL  r2, #3
-        ADD  r2, r4
-        ADD  r2, r4
+        ADD  r2, r5
+        ADD  r2, r5
         ADD  r2, r1
-        CMP  r3, r6
+        CMP  r6, r3
         BNE  .dig
         MOV  r1, #0x40000000    ; 2^30: only as -2^30
         CMP  r2, r1
@@ -306,7 +306,7 @@ read_token:
         JMP  [sp]+
 .ovf:   BRA  err_overflow
 .symbol:
-        MOV  r2, r6             ; "nil" is nil
+        MOV  r2, r3             ; "nil" is nil
         SUB  r2, #tokbuf
         CMP  r2, #3
         BNE  .intern
@@ -327,20 +327,20 @@ read_token:
 
 ; ---- the symbol table: 256 chains through the symbols' next fields
 
-; hash: r1 = bytes, r2 = length -> r3 = the bucket's address. Keeps r1, r2.
+; hash: r1 = bytes, r2 = length -> r6 = the bucket's address. Keeps r1, r2.
 hash:   PUSH r1
         PUSH r2
-        MOV  r3, #0
+        MOV  r6, #0
 .loop:  SUB  r2, #1
         BLO  .done
-        MOV  r4, r3             ; h = h * 31 + c
-        LSL  r3, #5
-        SUB  r3, r4
-        ADD  r3, byte [r1]+
+        MOV  r5, r6             ; h = h * 31 + c
+        LSL  r6, #5
+        SUB  r6, r5
+        ADD  r6, byte [r1]+
         BRA  .loop
-.done:  AND  r3, #255
-        LSL  r3, #2
-        ADD  r3, #symtab
+.done:  AND  r6, #255
+        LSL  r6, #2
+        ADD  r6, #symtab
         POP  r2
         POP  r1
         RET
@@ -349,65 +349,65 @@ hash:   PUSH r1
 intern: PUSH r7
 intern_t:
         BSR  hash
-        MOV  r9, r3             ; the bucket
-        MOV  r4, [r3]           ; the chain
-.next:  CMP  r4, #0
+        MOV  r9, r6             ; the bucket
+        MOV  r5, [r6]           ; the chain
+.next:  CMP  r5, #0
         BEQ  .new
-        MOV  r5, [r4 + SYM_NAME]
-        MOV  r6, [r5 - 3]
-        LSR  r6, #8             ; the name's length
-        CMP  r6, r2
+        MOV  r4, [r5 + SYM_NAME]
+        MOV  r3, [r4 - 3]
+        LSR  r3, #8             ; the name's length
+        CMP  r3, r2
         BNE  .skip
-        LEA  r5, [r5 + STR_BYTES]
+        LEA  r4, [r4 + STR_BYTES]
         MOV  r10, r1
-.cmp:   SUB  r6, #1
+.cmp:   SUB  r3, #1
         BLO  .found
-        MOV  r8, byte [r5]+
+        MOV  r8, byte [r4]+
         CMP  r8, byte [r10]+
         BEQ  .cmp
-.skip:  MOV  r4, [r4 + SYM_NEXT]
+.skip:  MOV  r5, [r5 + SYM_NEXT]
         BRA  .next
-.found: MOV  r1, r4
+.found: MOV  r1, r5
         JMP  [sp]+
 .new:   ; the name, in constant space
-        MOV  r5, [const_free]
-        MOV  r6, r2
-        ADD  r6, #8 + 7
-        AND  r6, #-8
-        ADD  r6, r5
-        CMP  r6, #CONST_END
+        MOV  r4, [const_free]
+        MOV  r3, r2
+        ADD  r3, #8 + 7
+        AND  r3, #-8
+        ADD  r3, r4
+        CMP  r3, #CONST_END
         BHI  .full
-        MOV  [const_free], r6
-        MOV  r6, r2
-        LSL  r6, #8
-        OR   r6, #B_STR
-        MOV  [r5], r6
-        LEA  r6, [not_proc]
-        MOV  [r5 + 4], r6
-        LEA  r6, [r5 + 8]
+        MOV  [const_free], r3
+        MOV  r3, r2
+        LSL  r3, #8
+        OR   r3, #B_STR
+        MOV  [r4], r3
+        LEA  r3, [not_proc]
+        MOV  [r4 + 4], r3
+        LEA  r3, [r4 + 8]
         MOV  r10, r2
 .copy:  SUB  r10, #1
         BLO  .sym
         MOV  r8, byte [r1]+
-        MOV  byte [r6]+, r8
+        MOV  byte [r3]+, r8
         BRA  .copy
-.sym:   OR   r5, #3             ; the symbol, in symbol space
+.sym:   OR   r4, #3             ; the symbol, in symbol space
         MOV  r1, [sym_free]
-        LEA  r6, [r1 + 32]
-        CMP  r6, #SYM_END
+        LEA  r3, [r1 + 32]
+        CMP  r3, #SYM_END
         BHI  .full
-        MOV  [sym_free], r6
-        MOV  r6, #H_SYM
-        MOV  [r1], r6
-        LEA  r6, [not_proc]
-        MOV  [r1 + 4], r6
-        MOV  r6, #UNB
-        MOV  [r1 + 8], r6
-        MOV  [r1 + 12], r5
+        MOV  [sym_free], r3
+        MOV  r3, #H_SYM
+        MOV  [r1], r3
+        LEA  r3, [not_proc]
+        MOV  [r1 + 4], r3
+        MOV  r3, #UNB
+        MOV  [r1 + 8], r3
+        MOV  [r1 + 12], r4
         CLR  [r1 + 16]
         MOV  [r1 + 20], r13
-        MOV  r6, [r9]
-        MOV  [r1 + 24], r6
+        MOV  r3, [r9]
+        MOV  [r1 + 24], r3
         MOV  [r1 + 28], r13
         OR   r1, #3
         MOV  [r9], r1
@@ -421,15 +421,15 @@ intern_static:
         MOV  r10, #sym_static
 .loop:  CMP  r10, #sym_static_end
         BHS  .done
-        MOV  r5, [r10 + 12]     ; the name
-        LEA  r1, [r5 + STR_BYTES]
-        MOV  r2, [r5 - 3]
+        MOV  r4, [r10 + 12]     ; the name
+        LEA  r1, [r4 + STR_BYTES]
+        MOV  r2, [r4 - 3]
         LSR  r2, #8
         BSR  hash
-        MOV  r4, [r3]
-        MOV  [r10 + 24], r4
-        LEA  r4, [r10 + 3]
-        MOV  [r3], r4
+        MOV  r5, [r6]
+        MOV  [r10 + 24], r5
+        LEA  r5, [r10 + 3]
+        MOV  [r6], r5
         ADD  r10, #32
         BRA  .loop
 .done:  JMP  [sp]+

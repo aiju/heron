@@ -141,6 +141,9 @@ impl Encoder for Draft2 {
 
 /// NOP: MOV r0, r0, which does nothing now that MOV leaves the flags alone.
 const NOP: u16 = 0x0010;
+/// MFSR and MTSR, in row 0 between LEA's cells.
+const MFSR: i64 = 0x06;
+const MTSR: i64 = 0x07;
 
 /// A parcel: the opcode byte, and the register byte's high and low
 /// nibbles.
@@ -343,15 +346,8 @@ fn table_mode(
     ))
 }
 
-/// A memory operand; `r14_slot` allows mode E, `[r14 + 4R]`, which LEA
-/// doesn't have.
-fn mem_mode(
-    ctx: &mut Ctx,
-    mem: &Mem,
-    min_ext: i64,
-    n_before: i64,
-    r14_slot: bool,
-) -> Result<Mode, AsmError> {
+/// A memory operand.
+fn mem_mode(ctx: &mut Ctx, mem: &Mem, min_ext: i64, n_before: i64) -> Result<Mode, AsmError> {
     let size = bytes(mem.size);
     let next = ctx.pc + 2 * (n_before + 1);
     let index = match &mem.index {
@@ -459,7 +455,7 @@ fn mem_mode(
     if slot && b == 15 {
         return Ok((4, sd / 4, vec![]));
     }
-    if slot && b == 14 && r14_slot {
+    if slot && b == 14 {
         return Ok((0xE, sd / 4, vec![]));
     }
     if min_ext <= 1 && (!known || fits16(sd)) {
@@ -481,7 +477,7 @@ fn ea(ctx: &mut Ctx, op: &Operand, n_before: i64, quick: bool) -> Result<Mode, A
             Ok((0, r.n as i64, vec![]))
         }
         Operand::Imm(e) => imm_mode(ctx, e, min_ext, n_before, quick),
-        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before, true),
+        Operand::Mem(m) => mem_mode(ctx, m, min_ext, n_before),
         _ => err("expected a register, #constant or [memory] operand"),
     }
 }
@@ -629,7 +625,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             }
             let rd = reg_operand(&ops[0], "register")?;
             let n = sr_number(ctx, &ops[1])?;
-            return one(p(0x0E, rd, n));
+            return one(p(MFSR, rd, n));
         }
         "MTSR" => {
             if ops.len() != 2 {
@@ -637,7 +633,7 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             }
             let n = sr_number(ctx, &ops[0])?;
             let rs = reg_operand(&ops[1], "register")?;
-            return one(p(0x0F, n, rs));
+            return one(p(MTSR, n, rs));
         }
         "PUSH" | "POP" => {
             let [r @ Operand::Reg(_)] = ops else {
@@ -657,9 +653,9 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             let r = reg_operand(r, "register")?;
             let n = if u.ends_with("HI") { 1 } else { 2 };
             return one(if u.starts_with("MF") {
-                p(0x0E, r, n)
+                p(MFSR, r, n)
             } else {
-                p(0x0F, n, r)
+                p(MTSR, n, r)
             });
         }
         "MFUR" | "MTUR" => {
@@ -758,14 +754,12 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             // the size makes no difference to an address
             mem.size = None;
             let min_ext = (ctx.min_words() - 1).max(0);
-            let (m, r, ext) = mem_mode(ctx, &mem, min_ext, 1, false)?;
+            let (m, r, ext) = mem_mode(ctx, &mem, min_ext, 1)?;
             let cell = match m {
                 // LEA rd, [R] is a copy
                 2 => 0x10,
-                3 => 0x04,
-                4 => 0x05,
-                5 => 0x06,
-                0xF => 0x07,
+                // the cell's low nibble is the mode, as in rows 1-A
+                3..=5 | 0xE | 0xF => m,
                 _ => return err("LEA needs a memory operand without auto-increment"),
             };
             return Ok(with_ext(p(cell, rd, r), ext));

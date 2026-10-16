@@ -307,6 +307,22 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(a, r"DEC\s+(r\d+), \1\n\s+BNE")
         self.assertNotIn("DBNZ", a)
 
+    def test_v2_size_model_short_offsets(self):
+        # DBNZ's reach rests on the size model: [sp + 4R] and [r14 + 4R]
+        # take no extension parcel, for LEA too, as the assembler has it
+        from heron.infra import asm, isas
+        from heron.studies.c_compiler.codegen.mir import PHYS, SP, Mem
+        from heron.studies.c_compiler.codegen.v2 import V2
+        t = V2()
+        for op in ("LEA", "MOV"):
+            for base in (SP, PHYS[14], PHYS[13]):
+                for d in (0, 4, 6, 60, 64):
+                    m = Mem(base, disp=d)
+                    text = f"  {op} r1, {t.fmt_mem(m)}\n"
+                    st = next(s for s in asm.assemble_text(isas.get("v2"), text).stmts
+                              if s.kind == "insn")
+                    self.assertEqual(1 + t.mem_parcels(m, op), st.size // 2, text)
+
     def test_three_address_add_uses_lea(self):
         for isa in ("v1a", "v1b", "v2"):
             a = asm_of("int g(int a, int b) { return a - b; }\n"

@@ -34,6 +34,10 @@ say, and [report 0017](../0017-report-egret.md) for Egret on 1b. Cycles
 are the timing model's for D32-separate, the configuration of the 213-chip
 1b hardware ([report 0012](../0012-report-draft-1b-hardware.md)), unless a
 table says otherwise; draft 2 is costed as if it were built the same way.
+These tables follow the code: since RFC 0028 gave `LEA` mode E
+(2026-10-16), the interpreter loop and the JIT take an address in the
+frame record's first 16 words, `LEA rd, [r14 + d]`, in one parcel, and
+draft 2's figures have moved a little from report 0032's text.
 
 A program's cycles are its run's less the empty program's (start-up: the
 VM compiles its prelude) and less compiling the program ("compile"), as

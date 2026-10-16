@@ -9,18 +9,18 @@
 p_codealloc:
         CMP  r2, #1
         BNE  err_argc
-        MOV  r1, r3
+        MOV  r1, r6
         AND  r1, #1
-        BNE  nn3
+        BNE  nn6
         MOV  r1, [code_free]
-        MOV  r4, r3
-        ASR  r4, #1
-        ADD  r4, #3
-        AND  r4, #-4
-        ADD  r4, r1
-        CMP  r4, #CCODE_END
+        MOV  r5, r6
+        ASR  r5, #1
+        ADD  r5, #3
+        AND  r5, #-4
+        ADD  r5, r1
+        CMP  r5, #CCODE_END
         BHI  .full
-        MOV  [code_free], r4
+        MOV  [code_free], r5
         ADD  r1, r1             ; as an integer
         RET
 .full:  LEA  r1, [msg_codefull]
@@ -38,70 +38,70 @@ p_codefree:
 p_poke16:
         CMP  r2, #2
         BNE  err_argc
-        MOV  r1, r3
-        OR   r1, r4
+        MOV  r1, r6
+        OR   r1, r5
         AND  r1, #1
         BNE  .bad
-        ASR  r3, #1
-        ASR  r4, #1
-        MOV  half [r3], r4
+        ASR  r6, #1
+        ASR  r5, #1
+        MOV  half [r6], r5
         MOV  r1, r13
         RET
-.bad:   MOV  r1, r3
+.bad:   MOV  r1, r6
         AND  r1, #1
-        BNE  nn3
-        BRA  nn4
+        BNE  nn6
+        BRA  nn5
 
 ; (%make-closure code n): a compiled closure with n free variables, all nil
 p_mkclosure:
         CMP  r2, #2
         BNE  err_argc
-        MOV  r1, r3
-        OR   r1, r4
+        MOV  r1, r6
+        OR   r1, r5
         AND  r1, #1
         BNE  .bad
-        MOV  r2, r4             ; 4 + 4 + 4n bytes, rounded
-        ADD  r2, r4
+        MOV  r2, r5             ; 4 + 4 + 4n bytes, rounded
+        ADD  r2, r5
         ADD  r2, #8 + 7
         AND  r2, #-8
         PUSH r7
         BSR  alloc
         POP  r7
-        MOV  r5, r4             ; (1 + n) << 8 | B_CLO
-        LSL  r5, #7
-        ADD  r5, #1 << 8 | B_CLO
-        MOV  [r1], r5
-        ASR  r3, #1
-        MOV  [r1 + 4], r3
-        LEA  r6, [r1 + 8]
-        MOV  r8, r4
+        MOV  r4, r5             ; (1 + n) << 8 | B_CLO
+        LSL  r4, #7
+        ADD  r4, #1 << 8 | B_CLO
+        MOV  [r1], r4
+        ASR  r6, #1
+        MOV  [r1 + 4], r6
+        LEA  r3, [r1 + 8]
+        MOV  r8, r5
 .fill:  SUB  r8, #2
         BLO  .done
-        MOV  [r6]+, r13
+        MOV  [r3]+, r13
         BRA  .fill
 .done:  OR   r1, #3
         RET
-.bad:   MOV  r1, r3
+.bad:   MOV  r1, r6
         AND  r1, #1
-        BNE  nn3
-        BRA  nn4
+        BNE  nn6
+        BRA  nn5
 
 ; (%static-closure code): a compiled closure without free variables, in
 ; constant space (it never moves, so code can refer to it)
 p_staticclo:
         CMP  r2, #1
         BNE  err_argc
-        MOV  r1, r3
+        MOV  r1, r6
         AND  r1, #1
-        BNE  nn3
+        BNE  nn6
         MOV  r2, #8
         PUSH r7
         BSR  const_alloc
         POP  r7
         MOV  r2, #1 << 8 | B_CLO
         MOV  [r1], r2
-        ASR  r3, #1
-        MOV  [r1 + 4], r3
+        ASR  r6, #1
+        MOV  [r1 + 4], r6
         OR   r1, #3
         RET
 
@@ -109,17 +109,17 @@ p_staticclo:
 p_closetcode:
         CMP  r2, #2
         BNE  err_argc
-        ASR  r4, #1
-        MOV  [r3 + CALL_SLOT], r4
-        MOV  r1, r3
+        ASR  r5, #1
+        MOV  [r6 + CALL_SLOT], r5
+        MOV  r1, r6
         RET
 
 ; (%closure-set! c i v): set free variable i of a compiled closure
 p_closet:
         CMP  r2, #3
         BNE  err_argc
-        MOV  [r3 + r4*2 + 5], r5
-        MOV  r1, r5
+        MOV  [r6 + r5*2 + 5], r4
+        MOV  r1, r4
         RET
 
 ; (%address x): the word that is x, as an integer, if x is static (it
@@ -128,7 +128,7 @@ p_closet:
 p_address:
         CMP  r2, #1
         BNE  err_argc
-        MOV  r1, r3
+        MOV  r1, r6
         CMP  r1, #HEAP_A
         BHS  .no
         ADD  r1, r1
@@ -142,7 +142,7 @@ p_address:
 p_staticcopy:
         CMP  r2, #1
         BNE  err_argc
-        MOV  r1, r3
+        MOV  r1, r6
         PUSH r7
         BSR  static_copy
         POP  r7
@@ -185,21 +185,21 @@ static_copy:
         BSR  static_copy
         CMP  r1, #UNB
         BEQ  .fail1
-        MOV  r3, r1
+        MOV  r6, r1
         MOV  r2, #8
         BSR  const_alloc
         POP  r2
         MOV  [r1], r2
-        MOV  [r1 + 4], r3
+        MOV  [r1 + 4], r6
         OR   r1, #1
         JMP  [sp]+
 .fail1: ADD  sp, #4
         MOV  r1, #UNB
         JMP  [sp]+
-.str:   MOV  r3, [r1 - 3]       ; copy the whole object
-        LSR  r3, #8
-        ADD  r3, #8 + 7
-        AND  r3, #-8
+.str:   MOV  r6, [r1 - 3]       ; copy the whole object
+        LSR  r6, #8
+        ADD  r6, #8 + 7
+        AND  r6, #-8
         BRA  .copy
 .vec:   PUSH r1                 ; the elements first, in place in a new vector
         MOV  r2, [r1 - 3]
@@ -209,29 +209,29 @@ static_copy:
         AND  r2, #-8
         BSR  const_alloc
         MOV  r2, [sp]
-        MOV  r3, [r2 - 3]
-        MOV  [r1], r3
-        LEA  r3, [not_proc]
-        MOV  [r1 + 4], r3
+        MOV  r6, [r2 - 3]
+        MOV  [r1], r6
+        LEA  r6, [not_proc]
+        MOV  [r1 + 4], r6
         OR   r1, #3
         PUSH r1                 ; [sp] the copy, [sp + 4] the original
-        MOV  r4, #0
+        MOV  r5, #0
 .elt:   MOV  r2, [sp + 4]
-        MOV  r3, [r2 - 3]
-        LSR  r3, #8
-        SUB  r3, #1             ; the elements: the size less the call slot
-        LSL  r3, #2
-        CMP  r4, r3
+        MOV  r6, [r2 - 3]
+        LSR  r6, #8
+        SUB  r6, #1             ; the elements: the size less the call slot
+        LSL  r6, #2
+        CMP  r5, r6
         BHS  .vdone
-        PUSH r4
-        MOV  r1, [r2 + r4 + VEC_ELTS]
+        PUSH r5
+        MOV  r1, [r2 + r5 + VEC_ELTS]
         BSR  static_copy
-        POP  r4
+        POP  r5
         CMP  r1, #UNB
         BEQ  .vfail
         MOV  r2, [sp]
-        MOV  [r2 + r4 + VEC_ELTS], r1
-        ADD  r4, #4
+        MOV  [r2 + r5 + VEC_ELTS], r1
+        ADD  r5, #4
         BRA  .elt
 .vdone: POP  r1
         ADD  sp, #4
@@ -239,14 +239,14 @@ static_copy:
 .vfail: ADD  sp, #8
         MOV  r1, #UNB
         JMP  [sp]+
-.copy:  ; r1 = the object, r3 = its size: a byte-for-byte copy
+.copy:  ; r1 = the object, r6 = its size: a byte-for-byte copy
         PUSH r1
-        MOV  r2, r3
+        MOV  r2, r6
         BSR  const_alloc
         POP  r9
         SUB  r9, #3
         MOV  r10, r1
-        MOV  r11, r3
+        MOV  r11, r6
 .cw:    MOV  r12, [r9]+
         MOV  [r10]+, r12
         SUB  r11, #4
@@ -272,28 +272,28 @@ const_alloc:
 p_macro:
         CMP  r2, #1
         BNE  err_argc
-        MOV  r9, r3
+        MOV  r9, r6
         PUSH r7
         BSR  is_sym
         POP  r7
-        BNE  ns3
-        MOV  r1, [r3 + SYM_SPECIAL]
+        BNE  ns6
+        MOV  r1, [r6 + SYM_SPECIAL]
         AND  r1, #-4
         CMP  r1, #SF_MACRO
         BNE  ret_nil
-        MOV  r1, [r3 + SYM_MACRO]
+        MOV  r1, [r6 + SYM_MACRO]
         RET
 
 ; (%special? sym): t if the symbol names a special form (not a macro)
 p_specialp:
         CMP  r2, #1
         BNE  err_argc
-        MOV  r9, r3
+        MOV  r9, r6
         PUSH r7
         BSR  is_sym
         POP  r7
         BNE  ret_nil
-        MOV  r1, [r3 + SYM_SPECIAL]
+        MOV  r1, [r6 + SYM_SPECIAL]
         AND  r1, #-4
         BEQ  ret_nil
         CMP  r1, #SF_MACRO
@@ -304,36 +304,36 @@ p_specialp:
 p_setmacro:
         CMP  r2, #2
         BNE  err_argc
-        MOV  r9, r3
+        MOV  r9, r6
         PUSH r7
         BSR  is_sym
         POP  r7
-        BNE  ns3
-        MOV  [r3 + SYM_MACRO], r4
-        MOV  r1, [r3 + SYM_SPECIAL]
+        BNE  ns6
+        MOV  [r6 + SYM_MACRO], r5
+        MOV  r1, [r6 + SYM_SPECIAL]
         AND  r1, #LOCAL
         OR   r1, #SF_MACRO
-        MOV  [r3 + SYM_SPECIAL], r1
-        MOV  r1, r3
+        MOV  [r6 + SYM_SPECIAL], r1
+        MOV  r1, r6
         RET
 
 ; (%poke8 address value): store a byte (the compiler's category map)
 p_poke8:
         CMP  r2, #2
         BNE  err_argc
-        MOV  r1, r3
-        OR   r1, r4
+        MOV  r1, r6
+        OR   r1, r5
         AND  r1, #1
         BNE  .bad
-        ASR  r3, #1
-        ASR  r4, #1
-        MOV  byte [r3], r4
+        ASR  r6, #1
+        ASR  r5, #1
+        MOV  byte [r6], r5
         MOV  r1, r13
         RET
-.bad:   MOV  r1, r3
+.bad:   MOV  r1, r6
         AND  r1, #1
-        BNE  nn3
-        BRA  nn4
+        BNE  nn6
+        BRA  nn5
 
 ; (%run-begin), (%run-end): mark when compiled code starts and stops
 ; running, in mark_log: the cycle counter (as the simulator's reference
@@ -365,8 +365,8 @@ run_end:
 mark:   MOV  r2, [marks]
         CMP  r2, #MARKS_MAX
         BHS  .full
-        LEA  r3, [mark_log]
-        MOV  [r3 + r2], r1
+        LEA  r6, [mark_log]
+        MOV  [r6 + r2], r1
         ADD  r2, #4
         MOV  [marks], r2
 .full:  RET
@@ -400,8 +400,8 @@ p_saveimage:
 
 ; ---- routines compiled code calls
 
-; rt_num2: r1, r3 are the operands of an arithmetic operation, and one
-; isn't a number: report the first that isn't.
+; rt_num2: r1, r3 are the operands of a compiled arithmetic operation, and
+; one isn't a number: report the first that isn't.
 rt_num2:
         MOV  r9, r1
         AND  r9, #1
@@ -410,8 +410,8 @@ rt_num2:
         BRA  err_notnum
 
 ; rt_rest: the list of a call's arguments after the first r9 (r9 <= 5):
-; r2 = their number, r3-r6, r8, r0 = the arguments -> r12 (to be moved to
-; where it belongs at once: r12 isn't a root). Keeps r0-r6, r8 (r7 is the
+; r2 = their number, r6, r5, r4, r3, r8, r0 = the arguments -> r12 (to be
+; moved to where it belongs at once: r12 isn't a root). Keeps r0-r6, r8 (r7 is the
 ; return address: the caller has kept its own).
 rt_rest:
         PUSH r7
@@ -434,17 +434,17 @@ rt_rest:
         BEQ  .a3
         CMP  r10, #2
         BEQ  .a2
-        MOV  r11, r3
+        MOV  r11, r6
         BRA  .c
 .a6:    MOV  r11, r0
         BRA  .c
 .a5:    MOV  r11, r8
         BRA  .c
-.a4:    MOV  r11, r6
+.a4:    MOV  r11, r3
         BRA  .c
-.a3:    MOV  r11, r5
+.a3:    MOV  r11, r4
         BRA  .c
-.a2:    MOV  r11, r4
+.a2:    MOV  r11, r5
 .c:     BSR  cons_r
         MOV  r12, r1
         DEC  r10

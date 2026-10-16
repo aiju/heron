@@ -167,9 +167,9 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
                 2,
             ));
         }
-        0x04..=0x07 => {
-            let mode = [3, 4, 5, 0xF][(op - 4) as usize];
-            let (o, n) = with_mode(m, pc, mode, lo)?;
+        0x03..=0x05 | 0x0E | 0x0F => {
+            // LEA: the cell's low nibble is its mode, as in rows 1-A
+            let (o, n) = with_mode(m, pc, col, lo)?;
             return Ok((
                 match o {
                     Some(Operand::Mem(mo)) => Insn::LeaMem { d, m: mo },
@@ -178,9 +178,9 @@ pub fn decode(m: &Machine, pc: u32) -> Res<(Insn, u32)> {
                 n,
             ));
         }
+        0x06 => return one(Insn::Mfsr { a: d, b: s }),
+        0x07 => return one(Insn::Mtsr { a: d, b: s }),
         0x08 => return one(Insn::AluReg { f: ALU_ADDB4, d, s }),
-        0x0E => return one(Insn::Mfsr { a: d, b: s }),
-        0x0F => return one(Insn::Mtsr { a: d, b: s }),
         0x09..=0x0D => {
             // the tagged operations: TMOV TTST TADD TSUB TCMP
             let f = [ALU_MOV, ALU_TST, ALU_ADD, ALU_SUB, ALU_CMP][(op - 9) as usize];
