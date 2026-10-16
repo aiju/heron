@@ -1,0 +1,15 @@
+# The I/O processor of RFC 0027 at microinstruction level, its card's
+# devices, and a system with a draft 2 CPU card on RFC 0037's bus. Python
+# uses it as heron.native.iop.
+[package]
+name = "iop"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+devices = { path = "../../../infra/devices" }
+v2-isa = { path = "../../v2_isa/isa" }
+
+[lints]
+workspace = true

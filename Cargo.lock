@@ -26,6 +26,7 @@ version = "0.1.0"
 dependencies = [
  "fen-board",
  "hwsim",
+ "iop",
  "pcbroute",
  "pyo3",
  "pyo3-build-config",
@@ -44,6 +45,14 @@ dependencies = [
  "devices",
  "serde",
  "serde_bytes",
+]
+
+[[package]]
+name = "iop"
+version = "0.1.0"
+dependencies = [
+ "devices",
+ "v2-isa",
 ]
 
 [[package]]

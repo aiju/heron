@@ -239,6 +239,39 @@ impl Machine {
         m
     }
 
+    /// A warm reset in system mode (RFC 0037, 7), as `new_system` leaves
+    /// the machine but with RAM, the page map and the board kept:
+    /// supervisor mode, bank 0, I and T clear, IPL and ctx 0, at the reset
+    /// vector. The registers, which the hardware leaves undefined, are
+    /// zero.
+    pub fn reset_system(&mut self) {
+        self.r = [0; 16];
+        (self.n, self.z, self.c, self.v, self.i) = (0, 0, 0, 0, 0);
+        self.halted = false;
+        self.in_trap = false;
+        self.pc = crate::sys::VEC_BASE;
+        self.flush();
+        let s = self.sys_mut();
+        s.supervisor = true;
+        s.t = 0;
+        s.ipl = 0;
+        s.ctx = 0;
+        s.mapa = 0;
+        s.bank = 0;
+        s.banks.iter_mut().for_each(|b| *b = [0; 16]);
+        s.cur_bank = 0;
+        s.waiting = false;
+        s.irq_next = 0;
+        s.pc_valid = false;
+    }
+
+    /// Something other than the CPU wrote its RAM (another bus master,
+    /// through the card's slave port): forget the instructions decoded
+    /// from it.
+    pub fn forget_code(&mut self) {
+        self.flush();
+    }
+
     /// The system state; panics on a machine without one.
     pub fn sys(&self) -> &Sys {
         self.sys.as_ref().expect("system mode")

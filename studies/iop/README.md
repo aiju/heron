@@ -1,0 +1,140 @@
+---
+status: active
+depends-on: [v2_isa, v2_hw]
+reports: [27]
+---
+
+# The I/O processor
+
+The I/O processor of [RFC 0027](../../reports/0027-rfc-io-coprocessor.md),
+step 1 of its "simulate first" (16): a model of the IOP at
+microinstruction level, its microcode, and the Forth the microcode
+interprets, on a system with a draft 2 CPU card that the IOP boots. An
+experiment: RFC 0027 isn't settled, and where this study needed something
+it leaves open, it chose (below).
+
+- **The simulator** (`sim/`, Rust, `heron.native.iop`): RFC 0027's core
+  clocked by the bus clock, a microinstruction at a time, with its
+  pipeline and delay slot, HOLD, the SRAM as registers and memory, the
+  devices on T, the system bus master side with overlapped transfers, the
+  slave side (the shared RAM, the doorbells, the I/O bus's window), the
+  I/O bus with its timing table, and the card's devices: the console UART
+  and the 82C54 from `infra/devices`, the image flash (two SST39SF040
+  with their command sequences) and the ports.
+- **The system:** the IOP's card and a CPU card on RFC 0037's map, the
+  CPU being draft 2 at instruction level (`studies/v2_isa`) behind a card
+  with RFC 0027's control register, interrupt request register, slave port
+  and control store window. The CPU starts with RUN off; the IOP loads it
+  and starts it.
+- **The microcode** (`ucode/`, ~820 microinstructions): reset (the timing
+  table, the SRAM's self test, the dictionary out of the image flash), the
+  inner interpreter, about 75 primitives, the task switch, and the native
+  layer that the tick and the doorbells call.
+- **The Forth** (`forth/`, ~4,800 cells): the console *is* its
+  interpreter. A kernel with the compiler, the monitor (examine, deposit,
+  dump anywhere on the system bus), the image flash and `save`, tasks, and
+  booting the CPU: records played from the image flash into the CPU card,
+  then RESET and RUN.
+
+```sh
+heron iop console                # the Forth in this terminal (Ctrl-] quits)
+heron iop run '2 3 + .' ': sq dup * ; 7 sq .'
+heron iop boot                   # power up, boot-cpu: the CPU's hello through the window
+heron iop boot --wcs             # with draft 2's control store, checked (v2_hw's microcode: a minute to build, then cached)
+heron iop build                  # build/iop: ucode.bin, ucode.lst, flash.bin
+heron iop ucode [--list]         # the microcode's size by primitive, and its listing
+heron iop words                  # the dictionary
+heron test iop                   # the unit tests
+```
+
+At the console, for example:
+
+```forth
+boot-cpu cpu-wait          \ load and start the CPU, wait for it to halt
+$1000. e                   \ examine the CPU's RAM at 0x1000, through its slave port
+$BEEF $1000. d             \ deposit
+$40000000. 16 dump         \ the shared RAM, from the system bus's side (here: the IOP's own range)
+variable n : counter begin 1 n +! pause again ;
+' counter 3 spawn          \ a second task, in bank 3
+: hi ." hello" ; save      \ into the image flash, for the next cold start
+```
+
+| File | What's in it |
+|---|---|
+| `sim/` | The simulator crate: `micro.rs` (the microinstruction, the 74181), `iop.rs` (the core, the T bus, the system bus master and slave sides), `iobus.rs` (the I/O bus and the card's devices), `flash.rs` (the image flash), `system.rs` (the CPU card and the two in turn) |
+| `layout.py` | What the microcode, the Forth and the tools share: the SRAM's map, the bank's registers, the control register, the timing table, the image flash's header |
+| `uasm.py` | The microassembler: RFC 0027's notation, one line a microinstruction |
+| `ucode/core.uc`, `ucode/prims.uc` | The microcode |
+| `meta.py` | The metacompiler: the Forth source into the dictionary image |
+| `forth/kernel.fs`, `forth/monitor.fs` | The Forth |
+| `build.py` | The image flash: the dictionary, and the CPU's images as records |
+| `sw/hello.s` | The CPU's boot program |
+| `run.py`, `cli.py` | Running it; the command line |
+
+## The machine, as this study has it
+
+RFC 0027 gives the fields and widths of the microinstruction; the rest of
+this section is what the study chose to make it run. These are for the
+RFC, not decisions.
+
+- **The microinstruction's layout** (`sim/src/micro.rs`): K 0-15, REG
+  16-21, RS 22-23, ALU 24-29, WB 30, LD 31-33, BUS 34-35, SEG 36, SZ
+  37-38, T 39-41, SEQ 42-43, COND 44-46, TASK 47. M is stored inverted, so
+  that the all-zero ALU field is HOLD (M = 1, S = 0000, carry in 0, one of
+  the codes that repeat a logic function) and the all-zero
+  microinstruction does nothing at all.
+- **WB writes the SRAM at its address:** X when RS is memory, the register
+  {BANK, REG} otherwise, so `t0 <- #5` and `t0 <- swap` write a register
+  (in the second case one whose number REG can be for the swap register
+  too).
+- **CTRL is an addressable latch** (a 74x259 for the 74ABT273): LD CTRL
+  sets bit R[2:0] to R[3], so firmware can change one bit without knowing
+  the others. Its bits: SESSION, WORK, RESET (the system bus's), IORESET.
+- **LC** is one 74F161: COND "LC not done" is LC != 15, and counts. Loading
+  it with -n gives n passes, 1 to 16.
+- **Device 7 on T reads all ones** (pull-ups on T, a resistor network).
+  Without it a microinstruction can't test AC for zero and branch: the
+  test needs all ones as the ALU's A input, `(A & AC) - 1`, and K is the
+  branch target. The comparisons and `0branch` use it.
+- **BA interlocks:** a microinstruction that reads BA before the last
+  read's data is there waits (RFC 0027 says only that the next transfer
+  waits at E1).
+- **An I/O bus access** stretches its microinstruction to the access's
+  length from the timing table, (1 + SETUP) + STROBE + (1 + HOLD) clocks,
+  when that is more than 2.
+- **REQ and GNT:** GNT comes 4 clocks after SESSION rises (an idle bus;
+  the CPU's own use of the bus isn't modelled). A transfer without
+  SESSION is a microcode error here.
+- **The event ports** (device 3): register 0 the INT lines; 1 ATN0-3 and
+  the tick in bit 15, written to clear the tick; 2 the doorbells, written
+  to clear doorbell X[3:0]. **The page registers** (device 4): 0 the
+  shared RAM's (6 bits), 1 the image flash's.
+- **The bank's registers** (`layout.py`): REG names a register and a
+  device on T at once, so a microinstruction that moves data to or from a
+  device while it steps a register needs that register in the device's
+  group of eight. So the scratch registers are in the groups of devices
+  whose low bits are free (i0-i4 with the I/O bus, t0-t7 with the shared
+  RAM, s0-s7 with the swap register), and RFC 0027's ip, sp and rp at
+  0-2; tos, resume, link, wait, me and up at 32-37; user variables from 40.
+- **`nest` reads the body from [ip]**, as RFC 0027's does, since X can't
+  be read back. So `execute` runs a thread of two cells, the xt and
+  `exit`, that it writes into the task's registers 38-39.
+- **The native layer** runs in whatever bank is current, at a primitive's
+  end (`branch`, `0branch`, `(loop)`, `(+loop)`) or while `pause` skips
+  waiting tasks, with registers 24-31 as its scratch. At the tick it
+  routes the enabled INT lines to the tasks waiting for them (an event
+  table of the address of each owner's `wait`) and masks them until they
+  wait again; doorbells are kept in a cell for the Forth for now.
+- **The image flash's layout:** a header page, the dictionary from page 1,
+  the CPU's images from halfword 0x10000 (`build.py`).
+- **The CPU card's registers** at `0x7000_0000` (`sim/src/system.rs`):
+  board information at +0, control at +0x1000 (RUN, RESET, STEP, NMI),
+  interrupt requests at +0x2000 (set, and clear at +4), and the control
+  store's ten lanes at +0x40_0000.
+
+## Not yet
+
+The rings, copies and fills as native jobs, and interrupts to the CPUs
+(RFC 0027, 7, stage 2-3); the I/O cards (a CF card is in
+`infra/devices`); the 32-bit paths; the stuck-transfer counter; hardware
+change detection on the INT lines; the time of day and the front panel.
