@@ -24,6 +24,24 @@ so they measure it now; the figures here compare it with draft 2 as report
 0032 left it (`main` at `fcb3243`). Cycles are the timing model's for
 D32-separate, as geometric means over the Lisp's 12 benchmarks.
 
+> **Erratum (2026-10-16).** The [constant copier](#the-constant-copier-and-0)
+> is fixed: `static_copy` now fails with `UNB`, which is never a Lisp
+> value. The list there also missed `cc:g-prim`, which ran interpreted on
+> both drafts.
+>
+> With the copier fixed, the compiler and the prelude compile to 64,796
+> bytes on draft 2 and 59,408 on 1b. So code space now ends at `0x2A000`
+> on both drafts, and the heap halves are 374 KB (10 KB from each), not
+> draft 2's `0x28000` and 380 KB. Report 0032's lisp.md is regenerated.
+>
+> The mutator's figures here don't move. The collector's do: the
+> interpreted compiler functions were most of the data live when a
+> program starts (22,624 bytes on draft 2, now 2,408), and every
+> collection copied them. So against 1b, draft 2's compiled Lisp takes
+> 1.4% fewer cycles with the collector, not 3.6%, and 0.1% fewer
+> instructions, not 2.9%. Its function entries cost 0.52% of 1b's
+> compiled cycles less than 1b's, not 0.50%.
+
 ## Summary
 
 - **The compiled Lisp takes 2.2% fewer mutator cycles** (2.6% fewer with

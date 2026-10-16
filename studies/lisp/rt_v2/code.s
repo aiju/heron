@@ -146,13 +146,14 @@ p_staticcopy:
         PUSH r7
         BSR  static_copy
         POP  r7
-        CMP  r1, #0
+        CMP  r1, #UNB
         BEQ  .no
         RET
 .no:    MOV  r1, r13
         RET
 
-; static_copy: r1 = a value -> r1 = its static copy, or 0.
+; static_copy: r1 = a value -> r1 = its static copy, or UNB if it can't be
+; copied (not 0, which is the integer 0).
 static_copy:
         PUSH r7
         CMP  sp, [stack_limit]
@@ -171,18 +172,18 @@ static_copy:
         BEQ  .str
         CMP  r2, #B_VEC
         BEQ  .vec
-        MOV  r1, #0             ; a heap symbol, a procedure: no
+        MOV  r1, #UNB           ; a heap symbol, a procedure: no
 .same:  JMP  [sp]+
 .pair:  PUSH r1                 ; the car, then the cdr, then a static pair
         MOV  r1, [r1 - 1]
         BSR  static_copy
-        CMP  r1, #0
+        CMP  r1, #UNB
         BEQ  .fail1
         MOV  r2, [sp]
         MOV  [sp], r1
         MOV  r1, [r2 + 3]
         BSR  static_copy
-        CMP  r1, #0
+        CMP  r1, #UNB
         BEQ  .fail1
         MOV  r6, r1
         MOV  r2, #8
@@ -193,7 +194,7 @@ static_copy:
         OR   r1, #1
         JMP  [sp]+
 .fail1: ADD  sp, #4
-        MOV  r1, #0
+        MOV  r1, #UNB
         JMP  [sp]+
 .str:   MOV  r6, [r1 - 3]       ; copy the whole object
         LSR  r6, #8
@@ -226,7 +227,7 @@ static_copy:
         MOV  r1, [r2 + r5 + VEC_ELTS]
         BSR  static_copy
         POP  r5
-        CMP  r1, #0
+        CMP  r1, #UNB
         BEQ  .vfail
         MOV  r2, [sp]
         MOV  [r2 + r5 + VEC_ELTS], r1
@@ -236,7 +237,7 @@ static_copy:
         ADD  sp, #4
         JMP  [sp]+
 .vfail: ADD  sp, #8
-        MOV  r1, #0
+        MOV  r1, #UNB
         JMP  [sp]+
 .copy:  ; r1 = the object, r6 = its size: a byte-for-byte copy
         PUSH r1

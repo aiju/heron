@@ -141,7 +141,7 @@ it's for. `cc:install` writes one byte per parcel into the category map
 5. `(gc)`, then `(%save-image)` stops the machine, and the tools keep a
    copy of memory. A machine booted from it goes on reading the console.
 
-That takes 1.7 billion cycles (about 20 seconds in the simulator), 1.2
+That takes 1.6 billion cycles (about 20 seconds in the simulator), 1.5
 billion of them step 3.
 
 ## On draft 2

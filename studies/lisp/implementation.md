@@ -61,9 +61,9 @@ Object types:
 | `0x00100` | the runtime's variables, then jump tables (16-bit addresses reach them) |
 | `0x00400` | `nil` and the end-of-file object, then **symbol space**: the static symbols the build generates, then the ones the reader interns. Symbols never move, and 16-bit addresses reach them. |
 | `0x08000` | **constant space**: names of interned symbols, and what the compiler needs to stay put: static closures and copies of quoted constants. Never moves, and the collector doesn't scan it. |
-| `0x10000` | the runtime's code, its static data and the prelude's text, then **code space**: compiled code, up to `0x26000` |
-| `0x26000` | the category map: a byte per parcel of code space, saying what it's for ([compiler.md](compiler.md#categories)) |
-| `0x30000`, `0x90000` | the two halves of the heap, 384 KB each |
+| `0x10000` | the runtime's code, its static data and the prelude's text, then **code space**: compiled code, up to `0x2A000` |
+| `0x2A000` | the category map: a byte per parcel of code space, saying what it's for ([compiler.md](compiler.md#categories)) |
+| `0x35000`, `0x92800` | the two halves of the heap, 374 KB each |
 | `0xF0000`–`0xFFFFF` | the stack (64 KB); the stack limit is at `0xF0800` |
 
 ## The garbage collector
@@ -192,7 +192,3 @@ different:
   compiled code. Their trap reports the error the software checks do: the
   first operand that isn't an integer, or an overflow. Without the
   feature, a check of one operand is `TST r, #1`.
-- **Code space** ends at `0x28000`, 8 KB later than on 1b: the draft 2
-  compiler is a bigger program, and the errors test filled 1b's space.
-  The heap gives 4 KB of each half (it starts at `0x32000`), so that the
-  category map still covers all of code space.
