@@ -725,7 +725,9 @@ Still open:
 Counted from the netlist (`heron v2_hw hw bom`), against the estimate
 this RFC first gave for the same sections. A 16-bit part counts once: a
 half of one (each IS61C6416AL byte, each 8- or 9-bit half of a 74ABT16xxx)
-counts ½ where it is used, and pairing the halves makes the core 378:
+counts ½ where it is used, and pairing the halves makes the core 377.
+A package of gates counts in the section of its first gate, so a change
+to the gates can move a chip between sections:
 
 | Section | Netlist | Estimate | |
 |---|---:|---:|---|
@@ -739,9 +741,9 @@ counts ½ where it is used, and pairing the halves makes the core 378:
 | Result multiplexer | 18 | 18 | |
 | R, T, MAR, LC, SX, EX | 29 | 24 | |
 | PC, FPC, the fetch's translation, the queue | 52½ | 28 | |
-| Flags, CL, branch condition | 35½ | 12 | |
-| Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 77½ | 42 | 7 SRAMs |
-| **The netlist's core** | **378** | **231** | |
+| Flags, CL, branch condition | 33½ | 12 | |
+| Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 78½ | 42 | 7 SRAMs |
+| **The netlist's core** | **377** | **231** | |
 | Bus interface, master | (30) | 30 | not drawn: the estimate |
 | Slave port, control store writes, control register | (14) | 14 | not drawn: the estimate |
 | **Total** | **about 420** | **about 275** | |
@@ -777,6 +779,14 @@ counts ½ where it is used, and pairing the halves makes the core 378:
   8.7 ns turn-off made a refill 7 ticks); as its drivers hand over at a
   decode, the simulator logs many more overlaps on QH, all under 2 ns
   (58 µs of overlap in `strings`, against 56).
+- **The size decode:** a 74F138 decodes `SIZE` into BYTE_n, HALF_n and
+  WORD_n, the misalignment test is SIZE1 · (VA0 + VA1 · SIZE0), and a
+  half's byte lanes come from NORs of HALF_n. That takes four inverters
+  and four 74F08 sections for the 138, one chip fewer, since each of
+  those part types drops a package; no microinstruction's timing
+  changes. Byte enables from multiplexers (a 74F151 or 153 a pair of
+  lanes) would save nothing: they replace about as many gates as they
+  cost, and put 1.4 ns more on the write enables.
 - **Against draft 1b:** its CPU card as built is 269 chips, with 8-bit
   parts; this one about 420, for a 32-bit memory path, the queue, the
   page map and the window, the register banks and the writable control

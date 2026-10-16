@@ -812,19 +812,16 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
               "1Y": "XFAULT",
               "2G": "GND", "2C0": "MAPF_n", "2C1": "SFLAG", "2C2": "GND", "2C3": "SFLAG",
               "2Y": "XFAULT_n"})
-    # alignment, by size
-    g("04", [u["SIZE0"]], "SIZE0_n")
+    # the size (SIZE: 1 byte, 2 half, 3 word), decoded active low; and
+    # alignment: a half at an odd address, or a word at one that isn't a
+    # multiple of 4, is SIZE1 & (VA0 | VA1 & SIZE0)
+    nl.add("138", "U_SIZED", A=u["SIZE0"], B=u["SIZE1"], C="GND", G1="VCC", G2A="GND",
+           G2B="GND", Y1="BYTE_n", Y2="HALF_n", Y3="WORD_n")
     g("04", [u["SIZE1"]], "SIZE1_n")
     g("08", [u["SIZE0"], u["SIZE1"]], "WORD")
-    g("08", ["SIZE0_n", u["SIZE1"]], "HALF")
-    g("08", [u["SIZE0"], "SIZE1_n"], "BYTE")
-    g("04", ["WORD"], "WORD_n")
-    g("04", ["HALF"], "HALF_n")
-    g("04", ["BYTE"], "BYTE_n")
-    g("32", [VA[0], VA[1]], "VA01")
-    g("08", ["WORD", "VA01"], "MISW")
-    g("08", ["HALF", VA[0]], "MISH")
-    g("32", ["MISW", "MISH"], "MIS1")
+    g("08", [VA[1], u["SIZE0"]], "MISW1")
+    g("32", [VA[0], "MISW1"], "MISV")
+    g("08", [u["SIZE1"], "MISV"], "MIS1")
     g("08", ["MIS1", "XLATE"], "MISALIGN")
     g("00", ["MIS1", "XLATE"], "MISALIGN_n")
     # what answers: the card's RAM (slot 0) or the I/O page (slot 15)
@@ -874,11 +871,11 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         for i in range(8):
             far[f"D{i + 1}"], far[f"Q{i + 1}"] = VA[8 * k + i], BBUS[8 * k + i]
     # byte enables, from the size and VA[1:0]
-    nl.add("138", "U_BYTED", A=VA[0], B=VA[1], C="GND", G1="BYTE", G2A="GND", G2B="GND",
+    nl.add("138", "U_BYTED", A=VA[0], B=VA[1], C="GND", G1="VCC", G2A="BYTE_n", G2B="GND",
            Y0="BYT0_n", Y1="BYT1_n", Y2="BYT2_n", Y3="BYT3_n")
     g("04", [VA[1]], "VA1_n")
-    g("08", ["HALF", "VA1_n"], "HLO")
-    g("08", ["HALF", VA[1]], "HHI")
+    g("02", ["HALF_n", VA[1]], "HLO")
+    g("02", ["HALF_n", "VA1_n"], "HHI")
     g("02", ["WORD", "HLO"], "WHL_n")
     g("02", ["WORD", "HHI"], "WHH_n")
     for k, wh in enumerate(["WHL_n", "WHL_n", "WHH_n", "WHH_n"]):
@@ -900,11 +897,12 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
             ram[f"A{i}"] = PA[2 + i]
         for i in range(8):
             ram[f"IO{i}"] = DB[8 * k + i]
-    # store data: the A bus, replicated by size
+    # store data: the A bus, replicated by size (a write always has one, so
+    # SIZE1 is a half or a word)
     nl.section("Store data")
     g("00", ["MEMWR", "LATE"], "SDOE_n")
     a8 = [ABUS[8 * k:8 * k + 8] for k in range(4)]
-    for ref, src, dst, oe2 in (("U_SD0", a8[0], 0, "GND"), ("U_SD1", a8[1], 1, "BYTE"),
+    for ref, src, dst, oe2 in (("U_SD0", a8[0], 0, "GND"), ("U_SD1", a8[1], 1, "SIZE1_n"),
                                ("U_SDB1", a8[0], 1, "BYTE_n"), ("U_SD2", a8[2], 2, "WORD_n"),
                                ("U_SDB2", a8[0], 2, "WORD"), ("U_SD3", a8[3], 3, "WORD_n"),
                                ("U_SDH3", a8[1], 3, "HALF_n"), ("U_SDB3", a8[0], 3, "BYTE_n")):
