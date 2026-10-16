@@ -72,8 +72,8 @@ runtime in `rt_v2/` beside `rt/`, Egret's assembly in `vm/*_v2.s` beside
 drafts (Egret's whole C VM, both studies' programs, tests, expected
 output, the Lisp's reference interpreter), and 1b's numbers don't move:
 report 0017's and 0018's tables regenerate as they are. A separate
-`v1b_lisp` and `v1b_egret` would have duplicated all of it, and renamed
-two folders that four open pull requests change.
+`v1b_lisp` and `v1b_egret` would have duplicated all of it, and moved
+two folders that three open pull requests build on.
 
 **The method,** for each assembly file:
 
