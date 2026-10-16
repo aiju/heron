@@ -37,14 +37,15 @@ the format of the opcode explorer it was laid out with.
   | Register | |
   |---|---|
   | `r0`–`r15` | general, 32 bits |
+  | `r0` | also the high half of a product and the remainder of a divide ([5.3](#53-multiply-and-divide)), and `MERGE`'s mask |
+  | `r1` | also the low half of `MULA`'s sum ([5.10](#510-tentative-instructions)) |
   | `r7` | also the link register: every call writes the return address into it ([5.7](#57-jumps-and-calls)) |
   | `r14` | also the base of mode E, `[r14 + 4R]` ([3](#3-addressing-modes)) |
   | `r15`, `sp` | also the stack pointer, which `SAVE`, `RESTORE`, mode 4 and exceptions use |
   | `PC` | 32 bits, always even |
-  | `HI`, `LO` | special registers 1 and 2: multiply, divide and `MULA` |
   | `ccr` | the condition codes N (negative), Z (zero), C (carry) and V (overflow): special register 0, the low byte of the status register `sr` |
 
-  The status register's other bits, the special registers above 2, the
+  The status register's other bits, the special registers other than `ccr`, the
   modes, register banks, address translation, exceptions and reset are
   [RFC 0029](0029-rfc-draft-2-system.md)'s. The calling convention beyond
   `r7` and `sp` is **open**.
@@ -296,17 +297,22 @@ mode's `R`) in its low one.
 
 | Instruction | Cells | Operation | Flags |
 |---|---|---|---|
-| `MULU rd, src` | `E4`, `EC` | `HI`:`rd` ← `rd` × `src`, unsigned | NZ from `rd`; C = V = 1 if the product needs more than 32 bits, else 0 |
-| `MULS rd, src` | `E5`, `ED` | `HI`:`rd` ← `rd` × `src`, signed | the same, signed |
-| `DIVU rd, rs` | `E7` | `rd` ← `rd` ÷ `rs`, `HI` ← the remainder, unsigned | NZ from `rd`; C = V = 0 |
-| `DIVS rd, rs` | `E8` | `rd` ← `rd` ÷ `rs` rounded toward zero, `HI` ← the remainder, with the dividend's sign | NZ from `rd`; C = 0; V below |
-| `DIVUL rd, rs` | `E9` | `rd` ← `HI`:`rd` ÷ `rs`, `HI` ← the remainder, unsigned | NZ from `rd`; C = 0; V below |
+| `MULU rd, src` | `E4`, `EC` | `r0`:`rd` ← `rd` × `src`, unsigned | NZ from `rd`; C = V = 1 if the product needs more than 32 bits, else 0 |
+| `MULS rd, src` | `E5`, `ED` | `r0`:`rd` ← `rd` × `src`, signed | the same, signed |
+| `DIVU rd, rs` | `E7` | `rd` ← `rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = V = 0 |
+| `DIVS rd, rs` | `E8` | `rd` ← `rd` ÷ `rs` rounded toward zero, `r0` ← the remainder, with the dividend's sign | NZ from `rd`; C = 0; V below |
+| `DIVUL rd, rs` | `E9` | `rd` ← `r0`:`rd` ÷ `rs`, `r0` ← the remainder, unsigned | NZ from `rd`; C = 0; V below |
 
 - **Dividing by zero** is a divide error, and changes nothing.
 - **`DIVS`** of −2³¹ by −1 gives −2³¹, remainder 0, and sets V.
-- **`DIVUL`** with `HI` ≥ `rs` would overflow: it sets V and changes
+- **`DIVUL`** with `r0` ≥ `rs` would overflow: it sets V and changes
   nothing else.
-- **`MULU` and `MULS` leave `LO` alone** (**open**).
+- **The operands are read before anything is written,** so `src` and `rs`
+  may be `r0`.
+- **Where two results meet in one register,** the later stays: an
+  addressing mode's update, then `r0`'s, then `rd`'s. So `MULU r0, src`
+  gives the low 32 bits of the product, `DIVU r0, rs` the quotient, and
+  `MULU r2, [r0]+` leaves the high half in `r0` (**open**).
 
 #### 5.4 Unary operations
 
@@ -429,9 +435,9 @@ change or go (Emily, 2026-10-15).
 | `DC` | `FFS rd, rs` | the index of `rs`'s lowest set bit, 0…31, or 32 if `rs` = 0 | NZ |
 | `DD` | `POPC rd, rs` | the number of set bits in `rs`, 0…32 | NZ |
 | `DE` | `REV rd, rs` | `rs` with its four bytes in reverse order | NZ |
-| `E6` | `MULA rd, rs` | `HI`:`LO` ← `HI`:`LO` + `rd` × `rs`, signed, 64 bits | – |
-| `EE` | `MERGE rd, rs` | `rd` ← (`rd` & ~`HI`) \| (`rs` & `HI`) | NZ |
-| `FD 00` | `MULFX rd, rs, #n` | `rd` ← the low 32 bits of the signed product `rd` × `rs` shifted right arithmetically by n, 0…31; `HI` ← the product's high half | NZ; C = V = 1 if the result needs more than 32 bits |
+| `E6` | `MULA rd, rs` | `r0`:`r1` ← `r0`:`r1` + `rd` × `rs`, signed, 64 bits | – |
+| `EE` | `MERGE rd, rs` | `rd` ← (`rd` & ~`r0`) \| (`rs` & `r0`) | NZ |
+| `FD 00` | `MULFX rd, rs, #n` | `rd` ← the low 32 bits of the signed product `rd` × `rs` shifted right arithmetically by n, 0…31; `r0` ← the product's high half, as `MULS` gives it | NZ; C = V = 1 if the result needs more than 32 bits |
 
 `MULFX`'s extension parcel holds `rd` in bits 15–12, `rs` in 11–8 and n
 in 4–0; bits 7–5 must be 0.
@@ -482,16 +488,14 @@ names may be written in either case is **open**.
   | `POP r1` | `MOV r1, [sp]+` |
   | `RET` | `JMP r7` |
   | `NOP` | `MOV r0, r0` |
-  | `MFHI r1`, `MFLO r1` | `MFSR r1, hi`, `MFSR r1, lo` |
-  | `MTHI r1`, `MTLO r1` | `MTSR hi, r1`, `MTSR lo, r1` |
 
 - **Not accepted:** `ST`, `MVI` and `CMPI` (**decided**, Emily,
   2026-10-15), and `LI`, `MFF` and `MTF` (**open**). The assembler says
   what to write instead.
 - **One spelling per instruction:** the assembler takes what the
   disassembler prints (**open**).
-- **Special registers** are written by name (`ccr`, `hi`, `lo`, and
-  RFC 0029's, such as `sr`) or by number.
+- **Special registers** are written by name (`ccr` and RFC 0029's, such as
+  `sr`) or by number.
 - **Branches and calls:** `Bcc label`, `BRA`, `BSR`; `JMP label` and
   `CALL label` are `Jcc` with cc = E and F, and `JMP #label` is `JMP ea`.
   A `Bcc` out of reach becomes the `Jcc` with the same condition, and
@@ -622,7 +626,7 @@ What changed from 1b, beyond the encoding:
   forms (Emily, 2026-10-15).
 - **`NOP` is `MOV r0, r0`,** now that `MOV` doesn't set the flags, so it
   needs no cell; `.align` pads with it, where a zero parcel would trap.
-- **Shorthands** such as `PUSH` and `MFHI` name common forms of a general
+- **Shorthands** such as `PUSH` and `RET` name common forms of a general
   instruction, unlike `MVI`, which was a second name for one (Emily).
 
 #### 9.2 ALU operations and constants
@@ -786,8 +790,8 @@ What changed from 1b, beyond the encoding:
 
 - **What replaces it:** `CLR` stores zero, in memory or in a register.
 - **What still needs a zero** ([RFC 0006, 3.3](0006-rfc-ideas-isa.md#33-r0-as-a-general-register)):
-  `ADC r5, r0` in bignum, `SBC r6, r0` in sort, `MTHI r0` before a `DIVUL`
-  chain, and the kernel's `MTUR r1, r0` and `MTSR mapd, r0`. These take a
+  `ADC r5, r0` in bignum, `SBC r6, r0` in sort, and the kernel's
+  `MTUR r1, r0` and `MTSR mapd, r0`. These take a
   `CLR rX` first, or new forms ([12](#12-open-questions)). The Lisp's
   `CMP.T r1, r0` becomes `TTST r1, r1`.
 - **In the hardware:** `NEG` and the multiply and divide routines read
@@ -820,6 +824,36 @@ where they fit, so that their use can be measured (Emily, 2026-10-15).
     wrote as `CMP.T r1, r0` and `MOV.T r9, r1`.
   - The Lisp tags integers with bit 0 clear and Egret as 2n + 1; the
     tools take the Lisp's until it's settled.
+
+#### 9.9 `HI` and `LO` are `r0` and `r1`
+
+**decided** (Emily, 2026-10-16). Draft 1's `HI`, a hidden entry of 1b's
+register file reached through `MFSR` and `MTSR`, and the `LO` that `MULA`
+added were special registers 1 and 2.
+
+- **The operating system** gets a thread whose state is `r0`–`r15`, the
+  PC and the status word. `MFUR` and `MTUR` reach all of a bank, and an
+  exception frame or a switch has no special registers to save. A kernel
+  that shares register banks among threads needed a way to reach
+  another bank's `HI` and `LO`
+  ([RFC 0029's register-banks.md](0029-rfc-draft-2-system/register-banks.md#3-what-fewer-banks-would-change-in-software));
+  now it needs none.
+- **The hardware** loses `HI` and `LO`'s special-register path, and a
+  bank is sixteen registers.
+- **What it costs:** a multiply or divide writes `r0` whether or not the
+  program wanted the high half or the remainder, so assembly keeps
+  nothing in `r0` across one (nor in `r1` across `MULA`), and the
+  compiler's register allocator treats `r0` as clobbered by them. In
+  cycles, estimates put the cost close to nothing either way (Emily,
+  2026-10-16). x86's `MUL` and `DIV` use `EDX` the same way.
+- **A fixed register is a magic register,** which Emily dislikes, but a
+  separate `HI` is worse (Emily).
+- **Gone with them:** the shorthands `MFHI`, `MTHI`, `MFLO` and `MTLO`,
+  and the open question of whether `MULU` and `MULS` leave `LO` alone.
+  What happens when a multiply or divide writes `r0` twice, as its `rd`
+  or its address register as well, is a new one. The proposal keeps the
+  later write, so `rd` wins and a register allocator may still pick
+  `r0` for it ([5.3](#53-multiply-and-divide)).
 
 ### 10. 1b's gaps left open
 
@@ -975,9 +1009,10 @@ Part I marks each of these **open**; the proposal is what it states.
       `.W`), only if something needs it.
 12. **The details the tools chose:** the shift count's split, `SETcc`
     with cc = F, `SAVE` and `RESTORE` within `r0`–`r14`, `DBNZ`'s offset,
-    `INC` and `DEC` on a byte taking N from bit 7, `MULU` and `MULS`
-    leaving `LO` alone, `JMP` and `CALL` refusing byte and half memory
-    operands, and a load into its own auto-incremented register.
+    `INC` and `DEC` on a byte taking N from bit 7, `JMP` and `CALL`
+    refusing byte and half memory operands, a load into its own
+    auto-incremented register, and which result stays where a multiply
+    or divide writes `r0` twice ([5.3](#53-multiply-and-divide)).
 13. **Syntax:** `LI`, `MFF` and `MTF` refused; one spelling per
     instruction; case.
 14. **The calling convention** beyond `r7` and `sp`.
