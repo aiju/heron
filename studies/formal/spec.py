@@ -1149,7 +1149,14 @@ class Run:
                 ga = guard(a)
                 if ga is (op == "or"):         # decided by the left side
                     return int(ga)
-                b = self.eval(e[3], env)
+                # the right side runs only where the left doesn't decide:
+                # under that guard, so that what it notes is what a run on
+                # known values would note
+                g0 = self.g
+                rhs = ga if op == "and" else g_not(ga)
+                self.g = g_and(g0, rhs)
+                b = self.eval(e[3], env) if self.g is not False else 0
+                self.g = g_or(g_and(g0, g_not(rhs)), self.g)
                 gb = guard(b)
                 if isinstance(ga, bool) and isinstance(gb, bool):
                     return int(ga and gb) if op == "and" else int(ga or gb)

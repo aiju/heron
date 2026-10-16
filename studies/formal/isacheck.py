@@ -126,7 +126,7 @@ def compare(spec, r, hi, fl, pc, image, cover=None, record=None):
         return None
     finally:
         if record is not None and run is not None:
-            record.update(taken(run))
+            record.update(taken(run, owner(spec, words[0])))
     if sim_err is not None:
         return f"simulator stopped ({sim_err}), spec went on", words, (r, hi, fl, pc)
     if cover is not None:
@@ -160,10 +160,15 @@ def compare(spec, r, hi, fl, pc, image, cover=None, record=None):
     return None
 
 
-def taken(run):
+def owner(spec, w):
+    """The line of the first instruction whose encoding a first parcel
+    matches, `when` or not (0 for none): whose encoding space it is in."""
+    return next((i.line for i in spec.instructions if i.matches(w)), 0)
+
+
+def taken(run, ins):
     """The decision outcomes a run on known values took: {(instruction,
     site, outcome)}, the instruction by its line in the specification."""
-    ins = run.matched.line if run.matched else 0
     out = set()
     for site, yes, no in run.record or ():
         if yes is True:

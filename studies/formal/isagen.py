@@ -208,7 +208,11 @@ def sites(spec):
             elif k == "set" and st[1][0] == "name":
                 d = spec.decls.get(st[1][1])
                 if d and d[0] == "reg" and d[1] is None and d[2] == 1:
-                    out.update({(("set", st[3], st[1][1]), True), (("set", st[3], st[1][1]), False)})
+                    site = ("set", st[3], st[1][1])
+                    if st[2][0] == "num":           # a constant: one outcome
+                        out.add((site, bool(st[2][1])))
+                    else:
+                        out.update({(site, True), (site, False)})
             elif k in ("fault", "trap"):
                 out.add(((k, st[2]), True))
             elif k == "halt":
@@ -219,6 +223,19 @@ def sites(spec):
     for ins in spec.instructions:
         walk(ins.body)
     return out
+
+
+def owner_ok(spec, w):
+    """Whether some instruction's encoding and `when` take parcel w."""
+    for ins in spec.instructions:
+        if not ins.matches(w):
+            continue
+        if ins.when is None:
+            return True
+        fields = {f: S.mk(hi - lo + 1, w >> lo) for f, (hi, lo) in ins.fields.items()}
+        if S.guard(S.Run(spec, None).eval(ins.when, fields)):
+            return True
+    return False
 
 
 def goals(spec, ins):
@@ -314,7 +331,7 @@ def main(argv=None):
                 if bad <= args.show:
                     why, words, _ = res
                     print(f"  {ins.syntax}: {pc:08X}: {' '.join(f'{w:04X}' for w in words)}: {why}")
-        mine = {(site, o) for (i, site, o) in took if i == ins.line}
+        mine = {(site, o) for (_, site, o) in took}        # all of them aimed at ins
         for key in status:
             if status[key] == "missed" and key in mine:
                 status[key] = "reached"
@@ -333,6 +350,24 @@ def main(argv=None):
                     print(f"      {v:<10} line {site[1]}: {lines[site[1] - 1].strip()[:60]} "
                           f"({site[0]}{' ' + str(site[2]) if len(site) > 2 else ''}: {o})")
     if not args.only:
+        # encodings no instruction has: sampled, since no instruction aims at them
+        took, n = set(), 0
+        while n < 50:
+            w = rng.getrandbits(16)
+            if owner_ok(spec, w):
+                continue
+            r, hi, fl, pc = isacheck.random_state(rng)
+            image = bytearray(isacheck.WINDOW)
+            image[pc], image[pc + 1] = w & 0xFF, w >> 8
+            res = isacheck.compare(spec, r, hi, fl, pc, bytes(image), record=took)
+            n += 1
+            ncases += 1
+            bad += res is not None
+        status = {(site, o): "reached" for (_, site, o) in took}
+        for key in status:
+            all_goals.add((0, key))
+            reached_all.add((0, key))
+        print(f"{'(no instruction: illegal)':<38} {len(status):4} goals: reached {len(status)}")
         every = sites(spec)
         reached_sites = {key for (_, key) in reached_all}
         dead = sorted(every - reached_sites, key=lambda x: (x[0][1], str(x)))
