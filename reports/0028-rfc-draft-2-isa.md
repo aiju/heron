@@ -312,7 +312,8 @@ mode's `R`) in its low one.
 - **Where two results meet in one register,** the later stays: an
   addressing mode's update, then `r0`'s, then `rd`'s. So `MULU r0, src`
   gives the low 32 bits of the product, `DIVU r0, rs` the quotient, and
-  `MULU r2, [r0]+` leaves the high half in `r0` (**open**).
+  `MULU r2, [r0]+` leaves the high half in `r0` (**open**, tentative).
+  The alternative is that such encodings are illegal.
 
 #### 5.4 Unary operations
 
@@ -853,7 +854,10 @@ added were special registers 1 and 2.
   What happens when a multiply or divide writes `r0` twice, as its `rd`
   or its address register as well, is a new one. The proposal keeps the
   later write, so `rd` wins and a register allocator may still pick
-  `r0` for it ([5.3](#53-multiply-and-divide)).
+  `r0` for it ([5.3](#53-multiply-and-divide)). It's sound, and stays
+  tentative (Emily, 2026-10-16). The alternative is to make the
+  conflicting encodings illegal, so a mistake traps; Emily finds the
+  proposal more useful.
 
 ### 10. 1b's gaps left open
 
@@ -1012,7 +1016,8 @@ Part I marks each of these **open**; the proposal is what it states.
     `INC` and `DEC` on a byte taking N from bit 7, `JMP` and `CALL`
     refusing byte and half memory operands, a load into its own
     auto-incremented register, and which result stays where a multiply
-    or divide writes `r0` twice ([5.3](#53-multiply-and-divide)).
+    or divide writes `r0` twice ([5.3](#53-multiply-and-divide); or
+    those encodings are illegal).
 13. **Syntax:** `LI`, `MFF` and `MTF` refused; one spelling per
     instruction; case.
 14. **The calling convention** beyond `r7` and `sp`.
