@@ -90,10 +90,15 @@ GLB = 0x2000          # register file address of the locations outside the banks
 
 
 class RTL:
-    def __init__(self, system, mc=None, check=True, lengths=None):
+    """rom, decode: the control store's contents ({address: word}) and the
+    decode table (64K entries), as the I/O processor wrote them at boot;
+    by default, the microcode as built."""
+
+    def __init__(self, system, mc=None, check=True, lengths=None, rom=None, decode=None):
         self.mc = mc or uc.built()
         self.sys = system
-        rom = self.mc.rom()
+        if rom is None:
+            rom = self.mc.rom()
         self.rom = {}
         cache = {}
         for a, w in rom.items():
@@ -101,7 +106,7 @@ class RTL:
                 cache[w] = uc.unpack(w)
             self.rom[a] = cache[w]
         self.idle = uc.unpack(uc.IDLE)
-        self.decode = self.mc.decode_table()
+        self.decode = list(decode) if decode is not None else self.mc.decode_table()
         self.lengths = tuple(lengths or self.mc.lengths)
         self.check = check
         self.rf = [0] * 0x4000

@@ -6,6 +6,9 @@
                                    one program on the RTL model: cycles, time,
                                    where they go (--bus: the code on the
                                    memory card, fetched over the bus)
+  boot   FILE.s                    the whole boot: the I/O processor loads the
+                                   control store and RAM through the slave
+                                   port, then RESET and RUN
   ucode  [--list]                  the microcode: its size, length classes,
                                    and (--list) every microinstruction
 """
@@ -39,6 +42,20 @@ def cmd_run(args):
     return 0
 
 
+def cmd_boot(args):
+    from heron.infra import asm as asmcore
+    from heron.infra import isas
+    from heron.infra.programs import metadata
+    from . import check
+    img = asmcore.assemble_file(isas.get("v2"), args.file)
+    m, iop = check.run_booted(img, metadata(args.file)["input"])
+    sys.stdout.write(m.out.decode("latin-1"))
+    print(f"\nthe I/O processor: {iop.records} records, {iop.halfwords} halfwords, "
+          f"{iop.ticks() * 20 / 1e6:.1f} ms at {iop.CLOCKS_PER_HALF} bus clocks a halfword")
+    print(f"the CPU: {m.cycles} cycles, {m.ticks * 20 / 1e6:.3f} ms from RESET to HALT")
+    return 0
+
+
 def cmd_ucode(args):
     from collections import Counter
     from . import ucode as uc
@@ -69,6 +86,9 @@ def main(argv=None):
                    help="prefetch from bus space in any cycle, not only refills")
     r.add_argument("--profile", action="store_true")
     r.set_defaults(fn=cmd_run)
+    b = sub.add_parser("boot", help="boot from the I/O processor, then run a program")
+    b.add_argument("file")
+    b.set_defaults(fn=cmd_boot)
     u = sub.add_parser("ucode", help="the microcode")
     u.add_argument("--list", action="store_true")
     u.set_defaults(fn=cmd_ucode)

@@ -94,6 +94,24 @@ def run_rtl(image, inp=b"", max_cycles=200_000_000, code_base=0, prefetch_bus=Fa
     return m
 
 
+def run_booted(image, inp=b"", max_cycles=200_000_000):
+    """The whole boot: an empty control store and RAM, the I/O processor
+    loading them through the CPU card's slave port, RESET, RUN; then the
+    reset routine, the shim, and the program. Returns (RTL model, IOP)."""
+    from . import iop as iopm
+    s = System()
+    s.add(1, MemoryCard())
+    s.add(15, ConsoleCard(inp))
+    slave = iopm.CPUCardSlave(s)
+    iop = iopm.IOP(slave)
+    iop.load_microcode(uc.built())
+    iop.load_ram(iopm.boot_image(image))
+    iop.start()
+    m = RTL(s, rom=slave.rom(), decode=slave.decode())
+    m.run(max_cycles)
+    return m, iop
+
+
 def run_isa(image, inp=b"", max_cycles=200_000_000):
     from heron.studies.v2_isa.sim import Machine
     sim = Machine(image, inp=inp)
@@ -194,6 +212,9 @@ def c_programs(names=None):
     return out
 
 
+CODE_BASE = 0
+
+
 def check_image(name, img, inp, lock=False, max_cycles=400_000_000, path=""):
     t0 = time.time()
     try:
@@ -201,10 +222,10 @@ def check_image(name, img, inp, lock=False, max_cycles=400_000_000, path=""):
             m, sim = lockstep(img, inp, path)
         else:
             sim = run_isa(img, inp, max_cycles)
-            m = run_rtl(img, inp)
+            m = run_rtl(img, inp, code_base=CODE_BASE)
     except RTLError as e:
         return name, [f"RTL error: {e}"], None
-    diffs = compare(sim, m)
+    diffs = compare(sim, m, code_base=CODE_BASE)
     info = (m.instructions, m.cycles, m.ticks, time.time() - t0)
     return name, diffs, info
 
@@ -271,10 +292,10 @@ def check_program(path, lock=False, verbose=False):
             m, sim = lockstep(img, inp, path)
         else:
             sim = run_isa(img, inp, meta["max-cycles"])
-            m = run_rtl(img, inp)
+            m = run_rtl(img, inp, code_base=CODE_BASE)
     except RTLError as e:
         return name, [f"RTL error: {e}"], None
-    diffs = compare(sim, m)
+    diffs = compare(sim, m, code_base=CODE_BASE)
     if name == "interrupts" and "sw" not in path:
         diffs = [d for d in diffs if d.startswith("output")]
     info = (m.instructions, m.cycles, m.ticks, time.time() - t0)
@@ -288,7 +309,12 @@ def main(argv=None):
     p.add_argument("--lockstep", action="store_true")
     p.add_argument("-v", action="store_true")
     p.add_argument("--c", action="store_true", help="the compiled C programs (or name them c/NAME)")
+    p.add_argument("--bus", action="store_true",
+                   help="the programs on the memory card: every fetch and access over the bus")
     args = p.parse_args(argv)
+    global CODE_BASE
+    if args.bus:
+        CODE_BASE = 0x08000000
     bad = 0
     jobs = []
     asm_names = [n for n in args.names if not n.startswith("c/")]
