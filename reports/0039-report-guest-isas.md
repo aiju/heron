@@ -45,18 +45,18 @@ measures native code. The tables are generated:
 
 1. **Three instruction sets run on the CPU as it is, with nothing changed
    but the contents of the control store and the decode table.** RV32IM
-   runs every C program right, at 9.9 cycles an instruction: 3.7 times
+   runs every C program right, at 9.9 cycles an instruction: 3.95 times
    native draft 2's time for the same programs. The 6502 passes the
    functional test, 30.6 million instructions in 15.4 s, about 2 million
    instructions a second. Draft 1b's binaries run as they are, all 35
-   programs, at 1.14 times draft 2's own time (1.16 for compiled C), and
+   programs, at 1.14 times draft 2's own time (1.24 for compiled C), and
    1.18 times faster than draft 1b's own fast hardware.
 2. **Thumb needs one small change, and then its instructions run at
    native speed.**
    With D1, a decode table that also gives the instruction register to
    load and an immediate, Thumb runs at 2.4 cycles an instruction, each
-   in about the time of a draft 2 instruction; it takes 2.6 times draft
-   2's time because it executes 2.7 times as many instructions for the
+   in about the time of a draft 2 instruction; it takes 2.8 times draft
+   2's time because it executes 3.0 times as many instructions for the
    same C. D1 is two more 64K × 16 SRAMs beside the decode table, a
    16-bit register and its B-bus drivers, and no control bits.
 3. **What decides how well a guest fits is where its register numbers
@@ -168,8 +168,9 @@ so draft 2's flags and condition latch are the microcode's scratch; a
 branch uses the native branch condition where P1's IR[15:12] happens to be
 the right condition code (BEQ, BNE, BLT and BGE when rs1 is even).
 
-The result: all 15 programs right, 9.9 cycles an instruction, 3.7 times
-native draft 2 (which executes 6% fewer instructions for the same C).
+The result: all 15 programs right, 9.9 cycles an instruction, 3.95 times
+native draft 2's time (which executes 14% fewer instructions for the same
+C).
 Where the cycles go, over the 14 programs:
 
 | Instructions | Executed | Share | Cycles each | Share of the cycles | Estimated, with the lookup and SX from B |
@@ -253,7 +254,7 @@ with draft 1's simulator, but `interrupts`, whose timer interrupts arrive
 at other instructions than the simulator's and which is checked by its
 output. On the 18 hand-written programs report 0031 compares, 1b's
 binaries take 1.14 times the time of draft 2's own versions (the
-compiled C, 1.16 times draft 2's compiled C), and the 13 that don't print
+compiled C, 1.24 times draft 2's compiled C), and the 13 that don't print
 run 1.18 times faster than on draft 1b's own fast system
 ([RFC 0024](0024-rfc-faster-smaller/results.md#the-fast-system)). So
 draft 2's CPU could carry 1b's software with it, if that were wanted.
@@ -272,8 +273,8 @@ selectors `d` and `r` look (a third register is a constant of the
 routine), and the instruction's immediate, already shifted, scaled and
 offset as the routine wants it, which BX = 6 (a free code) puts on the
 B bus. Then most Thumb instructions are one or two cycles, as draft 2's
-are: 2.4 cycles an instruction, 245 ns against draft 2's 257 ns for the
-same programs. It takes 2.6 times draft 2's time because Thumb needs 2.7
+are: 2.4 cycles an instruction, 245 ns against draft 2's 263 ns for the
+same programs. It takes 2.8 times draft 2's time because Thumb needs 3.0
 times as many instructions for the same C: Cortex-M0 code has eight
 registers for most things, two-address arithmetic, no scaled or
 displaced indexed modes, and short immediates.
@@ -307,9 +308,9 @@ table sees it), an RV32 register-register operation would be three cycles
 an immediate one three, a load three or four, a store five, a branch
 about five (the last column of the table in [2.1](#21-rv32im-unmodified)).
 By the instruction mix, that is an estimated 6.6 cycles an instruction
-against 9.9, with the shifts and multiplies as they are, or about 2.5
+against 9.9, with the shifts and multiplies as they are, or about 2.6
 times native draft 2's time; with shifts by a count in three cycles, 5.4,
-about twice native. Together they need five or six more control bits,
+about 2.1 times. Together they need five or six more control bits,
 which with D3 means a wider control word: one more byte-wide SRAM and
 register.
 
@@ -326,8 +327,8 @@ they are touched. The timer switches processes round robin; `SWI #0`
 (Thumb's `SVC #0`) ends one.
 
 The suite's `sieve` compiled for draft 2 by the Heron C compiler, and its
-`queens` and `wordfreq` compiled for Thumb by clang, run together, about
-40 time slices between them, and each prints what it should (the run is in
+`queens` and `wordfreq` compiled for Thumb by clang, run together, 35 time
+slices between them, and each prints what it should (the run is in
 [performance.md](0039-report-guest-isas/performance.md#the-mixed-machine)).
 
 What it takes:
