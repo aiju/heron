@@ -8,6 +8,9 @@
 //! - [`Serial`]: two serial lines, two 16C550s from CLKA (1.8432 MHz, up
 //!   to 115,200 baud). A0-A2 pick the register, A3 the line. INT is
 //!   either UART's interrupt.
+//! - [`Gpio`]: general-purpose I/O, two latches and two buffers: register
+//!   0 R the inputs, W the outputs; register 1 W the inputs that raise
+//!   INT. Its inputs are the host's, so a test can raise INT.
 
 use crate::iobus::IoCard;
 use devices::cf::CfCard;
@@ -96,6 +99,39 @@ impl IoCard for Serial {
         self.frac = x.fract();
         self.now_ns = now_ns;
     }
+
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct Gpio {
+    pub inputs: u16,
+    pub outputs: u16,
+    pub int_mask: u16,
+}
+
+impl IoCard for Gpio {
+    fn read(&mut self, reg: u8, _now_ns: u64) -> (u16, u16) {
+        match reg & 1 {
+            0 => (self.inputs, 0xFFFF),
+            _ => (0, 0),
+        }
+    }
+
+    fn write(&mut self, reg: u8, v: u16, _now_ns: u64) {
+        match reg & 1 {
+            0 => self.outputs = v,
+            _ => self.int_mask = v,
+        }
+    }
+
+    fn int(&self) -> bool {
+        self.inputs & self.int_mask != 0
+    }
+
+    fn advance(&mut self, _now_ns: u64) {}
 
     fn as_any(&mut self) -> &mut dyn Any {
         self

@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 
 #[pymodule]
 pub mod iop {
-    use iop::cards::{Cf, Serial};
+    use iop::cards::{Cf, Gpio, Serial};
     use iop::iop::{Config, Iop, Status};
     use iop::micro;
     use iop::system::{CS_LANES, System as Engine};
@@ -66,9 +66,10 @@ pub mod iop {
     #[pymethods]
     impl System {
         /// `disk`: a CF card's image, in slot 0; `serial`: the serial card,
-        /// two lines, in slot 1.
+        /// two lines, in slot 1; `gpio`: general-purpose I/O cards, in
+        /// these slots.
         #[new]
-        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false))]
+        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false, gpio=Vec::new()))]
         #[allow(clippy::too_many_arguments)]
         fn new(
             ucode: &[u8],
@@ -80,6 +81,7 @@ pub mod iop {
             reference: Option<&str>,
             disk: Option<Vec<u8>>,
             serial: bool,
+            gpio: Vec<usize>,
         ) -> PyResult<System> {
             let words: Vec<u64> = ucode
                 .chunks(6)
@@ -104,6 +106,14 @@ pub mod iop {
             }
             if serial {
                 iop.io.slots[SERIAL_SLOT] = Some(Box::new(Serial::default()));
+            }
+            for slot in gpio {
+                if slot < iop.io.slots.len() {
+                    iop.io.slots[slot] = Some(Box::new(Gpio {
+                        int_mask: 0xFFFF,
+                        ..Gpio::default()
+                    }));
+                }
             }
             Ok(System {
                 s: Engine::new(iop, ram_size, cpu_hz, timing),
@@ -158,6 +168,20 @@ pub mod iop {
                 None => Vec::new(),
             });
             PyBytes::new(py, &v)
+        }
+
+        /// A GPIO card's inputs, as the world drives them.
+        fn gpio_set(&mut self, slot: usize, v: u16) {
+            self.with_iop_mut(|i| {
+                if let Some(g) =
+                    i.io.slots
+                        .get_mut(slot)
+                        .and_then(|c| c.as_mut())
+                        .and_then(|c| c.as_any().downcast_mut::<Gpio>())
+                {
+                    g.inputs = v;
+                }
+            })
         }
 
         /// The CF card's image.
@@ -330,6 +354,12 @@ pub mod iop {
             d.set_item("irq", c.irq)?;
             d.set_item("lane_errors", c.lane_errors)?;
             Ok(d)
+        }
+
+        /// Levels lowered in the CPU card's interrupt request register, as
+        /// a handler's write to its clear address would.
+        fn irq_clear(&mut self, bits: u8) {
+            self.s.card().irq &= !bits;
         }
 
         /// The CPU card's RAM.
