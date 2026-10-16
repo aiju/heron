@@ -54,7 +54,7 @@ pr_bytes:
 .done:  RET
 
 ; pr_str: a string, quoted and escaped for write.
-pr_str: MOVS r4, [print_mode]
+pr_str: MOVS r5, [print_mode]
         BEQ  pr_bytes
         PUSH r7
         MOV  r2, [r1 - 3]
@@ -94,18 +94,18 @@ pr_int: PUSH r7
         BSR  putc
         POP  r1
         NEG  r1, r1
-.pos:   MOV  r3, #0
-        MOV  r4, #10
-.div:   DIVU r1, r4
+.pos:   MOV  r6, #0
+        MOV  r5, #10
+.div:   DIVU r1, r5
         MFHI r2
         PUSH r2
-        INC  r3
+        INC  r6
         CMP  r1, #0
         BNE  .div
 .out:   POP  r1
         ADD  r1, #'0'
         BSR  putc
-        DEC  r3
+        DEC  r6
         BNE  .out
         JMP  [sp]+
 

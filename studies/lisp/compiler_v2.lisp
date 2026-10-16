@@ -162,13 +162,17 @@
 ; ======================================================================
 ; Code generation on draft 2
 ;
-; Registers: r1 = the value of an expression; arguments in r3, r4, r5, r6,
-; r8, r0; r2 the argument count at calls; r7 the link register; r9 raw
-; scratch; r13 = nil, r14 = the heap pointer, r15 = sp.
-; A function that calls anything pushes r7 on entry, below its frame, and
-; returns with JMP [sp]+; a leaf keeps it in r7 and returns with RET.
+; Registers: r1 = the value of an expression; arguments in r6, r5, r4, r3,
+; r8, r0 (argument k of the first four in r(7 - k)); r2 the argument count
+; at calls; r7 the link register; r9 raw scratch; r13 = nil, r14 = the heap
+; pointer, r15 = sp.
+; A function that calls anything saves its arguments and its return
+; address together on entry, the return address above the arguments: SAVE
+; r(7 - n)-r7 for n <= 4 parameters (SAVE r3-r7, then r8 and r0, for 5 and
+; 6); it returns with JMP [sp]+. A leaf saves the arguments alone, keeps
+; the return address in r7 and returns with RET (cc:link decides).
 
-(define cc:arg-regs '(3 4 5 6 8 0))
+(define cc:arg-regs '(6 5 4 3 8 0))
 
 (define (cc:ret tail)
   (when tail
@@ -204,19 +208,22 @@
                (cc:e 'call '(callea (mem 1 1))))))))
 
 ; a call to a letrec-bound lambda: straight to its body, past the check of
-; the argument count; a tail call to itself is a jump past its PUSH r7
+; the argument count; a tail call to itself saves the new arguments where
+; the old ones were, under the return address, and jumps past the entry
 (define (cc:known-call lam n tail)
   (if (cc:lam-rest lam) (cc:e 'call (list 'mov 2 (cc:imm n))))
   (cond ((not tail) (cc:e 'call (list 'bsr (cc:lam-start lam))))
         ((eq? lam cc:*lam*)
          (cc:emit-frame-pop)
+         (cc:for-each (lambda (i) (cc:e 'entry i)) (cc:save-args cc:*np* nil))
          (cc:e 'call (list 'b 'ra cc:*self-start*)))
         (t
          (cc:emit-frame-pop)
          (cc:e 'call '(link-restore))
          (cc:e 'call (list 'b 'ra (cc:lam-start lam))))))
 
-; more than 6 arguments: 1-5 in r3-r6 and r8, a list of the rest in r0
+; more than 6 arguments: 1-5 in r6, r5, r4, r3 and r8, a list of the rest
+; in r0 (%rt:cons takes the car in r3 and the cdr in r4)
 (define (cc:many-args args)
   (cc:for-each (lambda (a) (cc:g a nil) (cc:push 1)) args)
   (cc:e 'call '(mov 4 (reg 13)))
@@ -227,7 +234,7 @@
       (cc:e 'call '(mov 4 (reg 1)))
       (loop (- k 1))))
   (cc:e 'call '(mov 0 (reg 4)))
-  (cc:for-each (lambda (r) (cc:pop r)) '(8 6 5 4 3)))
+  (cc:for-each (lambda (r) (cc:pop r)) '(8 3 4 5 6)))
 
 ; the collector's stub keeps r7 on the stack, so consing alone doesn't
 ; make a function keep its return address there
@@ -315,6 +322,20 @@
 ; ---- functions
 
 (define cc:*self-start* nil)           ; where the function's tail calls to itself go
+(define cc:*np* 0)                     ; its number of parameters, the rest one included
+
+; saving the arguments of a function of n parameters on entry, the first
+; highest: SAVE r(7 - n)-r6, or with r7 above them if r7 is true; with 5 or
+; 6, SAVE r3-r6 and then r8 and r0 below
+(define (cc:save-args n r7)
+  (let ((top (if r7 7 6))
+        (more (cond ((= n 6) '((st 8 (pdec 15)) (st 0 (pdec 15))))
+                    ((= n 5) '((st 8 (pdec 15))))
+                    (t nil))))
+    (cond ((> n 4) (cons (list 'save 3 top) more))
+          ((> n 0) (list (list 'save (- 7 n) top)))
+          (r7 '((st 7 (pdec 15))))
+          (t nil))))
 
 (define (cc:g-function lam)
   (set! cc:*lam* lam)
@@ -330,22 +351,20 @@
     (cc:e 'entry (list 'cmp 2 (cc:imm nreq)))
     (cc:e 'entry (list 'b (if rest 'lo 'ne) (cc:err-stub 'argc)))
     (cc:emit-label (cc:lam-start lam))
-    (cc:e 'entry '(link-save))
-    (cc:emit-label cc:*self-start*)
     (cc:e 'entry (list 'cmp 15 (list 'abs (cc:rt 'stack-limit))))
     (cc:e 'entry (list 'b 'lo (cc:err-stub 'stack)))
+    ; the arguments, the first highest, with the return address above them
+    ; unless this is a leaf (cc:link)
+    (set! cc:*np* np)
+    (cc:e 'entry (list 'link-save np))
+    (cc:emit-label cc:*self-start*)
+    (set! cc:*depth* np)
+    (let loop ((l params) (i 0))
+      (when (pair? l) (vector-set! (car l) 4 i) (loop (cdr l) (+ i 1))))
     (when rest
       (cc:e 'entry (list 'mov 9 (cc:imm nreq)))
       (cc:e 'entry (list 'rt 'call (cc:rt 'rest)))
-      (cc:e 'entry (list 'mov (list-ref cc:arg-regs nreq) '(reg 12))))
-    (set! cc:*depth* 0)
-    ; the arguments, the first at [sp]: 5 and 6 pushed, then SAVE r3-rN
-    (when (> np 5) (cc:e 'entry '(st 0 (pdec 15))))
-    (when (> np 4) (cc:e 'entry '(st 8 (pdec 15))))
-    (when (> np 0) (cc:e 'entry (list 'save 3 (+ 2 (if (> np 4) 4 np)))))
-    (set! cc:*depth* np)
-    (let loop ((l params) (i (- np 1)))
-      (when (pair? l) (vector-set! (car l) 4 i) (loop (cdr l) (- i 1))))
+      (cc:e 'entry (list 'st 12 (list 'mem 15 (cc:off nreq)))))
     (if (pair? (cc:lam-free lam))
         (begin (set! cc:*clo* cc:*depth*) (cc:push 1))
         (set! cc:*clo* nil))
@@ -365,8 +384,8 @@
 
 ; the function just compiled, cc:*code* back to mark: if it calls anything
 ; (but a call right after PUSH r7, which keeps r7 itself), its return
-; address goes on the stack on entry and comes back from there; a leaf
-; keeps it in r7
+; address goes on the stack on entry, with its arguments, and comes back
+; from there; a leaf keeps it in r7
 (define (cc:link mark)
   (let ((leaf (and (not (cc:option? 'no-leaf)) (cc:leaf? cc:*code* mark))))
     (let loop ((l cc:*code*) (c cc:*cats*) (out nil) (cout nil))
@@ -374,13 +393,15 @@
           (begin (set! cc:*code* (cc:revappend out l))
                  (set! cc:*cats* (cc:revappend cout c)))
           (let* ((i (car l))
-                 (new (cond ((eq? (car i) 'link-save) (if leaf nil '(st 7 (pdec 15))))
-                            ((eq? (car i) 'link-restore) (if leaf nil '(mov 7 (pinc 15))))
-                            ((eq? (car i) 'link-ret) (if leaf '(ret) '(jmpea (pinc 15))))
-                            (t i))))
-            (if new
-                (loop (cdr l) (cdr c) (cons new out) (cons (car c) cout))
-                (loop (cdr l) (cdr c) out cout)))))))
+                 (new (cond ((eq? (car i) 'link-save) (cc:save-args (cadr i) (not leaf)))
+                            ((eq? (car i) 'link-restore) (if leaf nil '((mov 7 (pinc 15)))))
+                            ((eq? (car i) 'link-ret) (list (if leaf '(ret) '(jmpea (pinc 15)))))
+                            (t (list i)))))
+            ; new's instructions in front of out, in order
+            (let add ((n (cc:revappend new nil)) (out out) (cout cout))
+              (if (null? n)
+                  (loop (cdr l) (cdr c) out cout)
+                  (add (cdr n) (cons (car n) out) (cons (car c) cout)))))))))
 
 ; no call between l and mark (instructions last first)
 (define (cc:leaf? l mark)
