@@ -99,13 +99,105 @@ class Session:
         return self.c.screen(True)
 
     def save_png(self, path):
-        from heron.studies.graphics.png import write_png
-        rgb = self.screen()
-        rows = [rgb[y * 640 * 3:(y + 1) * 640 * 3] for y in range(480)]
-        write_png(path, 640, 480, rows)
+        write_png(path, self.screen(), 640, 480)
+
+    # ---- the keyboard and the mouse ----
+
+    mx, my = 320, 240       # where wsys starts the cursor
+
+    def press(self, name, mods=(), ms=8):
+        """Press and let go of a key, by its browser name ("KeyA",
+        "Enter"), with modifiers ("ShiftLeft", "ControlLeft") held."""
+        codes = [native.fen.scancode(m) for m in mods]
+        code = native.fen.scancode(name)
+        if code is None or None in codes:
+            raise ValueError(f"no key {name!r}")
+        for m in codes:
+            self.c.key(m, True)
+        self.c.key(code, True)
+        self.run(ms)
+        self.c.key(code, False)
+        for m in reversed(codes):
+            self.c.key(m, False)
+        self.run(ms)
+
+    def keys(self, text, ms=8):
+        """Type text on the keyboard (a US layout)."""
+        for ch in text:
+            name, shift = key_name(ch)
+            self.press(name, ("ShiftLeft",) if shift else (), ms)
+
+    def mouse_to(self, x, y, buttons=0):
+        """Move the mouse to (x, y) on the screen with buttons held (bit 0
+        the left one), and run until it has got there. A sample is at most
+        255 counts each way and a mouse drops what it can't send (as a PS/2
+        one does), so a long way goes in steps, a sample (25 ms) each."""
+        x, y = max(0, min(639, x)), max(0, min(479, y))
+        while (self.mx, self.my) != (x, y):
+            dx = max(-200, min(200, x - self.mx))
+            dy = max(-200, min(200, y - self.my))
+            self.c.mouse(dx, -dy, buttons)
+            self.mx, self.my = self.mx + dx, self.my + dy
+            self.run(30)
+        self.c.mouse(0, 0, buttons)
+        self.run(30)
+
+    def click(self, x, y, button=1, ms=60):
+        self.mouse_to(x, y)
+        self.c.mouse(0, 0, button)
+        self.run(ms)
+        self.c.mouse(0, 0, 0)
+        self.run(ms)
+
+    def drag(self, x0, y0, x1, y1, button=1):
+        self.mouse_to(x0, y0)
+        self.c.mouse(0, 0, button)
+        self.run(60)
+        self.mouse_to(x1, y1, button)
+        self.c.mouse(0, 0, 0)
+        self.run(60)
 
     def cf_image(self):
         return bytes(self.c.cf_image())
+
+
+_SHIFTED = dict(zip('!@#$%^&*()', '1234567890'))
+_PUNCT = {" ": "Space", "\n": "Enter", "\t": "Tab", "\b": "Backspace", "-": "Minus",
+          "=": "Equal", "[": "BracketLeft", "]": "BracketRight", "\\": "Backslash",
+          ";": "Semicolon", "'": "Quote", ",": "Comma", ".": "Period", "/": "Slash",
+          "`": "Backquote"}
+_PUNCT_SHIFTED = {"_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", '"': "'",
+                  "<": ",", ">": ".", "?": "/", "~": "`"}
+
+
+def key_name(ch):
+    """The key for a character on a US keyboard, and whether it's shifted."""
+    if ch.isascii() and ch.isalpha():
+        return "Key" + ch.upper(), ch.isupper()
+    if ch.isdigit():
+        return "Digit" + ch, False
+    if ch in _SHIFTED:
+        return "Digit" + _SHIFTED[ch], True
+    if ch in _PUNCT:
+        return _PUNCT[ch], False
+    if ch in _PUNCT_SHIFTED:
+        return _PUNCT[_PUNCT_SHIFTED[ch]], True
+    raise ValueError(f"no key for {ch!r}")
+
+
+def write_png(path, rgb, w, h):
+    """RGB bytes as a PNG file."""
+    import struct
+    import zlib
+    raw = b"".join(b"\0" + rgb[y * w * 3:(y + 1) * w * 3] for y in range(h))
+
+    def chunk(kind, data):
+        return (struct.pack(">I", len(data)) + kind + data
+                + struct.pack(">I", zlib.crc32(kind + data)))
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+    with open(path, "wb") as f:
+        f.write(png)
 
 
 def console(args):

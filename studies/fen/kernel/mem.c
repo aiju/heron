@@ -49,10 +49,10 @@ void mem_init(u32 first_free)
     ctx_clean[0] = 1;
 }
 
-/* a page full of zeros: the fastest way the kernel has */
+/* a page full of zeros: page_zero (entry.s) stores four words at a time */
 static void zero_page(u32 pa)
 {
-    memset(PHYS(pa), 0, PAGE);
+    page_zero(PHYS(pa));
 }
 
 u32 page_alloc(void)

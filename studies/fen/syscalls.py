@@ -61,6 +61,7 @@ SYSCALLS = [
     (39, "setpgid", 2, "c"),
     (40, "boot_spawn", 2, "c"),
     (41, "getpgid", 1, "c"),
+    (42, "alarm", 3, "c"),
 ]
 
 VECTORS = 0x80000100

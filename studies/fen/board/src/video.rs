@@ -64,7 +64,11 @@ fn to565(rgb: u32) -> u16 {
 }
 
 fn from565(c: u16) -> u32 {
-    let (r, g, b) = ((c >> 11) as u32, ((c >> 5) & 0x3F) as u32, (c & 0x1F) as u32);
+    let (r, g, b) = (
+        (c >> 11) as u32,
+        ((c >> 5) & 0x3F) as u32,
+        (c & 0x1F) as u32,
+    );
     (r << 3 | r >> 2) << 16 | (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2)
 }
 
@@ -172,7 +176,10 @@ impl Video {
         let bpp = 1usize << depth;
         let mask = (1usize << bpp) - 1;
         let low = self.mode & 4 != 0;
-        let (row0, col0) = ((self.shown_start as usize) >> 10, self.shown_start as usize & 1023);
+        let (row0, col0) = (
+            (self.shown_start as usize) >> 10,
+            self.shown_start as usize & 1023,
+        );
         for y in 0..HEIGHT {
             let sy = if low { y / 2 } else { y };
             let line = ((row0 + sy) % 2048) * STRIDE;

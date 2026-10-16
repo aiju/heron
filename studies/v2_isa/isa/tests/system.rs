@@ -75,7 +75,11 @@ fn machine(src: &str) -> Machine {
         timer_at: 0,
         timer_on: false,
     };
-    let mut m = Machine::new_system(0x10_0000, Box::new(bus), Config::named("D16-overlap").unwrap());
+    let mut m = Machine::new_system(
+        0x10_0000,
+        Box::new(bus),
+        Config::named("D16-overlap").unwrap(),
+    );
     for (&addr, &v) in &img.mem {
         m.mem[(addr as u32 & 0x7FFF_FFFF) as usize] = v;
     }
@@ -222,7 +226,8 @@ swi5:   MOV  r1, #11                ; the supervisor's own r1
         map(5, 0, 0x20000, PTE_V | PTE_X),
         "",
         to_user(5, 9, 0, 0),
-    ).replace("swi5:   MOV  r1, #'?'", "")
+    )
+    .replace("swi5:   MOV  r1, #'?'", "")
     .replace("irq5:\n", "irq5:   MOV  r1, #'?'\n"));
     assert_eq!(out(&mut m), "usr");
     assert_eq!(m.r[1], 11, "the supervisor's r1 is its own");
@@ -321,7 +326,10 @@ fn page_faults_are_precise_and_say_why() {
     ];
     for (insn, addr, fsr) in cases {
         // the instruction at 2, with r2 set before user mode starts
-        let mut m = user_with(&format!("        MOV  r7, #77\n        {insn}\n"), &[(2, addr)]);
+        let mut m = user_with(
+            &format!("        MOV  r7, #77\n        {insn}\n"),
+            &[(2, addr)],
+        );
         assert_eq!(out(&mut m), "F", "{insn}");
         let s = m.sys();
         assert_eq!((s.far, s.fsr), (addr, fsr), "{insn}");
@@ -565,7 +573,10 @@ fn halt_with_nothing_to_wait_for_is_idle() {
     // something from outside, and it carries on
     m.sys_mut().bus_as::<TestBus>().unwrap().levels = 1 << 3;
     m.sys_mut().touched();
-    assert_eq!(m.run_system(1_000_000, u64::MAX).unwrap(), RunStatus::Halted);
+    assert_eq!(
+        m.run_system(1_000_000, u64::MAX).unwrap(),
+        RunStatus::Halted
+    );
     assert_eq!(out(&mut m), "?");
 }
 
@@ -601,7 +612,10 @@ fn bcopy_copies_r0_to_r7_between_banks() {
     assert_eq!(&m.sys().banks[5][..8], &m.sys().banks[4][..8]);
     assert_eq!(m.r[13], 0, "r8 isn't copied");
     assert_eq!(m.r[14], 100);
-    assert_eq!(&m.sys().banks[4][..8], &[100, 101, m.r[2], m.r[3], m.r[4], m.r[5], m.r[6], 107]);
+    assert_eq!(
+        &m.sys().banks[4][..8],
+        &[100, 101, m.r[2], m.r[3], m.r[4], m.r[5], m.r[6], 107]
+    );
 }
 
 #[test]

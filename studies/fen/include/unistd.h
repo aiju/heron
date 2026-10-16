@@ -36,5 +36,6 @@ int getppid(void);
 int getopt(int argc, char *const argv[], const char *opts);
 extern char *optarg;
 extern int optind, opterr, optopt;
+extern char **environ;
 int sync(void);
 #endif

@@ -105,6 +105,61 @@ int sys_port_create(void)
     return -ENFILE;
 }
 
+/* alarms: a notification at a time, one for a port */
+#define ALARMS 32
+static struct {
+    int port;
+    u32 bits, at;
+} alarms[ALARMS];
+static int nalarms;
+
+static void alarm_cancel(int id)
+{
+    int i;
+    for (i = 0; i < nalarms; i++)
+        if (alarms[i].port == id) {
+            alarms[i] = alarms[--nalarms];
+            return;
+        }
+}
+
+int sys_alarm(int id, u32 bits, u32 us)
+{
+    struct port *p = port_get(id);
+    if (!p || p->owner != current->proc->pid)
+        return -EINVAL;
+    alarm_cancel(id);
+    if (!us)
+        return 0;
+    if (nalarms == ALARMS)
+        return -ENFILE;
+    alarms[nalarms].port = id;
+    alarms[nalarms].bits = bits;
+    alarms[nalarms].at = now_us() + us;
+    nalarms++;
+    return 0;
+}
+
+/* from the timer's tick: the alarms that are due */
+void ring_alarms(void)
+{
+    u32 now;
+    int i = 0;
+    if (!nalarms)
+        return;
+    now = now_us();
+    while (i < nalarms) {
+        if ((int)(alarms[i].at - now) <= 0) {
+            int id = alarms[i].port;
+            u32 bits = alarms[i].bits;
+            alarms[i] = alarms[--nalarms];
+            notify_port(id, bits);
+        } else {
+            i++;
+        }
+    }
+}
+
 static void port_destroy(struct port *p)
 {
     int i;
@@ -125,6 +180,7 @@ static void port_destroy(struct port *p)
         if (watchers[i].port == p->id)
             watchers[i].port = 0;
     irq_port_gone(p->id);
+    alarm_cancel(p->id);
     p->owner = 0;
     p->pending = 0;
 }

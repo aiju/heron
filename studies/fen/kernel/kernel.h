@@ -143,6 +143,7 @@ u32 get_sr(void);
 void ureg_set(u32 bank, int n, u32 v);
 u32 ureg_get(u32 bank, int n);
 void bank_copy(u32 to, u32 from);
+void page_zero(void *p);
 int ucopy(void *dst, const void *src, u32 n);
 int ustrncpy(char *dst, const char *src, u32 n);
 int clz(u32 x);
@@ -208,6 +209,7 @@ void ipc_init(void);
 void ipc_thread_gone(struct thread *t);
 void ipc_proc_gone(struct proc *p);
 int notify_port(int port, u32 bits);
+void ring_alarms(void);
 void exit_notify(int pid);
 
 /* trap.c */

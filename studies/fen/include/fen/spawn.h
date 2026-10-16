@@ -14,6 +14,11 @@ int spawnp(const char *file, char *const argv[], char *const envp[], const int *
 /* spawn, with flags */
 int spawnx(const char *path, char *const argv[], char *const envp[], const int *fds, int n,
            int flags, int pgid);
+/* spawn, with the child's descriptors given as they are at their servers
+ * (for a server that gives its own to its child) */
+struct fd_desc;
+int spawnd(const char *path, char *const argv[], char *const envp[], const struct fd_desc *d,
+           int n, int flags, int pgid);
 /* wait for a child (pid, or any with -1): its pid, and its exit status */
 int waitpid(int pid, int *status, int options);
 int wait(int *status);

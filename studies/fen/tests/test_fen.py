@@ -82,3 +82,42 @@ class Shell(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Desktop(unittest.TestCase):
+    """The window system, with the keyboard and the mouse."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.s = Session(serial=False)
+        cls.s.run(3000)
+
+    def test_typing_in_the_terminal(self):
+        # the keyboard, wsys, term, the shell and the file server; a click
+        # on the terminal first gives it the keyboard
+        self.s.click(400, 300)
+        self.s.keys("ls /bin > /tmp/bin.txt; echo $? >> /tmp/bin.txt\n")
+        self.s.run(1500)
+        got = mkfs.Reader(self.s.cf_image()).read("/tmp/bin.txt").decode().split("\n")
+        self.assertIn("term", got)
+        self.assertIn("wsys", got)
+        self.assertEqual(got[-2], "0")
+
+    def test_the_menu_starts_the_clock(self):
+        def red():
+            rgb = self.s.screen()
+            n = 0
+            for y in range(40, 300):
+                for x in range(30, 260):
+                    r, g, b = rgb[3 * (640 * y + x):3 * (640 * y + x) + 3]
+                    n += r > 150 and g < 60 and b < 60
+            return n
+        self.assertEqual(red(), 0)
+        # the desktop's menu, from the bottom left corner: Terminal, Clock
+        self.s.mouse_to(20, 460)
+        self.s.c.mouse(0, 0, 1)
+        self.s.run(100)
+        self.s.mouse_to(30, 468, 1)
+        self.s.c.mouse(0, 0, 0)
+        self.s.run(2500)
+        self.assertGreater(red(), 10)        # the second hand

@@ -192,6 +192,19 @@ pub mod fen {
         fn bank(&self) -> u32 {
             self.c.m.sys().bank
         }
+        /// A context's valid page map entries: [(virtual page, entry)].
+        fn page_map(&self, ctx: usize) -> Vec<(u32, u32)> {
+            use v2_isa::sys::{CONTEXTS, PAGES, PTE_V};
+            if ctx >= CONTEXTS {
+                return Vec::new();
+            }
+            let map = &self.c.m.sys().map[ctx * PAGES..(ctx + 1) * PAGES];
+            (0..PAGES)
+                .filter(|&p| map[p] & PTE_V != 0)
+                .map(|p| (p as u32, map[p]))
+                .collect()
+        }
+
         /// Registers of a bank (r0-r15, HI, LO).
         fn bank_regs(&self, n: usize) -> Vec<u32> {
             let s = self.c.m.sys();
@@ -231,7 +244,10 @@ pub mod fen {
 
         /// Cycles in a configuration, idle time left out.
         fn cycles_for(&self, config: &str) -> PyResult<u64> {
-            Ok(self.c.m.cycles_for(crate::py_v2::v2::config(config)?, false))
+            Ok(self
+                .c
+                .m
+                .cycles_for(crate::py_v2::v2::config(config)?, false))
         }
 
         /// {physical instruction address: cycles} in a configuration.

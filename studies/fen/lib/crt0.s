@@ -9,7 +9,7 @@
 ; executable and the rest writable but not executable.
 
         .global __start, __text_start, __text_end
-        .far ___libc_start
+        .far ___libc_start, __text_end
 
         .text
         .align 4096

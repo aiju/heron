@@ -226,7 +226,11 @@ impl Board {
         match off >> 12 {
             0 if low < 0x20 => self.uart.write(reg, v as u8),
             1 if low < 0x40 => {
-                let data = if reg == 0 && low < 0x20 { v & 0xFFFF } else { v & 0xFF };
+                let data = if reg == 0 && low < 0x20 {
+                    v & 0xFFFF
+                } else {
+                    v & 0xFF
+                };
                 self.cf.write(low >= 0x20, reg, data as u16, t)
             }
             2 if low < 0x08 => self.kbd.write(low & 4, v, t),
@@ -305,7 +309,9 @@ impl Bus for Board {
 
     fn irq(&mut self, cycles: u64) -> (u8, u64) {
         self.advance(cycles);
-        let next = self.next_ns().map_or(u64::MAX, |t| self.cycles_at(t).max(cycles + 1));
+        let next = self
+            .next_ns()
+            .map_or(u64::MAX, |t| self.cycles_at(t).max(cycles + 1));
         (self.levels(), next)
     }
 }

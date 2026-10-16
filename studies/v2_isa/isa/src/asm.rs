@@ -550,7 +550,9 @@ fn sr_number(ctx: &mut Ctx, op: &Operand) -> Result<i64, AsmError> {
         }
     }
     let Some(e) = op.expr() else {
-        return err("expected a special register: ccr, hi, lo, sr, far, fsr, ctx, mapa, mapd, bank, bkpt or a number");
+        return err(
+            "expected a special register: ccr, hi, lo, sr, far, fsr, ctx, mapa, mapd, bank, bkpt or a number",
+        );
     };
     let (v, _) = ctx.value(e)?;
     if !(0..=15).contains(&v) {

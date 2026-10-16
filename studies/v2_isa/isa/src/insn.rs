@@ -11,9 +11,7 @@
 
 use crate::key::{Ea, How, Key, Kind};
 use crate::machine::{ADDR_VECTOR, DIV_VECTOR, ILLEGAL_VECTOR, Machine, SWI_VECTOR, TAG_VECTOR};
-use crate::sys::{
-    BANKS, MAP_SIZE, PTE_MASK, SR_I, SR_IPL_SHIFT, SR_S, SR_T, VEC_PRIV, VEC_SWI,
-};
+use crate::sys::{BANKS, MAP_SIZE, PTE_MASK, SR_I, SR_IPL_SHIFT, SR_S, SR_T, VEC_PRIV, VEC_SWI};
 
 /// An instruction trapping: `fault` saves the faulting instruction's
 /// address, otherwise the next instruction's. In system mode `vector` is

@@ -21,7 +21,7 @@
         .far _kernel_fault, _copy_fault, kstack_top, ufault_start, ufault_end, ufault
         .global kexit, kstack_top
         .global _idle_wait, _map_get, _map_set, _map_clear, _set_bank, _get_bank
-        .global _set_ctx, _get_ctx, _get_sr, _ureg_set, _ureg_get, _bank_copy
+        .global _set_ctx, _get_ctx, _get_sr, _ureg_set, _ureg_get, _bank_copy, _page_zero
         .global _ucopy, _ustrncpy, _clz, _halt, _start_first, _get_far, _get_fsr
 
 ; ---- the exception vectors (RFC 0029, 6), 4 bytes each
@@ -239,6 +239,27 @@ _get_far:
         RET
 _get_fsr:
         MFSR r1, fsr
+        RET
+
+; page_zero(p): a page of zeros, sixteen bytes a store
+_page_zero:
+        SAVE r8-r12
+        MOV  r8, #0
+        MOV  r9, #0
+        MOV  r10, #0
+        MOV  r11, #0
+        MOV  r12, #16
+        MOV  r0, #64
+.pz:    STM  r1, r8-r11
+        ADD  r1, r12
+        STM  r1, r8-r11
+        ADD  r1, r12
+        STM  r1, r8-r11
+        ADD  r1, r12
+        STM  r1, r8-r11
+        ADD  r1, r12
+        DBNZ r0, .pz
+        RESTORE r8-r12
         RET
 
 ; bank_copy(to, from): r0-r7 of bank `from` into bank `to`

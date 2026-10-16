@@ -33,6 +33,9 @@ int irq_bind(int level, int port, unsigned bits);
 int irq_ack(int level);
 int exit_watch(int port, unsigned bits);
 int exit_log(unsigned seq, struct exit_entry *buf, int n);
+/* notify a port of ours with bits once, us microseconds from now (0:
+ * cancel its alarm); a port has one alarm */
+int alarm(int port, unsigned bits, unsigned us);
 
 int proc_create(const char *name, int flags);
 int vm_alloc(int pid, void *va, unsigned npages, int prot);

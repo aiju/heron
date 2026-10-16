@@ -53,15 +53,28 @@ PAGE = 4096
 KERNEL_SOURCES = ["entry.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c"]
 
 LIB_SOURCES = ["ipc.s", "start.c", "fd.c", "stdio.c", "stdlib.c", "string2.c", "spawn.c",
-               "time.c", "getopt.c", "srv.c"]
+               "time.c", "getopt.c", "srv.c", "gui.c"]
 CC_LIB_SOURCES = ["string.c", "ctype.c"]
 
-# programs: name -> sources, relative to the study. Every cmd/NAME.c is
-# one too (programs()).
+# the graphics study's library, which the window system draws with
+GRAPHICS_SRC = os.path.join(ROOT, "studies", "graphics", "src")
+GRAPHICS_LIB = ["theme.c", "gfx.c", "line.c", "ellipse.c", "raster.c", "blit.c", "expand.c",
+                "font.c", "ttf.c"]
+FONTS = os.path.join(GEN, "fonts.s")
+
+# programs: name -> sources, relative to the study (or absolute). Every
+# cmd/NAME.c is one too (programs()).
 SERVERS = {
     "fs": ["srv/fs/main.c", "srv/fs/fenfs.c", "srv/fs/cache.c", "srv/fs/ide.c", "srv/fs/ideio.s"],
     "cons": ["srv/cons/main.c"],
+    "wsys": ["srv/wsys/main.c", "srv/wsys/gwm.c", "srv/wsys/input.c", "srv/wsys/kernels.s", FONTS]
+            + [os.path.join(GRAPHICS_SRC, f) for f in GRAPHICS_LIB],
 }
+# the include directories a program needs besides INCLUDE
+PROGRAM_INCLUDE = {"wsys": [os.path.join(HERE, "srv", "wsys"), GRAPHICS_SRC]}
+# and the defines: wsys has the fill and blit kernels in draft 2's
+# assembly (srv/wsys/kernels.s)
+PROGRAM_DEFINES = {"wsys": {"GFX_ASM": "1"}}
 
 # what the boot archive holds: init, and the servers it starts before
 # there's a file system
@@ -106,6 +119,24 @@ def generate():
     write_if_changed(os.path.join(GEN, "ksys.s"), syscalls.kernel_stubs())
     write_if_changed(os.path.join(GEN, "usys.s"), syscalls.user_stubs())
     write_if_changed(os.path.join(GEN, "fen", "sysno.h"), syscalls.header())
+    write_if_changed(FONTS, fonts_asm())
+
+
+def fonts_asm():
+    """The window system's two bitmap fonts, as the graphics study makes
+    them."""
+    from heron.studies.graphics import fonts
+    out = ["; the graphics study's bitmap fonts (studies/graphics/fonts.py)", ""]
+    for name, data in fonts.blobs().items():
+        if not name.startswith("font_"):
+            continue
+        sym = "_" + name
+        out += [f"        .global {sym}", f"        .far {sym}", f"        .section .fardata.{sym}",
+                "        .align 4", f"{sym}:"]
+        for k in range(0, len(data), 16):
+            out.append("        .byte " + ", ".join(str(b) for b in data[k:k + 16]))
+        out.append("")
+    return "\n".join(out)
 
 
 def _headers(path, include, seen=None):
@@ -196,10 +227,10 @@ def _compiler_version():
     return _version
 
 
-def obj_for(path, include=INCLUDE, window=False):
+def obj_for(path, include=INCLUDE, window=False, defines=None):
     if path.endswith(".s"):
         return assemble_file(path)
-    return compile_c(path, include, window)
+    return compile_c(path, include, window, defines)
 
 
 def image_bytes(img, lo, hi):
@@ -246,10 +277,10 @@ def libc():
     return _libc
 
 
-def link_program(sources, include=INCLUDE, extra_libs=()):
+def link_program(sources, include=INCLUDE, extra_libs=(), defines=None):
     """Link a program's sources (paths) with crt0 and the C library."""
     objs = [assemble_file(os.path.join(HERE, "lib", "crt0.s"))]
-    objs += [obj_for(p, include) for p in sources]
+    objs += [obj_for(p, include, defines=defines) for p in sources]
     try:
         return L.link(objs, [libc()] + list(extra_libs), ISA, base=USER_BASE, entry="__start",
                       mem_top=USER_TOP)
@@ -270,10 +301,12 @@ def executable(img, stack=0):
     return hdr + data[:n]
 
 
-def program(name, sources=None, include=INCLUDE):
+def program(name, sources=None, include=None):
     """Build one program: its executable, written to build/fen/bin/NAME."""
+    generate()
     sources = sources or [os.path.join(HERE, p) for p in programs()[name]]
-    img = link_program(sources, include)
+    include = include or PROGRAM_INCLUDE.get(name, []) + INCLUDE
+    img = link_program(sources, include, defines=PROGRAM_DEFINES.get(name))
     fx = executable(img)
     os.makedirs(os.path.join(OUT, "bin"), exist_ok=True)
     with open(os.path.join(OUT, "bin", name), "wb") as f:
@@ -324,6 +357,12 @@ MOTD = """\
 Welcome to Fen. Try ls /bin, ps, cat /etc/hello.txt, or help.
 """
 
+MENU = """\
+# /etc/menu: the desktop's menu, "label: command"
+Terminal: /bin/term
+Clock: /bin/clock
+"""
+
 HELLO = """\
 Fen is an operating system for Heron, draft 2: a small kernel that passes
 messages between threads in their own register banks, a file server, a
@@ -342,5 +381,6 @@ def disk(extra=None, size=DISK_SIZE):
     files["/etc/profile"] = PROFILE.encode()
     files["/etc/motd"] = MOTD.encode()
     files["/etc/hello.txt"] = HELLO.encode()
+    files["/etc/menu"] = MENU.encode()
     files.update(extra or {})
     return mkfs.make(files, size=size, dirs=["/home", "/tmp", "/dev"], now=1792108800)

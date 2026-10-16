@@ -52,22 +52,19 @@ static int load(int pid, int fd, struct fx_header *h)
     return 0;
 }
 
-/* The startup block (fen/abi.h), built here and copied to the child. */
-static int startup(int pid, char *const argv[], char *const envp[], const int *fds, int nfds)
+/* The startup block (fen/abi.h), built here and copied to the child, with
+ * the descriptors it gets as they are in its servers' tables. */
+static int startup(int pid, char *const argv[], char *const envp[], const struct fd_desc *d,
+                   int nfds)
 {
     static char blk[4096];
     struct start_block *b = (struct start_block *)blk;
     unsigned off = sizeof *b;
-    int argc = 0, nenv = 0, i, k;
+    int argc = 0, nenv = 0, i;
     char **cargv, **cenv;
     struct fd_desc *cfd;
-    int defaults[3] = {0, 1, 2};
     int e;
 #define CHILD(p) ((void *)(START_BLOCK + ((char *)(p) - blk)))
-    if (!fds) {
-        fds = defaults;
-        nfds = 3;
-    }
     while (argv && argv[argc])
         argc++;
     while (envp && envp[nenv])
@@ -84,6 +81,9 @@ static int startup(int pid, char *const argv[], char *const envp[], const int *f
     b->argv = CHILD(cargv);
     b->envp = CHILD(cenv);
     b->fds = CHILD(cfd);
+    b->nfds = nfds;
+    if (nfds)
+        memcpy(cfd, d, nfds * sizeof *d);
 #define STR(dst, s) do { unsigned n_ = strlen(s) + 1; \
         if (off + n_ > sizeof blk) return -E2BIG; \
         memcpy(blk + off, s, n_); dst = CHILD(blk + off); off += n_; } while (0)
@@ -98,55 +98,73 @@ static int startup(int pid, char *const argv[], char *const envp[], const int *f
         STR(p, __cwd());
         b->cwd = (char *)p - (char *)START_BLOCK;
     }
-    k = 0;
-    for (i = 0; i < nfds; i++) {
-        int port, handle, h;
-        if (fds[i] < 0 || __fd_get(fds[i], &port, &handle) < 0)
-            continue;
-        h = __fd_dupto(fds[i], pid);
-        if (h < 0)
-            continue;
-        cfd[k].fd = i;
-        cfd[k].port = port;
-        cfd[k].handle = h;
-        cfd[k].flags = 0;
-        k++;
-    }
-    b->nfds = k;
     e = vm_alloc(pid, (void *)START_BLOCK, 1, PROT_READ | PROT_WRITE);
     if (e < 0)
         return e;
     return vm_write(pid, (void *)START_BLOCK, blk, off);
 }
 
-int spawnx(const char *path, char *const argv[], char *const envp[], const int *fds, int nfds,
-           int flags, int pgid)
+/* The descriptors for a child: fds[i] is ours that becomes its i. */
+static int inherit(int pid, const int *fds, int nfds, struct fd_desc *d)
 {
-    struct fx_header h;
+    static const int defaults[3] = {0, 1, 2};
+    int i, k = 0;
+    if (!fds) {
+        fds = defaults;
+        nfds = 3;
+    }
+    for (i = 0; i < nfds && k < MAX_FDS; i++) {
+        int port, handle, h;
+        if (fds[i] < 0 || __fd_get(fds[i], &port, &handle) < 0)
+            continue;
+        h = __fd_dupto(fds[i], pid);
+        if (h < 0)
+            continue;
+        d[k].fd = i;
+        d[k].port = port;
+        d[k].handle = h;
+        d[k].flags = 0;
+        k++;
+    }
+    return k;
+}
+
+/* Make the process and load the program; 0 for the caller to start, or
+ * an error. */
+static int create(const char *path, struct fx_header *h, int flags)
+{
     const char *name = strrchr(path, '/');
     int fd, pid, e;
     fd = open(path, O_RDONLY);
     if (fd < 0)
-        return -1;
-    if (read(fd, &h, sizeof h) != sizeof h || h.magic != FX_MAGIC) {
+        return -errno;
+    if (read(fd, h, sizeof *h) != sizeof *h || h->magic != FX_MAGIC) {
         close(fd);
-        errno = ENOEXEC;
-        return -1;
+        return -ENOEXEC;
     }
     pid = proc_create(name ? name + 1 : path, flags & SPAWN_IO ? PROC_IO : 0);
     if (pid < 0) {
         close(fd);
-        errno = -pid;
-        return -1;
+        return pid;
     }
-    e = load(pid, fd, &h);
+    e = load(pid, fd, h);
     close(fd);
-    if (e >= 0)
-        e = startup(pid, argv, envp ? envp : environ, fds, nfds);
+    if (e < 0) {
+        proc_kill(pid, 1);
+        proc_wait(pid, 0, 0);
+        return e;
+    }
+    return pid;
+}
+
+static int finish(int pid, struct fx_header *h, char *const argv[], char *const envp[],
+                  const struct fd_desc *d, int n, int flags, int pgid)
+{
+    int e = startup(pid, argv, envp ? envp : environ, d, n);
     if (e >= 0 && (flags & SPAWN_PGID))
         e = setpgid(pid, pgid ? pgid : pid);
     if (e >= 0)
-        e = thread_create(pid, (void *)h.entry, (void *)STACK_TOP, START_BLOCK);
+        e = thread_create(pid, (void *)h->entry, (void *)STACK_TOP, START_BLOCK);
     if (e < 0) {
         proc_kill(pid, 1);
         proc_wait(pid, 0, 0);
@@ -154,6 +172,32 @@ int spawnx(const char *path, char *const argv[], char *const envp[], const int *
         return -1;
     }
     return pid;
+}
+
+int spawnx(const char *path, char *const argv[], char *const envp[], const int *fds, int nfds,
+           int flags, int pgid)
+{
+    struct fx_header h;
+    struct fd_desc d[MAX_FDS];
+    int pid = create(path, &h, flags), n;
+    if (pid < 0) {
+        errno = -pid;
+        return -1;
+    }
+    n = inherit(pid, fds, nfds, d);
+    return finish(pid, &h, argv, envp, d, n, flags, pgid);
+}
+
+int spawnd(const char *path, char *const argv[], char *const envp[], const struct fd_desc *d,
+           int n, int flags, int pgid)
+{
+    struct fx_header h;
+    int pid = create(path, &h, flags);
+    if (pid < 0) {
+        errno = -pid;
+        return -1;
+    }
+    return finish(pid, &h, argv, envp, d, n, flags, pgid);
 }
 
 int spawn(const char *path, char *const argv[], char *const envp[], const int *fds, int nfds)

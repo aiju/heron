@@ -366,6 +366,7 @@ void timer_tick(void)
 {
     ticks++;
     wake_sleepers();
+    ring_alarms();
     if (current) {
         current->cycles++;
         if (--current->slice <= 0) {
