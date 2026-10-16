@@ -1,10 +1,10 @@
 ; bignum: exact factorials up to 52!, printing 10!, 20!, 30!, 40! and 52!.
 ;
 ; The number is kept in binary, in 32-bit limbs, least significant first.
-; Multiplying by k is one MULU per limb: the high half of the product, in HI,
+; Multiplying by k is one MULU per limb: the high half of the product, in r0,
 ; is the carry into the next limb. Printing divides a copy by 10^9 until
 ; nothing is left, with one DIVUL per limb from the top down (the remainder
-; of each limb stays in HI as the top half of the next dividend); each
+; of each limb stays in r0 as the top half of the next dividend); each
 ; division's final remainder is the next 9-digit group, least significant
 ; first.
 
@@ -48,12 +48,11 @@ mulsmall:
         LSL  r4, #2
         ADD  r4, r3             ; r4 = end
         MOV  r5, #0             ; r5 = carry
-        CLR  r0                 ; r0 = 0, for the ADC
 .limb:  MOV  r6, [r3]
-        MULU r6, r1             ; HI:r6 = limb * k
+        MULU r0:r6, r1          ; r0:r6 = limb * k
         ADD  r6, r5             ; + carry in
-        MFHI r5                 ; (MFHI leaves the flags alone)
-        ADC  r5, r0             ; carry out: limb * k + carry < 2^32 * k
+        MOV  r5, #0             ; (MOV leaves the flags alone)
+        ADC  r5, r0             ; carry out = the high half + C: limb * k + carry < 2^32 * k
         MOV  [r3]+, r6
         CMP  r3, r4
         BNE  .limb
@@ -79,16 +78,14 @@ printnum:
         MOV  r8, #BILLION
         MOV  r10, sp            ; the groups go on the stack above this
         MOV  r11, #tmp
-        CLR  r0
-.group: MTHI r0                 ; nothing above the top limb
+.group: CLR  r0                 ; nothing above the top limb
         MOV  r3, r9
 .div:   MOV  r1, -[r3]          ; from the top limb down:
-        DIVUL r1, r8            ; (HI:limb) / 10^9, remainder to HI
+        DIVUL r0:r1, r8         ; (r0:limb) / 10^9, remainder to r0
         MOV  [r3], r1
         CMP  r3, r11
         BNE  .div
-        MFHI r1
-        PUSH r1                 ; the next 9-digit group
+        PUSH r0                 ; the next 9-digit group
         MOVS r1, [r9 - 4]       ; the top limb is still there?
         BNE  .group
         SUB  r9, #4             ; no: one limb shorter

@@ -88,11 +88,11 @@ eval:   MOV  r4, r1
         BRA  .result
 .sub:   SUB  r1, r2
         BRA  .result
-.mul:   MULS r1, r2             ; only the low half of the product matters
+.mul:   MULS r0:r1, r2          ; only the low half of the product matters
         BRA  .result
 .div:   TST  r2, r2
         BEQ  .divzero
-        DIVS r1, r2             ; -32768 / -1 = +32768 here, -32768 after SXH
+        DIVS r0:r1, r2          ; -32768 / -1 = +32768 here, -32768 after SXH
 .result:
         SXH  r1                 ; wrap to 16 bits
         MOV  [r5]+, r1

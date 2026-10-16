@@ -200,7 +200,7 @@ static void rr(int f, int d, int s) { put((0xE0 + f) | d << 12 | s << 8); }
 static void ret(void) { put(0xF0 | R7 << 8); }      /* JMP r7 */
 static void jmp_r(int s) { put(0xF0 | s << 8); }
 static void call_r(int s) { put(0xF1 | s << 8); }
-static void mfhi(int d) { put(0x06 | d << 12 | 1 << 8); }   /* MFSR rd, hi */
+static void mfhi(int d) { put(MOV | d << 12 | R0 << 8); }   /* HI is r0 */
 /* CLR [base + disp] */
 static void clr_m(int base, SValue disp)
 {

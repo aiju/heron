@@ -40,6 +40,16 @@ pub const VEC_TRACE: u32 = 0x24;
 pub const VEC_IRQ: u32 = 0x40;
 pub const VEC_SWI: u32 = 0x100;
 
+/// Interrupts (RFC 0029, 7, the design for now): levels 1-8, 8 the
+/// highest. Level L is the bus's line IRQL, and bit L - 1 of the mask a
+/// [`Bus`] reports. The numbering is all here and in [`Sys::pending`].
+pub const LEVELS: u32 = 8;
+
+/// Level L's vector offset: level 1's is `VEC_IRQ`.
+pub fn irq_vector(l: u32) -> u32 {
+    VEC_IRQ + 4 * (l - 1)
+}
+
 /// The page map: 128 contexts of 4096 pages of 4 KB (RFC 0029, 3).
 pub const CONTEXTS: usize = 128;
 pub const PAGES: usize = 4096;
@@ -66,7 +76,7 @@ pub const FSR_SUPER: u32 = 1 << 7;
 /// The translated space ends at 16 MB.
 pub const TRANSLATED_TOP: u32 = 0x0100_0000;
 
-/// Register banks, each r0-r15, HI and LO (RFC 0029, 5).
+/// Register banks, each r0-r15 (RFC 0029, 5).
 pub const BANKS: usize = 256;
 
 /// What an access is for.
@@ -86,14 +96,14 @@ pub trait Bus: Any + Send + Sync {
     fn read(&mut self, pa: u32, size: u32, cycles: u64) -> Option<u32>;
     /// A write; false if nothing answers.
     fn write(&mut self, pa: u32, size: u32, value: u32, cycles: u64) -> bool;
-    /// The levels requesting an interrupt now (bit L for level L), and the
-    /// cycle from which that may change without an access: u64::MAX if
-    /// only an access can change it.
+    /// The levels requesting an interrupt now (bit L - 1 for level L, the
+    /// line IRQL), and the cycle from which that may change without an
+    /// access: u64::MAX if only an access can change it.
     fn irq(&mut self, cycles: u64) -> (u8, u64);
 }
 
-/// One bank: r0-r15, then HI and LO.
-pub type Bank = [u32; 18];
+/// One bank: r0-r15.
+pub type Bank = [u32; 16];
 
 /// The system state beside the user-visible machine.
 pub struct Sys {
@@ -129,7 +139,8 @@ pub struct Sys {
     pub pc_valid: bool,
     /// Exceptions taken, by vector offset / 4 (SWIs all count at 0x40).
     pub exceptions: [u64; 0x41],
-    pub interrupts: [u64; 8],
+    /// Interrupts taken, by level: level L at L - 1.
+    pub interrupts: [u64; LEVELS as usize],
     /// Exceptions and interrupts taken from user mode.
     pub user_entries: u64,
     /// When it's there, a trace of the threads that ran, for measuring
@@ -154,7 +165,7 @@ impl Sys {
             bank: 0,
             bkpt: 0,
             map: vec![0; MAP_SIZE],
-            banks: vec![[0; 18]; BANKS],
+            banks: vec![[0; 16]; BANKS],
             cur_bank: 0,
             waiting: false,
             irq_mask: 0,
@@ -163,7 +174,7 @@ impl Sys {
             pc_ppage: 0,
             pc_valid: false,
             exceptions: [0; 0x41],
-            interrupts: [0; 8],
+            interrupts: [0; LEVELS as usize],
             user_entries: 0,
             user_runs: None,
         }
@@ -212,13 +223,14 @@ impl Sys {
         self.irq_next = 0;
     }
 
-    /// The highest level requesting that IPL lets in, if any.
+    /// The highest level requesting, if IPL lets it in: a level is taken
+    /// when it is above IPL, so IPL 8 and above hold off every one.
     pub fn pending(&self) -> Option<u32> {
         if self.irq_mask == 0 {
             return None;
         }
-        let l = 7 - self.irq_mask.leading_zeros();
-        (self.ipl <= 7 && l >= self.ipl as u32).then_some(l)
+        let l = LEVELS - self.irq_mask.leading_zeros();
+        (l > self.ipl as u32).then_some(l)
     }
 
     /// The board, as its own type.

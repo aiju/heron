@@ -32,14 +32,14 @@ main:   SAVE r7-r11
         LEA  r1, [s_umul]
         CALL puts
         MOV  r1, r9
-        MULU r1, r10
+        MULU r0:r1, r10
         MOV  r2, #8
         CALL print_hex
         LEA  r1, [s_smul]
         CALL puts
         SXH  r1, r9
         SXH  r2, r10
-        MULS r1, r2
+        MULS r0:r1, r2
         CALL print_s32
         TST  r10, r10
         BNE  .divide
@@ -50,8 +50,8 @@ main:   SAVE r7-r11
         LEA  r1, [s_udiv]
         CALL puts
         MOV  r1, r9
-        DIVU r1, r10
-        MFHI r11                ; the remainder survives the calls in r11
+        DIVU r0:r1, r10
+        MOV  r11, r0            ; the remainder survives the calls in r11
         CALL print_u32
         LEA  r1, [s_r]
         CALL puts
@@ -61,8 +61,8 @@ main:   SAVE r7-r11
         CALL puts
         SXH  r1, r9
         SXH  r2, r10
-        DIVS r1, r2
-        MFHI r11
+        DIVS r0:r1, r2
+        MOV  r11, r0
         SXH  r1                 ; the 16-bit quotient: 32768 wraps to -32768
         CALL print_s32
         LEA  r1, [s_r]
@@ -135,8 +135,8 @@ main:   SAVE r7-r11
         LEA  r1, [s_eq]
         CALL puts
         MOV  r1, r9
-        DIVU r1, r10            ; 32 / 32: quotients above 16 bits are no problem
-        MFHI r11
+        DIVU r0:r1, r10         ; 32 / 32: quotients above 16 bits are no problem
+        MOV  r11, r0
         CALL print_u32
         LEA  r1, [s_r]
         CALL puts

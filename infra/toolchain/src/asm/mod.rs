@@ -201,6 +201,8 @@ pub enum Operand {
     Reg(Reg),
     /// `r8-r11` (SAVE and RESTORE).
     RegRange(Reg, Reg),
+    /// `r0:r2`, a register pair: a result in two registers, high first.
+    RegPair(Reg, Reg),
     /// `#expr`
     Imm(ExprRef),
     Mem(Mem),
@@ -210,10 +212,12 @@ pub enum Operand {
 }
 
 impl Operand {
-    /// The operand's kind as a letter: R, I, M, E, or ? for the others.
+    /// The operand's kind as a letter: R, P (a pair), I, M, E, or ? for the
+    /// others.
     pub fn kind(&self) -> char {
         match self {
             Operand::Reg(_) => 'R',
+            Operand::RegPair(..) => 'P',
             Operand::Imm(_) => 'I',
             Operand::Mem(_) => 'M',
             Operand::Expr(_) => 'E',
@@ -864,6 +868,12 @@ impl Assembler {
             && let (Some(a), Some(b)) = (self.reg(&toks[0]), self.reg(&toks[2]))
         {
             return Ok(Operand::RegRange(a, b));
+        }
+        if toks.len() == 3
+            && toks[1].is_op(":")
+            && let (Some(a), Some(b)) = (self.reg(&toks[0]), self.reg(&toks[2]))
+        {
+            return Ok(Operand::RegPair(a, b));
         }
         if toks[0].is_op("#") {
             return Ok(Operand::Imm(Arc::new(expr::parse(&toks[1..], scope)?)));

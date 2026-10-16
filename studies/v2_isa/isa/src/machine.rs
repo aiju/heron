@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use crate::decode;
 use crate::insn::{Insn, Res, Stop, fault_at, misaligned};
 use crate::key::{Key, Kind};
-use crate::sys::{Access, Bus, Sys, VEC_BUS, VEC_IRQ, VEC_PAGE, VEC_TRACE};
+use crate::sys::{Access, Bus, Sys, VEC_BUS, VEC_PAGE, VEC_TRACE, irq_vector};
 use crate::timing::Config;
 
 pub const RAM_SIZE: u32 = 0x10_0000;
@@ -138,9 +138,6 @@ pub struct Machine {
     pub mem: Vec<u8>,
     pub dev: Devices,
     pub r: [u32; 16],
-    pub hi: u32,
-    /// LO, which MULA accumulates into with HI.
-    pub lo: u32,
     pub pc: u32,
     pub n: u8,
     pub z: u8,
@@ -196,8 +193,6 @@ impl Machine {
                 ..Devices::default()
             },
             r: [0; 16],
-            hi: 0,
-            lo: 0,
             pc: RESET_VECTOR,
             n: 0,
             z: 0,
@@ -656,13 +651,14 @@ impl Machine {
         }
     }
 
-    /// Take an interrupt at level l (RFC 0029, 7).
+    /// Take an interrupt at level l, 1-8 (RFC 0029, 7): its handler runs
+    /// at IPL l.
     fn interrupt(&mut self, l: u32) -> Result<(), String> {
         let s = self.sys_mut();
         s.waiting = false;
-        s.interrupts[l as usize] += 1;
+        s.interrupts[l as usize - 1] += 1;
         self.irqs += 1;
-        self.enter_system(VEC_IRQ + 4 * l, self.pc, Some(l as u8 + 1))?;
+        self.enter_system(irq_vector(l), self.pc, Some(l as u8))?;
         if self.irq_count == 0 {
             self.order.push(None);
         }
