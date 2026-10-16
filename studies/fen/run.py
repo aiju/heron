@@ -25,13 +25,15 @@ class Timeout(Exception):
 class Session:
     """A booted machine. `serial`: a shell on the serial console instead of
     the window system. `disk`: the CF card's image (build.disk() by
-    default)."""
+    default). `reference`: the timing configuration the machine's cycles
+    follow (the simulator's reference, D16-overlap, by default)."""
 
-    def __init__(self, serial=True, disk=None, ram=4 << 20, clock_hz=6e6, boot=None):
+    def __init__(self, serial=True, disk=None, ram=4 << 20, clock_hz=6e6, boot=None,
+                 reference=None):
         img, self.kernel = boot if boot is not None else build.boot_image()
         self.disk = disk if disk is not None else build.disk()
         self.c = native.fen.Computer(cf_image=self.disk, ram_size=ram, clock_hz=clock_hz,
-                                     boot_flags=1 if serial else 0)
+                                     boot_flags=1 if serial else 0, reference=reference)
         self.c.load(0, img)
         self.out = bytearray()      # what the console printed
         self.log = bytearray()      # the kernel's log (the debug port)

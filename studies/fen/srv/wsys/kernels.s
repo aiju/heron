@@ -21,7 +21,7 @@ _ramp_rows:
 _gfx_span:
         JMP  _gfx_span_c
 
-; fill_rows(job): a COPY stores the pattern, four words at a time with
+; fill_rows(job): a COPY stores the pattern, eight words at a time with
 ; STM; the edges are (v & ~m) | (pat & m)
 _fill_rows:
         MOVS r0, [r1 + 28]
@@ -30,51 +30,51 @@ _fill_rows:
 .fcopy: MOV  r0, [r1 + 8]
         CMP  r0, #0
         BLE  .fret
-        SAVE r8-r14
-        MOV  r2, [r1]           ; r2: the row
-        MOV  r3, [r1 + 4]       ; r3: the pitch
+        SAVE r7-r14
+        MOV  r3, [r1]           ; r3: the row
         MOV  r4, r0             ; r4: rows left
-        MOV  r5, [r1 + 12]      ; r5: lmask
-        MOV  r6, [r1 + 16]      ; r6: whole words
-        MOV  r8, [r1 + 24]      ; r8-r11: the pattern
-        MOV  r9, r8
-        MOV  r10, r8
-        MOV  r11, r8
-        MOV  r12, [r1 + 20]     ; r12: rmask
-        MOV  r13, r8
-        AND  r13, r5            ; r13: pat & lmask
-        MOV  r14, r8
-        AND  r14, r12           ; r14: pat & rmask
-.frow:  MOV  r1, r2
-        MOV  r0, [r1]
-        BIC  r0, r5
-        OR   r0, r13
-        MOV  [r1]+, r0
-        MOV  r0, r6
-        LSR  r0, #2
+        MOV  r7, [r1 + 24]      ; r7-r14: the pattern
+        MOV  r8, r7
+        MOV  r9, r7
+        MOV  r10, r7
+        MOV  r11, r7
+        MOV  r12, r7
+        MOV  r13, r7
+        MOV  r14, r7
+.frow:  MOV  r2, r3
+        MOV  r5, [r2]
+        MOV  r6, [r1 + 12]
+        BIC  r5, r6
+        AND  r6, r7
+        OR   r5, r6
+        MOV  [r2]+, r5
+        MOV  r0, [r1 + 16]
+        LSR  r0, #3
         BEQ  .frem
-.f4:    STM  r1, r8-r11
-        ADD  r1, #16
-        DBNZ r0, .f4
-.frem:  MOV  r0, r6
-        AND  r0, #3
+        MOV  r6, #32
+.f8:    STM  r2, r7-r14
+        ADD  r2, r6
+        DBNZ r0, .f8
+.frem:  MOV  r0, [r1 + 16]
+        AND  r0, #7
         BEQ  .flast
-.f1:    MOV  [r1]+, r8
+.f1:    MOV  [r2]+, r7
         DBNZ r0, .f1
-.flast: TST  r12, r12
+.flast: MOVS r6, [r1 + 20]
         BEQ  .fnext
-        MOV  r0, [r1]
-        BIC  r0, r12
-        OR   r0, r14
-        MOV  [r1], r0
-.fnext: ADD  r2, r3
+        MOV  r5, [r2]
+        BIC  r5, r6
+        AND  r6, r7
+        OR   r5, r6
+        MOV  [r2], r5
+.fnext: ADD  r3, [r1 + 4]
         DEC  r4
         BNE  .frow
-        RESTORE r8-r14
+        RESTORE r7-r14
 .fret:  RET
 
 ; blit_rows(job): a COPY from left to right. Without a shift (ls = 0, and
-; then pre = 0 and last = 1) the whole words go four at a time with LDM
+; then pre = 0 and last = 1) the whole words go eight at a time with LDM
 ; and STM; with one, a word at a time as (lo >> rs) | (hi << ls). The
 ; edges are merged as d ^ ((d ^ v) & m).
 _blit_rows:
@@ -85,14 +85,16 @@ _blit_rows:
 .bfwd:  MOV  r0, [r1 + 16]
         CMP  r0, #0
         BLE  .bret
-        SAVE r8-r14
+        SAVE r7-r14
         MOVS r0, [r1 + 36]
         BNE  .shift
-; no shift: r4 the row, r5 its source, r6 rows left, r12 n, r8-r11 a block
+; no shift: r4 the row, r5 its source, r6 32, r7-r14 a block, and the
+; rows left on the stack
         MOV  r4, [r1]
         MOV  r5, [r1 + 4]
         MOV  r6, [r1 + 16]
-        MOV  r12, [r1 + 20]
+        PUSH r6
+        MOV  r6, #32
 .urow:  MOV  r2, r4
         MOV  r3, r5
         MOV  r13, [r3]+         ; k = 0
@@ -101,19 +103,19 @@ _blit_rows:
         AND  r13, [r1 + 24]
         XOR  r14, r13
         MOV  [r2]+, r14
-        MOVS r0, r12
+        MOVS r0, [r1 + 20]
         BEQ  .unext
         SUB  r0, #1             ; the whole words between
-        MOV  r13, r0
-        LSR  r0, #2
+        LSR  r0, #3
         BEQ  .urem
-.u4:    LDM  r3, r8-r11
-        STM  r2, r8-r11
-        ADD  r3, #16
-        ADD  r2, #16
-        DBNZ r0, .u4
-.urem:  MOV  r0, r13
-        AND  r0, #3
+.u8:    LDM  r3, r7-r14
+        STM  r2, r7-r14
+        ADD  r3, r6
+        ADD  r2, r6
+        DBNZ r0, .u8
+.urem:  MOV  r0, [r1 + 20]
+        SUB  r0, #1
+        AND  r0, #7
         BEQ  .ulast
 .u1:    MOV  r13, [r3]+
         MOV  [r2]+, r13
@@ -126,9 +128,10 @@ _blit_rows:
         MOV  [r2], r14
 .unext: ADD  r4, [r1 + 8]
         ADD  r5, [r1 + 12]
-        DEC  r6
+        DEC  [sp]
         BNE  .urow
-        RESTORE r8-r14
+        ADD  sp, #4
+        RESTORE r7-r14
 .bret:  RET
 
 ; a shift: r4 lo, r5 hi, r8 rs, r9 ls, r10 the row, r11 its source, r12
@@ -190,5 +193,5 @@ _blit_rows:
         ADD  r11, [r1 + 12]
         DEC  r12
         BNE  .srow
-        RESTORE r8-r14
+        RESTORE r7-r14
         RET
