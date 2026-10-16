@@ -1465,7 +1465,7 @@ svg.heat .e { opacity: 0.4; }
       <div class="bars">${units.map((u) => `<div class="bar"><button data-unit="${u}">${esc(NODES[u].name)}</button><span class="track">${FAM.filter((f) => famUnder[u][f]).map((f) => `<i style="width:${(famUnder[u][f] / max) * 100}%;background:${famColor(f)}" title="${FAMLABEL[f]}"></i>`).join("")}</span><span class="v">${Math.round(pkgUnder[u])}</span></div>`).join("")}</div>
       <div class="famkey">${FAM.filter((f) => famUnder.root[f]).map((f) => `<span><i style="background:${famColor(f)}"></i>${FAMLABEL[f]} ${Math.round(famUnder.root[f])}</span>`).join("")}</div>
       <h3>How to read it</h3>
-      <p class="muted">Counts are packages: each IS61C6416 counts once though it's drawn as two halves, and a gate counts as its share of its package, so the blocks add up to ${total.toFixed(1)}: the other ${(M.packages - total).toFixed(1)} are spare gates. The bar under a block is what its chips are. Microcode fields, the clock and FAULT are wires you can switch on at the top left; they reach nearly everything.</p>`;
+      <p class="muted">Counts are packages: a 16-bit part (each IS61C6416, and the 74ABT16xxx registers, latches and buffers) is drawn as two halves that count half each, and a gate counts as its share of its package, so the blocks add up to ${total.toFixed(1)}: the other ${(M.packages - total).toFixed(1)} are spare gates. The bar under a block is what its chips are. Microcode fields, the clock and FAULT are wires you can switch on at the top left; they reach nearly everything.</p>`;
   }
 
   function symbolHTML(id) {

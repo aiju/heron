@@ -263,11 +263,12 @@ def cmd_run(args):
 
 def cmd_bom(args):
     nl = cpu.build(sim=True)
-    total = 0
+    packages = nl.packages(parts.VARIANT)
     for part, refs in nl.bom(parts.VARIANT).items():
-        print(f"{len(refs):3} x {part:<16} {' '.join(refs[:8])}{' ...' if len(refs) > 8 else ''}")
-        total += len(refs)
-    print(f"{total} packages as drawn (each IS61C6416AL is two halves)")
+        n = packages[part]
+        halves = f" ({len(refs)} halves)" if n != len(refs) else ""
+        print(f"{n:3} x {part:<16} {' '.join(refs[:8])}{' ...' if len(refs) > 8 else ''}{halves}")
+    print(f"{sum(packages.values())} packages")
     return 0
 
 

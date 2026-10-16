@@ -53,11 +53,11 @@ Each microinstruction's need from static timing analysis of the netlist (`ticks.
 
 | Ticks | Microinstructions | Executed | Share |
 |---|---:|---:|---:|
-| 4 | 3162 | 2011043 | 28.5% |
-| 5 | 1341 | 1229419 | 17.4% |
+| 4 | 3167 | 2011043 | 28.5% |
+| 5 | 1336 | 1229419 | 17.4% |
 | 6 | 1729 | 3591458 | 50.9% |
-| 7 | 17 | 56474 | 0.8% |
-| 8 | 9 | 23116 | 0.3% |
+| 7 | 20 | 62478 | 0.9% |
+| 8 | 6 | 17112 | 0.2% |
 | 9 | 3 | 148363 | 2.1% |
 
 ## Where the time goes

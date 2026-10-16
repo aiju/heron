@@ -63,7 +63,9 @@ A microcoded CPU on one card, a master and a slave on the system bus of
 [RFC 0014](0014-rfc-system-bus.md). Its parts are RFC 0024's `fast` set:
 74F and 74ABT logic, 74F181 ALUs with 74F182 carry lookahead, and 12 ns
 SRAM for the control store, the decode table, the register file, the page
-map and the card's RAM.
+map and the card's RAM. The registers, latches and buffers are 16-bit
+74ABT parts (74ABT16374, 16823, 16373, 16244), each package two 8- or
+9-bit halves with their own clock and enables.
 
 - **Control:** a writable control store of 64K microinstructions of 144
   bits, a decode table of 64K entries, the microinstruction
@@ -127,7 +129,7 @@ map and the card's RAM.
 
 - **Two copies,** A and B, each two 64K × 16 SRAMs, written together and
   read separately: copy A drives the A bus, copy B the B bus. Each read
-  goes through a latch (74ABT573) that closes before the write.
+  goes through a latch (a 74ABT16373 half) that closes before the write.
 - **Addresses, 14 bits:**
   - `{0, bank[7:0], reg[4:0]}`: the banks of RFC 0029, 5. In each, 0–15
     are `r0`–`r15`, 16 is `HI` and 17 is `LO`.
@@ -478,7 +480,7 @@ what became of it:
 | 32-bit memory and a two-parcel prefetch buffer | yes: a two-word (four-parcel) queue, filled in cycles that don't use memory |
 | a register file written in the second half of any cycle | yes: read early through latches, written in the last tick, in every cycle |
 | multiplies that stop early | yes, by operand size: 16 steps when both fit in 16 signed bits |
-| 16-bit parts | not in the netlist; what they'd save is in [16](#16-chips) |
+| 16-bit parts | yes: the registers, latches and buffers ([16](#16-chips)) |
 | GALs | no (Emily would rather not) |
 
 Draft 2's own needs added the rest: the register banks, the page map and
@@ -711,41 +713,56 @@ Still open:
 
 ### 16. Chips
 
-Counted from the netlist (`heron v2_hw hw bom`), each IS61C6416AL once,
-against the estimate this RFC first gave for the same sections:
+Counted from the netlist (`heron v2_hw hw bom`), against the estimate
+this RFC first gave for the same sections. A 16-bit part counts once: a
+half of one (each IS61C6416AL byte, each 8- or 9-bit half of a 74ABT16xxx)
+counts ½ where it is used, and pairing the halves makes the core 385:
 
 | Section | Netlist | Estimate | |
 |---|---:|---:|---|
-| Control store, decode table, uIR | 28 | 19 | 10 SRAMs; the uIR is 18 × 74ABT377 |
-| Sequencer, IR, conditions, forced entries | 33 | 10 | |
+| Control store, decode table, uIR | 19 | 19 | 10 SRAMs; the uIR is 9 × 74ABT16374 |
+| Sequencer, IR, conditions, forced entries | 31½ | 10 | |
 | Clock and reset | 13 | 12 | |
-| Register file and its addresses | 46 | 18 | a 74F151 per register bit and copy, the bank shared; latches and write buffers |
-| A bus | 17 | 10 | |
-| B bus and immediate unit | 48 | 24 | |
+| Register file and its addresses | 37½ | 18 | a 74F151 per register bit and copy, the bank shared; latches and write buffers |
+| A bus | 9 | 10 | |
+| B bus and immediate unit | 34½ | 24 | |
 | ALU, its control, MQ | 20 | 14 | |
 | Result multiplexer | 18 | 18 | |
-| R, T, MAR, LC, SX, EX | 34 | 24 | |
-| PC, FPC, the fetch's translation, the queue | 65 | 28 | |
-| Flags, CL, branch condition | 37 | 12 | |
-| Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 81 | 42 | 7 SRAMs |
-| **The netlist's core** | **440** | **231** | |
+| R, T, MAR, LC, SX, EX | 29 | 24 | |
+| PC, FPC, the fetch's translation, the queue | 60½ | 28 | |
+| Flags, CL, branch condition | 35½ | 12 | |
+| Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 76½ | 42 | 7 SRAMs |
+| **The netlist's core** | **385** | **231** | |
 | Bus interface, master | (30) | 30 | not drawn: the estimate |
 | Slave port, control store writes, control register | (14) | 14 | not drawn: the estimate |
-| **Total** | **about 485** | **about 275** | |
+| **Total** | **about 430** | **about 275** | |
 
-- **The estimate was low by two thirds.** About 60 of the difference is
-  8-bit parts where it assumed 16-bit ones (74ABT16374, 16244, 16373,
-  16823 in pairs: 41 registers, 62 buffers, 13 latches and 6 registers
-  with enables become about 61); with them the card is about 425. The
-  rest is real: the register file's addressing and two-phase write, the
-  queue's multiplexers, the translation and fault logic, and gates the
-  timing fixes of [15](#15-the-netlist-and-its-timing) duplicate so that
-  late signals come in last.
+- **The estimate was low by two thirds** with 8-bit parts: 440 chips.
+  The 16-bit parts it assumed take 55 of that back: 41 registers, 52
+  buffers, 13 latches and 6 registers with enables are 57 packages of
+  74ABT16374, 16823, 16244 and 16373 instead of 112. Ten buffers whose
+  outputs need two enables at once stay 74ABT541s (a 16244 has one
+  enable per four bits). The rest is real: the register file's
+  addressing and two-phase write, the queue's multiplexers, the
+  translation and fault logic, and gates the timing fixes of
+  [15](#15-the-netlist-and-its-timing) duplicate so that late signals
+  come in last.
+- **What the 16-bit parts cost.** No time: the suite takes 774.0 ms
+  either way. Of the 858 microinstructions measured, 797 are faster (by
+  up to 2.5 ns: a 74ABT16374 clocks out in 6.2 ns where a 74ABT377 took
+  7.3) and none is slower by more than 0.3 ns or needs another tick.
+  Their outputs turn off later (a 16373 in 8.1 ns against a 573's 7.1)
+  and a 16244's turn on sooner (4.8 against a 541's 5.9), so the
+  register file's latches and the other drivers of the A and B buses
+  overlap by up to 3.3 ns as they hand over, where they overlapped
+  about 1 ns: the simulator logs about twice the contention (29 µs to
+  56 µs in `strings`), the worst still the T lanes' 6 ns. And they come
+  only in fine-pitch packages (SSOP and TSSOP, 48 and 56 pins).
 - **Against draft 1b:** its CPU card as built is 269 chips, with 8-bit
-  parts; this one about 485, for a 32-bit memory path, the queue, the
+  parts; this one about 430, for a 32-bit memory path, the queue, the
   page map and the window, the register banks and the writable control
   store, and the short cycles.
-- **Where to look for fewer:** the 16-bit parts; the register file's
+- **Where to look for fewer:** the register file's
   register bits through two levels again (a few chips, for 7 ns more in
   every register read); the T lanes and QH buffers onto B through
   multiplexers.

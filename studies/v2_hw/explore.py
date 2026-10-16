@@ -27,7 +27,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 
-from heron.infra.hw import schematic, sta as hsta
+from heron.infra.hw import chips, schematic, sta as hsta
 from heron.infra.hw.netlist import Netlist
 
 from . import cpu, parts, sta, ucode as uc
@@ -180,6 +180,7 @@ FAULT_NETS = {"FAULT", "FAULT_n"}
 FAMILY = {
     "sram64k": "memory", "sram512": "memory",
     "377": "register", "823": "register", "573": "register", "161": "register",
+    "16374h": "register", "16823h": "register", "16373h": "register", "16244h": "buffer",
     "163": "register", "74": "register", "175": "register", "109": "register",
     "299": "register",
     "541": "buffer",
@@ -323,7 +324,8 @@ def _arrays(model, syms):
                 continue
             part = model["symbols"][ms[0]]["part"]
             k = len(g)
-            desc = f"{k} x {part}" + (" (each two 8-bit halves)" if typ == "sram64k" else "")
+            desc = f"{k} x {part}" + (" (each two 8-bit halves)" if typ == "sram64k" else
+                                       " (halves)" if chips.TYPES[typ].per_package > 1 else "")
             out.append((f"{pre}{g[0]}–{g[-1]}" if k > 1 else f"{pre}{g[0]}", desc, ms))
     return out
 
@@ -803,7 +805,7 @@ def build_model(programs=TRACE_PROGRAMS, jobs=4, log=print):
         else:
             t = sy["type"]
             sy["fam"] = FAMILY.get(t, "other")
-            sy["pkg"] = 0.5 if t == "sram64k" else 1
+            sy["pkg"] = 1 / chips.TYPES[t].per_package
         sy.pop("sheet", None)
     names = sorted(model["nets"])
     idx = {n: i for i, n in enumerate(names)}
@@ -943,7 +945,7 @@ def build_model(programs=TRACE_PROGRAMS, jobs=4, log=print):
                     "fields": uc.explain(f), "cls": mc.lengths[f.get("LCL", 0)],
                     "ns": round(nt[a][0], 1) if a in nt else None}
 
-    packages = sum(0.5 if i.type.name == "sram64k" else 1 for i in nl.instances
+    packages = sum(1 / i.type.per_package for i in nl.instances
                    if i.type.family not in ("fixture", "passive"))
     return {"title": "Draft 2 CPU", "variant": parts.VARIANT, "packages": round(packages),
             "families": FAMILIES, "buses": BUSES, "tnets": tnets,
