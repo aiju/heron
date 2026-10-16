@@ -1,0 +1,2 @@
+MOVS byte and half: N from bits 7 and 15: ok
+INC and DEC on a byte and half: ok
