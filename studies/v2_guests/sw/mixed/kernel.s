@@ -26,12 +26,14 @@ TIMER    = 0xFFFFFF08
 TFLAG    = 0xFFFFFF0C
 USER_TOP = 0x100000             ; pages below this are mapped when touched
 
-FAR  = 8
-FSR  = 9
-CTX  = 10
-MAPA = 11
-MAPD = 12
-BANK = 13
+; the special registers as the v2_hw microcode numbers them (systest.s's
+; names: the assembler's own names follow the ISA's numbering)
+SR_FAR  = 8
+SR_FSR  = 9
+SR_CTX  = 10
+SR_MAPA = 11
+SR_MAPD = 12
+SR_BANK = 13
 
         .org 0x80000000
         JMP  start              ; reset
@@ -66,9 +68,9 @@ start:  MOV  sp, #0x80200000    ; the top of the CPU card's 2 MB
 run:    MOV  [cur], r1
         BSR  entry
         MOV  r2, [r1 + P_CTX]
-        MTSR CTX, r2
+        MTSR SR_CTX, r2
         MOV  r2, [r1 + P_BANK]
-        MTSR BANK, r2
+        MTSR SR_BANK, r2
         MOV  r2, [r1 + P_SLICES]
         INC  r2
         MOV  [r1 + P_SLICES], r2
@@ -118,24 +120,24 @@ next:   MOV  r3, [cur]
 ; a page fault: below USER_TOP, a user access to an invalid entry gets a
 ; fresh page (bss, heap and stack are made this way), and the instruction
 ; runs again. Anything else ends the process.
-h_page: MFSR r1, FAR
+h_page: MFSR r1, SR_FAR
         CMP  r1, #USER_TOP
         BHS  .bad
-        MFSR r2, FSR
+        MFSR r2, SR_FSR
         AND  r2, #0x8F          ; S and the reason: a user's, invalid entry
         CMP  r2, #0x01
         BNE  .bad
         LSR  r1, #12
-        MFSR r2, CTX
+        MFSR r2, SR_CTX
         LSL  r2, #12
         OR   r1, r2
-        MTSR MAPA, r1           ; context << 12 | page
+        MTSR SR_MAPA, r1           ; context << 12 | page
         MOV  r3, [freepage]
         MOV  r2, r3
         ADD  r2, #0x1000
         MOV  [freepage], r2
         OR   r3, #7             ; valid, writable, executable
-        MTSR MAPD, r3
+        MTSR SR_MAPD, r3
         MOV  r1, [cur]
         BSR  entry
         MOV  r2, [r1 + P_FAULTS]
@@ -237,10 +239,9 @@ s_done:   .asciz "kernel: no process left\n"
 
         .include "../../../v2_isa/programs/lib/console.s"
 
-; print_u32: r1 unsigned, in decimal. Clobbers r1-r5. By subtracting
-; powers of ten: no divide, whose remainder the tools in this tree and the
-; v2_hw microcode put in different places. (And the library's print.s
-; indexes a table by a 24-bit address, which the window isn't.)
+; print_u32: r1 unsigned, in decimal, by subtracting powers of ten.
+; Clobbers r1-r5. (The library's print.s indexes a table by a 24-bit
+; address, which the window isn't.)
 print_u32:
         MOV  r4, #pow10
         CLR  r5                 ; not 0 once a digit isn't

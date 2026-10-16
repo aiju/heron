@@ -34,7 +34,7 @@ within 4 MB).
 """
 
 from heron.studies.v2_hw import ucode as uc
-from heron.studies.v2_hw.ucode import mi, merge, chain, branch, loop, end, Node
+from heron.studies.v2_hw.ucode import mi, merge, chain, branch, loop, end
 
 from . import guest as gm
 
@@ -59,10 +59,7 @@ def undefined():
 
 def svc(n):
     """SVC #n: draft 2's SWI #n beside its microcode, else a stop."""
-    if not _MIXED[0]:
-        return gm.stop("thumb svc")
-    return chain(f"SVC #{n}", mi(ra=uc.VSWI[n >> 6], kv=4 * (n & 63), alu="add", w=TMP2),
-                 Node(uc.SAVE_FLAGS, ("next", uc.trap_tail(TMP2, 0, "SWI")), f"SVC #{n}"))
+    return uc.swi_routine(n) if _MIXED[0] else gm.stop("thumb svc")
 
 
 def sext(v, bits):

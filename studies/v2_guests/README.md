@@ -31,18 +31,9 @@ bits, **D3** the whole 64K control store reachable. With none in use the
 model is draft 2's, cycle for cycle (the unit tests check).
 
 It depends on `v2_hw` for the CPU (its microcode assembler, placement,
-timing and RTL model; the study needs that study's branch, which is
-RFC 0031's), `v2_isa` for the draft 2 tools, `v1_isa` for 1b's assembler,
-simulator and suite, `v1b_hw` for its shift planner, and `c_compiler` for
-the C programs and library.
-
-**Draft 2 itself moves.** The draft 2 tools in this tree follow RFC 0028
-and RFC 0029 as they are on `main`; the v2_hw microcode predates two of
-their changes: row 0's new cells (LEA, MFSR, MTSR) with the renumbered
-special registers, and HI and LO as r0 and r1. The mixed machine's
-draft 2 side copes: page 0 of its decode table maps the new row 0 onto
-the microcode's routines (`mixed.native_classify`, an identity once the
-microcode follows), and its draft 2 code uses no multiply or divide.
+timing and RTL model), `v2_isa` for the draft 2 tools, `v1_isa` for 1b's
+assembler, simulator and suite, `v1b_hw` for its shift planner, and
+`c_compiler` for the C programs and library.
 
 | File | What's in it |
 |---|---|
@@ -56,7 +47,7 @@ microcode follows), and its draft 2 code uses no multiply or divide.
 | `mixed.py` | Draft 2's microcode and Thumb's in one control store (D1-D3), and the harness that plays boot loader for the kernel |
 | `cli.py` | `heron v2_guests`: run, test, ucode, mixed, bench |
 | `bench.py` | Every guest's programs against native draft 2 (report 0031's numbers); report 0039's performance.md |
-| `sw/` | Start-up code and run-time helpers per target; `sw/mixed/`: the kernel (`kernel.s`), the draft 2 process (`sieve.s`), Thumb's user start-up and console header |
+| `sw/` | Start-up code and run-time helpers per target; `sw/mixed/`: the kernel (`kernel.s`), the user processes' start-up for draft 2 and Thumb, and the console header their C library is compiled with |
 | `tests/` | Unit tests that need nothing from outside the repository; `tests/asm/`: their small guest programs, assembled once (`python3 -m heron.studies.v2_guests.tests.asm_programs` reassembles them, with clang and cc65) |
 
 ```sh

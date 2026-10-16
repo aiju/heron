@@ -33,6 +33,7 @@ fills in the kernel's process table. The kernel's console is slot 15.
 import os
 
 from heron.studies.v2_hw import timing, ucode as uc
+from heron.studies.v2_hw.ucode import mi, merge
 from heron.studies.v2_hw.system import ConsoleCard, System
 
 from . import guest as gm
@@ -51,31 +52,19 @@ PROC_BASE = 0x40000             # process i's image at physical (i + 1) x this
 P_SIZE = 32
 
 
-# The draft 2 tools in this tree follow RFC 0028's new row 0 (LEA in its
-# modes' columns 03-05, 0E, 0F; MFSR and MTSR at 06 and 07) and RFC 0029's
-# special register numbers (FAR 9 ... BANK 14); the v2_hw study's
-# microcode (PR #46) predates both. Page 0 of the decode table is RAM, so
-# it maps them onto that microcode's routines while it does.
-SR_OLD = {1: 1, 2: 2, 9: 8, 10: 9, 11: 10, 12: 11, 13: 12, 14: 13}
-ROW0_OLD = uc.classify(0x0006)[0][0] != "mfsr"
-
-
-def native_classify(w):
-    if not ROW0_OLD:
-        return uc.classify(w)
-    op, hi, lo = w & 0xFF, w >> 12, (w >> 8) & 15
-    ill = (("illegal",), 1)
-    if op in (0x03, 0x04, 0x05, 0x0E, 0x0F):
-        M = op & 15
-        n = 1 + uc.ext_parcels(M, lo)
-        if M == 0xF and (lo <= 3 or lo == 0xF):
-            return ("illegal",), n
-        return ("lea", M, lo if M in (4, 0xE, 0xF) else 0), n
-    if op == 0x06:
-        return (("mfsr", SR_OLD[lo]), 1) if lo in SR_OLD else ill
-    if op == 0x07:
-        return (("mtsr", SR_OLD[hi]), 1) if hi in SR_OLD else ill
-    return uc.classify(w)
+def guest_consts(consts, then):
+    """The guests' constants into bank 0's G half, then copied into every
+    other bank's, as draft 2's reset does its own (a user process reads the
+    constants in its own bank's); then `then`."""
+    steps = [mi(kv=0, alu="passb", ldbank=1)]
+    for loc, v in sorted(consts.items()):
+        steps += _const(loc, v)
+    copies = [mi(ra=k, alu="passa", w=k, ubw=1) for k in sorted(consts)]
+    last = uc.branch("reset", merge(copies.pop(), mi(lcinc=1)), "tc", None, then)
+    head = uc.chain("reset", mi(b="simm", v8="lc", fill="0", alu="passb", ldbank=1),
+                    *copies, last)
+    last.succ = ("branch", uc.CONDS["tc"], head, then)
+    return uc.chain("reset", *steps, mi(kv=1, alu="passb", ldlc=1), head)
 
 
 class MixedMicrocode(uc.Microcode):
@@ -87,12 +76,11 @@ class MixedMicrocode(uc.Microcode):
         gm._stops.clear()
         self.guests = guests
         # reset: the guests' constants, then draft 2's reset
-        steps = []
+        consts = {}
         for g in guests:
-            for loc, v in sorted(getattr(g, "consts", {}).items()):
-                assert loc not in uc.CONSTS and loc not in (uc.TMP1, uc.TMP2, uc.TMP3)
-                steps += _const(loc, v)
-        self.reset = uc.chain("reset", *steps, uc.reset_routine()) if steps \
+            consts.update(getattr(g, "consts", {}))
+        assert not set(consts) & (set(uc.CONSTS) | {uc.TMP1, uc.TMP2, uc.TMP3})
+        self.reset = guest_consts(consts, uc.reset_routine()) if consts \
             else uc.reset_routine()
         self.reset.fixed = 0
         self.fixed = {uc.REFILL_ADDR: uc.end("refill", mem="fetch"),
@@ -108,7 +96,7 @@ class MixedMicrocode(uc.Microcode):
         self.xir_pages, self.ximm_pages = [None], [None]
         keys, lens = [None] * 0x10000, [0] * 0x10000
         for w in range(0x10000):
-            k, ln = native_classify(w)
+            k, ln = uc.classify(w)
             keys[w], lens[w] = (0, k), ln
             if (0, k) not in self.entry:
                 self.entry[(0, k)] = uc.routine(k)
@@ -257,19 +245,35 @@ def built():
 # --------------------------------------------------------------------------
 # The processes
 
+def native_image(name):
+    """A C program compiled by the Heron C compiler for draft 2, as a user
+    process: its library compiled with sw/mixed's console header, and
+    sw/mixed/start_v2.s for start-up. (bytes from VA 0, entry)"""
+    import heron.studies.v2_isa  # noqa: F401  (the ISA, for the tools)
+    from heron.studies.c_compiler.cc import driver
+    inc = [os.path.join(SW, "include")]
+    p = driver.Program("v2")
+    p.add_file(os.path.join(toolchain.PROGRAMS, name + ".c"), inc)
+    lib = []
+    for f in toolchain.LIB:
+        u = driver.compile_unit(os.path.join(toolchain.CC, "cc", "lib", f), "v2", inc)
+        obj = f[:-2] + ".o"
+        lib.append((obj, driver.assemble("v2", driver.unit_assembly(u, "v2", p.opt), obj)))
+    p.add_archive(lib)
+    with open(os.path.join(SW, "start_v2.s")) as f:
+        p.add_object(driver.assemble("v2", f.read(), "start_v2.o"))
+    p.need_main = False         # no standard start-up: ours
+    img = p.link()
+    data = bytearray(max(img.mem) + 1)
+    for a, b in img.mem.items():
+        data[a] = b
+    return bytes(data), img.symbols["__start"]
+
+
 def user_image(name, isa):
-    """(bytes from VA 0, entry). Draft 2's processes are hand-written
-    (sw/mixed/NAME.s): this tree's C compiler follows main's draft 2,
-    whose multiply and divide leave HI and LO in r0 and r1, and the v2_hw
-    microcode doesn't yet."""
+    """A suite program's C for the process: (bytes from VA 0, entry)."""
     if isa == "v2":
-        import heron.studies.v2_isa  # noqa: F401
-        from heron.infra import asm, isas
-        img = asm.assemble_file(isas.get("v2"), os.path.join(SW, name + ".s"))
-        data = bytearray(max(img.mem) + 1)
-        for a, b in img.mem.items():
-            data[a] = b
-        return bytes(data), img.symbols["start"]
+        return native_image(name)
     img = toolchain.build("thumb-user", name)
     return img.data, img.symbols["_start"]
 
@@ -290,8 +294,8 @@ class Process:
 
 
 def program(name, isa):
-    """A suite program as a process: draft 2's from sw/mixed, Thumb's
-    compiled with clang."""
+    """A suite program as a process: draft 2's compiled by the Heron C
+    compiler, Thumb's by clang."""
     image, entry = user_image(name, isa)
     inp, exp = toolchain.expected(name)
     return Process(name, isa, image, entry, inp, exp)
