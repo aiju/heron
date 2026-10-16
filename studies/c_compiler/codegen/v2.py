@@ -89,10 +89,19 @@ class V2(V1B):
             return
         super().store_word(v, mem)
 
+    # Code that runs in the supervisor's window (RFC 0029, 3: a kernel at
+    # 0x8000_0000 and up) can't reach its data with 16- or 24-bit absolute
+    # addresses, so with `window` set an indexed label is the PC-relative
+    # table, [pc + label + x*s], which reaches 8 MB either way. (The driver
+    # makes all data far as well.)
+    window = False
+
     def sym_indexed(self, sym, disp, x, s, size):
         """[label + r] is [R + d16] for a near label, and the special mode's
         [abs24 + x*s] for a far one (the assembler picks); a scaled index
         always takes the table form."""
+        if self.window:
+            return Mem(None, disp=disp, sym=self.symname(sym), index=self.reg(x), scale=s, size=size)
         if s == 1:
             return Mem(self.reg(x), disp=disp, sym=self.symname(sym), size=size)
         return Mem(None, disp=disp, sym=self.symname(sym), index=self.reg(x), scale=s, size=size)
@@ -112,6 +121,8 @@ class V2(V1B):
         if m.index is not None and m.base is None:
             d = self.mem_disp(m)
             a = m.sym + (f"{d:+d}" if d else "") if m.sym is not None else str(d)
+            if self.window and m.sym is not None:
+                return f"{SIZE_KW[m.size]}[pc + {a} + {self.fmt(m.index)}*{m.scale}]"
             return f"{SIZE_KW[m.size]}[{a} + {self.fmt(m.index)}*{m.scale}]"
         return super().fmt_mem(m)
 

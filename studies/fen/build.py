@@ -1,0 +1,289 @@
+"""Building Fen: the kernel, the C library, the programs, the boot image
+and the disk.
+
+- **The kernel** (kernel/) is C and assembly, compiled with all its data
+  far (32-bit addresses, since it runs in the window at 0x8000_0000, which
+  16-bit absolute addresses can't reach) and linked at 0x8000_0000 with
+  its vectors first. syscalls.py's table gives its SWI vectors and stubs.
+- **The C library** (lib/) is an archive the programs are linked with,
+  with the compiler's string and ctype functions.
+- **A program** is linked at USER_BASE (0x1000) with lib/crt0.s first and
+  converted to Fen's executable format (fen/abi.h): a header and the
+  image, its text on pages of its own.
+- **The boot image** is the kernel, then from the next page the boot
+  archive: the programs the system needs before it has a file system.
+- **The disk** is a file system image (mkfs.py) with every program in /bin.
+
+Everything goes to build/fen/. Compiling is cached by the source's text
+and its headers', so a rebuild only compiles what changed.
+"""
+
+import hashlib
+import os
+import pickle
+import struct
+
+from heron import BUILD, ROOT
+from heron.infra import asm as asmcore
+from heron.infra import isas
+from heron.infra import link as L
+from heron.infra import obj as O
+from heron.studies.c_compiler.cc import driver
+from heron.studies.c_compiler.cc.lex import CompileError
+import heron.studies.v2_isa  # noqa: F401  (registers the ISA)
+
+from . import syscalls
+
+ISA = "v2"
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(BUILD, "fen")
+GEN = os.path.join(OUT, "gen")
+CACHE = os.path.join(OUT, "cache")
+CC_INCLUDE = os.path.join(ROOT, "studies", "c_compiler", "cc", "include")
+CC_LIB = os.path.join(ROOT, "studies", "c_compiler", "cc", "lib")
+INCLUDE = [os.path.join(HERE, "include"), GEN, CC_INCLUDE]
+
+KERNEL_BASE = 0x80000000
+USER_BASE = 0x1000
+USER_TOP = 0x00800000           # programs and their heaps end below the mmap area
+FX_MAGIC = 0x584E4546
+BOOT_MAGIC = 0x424E4546
+PAGE = 4096
+
+KERNEL_SOURCES = ["entry.s", "main.c", "klib.c", "mem.c", "proc.c", "ipc.c", "trap.c", "sys.c"]
+
+LIB_SOURCES = ["ipc.s", "start.c"]
+CC_LIB_SOURCES = ["string.c", "ctype.c"]
+
+# programs: name -> sources, relative to the study
+PROGRAMS = {
+    "init": ["cmd/init.c"],
+}
+
+# what the boot archive holds
+BOOT = ["init"]
+
+
+class BuildError(Exception):
+    pass
+
+
+def ensure_dirs():
+    for d in (OUT, GEN, CACHE, os.path.join(GEN, "fen")):
+        os.makedirs(d, exist_ok=True)
+
+
+def write_if_changed(path, text):
+    try:
+        with open(path) as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    with open(path, "w") as f:
+        f.write(text)
+
+
+def generate():
+    """The files syscalls.py makes."""
+    ensure_dirs()
+    write_if_changed(os.path.join(GEN, "ksys.s"), syscalls.kernel_stubs())
+    write_if_changed(os.path.join(GEN, "usys.s"), syscalls.user_stubs())
+    write_if_changed(os.path.join(GEN, "fen", "sysno.h"), syscalls.header())
+
+
+def _headers(path, include, seen=None):
+    """The text of a file's headers, recursively, for the cache key."""
+    import re
+    seen = set() if seen is None else seen
+    out = []
+    try:
+        with open(path) as f:
+            text = f.read()
+    except OSError:
+        return out
+    for m in re.finditer(r'#\s*include\s*[<"]([^>"]+)[>"]', text):
+        name = m.group(1)
+        for d in [os.path.dirname(path)] + list(include):
+            p = os.path.join(d, name)
+            if os.path.exists(p):
+                if p not in seen:
+                    seen.add(p)
+                    with open(p) as f:
+                        out.append(f.read())
+                    out += _headers(p, include, seen)
+                break
+    return out
+
+
+def _cached(key, name, make):
+    h = hashlib.sha256(pickle.dumps(key)).hexdigest()[:24]
+    path = os.path.join(CACHE, h + ".o")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return O.ObjectFile.from_bytes(f.read(), name)
+    o = make()
+    o.write(path)
+    return o
+
+
+def compile_c(path, include=INCLUDE, window=False, defines=None):
+    """A C file as an object file; `window` for the kernel's."""
+    with open(path) as f:
+        text = f.read()
+    key = ("c", path, text, _headers(path, include), tuple(include), window,
+           sorted((defines or {}).items()), _compiler_version())
+
+    def make():
+        try:
+            u = driver.compile_unit(path, ISA, include, defines)
+            asm = driver.unit_assembly(u, ISA, window=window)
+        except CompileError as e:
+            raise BuildError(f"{os.path.relpath(path, ROOT)}: {e}") from None
+        return driver.assemble(ISA, asm, os.path.basename(path)[:-2] + ".o")
+    return _cached(key, os.path.basename(path)[:-2] + ".o", make)
+
+
+def assemble_file(path):
+    with open(path) as f:
+        text = f.read()
+    key = ("s", path, text, _compiler_version())
+
+    def make():
+        a = asmcore.Assembler(isas.get(ISA), relocatable=True)
+        try:
+            a.load(path, text=text)
+            return a.assemble_object(os.path.basename(path)[:-2] + ".o")
+        except asmcore.AsmError as e:
+            raise BuildError(str(e)) from None
+    return _cached(key, os.path.basename(path)[:-2] + ".o", make)
+
+
+_version = None
+
+
+def _compiler_version():
+    """A stamp of the compiler's and assembler's sources, so the cache
+    forgets what an older compiler made."""
+    global _version
+    if _version is None:
+        h = hashlib.sha256()
+        roots = [os.path.join(ROOT, "studies", "c_compiler"), os.path.join(ROOT, "studies", "v2_isa", "isa", "src"),
+                 os.path.join(ROOT, "infra", "toolchain", "src")]
+        for r in roots:
+            for d, _, files in sorted(os.walk(r)):
+                for f in sorted(files):
+                    if f.endswith((".py", ".rs")):
+                        with open(os.path.join(d, f), "rb") as fh:
+                            h.update(fh.read())
+        _version = h.hexdigest()[:16]
+    return _version
+
+
+def obj_for(path, include=INCLUDE, window=False):
+    if path.endswith(".s"):
+        return assemble_file(path)
+    return compile_c(path, include, window)
+
+
+def image_bytes(img, lo, hi):
+    out = bytearray(hi - lo)
+    for a, b in img.mem.items():
+        if lo <= a < hi:
+            out[a - lo] = b
+    return bytes(out)
+
+
+# ---- the kernel ------------------------------------------------------------
+
+def kernel():
+    """The kernel's image (bytes from physical 0) and its linked image."""
+    generate()
+    include = [os.path.join(HERE, "kernel")] + INCLUDE
+    objs = [obj_for(os.path.join(HERE, "kernel", s), include, window=True) for s in KERNEL_SOURCES]
+    objs.append(assemble_file(os.path.join(GEN, "ksys.s")))
+    try:
+        img = L.link(objs, [], ISA, mem_top=KERNEL_BASE + 0x01000000)
+    except L.LinkError as e:
+        raise BuildError(f"linking the kernel: {e}") from None
+    end = img.symbols["__end"]
+    return image_bytes(img, KERNEL_BASE, end), img
+
+
+# ---- the C library and programs ---------------------------------------------
+
+_libc = None
+
+
+def libc():
+    """The C library: [(member name, ObjectFile)]."""
+    global _libc
+    if _libc is None:
+        generate()
+        members = []
+        for s in LIB_SOURCES:
+            members.append((s[:-2] + ".o", obj_for(os.path.join(HERE, "lib", s))))
+        for s in CC_LIB_SOURCES:
+            members.append((s[:-2] + ".o", obj_for(os.path.join(CC_LIB, s))))
+        members.append(("usys.o", assemble_file(os.path.join(GEN, "usys.s"))))
+        _libc = members
+    return _libc
+
+
+def link_program(sources, include=INCLUDE, extra_libs=()):
+    """Link a program's sources (paths) with crt0 and the C library."""
+    objs = [assemble_file(os.path.join(HERE, "lib", "crt0.s"))]
+    objs += [obj_for(p, include) for p in sources]
+    try:
+        return L.link(objs, [libc()] + list(extra_libs), ISA, base=USER_BASE, entry="__start",
+                      mem_top=USER_TOP)
+    except L.LinkError as e:
+        raise BuildError(f"linking {os.path.basename(sources[0])}: {e}") from None
+
+
+def executable(img, stack=0):
+    """A linked program in Fen's executable format (fen/abi.h)."""
+    s = img.symbols
+    base, end = USER_BASE, s["__end"]
+    data = image_bytes(img, base, end)
+    # trailing zeros (the bss) needn't be in the file
+    n = len(data.rstrip(b"\0"))
+    n = (n + 3) & ~3
+    hdr = struct.pack("<8I", FX_MAGIC, s["__start"], base, n, end - base,
+                      s["__text_start"], s["__text_end"], stack)
+    return hdr + data[:n]
+
+
+def program(name, sources=None, include=INCLUDE):
+    """Build one program: its executable, written to build/fen/bin/NAME."""
+    sources = sources or [os.path.join(HERE, p) for p in PROGRAMS[name]]
+    img = link_program(sources, include)
+    fx = executable(img)
+    os.makedirs(os.path.join(OUT, "bin"), exist_ok=True)
+    with open(os.path.join(OUT, "bin", name), "wb") as f:
+        f.write(fx)
+    return fx, img
+
+
+def boot_archive(modules):
+    """[(name, bytes)] as the archive kernel/main.c reads."""
+    hdr_size = 8 + 32 * len(modules)
+    off = (hdr_size + 15) & ~15
+    entries, blobs = [], []
+    for name, data in modules:
+        entries.append(struct.pack("<24sII", name.encode(), off, len(data)))
+        blobs.append(data + b"\0" * (-len(data) % 16))
+        off += len(data) + (-len(data) % 16)
+    head = struct.pack("<II", BOOT_MAGIC, len(modules)) + b"".join(entries)
+    head += b"\0" * (-len(head) % 16)
+    return head + b"".join(blobs)
+
+
+def boot_image(modules=None):
+    """The kernel, and the boot archive from the page after it: bytes to put
+    at physical 0. Also the kernel's linked image (for its symbols)."""
+    kbytes, kimg = kernel()
+    names = modules if modules is not None else BOOT
+    mods = [(n, program(n)[0]) for n in names]
+    pad = -len(kbytes) % PAGE
+    return kbytes + b"\0" * pad + boot_archive(mods), kimg
