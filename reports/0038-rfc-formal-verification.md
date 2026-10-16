@@ -585,26 +585,30 @@ the two never disagreed:
 - **Cases chosen by the specification** (`heron formal isagen`). Each of
   the 55 instructions runs once on symbolic inputs, noting every decision
   it meets ([2.8](#28-running-it-on-symbols)). Each outcome of each
-  decision is a goal: 1284 of them over the 55 instructions. For each
+  decision is a goal: 1423 of them, with those of the illegal encodings.
+  For each
   goal the solver finds inputs, three times. Each time a random half of
   the inputs is first pinned to random values, mostly boundary values
   (0, 1, −1, the sign bit, small numbers), so the inputs the goal doesn't
   decide come out random. Encodings no instruction has are sampled at
   random. The result:
-  - 3755 cases in under three minutes;
-  - every goal the solver can reach (1245) reached;
-  - 39 goals proved impossible.
+  - 4172 cases in under two and a half minutes;
+  - every goal the solver can reach (1386) reached;
+  - 37 goals proved impossible.
 
-  For comparison, 20,000 random cases reach 1224 of the 1245.
+  For comparison, 20,000 random cases reach 1365 of the 1386.
 
 An impossible goal is an outcome one instruction can't reach in code it
 shares with others. LEA can't reach `operand()`'s arms for the updating
 modes, because it turns them away first. BSR can't take an address
 error: its only possible one is a misaligned stack, and entering the
-vector then assumes an aligned one. Over the whole text, only one of
-the specification's 220 decision outcomes is reached by no instruction:
-the last arm of the `case` in `condition()` can't fall through, because
-the `case` is exhaustive.
+vector then assumes an aligned one. Over the whole text, every one of
+the specification's 231 decision outcomes is reached by some
+instruction. That took two changes: in the first version the last arm
+of the `case` in `condition()` couldn't fall through, because the `case`
+was exhaustive (a `match` the checker knows is exhaustive has no such
+outcome); and the second's first text gave each updating mode's step
+by a function of the size, whose half-word arm no updating mode uses.
 
 The language had two versions. The first was untyped and looked like
 Python: every value a bit vector, a bare number taking whatever width it
@@ -621,9 +625,9 @@ at a time) runs in both on the same symbolic inputs, and they make the
 same assumptions and give the same registers, flags, PC, faults and
 halts, with the same writes to memory in the same order. That is 835
 comparisons in 69 seconds. Comparing the memories as arrays was too hard
-for the solver; comparing the writes is stronger and easy. The text is longer, about 770 lines against 610: the
-closing braces, a `let` for each `proc` value used in an expression, and
-the named arguments.
+for the solver; comparing the writes is stronger and easy. The text is
+longer, about 770 lines against 610: the closing braces, a `let` for
+each `proc` value used in an expression, and the named arguments.
 
 Making the coverage count honest took four fixes to the tools. Each would
 have reported a goal as missed, or as reached, wrongly:
@@ -633,8 +637,8 @@ have reported a goal as missed, or as reached, wrongly:
   other;
 - a case aimed at an instruction counts for it even when it decodes as
   illegal (MFSR with n > 1);
-- `and` and `or` must note what their right side does only where it is
-  evaluated. `c == 14 or condition(c)` never calls `condition` with 14;
+- `&&` and `||` must note what their right side does only where it is
+  evaluated. `c == 14 || condition(c)` never calls `condition` with 14;
 - a constant assignment has one outcome, not two.
 
 Writing it found one thing RFC 0004 doesn't say. When the EA's register
