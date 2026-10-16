@@ -281,9 +281,10 @@ reference assignment's spread of returns.
     registers at `0x7400_0000` and the window.
   - **To the kernel,** everything from `0xF000_0000` up is a register
     and everything below it memory.
-  - **The main CPU card's registers** at `0x7000_0000` are Fen's timer,
-    board information and interrupt mask, and the control and interrupt
-    request registers of [section 9](#9-cpu-cards).
+  - **The main CPU card's registers** at `0x7000_0000` are those of
+    [section 9](#9-cpu-cards): its control register, board information,
+    interrupt request register, message register and timer, at the
+    offsets [RFC 0040, 3](0040-rfc-interrupts.md#3-the-cpu-card) proposes.
   - **The I/O processor's registers** are 16 doorbells, one for each
     client of its rings; its status is in its shared RAM
     ([RFC 0027, 4.4](0027-rfc-io-coprocessor.md#44-registers-for-the-cpus)). Requests,
@@ -466,32 +467,23 @@ and a warm reset (Emily, 2026-10-15).
 
 ### 8. Interrupts
 
+The interrupt design as a whole is [RFC 0040](0040-rfc-interrupts.md)'s. On this bus:
+
 - **ATN0–ATN3** are open-collector, level-sensitive requests from cards
   on the system bus (the video card's vertical blank, a network card) to
   the I/O processor, the only card that listens to them. Each card picks
-  its line with a jumper.
+  its line with a jumper (**tentative**,
+  [RFC 0040, 4.1](0040-rfc-interrupts.md#41-sources)).
 - **Devices on the I/O bus** interrupt the I/O processor on their own
   lines ([section 19](#19-interrupts-reset-and-clocks)).
-- **A CPU is interrupted by a write** to the interrupt request register
-  on its card ([section 9](#9-cpu-cards)): one bit for each of draft 2's
-  levels 1–8 ([RFC 0029, 7](0029-rfc-draft-2-system.md#7-interrupts)).
-  - Any master can write it: the I/O processor for its devices' events,
-    another CPU as a doorbell, the CPU itself.
-  - A write to its set address raises the levels whose bits are 1; a write
-    to its clear address lowers them. There's no read-modify-write between
-    two writers.
-  - The CPU sees each level as the OR of its bit and that level's
-    sources on the CPU's own card, chosen by jumper (a timer, say), so
-    the levels stay level-sensitive, as RFC 0029 has them.
-  - **Why the level was raised** is in a ring of events the I/O processor
-    writes in memory before it sets the bit. A handler clears its level
-    first, then drains the ring. An event posted in between raises the
-    level again, so none is lost.
-- **Slow and fast:** the I/O processor sends slow events at levels 1–5,
-  through the ring and possibly batched, and fast ones at levels 6–8,
-  one source to a level, so that the level's vector is its handler
-  ([RFC 0027, 7.3](0027-rfc-io-coprocessor.md#73-interrupts-to-the-cpus)).
-- **NMI** is a bit in the CPU card's control register, not a line.
+- **A CPU is interrupted by a write,** by any master, to its card's
+  request register, one bit for each of draft 2's eight levels, or to its
+  message register, which carries a message at level 7
+  ([RFC 0040, 3](0040-rfc-interrupts.md#3-the-cpu-card)). Why it was interrupted is in a
+  ring in memory, or in the message
+  ([RFC 0040, 5](0040-rfc-interrupts.md#5-memory-rings-and-flags)).
+- **NMI** is a bit in the CPU card's control register, not a line (to be
+  confirmed, [RFC 0040, 2.5](0040-rfc-interrupts.md#25-the-non-maskable-interrupt)).
 
 ### 9. CPU cards
 
@@ -502,7 +494,10 @@ Among its registers, at `0x7N00_0000` for a card in region N
 | Register | What it does | Chips |
 |---|---|---:|
 | **Control** | RUN, RESET (the warm reset), STEP (a microcycle, or to the end of the instruction), NMI; status: running, halted, at an instruction boundary. At power-up RUN is off if the control store is SRAM, on if it is flash (a jumper) | ~2 |
-| **Interrupt request** | Levels 1–8, set and cleared by writes ([section 8](#8-interrupts)) | ~1–2 |
+| **Board information** | RAM size, BCLK's period, the card's region (so its CPU's number), boot flags | ~1 |
+| **Interrupt request** | Levels 1–8, set and cleared by writes ([RFC 0040, 3.1](0040-rfc-interrupts.md#31-the-request-register)) | ~1–2 |
+| **Message register** | A source and a 24-bit message, at level 7; claimed by a read, then written (**tentative**, [RFC 0040, 3.2](0040-rfc-interrupts.md#32-the-message-register)) | ~4–5 |
+| **Timer** | A free-running 32-bit count of BCLK, and a tick at level 6 from a jumpered bit ([RFC 0040, 3.3](0040-rfc-interrupts.md#33-the-timer)) | ~4–6 |
 | **Slave port** into its RAM | DMA, booting, other CPUs; shares the RAM by ticks, honours LOCK and the deadlock rule (RFC 0014, section 10) | ~12–15 |
 | **Control store write port** | For an SRAM control store: each SRAM a 16-bit lane in a window, written and read back while RUN is off ([RFC 0027, 8.1](0027-rfc-io-coprocessor.md#81-what-the-cpu-card-provides)) | ~14 |
 
@@ -665,8 +660,7 @@ SEL comes from registers in the I/O processor, so it never glitches.
   | 2–7 | STROBE | 1–64 clocks of SEL |
   | 8–11 | HOLD | 0–15 extra clocks of hold |
   | 12 | WAIT | the card may stretch the strobe |
-  | 13 | WINDOW | the system bus may reach this device |
-  | 14–15 | | reserved |
+  | 13–15 | | reserved. Bit 13 was WINDOW, removed (Emily, 2026-10-16; [RFC 0040, 15](0040-rfc-interrupts.md#15-the-window-bit)) |
 
 - **The I/O processor's firmware** loads the table at boot, from the card
   table in its flash ([RFC 0027](0027-rfc-io-coprocessor.md)). A device's
@@ -764,12 +758,20 @@ processor's firmware.
 - **The bound:** a window access ends within 200 I/O-bus clocks or is cut
   off, so the I/O processor's card never holds WAIT past the system
   bus's 255 ([5.4](#54-wait)).
-- **Devices without WINDOW** in their table entry ignore writes through
-  the window and return all ones.
+- **Writes are posted:** the I/O processor's card ends the system bus's
+  transfer at once and makes the device's access after it. A window
+  access that follows waits for it. So a write never holds the system
+  bus.
+- **Slow devices** are reached through the I/O processor's rings, by
+  convention, so that a read through the window never holds the system
+  bus for long; the cut-off above still bounds one.
 - **Ownership:** each device belongs either to the I/O processor or to a
-  CPU, recorded in the card table. Two masters touching one device
-  (a CPU reading a UART's receive register under the I/O processor's line
-  discipline, say) is a software error the hardware doesn't prevent.
+  CPU, recorded in the card table. The window reaches every device
+  (there is no WINDOW bit: Emily, 2026-10-16;
+  [RFC 0040, 15](0040-rfc-interrupts.md#15-the-window-bit)), so a panicking kernel can
+  still reach the console. Two masters touching one device (a CPU reading
+  a UART's receive register under the I/O processor's line discipline,
+  say) is a software error the hardware doesn't prevent.
 
 The I/O processor's own registers at `0x7400_0000`, and its shared RAM
 in region 4 ([section 26](#26-chips)), are RFC 0027's business.
@@ -928,7 +930,7 @@ become about 8 there.
   simulated ([section 30](#30-still-to-check)).
 - **Interrupts go through the I/O processor:** about 3–15 µs from a
   device to a CPU (a tick of polling, then the routing), against about
-  1 µs over a line ([RFC 0027, 7.4](0027-rfc-io-coprocessor.md#74-latency)).
+  1 µs over a line ([RFC 0040, 8](0040-rfc-interrupts.md#8-latency)).
   Sources that need less live on the CPU's own card.
 - **One master on the I/O bus:** devices can't DMA; the I/O processor
   moves everything, as decided.
@@ -941,15 +943,15 @@ become about 8 there.
 open) and [report 0036](0036-report-fen.md) (the Fen operating system)
 assume RFC 0014's bus in four places:
 
-- **Interrupts.** RFC 0029 takes levels 1–8 from the system bus's
+- **Interrupts.** RFC 0029 took levels 1–8 from the system bus's
   IRQ1–IRQ8, or from sources on the CPU's own card, level-sensitive. Here
   the levels come from the interrupt request register on the CPU card
-  ([section 8](#8-interrupts)), ORed with the card's own sources. The CPU
-  sees the same eight level-sensitive inputs, so RFC 0029's CPU side is
-  unchanged. Fen's interrupt mask and timer on the CPU board stay as they
-  are. RFC 0029 holds the interrupt architecture as a whole open (Emily,
-  2026-10-16); keeping IRQ1–IRQ8 as bused lines driven by the I/O
-  processor is the alternative ([section 29](#29-alternatives)).
+  ([section 8](#8-interrupts)), ORed with the card's own sources: its
+  timer and its message register. The CPU sees the same eight
+  level-sensitive inputs, so RFC 0029's CPU side is unchanged; eight real
+  levels stay (decided, Emily, 2026-10-16). [RFC 0040](0040-rfc-interrupts.md) has the
+  rest; keeping IRQ1–IRQ8 as bused lines is the alternative
+  ([section 29](#29-alternatives)).
 - **An access that nothing answers.** RFC 0029 leaves open a bus timeout
   and its vector (its open question 2); Fen's simulator made it a bus
   error through `0x8000_000C`, and Fen's kernel ends a process that
@@ -984,7 +986,7 @@ assume RFC 0014's bus in four places:
 | A serial ID bus: an I²C EEPROM on each card | **not recommended** | Probably against Emily's rule against new-fangled chips (2026-10-15), and 5–6 P1 pins with slot addressing |
 | A 74HC165 chain of ID straps through the backplane | **not recommended** | Four P1 pins, and empty positions break the chain |
 | The bus monitor on the backplane, ending a stuck transfer with an error | **not recommended** | Needs BERR; the I/O processor's count and a reset do without |
-| IRQ1–IRQ8 kept as bused lines, driven by the I/O processor and the cards | **open** | Closest to RFC 0029 as written; costs eight pins and ties every CPU to one set of lines |
+| IRQ1–IRQ8 kept as bused lines, driven by the I/O processor and the cards | **not recommended** | Closest to RFC 0029 as first written; costs eight pins and ties every CPU to one set of lines; RFC 0040 interrupts by writes instead |
 | Per-device jumpers for the I/O bus's timing (RFC 0027 as written) | **not recommended** | Moving a card means moving jumpers on another card; the window couldn't share them |
 | One timing register, reloaded when the device changes | **not recommended** | A forgotten reload gives a device the wrong timing; the window couldn't use it |
 | WAIT-only timing on the I/O bus, each card timing itself | **not recommended** | A clock and a counter on every card (about 8 chips for a simple card, RFC 0014) |
@@ -1053,9 +1055,8 @@ For Emily:
    everything slow, reversing the decisions in [section 25](#25-decisions-this-asks-for)?
 2. **Unanswered accesses:** silent, or a fault through an answer line
    (one pin; RFC 0029's open question 2)?
-3. **Interrupts:** a request register on each CPU card, written over the
-   bus, or IRQ1–IRQ8 as bused lines? The interrupt architecture is open
-   as a whole (RFC 0029).
+3. **Interrupts:** now [RFC 0040](0040-rfc-interrupts.md)'s, with a request register and
+   a message register on each CPU card, written over the bus.
 4. **The static map** of [5.1](#51-addresses) instead of slots in the
    address: seven 256 MB regions of memory below `0x7000_0000`, the
    registers of region N's card at `0x7N00_0000`, and the I/O bus at

@@ -25,6 +25,8 @@ hardware), with their code in [studies](../studies/README.md).
   instruction ([RFC 0004, Part II](../reports/0004-rfc-draft-1-isa.md#part-ii-draft-1b)).
 - In draft 2, `r0` is a general register; it no longer reads as zero
   ([RFC 0006](../reports/0006-rfc-ideas-isa.md#33-r0-as-a-general-register)).
+- Eight interrupt levels, and a vector base register
+  ([RFC 0040](../reports/0040-rfc-interrupts.md); Emily, 2026-10-16).
 
 **Construction**
 

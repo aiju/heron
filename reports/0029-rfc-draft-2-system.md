@@ -49,7 +49,7 @@ To the machine of RFC 0028 this adds:
   | 4–7 | | reserved for user flags |
   | 8–23 | | reserved |
   | 24–27 | IPL | interrupt priority level, 0–8: requests at or below it are held off ([7](#7-interrupts)) |
-  | 28 | | reserved |
+  | 28 | M | in the message level's register bank ([RFC 0040, 2.4](0040-rfc-interrupts.md#24-banks), **tentative**) |
   | 29 | T | trace: trap after every instruction |
   | 30 | I | interrupts enabled |
   | 31 | S | supervisor mode |
@@ -138,6 +138,10 @@ A virtual address's bit 31 picks how it is mapped:
 
 Reserved registers read as 0 and ignore writes.
 
+The vector base register `vbr` (**decided**, Emily, 2026-10-16) needs a
+supervisor special register; which one is **open**: 15, if `bkpt`
+moves ([RFC 0040, 2.2](0040-rfc-interrupts.md#22-the-vector-base-register)).
+
 ### 5. Register banks
 
 - **A bank** holds `r0`–`r15`. There are 256.
@@ -167,8 +171,14 @@ Reserved registers read as 0 and ignore writes.
 
 - **Vectors** are 4 bytes apart, room for one two-parcel instruction,
   normally a relative `JMP` to the handler.
+- **The addresses above are `vbr` plus an offset,** with `vbr` at its
+  reset value, `0x8000_0000`; each CPU can point `vbr` at a table of its
+  own (**decided**, Emily, 2026-10-16;
+  [RFC 0040, 2.2](0040-rfc-interrupts.md#22-the-vector-base-register)). Reset itself
+  always starts at physical 0.
 - **Entering an exception:**
-  1. switch to supervisor mode and bank 0;
+  1. switch to supervisor mode and bank 0 (the message level: a bank of
+     its own, [RFC 0040, 2.4](0040-rfc-interrupts.md#24-banks), **tentative**);
   2. push the PC, then `sr` as it was, on bank 0's `sp`;
   3. clear I and T;
   4. jump to the vector.
@@ -192,14 +202,16 @@ Reserved registers read as 0 and ignore writes.
 
 ### 7. Interrupts
 
-This is the design for now; the interrupt architecture as a whole is
-**open** (Emily, 2026-10-16).
+[RFC 0040](0040-rfc-interrupts.md) proposes the interrupt architecture as a whole,
+and would take this section over: the CPU card's request register,
+message register and timer, the I/O processor's routing, and several
+CPUs. The eight levels, IPL and `SPL` below stay (**decided**, Emily,
+2026-10-16).
 
-- **Eight request lines,** levels 1–8, 8 the highest. Each is the system
-  bus's interrupt line of the same number, IRQ1–IRQ8
-  ([RFC 0014, 8.3](0014-rfc-system-bus.md#83-interrupts-and-synchronisation)),
-  or, chosen by a jumper on the CPU's board, a source on that board in
-  its place.
+- **Eight request lines,** levels 1–8, 8 the highest. They come from the
+  CPU's card: its request register, which any bus master writes, and the
+  card's own sources, the timer at 6 and the message register at 7
+  ([RFC 0040, 3](0040-rfc-interrupts.md#3-the-cpu-card)).
 - **Level-sensitive:** a source holds its request until its handler
   clears the cause. Several sources may share a level; the handler finds
   out which by asking them.
@@ -229,18 +241,22 @@ This is the design for now; the interrupt architecture as a whole is
   returning.
 - **`HALT`** with I set waits for an interrupt, and resumes after the
   `HALT` once the handler returns. With I clear it stops until reset.
-- **A non-maskable interrupt (open):** room for one, from the CPU's own
-  board, through vector `0x8000_0004`, taken between instructions whatever
-  I and IPL. Its source, how it's triggered, and what it does to I and
+- **A non-maskable interrupt** (to be confirmed,
+  [RFC 0040, 2.5](0040-rfc-interrupts.md#25-the-non-maskable-interrupt)):
+  room for one, from the CPU's own board, through vector `0x8000_0004`,
+  taken between instructions whatever I and IPL. Its source, how it's triggered, and what it does to I and
   IPL are open.
-- **A register bank per level,** so that a handler saves nothing, is
-  open: interrupts enter bank 0, as every exception does.
-- **The timer** and other sources on the CPU's board are devices, outside
-  this RFC.
+- **A register bank of its own for the message level,** level 7, so
+  that its handler saves nothing, is **tentative**
+  ([RFC 0040, 2.4](0040-rfc-interrupts.md#24-banks)). Other levels enter
+  bank 0, as every exception does.
+- **The timer** is the CPU card's
+  ([RFC 0040, 3.3](0040-rfc-interrupts.md#33-the-timer)).
 
 ### 8. Reset
 
-Supervisor mode, bank 0, I and T clear, IPL, `ctx` and `bank` 0, and the PC at
+Supervisor mode, bank 0, I and T clear, IPL, `ctx` and `bank` 0, `vbr`
+`0x8000_0000`, and the PC at
 the reset vector, which is physical address 0. Everything else is
 undefined.
 
@@ -384,20 +400,16 @@ keeps what worked and changes the rest.
 
 ### 11. Open questions
 
-1. **Interrupts,** which Emily may revisit as a whole (2026-10-16). Among
-   the questions: how many levels (Unix V6 used three device levels on
-   the PDP-11; a kernel that hands each interrupt to a user-level driver
-   hardly needs priorities, and a level shared by several devices costs
-   a few status reads against the 500–640 cycles of the hand-off);
-   whether each level gets a register bank, so that a handler saves
-   nothing; and the non-maskable interrupt's source, triggering, and
-   effect on I and IPL.
+1. **Interrupts,** now [RFC 0040](0040-rfc-interrupts.md)'s. Eight levels stay
+   (**decided**, Emily, 2026-10-16); a bank for the message level is
+   tentative; the non-maskable interrupt is to be confirmed.
 2. **The physical memory map:** where RAM, ROM, the I/O registers and the
    slots sit, now that the window reaches only the lower 2 GB, and what
    an access that nothing answers does.
 3. **A bank-to-bank copy** of `r0`–`r7`, which would win back most of the
    message cost of full banks.
-4. **The breakpoint register** (special register 15).
+4. **The breakpoint register** (special register 15, which `vbr` might
+   take).
 5. **Boot:** the reset vector is physical address 0, so a ROM has to be
    there at reset ([RFC 0010, 2](0010-rfc-ideas-os.md#2-what-the-cpu-gives-the-operating-system)).
 6. **`LDM` and `STM` with the base register in their range.**

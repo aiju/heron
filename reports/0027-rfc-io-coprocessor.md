@@ -130,11 +130,9 @@ Part II: Discussion
     (`0x4000_0000`), its registers at `0x7400_0000`, and the I/O bus's
     window at `0x7F00_0000`.
 - **On the I/O bus:** its only master, as RFC 0037 Part II specifies.
-- **Interrupts:** every device's interrupt goes to the IOP. It forwards
-  events to the CPUs' request registers, either slow or fast:
-  - **slow** (levels 1–5): carried in rings, and possibly batched;
-  - **fast** (levels 6–8): one source to a level, so the level's vector is
-    that source's handler.
+- **Interrupts:** every device's interrupt goes to the IOP, which serves
+  it or forwards it to a CPU as a lazy, slow or fast event, as
+  [RFC 0040](0040-rfc-interrupts.md) specifies.
 - **Chips:** about 46 for the core, and about 95 for the card. The card
   adds the shared RAM, the slave side, the I/O bus side, the image flash,
   the console UART, a timer and ports.
@@ -449,7 +447,9 @@ fixed, so the card needs no jumpers:
 - **From the IOP:** device 1 on T, at {page, X}. A halfword in a
   microcycle, unless the bus has it.
 - **The system bus comes first;** the core waits.
-- **What it holds:** the rings and their buffers; slow RAM for the CPUs; a
+- **What it holds:** the rings of requests to the IOP and their buffers
+  (rings a CPU reads live in that CPU's RAM:
+  [RFC 0040, 5.2](0040-rfc-interrupts.md#52-where-they-live)); slow RAM for the CPUs; a
   disk cache or a RAM disk; swap; images; the Forth's bigger data. The
   operating system owns it and tells the IOP which parts it may use, as
   windows ([7.2](#72-requests-and-windows)).
@@ -694,10 +694,12 @@ microcycle):
   Forth gets a turn at least every eighth slice (*a convention*), so the
   console stays alive during a long copy.
 - **Events:** at each tick (every 10 µs; the timer sets it) the native
-  layer reads the event ports: the I/O bus's INT lines and ATN0–ATN3.
-  - **Each source** has an entry in an event table in the SRAM: its
-    owner, which is a Forth task or a CPU with a level
-    ([7.3](#73-interrupts-to-the-cpus)), a mask bit and its state.
+  layer reads the event ports: the I/O bus's INT lines and ATN0–ATN3
+  (**tentative**, [RFC 0040, 4.2](0040-rfc-interrupts.md#42-noticing)).
+  - **Each source** has an entry in the routing table in the SRAM: its
+    owner, which is a Forth task or a CPU with a class and a level
+    ([RFC 0040, 4.3](0040-rfc-interrupts.md#43-the-routing-table)), a mask bit and its
+    state.
   - **A source owned by a task** clears that task's `wait`; one owned by a
     CPU is forwarded.
   - **A level-sensitive source** is masked in software from then until
@@ -777,10 +779,12 @@ interactive from the first day. In outline:
 
 #### 7.1 Rings and doorbells
 
-- **Rings** in the shared RAM (**recommended**: the IOP reads them
-  locally, and a CPU writes them like any memory), or in a CPU's RAM: a
-  ring of requests the client writes and a ring of completions the IOP
-  writes, each index with one writer.
+- **Rings:** a ring of requests the client writes and a ring of
+  completions the IOP writes, each index with one writer. Each lives with
+  its reader (**tentative**,
+  [RFC 0040, 5.2](0040-rfc-interrupts.md#52-where-they-live)): the requests in the shared
+  RAM, which the IOP reads locally, the completions in the client's CPU's
+  RAM.
 - **Clients:** one pair of rings per client, with its own doorbell: the
   kernel's on doorbell 0, and up to 15 more, for user-level drivers.
 - **Ringing:** a client adds requests, then writes its doorbell
@@ -805,63 +809,28 @@ interactive from the first day. In outline:
 
 #### 7.3 Interrupts to the CPUs
 
-- **The IOP routes every source:** the I/O bus's INT lines, ATN0–ATN3
-  from cards on the system bus, its own completions and timers. Each has
-  an entry in the event table: a task of the IOP's, or a CPU, a level and
-  so a class. The kernel sets them through its ring.
-- **Interrupting a CPU,** as [RFC 0037, 8](0037-rfc-system-and-io-bus.md#8-interrupts)
-  has it: the IOP writes the event into a ring for that CPU (one ring per
-  sender and receiver, so each has one writer), then the level's bit to
-  the set address of the CPU's request register.
-- **Slow, levels 1–5:** the kernel passes the events on, usually to a
-  user-level driver as a notification. The IOP may batch them: it holds
-  a slow level back for up to a time the kernel sets for each source
-  (say 1 ms), then posts all the events with one interrupt.
-- **Fast, levels 6–8:** never batched, and **one source to a level**.
-  Draft 2 vectors interrupts by level
-  ([RFC 0029, 7](0029-rfc-draft-2-system.md#7-interrupts)), so a fast
-  level's vector is its source's handler, with nothing to look up. That
-  is where vectoring matters most (Emily, 2026-10-16). Each fast level
-  has a mailbox word beside the rings, written before the bit is set. A
-  fourth fast source would share a level and look at the mailboxes.
-- **Which sources are fast** is the kernel's choice. The candidates: a
-  CPU-to-CPU interrupt for a page-map change the sender waits for, the
-  end of a short request a thread is waiting on, an audio buffer running
-  low, a break on the console.
-- **What the kernel does for them:**
-  - its critical sections run at `SPL #5` instead of with interrupts
-    off, so levels 6–8 get in even then;
-  - a fast handler touches only its own data, and raises a slow level on
-    its own CPU, by a write to its own set address, for anything more;
-  - a register bank for each fast level would let their handlers save
-    nothing, which RFC 0029 leaves **open**.
-- **The CPU card's own timer,** which drives the scheduler, is a slow
-  source at level 5: its handler needs the kernel's data.
-- **CPU-to-CPU interrupts** are writes between CPU cards directly, and
-  follow the same split.
-- **Masking:** the IOP masks a CPU's source when it forwards it, until
-  the driver says it's done, as Fen's interrupt mask does
-  ([report 0036, 1.2](0036-report-fen.md#12-the-board)). The CPU's own
-  masking (I and IPL) stays synchronous.
-- **For Fen:** its devices would move behind the IOP, its timer from
-  level 6 to 5, and its kernel's critical sections from interrupts off
-  to `SPL #5`.
+[RFC 0040](0040-rfc-interrupts.md) specifies them. The IOP's part:
+
+- **It notices its sources** by polling the I/O bus's INT lines and
+  ATN0–ATN3 at its tick, and its doorbells at once
+  ([6.4](#64-tasks-native-jobs-and-events)).
+- **It routes each source** through its routing table to one of its own
+  tasks, or to a CPU as a lazy, slow or fast event
+  ([RFC 0040, 4.3–4.4](0040-rfc-interrupts.md#43-the-routing-table)).
+- **A slow event** is an entry in the CPU's event ring, then a level's bit
+  in its request register; several may be batched into one interrupt.
+- **A fast event** is a message: the IOP claims the CPU's message
+  register with a read and writes it in two halfwords.
+- **It masks a CPU's source** when it forwards it, until the driver says
+  it's done, as Fen's interrupt mask does
+  ([report 0036, 1.2](0036-report-fen.md#12-the-board)).
 
 #### 7.4 Latency
 
-| From | To | About |
-|---|---|---|
-| A doorbell | The IOP reading the ring | 1–3 µs: the current slice |
-| A device's INT | The IOP seeing it | up to a tick, 10 µs |
-| The IOP seeing an event | A CPU's request bit | 2–3 µs |
-| A fast level | Its handler running, even over the kernel | the CPU's entry, perhaps 5–10 µs (*estimate*) |
-| A slow level | A user-level driver running | 85–107 µs ([report 0020](0020-report-operating-system.md#interrupts-and-devices)'s 500–640 cycles at Fen's 6 MHz), up to about 1 ms while Fen's kernel runs ([report 0036](0036-report-fen.md#3-what-it-costs)) |
-| An event | A Forth task on the IOP | up to the running task's next `pause` |
-
-The rule for devices that follows: anything that can't wait about 1 ms
-for a CPU is buffered in hardware or handled by the IOP; anything that
-can't wait for a Forth task is native microcode; anything that can't
-wait a tick has a FIFO, or a native job that polls it.
+[RFC 0040, 8](0040-rfc-interrupts.md#8-latency) has the table, from a device to a CPU's
+handler. On the IOP itself, an event reaches a Forth task by the running
+task's next `pause`, so anything that can't wait for a Forth task is
+native microcode.
 
 ### 8. Booting the CPU
 
@@ -1350,12 +1319,13 @@ For Emily:
 3. **The shared RAM** on the IOP's card, 2 MB at 16 bits, instead of a
    memory card (recommended)? And space on the card for more of it,
    up to 8 MB, as Emily proposed (open, [4.3](#43-the-shared-ram))?
-4. **Rings in the shared RAM** (recommended), rather than in a CPU's RAM?
-5. **Slow and fast interrupts:** levels 1–5 slow and batched, 6–8 fast
-   with one source each; the kernel's critical sections at `SPL #5`
-   (recommended)? Or more fast levels, or fewer?
-6. **Polling the INT lines at a tick** (recommended: no chips, 5–10% of
-   the IOP), or detecting changes in hardware (about 4 chips)?
+4. **Where the rings live:** now [RFC 0040](0040-rfc-interrupts.md)'s, tentatively with
+   their reader.
+5. **Slow and fast interrupts:** now RFC 0040's: lazy, slow and fast
+   events, the message register, eight levels.
+6. **Polling the INT lines at a tick** (**tentative**, Emily,
+   2026-10-16), with change detection in hardware (about 4 chips) as an
+   option.
 7. **The status block in the shared RAM,** rather than a register?
 8. **The TASK bit reserved** for hardware tasks later (recommended)?
 9. **The ALU:** the 74F181 (new-old stock) or adders still made, 7–11
