@@ -15,8 +15,9 @@ depends-on: [14, 22, 25, 27, 29]
 A proposal for two buses in place of [RFC 0014](0014-rfc-system-bus.md)'s
 one:
 
-- **the system bus,** a plainer synchronous backplane for fast cards
-  only: CPUs, memory, video and the I/O processor;
+- **the system bus,** a plainer synchronous backplane for a few fast
+  cards: realistically three or four, such as the main CPU, the I/O
+  processor and video;
 - **the I/O bus,** the I/O processor's own bus brought out to a small
   backplane of simple cards: serial lines, disks, sound, ports and
   experiments.
@@ -25,7 +26,8 @@ It follows from two decisions (Emily, 2026-10-16): the I/O processor of
 [RFC 0027](0027-rfc-io-coprocessor.md) is part of every Heron, and it is
 the system's DMA engine. Once the slow devices leave the system bus, most
 of what RFC 0014 added for them can go: the class straps, SEL, RDY, DPH,
-BERR, the bus monitor and the card IDs.
+BERR, the bus monitor and the card IDs. With so few cards, so can the
+slots in the address: each card answers a fixed range from a static map.
 
 Three parts:
 
@@ -92,16 +94,17 @@ worst-case datasheet figures from the repository's timing data, with
 |---|---|
 | Timing | **Synchronous**: one bus clock, BCLK. Every signal changes just after a rising edge and is sampled at a later one. **decided** |
 | Bus clock | Period T chosen when the system is built: the main CPU card's master clock divided by N. Every card works at 60 ns and at any longer period. Working value 60 ns |
-| Address | 32 bits. **decided**. A30–A27 select one of 16 slots of 128 MB each, so every slot lies inside draft 2's supervisor window ([section 28](#28-fitting-draft-2)) |
-| Cards | Fast cards only: 16-bit on P1, 32-bit on P1 and P2. A card compares the slot bits with its slot number. No class straps |
+| Address | 32 bits. **decided**. Each card answers a fixed range from a static map, all below `0x8000_0000`, inside draft 2's supervisor window ([5.1](#51-addresses)). The address doesn't carry a slot |
+| Cards | A few fast cards, realistically 3–4: 16-bit on P1, 32-bit on P1 and P2. A card compares the top address bits with its own base. No class straps |
+| Positions | Up to 8 on the backplane. A card may be two positions wide and connect to one |
 | Transfers | An address clock and one data clock, 2 clocks in all, unless the addressed card adds data clocks with WAIT |
 | The end of a transfer | The first data clock without WAIT. There are no RDY, DPH or BERR lines |
-| An empty slot | Nothing answers: the transfer ends after one data clock, and a read returns whatever the data lines last held |
-| Bus mastering | Master slots 0–3, a central arbiter on the backplane, withdraw then grant, fixed priority |
+| An unused address | Nothing answers: the transfer ends after one data clock, and a read returns whatever the data lines last held |
+| Bus mastering | Master positions 0–3, a central arbiter on the backplane, withdraw then grant, fixed priority |
 | Bursts | None. **decided** |
 | Interrupts | Cards signal the I/O processor on ATN0–ATN3. CPUs are interrupted by writes to a register on their card |
 | Reset | COLD resets everything; RESET everything but the I/O processor |
-| Backplane | Clock drivers, the power-on reset and the arbiter: about 12 chips |
+| Backplane | Clock drivers, the power-on reset and the arbiter: about 10 chips |
 | Slow devices | On the I/O bus ([Part II](#part-ii-the-io-bus)), not here |
 
 Peak rates:
@@ -116,9 +119,9 @@ Peak rates:
 
 **Every card is a slave.** Its slave side must:
 
-- register, at the end of every address clock, whether A30–A27 equal its
-  slot number GA3–GA0, with the address bits, byte enables and WRITE it
-  needs;
+- register, at the end of every address clock, whether the address is in
+  its range, decided from at most 8 of A31–A24 ([5.1](#51-addresses)),
+  with the address bits, byte enables and WRITE it needs;
 - decide in that same address clock whether it will need more than one
   data clock, and if so drive WAIT from the start of the first data clock
   ([5.4](#54-wait));
@@ -131,7 +134,7 @@ Peak rates:
 
 **A master** (a CPU, the I/O processor) must also:
 
-- sit in a master slot and follow [section 6](#6-bus-mastering);
+- sit in a master position and follow [section 6](#6-bus-mastering);
 - drive the owner's lines from its address clock to the end of the
   transfer;
 - take read data at the end of the data phase's last clock;
@@ -141,19 +144,21 @@ Peak rates:
 
 **The backplane:**
 
-- distributes BCLK, one trace per slot;
-- straps each slot's number on GA0–GA3;
+- has up to 8 positions at a 20.32 mm pitch. A card may be two positions
+  wide and connect to one; a position no card connects to needs no
+  connector, only a card guide;
+- distributes BCLK, one trace per position;
 - makes the power-on reset and drives COLD and RESET ([section 7](#7-reset));
-- arbitrates between the master slots.
+- arbitrates between the master positions.
 
 Nothing on the backplane takes part in a transfer: it doesn't decode
-slots, time transfers or report errors.
+addresses, time transfers or report errors.
 
 ### 3. Signals
 
 Control signals are active low, as in RFC 0014. **Topology:** *bused*
-runs past every slot; *radial* is a trace per slot to the backplane's
-logic, on the same pin at every slot; *strapped* is fixed per slot.
+runs past every position; *radial* is a trace per position to the
+backplane's logic, on the same pin at every position.
 **Drive types:** *owner*, driven by the master holding GNT; *3-state*,
 driven by the owner or, for read data, the addressed card; *shared*,
 driven only by the addressed card, actively both ways, and held inactive
@@ -165,19 +170,18 @@ backplane.
 | Signal | Pins | Type | Driven by | Meaning |
 |---|---:|---|---|---|
 | D0–D15 | 16 | bused, 3-state | the owner in a write, the addressed card in a read | data |
-| A1–A31 | 31 | bused, owner | the owner | address; A30–A27 the slot; A31 not decoded (kept for later) |
+| A1–A31 | 31 | bused, owner | the owner | address |
 | BE0, BE1 | 2 | bused, owner | the owner | byte enables |
 | START | 1 | bused, owner | the owner | asserted in the address clock |
 | WRITE | 1 | bused, owner | the owner | a write, from the address clock to the end |
 | LOCK | 1 | bused, owner | the owner | keep the bus for a locked sequence ([6.4](#64-locked-sequences)) |
 | WAIT | 1 | bused, shared | the addressed card | add a data clock |
 | BCLK | 1 | radial | the backplane | bus clock |
-| REQ, GNT | 2 | radial, master slots only | the master, the backplane | request and grant |
-| GA0–GA3 | 4 | strapped | the backplane | the slot's number |
+| REQ, GNT | 2 | radial, master positions only | the master, the backplane | request and grant |
 | COLD | 1 | bused, OC, slow edges | the backplane's power-on reset and button, the I/O processor's watchdog | reset everything, the I/O processor included |
 | RESET | 1 | bused, OC, slow edges | the backplane (with COLD), the I/O processor | reset every card but the I/O processor |
 | ATN0–ATN3 | 4 | bused, OC | any card | attention: a request to the I/O processor |
-| reserved | 4 | | | an answer line ([29](#29-alternatives)), a higher supply voltage, more ATN lines |
+| reserved | 8 | | | an answer line ([29](#29-alternatives)), a higher supply voltage, more ATN lines |
 | +5 V, ground | 26 | | | |
 
 #### P2: the upper half
@@ -187,7 +191,7 @@ backplane.
 | D16–D31 | 16 | bused, 3-state | as D0–D15 | the upper halfword of a word transfer |
 | BE2, BE3 | 2 | bused, owner | the owner | byte enables of the upper halfword, in word transfers only |
 | W32 | 1 | bused, shared | the addressed card | it is a 32-bit card |
-| CLKSRC | 1 | slot 0 only | the main CPU card | the clock into the backplane's clock driver |
+| CLKSRC | 1 | position 0 only | the main CPU card | the clock into the backplane's clock driver |
 | +5 V, ground | 16 | | | |
 | user-defined | 60 | | | private links between neighbouring cards |
 
@@ -197,7 +201,7 @@ backplane.
   and across rows. Where those pins really sit needs a careful physical
   review ([section 30](#30-still-to-check)).
 - Power and ground are spread along the connector, not grouped.
-- The same signal is on the same pin at every slot, radial ones
+- The same signal is on the same pin at every position, radial ones
   included.
 
 The pin-by-pin assignment is still to do, keeping report 0022's
@@ -208,10 +212,10 @@ reference assignment's spread of returns.
 - **The period** is chosen when the system is built: the main CPU card's
   50 MHz master clock divided by N, so N = 3, 4 or 5 gives 60, 80 or
   100 ns. Every card must work at 60 ns and at any longer period. The
-  shortest usable period is about 50 ns, set by a card's slot comparison
+  shortest usable period is about 50 ns, set by a card's address comparison
   ([section 30](#30-still-to-check)).
 - **The source:** the main CPU card sends its divided clock on CLKSRC, in
-  slot 0, to the backplane's clock driver, as report 0025 built it. An
+  position 0, to the backplane's clock driver, as report 0025 built it. An
   oscillator on the backplane instead is **open**: it would cost each CPU
   card a synchroniser.
 - **Duty cycle:** BCLK is high for at least 15 ns and low for at least
@@ -219,7 +223,7 @@ reference assignment's spread of returns.
   ([RFC 0027, 3.2](0027-rfc-io-coprocessor.md#32-the-microcycle)). The
   CPU card's divide-by-three gives 20 and 40 ns.
 - **Distribution:** a clock driver with specified part-to-part skew
-  (CDC341 or FCT807 class) on the backplane drives each slot's BCLK
+  (CDC341 or FCT807 class) on the backplane drives each position's BCLK
   through 56–68 Ω. Every card clocks its bus logic from its own BCLK pin
   through exactly one buffer of the same class.
 - **Card-edge timing,** measured at the card's connector from BCLK at its
@@ -239,20 +243,58 @@ reference assignment's spread of returns.
 
 ### 5. Transfers
 
-#### 5.1 Slots
+#### 5.1 Addresses
 
-- **A30–A27** select one of 16 slots; each slot has 128 MB. A card
-  compares them with its GA3–GA0 in every address clock and decodes only
-  the address bits inside its own region.
-- **A31** is driven by masters but decoded by no card for now: addresses
-  with it set alias the lower half.
-- **The main CPU** is in slot 0.
+- **Each card answers a fixed range** of addresses, by its design or by
+  jumpers. The bus doesn't divide the address space into slots, and a
+  card's address doesn't depend on where it is plugged in.
+- **Whether a card is addressed** is decided from A31 down: at least
+  A31–A28, at most A31–A24. Eight bits are what one 74F521 compares in
+  time for the card to raise WAIT ([section 30](#30-still-to-check)), so
+  ranges come in steps of 16 MB. The bits below are decoded inside the
+  range afterwards, with no hurry.
+- **No two cards' ranges overlap.** Nothing on the bus prevents it: two
+  cards answering one read both drive D. With three or four cards a
+  static map makes it easy.
+- **Heron's map,** a convention rather than a rule, puts every card
+  below `0x8000_0000`, where RFC 0029's supervisor window reaches it: the
+  kernel sees physical address p at `0x8000_0000` + p. Memory is at the
+  bottom and the I/O bus near the top, so that the kernel finds register
+  RRRR of the I/O bus's device S at `0xF00S_RRRR` (Emily, 2026-10-16):
+
+  | Physical | Kernel | Card |
+  |---|---|---|
+  | `0x0000_0000`–`0x0FFF_FFFF` | `0x8000_0000` | the main CPU card: RAM from 0; its registers at `0x0F00_0000` (Fen's timer, board information and interrupt mask, and the control and interrupt request registers of [section 9](#9-cpu-cards)) |
+  | `0x1000_0000`–`0x1FFF_FFFF` | `0x9000_0000` | video: Fen's, VRAM from `0x1000_0000` and registers at `0x1FF0_0000` |
+  | `0x2000_0000`–`0x2FFF_FFFF` | `0xA000_0000` | the I/O processor's shared RAM, if it has one ([section 26](#26-chips)) |
+  | `0x3000_0000`–`0x3FFF_FFFF` | `0xB000_0000` | a memory card, if any |
+  | `0x4000_0000`–`0x4FFF_FFFF` | `0xC000_0000` | a second CPU card, if any |
+  | `0x5000_0000`–`0x6FFF_FFFF` | `0xD000_0000` | free |
+  | `0x7000_0000`–`0x70FF_FFFF` | `0xF000_0000` | the I/O processor: the I/O bus's window, device S at `0x700S_0000` ([section 20](#20-the-window-from-the-system-bus)); its own registers from `0x7010_0000` |
+  | `0x7100_0000`–`0x7FFF_FFFF` | `0xF100_0000` | free, for registers |
+  | `0x8000_0000` and up | – | unused: outside the supervisor window |
+
+  - **The CPU's RAM is at 0** because draft 2's reset and exception
+    vectors are at `0x8000_0000` and up, physical 0
+    ([RFC 0029, 6](0029-rfc-draft-2-system.md#6-exceptions)): they and
+    the kernel want the fast RAM. The I/O processor writes the boot
+    image there while it holds the CPU in reset.
+  - **The I/O bus is at `0x7000_0000`** because `0xF00S_RRRR` is a
+    kernel address: the window clears bit 31. Physical `0xF00S_RRRR`
+    would be outside the window, reachable only through the page map,
+    which covers 16 MB per context.
+  - **The I/O processor's card answers two ranges,** its RAM's and its
+    registers', for one more comparator. Its RAM at `0x7800_0000` would
+    save the chip, with slow RAM among the registers.
+
+- **The main CPU** sits in position 0, the lowest-priority master
+  position, wherever its range is.
 
 #### 5.2 The phases of a transfer
 
 | Phase | Clocks | The owner drives | The addressed card drives |
 |---|---|---|---|
-| Address | 1 | A, BE, START, WRITE | nothing: it registers the slot comparison, the address, BE and WRITE |
+| Address | 1 | A, BE, START, WRITE | nothing: it registers whether it is addressed, the address, BE and WRITE |
 | Data | 1, more while the card holds WAIT | A, BE, WRITE; D in a write | D in a read; WAIT, if it may need more clocks; W32, if it is a 32-bit card |
 
 - **The data phase** is the clocks after an address clock, up to and
@@ -295,7 +337,7 @@ reference assignment's spread of returns.
   the address clock. Report 0025 found that a fast card can't decide it
   any later.
 - **The bound:** no card holds WAIT for more than 255 data clocks in a
-  row. A longer one is a fault ([5.6](#56-empty-slots-and-faults)).
+  row. A longer one is a fault ([5.6](#56-unused-addresses-and-faults)).
 
 #### 5.5 Data width and byte lanes
 
@@ -314,10 +356,10 @@ reference assignment's spread of returns.
 - BE2 and BE3 are asserted only in word transfers; their pull-ups keep
   them inactive while a P1-only master owns the bus.
 
-#### 5.6 Empty slots and faults
+#### 5.6 Unused addresses and faults
 
-- **An empty slot,** or an address in a card's region that the card
-  doesn't decode: nothing drives WAIT, so the transfer ends after one data
+- **An address no card decodes,** or one inside a card's range that the
+  card ignores: nothing drives WAIT, so the transfer ends after one data
   clock. A write is lost. A read returns whatever the data lines last
   held, kept there by the masters' bus-hold transceivers. W32 stays
   inactive. Nothing is signalled. Whether an unanswered access should be
@@ -331,25 +373,25 @@ reference assignment's spread of returns.
 
 ### 6. Bus mastering
 
-#### 6.1 Master slots
+#### 6.1 Master positions
 
-- **Slots 0–3** are master slots, with REQ and GNT; the others carry no
-  REQ or GNT. **open**: four is a guess at "the main CPU, the I/O
-  processor and two more CPUs".
-- **Priority** is fixed: the higher slot first. Slot 0, the main CPU, is
-  lowest. The I/O processor goes in slot 3.
+- **Positions 0–3** are master positions, with REQ and GNT; the others
+  carry no REQ or GNT. **open**: four is a guess at "the main CPU, the
+  I/O processor and two more CPUs".
+- **Priority** is fixed: the higher position first. Position 0, the main
+  CPU, is lowest. The I/O processor goes in position 3.
 
 #### 6.2 The arbiter
 
-- **Requests and grants:** each master slot has its own REQ and GNT; the
-  backplane pulls REQ up, so an empty slot never requests, and registers
+- **Requests and grants:** each master position has its own REQ and GNT;
+  the backplane pulls REQ up, so an empty position never requests, and registers
   it, so a request on an idle bus takes 4 clocks to its first address
   clock (report 0025). At most one GNT is asserted at a time.
 - **What it knows:** at each edge it samples REQ, START, WAIT and LOCK,
   and so knows whether a transfer is under way.
-- **Parking:** when nobody requests, GNT goes to slot 0 or stays there.
+- **Parking:** when nobody requests, GNT goes to position 0 or stays there.
 - **Switching** from owner P to master Q (the highest requesting, or
-  slot 0 for parking), when LOCK isn't asserted and either Q has the
+  position 0 for parking), when LOCK isn't asserted and either Q has the
   higher priority or P isn't requesting:
   1. **withdraw:** deassert P's GNT just after an edge E;
   2. **wait** until the first edge, from E + 1 on, at which no transfer
@@ -387,7 +429,7 @@ first locked transfer addressed to it until LOCK is released.
 
 A CPU card stalled waiting for the bus still lets its slave port use its
 RAM. The I/O processor's count of data clocks is the backstop
-([5.6](#56-empty-slots-and-faults)).
+([5.6](#56-unused-addresses-and-faults)).
 
 ### 7. Reset
 
@@ -407,7 +449,7 @@ and a warm reset (Emily, 2026-10-15).
 - **Each card** takes them through a Schmitt trigger, synchronises their
   end to BCLK with one flip-flop, and holds clear any state that could
   start a write while reset lasts (report 0025's memory card).
-- **During and after reset** the arbiter grants slot 0. A CPU card whose
+- **During and after reset** the arbiter grants position 0. A CPU card whose
   control store is SRAM holds its CPU until the I/O processor starts it
   ([RFC 0027, section 4](0027-rfc-io-coprocessor.md#4-booting-the-cpu)).
 - **Never in the middle of a transfer:** a CPU card takes a warm reset
@@ -442,7 +484,7 @@ and a warm reset (Emily, 2026-10-15).
 ### 9. CPU cards
 
 Guidance for every CPU card, not part of the specification proper. In
-its slot's region:
+its own range:
 
 | Register | What it does | Chips |
 |---|---|---:|
@@ -451,7 +493,7 @@ its slot's region:
 | **Slave port** into its RAM | DMA, booting, other CPUs; shares the RAM by ticks, honours LOCK and the deadlock rule (RFC 0014, section 10) | ~12–15 |
 | **Control store write port** | For an SRAM control store: each SRAM a 16-bit lane in a window, written and read back while RUN is off ([RFC 0027, 4.1](0027-rfc-io-coprocessor.md#41-what-the-cpu-card-provides)) | ~14 |
 
-A CPU card compares its slot like every card, for its slave side. It
+A CPU card compares its range like every card, for its slave side. It
 needs no logic for BERR, RDY or DPH.
 
 ### 10. Electrical rules
@@ -459,7 +501,7 @@ needs no logic for BERR, RDY or DPH.
 From RFC 0014's section 9 and report 0022's findings:
 
 - **The backplane:** 4 layers (signal, ground, +5 V, signal), 0.2 mm
-  traces, up to 16 slots at a 20.32 mm pitch, its logic in the middle.
+  traces, up to 8 positions at a 20.32 mm pitch, its logic in the middle.
 - **No resistor terminators** on bused lines.
 - **22 Ω in series** at every bused output, the backplane's included.
 - **Bus drivers:** 74ABT16245 in TSSOP for wide drivers; an octal 74ABT245
@@ -468,8 +510,8 @@ From RFC 0014's section 9 and report 0022's findings:
 - **Loading:** on each bused line a card puts at most one transceiver
   pin, or up to three CMOS inputs close together: about 12 pF in all,
   counting its trace, which is at most about 50 mm.
-  - A card's slot comparison and its address register are two inputs on
-    A30–A27; that's within the rule.
+  - A card's address comparison and its address register are two inputs
+    on A31–A24; that's within the rule.
 - **Radial lines** (BCLK, REQ, GNT) through 56–68 Ω; at the card, one
   buffer for BCLK, at most three inputs for GNT.
 - **COLD and RESET:** open collector, 1 kΩ pull-ups, 33 Ω and 220 pF to
@@ -484,12 +526,12 @@ From RFC 0014's section 9 and report 0022's findings:
 
 | Part | Chips |
 |---|---:|
-| Clock drivers for 16 slots and the arbiter (CDC341) | 3–4 |
+| Clock drivers for 8 positions and the arbiter (CDC341) | 1–2 |
 | Power-on reset, the reset button, COLD and RESET drivers | 2 |
 | Arbiter: REQ register, the next owner, GNT register, a transfer's state from START and WAIT, LOCK | ~6 |
-| **Total** | **~12** |
+| **Total** | **~10** |
 
-Against 51 for the backplane report 0025 built. The GA straps are copper.
+Against 51 for the backplane report 0025 built.
 
 ## Part II: The I/O bus
 
@@ -500,7 +542,7 @@ Against 51 for the backplane report 0025 built. The GA straps are copper.
 | What it is | The I/O processor's local bus, brought out to a passive I/O backplane of simple cards |
 | Master | The I/O processor only |
 | Timing | Strobe-timed. The I/O processor makes every edge from its bus clock; cards need no clock |
-| Slots | Up to 8 |
+| Slots | Up to 12, in two rows of six |
 | Data | 16 bits; 8-bit devices on D0–D7 |
 | Address | 8 register bits per device; a radial select per slot, so cards decode nothing else |
 | Strobe | The slot's select line, as SEL is on RFC 0014's simple cards, with a shared WRITE |
@@ -508,7 +550,7 @@ Against 51 for the backplane report 0025 built. The GA straps are copper.
 | WAIT | Optional, for cards that can't promise a time |
 | Interrupts | A line from each slot to the I/O processor |
 | Cards | 3U Eurocards with one 64-pin DIN 41612 connector (rows a and c) |
-| The CPU's access | Through a window in the I/O processor's slot ([section 20](#20-the-window-from-the-system-bus)) |
+| The CPU's access | Through a window in the I/O processor's range ([section 20](#20-the-window-from-the-system-bus)) |
 
 ### 13. Cards and the I/O backplane
 
@@ -559,10 +601,10 @@ The I/O processor addresses a device register with its X register:
 | X bits | |
 |---|---|
 | 0–7 | the register: A0–A7 |
-| 8–11 | the device: 0–7 on the I/O processor's own card (the console UART, the image flash, its ports), 8–15 the I/O slots 0–7 |
+| 8–11 | the device, S: 0–11 the I/O slots 0–11, 12–15 on the I/O processor's own card (the console UART, the image flash, its ports) |
 | 12–15 | reserved |
 
-Devices 0–7 on the I/O processor's card follow the same rules and use
+Devices 12–15 on the I/O processor's card follow the same rules and use
 the same table as the slots.
 
 ### 16. The access
@@ -613,7 +655,7 @@ SEL comes from registers in the I/O processor, so it never glitches.
   | 13 | WINDOW | the system bus may reach this device |
   | 14–15 | | reserved |
 
-- **The I/O processor's firmware** loads the table at boot, from the slot
+- **The I/O processor's firmware** loads the table at boot, from the card
   table in its flash ([RFC 0027](0027-rfc-io-coprocessor.md)). A device's
   minimum cycle time goes in HOLD, or its driver spaces its accesses.
 - **The values are in bus clocks,** so a different period means a new
@@ -670,14 +712,26 @@ CLKB.
 
 ### 20. The window from the system bus
 
-A part of the I/O processor's slot maps straight onto the I/O bus, so a
+A part of the I/O processor's range maps straight onto the I/O bus, so a
 CPU can reach a device directly, as on a PDP-11, without the I/O
 processor's firmware.
 
-- **Layout:** device d at offset d × 4 KB, register r at 4r: 8-bit
-  registers on D0–D7, 16-bit ones on D0–D15. Each device is a page of
-  its own, so the page map can give a driver its device and nothing else
-  (as [report 0036](0036-report-fen.md)'s I/O card does).
+- **Layout:** device S at offset S × 64 KB, register r at 4r. At
+  `0x7000_0000` in the map of [5.1](#51-addresses), the kernel finds
+  register r of device S at `0xF00S_0000` + 4r: `0xF00S_RRRR` with
+  RRRR = 4r (Emily, 2026-10-16).
+  - **Each register is a word:** 8-bit registers on D0–D7, 16-bit ones
+    on D0–D15. A word access is one device access with an upper half of
+    zero, whether the card drives W32 or the master repeats the upper
+    half at A1 = 1: an access at 4r + 2 reaches nothing, and reads zero.
+    A halfword or byte access at 4r reaches the register.
+  - **The eight register bits use 1 KB** of each device's 64 KB. A10–A15
+    are ignored, so the registers repeat; software uses the first copy.
+    The room is there if the I/O bus ever gets more address lines.
+  - **A page per device:** all of a device's registers are in its first
+    4 KB page and nothing else is in its 64 KB, so the page map can give
+    a driver its device and nothing else, as with
+    [report 0036](0036-report-fen.md)'s I/O card.
 - **An access through the window:**
   1. the I/O processor's card registers the address in the address
      clock and holds WAIT on the system bus;
@@ -693,13 +747,13 @@ processor's firmware.
 - **Devices without WINDOW** in their table entry ignore writes through
   the window and return all ones.
 - **Ownership:** each device belongs either to the I/O processor or to a
-  CPU, recorded in the slot table. Two masters touching one device
+  CPU, recorded in the card table. Two masters touching one device
   (a CPU reading a UART's receive register under the I/O processor's line
   discipline, say) is a software error the hardware doesn't prevent.
 
-The rest of the I/O processor's slot holds its own registers and,
-optionally, the shared RAM mentioned in [section 26](#26-chips). That
-layout is RFC 0027's business.
+Above the window, from `0x7010_0000`, are the I/O processor's own
+registers; their layout, and that of its shared RAM at `0x2000_0000`
+([section 26](#26-chips)), are RFC 0027's business.
 
 ### 21. Electrical rules and cards
 
@@ -709,8 +763,9 @@ layout is RFC 0027's business.
   SEL and WRITE.
 - **Loading:** at most one transceiver pin or three CMOS inputs per bused
   line per card; a device's data pins straight on D count as one pin.
-- **The I/O backplane:** up to 8 slots, at most about 20 cm long; 4 layers
-  recommended, 2 possible.
+- **The I/O backplane:** up to 12 slots in two rows of six, each row about
+  12 cm long, with a short hop between the rows; 4 layers recommended, 2
+  possible.
 - **Why strobes are safe here:** RFC 0014 rejected strobe-timed buses for
   fast multidrop edges ringing along a 16-slot backplane. Here every
   strobe is radial, only the address and data lines are bused, and they
@@ -762,6 +817,10 @@ adds about 5–7 more ([RFC 0027](0027-rfc-io-coprocessor.md) to be revised).
 - **And then the system bus only carries fast cards.** Most of RFC 0014's
   machinery was for telling simple cards from fast ones, timing them and
   reporting their absence. Without simple cards it isn't needed.
+- **And only a few of them:** realistically 3–4, such as the I/O
+  processor, the Heron CPU and video (Emily, 2026-10-16), with up to 8
+  positions because many cards take two. Allocating them static
+  addresses is trivial, so the address needn't carry a slot.
 - **Simple, dumb peripherals stay possible** (decided, RFC 0014 section
   19): on the I/O bus, as cheap as they were on the system bus. The
   I/O card of report 0025 would move over almost unchanged.
@@ -773,23 +832,23 @@ adds about 5–7 more ([RFC 0027](0027-rfc-io-coprocessor.md) to be revised).
 | Simple cards on the system bus (decided) | On the I/O bus | The I/O processor serves them, and the window keeps the CPU's direct path |
 | Class straps read by the backplane (decided) | None | One kind of card: nothing to tell apart |
 | The backplane times transfers (decided) | Nobody: a transfer is 2 clocks unless the card holds WAIT | Fast cards already decide WAIT from their own decode (report 0025) |
-| SEL, the strobe for simple cards (decided) | Each card compares its slot; SEL becomes the I/O bus's strobe | SEL comes too late for a fast card's WAIT anyway (report 0025) |
+| SEL, the strobe for simple cards (decided) | Each card compares its own range; SEL becomes the I/O bus's strobe | SEL comes too late for a fast card's WAIT anyway (report 0025) |
 | RDY and DPH | Worked out from START and WAIT | Their only job was to mark the data phase |
-| BERR | None | Empty slots and faults: [5.6](#56-empty-slots-and-faults) |
+| BERR | None | Unused addresses and faults: [5.6](#56-unused-addresses-and-faults) |
 | The bus monitor | The I/O processor's count of data clocks, and a system reset | It sees DPH's equivalent anyway; recovery is a reset either way |
-| Every card has an ID (decided) | A slot table in the I/O processor's flash | No ID chips or decode on cards |
-| GA0–GA3 on P2 | On P1 | Every card needs its slot number now |
+| Every card has an ID (decided) | A card table in the I/O processor's flash | No ID chips or decode on cards |
+| GA0–GA3, each slot's number | None | Addresses don't carry the slot |
 | IRQ0–IRQ7, each CPU listening to its subset | ATN0–ATN3 to the I/O processor; CPUs interrupted by writes | The I/O processor is the interrupt controller |
 | RESET | COLD and RESET | A system reset mustn't reset the card that asserts it |
-| Any slot a master | Master slots 0–3 | The CPUs and the I/O processor are the only masters |
+| Any slot a master | Master positions 0–3 | The CPUs and the I/O processor are the only masters |
 | A recovery clock for simple cards | Only on the I/O bus, as HOLD | |
 | One N for every simple card, by jumpers | A timing table per device on the I/O bus | Each card at its own speed |
 | A separate I/O bus behind a bridge (rejected, 2026-10-13) | The I/O bus | The bridge is the I/O processor, and the CPU makes few device accesses |
-| A31–A28 the slot bits (tentative) | A30–A27 | Every slot inside RFC 0029's supervisor window |
-| The backplane, 51 chips as built | About 12 | |
+| Addresses carry the slot (decided), A31–A28 tentatively; 16 slots | A static map, each card a fixed range below 2 GB; up to 8 positions | 3–4 cards; a card's address follows the card; RFC 0029's window reaches everything |
+| The backplane, 51 chips as built | About 10 | |
 
 What stays from RFC 0014's decisions: the bus is synchronous; addresses
-are 32 bits and carry the slot; two 96-pin connectors per slot, with P1
+are 32 bits; two 96-pin connectors per position, with P1
 enough for a 16-bit card; LOCK; no bursts; logic on the backplane (less
 of it); no −5.2 V.
 
@@ -802,18 +861,20 @@ It reverses decisions of 2026-10-13 and 14, so these are Emily's:
 2. **No class straps;** a fast card holds WAIT when it needs longer, and
    nothing else times a transfer.
 3. **SEL as the I/O bus's strobe,** not the system bus's; system-bus cards
-   compare their own slot.
-4. **No card IDs;** the slot table instead.
+   compare their own range.
+4. **No card IDs;** the card table instead.
 5. **"P1 is enough for a simple peripheral"** becomes "P1 is enough for a
    16-bit card".
+6. **Addresses don't carry the slot:** a static map instead
+   ([5.1](#51-addresses)).
 
 ### 26. Chips
 
 | | As built (report 0025) | Here (*estimate*) |
 |---|---:|---:|
-| Backplane | 51 | ~12 |
+| Backplane | 51 | ~10 |
 | Memory card | 31 | ~28 (no ID; a W32 driver) |
-| CPU card's bus interface | 35 | ~33 (no BERR handling; a slot comparison for its slave side) |
+| CPU card's bus interface | 35 | ~33 (no BERR handling; an address comparison for its slave side) |
 | I/O card | 16 | – (its devices go on I/O cards) |
 | I/O processor card | – | RFC 0027's ~60, plus ~12 for the I/O bus and ~6 for the window |
 
@@ -826,20 +887,23 @@ not specified here), the memory card's ~28 chips become about 10 there.
 
 - **Every Heron needs its I/O processor** for any slow device. That's
   decided.
-- **An unanswered access is silent.** A read of an empty slot returns
-  stale data; nothing traps. The MMU only maps slots that exist, so a
-  user process can't reach one by accident, but a kernel bug that does
-  reads garbage instead of faulting. The I/O processor checks its slot
-  table at boot with harmless probes, written so that a held value can't
-  pass for a card's answer.
-  - An earlier idea, weak pull-ups on D so that an empty slot reads all
-    ones, doesn't work: a 10 kΩ pull-up takes microseconds to charge a
+- **An unanswered access is silent.** A read of an unused address
+  returns stale data; nothing traps. The MMU only maps cards that exist,
+  so a user process can't reach one by accident, but a kernel bug that
+  does reads garbage instead of faulting. The I/O processor checks its
+  card table at boot with harmless probes, written so that a held value
+  can't pass for a card's answer.
+  - An earlier idea, weak pull-ups on D so that an unused address reads
+    all ones, doesn't work: a 10 kΩ pull-up takes microseconds to charge a
     loaded bus line, not one data clock.
 - **A stuck transfer is a system reset,** not an error the operating
   system can catch and survive. The bound on WAIT makes it a hardware
   fault only.
 - **No 74HCT cards on the system bus:** every card needs fast parts and
-  a slot comparator.
+  an address comparator.
+- **Overlapping ranges are a configuration error** the bus can't catch:
+  two cards answering a read fight on D. With 3–4 cards and the map of
+  [5.1](#51-addresses) it shouldn't happen.
 - **The I/O bus is strobe-timed,** fine at its size but not yet
   simulated ([section 30](#30-still-to-check)).
 - **Interrupts go through the I/O processor:** about 3–6 µs from a device
@@ -872,25 +936,30 @@ assume RFC 0014's bus in four places:
   a fault, the answer line of [section 29](#29-alternatives) gives the
   CPU card a way to raise one, for a pin and a driver on each card.
 - **The supervisor window** reaches physical addresses below
-  `0x8000_0000`. With A30–A27 as the slot bits, all 16 slots are inside
-  it; with RFC 0014's A31–A28, slots 8–15 would be reachable only through
-  the page map. Fen's memory map moves: slot 1 starts at `0x0800_0000`,
-  not `0x1000_0000`.
+  `0x8000_0000`. The static map puts every card there
+  ([5.1](#51-addresses)). It is Fen's map but for the I/O: the CPU card
+  stays at 0 and video at `0x1000_0000`, and the I/O bus moves from
+  `0x2000_0000`, where Fen's I/O card was, to `0x7000_0000`, which the
+  kernel sees at `0xF000_0000`. Fen's drivers change a base address and
+  a stride. That answers part of RFC 0029's open question 2, where
+  things sit.
 - **A page per device.** Fen's I/O card gives each device a 4 KB page so
   that the page map can grant a driver exactly one device. The window
-  keeps that: device d is the page at d × 4 KB in the I/O processor's
-  slot ([section 20](#20-the-window-from-the-system-bus)).
+  keeps that: device S's registers are all in the page at
+  `0x7000_0000` + S × 64 KB
+  ([section 20](#20-the-window-from-the-system-bus)).
 
 ### 29. Alternatives
 
 | Idea | Status | Why |
 |---|---|---|
 | Keep simple cards on the system bus with the class in the address (A26 set: simple timing) | **not recommended** | Removes the straps and their lookup but keeps the backplane's transfer timing and SEL, for a convention software can get wrong |
-| Keep the backplane's SEL for fast cards | **not recommended** | It arrives too late for WAIT; cards compare their slot anyway |
+| Keep the backplane's SEL for fast cards | **not recommended** | It arrives too late for WAIT; cards compare their own range anyway |
+| Slots in the address (RFC 0014's A31–A28, or A30–A27) with the slot number on GA0–GA3 | **not recommended** | With 3–4 cards a static map is trivial; slots cost four pins and tie a card's address to where it is plugged in |
 | An answer line, driven by the addressed card through its data phase (PCI's DEVSEL#) | **open** | Gives unanswered accesses a fault for one pin and a driver per card; needs the same rule as W32 for letting go |
-| IDs on cards: a 74HCT541 of straps, or "a read with no byte enables returns the ID" | **not recommended** | 1–3 chips per card; the slot table does the job |
+| IDs on cards: a 74HCT541 of straps, or "a read with no byte enables returns the ID" | **not recommended** | 1–3 chips per card; the card table does the job |
 | A serial ID bus: an I²C EEPROM on each card | **not recommended** | Probably against Emily's rule against new-fangled chips (2026-10-15), and 5–6 P1 pins with slot addressing |
-| A 74HC165 chain of ID straps through the backplane | **not recommended** | Four P1 pins, and empty slots break the chain |
+| A 74HC165 chain of ID straps through the backplane | **not recommended** | Four P1 pins, and empty positions break the chain |
 | The bus monitor on the backplane, ending a stuck transfer with an error | **not recommended** | Needs BERR; the I/O processor's count and a reset do without |
 | IRQ1–IRQ8 kept as bused lines, driven by the I/O processor and the cards | **open** | Closest to RFC 0029 as written; costs eight pins and ties every CPU to one set of lines |
 | Per-device jumpers for the I/O bus's timing (RFC 0027 as written) | **not recommended** | Moving a card means moving jumpers on another card; the window couldn't share them |
@@ -898,8 +967,8 @@ assume RFC 0014's bus in four places:
 | WAIT-only timing on the I/O bus, each card timing itself | **not recommended** | A clock and a counter on every card (about 8 chips for a simple card, RFC 0014) |
 | Making the bus period fixed | **not recommended** | Bring-up at 80 or 100 ns is free if every card works at any longer period |
 
-Precedents: NuBus, synchronous with cards that compare their own slot
-number; PCI's DEVSEL# and message-signalled interrupts; the Apple II's
+Precedents: the Unibus and VME, whose cards answer the addresses they
+are built or jumpered for; NuBus, synchronous like this bus; PCI's DEVSEL# and message-signalled interrupts; the Apple II's
 select line per slot; ECB, the European 8-bit Eurocard bus on a 64-pin
 DIN 41612; the CDC 6600, whose peripheral processors did all the I/O;
 the 68000's E clock and VPA for 6800-family peripherals.
@@ -911,16 +980,19 @@ Before a netlist, against the timing data and in `studies/bus_si`:
 | Path | Steps (ns) | Total | At 60 ns |
 |---|---|---:|---:|
 | Card to card, one clock | register 7, transceiver 4, settling 13, transceiver 4, setup 3, skew 2.5 | 34 | 26 left |
-| A card's slot comparison in the address clock | the master's outputs at the edge (T<sub>co</sub> max) 16, settling 13, receiver 4, 74F521 11, register setup 3, skew 2.5 | 50 | 10 left |
+| A card's address comparison in the address clock | the master's outputs at the edge (T<sub>co</sub> max) 16, settling 13, receiver 4, 74F521 11, register setup 3, skew 2.5 | 50 | 10 left |
 | WAIT or W32 from a card's registered decode | register 7, driver 4, settling 13, receiver 4, setup 3, skew 2.5 | 34 | 26 left |
 | A fast SRAM card's read | address register 7, SRAM 12, transceiver 4, settling 13, setup 3, skew 2.5 | 42 | 18 left, less the lane multiplexing |
 
-- **The slot comparison sets the shortest period,** about 50 ns, as
-  RFC 0014's class lookup did.
+- **The address comparison sets the shortest period,** about 50 ns, as
+  RFC 0014's class lookup did, as long as a card decides from at most 8
+  address bits. A second, cascaded 74F521 adds about 10 ns, which leaves
+  nothing at 60 ns.
 - **W32 driven inactive into the next address clock** needs checking for
   contention with the next card's first data clock.
-- **Bus-hold** on the masters' transceivers alone: enough for 16 slots of
-  floating lines?
+- **Bus-hold** on the masters' transceivers alone: enough for 8 positions
+  of floating lines?
+- **The I/O backplane's hop** between its two rows of slots.
 - **The I/O backplane:** crosstalk on SEL and WRITE with HCT edges, and
   the guard pins, with the same tools as report 0022.
 - **The guard pins need a careful physical review,** on both buses, once
@@ -961,22 +1033,27 @@ For Emily:
 3. **Interrupts:** a request register on each CPU card, written over the
    bus, or IRQ1–IRQ8 as bused lines? The interrupt architecture is open
    as a whole (RFC 0029).
-4. **The slot bits:** A30–A27, so every slot is in the supervisor window?
-5. **Master slots:** four?
+4. **The static map** of [5.1](#51-addresses) instead of slots in the
+   address: every card below 2 GB, memory at the bottom, and the I/O bus
+   at `0x7000_0000`, `0xF00S_RRRR` to the kernel?
+5. **Master positions:** four, of up to 8?
 6. **The bus period:** 60 ns as the working value, with any longer period
    allowed?
-7. **The I/O bus:** 8 slots, 3U cards with 64-pin connectors, in the same
-   card cage?
+7. **The I/O bus:** 12 slots in two rows of six, 3U cards with 64-pin
+   connectors, in the same card cage?
 8. **The window** into the I/O bus, about 5–7 chips on the I/O processor's
    card?
 9. **The bus clock's source:** the main CPU card (as built) or an
    oscillator on the backplane? Still RFC 0014's open question 1.
+10. **P2 as a 64-pin connector** (rows a and c): its 20 signals and its
+    power fit, leaving no user-defined pins, for 32 fewer joints a
+    position. The decided "two 96-pin connectors per slot" would change.
 
 ### 32. Next steps
 
 - **At chip level,** a variant of `studies/v1b_system` with this system
   bus: the backplane without its transfer timing, the memory card and
-  CPU card comparing their slots, W32 and WAIT from the cards. Run the
+  CPU card comparing their ranges, W32 and WAIT from the cards. Run the
   suite and count the chips.
 - **The I/O bus** as a netlist on the I/O processor's model, with
   report 0025's I/O card moved over as an I/O card.
