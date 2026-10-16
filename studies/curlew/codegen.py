@@ -68,8 +68,9 @@ CATS = ("evalt", "evalb", "evalhit", "evalind", "evalthunk", "evalslow",
 
 class Options:
     def __init__(self, tagged=False, indcheck=True, stack_check=True, one_reg=False,
-                 upd_tail=True):
+                 upd_tail=True, tag_arith=False):
         self.tagged = tagged            # draft 2's tagged operations: TMOV checks, TADD/TSUB
+        self.tag_arith = tagged or tag_arith    # TADD, TSUB, TCMP for arithmetic only
         self.indcheck = indcheck        # a slow path follows an indirection itself
         self.stack_check = stack_check  # check the stack limit (else a guard page would)
         self.one_reg = one_reg          # keep 1 in r11 for a one-parcel TST (software only)
@@ -168,7 +169,8 @@ class CodeGen:
         self.n = 0
         self.statics = {}           # variable -> atom of a static object it was bound to
         self.fun_labels = {}        # function (global or local closure variable) -> (generic, fast)
-        self.trap_sites = []        # (label, live register mask) for the tag trap handler
+        self.trap_sites = []        # (check label, slow path label) for the tag trap
+        self.check_sites = []       # (label of the test, label of the slow path, category)
         self.slow = []              # the current code block's out-of-line code
         self.con_info = {}          # DataInfo name -> label of its constructor info block
         self.joins = {}             # join point -> (label, param registers)
@@ -304,12 +306,18 @@ class CodeGen:
         out += self.cafs
         out.append("caf_end:")
         out.append("")
-        out.append("; ---- the tag trap's table: (address, live registers) by address")
+        out.append("; ---- the tag trap's sites: (the check, its slow path); boot hashes them")
         out.append("        .align 4")
         out.append("trap_table:")
-        for lab, mask in self.trap_sites:
-            out.append(f"        .word {lab}, {mask}")
+        for lab, slow in self.trap_sites:
+            out.append(f"        .word {lab}, {slow}")
         out.append("trap_table_end:")
+        n = 1
+        while n < 2 * max(1, len(self.trap_sites)):
+            n *= 2
+        out.append(f"TRAP_HASH_SIZE = {n}")
+        out.append("trap_hash:")
+        out.append(f"        .space {8 * n if self.trap_sites else 0}")
         out.append("")
         out.append(f"MAIN_ATOM = {imm(self.prog.main)}")
         return "\n".join(out) + "\n", cats
@@ -528,21 +536,23 @@ class CodeGen:
         number of values found unevaluated), {cat}ind an indirection
         followed, {cat}slow the rest of the slow path."""
         saved = self.live_regs(st, live) | {reg}
-        if self.opt.tagged:
-            lab = self.label("T")
-            self.put_label(lab)
-            self.emit(f"TMOV r{reg}, r{reg}", cat + "t")
-            mask = 0
-            for r in saved:
-                mask |= 1 << r
-            self.trap_sites.append((lab, mask))
-            return
         slow, back = self.label("S"), self.label("B")
-        if self.opt.one_reg:
-            self.emit(f"TST  r{reg}, r11", cat + "t")
+        site = self.label("C")
+        self.check_sites.append((site, slow, cat))
+        self.put_label(site)
+        if self.opt.tagged:
+            # the check traps; the trap goes to this site's slow path, which
+            # ends in RTI, and the TMOV runs again
+            self.emit(f"TMOV r{reg}, r{reg}", cat + "t")
+            self.trap_sites.append((site, slow))
+            ret = "RTI"
         else:
-            self.emit(f"TST  r{reg}, #1", cat + "t")
-        self.emit(f"BNE  {slow}", cat + "b")
+            if self.opt.one_reg:
+                self.emit(f"TST  r{reg}, r11", cat + "t")
+            else:
+                self.emit(f"TST  r{reg}, #1", cat + "t")
+            self.emit(f"BNE  {slow}", cat + "b")
+            ret = f"BRA  {back}"
         self.put_label(back)
         self.slow_label(slow)
         first = cat + "hit"
@@ -553,7 +563,7 @@ class CodeGen:
             self.emit_slow("CMP  r12, #ind_entry + 1", cat + "slow")
             self.emit_slow(f"BNE  {enter}", cat + "slow")
             self.emit_slow(f"MOV  r{reg}, [r{reg} + 3]", cat + "ind")
-            self.emit_slow(f"BRA  {back}", cat + "ind")
+            self.emit_slow(ret, cat + "ind")
             self.slow_label(enter)
             first = cat + "thunk"
         code, slots, restore = self.save(saved, cat + "slow")
@@ -568,7 +578,7 @@ class CodeGen:
         self.emit_slow("CALL [r6 - 1]", first or cat + "slow")
         self.emit_slow(f"MOV  [sp + {slots[reg]}], r1", cat + "slow")
         self.slow += [("        " + t, c) for t, c in restore]
-        self.emit_slow(f"BRA  {back}", cat + "slow")
+        self.emit_slow(ret, cat + "slow")
 
     # ---- expressions
 
@@ -894,7 +904,7 @@ class CodeGen:
         """d <- d op b."""
         bsrc = self.src(st, b)
         if op in ("add", "sub"):
-            if self.opt.tagged and bsrc.startswith("r"):
+            if self.opt.tag_arith and bsrc.startswith("r"):
                 self.emit(f"T{op.upper()} r{d}, {bsrc}", "arith")
             else:
                 self.emit(f"{op.upper()}  r{d}, {bsrc}", "arith")
@@ -976,7 +986,7 @@ class CodeGen:
         if not asrc.startswith("r"):
             self.emit(f"MOV  r12, {asrc}", "arith")
             asrc = "r12"
-        if self.opt.tagged and bsrc.startswith("r"):
+        if self.opt.tag_arith and bsrc.startswith("r"):
             self.emit(f"TCMP {asrc}, {bsrc}", "arith")
         else:
             self.emit(f"CMP  {asrc}, {bsrc}", "arith")

@@ -81,6 +81,9 @@ boot:   MOV  sp, #STACK_TOP
 .if onereg
         MOV  r11, #1            ; the mask a one-parcel TST uses
 .endif
+.if tagged
+        BSR  trap_hash_init
+.endif
         ; the output is main applied to the input
         MOV  r1, #input_obj + 1
         MOV  r6, #MAIN_ATOM
@@ -245,5 +248,4 @@ msg_toomany:    .byte "internal: too many arguments", 0
 msg_div:        .byte "divide by zero", 0
 msg_illegal:    .byte "internal: illegal instruction", 0
 msg_addr:       .byte "internal: address error", 0
-msg_tag:        .byte "internal: a tag trap without a table entry", 0
         .align 2

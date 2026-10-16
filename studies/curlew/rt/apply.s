@@ -162,82 +162,55 @@ argslot:
         .byte 8 + 4, 8 + 8, 8 + 12, 8 + 16, 8 + 20, 8 + 0, 8 + 32, 8 + 36, 8 + 40
         .align 2
 
-; ---- the tag trap: TMOV, TTST, TADD, TSUB or TCMP found bit 0 set in an
-; operand (a value not yet evaluated) or overflowed. The stack has the
-; flags, then the instruction's address. trap_table gives the registers
-; live there; the rest are cleared, so the collector never sees a stale
-; one. Each operand not yet evaluated is evaluated, in its register's
-; slot, and the instruction runs again.
+; ---- the tag trap: a TMOV found bit 0 set (a value not yet evaluated),
+; or TADD, TSUB or TCMP overflowed. The stack has the flags, then the
+; instruction's address. A TMOV is a check the code generator made: the
+; trap jumps to that check's own slow path (found in trap_hash, which
+; boot fills from trap_table), which evaluates the value, knowing what
+; is live there, and returns with RTI to run the check again. Anything
+; else is an overflow.
 trap_tag:
-        SAVE r0-r11
-        ; find the instruction in the table: (address, mask) pairs, sorted
-        MOV  r1, [sp + 52]
-        MOV  r2, #trap_table
-        MOV  r3, #trap_table_end
-.bs:    CMP  r2, r3
-        BHS  .none
-        MOV  r4, r3
-        SUB  r4, r2
-        LSR  r4, #4
-        LSL  r4, #3
-        ADD  r4, r2
-        MOV  r5, [r4]
-        CMP  r5, r1
-        BEQ  .found
-        BHI  .lower
-        LEA  r2, [r4 + 8]
-        BRA  .bs
-.lower: MOV  r3, r4
-        BRA  .bs
-.none:  MOV  r1, #msg_tag
-        JMP  rt_fail
-.found: MOV  r5, [r4 + 4]           ; live registers
-        CLR  r2
-.mask:  CMP  r2, #12
-        BHS  .dec
-        TST  r5, #1
-        BNE  .keep
-        MOV  r3, r2
-        LSL  r3, #2
-        ADD  r3, sp
-        CLR  [r3]
-.keep:  LSR  r5, #1
-        INC  r2
-        BRA  .mask
-        ; the operands: rd (high nibble), rs (low) of the register byte
-.dec:   MOV  r1, [sp + 52]
-        MOV  r2, byte [r1 + 1]
-        MOV  r3, byte [r1]
-        MOV  r4, r2
-        AND  r4, #15                ; rs
-        LSR  r2, #4                 ; rd
-        CLR  r9                     ; whether anything was evaluated
-        CMP  r3, #0x09              ; TMOV checks rs only
-        BEQ  .rs
-        MOV  r1, r2
-        BSR  .eval
-.rs:    MOV  r1, r4
-        BSR  .eval
-        TST  r9, r9
-        BEQ  rt_overflow            ; both evaluated: an overflow
-        INC  [tag_traps]
-        RESTORE r0-r11
-        RTI
-        ; .eval: evaluate the value of register r1's slot in place, if it needs
-.eval:  LSL  r1, #2
-        ADD  r1, sp
-        MOV  r6, [r1]
-        TST  r6, #1
-        BEQ  .evret
-        MOV  -[sp], r7
         MOV  -[sp], r1
         MOV  -[sp], r2
-        MOV  -[sp], r4
-        CALL [r6 - 1]
-        MOV  r4, [sp]+
+        MOV  r1, [sp + 12]          ; the instruction
+        MOV  r2, r1
+        LSR  r2, #1
+        AND  r2, #TRAP_HASH_SIZE - 1
+        LSL  r2, #3
+.probe: MOV  r12, [trap_hash + r2]
+        CMP  r12, r1
+        BEQ  .found
+        TST  r12, r12
+        BEQ  .over
+        ADD  r2, #8
+        AND  r2, #TRAP_HASH_SIZE * 8 - 1
+        BRA  .probe
+.found: MOV  r12, [trap_hash + 4 + r2]
+        INC  [tag_traps]
         MOV  r2, [sp]+
-        MOV  r5, [sp]+
-        MOV  [r5], r1
-        MOV  r7, [sp]+
-        MOV  r9, #1
-.evret: RET
+        MOV  r1, [sp]+
+        JMP  r12
+.over:  JMP  rt_overflow
+
+; trap_hash_init: fill trap_hash from trap_table, (check, slow path) pairs.
+trap_hash_init:
+        MOV  r3, #trap_table
+.next:  CMP  r3, #trap_table_end
+        BHS  .done
+        MOV  r1, [r3]
+        MOV  r2, r1
+        LSR  r2, #1
+        AND  r2, #TRAP_HASH_SIZE - 1
+        LSL  r2, #3
+.probe: MOV  r12, [trap_hash + r2]
+        TST  r12, r12
+        BEQ  .put
+        ADD  r2, #8
+        AND  r2, #TRAP_HASH_SIZE * 8 - 1
+        BRA  .probe
+.put:   MOV  [trap_hash + r2], r1
+        MOV  r12, [r3 + 4]
+        MOV  [trap_hash + 4 + r2], r12
+        ADD  r3, #8
+        BRA  .next
+.done:  RET

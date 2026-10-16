@@ -53,11 +53,12 @@ class Options:
         self.stg = stg.Options(strictness="nostrict" not in f)
         self.codegen = codegen.Options(tagged="tagged" in f, indcheck="noindcheck" not in f,
                                        stack_check="nostackcheck" not in f, one_reg="onereg" in f,
-                                       upd_tail="noupdtail" not in f)
+                                       upd_tail="noupdtail" not in f, tag_arith="tagarith" in f)
 
 
 FEATURES = {
     "tagged",       # draft 2's tagged operations: TMOV checks with the trap evaluating, TADD/TSUB/TCMP
+    "tagarith",     # TADD/TSUB/TCMP for the arithmetic only (overflow), explicit evaluation checks
     "nospec",       # no specialisation (dictionaries passed at run time)
     "noinline",     # no inlining
     "nostrict",     # no strictness analysis
@@ -161,6 +162,7 @@ def compile_program(text, features=()):
     out = compile_core(text, options)
     out.stg = stg.lower(out.lifted, options.stg)
     cg = codegen.generate(out.stg, options.codegen)
+    out.check_sites = cg.check_sites
     out.asm, out.cats = cg.text()
     out.image, out.where_cats = assemble(out.asm, out.cats, set(options.features))
     return out
