@@ -1,0 +1,3 @@
+before
+
+error: pattern match failure in f

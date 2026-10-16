@@ -47,7 +47,7 @@ def run(text, inp=b"", features=(), max_cycles=4_000_000_000, compiled=None, tra
         err = str(e)
     if err is None:
         for pc, what in m.traps:
-            if what not in ("tag check", "tagged overflow", "divide error"):
+            if what not in ("tag check", "tagged overflow", "divide by zero"):
                 err = f"trap at {pc:X}: {what}"
                 break
     return Run(compiled, m, err)

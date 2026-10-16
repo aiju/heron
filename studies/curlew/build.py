@@ -91,9 +91,7 @@ def apply_routines(n_max=9):
             f"ap_{n}:  TST  r6, #1",
             "        BNE  .force",
             ".go:    MOV  r12, [r6 - 2]",
-            "        CMP  r12, #pap_entry + 1",
-            "        BEQ  .slow",
-            "        MOV  r12, byte [r12 - 6]",
+            "        MOV  r12, byte [r12 - 6]",     # the arity (0 for a partial application)
             f"        CMP  r12, #{n}",
             "        BNE  .slow",
             "        JMP  [r6 - 2]",

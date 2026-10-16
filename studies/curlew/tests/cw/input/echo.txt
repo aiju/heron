@@ -1,0 +1,4 @@
+Lazy evaluation reads its input
+only when the program needs it.
+Each line comes back reversed,
+	and tabs and   spaces stay.

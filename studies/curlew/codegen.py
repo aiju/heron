@@ -44,14 +44,26 @@ from . import stg as G
 
 ARGS = [1, 2, 3, 4, 5, 0, 8, 9, 10]
 ALLOC = [6, 5, 4, 3, 2, 1, 8, 9, 10, 11, 0]
+# a variable live across a call wants a register next to r7, so that the
+# saves around calls are one short range (SAVE r6-r7, r5-r8, ...); any
+# other a low one, where arguments go
+NEAR_LINK = [6, 8, 5, 9, 4, 10, 3, 11, 2, 1, 0]
+LOW = [1, 2, 3, 0, 11, 10, 4, 9, 5, 8, 6]
 SCRATCH, HPLIM, HP, LINK, NODE = 12, 13, 14, 7, 6
 SLACK = 1024        # r13 is the heap's end less this; an allocation this big needs one compare
 
 THUNK, FUN, PAP, IND, CON = 1, 2, 3, 4, 5
 
-# profile categories (profile.py, report)
-CATS = ("eval", "evalslow", "entry", "update", "alloc", "heapchk", "stkchk", "call", "save",
-        "return", "apply", "case", "field", "arith", "ovf", "move", "jump", "error", "gcslow")
+# profile categories (profile.py): an evaluation check is {eval,entry}t
+# (the test), ...b (the branch), ...hit (found a value not yet evaluated:
+# the slow path's first instruction), ...ind (it was an indirection),
+# ...thunk (it was entered), ...slow (the rest of the slow path); enter*
+# is a tail position entering a value
+CATS = ("evalt", "evalb", "evalhit", "evalind", "evalthunk", "evalslow",
+        "entryt", "entryb", "entryhit", "entryind", "entrythunk", "entryslow",
+        "entert", "enterb", "enterhit", "enter",
+        "update", "fvload", "alloc", "heapchk", "stkchk", "gcslow", "call", "save", "apply",
+        "return", "case", "field", "arith", "ovf", "move", "jump", "error")
 
 
 class Options:
@@ -130,9 +142,9 @@ class State:
             out.add(LINK)
         return out
 
-    def free(self, avoid=()):
+    def free(self, avoid=(), order=None):
         busy = self.busy() | set(avoid)
-        return [r for r in self.allocs if r not in busy]
+        return [r for r in (order or self.allocs) if r not in busy and r in self.allocs]
 
 
 class Ctx:
@@ -160,8 +172,17 @@ class CodeGen:
         self.slow = []              # the current code block's out-of-line code
         self.con_info = {}          # DataInfo name -> label of its constructor info block
         self.joins = {}             # join point -> (label, param registers)
+        self.crossers = set()       # variables live across a call
         self.whnf = prog.whnf
         State.allocs = [r for r in ALLOC if not (self.opt.one_reg and r == 11)]
+
+    def pick(self, st, var, avoid=()):
+        """A free register for a new variable."""
+        order = NEAR_LINK if var in self.crossers else LOW
+        free = st.free(avoid, order)
+        if not free:
+            raise NotImplementedError("out of registers")
+        return free[0]
 
     # ---- output
 
@@ -185,6 +206,7 @@ class CodeGen:
 
     def run(self):
         prog = self.prog
+        self.find_crossers()
         for t in prog.tops:
             if isinstance(t, G.TopFun):
                 self.fun_labels[t.name] = (mangle(t.name), mangle(t.name) + "_f")
@@ -208,6 +230,47 @@ class CodeGen:
             else:
                 self.fun_block(obj)
         return self
+
+    def find_crossers(self):
+        """The variables that are live after some call (a case on a call or
+        an application), everywhere in the program."""
+        joins = self.prog.joins
+        out = self.crossers
+        seen = set()
+
+        def walk(e):
+            stack = [e]
+            while stack:
+                e = stack.pop()
+                if id(e) in seen:
+                    continue
+                seen.add(id(e))
+                t = type(e)
+                if t is G.Case:
+                    s = e.scrut
+                    if type(s) not in (G.Ret, G.PrimOp, G.Alloc):
+                        alive = set()
+                        for a in e.alts:
+                            alive |= G.free(a.body, joins) - set(a.vars)
+                        if e.default is not None:
+                            alive |= G.free(e.default, joins)
+                        alive.discard(e.binder)
+                        out.update(alive)
+                    stack.append(s)
+                    stack += [a.body for a in e.alts]
+                    if e.default is not None:
+                        stack.append(e.default)
+                elif t is G.Let:
+                    stack.append(e.body)
+                    for _, c in e.binds:
+                        if isinstance(c, (G.Thunk, G.Fun)):
+                            stack.append(c.body)
+                elif t is G.LetJoin:
+                    stack += [e.body, e.rest]
+
+        for t in self.prog.tops:
+            if isinstance(t, (G.TopFun, G.TopCaf)):
+                walk(t.body)
 
     def text(self):
         """The generated assembly, and the category of each line (by its
@@ -335,7 +398,7 @@ class CodeGen:
             live = G.free(body, self.prog.joins)
             if name not in live:
                 st.unbind(name)
-            self.load_fvs(st, fvs, 2, live, "entry")
+            self.load_fvs(st, fvs, 2, live, "fvload")
         self.gen(body, st, Ctx("ret"))
         self.finish_block()
 
@@ -345,7 +408,7 @@ class CodeGen:
         self.stack_check()
         st = State(False)
         st.bind("%node", NODE)
-        self.load_fvs(st, fvs, 1, G.free(body, self.prog.joins), "update")
+        self.load_fvs(st, fvs, 1, G.free(body, self.prog.joins), "fvload")
         self.gen(body, st, Ctx("upd"))
         self.finish_block()
 
@@ -353,11 +416,11 @@ class CodeGen:
         """Load a closure's free variables from the node in r6 (tagged
         `tag`) into registers; the node is dead after."""
         todo = [(i, v) for i, v in enumerate(fvs) if v in live]
-        regs = st.free(avoid=[NODE])
         last = None
         for i, v in todo:
-            if regs:
-                r = regs.pop(0)
+            free = st.free(avoid=[NODE], order=NEAR_LINK if v in self.crossers else LOW)
+            if free:
+                r = free[0]
             else:
                 last = (i, v)
                 continue
@@ -459,12 +522,16 @@ class CodeGen:
     # ---- evaluation checks
 
     def force(self, st, reg, live, cat="eval"):
-        """Evaluate the value in reg, in place. live: variables live after."""
+        """Evaluate the value in reg, in place. live: variables live after.
+        Categories, for the profile: {cat}t the test, {cat}b the branch,
+        {cat}hit the slow path's first instruction (so its count is the
+        number of values found unevaluated), {cat}ind an indirection
+        followed, {cat}slow the rest of the slow path."""
         saved = self.live_regs(st, live) | {reg}
         if self.opt.tagged:
             lab = self.label("T")
             self.put_label(lab)
-            self.emit(f"TMOV r{reg}, r{reg}", cat)
+            self.emit(f"TMOV r{reg}, r{reg}", cat + "t")
             mask = 0
             for r in saved:
                 mask |= 1 << r
@@ -472,29 +539,36 @@ class CodeGen:
             return
         slow, back = self.label("S"), self.label("B")
         if self.opt.one_reg:
-            self.emit(f"TST  r{reg}, r11", cat)
+            self.emit(f"TST  r{reg}, r11", cat + "t")
         else:
-            self.emit(f"TST  r{reg}, #1", cat)
-        self.emit(f"BNE  {slow}", cat)
+            self.emit(f"TST  r{reg}, #1", cat + "t")
+        self.emit(f"BNE  {slow}", cat + "b")
         self.put_label(back)
         self.slow_label(slow)
+        first = cat + "hit"
         if self.opt.indcheck:
             # an indirection needn't be entered
             enter = self.label("S")
-            self.emit_slow(f"MOV  r12, [r{reg} - 1]", "evalslow")
-            self.emit_slow("CMP  r12, #ind_entry + 1", "evalslow")
-            self.emit_slow(f"BNE  {enter}", "evalslow")
-            self.emit_slow(f"MOV  r{reg}, [r{reg} + 3]", "evalslow")
-            self.emit_slow(f"BRA  {back}", "evalslow")
+            self.emit_slow(f"MOV  r12, [r{reg} - 1]", first)
+            self.emit_slow("CMP  r12, #ind_entry + 1", cat + "slow")
+            self.emit_slow(f"BNE  {enter}", cat + "slow")
+            self.emit_slow(f"MOV  r{reg}, [r{reg} + 3]", cat + "ind")
+            self.emit_slow(f"BRA  {back}", cat + "ind")
             self.slow_label(enter)
-        code, slots, restore = self.save(saved, "evalslow")
+            first = cat + "thunk"
+        code, slots, restore = self.save(saved, cat + "slow")
+        code = [(t, c) for t, c in code]
+        if code:
+            code[0] = (code[0][0], first)
+            first = None
         self.slow += [("        " + t, c) for t, c in code]
         if reg != NODE:
-            self.emit_slow(f"MOV  r6, r{reg}", "evalslow")
-        self.emit_slow("CALL [r6 - 1]", "evalslow")
-        self.emit_slow(f"MOV  [sp + {slots[reg]}], r1", "evalslow")
+            self.emit_slow(f"MOV  r6, r{reg}", first or cat + "slow")
+            first = None
+        self.emit_slow("CALL [r6 - 1]", first or cat + "slow")
+        self.emit_slow(f"MOV  [sp + {slots[reg]}], r1", cat + "slow")
         self.slow += [("        " + t, c) for t, c in restore]
-        self.emit_slow(f"BRA  {back}", "evalslow")
+        self.emit_slow(f"BRA  {back}", cat + "slow")
 
     # ---- expressions
 
@@ -568,11 +642,13 @@ class CodeGen:
             self.finish(st, ctx, NODE)
             return
         val = self.label("V")
-        self.emit("TST  r6, #1", "return")
-        self.emit(f"BEQ  {val}", "return")
+        self.emit("TST  r6, #1", "entert")
+        self.emit(f"BEQ  {val}", "enterb")
         if ctx.kind == "upd":
-            self.emit("MOV  r7, #upd", "return")
-        self.emit("JMP  [r6 - 1]", "return")
+            self.emit("MOV  r7, #upd", "enterhit")
+            self.emit("JMP  [r6 - 1]", "enter")
+        else:
+            self.emit("JMP  [r6 - 1]", "enterhit")
         self.put_label(val)
         self.emit("MOV  r1, r6", "return")
         self.emit("RET" if ctx.kind == "ret" else "JMP  upd", "return")
@@ -623,7 +699,8 @@ class CodeGen:
         self.emit(f"CALL {target}", cat)
         held = {st.regs[v] for v in live if v in st.regs}
         if dest is None:
-            dest = 1 if 1 not in held else st.free(avoid=held | {LINK})[0]
+            # the arguments die at the call: any register not live after it
+            dest = 1 if 1 not in held else [r for r in st.allocs if r not in held and r != LINK][0]
         # a range RESTORE also restores registers between the saved ones:
         # then the result goes into its slot
         if dest in slots:
@@ -697,10 +774,7 @@ class CodeGen:
                 self.emit(f"LEA  r{r}, [r14 + {off + tag}]", "alloc")
         for (x, c), off in zip(items, offs):
             if x is not None:
-                free = st.free()
-                if not free:
-                    raise NotImplementedError("out of registers")
-                r = free[0]
+                r = self.pick(st, x)
                 st.bind(x, r)
                 pointer(r, off, c)
         for (x, c), off in zip(items, offs):
@@ -803,7 +877,11 @@ class CodeGen:
                 a, b = b, a
                 asrc, bsrc = bsrc, asrc
             else:
-                t = SCRATCH
+                # into a free register (not r12, which div and mod use)
+                free = st.free(avoid={d})
+                if not free:
+                    raise NotImplementedError("out of registers")
+                t = free[0]
                 self.emit(f"MOV  r{t}, {asrc}", "arith")
                 self.prim_into(op, t, b, st)
                 self.emit(f"MOV  r{d}, r{t}", "arith")
@@ -840,9 +918,11 @@ class CodeGen:
             return
         if op in ("quot", "rem", "div", "mod"):
             if not bsrc.startswith("r"):
+                # DIVS takes a register; the adjustment below the constant
                 self.emit(f"MOV  r12, {bsrc}", "arith")
-                bsrc = "r12"
-            self.emit(f"DIVS r{d}, {bsrc}", "arith")
+                self.emit(f"DIVS r{d}, r12", "arith")
+            else:
+                self.emit(f"DIVS r{d}, {bsrc}", "arith")
             if op in ("div", "mod"):
                 ok = self.label("D")
                 self.emit("MFHI r12", "arith")
@@ -930,11 +1010,22 @@ class CodeGen:
                     self.force(st, r, alive)
                 st.bind(e.binder, r)
         elif t is G.PrimOp:
-            r = st.free()[0]
+            r = None
+            ops = s.args if s.op in ("add", "mul", "and", "or", "xor", "eq", "ne") else s.args[:1]
+            for a in ops:
+                a = self.resolve(a)
+                if (isinstance(a, G.AVar) and a.name not in alive and a.name in st.regs
+                        and len(st.held.get(st.regs[a.name], ())) == 1
+                        and (e.binder in self.crossers) == (a.name in self.crossers)):
+                    r = st.regs[a.name]       # it dies here: the result can have its register
+                    break
+            if r is None:
+                r = self.pick(st, e.binder)
             self.prim(s.op, s.args, st, r)
+            st.prune(alive | {a.name for a in s.args if isinstance(a, G.AVar)} - {e.binder})
             st.bind(e.binder, r)
         elif t is G.Alloc:
-            r = st.free()[0]
+            r = self.pick(st, e.binder)
             self.alloc(st, [(None, G.ConClo(s.con, s.args))], alive | G.free(s, joins), r)
             st.bind(e.binder, r)
         elif t is G.Call or t is G.Apply:
@@ -1062,7 +1153,7 @@ class CodeGen:
             if v not in live:
                 continue
             off = (4 * i - 2) if pair else (4 * i + 2)
-            d = st.free()[0]
+            d = self.pick(st, v)
             self.emit(f"MOV  r{d}, [r{r} + {off}]" if off >= 0 else f"MOV  r{d}, [r{r} - {-off}]",
                       "field")
             st.bind(v, d)
@@ -1143,7 +1234,7 @@ def repr_of(con):
 def plan_save(regs, cat):
     """Save registers: (code, {register: offset from sp}, restore code),
     code as [(text, category)]. A range costs SAVE and RESTORE, 2 + 2n
-    cycles each on D32-separate, and a push 4 and a pop 5. A dead
+    and 3 + 2n cycles on D32-separate, and a push 4 and a pop 5. A dead
     register inside the range has its slot cleared (4 cycles): it may hold
     a pointer from before a collection, which the next one mustn't follow.
     (Not the register: the call may still read it, as an argument.)"""
@@ -1157,7 +1248,7 @@ def plan_save(regs, cat):
             outside = [r for r in regs if r not in inside]
             n = 0 if a is None else b - a + 1
             dead = n - len(inside)
-            cost = (4 + 4 * n + 4 * dead if n else 0) + 9 * len(outside)
+            cost = (5 + 4 * n + 4 * dead if n else 0) + 9 * len(outside)
             if best is None or cost < best[0]:
                 best = (cost, a, b, outside)
     _, a, b, outside = best
