@@ -27,7 +27,7 @@ import re
 import sys
 from collections import Counter, defaultdict
 
-from heron.infra.hw import schematic, sta as hsta
+from heron.infra.hw import chips, schematic, sta as hsta
 from heron.infra.hw.netlist import Netlist
 
 from . import cpu, parts, sta, ucode as uc
@@ -113,7 +113,9 @@ BLOCK_NAMES = {
     ("PC", "a decode that goes ahead"): "PC and FPC",
     ("PC", "PC[1] again"): "PC1F and FOK",
     ("Fetch translation", "FPC's page"): "Kept page (FPPN)",
-    ("Prefetch queue", "a fetch:"): "Queue words",
+    ("Prefetch queue", "a fetch:"): "Fetch decision",
+    ("Prefetch queue", "two slots"): "Slots and head pointer",
+    ("Prefetch queue", "the head parcel"): "Head parcel",
     ("Prefetch queue", "V0, V1"): "Valid bits",
     ("Store data", None): "Store data drivers",
     ("Store data", "it drives the data bus"): "The I/O page",
@@ -160,8 +162,9 @@ SECTION_DESC = {
     "SX and EX": "SX counts through a register list (LDM, STM); EX is where it stops.",
     "PC": "PC, at the instruction being decoded, and FPC, at the next word to fetch.",
     "Fetch translation": "FPC's page, kept from the map so that prefetches needn't use it.",
-    "Prefetch queue": "Two words, Q0 and Q1, filled from the card's RAM in cycles that don't "
-                      "use memory; the head parcel feeds the decode table.",
+    "Prefetch queue": "Two words, Q0 and Q1, in two slots and a head pointer, filled from the "
+                      "card's RAM in cycles that don't use memory; the head parcel feeds the "
+                      "decode table.",
     "Memory": "The virtual address, the page map and the window, the fault checks, and the "
               "card's 2 MB of RAM.",
     "Faults": "CTX, the page map's context, and BANK, the register file's bank.",
@@ -180,6 +183,7 @@ FAULT_NETS = {"FAULT", "FAULT_n"}
 FAMILY = {
     "sram64k": "memory", "sram512": "memory",
     "377": "register", "823": "register", "573": "register", "161": "register",
+    "16374h": "register", "16823h": "register", "16373h": "register", "16244h": "buffer",
     "163": "register", "74": "register", "175": "register", "109": "register",
     "299": "register",
     "541": "buffer",
@@ -323,7 +327,8 @@ def _arrays(model, syms):
                 continue
             part = model["symbols"][ms[0]]["part"]
             k = len(g)
-            desc = f"{k} x {part}" + (" (each two 8-bit halves)" if typ == "sram64k" else "")
+            desc = f"{k} x {part}" + (" (each two 8-bit halves)" if typ == "sram64k" else
+                                       " (halves)" if chips.TYPES[typ].per_package > 1 else "")
             out.append((f"{pre}{g[0]}–{g[-1]}" if k > 1 else f"{pre}{g[0]}", desc, ms))
     return out
 
@@ -566,9 +571,9 @@ def trace_buses():
             "R": b("RQ", 32), "T": b("TQ", 32), "VA": b("VA", 32),
             "PA": b("VA", 12) + b("PA", 20, 12),
             "MD": b("MD", 24), "DB": b("DB", 32), "MAR": b("MAR", 32), "LC": b("LC", 8),
-            "Q0": b("QA", 32), "Q1": b("QB", 32), "V": ["V0", "V1"],
+            "S0": b("QS0_", 32), "S1": b("QS1_", 32), "V": ["V0", "V1"],
             "FL": ["NFLAG", "ZFLAG", "CFLAG", "VFLAG", "IFLAG", "SFLAG", "TFLAG"],
-            "ST": ["FAULT", "FOK", "TSQ", "IRQP", "PC1F", "DECGO", "JUMP", "FETCHED"]}
+            "ST": ["FAULT", "FOK", "TSQ", "IRQP", "PC1F", "DECGO", "JUMP", "FETCHED", "HS"]}
 
 
 def run_trace(name, start=0, n=None):
@@ -747,8 +752,8 @@ BUSES = {
     "RES": "the result bus", "VA": "the virtual address", "PA": "the physical address",
     "MD": "the page map's data (V, W, X and the physical page)", "DB": "the card's memory data",
     "QH": "the queue's head parcel", "UD": "the control store's data", "Y": "the next microaddress",
-    "RQ": "R", "TQ": "T", "QA": "Q0", "QB": "Q1", "MAR": "MAR", "PC": "PC", "FPC": "FPC",
-    "IR": "the instruction register", "DEC": "the decode table's entry", "QAD": "Q0's input",
+    "RQ": "R", "TQ": "T", "QS0_": "queue slot 0", "QS1_": "queue slot 1", "MAR": "MAR",
+    "PC": "PC", "FPC": "FPC", "IR": "the instruction register", "DEC": "the decode table's entry",
     "RFAIO": "register file copy A's data", "RFBIO": "register file copy B's data",
     "RFAM": "register file copy A's address", "RFBM": "register file copy B's address",
     "RWA": "the register write address", "EB": "the read bank", "BANK": "the register bank",
@@ -803,7 +808,7 @@ def build_model(programs=TRACE_PROGRAMS, jobs=4, log=print):
         else:
             t = sy["type"]
             sy["fam"] = FAMILY.get(t, "other")
-            sy["pkg"] = 0.5 if t == "sram64k" else 1
+            sy["pkg"] = 1 / chips.TYPES[t].per_package
         sy.pop("sheet", None)
     names = sorted(model["nets"])
     idx = {n: i for i, n in enumerate(names)}
@@ -943,8 +948,7 @@ def build_model(programs=TRACE_PROGRAMS, jobs=4, log=print):
                     "fields": uc.explain(f), "cls": mc.lengths[f.get("LCL", 0)],
                     "ns": round(nt[a][0], 1) if a in nt else None}
 
-    packages = sum(0.5 if i.type.name == "sram64k" else 1 for i in nl.instances
-                   if i.type.family not in ("fixture", "passive"))
+    packages = sum(nl.packages(parts.VARIANT).values())
     return {"title": "Draft 2 CPU", "variant": parts.VARIANT, "packages": round(packages),
             "families": FAMILIES, "buses": BUSES, "tnets": tnets,
             "nodes": {k: v for k, v in nodes.items() if v["kind"] != "symbol"},

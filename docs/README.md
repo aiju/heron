@@ -57,4 +57,6 @@ hardware), with their code in [studies](../studies/README.md).
 - A console on serial terminals, and video too (the first build might
   leave video out).
 - No microcontrollers inside peripherals.
+- An I/O processor in every Heron, and it is the system's DMA engine
+  ([RFC 0027](../reports/0027-rfc-io-coprocessor.md); Emily, 2026-10-16).
 - Ethernet, preferably with a MAC built from TTL.

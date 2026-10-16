@@ -14,9 +14,9 @@ reach the same physical words as the program's vector table, except
 SWI's: `interrupts` (the one program that uses SWI and the timer) has a
 copy for this machine in sw/.
 
-Compared: the console output, the registers, HI and LO, the flags and all
-of RAM, after HALT. --lockstep compares the registers at every
-instruction.
+Compared: the console output, the registers (HI and LO are r0 and r1),
+the flags and all of RAM, after HALT. --lockstep compares the registers at
+every instruction.
 """
 
 import argparse
@@ -129,10 +129,6 @@ def compare(sim, m, code_base=0, skip=None):
     for i in range(16):
         if m.reg(i) != sim.r[i]:
             diffs.append(f"r{i}: RTL {m.reg(i):08X}, ISA {sim.r[i]:08X}")
-    if m.hi != sim.hi:
-        diffs.append(f"HI: RTL {m.hi:08X}, ISA {sim.hi:08X}")
-    if m.lo != sim.lo:
-        diffs.append(f"LO: RTL {m.lo:08X}, ISA {sim.lo:08X}")
     for fl in "nzcv":
         if getattr(m, fl) != getattr(sim, fl):
             diffs.append(f"flag {fl.upper()}: RTL {getattr(m, fl)}, ISA {getattr(sim, fl)}")

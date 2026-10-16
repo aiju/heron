@@ -88,8 +88,9 @@ def _mask():
 # The queue's and the fetch's state, split: with a parcel in Q0 the head
 # comes from it, and only then does the decode's length decide whether a
 # refill's fetch faults; with FOK a prefetch reads the RAM at the kept page,
-# without it the map translates FPC and nothing is fetched
-QUEUE = tuple((("V0", v), ("V0_n", 1 - v), ("FOK", f), ("FOK_n", 1 - f))
+# without it the map translates FPC and nothing is fetched. The queue's two
+# slots are alike, so slot 0 is taken as the head
+QUEUE = tuple((("V0", v), ("V0_n", 1 - v), ("FOK", f), ("FOK_n", 1 - f), ("HS", 0), ("HS_n", 1))
               for v in (0, 1) for f in (0, 1))
 
 

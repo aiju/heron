@@ -99,9 +99,10 @@ def trace_buses():
                    "FIRQ", "W2", "W3", "FITS1", "FOK", "PC1F"]}
 
 
-def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE):
+def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
+    """seed: the simulator's random power-up state of every flip-flop."""
     cfg = {
-        "seed": 1, "max_cycles": max_cycles,
+        "seed": seed, "max_cycles": max_cycles,
         "clock_net": "CLK", "reset_net": "RESET_n",
         "fetch_net": "DECGO", "fetch_level": 1,
         "addr_nets": ["GND"] + [f"PC{i}" for i in range(1, 32)],
@@ -118,9 +119,10 @@ def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE):
     return cfg
 
 
-def run(mem, inp=b"", max_cycles=20_000_000, trace=None, lengths=None):
+def run(mem, inp=b"", max_cycles=20_000_000, trace=None, lengths=None, seed=1):
     """Run a RAM image at chip level: the outcome, decoded."""
-    hw = native.hwsim.run_system(netlist(lengths), config(max_cycles, trace), preloads(mem, inp))
+    hw = native.hwsim.run_system(netlist(lengths), config(max_cycles, trace, seed=seed),
+                                 preloads(mem, inp))
     d = hw["dumps"]
     hw["output"] = bytes(d["X_IO"])
     ram = bytearray(4 << 19)
@@ -148,6 +150,8 @@ def reference(mem, inp=b"", max_cycles=200_000_000):
     m.fetch_log = []
 
     def log(mm):
+        if not mm.fetch_log:
+            mm.ticks0 = mm.ticks                # the program's time leaves reset out
         mm.fetch_log.append((mm.cycles - 1, (mm.PC - 2) & 0xFFFFFFFF, mm.IR))
     m.trace = log
     m.run(max_cycles)
@@ -201,7 +205,7 @@ def check(path, trace=None, lengths=None):
     inp = metadata(path)["input"]
     mem = iop.boot_image(img)
     m = reference(mem, inp)
-    hw = run(mem, inp, max_cycles=m.prog_cycles + 1000, trace=trace, lengths=lengths)
+    hw = run(mem, inp, max_cycles=m.cycles + 1000, trace=trace, lengths=lengths)   # reset too
     return m, hw, compare(m, hw)
 
 
@@ -233,7 +237,7 @@ def cmd_test(args):
         ok = not diffs and not hw["violation_total"]
         bad += not ok
         print(f"{name:12s} {'ok  ' if ok else 'FAIL'} {hw['cycles']:9d} cycles "
-              f"{hw['time_ps'] / 1e9:8.3f} ms (RTL {m.ticks * 20 / 1e6:8.3f} ms)  "
+              f"{hw['time_ps'] / 1e9:8.3f} ms (RTL {(m.ticks - m.ticks0) * 20 / 1e6:8.3f} ms)  "
               f"violations {hw['violation_total']:5d}  ({time.time() - t0:.0f} s)")
         for d in diffs[:6]:
             print(f"    {d}")
@@ -259,11 +263,12 @@ def cmd_run(args):
 
 def cmd_bom(args):
     nl = cpu.build(sim=True)
-    total = 0
+    packages = nl.packages(parts.VARIANT)
     for part, refs in nl.bom(parts.VARIANT).items():
-        print(f"{len(refs):3} x {part:<16} {' '.join(refs[:8])}{' ...' if len(refs) > 8 else ''}")
-        total += len(refs)
-    print(f"{total} packages as drawn (each IS61C6416AL is two halves)")
+        n = packages[part]
+        halves = f" ({len(refs)} halves)" if n != len(refs) else ""
+        print(f"{n:3} x {part:<16} {' '.join(refs[:8])}{' ...' if len(refs) > 8 else ''}{halves}")
+    print(f"{sum(packages.values())} packages")
     return 0
 
 

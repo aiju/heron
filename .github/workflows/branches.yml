@@ -1,0 +1,18 @@
+# A push to another branch that changes a page of the website: rebuild it
+# from main (pages.yml), which shows drafts as their branches have them and
+# links every live page to the branches that change it. Pages only deploys
+# from main, so this asks main's workflow to run rather than building here.
+name: branches
+on:
+  push:
+    branches-ignore: [main]
+    paths: ["reports/**", "docs/**", "studies/*/README.md", "README.md"]
+permissions:
+  actions: write
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}

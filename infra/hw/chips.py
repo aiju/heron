@@ -27,7 +27,8 @@ import os
 
 
 class ChipType:
-    def __init__(self, name, model, pins, arcs=(), checks=(), family="logic", desc=""):
+    def __init__(self, name, model, pins, arcs=(), checks=(), family="logic", desc="",
+                 per_package=1, tied=()):
         self.name = name
         self.model = model
         self.pins = pins            # list of (name, kind)
@@ -36,6 +37,9 @@ class ChipType:
         self.checks = list(checks)  # (data list, clock pin, edge 'rise'/'fall', setup, hold)
         self.family = family        # 'logic' (74HCT/ACT), 'alu' (74LS/F/S), 'mem', 'fixture'
         self.desc = desc
+        self.per_package = per_package  # a part of a package: two halves of a 16-bit part
+        # pin groups the model treats as one: the netlist must put each on one net
+        self.tied = list(tied)
         for frm, to, _ in self.arcs:
             for p in list(frm) + list(to):
                 assert p in self.pin_index, (name, p)
@@ -234,7 +238,7 @@ T("sram64k", "sram",
         (["CE"], [f"IO{i}" for i in range(8)], "tACE"),
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
   family="mem", desc="64K x 8 static RAM: one byte of a 64K x 16 part (IS61C6416), "
-                     "whose two bytes the netlist places as two of these")
+                     "whose two bytes the netlist places as two of these", per_package=2)
 
 T("sram512", "sram",
   [(f"A{i}", "in") for i in range(19)] + [(f"IO{i}", "io") for i in range(8)]
@@ -297,6 +301,48 @@ T("573", "latch573",
      (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
   checks=[([f"D{i}" for i in range(1, 9)], "LE", "fall", "setup D", "hold D")],
   desc="octal transparent latch, three-state outputs (Q follows D while LE is high; OE active low)")
+
+# Halves of 16-bit parts (74ABT16374, 16823, 16373, 16244): each half has
+# its own clock and enables, so the netlist places them as two of these,
+# with the 8-bit part's pins and model.
+T("16374h", "dreg",
+  [("OE", "in"), ("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q"),
+        (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
+  desc="octal D flip-flop, three-state outputs: one half of a 16-bit 74ABT16374",
+  per_package=2)
+
+T("16823h", "dreg",
+  [("OE", "in"), ("CLK", "in"), ("EN", "in"), ("CLR", "in")]
+  + [(f"D{i}", "in") for i in range(1, 10)] + [(f"Q{i}", "tri") for i in range(1, 10)],
+  arcs=[(["CLK"], [f"Q{i}" for i in range(1, 10)], "CLK->Q"),
+        (["CLR"], [f"Q{i}" for i in range(1, 10)], "CLR->Q"),
+        (["OE"], [f"Q{i}" for i in range(1, 10)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 10)], "CLK", "rise", "setup D", "hold D"),
+          (["EN"], "CLK", "rise", "setup EN", "hold EN")],
+  desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE "
+       "active low): one half of an 18-bit 74ABT16823", per_package=2)
+
+T("16373h", "latch573",
+  [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[([f"D{i}"], [f"Q{i}"], "D->Q") for i in range(1, 9)]
+  + [(["LE"], [f"Q{i}" for i in range(1, 9)], "LE->Q"),
+     (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "LE", "fall", "setup D", "hold D")],
+  desc="octal transparent latch, three-state outputs: one half of a 16-bit 74ABT16373",
+  per_package=2)
+
+T("16244h", "buf541",
+  [("OE1", "in"), ("OE2", "in")] + [(f"A{i}", "in") for i in range(1, 9)]
+  + [(f"Y{i}", "tri") for i in range(1, 9)],
+  arcs=[([f"A{i}"], [f"Y{i}"], "A->Y") for i in range(1, 9)]
+  + [(["OE1", "OE2"], [f"Y{i}" for i in range(1, 9)], "OE->Y en")],
+  desc="octal three-state buffer: one half of a 16-bit 74ABT16244, whose OE1 and OE2 enable "
+       "bits 1-4 and 5-8 (the 541's model, which needs both: so they must be tied together)",
+  per_package=2, tied=[("OE1", "OE2")])
 
 T("245", "xcvr245",
   [("DIR", "in"), ("OE", "in")] + [(f"A{i}", "io") for i in range(1, 9)]

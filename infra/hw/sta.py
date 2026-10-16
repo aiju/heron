@@ -520,10 +520,12 @@ def checks(case, N, we_frac):
         if t.model in ("reg377", "dreg", "dff74", "dff175", "cnt161", "cnt163", "sr299"):
             pins = []
             if t.model in ("reg377", "dreg"):
-                en = case.pin(inst, "EN")[0]
-                pins.append(("EN", d["setup EN"]))
+                en = 0                    # a 74x574 or 16374 has no enable: it always loads
+                if "EN" in t.pin_index:
+                    en = case.pin(inst, "EN")[0]
+                    pins.append(("EN", d["setup EN"]))
                 if en != 1:
-                    n = 8 if t.model == "reg377" else 9
+                    n = sum(1 for p, _ in t.pins if p[0] == "D" and p[1:].isdigit())
                     pins += [(f"D{i}", d["setup D"]) for i in range(1, n + 1)]
             elif t.model == "dff74":
                 for s in "12":

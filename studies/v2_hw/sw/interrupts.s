@@ -87,7 +87,7 @@ main:   SAVE r7-r10
         MOV  r8, #0             ; r8 = sum
         MOV  r9, #1000          ; r9 = i
 .sq:    MOV  r1, r9
-        MULU r1, r9
+        MULU r0:r1, r9
         ADD  r8, r1
         DBNZ r9, .sq
         MOV  r10, [ticks]       ; ticks during the work (not printed: timing)

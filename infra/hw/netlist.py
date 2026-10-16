@@ -169,6 +169,10 @@ class Netlist:
             for pin, kind in inst.type.pins:
                 if kind == "in" and pin not in inst.conn:
                     errors.append(f"{inst.ref}.{pin} ({inst.type.name}) is unconnected")
+            for group in inst.type.tied:
+                if len({inst.conn.get(p) for p in group}) > 1:
+                    errors.append(f"{inst.ref} ({inst.type.name}): {', '.join(group)} "
+                                  f"must be on one net")
         for net, conns in self.nets().items():
             drivers = [c for c in conns if c[2] in ("out", "tri", "io")]
             hard = [c for c in conns if c[2] == "out"]
@@ -225,13 +229,22 @@ class Netlist:
 
     def bom(self, variant=chips.DEFAULT_VARIANT, passives=False):
         """{part number: [references]}: the chips (and with passives=True
-        the resistor networks too), without test fixtures."""
+        the resistor networks too), without test fixtures. A part placed as
+        halves lists each half."""
         counts = defaultdict(list)
         for inst in self.instances:
             if inst.type.family == "fixture" or (inst.type.family == "passive" and not passives):
                 continue
             counts[inst.part_number(variant)].append(inst.ref)
         return dict(sorted(counts.items()))
+
+    def packages(self, variant=chips.DEFAULT_VARIANT, passives=False):
+        """{part number: packages}: bom()'s, with the halves of a part
+        placed as halves paired up."""
+        per = {}
+        for inst in self.instances:
+            per[inst.part_number(variant)] = inst.type.per_package
+        return {p: -(-len(refs) // per[p]) for p, refs in self.bom(variant, passives).items()}
 
     # ---- composition ------------------------------------------------------
 
