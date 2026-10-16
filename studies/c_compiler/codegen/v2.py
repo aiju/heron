@@ -14,7 +14,8 @@ selector (codegen.v1b) with what changed:
 - INC and DEC on memory, for x++ and x-- on a variable in memory.
 - TST and MULS with a constant.
 - A multiply leaves its high half and a divide its remainder in r0 (there's
-  no HI): every one counts as writing r0, and a remainder is MOV rd, r0.
+  no HI): every one counts as writing r0, and is written MULS r0:rd, src;
+  a remainder is MOV rd, r0.
 - Calls leave the return address in r7, the link register (Target.LINK):
   a function that calls saves it with SAVE r7-rN, or pushes it, and a leaf
   that leaves r7 alone returns through it.
@@ -219,6 +220,9 @@ class V2(V1B):
             return [f"        JMP  [pc + {i.ops[1]} + {self.fmt(i.ops[0])}*4]"]
         if i.op == "DBNZ":
             return [f"        DBNZ {self.fmt(i.ops[0])}, {i.targets[0].label}"]
+        if i.op in ("MULS", "MULU", "DIVS", "DIVU"):
+            # the syntax writes out where the high half or remainder goes
+            return [f"        {i.op} {self.fmt(self.HIGH)}:{self.fmt(i.ops[0])}, {self.fmt(i.ops[1])}"]
         return super().format_instr(i)
 
     def final_layout(self, body):
