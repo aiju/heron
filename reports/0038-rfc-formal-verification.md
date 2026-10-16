@@ -388,6 +388,12 @@ above either way; this section is how the symbolic run keeps to them.
   `fault` turns the guard off for the rest of the instruction. One pass
   gives the next state for every path at once, and the conditions under
   which the `assume`s hold, which a proof takes as hypotheses.
+- **It notes its decisions,** if asked: each arm of an `if` or `case`,
+  each flag set, each fault, with the guard under which each outcome
+  happens. On known values that says which outcome was taken. The right
+  side of `and` and `or` runs under the guard where it is evaluated, so
+  a symbolic run notes the decisions a run on known values would meet.
+  These are the goals of S2's chosen cases.
 - **A memory, and an array of registers, may be an object** with
   `read(address)` and `write(address, value, guard)`. On known values that
   is a dictionary. In a proof it is z3 arrays shaped like the hardware's,
@@ -509,9 +515,46 @@ outside RAM, code outside RAM and a misaligned stack while entering a
 fault: each a case where the simulator stops, or does something the
 specification doesn't describe.
 
-It was checked against the instruction-level simulator as S2 says
-(`heron formal isacheck`). In 100,000 cases, which ran every instruction
-and every kind of fault, the two never disagreed.
+It was checked against the instruction-level simulator as S2 says, and
+the two never disagreed:
+
+- **Random cases** (`heron formal isacheck`): 100,000, which ran every
+  instruction and every kind of fault.
+- **Cases chosen by the specification** (`heron formal isagen`). Each of
+  the 55 instructions runs once on symbolic inputs, noting every decision
+  it meets ([2.7](#27-running-it-on-symbols)). Each outcome of each
+  decision is a goal: 1284 of them over the 55 instructions. For each
+  goal the solver finds inputs, three times. Each time a random half of
+  the inputs is first pinned to random values, mostly boundary values
+  (0, 1, −1, the sign bit, small numbers), so the inputs the goal doesn't
+  decide come out random. Encodings no instruction has are sampled at
+  random. The result:
+  - 3755 cases in under three minutes;
+  - every goal the solver can reach (1245) reached;
+  - 39 goals proved impossible.
+
+  For comparison, 20,000 random cases reach 1224 of the 1245.
+
+An impossible goal is an outcome one instruction can't reach in code it
+shares with others. LEA can't reach `operand()`'s arms for the updating
+modes, because it turns them away first. BSR can't take an address
+error: its only possible one is a misaligned stack, and entering the
+vector then assumes an aligned one. Over the whole text, only one of
+the specification's 220 decision outcomes is reached by no instruction:
+the last arm of the `case` in `condition()` can't fall through, because
+the `case` is exhaustive.
+
+Making the coverage count honest took four fixes to the tools. Each would
+have reported a goal as missed, or as reached, wrongly:
+
+- an instruction's own parcel has to read back as itself, or the decode
+  doesn't fold and every instruction's text is "reached" from every
+  other;
+- a case aimed at an instruction counts for it even when it decodes as
+  illegal (MFSR with n > 1);
+- `and` and `or` must note what their right side does only where it is
+  evaluated. `c == 14 or condition(c)` never calls `condition` with 14;
+- a constant assignment has one outcome, not two.
 
 Writing it found one thing RFC 0004 doesn't say. When the EA's register
 is updated (`[rn]+`, `-[rn]`), which value of `rd` does the instruction

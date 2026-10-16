@@ -388,4 +388,10 @@ def main(argv=None):
         print(f"{args.random} random cases: {rbad} disagree; they reach {len(hit)} of the "
               f"{len(all_goals)} goals (generated cases: {len(reached_all)}; "
               f"possible: {len(all_goals) - total['impossible'] - total['unknown']})")
+        if args.v:
+            names = {i.line: i.syntax for i in spec.instructions}
+            for i, (site, o) in sorted(reached_all - hit, key=lambda x: (x[0], str(x[1]))):
+                print(f"      random missed: {names.get(i, '(illegal)')}: line {site[1]}: "
+                      f"{lines[site[1] - 1].strip()[:50]} ({site[0]}"
+                      f"{' ' + str(site[2]) if len(site) > 2 else ''}: {o})")
     return 1 if bad else 0
