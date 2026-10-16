@@ -6,7 +6,7 @@ status: current
 date: 2026-10-15
 context:
   studies: [c_compiler, v2_isa, v1_isa]
-  commit: 55616f0
+  commit: d9d80a9
 ---
 
 # Report 0030: The C compiler on draft 2
@@ -15,7 +15,7 @@ The C compiler ([compiler.md](../studies/c_compiler/compiler.md))
 retargeted to draft 2 as [RFC 0028](0028-rfc-draft-2-isa.md) maps it and
 the v2_isa study implements it, link register included, using draft 2's
 new instructions where compiled C has a use for them: the step RFC 0028's
-next steps ([11](0028-rfc-draft-2-isa.md#11-next-steps)) name, and the
+next steps ([13](0028-rfc-draft-2-isa.md#13-next-steps)) name, and the
 list in [RFC 0006](0006-rfc-ideas-isa.md) for the compiler on draft 2. The
 per-program tables are in
 [performance.md](0030-report-c-compiler-draft-2/performance.md), generated
@@ -55,7 +55,7 @@ register allocator and the rest of the backend are shared; draft 1's
 code comes out byte for byte as before.
 
 - **Calls leave the return address in `r7`**
-  ([RFC 0028, 6.8](0028-rfc-draft-2-isa.md#68-control-multiple-and-system-rows-0-and-f)).
+  ([RFC 0028, 5.7](0028-rfc-draft-2-isa.md#57-jumps-and-calls)).
   A function that calls saves `r7` with the registers it keeps, in one
   `SAVE r7-rN`; one that keeps no others pushes it and returns with
   `JMP [sp]+`. A leaf leaves it alone and returns with `RET`, which is
@@ -138,7 +138,7 @@ is 0.998.
   loops (strings 7.7%, the library's `strlen`, `strcpy` and `format`
   2.0%). Half of the uses are `MOVS rd, rs`, the compiler's copy followed
   by a test: 0.25% of the executed instructions, which bears on
-  [RFC 0028, 9.8](0028-rfc-draft-2-isa.md#9-open-questions).
+  [RFC 0028, 12.8](0028-rfc-draft-2-isa.md#12-open-questions).
 - **Counting down is most of `DBNZ`'s gain.** On draft 2 it saves the
   compare (`DEC; BNE` against `INC; CMP; BLT`), and `DBNZ` then the
   decrement. Only crc has loops it applies to among the 15 programs:
