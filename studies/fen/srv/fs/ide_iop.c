@@ -1,9 +1,12 @@
-/* The disk through the I/O processor (studies/iop, RFC 0027, 7): the
- * file server's rings, client 1's, which the kernel set up in page 1 of
- * the shared RAM (kernel/iop.c), mapped here with the doorbells' page and
- * the IOP's status block; its completions are the CF card's interrupt,
- * which the IOP raises in the board's interrupt request register (RFC
- * 0037, 8), and which this clears there, mapped too, before it looks.
+/* The disk through the I/O processor (studies/iop, RFC 0027, 7; RFC
+ * 0040, 5): the file server's request ring, client 1's, which the kernel
+ * set up in page 1 of the shared RAM (kernel/iop.c), mapped here with the
+ * doorbells' page and the IOP's status block; its completion ring, in a
+ * page of its own that it asks the IOP for. Its completions' event is the
+ * CF card's level, which the IOP raises in the board's interrupt request
+ * register (RFC 0037, 8), and which this clears there, mapped too, then
+ * says it has handled the event (the completion ring's count of them
+ * copied to the request ring's), before it looks.
  * A read or a write is a request for each piece of the buffer that's
  * contiguous in physical memory (vm_phys), the IOP moving the sectors
  * straight between the card and RAM, and waits for its completion. A
@@ -16,29 +19,34 @@
 #define RING_PA 0x40010000
 #define BELL_PA 0x74000000
 #define STATUS_PA 0x40000000
-#define IREQ_PA 0x70002000      /* +0 set, +4 clear */
+#define IREQ_PA 0x70002000      /* +0 set, +4 clear, +8 read */
 #define RING_VA 0x00EF0000
 #define BELL_VA 0x00EF1000
 #define STATUS_VA 0x00EF2000
 #define BOUNCE_VA 0x00EF3000
 #define IREQ_VA 0x00EF4000
+#define CMP 0x00EF5000
 #define IDE_IRQ 4
 
 #define H(a) (*(volatile unsigned short *)(a))
 #define W(a) (*(volatile unsigned *)(a))
 #define REQ RING_VA
-#define CMP (RING_VA + 0x400)
-#define IDX (RING_VA + 0x600)   /* our head, the IOP's tail, its head, our tail */
-#define REQ_MASK (64 * 16 - 1)
-#define CMP_MASK (64 * 8 - 1)
+#define RING_HEAD 0             /* a ring: its head, events for its completions, */
+#define RING_EVENTS 2           /* its tail, its entries (64 in each of ours) */
+#define RING_TAIL 4
+#define RING_ENTRIES 8
+#define N 64
 #define S_SECTORS 4
 #define OP_READ 4
 #define OP_WRITE 5
+#define OP_CMPRING 23
 #define PAGE 4096
 
 unsigned ide_sectors;
 static unsigned head, tail, tag;
 static unsigned bounce_pa;
+
+static int request(unsigned op, unsigned pa, unsigned lba, unsigned bytes);
 
 int ide_init(void)
 {
@@ -48,12 +56,16 @@ int ide_init(void)
         (e = vm_map_phys((void *)BELL_VA, BELL_PA, 1, PROT_READ | PROT_WRITE)) < 0 ||
         (e = vm_map_phys((void *)STATUS_VA, STATUS_PA, 1, PROT_READ)) < 0 ||
         (e = vm_map_phys((void *)IREQ_VA, IREQ_PA, 1, PROT_READ | PROT_WRITE)) < 0 ||
-        (e = vm_alloc(0, (void *)BOUNCE_VA, 1, PROT_READ | PROT_WRITE)) < 0)
+        (e = vm_alloc(0, (void *)BOUNCE_VA, 1, PROT_READ | PROT_WRITE)) < 0 ||
+        (e = vm_alloc(0, (void *)CMP, 1, PROT_READ | PROT_WRITE)) < 0)
         return e;
-    W(BOUNCE_VA) = 0;           /* there, so that it has a page */
+    W(BOUNCE_VA) = 0;           /* there, so that they have pages */
+    W(CMP) = 0;
     bounce_pa = vm_phys((void *)BOUNCE_VA);
     e = irq_bind(IDE_IRQ, fs_port, IDE_BIT);
     if (e < 0)
+        return e;
+    if ((e = request(OP_CMPRING, vm_phys((void *)CMP), 0, N)) < 0)
         return e;
     ide_sectors = H(STATUS_VA + S_SECTORS) | (unsigned)H(STATUS_VA + S_SECTORS + 2) << 16;
     return ide_sectors ? 0 : -EIO;
@@ -62,25 +74,24 @@ int ide_init(void)
 /* One request, and its completion: 0, or -EIO. */
 static int request(unsigned op, unsigned pa, unsigned lba, unsigned bytes)
 {
-    unsigned e = REQ + head, t = ++tag & 0xFFFF;
+    unsigned e = REQ + RING_ENTRIES + 16 * (head % N), t = ++tag & 0xFFFF;
     W(e) = op;
     W(e + 4) = pa;
     W(e + 8) = lba;
     W(e + 12) = bytes | t << 16;
-    head = (head + 16) & REQ_MASK;
-    H(IDX) = head;
+    H(REQ + RING_HEAD) = ++head;
     W(BELL_VA + 4) = 0;         /* doorbell 1 */
     for (;;) {
-        while (H(IDX + 4) != tail) {
-            unsigned c = CMP + tail, ct = H(c), st = H(c + 2);
-            tail = (tail + 8) & CMP_MASK;
-            H(IDX + 6) = tail;
+        while (H(CMP + RING_HEAD) != (tail & 0xFFFF)) {
+            unsigned c = CMP + RING_ENTRIES + 8 * (tail % N), ct = H(c), st = H(c + 2);
+            H(CMP + RING_TAIL) = ++tail;
             if (ct == t)
                 return st ? -EIO : 0;
         }
         wait_irq(IDE_BIT);
-        W(IREQ_VA + 4) = 1 << IDE_IRQ;  /* cleared before looking again: a completion */
-        irq_ack(IDE_IRQ);               /* from now on raises it again */
+        W(IREQ_VA + 4) = 1 << IDE_IRQ;  /* cleared, */
+        H(REQ + RING_EVENTS) = H(CMP + RING_EVENTS);    /* the event handled, */
+        irq_ack(IDE_IRQ);               /* and from now on raising it again: a completion */
     }
 }
 

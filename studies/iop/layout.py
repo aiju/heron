@@ -9,11 +9,12 @@ The SRAM, in 16-bit cells (RFC 0027, 3.4):
                    starts here, so that its address has bit 15 clear
     0x8000-0x80FF  system variables (below)
     0x8100-0x81FF  tables: the movers' loop counts, the levels' bits, the
-                   ops, the event sources
+                   ops
     0x8200-0x83FF  the rings' settings, 32 cells for each of 16 clients
     0x8400-0x84FF  requests waiting for the Forth's server, 16 cells each
     0x8500-0x853F  each CPU's ring of events, 16 cells a CPU
-    0x8600-0x8FFF  buffers: the console's input line
+    0x8600-0x87FF  buffers: the console's input line
+    0x8800-0x897F  the routing table, 8 cells for each of 48 sources
     0x9000-0xAFFF  stacks: 128 cells a task, data then return, for up to
                    64 tasks; task n's data stack grows down from
                    0x9040 + 128n, its return stack from 0x9080 + 128n
@@ -56,7 +57,8 @@ A native job's (this study's):
               value stepped with it (with the shared RAM: 8-15); a
               request's eight halfwords (jq0-jq7) as the ring job reads
               it; the subroutines' t0-t7
-    32 jpg    the page of a ring job's rings
+    32 jpg    the page of a ring job's request ring; 33 jroff the next
+              request's byte offset in its entries
     34 jres   the microaddress its next slice starts at
     35 jkind  what a pool job's end does (JK_*); in a free bank, the
               next free bank's register 0
@@ -73,9 +75,9 @@ A native job's (this study's):
     47 jend   where the mover goes when it's done
     48 jmv    the mover's start; 49 jbk what b is (B_*)
     50 jcl    a ring job's client; 51 jset its settings (RINGS + 32c)
-    52-55     jreq, jrmask, jrtail: its request ring (byte address in
-              page jpg, bytes less one, the next to read); jidx: the
-              indices
+    52-54     jreq, jrmask, jrtail: its request ring (byte address in
+              page jpg, its entries' bytes less one, requests read);
+    55 jpost  events for its completions posted (RING_EVENTS)
     56 jwin, 57 jwn   the window being checked, and those left
     58-59     jelo, jehi: the end of a range being checked
     61 jret   a subroutine's return; 62 jirq completions posted since
@@ -107,44 +109,55 @@ NEGHALF = 0x8100         # n -> -(n / 2) & 15, for n = 0-32: LC for n bytes, a h
 NEGQUART = 0x8121        # n -> -(n / 4) & 15, for n = 0-64: LC for n bytes, two halfwords a pass
 LEVELBIT = 0x8162        # level n -> 1 << (n - 1), for n = 0-8 (0 for 0)
 OPTAB = 0x8170           # ops 0-15: where a ring job decodes each to
-EVTAB = 0x8180           # sources 0-19 (INT 0-15, ATN 0-3): 4 cells each (EV_*)
 RINGS = 0x8200           # 32 cells a client (R_*)
 REQQ = 0x8400            # 16 entries of 16 cells: the client, then the request
 REQQ_N = 16
 EVRING = 0x8500          # 16 cells a CPU (E_*)
 TIB = 0x8600             # the console's input line
 TIB_SIZE = 128
+RTAB = 0x8800            # the routing table: 8 cells a source (RT_*)
 STACKS = 0x9000
 STACK_CELLS = 64         # each of a task's two stacks
 JLINK = 0xB000           # a queued job's successor, by bank; 0 when not queued
 BANKS = 0xC000
 
-# ---- event sources (RFC 0027, 6.4 and 7.3)
-SOURCES = 20             # INT 0-15, ATN 0-3
+# ---- event sources and the routing table (RFC 0040, 4)
+SOURCES = 48             # INT 0-15, ATN 0-3 (16-19), clients' completions (32-47)
 SRC_ATN = 16
 SRC_RING = 32            # a client's completions, as an event: 32 + client
-EV_OWNER = 0             # 0 nobody, EV_CPU a CPU, from 0xC000 up a task's wait register
-EV_CPU16 = 1             # 16 x the CPU: its EVRING entry
-EV_LEVEL = 2
-EV_HOLD = 3              # ticks a slow level may be held back for it
-EV_CPU = 1
-
-# A CPU's events (EVRING + 16c): a ring of halfwords in the shared RAM,
-# each a source's number, and a block beside it: +0 the next entry the IOP
-# will write, +2 the next the CPU will read (both byte offsets), +4, +6,
-# +8 the mailboxes of levels 6-8, +10 events dropped.
-E_RING = 0               # the ring: byte address, page
-E_MASK = 2               # its bytes less one
-E_HEAD = 3               # the next entry, as a byte offset
-E_BLK = 4                # the block: byte address, page
+#
+# The routing table, RTAB: 8 cells a source.
+RT_OWNER = 0             # 0 nobody, RT_CPU a CPU, from 0xC000 up a task's wait register
+RT_CPU16 = 1             # 16 x the CPU: its EVRING entry
+RT_CLASS = 2             # LAZY, SLOW or FAST
+RT_LEVEL = 3             # slow: its level; lazy: the level its deadline raises; fast: the level if the claim fails
+RT_HOLD = 4              # slow: ticks it may be held back to batch; lazy: its deadline in ticks, 0 for none
+RT_MSG = 5               # fast: its message's source field, << 8
+RT_CPU = 1
+LAZY, SLOW, FAST = 0, 1, 2
+#
+# A CPU's events (EVRING + 16c): its event ring is in its own RAM (RFC
+# 0040, 5.2): +0 head, written by the IOP, +4 tail, by the CPU, then
+# halfword entries, each a source's number. Head and tail count entries,
+# in their words' low halves. The wake-me word, which the CPU sets before
+# it halts, is in the shared RAM.
+E_RING = 0               # the ring: physical address, low, high
+E_MASK = 2               # its entries less one
+E_HEAD = 3               # entries written
+E_WAKE = 4               # the wake-me word: byte address in the shared RAM, page
 E_SEG = 6                # 0x7000 | CPU << 8: its card's registers (RFC 0037, 5.1)
-E_PEND = 7               # slow levels held back: their bits
+E_PEND = 7               # levels held back: their bits
 E_ON = 8                 # the ring is set up
-B_HEAD, B_TAIL, B_MAIL, B_DROP = 0, 2, 4, 10
 CPUS = 4                 # CPU cards in regions 0-3
-IRQ_SET = 0x2000         # in the card's registers (studies/iop/sim/src/system.rs)
+# The CPU card's registers (RFC 0040, 3; studies/iop/sim/src/system.rs)
+IRQ_SET = 0x2000
 IRQ_CLEAR = 0x2004
-FAST_LEVEL = 6           # levels 6-8 are fast: never held, one source each
+IRQ_READ = 0x2008
+MSG_CLAIM = 0x3000
+MSG_WRITE = 0x3004
+MSG_RELEASE = 0x3008
+MSG_READ = 0x300C
+MESSAGE_LEVEL = 7
 
 # ---- banks
 CONSOLE_BANK = 0
@@ -165,9 +178,9 @@ USER_FIRST = 18           # the first user variable
 JOB_REGS = {
     "jp": 0, "jp2": 1, "jx": 2, "jt": 3, "jt2": 4, "jt3": 5, "jsoff": 6,
     "jsx": 8, "jsb": 9, **{f"jq{n}": 8 + n for n in range(8)},
-    "jpg": 32, "jres": 34, "jkind": 35, "jarg": 36, "jtag": 37, "jstat": 38, "jme": 39,
+    "jpg": 32, "jroff": 33, "jres": 34, "jkind": 35, "jarg": 36, "jtag": 37, "jstat": 38, "jme": 39,
     "jleft": 40, "jalo": 41, "jahi": 42, "jblo": 43, "jbhi": 44, "jchunk": 45, "json": 46, "jend": 47,
-    "jmv": 48, "jbk": 49, "jcl": 50, "jset": 51, "jreq": 52, "jrmask": 53, "jrtail": 54, "jidx": 55,
+    "jmv": 48, "jbk": 49, "jcl": 50, "jset": 51, "jreq": 52, "jrmask": 53, "jrtail": 54, "jpost": 55,
     "jwin": 56, "jwn": 57, "jelo": 58, "jehi": 59, "jdone": 60, "jret": 61, "jirq": 62, "jbase": 63,
 }
 
@@ -222,23 +235,23 @@ DEV_FLASH = 13
 DEV_TIMER = 14
 DEV_PORTS = 15
 TT_WAIT = 1 << 12
-TT_WINDOW = 1 << 13
 
 
-def timing(setup, strobe, hold, wait=False, window=False):
-    """A timing table entry."""
+def timing(setup, strobe, hold, wait=False):
+    """A timing table entry (RFC 0037, 17; there is no WINDOW bit: RFC
+    0040, 15)."""
     assert 0 <= setup <= 3 and 1 <= strobe <= 64 and 0 <= hold <= 15
-    return setup | (strobe - 1) << 2 | hold << 8 | (TT_WAIT if wait else 0) | (TT_WINDOW if window else 0)
+    return setup | (strobe - 1) << 2 | hold << 8 | (TT_WAIT if wait else 0)
 
 
 # At 60 ns: the 16C550 reads in 45 ns after its strobe (0/2/0, RFC 0037's
 # example); the SST39SF040-70 in 70 ns (0/2/0, 120 ns); the 82C54 wants a
 # 150 ns read strobe and its address 45 ns ahead (1/3/1); the ports are
 # HCT latches and buffers (0/2/0).
-TT_UART = timing(0, 2, 0, window=True)
+TT_UART = timing(0, 2, 0)
 TT_FLASH = timing(0, 2, 0)
-TT_TIMER = timing(1, 3, 1, window=True)
-TT_PORTS = timing(0, 2, 0, window=True)
+TT_TIMER = timing(1, 3, 1)
+TT_PORTS = timing(0, 2, 0)
 
 # The I/O cards in the slots (heron.native.iop.System's disk and serial):
 # the CF card in PIO mode 4 (RFC 0037, 17's estimate), the serial card's
@@ -246,7 +259,7 @@ TT_PORTS = timing(0, 2, 0, window=True)
 DISK_SLOT = 0
 SERIAL_SLOT = 1
 TT_CF = timing(0, 3, 0)
-TT_SERIAL = timing(0, 2, 0, window=True)
+TT_SERIAL = timing(0, 2, 0)
 
 # ---- the image flash, in halfwords
 FLASH_MAGIC = 0x4F49       # "IO"
@@ -259,31 +272,33 @@ FL_LATEST = 5              # the last word's header
 FL_IMAGES = 8              # images 0-3: their first halfword, as (low, high)
 FL_DICT = 0x100            # the dictionary starts at the second page
 
-# ---- the rings (RFC 0027, 7.1-7.2)
+# ---- the rings (RFC 0027, 7.1-7.2; RFC 0040, 5)
 #
-# A client's rings are in the shared RAM: a ring of 16-byte requests the
-# client writes, a ring of 8-byte completions the IOP writes, and four
-# indices beside them, each with one writer. Indices are byte offsets
-# into their rings, and a ring's size is a power of two.
-I_REQHEAD = 0              # the client's: where it will write its next request
-I_REQTAIL = 2              # the IOP's: the next it will read
-I_CMPHEAD = 4              # the IOP's: where it will write its next completion
-I_CMPTAIL = 6              # the client's: the next it will read
+# A ring is +0 head, written by its producer, +4 tail, by its consumer,
+# then its entries; head and tail count entries, in their words' low
+# halves, and its size is a power of two. Each lives with its reader
+# (RFC 0040, 5.2): a client's requests in the shared RAM, its completions
+# in its CPU's RAM. A client keeps no more requests outstanding than its
+# completion ring has entries, so the IOP never reads that ring's tail.
 #
-# The IOP's settings for client c, at RINGS + 32c; the request ring's
-# are in its job's bank (jreq ...):
-R_CMP = 0                  # the completion ring: byte address, page
-R_CMASK = 2                # its bytes less one
-R_CHEAD = 3                # the next completion, as a byte offset
-R_IDX = 4                  # the indices: byte address, page
-R_CPU16 = 6                # completions interrupt CPU R_CPU16 / 16
-R_LEVEL = 7                # at this level, 0 for none
-R_HOLD = 8                 # held back for up to this many ticks (slow levels)
+# The IOP's settings for client c, at RINGS + 32c; the request ring's are
+# in its job's bank (jreq, jpg, jrmask, jrtail, jroff):
+R_CMP = 0                  # the completion ring: physical address, low, high
+R_CMASK = 2                # its entries' bytes less one
+R_COFF = 3                 # the next completion's byte offset in the entries
+R_CHEAD = 4                # completions written
+R_CON = 5                  # it's set up
 R_NWIN = 9                 # windows, 0-4
-R_OUT = 10                 # requests the server has and hasn't completed
 R_CL = 11                  # the client's number
 R_WIN = 16                 # windows: base (low, high), limit (low, high)
 WINDOWS = 4
+RING_HEAD, RING_TAIL, RING_ENTRIES = 0, 4, 8
+# The head word's high half, +2, written by the head's writer too, counts
+# the events for a client's completions (SRC_RING + c): in its completion
+# ring, those the IOP has posted; in its request ring, those the client
+# has handled, copied from the other once it has. The IOP posts the next
+# only when they're equal (ucode/jobs.uc's jr_empty).
+RING_EVENTS = 2
 #
 # A request, 8 halfwords; a completion, 4:
 Q_OP, Q_FLAGS, Q_ALO, Q_AHI, Q_BLO, Q_BHI, Q_LEN, Q_TAG = range(8)
@@ -297,11 +312,12 @@ OP_SERVER = 16             # this and up go to the Forth
 OP_NOP = 16
 OP_RING = 17               # kernel: client blo's rings, from the settings at a (below)
 OP_WINDOW = 18             # kernel: client flags & 15's window flags >> 8: [a, b)
-OP_ROUTE = 19              # kernel: source blo to CPU bhi >> 8 at level bhi & 0xFF (0: nobody), held len ticks
+OP_ROUTE = 19              # kernel: source blo to CPU bhi >> 8 at level bhi & 0xFF (0: nobody), class flags & 3, a fast one's message source flags >> 8, held len ticks
 OP_UNMASK = 20             # source blo, served: routed again
 OP_EVRING = 21             # kernel: CPU blo's events, from the settings at a (below)
 OP_FORTH = 22              # kernel: len bytes of Forth source at a, interpreted
-OP_NOTIFY = 23             # kernel: client blo's completions interrupt CPU bhi >> 8 at level bhi & 0xFF, held len ticks
+OP_CMPRING = 23            # this client's completions into the ring at a, of len entries
+OP_ALARM = 24              # a completion after len ticks (RFC 0040, 4.5)
 OP_SEND = 40               # serial line blo: len bytes from a
 OP_RECV = 41               # serial line blo: up to len bytes into a: a line, or what's come if raw
 OP_MODE = 42               # serial line blo: flags bit 0 raw, bit 1 no echo
@@ -313,25 +329,19 @@ ST_DEVICE = 4              # the device failed
 ST_ALIGN = 5               # an odd address or length
 ST_BUSY = 6                # a line already has a receive waiting
 #
-# OP_RING's settings, 10 halfwords at a: the request ring (byte address
-# in the shared RAM: low, high), its bytes, the completion ring likewise,
-# the indices (low, high); then the interrupt: level | CPU << 8, and its
-# hold. OP_EVRING's, at a: the ring (low, high), its bytes, the block
-# (low, high).
+# OP_RING's settings, 6 halfwords at a: the request ring (physical address
+# in the shared RAM: low, high) and its entries, the completion ring
+# (physical, low, high) and its entries. OP_EVRING's, 5 at a: the ring
+# (physical, low, high), its entries, the wake-me word (physical, in the
+# shared RAM: low, high). Each writer of an index sets it to 0.
 #
-# The kernel's rings (client 0) and CPU 0's events are where the cold
-# start puts them, in the shared RAM by byte: the status block at 0, the
-# indices at 0x40, the requests (64) at 0x1000, the completions (64) at
-# 0x1400, CPU 0's block at 0x1800 and its ring of events (64) at 0x1820.
+# The kernel's request ring (client 0) is where the cold start puts it,
+# in the shared RAM by byte: the status block at 0, the requests (64) at
+# 0x1000. It has no completion ring, and no CPU a ring of events, until
+# the kernel asks for them (OP_CMPRING, OP_EVRING).
 STATUS_BYTES = 0x40
 S_READY = 0                # the status block: STATUS_READY once the cold start is done
 S_SECTORS = 4              # the CF card's sectors (low, high), 0 for none
 STATUS_READY = 0x494F
-K_IDX = 0x40
 K_REQ = 0x1000
 K_REQS = 64
-K_CMP = 0x1400
-K_CMPS = 64
-K_EVBLK = 0x1800
-K_EVRING = 0x1820
-K_EVS = 64

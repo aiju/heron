@@ -25,6 +25,10 @@
 //! - it reads BA before the last read's data is in it: BA onto R in the
 //!   first half waits at E0, BA into AB or a device in the second half at
 //!   E1. RFC 0027 doesn't say what happens here; this model interlocks;
+//! - it loads AB while the last write's data phase hasn't ended: it waits
+//!   at E1, as a transfer does, so that the write's data holds (RFC 0027
+//!   doesn't say either; without it, back-to-back writes from registers
+//!   would have to count the slave's clocks);
 //! - it accesses the I/O bus: the access starts when the last one's hold
 //!   has ended, and the microcycle lasts until its strobe ends (RFC 0027,
 //!   3.5), 1 + SETUP + STROBE clocks from the timing table, if that is
@@ -124,7 +128,7 @@ pub trait SystemBus {
         0
     }
     /// RESET, the system reset, while CTRL's RESET bit is set.
-    fn reset(&mut self, _on: bool) {}
+    fn reset(&mut self, _on: bool, _now: u64) {}
 }
 
 /// A system bus with nothing else on it.
@@ -469,6 +473,11 @@ impl Iop {
             self.stats.stall_ba += self.ba_ready - e1;
             e1 = self.ba_ready;
         }
+        let ab_load = matches!(u.t, T_AB_BA | T_AB_F | T_AB_DEV);
+        if ab_load && self.write_end > e1 + 1 {
+            self.stats.stall_bus += self.write_end - e1 - 1;
+            e1 = self.write_end - 1;
+        }
         if u.bus != BUS_NONE {
             if self.ctrl & CTRL_SESSION == 0 {
                 return Err("a transfer without SESSION".into());
@@ -505,7 +514,7 @@ impl Iop {
         if u.wb {
             self.sram[addr] = f;
         }
-        if matches!(u.t, T_AB_BA | T_AB_F | T_AB_DEV) && e2 < self.write_end {
+        if ab_load && e2 < self.write_end {
             return Err("AB changed during a write's data phase".into());
         }
         let old_ba = self.ba;
@@ -609,7 +618,7 @@ impl Iop {
                     self.gnt_at = e2 + GRANT_CLOCKS;
                 }
                 if (rose | fell) & CTRL_RESET != 0 {
-                    bus.reset(self.ctrl & CTRL_RESET != 0);
+                    bus.reset(self.ctrl & CTRL_RESET != 0, e2);
                 }
                 if rose & CTRL_IORESET != 0 {
                     self.io.reset();

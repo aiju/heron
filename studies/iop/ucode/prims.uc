@@ -725,19 +725,10 @@ job_q:  CTRL <- #(8 | CTRL_WORK)
 job_full: ip <- ip - 1 | goto xpause
         nop
 
-; ( event cpu16 level hold -- ) an event to a CPU (jobs.uc's post)
+; ( src -- ) source src's event to its owner (jobs.uc's post)
 .prim (post)
-        t3 <- AC
+        t0 <- AC
         X <- sp
-        F <- [X]
-        t2 <- F
-        sp, X <- sp + 1
-        F <- [X]
-        t1 <- F
-        sp, X <- sp + 1
-        F <- [X]
-        t0 <- F
-        sp, X <- sp + 1
         AC <- [X]
         tos <- AC
         sp <- sp + 1

@@ -18,7 +18,7 @@
 //! IOP's transceiver. So firmware masks what it reads from them.
 //!
 //! **An entry of the timing table** (RFC 0037, 17): bits 0-1 SETUP, 2-7
-//! STROBE less one (1-64 clocks), 8-11 HOLD, 12 WAIT, 13 WINDOW. An access
+//! STROBE less one (1-64 clocks), 8-11 HOLD, 12 WAIT. An access
 //! takes (1 + SETUP) + STROBE + (1 + HOLD) bus clocks. The table is SRAM:
 //! an access to a device whose entry hasn't been written since power-up
 //! is an error here, since its timing would be whatever the SRAM held.
@@ -34,7 +34,6 @@ pub const PORTS: usize = 15;
 pub const SLOTS: usize = 12;
 
 pub const TT_WAIT: u16 = 1 << 12;
-pub const TT_WINDOW: u16 = 1 << 13;
 
 /// The watchdog's time: COLD if not kicked for this long (RFC 0027, 5).
 pub const WATCHDOG_NS: u64 = 100_000_000;
@@ -258,11 +257,13 @@ impl IoBus {
     }
 
     /// An access through the window from the system bus (RFC 0037, 20):
-    /// devices without WINDOW in their entry ignore writes and read all
-    /// ones. Returns the value, and the I/O bus clocks it took.
+    /// it reaches every device (RFC 0040, 15). Writes are posted there,
+    /// which this model doesn't time. A device whose timing table entry
+    /// hasn't been written reads all ones and ignores writes. Returns the
+    /// value, and the I/O bus clocks it took.
     pub fn window(&mut self, dev: usize, reg: u8, write: Option<u16>, now_ns: u64) -> (u16, u32) {
         match self.ttab[dev] {
-            Some(e) if e & TT_WINDOW != 0 => {
+            Some(e) => {
                 self.advance(now_ns);
                 self.accesses += 1;
                 let v = match write {

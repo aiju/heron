@@ -15,22 +15,8 @@ variable pcv
    r> if $FF and pcv @ swab or else $FF00 and pcv @ $FF and or then
    -rot sr! ;
 
-\ ---- a client's windows, as the ring jobs check them
+\ ---- a client's windows (system.fs's in-window?)
 
-: du< ( d1 d2 -- f ) rot 2dup = if 2drop u< else swap u< nip nip then ;
-: w@ ( a -- d ) dup @ swap 1+ @ ;
-2variable ra
-2variable re
-\ Is [a, a + len) in one of client c's windows? The kernel's is anywhere.
-: in-window? ( a. len c -- f )
-   ?dup 0= if drop 2drop true exit then
-   rset >r  >r 2dup ra 2!  r> 0 d+ re 2!
-   r> dup R_NWIN + @ 0 ?do
-      dup R_WIN + i 4 * +
-      dup w@ ra 2@ 2swap du< 0=
-      swap 2 + w@ re 2@ du< 0= and
-      if drop unloop true exit then
-   loop drop false ;
 : window? ( a. len -- f )      \ the request's own client's
    0 req in-window? dup 0= if ST_WINDOW status ! then ;
 

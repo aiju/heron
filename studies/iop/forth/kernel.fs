@@ -23,7 +23,7 @@ S0 constant s0
 R0 constant r0
 TIB constant tib0
 EVMASK constant evmask
-EVTAB constant evtab
+RTAB constant rtab
 BELLS constant bells
 
 \ ---- the stack and arithmetic
@@ -88,12 +88,12 @@ $C00 constant uart
 \ ---- tasks and events (RFC 0027, 6.4)
 
 \ A task waits for INT line n: its wait register set, then the line routed
-\ to it and enabled; the native layer clears wait and masks the line at
-\ the next tick that finds it up.
+\ to it (the routing table's owner, RFC 0040, 4.3) and enabled; the native
+\ layer clears wait and masks the line at the next tick that finds it up.
 : wait-reg ( -- a ) up@ R.wait + ;
 : wait-int ( n -- )
    1 wait-reg !
-   wait-reg over 4 * evtab + !
+   wait-reg over 8 * rtab + !
    1 swap lshift evmask @ or evmask !
    pause ;
 

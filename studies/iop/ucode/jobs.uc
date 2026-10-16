@@ -5,146 +5,187 @@
 ; attention, and goes to jattn when there is some. jstop takes it out of
 ; the queue.
 
-; ---- an event to a CPU (RFC 0027, 7.3; RFC 0037, 8): into the CPU's
-; ring of events if it has one, then its level: a fast level's mailbox
-; first and its bit at once; a slow level's bit at once, or held back
-; until TICKS runs out. t0 the event (a source's number), t1 16 x the CPU,
-; t2 the level, t3 the hold in ticks; t4-t6 scratch; back to t7. The ring
-; and its block share a 64 KB page of the shared RAM.
+; ---- an event to its owner (RFC 0040, 4.3-4.4): t0 the source. Its
+; entry in the routing table, RTAB + 8 t0, names the owner: nobody; one of
+; the IOP's tasks, whose wait register is cleared; or a CPU, by the
+; event's class:
+; - fast: {RT_MSG, t0} into the CPU's message register if the claim gets
+;   it, else as slow, at once;
+; - slow: into the CPU's ring of events, then its level's bit, at once or
+;   held back RT_HOLD ticks to batch;
+; - lazy: into the ring, with its level only if the ring's wake-me word
+;   is set (at once) or it has a deadline, RT_HOLD (held back until then).
+; A ring of events is in its CPU's RAM, within a 64 KB page, and has room
+; for every source routed to it, so the IOP never reads its tail (RFC
+; 0040, 5.1). t1-t6 scratch; back to t7.
 
-post:   AC <- t1
-        X <- #(EVRING + E_ON) + AC
-        F <- [X] - 1 | ifnot carry goto po_level   ; no ring of events
-        X <- #(EVRING + E_BLK + 1) + AC
-        F <- [X] | pg0 <- F
-        X <- #(EVRING + E_BLK) + AC
-        AC <- [X]
-        t5 <- AC                ; the block
-        F <- #B_TAIL + AC | X <- F
-        AC <- sr
-        t6 <- AC                ; the CPU's tail
+post:   AC <- t0
+        AC <- t0 + AC
+        t6 <- AC
+        AC <- t6 + AC
+        t6 <- AC
+        AC <- t6 + AC
+        t6, X <- #RTAB + AC     ; the entry
+        AC <- [X]               ; the owner
+        F <- AC | if F15 goto po_task
+        X <- AC
+        F <- m1 + AC | ifnot carry goto po_ret     ; nobody
+        t6, X <- t6 + 1
+        F <- [X]
+        t1 <- F                 ; 16 x the CPU
+        t6, X <- t6 + 1
+        F <- [X]
+        t5 <- F                 ; the class
+        t6, X <- t6 + 1
+        AC <- [X]               ; the level
+        X <- #LEVELBIT + AC
+        F <- [X]
+        t2 <- F                 ; its bit
+        AC <- t6
+        X <- #1 + AC
+        F <- [X]
+        t3 <- F                 ; the hold, or the deadline
+        AC <- #FAST
+        F <- t5 - AC | if carry goto po_fast
         AC <- t1
+po_ring: X <- #(EVRING + E_ON) + AC
+        F <- [X] - 1 | ifnot carry goto po_slow    ; no ring of events: just the level
+        X <- #(EVRING + E_RING + 1) + AC
+        AH0 <- [X]
         X <- #(EVRING + E_MASK) + AC
         AC <- [X]
         t4 <- AC
         AC <- t1
         X <- #(EVRING + E_HEAD) + AC
-        AC <- #2
-        AC <- [X] + AC
-        AC <- t4 & AC
-        t4 <- AC                ; the head after this one
-        AC <- t6 ^ AC
-        F <- m1 + AC | ifnot carry goto po_full    ; that's the CPU's tail: full
         AC <- [X]
-        F <- t4
-        [X] <- F
-        t6 <- AC                ; this one
+        AC <- t4 & AC
+        t4 <- AC
+        t4 <- t4 + AC           ; this entry's offset
+        [X] <- [X] + 1          ; the head on
         AC <- t1
         X <- #(EVRING + E_RING) + AC
         AC <- [X]
-        F <- t6 + AC | X <- F
-        F <- t0 | sr <- F       ; the event
-        F <- t5 | X <- F
-        F <- t4 | sr <- F       ; and the head, published
-po_level: AC <- t2
-        X <- #LEVELBIT + AC
-        F <- [X]
-        t4 <- F                 ; the level's bit
-        AC <- #FAST_LEVEL
-        F <- t2 - AC | if carry goto po_fast
-        nop
-        F <- t3 - 1 | ifnot carry goto po_now      ; not held
+        AC <- #RING_ENTRIES + AC
+        t4 <- t4 + AC           ; its address
+        CTRL <- #(8 | CTRL_SESSION)
+        F <- t0 | AB <- F
+        F <- t4 | wr.h AH0      ; the event
         AC <- t1
+        X <- #(EVRING + E_HEAD) + AC
+        F <- [X] | AB <- F
+        X <- #(EVRING + E_RING) + AC
+        F <- [X] | wr.h AH0     ; and the head, published
+        F <- t5 - 1 | if carry goto po_slow
+        nop
+        AC <- t1                ; lazy: the wake-me word, in the shared RAM
+        X <- #(EVRING + E_WAKE + 1) + AC
+        F <- [X] | pg0 <- F
+        X <- #(EVRING + E_WAKE) + AC
+        F <- [X] | X <- F
+        F <- sr - 1 | if carry goto po_now         ; the CPU is going to halt
+        nop
+        F <- t3 - 1 | if carry goto po_held        ; its deadline
+        nop
+        goto po_ret
+        nop
+po_slow: F <- t3 - 1 | ifnot carry goto po_now      ; not held
+        nop
+po_held: AC <- t1
         X <- #(EVRING + E_PEND) + AC
-        AC <- t4
+        AC <- t2
         [X] <- [X] | AC         ; held: it goes when TICKS runs out
         X <- #TICKS
         AC <- t3
         F <- [X] - AC | ifnot carry goto po_ret    ; that's sooner already
         nop
         [X] <- AC
-po_ret: F <- t7 | goto F
+po_ret: CTRL <- #CTRL_SESSION
+        F <- t7 | goto F
         nop
-po_full: F <- t5 | X <- F       ; dropped, and counted in the block
-        AC <- #B_DROP
-        F <- t5 + AC | X <- F
-        AC <- sr
-        F <- #1 + AC | sr <- F
-        goto po_level
-        nop
-po_fast: AC <- t1               ; the mailbox, if there's a block
-        X <- #(EVRING + E_ON) + AC
-        F <- [X] - 1 | ifnot carry goto po_now
-        X <- #(EVRING + E_BLK + 1) + AC
-        F <- [X] | pg0 <- F
-        X <- #(EVRING + E_BLK) + AC
-        AC <- [X]
-        t5 <- AC
-        AC <- t2
-        AC <- t2 + AC
-        AC <- t5 + AC
-        F <- #(B_MAIL - 2 * FAST_LEVEL) + AC | X <- F
-        F <- t0 | sr <- F
-po_now: AC <- t1                ; the bit, on the bus
+po_now: F <- t2 - 1 | ifnot carry goto po_ret      ; level 0: none
+        AC <- t1                ; the level's bit, on the bus
         X <- #(EVRING + E_SEG) + AC
         AH0 <- [X]
         CTRL <- #(8 | CTRL_SESSION)
-        F <- t4 | AB <- F
+        F <- t2 | AB <- F
         F <- #IRQ_SET | wr.h AH0
-        CTRL <- #CTRL_SESSION
-        F <- t7 | goto F
+        goto po_ret
         nop
+po_task: [X] <- 0
+        X <- #WOKE
+        [X] <- -1 | goto po_ret
+        nop
+po_fast: X <- #(EVRING + E_SEG) + AC               ; the message register: claimed?
+        AH0 <- [X]
+        CTRL <- #(8 | CTRL_SESSION)
+        F <- #MSG_CLAIM | rd.h AH0
+        AC <- BA
+        F <- m1 + AC | if carry goto po_fslow      ; claimed or full already
+        F <- t0 | AB <- F
+        F <- #MSG_WRITE | wr.h AH0                 ; the message, low half
+        AC <- #(RT_MSG - RT_LEVEL)
+        F <- t6 + AC | X <- F
+        F <- [X] | AB <- F
+        F <- #(MSG_WRITE + 2) | wr.h AH0           ; the source: it's full, and requests level 7
+        goto po_ret
+        nop
+po_fslow: AC <- t1                                 ; slow instead, at once
+        goto po_ring
+        t3 <- 0
 
-; ---- a completion into a client's ring (RFC 0027, 7.1): t0 its settings
-; (RINGS + 32c), t1 the tag, t2 the status, t3-t4 the result; t5-t6
-; scratch; back to t7. The rings and their indices share a 64 KB page of
-; the shared RAM. A full ring drops it, and counts it in DROPPED.
+; ---- a completion into a client's ring (RFC 0027, 7.1; RFC 0040, 5.2):
+; t0 its settings (RINGS + 32c), t1 the tag, t2 the status, t3-t4 the
+; result; t5-t6 scratch; back to t7. The completion ring is in the
+; client's CPU's RAM, within a 64 KB page; the client keeps no more
+; requests outstanding than it has entries, so the IOP never reads its
+; tail. A client without one doesn't get it: counted in DROPPED.
 
 cpost:  AC <- t0
+        X <- #R_CON + AC
+        F <- [X] - 1 | ifnot carry goto cp_none
         X <- #(R_CMP + 1) + AC
-        F <- [X] | pg0 <- F
-        X <- #R_IDX + AC
-        AC <- [X]
-        F <- #I_CMPTAIL + AC | X <- F
-        AC <- sr
-        t6 <- AC                ; the client's tail
-        AC <- t0
+        AH0 <- [X]
         X <- #R_CMASK + AC
         AC <- [X]
         t5 <- AC
         AC <- t0
-        X <- #R_CHEAD + AC
+        X <- #R_COFF + AC
         AC <- #8
         AC <- [X] + AC
         AC <- t5 & AC
-        t5 <- AC                ; the head after this one
-        AC <- t6 ^ AC
-        F <- m1 + AC | ifnot carry goto cp_full
+        t5 <- AC                ; the offset after this one
         AC <- [X]
         F <- t5
         [X] <- F
-        t6 <- AC                ; this one
+        t6 <- AC                ; this one's
         AC <- t0
         X <- #R_CMP + AC
         AC <- [X]
-        F <- t6 + AC | X <- F
-        t6 <- F
-        F <- t1 | sr <- F       ; the tag
+        AC <- #RING_ENTRIES + AC
+        t6 <- t6 + AC           ; its address
+        CTRL <- #(8 | CTRL_SESSION)
+        F <- t1 | AB <- F
+        F <- t6 | wr.h AH0      ; the tag
         AC <- #2
-        t6, X <- t6 + AC
-        F <- t2 | sr <- F       ; the status
-        t6, X <- t6 + AC
-        F <- t3 | sr <- F       ; the result
-        t6, X <- t6 + AC
-        F <- t4 | sr <- F
+        t6 <- t6 + AC
+        F <- t2 | AB <- F
+        F <- t6 | wr.h AH0      ; the status
+        t6 <- t6 + AC
+        F <- t3 | AB <- F
+        F <- t6 | wr.h AH0      ; the result
+        t6 <- t6 + AC
+        F <- t4 | AB <- F
+        F <- t6 | wr.h AH0
         AC <- t0
-        X <- #R_IDX + AC
-        AC <- [X]
-        F <- #I_CMPHEAD + AC | X <- F
-        F <- t5 | sr <- F       ; published
+        X <- #R_CHEAD + AC
+        F <- [X] + 1 | AB <- F
+        [X] <- F
+        X <- #R_CMP + AC
+        F <- [X] | wr.h AH0     ; the head, published
+        CTRL <- #CTRL_SESSION
         F <- t7 | goto F
         nop
-cp_full: X <- #DROPPED
+cp_none: X <- #DROPPED
         [X] <- [X] + 1
         F <- t7 | goto F
         nop
@@ -600,16 +641,18 @@ jf_free: X <- #JFREE
         nop
 
 ; ---- a client's ring job (RFC 0027, 7.1-7.2), bank 64 + c: each request
-; in turn, the fast ones (copy, fill, zero) here and the rest to the
-; Forth's server, until the ring is empty. Its rings and indices share
-; page jpg of the shared RAM.
+; in turn, the fast ones (copy, fill, zero, the disk's) here and the rest
+; to the Forth's server, until the ring is empty. Its request ring is at
+; jreq in page jpg of the shared RAM (RFC 0040, 5.1): +0 the client's
+; head, +4 the IOP's tail, from +8 the requests.
 
 jring:  F <- jpg | pg0 <- F
-        X <- jidx               ; I_REQHEAD
+        X <- jreq               ; the head
         AC <- sr
         AC <- jrtail ^ AC
         F <- m1 + AC | ifnot carry goto jr_empty
-        AC <- jrtail
+        AC <- jroff
+        AC <- #RING_ENTRIES + AC
         F <- jreq + AC | X <- F
         jt <- F
         AC <- #2
@@ -629,11 +672,12 @@ jring:  F <- jpg | pg0 <- F
         jt, X <- jt + AC
         jq7 <- sr
         AC <- #16               ; the tail on, published
-        jrtail <- jrtail + AC
+        jroff <- jroff + AC
         AC <- jrmask
-        jrtail <- jrtail & AC
-        AC <- jidx
-        F <- #I_REQTAIL + AC | X <- F
+        jroff <- jroff & AC
+        jrtail <- jrtail + 1
+        AC <- #RING_TAIL
+        F <- jreq + AC | X <- F
         F <- jrtail
         sr <- F
         F <- jq7
@@ -881,24 +925,35 @@ jr_on:  jres <- #jring
         nop
         TICK jring 0
 
-; The ring is empty: the client's interrupt, if it has completions it
-; hasn't been told of, and out of the queue until its doorbell.
+; The ring is empty: the client's event, SRC_RING + c (post), if it has
+; completions it hasn't been told of and has handled the last event; so
+; the source is masked until it's served (RFC 0040, 4.4). jpost counts the
+; events posted, and is published at the completion ring's RING_EVENTS;
+; having handled one, the client copies that to its request ring's
+; RING_EVENTS, then looks at its completions again. Then out of the queue
+; until the doorbell.
 jr_empty: F <- jirq - 1 | ifnot carry goto jstop
         jres <- #jring
+        AC <- #RING_EVENTS
+        F <- jreq + AC | X <- F
+        AC <- sr
+        AC <- jpost ^ AC
+        F <- m1 + AC | if carry goto jstop         ; the last isn't handled yet
         jirq <- 0
+        jpost <- jpost + 1
         AC <- jset
-        X <- #R_LEVEL + AC
-        F <- [X] - 1 | ifnot carry goto jstop      ; it has no interrupt
-        F <- [X]
-        t2 <- F
-        X <- #R_CPU16 + AC
-        F <- [X]
-        t1 <- F
-        X <- #R_HOLD + AC
-        F <- [X]
-        t3 <- F
-        X <- #R_CL + AC
+        X <- #R_CON + AC
+        F <- [X] - 1 | ifnot carry goto jre_post   ; no completion ring
+        X <- #(R_CMP + 1) + AC
+        AH0 <- [X]
+        X <- #R_CMP + AC
         AC <- [X]
+        AC <- #RING_EVENTS + AC
+        t6 <- AC
+        CTRL <- #(8 | CTRL_SESSION)
+        F <- jpost | AB <- F
+        F <- t6 | wr.h AH0
+jre_post: AC <- jcl
         AC <- #SRC_RING + AC
         t0 <- AC
         t7 <- #jstop

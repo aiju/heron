@@ -1,16 +1,11 @@
 \ The IOP's Forth: the cold start, last, as it starts everything before it.
 
-\ Client 0's rings and CPU 0's events, where the kernel expects them
-\ (layout.py): no interrupt for its completions until it asks.
+\ Client 0's request ring, where the kernel expects it (layout.py); no
+\ completion ring or ring of events until it asks.
 : kernel-rings ( -- )
-   0 0. >sr K_IDX 8 + 2/ bus-fill
+   0 0. >sr K_REQ RING_ENTRIES + 2/ bus-fill
    K_REQ 0 cbank J.jreq reg !  $4000 0 cbank J.jpg reg !  K_REQS 16 * 1- 0 cbank J.jrmask reg !
-   K_CMP 0 rset R_CMP + !  $4000 0 rset R_CMP + 1+ !  K_CMPS 8 * 1- 0 rset R_CMASK + !
-   K_IDX 0 rset R_IDX + !  $4000 0 rset R_IDX + 1+ !
-   0 0 0 notify!  0 ring-on
-   K_EVRING 0 evs E_RING + !  $4000 0 evs E_RING + 1+ !  K_EVS 2* 1- 0 evs E_MASK + !
-   K_EVBLK 0 evs E_BLK + !  $4000 0 evs E_BLK + 1+ !
-   0 evring-on ;
+   0. 0 0 cmp-ring  0 ring-on ;
 
 : banner ( -- ) ." Heron IOP Forth, " here u. ." cells" cr ;
 : cold ( -- )

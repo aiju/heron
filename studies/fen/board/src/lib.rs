@@ -15,7 +15,7 @@
 //! | `0x1000_0000` | slot 1, the video card ([`video`]): VRAM, its registers at `0x1FF0_0000` |
 //! | `0x2000_0000` | slot 2, the I/O card, a 4 KB page for each device: a 16C550 UART at +0x0000, a CompactFlash card in True IDE mode at +0x1000 (CS0, the task file) and +0x1020 (CS1, the control block), two PS/2 ports at +0x2000 (keyboard) and +0x2010 (mouse) ([`ps2`]), and a clock at +0x3000, with the card's ID at +0x3FFC |
 //! | `0x4000_0000` | the I/O processor's shared RAM, when the machine has one (RFC 0037's region 4) |
-//! | `0x7000_2000` | the interrupt request register of RFC 0037 (8, 9): +0 W set the levels whose bits are 1 (bit L - 1 for level L), R the requests; +4 W clear them |
+//! | `0x7000_2000` | the interrupt request register (RFC 0040, 3.1): +0 W set the levels whose bits are 1 (bit L - 1 for level L); +4 W clear them; +8 R the requests |
 //! | `0x7400_0000`, `0x7F00_0000` | the I/O processor's doorbells and the window onto its I/O bus, when there is one |
 //! | anything else | nothing answers: a bus error |
 //!
@@ -311,7 +311,8 @@ impl Bus for Board {
                 Some(self.video.read_reg(off & 0xFF, self.now_ns))
             }
             IO_SLOT if off < 0x4000 => self.io_read(off, size),
-            7 if pa & !0xF == IREQ => Some(self.ireq as u32),
+            7 if pa == IREQ + 8 => Some(self.ireq as u32),
+            7 if pa & !0xF == IREQ => Some(0),
             4 | 7 => {
                 let t = self.now_ns;
                 self.iop.as_ref()?.lock().unwrap().slave_read(pa, size, t)
@@ -383,7 +384,7 @@ impl SystemBus for IopSide<'_> {
                 clocks: 2,
             };
         }
-        let data = (addr & !3 == IREQ).then_some(self.board.ireq as u16);
+        let data = (addr & !3 == IREQ + 8).then_some(self.board.ireq as u16);
         Answer { data, clocks: 1 }
     }
 

@@ -42,7 +42,7 @@ create flhdr 16 allot
 
 \ ---- the CPU card (RFC 0027, 8.1): its registers at 0x7000_0000
 
-$70001000. 2constant cpu-ctl
+$70000000. 2constant cpu-ctl
 $70002000. 2constant cpu-irq
 : cpu! ( x -- ) cpu-ctl bus! ;
 : cpu? ( -- x ) cpu-ctl bus@ ;

@@ -7,7 +7,9 @@ reports: [27]
 # The I/O processor
 
 The I/O processor of [RFC 0027](../../reports/0027-rfc-io-coprocessor.md),
-its "simulate first" (16), steps 1-3: a model of the IOP at
+with the interrupts and rings of
+[RFC 0040](../../reports/0040-rfc-interrupts.md), RFC 0027's "simulate
+first" (16), steps 1-3: a model of the IOP at
 microinstruction level, its microcode, and the Forth the microcode
 interprets, on a system with a draft 2 CPU card that the IOP boots; then
 the native jobs, the rings with their requests, windows and completions,
@@ -27,7 +29,8 @@ needed something it leaves open, it chose (below).
   can raise.
 - **The system:** the IOP's card and a CPU card on RFC 0037's map, the
   CPU being draft 2 at instruction level (`studies/v2_isa`) behind a card
-  with RFC 0027's control register, interrupt request register, slave port
+  with RFC 0040's registers (control, board information, the request
+  register, the message register, the timer) and RFC 0027's slave port
   and control store window. The CPU starts with RUN off; the IOP loads it
   and starts it.
 - **The microcode** (`ucode/`, about 2,100 microinstructions): reset (the
@@ -39,7 +42,7 @@ needed something it leaves open, it chose (below).
   image flash and a device's register, in slices of 16 transfers), each
   client's ring job (requests fetched, checked against the client's
   windows, done or passed to the Forth, completed; the CF card's sectors
-  among them), and posting events and interrupts to the CPUs.
+  among them), and posting events to their owners by the routing table.
 - **The Forth** (`forth/`, about 8,700 cells): the console *is* its
   interpreter. A kernel with the compiler, catch and throw; the monitor
   (examine, deposit, dump anywhere on the system bus), blocks as native
@@ -74,12 +77,13 @@ variable n : counter begin 1 n +! pause again ;
 : hi ." hello" ; save      \ into the image flash, for the next cold start
 ```
 
-The kernel on a CPU uses the IOP through its rings in the shared RAM
-(layout.py has the formats, `sw/ring.s` is an example): requests of 16
-bytes into the request ring, the doorbell, and completions of 8 bytes back,
-with an interrupt and an event in the CPU's ring of events if it asked for
-one. Client 0's rings, the kernel's, are set up at the cold start; others
-through the kernel's ring.
+The kernel on a CPU uses the IOP through its rings (layout.py has the
+formats, `sw/ring.s` is an example): requests of 16 bytes into its
+request ring in the shared RAM, the doorbell, and completions of 8 bytes
+back into its completion ring in the CPU's own RAM, with an event if it
+routed its completions' source to its CPU. Client 0's request ring, the
+kernel's, is set up at the cold start; its completion ring, the CPUs'
+rings of events and other clients' rings through the kernel's ring.
 
 | File | What's in it |
 |---|---|
@@ -118,6 +122,11 @@ RFC, not decisions.
 - **BA interlocks:** a microinstruction that reads BA before the last
   read's data is there waits (RFC 0027 says only that the next transfer
   waits at E1).
+- **AB interlocks too:** a microinstruction that loads AB while the last
+  write's data phase hasn't ended waits at E1, as a transfer does, so the
+  write's data holds; without it, writes of registers one after another
+  (a completion's four halfwords) would have to count the slave's
+  clocks.
 - **An I/O bus access** starts when the last one's hold has ended, and
   stretches its microinstruction to its strobe's end, (1 + SETUP) +
   STROBE clocks from the timing table, when that is more than 2 ("stalls
@@ -162,31 +171,52 @@ RFC, not decisions.
   image flash), and each chunk into slices of 16 transfers, with LC
   loaded from a table by the slice's bytes. Halfwords only; to and from a
   device's register, multiples of 4.
-- **The rings** (layout.py): a client's request ring, completion ring and
-  four indices (byte offsets, each with one writer) in one 64 KB page of
-  the shared RAM. The ring job reads a request into its registers, and
-  does copies, fills, zeroing and the disk's reads and writes itself,
-  checked against up to 4 windows of the client's (the kernel's ring,
-  client 0, has none to check); the rest go through a queue to a Forth
-  task, the server. A completion
-  interrupts its client when the ring is next empty, so a run of requests
-  costs one interrupt.
-- **Events to a CPU** (RFC 0027, 7.3, RFC 0037, 8): an event table of 4
-  cells a source (its owner, CPU, level and hold); each CPU has a ring of
-  events, halfwords, and a block beside it with the indices and the fast
-  levels' mailboxes. A slow level held back sets TICKS, a countdown the
-  tick takes, to the shortest hold waiting; when it runs out every held
-  level goes in one write to each CPU's set address.
+- **The rings** (layout.py, RFC 0040, 5): +0 head and +4 tail, each
+  counting entries in its word's low half, then the entries; each lives
+  with its reader. A client's request ring is in the shared RAM, its
+  completion ring in its CPU's RAM, within a 64 KB page; the IOP never
+  reads a completion ring's or a ring of events' tail, as RFC 0040's rule
+  (a slot for everything outstanding) keeps them from filling. The ring
+  job reads a request into its registers, and does copies, fills, zeroing
+  and the disk's reads and writes itself, checked against up to 4 windows
+  of the client's (the kernel's ring, client 0, has none to check); the
+  rest go through a queue to a Forth task, the server. A client's
+  completions are an event, source SRC_RING + c, posted when its ring is
+  next empty, so a run of requests costs one event.
+- **Masking a client's completions** (RFC 0040, 4.4 has each source
+  masked until it's served): the head words' high halves count those
+  events, the completion ring's (the IOP's) those posted and the request
+  ring's (the client's) those handled. Having handled one, the client
+  copies the first to the second, then looks at its completions again;
+  the IOP posts the next only when they're equal. That serves the source
+  without a request, and a spurious interrupt can't put them out of step.
+- **The routing table** (RFC 0040, 4.3): 8 cells for each of 48 sources
+  (INT 0-15, ATN0-3, the clients' completions): owner (a task's wait
+  register or a CPU), CPU, class, level, hold or deadline, and a fast
+  event's message source. `post` delivers: to a task by clearing its
+  wait; lazy into the CPU's ring of events, with its level only if the
+  ring's wake-me word (in the shared RAM) is set or when its deadline
+  passes; slow into the ring and its level at once or held back; fast by
+  claiming the CPU card's message register and writing {source, the
+  event's source number}, or as slow when the claim fails. A level held
+  back sets TICKS, a countdown the tick takes, to the shortest hold
+  waiting; when it runs out every held level goes in one write to each
+  CPU's set address. A lazy deadline is the same mechanism, so a CPU that
+  drained the ring at its tick may still get the level, with nothing new
+  in it.
 - **I/O cards** (`sim/src/cards.rs`): the CF card with A3 as its second
   chip select, PIO mode 4 timing (0/3/0); the serial card's two 16C550s
   on A3, from CLKA; a GPIO card with an INT mask register.
 - **The image flash's layout:** a header page, the dictionary from page 1,
   the CPU's images from halfword 0x10000 (`build.py`), as records of
   {bus address, n, n halfwords}.
-- **The CPU card's registers** at `0x7000_0000` (`sim/src/system.rs`):
-  board information at +0, control at +0x1000 (RUN, RESET, STEP, NMI),
-  interrupt requests at +0x2000 (set, and clear at +4), and the control
-  store's ten lanes at +0x40_0000.
+- **The CPU card's registers** at `0x7000_0000` (`sim/src/system.rs`),
+  RFC 0040, 3's: control at +0 (RUN, RESET, STEP, NMI), board information
+  at +0x1000, the request register at +0x2000 (set, clear, read), the
+  message register at +0x3000 (claim, message, release, contents), the
+  timer at +0x4000, and the control store's ten lanes at +0x40_0000. The
+  timer's tick jumper is off unless `System(tick=16)`, as the study's CPU
+  programs don't take level 6.
 
 ## Measurements
 

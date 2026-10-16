@@ -198,11 +198,15 @@ def iop_latency():
     interrupt's bit on the bus)]: the IOP's side of a request, the test
     playing the client (tests/test_rings.py)."""
     import heron.studies.iop.layout as L
-    from heron.studies.iop.tests.test_rings import kernel
+    from heron.studies.iop.tests.test_rings import Events, events, kernel
     s = Session(bld.Build(bld.DEFAULT_PROGRAM))
     s.boot()
     k = kernel(s)
-    k.do((L.OP_NOTIFY, 0, 3 << 16, 0, 0))
+    events(s, k)
+    ev = Events(s)
+    k.do((L.OP_ROUTE, 0, L.SRC_RING | 3 << 16, 0, 0, L.SLOW))
+    ev.take()
+    k.handled()
     out = []
     for what, req in [("fill 64 bytes", (L.OP_FILL, 0x10000, 0x5555, 64, 1)),
                       ("copy a 4 KB page", (L.OP_COPY, 0x20000, 0x10000, 4096, 2)),
@@ -221,6 +225,8 @@ def iop_latency():
         s.s.breakpoints = []
         s.run_ms(0.5)
         k.completions()
+        ev.take()
+        k.handled()
         out.append((what, *times))
     return out
 

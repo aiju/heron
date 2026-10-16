@@ -1,22 +1,31 @@
-; ring: the CPU as the kernel's client of the IOP (RFC 0027, 7). It asks
-; for its completions at level 3 (OP_NOTIFY) and polls for that one,
-; then waits for the host to fill TABLE and set GO, and makes TABLE's
-; requests one at a time: each into the kernel's ring in the shared RAM,
-; the doorbell rung, and HALT until the completion's interrupt, whose
-; handler clears the level, drains the CPU's ring of events and takes the
-; completion. Then it halts with interrupts off.
+; ring: the CPU as the kernel's client of the IOP (RFC 0027, 7; RFC 0040,
+; 5). It asks for its completion ring and its ring of events, both in its
+; own RAM, and polls for those requests' completions; then it routes its
+; completions' event (SRC_RING + 0) to level 3, slow, and polls for that
+; one. Then it waits for the host to fill TABLE and set GO, and makes
+; TABLE's requests one at a time: each into the kernel's ring in the
+; shared RAM, the doorbell rung, and HALT until its event's interrupt,
+; whose handler clears the level, drains the ring of events, says it has
+; handled them (the completion ring's RING_EVENTS copied to the request
+; ring's) and takes the completions. Then it halts with interrupts off.
 
 SR      = 0xC0000000            ; the IOP's shared RAM (region 4), in the window
-K_IDX   = SR + 0x40             ; +0 our head, +2 the IOP's tail, +4 its completions' head, +6 our tail
-K_REQ   = SR + 0x1000
-K_CMP   = SR + 0x1400
-EVBLK   = SR + 0x1800           ; +0 the IOP's head, +2 our tail
+K_REQ   = SR + 0x1000           ; the kernel's request ring: +0 our head, +2 the events
+                                ; we've handled, +4 the IOP's tail, from +8 64 requests
+CMP     = 0x80003000            ; our completion ring, physical 0x3000: +0 the IOP's
+                                ; head, +2 events it's posted, +4 our tail, from +8 64
+                                ; completions
+EVR     = 0x80003400            ; our ring of events, physical 0x3400: likewise, 64 halfwords
+WAKE    = SR + 0x3800           ; its wake-me word
+SETS    = SR + 0x3810           ; OP_EVRING's settings
 BELL    = 0xF4000000            ; doorbell 0
-IRQ_CLR = 0xF0002004            ; the card's interrupt requests: clear
-REQS    = 64 * 16 - 1           ; the rings' bytes, less one
-CMPS    = 64 * 8 - 1
-EVS     = 64 * 2 - 1
-OP_NOTIFY = 23
+IRQ_CLR = 0xF0002004            ; the card's request register: clear
+N       = 64 - 1                ; each ring's entries, less one
+OP_ROUTE = 19
+OP_EVRING = 21
+OP_CMPRING = 23
+SRC_RING = 32
+SLOW    = 1
 
 GO      = 0x80001000            ; the host sets it
 DONE    = 0x80001004            ; completions taken
@@ -31,22 +40,37 @@ TABLE   = 0x80002000            ; the number of requests, then each as 4 words
         .org 0x80000100
 
 start:  MOV  sp, #0x80100000
-        MOV  r10, #0            ; r10: our head in the ring of requests
-        MOV  r11, #0            ; r11: our tail in the ring of completions
-        MOV  r12, #0            ; r12: our tail in the ring of events
+        MOV  r10, #0            ; r10: requests made, our head
+        MOV  r11, #0            ; r11: completions taken, our tail
+        MOV  r12, #0            ; r12: events taken
         CLR  [DONE]
         CLR  [STATUS]
-        MOV  r1, #OP_NOTIFY     ; client 0's completions: level 3, CPU 0, not held
-        MOV  r2, #0
-        MOV  r3, #0x30000
+        CLR  [K_REQ]            ; our head, and the events handled
+        MOV  r1, #OP_CMPRING    ; our completion ring: 64 at physical 0x3000
+        MOV  r2, #0x3000
+        MOV  r3, #0
+        MOV  r4, #64
+        BSR  put
+        BSR  poll
+        MOV  r1, #0x3400        ; our ring of events: 64 at 0x3400, the wake-me word
+        MOV  [SETS], r1
+        MOV  r1, #(64 | (WAKE & 0xFFFF) << 16)
+        MOV  [SETS + 4], r1
+        MOV  r1, #0x4000
+        MOV  [SETS + 8], r1
+        CLR  [WAKE]
+        MOV  r1, #OP_EVRING
+        MOV  r2, #(SETS - 0x80000000)
+        MOV  r3, #0             ; CPU 0
         MOV  r4, #0
         BSR  put
-.poll:  MOV  r1, half [K_IDX + 4]
-        CMP  r1, r11
-        BEQ  .poll
-        ADD  r11, #8
-        AND  r11, #CMPS
-        MOV  half [K_IDX + 6], r11
+        BSR  poll
+        MOV  r1, #(OP_ROUTE | SLOW << 16)  ; our completions' event: level 3 on CPU 0, slow, not held
+        MOV  r2, #0
+        MOV  r3, #(SRC_RING | 3 << 16)
+        MOV  r4, #0
+        BSR  put
+        BSR  poll
 .go:    MOV  r1, [GO]
         TST  r1, r1
         BEQ  .go
@@ -73,33 +97,48 @@ start:  MOV  sp, #0x80100000
 
 ; put: a request into the ring, r1 (op | flags << 16), r2 (a), r3 (b), r4
 ; (len | tag << 16), and the doorbell
-put:    LEA  r5, [K_REQ]
-        ADD  r5, r10
+put:    PUSH r1
+        MOV  r5, r10
+        AND  r5, #N
+        LSL  r5, #4
+        LEA  r1, [K_REQ + 8]    ; (r1 after: it's the op)
+        ADD  r5, r1
+        POP  r1
         MOV  [r5], r1
         MOV  [r5 + 4], r2
         MOV  [r5 + 8], r3
         MOV  [r5 + 12], r4
-        ADD  r10, #16
-        AND  r10, #REQS
-        MOV  half [K_IDX], r10
+        INC  r10
+        MOV  half [K_REQ], r10
         MOV  [BELL], r10
+        RET
+
+; poll: until a completion, taken and dropped
+poll:   MOV  r1, half [CMP]
+        CMP  r1, r11
+        BEQ  poll
+        INC  r11
+        MOV  half [CMP + 4], r11
         RET
 
 level3: SAVE r1-r3
         MOV  r1, #4
-        MOV  [IRQ_CLR], r1      ; the level first (RFC 0037, 8)
-.ev:    MOV  r1, half [EVBLK]   ; the events: here only ever this ring's
+        MOV  [IRQ_CLR], r1      ; the level first (RFC 0040, 5.1)
+.ev:    MOV  r1, half [EVR]     ; the events: here only ever our completions'
         CMP  r1, r12
         BEQ  .evd
-        ADD  r12, #2
-        AND  r12, #EVS
+        INC  r12
         BRA  .ev
-.evd:   MOV  half [EVBLK + 2], r12
-.cmp:   MOV  r1, half [K_IDX + 4]
+.evd:   MOV  half [EVR + 4], r12
+        MOV  r1, half [CMP + 2]     ; handled, then the completions looked at
+        MOV  half [K_REQ + 2], r1
+.cmp:   MOV  r1, half [CMP]
         CMP  r1, r11
         BEQ  .out
-        LEA  r2, [K_CMP]
-        ADD  r2, r11
+        MOV  r2, r11
+        AND  r2, #N
+        LSL  r2, #3
+        ADD  r2, #(CMP + 8)
         MOV  r3, half [r2 + 2]
         MOV  r1, [STATUS]
         OR   r1, r3
@@ -107,9 +146,8 @@ level3: SAVE r1-r3
         MOV  r3, half [r2 + 4]
         MOV  [RESULT], r3
         INC  [DONE]
-        ADD  r11, #8
-        AND  r11, #CMPS
+        INC  r11
         BRA  .cmp
-.out:   MOV  half [K_IDX + 6], r11
+.out:   MOV  half [CMP + 4], r11
         RESTORE r1-r3
         RTI

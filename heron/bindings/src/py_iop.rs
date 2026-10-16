@@ -63,9 +63,10 @@ pub mod iop {
     impl System {
         /// `disk`: a CF card's image, in slot 0; `serial`: the serial card,
         /// two lines, in slot 1; `gpio`: general-purpose I/O cards, in
-        /// these slots.
+        /// these slots; `tick`: the CPU card's tick jumper, the timer's
+        /// bit (RFC 0040, 3.3: 16), or none.
         #[new]
-        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false, gpio=Vec::new()))]
+        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false, gpio=Vec::new(), tick=None))]
         #[allow(clippy::too_many_arguments)]
         fn new(
             ucode: &[u8],
@@ -78,6 +79,7 @@ pub mod iop {
             disk: Option<Vec<u8>>,
             serial: bool,
             gpio: Vec<usize>,
+            tick: Option<u32>,
         ) -> PyResult<System> {
             let cfg = Config {
                 watchdog,
@@ -90,9 +92,9 @@ pub mod iop {
             };
             let mut iop = Iop::from_rom(cfg, ucode, flash);
             cards::fit(&mut iop, disk, serial, &gpio);
-            Ok(System {
-                s: Engine::new(iop, ram_size, cpu_hz, timing),
-            })
+            let mut s = Engine::new(iop, ram_size, cpu_hz, timing);
+            s.card().tick_bit = tick;
+            Ok(System { s })
         }
 
         /// Run until the IOP's clock reaches `until` bus clocks: "limit",
@@ -321,6 +323,8 @@ pub mod iop {
             d.set_item("run", c.run)?;
             d.set_item("halted", c.halted)?;
             d.set_item("irq", c.irq)?;
+            d.set_item("msg", format!("{:?}", c.msg).to_lowercase())?;
+            d.set_item("msg_value", c.msg_value)?;
             d.set_item("lane_errors", c.lane_errors)?;
             Ok(d)
         }
@@ -329,6 +333,12 @@ pub mod iop {
         /// a handler's write to its clear address would.
         fn irq_clear(&mut self, bits: u8) {
             self.s.card().irq &= !bits;
+        }
+
+        /// The CPU card's message register freed, as the message level's
+        /// entry does once it has the message.
+        fn msg_release(&mut self) {
+            self.s.card().msg = iop::system::Msg::Free;
         }
 
         /// The CPU card's RAM.

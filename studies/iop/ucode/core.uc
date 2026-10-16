@@ -335,36 +335,9 @@ natn:   AC <- ev1
         goto nl_loop
         nsrc <- #(SRC_ATN + 4)
 
-; Source nsrc to its owner (EVTAB): a task's wait register cleared, or an
-; event to a CPU. Back to t7.
-nroute: AC <- nsrc
-        AC <- nsrc + AC
-        t6 <- AC
-        AC <- t6 + AC
-        t6 <- #EVTAB + AC       ; the source's entry
-        X <- t6
-        AC <- [X]               ; the owner
-        F <- AC | if F15 goto nr_task
-        X <- AC
-        F <- m1 + AC | ifnot carry goto nr_none
-        F <- nsrc
-        t0 <- F                 ; the event: the source's number
-        t6, X <- t6 + 1
-        F <- [X]
-        t1 <- F                 ; 16 x the CPU
-        t6, X <- t6 + 1
-        F <- [X]
-        t2 <- F                 ; the level
-        t6, X <- t6 + 1
-        F <- [X]
-        t3 <- F | goto post     ; the hold
-        nop
-nr_task: [X] <- 0
-        X <- #WOKE
-        [X] <- -1 | goto nr_none
-        nop
-nr_none: F <- t7 | goto F
-        nop
+; Source nsrc to its owner (jobs.uc's post). Back to t7.
+nroute: F <- nsrc | goto post
+        t0 <- F
 
 ; Held levels are due: each CPU's, at once; TICKS back to idle.
 ndue:   X <- #TICKS
