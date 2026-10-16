@@ -41,6 +41,7 @@ on `v1b_hw` for the shift planner (the shift steps are draft 1b's), and on
 | `cpu.py` | The chip-level netlist: with the clock generator and the I/O page as a fixture for the chip-level simulator, or with a clock fixture for static timing analysis |
 | `hw.py` | The netlist on the chip-level simulator (`heron v2_hw hw`): its preloads, a run checked against the RTL model cycle for cycle, the parts list |
 | `sta.py` | Static timing analysis of the netlist: case analysis per microinstruction in each state of the queue, the fetch's translation and the forced entries; the register file's write phase; `ticks.json` |
+| `explore.py`, `explore.html` | The design explorer (`heron v2_hw explore`): the netlist as nested block diagrams down to the chips, grouped by unit, section and the netlist's own comments; a chip-level run of three programs with what each cycle's microinstruction drives and its critical path, from the timing analysis' case analysis; the suite's profile as heat |
 | `sw/` | Programs for this CPU: `systest.s` (RFC 0029's supervisor features), `interrupts.s` (the suite's interrupt program with RFC 0029's vectors), `isanotes.s` (where it follows RFC 0028 and the simulator doesn't), and their expected output |
 
 ```sh
@@ -57,5 +58,6 @@ heron v2_hw hw test [NAMES] [--lengths 10,11,12,14]   # the netlist against the 
 heron v2_hw hw run studies/v2_isa/programs/hello.s --trace 0:50   # with a per-cycle trace
 heron v2_hw hw sta [--write] [--paths N]  # static timing analysis; --write updates ticks.json
 heron v2_hw hw bom                       # the netlist's parts
+heron v2_hw explore                      # the design explorer, build/v2_hw/explorer.html (half a minute)
 heron test v2_hw                         # the unit tests
 ```

@@ -18,6 +18,9 @@
                                    model, static timing analysis, parts
   ucode  [--list]                  the microcode: its size, length classes,
                                    and (--list) every microinstruction
+  explore [--out FILE]             the design explorer: the netlist as nested
+                                   block diagrams, with a run and the suite's
+                                   heat (build/v2_hw/explorer.html)
 """
 
 import argparse
@@ -92,6 +95,9 @@ def main(argv=None):
     if argv[:1] == ["hw"]:
         from .hw import main as hw_main
         return hw_main(argv[1:])
+    if argv[:1] == ["explore"]:
+        from .explore import main as explore_main
+        return explore_main(argv[1:])
     p = argparse.ArgumentParser(prog="heron v2_hw", description="The draft 2 CPU")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check", help="the RTL model against the instruction-level simulator")
