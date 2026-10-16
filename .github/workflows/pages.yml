@@ -37,11 +37,17 @@ jobs:
           key: cargo-${{ runner.os }}-${{ steps.rust.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-${{ steps.rust.outputs.rustc }}-
       - run: pip install markdown-it-py mdit-py-plugins
+      # The PDFs and screenshots use Chrome: the runner's /usr/bin/chromium
+      # has no sandbox it can use, and aborts.
       - run: python3 -m heron site --apps
+        env:
+          CHROME: google-chrome
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build/site
+  # Only main is published; run by hand on a branch, this only checks the build.
   deploy:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     environment:

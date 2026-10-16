@@ -683,8 +683,11 @@ def _refcards(out):
             f.write(refcard.build_html(isa))
         made.append(os.path.basename(page))
         if chrome:
-            refcard.print_pdf(chrome, page, page[:-5] + ".pdf")
-            made.append(os.path.basename(page)[:-5] + ".pdf")
+            try:
+                refcard.print_pdf(chrome, page, page[:-5] + ".pdf")
+                made.append(os.path.basename(page)[:-5] + ".pdf")
+            except (subprocess.SubprocessError, OSError) as e:
+                print(f"  no PDF of {os.path.basename(page)}: {why(e)}", file=sys.stderr)
     return made
 
 
@@ -705,8 +708,17 @@ APPS = [
 ]
 
 
+def why(e):
+    """A failed browser run, with the last thing it said."""
+    err = getattr(e, "stderr", None) or b""
+    last = (err.decode(errors="replace") if isinstance(err, bytes) else err).strip().splitlines()[-1:]
+    return f"{e} ({last[0].strip()})" if last else str(e)
+
+
 def screenshot(chrome, page, png):
-    """A picture of a page's first screen, for the apps page."""
+    """A picture of a page's first screen, for the apps page. The PDFs and
+    pictures need Chrome or Chromium (CHROME names one); without one, or if
+    it fails, the apps are built without them."""
     cmd = [chrome, "--headless", "--disable-gpu", "--hide-scrollbars", "--window-size=1200,750",
            "--virtual-time-budget=8000", f"--screenshot={png}", "file://" + os.path.abspath(page)]
     if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -725,7 +737,7 @@ def build_apps(out):
             try:
                 screenshot(chrome, os.path.join(out, made[0]), os.path.join(out, app["id"] + ".png"))
             except (subprocess.SubprocessError, OSError) as e:
-                print(f"  no picture of {made[0]}: {e}", file=sys.stderr)
+                print(f"  no picture of {made[0]}: {why(e)}", file=sys.stderr)
 
 
 # ------------------------------------------------------------------ command
