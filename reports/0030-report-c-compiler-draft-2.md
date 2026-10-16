@@ -6,7 +6,7 @@ status: current
 date: 2026-10-15
 context:
   studies: [c_compiler, v2_isa, v1_isa]
-  commit: d9d80a9
+  commit: d7458e8
 ---
 
 # Report 0030: The C compiler on draft 2
