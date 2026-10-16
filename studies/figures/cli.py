@@ -5,7 +5,7 @@
   check [FILE.md...]    only check that every SVG is what its source draws
   list [FILE.md...]     the figures: document, line, language and SVG
   draw FILE [-o OUT]    draw one source file, its language from its
-                        extension (.timing, .bits, .blocks, .map), to OUT or
+                        extension (.timing, .bits, .blocks, .map, .grid), to OUT or
                         FILE.svg
 """
 

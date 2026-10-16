@@ -16,7 +16,7 @@
 .diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
 <rect class="paper" x="-18" y="-8" width="705" height="431"/>
 <line class="ink bus" x1="540" y1="270" x2="540" y2="390"/>
-<text class="b" x="540" y="264" text-anchor="middle">RES</text>
+<text class="b" style="font-size:11px" x="540" y="264" text-anchor="middle">RES</text>
 <rect class="ink paper" x="0" y="0" width="100" height="50"/>
 <text class="b" x="50" y="21.8" text-anchor="middle">decode ROM</text>
 <text class="s" x="50" y="36.5" text-anchor="middle">2 × flash</text>

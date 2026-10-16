@@ -4,7 +4,7 @@ bad sources say what's wrong, on the document's line."""
 
 import unittest
 
-from heron.studies.figures import bits, blocks, docs, maps, timing
+from heron.studies.figures import bits, blocks, docs, grid, maps, timing
 from heron.studies.figures.svg import Error, lines, textwidth
 
 
@@ -90,6 +90,13 @@ class Languages(unittest.TestCase):
         self.bad(maps, "0x0 a\n0x10 b", "where the map ends")
         self.bad(maps, "0x0 a\n0x10\ngroup 0x0 0x8 g", "isn't where a region starts or ends")
         self.assertEqual(maps.hexa(0x7F00_0000, 8), "0x7F00_0000")
+
+    def test_grid(self):
+        heads, body, _ = grid.parse("| | _0 | _1 | _2 |\n|---|---|---|---|\n| 7_ | `MVI` ×2 | ↳ | |")
+        self.assertEqual(heads, ["_0", "_1", "_2"])
+        self.assertEqual(body, [("7_", [(0, 2, "MVI ×2"), (2, 1, "")])])
+        self.bad(grid, "| | a | b |\n| 1 | x |", "1 cells, but 2 columns")
+        self.bad(grid, "| | a |\n| 1 | ↳ |", "there's none")
 
 
 if __name__ == "__main__":

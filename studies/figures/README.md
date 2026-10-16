@@ -7,7 +7,8 @@ reports: []
 # Figures in documents
 
 Small languages for the pictures in reports and RFCs, in place of ASCII
-art: timing diagrams, bit fields, block diagrams and address maps. A
+art: timing diagrams, bit fields, block diagrams, address maps and
+charts of tables such as an opcode map. A
 figure's source sits in a comment in the document, and the SVG it draws
 in the document's folder, where GitHub and the site show it. Everything
 is in plain Python with no dependencies.
@@ -59,7 +60,8 @@ They share their lexing where they can: a statement a line, `#` to the
 end of a line a comment, `"..."` or `'...'` a string (doubled to include
 the quote), and settings for the whole figure on lines that start with a
 dot. bits, blocks and map are keyword-first and take `key=value`
-attributes; timing keeps timepic's denser notation.
+attributes; grid is Markdown's table; timing keeps timepic's denser
+notation.
 
 ### timing
 
@@ -163,6 +165,25 @@ group 0x0000_0000 0x7000_0000 memory               # a bracket beside
 Regions are as high as their text, not as big as they are; high
 addresses are at the top (`.order down` turns it over).
 
+### grid
+
+A table drawn as a chart, whose cells can span: an opcode map.
+
+```grid
+| | _0 | _1 | _2 |
+| 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 |
+| 7_ | MVI #u7 ×8 | ↳ | ↳ |
+| C_ | LSL #n ×2 | ↳ | |
+```
+
+The first row is the columns' heads, then a row a line: its head and its
+cells. `↳` continues the cell to its left, and an empty cell is free,
+and hatched. The rows are written as Markdown's, so a table converts by
+copying it (the `|---|` line is skipped, and backticks dropped); `#`
+comments are whole lines. A cell's first word
+is its title; words that start with `+` or `×` go small under the rest.
+`.cell W` sets the cells' width in pixels.
+
 ## The drawing
 
 - **The site's look:** its colours and its fonts, Libre Franklin and IBM
@@ -196,6 +217,9 @@ addresses are at the top (`.order down` turns it over).
 - **Not converted in place:** report 0012 is `current` and can't be
   rewritten, RFC 0001 is `obsolete`. The open RFCs' pictures (0016, 0027,
   0028, 0037) could be.
-- **Not done:** RFC 0028's opcode map (a table whose instructions span
-  cells, now marked ↳) and plots, which `studies/bus_si/svgplot.py`
-  already draws from data.
+- **A chart beside its table, or instead of it:** the opcode map's chart
+  is easier to take in, but the table can be searched and copied. A
+  document could keep the table and draw the chart from it, which would
+  need the figure's source to name the table rather than repeat it.
+- **Not done:** plots, which `studies/bus_si/svgplot.py` already draws
+  from data.

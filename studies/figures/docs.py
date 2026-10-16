@@ -19,10 +19,10 @@ import textwrap
 
 from heron import ROOT
 
-from . import bits, blocks, maps, timing
+from . import bits, blocks, grid, maps, timing
 from .svg import Error
 
-LANGUAGES = {"timing": timing, "bits": bits, "blocks": blocks, "map": maps}
+LANGUAGES = {"timing": timing, "bits": bits, "blocks": blocks, "map": maps, "grid": grid}
 
 FENCE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*([^`\s]*)")
 COMMENT = re.compile(r"^[ \t]*<!--[ \t]*(\w+)[ \t]*$")

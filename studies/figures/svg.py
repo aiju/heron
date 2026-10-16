@@ -112,6 +112,10 @@ class Drawing:
         self.cover(left, y - size * 0.6, left + w, y + size * 0.6)
         a = "" if anchor == "start" else f' text-anchor="{anchor}"'
         c = f' class="{cls}"' if cls else ""
+        classes = cls.split()
+        usual = 11.5 if "m" in classes else 10 if "xs" in classes else 11 if "s" in classes else 12
+        if size != usual:
+            c += f' style="font-size:{num(size)}px"'
         self.out.append(f'<text{c} x="{num(x)}" y="{num(y + 0.36 * size)}"{a}>{html.escape(s)}</text>')
 
     def arrowhead(self, x, y, dx, dy, cls="solid", length=6, width=2.6):
