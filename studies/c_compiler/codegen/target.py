@@ -11,11 +11,11 @@ caller-saved. Calls to variadic functions pass every argument on the stack.
 The caller reserves the outgoing argument area at the bottom of its frame,
 so sp doesn't move inside a function body.
 
-With a link register (LINK: r7 on draft 2, and on the v1bl variant of
-studies/link_register), calls leave the return address in it instead of
-pushing it. The allocator treats it like a callee-saved register: a
-function that calls, or that needs the register, saves it with the others
-(SAVE r7-rN) or pushes it; a leaf that doesn't returns through it.
+With a link register (LINK: r7 on draft 2), calls leave the return
+address in it instead of pushing it. The allocator treats it like a
+callee-saved register: a function that calls, or that needs the register,
+saves it with the others (SAVE r7-rN) or pushes it; a leaf that doesn't
+returns through it.
 """
 
 from heron.studies.c_compiler.ir import ir as I

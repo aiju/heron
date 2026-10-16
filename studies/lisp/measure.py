@@ -21,7 +21,7 @@ import bisect
 from collections import Counter
 
 from heron.studies.v1_isa import timing32
-from heron.studies.v1_isa.sim32 import SimError
+from heron.studies.v2_isa import sim as sim2
 
 from . import machine
 
@@ -36,11 +36,16 @@ GC_ROUTINES = {"rt:gc", "rt:fwd", "rt:fwd_range", "rt:objsize"}
 _EMPTY = {}
 
 
-def empty_cycles(features=()):
+def cycles_of(isa):
+    """The timing model's cycles for a timing key, for the ISA's machine."""
+    return sim2.cycles if isa == "v2" else timing32.cycles
+
+
+def empty_cycles(features=(), isa="v1b"):
     """The cycles of an empty program: start-up and the prelude."""
-    key = tuple(sorted(features))
+    key = (isa,) + tuple(sorted(features))
     if key not in _EMPTY:
-        r = machine.run(b"", features, reference=CONFIG)
+        r = machine.run(b"", features, reference=CONFIG, isa=isa)
         _EMPTY[key] = r.machine.cycles_for(CONFIG)
     return _EMPTY[key]
 
@@ -68,25 +73,25 @@ def split(prof):
     return sum(prof.values()) - gc, gc
 
 
-def measure(text, features=(), compiled=False):
+def measure(text, features=(), compiled=False, isa="v1b"):
     """Cycles to run a program: {'cycles', 'total', 'run'}. Interpreted,
     'cycles' leaves out start-up and the prelude; compiled, it is the
     compiled forms' running alone, and 'total' includes compiling them."""
-    r = machine.run(text, features, compiled=compiled, reference=CONFIG)
+    r = machine.run(text, features, compiled=compiled, reference=CONFIG, isa=isa)
     if r.error:
         raise RuntimeError(r.error)
     total = r.machine.cycles_for(CONFIG)
     if compiled:
         cycles = sum(e - b for b, e in windows(r))
     else:
-        cycles = total - empty_cycles(features)
+        cycles = total - empty_cycles(features, isa)
     return {"cycles": cycles, "total": total, "run": r}
 
 
-def window_counts(text, features, run):
+def window_counts(text, features, run, isa="v1b"):
     """Counter of (pc, timing key) -> executions inside the windows of a
     compiled run, by rerunning it with breakpoints at their edges."""
-    img, m = machine.start(text, features, compiled=True, reference=CONFIG)
+    img, m = machine.start(text, features, compiled=True, reference=CONFIG, isa=isa)
     total = Counter()
     snap = None
 
@@ -97,7 +102,7 @@ def window_counts(text, features, run):
         for edge, sign in ((b, -1), (e, 1)):
             try:
                 m._m.run(edge)
-            except SimError:
+            except machine.SimErrors:
                 pass        # the breakpoint
             c = counts()
             for key, n in c.items():
@@ -110,15 +115,16 @@ def run_counts(run):
     return Counter({(pc, k): n for pc, k, n in run.machine._m.pc_keys()})
 
 
-def profile(text, features=(), compiled=True, run=None, counts=None):
+def profile(text, features=(), compiled=True, run=None, counts=None, isa="v1b"):
     """Where the cycles go: Counter of category -> cycles. Compiled code by
     its category ('code:var', ...), the runtime by routine ('rt:cons', ...).
     Compiled programs: over their windows; interpreted ones: over the whole
     run. counts: the run's counts, if they have been taken already."""
     if run is None:
-        run = machine.run(text, features, compiled=compiled, reference=CONFIG)
+        run = machine.run(text, features, compiled=compiled, reference=CONFIG, isa=isa)
     if counts is None:
-        counts = window_counts(text, features, run) if compiled else run_counts(run)
+        counts = window_counts(text, features, run, isa) if compiled else run_counts(run)
+    cycles = cycles_of(isa)
     img = run.image
     labels = sorted((st.addr, st.label) for st in img.stmts
                     if st.kind == "label" and "." not in st.label)
@@ -130,7 +136,7 @@ def profile(text, features=(), compiled=True, run=None, counts=None):
     for (pc, key), n in counts.items():
         if n == 0:
             continue
-        cyc = n * timing32.cycles(key, CONFIG)
+        cyc = n * cycles(key, CONFIG)
         if pc is None:
             name = "rt:(interrupts)"
         elif pc >= code_base:
