@@ -350,9 +350,9 @@ each backend fits as much as it can into one addressing mode.
   - `INC` and `DEC` on memory for `x++`, with the address in the operand;
   - `TST` and `MULS` with a constant;
   - a multiply's high half and a divide's remainder are in `r0` (there's
-    no `HI`), so every multiply and divide counts as writing `r0`, and a
-    remainder is `MOV rd, r0`, or stays in `r0` if the allocator can
-    leave it there;
+    no `HI`), so every multiply and divide counts as writing `r0`, and is
+    written with it, `MULS r0:r2, r3` and `DIVU r0:r2, r3`; a remainder is
+    `MOV rd, r0`, or stays in `r0` if the allocator can leave it there;
   - `MOV` and `CMP` with 16…127 in one parcel (the assembler picks it);
     `free_imm` still keeps such a constant in a register across a loop
     where a compare could then take a load as its memory operand;

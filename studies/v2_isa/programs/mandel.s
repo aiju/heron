@@ -42,14 +42,14 @@ main:   SAVE r7-r13
         MOV  r9, #0
         MOV  r12, #-MAXIT       ; -16 still fits in the instruction
 .iter:  MOV  r1, r8
-        MULFX r1, r8, #8        ; r1 = xx
+        MULFX r0:r1, r8, #8     ; r1 = xx
         MOV  r2, r9
-        MULFX r2, r9, #8        ; r2 = yy
+        MULFX r0:r2, r9, #8     ; r2 = yy
         LEA  r3, [r1 + r2]      ; xx + yy
         CMP  r3, r13
         BHI  .out               ; xx + yy > 4.0
         BEQ  .edge              ; = 4.0: escaped only if |x| or |y| is 2.0
-.cont:  MULFX r9, r8, #8        ; y = xy: y's old value isn't needed again
+.cont:  MULFX r0:r9, r8, #8     ; y = xy: y's old value isn't needed again
         LEA  r9, [r11 + r9*2]   ; y = cy + 2xy
         LEA  r8, [r10 + r1]
         SUB  r8, r2             ; x = cx + xx - yy
