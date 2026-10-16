@@ -38,24 +38,6 @@ from heron import BUILD
 
 from . import prove, v1b
 
-# the decode cases the proofs run on a mutant: a few of each kind, quick ones
-SAMPLE = [
-    "sys 1 0 0", "sys 2 0 0", "sys 3 0 0", "sys 4 0 0", "sys 7 0 0", "sys 8 0 0", "sys 9 0 0",
-    "sys 10 0 0", "sys 10 0 1", "sys 11 0 0", "sys 11 1 0", "sys 12 0 0", "sys 13 0 0",
-    "sys 13 0 1", "sys 5 1 1", "sys 6 1 1", "sys 5 3 4", "sys 6 3 4",
-    "un 0", "un 1", "un 2", "un 3", "un 4", "un 5", "un 6", "un 7", "un 8", "un 9", "un 10",
-    "rr 0", "rr 1", "rr 2", "rr 3",
-    "bcc 0", "bcc 1", "jcc cond 0 0", "jcc cond 0 1", "jcc jmp 1 0", "jcc call 0 0",
-    "shift 0 1", "shift 1 7", "shift 2 9", "shift 3 16", "shift 0 24", "shift 2 31",
-    "ea 1 None 0 None", "ea 1 None 1 5", "ea 1 None 13 3", "ea 1 None 2 None",
-    "ea 1 None 3 None", "ea 1 None 6 None", "ea 1 None 7 None", "ea 1 None 8 None",
-    "ea 1 None 10 None", "ea 1 None 11 None", "ea 1 None 15 0", "ea 1 None 15 3",
-    "ea 2 None 2 None", "ea 2 None 8 None", "ea 2 None 11 None", "ea 2 None 7 None",
-    "ea 3 None 3 None", "ea 4 None 0 None", "ea 4 None 1 3", "ea 4 None 2 None",
-    "ea 5 None 0 None", "ea 6 None 0 None", "ea 7 None 0 None", "ea 8 None 0 None",
-    "ea 9 None 0 None", "ea 11 0 0 None", "ea 11 1 0 None", "ea 11 0 15 4",
-]
-
 OUT = os.path.join(BUILD, "formal", "mutants.json")
 
 # Mutants made by hand: (description, {(reference, pin): new net}). Each is
@@ -343,7 +325,7 @@ def relevant(changes, pins):
 
 
 def proofs_catch(nl, roms, cases, jobs, budget, cap):
-    """Prove `cases` (the SAMPLE first, then cheapest first) on the mutant
+    """Prove `cases`, cheapest first, on the mutant
     until one fails or `cap` seconds have gone: (the failing case and what
     failed, or None; how many cases were run)."""
     v1b._cache["nl"], v1b._cache["roms"] = nl, roms

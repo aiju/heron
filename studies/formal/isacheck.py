@@ -13,7 +13,7 @@ import random
 from heron import native
 from heron.studies.v1_isa import timing32
 
-from . import spec as S
+from . import spec2 as S
 
 WINDOW = 0x10000          # code and most data in the first 64 KB
 
@@ -109,9 +109,8 @@ def compare(spec, r, hi, fl, pc, image, cover=None, record=None):
         sim_err = str(e)
 
     win = Window(image)
-    regs = {"r": [S.mk(32, x) for x in r], "hi": S.mk(32, hi), "pc": S.mk(32, pc),
-            "V": S.mk(1, fl & 1), "C": S.mk(1, fl >> 1 & 1), "Z": S.mk(1, fl >> 2 & 1),
-            "N": S.mk(1, fl >> 3 & 1), "I": S.mk(1, fl >> 4 & 1)}
+    regs = {"r": [S.mk(32, x) for x in r], "hi": S.mk(32, hi), "pc": S.mk(32, pc)}
+    regs.update({f: bool(fl >> i & 1) for i, f in enumerate("VCZNI")})
     st = S.State(spec, regs, {"mem": win})
     words = [win.read(S.mk(32, pc + 2 * i)).x | win.read(S.mk(32, pc + 2 * i + 1)).x << 8
              for i in range(3)]
@@ -142,7 +141,7 @@ def compare(spec, r, hi, fl, pc, image, cover=None, record=None):
     for name, sim_v in (("hi", m.hi), ("pc", m.pc)):
         if sim_v != st.regs[name].x:
             diffs.append(f"{name}: sim {sim_v:08X} spec {st.regs[name].x:08X}")
-    sfl = sum(st.regs[f].x << i for i, f in enumerate("VCZNI"))
+    sfl = sum(int(st.regs[f]) << i for i, f in enumerate("VCZNI"))
     if m.flags != sfl:
         diffs.append(f"flags: sim {m.flags:05b} spec {sfl:05b}")
     if bool(m.halted) != (run.halt_g is True):
@@ -187,7 +186,7 @@ def main(argv=None):
     p.add_argument("--show", type=int, default=10, help="how many disagreements to show")
     p.add_argument("--coverage", action="store_true", help="count instructions and outcomes")
     args = p.parse_args(argv)
-    spec = S.load("v1b.isa")
+    spec = S.load("v1b_new.isa")
     rng = random.Random(args.seed)
     isa = isas.get("v1b")
     bad = 0

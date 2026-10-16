@@ -32,7 +32,7 @@ repository needs. The flow it suggests, the language, and the results: [RFC 0038
 
 | File | What's in it |
 |---|---|
-| `spec.py` | The specification language ([RFC 0038, Part II](../../reports/0038-rfc-formal-verification.md#part-ii-the-specification-language)): its parser and interpreter, on known or symbolic values |
+| `spec.py` | The specification language ([RFC 0038, Part II](../../reports/0038-rfc-formal-verification.md#part-ii-the-specification-language)): its parser, its checker and its interpreter, on known or symbolic values |
 | [v1b.isa](v1b.isa) | Draft 1b, specified |
 | `isacheck.py` | The specification against the instruction-level simulator: random states and instructions, one step each |
 | `isagen.py` | The same on cases the specification chooses: each instruction run symbolically once, every outcome of every decision a goal, the solver finding inputs for each (the rest random) |

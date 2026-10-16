@@ -13,7 +13,7 @@ import z3
 from heron.studies.v1b_hw import cpu, rtl
 from heron.studies.v1b_hw import ucode as uc
 
-from . import spec as S
+from . import spec2 as S
 from . import symsim
 from .logic import AND, ITE, NOT, OR, bits, bits_value, boolterm, word
 
@@ -461,7 +461,7 @@ class Prover:
         self.solve = solve           # False: explore the paths, prove nothing at their ends
         self.cuts = 0                # MAR values replaced by the specification's address
         self.verbose = verbose
-        self.spec = S.load("v1b.isa")
+        self.spec = S.load("v1b_new.isa")
         self.timings = []            # (goal, seconds, result) of every solver call at a path's end
 
     # ---- the starting state
@@ -499,7 +499,7 @@ class Prover:
         # the specification
         self.sregs = SpecRegs(lanes)
         regs = {"r": self.sregs, "hi": S.mk(32, self.hi_reg), "pc": S.mk(32, self.pc0)}
-        regs.update({f: S.mk(1, v) for f, v in self.flags0.items()})
+        regs.update(self.flags0)
         self.smem = SpecMem(self.lo0, self.hi0)
         self.sst = S.State(self.spec, regs, {"mem": self.smem})
         self.run = self.spec.step(self.sst)

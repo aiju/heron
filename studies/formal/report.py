@@ -110,14 +110,16 @@ def tables(results, mutants):
         neither = sum(1 for m in mutants if not m["tests"] and not m["proofs"])
         out += ["## Mutants", "",
                 f"{len(mutants)} mutants: caught by both {both}, by the tests only {tests}, "
-                f"by the proofs only {proofs}, by neither {neither}. The proofs ran "
-                f"{len(mutate.SAMPLE)} decode cases (`mutate.SAMPLE`), cheapest first, until "
-                "one failed; the tests ran the exercise program at chip level.", "",
-                "| Kind | Mutation | Tests | Proofs |", "|---|---|---|---|"]
+                f"by the proofs only {proofs}, by neither {neither}. The tests ran the "
+                "exercise program at chip level against the RTL model, then the program "
+                "suite; the proofs ran the decode cases the mutant can affect, cheapest "
+                "first, until one failed. *Cases* is how many ran of how many there were.", "",
+                "| Made | Mutation | Tests | Proofs | Cases |", "|---|---|---|---|---:|"]
         for m in mutants:
             t = _cell(m["tests"])
             p = _cell(m["proofs"])
-            out.append(f"| {m['kind']} | {m['mutation']} | {t} | {p} |")
+            out.append(f"| {m['origin']} {m['kind']} | {m['mutation']} | {t} | {p} | "
+                       f"{m['cases_run']} of {m['cases']} |")
         out.append("")
     return "\n".join(out)
 

@@ -34,7 +34,7 @@ from collections import defaultdict
 import z3
 
 from . import isacheck
-from . import spec as S
+from . import spec2 as S
 
 RAM = 0x10_0000
 BOUNDARY = [0, 1, 2, 0xFFFFFFFF, 0xFFFFFFFE, 0x7FFFFFFF, 0x80000000, 0x80000001,
@@ -102,7 +102,7 @@ class Inputs:
         hi = z3.Store(self.mem[1], self.pc_hi, z3.Extract(15, 8, p))
         regs = {"r": [S.mk(32, x) for x in self.r], "hi": S.mk(32, self.hi),
                 "pc": S.mk(32, self.pc)}
-        regs.update({f: S.mk(1, v) for f, v in self.flags.items()})
+        regs.update(self.flags)
         return S.State(spec, regs, {"mem": SymMem(lo, hi)})
 
     def scalars(self):
@@ -184,58 +184,12 @@ def array_entries(m, arr):
 def sites(spec):
     """Every decision in the specification's text, as Run.note names it,
     with the outcomes it can have: {(site, outcome)}."""
-    out = set()
-
-    def walk(stmts):
-        for st in stmts:
-            k = st[0]
-            if k == "if":
-                for i, (_, blk) in enumerate(st[1]):
-                    out.update({(("branch", st[3], i), True), (("branch", st[3], i), False)})
-                    walk(blk)
-                if st[2]:
-                    walk(st[2])
-            elif k == "case":
-                arms = [a for a in st[2] if a[0] is not None]
-                for i in range(len(arms)):
-                    out.update({(("branch", st[3], i), True), (("branch", st[3], i), False)})
-                for _, blk in st[2]:
-                    walk(blk)
-            elif k == "for":
-                walk(st[4])
-            elif k == "decode":
-                walk(st[2])
-            elif k == "set" and st[1][0] == "name":
-                d = spec.decls.get(st[1][1])
-                if d and d[0] == "reg" and d[1] is None and d[2] == 1:
-                    site = ("set", st[3], st[1][1])
-                    if st[2][0] == "num":           # a constant: one outcome
-                        out.add((site, bool(st[2][1])))
-                    else:
-                        out.update({(site, True), (site, False)})
-            elif k in ("fault", "trap"):
-                out.add(((k, st[2]), True))
-            elif k == "halt":
-                out.add((("halt", st[1]), True))
-    for d in spec.decls.values():
-        if d[0] == "fn":
-            walk(d[2])
-    for ins in spec.instructions:
-        walk(ins.body)
-    return out
+    return spec.decisions()
 
 
 def owner_ok(spec, w):
     """Whether some instruction's encoding and `when` take parcel w."""
-    for ins in spec.instructions:
-        if not ins.matches(w):
-            continue
-        if ins.when is None:
-            return True
-        fields = {f: S.mk(hi - lo + 1, w >> lo) for f, (hi, lo) in ins.fields.items()}
-        if S.guard(S.Run(spec, None).eval(ins.when, fields)):
-            return True
-    return False
+    return any(ins.matches(w) and spec.when_holds(ins, w) for ins in spec.instructions)
 
 
 def goals(spec, ins):
@@ -310,9 +264,9 @@ def main(argv=None):
     p.add_argument("--show", type=int, default=10)
     p.add_argument("-v", action="store_true", help="every goal not reached")
     args = p.parse_args(argv)
-    spec = S.load("v1b.isa")
+    spec = S.load("v1b_new.isa")
     rng = random.Random(args.seed)
-    lines = S.HERE and open(S.HERE + "/v1b.isa").read().split("\n")
+    lines = S.HERE and open(S.HERE + "/v1b_new.isa").read().split("\n")
     total = defaultdict(int)
     reached_all, all_goals = set(), set()
     bad = 0

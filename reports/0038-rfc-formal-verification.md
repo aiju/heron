@@ -82,8 +82,8 @@ Terms:
   faults with their stack frames. The cases are of two kinds:
   - **chosen by the specification:** each instruction runs once on
     symbolic inputs, and every outcome of every decision it meets is a
-    goal: each arm of an `if` or `case`, each flag set to 0 and to 1,
-    each fault. The solver finds inputs that reach each goal, a few times
+    goal: each arm of an `if` or `match`, each flag set to `true` and to
+    `false`, each fault. The solver finds inputs that reach each goal, a few times
     over, with the inputs the goal doesn't decide random (`heron formal
     isagen`, [3.3](#33-the-specification-side));
   - **random:** random states and instructions (`heron formal isacheck`).
@@ -199,7 +199,7 @@ Rules for the hardware, so that the proof stays cheap.
      the hardware and the tests", and a specification that runs is
      exactly that. *Recommended.*
   2. **In the instruction set's RFC,** as a part or an appendix. An RFC
-     can carry a specification. But 1b's is about 550 lines and would
+     can carry a specification. But 1b's is about 770 lines and would
      bury the prose, and it has to change with the simulator while the
      draft is still moving.
   3. **In `docs/`.** It is reference, but it is also code the tools run,
@@ -213,68 +213,101 @@ Rules for the hardware, so that the proof stays cheap.
 ### 2. The language
 
 A language for writing down an instruction set: its state, how each
-instruction is encoded, and what each does. A specification in it is
-meant to be read as documentation and run as a model, so the language is
-plain and has nothing an instruction set doesn't need.
+instruction is encoded, and what each one does. A specification in it is
+meant to be read as documentation and run as a model, so it is plain and
+has nothing an instruction set doesn't need. It is also strict: a
+specification is checked when it is loaded ([2.6](#26-what-is-checked)),
+and most slips that would make it say something other than what was
+meant are errors, not behaviour.
 
 ```
-instruction "ADD rd, ea"  0100 dddd mmmm nnnn:
-    let x = source(m, n)                   # the EA's value, read first
-    r[d] := add(r[d], x, 0)
+instruction "ADD rd, ea"  0100 dddd mmmm nnnn {
+    let x = source(m: m, n: n)              // the EA's value, read first
+    @r[d] := nzcv(add(a: @r[d], b: x, carry: false))
+}
 
-# a + b + carry in, setting all four flags. C is the carry out, so after a
-# subtraction (a + ~b + 1) it means "no borrow".
-fn add(a, b, cin):
-    let sum = zext(a, 33) + zext(b, 33) + zext(cin, 33)
-    let x = sum[31:0]
-    C := sum[32]
-    V := a[31] == b[31] and x[31] != a[31]
-    return nz(x)
+// a + b + carry in: the sum, the carry out, and whether it overflowed as a
+// signed sum. A subtraction is a + ~b + 1, so its carry means "no borrow".
+record Sum { value: u32, carry: bool, overflow: bool }
+
+fn add(a: u32, b: u32, carry: bool) -> Sum {
+    let wide = zext(a, 33) + zext(b, 33) + zext(bit(carry), 33)
+    let x = wide[31:0]
+    return Sum {
+        value: x,
+        carry: bool(wide[32]),
+        overflow: a[31] == b[31] && x[31] != a[31],
+    }
+}
+
+// All four flags from a sum, giving the result to store.
+proc nzcv(s: Sum) -> u32 {
+    @C := s.carry
+    @V := s.overflow
+    @N := bool(s.value[31])
+    @Z := s.value == 0
+    return s.value
+}
 ```
 
 #### 2.1 Text
 
-- `#` starts a comment, to the end of the line.
-- Blocks are by indentation, as in Python: a line that ends in `:` opens
-  one, indented under it. A block of one statement may follow the `:` on
-  the same line.
-- Numbers are decimal, `0x` hexadecimal or `0b` binary; `_` may separate
-  digits (`0x0010_0000`).
-- Names are letters, digits and `_`, not starting with a digit. Strings
-  are in double quotes, on one line.
+- `//` starts a comment, to the end of the line.
+- Blocks are in braces. A statement ends at the end of its line, at a
+  `;`, at the `}` of its block, or at the `,` after a match arm. A line
+  that ends in an operator, `(`, `[`, `{` or `,` goes on to the next.
+- Numbers are decimal, `0x` hexadecimal or `0b` binary, and `_` may
+  separate digits: `0x0010_0000`. A **sized number** is written as in
+  Verilog, its width in bits, `'`, a base (`h`, `d` or `b`) and digits:
+  `32'h0010_0000`, `8'd255`, `4'b1010`.
+- Names are letters, digits and `_`, not starting with a digit.
+  `@name` is the machine's state ([2.4](#24-declarations)); a name
+  without `@` never is. Strings are in double quotes, on one line.
 
-#### 2.2 Values
+#### 2.2 Types
 
-Every value is a bit vector with a width, from 1 bit up.
+| Type | Values |
+|---|---|
+| `u1` to `u128` | `uN` is N bits, read as an unsigned number |
+| `bool` | `true` and `false` |
+| an enum | `enum Size { Byte, Half, Word }` has the values `Size.Byte`, `Size.Half` and `Size.Word` |
+| a record | `record Sum { value: u32, carry: bool, overflow: bool }`: a value of each field's type |
 
-- **A number has no width** until it meets a value that has one, and then
-  takes that value's width: in `x + 1` with a 32-bit `x`, the `1` is 32
-  bits. Arithmetic on numbers alone stays exact (`31 - 3` is `28`); a
-  number that must stand alone as a value is 32 bits wide. A negative
-  number is two's complement in the width it takes (`~1` in 32 bits is
-  `0xFFFFFFFE`).
-- **Two values in one operation have the same width,** except where the
-  table below says otherwise; anything else is an error.
-- **A condition is a 1-bit value:** `if`, `and`, `or` and `not` take one,
-  and comparisons make one. A number is a condition too: 0 is false.
+- **Nothing converts by itself.** The operands of an operation have the
+  same type; a value goes only where its own type is wanted. `bit(b)`
+  makes a `bool` a `u1` and `bool(x)` a `u1` a `bool`; `zext` and `sext`
+  widen.
+- **A bare number has no type** until it meets a value that has one, and
+  then takes that type: in `x + 1` with `x` a `u32`, the `1` is a `u32`.
+  It must fit: in a `uN`, from −2^(N−1) to 2^N − 1, a negative number
+  being its two's complement (`~1` in a `u32` is `0xFFFF_FFFE`).
+  Arithmetic on bare numbers alone is exact (`31 - 3` is `28`), but a
+  bare number can't stand alone where nothing gives it a type: `for i in
+  0 ..= 3` is an error, `for i: u5 in 0 ..= 31` isn't.
+- **A sized number has its type,** and its value must fit it unsigned:
+  `8'h100` is an error.
+- **An enum** has only `==`, `!=` and `match`; a record only its fields.
+  A record is built with every field named, `Sum { value: x, carry: c,
+  overflow: v }`, and read with `s.carry`.
 
 #### 2.3 Expressions
 
 | Expression | Meaning |
 |---|---|
-| `x[7:0]`, `x[31]` | a slice, and a bit. Bit 0 is the least significant. Slice bounds are numbers; a bit's index may be a value |
-| `a ++ b` | `a` above `b`: its width is the sum of theirs. Neither may be a number |
-| `zext(x)`, `sext(x)` | zero- or sign-extend to 32 bits; `zext(x, 64)` to 64 |
-| `+ - *` | modulo 2^width |
+| `x[7:0]`, `x[31]` | a slice, and a bit (a `u1`). Bit 0 is the least significant. Slice bounds are numbers; a bit's index may be a value |
+| `a ++ b` | `a` above `b`: a `uN` as wide as both. Neither may be a bare number |
+| `zext(x, 64)`, `sext(x, 64)` | zero- or sign-extend to that width, which is a number no less than `x`'s |
+| `+ - *` | modulo 2^N |
 | `/ %` | unsigned. Dividing by zero is undefined: a specification checks first |
 | `& \| ^ ~`, unary `-` | bitwise, and negation |
-| `<< >>` | shifts. `>>` is logical. The count may have any width; a count of the width or more gives 0 |
-| `== != < <= > >=` | comparisons, unsigned |
-| `and or not` | on conditions; `and` and `or` don't evaluate their right side when the left decides |
-| `if c then a else b` | a choice |
-| `(a, b, c)` | a tuple: only as a function's result, taken apart by `let` |
-| `f(a, b)` | a call; the arguments are evaluated left to right, before it |
-| `r[i]`, `mem[a]` | an entry of an array of registers, a memory's contents |
+| `<< >>` | shifts. `>>` is logical. The count is any `uN`, or a number less than the width; a count of the width or more gives 0 |
+| `< <= > >=` | unsigned comparisons of `uN` values, giving a `bool` |
+| `== !=` | equality, on any type but a record |
+| `&& \|\| !` | on `bool`s; `&&` and `\|\|` don't evaluate their right side when the left decides |
+| `match e { 0 \| 1 => a, _ => b }` | a choice ([2.5](#25-statements) has the rules for arms) |
+| `f(x, y)`, `f(a: x, b: y)` | a call, by position or by name; the arguments are evaluated left to right, before it |
+| `@pc`, `@r[i]`, `@mem[a]` | a register, an entry of an array of registers, a memory's contents |
+| `Sum { value: x, … }`, `s.value`, `Size.Byte` | a record, a field, an enum's value |
 
 Built in:
 
@@ -284,53 +317,60 @@ Built in:
 | `ror(x, n)` | rotate right |
 | `sdiv(a, b)` | signed division, rounded toward zero |
 | `srem(a, b)` | its remainder, which takes the dividend's sign |
+| `bit(b)`, `bool(x)` | a `bool` as a `u1`, and back |
 
-Operators bind as in Python, loosest first:
+Operators bind as in Go, loosest first: `||`; `&&`; the comparisons;
+`|`; `^`; `&`; `++`; the shifts; `+ -`; `* / %`; the unary `~ - !`;
+slices, indexing, fields and calls. Where the order could be misread
+it must be written out with parentheses, and anything else is an error:
 
-1. `if … then … else`;
-2. `or`;
-3. `and`;
-4. `not`;
-5. the comparisons;
-6. `|`;
-7. `^`;
-8. `&`;
-9. `++`;
-10. the shifts;
-11. `+ -`;
-12. `* / %`;
-13. `~` and unary `-`;
-14. slices, indexing and calls.
+- `&&` with `||`;
+- a comparison of a comparison (`a == b == c`);
+- any two different operators from `| ^ & ++ << >>` and the arithmetic
+  ones: `x & 3 + 1` and `x << 2 + 1` are errors.
+
+Arithmetic among itself binds as in school, so `a + b * c` needs none.
 
 #### 2.4 Declarations
 
 A specification is a list of declarations, in any order.
 
 ```
-register r[16] : 32       # an array of registers, 32 bits each
-hardwired r[0] = 0        # an entry that always reads as this; writing it does nothing
-register pc : 32          # a register
-flag N Z C V              # 1-bit registers
-memory mem : 32 -> 8      # 32-bit addresses, 8-bit contents
-const SP = 15             # a name for a value
-fn name(a, b):            # a function
-    ...
-instruction "ADD rd, ea"  0100 dddd mmmm nnnn:
-    ...
+register r[16]: u32         // an array of registers
+hardwired r[0] = 0          // an entry that always reads as this; writing it does nothing
+register pc: u32            // a register
+flag N, Z, C, V             // bool registers
+memory mem[u32]: u8         // 32-bit addresses, 8-bit contents
+const SP: u4 = 15           // a name for a value: its type is given,
+const RAM_SIZE = 32'h0010_0000      // or its value's
+enum Size { Byte, Half, Word }
+record Sum { value: u32, carry: bool, overflow: bool }
+fn add(a: u32, b: u32, carry: bool) -> Sum { … }
+proc push(value: u32) { … }
+instruction "ADD rd, ea"  0100 dddd mmmm nnnn { … }
 ```
 
-- **A function** takes values and may return one (`return`). Its
-  parameters and `let`s are its own; a name `let` in a block is seen in
-  the rest of the function. A function that doesn't `return` gives no
-  value, and is called for what it does. There is no recursion.
+- **A `fn` gives a value** from its arguments and the state. It can't
+  change the state, `fault`, `trap`, `halt` or `assume`, and calls only
+  `fn`s. Its result type is required, and every path through it returns.
+- **A `proc` may do anything:** change the state, fault, and give a
+  value (`-> T`) or not. It is called only on its own: as a statement,
+  or as the whole right side of a `let`, a `:=` or a `return`, so the
+  order of what happens is the order of the lines. `@pc + parcel()`
+  can't be written; `let d = parcel()` then `@pc + d` can.
+- **Arguments** are by position, or by name, `f(a: x, b: y)`. Where two
+  parameters have the same type, every argument is by name, so that
+  `add(a: @r[d], b: x, carry: false)` can't swap `a` and `b`.
+- **A name means one thing.** A parameter, a local or an instruction's
+  field can't have a global name, and a local can't hide another.
 - **An instruction** is its syntax (a string, for the reader), its
   encoding and its body.
   - The encoding is a string of `0`, `1`, `-` and lower-case letters,
     most significant first; the spaces are for the eye. `0` and `1` must
     match, `-` matches either, and a run of one letter is a field:
-    `dddd` binds `d`, four bits wide, in the body.
-  - `when` adds a condition on the fields:
-    `0000 aaaa bbbb 0101 when 1 <= a and a <= b`.
+    `dddd` binds `d`, a `u4`, in the body.
+  - `when` adds a condition on the fields and constants:
+    `0000 aaaa bbbb 0101  when 1 <= a && a <= b`.
   - Instructions are tried in the order the specification lists them
     (`decode`, below); the first whose encoding and `when` match runs.
 
@@ -338,27 +378,50 @@ instruction "ADD rd, ea"  0100 dddd mmmm nnnn:
 
 | Statement | Meaning |
 |---|---|
-| `let x = e` | name a value; `let (a, b) = f()` takes a tuple apart |
-| `x := e` | change a name, a register or flag, `r[i]` or `mem[a]`. The change is seen at once |
-| `if c: … elif c: … else: …` | |
-| `for i in a .. b:` | `i` from `a` to `b`, both included |
-| `case e:` with arms `1, 2: …` and `else: …` | the first arm with a value equal to `e` |
-| `return e` | |
-| `fault v` | abandon the instruction, and enter vector `v` with the instruction's own address ([2.6](#26-running-a-specification)) |
+| `let x = e`, `let x: T = e` | a name for a value, which doesn't change. It is seen to the end of its block |
+| `var x = e` | a name that `:=` may change |
+| `x := e`, `@pc := e`, `@r[i] := e`, `@mem[a] := e` | a change, seen at once |
+| `if c { … } else if c { … } else { … }` | `c` is a `bool` |
+| `for i: u5 in a ..= b { … }` | `i` from `a` to `b`, both included. Its type is given, or taken from a bound |
+| `match e { … }` | the arm whose pattern equals `e` |
+| `return e`, `return` | |
+| `fault v` | abandon the instruction, and enter vector `v` with the instruction's own address ([2.7](#27-running-a-specification)) |
 | `trap v` | the same, with the next instruction's address |
 | `halt` | the machine stops after this instruction |
-| `assume c "why"` | if `c` doesn't hold, what happens is outside the specification |
-| `decode e:` | run the first instruction whose encoding matches `e`; the block if none does |
-| `pass` | nothing |
-| `f(x)` | a call, for what it does |
+| `assume c, "why"` | if `c` doesn't hold, what happens is outside the specification |
+| `decode p else { … }` | run the first instruction whose encoding matches `p`; the block if none does |
+| `f(x)` | a `proc` called for what it does. A value given back can't be dropped |
 
-#### 2.6 Running a specification
+A match arm is `patterns => body`. The patterns are constants, separated
+by `|`, or `_` for anything else; the body is a statement, a block, or
+(in a match expression) an expression. The arms must cover every value
+of `e`'s type, and no value may be in two arms. A record literal in the
+head of an `if`, `match`, `for` or `when` needs parentheses, as the `{`
+after it would otherwise read as the record's.
 
-A specification defines two functions:
+#### 2.6 What is checked
 
-- `fn step()`, one instruction. It usually fetches a parcel and `decode`s
-  it.
-- `fn enter(vector, ret)`, what a fault or trap does.
+A specification is checked when it is loaded, before it runs. These are
+errors:
+
+- a type or width that doesn't match, or a number that doesn't fit;
+- a `fn` that changes state, faults or calls a `proc`; a `proc` call
+  inside an expression; a value given back and dropped;
+- two parameters of one type given by position;
+- a `match` that misses a value, or matches one twice;
+- a `fn` or `proc` that can end without its value;
+- a name that hides another, or state written without `@`;
+- operators that need parentheses ([2.3](#23-expressions));
+- a `let` changed, a field that isn't the record's, a slice outside its
+  value, a shift by a constant that leaves nothing.
+
+#### 2.7 Running a specification
+
+A specification defines two procs:
+
+- `proc step()`, one instruction. It usually fetches a parcel and
+  `decode`s it.
+- `proc enter(vector: u32, ret: u32)`, what a fault or trap does.
 
 `fault v` and `trap v` end the instruction where they are: what it has
 done so far stays done. Then `enter(v, ret)` runs, where `ret` is the
@@ -372,12 +435,10 @@ about what follows; a run on known values stops there.
   only says the machine stops; 1b's "wait for an interrupt" isn't in it.
 - **Signed comparisons.** None has been needed, and `sdiv` covers the one
   signed operation 1b has. Something like `<s` may want adding.
-- **Records or enumerations** for decoded operands. 1b's spec passes a
-  kind, a value and a size as a tuple and names the kinds with `const`.
 - **Generated documentation:** tables of encodings, and the
   instructions' text, made from the specification.
 
-#### 2.7 Running it on symbols
+#### 2.8 Running it on symbols
 
 The interpreter ([spec.py](../studies/formal/spec.py)) runs a
 specification on known values or on z3 terms. The semantics are those
@@ -388,11 +449,12 @@ above either way; this section is how the symbolic run keeps to them.
   `fault` turns the guard off for the rest of the instruction. One pass
   gives the next state for every path at once, and the conditions under
   which the `assume`s hold, which a proof takes as hypotheses.
-- **It notes its decisions,** if asked: each arm of an `if` or `case`,
-  each flag set, each fault, with the guard under which each outcome
-  happens. On known values that says which outcome was taken. The right
-  side of `and` and `or` runs under the guard where it is evaluated, so
-  a symbolic run notes the decisions a run on known values would meet.
+- **It notes its decisions,** if asked: each arm of an `if` or `match`,
+  each flag set to `true` and to `false`, each fault, with the guard
+  under which each outcome happens. On known values that says which
+  outcome was taken. The right side of `&&` and `||`, and each arm of a
+  match expression, runs under the guard where it is evaluated, so a
+  symbolic run notes the decisions a run on known values would meet.
   These are the goals of S2's chosen cases.
 - **A memory, and an array of registers, may be an object** with
   `read(address)` and `write(address, value, guard)`. On known values that
@@ -507,8 +569,8 @@ exercise program, which covers every instruction class.
 
 #### 3.3 The specification side
 
-[v1b.isa](../studies/formal/v1b.isa) is draft 1b in about 550 lines,
-mostly comments. It reads like RFC 0004's tables made precise: the
+[v1b.isa](../studies/formal/v1b.isa) is draft 1b in about 770 lines,
+545 of them code. It reads like RFC 0004's tables made precise: the
 state, then memory, flags and the addressing modes, then each instruction
 with its encoding. Its `assume`s are the I/O page's registers, accesses
 outside RAM, code outside RAM and a misaligned stack while entering a
@@ -522,7 +584,7 @@ the two never disagreed:
   instruction and every kind of fault.
 - **Cases chosen by the specification** (`heron formal isagen`). Each of
   the 55 instructions runs once on symbolic inputs, noting every decision
-  it meets ([2.7](#27-running-it-on-symbols)). Each outcome of each
+  it meets ([2.8](#28-running-it-on-symbols)). Each outcome of each
   decision is a goal: 1284 of them over the 55 instructions. For each
   goal the solver finds inputs, three times. Each time a random half of
   the inputs is first pinned to random values, mostly boundary values
