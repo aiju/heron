@@ -399,6 +399,22 @@ int f(struct e *x, struct e *y) { if (before(x, y)) return 7; return 9; }"""
             self.assertEqual(a.count("CMP"), 2, isa)        # the counts, and strcmp's result
             self.assertNotIn("BSR  _before", a, isa)
 
+    def test_stepped_index_addresses_the_element(self):
+        # while (a[i] < v) i++: the load after the step uses the stepped
+        # index, so the step is done in place and the loop needs no copy
+        a = asm_of("unsigned f(unsigned *a, unsigned v, int i) { while (a[i] < v) i++; return i; }",
+                   "v2")
+        self.assertRegex(a, r"INC\s+(r\d+), \1\n\s+CMP\s+r\d+, \[r\d+ \+ \1\*4\]\n\s+BHI")
+
+    def test_carry_through_a_divide_needs_no_copy(self):
+        # c = (n[i] * k + c) / 10000: the add starts from c, which the divide
+        # then overwrites in place with the next c
+        a = asm_of("unsigned f(unsigned *n, int len, unsigned k) { unsigned c = 0; int i; "
+                   "for (i = 0; i < len; i++) { unsigned v = n[i] * k + c; n[i] = v % 10000; "
+                   "c = v / 10000; } return c; }", "v2")
+        loop = re.search(r"^(\.b\d+):\n(.*?)\n\s+B\w+\s+\1\n", a, re.S | re.M).group(2)
+        self.assertNotRegex(loop, r"MOV\s+r\d+, r\d+\n")
+
     def test_v2_no_overflow_replaces_compare(self):
         # j - 1 can't overflow (j is an int), so the ADD's flags decide
         # j > 0 on their own; an INC or DEC, which leaves V, becomes an ADD

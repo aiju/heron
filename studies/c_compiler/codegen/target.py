@@ -66,6 +66,11 @@ def split_critical_edges(func):
     func.compute_preds()
 
 
+# IR operations a two-address machine does in place on their first operand
+TWO_ADDRESS = ("add", "sub", "mul", "and", "or", "xor", "shl", "shr", "sar", "rotr",
+               "divu", "divs")
+
+
 class _MachineCFG:
     """An MFunction as ir.cfg's analyses see a function."""
 
@@ -257,9 +262,11 @@ class Target:
     def isel(self):
         f, mf = self.f, self.mf
         rpo = reverse_postorder(f)
+        self.dom = DomTree(f)
         self.users = f.users()
         self.ucount = f.use_counts()
         self.vregs = {}
+        self.selected = set()   # the instructions emitted so far
         self.mblocks = {}
         for b in f.blocks:
             mb = MBlock(b, f".b{b.id}")
@@ -358,6 +365,10 @@ class Target:
         """Overridden by targets with auto-increment addressing."""
 
     def select(self, i):
+        self.select_one(i)
+        self.selected.add(i)
+
+    def select_one(self, i):
         if i in self.wrap_copies:
             d = self.def_reg(i)
             self.copy(d, self.reg(i.args[0]))
@@ -457,13 +468,25 @@ class Target:
         (the copy then coalesces away), or if both do and b was computed
         later (it's likelier to sit in the register the result wants)."""
         # an accumulator (x = x + y around a loop): start from the phi the
-        # result goes back into, so phi, operand and result share a register
-        for u in self.users.get(i, ()):
-            if u.op == "phi":
-                if u is a:
-                    return False
-                if u is b:
-                    return True
+        # result goes back into, so phi, operand and result share a register;
+        # also through two-address operations that take the result as the
+        # operand they overwrite (carry = (x * k + carry) / 10000)
+        v = i
+        for _ in range(4):
+            us = self.users.get(v, ())
+            for u in us:
+                if u.op == "phi":
+                    if u is a:
+                        return False
+                    if u is b:
+                        return True
+            nxt = [u for u in us if u.op in TWO_ADDRESS and u.args[0] is v and v not in u.args[1:]]
+            # (the remainder of a quotient's operands comes from the same divide)
+            rest = [u for u in us if u not in nxt and not (
+                u.op in ("remu", "rems") and any(n.args == u.args for n in nxt))]
+            if len(nxt) != 1 or rest:
+                break
+            v = nxt[0]
         da, db = self.dies_here(a, i), self.dies_here(b, i)
         if da != db:
             return db
