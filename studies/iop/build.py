@@ -29,7 +29,7 @@ from . import layout, meta, uasm
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(BUILD, "iop")
 UCODE = ["core.uc", "jobs.uc", "prims.uc"]
-FORTH = ["kernel.fs", "monitor.fs", "system.fs"]
+FORTH = ["kernel.fs", "monitor.fs", "system.fs", "devices.fs", "cold.fs"]
 IMAGES_AT = 0x10000
 FLASH_HALFWORDS = 512 * 1024
 

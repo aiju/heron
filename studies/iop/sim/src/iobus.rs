@@ -47,6 +47,8 @@ pub trait IoCard: Send {
     fn write(&mut self, reg: u8, v: u16, now_ns: u64);
     fn int(&self) -> bool;
     fn advance(&mut self, now_ns: u64);
+    /// The card itself, for the host's side of it (a terminal, a disk image).
+    fn as_any(&mut self) -> &mut dyn std::any::Any;
 }
 
 /// The number of bus clocks an access takes, by its device's timing

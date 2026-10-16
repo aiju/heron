@@ -238,6 +238,14 @@ TT_FLASH = timing(0, 2, 0)
 TT_TIMER = timing(1, 3, 1, window=True)
 TT_PORTS = timing(0, 2, 0, window=True)
 
+# The I/O cards in the slots (heron.native.iop.System's disk and serial):
+# the CF card in PIO mode 4 (RFC 0037, 17's estimate), the serial card's
+# 16C550s as the console's.
+DISK_SLOT = 0
+SERIAL_SLOT = 1
+TT_CF = timing(0, 3, 0)
+TT_SERIAL = timing(0, 2, 0, window=True)
+
 # ---- the image flash, in halfwords
 FLASH_MAGIC = 0x4F49       # "IO"
 FL_MAGIC = 0
@@ -292,13 +300,16 @@ OP_FORTH = 22              # kernel: len bytes of Forth source at a, interpreted
 OP_NOTIFY = 23             # kernel: client blo's completions interrupt CPU bhi >> 8 at level bhi & 0xFF, held len ticks
 OP_READ = 32               # disk: len bytes from sector (blo, bhi) to a
 OP_WRITE = 33              # disk: len bytes from a to sector (blo, bhi)
-OP_TICK = 34               # a completion after len ticks
+OP_SEND = 40               # serial line blo: len bytes from a
+OP_RECV = 41               # serial line blo: up to len bytes into a: a line, or what's come if raw
+OP_MODE = 42               # serial line blo: flags bit 0 raw, bit 1 no echo
 ST_OK = 0
 ST_BADOP = 1
 ST_WINDOW = 2              # outside the ring's windows
 ST_DENIED = 3              # a kernel request on another ring
 ST_DEVICE = 4              # the device failed
 ST_ALIGN = 5               # an odd address or length
+ST_BUSY = 6                # a line already has a receive waiting
 #
 # OP_RING's settings, 10 halfwords at a: the request ring (byte address
 # in the shared RAM: low, high), its bytes, the completion ring likewise,

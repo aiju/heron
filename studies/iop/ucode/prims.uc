@@ -791,6 +791,18 @@ enq_done: CTRL <- #(8 | CTRL_WORK)
         AC <- ev0
         NEXT
 
+.prim ttab!                     ; ( entry dev -- ) the timing table's entry for an I/O bus device
+        F <- AC | swap <- F
+        AC <- swap              ; dev << 8
+        t0 <- AC
+        X <- sp
+        AC <- [X]
+        X <- t0
+        F <- AC | ttab <- F
+        sp, X <- sp + 1
+        AC <- [X]
+        NEXT | sp <- sp + 1
+
 .prim ctrl!                     ; ( x -- ) bit x[2:0] of CTRL to x[3]
         CTRL <- AC
         X <- sp

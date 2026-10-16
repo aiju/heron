@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 
 #[pymodule]
 pub mod iop {
+    use iop::cards::{Cf, Serial};
     use iop::iop::{Config, Iop, Status};
     use iop::micro;
     use iop::system::{CS_LANES, System as Engine};
@@ -34,6 +35,16 @@ pub mod iop {
         s: Engine,
     }
 
+    /// The slots the cards go in.
+    const DISK_SLOT: usize = 0;
+    const SERIAL_SLOT: usize = 1;
+
+    fn serial(i: &mut Iop) -> Option<&mut Serial> {
+        i.io.slots[SERIAL_SLOT]
+            .as_mut()
+            .and_then(|c| c.as_any().downcast_mut::<Serial>())
+    }
+
     fn status(st: Status) -> &'static str {
         match st {
             Status::Limit => "limit",
@@ -54,8 +65,11 @@ pub mod iop {
 
     #[pymethods]
     impl System {
+        /// `disk`: a CF card's image, in slot 0; `serial`: the serial card,
+        /// two lines, in slot 1.
         #[new]
-        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None))]
+        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false))]
+        #[allow(clippy::too_many_arguments)]
         fn new(
             ucode: &[u8],
             flash: &[u8],
@@ -64,6 +78,8 @@ pub mod iop {
             watchdog: bool,
             shared_bytes: usize,
             reference: Option<&str>,
+            disk: Option<Vec<u8>>,
+            serial: bool,
         ) -> PyResult<System> {
             let words: Vec<u64> = ucode
                 .chunks(6)
@@ -82,7 +98,13 @@ pub mod iop {
                 Some(r) => crate::py_v2::v2::config(r)?,
                 None => v2_isa::timing::Config::named(v2_isa::timing::REFERENCE).unwrap(),
             };
-            let iop = Iop::new(cfg, &words, flash);
+            let mut iop = Iop::new(cfg, &words, flash);
+            if let Some(image) = disk {
+                iop.io.slots[DISK_SLOT] = Some(Box::new(Cf::new(image)));
+            }
+            if serial {
+                iop.io.slots[SERIAL_SLOT] = Some(Box::new(Serial::default()));
+            }
             Ok(System {
                 s: Engine::new(iop, ram_size, cpu_hz, timing),
             })
@@ -118,6 +140,36 @@ pub mod iop {
         /// COLD: the IOP and its devices reset.
         fn cold(&mut self) {
             self.with_iop_mut(|i| i.cold())
+        }
+
+        /// Bytes a terminal sends on serial line n.
+        fn serial_send(&mut self, n: usize, data: &[u8]) {
+            self.with_iop_mut(|i| {
+                if let Some(c) = serial(i) {
+                    c.lines[n & 1].rx_in.extend(data.iter().copied());
+                }
+            })
+        }
+
+        /// What serial line n's terminal has received since the last call.
+        fn serial_take<'py>(&mut self, py: Python<'py>, n: usize) -> Bound<'py, PyBytes> {
+            let v = self.with_iop_mut(|i| match serial(i) {
+                Some(c) => std::mem::take(&mut c.lines[n & 1].tx_out),
+                None => Vec::new(),
+            });
+            PyBytes::new(py, &v)
+        }
+
+        /// The CF card's image.
+        fn disk<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+            let v = self.with_iop_mut(|i| {
+                i.io.slots[DISK_SLOT]
+                    .as_mut()
+                    .and_then(|c| c.as_any().downcast_mut::<Cf>())
+                    .map(|c| c.card.image().to_vec())
+                    .unwrap_or_default()
+            });
+            PyBytes::new(py, &v)
         }
 
         fn uart_send(&mut self, data: &[u8]) {

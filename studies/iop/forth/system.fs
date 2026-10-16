@@ -108,12 +108,16 @@ variable rsrc
 variable status
 variable result
 
-\ Its completion, and the client's interrupt.
+\ A completion into client c's ring, and its interrupt.
+variable cc
+: complete ( tag status result c -- )
+   cc !  0 cc @ rset (complete)
+   cc @ rset >r
+   r@ R_LEVEL + @ if  SRC_RING cc @ +  r@ R_CPU16 + @  r@ R_LEVEL + @  r@ R_HOLD + @  (post)  then
+   rdrop ;
+variable later          \ the request completes later, from elsewhere
 : done ( -- )
-   Q_TAG rq status @ result @ 0 0 req rset (complete)
-   0 req rset >r
-   r@ R_LEVEL + @ if  SRC_RING 0 req +  r@ R_CPU16 + @  r@ R_LEVEL + @  r@ R_HOLD + @  (post)  then
-   rdrop
+   later @ 0= if  Q_TAG rq status @ result @ 0 req complete  then  0 later !
    REQTAIL @ 16 + $F0 and REQTAIL ! ;
 
 \ Forth source from the kernel: len bytes at a, at most 256.
@@ -123,18 +127,15 @@ create fbuf 256 allot
    r@ 0 ?do  q-a i -2 and 0 d+ sr@  i 1 and if swab then $FF and  fbuf i + !  loop
    fbuf r> evaluate ;
 
-\ The disk: none yet (the CF card's words come later in the build).
-variable 'read
-variable 'write
-: no-disk ( -- ) ST_DEVICE status ! ;
-' no-disk 'read !
-' no-disk 'write !
+\ The devices' ops (devices.fs) after these.
+: no-op ( op -- ) drop ST_BADOP status ! ;
+variable 'more
+' no-op 'more !
 
 : op ( op -- )
    dup OP_NOP = if drop exit then
    dup OP_UNMASK = if drop Q_BLO rq unmask exit then
-   dup OP_READ = if drop 'read @ execute exit then
-   dup OP_WRITE = if drop 'write @ execute exit then
+   dup OP_SERVER 16 + u< 0= if 'more @ execute exit then
    kernel? 0= if drop ST_DENIED status ! exit then
    dup OP_RING = if drop q-a Q_BLO rq ring-from exit then
    dup OP_NOTIFY = if drop Q_BHI rq Q_LEN rq Q_BLO rq notify! exit then
@@ -142,7 +143,7 @@ variable 'write
    dup OP_ROUTE = if drop Q_LEN rq Q_BHI rq dup $FF and swap swab $FF and Q_BLO rq route exit then
    dup OP_EVRING = if drop q-a Q_BLO rq evring-from exit then
    dup OP_FORTH = if drop forth-req exit then
-   drop ST_BADOP status ! ;
+   no-op ;
 : serve ( -- ) ST_OK status !  0 result !  Q_OP rq ['] op catch if drop ST_DEVICE status ! then  done ;
 : server ( -- )
    begin
@@ -150,25 +151,3 @@ variable 'write
       REQHEAD @ REQTAIL @ = if  pause  else  0 wait-reg !  serve  then
    again ;
 
-\ ---- the cold start
-
-\ Client 0's rings and CPU 0's events, where the kernel expects them
-\ (layout.py): no interrupt for its completions until it asks.
-: kernel-rings ( -- )
-   0 0. >sr K_IDX 8 + 2/ bus-fill
-   K_REQ 0 cbank J.jreq reg !  $4000 0 cbank J.jpg reg !  K_REQS 16 * 1- 0 cbank J.jrmask reg !
-   K_CMP 0 rset R_CMP + !  $4000 0 rset R_CMP + 1+ !  K_CMPS 8 * 1- 0 rset R_CMASK + !
-   K_IDX 0 rset R_IDX + !  $4000 0 rset R_IDX + 1+ !
-   0 0 0 notify!  0 ring-on
-   K_EVRING 0 evs E_RING + !  $4000 0 evs E_RING + 1+ !  K_EVS 2* 1- 0 evs E_MASK + !
-   K_EVBLK 0 evs E_BLK + !  $4000 0 evs E_BLK + 1+ !
-   0 evring-on ;
-
-: banner ( -- ) ." Heron IOP Forth, " here u. ." cells" cr ;
-: cold ( -- )
-   decimal  0 state !  0 handler !  0 evmask !  0 bells !
-   tables  jobs-init
-   uart-init  timer-init  7 leds
-   kernel-rings
-   ['] server 1 spawn
-   banner  quit ;
