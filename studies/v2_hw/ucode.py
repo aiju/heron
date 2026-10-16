@@ -48,7 +48,8 @@ from heron.studies.v2_isa import v2
 
 # --------------------------------------------------------------------------
 # Control word: (name, width, active_low). Active-low fields are stored
-# inverted, so a logical 1 means "asserted" everywhere in this file.
+# inverted, so a logical 1 means "asserted" everywhere in this file;
+# active_low may also be a mask of the bits stored inverted.
 
 FIELDS = [
     # sequencer
@@ -62,7 +63,7 @@ FIELDS = [
     ("BS0", 1, True), ("BF1", 1, True), ("BF23", 1, True),
     # register file: read addresses for the two copies (RFK when constant),
     # the write address (RFKW when constant)
-    ("RFA", 2, False), ("RFB", 2, False), ("RFW", 2, False), ("RFK", 6, False),
+    ("RFA", 2, False), ("RFB", 2, False), ("RFW", 2, False), ("RFK", 6, 0b100000),
     ("RFKW", 6, False), ("RFWE", 1, False), ("UBR", 1, False), ("UBW", 1, False),
     # SX (a register number that counts) and EX (where a count stops)
     ("LDSX", 2, False), ("SXINC", 1, False), ("LDEX", 2, False),
@@ -77,13 +78,17 @@ FIELDS = [
     ("PCCOND", 2, False), ("CONSUME", 1, False), ("LDLC", 1, True), ("LCINC", 1, False),
     ("CCB", 2, False), ("LDCTX", 1, False), ("LDBANK", 1, False),
     # memory
-    ("MEM", 3, False), ("SIZE", 2, False),
+    ("MEM", 3, 0b100), ("SIZE", 2, False),
     # flags and condition latches
     ("FNZ", 2, False), ("NSEL", 2, False), ("FC", 2, False), ("CZERO", 1, False),
     ("CSRC", 3, False), ("FV", 3, False), ("FI", 2, False), ("LFM", 2, False),
     ("SSET", 1, False), ("LDCL", 1, False), ("CLSRC", 3, False),
     # length class
     ("LCL", 2, False),
+    # from MEM (word() fills them in): the virtual address multiplexer's
+    # select (MAR, FPC through the map, the A bus, FPC with the kept
+    # translation), and the map's address multiplexer's (a map access)
+    ("VAS", 2, False), ("MAPA", 1, False),
 ]
 
 WORD_BITS = 144             # nine 64K x 16 SRAMs
@@ -92,9 +97,10 @@ U_SHIFT = Y_BITS
 
 
 def _layout():
+    """{name: (first bit, width, mask of the bits stored inverted)}."""
     pos, bit = {}, 0
     for name, w, al in FIELDS:
-        pos[name] = (bit, w, al)
+        pos[name] = (bit, w, (1 << w) - 1 if al is True else int(al))
         bit += w
     assert bit <= WORD_BITS, bit
     return pos
@@ -136,6 +142,7 @@ FSEL = {"0": 0, "1": 1, "ir15": 2, "qh15": 3, "qh7": 4, "a31": 5, "a15": 6, "sgn
 PCCOND = {None: 0, "bcond": 1, "ncl": 2}
 CCB = {"jcc": 0, "bcc": 1, "set": 2}       # cc from IR[15:12], IR[3:0], IR[11:8]
 MEM = {None: 0, "read": 1, "write": 2, "fetch": 3, "mapr": 4, "mapw": 5, "reada": 6}
+VAS_OF_MEM = {0: 3, 3: 1, 6: 2}                 # else 0, MAR
 SIZE = {None: 0, "byte": 1, "half": 2, "word": 3}
 FNZ = {None: 0, "nz": 1, "sticky": 2, "loadf": 3}
 NSEL = {31: 0, 15: 1, 7: 2}
@@ -368,19 +375,14 @@ def pack(f):
     for name, (bit, w, al) in _pos.items():
         v = f.get(name, 0)
         assert 0 <= v < (1 << w), (name, v)
-        if al:
-            v ^= (1 << w) - 1
-        word |= v << bit
+        word |= (v ^ al) << bit
     return word
 
 
 def unpack(word):
     out = {}
     for name, (bit, w, al) in _pos.items():
-        v = (word >> bit) & ((1 << w) - 1)
-        if al:
-            v ^= (1 << w) - 1
-        out[name] = v
+        out[name] = ((word >> bit) & ((1 << w) - 1)) ^ al
     return out
 
 
@@ -484,9 +486,10 @@ def illegal(pcfix=2):
     return trap("illegal", pcfix, "illegal")
 
 
-def privileged(name, body, pcfix=2):
-    """In user mode, a privilege violation; in supervisor mode, body."""
-    return branch(name, {}, "sup", trap("privilege", pcfix, name), body)
+def privileged(name, body, pcfix=2, f=None):
+    """In user mode, a privilege violation; in supervisor mode, body. f:
+    fields of the cycle that checks."""
+    return branch(name, f or {}, "sup", trap("privilege", pcfix, name), body)
 
 
 # --------------------------------------------------------------------------
@@ -1315,7 +1318,8 @@ def mtsr_routine(n):
 
 
 def mfur_routine():
-    return privileged("MFUR", end("MFUR", ra="r", ubr=1, alu="passa", w="d"))
+    # UBR: the next cycle reads the user bank
+    return privileged("MFUR", end("MFUR", ra="r", alu="passa", w="d"), f=mi(ubr=1))
 
 
 def mtur_routine():
@@ -1772,6 +1776,8 @@ class Microcode:
     def word(self, n):
         """Field dict of node n as stored at its address."""
         f = dict(n.f)
+        f["VAS"] = VAS_OF_MEM.get(f.get("MEM", 0), 0)
+        f["MAPA"] = int(f.get("MEM", 0) in (MEM["mapr"], MEM["mapw"]))
         s = n.succ
         if s[0] == "next":
             assert s[1].addr is not None and s[1].addr < (1 << Y_BITS), n.name
@@ -1816,7 +1822,7 @@ class Microcode:
         return [self.entry[self.keys[w]].addr | (self.lens[w] << Y_BITS) for w in range(0x10000)]
 
 
-IDLE = pack(mi())
+IDLE = pack(dict(mi(), VAS=VAS_OF_MEM[0]))
 
 _built = None
 

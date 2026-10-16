@@ -23,15 +23,16 @@ MAX_CYCLES = 50_000_000
 
 
 # the sources a profile depends on
-SOURCES = ("ucode.py", "rtl.py", "system.py", "check.py", "timing.py", "perf.py")
+SOURCES = ("ucode.py", "rtl.py", "system.py", "check.py", "timing.py", "ticks.json", "perf.py")
 
 
 def _sources_tag():
     here = os.path.dirname(os.path.abspath(__file__))
     h = hashlib.sha1()
     for f in SOURCES:
-        with open(os.path.join(here, f), "rb") as fh:
-            h.update(fh.read())
+        if os.path.exists(os.path.join(here, f)):
+            with open(os.path.join(here, f), "rb") as fh:
+                h.update(fh.read())
     return h.hexdigest()[:12]
 
 

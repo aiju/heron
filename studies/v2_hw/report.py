@@ -116,9 +116,9 @@ def classes_section(rows, mc, lens):
     return "\n".join([
         "## Length classes",
         "",
-        "Each microinstruction's need from `timing.py`'s path estimate (worst-case datasheet "
-        "delays), in ticks; *executed*: the suite's cycles. The four classes that minimise the "
-        f"suite's time: {', '.join(map(str, lens))}.",
+        "Each microinstruction's need from static timing analysis of the netlist (`ticks.json`, "
+        "worst-case datasheet delays), in ticks; *executed*: the suite's cycles. The four "
+        f"classes that minimise the suite's time: {', '.join(map(str, lens))}.",
         "",
         table(["Ticks", "Microinstructions", "Executed", "Share"], body),
     ])
@@ -277,7 +277,7 @@ def bus_section(local, buses, lens):
 def what_if_section(rows, mc):
     base = None
     body = []
-    variants = [((), "as specified")] + [((k,), v) for k, v in timing.WHAT_IF.items()] + \
+    variants = [((), "as estimated")] + [((k,), v) for k, v in timing.WHAT_IF.items()] + \
         [(tuple(timing.WHAT_IF), "both")]
     for v, label in variants:
         ticks = {n.addr: timing.estimate(mc.word(n), v)[1] for n in mc.nodes}
@@ -295,8 +295,10 @@ def what_if_section(rows, mc):
     return "\n".join([
         "## What some changes would buy",
         "",
-        "The suite's time with the timing estimate changed as if the design were, the same "
-        "microcode and the length classes picked again (`timing.WHAT_IF`).",
+        "From `timing.py`'s path estimate, not the netlist's timing that the rest of this page "
+        "uses: the suite's time as the estimate has it, and with the estimate changed as if "
+        "the design were, the same microcode and the length classes picked again "
+        "(`timing.WHAT_IF`). The changes are the differences.",
         "",
         table(["Design", "Length classes", "Suite", "Change"], body,
               ["---", "---", "---:", "---:"]),

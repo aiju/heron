@@ -94,9 +94,9 @@ def trace_buses():
             "QH": b("QH", 16), "IR": b("IR", 16), "ABUS": b("ABUS", 32), "BBUS": b("BBUS", 32),
             "RES": b("RES", 32), "R": b("RQ", 32), "VA": b("VA", 32), "DB": b("DB", 32),
             "MAR": b("MAR", 32), "LC": b("LC", 8), "V": ["V0", "V1"],
-            "F": ["FAULT", "DECGO", "FREFILL", "JUMP", "FETCHED"], "FL": list(FLAGS),
+            "F": ["FAULT", "DECGO", "FREFILL_n", "JUMP", "FETCHED"], "FL": list(FLAGS),
             "SQ": ["DECACT", "HALTACT", "TSQ", "IRQP", "COMPLETE", "YOFF", "UF0", "UF1", "FTRACE",
-                   "FIRQ", "QW1", "QW2", "FITS1"]}
+                   "FIRQ", "W2", "W3", "FITS1", "FOK", "PC1F"]}
 
 
 def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE):
@@ -290,7 +290,11 @@ def main(argv=None):
     b.set_defaults(fn=cmd_bom)
     s = sub.add_parser("sta")
     s.add_argument("--paths", type=int, default=3)
-    s.add_argument("--force", action="store_true")
+    s.add_argument("--force", action="store_true", help="redo the analysis, not the cached one")
+    s.add_argument("--write", action="store_true",
+                   help="write ticks.json, the measured periods the microcode's classes come from")
+    s.add_argument("--no-profile", action="store_true",
+                   help="without the suite's counts (which take minutes the first time)")
     s.set_defaults(fn=cmd_sta)
     args = p.parse_args(argv)
     return args.fn(args)

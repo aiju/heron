@@ -1,7 +1,9 @@
-"""How long each microinstruction's cycle must be: an estimate from the
-paths it uses, with worst-case datasheet delays (infra/hw/timing.json) for
-the parts RFC 0031 names, until there is a netlist for static timing
-analysis to run on.
+"""How long each microinstruction's cycle must be: what static timing
+analysis of the netlist measured (ticks.json, written by `heron v2_hw hw
+sta --write`, see sta.py), or else an estimate from the paths it uses,
+with worst-case datasheet delays (infra/hw/timing.json) for the parts RFC
+0031 names. The estimate covers microinstructions the table doesn't have
+yet, and the changes RFC 0031 prices without building them (WHAT_IF).
 
 A cycle is K ticks of 20 ns from a 50 MHz master clock, K = 4 to 19, as on
 the fast CPU card of RFC 0024 (studies/v1b_tradeoffs/fastcard.py). Times
@@ -16,11 +18,11 @@ done by the next one:
   - the next microinstruction's address must reach the control store SRAM
     tAA + the uIR's setup before the edge.
 
-Each path is a sum of the delays of the parts along it (names below), so
-the classes can be redone when a part changes. assign_classes() gives every
-microinstruction its ticks, picks four lengths that minimise the program
-suite's time given a profile (or a fixed set before there is one), and sets
-each microinstruction's length class.
+In the estimate each path is a sum of the delays of the parts along it
+(names below). assign_classes() gives every microinstruction its ticks,
+picks four lengths that minimise the program suite's time given a profile
+(or a fixed set before there is one), and sets each microinstruction's
+length class.
 """
 
 import json
@@ -35,6 +37,9 @@ K_BUS = 6                   # a data access may go to the bus: the hold comes at
 K_WRITE = 6                 # the memory write window: tick 4 to the last tick
 
 _T = None
+HERE = os.path.dirname(os.path.abspath(__file__))
+TICKS_PATH = os.path.join(HERE, "ticks.json")
+NOT_TIMED = ("NEXT", "LCL")     # fields that don't change a cycle's paths
 
 
 def _d(part, name):
@@ -235,13 +240,66 @@ def best_lengths(need_counts, k=4):
     return best[1]
 
 
+def word_mask():
+    """The control word's bits that a cycle's timing depends on."""
+    from . import ucode as uc
+    m = (1 << uc.WORD_BITS) - 1
+    for name in NOT_TIMED:
+        bit, w, _ = uc._pos[name]
+        m &= ~(((1 << w) - 1) << bit)
+    return m
+
+
+def timing_key(f):
+    """A microinstruction's key in ticks.json."""
+    from . import ucode as uc
+    return f"{uc.pack(f) & word_mask():x}"
+
+
+_TABLE = None
+
+
+def measured():
+    """{key: ns} from static timing analysis (ticks.json), or {}."""
+    global _TABLE
+    if _TABLE is None:
+        _TABLE = {}
+        if os.path.exists(TICKS_PATH):
+            with open(TICKS_PATH) as f:
+                _TABLE = json.load(f)["ns"]
+    return _TABLE
+
+
+def ticks_of(ns, f):
+    """Ticks for a cycle that needs ns, at least what the clock generator
+    and the memory rules make it."""
+    if ns > K_MAX * TICK:
+        raise ValueError(f"a cycle of {ns:.1f} ns is longer than {K_MAX} ticks")
+    mem = f.get("MEM", 0)
+    t = max(K_MIN, math.ceil(ns / TICK - 1e-9))
+    if mem in (1, 2, 3, 6):
+        t = max(t, K_BUS)                           # it may go to the bus
+    if mem in (2, 5):
+        t = max(t, K_WRITE)
+    return t
+
+
 def assign_classes(mc, lengths=None):
-    """Give every microinstruction in Microcode mc its ticks and a length
-    class (LCL) for the jumpers `lengths`."""
+    """Give every microinstruction in Microcode mc its ticks (measured, or
+    estimated: mc.estimated lists those) and a length class (LCL) for the
+    jumpers `lengths`."""
     mc.ticks = {}
     mc.need_ns = {}
+    mc.estimated = []
+    table = measured()
     for n in mc.nodes:
-        ns, t = estimate(mc.word(n))
+        f = mc.word(n)
+        ns = table.get(timing_key(f))
+        if ns is None:
+            ns, t = estimate(f)
+            mc.estimated.append(n.addr)
+        else:
+            t = ticks_of(ns, f)
         mc.ticks[n.addr] = t
         mc.need_ns[n.addr] = ns
     if lengths is None:

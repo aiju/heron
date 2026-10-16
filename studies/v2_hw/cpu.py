@@ -60,7 +60,7 @@ def control_nets():
     nets = {}
     for name, (bit, w, al) in uc._pos.items():
         for i in range(w):
-            nets[bit + i] = f"u{name}{i if w > 1 else ''}{'_n' if al else ''}"
+            nets[bit + i] = f"u{name}{i if w > 1 else ''}{'_n' if al >> i & 1 else ''}"
     return nets
 
 
@@ -108,13 +108,18 @@ def clock_generator(nl, lengths, por_ps):
     # tick 4, once a write's address has been translated and checked
     nl.add("175", "U_TH2", CLK="MCLK", CLR="VCC",
            **{"1D": "H1", "1Q": "H2", "2D": "H2", "2Q": "H3", "3D": "GND", "4D": "GND"})
+    # (not in a cycle whose tail is tick 3: H3 and T1 at once would toggle MID)
+    g("08", ["H3", "T1_n"], "MIDJ")
     nl.add("109", "U_WIN",
-           **{"1J": "H3", "1K": "T1_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC",
+           **{"1J": "MIDJ", "1K": "T1_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC",
               "1Q": "MID",
               "2J": "TCRCO", "2K": "H0_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC",
               "2QN": "TAILX_n"})
     g("08", ["MID", "TAILX_n"], "MWIN")
     g("32", ["TCRCO", "T1"], "RW")
+    # LATE: from tick 2, when a read's RAM outputs are off; the store data
+    # drives the card's data bus only then
+    g("02", ["H0", "H1"], "LATE")
 
 
 def build(sim=False, lengths=None, por_ps=2_000_000):
@@ -139,7 +144,8 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     if sim:
         clock_generator(nl, lengths, por_ps)
     else:
-        nl.add("tickclk", "X_CLK", CLK="CLK", MWIN="MWIN", RW="RW", RSTB="T1", RESET="RESET_n")
+        nl.add("tickclk", "X_CLK", CLK="CLK", MWIN="MWIN", LATE="LATE", RW="RW", RSTB="T1",
+               RESET="RESET_n")
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
     nl.section("Reset")
     g("04", ["RESET_n"], "RESET")
@@ -216,43 +222,51 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("08", ["HALTACT", "IRQP"], "FIRQH")
     g("32", ["FIRQD", "FIRQH"], "FIRQ")
     g("11", ["DECACT", "TSQ_n", "IRQP_n"], "DECOK")
-    g("08", ["DECOK", "COMPLETE_n"], "FREFILL")
-    g("11", ["DECOK", "COMPLETE", "FAULT_n"], "DECGO")
-    g("04", ["DECGO"], "DECGO_n")
-    g("32", ["FAULT", "RESET"], "YOFF1")
-    g("32", ["FTRACE", "FIRQ"], "YOFF2")
-    g("32", ["YOFF1", "YOFF2"], "YOFF3")
-    g("32", ["YOFF3", "FREFILL"], "YOFF")
+    # the refill entry: the instruction isn't all there, or the cycle jumps
+    g("00", ["DECOK", "COMPLETE_n"], "FREFILL_n")
+    g("20", ["DECOK", u["LDPC"], "JC", "VCC"], "JDOK_n")
+    g("08", ["DECOK", "JUMP_n"], "DECOKJ")
+    g("11", ["DECOKJ", "COMPLETE", "FAULT_n"], "DECGO")
+    g("20", ["DECOKJ", "COMPLETE", "FAULT_n", "VCC"], "DECGO_n")
+    # for the PC's count and the queue's shift, a jump needn't count: the
+    # PC loads, the queue empties
+    g("11", ["DECOK", "COMPLETE", "FAULT_n"], "DECGOX")
+    g("21", ["DECOK", "COMPLETE", "FAULT_n", "PC1F"], "DECGOP")
+    # YOFF: one gate after the late ones (FAULT, the refill, a jump)
+    g("27", ["RESET", "FTRACE", "FIRQ"], "YOFFE_n")
+    g("20", ["DECACT", u["LDPC"], "JC", "VCC"], "JDEC_n")      # a decode that jumps
+    g("20", ["YOFFE_n", "FREFILL_n", "FAULT_n", "JDEC_n"], "YOFF")
     g("32", ["FIRQ", "FTRACE"], "UF1")
-    g("32", ["FREFILL", "FTRACE"], "UF0")
+    g("00", ["DECACT", "TSQ"], "FTRACE_n")
+    g("20", ["FTRACE_n", "FREFILL_n", "JDOK_n", "VCC"], "UF0")
     # a fault's entry has the parcels the instruction consumed: 0 for a refill's fetch
     g("08", ["LEN0", "MEM3_n"], "LL0")
     g("08", ["LEN1", "MEM3_n"], "LL1")
     nl.add("157", "U_UM", S="FAULT", G="RESET",
            **{"1A": "UF0", "1B": "LL0", "1Y": "UA0", "2A": "UF1", "2B": "LL1", "2Y": "UA1",
               "3A": "GND", "3B": "VCC", "3Y": "UA2", "4A": "GND", "4B": "GND"})
-    # the queue holds the whole next instruction (with this cycle's fetch),
-    # and the cycle doesn't jump
-    g("08", ["V0", "FETCHED"], "V0F")
-    g("32", ["V1", "V0F"], "QW2")
-    g("86", ["V0", "FETCHED"], "VXF")
-    g("08", ["VXF", "V1_n"], "QW1")
+    # the queue holds the whole next instruction: its first parcel in Q0
+    # (or, in a refill, in the word it fetches), the rest there or in this
+    # cycle's fetch. The decode table's length (1-3 parcels) selects which.
+    g("20", ["V1_n", "PFOK_n", "RFOK_n", "VCC"], "W3")       # a second word
+    g("20", ["V1_n", "PFOK_n", "RFOK_n", "PC1F"], "W2")
+    g("11", ["MEM3", "V1_n", "OKNEW"], "RF1")
+    g("21", ["MEM3", "V1_n", "OKNEW", "PC1F_n"], "RF2")
+    nl.add("151", "U_COMPL", A=DEC[13], B=DEC[14], C="V0", G="GND", Y="COMPLETE", W="COMPLETE_n",
+           D0="RF1", D1="RF1", D2="RF2", D3="GND", D4="VCC", D5="VCC", D6="W2", D7="W3")
+    # whether the instruction fits in Q0 (a refill's fetch fault counts only if not)
     g("00", [DEC[13], DEC[14]], "NOTL3")
     g("04", [DEC[14]], "L1ONLY")
-    nl.add("157", "U_FITS", S="PC1", G="GND",
+    nl.add("157", "U_FITS", S="PC1F", G="GND",
            **{"1A": "NOTL3", "1B": "L1ONLY", "1Y": "FITS1",
               "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     g("04", ["FITS1"], "FITS1_n")
-    g("08", ["QW1", "FITS1"], "QC1")
-    g("32", ["QW2", "QC1"], "QCW")
-    g("08", ["QCW", "JUMP_n"], "COMPLETE")
-    g("04", ["COMPLETE"], "COMPLETE_n")
     # jump: LDPC, always / on the branch condition / on not CL
     nl.add("153", "U_JUMP", A=u["PCCOND0"], B=u["PCCOND1"],
            **{"1G": "GND", "2G": "VCC", "1C0": "VCC", "1C1": "BCOND", "1C2": "CL_n",
               "1C3": "GND", "1Y": "JC", "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
     g("08", [u["LDPC"], "JC"], "JUMP")
-    g("04", ["JUMP"], "JUMP_n")
+    g("00", [u["LDPC"], "JC"], "JUMP_n")
     nl.add("74", "U_TS", **{"1D": "TS_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n",
                             "1Q": "TSQ", "1QN": "TSQ_n",
                             "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
@@ -269,14 +283,12 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # two copies of 16K x 32 ({G, bank, register}); read through latches in
     # the cycle's first part, written in its last tick
     nl.section("Register file")
-    g("32", [u["UBR"], "SFLAG_n"], "USEBR")
+    # the write address {G, bank, register}, from the IR's fields, SX or a
+    # constant (RFKW); the bank in user mode or with UBW
     g("32", [u["UBW"], "SFLAG_n"], "USEBW")
-    EBR = bus("EBR", 8)
-    for i in range(8):
-        g("08", [BANK[i], "USEBR"], EBR[i])
     g("11", [u["RFW0"], u["RFW1"], u["RFKW5"]], "GW")
     g("04", ["GW"], "GW_n")
-    RWA = bus("RWA", 13) + ["GW"]
+    RWA = bus("RWA", 13)
     for k in range(2):
         m = nl.add("153", f"U_RFWM{k}", A=u["RFW0"], B=u["RFW1"], **{"1G": "GND", "2G": "GND"})
         for sec in (0, 1):
@@ -289,30 +301,45 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         g("11", [BANK[i], "USEBW", "GW_n"], RWA[5 + i])
     g("10", [u["RFWE"], "T1", "FAULT_n"], "RFWE_n")
     g("00", [u["RFWE"], "T1"], "RFWB_n")
-    for side, sel, out, oe in (("A", "RFA", ABUS, u["ARF_n"]), ("B", "RFB", BBUS, u["BRF_n"])):
-        g("11", [u[f"{sel}0"], u[f"{sel}1"], u["RFK5"]], f"G{side}")
-        g("04", [f"G{side}"], f"G{side}_n")
-        RA = bus(f"RF{side}A", 13) + [f"G{side}"]
-        for k in range(2):
-            m = nl.add("153", f"U_RF{side}M{k}", A=u[f"{sel}0"], B=u[f"{sel}1"],
-                       **{"1G": "GND", "2G": "GND"})
-            for sec in (0, 1):
-                i = 2 * k + sec
-                for c, s in enumerate([IR[12 + i], IR[8 + i], SX[i], u[f"RFK{i}"]]):
-                    m[f"{sec + 1}C{c}"] = s
-                m[f"{sec + 1}Y"] = RA[i]
-        g("11", [u[f"{sel}0"], u[f"{sel}1"], u["RFK4"]], RA[4])
-        for i in range(8):
-            g("08", [EBR[i], f"G{side}_n"], RA[5 + i])
+    # the read address's bank: BANK in user mode, or if the cycle before set
+    # UBR; kept in a register (EB, loaded every cycle with what BANK and S
+    # will be) so that it is there at the edge; not for a constant that is a
+    # global register
+    g("04", ["SNEXT"], "SNEXT_n")
+    nl.add("157", "U_UBM", S="FAULT", G="GND",
+           **{"1A": "SNEXT_n", "1B": "SFLAG_n", "1Y": "SNX_n", "2A": "GND", "2B": "GND",
+              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
+    g("32", [u["UBR"], "SNX_n"], "USEBR_D")
+    g("04", ["BANKLD_n"], "BANKLD")
+    BANKN, EB, EBK = bus("BANKN", 8), bus("EB", 8), bus("EBK", 8)
+    for k in range(2):
+        m = nl.add("157", f"U_BKN{k}", S="BANKLD", G="GND")
+        for j in range(4):
+            i = 4 * k + j
+            m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = BANK[i], RES[i], BANKN[i]
+    for i in range(8):
+        g("08", [BANKN[i], "USEBR_D"], f"EBD{i}")
+    nl.add("377", "U_EB", CLK="CLK", EN="GND", **{f"D{i + 1}": f"EBD{i}" for i in range(8)},
+           **{f"Q{i + 1}": EB[i] for i in range(8)})
+    for i in range(8):
+        g("08", [EB[i], u["RFK5_n"]], EBK[i])
+    # each copy's address: RFA (RFB) selects the read address, RW switches
+    # to the write address for the last two ticks, in one 74F151 a bit
+    for side, sel, out, oe in (("A", "RFA", ABUS, u["ARF_n"]), ("B", "RFB", BBUS, "BRFE_n")):
         AM = bus(f"RF{side}M", 14)
-        for k in range(4):
-            m = nl.add("157", f"U_RF{side}S{k}", S="RW", G="GND")
-            for j in range(4):
-                i = 4 * k + j
-                if i < 14:
-                    m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = RA[i], RWA[i], AM[i]
-                else:
-                    m[f"{j + 1}A"], m[f"{j + 1}B"] = "GND", "GND"
+        for i in range(14):
+            m = nl.add("151", f"U_RF{side}A{i}", A=u[f"{sel}0"], B=u[f"{sel}1"], C="RW", G="GND")
+            if i < 4:
+                rd = [IR[12 + i], IR[8 + i], SX[i], u[f"RFK{i}"]]
+            elif i == 4:
+                rd = ["GND", "GND", "GND", u["RFK4"]]
+            elif i < 13:
+                rd = [EB[i - 5]] * 3 + [EBK[i - 5]]
+            else:                           # G, from the inverted output
+                rd = ["VCC", "VCC", "VCC", u["RFK5_n"]]
+            for c in range(4):
+                m[f"D{c}"], m[f"D{4 + c}"] = rd[c], RWA[i] if i < 13 else "GW_n"
+            m["W" if i == 13 else "Y"] = AM[i]
         IO = bus(f"RF{side}IO", 32)
         for k in range(4):
             ram = nl.add("sram64k", f"U_RF{side}{k}", role="rf", CE="GND", OE="RW", WE="RFWE_n")
@@ -342,27 +369,39 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
 
     # ---- B bus -------------------------------------------------------------------
     nl.section("B bus")
+    # the enables straight from the uIR pass a gate, so that they come on
+    # about when the decoded ones (below) of the cycle before go off
+    for f in ("BRF", "BR", "BS0", "BF1", "BF23"):
+        g("32", [u[f"{f}_n"], "GND"], f"{f}E_n")
     for k in range(4):
-        b = nl.add("541", f"U_BR{k}", OE1=u["BR_n"], OE2="GND")
+        b = nl.add("541", f"U_BR{k}", OE1="BRE_n", OE2="GND")
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = RQ[8 * k + i], BBUS[8 * k + i]
     # T by lanes (BL 1 word, 2 half, 3 byte, moved down to the low lanes by
     # TL, the access's address), and the queue's head (4 as it is, 5 x 2,
     # 6 in the upper half, 7 its low byte)
+    # each enable one gate after the uIR, so that the cycle before's drivers
+    # turn off soon: the 74F138's outputs, or a 74F151 by BL whose inputs are
+    # what TL selects (its inverted output the enable)
     bl = nl.add("138", "U_BLD", A=u["BL0"], B=u["BL1"], C=u["BL2"], G1="VCC", G2A="GND", G2B="GND")
-    for v, name in ((1, "BLW_n"), (2, "BLH_n"), (3, "BLB_n"), (4, "BLQ_n"), (5, "BLQ2_n"),
-                    (6, "BLQH_n"), (7, "BLQB_n")):
+    for v, name in ((1, "BLW_n"), (4, "BLQ_n"), (5, "BLQ2_n"), (6, "BLQH_n")):
         bl[f"Y{v}"] = name
-    nl.add("138", "U_TLD", A="TL0", B="TL1", C="GND", G1="VCC", G2A="BLB_n", G2B="GND",
-           Y0="TB0_n", Y1="TB1_n", Y2="TB2_n", Y3="TB3_n")
-    g("04", ["BLH_n"], "BLH")
+    g("04", ["TL0"], "TL0_n")
     g("04", ["TL1"], "TL1_n")
-    g("00", ["BLH", "TL1_n"], "TH0_n")
-    g("00", ["BLH", "TL1"], "TH1_n")
-    g("11", ["BLW_n", "TH0_n", "TB0_n"], "BT0_n")
-    g("08", ["BLW_n", "TH0_n"], "BT1_n")
-    g("08", ["TH1_n", "TB2_n"], "BT20_n")
-    g("08", ["BLQ_n", "BLQB_n"], "BQ0_n")
+    g("02", ["TL0", "TL1"], "TLB0")
+    g("08", ["TL0", "TL1_n"], "TLB1")
+    g("08", ["TL0_n", "TL1"], "TLB2")
+    g("08", ["TL0", "TL1"], "TLB3")
+    #            BL: -  word   half    byte    qh     qh2    qhh    qhb
+    for name, ins in (("BT0_n", ["GND", "VCC", "TL1_n", "TLB0", "GND", "GND", "GND", "GND"]),
+                      ("BT1_n", ["GND", "VCC", "TL1_n", "GND", "GND", "GND", "GND", "GND"]),
+                      ("BT20_n", ["GND", "GND", "TL1", "TLB2", "GND", "GND", "GND", "GND"]),
+                      ("TH1_n", ["GND", "GND", "TL1", "GND", "GND", "GND", "GND", "GND"]),
+                      ("TB1_n", ["GND", "GND", "GND", "TLB1", "GND", "GND", "GND", "GND"]),
+                      ("TB3_n", ["GND", "GND", "GND", "TLB3", "GND", "GND", "GND", "GND"]),
+                      ("BQ0_n", ["GND", "GND", "GND", "GND", "VCC", "GND", "GND", "VCC"])):
+        nl.add("151", f"U_{name[:-2]}E", A=u["BL0"], B=u["BL1"], C=u["BL2"], G="GND", W=name,
+               **{f"D{i}": x for i, x in enumerate(ins)})
     tb = [TQ[8 * k:8 * k + 8] for k in range(4)]
     QH2 = ["GND"] + QH[:15]
     for ref, src, dst, oe in (("U_BT0", tb[0], 0, "BT0_n"), ("U_BT1", tb[1], 1, "BT1_n"),
@@ -390,9 +429,9 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
                 IR[8 + i - 2] if 2 <= i <= 5 else "GND"]
         nl.add("151", f"U_V8M{i}", A=u["V80"], B=u["V81"], C=u["V82"], G="GND", Y=V8[i],
                **{f"D{c}": s for c, s in enumerate(srcs)})
-    for ref, src, dst, oe in (("U_BS0", V8, 0, u["BS0_n"]), ("U_BF1", ["FILL"] * 8, 1, u["BF1_n"]),
-                              ("U_BF2", ["FILL"] * 8, 2, u["BF23_n"]),
-                              ("U_BF3", ["FILL"] * 8, 3, u["BF23_n"])):
+    for ref, src, dst, oe in (("U_BS0", V8, 0, "BS0E_n"), ("U_BF1", ["FILL"] * 8, 1, "BF1E_n"),
+                              ("U_BF2", ["FILL"] * 8, 2, "BF23E_n"),
+                              ("U_BF3", ["FILL"] * 8, 3, "BF23E_n")):
         b = nl.add("541", ref, OE1=oe, OE2="GND")
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], BBUS[8 * dst + i]
@@ -494,9 +533,10 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         for i in range(8):
             r[f"D{i + 1}"], r[f"Q{i + 1}"] = RES[8 * k + i], RQ[8 * k + i]
     # T, and TL (the access's address bits 1-0): latches, transparent while
-    # memory is read into them, until the write phase (well before the
-    # address can change)
-    g("08", ["READING", "RW_n"], "TLE")
+    # memory is read into them, from tick 2 (LATE) until the write phase:
+    # not at the cycle's start, while READING still shows the cycle before
+    # and VA already moves
+    g("11", ["READING", "RW_n", "LATE"], "TLE")
     for k in range(4):
         t = nl.add("573", f"U_T{k}", LE="TLE", OE="GND")
         for i in range(8):
@@ -560,21 +600,70 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # ---- PC, FPC and the prefetch queue ----------------------------------------------
     nl.section("PC")
     g("00", ["JUMP", "FAULT_n"], "PCLD_n")
-    g("32", [u["CONSUME"], "DECGO"], "CONS")
-    g("11", ["CONS", "FAULT_n", "JUMP_n"], "CONSUMEX")
+    g("04", ["PCLD_n"], "PCLD")
+    # a decode that goes ahead has no fault and no jump, and doesn't consume;
+    # a cycle that consumes has no data access and isn't a refill (the
+    # microcode's rules), so it can't fault
+    g("08", [u["CONSUME"], "JUMP_n"], "CONSC")
+    g("32", ["CONSC", "DECGOX"], "CONSUMEX")
     counter_chain(nl, "PC", PC, RES, 1, 8, "PCLD_n", "CONSUMEX")
     counter_chain(nl, "FPC", FPC, RES, 2, 8, "PCLD_n", "FPCINC")
+    # PC[1] again, from a fast flip-flop, for the queue's head; and the
+    # fetch's translation is valid (FOK)
+    g("86", ["PC1F", "CONSUMEX"], "PC1T")
+    nl.add("157", "U_PCFM", S="PCLD", G="GND",
+           **{"1A": "PC1T", "1B": RES[1], "1Y": "PC1F_D", "2A": "GND", "2B": "GND",
+              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
+    nl.add("74", "U_PCF", **{"1D": "PC1F_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n",
+                             "1Q": "PC1F", "1QN": "PC1F_n",
+                             "2D": "FOK_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "RESET_n",
+                             "2Q": "FOK", "2QN": "FOK_n"})
 
+    nl.section("Fetch translation")
+    # FPC's page, kept from the map's translation (in a refill, or a cycle
+    # without a data access while FOK is clear): the prefetch reads the RAM
+    # at it without the map. A jump clears FOK, and so does FPC moving into
+    # the next page.
+    g("08", [u["VAS0"], u["VAS1"]], "PF")             # a cycle that may prefetch
+    g("08", ["PF", "FOK"], "PFOK")
+    g("20", [u["VAS0"], u["VAS1"], "FOK", "VCC"], "PFOK_n")
+    g("08", ["PF", "FOK_n"], "PFT")
+    g("32", ["MEM3", "PFT"], "TRANS")
+    g("02", ["LOCAL_n", "XFAULT"], "OKNEW")
+    g("00", ["TRANS", "FAULT_n"], "FPPNLD_n")
+    fppn = nl.add("823", "U_FPPN", CLK="CLK", EN="FPPNLD_n", CLR="VCC", OE="GND")
+    for i in range(9):
+        fppn[f"D{i + 1}"], fppn[f"Q{i + 1}"] = PA[12 + i], f"FPPN{i}"
+    nl.add("688", "U_FPCE", G="GND", PEQ="FPCE_n",
+           **{f"P{i}": FPC[2 + i] for i in range(8)}, **{f"Q{i}": "VCC" for i in range(8)})
+    g("00", [FPC[10], FPC[11]], "FPCE2_n")
+    g("02", ["FPCE_n", "FPCE2_n"], "PAGEEND")
+    g("08", ["V1_n", "PAGEEND"], "KILL")                 # a fetch would leave the page
+    # FOK next: a translation that commits (no fault, no jump) sets it to its
+    # result, unless its own fetch leaves the page; else it stays, but for a
+    # jump or a prefetch that leaves the page (a fault leaves everything)
+    g("00", ["KILL", "MEM3"], "KR_n")
+    g("08", ["OKNEW", "KR_n"], "OKB")
+    g("11", ["TRANS", "FAULT_n", "JUMP_n"], "TRC")
+    g("32", ["FAULT", "JUMP_n"], "FJ")
+    g("00", ["KILL", "PFOK"], "KP_n")
+    g("11", ["FOK", "FJ", "KP_n"], "FOKH")
+    nl.add("157", "U_FOKM", S="TRC", G="GND",
+           **{"1A": "FOKH", "1B": "OKB", "1Y": "FOK_D", "2A": "GND", "2B": "GND",
+              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     nl.section("Prefetch queue")
-    # a fetch: a cycle without a data access, room in the queue, a page the
-    # fetch may use, in the card's RAM
-    g("21", ["FETCHCYC", "V1_n", "XFAULT_n", "LOCAL"], "FETCHED")
+    # a fetch: room in the queue, and a prefetch with the kept translation,
+    # or a refill whose translation is good, in the card's RAM
+    g("00", ["MEM3", "OKNEW"], "RFOK_n")
+    g("00", ["PFOK_n", "RFOK_n"], "FETCHOK")
+    g("08", ["FETCHOK", "V1_n"], "FETCHED")
     g("11", ["FETCHED", "FAULT_n", "JUMP_n"], "FPCINC")
-    g("08", ["CONSUMEX", "PC1"], "SHIFT")
+    g("08", ["CONSC", "PC1F"], "SHIFTC")
+    g("32", ["SHIFTC", "DECGOP"], "SHIFT")
     g("04", ["SHIFT"], "SHIFT_n")
     g("08", ["V0_n", "FPCINC"], "Q0NEW")
     g("02", ["SHIFT", "Q0NEW"], "QALD_n")
-    g("10", ["FPCINC", "V0", "SHIFT_n"], "QBLD_n")
+    g("20", ["FPCINC", "V0", "SHIFT_n", "VCC"], "QBLD_n")
     QAD = bus("QAD", 32)
     for k in range(8):
         m = nl.add("157", f"U_QAM{k}", S="V1", G="GND")
@@ -587,26 +676,25 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         for i in range(8):
             ra[f"D{i + 1}"], ra[f"Q{i + 1}"] = QAD[8 * k + i], QA[8 * k + i]
             rb[f"D{i + 1}"], rb[f"Q{i + 1}"] = DB[8 * k + i], QB[8 * k + i]
-    # V0, V1: a jump empties the queue, a fault leaves it
-    g("32", ["V1", "FETCHED"], "VF")
-    g("08", ["V0", "VF"], "V0VF")
+    # V0, V1: a jump empties the queue, a fault leaves it; the shift (late:
+    # it follows the decode) selects last
+    g("11", ["V0", "W3", "JUMP_n"], "V0S")              # shifted: a second word
     g("32", ["V0", "FETCHED"], "V0ORF")
-    nl.add("157", "U_VNX", S="SHIFT", G="GND",
-           **{"1A": "V0ORF", "1B": "V0VF", "1Y": "V0X", "2A": "GND", "2B": "GND",
-              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
-    g("08", ["V0VF", "SHIFT_n"], "V1X")
     g("08", ["FAULT_n", "JUMP_n"], "QCOMMIT")
-    for v in ("V0", "V1"):
+    for v, x in (("V0", "V0ORF"), ("V1", "V0S")):
         g("08", ["FAULT", v], f"{v}H")
-        g("08", ["QCOMMIT", f"{v}X"], f"{v}N")
-        g("32", [f"{v}H", f"{v}N"], f"{v}_D")
+        g("08", ["QCOMMIT", x], f"{v}N")
+        g("32", [f"{v}H", f"{v}N"], f"{v}NS")
+    nl.add("157", "U_VNX", S="SHIFT", G="GND",
+           **{"1A": "V0NS", "1B": "V0S", "1Y": "V0_D", "2A": "V1NS", "2B": "GND", "2Y": "V1_D",
+              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     nl.add("74", "U_V", **{"1D": "V0_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
                            "1Q": "V0", "1QN": "V0_n",
                            "2D": "V1_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "VCC",
                            "2Q": "V1", "2QN": "V1_n"})
     # the head parcel: Q0's half, or the word this cycle fetches if the queue is empty
     for k in range(8):
-        m = nl.add("153", f"U_QH{k}", A="V0", B="PC1", **{"1G": "GND", "2G": "GND"})
+        m = nl.add("153", f"U_QH{k}", A="V0", B="PC1F", **{"1G": "GND", "2G": "GND"})
         for sec in (0, 1):
             i = 2 * k + sec
             for c, s in enumerate([DB[i], QA[i], DB[16 + i], QA[16 + i]]):
@@ -615,32 +703,33 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
 
     # ---- memory: the virtual address, the map, the window, faults, RAM ----------------------
     nl.section("Memory")
-    md = nl.add("138", "U_MEMD", A=u["MEM0"], B=u["MEM1"], C=u["MEM2"], G1="VCC", G2A="GND",
+    # MEM's top bit is stored inverted, so that a refill (3) is one gate
+    md = nl.add("138", "U_MEMD", A=u["MEM0"], B=u["MEM1"], C=u["MEM2_n"], G1="VCC", G2A="GND",
                 G2B="GND")
     for v in range(8):
-        md[f"Y{v}"] = f"MEM{v}_n"
+        md[f"Y{v ^ 4}"] = f"MEM{v}_n"
     g("00", ["MEM1_n", "MEM6_n"], "READING")
     g("04", ["READING"], "READING_n")
-    g("10", ["MEM1_n", "MEM2_n", "MEM6_n"], "XLATE")
+    g("20", ["MEM1_n", "MEM2_n", "MEM6_n", "VCC"], "XLATE")
     g("04", ["XLATE"], "XLATE_n")
     g("00", ["MEM0_n", "MEM3_n"], "FETCHCYC")
-    g("00", ["MEM4_n", "MEM5_n"], "MAPACC")
-    g("04", ["MEM3_n"], "MEM3")
+    g("11", [u["MEM0"], u["MEM1"], u["MEM2_n"]], "MEM3")
     g("04", ["MEM2_n"], "MEMWR")
     g("04", ["MEM5_n"], "MAPW")
     g("04", ["MEM6_n"], "MEM6")
-    # the virtual address: MAR, FPC (fetch cycles) or the A bus (a read at the A bus)
+    # the virtual address: MAR, FPC (fetch cycles) or the A bus (a read at
+    # the A bus), by VAS, which the microcode derives from MEM
     for k in range(16):
-        m = nl.add("153", f"U_VAM{k}", A="FETCHCYC", B="MEM6", **{"1G": "GND", "2G": "GND"})
+        m = nl.add("153", f"U_VAM{k}", A=u["VAS0"], B=u["VAS1"], **{"1G": "GND", "2G": "GND"})
         for sec in (0, 1):
             i = 2 * k + sec
-            for c, s in enumerate([MAR[i], FPC[i], ABUS[i], "GND"]):
+            for c, s in enumerate([MAR[i], FPC[i], ABUS[i], FPC[i]]):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = VA[i]
     # the page map: {CTX, VA[23:12]}, or MAR[30:12] for MFSR/MTSR mapd
     MA = bus("MA", 19)
     for k in range(2):
-        m = nl.add("157", f"U_MAM{k}", S="MAPACC", G="GND")
+        m = nl.add("157", f"U_MAM{k}", S=u["MAPA"], G="GND")
         for j in range(4):
             i = 4 * k + j
             if i < 7:
@@ -662,14 +751,25 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         b = nl.add("541", f"U_MWB{k}", OE1="MEM5_n", OE2="MWIN_n")
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = mdsrc[8 * k + i], MD[8 * k + i]
-    # translation (RFC 0029, 3): the window, or the map's page
+    # translation (RFC 0029, 3): the window, or the map's page; for a
+    # prefetch with FOK, the kept page (the RAM's part of it)
     g("08", [VA[31], "SFLAG"], "WIN")
     win = VA[12:31] + ["GND"]
     for k in range(5):
-        m = nl.add("157", f"U_PAM{k}", S="WIN", G="GND")
+        m = nl.add("153", f"U_PAM{k}", A="WIN", B="PFOK", **{"1G": "GND", "2G": "GND"})
+        for sec in (0, 1):
+            i = 2 * k + sec
+            for c, s_ in enumerate([MD[3 + i], win[i], f"FPPN{i}", f"FPPN{i}"]):
+                m[f"{sec + 1}C{c}"] = s_ if i < 9 else "GND"
+            m[f"{sec + 1}Y"] = PA[12 + i] if i < 9 else f"PAX{i}"
+    for k in range(3):
+        m = nl.add("157", f"U_PAH{k}", S="WIN", G="GND")
         for j in range(4):
-            i = 4 * k + j
-            m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = MD[3 + i], win[i], PA[12 + i]
+            i = 9 + 4 * k + j
+            if i < 20:
+                m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = MD[3 + i], win[i], PA[12 + i]
+            else:
+                m[f"{j + 1}A"], m[f"{j + 1}B"] = "GND", "GND"
     nl.add("688", "U_VAHI", G="GND", PEQ="VAHINZ",
            **{f"P{i}": VA[24 + i] if i < 7 else "GND" for i in range(8)},
            **{f"Q{i}": "GND" for i in range(8)})
@@ -683,11 +783,17 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("08", ["MAPPED", MD[0]], "MAPV")
     g("11", ["MAPV", "MEMWR", "MD1_n"], "R_NOW")
     g("11", ["MAPV", "FETCHCYC", "MD2_n"], "R_NOX")
-    g("32", ["R_USER", "R_RANGE"], "XF1")
-    g("32", ["R_INV", "R_NOW"], "XF2")
-    g("32", ["XF1", "XF2"], "XF3")
-    g("32", ["XF3", "R_NOX"], "XFAULT")
-    g("04", ["XFAULT"], "XFAULT_n")
+    # the translation fault, fast: the map's V, W, X select whether the
+    # access may use the page; then the window, the range
+    g("32", ["MEMWR", "FETCHCYC"], "WRFE")
+    nl.add("151", "U_MAPF", A=MD[0], B=MD[1], C=MD[2], G="GND", Y="MAPF", W="MAPF_n",
+           D0="VCC", D1="WRFE", D2="VCC", D3="FETCHCYC", D4="VCC", D5="MEMWR", D6="VCC",
+           D7="GND")
+    nl.add("153", "U_XF", A=VA[31], B="VAHINZ",
+           **{"1G": "GND", "1C0": "MAPF", "1C1": "SFLAG_n", "1C2": "VCC", "1C3": "SFLAG_n",
+              "1Y": "XFAULT",
+              "2G": "GND", "2C0": "MAPF_n", "2C1": "SFLAG", "2C2": "GND", "2C3": "SFLAG",
+              "2Y": "XFAULT_n"})
     # alignment, by size
     g("04", [u["SIZE0"]], "SIZE0_n")
     g("04", [u["SIZE1"]], "SIZE1_n")
@@ -702,28 +808,39 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("08", ["HALF", VA[0]], "MISH")
     g("32", ["MISW", "MISH"], "MIS1")
     g("08", ["MIS1", "XLATE"], "MISALIGN")
-    g("04", ["MISALIGN"], "MISALIGN_n")
+    g("00", ["MIS1", "XLATE"], "MISALIGN_n")
     # what answers: the card's RAM (slot 0) or the I/O page (slot 15)
-    g("32", [PA[27], PA[28]], "SL1")
-    g("32", [PA[29], PA[30]], "SL2")
-    g("32", ["SL1", "SL2"], "SL3")
-    g("02", ["SL3", PA[31]], "LOCAL")
-    g("04", ["LOCAL"], "LOCAL_n")
-    g("21", PA[27:31], "SLOT15")
-    g("04", [PA[31]], "PA31_n")
-    g("08", ["SLOT15", "PA31_n"], "IOSLOT")
-    g("02", ["LOCAL", "IOSLOT"], "NOANS")
+    nl.add("688", "U_LOCAL", G="GND", PEQ="LOCAL_n",
+           **{f"P{i}": PA[27 + i] if i < 5 else "GND" for i in range(8)},
+           **{f"Q{i}": "GND" for i in range(8)})
+    g("04", ["LOCAL_n"], "LOCAL")
+    nl.add("688", "U_IOSL", G="GND", PEQ="IOSLOT_n",
+           **{f"P{i}": PA[27 + i] if i < 5 else "GND" for i in range(8)},
+           **{f"Q{i}": "VCC" if i < 4 else "GND" for i in range(8)})
     # a fault: a data access misaligned, not translated or not answered; a
-    # refill's fetch that fails when the decode needs its word
-    g("32", ["MISALIGN", "XFAULT"], "DF1")
-    g("32", ["DF1", "NOANS"], "DF2")
-    g("08", ["DF2", "XLATE"], "DFAULT")
-    g("32", ["XFAULT", "LOCAL_n"], "FFR")
+    # refill's fetch that fails when the decode needs its word (RQ)
     g("32", ["V0_n", "FITS1_n"], "FNEED")
-    g("11", ["MEM3", "V1_n", "FFR"], "FF1")
-    g("08", ["FF1", "FNEED"], "FFAULT")
-    g("32", ["DFAULT", "FFAULT"], "FAULT")
-    g("04", ["FAULT"], "FAULT_n")
+    g("11", ["MEM3", "V1_n", "FNEED"], "RQ")
+    g("32", ["XLATE", "RQ"], "XQ")
+    # the translation fault where it counts (XQ), in as few gates after the
+    # map as can be: the map's V, W, X select it for a mapped page (the
+    # 74F151's strobe off otherwise), the window from user mode and the
+    # range beside it
+    g("08", ["WRFE", "XQ"], "WRFEQ")
+    g("08", ["FETCHCYC", "XQ"], "FETQ")
+    g("08", ["MEMWR", "XQ"], "WRQ")
+    g("32", [VA[31], "VAHINZ"], "UNMAPPED")
+    nl.add("151", "U_MAPQ", A=MD[0], B=MD[1], C=MD[2], G="UNMAPPED", W="MAPFQ_n",
+           D0="XQ", D1="WRFEQ", D2="XQ", D3="FETQ", D4="XQ", D5="WRQ", D6="XQ", D7="GND")
+    nl.add("157", "U_RUM", S=VA[31], G="GND",
+           **{"1A": "VAHINZ", "1B": "SFLAG_n", "1Y": "RU", "2A": "GND", "2B": "GND",
+              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
+    g("00", ["RU", "XQ"], "RUQ_n")
+    g("08", ["RUQ_n", "MISALIGN_n"], "FT1_n")
+    g("20", ["LOCAL_n", "IOSLOT_n", "XLATE", "VCC"], "FT2_n")
+    g("00", ["LOCAL_n", "RQ"], "FT3_n")
+    g("21", ["MAPFQ_n", "FT1_n", "FT2_n", "FT3_n"], "FAULT_n")
+    g("20", ["MAPFQ_n", "FT1_n", "FT2_n", "FT3_n"], "FAULT")
     # FK: 0 page fault, 1 misaligned, 2 bus error; FSR for a page fault; FAR
     g("11", ["MISALIGN_n", "XFAULT_n", "LOCAL_n"], "FK1_D")
     nl.add("377", "U_FK", CLK="CLK", EN="FAULT_n", D1="MISALIGN", Q1="FK0", D2="FK1_D", Q2="FK1",
@@ -750,12 +867,16 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         g("08", [wh, f"BYT{k}_n"], f"BE{k}_n")
         g("04", [f"BE{k}_n"], f"BE{k}")
     # the RAM: 2 MB, slot 0 (repeated)
-    g("32", ["READING", "FETCHCYC"], "RDF")
-    g("00", ["LOCAL", "RDF"], "RAMOE_n")
+    # always selected; its outputs on in any fetch cycle (nothing else
+    # drives the data bus then) and in a read of the card's RAM
+    nl.add("153", "U_RAMOE", A="FETCHCYC", B="READING",
+           **{"1G": "GND", "1C0": "VCC", "1C1": "GND", "1C2": "LOCAL_n", "1C3": "GND",
+              "1Y": "RAMOE_n", "2G": "VCC", "2C0": "GND", "2C1": "GND", "2C2": "GND",
+              "2C3": "GND"})
     g("11", ["MEMWR", "FAULT_n", "LOCAL"], "MWOK")
     for k in range(4):
-        g("10", ["MWOK", "MWIN", f"BE{k}"], f"WE{k}_n")
-        ram = nl.add("sram512", f"U_RAM{k}", role="fastram", CE="LOCAL_n", OE="RAMOE_n",
+        g("20", ["MWOK", "MWIN", f"BE{k}", "VCC"], f"WE{k}_n")
+        ram = nl.add("sram512", f"U_RAM{k}", role="fastram", CE="GND", OE="RAMOE_n",
                      WE=f"WE{k}_n")
         for i in range(19):
             ram[f"A{i}"] = PA[2 + i]
@@ -763,20 +884,25 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
             ram[f"IO{i}"] = DB[8 * k + i]
     # store data: the A bus, replicated by size
     nl.section("Store data")
+    g("00", ["MEMWR", "LATE"], "SDOE_n")
     a8 = [ABUS[8 * k:8 * k + 8] for k in range(4)]
     for ref, src, dst, oe2 in (("U_SD0", a8[0], 0, "GND"), ("U_SD1", a8[1], 1, "BYTE"),
                                ("U_SDB1", a8[0], 1, "BYTE_n"), ("U_SD2", a8[2], 2, "WORD_n"),
                                ("U_SDB2", a8[0], 2, "WORD"), ("U_SD3", a8[3], 3, "WORD_n"),
                                ("U_SDH3", a8[1], 3, "HALF_n"), ("U_SDB3", a8[0], 3, "BYTE_n")):
-        b = nl.add("541", ref, OE1="MEM2_n", OE2=oe2)
+        b = nl.add("541", ref, OE1="SDOE_n", OE2=oe2)
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], DB[8 * dst + i]
     # the I/O page: a fixture, on the card's data bus
     g("02", ["MISALIGN", "XFAULT"], "XOK")
+    g("04", ["IOSLOT_n"], "IOSLOT")
     g("10", ["IOSLOT", "XLATE", "XOK"], "IOSEL_n")
     g("00", ["MEMWR", "MWIN"], "IOWR_n")
     if sim:
-        io = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="IOSEL_n", RD="READING_n", WR="IOWR_n",
+        # it drives the data bus from tick 3, once the RAM's outputs are off
+        g("32", ["H3", "MID"], "TICK3")
+        g("00", ["READING", "TICK3"], "IORD_n")
+        io = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="IOSEL_n", RD="IORD_n", WR="IOWR_n",
                     IRQ="IRQ")
         for i in range(2, 8):
             io[f"A{i}"] = VA[i]
@@ -789,30 +915,46 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
 
     # ---- flags -------------------------------------------------------------------------
     nl.section("Flags")
+    # Z is kept as four bits, each a byte of the result nonzero (NZR, a
+    # 74F521's output as it is), and formed after the register; CL the same
+    # way (below). Sticky: Z stays clear once clear.
+    NZR, NZ = bus("NZR", 4), bus("NZ", 4)
     for k in range(4):
-        nl.add("688", f"U_Z{k}", G="GND", PEQ=f"ZB{k}_n",
+        nl.add("688", f"U_Z{k}", G="GND", PEQ=NZR[k],
                **{f"P{i}": RES[8 * k + i] for i in range(8)}, **{f"Q{i}": "GND" for i in range(8)})
-    g("32", ["ZB0_n", "ZB1_n"], "NZ01")
-    g("32", ["ZB2_n", "ZB3_n"], "NZ23")
-    g("02", ["NZ01", "NZ23"], "ZERO")
-    g("02", ["NZ23", "GND"], "HZ16")                   # RES[31:16] == 0
-    g("02", ["NZ23", RES[15]], "HZ17")                 # RES[31:15] == 0
-    g("08", ["ZFLAG", "ZERO"], "ZSTICKY")
+    g("32", [NZR[0], "ZFLAG_n"], "NZS0")
+    g("04", [ABUS[2]], "ABUS2_n")
+    for k in range(2):
+        m = nl.add("153", f"U_NZM{k}", A=u["FNZ0"], B=u["FNZ1"], **{"1G": "GND", "2G": "GND"})
+        for sec in (0, 1):
+            i = 2 * k + sec
+            for c, src in enumerate([NZ[i], NZR[i], "NZS0" if i == 0 else NZR[i],
+                                     "ABUS2_n" if i == 0 else "GND"]):
+                m[f"{sec + 1}C{c}"] = src
+            m[f"{sec + 1}Y"] = f"NZD{i}"
+    nl.add("377", "U_NZ", CLK="CLK", EN="FAULT", **{f"D{i + 1}": f"NZD{i}" for i in range(4)},
+           **{f"Q{i + 1}": NZ[i] for i in range(4)}, **{f"D{i}": "GND" for i in range(5, 9)})
+    g("02", [NZ[0], NZ[1]], "NZA")
+    g("02", [NZ[2], NZ[3]], "NZB")
+    g("08", ["NZA", "NZB"], "ZFLAG")
+    g("00", ["NZA", "NZB"], "ZFLAG_n")
     nl.add("153", "U_NSEL", A=u["NSEL0"], B=u["NSEL1"],
            **{"1G": "GND", "2G": "VCC", "1C0": RES[31], "1C1": RES[15], "1C2": RES[7],
               "1C3": "GND", "1Y": "NSELV", "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
     nl.add("153", "U_FNZ", A=u["FNZ0"], B=u["FNZ1"],
-           **{"1G": "GND", "2G": "GND",
+           **{"1G": "GND", "2G": "VCC",
               "1C0": "NFLAG", "1C1": "NSELV", "1C2": "NSELV", "1C3": ABUS[3], "1Y": "NNEXT",
-              "2C0": "ZFLAG", "2C1": "ZERO", "2C2": "ZSTICKY", "2C3": ABUS[2], "2Y": "ZNEXT"})
+              "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
     g("86", [F[7], "FILL"], "F7X")
     g("86", [F[15], "FILL"], "F15X")
+    # C, from the inverted output: the carry as the ALU gives it (CN4, low
+    # for a carry), one gate sooner
     nl.add("151", "U_CSRC", A=u["CSRC0"], B=u["CSRC1"], C=u["CSRC2"], G="GND", Y="CSRCY",
-           D0=ABUS[1], D1=F[0], D2=F[7], D3=F[8], D4=F[15], D5=F[31], D6="F7X", D7="F15X")
-    nl.add("153", "U_FC", A=u["FC0"], B=u["FC1"],
-           **{"1G": u["CZERO"], "2G": "VCC",
-              "1C0": "CFLAG", "1C1": "CSRCY", "1C2": "C32", "1C3": "CL_n", "1Y": "CNEXT",
-              "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
+           W="CSRCY_n", D0=ABUS[1], D1=F[0], D2=F[7], D3=F[8], D4=F[15], D5=F[31], D6="F7X",
+           D7="F15X")
+    nl.add("151", "U_FC", A=u["FC0"], B=u["FC1"], C=u["CZERO"], G="GND", W="CNEXT",
+           D0="CFLAG_n", D1="CSRCY_n", D2="CARRY_n", D3="CLQ", D4="VCC", D5="VCC", D6="VCC",
+           D7="VCC")
     nl.add("153", "U_FI", A=u["FI0"], B=u["FI1"],
            **{"1G": "GND", "2G": "VCC",
               "1C0": "IFLAG", "1C1": "VCC", "1C2": "GND", "1C3": ABUS[4], "1Y": "INEXT1",
@@ -840,22 +982,36 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("32", ["SN", u["SSET"]], "SNEXT")
     g("08", ["INEXT1", "SSET_n"], "INEXT2")
     nl.add("377", "U_FLAGS", CLK="CLK", EN="FAULT",
-           D1="NNEXT", Q1="NFLAG", D2="ZNEXT", Q2="ZFLAG", D3="CNEXT", Q3="CFLAG",
+           D1="NNEXT", Q1="NFLAG", D2="GND", D3="CNEXT", Q3="CFLAG",
            D4="VNEXT", Q4="VFLAG", D5="INEXT2", Q5="IFLAG", D6="SNEXT", Q6="SFLAG",
            D7="TNEXT", Q7="TFLAG", D8="GND")
-    for f in ("Z", "C", "V", "S"):
+    for f in ("C", "V", "S"):
         g("04", [f"{f}FLAG"], f"{f}FLAG_n")
 
     nl.section("Condition latches")
-    # CL, SGN, S33; CLSRC 4 and 5 AND the test with CL
-    g("08", [u["CLSRC2"], "CL_n"], "CLOFF")
-    nl.add("151", "U_CLM", A=u["CLSRC0"], B=u["CLSRC1"], C=u["CLSRC2"], G="CLOFF", Y="CLSRCY",
-           D0="ZERO", D1="C32", D2="HZ16", D3="HZ17", D4="HZ16", D5="HZ17", D6="GND", D7="GND")
-    g("08", [u["LDCL"], "FAULT_n"], "LDCLC")
+    # CL as four bits, CL = none set (as Z): by CLSRC, the result zero, the
+    # carry, RES[31:16] or RES[31:15] zero, those ANDed with CL
+    g("32", ["CL_n", RES[15]], "CLB0H")
+    CLB = bus("CLB", 4)
+    srcs = [[NZR[0], "CARRY_n", "GND", RES[15], "CL_n", "CLB0H", "GND", "GND"],
+            [NZR[1], "GND", "GND", "GND", "GND", "GND", "GND", "GND"],
+            [NZR[2], "GND", NZR[2], NZR[2], NZR[2], NZR[2], "GND", "GND"],
+            [NZR[3], "GND", NZR[3], NZR[3], NZR[3], NZR[3], "GND", "GND"]]
+    for i in range(4):
+        nl.add("151", f"U_CLM{i}", A=u["CLSRC0"], B=u["CLSRC1"], C=u["CLSRC2"], G="GND",
+               Y=f"CLD{i}", **{f"D{c}": srcs[i][c] for c in range(8)})
+    g("00", [u["LDCL"], "FAULT_n"], "LDCLC_n")
+    nl.add("377", "U_CLB", CLK="CLK", EN="LDCLC_n", **{f"D{i + 1}": f"CLD{i}" for i in range(4)},
+           **{f"Q{i + 1}": CLB[i] for i in range(4)}, **{f"D{i}": "GND" for i in range(5, 9)})
+    g("02", [CLB[0], CLB[1]], "CLA")
+    g("02", [CLB[2], CLB[3]], "CLBB")
+    g("08", ["CLA", "CLBB"], "CLQ")
+    g("00", ["CLA", "CLBB"], "CL_n")
+    # SGN, S33
     g("08", [u["LDSGN"], "FAULT_n"], "LDSGNC")
-    nl.add("153", "U_LATM", A="LDCLC", B="LDSGNC", **{"1G": "GND", "2G": "GND",
-           "1C0": "CLQ", "1C1": "CLSRCY", "1C2": "CLQ", "1C3": "CLSRCY", "1Y": "CL_D",
-           "2C0": "SGNQ", "2C1": "SGNQ", "2C2": "FILL", "2C3": "FILL", "2Y": "SGN_D"})
+    nl.add("157", "U_LATM", S="LDSGNC", G="GND",
+           **{"1A": "SGNQ", "1B": "FILL", "1Y": "SGN_D",
+              "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     # divide step: S33 = R31 ^ C32 ^ (subtracting = not S33); the quotient
     # bit is its complement. MQ loads clear S33.
     g("86", [RQ[31], "S33_n"], "RG")
@@ -869,13 +1025,10 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     nl.add("157", "U_S33MX", S="DIVSTEPC", G="GND",
            **{"1A": "S33KEEP", "1B": "S33NEW", "1Y": "S33_D",
               "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
-    nl.add("74", "U_LAT0", **{"1D": "CL_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
-                              "1Q": "CLQ", "1QN": "CL_n",
+    nl.add("74", "U_LAT0", **{"1D": "S33_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
+                              "1Q": "S33Q", "1QN": "S33_n",
                               "2D": "SGN_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "VCC",
                               "2Q": "SGNQ"})
-    nl.add("74", "U_LAT1", **{"1D": "S33_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
-                              "1Q": "S33Q", "1QN": "S33_n",
-                              "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
 
     nl.section("Branch condition")
     # cc from IR[15:12] (Jcc), IR[3:0] (Bcc) or IR[11:8] (SETcc)
@@ -888,13 +1041,13 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = CC[i]
     g("08", ["CFLAG", "ZFLAG_n"], "C_HI")
-    g("86", ["NFLAG", "VFLAG_n"], "N_EQ_V")
-    g("08", ["ZFLAG_n", "N_EQ_V"], "C_GT")
+    g("86", ["NFLAG", "VFLAG"], "N_NE_V")
+    g("04", ["N_NE_V"], "N_EQ_V")
+    g("02", ["ZFLAG", "N_NE_V"], "C_GT")
     nl.add("151", "U_COND", A=CC[1], B=CC[2], C=CC[3], G="GND", Y="CONDT", W="CONDT_n",
            D0="ZFLAG", D1="CFLAG", D2="NFLAG", D3="VFLAG", D4="C_HI", D5="N_EQ_V", D6="C_GT",
            D7="VCC")
-    g("86", ["CONDT_n", CC[0]], "BCOND_n")
-    g("04", ["BCOND_n"], "BCOND")
+    g("86", ["CONDT", CC[0]], "BCOND")
 
     nl.finish()
     nl.check()

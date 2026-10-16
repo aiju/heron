@@ -150,6 +150,9 @@ Change the generator and rerun it rather than editing the output by hand:
 - `reports/0031-rfc-draft-2-cpu/performance.md`:
   `heron v2_hw report --write` (its profiles take a few minutes each and
   are cached in `build/v2_hw/`);
+- `studies/v2_hw/ticks.json`, the microcode's cycle lengths:
+  `heron v2_hw hw sta --write`, after any change to draft 2's netlist or
+  microcode (`heron test v2_hw` fails while it's stale);
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -167,7 +170,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   1a and draft 2.
 - `heron v2_hw check`, `heron v2_hw check --c` and `heron v2_hw check
   exercise systest`: draft 2's CPU against the instruction-level
-  simulator, a few minutes in all.
+  simulator, a few minutes in all. `heron v2_hw hw test`: its netlist on
+  the chip-level simulator against the RTL model, about 10 minutes for the
+  suite.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and

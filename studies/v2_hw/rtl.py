@@ -112,11 +112,13 @@ class RTL:
         self.rf = [0] * 0x4000
         self.R = self.T = self.TL = self.MAR = self.PC = self.FPC = 0
         self.Q0 = self.Q1 = self.V0 = self.V1 = 0
+        self.FOK = self.FPPN = 0     # the fetch's translation: FPC's page, if valid
         self.IR = self.LEN = self.SX = self.EX = 0
         self.LC = self.MQ = self.S33 = self.SGN = self.CL = 0
         self.n = self.z = self.c = self.v = self.i = self.t = 0
         self.s = 1
         self.TS = self.irqs = self.irqp = 0
+        self.UBRD = 0                # UBR of the cycle before: this cycle reads the user bank
         self.CTX = self.BANK = 0
         self.FSR = self.FAR = self.FK = 0
         self.uaddr = 0
@@ -188,7 +190,7 @@ class RTL:
         rfk = f["RFK"]
         A = None
         if f["ARF"]:
-            A = self.rf[self.rf_addr(f["RFA"], rfk, f["UBR"])]
+            A = self.rf[self.rf_addr(f["RFA"], rfk, self.UBRD)]
         drv = 1 if f["ARF"] else 0
         if f["APC"]:
             A = (PC | f["PCK"]) & M32
@@ -212,6 +214,7 @@ class RTL:
         fault = None                 # (kind 0 page / 1 misaligned / 2 bus, fsr, far)
         D = None                     # the memory data bus (32 bits)
         fetched = None               # the word a fetch brings
+        itlb = None                  # the fetch's translation, if this cycle makes one
         fetch_fault = None
         data_access = mem in (1, 2, 4, 5, 6)
         reading = mem in (1, 6)
@@ -233,20 +236,37 @@ class RTL:
                         pa = None
             elif not self.s:
                 self.err("a map access in user mode")
-        else:
-            # the fetch: into the queue if Q1 is free
-            room = not self.V1
-            if room:
-                demand = mem == 3
-                try:
-                    pa_f = sysm.translate(self.FPC, "fetch", self)
-                    if sysm.fetch_is_fast(pa_f) or demand or sysm.prefetch_bus:
-                        fetched, h = sysm.fetch(pa_f, self)
-                        hold += h
-                except Fault as e:
+        elif mem == 3:
+            # a refill: the word at FPC, translated by the map, into the
+            # queue (if Q1 is free); the translation is kept for the fetches
+            # that follow
+            try:
+                pa_f = sysm.translate(self.FPC, "fetch", self)
+                itlb = (1, pa_f & ~0xFFF)
+                if not self.V1:
+                    fetched, h = sysm.fetch(pa_f, self)
+                    hold += h
+            except Fault as e:
+                itlb = (0, 0)
+                if not self.V1:
                     fetch_fault = (0, e.fsr, self.FPC)
-                except BusError:
-                    fetch_fault = (2, 0, self.FPC)
+            except BusError:
+                fetch_fault = (2, 0, self.FPC)
+        elif self.FOK:
+            # a prefetch, with the kept translation: into the queue if Q1 is
+            # free and the word is fast to reach
+            itlb = None
+            pa_f = self.FPPN | (self.FPC & 0xFFF)
+            if not self.V1 and (sysm.fetch_is_fast(pa_f) or sysm.prefetch_bus):
+                fetched, h = sysm.fetch(pa_f, self)
+                hold += h
+        else:
+            # no translation kept: the map translates FPC, for the next
+            # cycles' fetches
+            try:
+                itlb = (1, sysm.translate(self.FPC, "fetch", self) & ~0xFFF)
+            except Fault:
+                itlb = (0, 0)
 
         # ---- the queue as the decode sees it (with a fetch's word)
         qwords = self.queue_words()
@@ -301,7 +321,7 @@ class RTL:
             for k in range(4):
                 lanes[k].append(None if x is None else (x >> (8 * k)) & 0xFF)
         if f["BRF"]:
-            put32(self.rf[self.rf_addr(f["RFB"], rfk, f["UBR"])])
+            put32(self.rf[self.rf_addr(f["RFB"], rfk, self.UBRD)])
         if f["BR"]:
             put32(R)
         bl = f["BL"]
@@ -503,8 +523,10 @@ class RTL:
             elif self.irqp:
                 forced, y = "irq", uc.IRQ_ADDR
             else:
+                # the instruction's first parcel in the queue, but for a
+                # refill, which decodes from the word it fetches
                 complete = False
-                if view and not jump:
+                if view and not jump and (qwords or mem == 3):
                     complete = self.parcels_in(view, pc1) >= LEN_next
                 if not complete:
                     forced, y = "refill", uc.REFILL_ADDR
@@ -581,13 +603,17 @@ class RTL:
             if f["LDBANK"]:
                 self.BANK = RES & 0xFF
             self._flags(f, RES, F, C32, OVF, zero, A, B, fill)
-            # the PC and the queue
+            # the PC and the queue; the kept translation goes with a jump
+            # and when FPC leaves the page
+            if itlb is not None:
+                self.FOK, self.FPPN = itlb
             if jump:
                 if chk and not alu_ok:
                     self.err("PC loaded from a floating bus")
                 self.PC = RES & 0xFFFFFFFE
                 self.FPC = RES & 0xFFFFFFFC
                 self.V0 = self.V1 = 0
+                self.FOK = 0
                 if fetched is not None:
                     self.fetch_wasted += 1
             else:
@@ -598,6 +624,8 @@ class RTL:
                 if fetched is not None:
                     self.FPC = (self.FPC + 4) & M32
                     self.fetch_words += 1
+                    if not self.FPC & 0xFFF:
+                        self.FOK = 0
                 if consume:
                     if pc1:
                         words = words[1:]
@@ -619,6 +647,7 @@ class RTL:
                 self.refills += 1
                 if self.refill_from is not None:
                     self.refill_from[(jump, self.mc.by_addr[self.uaddr].name)] += 1
+        self.UBRD = f["UBR"]
         # interrupt request: synchronise, then pending = request & I (next)
         self.irqp = self.irqs & self.i
         self.irqs = sysm.irq(self)

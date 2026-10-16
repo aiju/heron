@@ -20,12 +20,15 @@ specification of its microarchitecture, with what isn't decided marked
 **open**; Part II is where it comes from, what it measures and what's
 left. The study is [studies/v2_hw](../studies/v2_hw/README.md): the
 microcode, a register-transfer model checked against the instruction-level
-simulator, a timing estimate, the boot through the I/O processor, and the
-measurements in [performance.md](0031-rfc-draft-2-cpu/performance.md).
+simulator, the boot through the I/O processor, a chip-level netlist of the
+CPU's core with static timing analysis, and the measurements in
+[performance.md](0031-rfc-draft-2-cpu/performance.md).
 
 This is a first draft, written while the ISA and the system architecture
-are still moving: there is no netlist yet, and its times come from a path
-estimate rather than static timing analysis.
+are still moving. The netlist covers the core, the RAM, the map and the
+control store, not yet the bus interface or the slave port; every
+microinstruction's length comes from its static timing analysis
+([15](#15-the-netlist-and-its-timing)).
 
 ## Contents
 
@@ -45,11 +48,12 @@ estimate rather than static timing analysis.
   - [12. How fast](#12-how-fast)
   - [13. The choices](#13-the-choices)
   - [14. The tentative instructions](#14-the-tentative-instructions)
-  - [15. Chips](#15-chips)
-  - [16. Faster still](#16-faster-still)
-  - [17. How it was checked](#17-how-it-was-checked)
-  - [18. Open questions](#18-open-questions)
-  - [19. Next steps](#19-next-steps)
+  - [15. The netlist and its timing](#15-the-netlist-and-its-timing)
+  - [16. Chips](#16-chips)
+  - [17. Faster still](#17-faster-still)
+  - [18. How it was checked](#18-how-it-was-checked)
+  - [19. Open questions](#19-open-questions)
+  - [20. Next steps](#20-next-steps)
 
 ## Part I: Specification
 
@@ -62,7 +66,7 @@ SRAM for the control store, the decode table, the register file, the page
 map and the card's RAM.
 
 - **Control:** a writable control store of 64K microinstructions of 144
-  bits (141 used), a decode table of 64K entries, the microinstruction
+  bits, a decode table of 64K entries, the microinstruction
   register (uIR) and a sequencer ([8](#8-the-microinstruction-and-the-sequencer)).
   The I/O processor fills both at boot ([10](#10-reset-and-boot)).
 - **Datapath, 32 bits:** a register file of 256 banks and the
@@ -71,9 +75,10 @@ map and the card's RAM.
   shifts right by one, rotates by 8 or 16 and clears bytes; the working
   registers R, T, MAR, MQ and the loop counter LC; the flags
   ([3](#3-datapath)).
-- **Fetch:** the PC, a fetch counter FPC and a prefetch queue of two
-  32-bit words, filled in cycles that don't use memory; the decode reads
-  the queue's head parcel ([4](#4-fetch-and-decode)).
+- **Fetch:** the PC, a fetch counter FPC, FPC's page as last translated,
+  and a prefetch queue of two 32-bit words, filled in cycles that don't
+  use memory; the decode reads the queue's head parcel
+  ([4](#4-fetch-and-decode)).
 - **Memory, 32 bits:** one access a cycle, a fetch or a data access, at
   a virtual address from MAR, FPC or the A bus; RFC 0029's window and page
   map; 2 MB of RAM on the card; everything else over the bus
@@ -87,21 +92,29 @@ map and the card's RAM.
 - **Ticks.** A 50 MHz master clock: a tick is 20 ns.
 - **Microcycles** are 4 to 19 ticks long. Four lengths, the **length
   classes**, are set with jumpers; each microinstruction's `LCL` field
-  picks one of them. The lengths the suite's profile picks are 4, 5, 6
-  and 8 ticks ([12](#12-how-fast)).
-- **Within a cycle:**
-  - the register file is read into latches early in the cycle and
-    written in its last tick, so a register can be read and written in
-    the same cycle;
-  - the memory write strobe is open from tick 3 to the last tick, so a
-    cycle that writes memory is at least 5 ticks;
+  picks one of them. A microinstruction's length is what static timing
+  analysis of the netlist says it needs; the lengths the suite's profile
+  then picks are 4, 5, 6 and 9 ticks ([12](#12-how-fast)).
+- **Within a cycle** of K ticks, numbered from 0 (CLK rises entering
+  tick 0):
+  - the register file is read into latches from the cycle's start and
+    written in its last tick: RW is high for the last two ticks (the
+    latches hold, the SRAM's address switches to the write address, its
+    outputs turn off) and the write strobe is the last tick, so a register
+    can be read and written in the same cycle;
+  - LATE is high from tick 2 to the end: the store data drives the card's
+    data bus only then, and T's latches open only then, once the cycle
+    before's reads are off the bus and its decoded controls have settled;
+  - the memory write window is open from tick 4 to the tail tick, so that
+    a write's address has been translated and checked before it opens: a
+    cycle that writes memory is at least 6 ticks;
   - a bus access holds the cycle at tick 3 until the transfer is over
     ([6](#6-the-bus-and-the-slave-port)), so a cycle whose access may go to
     the bus (a data access, or a fetch the decode waits for) is at least
     6 ticks.
 - **The clock generator** is RFC 0024's for short cycles (section 6
-  there): a tick counter, the length compare, the write strobe and the
-  hold.
+  there): a tick counter preloaded by the length class, flip-flops for
+  the head and tail ticks and the phases above, and the hold.
 
 ### 3. Datapath
 
@@ -120,9 +133,14 @@ map and the card's RAM.
 - **The register number** comes from `rd` (IR[15:12]), `R` (IR[11:8]),
   the counter SX, or the microinstruction's constant: `RFA`, `RFB` and
   `RFW` pick it for each port, `RFK` is the read constant and `RFKW` the
-  write constant (constants 32 and up are the `G = 1` locations).
-- **The bank** is `bank` in user mode and 0 in supervisor mode; `UBR` and
-  `UBW` make a supervisor read or write use `bank` (`MFUR`, `MTUR`).
+  write constant (constants 32 and up are the `G = 1` locations). Each
+  address bit is one 74F151, by `RFA` (`RFB`) and RW: the read address's
+  four ways and, in the last two ticks, the write address.
+- **The bank** is `bank` in user mode and 0 in supervisor mode. `UBW`
+  makes a supervisor write use `bank` (`MTUR`); `UBR` makes the next
+  cycle's reads use it (`MFUR` sets it in the cycle that checks S). The
+  read bank is kept in a register, loaded at every edge with what `bank`
+  and S will be, so that it is there when the cycle starts.
 
 #### 3.2 The buses
 
@@ -142,6 +160,10 @@ map and the card's RAM.
     QH[15], QH[7], A[31], A[15], SGN);
   - special sources (`BX`): MQ, the flags word, `fsr`, `far`, the map
     entry being read.
+- **Enables:** every driver's enable is one gate after the uIR, a decoded
+  one (`BL`, `BX`) through a 74F138 or a 74F151 and a direct one through
+  a gate, so that a cycle's drivers come on about when the cycle before's
+  go off.
 
 #### 3.3 The ALU and the result
 
@@ -163,13 +185,13 @@ map and the card's RAM.
 | Register | Bits | |
 |---|---:|---|
 | R | 32 | accumulator; loaded from RES (`LDR`) |
-| T | 32 | memory data: latched by every read, transparent while it reads |
+| T | 32 | memory data: latched by every read, transparent while it reads (from tick 2) |
 | MAR | 32 | data address; loaded from RES, or counts up by 4 (`MARINC`) |
 | MQ | 32 | a shift register (74F299): holds, shifts right with R (multiply, `MULFX`), shifts left (divide), or loads from B (`MQM`) |
 | S33 | 1 | the divide's partial remainder's sign |
 | SGN | 1 | a sign kept for the fill (`LDSGN`) |
 | LC | 8 | loop counter: loaded from RES, counts up (`LCINC`); conditions LC = 255 and LC[3:0] = 15 |
-| CL | 1 | condition latch (`CLSRC`): RES = 0, the ALU's carry, RES[31:16] = 0, RES[31:15] = 0, or the last two ANDed with CL |
+| CL | 1 | condition latch (`CLSRC`): RES = 0, the ALU's carry, RES[31:16] = 0, RES[31:15] = 0, or the last two ANDed with CL; kept as four bits, as Z is ([3.5](#35-flags)) |
 | SX, EX | 4, 4 | a register number that counts, and where the count stops (`SAVE`, `RESTORE`, `LDM`, `STM`, the indexed modes, `MULFX`) |
 | CTX | 7 | the page map context, from RES (`LDCTX`) |
 | BANK | 8 | user mode's register bank, from RES (`LDBANK`) |
@@ -182,7 +204,10 @@ The flags word of RFC 0029, 2: V, C, Z, N, I, S, T.
 - **N and Z** (`FNZ`): from RES, N from bit 31, 15 or 7 (`NSEL`); Z
   sticky (Z and RES = 0, for `ADC` and `SBC`); or loaded from the A bus,
   masked by `LFM` (NZCV for `MTSR flags` in user mode; also I and T in
-  supervisor mode; also S for `RTI`).
+  supervisor mode; also S for `RTI`). Z is kept as four bits, each a byte
+  of RES nonzero, and formed after the register: the cycle that sets it
+  ends one compare after RES, and the next starts with the two gates that
+  form it, where the branch condition has time to spare.
 - **C** (`FC`): a bit of F or A chosen by `CSRC` (for the shifts), the
   ALU's carry, or not CL; `CZERO` clears it.
 - **V** (`FV`): 0, 1, A[0], not CL, or the ALU's overflow.
@@ -199,26 +224,33 @@ The flags word of RFC 0029, 2: V, C, Z, N, I, S, T.
   word to fetch. Both are 74F161 counters loaded from RES.
 - **The queue** holds two 32-bit words, Q0 and Q1, each with a valid bit;
   QH, the head parcel, is Q0's low or high half by PC[1].
-- **The fetch.** In a cycle whose microinstruction doesn't use the memory
-  port, if Q1 is free, the word at FPC is translated (as a fetch, checked
-  for X) and read; at the edge it joins the queue and FPC moves on. It
-  reads the card's RAM in any such cycle, and bus space only when the
-  decode waits for it (a refill), or when it hits in the instruction
-  cache ([7](#7-the-instruction-cache-open)).
+- **The fetch's translation.** FOK and FPPN keep FPC's page as last
+  translated: set from the map's translation of FPC (as a fetch, checked
+  for X) by a refill, or by a cycle that doesn't use the memory port
+  while FOK is clear; cleared by a jump and when FPC moves into the next
+  page. Code that changes the map, `ctx` or S under the code it runs must
+  jump afterwards, as it must for the queue.
+- **The prefetch.** In a cycle whose microinstruction doesn't use the
+  memory port, with FOK set and Q1 free, the word at FPC is read at the
+  kept page, without the map; at the edge it joins the queue and FPC
+  moves on. With FOK clear the map translates FPC instead, for the cycles
+  after. It reads the card's RAM, and bus space only when it hits in the
+  instruction cache ([7](#7-the-instruction-cache-open)).
 - **The decode** (`SEQ` 1) is the last cycle of every instruction. The
   decode table, addressed by QH, gives the first microinstruction's
-  address and the instruction's length in parcels. If the queue, with
-  the word this cycle fetches, holds the whole instruction, the decode
-  goes ahead: IR ← QH, the parcel is consumed, the next cycle runs the
-  instruction's first microinstruction. A fetch fault counts only if the
-  decode needs the word.
+  address and the instruction's length in parcels. If Q0 holds the
+  instruction's first parcel and the queue, with the word this cycle
+  fetches, the rest, the decode goes ahead: IR ← QH, the parcel is
+  consumed, the next cycle runs the instruction's first microinstruction.
 - **Forced entries.** Instead of going ahead, the decode goes to:
   1. the trace entry, if T was set when the instruction started;
   2. else the interrupt entry, if an interrupt is pending;
   3. else the refill entry, if the queue doesn't hold the whole next
-     instruction or this cycle jumped.
-- **The refill** is a decode with a demand fetch: it fetches the word at
-  FPC, which may go to the bus, and decodes from it as the queue would.
+     instruction as above, or this cycle jumped.
+- **The refill** is a decode with a demand fetch: it translates FPC with
+  the map, fetches the word, which may go to the bus, and decodes from the
+  queue with that word, even with the queue empty. Its fetch fault counts
+  only if the decode needs the word.
 - **Extension parcels** are read from QH by the instruction's later
   cycles, each consuming its parcel (`CONSUME`). No cycle both consumes
   and decodes, or consumes in a data access.
@@ -234,7 +266,7 @@ The flags word of RFC 0029, 2: V, C, Z, N, I, S, T.
   accesses, from FPC for fetches, and from the A bus for a read at the A
   bus (an addressing mode whose address is a register, `[R]` and `[R]+`,
   without a cycle to load MAR). A three-way multiplexer (74F153) in front
-  of the map selects it.
+  of the map selects it, by `VAS`, which the microcode derives from `MEM`.
 - **Translation,** RFC 0029, 3: an address with bit 31 set is, in
   supervisor mode, physical `va & 0x7FFF_FFFF` (the window); one below
   16 MB is looked up in the page map at `{CTX, va[23:12]}`. Anything else
@@ -246,12 +278,15 @@ The flags word of RFC 0029, 2: V, C, Z, N, I, S, T.
 - **Alignment.** A half at an odd address or a word at an address that
   isn't a multiple of 4 is an address error.
 - **The card's RAM:** 2 MB (four 512K × 8 SRAMs), repeated through
-  slot 0 as the CPU sees it ([6](#6-the-bus-and-the-slave-port)). A read latches the aligned word into T;
-  the B lanes take the bytes the size and address pick. A store puts the
-  A bus on the data lanes, replicated by size, with byte enables from the
-  size and address.
+  slot 0 as the CPU sees it ([6](#6-the-bus-and-the-slave-port)); always
+  selected, its outputs on in any fetch and in a read of slot 0. A read
+  latches the aligned word into T; the B lanes take the bytes the size and
+  address pick. A store puts the A bus on the data lanes from tick 2,
+  replicated by size, with byte enables from the size and address. A
+  prefetch with FOK reads it at FPPN.
 - **Faults.** A misaligned access, a translation fault or a bus error
-  sets FAULT. FAULT cancels the cycle: nothing it would load (registers,
+  sets FAULT, settled before the write window opens. FAULT cancels the
+  cycle: nothing it would load (registers,
   the register file, flags, the PC and the queue, LC, MQ) changes, no
   memory is written, and the next microinstruction is the fault entry
   ([9](#9-exceptions-interrupts-and-trace)). FK gets the kind (0 page fault, 1
@@ -262,7 +297,7 @@ The flags word of RFC 0029, 2: V, C, Z, N, I, S, T.
 
 - **Physical addresses:** the slot is PA[30:27], 16 slots of 128 MB, so
   the window reaches all of them; slot 0 is the CPU card. This moves RFC
-  0014's slot bits from A31–A28 (**open**, [18](#18-open-questions)).
+  0014's slot bits from A31–A28 (**open**, [19](#19-open-questions)).
 - **The master side.** An access outside the card's RAM is a bus
   transfer: 32 bits on a 32-bit card, two transfers on a 16-bit one. It
   holds the cycle from tick 3: the request waits for the next bus clock
@@ -330,9 +365,9 @@ An option for code in bus space, which otherwise fetches only on demand
 | `BX` | 3 | MQ, flags, `fsr`, `far`, the map entry onto B |
 | `BS0` `BF1` `BF23` | 1 each | the immediate unit's byte 0, byte 1, bytes 2–3 onto B |
 | `RFA` `RFB` `RFW` | 2 each | the register number for each port: `rd`, `R`, SX, constant |
-| `RFK` `RFKW` | 6 each | read and write constants |
+| `RFK` `RFKW` | 6 each | read and write constants (`RFK`'s bit 5, G, stored inverted) |
 | `RFWE` | 1 | write the register file |
-| `UBR` `UBW` | 1 each | the user's bank for a supervisor read, write |
+| `UBR` `UBW` | 1 each | the user's bank for the next cycle's supervisor reads, this cycle's write |
 | `LDSX` `SXINC` `LDEX` | 2, 1, 2 | load SX (`rd`, `R`, QH[15:12]), count it; load EX (`R`, QH[11:8]) |
 | `S` `M` `CIN` | 4, 1, 3 | the ALU's function and carry in |
 | `MQM` `MS` | 2, 2 | MQ's mode; the step logic (unsigned multiply, signed multiply's last step, divide, the divide's fix-up) |
@@ -344,12 +379,13 @@ An option for code in bus space, which otherwise fetches only on demand
 | `LDLC` `LCINC` | 1 each | LC |
 | `CCB` | 2 | where the branch condition's cc comes from |
 | `LDCTX` `LDBANK` | 1 each | CTX, BANK from RES |
-| `MEM` `SIZE` | 3, 2 | the memory access |
+| `MEM` `SIZE` | 3, 2 | the memory access (`MEM`'s bit 2 stored inverted, so that a refill is one gate from the uIR) |
 | `FNZ` `NSEL` `FC` `CZERO` `CSRC` `FV` `FI` `LFM` `SSET` | 2, 2, 2, 1, 3, 3, 2, 2, 1 | the flags ([3.5](#35-flags)) |
 | `LDCL` `CLSRC` | 1, 3 | CL |
 | `LCL` | 2 | the length class |
+| `VAS` `MAPA` | 2, 1 | from `MEM`, filled in by the microcode assembler: the virtual address multiplexer's select (MAR, FPC through the map, the A bus, FPC with the kept page) and a map access's, straight from the uIR |
 
-141 bits; the control store's nine 16-bit lanes leave three spare.
+144 bits: the control store's nine 16-bit lanes are full.
 
 #### 8.3 The sequencer
 
@@ -425,7 +461,7 @@ what became of it:
 | 32-bit memory and a two-parcel prefetch buffer | yes: a two-word (four-parcel) queue, filled in cycles that don't use memory |
 | a register file written in the second half of any cycle | yes: read early through latches, written in the last tick, in every cycle |
 | multiplies that stop early | yes, by operand size: 16 steps when both fit in 16 signed bits |
-| 16-bit parts | assumed in the chip count ([15](#15-chips)) |
+| 16-bit parts | not in the netlist; what they'd save is in [16](#16-chips) |
 | GALs | no (Emily would rather not) |
 
 Draft 2's own needs added the rest: the register banks, the page map and
@@ -438,30 +474,32 @@ All numbers are in [performance.md](0031-rfc-draft-2-cpu/performance.md),
 generated by `heron v2_hw report --write`. In short:
 
 - **The suite** (the 18 hand-written programs report 0012 counts, and the
-  15 compiled C programs) takes 763 ms on the model: 463 ms for the
-  hand-written ones (2.98 cycles and 326 ns an instruction) and 300 ms
-  for the C ones (2.25 cycles, 250 ns). The length classes are 4, 5, 6
-  and 8 ticks; 57% of the cycles take 6.
+  15 compiled C programs) takes 778 ms on the model, with every cycle as
+  long as static timing analysis of the netlist says: 469 ms for the
+  hand-written ones (3.02 cycles and 330 ns an instruction) and 309 ms
+  for the C ones (2.31 cycles, 257 ns). The length classes are 4, 5, 6
+  and 9 ticks; 53% of the cycles take 6.
 - **Against draft 1b with the same parts:** the suite's 20 hand-written
-  programs take 4.31 million cycles here against 1b's 6.08 million (RFC
-  0024): 29% fewer, from fewer instructions (draft 2's) and fewer cycles
+  programs take 4.37 million cycles here against 1b's 6.08 million (RFC
+  0024): 28% fewer, from fewer instructions (draft 2's) and fewer cycles
   an instruction (the queue and the decode in the last cycle). The
-  cycles are longer on average, 109 ns against 97 ns: 57% of them take 6
-  ticks (an add into the register file, a multiply or divide step, any
-  access that may go to the bus). So the time is 471 ms against the
-  591 ms of 1b's fast card at microcycle level: 1.26 times as fast. Against 1b's fast system at chip level, on
-  the programs that don't print, 1.36 times (442 against 602 ms). The
-  exception is mandel, slower than on 1b (92 against 82 ms) because of
-  `MULFX` ([14](#14-the-tentative-instructions)). 1b's numbers come from
-  static timing analysis of its netlist, these from a path estimate.
-- **Where the time goes:** ALU, address and shift work 35%, multiply and
-  divide steps 22%, data reads 14%, extension parcels 8%, refills after
-  jumps 7%, jumps 6%, data writes 4%, the console's bus transfers 2%. The
-  busiest routines are `MULFX` (10%, all of it mandel), `MULS` (8%), the
-  refill (7%) and `DIVS` (5%).
-- **Code over the bus** takes 2.14 times as long, with the code and data
-  on the memory card; with a 256-word instruction cache 1.37 times, and
-  with 4096 words 1.36: the rest is the data going over the bus.
+  cycles are longer on average, 109 ns against 97 ns: 53% of them take 6
+  ticks (an add that sets the flags, a multiply or divide step, any
+  access that may go to the bus). So the time is 477 ms against the
+  591 ms of 1b's fast card at microcycle level: 1.24 times as fast.
+  Against 1b's fast system at chip level, on the programs that don't
+  print, 1.34 times (448 against 602 ms). The exception is mandel, slower
+  than on 1b (92 against 82 ms) because of `MULFX`
+  ([14](#14-the-tentative-instructions)). Both machines' numbers come
+  from static timing analysis of their netlists, at worst-case delays.
+- **Where the time goes:** ALU, address and shift work 34%, multiply and
+  divide steps 22%, data reads 14%, refills after jumps 9%, extension
+  parcels 7%, jumps 6%, data writes 4%, the console's bus transfers 2%.
+  The busiest routines are `MULFX` (10%, all of it mandel), the refill
+  (9%), `MULS` (8%) and `DIVS` (5%).
+- **Code over the bus** takes 2.09 times as long, with the code and data
+  on the memory card; with a 256-word instruction cache 1.36 times, and
+  with 4096 words 1.35: the rest is the data going over the bus.
 
 ### 13. The choices
 
@@ -556,64 +594,161 @@ is counted once, under one of them).
   number, as SX gives the destination. As it stands, `MULFX` is worth
   having only for products that need 64 bits.
 
-### 15. Chips
+### 15. The netlist and its timing
 
-A rough count, by section, from the datapath's widths and its sources; the
-netlist will replace it. 16-bit parts (74ABT16xxx registers, buffers and
-transceivers) are assumed where RFC 0024 counted them as pairable.
+[studies/v2_hw/cpu.py](../studies/v2_hw/cpu.py) draws the CPU's core in
+chips, from the parts of [RFC 0024](0024-rfc-faster-smaller.md)'s `fast`
+set: everything in Part I but the bus interface and the slave port. The
+control store's write path is tied off (the chip-level simulator preloads
+it, as the I/O processor would leave it), and draft 1's I/O page is a
+fixture on the card's data bus, answering without a bus transfer.
 
-| Section | Chips | |
-|---|---:|---|
-| Control store and decode table | 10 | 64K × 16 SRAMs |
-| uIR | 9 | 141 bits, 74ABT16823 |
-| Sequencer, conditions, forced entries | 10 | |
-| Clock and length classes | 12 | RFC 0024's clock generator |
-| Register file | 4 | 64K × 16 SRAMs, two copies |
-| Register file addresses and read latches | 14 | |
-| A bus | 10 | |
-| B bus: T lanes, QH, immediate unit, special sources | 24 | |
-| ALU and its control | 14 | 8 × 74F181, 3 × 74F182 |
-| Result multiplexer | 18 | |
-| R, T, MAR, MQ, LC, SX, EX, CL, S33, SGN | 24 | |
-| PC, FPC, the queue, IR | 28 | |
-| Flags and branch condition | 12 | |
-| Virtual address multiplexer, map, window | 22 | 3 map SRAMs |
-| RAM and store data | 10 | 4 SRAMs |
-| Faults, FSR, FAR, CTX, BANK | 10 | |
-| Bus interface, master | 30 | as 1b's |
-| Slave port, control store writes, control register | 14 | |
-| **Total** | **about 275** | |
+- **Static timing analysis** (`heron v2_hw hw sta`, the case analysis of
+  `infra/hw/sta.py`): for each distinct microinstruction, its control
+  bits held, and in each state that changes its paths (Q0 empty or not,
+  FOK set or not, and for a decode whether a forced entry takes the
+  address), the latest arrival at every register's inputs, at the
+  register file's latches when they close and its write, at the memory
+  write window, and FAULT before the window opens. A three-state bus
+  counts from when the drivers of the cycle before turn off. Worst-case
+  datasheet delays throughout: 831 microinstructions in 5,168 cases, a few
+  seconds.
+- **The lengths come from it.** `ticks.json` holds every
+  microinstruction's period, and the length classes are picked from
+  those ([12](#12-how-fast)). The path estimate (`timing.py`) is kept for
+  microinstructions not yet measured and for the levers of
+  [17](#17-faster-still). Against it: 5,535 microinstructions take the
+  same ticks, 454 fewer, 246 more.
+- **The critical paths now:** a decode, 79 ns (4 ticks: the queue's
+  head, the decode table, the completeness test, the control store); a
+  branch, 88 ns (5); a register file read (37.5 ns), a 32-bit add and the
+  register file's write or R, 97–101 ns (5 or 6); an add that sets the
+  flags, or a refill, 118 ns (6); a read whose data goes through the ALU
+  into the flags, 166 ns (9).
 
-About as many as 1b's CPU card as built (269, with no 16-bit parts), and
-about 50 more than 1b redrawn with 16-bit parts (RFC 0024: 44 fewer), for
-a 32-bit memory, the queue, the page map, the register banks and the
-writable control store. *Estimate*, good to perhaps 15%, to be redone
-from the netlist.
+The first netlist, drawn straight from the register-transfer model,
+needed 7 to 11 ticks where the estimate said 4 to 6, and not in the
+datapath: in the control around it. Each fix changed the design, and
+Part I has them:
 
-### 16. Faster still
+1. **The prefetch decided from the map.** Whether a word joins the queue
+   waited for the map, the window and the slot decode: 85 ns into the
+   cycle. FOK and FPPN now keep FPC's page, so a prefetch reads the RAM
+   at it and decides from registers. No program's cycle count changed.
+2. **The decode from the word being fetched.** With the queue empty, a
+   decode took its parcel from the fetch in the same cycle, putting the
+   RAM, the decode table and the completeness test in series with the
+   control store: 6 ticks for every decode. Now only the refill decodes
+   from the word it fetches; any other decode needs its first parcel in
+   Q0, and goes to the refill otherwise. That costs 2% more cycles on the
+   suite (crc 8%), against every decode at 6 ticks.
+3. **The completeness test** was ten gates from the queue's head to the
+   control store. The decode table's length now selects a precomputed
+   answer in one 74F151, and a jump forces the refill directly.
+4. **FAULT came after the write window opened**, a dozen gates after the
+   virtual address: no memory write worked. The map's V, W and X now select the fault
+   in a 74F151 whose inputs carry the access's kind, LOCAL comes from a
+   74F521, and FAULT is two gates after them.
+5. **The register file's read address** went through two multiplexers
+   and three gates for the bank: the data came at 58 ns. One 74F151 a bit
+   and the bank in a register bring it to 37.5 ns; `UBR` moved a cycle
+   early for it.
+6. **Z and CL** were a tree of gates and a multiplexer after the zero
+   detect. Kept as four byte bits, they are formed after the register.
+7. **The selects of the virtual address and the map's address** came
+   through the `MEM` decoder; `VAS` and `MAPA` now give them straight
+   from the uIR, and `MEM` stores its top bit inverted so that a refill
+   is one gate.
+8. **The decoded B bus enables** were up to four gates deep: the cycle
+   before's driver stayed on 25 ns into the next cycle, fighting the new
+   one. The chip-level simulator found it (its contention log), and the
+   analysis then counted turn-off times. Now every enable is one level.
+9. **Two hazards** the simulator found where the analysis can't: T's
+   latches opened for a few nanoseconds at the start of the cycle after a
+   read and took the new address (now from tick 2); the write window's
+   flip-flop toggled in a 4-tick cycle and opened at the next cycle's
+   start (now it can't).
+
+Still open:
+
+- **The register file's read latches** close a gate after RW turns the
+  SRAM's outputs off. The SRAM may stop driving at once (no minimum for
+  tOHZ), so the latches rely on the lines holding their charge for a few
+  nanoseconds; bus-hold cells, or closing the latches a gate earlier,
+  would remove the doubt.
+- **Contention** of up to 6 ns remains where two of the T lanes' enables
+  change at once in a read; short, and between drivers built for it.
+- **The bus interface:** its hold at tick 3 is as RFC 0024 drew it,
+  not yet in this netlist.
+
+### 16. Chips
+
+Counted from the netlist (`heron v2_hw hw bom`), each IS61C6416AL once,
+against the estimate this RFC first gave for the same sections:
+
+| Section | Netlist | Estimate | |
+|---|---:|---:|---|
+| Control store, decode table, uIR | 28 | 19 | 10 SRAMs; the uIR is 18 × 74ABT377 |
+| Sequencer, IR, conditions, forced entries | 32 | 10 | |
+| Clock and reset | 13 | 12 | |
+| Register file and its addresses | 63 | 18 | a 74F151 per address bit and copy; latches and write buffers |
+| A bus | 17 | 10 | |
+| B bus and immediate unit | 49 | 24 | |
+| ALU, its control, MQ | 20 | 14 | |
+| Result multiplexer | 18 | 18 | |
+| R, T, MAR, LC, SX, EX | 34 | 24 | |
+| PC, FPC, the fetch's translation, the queue | 64 | 28 | |
+| Flags, CL, branch condition | 37 | 12 | |
+| Memory: virtual address, map, window, faults, RAM, store data, CTX, BANK | 81 | 42 | 7 SRAMs |
+| **The netlist's core** | **456** | **231** | |
+| Bus interface, master | (30) | 30 | not drawn: the estimate |
+| Slave port, control store writes, control register | (14) | 14 | not drawn: the estimate |
+| **Total** | **about 500** | **about 275** | |
+
+- **The estimate was low by two thirds.** About 60 of the difference is
+  8-bit parts where it assumed 16-bit ones (74ABT16374, 16244, 16373,
+  16823 in pairs: 41 registers, 62 buffers, 13 latches and 6 registers
+  with enables become about 61); with them the card is about 440. The
+  rest is real: the register file's addressing and two-phase write, the
+  queue's multiplexers, the translation and fault logic, and gates the
+  timing fixes of [15](#15-the-netlist-and-its-timing) duplicate so that
+  late signals come in last.
+- **Against draft 1b:** its CPU card as built is 269 chips, with 8-bit
+  parts; this one about 500, for a 32-bit memory path, the queue, the
+  page map and the window, the register banks and the writable control
+  store, and the short cycles.
+- **Where to look for fewer:** the 16-bit parts; the register file's
+  addresses through two levels again (16 chips fewer, 7 ns more in every
+  register read); the T lanes and QH buffers onto B through multiplexers.
+
+### 17. Faster still
 
 What's left after the parts, the queue and the decode in the last cycle
 is spread out ([12](#12-how-fast)): no lever is worth more than a few
-percent. Estimated on the same profile
-([performance.md](0031-rfc-draft-2-cpu/performance.md#what-some-changes-would-buy)):
+percent. The first two rows are estimated on the same profile with the
+path estimate, not the netlist
+([performance.md](0031-rfc-draft-2-cpu/performance.md#what-some-changes-would-buy));
+the branch-target adder from the profile:
 
 | Change | Suite's time | Chips (*estimate*) |
 |---|---:|---:|
 | Z and V from registers: RES and the operands' signs clocked, Z and V worked out after the edge | −1.2% | 4–6 |
-| the register file's addresses a cycle early, from the control store's output | −0.6% | about 6 |
-| both | −3.6% | about 12 |
-| a branch-target adder for `BRA`, `Bcc`, `BSR` and `DBNZ` | −2.9% | 15–20 |
+| the register file's addresses a cycle early, from the control store's output | +0.1% | about 6 |
+| both | −3.2% | about 12 |
+| a branch-target adder for `BRA`, `Bcc`, `BSR` and `DBNZ` | −2.8% | 15–20 |
 | a tag fault ([14](#14-the-tentative-instructions)) | the tagged operations in 1 cycle | about 2 |
 | `MULFX` with a routine per count | mandel −15% or so | none |
 
-- **The 6-tick cycle** is the register file read (37 ns: the address
-  multiplexer, the SRAM, the latch), the 32-bit add (51 ns through the
-  74F182s) and the write's setup: 100.5 ns, just over 5 ticks. Taking the
-  register file's address multiplexer out of the cycle (its address
-  registered beside the uIR, computed from the control store's output)
-  and the zero and overflow detection out of the flag cycles would bring
-  most of the ALU cycles to 5 ticks; the memory cycles and the multiply
-  steps stay at 6, which is why the two together save only 3.6%.
+- **The 6-tick cycle,** in the netlist: a register file read (37.5 ns:
+  the 74F151 address multiplexer, the SRAM, the latch), the 32-bit add
+  (51 ns through the 74F182s) and RES (8 ns) make 97 ns, so an add into
+  the register file or R is 5 ticks; setting the flags takes a compare
+  more, 118 ns, and every access that may go to the bus is 6 by rule.
+  The netlist already keeps Z as byte bits, half of the first lever;
+  the overflow is still worked out in the cycle. Registering the register
+  file's address too would take some 15 ns off every register read, but
+  the cycles it shortens are mostly the ones the flags or memory keep at
+  6, which is why the two levers save more together than apart.
 - **A faster adder:** 74AS181 with a 74AS882 lookahead would roughly
   halve the add, but neither is in the repository's timing data yet.
 - **A branch-target adder** (performance.md, *Refills*): about 3% net,
@@ -622,7 +757,7 @@ percent. Estimated on the same profile
   256-word cache takes most of that back, and a bigger one adds nothing
   on the suite (the rest is data over the bus).
 
-### 17. How it was checked
+### 18. How it was checked
 
 - **Against the instruction-level simulator** (`heron v2_hw check`):
   every program of draft 2's suite, the 15 compiled C programs, the
@@ -640,8 +775,19 @@ percent. Estimated on the same profile
   (RFC 0028, 5.1); `sw/isanotes.s` checks it on its own as well.
 - **The exercise program runs in user mode** on this model, so that the
   flags words it saves are the same as the simulator's apart from S.
+- **The netlist on the chip-level simulator** (`heron v2_hw hw test`):
+  every program of the suite, the system tests, `isanotes` and the
+  interrupt program run from reset as on the register-transfer model,
+  cycle for cycle: the same decodes at the same cycles, output, registers,
+  flags, PC and all of the RAM. At the length classes static timing
+  analysis gives, the simulator, with the same worst-case delays, finds no
+  timing violation; at long cycles (`--lengths 10,11,12,14`) they match
+  too, which separates logic from timing. Its log of bus contention
+  found the turn-off problem of [15](#15-the-netlist-and-its-timing).
+- **`ticks.json` is current:** `heron test v2_hw` runs the analysis and
+  compares it with the table the microcode uses.
 
-### 18. Open questions
+### 19. Open questions
 
 1. **The slot bits.** RFC 0014 puts the slot in A31–A28; RFC 0029's
    window reaches only the lower 2 GB of physical space. Here the slot is
@@ -651,9 +797,10 @@ percent. Estimated on the same profile
 3. **Trace after a trapping instruction:** a `SWI` or a fault enters its
    handler with T cleared, so the trace exception comes only when
    `RTI` returns to traced code. Is that what RFC 0029 means?
-4. **Changes to the map or `ctx` and the queue.** Words already in the
-   queue were fetched under the old mapping: code that changes the
-   mapping of the code it runs must jump afterwards. Say so in RFC 0029?
+4. **Changes to the map, `ctx` or S and the queue.** Words already in the
+   queue were fetched under the old mapping, and FPC's page was
+   translated under it: code that changes the mapping of the code it runs
+   must jump afterwards. Say so in RFC 0029?
 5. **The instruction cache:** whether to have it, its size, and DMA
    coherence ([7](#7-the-instruction-cache-open)).
 6. **The tag fault** ([14](#14-the-tentative-instructions)), if the tagged
@@ -663,13 +810,14 @@ percent. Estimated on the same profile
    would compare the PC at every decode (about 5 chips).
 9. **`CAS` and the FPU's cells** (RFC 0028): not built; illegal here.
 
-### 19. Next steps
+### 20. Next steps
 
-1. The netlist and static timing analysis, as `v1b_hw` has: the timing
-   estimate here becomes a measurement, and the chip count a count.
-2. The chip-level system: the CPU card on the bus with the memory card
-   and the I/O processor, booting from flash.
+1. The bus interface and the slave port in the netlist, and the
+   chip-level system: the CPU card on the bus with the memory card and the
+   I/O processor, booting from flash.
+2. The open points of [15](#15-the-netlist-and-its-timing): the register
+   file latches' hold, the remaining contention.
 3. The kernel of report 0020 ported to draft 2, on this model, for the
    supervisor architecture under real use.
-4. Decide the levers of [16](#16-faster-still) and the open questions
+4. Decide the levers of [17](#17-faster-still) and the open questions
    above.
