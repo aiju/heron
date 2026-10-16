@@ -81,16 +81,22 @@ def random_parcels(rng):
     return [w, e, rng.getrandbits(16)]
 
 
-def run_one(spec, rng, cover=None):
+def run_one(spec, rng, cover=None, record=None):
     """One random case: None if it agrees, else a description. `cover`
-    counts (instruction, outcome)."""
+    counts (instruction, outcome); `record`, if a set, collects the
+    decisions the specification took (Run.note)."""
     image = bytearray(rng.getrandbits(8) for _ in range(256)) * (WINDOW // 256)
     r, hi, fl, pc = random_state(rng)
     for i, p in enumerate(random_parcels(rng)):
         image[pc + 2 * i] = p & 0xFF
         image[pc + 2 * i + 1] = p >> 8
-    image = bytes(image)
+    return compare(spec, r, hi, fl, pc, bytes(image), cover, record)
 
+
+def compare(spec, r, hi, fl, pc, image, cover=None, record=None):
+    """One step from a given state on the simulator and the specification:
+    None if they agree, else (what differs, the parcels at pc, the state).
+    `image` is RAM from address 0 (the rest of the 1 MB is zero)."""
     m = native.v1.Machine("v1b", image, b"", timing32.REFERENCE)
     m.r = r
     m.hi = hi
@@ -107,16 +113,20 @@ def run_one(spec, rng, cover=None):
             "V": S.mk(1, fl & 1), "C": S.mk(1, fl >> 1 & 1), "Z": S.mk(1, fl >> 2 & 1),
             "N": S.mk(1, fl >> 3 & 1), "I": S.mk(1, fl >> 4 & 1)}
     st = S.State(spec, regs, {"mem": win})
-    words = [image[pc + 2 * i] | image[pc + 2 * i + 1] << 8 for i in range(3)]
+    words = [win.read(S.mk(32, pc + 2 * i)).x | win.read(S.mk(32, pc + 2 * i + 1)).x << 8
+             for i in range(3)]
     run = None
     try:
-        run = spec.step(st)
+        run = spec.step(st, record=record is not None)
     except S.Unspecified as e:
         if cover is not None:
             cover[("?", "outside: " + str(e).split(" (")[0])] += 1
         if sim_err is None and "I/O page" not in str(e):
             return f"spec: outside ({e}), simulator went on", words, (r, hi, fl, pc)
         return None
+    finally:
+        if record is not None and run is not None:
+            record.update(taken(run))
     if sim_err is not None:
         return f"simulator stopped ({sim_err}), spec went on", words, (r, hi, fl, pc)
     if cover is not None:
@@ -148,6 +158,19 @@ def run_one(spec, rng, cover=None):
     if diffs:
         return "; ".join(diffs), words, (r, hi, fl, pc)
     return None
+
+
+def taken(run):
+    """The decision outcomes a run on known values took: {(instruction,
+    site, outcome)}, the instruction by its line in the specification."""
+    ins = run.matched.line if run.matched else 0
+    out = set()
+    for site, yes, no in run.record or ():
+        if yes is True:
+            out.add((ins, site, True))
+        elif no is True:
+            out.add((ins, site, False))
+    return out
 
 
 def main(argv=None):

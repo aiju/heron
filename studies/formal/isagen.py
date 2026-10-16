@@ -1,0 +1,289 @@
+"""Test cases for the specification against the simulator, chosen by the
+specification itself.
+
+    heron formal isagen [--trials 3] [--seed 1] [--only SYNTAX] [--random N]
+
+For each instruction of the specification, its encoding's fields, the
+registers, flags, PC and memory are made symbolic, and the instruction
+runs once on them, noting every decision it meets (Run.note): each arm
+of an `if` or `case`, every flag it sets, every fault. Each outcome of
+each decision is a *goal*: the condition, over the inputs, under which
+that outcome happens. For each goal:
+
+  - the solver finds inputs that reach it inside the specification (its
+    assumptions hold), `--trials` times; each time a random half of the
+    inputs is first pinned to random values, mostly boundary values (0, 1,
+    -1, the sign bit, small numbers), and fewer if that leaves no way to
+    reach the goal, so the inputs the goal doesn't decide come out random;
+  - each set of inputs becomes a concrete case, which runs on the
+    simulator and the specification as `isacheck` runs one;
+  - the case counts toward coverage only if the specification, run on it
+    concretely, took that outcome.
+
+A goal the solver proves impossible is reported: an outcome no input can
+reach, which in a specification is dead or redundant text. With --random
+N, N plain random cases (isacheck's) run too, and their coverage of the
+same goals is reported beside the generated cases'.
+"""
+
+import argparse
+import random
+import time
+from collections import defaultdict
+
+import z3
+
+from . import isacheck
+from . import spec as S
+
+RAM = 0x10_0000
+BOUNDARY = [0, 1, 2, 0xFFFFFFFF, 0xFFFFFFFE, 0x7FFFFFFF, 0x80000000, 0x80000001,
+            0x0000FFFF, 0xFFFF0000, 0x00008000, 0xFFFF8000, 31, 32, 33]
+
+
+class SymMem:
+    """The specification's memory as one z3 array of bytes."""
+
+    def __init__(self, array):
+        self.array = array
+
+    def read(self, a):
+        return S.mk(8, z3.simplify(z3.Select(self.array, S.term(a))))
+
+    def write(self, a, v, g):
+        if g is False:
+            return
+        idx, d = S.term(a), S.term(v)
+        if g is not True:
+            d = z3.If(g, d, z3.Select(self.array, idx))
+        self.array = z3.Store(self.array, idx, d)
+
+
+class Inputs:
+    """The symbolic inputs of one instruction's run."""
+
+    def __init__(self, ins, k):
+        self.ins = ins
+        self.r = [z3.BitVec(f"r{i}", 32) for i in range(16)]
+        self.hi = z3.BitVec("hi", 32)
+        self.pc_hi = z3.BitVec("pc_hi", 31)
+        self.flags = {f: z3.Bool(f) for f in "NZCVI"}
+        self.mem = z3.Array("mem", z3.BitVecSort(32), z3.BitVecSort(8))
+        self.pbits = [bool((ins.value >> i) & 1) if (ins.mask >> i) & 1 else z3.Bool(f"p{i}")
+                      for i in range(ins.width)]
+
+    @property
+    def pc(self):
+        return z3.Concat(self.pc_hi, z3.BitVecVal(0, 1))
+
+    def parcel(self):
+        bs = [z3.BoolVal(b) if isinstance(b, bool) else b for b in self.pbits]
+        return z3.Concat(*[z3.If(b, z3.BitVecVal(1, 1), z3.BitVecVal(0, 1)) for b in reversed(bs)])
+
+    def state(self, spec):
+        p = self.parcel()
+        mem = z3.Store(z3.Store(self.mem, self.pc, z3.Extract(7, 0, p)),
+                       self.pc + 1, z3.Extract(15, 8, p))
+        regs = {"r": [S.mk(32, x) for x in self.r], "hi": S.mk(32, self.hi),
+                "pc": S.mk(32, self.pc)}
+        regs.update({f: S.mk(1, v) for f, v in self.flags.items()})
+        return S.State(spec, regs, {"mem": SymMem(mem)})
+
+    def scalars(self):
+        """(variable, how to pick a random value for it)."""
+        out = [(x, "word") for x in self.r[1:]] + [(self.hi, "word"), (self.pc_hi, "pc")]
+        out += [(v, "bit") for v in self.flags.values()]
+        out += [(b, "bit") for b in self.pbits if not isinstance(b, bool)]
+        return out
+
+
+def pick(rng, how):
+    if how == "bit":
+        return rng.random() < 0.5
+    if how == "pc":
+        return rng.randrange(0x80, RAM // 2 - 0x80)
+    k = rng.random()
+    if k < 0.4:
+        return rng.choice(BOUNDARY)
+    if k < 0.6:
+        return rng.randrange(-64, 64) & 0xFFFFFFFF
+    if k < 0.8:
+        return rng.randrange(0x100, RAM)          # an address in RAM
+    return rng.getrandbits(32)
+
+
+def _eq(var, value):
+    if z3.is_bool(var):
+        return var == z3.BoolVal(value)
+    return var == value
+
+
+def concretize(inp, m, rng):
+    """A model as a concrete case: (r, hi, flags, pc, RAM image)."""
+    def val(x, how):
+        v = m.eval(x, model_completion=False)
+        if z3.is_bv_value(v):
+            return v.as_long()
+        if z3.is_true(v) or z3.is_false(v):
+            return z3.is_true(v)
+        return pick(rng, how)                     # not in the model: anything
+    r = [0] + [val(x, "word") for x in inp.r[1:]]
+    hi = val(inp.hi, "word")
+    pc = val(inp.pc_hi, "pc") << 1
+    fl = sum(int(val(inp.flags[f], "bit")) << i for i, f in enumerate("VCZNI"))
+    entries, default = array_entries(m, inp.mem)
+    image = bytearray([default]) * RAM            # memory the model doesn't care about
+    for a, v in entries:
+        if a < RAM:
+            image[a] = v
+    p = sum(int(val(b, "bit") if not isinstance(b, bool) else b) << i
+            for i, b in enumerate(inp.pbits))
+    image[pc] = p & 0xFF
+    image[pc + 1] = p >> 8
+    return r, hi, fl, pc, bytes(image)
+
+
+def array_entries(m, arr):
+    """The entries a model gives an array, as [(index, value)], and the
+    value of every other entry."""
+    v = m.eval(arr, model_completion=True)
+    out, default = [], 0
+    while z3.is_store(v):
+        out.append((v.arg(1).as_long(), v.arg(2).as_long()))
+        v = v.arg(0)
+    if z3.is_as_array(v):
+        f = m[z3.get_as_array_func(v)]
+        for e in f.as_list()[:-1]:
+            out.append((e[0].as_long(), e[1].as_long()))
+        if z3.is_bv_value(f.else_value()):
+            default = f.else_value().as_long()
+    elif z3.is_const_array(v) and z3.is_bv_value(v.arg(0)):
+        default = v.arg(0).as_long()
+    out.reverse()                                 # the outermost store wins
+    return out, default
+
+
+def goals(spec, ins):
+    """One instruction's goals: {(site, outcome): condition}, and the
+    hypotheses (its assumptions)."""
+    inp = Inputs(ins, 0)
+    st = inp.state(spec)
+    run = spec.step(st, record=True)
+    out = {}
+    for site, yes, no in run.record:
+        if site[0] == "assume":                  # its failing side is outside the specification
+            continue
+        for outcome, g in ((True, yes), (False, no)):
+            if site[0] in ("fault", "trap", "halt") and not outcome:
+                continue
+            g = S.decided(g) if not isinstance(g, bool) else g
+            if g is False:
+                continue
+            key = (site, outcome)
+            out[key] = g if key not in out else z3.Or(out[key], g)
+    hyps = [a for a, _ in run.assumptions]
+    return inp, out, hyps
+
+
+def generate(spec, ins, trials, rng, timeout_ms=20_000):
+    """Cases aimed at every goal of one instruction: ({goal: status},
+    [cases]). A status is 'reached' (some case reached it concretely),
+    'missed' (the solver found inputs, but no case's concrete run took
+    that outcome), 'impossible' or 'unknown'."""
+    inp, gs, hyps = goals(spec, ins)
+    status, cases = {}, []
+    s = z3.Solver()
+    s.set("timeout", timeout_ms)
+    s.add(*hyps)
+    scalars = inp.scalars()
+    for key, g in gs.items():
+        s.push()
+        s.add(g if not isinstance(g, bool) else z3.BoolVal(g))
+        r = s.check()
+        if r != z3.sat:
+            status[key] = "impossible" if r == z3.unsat else "unknown"
+            s.pop()
+            continue
+        status[key] = "missed"
+        for _ in range(trials):
+            frac = 0.5
+            while True:
+                s.push()
+                hints = [_eq(x, pick(rng, how)) for x, how in scalars if rng.random() < frac]
+                s.add(*hints)
+                ok = s.check() == z3.sat
+                if ok or frac == 0:
+                    break
+                s.pop()
+                frac = frac / 2 if frac > 0.1 else 0
+            if not ok:
+                s.pop()
+                continue
+            cases.append((key, concretize(inp, s.model(), rng)))
+            s.pop()
+        s.pop()
+    return status, cases
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="heron formal isagen")
+    p.add_argument("--trials", type=int, default=3, help="cases per goal")
+    p.add_argument("--seed", type=int, default=1)
+    p.add_argument("--only", help="instructions whose syntax starts with this")
+    p.add_argument("--random", type=int, default=0,
+                   help="also run this many random cases (isacheck's) for comparison")
+    p.add_argument("--show", type=int, default=10)
+    p.add_argument("-v", action="store_true", help="every goal not reached")
+    args = p.parse_args(argv)
+    spec = S.load("v1b.isa")
+    rng = random.Random(args.seed)
+    lines = S.HERE and open(S.HERE + "/v1b.isa").read().split("\n")
+    total = defaultdict(int)
+    reached_all, all_goals = set(), set()
+    bad = 0
+    t0 = time.time()
+    ncases = 0
+    for ins in spec.instructions:
+        if args.only and not ins.syntax.startswith(args.only):
+            continue
+        status, cases = generate(spec, ins, args.trials, rng)
+        took = set()
+        for key, (r, hi, fl, pc, image) in cases:
+            ncases += 1
+            res = isacheck.compare(spec, r, hi, fl, pc, image, record=took)
+            if res is not None:
+                bad += 1
+                if bad <= args.show:
+                    why, words, _ = res
+                    print(f"  {ins.syntax}: {pc:08X}: {' '.join(f'{w:04X}' for w in words)}: {why}")
+        mine = {(site, o) for (i, site, o) in took if i == ins.line}
+        for key in status:
+            if status[key] == "missed" and key in mine:
+                status[key] = "reached"
+            all_goals.add((ins.line, key))
+            if status[key] == "reached":
+                reached_all.add((ins.line, key))
+        n = defaultdict(int)
+        for v in status.values():
+            n[v] += 1
+            total[v] += 1
+        print(f"{ins.syntax:<38} {len(status):4} goals: " + ", ".join(
+            f"{k} {n[k]}" for k in ("reached", "missed", "impossible", "unknown") if n[k]), flush=True)
+        if args.v:
+            for (site, o), v in sorted(status.items(), key=lambda x: str(x[0])):
+                if v != "reached":
+                    print(f"      {v:<10} line {site[1]}: {lines[site[1] - 1].strip()[:60]} "
+                          f"({site[0]}{' ' + str(site[2]) if len(site) > 2 else ''}: {o})")
+    print(f"{ncases} generated cases in {time.time() - t0:.0f} s, {bad} disagree; goals: "
+          + ", ".join(f"{k} {total[k]}" for k in ("reached", "missed", "impossible", "unknown")))
+    if args.random:
+        took = set()
+        rbad = 0
+        rr = random.Random(args.seed)
+        for _ in range(args.random):
+            rbad += isacheck.run_one(spec, rr, record=took) is not None
+        hit = {(i, (site, o)) for (i, site, o) in took} & all_goals
+        print(f"{args.random} random cases: {rbad} disagree; they reach {len(hit)} of the "
+              f"{len(all_goals)} goals (generated cases: {len(reached_all)}; "
+              f"possible: {len(all_goals) - total['impossible'] - total['unknown']})")
+    return 1 if bad else 0

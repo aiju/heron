@@ -801,10 +801,13 @@ class Spec:
             self._consts[name] = Run(self, None).eval(self.decls[name][1], {})
         return self._consts[name]
 
-    def step(self, state):
+    def step(self, state, record=False):
         """Run one instruction on `state` (changed in place). Returns the Run:
-        its fault (vector, return address, guard), assumptions and halt."""
+        its fault (vector, return address, guard), assumptions and halt. With
+        `record`, run.record lists every decision it met (Run.note)."""
         run = Run(self, state)
+        if record:
+            run.record = []
         run.step()
         return run
 
@@ -885,6 +888,7 @@ class Run:
         self.double_fault = False
         self.start_pc = None
         self.matched = None          # the instruction decoded, if known
+        self.record = None           # [(site, guard of one outcome, of the other)]
 
     # ---- the instruction
 
@@ -919,6 +923,14 @@ class Run:
         self.g = False
 
     # ---- statements
+
+    def note(self, site, c):
+        """A decision met under the current guard: `site` says where (a
+        statement's line and what it decides), `c` the condition. Recorded,
+        if asked, as the guards under which each outcome happens: on known
+        values, which outcome; on symbolic ones, terms a solver can aim at."""
+        if self.record is not None:
+            self.record.append((site, g_and(self.g, c), g_and(self.g, g_not(c))))
 
     def block(self, stmts, env):
         for st in stmts:
@@ -956,7 +968,10 @@ class Run:
             d = self.spec.decls.get(name)
             if d is None or d[0] != "reg" or d[1] is not None:
                 raise SpecError(f"line {st[3]}: can't assign to {name}")
-            self.st.regs[name] = ite(self.g, sized(v, d[2]), self.st.regs[name])
+            v = sized(v, d[2])
+            if d[2] == 1:
+                self.note(("set", st[3], name), guard(v))
+            self.st.regs[name] = ite(self.g, v, self.st.regs[name])
             return
         base, idx = target[1], self.eval(target[2], env)
         if base[0] != "name":
@@ -988,10 +1003,13 @@ class Run:
 
     def s_if(self, st, env):
         rest, out = self.g, False
+        seen = []
         for cond, blk in st[1]:
             self.g = rest
             c = decided(guard(self.eval(cond, env)))
             rest = self.g                       # (a call in the condition may fault)
+            self.note(("branch", st[3], len(seen)), c)
+            seen.append(None)
             self.g = g_and(rest, c)
             if self.g is not False:
                 self.block(blk, env)
@@ -1055,19 +1073,23 @@ class Run:
         self.g = False
 
     def s_fault(self, st, env):
+        self.note(("fault", st[2]), True)
         self.raise_fault(self.eval(st[1], env), self.start_pc)
 
     def s_trap(self, st, env):
+        self.note(("trap", st[2]), True)
         self.raise_fault(self.eval(st[1], env), self.st.regs["pc"])
 
     def s_pass(self, st, env):
         pass
 
     def s_halt(self, st, env):
+        self.note(("halt", st[1]), True)
         self.halt_g = g_or(self.halt_g, self.g)
 
     def s_assume(self, st, env):
         c = guard(self.eval(st[1], env))
+        self.note(("assume", st[3]), c)
         if c is True:
             return
         if c is False and self.g is True:

@@ -35,6 +35,7 @@ repository needs. The flow it suggests, the language, and the results: [RFC 0038
 | `spec.py` | The specification language ([RFC 0038, Part II](../../reports/0038-rfc-formal-verification.md#part-ii-the-specification-language)): its parser and interpreter, on known or symbolic values |
 | [v1b.isa](v1b.isa) | Draft 1b, specified |
 | `isacheck.py` | The specification against the instruction-level simulator: random states and instructions, one step each |
+| `isagen.py` | The same on cases the specification chooses: each instruction run symbolically once, every outcome of every decision a goal, the solver finding inputs for each (the rest random) |
 | `logic.py` | Bits that are known or z3 terms, with constant folding |
 | `symsim.py` | Symbolic simulation of a netlist, cycle by cycle: models of the chip library's parts, three-state buses (contention as proof obligations), splits at the ROMs |
 | `v1b.py` | The 1b hardware under it: the state by name, the I/O page fixture, the abstraction at an instruction boundary, the decode cases, the proofs (and reset) |
@@ -44,6 +45,7 @@ repository needs. The flow it suggests, the language, and the results: [RFC 0038
 
 ```sh
 heron formal isacheck -n 20000 --coverage      # the specification against the simulator
+heron formal isagen --trials 3 -v               # ... on cases aimed at every outcome of every decision
 heron formal prove --kind un                    # prove the unary group's decode cases
 heron formal prove --key "ea 4 None 0 None"     # one case: ADD rd, rn
 heron formal prove --jobs 4 --budget 1800       # every case (hours; results in build/formal/)

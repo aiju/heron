@@ -1,7 +1,9 @@
 """The formal verification study's command line: heron formal <command> ...
 
   isacheck [-n N] [--seed S] [--coverage]   the specification against the
-                                            instruction-level simulator
+                                            instruction-level simulator: random cases
+  isagen [--trials N] [--random N]          the same, on cases aimed at every
+                                            outcome of every decision in the spec
   prove [--kind K] [--key KEY] [--sample N] [--jobs J] [--budget S]
                                             prove decode cases of the 1b
                                             hardware against the specification
@@ -21,6 +23,9 @@ def main(argv=None):
     cmd, rest = argv[0], argv[1:]
     if cmd == "isacheck":
         from .isacheck import main as m
+        return m(rest)
+    if cmd == "isagen":
+        from .isagen import main as m
         return m(rest)
     if cmd == "prove":
         from .prove import main as m

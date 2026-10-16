@@ -92,3 +92,20 @@ class Proofs(unittest.TestCase):
         r = p.prove()
         self.assertEqual(r.status, "fail")
         self.assertRegex(r.paths[0][2], r"\br([1-9]|1[0-5])\b")     # whichever rd the model picks
+
+
+@unittest.skipIf(z3 is None, "needs z3 (pip install z3-solver)")
+class Generated(unittest.TestCase):
+    def test_every_goal_of_rrc_reached(self):
+        """RRC's decisions (N and Z, C from bit 0, V cleared): every
+        outcome is reached by a generated case, and the simulator agrees."""
+        from heron.studies.formal import isacheck, isagen, spec as S
+        sp = S.load("v1b.isa")
+        ins = next(i for i in sp.instructions if i.syntax.startswith("RRC"))
+        status, cases = isagen.generate(sp, ins, 1, random.Random(2))
+        took = set()
+        for _, (r, hi, fl, pc, image) in cases:
+            self.assertIsNone(isacheck.compare(sp, r, hi, fl, pc, image, record=took))
+        reached = {(site, o) for (i, site, o) in took if i == ins.line}
+        self.assertTrue(status)
+        self.assertEqual({k for k, v in status.items() if v == "missed"} - reached, set())
