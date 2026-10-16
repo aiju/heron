@@ -531,7 +531,7 @@ op_mul: MOV  r2, -[r10]
 ;@tagmul
         ASR  r1, #1             ; x * 2y, too big for 32 bits in V
         DEC  r2
-        MULS r1, r2
+        MULS r0:r1, r2
         BVS  binop_slow
         INC  r1
 ;@end
@@ -553,7 +553,7 @@ op_div: MOV  r2, -[r10]
         BEQ  binop_slow
         ASR  r1, #1
         ASR  r2, #1
-        DIVS r1, r2
+        DIVS r0:r1, r2
         MOV  r3, r0             ; floor: one less if the remainder and
         TST  r3, r3             ; the divisor have different signs
         BEQ  .exact
@@ -579,7 +579,7 @@ op_mod: MOV  r2, -[r10]
         BEQ  binop_slow
         ASR  r1, #1
         ASR  r2, #1
-        DIVS r1, r2
+        DIVS r0:r1, r2
         MOV  r1, r0             ; floor: the remainder takes the
         TST  r1, r1             ; divisor's sign
         BEQ  .done

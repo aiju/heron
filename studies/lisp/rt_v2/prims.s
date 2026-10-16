@@ -514,7 +514,7 @@ p_mul:  CMP  r2, #2
 .endif
         MOV  r1, r6
         ASR  r1, #1
-        MULS r1, r5
+        MULS r0:r1, r5
         BVS  err_overflow
         RET
 .gen:   PUSH r7
@@ -531,7 +531,7 @@ p_mul:  CMP  r2, #2
         BNE  nn6
 .endif
         ASR  r1, #1
-        MULS r1, r6
+        MULS r0:r1, r6
         BVS  err_overflow
         MOV  r5, [r5 + 3]
         BRA  .loop
@@ -558,7 +558,7 @@ p_quotient:
         PUSH r7
         BSR  div_args
         POP  r7
-        DIVS r1, r5             ; 2a / 2b = a / b
+        DIVS r0:r1, r5          ; 2a / 2b = a / b
         ADD  r1, r1
         BVS  err_overflow
         RET
@@ -567,7 +567,7 @@ p_remainder:
         PUSH r7
         BSR  div_args
         POP  r7
-        DIVS r1, r5
+        DIVS r0:r1, r5
         MOV  r1, r0             ; 2a rem 2b = 2 (a rem b)
         RET
 
@@ -575,7 +575,7 @@ p_modulo:
         PUSH r7
         BSR  div_args
         POP  r7
-        DIVS r1, r5
+        DIVS r0:r1, r5
         MOV  r1, r0             ; the remainder
         CMP  r1, #0
         BEQ  .done
@@ -699,7 +699,7 @@ p_gensym:
         MOV  r1, [gensym_n]
         MOV  r9, #tokbuf + 32   ; its digits, backwards
         MOV  r5, #10
-.dig:   DIVU r1, r5
+.dig:   DIVU r0:r1, r5
         MOV  r2, r0
         ADD  r2, #'0'
         SUB  r9, #1

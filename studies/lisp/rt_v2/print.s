@@ -96,7 +96,7 @@ pr_int: PUSH r7
         NEG  r1, r1
 .pos:   MOV  r6, #0
         MOV  r5, #10
-.div:   DIVU r1, r5
+.div:   DIVU r0:r1, r5
         MOV  r2, r0
         PUSH r2
         INC  r6
