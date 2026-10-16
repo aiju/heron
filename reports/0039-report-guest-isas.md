@@ -229,8 +229,8 @@ instruction, 15.4 s; about 2 million 6502 instructions a second, which a
 real 6502, at three or four cycles an instruction, does at 6 to 8 MHz.
 The suite's C, compiled by cc65 with its 16-bit `int`, runs right too
 (the eight programs whose output doesn't depend on 32-bit arithmetic
-print the suite's output), though at 36 times draft 2's time for those
-programs: an 8-bit CPU needs 17 times as many instructions for the same
+print the suite's output), though at 39 times draft 2's time for those
+programs: an 8-bit CPU needs 19 times as many instructions for the same
 C. The microcode is 795 words.
 
 ### 2.3 Draft 1b, unmodified
