@@ -194,7 +194,8 @@ backplane.
 #### Pin rules
 
 - BCLK, COLD and RESET each have a ground pin on both sides, in the row
-  and across rows.
+  and across rows. Where those pins really sit needs a careful physical
+  review ([section 30](#30-still-to-check)).
 - Power and ground are spread along the connector, not grouped.
 - The same signal is on the same pin at every slot, radial ones
   included.
@@ -547,9 +548,9 @@ for the card size.
 | reserved | 7 | | | |
 
 **Pin rules:** SEL and WRITE each have a ground pin on both sides
-(report 0022 found these guard pins necessary for SEL as a strobe);
-power and ground are spread; every signal is on the same pin at every
-slot.
+(report 0022 found these guard pins necessary for SEL as a strobe), to
+be checked physically ([section 30](#30-still-to-check)); power and
+ground are spread; every signal is on the same pin at every slot.
 
 ### 15. Devices and addresses
 
@@ -922,6 +923,30 @@ Before a netlist, against the timing data and in `studies/bus_si`:
   floating lines?
 - **The I/O backplane:** crosstalk on SEL and WRITE with HCT edges, and
   the guard pins, with the same tools as report 0022.
+- **The guard pins need a careful physical review,** on both buses, once
+  there is a pin assignment, a connector part and a layout. A rule like
+  "a ground pin on both sides" is only as good as the geometry behind it:
+  - **Which pins are neighbours** depends on the connector. On the
+    system bus's 96-pin DIN 41612 (rows a, b and c), a pin's neighbours
+    are along its row and across in the next row. On the I/O bus's
+    64-pin connector, rows a and c only, the pin across is two row
+    pitches away, so a different pin is "beside" it.
+  - **On a right-angle connector** each row's contacts are a different
+    length, so coupling along the contacts differs by row.
+  - **A guard pin only guards** if it reaches the ground plane through a
+    short via right at the connector, on the backplane and on the card.
+    One joined to ground through a trace guards nothing.
+  - **The guarded lines' traces** should leave the connector field
+    without running long beside other signals, on the backplane and on
+    each card.
+  - **Report 0022 simulated an assumed contact coupling** and its own
+    reference pin assignment. The real assignment and layouts need
+    simulating again, and in the end a measurement on a prototype
+    backplane.
+
+  The lines concerned: BCLK, COLD and RESET on the system bus; SEL and
+  WRITE on the I/O bus, where SEL is the strobe and a spike on either
+  becomes a false or broken access.
 - **The duty cycle** the I/O processor needs, at the far end of the clock
   tree.
 
