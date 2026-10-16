@@ -189,7 +189,7 @@ without a suffix, and "asserted" means active.
 | SEL | 1 | radial | backplane | this slot is addressed; asserted in the data phase only. The strobe for simple cards |
 | BCLK | 1 | radial | backplane | bus clock |
 | RESET | 1 | bused, OC, slow edges | backplane power-on reset, main CPU | system reset |
-| IRQ0–IRQ3 | 4 | bused, OC | any card | interrupt requests |
+| IRQ1–IRQ4 | 4 | bused, OC | any card | interrupt requests |
 | reserved | 5 | | | first: ground pins beside SEL and WRITE; then a higher supply voltage or a third class strap (**open**) |
 | +5 V, ground | 24 | | | |
 
@@ -200,7 +200,7 @@ without a suffix, and "asserted" means active.
 | D16–D31 | 16 | bused, 3-state | as D0–D15 | upper halfword of a word transfer |
 | BE2, BE3 | 2 | bused, owner | owner | byte enables of the upper halfword, in word transfers only |
 | W32 | 1 | bused, backplane | backplane | the addressed card is a fast 32-bit card |
-| IRQ4–IRQ7 | 4 | bused, OC | any card | interrupt requests |
+| IRQ5–IRQ8 | 4 | bused, OC | any card | interrupt requests |
 | GA0–GA3 | 4 | strapped | backplane | slot number, for cards that want to know it |
 | CLKSRC | 1 | slot 0 only | main CPU board | clock into the backplane's buffer, if the bus clock comes from the CPU board (**open**) |
 | +5 V, ground | ~16 | | | |
@@ -496,7 +496,7 @@ what's in each slot; an empty slot answers with BERR.
 
 #### 8.3 Interrupts and synchronisation
 
-- **Interrupts:** eight lines, IRQ0–IRQ3 on P1 and IRQ4–IRQ7 on P2. Open
+- **Interrupts:** eight lines, IRQ1–IRQ4 on P1 and IRQ5–IRQ8 on P2. Open
   collector, level-sensitive. Each card picks its line with a jumper; each
   CPU listens to its own subset through a priority encoder.
 - **Doorbells:** a write to a register in a CPU board's region interrupts
@@ -569,7 +569,7 @@ Guidance for the main CPU board; not part of the specification proper.
   - The draft 1b hardware's MAR only holds address bits 0–19 and 31. As
     a card on the bus, a 32-bit MAR and a slot decode early enough to keep
     a bus write off the RAM took 7 chips
-    ([report 0025](0025-report-draft-1b-system.md#1-what-was-built)).
+    ([report 0025](0025-report-draft-1b-system.md#11-chips)).
 - **Slot:** the main CPU sits in slot 0. The bus parks on it, so it starts
   most bus accesses with no arbitration delay.
 - **If the bus clock comes from the CPU board**, the bus clock is the 50 MHz
@@ -585,7 +585,7 @@ Guidance for the main CPU board; not part of the specification proper.
   never need to be multiples of the bus clock. The draft 1b CPU card holds
   its cycle for 260 ns: the bus side's clock lags the CPU's by 33 ns, and
   the crossings sit at fixed phases of the master clock
-  ([report 0025](0025-report-draft-1b-system.md#5-what-a-bus-transfer-costs)).
+  ([report 0025](0025-report-draft-1b-system.md#13-what-a-bus-transfer-costs)).
 - **If it comes from an oscillator on the backplane**, the CPU synchronises
   to it, which costs about 20–40 ns per access.
 - **Posted writes.** Registered bus transceivers (74ABT652) take the
@@ -1072,6 +1072,9 @@ all for timing.
 They're **pending**: Emily hasn't decided on them, and Parts 1 and 2
 haven't been changed to match.
 
+The build also names the interrupt lines IRQ0–IRQ7, as Part 1 did until
+2026-10-16 ([19](#19-decisions)).
+
 | Item | What the build found | What the build does | What it would change here |
 |---|---|---|---|
 | SEL's polarity | Section 3 makes every control signal active low. A simple card's strobes are one Schmitt NAND from SEL ([section 6](#6-simple-cards)), which needs SEL active high | SEL is active high | SEL becomes the one active-high control signal (section 3) |
@@ -1121,3 +1124,9 @@ On 2026-10-14:
   the 32-bit, multi-CPU target, not for the draft 1b hardware.
 - **The slot bits:** A31–A28 is tentative; the slot bits may move, for
   example to A30–A27.
+
+On 2026-10-16:
+
+- **The interrupt lines are IRQ1–IRQ8,** numbered as the CPU's interrupt
+  levels are, 1–8 ([RFC 0029, 7](0029-rfc-draft-2-system.md#7-interrupts)),
+  so that a level and its line have the same number.

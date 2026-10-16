@@ -66,6 +66,21 @@ pub const ABS16S: u32 = 3;
 pub const PC16: u32 = 4;
 /// 16 bits, PC-relative in parcels: (S + A - P) / 2, even, ±64 KB
 pub const PC16H: u32 = 5;
+/// A 24-bit address the CPU sign-extends (draft 2's tables), split over two
+/// parcels: this byte holds bits 23-16 of S + A, which must fit in 24
+/// bits; an ABS24L field holds the rest.
+pub const ABS24H: u32 = 6;
+/// The low 16 bits of S + A, for ABS24H.
+pub const ABS24L: u32 = 7;
+/// As ABS24H, PC-relative: bits 23-16 of S + A - P, within ±8 MB.
+pub const PC24H: u32 = 8;
+/// The low 16 bits of S + A - P, for PC24H.
+pub const PC24L: u32 = 9;
+
+/// Whether a relocation kind is PC-relative.
+pub fn pc_relative(kind: u32) -> bool {
+    matches!(kind, PC16 | PC16H | PC24H | PC24L)
+}
 
 pub fn reloc_name(kind: u32) -> Option<&'static str> {
     Some(match kind {
@@ -74,12 +89,20 @@ pub fn reloc_name(kind: u32) -> Option<&'static str> {
         ABS16S => "abs16s",
         PC16 => "pc16",
         PC16H => "pc16h",
+        ABS24H => "abs24h",
+        ABS24L => "abs24l",
+        PC24H => "pc24h",
+        PC24L => "pc24l",
         _ => return None,
     })
 }
 
 pub fn reloc_size(kind: u32) -> usize {
-    if kind == ABS32 { 4 } else { 2 }
+    match kind {
+        ABS32 => 4,
+        ABS24H | PC24H => 1,
+        _ => 2,
+    }
 }
 
 /// A file that isn't a valid object file or library.
@@ -133,6 +156,22 @@ pub fn reloc_value(kind: u32, s: i64, a: i64, p: i64) -> Result<Vec<u8>, String>
                 return Err(format!("{u:#x} is {off:+} bytes away, more than ±64 KB"));
             }
             Ok(((off >> 1) as u16).to_le_bytes().to_vec())
+        }
+        ABS24H | ABS24L | PC24H | PC24L => {
+            let pc = kind == PC24H || kind == PC24L;
+            let x = s32(if pc { v - p } else { v });
+            if !(-(1 << 23)..1 << 23).contains(&x) {
+                return Err(if pc {
+                    format!("{u:#x} is {x:+} bytes away, more than ±8 MB")
+                } else {
+                    format!("{u:#x} is out of reach of 24-bit addresses")
+                });
+            }
+            Ok(if kind == ABS24H || kind == PC24H {
+                vec![(x >> 16) as u8]
+            } else {
+                (x as u16).to_le_bytes().to_vec()
+            })
         }
         _ => Err(format!("unknown relocation kind {kind}")),
     }

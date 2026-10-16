@@ -61,11 +61,16 @@ class LinkedImage(Image):
 
 
 class Linker:
-    def __init__(self, isa=None, base=None, gc=True, entry=None):
+    """`mem_top` is the address the program must end below: by default the
+    ISA's MEM_TOP. A kernel linked into the supervisor's window, at
+    0x80000000 on draft 2, passes its own."""
+
+    def __init__(self, isa=None, base=None, gc=True, entry=None, mem_top=None):
         self.isa = isa
         self.base = base
         self.gc = gc
         self.entry = entry
+        self.mem_top = mem_top
         self.objects = []       # ObjectFiles
         self.archives = []      # [[(name, ObjectFile), ...], ...]
         self._map = None
@@ -82,7 +87,9 @@ class Linker:
         if isa is None:
             first = self.objects + [o for lib in self.archives for _, o in lib]
             isa = first[0].isa if first else None
-        mem_top = getattr(isas.get(isa), "MEM_TOP", 0x10000) if isa else 0x10000
+        mem_top = self.mem_top
+        if mem_top is None:
+            mem_top = getattr(isas.get(isa), "MEM_TOP", 0x10000) if isa else 0x10000
         try:
             out = native.toolchain.link(
                 [(o.name, o.to_bytes()) for o in self.objects],

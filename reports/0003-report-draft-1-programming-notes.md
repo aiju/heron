@@ -15,7 +15,7 @@ Five agents wrote the draft 1 program suite, each for both encodings, 1a
 and 1b, alternating which came first. Each kept a first-hand log of what
 writing the programs was like: what each ISA made easy or awkward, the
 mistakes, and what they measured. The logs are the evidence behind the
-programming sections of [report 0004](0004-report-draft-1-evaluation.md).
+programming sections of [RFC 0004](0004-rfc-draft-1-isa.md).
 
 | Notes | Programs |
 |---|---|

@@ -1,10 +1,10 @@
 ---
 status: active
-depends-on: [c_compiler, v1_isa]
-reports: [17]
+depends-on: [c_compiler, v1_isa, v2_isa]
+reports: [17, 32]
 ---
 
-# Egret: a small object language on draft 1b
+# Egret: a small object language on drafts 1b and 2
 
 Egret is a friendly object language in the space between Smalltalk, Ruby
 and Python, made up for this study ([language.md](language.md)):
@@ -19,6 +19,13 @@ The point is not the language but the machine: what an implementation of
 a language like this spends its cycles on, and which changes to the
 instruction set or the system would help it. The findings are
 [report 0017](../../reports/0017-report-egret.md).
+
+Every build also runs on draft 2 ([RFC 0028](../../reports/0028-rfc-draft-2-isa.md)),
+with `--isa v2`: the C compiled by the C compiler's draft 2 backend, and
+the assembly in `vm/*_v2.s`. On draft 2 the frame record is the current
+object, in `r14`, where mode E reaches its fields, and nil is in `r11`.
+[Report 0032](../../reports/0032-report-lisp-egret-draft-2.md) has the
+port and the measurements. 1b stays the default.
 
 The VM comes in three builds, which run the same programs to the same
 output:
@@ -37,12 +44,14 @@ output:
 | `language.md` | The language |
 | `vm/` | The VM in C: objects and memory (`mem.c`, `object.c`, `map.c`, `bigint.c`), the compiler (`lex.c`, `parse.c`, `compile.c`), the interpreter (`interp.c`), primitives (`prims.c`), the JIT (`jit.c`), start-up (`main.c`) |
 | `vm/*_v1b.s` | Draft 1b assembly: the start code (`rt_v1b.s`), the hand-written interpreter loop (`interp_v1b.s`), the JIT's glue to C (`jit_v1b.s`) |
+| `vm/*_v2.s` | The same in draft 2 assembly; jit.c has a draft 2 encoder too (`__V2__`) |
 | `lib/prelude.eg` | The core library, in Egret |
 | `programs/` | Programs: twelve ported from the draft 1 suite (same output, so they compare with the assembly and C versions), and Egret's own (Richards, binary trees, JSON, shapes, closures) |
 | `build.py` | Builds the VM for the host (gcc) and for draft 1b (the C compiler study), and runs programs on either |
 | `profile.py` | Where a run's cycles go: C functions by group, the interpreter by bytecode, native code by bytecode |
 | `isa.py` | What ISA and system changes would save, from the marked sequences in `interp_v1b.s` and the native code's disassembly |
 | `bench.py` | Every program on every build, and the report's tables |
+| `bench_v2.py` | Every program on every build on both drafts: report 0032's tables |
 
 ```sh
 heron egret run studies/egret/programs/queens.eg          # on the simulated draft 1b machine
@@ -50,6 +59,9 @@ heron egret run --variant jit --stats studies/egret/programs/richards.eg   # wit
 heron egret run --host studies/egret/programs/queens.eg   # on the host build of the VM
 heron egret test [--heron [--variant asm|c|jit|all]]      # every program against its expected output
 heron egret bench [--write]                               # the report's tables (a few minutes)
+heron egret test --heron --isa v2                         # every program on draft 2, all three builds
+heron egret run --isa v2 --variant jit studies/egret/programs/richards.eg   # on draft 2
+heron egret bench --isa v2 [--write]                      # draft 2 against 1b: report 0032's tables (about 5 minutes)
 heron test egret                                          # the unit tests
 ```
 

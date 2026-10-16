@@ -4,16 +4,22 @@ Nothing clever. `optimize` runs, per function: mem2reg (ir.ssa), and
 at level 0 nothing else; then constant folding and algebraic simplification
 (including strength reduction of multiplies and divides by powers of two),
 global value numbering over the dominator tree, redundant load elimination
-within a block, dead code elimination and control-flow cleanup, to a fixed
-point; loop-invariant code motion and the fixed point again; strength
-reduction of induction variables (with linear function test replacement)
-and the fixed point again; given the target's free_imm, constants it can't
-take as cheap immediates loaded into registers before loops; and last,
-sinking steps like p + 1 below p's last use.
+within a block and down chains of single-predecessor blocks, dead code
+elimination, jump threading of branches on a phi, and control-flow cleanup,
+to a fixed point; loop-invariant code motion (loads of globals and stack
+slots too) and the fixed point again; strength reduction of induction
+variables (with linear function test replacement) and the fixed point
+again; for a target with a decrement-and-branch, counters that only count
+turned into counts down to zero, and the fixed point again; invariant
+constants reassociated out of loops; given the target's free_imm,
+constants it can't take as cheap immediates loaded into registers before
+the outermost loop that has registers for them; and last, sinking steps
+like p + 1 below p's last use. (Inlining, between two runs of this, is in
+ir.inline.)
 """
 
 from .ir import Instr, Const, SymAddr, Param, Slot, Undef, M32, s32, BINOPS, CMPOPS, UNOPS, COMMUTATIVE, PURE, CMP_SWAP, CMP_NEG
-from .cfg import DomTree, natural_loops, remove_unreachable
+from .cfg import DomTree, natural_loops, remove_unreachable, reverse_postorder
 from .ssa import mem2reg
 
 
@@ -694,7 +700,26 @@ def _base(addr):
     return ("ptr", addr), off
 
 
+def _object(addr, depth=0):
+    """The global or stack slot that addr points into, at an offset that
+    may not be known: indexing an array can't take a pointer into another
+    object. None for a pointer from anywhere else."""
+    if isinstance(addr, SymAddr):
+        return ("sym", addr.name)
+    if isinstance(addr, Slot):
+        return ("slot", addr)
+    if isinstance(addr, Instr) and addr.op in ("add", "sub") and depth < 8:
+        o = _object(addr.args[0], depth + 1)
+        if o is None and addr.op == "add":
+            o = _object(addr.args[1], depth + 1)
+        return o
+    return None
+
+
 def _may_alias(a1, s1, a2, s2):
+    o1, o2 = _object(a1), _object(a2)
+    if o1 is not None and o2 is not None and o1 != o2:
+        return False
     (k1, o1), off1 = _base(a1)
     (k2, o2), off2 = _base(a2)
     if k1 != "ptr" and k2 != "ptr":
@@ -707,10 +732,16 @@ def _may_alias(a1, s1, a2, s2):
 
 
 def load_cse(func):
+    """Redundant loads, within a block and down a chain of blocks that each
+    have one predecessor (whatever is known at the end of the predecessor
+    is known at the start of the block)."""
     changed = False
     mapping = {}
-    for b in func.blocks:
-        avail = {}          # (addr, size, signed) -> value
+    func.compute_preds()
+    known = {}
+    for b in reverse_postorder(func):
+        p = b.preds[0] if len(b.preds) == 1 else None
+        avail = dict(known[p]) if p in known else {}   # (addr, size, signed) -> value
         for i in list(b.instrs):
             i.args = [mapping.get(a, a) for a in i.args]
             if i.op == "load":
@@ -732,6 +763,7 @@ def load_cse(func):
                     avail[(addr, 4, False)] = i.args[0]
             elif i.op in ("call", "memcpy"):
                 avail.clear()
+        known[b] = avail
     func.replace_uses(mapping)
     return changed
 
@@ -833,6 +865,50 @@ def cleanup_cfg(func):
 
 
 # --------------------------------------------------------------------------
+# Jump threading
+
+
+def thread_branches(func):
+    """A block that only branches on a phi (a boolean that an inlined
+    predicate returned from several places, say): a predecessor that jumps
+    to it branches on its own value instead, which is often a compare it
+    just made, or goes straight to the target for a constant."""
+    changed = False
+    func.compute_preds()
+    users = func.users()
+    for b in list(func.blocks[1:]):
+        t = b.terminator
+        if t is None or t.op != "br" or len(b.instrs) != 2 or b.instrs[0].op != "phi":
+            continue
+        p = b.instrs[0]
+        dests = t.targets
+        if t.args[0] is not p or users.get(p) != [t] or b in dests or dests[0] is dests[1]:
+            continue
+        for q, v in list(zip(p.incoming, p.args)):
+            qt = q.terminator
+            if qt.op != "jmp" or v is Undef:
+                continue
+            if isinstance(v, (Const, SymAddr)):
+                new = [dests[0] if not isinstance(v, Const) or v.value else dests[1]]
+                q.instrs[-1] = Instr("jmp", [], targets=new)
+            else:
+                new = list(dests)
+                q.instrs[-1] = Instr("br", [v], targets=new)
+            q.instrs[-1].block = q
+            for d in new:
+                for ph in d.phis():
+                    ph.args.append(ph.args[ph.incoming.index(b)])
+                    ph.incoming.append(q)
+            k = p.incoming.index(q)
+            del p.args[k], p.incoming[k]
+            changed = True
+        func.compute_preds()
+    if changed:
+        remove_unreachable(func)
+    return changed
+
+
+# --------------------------------------------------------------------------
 # Loop-invariant code motion
 
 
@@ -883,12 +959,21 @@ def licm(func):
             if h in body2 and h2 is not h:
                 body2.add(pre)
         defined_inside = {i for b in body for i in b.instrs}
+        # a load of a global or a stack slot can't trap, so it may move out
+        # of a loop that has no call and stores nothing that could overlap it
+        calls = any(i.op in ("call", "memcpy") for b in body for i in b.instrs)
+        stores = [(i.args[1], i.size) for b in body for i in b.instrs if i.op == "store"]
+
+        def invariant_load(i):
+            return (i.op == "load" and not i.volatile and not calls
+                    and _base(i.args[0])[0][0] != "ptr"
+                    and not any(_may_alias(i.args[0], i.size, a, s) for a, s in stores))
         moved = False
         for b in dom.rpo:
             if b not in body:
                 continue
             for i in list(b.instrs):
-                if not hoistable(i):
+                if not hoistable(i) and not invariant_load(i):
                     continue
                 if any(isinstance(a, Instr) and a in defined_inside for a in i.args):
                     continue
@@ -1090,6 +1175,156 @@ def strength_reduce(func):
 
 
 # --------------------------------------------------------------------------
+# Counting loops down to zero
+
+
+def trip_count(op, step, init, bound):
+    """How often a loop body runs whose counter starts at init, steps by
+    step (1 or -1) at the end of each run, and goes round again while the
+    stepped counter op bound holds: ("sub", a, b) for a - b, an int, or
+    None if that can't be known. The count is modulo 2^32, with 0 for 2^32
+    runs."""
+    if op == "ne":
+        # the counter meets the bound after (bound - init) * step steps,
+        # wrapping around if need be
+        return ("sub", bound, init) if step == 1 else ("sub", init, bound)
+    if not (isinstance(init, Const) and isinstance(bound, Const)):
+        return None
+    if op in ("lt", "le", "gt", "ge"):
+        a, b = init.signed, bound.signed
+    else:
+        a, b = init.value & M32, bound.value & M32
+    n = {(1, "lt"): b - a, (1, "ltu"): b - a, (1, "le"): b - a + 1, (1, "leu"): b - a + 1,
+         (-1, "gt"): a - b, (-1, "gtu"): a - b, (-1, "ge"): a - b + 1,
+         (-1, "geu"): a - b + 1}.get((step, op))
+    if n is None:
+        return None
+    return max(1, n) & M32              # the body runs once before the first test
+
+
+def count_down(func):
+    """A loop counter that only counts (a header phi stepped by 1 or -1 at
+    the latch, used for nothing but the latch's exit test against an
+    invariant bound) becomes a count of the runs left, stepped down to
+    zero: c = trip count; ...; c = c - 1; if c != 0 go round. A target
+    with a decrement-and-branch (draft 2's DBNZ) makes that one
+    instruction."""
+    loops = natural_loops(DomTree(func))
+    changed = False
+    for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
+        latches = [b for b in h.preds if b in body]
+        if len(latches) != 1 or len(h.preds) != 2:
+            continue
+        latch = latches[0]
+        t = latch.terminator
+        if t.op != "br" or h not in t.targets or t.targets[0] is t.targets[1]:
+            continue
+        users = func.users()
+        cmp = t.args[0]
+        if not (isinstance(cmp, Instr) and cmp.op in CMPOPS and users.get(cmp) == [t]):
+            continue
+        op = cmp.op if t.targets[0] is h else CMP_NEG[cmp.op]   # goes round while op
+        nxt, bound = cmp.args
+        if not (isinstance(nxt, Instr) and nxt.op == "add"):
+            bound, nxt, op = nxt, bound, CMP_SWAP[op]
+        if not (isinstance(nxt, Instr) and nxt.op == "add" and nxt.block in body
+                and isinstance(nxt.args[1], Const) and nxt.args[1].signed in (1, -1)):
+            continue
+        p = nxt.args[0]
+        if not (isinstance(p, Instr) and p.op == "phi" and p.block is h
+                and users.get(p) == [nxt] and len(users.get(nxt, ())) == 2
+                and set(users[nxt]) == {p, cmp}):
+            continue
+        inside = {i for b in body for i in b.instrs}
+        if isinstance(bound, Instr) and bound in inside:
+            continue
+        pre = make_preheader(func, h, body)
+        if pre is None or p.args[p.incoming.index(latch)] is not nxt:
+            continue
+        init = p.args[p.incoming.index(pre)]
+        n = trip_count(op, nxt.args[1].signed, init, bound)
+        if n is None:
+            continue
+        if isinstance(n, tuple):
+            n = Instr(n[0], [n[1], n[2]])
+            pre.insert(len(pre.instrs) - 1, n)
+        else:
+            n = Const(n)
+        c = Instr("phi", [], incoming=[])
+        h.insert(0, c)
+        cn = Instr("add", [c, Const(-1)])
+        test = Instr("ne", [cn, Const(0)])
+        latch.insert(len(latch.instrs) - 1, cn)
+        latch.insert(len(latch.instrs) - 1, test)
+        c.args, c.incoming = [n, cn], [pre, latch]
+        t.args = [test]
+        t.targets = [h, t.targets[1] if t.targets[0] is h else t.targets[0]]
+        changed = True
+    if changed:
+        dce(func)
+    return changed
+
+
+# --------------------------------------------------------------------------
+# Reassociation of loop invariants
+
+
+def _address_use(u, v):
+    return (u.op == "load" and u.args[0] is v) or (u.op == "store" and u.args[1] is v
+                                                   and u.args[0] is not v)
+
+
+def reassociate(func):
+    """(x + inv) + c in a loop, with inv invariant and x not, becomes
+    x + (inv + c), and inv + c moves before the loop: the simplifier keeps
+    constants outermost, where an address's displacement takes them for
+    free, but a value that isn't an address pays an ADD for the constant
+    on every iteration. Runs after the simplifier's last pass, which would
+    undo it."""
+    loops = natural_loops(DomTree(func))
+    changed = False
+    for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
+        inside = {i for b in body for i in b.instrs}
+        users = func.users()
+        found = []
+        for b in [b for b in func.blocks if b in body]:
+            for i in b.instrs:
+                if i.op != "add" or not isinstance(i.args[1], Const):
+                    continue
+                a = i.args[0]
+                if not (isinstance(a, Instr) and a.op == "add" and a in inside
+                        and users.get(a) == [i] and i.args.count(a) == 1):
+                    continue
+                us = users.get(i, ())
+                if not us or all(_address_use(u, i) for u in us):
+                    continue        # an addressing mode's displacement takes c for free
+                x, y = a.args
+                if isinstance(y, Instr) and y in inside:
+                    x, y = y, x
+                if not (isinstance(x, Instr) and x in inside) or isinstance(y, Instr) and y in inside \
+                        or isinstance(y, Const):
+                    continue
+                found.append((i, a, x, y))
+        if not found:
+            continue
+        pre = make_preheader(func, h, body)
+        if pre is None:
+            continue
+        for i, a, x, y in found:
+            c = i.args[1]
+            if isinstance(y, SymAddr):
+                k = SymAddr(y.name, y.offset + c.signed)
+            else:
+                k = Instr("add", [y, c])
+                pre.insert(len(pre.instrs) - 1, k)
+            i.args = [x, k]
+            i.signed = False
+            a.block.instrs.remove(a)
+            changed = True
+    return changed
+
+
+# --------------------------------------------------------------------------
 # Sinking
 
 
@@ -1125,49 +1360,125 @@ def sink(func):
 
 def hoist_constants(func, free_imm):
     """A constant that an instruction in a loop can't take as a cheap
-    immediate (free_imm(op, value) says, per target) is loaded into a
+    immediate (free_imm(op, value, instr) says, per target) is loaded into a
     register before the loop instead. Runs last: the simplifier would fold
     the copies away again."""
     loops = natural_loops(DomTree(func))
-    for h, body in sorted(loops.items(), key=lambda kv: len(kv[1])):
-        if any(i.op == "call" for b in body for i in b.instrs):
-            continue        # across a call the constant would need a callee-saved register
-        pre = make_preheader(func, h, body)
-        if pre is None:
-            continue
-        made = {}
+    live_in, live_out = live_values(func)
 
-        def reg_for(c):
-            key = (type(c).__name__, getattr(c, "value", None), getattr(c, "name", None),
-                   getattr(c, "offset", None))
-            if key not in made:
-                cp = Instr("copy", [c])
-                pre.insert(len(pre.instrs) - 1, cp)
-                made[key] = cp
-            return made[key]
-        # in block order: body is a set, and the order of the copies shapes
-        # the code (iterating the set would depend on memory addresses)
+    def wanted(body):
+        """(instruction, operand index, constant) for every constant in the
+        loop that should be in a register, in block order: body is a set,
+        and the order of the copies shapes the code (iterating the set
+        would depend on memory addresses)."""
+        out = []
         for b in [b for b in func.blocks if b in body]:
             for i in b.instrs:
                 op = i.op
                 if op == "store":
                     v = i.args[0]
                     if isinstance(v, SymAddr) or (isinstance(v, Const) and v.value):
-                        i.args[0] = reg_for(v)
+                        out.append((i, 0, v))
                 elif op in CMPOPS or op in BINOPS:
                     for k, v in enumerate(i.args):
                         if k == 1 and op in ("shl", "shr", "sar", "rotr") and isinstance(v, Const):
                             continue
                         if op in ("add", "sub"):
                             continue        # displacements and LEA take any constant
-                        if isinstance(v, (Const, SymAddr)) and not free_imm(op, v):
-                            i.args[k] = reg_for(v)
+                        if isinstance(v, (Const, SymAddr)) and not free_imm(op, v, i):
+                            out.append((i, k, v))
+        return out
+
+    def key(c):
+        return (type(c).__name__, getattr(c, "value", None), getattr(c, "name", None),
+                getattr(c, "offset", None))
+    # outer loops first: a constant goes before the outermost loop without
+    # a call, not into an inner loop's preheader where it would be loaded
+    # again on every turn of the loop around it; but a loop around other
+    # loops only takes them if it has registers to spare for them
+    for h, body in sorted(loops.items(), key=lambda kv: -len(kv[1])):
+        if any(i.op == "call" for b in body for i in b.instrs):
+            continue        # across a call the constant would need a callee-saved register
+        todo = wanted(body)
+        if not todo:
+            continue
+        inner = any(h2 is not h and h2 in body for h2 in loops)
+        if inner and max_live(body, live_out) + len({key(c) for _, _, c in todo}) > HOIST_REGS:
+            continue
+        pre = make_preheader(func, h, body)
+        if pre is None:
+            continue
+        made = {}
+        for i, k, c in todo:
+            if key(c) not in made:
+                cp = Instr("copy", [c])
+                pre.insert(len(pre.instrs) - 1, cp)
+                made[key(c)] = cp
+            i.args[k] = made[key(c)]
+
+
+# How many values a loop around other loops may keep in registers, with the
+# constants hoisted out of it: the 14 or 15 registers, less a few for the
+# temporaries that instruction selection adds.
+HOIST_REGS = 11
+
+
+def live_values(func):
+    """IR liveness: (live_in, live_out), sets of values (instructions and
+    parameters) per block. A phi's operand is used at the end of the
+    predecessor it comes from."""
+    func.compute_preds()
+    use, defs = {}, {}
+    for b in func.blocks:
+        u, d = set(), set()
+        for i in b.instrs:
+            if i.op != "phi":
+                for a in i.args:
+                    if isinstance(a, (Instr, Param)) and a not in d:
+                        u.add(a)
+            if i.has_value:
+                d.add(i)
+        use[b], defs[b] = u, d
+    phi_uses = {b: set() for b in func.blocks}
+    for b in func.blocks:
+        for p in b.phis():
+            for v, blk in zip(p.args, p.incoming):
+                if isinstance(v, (Instr, Param)) and blk in phi_uses:
+                    phi_uses[blk].add(v)
+    live_in = {b: set() for b in func.blocks}
+    live_out = {b: set() for b in func.blocks}
+    changed = True
+    while changed:
+        changed = False
+        for b in reversed(func.blocks):
+            out = set(phi_uses[b])
+            for s in b.succs:
+                out |= live_in[s] - set(s.phis())
+            inn = use[b] | (out - defs[b])
+            if out != live_out[b] or inn != live_in[b]:
+                live_out[b], live_in[b] = out, inn
+                changed = True
+    return live_in, live_out
+
+
+def max_live(blocks, live_out):
+    """The most values live at once anywhere in blocks."""
+    most = 0
+    for b in blocks:
+        live = set(live_out[b])
+        most = max(most, len(live))
+        for i in reversed(b.instrs):
+            live.discard(i)
+            if i.op != "phi":
+                live |= {a for a in i.args if isinstance(a, (Instr, Param))}
+            most = max(most, len(live))
+    return most
 
 
 # --------------------------------------------------------------------------
 
 
-def optimize(func, level=1, verify=False, free_imm=None):
+def optimize(func, level=1, verify=False, free_imm=None, countdown=False):
     from .cfg import verify as check
     cleanup_cfg(func)
     mem2reg(func)
@@ -1175,11 +1486,11 @@ def optimize(func, level=1, verify=False, free_imm=None):
         check(func)
     if level <= 0:
         return
-    loop_passes = [licm, strength_reduce, None]
+    loop_passes = [licm, strength_reduce] + ([count_down] if countdown else []) + [None]
     for loop_pass in loop_passes:
         for _ in range(20):
             changed = False
-            for p in (simplify, gvn, load_cse, simplify, dce, cleanup_cfg):
+            for p in (simplify, gvn, load_cse, simplify, dce, thread_branches, cleanup_cfg):
                 changed |= bool(p(func))
                 if verify:
                     check(func)
@@ -1189,6 +1500,10 @@ def optimize(func, level=1, verify=False, free_imm=None):
             loop_pass(func)
             if verify:
                 check(func)
+    if reassociate(func):
+        licm(func)          # inv + c may be invariant in the loops around too
+        if verify:
+            check(func)
     if free_imm is not None:
         hoist_constants(func, free_imm)
         cleanup_cfg(func)

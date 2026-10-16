@@ -449,7 +449,7 @@ impl Linker {
                             .copy_from_slice(&data);
                     }
                     Err(e) => {
-                        let pc_rel = r.kind == obj::PC16 || r.kind == obj::PC16H;
+                        let pc_rel = obj::pc_relative(r.kind);
                         let what = if r.addend != 0 && !pc_rel {
                             format!("{}{:+}", sym.name, r.addend)
                         } else {

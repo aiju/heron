@@ -1,7 +1,7 @@
 """Egret: the language on the host build of the VM, every program against
 its expected output on the host, and a few on the simulated machine with
 each build of the VM (the hand-written interpreter loop, the C loop and
-the JIT)."""
+the JIT), on draft 1b and on draft 2."""
 
 import unittest
 
@@ -100,14 +100,20 @@ class OnTheMachine(unittest.TestCase):
     blocks and non-local return, shapes for polymorphic sends"""
     PROGRAMS = ["hello", "fib", "closures", "shapes"]
 
-    def test_variants(self):
+    def check(self, isa):
         for variant in build.VARIANTS:
             for name in self.PROGRAMS:
                 prog = catalogue.program(name)
-                with self.subTest(variant=variant, program=name):
-                    out, m = build.run_heron(prog.source, prog.input, variant=variant)
+                with self.subTest(isa=isa, variant=variant, program=name):
+                    out, m = build.run_heron(prog.source, prog.input, isa=isa, variant=variant)
                     self.assertTrue(m.halted)
                     self.assertEqual(out, prog.expected())
+
+    def test_variants(self):
+        self.check("v1b")
+
+    def test_draft_2(self):
+        self.check("v2")
 
 
 if __name__ == "__main__":

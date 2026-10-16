@@ -1,4 +1,4 @@
-//! Draft 1a's decoder: 32-bit, 16-bit parcels, load/store (isa-v1a.md and
+//! Draft 1a's decoder: 32-bit, 16-bit parcels, load/store (RFC 0004, Part I, and
 //! studies/v1_isa/v1a.py).
 
 use crate::insn::{self, Access, Insn, Res, sext8, sext16};

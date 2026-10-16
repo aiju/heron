@@ -24,9 +24,12 @@ microcode, and on `v1_isa` for the programs and the instruction-level
 simulator, which runs the same system as a model to check the hardware
 against.
 
+The design is described in
+[report 0025](../../reports/0025-report-draft-1b-system.md), Part I: the
+memory map, the bus as built, each card, the variable-length cycles.
+
 | File | What's in it |
 |---|---|
-| [design.md](design.md) | The design: memory map, the bus as built, each card, the variable-length cycles, timing, findings |
 | `bus.py` | The bus's signals, where a card's pins go in each slot, and the composer that puts cards into slots |
 | `backplane.py`, `cpucard.py`, `memcard.py`, `iocard.py` | The netlists |
 | `lengths.py` | The length classes: what each microinstruction needs (static timing analysis), and the classes and jumpers |

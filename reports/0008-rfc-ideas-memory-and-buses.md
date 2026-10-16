@@ -79,7 +79,7 @@ Emily's idea. **open**, until the card size is settled.
   P2. For example, 4 full columns and 4 half columns give 12 slots in
   8 columns.
 - Half cards are exactly the simple cards, and fast 16-bit cards: 16 bits
-  wide, IRQ0–IRQ3 only.
+  wide, IRQ1–IRQ4 only.
 - Eurocards fit it: 6U is two 3U heights plus a gap for a middle rail.
   The rail also keeps full cards out of half columns, so a P2 never meets
   a lower P1.

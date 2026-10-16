@@ -1,6 +1,6 @@
 """The CPU card: the draft 1b CPU (studies/v1b_hw, its card mode) on the
 system bus, with its own 50 MHz clock generator and variable-length
-cycles. See design.md for the design and its timing.
+cycles. See report 0025, Part I, for the design and its timing.
 
 Three clock domains, all from one 50 MHz oscillator (MCLK):
   - the clock generator, on MCLK: a cycle is a whole number of 20 ns

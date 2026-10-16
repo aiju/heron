@@ -5,6 +5,7 @@ v1_isa study).
 
     heron c_compiler bench            print the tables
     heron c_compiler bench --write    also write the generated part of report 0011
+    heron c_compiler bench --isa v2   draft 2 against 1b (bench_v2.py)
 """
 
 import bisect
@@ -20,7 +21,6 @@ from .cc import driver
 
 CDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "programs")
 DOC = os.path.join(ROOT, "reports", "0011-report-c-compiler", "performance.md")
-CONFIGS = ["D16-overlap", "D32-overlap", "D32-wide"]
 
 
 def functions(img):
@@ -76,9 +76,17 @@ def code_sizes(img, lib_names, own_names):
     return own, lib
 
 
+def asm_path(name, isa):
+    """The hand-written version of a program."""
+    if isa == "v2":
+        from heron.studies.v2_isa import testing as testing_v2
+        return os.path.join(testing_v2.PROGRAMS, name + ".s")
+    return os.path.join(testing.program_dir(isa), name + ".s")
+
+
 def run_c(path, isa):
     name = os.path.basename(path)[:-2]
-    asm = os.path.join(testing.program_dir(isa), name + ".s")
+    asm = asm_path(name, isa)
     meta = testing.metadata(asm) if os.path.exists(asm) else {"input": b""}
     prog = driver.Program(isa)
     text, img, _ = driver.build([path], isa, program=prog)
@@ -88,7 +96,7 @@ def run_c(path, isa):
     ok = m.error is None and not m.traps and out == exp
     res = {"ok": ok, "instructions": m.instructions, "cycles": m.all_cycles(), "image": img,
            "lib": prog.lib_functions}
-    res["split"] = {c: split_cycles(m, img, prog.lib_functions, c) for c in CONFIGS}
+    res["split"] = {c: split_cycles(m, img, prog.lib_functions, c) for c in res["cycles"]}
     res["kinds"] = kinds(m, img, isa, lambda n: not (n.startswith("_") and n[1:] in prog.lib_functions)
                          and not n.startswith("__"))
     own_names = {f.name for u in prog.units if not getattr(u, "library", False)
@@ -98,10 +106,14 @@ def run_c(path, isa):
 
 
 def run_asm(name, isa):
-    path = os.path.join(testing.program_dir(isa), name + ".s")
+    path = asm_path(name, isa)
     if not os.path.exists(path):
         return None
-    r = testing.run_program(path, isa)
+    if isa == "v2":
+        from heron.studies.v2_isa import testing as testing_v2
+        r = testing_v2.run_program(path)
+    else:
+        r = testing.run_program(path, isa)
     m = r.get("machine")
     if not r["ok"]:
         return None
@@ -114,12 +126,12 @@ def geomean(xs):
     return math.exp(sum(math.log(x) for x in xs) / len(xs)) if xs else float("nan")
 
 
-def collect():
+def collect(isas=("v1a", "v1b")):
     rows = []
     for path in sorted(glob.glob(os.path.join(CDIR, "*.c"))):
         name = os.path.basename(path)[:-2]
         row = {"name": name}
-        for isa in ("v1a", "v1b"):
+        for isa in isas:
             row["c_" + isa] = run_c(path, isa)
             row["asm_" + isa] = run_asm(name, isa)
         rows.append(row)
@@ -280,6 +292,9 @@ way one would write it in C rather than tuned for this compiler.
 
 
 def main(argv):
+    if "--isa" in argv:
+        from . import bench_v2
+        return bench_v2.main(argv)
     rows = collect()
     text = report(rows)
     print(text)

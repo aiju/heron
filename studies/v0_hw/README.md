@@ -20,25 +20,26 @@ results. The draft 1 reports compare against draft 0 through
 It depends on the `v1_isa` study only for the program suite's expected
 output (`studies/v1_isa/programs/expected/`).
 
+The instruction set and the hardware are specified in
+[RFC 0001](../../reports/0001-rfc-draft-0.md), Parts I and II.
+
 | File | What's in it |
 |---|---|
-| [isa.md](isa.md) | ISA draft 0: encoding, instructions, conventions, assembler syntax |
-| [hardware.md](hardware.md) | The 98-chip implementation: datapath, microcode, timing, known issues |
 | [microcode.md](microcode.md) | Generated: the microcode, cycle by cycle |
 | `isa.py`, `sim.py` | The ISA (encoder, disassembler, semantics) and the instruction-level simulator |
 | `microcode.py`, `cpu.py`, `machine.py` | The microcode, the chip-level netlist, and the machine the hardware tools run |
 | `programs/` | The 16 test programs and their library |
 | `baseline.json` | Draft 0's results, for the later drafts' reports |
 
-Reports: [0001](../../reports/0001-report-draft-0-evaluation.md) (the
-evaluation, with the generated performance tables) and
-[0002](../../reports/0002-report-draft-0-programming-notes.md) (writing the
-programs).
+Documents: [RFC 0001](../../reports/0001-rfc-draft-0.md) (the
+specification and the evaluation, with the generated performance tables)
+and [report 0002](../../reports/0002-report-draft-0-programming-notes.md)
+(writing the programs).
 
 ```sh
 heron v0_hw run studies/v0_hw/programs/mandel.s --stats   # assemble and run, with an instruction mix
 heron v0_hw test                                          # every program against its expected output
 heron v0_hw hw run studies/v0_hw/programs/fib.s --period 500   # on the chip-level simulator at 2 MHz
 heron v0_hw hw sta                                        # static timing analysis
-heron v0_hw report --hw                                   # report 0001's generated tables (a few minutes)
+heron v0_hw report --hw                                   # RFC 0001's generated tables (a few minutes)
 ```

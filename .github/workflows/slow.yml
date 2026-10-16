@@ -23,6 +23,7 @@ jobs:
       - run: python3 -m heron test --active
       - run: python3 -m heron v1_isa test
       - run: python3 -m heron v1_isa --isa v1a test
+      - run: python3 -m heron v2_isa test
       - run: python3 -m heron c_compiler bench
       - run: python3 -m heron egret test --heron
       - run: python3 -m heron v1b_hw hw test --period 334

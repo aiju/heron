@@ -50,6 +50,20 @@ the C library (arith, bignum, hello, strings), which mostly measure printf.
 - printf costs about 3× the assembly programs' own print routines; it
   parses the format string at run time and handles every option.
 
+> **Erratum (2026-10-16).** The tables in
+> [performance.md](0011-report-c-compiler/performance.md) are rerun with
+> the compiler after [report 0034](0034-report-c-compiler-optimisations.md)'s
+> optimisations (shrink-wrapping, inlining and some loop optimisations),
+> so this report's numbers, from `e494b0c`, no longer match them.
+> Compiled C now takes 1.11× the hand-written programs' cycles in their
+> own code on both 1a and 1b (0.9–1.5× each), and 1.68× and 1.74× over
+> whole programs. fib and bst no longer save registers on the calls that
+> return at once, and wordfreq inlines its comparison. 1a against 1b
+> doesn't change: without sieve, compiled C on 1b takes 0.949× its 1a
+> cycles, against 0.950× before; with sieve the mean below moves from
+> 0.943 to 0.957, because sieve's time in `memset` depends on where the
+> linker puts its array, and its 1a build now gets a good place.
+
 ## 1a against 1b for compiled code
 
 | | asm: 1b / 1a | C: 1b / 1a |
@@ -60,9 +74,9 @@ the C library (arith, bignum, hello, strings), which mostly measure printf.
 
 The asm column covers the 15 programs that have C versions, so it differs a
 little from the means over all 20 programs in
-[evaluation-v1.md](0004-report-draft-1-evaluation.md) (0.919, 0.932 and 0.915).
+[RFC 0004](0004-rfc-draft-1-isa.md) (0.919, 0.932 and 0.915).
 
-The [draft 1 evaluation](0004-report-draft-1-evaluation.md) expected compiled code to favour
+The [draft 1 evaluation](0004-rfc-draft-1-isa.md) expected compiled code to favour
 1b more than hand-written code, through stack frames and memory operands.
 It's the other way round here:
 
@@ -93,7 +107,7 @@ gets from 1b.
 > 0.978 of 1a's cycles, with seven programs slower on 1b, and it stayed
 > when the numbers were corrected. With them, the support for 1a is much
 > weaker. The evaluation's recommendation of 1a is withdrawn
-> ([report 0004](0004-report-draft-1-evaluation.md)), and draft 2 builds
+> ([RFC 0004](0004-rfc-draft-1-isa.md)), and draft 2 builds
 > on 1b. The finding stands: auto-increment is most of what compiled code
 > gains from 1b.
 

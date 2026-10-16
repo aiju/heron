@@ -1,5 +1,5 @@
 //! Decoded instructions and what they do: the semantics drafts 1a and 1b
-//! share (studies/v1_isa/v1common.py and isa-v1.md).
+//! share (studies/v1_isa/v1common.py and RFC 0004).
 //!
 //! A decoder turns the parcels at an address into an [`Insn`] once; the
 //! machine executes it each time it comes round, which returns the timing

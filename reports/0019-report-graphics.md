@@ -68,13 +68,34 @@ The generated tables are in [performance.md](0019-report-graphics/performance.md
      bit-aligned copy word drops from 26.5 to 13.5 cycles. A barrel
      shifter alone saves 4.4% overall, and 25–34% of bit-aligned copies
      at 1 bit.
-  3. **Auto-increment for 1a**, as [report 0004](0004-report-draft-1-evaluation.md#recommendations-for-draft-2)
+  3. **Auto-increment for 1a**, as [RFC 0004](0004-rfc-draft-1-isa.md#35-recommendations-for-draft-2)
      recommends: it is most of 1b's lead here too.
   4. **A merge under a mask** (`d = (d & ~m) | (c & m)`), the core of
      every masked edge and glyph word: 20% off the glyph loop.
 - **The hardware matters more than either.** A 32-bit bus with the
   prefetch buffer (D32-wide) takes 0.67 of the reference's cycles; the
   draft 1b hardware's configuration (D32-separate) takes 1.03.
+
+> **Erratum (2026-10-16).** The C compiler's optimisations
+> ([report 0034](0034-report-c-compiler-optimisations.md)) change the
+> compiled C around the kernels, and performance.md is rerun; the
+> screenshots don't change. Most figures in this text move by less than
+> 4%. The larger ones: an outlined ellipse takes 33 and 35 ms at 1 and 8
+> bits (was 37 and 39), a star 42 and 45 ms (44 and 47), rasterising a
+> TrueType glyph 12, 17 and 29 ms plain and 23, 38 and 73 ms anti-aliased
+> at 12, 24 and 48 px (13, 18, 30 and 24, 40, 76), a bitmap character
+> 1,014–1,158 cycles (1,049–1,195), cached TrueType text at 12 px
+> 1,122–2,913 (1,185–2,960), a terminal page 0.65–0.84 s
+> (0.67–0.87), moving a window 110–157 ms (116–163), raising one 76–90 ms
+> (82–98) and a full repaint 404–723 ms (423–739). **1a against 1b
+> moves for compiled C:** with the C kernels, 1b now takes 0.950 of 1a's
+> cycles (performance.md's mean, was 0.970), against 0.955 with the
+> assembly kernels (0.953), so compiled C no longer gains less from 1b
+> here. The fill and line loops count down (`n--`) and test `n > 0`; on
+> 1b the compiler now takes that from the flags of an `ADD r, #-1`,
+> whose V can't be set by C's signed arithmetic, instead of a `DEC` and
+> a `CMP`, and 1b's fills are 15–18% faster. 1a's one-parcel `ADDI` leaves
+> V alone, so its compare stays.
 
 ## What was built
 
@@ -249,7 +270,7 @@ Cycles, 1b / 1a (D16-overlap), geometric means:
 [performance.md](0019-report-graphics/performance.md#1a-against-1b) has
 them by scene and depth, and by phase.)
 The gap is smaller than for the draft 1 programs (1b 7–10% faster,
-[report 0004](0004-report-draft-1-evaluation.md)), because most of the
+[RFC 0004](0004-rfc-draft-1-isa.md)), because most of the
 work here is either in kernels where 1b's modes help only a little, or
 in compiled C, which gains less from 1b ([report 0011](0011-report-c-compiler.md)).
 
@@ -307,7 +328,7 @@ kernels (D16-overlap), from [performance.md](0019-report-graphics/performance.md
 
 **Shifts.** The model charges a shift by n one step per 16, per 8 and per
 remaining bit; the draft 1b hardware is similar (2–11 cycles for a shift
-by a constant, [hardware.md](../studies/v1b_hw/hardware.md)). Graphics
+by a constant, [report 0012](0012-report-draft-1b-hardware.md#4-datapath)). Graphics
 shifts a lot:
 
 - a copy that isn't word-aligned puts each word together from two
@@ -415,7 +436,7 @@ this. It would help `memcpy` and context switches as much.
 ### Auto-increment for 1a
 
 1b's lead in copies is auto-increment
-([report 0004](0004-report-draft-1-evaluation.md#what-if-1a-had-auto-increment)
+([RFC 0004](0004-rfc-draft-1-isa.md#311-what-if-1a-had-auto-increment)
 estimated it for the draft 1 programs). Here it is worth 30% on a copy
 along its rows (`-[r]`, backwards) and 14–16% on scrolling. 1a with `[r]+` and `-[r]` for words
 and bytes would close most of the gap to 1b in these kernels.

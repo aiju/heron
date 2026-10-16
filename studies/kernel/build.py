@@ -3,7 +3,7 @@ run them on.
 
 The nucleus (nucleus/nucleus.s) comes in variants, chosen by features:
 exactly one of the register-bank policies `none`, `half` and `full`
-(system.md), and optionally `softtlb` (the map as a cache of page tables
+(report 0020's appendix), and optionally `softtlb` (the map as a cache of page tables
 in memory). Its source has feature blocks:
 
     .if NAME            ; kept when feature NAME is on (also !NAME, A|B)

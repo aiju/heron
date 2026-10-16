@@ -26,9 +26,10 @@ class V1A(Target):
     IMM_OPS = ("ADD", "SUB", "CMP", "AND", "OR", "XOR", "BIC", "TST", "MULU", "MULS",
                "DIVU", "DIVS", "ADC", "SBC")
     SMALL_ADD = (-128, 127)
+    STEP_DISP = 16          # [r + d16]
 
     @staticmethod
-    def free_imm(op, c):
+    def free_imm(op, c, i=None):
         """Can instruction op take constant c without costing more than a
         register operand would? (MVI, ADDI and CMPI take 8 bits; the rest
         need an extension parcel.)"""
@@ -78,6 +79,7 @@ class V1A(Target):
 
     def encode(self, p, long_ok=True):
         """One 1a memory operand: [r + disp], [label + disp], [label + r]."""
+        p = self.stepped(p)
         disp = p.disp
         frame = Frame("local", p.slot) if p.slot is not None else None
         terms = list(p.terms)
@@ -187,7 +189,7 @@ class V1A(Target):
                 return
             e = self.imm_or_reg(b)
             self.emit(ALU[op], [d, e], defs=[d], uses=[d] + ([] if isinstance(e, Imm) else [e]),
-                      flags="nz")
+                      flags="nz", nsw=op in ("add", "sub") and i.signed)
             return
         if op in SHIFT:
             self.move_into(d, a)

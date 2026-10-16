@@ -1,5 +1,6 @@
-/* A compiler from Egret's bytecode to draft 1b machine code, running on
-   the machine: each method is compiled the first time it runs.
+/* A compiler from Egret's bytecode to draft 1b or draft 2 machine code
+   (__V2__, which the C compiler defines for draft 2), running on the
+   machine: each method is compiled the first time it runs.
 
    The native code keeps the interpreter's frames and value stack (as V8's
    Sparkplug does), so at every bytecode boundary the state is the
@@ -15,17 +16,22 @@
    last seen there and a call, patched by jit_send_miss.
 
    Registers as in the assembly interpreter (interp_v1b.s): r9 bp, r10 the
-   value stack's next free slot, r11 the frame, r12 the literals, r14 nil;
+   value stack's next free slot, r11 the frame, r12 the literals, r14 nil
+   (on draft 2, interp_v2.s, the frame is r14 and nil r11: FP and NILR);
    r8 is set only when the bytecode's address is needed. A call passes the
    new frame's bp in r4 and the caller's bytecode address to go on at in
    r8; the callee's prologue pops the return address into the caller's
-   frame (Frame.nip), so a return is JMP [r11 + nip]. */
+   frame (Frame.nip), so a return is JMP [fp + nip].
+
+   On draft 2 a call leaves the return address in r7: the prologue stores
+   it, stubs that call C keep it on the stack meanwhile, and the bytecode a
+   send through the method cache passes (gsend) is in r5. */
 
 #ifdef EGRET_JIT
 
 #include "compiler.h"
 
-/* the assembly side (jit_v1b.s) */
+/* the assembly side (jit_v1b.s, jit_v2.s) */
 extern char jit_glue_slow[], jit_glue_send_miss[], jit_glue_prim_failed[], jit_glue_gsend_miss[],
     jit_glue_redo[];
 extern Value mcache_cls[], mcache_sel[], mcache_method[];
@@ -68,10 +74,43 @@ static Value end_code(void)
 }
 static Value here(void) { return code_base + 2 * ncode; }
 
-enum { MOV = 1, ST, LEA, ADD, SUB, CMP, AND, OR, XOR, JEA = 0xB };
 enum { EQ, NE, HS, LO, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE, RA, LINK };
 enum { R0, R1, R2, R3, R4, R5, R6, R7, R8, R9, R10, R11, R12, R13, R14, SP };
+#ifdef __V2__
+/* Draft 2: a parcel is an opcode byte (its low byte) and a register byte
+   (rd or a mode in bits 15-12, rs or the mode's register in 11-8). The
+   two-operand operations are rows of the map, with the mode as the
+   column; so is LEA, in row 0 (its modes 3-5, E and the special mode),
+   and JMP and CALL take the mode from the register byte. */
+enum { MOV = 0x10, ST = 0x20, MOVS = 0x30, ADD = 0x40, SUB = 0x50, CMP = 0x60, AND = 0x80,
+       OR = 0x90, XOR = 0xA0, LEA = 0x100, JEA = 0x200 };
+#define SEND_IP R5                          /* the bytecode, for gsend: r7 is the link */
+#define FP R14                              /* the frame record: mode E reaches its fields */
+#define NILR R11
+static void opw_other(int op, int d, int m, int r)
+{
+    if (op == LEA) {
+        if (m == 2)                         /* LEA rd, [R] is MOV rd, R */
+            put(MOV | d << 12 | r << 8);
+        else
+            put(m | d << 12 | r << 8);
+    } else
+        put((0xF0 | d) | m << 12 | r << 8); /* JEA; d: 0 JMP, 1 CALL */
+}
+/* a macro for the rows, as put is (the C compiler doesn't inline) */
+#define OPW(op, d, m, r) do { if ((op) < LEA) put((op) | (m) | (d) << 12 | (r) << 8); \
+                              else opw_other(op, d, m, r); } while (0)
+/* a short branch: cc and the 8-bit offset in parcels from the next */
+#define BCC(c, d) put(0xB0 | (c) | ((d) & 0xFF) << 8)
+#else
+enum { MOV = 1, ST, LEA, ADD, SUB, CMP, AND, OR, XOR, JEA = 0xB };
+#define MOVS MOV                            /* a MOV that sets N and Z: every MOV on 1b */
+#define SEND_IP R7                          /* the bytecode, for gsend */
+#define FP R11                              /* the frame record */
+#define NILR R14
 #define OPW(op, d, m, r) put((op) << 12 | (d) << 8 | (m) << 4 | (r))
+#define BCC(c, d) put(0xE000 | c << 8 | (d & 0xFF))
+#endif
 
 static void ea_r(int op, int d, int r) { OPW(op, d, 0, r); }
 
@@ -79,6 +118,10 @@ static void ea_k(int op, int d, SValue v)
 {
     if (v >= 0 && v <= 15)
         OPW(op, d, 1, v);
+#ifdef __V2__
+    else if ((op == MOV || op == CMP) && v >= 16 && v <= 127)
+        put((op == MOV ? 0x70 : 0x78) | (v & 7) | d << 12 | (v >> 3) << 8);
+#endif
     else if (v >= -16 && v < 0)
         OPW(op, d, 0xD, -v - 1);
     else if (v >= -32768 && v <= 32767) {
@@ -114,6 +157,10 @@ static void ea_m(int op, int d, int base, SValue disp)
         OPW(op, d, 2, base);
     else if (base == SP && disp >= 0 && disp <= 60 && !(disp & 3))
         OPW(op, d, 4, disp >> 2);
+#ifdef __V2__
+    else if (base == R14 && disp >= 0 && disp <= 60 && !(disp & 3))
+        OPW(op, d, 0xE, disp >> 2);         /* [r14 + 4R], mode E */
+#endif
     else {
         OPW(op, d, 3, base);
         put(disp);
@@ -142,9 +189,33 @@ static void ea_idx(int op, int d, int base, int x, int slog, int d8)
     put(x << 12 | slog << 10 | 2 << 8 | (d8 & 0xFF));
 }
 
+enum { LSL, LSR, ASR, ROR };
+#ifdef __V2__
+enum { NOT, NEG, INC, DEC, RLC, RRC, SWAP, SXB, SXH, ZXB, ZXH, CLZ };
+static void un(int f, int d, int s) { put((0xD0 + f) | d << 12 | s << 8); }
+static void shk(int kind, int d, int n) { put((0xC0 + 4 * kind + (n & 1)) | d << 12 | (n >> 1) << 8); }
+static void shr(int kind, int d, int s) { put((0xC2 + 4 * kind) | d << 12 | s << 8); }
+enum { ADC, SBC, BIC, TST, MULU, MULS, MULA, DIVU, DIVS, DIVUL };
+static void rr(int f, int d, int s) { put((0xE0 + f) | d << 12 | s << 8); }
+static void ret(void) { put(0xF0 | R7 << 8); }      /* JMP r7 */
+static void jmp_r(int s) { put(0xF0 | s << 8); }
+static void call_r(int s) { put(0xF1 | s << 8); }
+static void mfhi(int d) { put(MOV | d << 12 | R0 << 8); }   /* HI is r0 */
+/* CLR [base + disp] */
+static void clr_m(int base, SValue disp)
+{
+    if (base == R14 && disp >= 0 && disp <= 60 && !(disp & 3)) {
+        put(0x20 | 0xE << 12 | (disp >> 2) << 8);
+        return;
+    }
+    put(0x20 | 3 << 12 | base << 8);
+    put(disp);
+}
+#define JCC_REL(c) put(0xF2 | (c) << 12)   /* Jcc with a 16-bit displacement */
+#define JCC_ABS(c) put(0xF3 | (c) << 12)   /* Jcc to a 32-bit address */
+#else
 enum { NOT, NEG, INC, DEC, RLC, RRC, SWAP, SXB, ZXB, SXH, ZXH, CLZ };
 static void un(int f, int d, int s) { put(0xC000 | d << 8 | s << 4 | f); }
-enum { LSL, LSR, ASR, ROR };
 static void shk(int kind, int d, int n) { put(0xD000 | d << 8 | (n & 15) << 4 | (n >= 16) << 2 | kind); }
 static void shr(int kind, int d, int s) { put(0xD000 | d << 8 | s << 4 | 2 << 2 | kind); }
 enum { ADC, SBC, BIC, TST, MULU, MULS, DIVU, DIVS, DIVUL };
@@ -153,6 +224,9 @@ static void ret(void) { put(0x0004); }
 static void jmp_r(int s) { put(0x0002 | s << 4); }
 static void call_r(int s) { put(0x0003 | s << 4); }
 static void mfhi(int d) { put(0x000A | d << 8 | 1 << 4); }
+#define JCC_REL(c) put(0xA000 | c << 8)
+#define JCC_ABS(c) put(0xA000 | c << 8 | 0x10)
+#endif
 static void push(int r) { ea_pd(ST, r, SP); }
 static void pop(int r) { ea_pi(MOV, r, SP); }
 
@@ -160,7 +234,7 @@ static void pop(int r) { ea_pi(MOV, r, SP); }
    absolute address */
 static unsigned jcc_fwd(int c)
 {
-    put(0xA000 | c << 8);
+    JCC_REL(c);
     put(0);
     return ncode - 1;
 }
@@ -171,10 +245,10 @@ static void jcc_to(int c, Value target)
        next parcel), else a Jcc with 16 */
     SValue d = ((SValue)target - (SValue)(here() + 2)) / 2;
     if (d >= -128 && d <= 127 && c != LINK) {
-        put(0xE000 | c << 8 | (d & 0xFF));
+        BCC(c, d);
         return;
     }
-    put(0xA000 | c << 8);
+    JCC_REL(c);
     put(((SValue)target - (SValue)(here() + 2)) / 2);
 }
 
@@ -186,7 +260,7 @@ static void patch_fwd(unsigned at, Value target)
 static Value jcc_abs(int c, Value target)
 {
     Value at;
-    put(0xA000 | c << 8 | 0x10);
+    JCC_ABS(c);
     at = here();
     put(target);
     put(target >> 16);
@@ -321,7 +395,8 @@ static void emit_stubs(void)
             break;
         case SK_SEND: {
             /* the operands back on the stack, the selector in r6 and the
-               bytecode in r7, for a send through the method cache (gsend) */
+               bytecode in r7 (r5 on draft 2: SEND_IP), for a send through
+               the method cache (gsend) */
             unsigned char *p = BP(s->ip);
             s->back = ncode;
             if (s->adjust)
@@ -331,7 +406,7 @@ static void emit_stubs(void)
                 ea_pi(ST, R1, R10);
             }
             ea_k(MOV, R6, egret_special[p[0]]);
-            ea_k32(MOV, R7, s->ip);
+            ea_k32(MOV, SEND_IP, s->ip);
             jcc_abs(LINK, gsend(p[0] == OP_AT_PUT ? 2 : 1) - OP_ENTRY);
             branch_to(RA, p + 1 - bc_start);
             break;
@@ -347,13 +422,13 @@ static void emit_stubs(void)
             break;
         case SK_OVER2:
             /* the value stack is too deep: the frame was pushed */
-            ea_m(MOV, R9, R11, 4 - (SValue)sizeof(Frame));
+            ea_m(MOV, R9, FP, 4 - (SValue)sizeof(Frame));
             /* fall through */
         case SK_OVER: {
             /* the frame stack is too deep: undo, put back a new's class,
                and let C make the send again (and raise) */
             unsigned plain;
-            ea_m(LEA, R11, R11, -(SValue)sizeof(Frame));
+            ea_m(LEA, FP, FP, -(SValue)sizeof(Frame));
             ea_k(CMP, R5, FR_CONSTRUCT);
             plain = jcc_fwd(NE);
             ea_m(MOV, R1, R4, 0);
@@ -587,7 +662,7 @@ static int fused(unsigned char *p)
         /* x == constant: a SmallInt or nil, true or false is equal only to itself */
         ea_pd(MOV, R1, R10);
         if (p[0] == OP_PUSH_NIL)
-            ea_r(CMP, R1, R14);
+            ea_r(CMP, R1, NILR);
         else
             ea_k(CMP, R1, const_of(p));
         deferred[q - bc_start] = 1;
@@ -626,7 +701,7 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
     unsigned next = off + len;
     switch (op) {
     case OP_PUSH_NIL:
-        ea_pi(ST, R14, R10);
+        ea_pi(ST, NILR, R10);
         break;
     case OP_PUSH_TRUE:
     case OP_PUSH_FALSE:
@@ -708,7 +783,7 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
         ea_m(ST, R2, R1, FLD(p[1]));
         break;
     case OP_PUSH_GLOBAL:
-        ea_abs(MOV, R1, lit_of(lits, p));
+        ea_abs(MOVS, R1, lit_of(lits, p));
         to_slow(EQ, ip, 0);
         ea_pi(ST, R1, R10);
         break;
@@ -788,7 +863,11 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
             patch_fwd(skip, here());
             ea_r(MOV, R1, R3);
         }
+#ifdef __V2__
+        ea_idx(LEA, R1, R1, R1, 0, 1);      /* 2x + 1: r0 isn't 0 on draft 2 */
+#else
         ea_idx(LEA, R1, R0, R1, 1, 1);
+#endif
         ea_pi(ST, R1, R10);
         break;
     }
@@ -899,7 +978,7 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
     case OP_NOT:
         ea_pd(MOV, R1, R10);
         ea_k(OR, R1, 8);
-        ea_r(CMP, R1, R14);
+        ea_r(CMP, R1, NILR);
         push_bool(NE);
         break;
 
@@ -910,14 +989,14 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
     case OP_JUMP_TRUE:
         ea_pd(MOV, R1, R10);
         ea_k(OR, R1, 8);
-        ea_r(CMP, R1, R14);
+        ea_r(CMP, R1, NILR);
         branch_to(op == OP_JUMP_FALSE ? EQ : NE, next + W16(p + 1));
         break;
     case OP_JUMP_FALSE_OR_POP:
     case OP_JUMP_TRUE_OR_POP:
         ea_m(MOV, R1, R10, -4);
         ea_k(OR, R1, 8);
-        ea_r(CMP, R1, R14);
+        ea_r(CMP, R1, NILR);
         branch_to(op == OP_JUMP_FALSE_OR_POP ? EQ : NE, next + W16(p + 1));
         ea_k(SUB, R10, 4);
         break;
@@ -978,7 +1057,7 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
         ea_m(LEA, R1, R10, -4);
         ea_abs(ST, R1, ADDR(&vm_sp));
         ea_r(MOV, R1, R9);
-        ea_r(MOV, R2, R11);
+        ea_r(MOV, R2, FP);
         ea_k32(MOV, R3, ip + 1);
         jcc_abs(LINK, V((char *)jit_closure));
         ea_pi(ST, R1, R10);
@@ -987,14 +1066,14 @@ static int template(Value m, Value *lits, unsigned char *start, unsigned char *p
     case OP_RETURN: {
         unsigned flags, retp;
         ea_pd(MOV, R1, R10);
-        ea_m(MOV, R2, R11, 16);         /* Frame.flags */
+        ea_m(MOVS, R2, FP, 16);        /* Frame.flags */
         flags = jcc_fwd(NE);
         retp = ncode;
         ea_m(ST, R1, R9, 0);
         ea_m(LEA, R10, R9, 4);
-        ea_m(LEA, R11, R11, -(SValue)sizeof(Frame));
-        ea_m(MOV, R9, R11, 4);
-        ea_m(JEA, 0, R11, 20);          /* JMP [r11 + nip] */
+        ea_m(LEA, FP, FP, -(SValue)sizeof(Frame));
+        ea_m(MOV, R9, FP, 4);
+        ea_m(JEA, 0, FP, 20);           /* JMP [fp + nip] */
         patch_fwd(flags, here());
         ea_k(CMP, R2, FR_CONSTRUCT);
         {
@@ -1026,26 +1105,34 @@ static void prologue(Value m)
     unsigned nl = F(m, M_NLOCALS), i;
     /* entry - 4: for new, the frame returns the receiver */
     ea_k(MOV, R5, FR_CONSTRUCT);
-    put(0xE000 | RA << 8 | 1);                  /* BRA over the next */
+    BCC(RA, 1);                                 /* BRA over the next */
     /* entry */
     ea_k(MOV, R5, 0);
+#ifdef __V2__
+    ea_m(ST, R7, FP, 20);                      /* Frame.nip: where the caller goes on */
+#else
     pop(R1);                                    /* where the caller goes on */
-    ea_m(ST, R1, R11, 20);                      /* Frame.nip */
-    ea_m(ST, R8, R11, 0);                       /* Frame.ip */
-    ea_m(LEA, R11, R11, sizeof(Frame));
-    ea_abs(CMP, R11, ADDR(&egret_frames_end));
+    ea_m(ST, R1, FP, 20);                      /* Frame.nip */
+#endif
+    ea_m(ST, R8, FP, 0);                       /* Frame.ip */
+    ea_m(LEA, FP, FP, sizeof(Frame));
+    ea_abs(CMP, FP, ADDR(&egret_frames_end));
     stub(SK_OVER, HS);
-    ea_m(ST, R4, R11, 4);
+    ea_m(ST, R4, FP, 4);
     ea_k32(MOV, R1, m);
-    ea_m(ST, R1, R11, 8);
-    ea_m(ST, R0, R11, 12);
-    ea_m(ST, R5, R11, 16);
+    ea_m(ST, R1, FP, 8);
+#ifdef __V2__
+    clr_m(FP, 12);
+#else
+    ea_m(ST, R0, FP, 12);
+#endif
+    ea_m(ST, R5, FP, 16);
     ea_r(MOV, R9, R4);
     if (nl) {
         ea_abs(CMP, R10, ADDR(&egret_vstack_end));
         stub(SK_OVER2, HS);
         for (i = 0; i < nl; i++)
-            ea_pi(ST, R14, R10);
+            ea_pi(ST, NILR, R10);
     }
 }
 
@@ -1169,7 +1256,7 @@ static void begin_stub(void) { begin_code(); }
 
 /* a C primitive with argc arguments: called like an Egret method's native
    entry (bp in r4, r8 where the caller goes on, the return address on the
-   stack) */
+   stack, or in r7 on draft 2) */
 static Value prim_stub(Value m)
 {
     unsigned fail;
@@ -1180,16 +1267,24 @@ static Value prim_stub(Value m)
     ea_abs(ST, R1, ADDR(&vm_sp));
     ea_r(MOV, R1, R4);
     ea_k(MOV, R2, MI_NARGS(F(m, M_INFO)));
+#ifdef __V2__
+    push(R7);
+#endif
     push(R4);
     jcc_abs(LINK, V((char *)prim_table[F(m, M_PRIM)]));
     pop(R4);
+#ifdef __V2__
+    pop(R7);
+#endif
     rr(TST, R1, R1);
     fail = jcc_fwd(EQ);
     ea_m(ST, R1, R4, 0);
     ea_m(LEA, R10, R4, 4);
     ret();
     patch_fwd(fail, here());
+#ifndef __V2__
     pop(R1);                                    /* no return: raise */
+#endif
     jcc_abs(RA, ADDR(jit_glue_prim_failed));
     F(m, M_NATIVE) = finish_stub();
     return F(m, M_NATIVE);
@@ -1208,12 +1303,14 @@ static Value block_stub(int argc)
     ea_m(MOV, R2, R3, FLD(M_ARITY));
     ea_k(CMP, R2, argc);
     slow1 = jcc_fwd(NE);
-    ea_m(MOV, R1, R3, FLD(M_NATIVE));
+    ea_m(MOVS, R1, R3, FLD(M_NATIVE));
     slow2 = jcc_fwd(EQ);
     jmp_r(R1);
     patch_fwd(slow1, here());
     patch_fwd(slow2, here());
+#ifndef __V2__
     pop(R1);
+#endif
     jcc_abs(RA, ADDR(jit_glue_redo));           /* C makes the send */
     return block_stubs[argc] = finish_stub();
 }
@@ -1244,10 +1341,13 @@ static Value new_stub(int argc)
     ea_m(MOV, R2, R3, FLD(M_ARITY));
     ea_k(CMP, R2, argc);
     s[3] = jcc_fwd(NE);
-    ea_m(MOV, R5, R3, FLD(M_NATIVE));
+    ea_m(MOVS, R5, R3, FLD(M_NATIVE));
     s[4] = jcc_fwd(EQ);
     ea_m(LEA, R2, R10, -4);
     ea_abs(ST, R2, ADDR(&vm_sp));
+#ifdef __V2__
+    push(R7);
+#endif
     push(R4);
     push(R5);
     ea_m(MOV, R2, R1, FLD(C_NIVARS));
@@ -1255,12 +1355,17 @@ static Value new_stub(int argc)
     jcc_abs(LINK, V((char *)alloc_obj));
     pop(R5);
     pop(R4);
+#ifdef __V2__
+    pop(R7);
+#endif
     ea_m(ST, R1, R4, 0);                        /* the object in place of the class */
     ea_k(SUB, R5, NEW_ENTRY);
     jmp_r(R5);
     for (i = 0; i < 5; i++)
         patch_fwd(s[i], here());
+#ifndef __V2__
     pop(R1);
+#endif
     jcc_abs(RA, ADDR(jit_glue_redo));
     return new_stubs[argc] = finish_stub();
 }
@@ -1268,10 +1373,11 @@ static Value new_stub(int argc)
 /* A send through the method cache, rather than an inline cache of its own,
    as the asm loop makes them: an operator's when its fast path doesn't
    apply (so that a method's operators cost little to compile), and a send
-   that saw too many classes. r6 is the selector, r7 the bytecode, r8 the
-   bytecode after it (the entry OP_ENTRY bytes before sets it, for an
-   operator), the return address on the stack. A miss, or a method not
-   yet compiled, goes to jit_gsend_miss. */
+   that saw too many classes. r6 is the selector, r7 the bytecode (r5 on
+   draft 2: SEND_IP), r8 the bytecode after it (the entry OP_ENTRY bytes
+   before sets it, for an operator), the return address on the stack (in
+   r7 on draft 2). A miss, or a method not yet compiled, goes to
+   jit_gsend_miss. */
 static Value gsend_stubs[16];
 static Value gsend(int argc)
 {
@@ -1279,7 +1385,7 @@ static Value gsend(int argc)
     if (gsend_stubs[argc])
         return gsend_stubs[argc];
     begin_stub();
-    ea_m(LEA, R8, R7, 1);
+    ea_m(LEA, R8, SEND_IP, 1);
     ea_m(LEA, R4, R10, -4 * (argc + 1));
     ea_m(MOV, R1, R4, 0);
     un(RRC, R2, R1);
@@ -1300,7 +1406,7 @@ static Value gsend(int argc)
     ea_k(CMP, R1, ARITY_PRIM + argc);
     m3 = jcc_fwd(NE);
     patch_fwd(ok, here());
-    ea_m(MOV, R1, R3, FLD(M_NATIVE));
+    ea_m(MOVS, R1, R3, FLD(M_NATIVE));
     m4 = jcc_fwd(EQ);
     jmp_r(R1);
     patch_fwd(to_int, here());
@@ -1388,11 +1494,15 @@ Value jit_send_miss(VMStateHead *st, int si)
         Value mega, g = gsend(argc);
         begin_stub();
         ea_k(MOV, R6, sel);
-        ea_k32(MOV, R7, V(ip));
+        ea_k32(MOV, SEND_IP, V(ip));
         jcc_abs(RA, g);
         mega = finish_stub();
         /* CMP r2, #class (3 parcels); Jcc NE miss (2): BRA over them */
+#ifdef __V2__
+        ((unsigned short *)BP(s->class_at))[-1] = 0xB0 | RA | 4 << 8;
+#else
         ((unsigned short *)BP(s->class_at))[-1] = 0xE000 | RA << 8 | 4;
+#endif
         patch32(s->target_at, mega);
         return s->start;
     }

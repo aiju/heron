@@ -2,7 +2,7 @@
 groups and branches, as the disassembler needs them, and two pieces of
 reference semantics for the draft 1b hardware study.
 
-See isa-v1.md. Decoding, executing and assembling instructions is Rust
+See RFC 0004 (reports/0004-rfc-draft-1-isa.md). Decoding, executing and assembling instructions is Rust
 (studies/v1_isa/isa): sim32.Machine32 runs the simulator, and the
 assembler (heron.infra.asm) calls the encoders.
 """

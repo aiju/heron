@@ -215,7 +215,9 @@ def dump(o, disasm=False, out=None):
                 note = [f"{O.RELOC_NAMES[r.kind]} {o.symbols[r.symbol].name}{r.addend:+d}"
                         for off, r in relocs.get(k, {}).items() if a <= off < a + 2 * n]
                 comment = f"  ; {', '.join(note)}" if note else ""
-                w(f"  {s.addr + a:06X}  {' '.join(f'{x:04X}' for x in ws[:n]):<15} {text}{comment}\n")
+                hexed = (isa.hex_parcels(ws[:n]) if hasattr(isa, "hex_parcels")
+                         else " ".join(f"{x:04X}" for x in ws[:n]))
+                w(f"  {s.addr + a:06X}  {hexed:<15} {text}{comment}\n")
                 a += 2 * n
 
 

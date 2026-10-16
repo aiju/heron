@@ -3,10 +3,10 @@ number: 7
 type: rfc
 title: Microarchitecture and clocking ideas
 status: open
-date: 2026-10-14
+date: 2026-10-15
 context:
   studies: [v1_isa, v1b_hw, graphics]
-  commit: 2f81658
+  commit: 0987e76
 ---
 
 # RFC 0007: Microarchitecture and clocking ideas
@@ -26,9 +26,9 @@ The evidence is in the reports each item links to.
 | **rejected** | Decided against, with the reason, so it isn't proposed again without new evidence |
 
 Two sources of numbers: the draft 1 timing model's six configurations
-([report 0004](0004-report-draft-1-evaluation.md#the-hardware-configurations)),
+([RFC 0004](0004-rfc-draft-1-isa.md#33-the-hardware-configurations)),
 and the 213-chip draft 1b hardware, a chip-level netlist in the model's
-D32-separate configuration ([hardware.md](../studies/v1b_hw/hardware.md),
+D32-separate configuration ([report 0012](0012-report-draft-1b-hardware.md),
 [report 0012](0012-report-draft-1b-hardware.md)). Chip counts are rough
 estimates unless they come from that netlist.
 
@@ -37,15 +37,18 @@ estimates unless they come from that netlist.
 | Proposal | Status | Notes |
 |---|---|---|
 | 32-bit datapath (D32) instead of 16-bit (D16) | **measured**, **adopted** in the draft 1b hardware | ~22% fewer cycles; ~25–35 more chips. Draft 1 starts paying off here: 1.6–1.7× draft 0 overall with overlapped fetch. On a 16-bit datapath and bus, draft 1 is slower than draft 0 on everything but multiply and divide, so a narrow implementation first is rejected (Emily, 2026-10-15) |
-| Overlap the next fetch with the last cycle (draft 0 style) | **measured**, **recommended** | 17–22% fewer cycles than a separate fetch cycle; ~0–2 chips. The draft 1b hardware already writes back in its fetch cycle, so against it the model expects 12%. It needs the decode ROM's input, the opcode on the data bus, at a different time in each instruction ([hardware.md](../studies/v1b_hw/hardware.md#known-issues-and-what-a-second-iteration-would-change)) |
+| Overlap the next fetch with the last cycle (draft 0 style) | **measured**, **recommended** | 17–22% fewer cycles than a separate fetch cycle; ~0–2 chips. The draft 1b hardware already writes back in its fetch cycle, so against it the model expects 12%. It needs the decode ROM's input, the opcode on the data bus, at a different time in each instruction ([report 0012](0012-report-draft-1b-hardware.md#8-known-issues-and-what-a-second-iteration-would-change)) |
 | Wide fetch: 32-bit bus plus two-parcel prefetch buffer | **measured**, **recommended** | ~10% fewer cycles than overlap, single-cycle word loads; +10–15 chips. Only D32-wide beats draft 0 on every program. Graphics takes 0.67 of D16-overlap's cycles on it, more than all the ISA ideas together ([report 0019](0019-report-graphics.md#and-the-hardware)); the operating system's paths take 53–68% of D32-separate's ([report 0020](0020-report-operating-system.md#the-paths-measured)). If the datapath must be 16 bits, keep the 32-bit bus: D16-wide is 1.36–1.48× draft 0 |
+| A loop buffer: the last 16 or more parcels fetched, replayed when a short backward branch is taken | **open** | Executed instructions inside a loop of at most 8, 16, 32 and 64 parcels: 44%, 51%, 69% and 76% of the hand-written programs', 12%, 32%, 50% and 64% of compiled C's ([RFC 0006](0006-rfc-ideas-isa.md#35-what-1b-code-uses)'s programs). Any backward branch can use it, `DBNZ` or not: the branch's offset says where the loop starts, so a hit compares it with a count of parcels fetched in sequence since the last jump, and needs no address comparator (the CDC 6600's instruction stack; the 68010's loop mode with `DBcc`). A jump, interrupts included, flushes it, so code that writes code stays safe. On the draft 1b hardware as built it saves little, since the fetch cycle also writes back. With overlapped fetch, fetching is 30% of its microcycles, and a 16-parcel buffer would save at most about 15% of hand-written cycles and 10% of compiled ones (32 parcels: 20% and 15%), rough upper bounds; it also leaves the bus to loads and stores inside loops. Roughly 8–10 chips: four 74F189s for 16 parcels driving the data bus in place of the RAM, two 4-bit counters and the compare. It's the bigger fetch buffer kept open below |
 | Two 16-bit transfers per cycle on the local memory bus (32-bit loads and stores in one cycle) | **open**, parked | The second halves of 32-bit transfers are 6.7% of all executed cycles (14–15% in queens and fib) |
 | Write results back to the register file in the same cycle | **open** | 33% of draft 0's cycles went to a separate write-back (CPI 2.1 → ~1.4), but it needs much faster register-file parts or a slower clock. The draft 1b hardware puts the write-back in the fetch cycle instead, which is most of why it takes 0.91 of the model's cycles |
 | Pipelined microinstruction register | **adopted** in the draft 1b hardware | 15 × 74HCT377; control signals are valid 40 ns after the clock. With it, the 32-bit draft 1b hardware runs at 334 ns against draft 0's 486 ns |
 | Fix bus contention when a bus changes source | **recommended** | Up to 67 ns at worst-case delays in draft 0. In the draft 1b hardware, 37 ns on the B bus and 24 ns on the data bus after a store. A break-before-make dead time at the start of each cycle, or ACT buffers, would fix it |
 | A barrel shifter | **open** | The draft 1b hardware shifts 1–2 places a step (right shifts take 2–11 cycles). For graphics a barrel shifter saves 4.4% over all the phases and 25–34% of bit-aligned copies at 1 bit, and a funnel shift ([RFC 0006](0006-rfc-ideas-isa.md#5-more-instruction-ideas)) needs one. A 32-bit one is about 40 multiplexer chips; the cheaper half step is the byte rotation the datapath already has plus a rotate by 0–7 ([report 0019](0019-report-graphics.md#a-funnel-shift-or-a-barrel-shifter)) |
-| A faster multiply for small multipliers | **open** | The draft 1b hardware takes 16 or 32 steps, where the timing model stops early; that alone makes mandel 1.39× the model. An 8-step path for multipliers below 2⁸ is a byte test and two cycles to realign the product ([hardware.md](../studies/v1b_hw/hardware.md#known-issues-and-what-a-second-iteration-would-change)); it wouldn't help mandel's fixed-point fractions |
+| A faster multiply for small multipliers | **open** | The draft 1b hardware takes 16 or 32 steps, where the timing model stops early; that alone makes mandel 1.39× the model. An 8-step path for multipliers below 2⁸ is a byte test and two cycles to realign the product ([report 0012](0012-report-draft-1b-hardware.md#8-known-issues-and-what-a-second-iteration-would-change)); it wouldn't help mandel's fixed-point fractions |
 | Shrinking the draft 1b hardware | **open** | 213 chips, more than twice draft 0. The big levers: a narrower control word with decoded fields (the microcode ROMs and uIR are 30 chips), at some cost in speed; or one register-file copy instead of two, at an extra cycle for two-register operations |
+| `SAVE`/`RESTORE` (and `LDM`/`STM`) as a microcode loop, with the register number counting in SX | **recommended** | The draft 1b hardware unrolls a routine per register range: 1,476 of its 3,507 microinstructions (`SAVE` 406, `RESTORE` 1,070), 42% of a control store 86% full ([RFC 0006](0006-rfc-ideas-isa.md#35-what-1b-code-uses)). SX already feeds the register-file address; making it a counter is about 1–2 chips. The four instructions would take a few dozen microinstructions, at about the same 3 cycles per register (an estimate). A register mask would also have to skip its zero bits: a cycle per bit through MQ, or a priority encoder, 3–4 chips |
+| Quick constants and stack-slot offsets from the instruction register, not the microcode | **recommended** | The draft 1b microcode has a routine per value of `#q`, `#−q` and `[sp + 4R]`'s offset, for every operation that takes them ([report 0012](0012-report-draft-1b-hardware.md#5-control)), which the immediate unit could take from the parcel instead. Draft 2 keeps its constants in a few fixed places in the parcel ([RFC 0028](0028-rfc-draft-2-isa.md#2-instruction-format)), so gathering them is mostly wiring |
 | Decode a cycle later, from IR | **not recommended** | It would take the RAM out of the fetch path, which sets the draft 1b hardware's clock, but costs a cycle on every instruction |
 | Separate instruction bus (Harvard) for speed | **rejected** | Would save 1.6% of draft 0's cycles; the bottleneck is register write-back |
 | Pipelining, caches | **rejected** for now | Lowest payoff per effort; hazards and forwarding in TTL multiply the debugging. More overlap of the fetch, or a bigger fetch buffer (in effect a small instruction cache), stays open: see overlapped and wide fetch above (Emily, 2026-10-15) |
@@ -59,11 +62,11 @@ estimates unless they come from that netlist.
 **decided** ([docs/clocking.md](../docs/clocking.md)). Each
 microinstruction picks how long its own cycle is. Measured from the draft
 1b hardware's timing analysis
-([hardware.md](../studies/v1b_hw/hardware.md#timing)) over the programs;
+([report 0012](0012-report-draft-1b-hardware.md#7-timing)) over the programs;
 this RFC is where the numbers are recorded. Built into the draft 1b CPU
 card on the system bus, with four lengths, it makes the suite's
 microcycles 1.14 times as fast
-([report 0025](0025-report-draft-1b-system.md#4-variable-length-cycles)).
+([report 0025](0025-report-draft-1b-system.md#12-variable-length-cycles)).
 
 - **Why.** A fixed clock runs every cycle at the slowest microinstruction's
   speed. With HCT + LS181 at worst case:
@@ -134,7 +137,7 @@ microcycles 1.14 times as fast
 ## 3. Parts
 
 **open.** What's still made decides more than speed
-([hardware.md](../studies/v1b_hw/hardware.md#known-issues-and-what-a-second-iteration-would-change)).
+([report 0012](0012-report-draft-1b-hardware.md#8-known-issues-and-what-a-second-iteration-would-change)).
 
 - **Surface-mount parts.** Emily is more open to them: an SMT build,
   assembled by a PCB assembly service, would be easier to put together

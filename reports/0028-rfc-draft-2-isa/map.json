@@ -1,0 +1,1265 @@
+{
+ "format": "heron-opcode-map",
+ "version": 1,
+ "name": "Draft 2",
+ "exported": "2026-10-15T21:03:06.000Z",
+ "state": {
+  "cells": {
+   "root/10": {
+    "i": "mov",
+    "m": "r",
+    "s": 1
+   },
+   "root/11": {
+    "i": "mov",
+    "m": "q",
+    "s": 1
+   },
+   "root/12": {
+    "i": "mov",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/13": {
+    "i": "mov",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/14": {
+    "i": "mov",
+    "m": "sp",
+    "s": 1
+   },
+   "root/15": {
+    "i": "mov",
+    "m": "idx",
+    "s": 1
+   },
+   "root/16": {
+    "i": "mov",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/17": {
+    "i": "mov",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/18": {
+    "i": "mov",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/19": {
+    "i": "mov",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/1A": {
+    "i": "mov",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/1B": {
+    "i": "mov",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/1C": {
+    "i": "mov",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/1D": {
+    "i": "mov",
+    "m": "nq",
+    "s": 1
+   },
+   "root/1F": {
+    "i": "mov",
+    "m": "spc",
+    "s": 1
+   },
+   "root/40": {
+    "i": "add",
+    "m": "r",
+    "s": 1
+   },
+   "root/41": {
+    "i": "add",
+    "m": "q",
+    "s": 1
+   },
+   "root/42": {
+    "i": "add",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/43": {
+    "i": "add",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/44": {
+    "i": "add",
+    "m": "sp",
+    "s": 1
+   },
+   "root/45": {
+    "i": "add",
+    "m": "idx",
+    "s": 1
+   },
+   "root/46": {
+    "i": "add",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/47": {
+    "i": "add",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/48": {
+    "i": "add",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/49": {
+    "i": "add",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/4A": {
+    "i": "add",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/4B": {
+    "i": "add",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/4C": {
+    "i": "add",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/4D": {
+    "i": "add",
+    "m": "nq",
+    "s": 1
+   },
+   "root/4F": {
+    "i": "add",
+    "m": "spc",
+    "s": 1
+   },
+   "root/50": {
+    "i": "sub",
+    "m": "r",
+    "s": 1
+   },
+   "root/51": {
+    "i": "sub",
+    "m": "q",
+    "s": 1
+   },
+   "root/52": {
+    "i": "sub",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/53": {
+    "i": "sub",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/54": {
+    "i": "sub",
+    "m": "sp",
+    "s": 1
+   },
+   "root/55": {
+    "i": "sub",
+    "m": "idx",
+    "s": 1
+   },
+   "root/56": {
+    "i": "sub",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/57": {
+    "i": "sub",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/58": {
+    "i": "sub",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/59": {
+    "i": "sub",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/5A": {
+    "i": "sub",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/5B": {
+    "i": "sub",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/5C": {
+    "i": "sub",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/5D": {
+    "i": "sub",
+    "m": "nq",
+    "s": 1
+   },
+   "root/5F": {
+    "i": "sub",
+    "m": "spc",
+    "s": 1
+   },
+   "root/60": {
+    "i": "cmp",
+    "m": "r",
+    "s": 1
+   },
+   "root/61": {
+    "i": "cmp",
+    "m": "q",
+    "s": 1
+   },
+   "root/62": {
+    "i": "cmp",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/63": {
+    "i": "cmp",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/64": {
+    "i": "cmp",
+    "m": "sp",
+    "s": 1
+   },
+   "root/65": {
+    "i": "cmp",
+    "m": "idx",
+    "s": 1
+   },
+   "root/66": {
+    "i": "cmp",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/67": {
+    "i": "cmp",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/68": {
+    "i": "cmp",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/69": {
+    "i": "cmp",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/6A": {
+    "i": "cmp",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/6B": {
+    "i": "cmp",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/6C": {
+    "i": "cmp",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/6D": {
+    "i": "cmp",
+    "m": "nq",
+    "s": 1
+   },
+   "root/6F": {
+    "i": "cmp",
+    "m": "spc",
+    "s": 1
+   },
+   "root/80": {
+    "i": "and",
+    "m": "r",
+    "s": 1
+   },
+   "root/81": {
+    "i": "and",
+    "m": "q",
+    "s": 1
+   },
+   "root/82": {
+    "i": "and",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/83": {
+    "i": "and",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/84": {
+    "i": "and",
+    "m": "sp",
+    "s": 1
+   },
+   "root/85": {
+    "i": "and",
+    "m": "idx",
+    "s": 1
+   },
+   "root/86": {
+    "i": "and",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/87": {
+    "i": "and",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/88": {
+    "i": "and",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/89": {
+    "i": "and",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/8A": {
+    "i": "and",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/8B": {
+    "i": "and",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/8C": {
+    "i": "and",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/8D": {
+    "i": "and",
+    "m": "nq",
+    "s": 1
+   },
+   "root/8F": {
+    "i": "and",
+    "m": "spc",
+    "s": 1
+   },
+   "root/90": {
+    "i": "or",
+    "m": "r",
+    "s": 1
+   },
+   "root/91": {
+    "i": "or",
+    "m": "q",
+    "s": 1
+   },
+   "root/92": {
+    "i": "or",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/93": {
+    "i": "or",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/94": {
+    "i": "or",
+    "m": "sp",
+    "s": 1
+   },
+   "root/95": {
+    "i": "or",
+    "m": "idx",
+    "s": 1
+   },
+   "root/96": {
+    "i": "or",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/97": {
+    "i": "or",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/98": {
+    "i": "or",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/99": {
+    "i": "or",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/9A": {
+    "i": "or",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/9B": {
+    "i": "or",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/9C": {
+    "i": "or",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/9D": {
+    "i": "or",
+    "m": "nq",
+    "s": 1
+   },
+   "root/9F": {
+    "i": "or",
+    "m": "spc",
+    "s": 1
+   },
+   "root/A0": {
+    "i": "xor",
+    "m": "r",
+    "s": 1
+   },
+   "root/A1": {
+    "i": "xor",
+    "m": "q",
+    "s": 1
+   },
+   "root/A2": {
+    "i": "xor",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/A3": {
+    "i": "xor",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/A4": {
+    "i": "xor",
+    "m": "sp",
+    "s": 1
+   },
+   "root/A5": {
+    "i": "xor",
+    "m": "idx",
+    "s": 1
+   },
+   "root/A6": {
+    "i": "xor",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/A7": {
+    "i": "xor",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/A8": {
+    "i": "xor",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/A9": {
+    "i": "xor",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/AA": {
+    "i": "xor",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/AB": {
+    "i": "xor",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/AC": {
+    "i": "xor",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/AD": {
+    "i": "xor",
+    "m": "nq",
+    "s": 1
+   },
+   "root/AF": {
+    "i": "xor",
+    "m": "spc",
+    "s": 1
+   },
+   "root/22": {
+    "i": "st",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/23": {
+    "i": "st",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/24": {
+    "i": "st",
+    "m": "sp",
+    "s": 1
+   },
+   "root/25": {
+    "i": "st",
+    "m": "idx",
+    "s": 1
+   },
+   "root/26": {
+    "i": "st",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/27": {
+    "i": "st",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/28": {
+    "i": "st",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/29": {
+    "i": "st",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/2A": {
+    "i": "st",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/2B": {
+    "i": "st",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/2C": {
+    "i": "st",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/2F": {
+    "i": "st",
+    "m": "spc",
+    "s": 1
+   },
+   "root/30": {
+    "i": "movs",
+    "m": "r",
+    "s": 1
+   },
+   "root/32": {
+    "i": "movs",
+    "m": "ind.w",
+    "s": 1
+   },
+   "root/33": {
+    "i": "movs",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/34": {
+    "i": "movs",
+    "m": "sp",
+    "s": 1
+   },
+   "root/35": {
+    "i": "movs",
+    "m": "idx",
+    "s": 1
+   },
+   "root/36": {
+    "i": "movs",
+    "m": "inc.w",
+    "s": 1
+   },
+   "root/37": {
+    "i": "movs",
+    "m": "dec.w",
+    "s": 1
+   },
+   "root/38": {
+    "i": "movs",
+    "m": "ind.b",
+    "s": 1
+   },
+   "root/39": {
+    "i": "movs",
+    "m": "d16.b",
+    "s": 1
+   },
+   "root/3A": {
+    "i": "movs",
+    "m": "inc.b",
+    "s": 1
+   },
+   "root/3B": {
+    "i": "movs",
+    "m": "ind.h",
+    "s": 1
+   },
+   "root/3C": {
+    "i": "movs",
+    "m": "d16.h",
+    "s": 1
+   },
+   "root/3F": {
+    "i": "movs",
+    "m": "spc",
+    "s": 1
+   },
+   "root/20": {
+    "i": "clr",
+    "m": "ea:s1b",
+    "s": 1
+   },
+   "root/21": {
+    "i": "incm",
+    "m": "ea:s1b",
+    "s": 1
+   },
+   "root/2D": {
+    "i": "decm",
+    "m": "ea:s1b",
+    "s": 1
+   },
+   "root/00": {
+    "i": "illegal",
+    "s": 1
+   },
+   "root/01": {
+    "i": "ldm",
+    "ov": "ext",
+    "s": 1
+   },
+   "root/02": {
+    "i": "stm",
+    "ov": "ext",
+    "s": 1
+   },
+   "root/03": {
+    "i": "lea",
+    "m": "d16.w",
+    "s": 1
+   },
+   "root/04": {
+    "i": "lea",
+    "m": "sp",
+    "s": 1
+   },
+   "root/05": {
+    "i": "lea",
+    "m": "idx",
+    "s": 1
+   },
+   "root/06": {
+    "i": "mfsr",
+    "s": 1
+   },
+   "root/07": {
+    "i": "mtsr",
+    "s": 1
+   },
+   "root/08": {
+    "i": "addb4",
+    "s": 1
+   },
+   "root/0E": {
+    "i": "lea",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/0F": {
+    "i": "lea",
+    "m": "spc",
+    "s": 1
+   },
+   "root/70": {
+    "i": "mvi7",
+    "s": 8
+   },
+   "root/78": {
+    "i": "cmpi7",
+    "s": 8
+   },
+   "root/B0": {
+    "i": "bcc",
+    "s": 16
+   },
+   "root/C0": {
+    "i": "lsl_i",
+    "s": 2
+   },
+   "root/C2": {
+    "i": "lsl_r",
+    "s": 1
+   },
+   "root/C4": {
+    "i": "lsr_i",
+    "s": 2
+   },
+   "root/C6": {
+    "i": "lsr_r",
+    "s": 1
+   },
+   "root/C8": {
+    "i": "asr_i",
+    "s": 2
+   },
+   "root/CA": {
+    "i": "asr_r",
+    "s": 1
+   },
+   "root/CC": {
+    "i": "ror_i",
+    "s": 2
+   },
+   "root/CE": {
+    "i": "ror_r",
+    "s": 1
+   },
+   "root/D0": {
+    "i": "not",
+    "s": 1
+   },
+   "root/D1": {
+    "i": "neg",
+    "s": 1
+   },
+   "root/D2": {
+    "i": "inc",
+    "s": 1
+   },
+   "root/D3": {
+    "i": "dec",
+    "s": 1
+   },
+   "root/D4": {
+    "i": "rlc",
+    "s": 1
+   },
+   "root/D5": {
+    "i": "rrc",
+    "s": 1
+   },
+   "root/D6": {
+    "i": "swap",
+    "s": 1
+   },
+   "root/D7": {
+    "i": "sxb",
+    "s": 1
+   },
+   "root/D8": {
+    "i": "sxh",
+    "s": 1
+   },
+   "root/D9": {
+    "i": "zxb",
+    "s": 1
+   },
+   "root/DA": {
+    "i": "zxh",
+    "s": 1
+   },
+   "root/DB": {
+    "i": "clz",
+    "s": 1
+   },
+   "root/DC": {
+    "i": "ffs",
+    "s": 1
+   },
+   "root/DD": {
+    "i": "popc",
+    "s": 1
+   },
+   "root/DE": {
+    "i": "rev",
+    "s": 1
+   },
+   "root/DF": {
+    "i": "setcc",
+    "s": 1
+   },
+   "root/E0": {
+    "i": "adc",
+    "m": "r",
+    "s": 1
+   },
+   "root/E1": {
+    "i": "sbc",
+    "m": "r",
+    "s": 1
+   },
+   "root/E2": {
+    "i": "bic",
+    "m": "r",
+    "s": 1
+   },
+   "root/E3": {
+    "i": "tst",
+    "m": "r",
+    "s": 1
+   },
+   "root/E4": {
+    "i": "mulu",
+    "m": "r",
+    "s": 1
+   },
+   "root/E5": {
+    "i": "muls",
+    "m": "r",
+    "s": 1
+   },
+   "root/E6": {
+    "i": "mula",
+    "s": 1
+   },
+   "root/E7": {
+    "i": "divu",
+    "m": "r",
+    "s": 1
+   },
+   "root/E8": {
+    "i": "divs",
+    "m": "r",
+    "s": 1
+   },
+   "root/E9": {
+    "i": "divul",
+    "m": "r",
+    "s": 1
+   },
+   "root/EA": {
+    "i": "bic",
+    "m": "spc",
+    "s": 1
+   },
+   "root/EB": {
+    "i": "tst",
+    "m": "spc",
+    "s": 1
+   },
+   "root/EC": {
+    "i": "mulu",
+    "m": "spc",
+    "s": 1
+   },
+   "root/ED": {
+    "i": "muls",
+    "m": "spc",
+    "s": 1
+   },
+   "root/EE": {
+    "i": "merge",
+    "s": 1
+   },
+   "root/F0": {
+    "i": "jmpea",
+    "m": "ea:s1b",
+    "s": 1
+   },
+   "root/F1": {
+    "i": "callea",
+    "m": "ea:s1b",
+    "s": 1
+   },
+   "root/F2": {
+    "i": "jcc16",
+    "s": 1
+   },
+   "root/F3": {
+    "i": "jcc32",
+    "s": 1
+   },
+   "root/F4": {
+    "i": "save",
+    "s": 1
+   },
+   "root/F5": {
+    "i": "restore",
+    "s": 1
+   },
+   "root/F6": {
+    "i": "dbnz4",
+    "s": 1
+   },
+   "root/F7": {
+    "i": "imv9vqwmztvgz",
+    "s": 1
+   },
+   "root/F8": {
+    "i": "fpu",
+    "m": "ea:s1b",
+    "s": 1
+   },
+   "root/FC": {
+    "i": "swi",
+    "s": 1
+   },
+   "root/FD": {
+    "x": 1,
+    "g": "gmv9svl31r3yb",
+    "s": 1
+   },
+   "root/FE": {
+    "x": 1,
+    "g": "gmv9sqwj9jo7q",
+    "s": 1
+   },
+   "root/FF": {
+    "i": "illegal",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/00": {
+    "i": "ei",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/01": {
+    "i": "di",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/02": {
+    "i": "rti",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/03": {
+    "i": "halt",
+    "s": 1
+   },
+   "root/09": {
+    "i": "tmov",
+    "s": 1
+   },
+   "root/0A": {
+    "i": "ttst",
+    "s": 1
+   },
+   "root/0B": {
+    "i": "tadd",
+    "s": 1
+   },
+   "root/0C": {
+    "i": "tsub",
+    "s": 1
+   },
+   "root/0D": {
+    "i": "tcmp",
+    "s": 1
+   },
+   "root/1E": {
+    "i": "mov",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/2E": {
+    "i": "st",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/3E": {
+    "i": "movs",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/4E": {
+    "i": "add",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/5E": {
+    "i": "sub",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/6E": {
+    "i": "cmp",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/8E": {
+    "i": "and",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/9E": {
+    "i": "or",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/AE": {
+    "i": "xor",
+    "m": "r14slot",
+    "s": 1
+   },
+   "root/31": {
+    "i": "mfur",
+    "s": 1
+   },
+   "root/3D": {
+    "i": "mtur",
+    "s": 1
+   },
+   "gmv9svl31r3yb/00": {
+    "i": "mulfx",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/10": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/11": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/12": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/13": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/14": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/15": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/16": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/17": {
+    "i": "ispl",
+    "s": 1
+   },
+   "gmv9sqwj9jo7q/18": {
+    "i": "ispl",
+    "s": 1
+   }
+  },
+  "grids": {
+   "gmv9sqwj9jo7q": {
+    "name": "System"
+   },
+   "gmv9svl31r3yb": {
+    "name": ""
+   }
+  },
+  "instrs": {
+   "imv9vqwmztvgz": {
+    "id": "imv9vqwmztvgz",
+    "m": "CAS",
+    "syn": "rd, rs",
+    "f": "rd:4 rs:4",
+    "ea": null,
+    "ext": 0,
+    "xl": "",
+    "g": "alu",
+    "d": "details TBC",
+    "cs": "",
+    "wr": false,
+    "src": [
+     "custom"
+    ],
+    "st": "custom",
+    "r": ""
+   },
+   "ispl": {
+    "id": "ispl",
+    "m": "SPL",
+    "syn": "#n",
+    "f": "",
+    "ea": null,
+    "ext": 0,
+    "xl": "",
+    "g": "sys",
+    "d": "The interrupt priority level ← n, 0–8, from the second byte's low nibble (FE 10–FE 18; FE 19–FE 1F trap), as the PDP-11's SPL: a critical section is MFSR r1, sr; SPL #n; …; MTSR sr, r1",
+    "cs": "",
+    "wr": false,
+    "src": [
+     "custom"
+    ],
+    "st": "custom",
+    "r": "RFC 0029 §7"
+   }
+  },
+  "modes": {
+   "r14slot": {
+    "id": "r14slot",
+    "kind": "r14slot",
+    "syn": "[r14 + 4R]",
+    "short": "[r14+4R]",
+    "f": "R:4",
+    "cls": "mem",
+    "ext": 0,
+    "xl": "",
+    "src": [
+     "custom"
+    ],
+    "d": "A word of the current object, 0–60 (R is the offset): mode 4's shape with r14 for sp. Measured on 1b (fixed-base-mode.md): 3–5% of the nucleus's paths, about 1% of Egret"
+   }
+  },
+  "sets": {
+   "s1b": {
+    "name": "Draft 2’s 16 modes",
+    "slots": [
+     "r",
+     "q",
+     "ind.w",
+     "d16.w",
+     "sp",
+     "idx",
+     "inc.w",
+     "dec.w",
+     "ind.b",
+     "d16.b",
+     "inc.b",
+     "ind.h",
+     "d16.h",
+     "nq",
+     "r14slot",
+     "spc"
+    ]
+   },
+   "smem": {
+    "name": "Word memory",
+    "slots": [
+     "ind.w",
+     "d16.w",
+     "inc.w",
+     "dec.w",
+     "idx",
+     "a16.w",
+     "pc.w",
+     "a32.w",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ]
+   },
+   "sbh": {
+    "name": "Byte and half memory",
+    "slots": [
+     "ind.b",
+     "d16.b",
+     "inc.b",
+     "dec.b",
+     "ind.sb",
+     "d16.sb",
+     "inc.sb",
+     "dec.sb",
+     "ind.h",
+     "d16.h",
+     "inc.h",
+     "dec.h",
+     "ind.sh",
+     "d16.sh",
+     "inc.sh",
+     "dec.sh"
+    ]
+   },
+   "sconst": {
+    "name": "Constants",
+    "slots": [
+     "q",
+     "nq",
+     "i16",
+     "u16",
+     "h16",
+     "i32",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ]
+   },
+   "salu8": {
+    "name": "Eight for ALU ops (a sketch)",
+    "slots": [
+     "r",
+     "q",
+     "nq",
+     "ind.w",
+     "d16.w",
+     "inc.w",
+     "d16.b",
+     "spc",
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null,
+     null
+    ]
+   }
+  },
+  "settings": {
+   "opLow": true
+  }
+ }
+}

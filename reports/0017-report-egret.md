@@ -118,6 +118,17 @@ and after compiling its source:
 > D32-wide. [performance.md](0017-report-egret/performance.md) has the
 > current numbers.
 
+> **Erratum (2026-10-16).** The C compiler's optimisations
+> ([report 0034](0034-report-c-compiler-optimisations.md)) make both the
+> suite's C versions and the VM, which is compiled C, faster, and
+> performance.md is rerun. The interpreter now takes 18.3×, 19.7× and
+> 18.7× the C versions' cycles (D16-overlap, D32-separate, D32-wide) and
+> 29.2×, 31.5× and 29.2× the assembly versions'; the JIT 19.1×, 20.7× and
+> 18.5× C's; the C loop 1.69×, 1.72× and 1.68× the hand-written loop's.
+> Against C, the interpreter is 10–46× on the suite's programs (bignum
+> 2.6×). Start-up is 4.7M cycles, 1.56 s at 3 MHz, and compiling
+> Richards 3.7M, 1.2 s.
+
 ### Where the interpreter's cycles go
 
 Means over the programs, D32-separate (per program in

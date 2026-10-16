@@ -181,6 +181,59 @@ class Optimizations(unittest.TestCase):
         self.assertNotIn("shl", [i.op for b in body for i in b.instrs])
         self.assertIn("shl", [i.op for b in f.blocks if b not in body for i in b.instrs])
 
+    @staticmethod
+    def in_loops(f):
+        """f's instructions inside its loops, and outside them."""
+        loops = natural_loops(DomTree(f))
+        inside = set().union(*loops.values())
+        return ([i for b in f.blocks if b in inside for i in b.instrs],
+                [i for b in f.blocks if b not in inside for i in b.instrs])
+
+    def test_invariant_global_load(self):
+        # the loop stores only into a[], another object: n is loaded once
+        f = optimized("int n, a[10]; void f(void) { int i; for (i = 0; i < n; i++) a[i] = i; }")
+        inside, outside = self.in_loops(f)
+        self.assertNotIn("load", [i.op for i in inside])
+        self.assertIn("load", [i.op for i in outside])
+
+    def test_invariant_constant_reassociated(self):
+        # y * 3 + c - 295: c - 295 is computed before the loop
+        f = optimized("int f(int c, int n) { int i, y = 0; for (i = 0; i < n; i++) "
+                      "y = (y >> 1) * 3 + c - 295; return y; }")
+        inside, outside = self.in_loops(f)
+        self.assertFalse(any(getattr(a, "value", None) == (-295 & 0xFFFFFFFF)
+                             for i in inside for a in i.args))
+        self.assertTrue(any(i.op == "add" and f.params[0] in i.args for i in outside))
+
+    def test_constants_before_the_outermost_loop(self):
+        # crc's bit loop: the constants are loaded once, not once per byte
+        f = optimized("""unsigned f(const unsigned char *p, int n) { unsigned crc = 0xffff; int k;
+while (n--) { crc ^= *p++ << 8; for (k = 0; k < 8; k++) crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1; }
+return crc; }""")
+        inside, outside = self.in_loops(f)
+        self.assertNotIn("copy", [i.op for i in inside])
+        self.assertEqual({i.args[0].value for i in outside if i.op == "copy"}, {0x8000, 0x1021})
+
+
+    def test_loads_reused_down_a_chain_of_blocks(self):
+        # p[1] is loaded once: the block that uses it again has one predecessor
+        ir = ir_of("int f(int *p) { if (p[1] != 3) return p[1] + 1; return 0; }")
+        self.assertEqual(ir.count("load"), 1)
+
+    def test_inlining(self):
+        # a small function's calls become copies of it, and a static one
+        # nothing refers to any more goes; a bigger or recursive one stays
+        src = """static int sq(int x) { return x * x; }
+static int fact(int n) { return n < 2 ? 1 : n * fact(n - 1); }
+int f(int a, int b) { return sq(a) + sq(b) + fact(a); }"""
+        u = compile_unit("t.c", "v1b", text=src)
+        optimize_unit(u, "v1b", 1, verify_ir=True)
+        self.assertEqual([f.name for f in u.module.functions], ["fact", "f"])
+        ir = str(u.module.function("f"))
+        self.assertNotIn("@sq", ir)
+        self.assertEqual(ir.count("mul"), 2)
+        self.assertIn("call @fact", ir)
+
 
 class InterpretedIR(unittest.TestCase):
     """The test programs' IR, run by the IR interpreter before and after
@@ -196,12 +249,13 @@ class InterpretedIR(unittest.TestCase):
             name = os.path.basename(path)[:-2]
             with open(os.path.join(here, "expected", name + ".txt"), "rb") as f:
                 expected = f.read()
-            for opt in (0, 1):
-                p = Program("v1b", opt=opt)
+            # draft 2's optimisation also counts loops down (count_down)
+            for isa, opt in (("v1b", 0), ("v1b", 1), ("v2", 1)):
+                p = Program(isa, opt=opt)
                 p.add_file(path)
                 p.add_library()
                 funcs, data = p.compile()
-                with self.subTest(program=name, opt=opt):
+                with self.subTest(program=name, isa=isa, opt=opt):
                     self.assertEqual(run(funcs, data), expected)
 
 
@@ -222,8 +276,177 @@ class CodePatterns(unittest.TestCase):
         a = asm_of("int f(int *p, int i) { return p[i]; }", "v1b")
         self.assertRegex(a, r"\[r\d+ \+ r\d+\*4\]")
 
+    def test_v2_autoincrement_and_load_flags(self):
+        # the store between the load and the branch leaves the flags alone,
+        # so the load sets them: no compare
+        a = asm_of(self.STRCPY, "v2")
+        self.assertRegex(a, r"MOVS\s+(r\d+), byte \[r\d+\]\+\n\s+MOV\s+byte \[r\d+\]\+, \1\n\s+BNE")
+        self.assertNotIn("CMP", a)
+
+    def test_v2_narrow_movs_only_for_z(self):
+        # MOVS on a byte takes N from bit 7, but the register holds the byte
+        # zero-extended: a compare that tests N must stay
+        from heron.studies.c_compiler.codegen.v2 import V2
+        from heron.studies.c_compiler.codegen.mir import (PHYS, Imm, Label, MBlock, MFunction,
+                                                          MInstr, Mem)
+        r1, r2 = PHYS[1], PHYS[2]
+        for cond, dropped in (("NE", True), ("LT", False)):
+            t = V2()
+            t.mf = MFunction("_f", None)
+            b, out = MBlock(None, ".b0"), MBlock(None, ".b1")
+            b.instrs = [MInstr("MOV", [r1, Mem(r2, size=1)], defs=[r1], uses=[r2]),
+                        MInstr("CMP", [r1, Imm(0)], uses=[r1], flags="cmp"),
+                        MInstr("BCC", [Label(out)], cond=cond, targets=[out]),
+                        MInstr("RET")]
+            t.mf.blocks = [b, out]
+            t.drop_compares()
+            ops = [i.op for i in b.instrs]
+            self.assertEqual("CMP" not in ops, dropped, cond)
+            self.assertEqual(ops[0], "MOVS" if dropped else "MOV", cond)
+
+    def test_v2_zero_store_is_clr(self):
+        a = asm_of("struct s { int a, b; char c; }; void f(struct s *p) { p->a = 0; p->c = 0; }", "v2")
+        self.assertRegex(a, r"CLR\s+\[r1\]")
+        self.assertRegex(a, r"CLR\s+byte \[r1 \+ 8\]")
+        self.assertNotIn("r0", a)
+
+    def test_v2_table_without_base_register(self):
+        a = asm_of("int t[100]; int f(int i) { return t[i]; }", "v2")
+        self.assertRegex(a, r"MOV\s+r1, \[_t \+ r1\*4\]")
+
+    def test_v2_increment_in_memory(self):
+        a = asm_of("int n; unsigned char c[4]; void f(int i) { n++; c[i]--; }", "v2")
+        self.assertRegex(a, r"INC\s+\[_n\]")
+        self.assertRegex(a, r"DEC\s+byte \[_c \+ r1\]")
+        a = asm_of("int n[64]; void f(unsigned char *p) { n[*p]++; }", "v2")
+        self.assertRegex(a, r"INC\s+\[_n \+ r\d\*4\]")
+
+    def test_v2_r0_is_allocated(self):
+        # seven values live across the loop, in scratch registers: r1-r6 and
+        # r0, before r7, which a leaf would have to save
+        src = ("int f(int *p, int n) { int a = 0, b = 1, c = 2, d = 3, e = 4;"
+               " while (n--) { a += *p++; b ^= a; c += b; d -= c; e |= d; }"
+               " return a + b + c + d + e; }")
+        a = asm_of(src, "v2")
+        self.assertIn("r0", a)
+        self.assertNotIn("r7", a)
+        self.assertNotIn("SAVE", a)
+
+    def test_v2_link_register(self):
+        # a leaf returns through r7; a function that calls saves r7 with the
+        # registers it keeps, or pushes it alone, and restores it before a
+        # tail call
+        a = asm_of("int f(int x) { return x * 3; }", "v2")
+        self.assertNotIn("r7", a)
+        self.assertRegex(a, r"RET\n")
+        src = "int g(int); int f(int x) { return g(x) + x; }"
+        self.assertRegex(asm_of(src, "v2"), r"SAVE r7-r8(.*\n)*\s+RESTORE r7-r8\n\s+RET")
+        a = asm_of("int g(int); int f(int x) { return g(x) + 1; }", "v2")
+        self.assertRegex(a, r"PUSH r7(.*\n)*\s+JMP  \[sp\]\+")
+        a = asm_of("int g(int); int h(int); int f(int x) { g(x); return h(2); }", "v2")
+        self.assertRegex(a, r"MOV  r7, \[sp\]\+\n\s+BRA  _h")
+        # (on a path without another call, the tail call leaves r7 alone)
+        a = asm_of("int g(int); int h(int); int f(int x) { if (x) return g(x) + 1; return h(2); }",
+                   "v2")
+        self.assertRegex(a, r"\.b\d+:\n\s+MOV  r1, #2\n\s+BRA  _h")
+
+    def test_shrink_wrapping(self):
+        # fib's base case returns before the prologue: the copy of n into a
+        # callee-saved register is made on the path that calls
+        src = ("int calls; int fib(int n) { calls++; if (n < 2) return n; "
+               "return fib(n - 1) + fib(n - 2); }")
+        for isa in ("v1a", "v1b", "v2"):
+            a = asm_of(src, isa, "fib")
+            before, _, after = a.partition("SAVE")
+            self.assertIn("RET", before, isa)
+            self.assertNotRegex(before, r"r(8|9|1[0-4])\b", isa)
+            self.assertRegex(after, r"MOV  r(8|9|1[0-4]), r1", isa)
+        # queens' loop: a value that flows into a phi kept across the call
+        # is copied at the region's start too, and a return block shared
+        # with the early exit is duplicated
+        a = asm_of("void g(unsigned *, unsigned); void f(unsigned *row, unsigned free, unsigned l) {"
+                   " unsigned s = free & ~l; while (s) { unsigned bit = s & -s; s &= ~bit;"
+                   " *row = bit; g(row + 1, free & ~bit); } }", "v2")
+        before, _, after = a.partition("SAVE")
+        self.assertIn("RET", before)
+        self.assertNotRegex(before, r"r(8|9|1[0-4])\b")
+
+    def test_v2_dbnz(self):
+        # a counter that only counts is counted down to zero, and the loop
+        # closes with DBNZ when it's within reach (16 parcels)...
+        a = asm_of("unsigned f(unsigned c) { int k; for (k = 0; k < 8; k++)"
+                   " c = c & 1 ? c >> 1 ^ 0xA001 : c >> 1; return c; }", "v2")
+        self.assertRegex(a, r"MOV\s+(r\d+), #8\n(.*\n)*.*DBNZ \1, \.b\d+")
+        self.assertNotIn("CMP", a)
+        # ... and with DEC and BNE when it isn't
+        body = "; ".join(f"a = a * {k} + (a >> {k})" for k in range(3, 12))
+        a = asm_of(f"int f(int a, int n) {{ while (n--) {{ {body}; }} return a; }}", "v2")
+        self.assertRegex(a, r"DEC\s+(r\d+), \1\n\s+BNE")
+        self.assertNotIn("DBNZ", a)
+
+    def test_inlined_predicate_branches_directly(self):
+        # the predicate's boolean result isn't made: each of its returns
+        # branches where the caller's if goes (jump threading), and the
+        # second compare of the same operands goes too
+        src = """struct e { char *w; int n; };
+int strcmp(const char *, const char *);
+static int before(const struct e *a, const struct e *b)
+{ if (a->n != b->n) return a->n > b->n; return strcmp(a->w, b->w) < 0; }
+int f(struct e *x, struct e *y) { if (before(x, y)) return 7; return 9; }"""
+        for isa in ("v1b", "v2"):
+            a = asm_of(src, isa)
+            self.assertNotIn("SET", a, isa)
+            self.assertEqual(a.count("CMP"), 2, isa)        # the counts, and strcmp's result
+            self.assertNotIn("BSR  _before", a, isa)
+
+    def test_stepped_index_addresses_the_element(self):
+        # while (a[i] < v) i++: the load after the step uses the stepped
+        # index, so the step is done in place and the loop needs no copy
+        a = asm_of("unsigned f(unsigned *a, unsigned v, int i) { while (a[i] < v) i++; return i; }",
+                   "v2")
+        self.assertRegex(a, r"INC\s+(r\d+), \1\n\s+CMP\s+r\d+, \[r\d+ \+ \1\*4\]\n\s+BHI")
+
+    def test_carry_through_a_divide_needs_no_copy(self):
+        # c = (n[i] * k + c) / 10000: the add starts from c, which the divide
+        # then overwrites in place with the next c
+        a = asm_of("unsigned f(unsigned *n, int len, unsigned k) { unsigned c = 0; int i; "
+                   "for (i = 0; i < len; i++) { unsigned v = n[i] * k + c; n[i] = v % 10000; "
+                   "c = v / 10000; } return c; }", "v2")
+        loop = re.search(r"^(\.b\d+):\n(.*?)\n\s+B\w+\s+\1\n", a, re.S | re.M).group(2)
+        self.assertNotRegex(loop, r"MOV\s+r\d+, r\d+\n")
+
+    def test_v2_remainder_in_r0(self):
+        # draft 2 has no HI: a divide leaves its remainder in r0
+        a = asm_of("unsigned f(unsigned a, unsigned b) { return a % b; }", "v2")
+        self.assertRegex(a, r"DIVU\s+r0:r\d+, r\d+\n\s+MOV\s+r1, r0")
+        self.assertNotIn("MFHI", a)
+
+    def test_v2_no_overflow_replaces_compare(self):
+        # j - 1 can't overflow (j is an int), so the ADD's flags decide
+        # j > 0 on their own; an INC or DEC, which leaves V, becomes an ADD
+        a = asm_of("int a[9]; int f(int j, int v) { while (j > 0 && a[j - 1] > v) "
+                   "{ a[j] = a[j - 1]; j--; } return j; }", "v2")
+        self.assertRegex(a, r"ADD\s+r1, #-1\n(\s+(LEA|MOV).*\n)*\s+BGT")
+        self.assertEqual(a.count("CMP  r1, #0"), 1)       # only the test on entry
+
+    def test_v2_size_model_short_offsets(self):
+        # DBNZ's reach rests on the size model: [sp + 4R] and [r14 + 4R]
+        # take no extension parcel, for LEA too, as the assembler has it
+        from heron.infra import asm, isas
+        from heron.studies.c_compiler.codegen.mir import PHYS, SP, Mem
+        from heron.studies.c_compiler.codegen.v2 import V2
+        t = V2()
+        for op in ("LEA", "MOV"):
+            for base in (SP, PHYS[14], PHYS[13]):
+                for d in (0, 4, 6, 60, 64):
+                    m = Mem(base, disp=d)
+                    text = f"  {op} r1, {t.fmt_mem(m)}\n"
+                    st = next(s for s in asm.assemble_text(isas.get("v2"), text).stmts
+                              if s.kind == "insn")
+                    self.assertEqual(1 + t.mem_parcels(m, op), st.size // 2, text)
+
     def test_three_address_add_uses_lea(self):
-        for isa in ("v1a", "v1b"):
+        for isa in ("v1a", "v1b", "v2"):
             a = asm_of("int g(int a, int b) { return a - b; }\n"
                        "int f(int x) { return g(x + 1000, x); }", isa)
             self.assertIn("LEA", a)
@@ -233,22 +456,24 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(a, r"ADDI\s+r\d+, 5|LEA\s+r\d+, \[r\d+ \+ 5\]")
 
     def test_no_frame_for_leaf(self):
-        a = asm_of("int f(int a, int b) { return a * b + 1; }", "v1b")
-        self.assertNotIn("SAVE", a)
-        self.assertNotIn("sp", a)
+        for isa in ("v1b", "v2"):
+            a = asm_of("int f(int a, int b) { return a * b + 1; }", isa)
+            self.assertNotIn("SAVE", a)
+            self.assertNotIn("sp", a)
 
     def test_jump_table(self):
         src = """int f(int x) { switch (x) { case 0: return 5; case 1: return 7; case 2: return 9;
                  case 3: return 11; case 4: return 2; case 5: return 4; } return 0; }"""
         self.assertIn("JMP  [", asm_of(src, "v1b"))
         self.assertRegex(asm_of(src, "v1a"), r"JMP\s+r\d+")
+        self.assertRegex(asm_of(src, "v2"), r"JMP\s+\[pc \+ _f_jt0 \+ r\d+\*4\]")
 
 
 class Semantics(unittest.TestCase):
     """Small programs whose output doesn't need a reference compiler."""
 
     def check(self, src, out):
-        for isa in ("v1a", "v1b"):
+        for isa in ("v1a", "v1b", "v2"):
             self.assertEqual(run_c(src, isa), out, isa)
 
     def test_char_is_unsigned(self):
@@ -284,6 +509,22 @@ printf("%d %d\\n", arr[4], arr[15]); return 0; }""", "-2 75\n")
 int main(void) { int n = 5, s = 0; unsigned u = 3; while (n--) s += n; while (u--) s += 100;
 printf("%d %d %u\\n", s, n, u); return 0; }""", "310 -1 4294967295\n")
 
+    def test_counted_loops(self):
+        # the loop shapes ir.passes.count_down turns into counts down to zero
+        self.check("""#include <stdio.h>
+volatile int sink;
+static int up(void) { int i, n = 0; for (i = 0; i < 8; i++) n += 3; return n; }
+static int down(void) { int i, n = 0; for (i = 10; i > 0; i--) n++; return n; }
+static int le(void) { int i, n = 0; for (i = -3; i <= 4; i++) n++; return n; }
+static int ge(void) { unsigned i; int n = 0; for (i = 9; i >= 2; i--) n++; return n; }
+static int ne(int a, int b) { int i, n = 0; for (i = a; i != b; i++) n++; return n; }
+static int dowhile(int k) { int n = 0; do n++; while (--k); return n; }
+static int once(void) { int i = 5, n = 0; do n++; while (++i < 3); return n; }
+static int wn(int k) { int n = 0; while (k--) n += 2; return n; }
+static unsigned wrap(void) { unsigned i, n = 0; for (i = 0xFFFFFFF0u; i != 0x10; i++) n++; return n; }
+int main(void) { printf("%d %d %d %d %d %d %d\\n", up(), down(), le(), ge(), ne(3, 11), ne(-5, -2), dowhile(6));
+printf("%d %d %d %u\\n", once(), wn(7), wn(0), wrap()); return 0; }""", "24 10 8 8 8 3 6\n1 14 0 32\n")
+
     def test_rotates(self):
         self.check("""#include <stdio.h>
 static unsigned rol(unsigned x, int n) { return x << n | x >> (32 - n); }
@@ -299,7 +540,7 @@ int main(void) { int i; other[0] = 7; for (i = 0; i < 4; i++) table[i] = 99;
 printf("%d %d\\n", other[0], (int)sizeof(table)); return 0; }""", "7 400\n")
 
     def test_jump_table_past_32k(self):
-        # The table sits in its function's section: 1b reaches it
+        # The table sits in its function's section: 1b and 2 reach it
         # PC-relative, 1a with a 32-bit displacement, wherever that goes.
         from heron.infra import link
         from heron.studies.c_compiler.cc import driver
@@ -308,10 +549,11 @@ extern void pad(void) __asm__("pad");
 volatile int zero;
 int f(int x) { switch (x) { case 0: return 5; case 1: return 7; case 2: return 9;
                case 3: return 11; case 4: return 2; } return 0; }
-int main(void) { if (zero) pad(); printf("%d %d\\n", f(3), f(9)); return 0; }
+int (*volatile fp)(int) = f;       /* called through a pointer: not inlined */
+int main(void) { if (zero) pad(); printf("%d %d\\n", fp(3), fp(9)); return 0; }
 """
         pad = "        .global pad\n        .section .text.pad\npad:    .space 40000\n"
-        for isa in ("v1a", "v1b"):
+        for isa in ("v1a", "v1b", "v2"):
             objs = [driver.start_object(isa), driver.assemble(isa, pad, "pad.o"),
                     driver.assemble(isa, driver.unit_assembly(compile_unit("t.c", isa, text=src), isa), "t.o")]
             img = link.link(objs, [driver.library(isa)[0]], isa)
@@ -328,6 +570,20 @@ return s; }"""
         optimized(src)
         self.check("#include <stdio.h>\n" + src + '\nint main(void) { printf("%d %d\\n", f(5, 200, 3), f(4, -7, 2)); '
                    "return 0; }", "-495 -40\n")
+
+    def test_values_live_across_multiply_and_divide(self):
+        # on draft 2 every multiply and divide writes r0, which the
+        # allocator hands out once r1-r6 are taken: nothing may live there
+        # across one, and a quotient mustn't land on the remainder
+        terms = " + ".join(f"v{i} * {i + 2}" for i in range(7))
+        src = f"""#include <stdio.h>
+int f(int x, int y) {{ {" ".join(f"int v{i} = x + {i};" for i in range(7))}
+    int p = x * y, q = x / y, r = x % y;
+    return {terms} + p + q * 3 + r * 5; }}
+int main(void) {{ printf("%d\\n", f(1234, 37)); return 0; }}"""
+        x, y = 1234, 37
+        want = sum((x + i) * (i + 2) for i in range(7)) + x * y + (x // y) * 3 + (x % y) * 5
+        self.check(src, f"{want}\n")
 
     def test_spill_pressure(self):
         # more live values than registers

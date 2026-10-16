@@ -1,6 +1,7 @@
 # The compiler
 
-`compiler.lisp` compiles the language to draft 1b machine code. It is
+`compiler.lisp` compiles the language to draft 1b machine code, and with
+`compiler_v2.lisp` to draft 2's ([below](#on-draft-2)). It is
 written in the language and runs on the machine: loading it replaces the
 top level, so every later form is compiled, installed in code space and
 run. Its code follows the conventions of
@@ -90,7 +91,7 @@ where it was.
   primitive it held when the compiler was loaded. `car` and `cdr` are one
   instruction each, checked by the alignment trap; arithmetic checks both
   operands' tags in software (or with `tagged`, in one instruction,
-  [isa.md](isa.md)) and the V flag for overflow.
+  [report 0018's appendix](../../reports/0018-report-lisp.md#appendix-v1bx-draft-1b-with-a-tagged-register-mode)) and the V flag for overflow.
 - **Tests.** An `if` whose test is a comparison or a predicate compiles to
   a compare and a branch, without making `t` or `nil`.
 - **Errors** branch to a shared stub at the end of the function, which
@@ -140,5 +141,47 @@ it's for. `cc:install` writes one byte per parcel into the category map
 5. `(gc)`, then `(%save-image)` stops the machine, and the tools keep a
    copy of memory. A machine booted from it goes on reading the console.
 
-That takes 1.7 billion cycles (about 20 seconds in the simulator), 1.2
+That takes 1.6 billion cycles (about 20 seconds in the simulator), 1.5
 billion of them step 3.
+
+## On draft 2
+
+`compiler_v2.lisp` holds what draft 2 changes. `machine.compiler_source`
+puts the draft 2 compiler together: compiler.lisp with each top-level
+definition that compiler_v2.lisp also makes replaced by
+compiler_v2.lisp's, and its new ones after them. The compiler compiles
+itself from that text, so no 1b definition is left in it to be installed
+over a draft 2 one; and draft 2 leaves compiler.lisp, the 1b compiler,
+as it is (and report 0018's numbers with it).
+
+- **The assembler** writes draft 2's parcels (an opcode byte and a
+  register byte, [RFC 0028](../../reports/0028-rfc-draft-2-isa.md)): the
+  7-bit constants of `MOV` and `CMP`, `TST` with a constant (the integer
+  checks are `TST r, #1`), `[r14 + 4R]`, and with `tagged` the tagged
+  operations (`TADD`, `TSUB`, `TCMP`; `TTST r, r` checks one operand and
+  is `zero?`). An encoder test checks every form against the assembler
+  (tests/test_compiler.py).
+- **Registers:** arguments in `r6`, `r5`, `r4`, `r3`, `r8`, `r0`, as the
+  runtime's convention has them ([implementation.md](implementation.md#on-draft-2)):
+  argument k of the first four in r(7 − k), just below the link register.
+- **The frame.** A function saves its arguments on entry with the first
+  highest, `SAVE r(7−n)-r6` for n ≤ 4 parameters (`SAVE r3-r6` and then
+  `r8` and `r0` below it for 5 and 6), so its parameters are numbered in
+  order from the top of the frame.
+- **The link register.** A function's entry, returns and tail calls are
+  placeholders until its code is done (`cc:link`). A function that calls
+  anything (a `CALL`, a `BSR` to a known function, a call into the
+  runtime) saves `r7` with its arguments, `SAVE r(7−n)-r7`, so the
+  return address is above them; it returns with `JMP [sp]+` and restores
+  `r7` before a tail call. A leaf saves only the arguments, leaves `r7`
+  alone and returns with `RET`. An inline `cons` that finds the heap
+  full calls the runtime's `cons` (which collects, checks again and makes
+  the pair; `%rt:cons`, which takes the car in `r3` and the cdr in `r4`)
+  from a stub that keeps `r7` on the stack itself, so consing doesn't
+  make a function a caller.
+- **A tail call to itself** pops the frame down to the return address,
+  saves the new arguments where the old ones were and jumps past the
+  entry: past the stack check too, since the stack is no deeper than when
+  the function was entered.
+- **`no-leaf`** (a feature, for the measurements) makes every function
+  keep its return address on the stack.
