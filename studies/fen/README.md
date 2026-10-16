@@ -48,6 +48,7 @@ instruction-level simulator, on a board of the study's own
 | `run.py`, `cli.py` | Running it, with the keyboard, the mouse and the screen; the command line |
 | `profile.py`, `bench.py` | Cycles by process and function; the measurements in report 0036 |
 | `banks.py` | What fewer register banks would cost: traces of the threads that run, replayed through fewer banks ([RFC 0029's register-banks.md](../../reports/0029-rfc-draft-2-system/register-banks.md)) |
+| `irq.py` | How long the kernel holds interrupts off, what holds them off and how often interrupts come, traced an instruction at a time ([RFC 0040's fen-latency.md](../../reports/0040-rfc-interrupts/fen-latency.md)) |
 
 ```sh
 heron fen build                 # the kernel, the programs, the boot image and a disk, in build/fen
@@ -58,6 +59,7 @@ heron fen shot menu:1 'click:300,300' 'type:ls\n' -o screen.png
 heron fen ktest                 # the kernel's own test
 heron fen bench [--write]       # the measurements (report 0036's performance.md)
 heron fen banks [--write]       # fewer register banks (RFC 0029's register-banks-results.md)
+heron fen irq [--write]         # interrupts held off (RFC 0040's fen-latency-results.md)
 heron test fen                  # the unit tests
 ```
 

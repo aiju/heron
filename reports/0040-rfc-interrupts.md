@@ -444,9 +444,13 @@ Software, not hardware: a convention for Fen.
 - **Lazy rings** are drained at every context switch, every tick, and
   before `HALT`. Before halting, the kernel sets its rings' wake-me
   words, and clears them when it is busy again.
-- **For Fen:** `SPL` stays as it is and its timer stays at level 6, now
-  periodic; its board's devices move behind the I/O processor; it drains
-  its lazy rings; and each CPU sets its VBR.
+- **For Fen:** it runs its kernel with interrupts off throughout and uses
+  no `SPL` ([fen-latency.md](0040-rfc-interrupts/fen-latency.md)). Under
+  this convention its kernel enters at `SPL #6` with I set, two
+  instructions, so that messages get in; its timer moves from level 7 to
+  6, now periodic (Fen counts levels from 0, after its board's mask bits,
+  so it calls these 6 and 5); its board's devices move behind the I/O
+  processor; it drains its lazy rings; and each CPU sets its VBR.
 
 ### 8. Latency
 
@@ -459,6 +463,14 @@ Software, not hardware: a convention for Fen.
 | A message | Its handler running, even over the kernel's critical sections | the CPU's entry, perhaps 5–10 µs (*estimate*) |
 | A slow level | A user-level driver running | 85–107 µs ([report 0020](0020-report-operating-system.md#interrupts-and-devices)'s 500–640 cycles at Fen's 6 MHz), up to about 1 ms while the kernel holds slow levels off ([report 0036](0036-report-fen.md#3-what-it-costs)) |
 | A lazy event | The kernel seeing it | up to a tick, 8–16 ms, or sooner at a context switch |
+
+Measured in Fen, which holds interrupts off throughout its kernel: a
+slow interrupt arriving at a random moment waits about 145 µs on average
+at the shell and 0.7 ms on the desktop, but up to 46 ms while a large
+`vm_alloc` zeroes its pages; Fen takes at most about 500 interrupts a
+second; and a lazy event waits a few milliseconds while the machine is
+busy ([fen-latency.md](0040-rfc-interrupts/fen-latency.md), with the
+numbers in [fen-latency-results.md](0040-rfc-interrupts/fen-latency-results.md)).
 
 The rule for devices that follows:
 

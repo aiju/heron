@@ -134,6 +134,8 @@ Change the generator and rerun it rather than editing the output by hand:
   `heron fen bench --write`;
 - `reports/0029-rfc-draft-2-system/register-banks-results.md`:
   `heron fen banks --write`;
+- `reports/0040-rfc-interrupts/fen-latency-results.md`:
+  `heron fen irq --write`;
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;
