@@ -294,7 +294,9 @@ class V2(V1B):
         set N and Z from it, nothing in between touched the flags, and the
         branches after it only test N and Z. A MOV that wrote r becomes
         MOVS for it, so a load's flags reach past a store:
-        MOVS r3, byte [r2]+; MOV byte [r1]+, r3; BNE."""
+        MOVS r3, byte [r2]+; MOV byte [r1]+, r3; BNE. A byte or half MOVS
+        takes N from the operand's own top bit, not from the zero-extended
+        register, so it only stands in for a compare that Z decides."""
         for b in self.mf.blocks:
             out = []
             for k, c in enumerate(b.instrs):
@@ -305,9 +307,13 @@ class V2(V1B):
                              None)
                     users = self.flag_users(b, k)
                     conds = self.NZ_CONDS[c.ops[1].value]
+                    narrow = (d is not None and d.op in ("MOV", "MOVS")
+                              and any(isinstance(x, Mem) and x.size < 4 for x in d.ops[1:]))
                     if (d is not None and d.ops and d.ops[0] is r and r in d.defs
                             and (d.flags == "nz" or d.op in ("MOV", "COPY") and not isinstance(d.ops[1], Imm))
-                            and users and all(self.cond_of(u) in conds for u in users)):
+                            and users and all(self.cond_of(u) in conds for u in users)
+                            and not (narrow and any(conds[self.cond_of(u)] not in ("EQ", "NE")
+                                                    for u in users))):
                         if d.flags != "nz":
                             d.op, d.flags = "MOVS", "nz"
                         for u in users:

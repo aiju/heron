@@ -1,10 +1,11 @@
 //! The draft 2 encoder for the assembler core (infra/toolchain), from RFC
-//! 0028 and isa-v2.md. A parcel is an opcode byte, first in memory, and a
-//! register byte: `rd` in its high nibble, the mode's register `R` in its
-//! low one. Rows 1-6 and 8-A give an operation its modes as columns;
-//! one-operand instructions take the mode from the register byte.
+//! 0028 (its 6 is the syntax). A parcel is an opcode byte, first in
+//! memory, and a register byte: `rd` in its high nibble, the mode's
+//! register `R` in its low one. Rows 1-6 and 8-A give an operation its
+//! modes as columns; one-operand instructions take the mode from the
+//! register byte.
 //!
-//! The syntax is draft 1b's (studies/v1_isa/isa-v1b.md), with one spelling
+//! The syntax is draft 1b's, as RFC 0028 keeps it, with one spelling
 //! per instruction: a store is `MOV [address], rs`, and `MOV` and `CMP`
 //! pick their 7-bit forms themselves, so `ST`, `MVI` and `CMPI` are only
 //! labels in the map. `PUSH r1` is `MOV -[sp], r1` and `POP r1` is

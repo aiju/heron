@@ -230,6 +230,27 @@ class CodePatterns(unittest.TestCase):
         self.assertRegex(a, r"MOVS\s+(r\d+), byte \[r\d+\]\+\n\s+MOV\s+byte \[r\d+\]\+, \1\n\s+BNE")
         self.assertNotIn("CMP", a)
 
+    def test_v2_narrow_movs_only_for_z(self):
+        # MOVS on a byte takes N from bit 7, but the register holds the byte
+        # zero-extended: a compare that tests N must stay
+        from heron.studies.c_compiler.codegen.v2 import V2
+        from heron.studies.c_compiler.codegen.mir import (PHYS, Imm, Label, MBlock, MFunction,
+                                                          MInstr, Mem)
+        r1, r2 = PHYS[1], PHYS[2]
+        for cond, dropped in (("NE", True), ("LT", False)):
+            t = V2()
+            t.mf = MFunction("_f", None)
+            b, out = MBlock(None, ".b0"), MBlock(None, ".b1")
+            b.instrs = [MInstr("MOV", [r1, Mem(r2, size=1)], defs=[r1], uses=[r2]),
+                        MInstr("CMP", [r1, Imm(0)], uses=[r1], flags="cmp"),
+                        MInstr("BCC", [Label(out)], cond=cond, targets=[out]),
+                        MInstr("RET")]
+            t.mf.blocks = [b, out]
+            t.drop_compares()
+            ops = [i.op for i in b.instrs]
+            self.assertEqual("CMP" not in ops, dropped, cond)
+            self.assertEqual(ops[0], "MOVS" if dropped else "MOV", cond)
+
     def test_v2_zero_store_is_clr(self):
         a = asm_of("struct s { int a, b; char c; }; void f(struct s *p) { p->a = 0; p->c = 0; }", "v2")
         self.assertRegex(a, r"CLR\s+\[r1\]")
