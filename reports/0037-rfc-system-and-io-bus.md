@@ -284,8 +284,9 @@ reference assignment's spread of returns.
   - **The main CPU card's registers** at `0x7000_0000` are Fen's timer,
     board information and interrupt mask, and the control and interrupt
     request registers of [section 9](#9-cpu-cards).
-  - **The I/O processor's registers** are **open**, and few if any: a
-    doorbell, whose write wakes it, and its status, say. Requests,
+  - **The I/O processor's registers** are 16 doorbells, one for each
+    client of its rings; its status is in its shared RAM
+    ([RFC 0027, 4.4](0027-rfc-io-coprocessor.md#44-registers-for-the-cpus)). Requests,
     replies and the ring of events ([section 8](#8-interrupts)) are in
     memory.
   - **The CPU's RAM is at 0** because draft 2's reset and exception
@@ -458,7 +459,7 @@ and a warm reset (Emily, 2026-10-15).
   start a write while reset lasts (report 0025's memory card).
 - **During and after reset** the arbiter grants position 0. A CPU card whose
   control store is SRAM holds its CPU until the I/O processor starts it
-  ([RFC 0027, section 4](0027-rfc-io-coprocessor.md#4-booting-the-cpu)).
+  ([RFC 0027, section 8](0027-rfc-io-coprocessor.md#8-booting-the-cpu)).
 - **Never in the middle of a transfer:** a CPU card takes a warm reset
   when its current transfer ends; the I/O processor asserts RESET only
   between its own transfers.
@@ -486,6 +487,10 @@ and a warm reset (Emily, 2026-10-15).
     writes in memory before it sets the bit. A handler clears its level
     first, then drains the ring. An event posted in between raises the
     level again, so none is lost.
+- **Slow and fast:** the I/O processor sends slow events at levels 1–5,
+  through the ring and possibly batched, and fast ones at levels 6–8,
+  one source to a level, so that the level's vector is its handler
+  ([RFC 0027, 7.3](0027-rfc-io-coprocessor.md#73-interrupts-to-the-cpus)).
 - **NMI** is a bit in the CPU card's control register, not a line.
 
 ### 9. CPU cards
@@ -499,7 +504,7 @@ Among its registers, at `0x7N00_0000` for a card in region N
 | **Control** | RUN, RESET (the warm reset), STEP (a microcycle, or to the end of the instruction), NMI; status: running, halted, at an instruction boundary. At power-up RUN is off if the control store is SRAM, on if it is flash (a jumper) | ~2 |
 | **Interrupt request** | Levels 1–8, set and cleared by writes ([section 8](#8-interrupts)) | ~1–2 |
 | **Slave port** into its RAM | DMA, booting, other CPUs; shares the RAM by ticks, honours LOCK and the deadlock rule (RFC 0014, section 10) | ~12–15 |
-| **Control store write port** | For an SRAM control store: each SRAM a 16-bit lane in a window, written and read back while RUN is off ([RFC 0027, 4.1](0027-rfc-io-coprocessor.md#41-what-the-cpu-card-provides)) | ~14 |
+| **Control store write port** | For an SRAM control store: each SRAM a 16-bit lane in a window, written and read back while RUN is off ([RFC 0027, 8.1](0027-rfc-io-coprocessor.md#81-what-the-cpu-card-provides)) | ~14 |
 
 A CPU card compares its two ranges like every card: its RAM's for the
 slave port, and its registers'. It needs no logic for BERR, RDY or DPH.
@@ -704,8 +709,9 @@ CLKB.
 
 ### 19. Interrupts, reset and clocks
 
-- **INT:** each slot's line goes to the I/O processor's attention logic
-  and to a status port that shows which slots request. It is
+- **INT:** each slot's line goes to a status port that the I/O processor
+  reads at every tick of its polling, every 10 µs
+  ([RFC 0027, 6.4](0027-rfc-io-coprocessor.md#64-tasks-native-jobs-and-events)). It is
   level-sensitive: a card holds it until it has been serviced. A 10 kΩ
   pull-down at the I/O processor makes an empty slot quiet. The I/O
   processor services the device or forwards the event to a CPU
@@ -813,7 +819,7 @@ Some cards, roughly:
 
 That replaces RFC 0027's device decode, stretch counter and jumpers
 (about 3), so it adds about 12 to the I/O processor's card. The window
-adds about 5–7 more ([RFC 0027](0027-rfc-io-coprocessor.md) to be revised).
+adds about 5–7 more ([RFC 0027, 9](0027-rfc-io-coprocessor.md#9-chips)).
 
 ## Part III: Discussion
 
@@ -889,12 +895,13 @@ It reverses decisions of 2026-10-13 and 14, so these are Emily's:
 | Memory card | 31 | ~28 (no ID; a W32 driver) |
 | CPU card's bus interface | 35 | ~34 (no BERR handling; address comparisons for its RAM and its registers) |
 | I/O card | 16 | – (its devices go on I/O cards) |
-| I/O processor card | – | RFC 0027's ~60, plus ~12 for the I/O bus and ~6 for the window |
+| I/O processor card | – | about 95: RFC 0027's core, the I/O bus's side, the window and the shared RAM |
 
 The backplane's saving pays for most of the I/O bus's side on the I/O
-processor's card. If the memory card's RAM lives on the I/O processor's
-card instead, as shared RAM for the CPU (a possibility raised with Emily,
-not specified here), the memory card's ~28 chips become about 10 there.
+processor's card. RFC 0027 puts the memory card's RAM on the I/O
+processor's card, as RAM the CPUs share
+([4.3](0027-rfc-io-coprocessor.md#43-the-shared-ram)), so the memory card's ~28 chips
+become about 8 there.
 
 ### 27. What it costs
 
@@ -919,8 +926,9 @@ not specified here), the memory card's ~28 chips become about 10 there.
   [5.1](#51-addresses) it shouldn't happen.
 - **The I/O bus is strobe-timed,** fine at its size but not yet
   simulated ([section 30](#30-still-to-check)).
-- **Interrupts go through the I/O processor:** about 3–6 µs from a device
-  to a CPU, against about 1 µs over a line ([RFC 0027](0027-rfc-io-coprocessor.md)).
+- **Interrupts go through the I/O processor:** about 3–15 µs from a
+  device to a CPU (a tick of polling, then the routing), against about
+  1 µs over a line ([RFC 0027, 7.4](0027-rfc-io-coprocessor.md#74-latency)).
   Sources that need less live on the CPU's own card.
 - **One master on the I/O bus:** devices can't DMA; the I/O processor
   moves everything, as decided.
