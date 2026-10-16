@@ -309,12 +309,12 @@ mode's `R`) in its low one.
   nothing else.
 - **The operands are read before anything is written,** so `src` and `rs`
   may be `r0`.
-- **Where two results meet in one register,** the later stays: an
-  addressing mode's update, then `r0`'s, then `rd`'s. So `MULU r0:r0, src`
-  gives the low 32 bits of the product, `DIVU r0:r0, rs` the quotient,
-  and `MULU r0:r2, [r0]+` leaves the high half in `r0` (**open**,
-  tentative).
-  The alternative is that such encodings are illegal.
+- **With `rd` = `r0`,** `rd`'s result is written last and stays: `MULU
+  r0:r0, src` gives the low 32 bits of the product, and `DIVU r0:r0, rs`
+  the quotient (**open**, tentative). The alternative is that such
+  encodings are illegal. No other register can meet `r0`'s write: the
+  multiplies take a register or the special mode, which changes no
+  register, and the rest take registers.
 
 #### 5.4 Unary operations
 
@@ -858,10 +858,10 @@ added were special registers 1 and 2.
   separate `HI` is worse (Emily).
 - **Gone with them:** the shorthands `MFHI`, `MTHI`, `MFLO` and `MTLO`,
   and the open question of whether `MULU` and `MULS` leave `LO` alone.
-  What happens when a multiply or divide writes `r0` twice, as its `rd`
-  or its address register as well, is a new one. The proposal keeps the
-  later write, so `rd` wins and a register allocator may still pick
-  `r0` for it ([5.3](#53-multiply-and-divide)). It's sound, and stays
+  What happens when a multiply or divide has `rd` = `r0`, and so writes
+  it twice, is a new one. The proposal writes `rd` last, so it wins and
+  a register allocator may still pick `r0` for it
+  ([5.3](#53-multiply-and-divide)). It's sound, and stays
   tentative (Emily, 2026-10-16). The alternative is to make the
   conflicting encodings illegal, so a mistake traps; Emily finds the
   proposal more useful.
@@ -1032,9 +1032,9 @@ Part I marks each of these **open**; the proposal is what it states.
     with cc = F, `SAVE` and `RESTORE` within `r0`–`r14`, `DBNZ`'s offset,
     `INC` and `DEC` on a byte taking N from bit 7, `JMP` and `CALL`
     refusing byte and half memory operands, a load into its own
-    auto-incremented register, and which result stays where a multiply
-    or divide writes `r0` twice ([5.3](#53-multiply-and-divide); or
-    those encodings are illegal).
+    auto-incremented register, and which result stays when a multiply
+    or divide has `rd` = `r0` ([5.3](#53-multiply-and-divide); or those
+    encodings are illegal).
 13. **Syntax:** `LI`, `MFF` and `MTF` refused; one spelling per
     instruction; case.
 14. **The calling convention** beyond `r7` and `sp`.
