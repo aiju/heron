@@ -18,6 +18,8 @@ from . import check, timing, ucode as uc
 
 OUT = os.path.join(BUILD, "v2_hw")
 SKIP = ("hello", "interrupts")      # as report 0012: no work / mostly halted
+BUS_SKIP = ("interrupts",)          # its vectors are at physical 0, in the CPU card's RAM
+MAX_CYCLES = 50_000_000
 
 
 # the sources a profile depends on
@@ -53,7 +55,8 @@ def suite(c=True, asm=True):
 
 def run_one(name, mem, inp, code_base=0, **opts):
     from types import SimpleNamespace
-    m = check.run_rtl(SimpleNamespace(mem=mem), inp, code_base=code_base, profile=True, **opts)
+    m = check.run_rtl(SimpleNamespace(mem=mem), inp, code_base=code_base, profile=True,
+                      max_cycles=MAX_CYCLES, **opts)
     return {
         "name": name, "instructions": m.instructions, "cycles": m.cycles, "ticks": m.ticks,
         "hold": m.hold_ticks, "refills": m.refills, "fetch_words": m.fetch_words,
@@ -64,13 +67,21 @@ def run_one(name, mem, inp, code_base=0, **opts):
 
 
 def profile(code_base=0, force=False, jobs=4, **opts):
-    """Every program's counts (cached)."""
-    tag = _sources_tag() + f"-{code_base:x}-" + "-".join(f"{k}{v}" for k, v in sorted(opts.items()))
+    """Every program's counts, cached by the sources and the programs'
+    images. With the code over the bus, without the interrupt program,
+    whose vectors must be at physical 0."""
+    progs = suite()
+    if code_base:
+        progs = [p for p in progs if p[0] not in BUS_SKIP]
+    h = hashlib.sha1(_sources_tag().encode())
+    for name, img, inp in progs:
+        h.update(name.encode() + bytes(inp) + repr(sorted(img.mem.items())).encode())
+    tag = h.hexdigest()[:12] + f"-{code_base:x}-" + \
+        "-".join(f"{k}{v}" for k, v in sorted(opts.items()))
     path = os.path.join(OUT, f"profile-{tag}.pickle")
     if not force and os.path.exists(path):
         with open(path, "rb") as f:
             return pickle.load(f)
-    progs = suite()
     from concurrent.futures import ProcessPoolExecutor
     with ProcessPoolExecutor(jobs) as ex:
         futs = [ex.submit(run_one, n, dict(i.mem), inp, code_base, **opts) for n, i, inp in progs]
