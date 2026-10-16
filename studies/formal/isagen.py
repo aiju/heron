@@ -163,6 +163,46 @@ def array_entries(m, arr):
     return out, default
 
 
+def sites(spec):
+    """Every decision in the specification's text, as Run.note names it,
+    with the outcomes it can have: {(site, outcome)}."""
+    out = set()
+
+    def walk(stmts):
+        for st in stmts:
+            k = st[0]
+            if k == "if":
+                for i, (_, blk) in enumerate(st[1]):
+                    out.update({(("branch", st[3], i), True), (("branch", st[3], i), False)})
+                    walk(blk)
+                if st[2]:
+                    walk(st[2])
+            elif k == "case":
+                arms = [a for a in st[2] if a[0] is not None]
+                for i in range(len(arms)):
+                    out.update({(("branch", st[3], i), True), (("branch", st[3], i), False)})
+                for _, blk in st[2]:
+                    walk(blk)
+            elif k == "for":
+                walk(st[4])
+            elif k == "decode":
+                walk(st[2])
+            elif k == "set" and st[1][0] == "name":
+                d = spec.decls.get(st[1][1])
+                if d and d[0] == "reg" and d[1] is None and d[2] == 1:
+                    out.update({(("set", st[3], st[1][1]), True), (("set", st[3], st[1][1]), False)})
+            elif k in ("fault", "trap"):
+                out.add(((k, st[2]), True))
+            elif k == "halt":
+                out.add((("halt", st[1]), True))
+    for d in spec.decls.values():
+        if d[0] == "fn":
+            walk(d[2])
+    for ins in spec.instructions:
+        walk(ins.body)
+    return out
+
+
 def goals(spec, ins):
     """One instruction's goals: {(site, outcome): condition}, and the
     hypotheses (its assumptions)."""
@@ -274,6 +314,15 @@ def main(argv=None):
                 if v != "reached":
                     print(f"      {v:<10} line {site[1]}: {lines[site[1] - 1].strip()[:60]} "
                           f"({site[0]}{' ' + str(site[2]) if len(site) > 2 else ''}: {o})")
+    if not args.only:
+        every = sites(spec)
+        reached_sites = {key for (_, key) in reached_all}
+        dead = sorted(every - reached_sites, key=lambda x: (x[0][1], str(x)))
+        print(f"the specification has {len(every)} decision outcomes; "
+              f"{len(every) - len(dead)} reached by some instruction's cases, {len(dead)} by none:")
+        for site, o in dead:
+            print(f"      line {site[1]}: {lines[site[1] - 1].strip()[:60]} "
+                  f"({site[0]}{' ' + str(site[2]) if len(site) > 2 else ''}: {o})")
     print(f"{ncases} generated cases in {time.time() - t0:.0f} s, {bad} disagree; goals: "
           + ", ".join(f"{k} {total[k]}" for k in ("reached", "missed", "impossible", "unknown")))
     if args.random:
