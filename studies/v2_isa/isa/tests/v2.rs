@@ -569,3 +569,96 @@ fn timing_of_the_new_kinds() {
     }
     assert_eq!(rmw[1], 9);
 }
+
+#[test]
+fn an_open_console_waits_for_input() {
+    // echo the console, counting bytes in r1, until the end of the input
+    let src = "        MOV  r1, #0\n\
+               loop:   MOV  r2, [0xFFFFFF00]\n\
+               \x20       CMP  r2, #-1\n\
+               \x20       BEQ  done\n\
+               \x20       MOV  byte [0xFFFFFF00], r2\n\
+               \x20       ADD  r1, #1\n\
+               \x20       BRA  loop\n\
+               done:   MOV  r3, [0xFFFFFF04]\n\
+               \x20       HALT\n";
+    let mut a = Assembler::new(encoder("v2").unwrap(), false);
+    a.load("t.s", Some(src)).unwrap();
+    let img = a.assemble().unwrap_or_else(|e| panic!("{e}"));
+    let mut mem = vec![0u8; 0x100];
+    for (&addr, &v) in &img.mem {
+        mem[addr as usize] = v;
+    }
+    let mut m = Machine::new(&mem, b"hi", Config::named("D16-overlap").unwrap());
+    m.dev.open = true;
+    m.run(100_000).unwrap();
+    // waiting at the read, which hasn't happened
+    assert!(m.dev.waiting && !m.halted);
+    let (pc, cycles, r2) = (m.pc, m.cycles, m.r[2]);
+    assert_eq!((m.r[1], &m.dev.out[..]), (2, &b"hi"[..]));
+    m.run(100_000).unwrap();
+    assert_eq!((m.pc, m.cycles, m.r[2]), (pc, cycles, r2));
+    m.dev.send(b"!");
+    m.run(100_000).unwrap();
+    assert!(m.dev.waiting);
+    assert_eq!((m.r[1], &m.dev.out[..]), (3, &b"hi!"[..]));
+    m.dev.close();
+    m.run(100_000).unwrap();
+    assert!(m.halted && !m.dev.waiting);
+    assert_eq!((m.r[1], m.r[3]), (3, 2));
+}
+
+/// A device at 0x0100_0000 (a word to keep) and at the I/O page's +0x20
+/// (it counts its reads), as a frontend gives a machine one.
+#[derive(Default)]
+struct Box1 {
+    word: u32,
+    reads: u32,
+}
+
+impl devices::Device for Box1 {
+    fn read(&mut self, a: u32, _size: u32, _cycles: u64) -> Option<u32> {
+        match a {
+            0x0100_0000 => Some(self.word),
+            0xFFFF_FF20 => {
+                self.reads += 1;
+                Some(self.reads)
+            }
+            _ => None,
+        }
+    }
+
+    fn write(&mut self, a: u32, _size: u32, v: u32, _cycles: u64) -> bool {
+        match a {
+            0x0100_0000 => self.word = v,
+            _ => return false,
+        }
+        true
+    }
+}
+
+#[test]
+fn a_frontend_gives_the_machine_a_device() {
+    let src = "        MOV  r1, #0x1234\n\
+               \x20       MOV  [0x01000000], r1\n\
+               \x20       MOV  r2, [0x01000000]\n\
+               \x20       MOV  r3, [0xFFFFFF20]\n\
+               \x20       MOV  r3, [0xFFFFFF20]\n\
+               \x20       MOV  byte [0xFFFFFF00], r3\n\
+               \x20       MOV  r4, [0x02000000]\n\
+               \x20       HALT\n";
+    let mut a = Assembler::new(encoder("v2").unwrap(), false);
+    a.load("t.s", Some(src)).unwrap();
+    let img = a.assemble().unwrap_or_else(|e| panic!("{e}"));
+    let mut mem = vec![0u8; 0x100];
+    for (&addr, &v) in &img.mem {
+        mem[addr as usize] = v;
+    }
+    let mut m = Machine::new(&mem, b"", Config::named("D16-overlap").unwrap());
+    m.device = Some(Box::new(Box1::default()));
+    let err = m.run(100_000).unwrap_err();
+    // what the device doesn't answer is an error, as without one
+    assert!(err.contains("unmapped address 02000000"), "{err}");
+    assert_eq!((m.r[2], m.r[3], &m.dev.out[..]), (0x1234, 2, &[2u8][..]));
+    assert_eq!(m.device_as::<Box1>().unwrap().word, 0x1234);
+}

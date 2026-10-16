@@ -138,3 +138,70 @@ fn tagged_operands_check_tags_and_overflow() {
     m.run(1000).unwrap();
     assert_eq!(m.traps, [(4, "illegal instruction".to_string())]);
 }
+
+#[test]
+fn an_open_console_waits_for_input() {
+    let src = "        MOV  r1, [0xFFFFFF00]\n        HALT\n";
+    let mut a = toolchain::asm::Assembler::new(v1_isa::asm::encoder("v1b").unwrap(), false);
+    a.load("t.s", Some(src)).unwrap();
+    let img = a.assemble().unwrap_or_else(|e| panic!("{e}"));
+    let mut mem = vec![0u8; 0x100];
+    for (&addr, &v) in &img.mem {
+        mem[addr as usize] = v;
+    }
+    let mut m = Machine::new(Isa::V1b, &mem, b"", Config::named("D16-overlap").unwrap());
+    m.dev.open = true;
+    m.run(1000).unwrap();
+    // waiting at the read, which hasn't happened
+    assert!(m.dev.waiting && !m.halted);
+    assert_eq!((m.pc, m.instructions, m.cycles, m.r[1]), (0, 0, 0, 0));
+    m.dev.send(b"A");
+    m.run(1000).unwrap();
+    assert!(m.halted && !m.dev.waiting);
+    assert_eq!(m.r[1], 0x41);
+}
+
+/// A device at 0x0100_0000 (a word to keep) and at the I/O page's +0x20,
+/// as a frontend gives a machine one.
+#[derive(Default)]
+struct Box1 {
+    word: u32,
+}
+
+impl devices::Device for Box1 {
+    fn read(&mut self, a: u32, _size: u32, _cycles: u64) -> Option<u32> {
+        match a {
+            0x0100_0000 => Some(self.word),
+            0xFFFF_FF20 => Some(7),
+            _ => None,
+        }
+    }
+
+    fn write(&mut self, a: u32, _size: u32, v: u32, _cycles: u64) -> bool {
+        match a {
+            0x0100_0000 => self.word = v,
+            _ => return false,
+        }
+        true
+    }
+}
+
+#[test]
+fn a_frontend_gives_the_machine_a_device() {
+    let src = "        MOV  r1, #0x1234\n        ST   r1, [0x01000000]\n\
+               \x20       MOV  r2, [0x01000000]\n        MOV  r3, [0xFFFFFF20]\n\
+               \x20       MOV  r4, [0x02000000]\n        HALT\n";
+    let mut a = toolchain::asm::Assembler::new(v1_isa::asm::encoder("v1b").unwrap(), false);
+    a.load("t.s", Some(src)).unwrap();
+    let img = a.assemble().unwrap_or_else(|e| panic!("{e}"));
+    let mut mem = vec![0u8; 0x100];
+    for (&addr, &v) in &img.mem {
+        mem[addr as usize] = v;
+    }
+    let mut m = Machine::new(Isa::V1b, &mem, b"", Config::named("D16-overlap").unwrap());
+    m.device = Some(Box::new(Box1::default()));
+    let err = m.run(100_000).unwrap_err();
+    assert!(err.contains("unmapped address 02000000"), "{err}");
+    assert_eq!((m.r[2], m.r[3]), (0x1234, 7));
+    assert_eq!(m.device_as::<Box1>().unwrap().word, 0x1234);
+}

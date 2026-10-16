@@ -8,8 +8,14 @@
 //!   +08  R/W: timer period in cycles (0 = off)
 //!   +0C  R: timer flag                    W: acknowledge
 //!   +10  R: cycle counter
+//!
+//! A frontend can give the machine a device of its own (`device`): it gets
+//! the I/O page's registers from +20 on, and the addresses outside RAM and
+//! the I/O page, which are otherwise an error.
 
 use std::collections::HashMap;
+
+use devices::Device;
 
 use crate::insn::{Insn, Res, Stop, misaligned};
 use crate::key::{Key, Kind};
@@ -54,6 +60,13 @@ impl Isa {
 }
 
 /// The console, the timer and the cycle counter.
+///
+/// The console's input is all there from the start, as for a program's
+/// run, unless its line is `open`: then more may come (`send`) until it's
+/// closed (`close`), as at a terminal. A read of +00 with nothing waiting
+/// on an open line waits for input: the instruction stops before it
+/// happens (`Stop::Wait`), the machine is `waiting`, and the instruction
+/// runs again at the next step. +04 reads 0 meanwhile.
 #[derive(Default)]
 pub struct Devices {
     pub out: Vec<u8>,
@@ -62,6 +75,9 @@ pub struct Devices {
     pub timer_period: u64,
     pub timer_next: u64,
     pub timer_flag: u32,
+    pub open: bool,
+    /// A read waited for input, and none has come since.
+    pub waiting: bool,
 }
 
 impl Devices {
@@ -74,18 +90,22 @@ impl Devices {
         }
     }
 
-    fn read(&mut self, reg: u32, cycles: u64) -> u32 {
-        match reg {
+    /// A register's value, or None for a read that waits for input.
+    fn read(&mut self, reg: u32, cycles: u64) -> Option<u32> {
+        Some(match reg {
             0x00 => match self.inp.get(self.pos) {
                 Some(&b) => {
                     self.pos += 1;
                     b as u32
                 }
+                None if self.open => return None,
                 None => 0xFFFF_FFFF,
             },
             0x04 => {
                 if self.pos < self.inp.len() {
                     1
+                } else if self.open {
+                    0
                 } else {
                     2
                 }
@@ -94,7 +114,19 @@ impl Devices {
             0x0C => self.timer_flag,
             0x10 => cycles as u32,
             _ => 0,
-        }
+        })
+    }
+
+    /// More console input, on an open line.
+    pub fn send(&mut self, bytes: &[u8]) {
+        self.inp.extend_from_slice(bytes);
+        self.waiting = false;
+    }
+
+    /// The end of the console's input: past what's there, reads read -1.
+    pub fn close(&mut self) {
+        self.open = false;
+        self.waiting = false;
     }
 
     fn write(&mut self, reg: u32, value: u32, cycles: u64) {
@@ -190,6 +222,8 @@ pub struct Machine {
     pub pages: Option<Box<PageStats>>,
     /// The system bus, instead of the I/O page (see [`Bus`]).
     pub bus: Option<Box<dyn Bus>>,
+    /// A frontend's device, beside the I/O page (the module's comment).
+    pub device: Option<Box<dyn Device>>,
     reference: Config,
     ref_cache: HashMap<Key, u32>,
     /// Decoded instructions: decoded[slot[pc / 2]].
@@ -241,6 +275,7 @@ impl Machine {
             sys: (isa == Isa::V1bs).then(|| Box::new(Sys::new())),
             pages: None,
             bus: None,
+            device: None,
             reference,
             ref_cache: HashMap::new(),
             slot: vec![NONE; half],
@@ -268,18 +303,56 @@ impl Machine {
         Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8)
     }
 
-    fn io(&mut self, a: u32, size: u32, value: Option<u32>) -> u32 {
+    fn io_read(&mut self, a: u32, size: u32) -> Res<u32> {
         let reg = (a - IO_BASE) & !3;
+        if reg >= 0x20
+            && let Some(v) = self.device_read(a, size)
+        {
+            return Ok(v);
+        }
         let shift = 8 * (a & 3);
-        match value {
-            None => {
-                let v = self.dev.read(reg, self.cycles) as u64;
-                ((v >> shift) & ((1u64 << (8 * size)) - 1)) as u32
-            }
-            Some(v) => {
-                self.dev.write(reg, v, self.cycles);
-                0
-            }
+        let Some(v) = self.dev.read(reg, self.cycles) else {
+            return Err(Stop::Wait);
+        };
+        Ok(((v as u64 >> shift) & ((1u64 << (8 * size)) - 1)) as u32)
+    }
+
+    fn io_write(&mut self, a: u32, size: u32, v: u32) {
+        let reg = (a - IO_BASE) & !3;
+        if reg < 0x20 || !self.device_write(a, size, v) {
+            self.dev.write(reg, v, self.cycles);
+        }
+    }
+
+    fn device_read(&mut self, a: u32, size: u32) -> Option<u32> {
+        let c = self.cycles;
+        self.device.as_mut()?.read(a, size, c)
+    }
+
+    fn device_write(&mut self, a: u32, size: u32, v: u32) -> bool {
+        let c = self.cycles;
+        self.device.as_mut().is_some_and(|d| d.write(a, size, v, c))
+    }
+
+    /// The device, as its own type.
+    pub fn device_as<D: Device>(&mut self) -> Option<&mut D> {
+        let d: &mut dyn std::any::Any = self.device.as_mut()?.as_mut();
+        d.downcast_mut::<D>()
+    }
+
+    /// A read outside RAM and the I/O page: the device's, or an error.
+    fn outside_read(&mut self, a: u32, size: u32) -> Res<u32> {
+        match self.device_read(a, size) {
+            Some(v) => Ok(v),
+            None => self.bad(a),
+        }
+    }
+
+    fn outside_write(&mut self, a: u32, size: u32, v: u32) -> Res<()> {
+        if self.device_write(a, size, v) {
+            Ok(())
+        } else {
+            self.bad(a)
         }
     }
 
@@ -355,9 +428,9 @@ impl Machine {
             return Ok(self.mem[a as usize] as u32);
         }
         if a >= IO_BASE {
-            return Ok(self.io(a, 1, None));
+            return self.io_read(a, 1);
         }
-        self.bad(a)
+        self.outside_read(a, 1)
     }
 
     pub fn rd16(&mut self, a: u32) -> Res<u32> {
@@ -375,9 +448,9 @@ impl Machine {
             return Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8);
         }
         if a >= IO_BASE {
-            return Ok(self.io(a, 2, None));
+            return self.io_read(a, 2);
         }
-        self.bad(a)
+        self.outside_read(a, 2)
     }
 
     pub fn rd32(&mut self, a: u32) -> Res<u32> {
@@ -395,9 +468,9 @@ impl Machine {
             return Ok(u32::from_le_bytes(self.mem[a..a + 4].try_into().unwrap()));
         }
         if a >= IO_BASE {
-            return Ok(self.io(a, 4, None));
+            return self.io_read(a, 4);
         }
-        self.bad(a)
+        self.outside_read(a, 4)
     }
 
     pub fn wr8(&mut self, a: u32, v: u32) -> Res<()> {
@@ -415,10 +488,10 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io(a, 1, Some(v & 0xFF));
+            self.io_write(a, 1, v & 0xFF);
             return Ok(());
         }
-        self.bad(a)
+        self.outside_write(a, 1, v & 0xFF)
     }
 
     pub fn wr16(&mut self, a: u32, v: u32) -> Res<()> {
@@ -440,10 +513,10 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io(a, 2, Some(v & 0xFFFF));
+            self.io_write(a, 2, v & 0xFFFF);
             return Ok(());
         }
-        self.bad(a)
+        self.outside_write(a, 2, v & 0xFFFF)
     }
 
     pub fn wr32(&mut self, a: u32, v: u32) -> Res<()> {
@@ -466,10 +539,10 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io(a, 4, Some(v));
+            self.io_write(a, 4, v);
             return Ok(());
         }
-        self.bad(a)
+        self.outside_write(a, 4, v)
     }
 
     /// A store hit decoded code: forget every decode.
@@ -567,6 +640,7 @@ impl Machine {
         // fetch that faults is counted at the page-fault vector
         let (key, at) = match self.fetch(pc) {
             Err(Stop::Error(e)) => return Err(e),
+            Err(Stop::Wait) => return Err(format!("a console wait fetching at {pc:08X}")),
             Err(Stop::Trap(t)) => {
                 self.take_trap(pc, t)?;
                 (Key::new(1, pc, Kind::Trap), PAGE_VECTOR)
@@ -574,6 +648,10 @@ impl Machine {
             Ok((d, ppc)) => match self.exec(d.insn, pc, d.n) {
                 Ok(key) => (key, ppc),
                 Err(Stop::Error(e)) => return Err(e),
+                Err(Stop::Wait) => {
+                    self.dev.waiting = true;
+                    return Ok(());
+                }
                 Err(Stop::Trap(t)) => {
                     self.take_trap(pc, t)?;
                     (Key::new(d.n, pc, Kind::Trap), ppc)
@@ -692,12 +770,17 @@ impl Machine {
         self.enter_interrupt(vector, ret).map_err(|e| match e {
             Stop::Error(e) => e,
             Stop::Trap(t) => format!("{} while entering the {} vector", t.why, trap_name(vector)),
+            Stop::Wait => format!(
+                "a console wait while entering the {} vector",
+                trap_name(vector)
+            ),
         })
     }
 
-    /// Run until HALT, or until more than `max_cycles` cycles.
+    /// Run until HALT, or until more than `max_cycles` cycles, or until it
+    /// waits for console input.
     pub fn run(&mut self, max_cycles: u64) -> Result<(), String> {
-        while !self.run_for(max_cycles, u64::MAX)? {}
+        while !self.run_for(max_cycles, u64::MAX)? && !self.dev.waiting {}
         Ok(())
     }
 
@@ -705,7 +788,7 @@ impl Machine {
     /// whether the machine halted.
     pub fn run_for(&mut self, max_cycles: u64, steps: u64) -> Result<bool, String> {
         for _ in 0..steps {
-            if self.halted {
+            if self.halted || self.dev.waiting {
                 break;
             }
             self.step()?;
