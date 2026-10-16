@@ -50,6 +50,8 @@ pub struct ChipInfo {
     /// flip-flops sample asynchronous inputs and are expected to see
     /// setup violations, so the netlist can turn them off.
     pub checks: bool,
+    /// Extra delay on each output pin (the wiring); empty for none.
+    pub pin_delays: Vec<Time>,
 }
 
 pub struct Chip {
@@ -332,6 +334,7 @@ impl Ctx<'_> {
     pub fn drive_at(&mut self, c: &ChipInfo, pin: usize, v: u8, en: bool, t: Time) {
         // a pin has an output slot only if it's connected
         if let Some(o) = c.outs[pin] {
+            let t = t + c.pin_delays.get(pin).copied().unwrap_or(0);
             self.state.schedule(o, t, v, en);
         }
     }

@@ -1,0 +1,13 @@
+# The grid router for printed circuit boards (infra/pcb). Python uses it
+# through heron/bindings as heron.native.pcbroute.
+[package]
+name = "pcbroute"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

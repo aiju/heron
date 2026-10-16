@@ -147,6 +147,8 @@ Change the generator and rerun it rather than editing the output by hand:
   frozen, so this shouldn't be needed);
 - `reports/0022-report-bus-si-revised/results.md`: `heron bus_si report`;
   the figures next to it: `heron bus_si traces`;
+- `reports/0023-rfc-pcb-flow/results.md`: `heron pcb sweep --write` (needs
+  KiCad; about an hour and a half);
 - `reports/0024-rfc-faster-smaller/results.md`:
   `heron v1b_tradeoffs report --write` (`--hw` reruns the chip-level
   suites, about 30 minutes);

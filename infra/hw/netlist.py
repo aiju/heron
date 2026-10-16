@@ -13,7 +13,9 @@ A chip's part number comes from the parts variant (chips.VARIANTS), unless
 (74ABT245, 74F163). `params` are settings of the part itself (an
 oscillator's period); `nocheck` turns off a synchroniser's timing checks;
 `extra` adds delay to some of a chip's arcs, for example the time a bus
-line takes to settle after the chip drives it.
+line takes to settle after the chip drives it; `pin_extra` (add_pin_delay)
+delays everything one output pin drives, for example its wiring on a
+routed board (infra/pcb/wires.py).
 
 `include` copies another netlist into this one under a prefix, joining
 the nets it names to this netlist's: that is how cards go into slots of a
@@ -48,6 +50,7 @@ class Instance:
         self.params = dict(params or {})
         self.nocheck = nocheck
         self.extra = {}             # delay name -> extra ps
+        self.pin_extra = {}         # output pin -> extra ps (the wiring)
         self.conn = {}
         self.section = nl.current_section if nl else None
 
@@ -57,6 +60,12 @@ class Instance:
     def add_delay(self, name, ps):
         """Lengthen one of the chip's delays (by name) by ps."""
         self.extra[name] = self.extra.get(name, 0) + ps
+
+    def add_pin_delay(self, pin, ps):
+        """Delay everything one output pin drives by ps: its wiring."""
+        if pin not in self.type.pin_index:
+            raise KeyError(f"{self.ref} ({self.type.name}) has no pin {pin}")
+        self.pin_extra[pin] = self.pin_extra.get(pin, 0) + ps
 
     def __setitem__(self, pin, net):
         if pin not in self.type.pin_index:
@@ -203,6 +212,8 @@ class Netlist:
                 "delays": delays,
                 "params": {k: int(v) for k, v in inst.params.items()},
                 "nocheck": inst.nocheck,
+                **({"pin_delays": [int(inst.pin_extra.get(p, 0)) for p, _ in t.pins]}
+                   if inst.pin_extra else {}),
             })
         nets = [None] * len(net_ids)
         for n, i in net_ids.items():
@@ -243,6 +254,7 @@ class Netlist:
             new = Instance(self, inst.type.name, ref, inst.role, inst.part, inst.params,
                            inst.nocheck)
             new.extra = dict(inst.extra)
+            new.pin_extra = dict(inst.pin_extra)
             new.conn = {p: rename(n) for p, n in inst.conn.items()}
             new.section = inst.section
             new.card = prefix
