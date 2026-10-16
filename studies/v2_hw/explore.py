@@ -948,8 +948,7 @@ def build_model(programs=TRACE_PROGRAMS, jobs=4, log=print):
                     "fields": uc.explain(f), "cls": mc.lengths[f.get("LCL", 0)],
                     "ns": round(nt[a][0], 1) if a in nt else None}
 
-    packages = sum(1 / i.type.per_package for i in nl.instances
-                   if i.type.family not in ("fixture", "passive"))
+    packages = sum(nl.packages(parts.VARIANT).values())
     return {"title": "Draft 2 CPU", "variant": parts.VARIANT, "packages": round(packages),
             "families": FAMILIES, "buses": BUSES, "tnets": tnets,
             "nodes": {k: v for k, v in nodes.items() if v["kind"] != "symbol"},
