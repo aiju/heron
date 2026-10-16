@@ -124,6 +124,8 @@ class Model:
         net = self.conn.get(pin)
         if net is None:
             raise SimError(f"{self.inst.ref}.{pin} is unconnected")
+        if self.sim.reads is not None:
+            self.sim.reads.add((self.inst.ref, pin))
         return self.sim.value(net)
 
     def enable(self, pin):
@@ -582,6 +584,7 @@ class Sim:
         self.reset = False
         self.stamp = 0
         self.facts = {}              # z3 term id -> bool: decided splits
+        self.reads = None            # if a set: every (part, input pin) read
         self.obligations = []        # (what, term that must be false)
         self.fresh_count = 0
 

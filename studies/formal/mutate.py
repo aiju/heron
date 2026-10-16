@@ -18,10 +18,12 @@ For each mutant:
     cycles) on the chip-level simulator, against the RTL model, as
     `heron v1b_hw hw test` compares (results, cycles, every fetch); if
     that passes, the whole program suite too;
-  - the proofs: the decode cases the mutant can affect (for the microcode,
-    those whose routines reach the changed word; for the netlist, all),
-    the SAMPLE first and then the rest cheapest first, until one fails or
-    the time per mutant runs out.
+  - the proofs: the decode cases the mutant can affect, cheapest first,
+    until one fails or the time per mutant runs out. For the microcode,
+    those whose routines reach the changed word (`affected`); for the
+    netlist, those that read a changed pin on some path of the unmutated
+    netlist (`pin_map`, `relevant`): up to the first such read, a run on
+    the mutant is the same.
 """
 
 import argparse
@@ -302,16 +304,51 @@ def tests_catch(nl, roms, whole_suite=True):
     return None
 
 
+PINS = os.path.join(BUILD, "formal", "v1b-pins-read.json")
+
+
+def _pins_one(name):
+    c = next(c for c in v1b.cases() if c.name() == name)
+    try:
+        reads, _ = v1b.pins_read(c, timeout_ms=60_000)
+        return name, sorted(f"{r}.{p}" for r, p in reads)
+    except Exception as e:                      # noqa: BLE001
+        return name, repr(e)
+
+
+def pin_map(jobs=4):
+    """{case name: [part.pin read on any path]}, for the unmutated netlist:
+    built once (minutes) and kept in build/."""
+    import multiprocessing as mp
+    if os.path.exists(PINS):
+        with open(PINS) as f:
+            return json.load(f)
+    names = [c.name() for c in v1b.cases()]
+    with mp.get_context("fork").Pool(jobs) as pool:
+        out = dict(pool.map(_pins_one, names, chunksize=4))
+    bad = {k: v for k, v in out.items() if isinstance(v, str)}
+    if bad:
+        raise RuntimeError(f"exploring failed: {list(bad.items())[:3]}")
+    os.makedirs(os.path.dirname(PINS), exist_ok=True)
+    with open(PINS, "w") as f:
+        json.dump(out, f)
+    return out
+
+
+def relevant(changes, pins):
+    """The decode cases that read a pin a netlist mutation changes."""
+    nl = v1b.netlist()
+    touched = {f"{r}.{p}" for (r, p) in _resolve(nl, changes)}
+    return [c for c in v1b.cases() if touched & set(pins[c.name()])]
+
+
 def proofs_catch(nl, roms, cases, jobs, budget, cap):
     """Prove `cases` (the SAMPLE first, then cheapest first) on the mutant
     until one fails or `cap` seconds have gone: (the failing case and what
     failed, or None; how many cases were run)."""
     v1b._cache["nl"], v1b._cache["roms"] = nl, roms
     try:
-        names = {c.name(): c for c in cases}
-        first = [names[k] for k in SAMPLE if k in names]
-        rest = sorted((c for c in cases if c.name() not in SAMPLE), key=cost)
-        todo = first + rest
+        todo = sorted(cases, key=cost)
         out = os.path.join(BUILD, "formal", "mutant-run.json")
         t0 = time.time()
         ran = 0
@@ -351,6 +388,7 @@ def main(argv=None):
     v1b.netlist()
     v1b.roms()
     reference()
+    pins = pin_map(args.jobs)
     muts = []
     if args.only != "random":
         muts += [("netlist", "handmade", d, c) for d, c in HANDMADE]
@@ -363,7 +401,7 @@ def main(argv=None):
         t0 = time.time()
         if kind == "netlist":
             nl, roms = apply_netlist(change), v1b.roms()
-            cases = v1b.cases()
+            cases = relevant(change, pins)
         else:
             nl, roms = v1b.netlist(), apply_ucode(change)
             cases = affected(change[0])

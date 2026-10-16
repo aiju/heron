@@ -454,9 +454,11 @@ class Prover:
     """One decode case: set up both sides, explore the hardware's paths,
     prove each."""
 
-    def __init__(self, case, timeout_ms=120_000, max_cycles=400, verbose=False, cutpoints=True):
+    def __init__(self, case, timeout_ms=120_000, max_cycles=400, verbose=False, cutpoints=True,
+                 solve=True):
         self.case, self.timeout, self.max_cycles = case, timeout_ms, max_cycles
         self.cutpoints = cutpoints
+        self.solve = solve           # False: explore the paths, prove nothing at their ends
         self.cuts = 0                # MAR values replaced by the specification's address
         self.verbose = verbose
         self.spec = S.load("v1b.isa")
@@ -582,7 +584,8 @@ class Prover:
                 f = control_word(sim)
                 ending = f["SEQ"] == uc.SEQ_DECODE and f["LDIR"] and not f["GOIRQ"]
                 if f["HALT"]:
-                    res.paths.append(self.check(path, sim.cycle - start, None, halted=True))
+                    res.paths.append(self.check(path, sim.cycle - start, None, halted=True)
+                                     if self.solve else ("explored", sim.cycle - start, ""))
                     break
                 seen = {}
                 try:
@@ -609,7 +612,8 @@ class Prover:
                         break
                     continue
                 if ending:
-                    res.paths.append(self.check(path, sim.cycle - start, seen))
+                    res.paths.append(self.check(path, sim.cycle - start, seen) if self.solve
+                                     else ("explored", sim.cycle - start, ""))
                     if self.verbose:
                         print(f"  path {len(res.paths)}: {res.paths[-1]}", flush=True)
                     break
@@ -723,6 +727,19 @@ class Prover:
 
 def prove_case(case, **kw):
     return Prover(case, **kw).prove()
+
+
+def pins_read(case, **kw):
+    """The (part, input pin) pairs the hardware reads on any of a case's
+    paths, unmutated. A change to the netlist that leaves all of them alone
+    can't change the case: up to the first read of a changed pin the run is
+    the same."""
+    p = Prover(case, solve=False, cutpoints=False, **kw)
+    p.setup()
+    p.sim.reads = set()
+    res = Result(case)
+    p.explore(res)
+    return p.sim.reads, res
 
 
 # ---------------------------------------------------------------- reset
