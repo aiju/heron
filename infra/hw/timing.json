@@ -928,6 +928,19 @@
   "part_number": "SN74F08",
   "source": "https://www.ti.com/lit/ds/symlink/sn74f08.pdf"
  },
+ "74F10": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6,
+    "min": 1,
+    "typ": 3.3
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F10",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f10.pdf"
+ },
  "74F109": {
   "checks": {
    "fmax MHz": 90,
