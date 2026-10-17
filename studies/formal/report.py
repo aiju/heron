@@ -29,6 +29,37 @@ MODES = {0: "rn", 1: "#n", 2: "[rn]", 3: "[rn + d16]", 4: "[sp + 4n]", 5: "index
 OPS = {1: "MOV", 2: "ST", 3: "LEA", 4: "ADD", 5: "SUB", 6: "CMP", 7: "AND", 8: "OR", 9: "XOR",
        11: "JMP/CALL"}
 RR = ["ADC", "SBC", "BIC", "TST", "MULU", "MULS", "DIVU", "DIVS", "DIVUL"]
+SPECIAL = ["#simm16", "#imm16", "#imm16 << 16", "#imm32", "[abs16]", "byte [abs16]",
+           "half [abs16]", "[abs32]", "byte [abs32]", "half [abs32]", "[pc + d16]",
+           "byte [pc + d16]", "half [pc + d16]"]
+SYS = {0: "HALT", 1: "NOP", 2: "JMP rs", 3: "CALL rs", 4: "RET", 7: "RTI", 8: "EI", 9: "DI",
+       10: "MFSR", 11: "MTSR", 12: "SWI", 13: "SETcc"}
+
+
+def describe(name):
+    """A decode case's name as the instruction it is, where that's short."""
+    k = name.split()
+    if k[0] == "ea":
+        op, ext, m = int(k[1]), k[2], int(k[3])
+        n = None if k[4] == "None" else int(k[4])
+        what = {0: "JMP", 1: "CALL"}[int(ext)] if op == 11 else OPS[op] + " rd,"
+        if m == 15 and n is not None and n < len(SPECIAL):
+            ea = SPECIAL[n]
+        elif m == 4 and n is not None:
+            ea = f"[sp + {4 * n}]"
+        else:
+            ea = MODES[m]
+        return f"{what} {ea}"
+    if k[0] == "sys":
+        f = int(k[1])
+        if f in (5, 6):
+            return f"{'SAVE' if f == 5 else 'RESTORE'} r{k[2]}-r{k[3]}"
+        return SYS.get(f, name)
+    if k[0] == "rr":
+        return RR[int(k[1])] + " rd, rs"
+    if k[0] == "illegal":
+        return f"illegal, opcode {k[2]}"
+    return name
 
 
 def _fmt_s(x):
@@ -97,10 +128,12 @@ def tables(results, mutants):
 
     bad = [(n, r) for n, r in sorted(results.items()) if r["status"] != "proved"]
     if bad:
-        out += ["## The cases not proved", "", "| Case | Status | Seconds | What |", "|---|---|---:|---|"]
+        out += ["## The cases not proved", "",
+                "| Case | Instruction | Status | Seconds | What |", "|---|---|---|---:|---|"]
         for n, r in bad:
             what = r.get("error") or next((p[2] for p in r["paths"] if p[0] != "proved"), "")
-            out.append(f"| `{n}` | {r['status']} | {r['seconds']:.0f} | {what[:120]} |")
+            out.append(f"| `{n}` | {describe(n)} | {r['status']} | {r['seconds']:.0f} | "
+                       f"{what[:120]} |")
         out.append("")
 
     if mutants:
