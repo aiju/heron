@@ -943,9 +943,11 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     nl.section("PC")
     g("04", ["JUMP_n"], "PCLD")
     # a decode that goes ahead consumes its first parcel; a cycle that
-    # consumes has no data access (the microcode's rules)
-    g("08", [u["CONSUME"], "JUMP_n"], "CONSC")
-    g("32", ["CONSC", "DECGO"], "CONSUMEX")
+    # consumes has no data access (the microcode's rules). A consume in a
+    # cycle that jumps needn't be masked: the PC loads, and the queue
+    # empties, whichever slot is then the head. (Masked, the jump's
+    # condition was on the queue slots' flip-flops' path, through SHIFT.)
+    g("32", [u["CONSUME"], "DECGO"], "CONSUMEX")
     counter_chain(nl, "PC", PC, RES, 1, 8, "JUMP_n", "CONSUMEX")
     counter_chain(nl, "FPC", FPC, RES, 2, 5, "JUMP_n", "FPCINC")
     # PC[1] again, from a fast flip-flop, for the queue's head
@@ -964,7 +966,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     g("08", ["FETCHCYC", "V1_n"], "FETCHED")
     g("08", ["FETCHED", "JUMP_n"], "FPCINC")
     # the head word is used up when its high parcel is consumed
-    g("08", ["CONSC", "PC1F"], "SHIFTC")
+    g("08", [u["CONSUME"], "PC1F"], "SHIFTC")
     g("32", ["SHIFTC", "DECGOP"], "SHIFT")
     g("04", ["SHIFT"], "SHIFT_n")
     g("86", ["HS", "SHIFT"], "HS_D")

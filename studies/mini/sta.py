@@ -167,6 +167,21 @@ def extra_checks(case, N):
         if t != hsta.NEG:
             out.append(("setup", t + su - close, f"{inst.ref} latch setup (closes at RW)",
                         inst.conn[f"D{worst}"]))
+    # the queue slots' J-K flip-flops, on the master clock: at the edge
+    # that ends T2, a master-clock flip-flop's delay before CLK's, J and K
+    # take whether the slot is empty after it (E0N_n, E1N_n), through a
+    # gate to J and two to K
+    d175 = _delays("175")["CLK->Q"]
+    su = N.delay["U_QLE"]["setup JK"]
+    for k in range(2):
+        t = case.net(f"E{k}N_n")[1]
+        if t == hsta.NEG:
+            continue
+        j = N.delay[N.drivers[f"LE{k}J"][0][0].ref]["A->Y"]
+        k1 = N.delay[N.drivers[f"LE{k}K1_n"][0][0].ref]["A->Y"]
+        k2 = N.delay[N.drivers[f"LE{k}K_n"][0][0].ref]["A->Y"]
+        out.append(("setup", t + max(j, k1 + k2) + su + d175,
+                    f"U_QLE.{k + 1}J/K setup (the master clock's edge ending T2)", f"E{k}N_n"))
     # an access to the I/O space starts the hold as tick 3 ends: IOACC
     # through two gates to HOLD's flip-flop, the region to the hold
     # counter's preload. Not a matter of the period: a microinstruction
