@@ -901,7 +901,8 @@ mutate`), and each was given to the tests and to the proofs:
   reach the changed word; for the netlist, those that read a changed pin
   on some path of the correct netlist (until the first such read a run
   on the mistake is the same). 300 seconds a case and 15 minutes a
-  mistake, then an hour more for any that ran out (`--resume`).
+  mistake; then, for those the proofs hadn't caught, the same again with
+  more time (`--resume`: an hour, or 900 seconds a case).
   Anything the simulator finds wrong with the mistake itself (a
   combinational loop, two drivers on a bus) counts as caught.
 
@@ -926,13 +927,15 @@ and what caught it. In short:
   mistake in a corner is found without anyone thinking of the corner.
 - **The tests caught one the proofs missed:** a microcode bit in MULS,
   which no proof finishes ([6](#6-what-it-costs)).
-- **Two of those that survived are harmless.** One changes the unused
-  half of a flip-flop, which no case reads. The other flips a bit of
-  `OR rd, #14`'s routine, and the case still proves: in that word the
-  bit makes no difference.
-- **Four survived both because their cases ran out of time:** the
-  indexed mode, a shift by a register, and two more RESTOREs. The tests
-  missed them too. They are the gap the budgets leave (W4).
+- **Four of those that survived are harmless.** One changes the unused
+  half of a flip-flop, which no case reads. Three flip a bit of a
+  routine (`OR rd, #14`, a shift by a register, RESTORE r2–r13) and the
+  case still proves: in that word the bit makes no difference.
+- **Two survived both because their cases ran out of time:** SUB with
+  the indexed mode, which doesn't prove even on the correct hardware,
+  and RESTORE r1–r10, which proves there in 137 seconds but not within
+  900 with the mistake. The tests missed them too. They are the gap the
+  budgets leave (W4).
 - **What to prove first matters.** At first the proofs ran a fixed
   sample of quick cases of every kind, and the time for a mistake ran out
   on cases it can't touch. Running only the cases that can see the mistake (W1),
