@@ -54,6 +54,7 @@ heron mini run PROG.s [--profile]    # one program on the RTL model
 heron mini perf                      # the suite's time with the length classes
 heron mini bench                     # graphics kernels: code against the block instructions
 heron mini report [--write]          # RFC 0041's tables (performance.md; a few minutes)
+heron mini schematic                 # the netlist in the schematic viewer (build/mini/schematic.html)
 heron mini hw test [--c] [NAMES]     # the suite (--c the C programs) at chip level against the RTL model (about 6 minutes)
 heron mini hw devices                # the devices program at chip level (UARTs, flash, CF, 82C54)
 heron mini hw video [--png F]        # the video program at chip level, its frames grabbed (about 90 s)

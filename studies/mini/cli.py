@@ -12,6 +12,8 @@
   bench                            the graphics kernels: draft 2 code against
                                    the block instructions
   report [--write]                 RFC 0041's tables (performance.md)
+  schematic [--out FILE]           the netlist in the schematic viewer
+                                   (build/mini/schematic.html)
   hw     test|run|devices|video|blocks|sta|bom
                                    the chip-level netlist: programs on the
                                    chip-level simulator against the RTL
@@ -21,6 +23,20 @@
 
 import argparse
 import sys
+
+
+def cmd_schematic(args):
+    import os
+    from heron import BUILD
+    from heron.infra.hw import schematic
+    from . import board
+    out = args.out or os.path.join(BUILD, "mini", "schematic.html")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    html = schematic.page(board.build(sim=True), "Heron Mini", standalone=True)
+    with open(out, "w") as f:
+        f.write(html)
+    print(f"{out}: {len(html) // 1024} KB")
+    return 0
 
 
 def cmd_run(args):
@@ -95,5 +111,8 @@ def main(argv=None):
     rp.add_argument("--write", action="store_true",
                     help="write reports/0041-rfc-heron-mini/performance.md")
     rp.set_defaults(func=lambda a: __import__("heron.studies.mini.report", fromlist=["x"]).main(a))
+    sc = sub.add_parser("schematic", help="the netlist in the schematic viewer")
+    sc.add_argument("--out", help="where to write it (default build/mini/schematic.html)")
+    sc.set_defaults(func=cmd_schematic)
     args = p.parse_args(argv)
     return args.func(args)

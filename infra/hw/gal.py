@@ -92,6 +92,17 @@ def add(nl, ref, outputs, clock=None):
     return inst
 
 
+def equations(inst):
+    """A 22V10's equations as text, by its nets: := for a registered
+    output, / for a complement."""
+    out = []
+    for pin, reg, inv, terms in inst.gal:
+        tt = " + ".join("·".join(("" if v else "/") + inst.conn[p] for p, v in t) or "1"
+                        for t in terms) or "0"
+        out.append(f"{'/' if inv else ''}{inst.conn[pin]} {':=' if reg else '='} {tt}")
+    return "; ".join(out)
+
+
 def minimise(on, dc, n):
     """A sum of products of n variables (as indices 0..n-1, LSB first) that
     is 1 on the minterms `on`, 0 off `on` and `dc`: prime cubes, greedily."""
