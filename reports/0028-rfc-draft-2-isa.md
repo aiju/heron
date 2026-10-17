@@ -19,7 +19,9 @@ What the CPU gives an operating system (modes, register banks, address
 translation, exceptions) is [RFC 0029](0029-rfc-draft-2-system.md).
 
 The opcode map is also in [map.json](0028-rfc-draft-2-isa/map.json), in
-the format of the opcode explorer it was laid out with.
+the format of the opcode explorer it was laid out with
+([studies/opcode_map](../studies/opcode_map/README.md)), which the
+website's Apps page has with this map built in.
 
 ## Part I: Specification
 

@@ -13,8 +13,8 @@ folders) go to GitHub at main. site.css is the look and site.js the
 behaviour (filters, search, highlighting); every page reads without the
 script.
 
---apps also builds the browser tools (the schematic viewer, the reference
-cards) and the simulator (studies/websim, its own tab), which takes a few
+--apps also builds the browser tools (the schematic viewer, the opcode
+map, the reference cards) and the simulator (studies/websim, its own tab), which takes a few
 minutes; a build without it keeps what was built before.
 .github/workflows/pages.yml publishes the site from main, with them.
 
@@ -879,6 +879,12 @@ def _schematic(out):
     return ["schematic-1b.html"]
 
 
+def _opcode_map(out):
+    from heron.studies.opcode_map import page
+    page.write(os.path.join(out, "opcode-map.html"))
+    return ["opcode-map.html"]
+
+
 def _refcards(out):
     from heron.studies.v1_isa import refcard
     made, chrome = [], refcard.find_chrome()
@@ -903,6 +909,13 @@ APPS = [
              "from its driver to every receiver, across sheets and cards.",
      "alt": "The schematic viewer's overview of the draft 1b system",
      "files": [("Open", "schematic-1b.html")]},
+    {"id": "opcode-map", "title": "Opcode map", "build": _opcode_map,
+     "kind": "Instruction set · draft 2", "cmd": "heron opcode_map build",
+     "desc": "Draft 2's opcode map as RFC 0028 has it, in the tool it was laid out in: every cell's "
+             "instruction and addressing mode, its encoding bit by bit, the extension grids and the "
+             "checks. Change it in your browser, with undo, and export what you made.",
+     "alt": "Draft 2's opcode map: the 16 by 16 grid of the first byte's cells",
+     "files": [("Open", "opcode-map.html")]},
     {"id": "refcard-v1b", "title": "Quick reference cards", "build": _refcards,
      "kind": "Instruction set · drafts 1a and 1b", "cmd": "heron v1_isa refcard",
      "desc": "Opcodes, addressing modes, conditions and the system group on two printable A4 pages "
