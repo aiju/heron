@@ -34,17 +34,18 @@ needed something it leaves open, it chose (below).
   register, the message register, the timer) and RFC 0027's slave port
   and control store window. The CPU starts with RUN off; the IOP loads it
   and starts it.
-- **The microcode** (`ucode/`, about 2,100 microinstructions): reset (the
+- **The microcode** (`ucode/`, about 2,300 microinstructions): reset (the
   timing table, the SRAM's self test, the dictionary out of the image
-  flash), the inner interpreter, 76 primitives and the task switch
-  (`core.uc`, `prims.uc`); the native layer, which runs the tick, the
+  flash), the inner interpreter, 78 primitives and the task switch
+  (`core.uc`, `prims.uc`), the dictionary's search among them (8
+  microinstructions a header, yielding to the tick); the native layer, which runs the tick, the
   doorbells and the native jobs; and the jobs themselves (`jobs.uc`): the
   movers (copies, fills and blocks between the bus, the shared RAM, the
   image flash and a device's register, in slices of 16 transfers), each
   client's ring job (requests fetched, checked against the client's
   windows, done or passed to the Forth, completed; the CF card's sectors
   among them), and posting events to their owners by the routing table.
-- **The Forth** (`forth/`, about 8,700 cells): the console *is* its
+- **The Forth** (`forth/`, about 9,100 cells): the console *is* its
   interpreter. A kernel with the compiler, catch and throw; the monitor
   (examine, deposit, dump anywhere on the system bus), blocks as native
   jobs, the image flash and `save`, tasks, booting the CPU; the system:
@@ -253,9 +254,8 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   no timing violations at the slow corner. It is the model's, clock for
   clock and AC for AC, ticks and all: tests/test_netlist.py types a line
   at the console that reads a sector off the CF card into the CPU card's
-  RAM, and one on the serial card's line 0, and compares the 718,000
-  microinstructions to the answers, 88 ms (most of it the interpreter's
-  `find`, in Forth). For that the model runs its UARTs and timer on the
+  RAM, and one on the serial card's line 0, and compares the 385,000
+  microinstructions to the answers, 48 ms. For that the model runs its UARTs and timer on the
   card's oscillators' edges (`iobus::Edges`, its clock 0 on the card's time line
   as `hw.T0_PS`), makes each I/O access when the card's strobe starts or
   ends, and sees OUT0 through the tick's synchroniser and the INT lines
@@ -464,27 +464,28 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
 | | Measured | RFC 0027 |
 |---|---:|---|
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
-| dictionary out of the flash (9156 cells, 36 pages) | 7.3 ms | 32K cells in ~30 ms |
+| dictionary out of the flash (9100 cells, 36 pages) | 7.3 ms | 32K cells in ~30 ms |
 | power-up to the banner | 151.2 ms | - |
-| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,250,173 | about 1,000,000 |
-| microcycles a Forth word, there | 6.67 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
-| the tick's share of the IOP while Forth computes | 9.6% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,223,417 | - |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,257,041 | about 1,000,000 |
+| microcycles a Forth word, there | 6.63 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
+| the tick's share of the IOP while Forth computes | 9.5% | 5-10% (0.5-1 us a tick) |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,228,381 | - |
+| the dictionary searched to its end (a number at the console), in microcode | 708 us, 412 headers | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.1 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
-| booting the CPU: draft 2's control store, its decode table and the program | 92.5 ms (2.6 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
+| booting the CPU: draft 2's control store, its decode table and the program | 89.0 ms (2.7 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
 | a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 40.0 us, 58.6 us | ~5 us on top of the transfer |
 | a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1371.6 us, 1390.2 us | ~5 us on top of the transfer |
 | a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 143.6 us, 227.9 us | ~5 us on top of the transfer |
 | a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 282 cycles, 103 us | 200-700 cycles |
 | a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 282 cycles, 1435 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 278 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 275 us | 200-700 cycles |
 | Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 379 ms, 82% busy, 7,289 cycles a KB | the CPU's time back |
 | Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1658 ms, 68% busy, 26,574 cycles a KB | the CPU's time back |
-| microcode | 2239 microinstructions, 77 primitives | 1-2K; the interpreter and primitives 500-1,000 |
-| the Forth's dictionary | 9156 cells | up to 32K |
+| microcode | 2291 microinstructions, 78 primitives | 1-2K; the interpreter and primitives 500-1,000 |
+| the Forth's dictionary | 9100 cells | up to 32K |
 
 The copies are a job's time from its first slice to its end, with the
 ticks and the Forth's turns. A request's CPU cycles are `sw/ring.s`'s,

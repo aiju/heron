@@ -181,19 +181,11 @@ create wbuf 66 allot
    begin dup if over @ delim? else 0 then while 1 /string repeat
    (parse) 63 min dup wbuf ! wbuf 1+ swap move wbuf ;
 
-\ ---- the dictionary: words are found whatever their case
+\ ---- the dictionary: words are found whatever their case ((search),
+\ in microcode)
 
 : lower ( c -- c' ) dup [char] A [char] Z 1+ within if 32 + then ;
-: same? ( a1 a2 n -- f )
-   0 ?do over i + @ lower over i + @ lower <> if 2drop unloop false exit then loop
-   2drop true ;
-: (find) ( c-addr -- hdr | 0 )
-   >r latest @
-   begin dup while
-      dup 1+ @ $203F and r@ @ = if
-         r@ 1+ over 2 + r@ @ same? if rdrop exit then
-      then @
-   repeat rdrop ;
+: (find) ( c-addr -- hdr | 0 ) latest @ (search) ;
 : >flags ( hdr -- x ) 1+ @ ;
 : >xt ( hdr -- xt ) dup >flags $3F and + 2 + @ ;
 : >body ( xt -- a ) 4 + ;

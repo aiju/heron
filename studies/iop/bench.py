@@ -92,6 +92,22 @@ def measure(wcs=False):
     rows.append(("Forth words a second, `words` (the console, `emit` waiting on the UART)",
                  f"{(a[2] - z[2]) / ((a[0] - z[0]) * bclk / 1e9):,.0f}", "-"))
 
+    # ---- the interpreter: a number isn't in the dictionary, so finding
+    # it is a search of all of it (ucode/prims.uc's (search))
+    s.s.clear_counts()
+    s.s.breakpoints = [b.mc.prims["(search)"]]
+    s.s.uart_send(b"12345 drop\r")
+    s.s.run(s.s.clock + int(1e9 / bclk))
+    start = s.s.clock
+    s.s.breakpoints = [b.mc.labels["sr_none"]]
+    s.s.run(s.s.clock + int(1e9 / bclk))
+    end = s.s.clock
+    s.s.breakpoints = []
+    heads = dict(s.s.counts()).get(b.mc.labels["sr_link"], 0)
+    s.until(b" ok\r\n", 1000)
+    rows.append(("the dictionary searched to its end (a number at the console), in microcode",
+                 f"{(end - start) * bclk / 1e3:.0f} us, {heads} headers", "-"))
+
     # ---- copies, into the CPU card's RAM through its slave port: a job's
     # time from its first slice to its end, the ticks and the Forth's turns
     # included

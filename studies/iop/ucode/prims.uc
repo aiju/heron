@@ -489,6 +489,68 @@ lt_signs: F <- [X] | if F15 goto ret_true
         AC <- [X]
         NEXT | sp <- sp + 1
 
+; ---- the dictionary (kernel.fs): a header is its link, its flags (bits
+; 0-5 the name's length, 13 smudged) and its name, a character a cell
+
+; ( c-addr h -- h' | 0 ) From header h along the links, the first whose
+; name is the counted string at c-addr, case aside, and isn't smudged.
+; t0 c-addr, t1 its length, t2 the flags' mask, t3 the header; AC holds
+; the length while the scan goes, which compares it with the flags as
+; (flags ^ length) & mask. It yields to attention at each header, to
+; come back to that one: ip back a cell, ( c-addr h' ).
+.prim (search)
+        t3 <- AC
+        X <- sp
+        F <- [X] | X <- F
+        t0 <- F
+        AC <- [X]
+        t1 <- AC
+        AC <- #0x203F
+        t2 <- AC
+        AC <- t1
+        F <- t3 - 1 | ifnot carry goto sr_none  ; h = 0
+        X <- t3 + 1
+sr_flags: AC <- [X] ^ AC
+        F <- (t2 & AC) - 1 | ifnot carry goto sr_cand
+        AC <- [X] ^ AC                          ; (delay) the length again
+        X <- t3
+sr_link: F <- [X] - 1 | ifnot carry goto sr_none
+        t3 <- F
+        t3 <- t3 + 1 | ifnot attn goto sr_flags
+        X <- t3 + 1
+        AC <- t3 | goto attn_next
+        ip <- ip - 1
+sr_none: AC <- #0
+        NEXT | sp <- sp + 1
+; the name, a character at a time: t5 the header's, t6 the string's, t7
+; the characters left less one
+sr_cand: AC <- t3
+        t5 <- #2 + AC
+        AC <- t1
+        t7 <- #0xFFFF + AC
+        AC <- t0
+        t6, X <- #1 + AC
+sr_cmp: AC <- [X]
+        X <- t5
+        AC <- [X] ^ AC
+        F <- m1 + AC | if carry goto sr_fold
+        t5 <- t5 + 1
+sr_ok:  t6, X <- t6 + 1
+        t7 <- t7 - 1 | if carry goto sr_cmp
+        AC <- t3                                ; (delay) found
+        NEXT | sp <- sp + 1
+; they differ: the same letter in the other case, or not the name
+sr_fold: AC <- #0x20 ^ AC
+        F <- m1 + AC | if carry goto sr_next
+        AC <- [X]                               ; (delay) the header's character
+        AC <- #0x20 | AC
+        AC <- #(0x10000 - 0x61) + AC
+        AC <- #(0x10000 - 26) + AC              ; carries unless a to z
+        ifnot carry goto sr_ok
+        nop
+sr_next: AC <- t1 | goto sr_link
+        X <- t3
+
 ; ---- the system bus: addresses as double cells ( lo hi ), halfwords
 ; and bytes. Each takes the bus for its transfer and lets it go.
 

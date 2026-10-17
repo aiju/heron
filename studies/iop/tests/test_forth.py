@@ -54,6 +54,17 @@ class Forth(unittest.TestCase):
         self.says(": t7 begin dup . 1- dup 0= until drop ; 3 t7", "3 2 1  ok")
         self.says(": t8 begin dup while dup . 1- repeat drop ; 2 t8", "2 1  ok")
 
+    def test_find(self):
+        """The dictionary's search, (search) in microcode: whatever the
+        case, by length, the newest first, not a definition in progress,
+        and only letters folded."""
+        self.says("3 DUP * . ' DUP ' dup = .", "9 -1  ok")
+        self.says(": MiXed 42 ; mixed . MIXED .", "42 42  ok")
+        self.says(": ab 1 ; : abc 2 ; ab . abc .", "1 2  ok")
+        self.says(": five2 5 ; : five2 five2 1+ ; five2 .", "6  ok")
+        self.says("`", "` ?")
+        self.says("{", "{ ?")
+
     def test_data(self):
         self.says("variable v 42 v ! v ?", "42  ok")
         self.says("5 constant five : f five 2* ; f .", "10  ok")

@@ -78,9 +78,9 @@ class Netlist(unittest.TestCase):
         the flash, the Forth's cold start with its cards, the
         interpreter, the console's UART, the I/O bus's slots, a native
         job onto the system bus."""
-        out, diff, n = hw.check(88.0, inp=b"3 0 $1000 0 1 cf-read .\r", serial=b"hi\r")
+        out, diff, n = hw.check(48.0, inp=b"3 0 $1000 0 1 cf-read .\r", serial=b"hi\r")
         self.assertIsNone(diff)
-        self.assertGreater(n, 700_000)
+        self.assertGreater(n, 380_000)
         self.assertEqual(out["violation_total"], 0)
         self.assertEqual(out["output"], out["model_output"])
         self.assertIn(b"cf-read . -1 ", out["output"])
