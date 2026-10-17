@@ -109,7 +109,46 @@ OR gates, but has two snags:
   a special also writes bank 255, about 4 cycles more each.
 - **Processes lose bank 255.**
 
-## The card
+## The card, as Emily directed it
+
+On 2026-10-17 Emily and the hardware session went through the card's
+registers, since the set below came to 17–27 chips. Her direction: reads
+undefined but the timer's and the status, no board information, levels
+raised and lowered by address with no read-back, a 16-bit message
+register whose drops interrupt, a 32-bit timer, and a tick cleared by
+any write. She then proposed the one-shot. RFC 0040's
+[section 3](../0040-rfc-interrupts.md#3-the-cpu-card) has the design;
+nothing of it is built in v2_hw yet, whose card model still has the set
+below. These are the hardware session's estimates from parts.
+
+| Block | Parts | Chips |
+|---|---|---:|
+| Decode | a 74F138 on A12–A14; a gate for the timer's read | 1¼ |
+| Request | a 74HCT259 | 1 |
+| Message | a 74ABT16823, loaded only while empty, onto the CPU's B bus | 1 |
+| Message state | FULL and DROPPED in a 74F109, the gate for drop first | 1½ |
+| Timer | four 74HC590s, a 74ABT16244, the ÷2, enable gates, RCLK's hold | 6¼ |
+| One-shot | four 74HCT193s, the alarm flag, the load's strobe | 4¾ |
+| NMI | half a 74 | ½ |
+| Levels to the CPU | ORs for 6–8; a 74F04 for the 259's outputs, since the core takes active-low levels | 1½ |
+| **In all** | | **≈ 18** |
+
+| Variant | In all |
+|---|---:|
+| A profiling tick from any of bits 0–15 | +½ |
+| The core taking active-high levels, with no 74F04 | −1 |
+| A periodic tick from a jumpered bit instead of the one-shot | ≈ 13½ |
+| A tick from a stage's carry only, with no 74ABT16244 and bits 0–15 not readable | ≈ 12½ |
+| The prescaler jumpered from ÷2 to ÷16, from a 74F161 | +½, or +1 with the setting in two spare status bits |
+
+- **The CPU's core needs no new chips:** the fill buffers already zero
+  the top of the B bus for the 16-bit message, and the message entry's
+  microcode changes a little.
+- **The 74HCT193 and 74F193** are now in infra's chip library, with
+  their models and timing, on the hardware session's PR. The 74F193
+  looks obsolete, so the card uses the 74HCT193.
+
+## The card, as RFC 0040 first had it
 
 | Part | Packages |
 |---|---:|
@@ -192,12 +231,13 @@ cycles.
 - **Eight levels** cost about 11 packages of the core's 382, about 2.5
   more than three fixed levels and about 6 more than ARM's two masks.
   Eight levels are Emily's decision; the cost is now known.
-- **The whole RFC** costs about 18 packages on the core and 17–27 on the
-  card, and no time in the suite.
+- **The whole RFC** costs about 18 packages on the core and no time in
+  the suite. The card's registers take about 18 chips as Emily directed
+  them, with the one-shot, against 17–27 for the set before, without
+  one.
 - **The message entry** takes under a microsecond, so the latency
   table's "perhaps 5–10 µs" was pessimistic: what remains is the
   instruction in progress and any exception being entered.
 - **For Emily:** the message level's registers (sixteen of their own, or
-  bank 255), the request register (masks, or a 259 with one level per
-  write), the timer's rate (BCLK, or BCLK / 4 for about 5 chips fewer),
-  and the board information's layout.
+  bank 255), and the card's open items in RFC 0040's
+  [section 18](../0040-rfc-interrupts.md#18-open-questions).

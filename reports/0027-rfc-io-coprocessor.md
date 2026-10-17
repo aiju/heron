@@ -819,8 +819,9 @@ interactive from the first day. In outline:
   ([RFC 0040, 4.3–4.4](0040-rfc-interrupts.md#43-the-routing-table)).
 - **A slow event** is an entry in the CPU's event ring, then a level's bit
   in its request register; several may be batched into one interrupt.
-- **A fast event** is a message: the IOP claims the CPU's message
-  register with a read and writes it in two halfwords.
+- **A fast event** is a message: the IOP writes the event into the
+  CPU's ring, then {source, data} into its message register, in one
+  halfword ([RFC 0040, 3.2](0040-rfc-interrupts.md#32-the-message-register)).
 - **It masks a CPU's source** when it forwards it, until the driver says
   it's done, as Fen's interrupt mask does
   ([report 0036, 1.2](0036-report-fen.md#12-the-board)).

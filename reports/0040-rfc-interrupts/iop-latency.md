@@ -65,6 +65,9 @@ As the study builds them:
   own tick may still get the level with nothing new in the ring.
 - **Fast events** claim the CPU card's message register and write
   {source, the event's source number}, or go as slow when the claim fails.
+  That was RFC 0040's design at the time; under its section 3.2 as
+  revised on 2026-10-17, a fast event is its ring entry and one halfword
+  write, with no claim.
 
 ## Where the studies differ
 
@@ -82,3 +85,8 @@ window. They differed in two places, both left open by RFC 0040:
   RAM's size, BCLK's period in ns, the region, the boot flags, at +0, +4,
   +8 and +`0xC`); one halfword in v2_hw's proposal. The I/O processor
   never reads it.
+
+Both differences have since gone: under RFC 0040's
+[section 3](../0040-rfc-interrupts.md#3-the-cpu-card) as revised on
+2026-10-17, levels are raised and lowered by address, so the bits don't
+show, and there is no board information.

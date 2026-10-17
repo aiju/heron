@@ -32,11 +32,19 @@ which point here.
 **Tentative** (Emily, 2026-10-16):
 
 - a queue or a flag lives in its reader's RAM;
-- the message register, claimed by a read and then written;
+- the message register (revised on 2026-10-17, below);
 - messages vectored through the `SWI` entries;
 - four ATN lines from cards on the system bus;
 - the I/O processor polling its INT lines at a tick;
-- a register bank of its own for the message level.
+- registers of their own for the message level.
+
+**Tentative** (Emily, 2026-10-17):
+
+- the CPU card's registers as [section 3](#3-the-cpu-card) has them:
+  levels raised and lowered by address, no board information, and reads
+  undefined but the timer's and the status;
+- a 16-bit message register, whose drops set DROPPED and interrupt;
+- a 32-bit timer and a 16-bit one-shot, in place of a periodic tick.
 
 **To be confirmed:** the non-maskable interrupt.
 
@@ -89,10 +97,10 @@ Part II: Discussion
             processor task      v                   v
                     wake that Forth task     lazy: an event into the CPU's ring, no bit
                                              slow: an event into the ring, then a level's bit
-                                             fast: claim the message register, write it
+                                             fast: an event into the ring, then the message register
                                                     v
             CPU card: request register (levels 1-8), message register (level 7),
-                      timer (level 6)
+                      one-shot timer (level 6)
                                                     v
             CPU: level L above IPL -> vector at VBR + 0x40 + 4(L - 1);
                  with a message    -> vector at VBR + 0x100 + 4 x source
@@ -104,7 +112,7 @@ Part II: Discussion
   its message register. Any bus master can write them: the I/O
   processor, another CPU, or the CPU itself.
 - **Why it was interrupted** is in memory, in a ring of events for each
-  sender and receiver, or in the message register's 24 bits. A level's
+  sender and receiver; the message register's 8 bits of data are a hint. A level's
   bit only says "look".
 - **Three classes of event:**
   - **lazy:** no interrupt; the kernel notices it at its next context
@@ -163,17 +171,18 @@ This restates RFC 0029's section 7, with this RFC's changes.
 **tentative** (Emily, 2026-10-16).
 
 - **Level 7 is the message level.** The CPU card's message register
-  requests it while it holds a message
+  requests it while it holds a message, or has dropped one
   ([3.2](#32-the-message-register)).
 - **Its entry vectors on the message's source,** through the `SWI`
   entries: VBR + `0x100` + 4 × source. That gives up to 256 sources, each
   with a handler of its own, without a table of their own.
 - **The message comes with it:** the entry copies the source into `r1`
-  and the 24-bit message into `r2` of the handler's registers, then
-  releases the register. How the microcode reaches its own card's register is
-  RFC 0031's business.
-- **Level 7 without a message,** from a write to the request register's
-  bit 7, goes to level 7's own vector.
+  and the 8 bits of data into `r2` of the handler's registers,
+  zero-extended, and the register empties. How the microcode reaches its
+  own card's register is RFC 0031's business.
+- **Level 7 without a message,** from a dropped message or from level 7
+  raised in the request register, goes to level 7's own vector, VBR +
+  `0x58`, whose handler scans the rings.
 - **Sources and `SWI`s share numbers.** The kernel keeps a range for
   interrupt sources, tentatively 128–255, and an `SWI` from user mode in
   that range raises a privilege violation. `SWI` already has an entry per
@@ -199,7 +208,8 @@ This restates RFC 0029's section 7, with this RFC's changes.
 
 **To be confirmed.** As RFC 0029 has it: vector VBR + `0x04`, taken
 between instructions whatever I and IPL, from the CPU's own card. Any
-master can raise it through the card's control register: the I/O
+master can raise it with a write to the card's `0x1000`, or to the
+control register's bit 3, as v2_hw has it now (**open**): the I/O
 processor's watchdog, or a debugger. What it does to I and IPL is open.
 **Recommended:** the control register's NMI bit is a latch that the
 entry clears, so that one write is one NMI, and the entry does what every
@@ -210,120 +220,161 @@ setting IPL to 8 would cost it about 1 package and no cycles.
 
 ### 3. The CPU card
 
-What every CPU card provides, among its registers at `0x7N00_0000` for a
-card in region N
-([RFC 0037, 5.1](0037-rfc-system-and-io-bus.md#51-addresses)). The
-offsets are a proposal.
+**tentative** (Emily, 2026-10-17, worked out with the hardware session):
+the registers every CPU card provides, at `0x7N00_0000` for a card in
+region N ([RFC 0037, 5.1](0037-rfc-system-and-io-bus.md#51-addresses)).
+They take about 18 chips, with a one-shot timer, where the set they
+replace took 17–27 without one
+([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-card-as-emily-directed-it)).
+The offsets are a proposal.
 
-| Offset | Register | Access |
+| Offset | Access | Effect |
 |---|---|---|
-| `0x0000` | Control: RUN, RESET, STEP, NMI (bit 3 in v2_hw); status ([RFC 0037, 9](0037-rfc-system-and-io-bus.md#9-cpu-cards)) | read, write |
-| `0x1000` | Board information: RAM size, BCLK's period, the region N (so the CPU's number), boot flags. Proposed: the region in bits 3–0, log2 of the RAM in MB in 7–4, BCLK's period in ns in 15–8 | read |
-| `0x2000` | Request register, set: the levels whose bits are 1 are raised | write |
-| `0x2004` | Request register, clear: the levels whose bits are 1 are lowered | write |
-| `0x2008` | Request register: the levels requested | read |
-| `0x3000` | Message register, claim | read |
-| `0x3004` | Message register, the message | write |
-| `0x3008` | Message register, release | write |
-| `0x300C` | Message register, its contents | read |
-| `0x4000` | Timer: the count | read |
-| `0x4004` | Timer: clear the ticks, bit 0 the tick and bit 1 the profiling tick | write |
-| `0x80_0000` + `0x2_0000` k | The control store's SRAM k, 64K × 16, halfwords, while RUN is off: k = 0–8 the microinstruction's 16-bit lanes, k = 9 the decode table ([RFC 0031, 6](0031-rfc-draft-2-cpu.md#6-the-bus-and-the-slave-port), whose slot-relative offsets predate RFC 0037) | read, write |
+| `0x0000` | read, write | Control, as RFC 0037 has it: RUN, RESET, STEP; status |
+| `0x1000` | write, any value | Raise the non-maskable interrupt ([2.5](#25-the-non-maskable-interrupt)) |
+| `0x2000` + 4(L − 1) | write, any value | Lower level L, L = 1–8 ([3.1](#31-the-request-register)) |
+| `0x2020` + 4(L − 1) | write, any value | Raise level L |
+| `0x3000` | write, 16 bits | The message register ([3.2](#32-the-message-register)) |
+| `0x4000` | read, 32 bits | The timer's count ([3.3](#33-the-timer)) |
+| `0x4000` | write, 16 bits | The one-shot: load its count and clear its alarm |
+| `0x5000` | write, any value | Clear DROPPED |
+| `0x6000` | write, any value | Clear the periodic tick, if one is fitted |
+| `0x7000` | write, any value | Clear the profiling tick, if one is fitted |
+| `0x80_0000` + `0x2_0000` k | read, write, halfwords, while RUN is off | The control store's SRAM k, 64K × 16: k = 0–8 the microinstruction's 16-bit lanes, k = 9 the decode table ([RFC 0031](0031-rfc-draft-2-cpu.md)) |
 
-- **The CPU reaches its own card's registers locally,** without the
-  system bus, so a handler never waits for the bus to clear its level or
-  read the timer. In v2_hw a local access is an ordinary load or store,
-  about 240 ns quicker to read than a bus transfer and 300 ns to write.
-- **Parts:** about 17–27 chips in all, by the hardware session's estimate
-  ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-card)).
-- **RESET** clears the request register, frees the message register and
-  clears the timer.
+- **Only the timer and the control register's status can be read.**
+  Every other read, every unused bit and every unused address is
+  undefined. One 74F138 on A12–A14 decodes the groups, and the other
+  address bits in a group aren't decoded, so registers repeat.
+- **The data is ignored** in every write but the message's and the
+  one-shot's.
+- **No board information.** How a CPU learns its region N, and so its
+  number, and BCLK's period is **open** ([18](#18-open-questions)).
+- **The CPU reaches its own card's registers locally,** as an ordinary
+  load or store, and its writes take effect at the end of its cycle. In
+  v2_hw that is about 240 ns quicker than a bus transfer to read and 300
+  ns to write. Other masters come in through the slave port, and their
+  writes take effect at the end of the transfer. A CPU reaching another
+  card's registers goes over the bus like any other master.
+- **By convention** only the card's own CPU loads its one-shot and clears
+  its flags. Its own CPU's writes to the control register are ignored
+  (proposed): it stops itself with `HALT`.
+- **RESET** clears the request register, the message register's FULL and
+  DROPPED, and the timer. It leaves the one-shot's count undefined and may
+  set its alarm, so the kernel loads the one-shot before it sets I.
 
 #### 3.1 The request register
 
-- **Eight bits, one per level.** A write to the set address raises the
-  levels whose bits are 1, and a write to the clear address lowers them.
-  Which bit is which level is **open**. Proposed: bit L − 1 for level L,
-  bits 0–7, as both studies have it, so that the eight levels fit a byte,
-  a 16-bit master writes them in one halfword and a 74x259 indexes them
-  with three bits
-  ([iop-latency.md](0040-rfc-interrupts/iop-latency.md#where-the-studies-differ)).
-  No writer reads it first, so any number of writers can't collide.
+- **Eight bits, one per level, raised and lowered by address:** a write
+  to a level's raise or lower address changes that level alone, whatever
+  the data. No writer reads it first, so any number of writers can't
+  collide. It can't be read back.
+- **A 74HCT259 addressable latch,** with A4–A2 as its address and A5 as
+  its data input, so that a level's raise address is its lower address
+  plus `0x20`.
 - **Any master** can write it: the I/O processor for its events, another
-  CPU, or the CPU itself, for deferred work.
+  CPU, or the CPU itself, for deferred work, which it sees two clock edges
+  later.
 - **A level is requested** while its bit is set, or while one of the
-  card's own sources for it is: the timer at 6
-  ([3.3](#33-the-timer)), the message register at 7
-  ([3.2](#32-the-message-register)), and an optional profiling tick at 8.
-- **Parts:** about 4–5 chips: a register, its gates and a read buffer. A
-  74x259 addressable latch, raising or lowering one level a write, would
-  take about 1½ (**open**).
+  card's own sources for it is:
+
+  | Level | Also requested while |
+  |---|---|
+  | 6 | the one-shot's alarm is set, or the periodic tick, if one is fitted |
+  | 7 | the message register is FULL, or DROPPED is set |
+  | 8 | the profiling tick is set, if one is fitted |
+
+- **Parts:** 1 chip, and about 1½ for the ORs onto the CPU's levels.
 
 #### 3.2 The message register
 
-**tentative** (Emily, 2026-10-16).
+**tentative** (Emily, 2026-10-17).
 
-| Bits | |
-|---|---|
-| 31–24 | The source: which handler ([2.3](#23-the-message-level)) |
-| 23–0 | The message: anything, such as a page-map entry's number, a request's tag or a ring's index |
-
-It is free, claimed or full:
-
-- **Claim:** a read of the claim address returns 0 and makes a free
-  register claimed, or returns 1, changing nothing, if it is already
-  claimed or full. That is one bus transfer, so it is atomic without
-  LOCK.
-- **The message:** a write to the message address while it is claimed
-  stores the message. A 32-bit master writes it in one transfer. A 16-bit
-  master, such as the I/O processor, writes the low half (the halfword at
-  `0x3004`, bits 15–0) and then the high half (`0x3006`, bits 31–16), and
-  the high half's write completes it. Then the register is
-  full and requests level 7.
-- **A write to the message address** while the register is free or full
-  is ignored.
-- **Release:** a write to the release address frees it, and its request
-  for level 7 ends. The message level's entry releases it once it has
-  copied the message.
-- **If the claim returns 1,** the sender sends its event the slow way
-  ([4.4](#44-delivery)), or tries again shortly.
-- **The bus has no master IDs,** so the card can't tell who claimed it.
-  Only the claimant writes, by convention. A sender that claims and never
-  writes holds the register until a release.
-- **Parts:** about 4–6 chips: the two 16-bit halves, each with its own
-  write strobe, the state bits, and buffers to read it back, which are
-  needed only if a master other than the CPU reads its contents. The CPU
-  reads it over its own datapath.
+- **16 bits,** {source 8, data 8}, so that a 16-bit master writes it in
+  one transfer. There is no claim and no release.
+- **Empty or full:** a write while it is empty loads it and sets FULL. A
+  write while it is FULL is discarded and sets DROPPED. Either requests
+  level 7.
+- **The message entry,** at level 7 with FULL set and DROPPED clear,
+  copies the source into `r1` and the data into `r2`, zero-extended, and
+  goes to VBR + `0x100` + 4 × source ([2.3](#23-the-message-level)). The
+  register empties at the end of the cycle that reads it. Only the CPU
+  reads it, over its own datapath; it has no address.
+- **DROPPED, or level 7 raised in the request register,** goes to level
+  7's own vector, VBR + `0x58`. Its handler clears DROPPED, then scans
+  the rings.
+- **Drop first:** with FULL and DROPPED both set, level 7's own vector
+  runs first. Its scan covers every ring, the held message's source's
+  too. After its `RTI`, FULL brings the message entry, for an event the
+  scan may already have handled. So the next entry at level 7 after any
+  drop scans; message first could starve the scan while messages keep
+  coming. It costs a gate.
+- **In hardware:** the register, FULL and DROPPED change only at a clock
+  edge, with the write and the release as enables. A write is loaded only
+  if FULL is 0 at that edge, so a write during the CPU's read is dropped
+  and flagged, never torn and never lost unseen. A drop and a clear of
+  DROPPED on the same edge leave DROPPED set, which costs at most one
+  more scan.
+- **In software:**
+  - a sender puts the event in its ring first, then writes the message
+    register. A write gets no reply, so the ring is the only sure copy;
+  - the 8 data bits are a hint: a handler must cope with finding its ring
+    empty, since a scan may have taken the event;
+  - the handler for level 7's own vector clears DROPPED before it scans,
+    so a drop during the scan brings another scan;
+  - any master may send, since every sender has a ring.
+- **Drops are rare** with the kernel at `SPL #6`: under 1% of messages,
+  even at 10,000 a second, against Fen's measured spans
+  ([10](#10-the-message-register)).
+- **Parts:** about 2½: a 74ABT16823 loaded only while empty, FULL and
+  DROPPED in a 74F109, and the gate.
 
 #### 3.3 The timer
 
-The hardware session's design.
+**tentative** (Emily, 2026-10-17).
 
-- **A 32-bit counter of BCLK, or of BCLK / 4** (**open**), free-running
-  and cleared by RESET. Every card counts the same clock from the same
-  reset, so every CPU reads the same time.
-- **Counting a 60 ns BCLK,** it counts in 60 ns and wraps every 4.3
-  minutes; counting BCLK / 4, in 240 ns, and every 17 minutes. The kernel
-  extends it in software at each tick.
-- **The tick:** a jumper picks counter bit n. Each 0→1 edge of that bit
-  sets the tick flag, which requests level 6 until a write clears it. Bit
-  n ticks every 2ⁿ⁺¹ counts: counting BCLK, bit 16 every 7.9 ms (about
-  127 Hz) and bit 17 every 15.7 ms; counting BCLK / 4, bits 14 and 15.
-- **A profiling tick** (**optional**): a second jumper and flag, onto
-  level 8, so that the PC can be sampled even inside message handlers.
-- **Reading:** one word read of all 32 bits. How it stays consistent
-  while the counter carries is **open**: a snapshot latched as the read
-  starts, or reading the high half twice. **Recommended:** the snapshot,
-  held from the low half's read so that a 16-bit master reads one value
-  ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-timer-a-snapshot)).
-- **BCLK's period** is in the board information, for the kernel to scale
-  the count.
-- **No compare register:** a deadline finer than the tick is a request to
-  the I/O processor ([4.5](#45-requests-for-time)).
-- **Parts:** counting BCLK / 4, about 6 chips: four 74HC590s, whose
-  output registers are the snapshot, a prescaler and the flags. Counting
-  BCLK, about 11: eight 74F161s, two 74ABT16374s as the snapshot, and the
-  flags. A 74HC590 can't count a 60 ns BCLK in the worst case.
+- **A 32-bit count of BCLK / 2,** so that code can be timed with
+  interrupts off: 120 ns a count at a 60 ns BCLK, wrapping every 8.6
+  minutes. It is free-running and cleared by RESET. Every card divides
+  the same BCLK from the same RESET, so every CPU reads the same time.
+- **Four 74HC590s,** which can't count a 60 ns BCLK, hence the ÷2.
+  Whether the prescaler is fixed or jumpered, ÷2 to ÷16, is **open**.
+- **Reading:** RCLK is tied to the counter clock and held during a read,
+  so a 32-bit read is one count, at most one behind. A 16-bit master's
+  two halves may come from different counts, so it reads the high half,
+  the low half and the high half again. From the slave port a read takes
+  about 240 ns of the bus.
+- **The one-shot** (Emily's proposal): a 16-bit down counter, clocked by
+  one of the timer's bits 2–15, picked with a jumper (**open**; proposed:
+  bit 3).
+
+  | Clock | A count | Range |
+  |---|---:|---:|
+  | bit 2 | 0.96 µs | 63 ms |
+  | bit 3 | 1.92 µs | 126 ms |
+  | bit 7 | 31 µs | 2.0 s |
+  | bit 11 | 0.49 ms | 32 s |
+  | bit 15 | 7.9 ms | 8.6 min |
+
+  - A write to `0x4000` loads the count and clears the alarm. The alarm
+    sets when the count reaches 0, that many periods after the write, to
+    within half a period, and requests level 6 until the next write.
+  - After firing, the counter carries on from `0xFFFF`, so it fires
+    again 65,536 periods later unless it is loaded. A handler treats an
+    alarm with nothing due as spurious, or loads it.
+  - **It replaces the periodic tick:** the kernel loads it with the time
+    to its next tick or deadline, worked out from the 32-bit count, so
+    errors don't add up. A deadline finer than a tick needs no request to
+    the I/O processor, within the one-shot's range; beyond it, software
+    loads it again.
+  - Bit 2 or above, since a read's hold on RCLK can swallow an edge of
+    bit 0 or 1, but only delays a slower bit's.
+- **A periodic tick** from a jumpered bit alongside the one-shot, and a
+  **profiling tick** onto level 8 so that the PC can be sampled even
+  inside message handlers, are **open**: about ½ chip each.
+- **Parts:** the timer about 6¼ (four 74HC590s, a 74ABT16244 for bits
+  0–15, the ÷2, the enables and RCLK's hold), the one-shot about 4¾ (four
+  74HCT193s, the alarm flag and the load's strobe).
 
 ### 4. The I/O processor
 
@@ -373,14 +424,15 @@ lines, ATN0–3 and each client's completions
 - **Lazy:** it writes the event into the CPU's event ring and sets no bit.
   If the ring's wake-me word is set, or the event is older than its
   deadline, it sends it as slow instead.
-- **Slow:** it writes the event into the ring, then the level's bit to
-  the set address of that CPU's request register. It may hold the bit
-  back for the source's batching time, to post several events with one
-  interrupt. The I/O processor study keeps one countdown, to the
-  shortest hold waiting, and when it runs out writes every held level to
-  each CPU's set address at once.
-- **Fast:** it claims the CPU's message register and, if it gets it,
-  writes {source, message}. If not, it sends the event as slow.
+- **Slow:** it writes the event into the ring, then to the level's raise
+  address on that CPU's card. It may hold the write back for the source's
+  batching time, to post several events with one interrupt. The I/O
+  processor study keeps one countdown, to the shortest hold waiting, and
+  when it runs out raises every held level at once.
+- **Fast:** it writes the event into the ring, then {source, data} to the
+  CPU's message register, in one transfer. If the register is full, the
+  write is dropped, and the CPU's scan of its rings finds the event
+  ([3.2](#32-the-message-register)).
 - **Masking:** it masks the source from then until its owner says it has
   been served: one of its tasks by waiting again, a CPU's driver by a
   request. So each source has at most one event outstanding. For a
@@ -392,10 +444,11 @@ lines, ATN0–3 and each client's completions
 
 #### 4.5 Requests for time
 
-A deadline finer than the CPU's tick, such as "interrupt me at t", is a
-request on the kernel's ring. The I/O processor answers it at t, to
-within its polling tick, with a slow or fast event as the request asks.
-(Proposed.)
+A CPU's own deadlines are its one-shot's
+([3.3](#33-the-timer)), to within 2 µs up to 126 ms with the proposed
+clock. "Interrupt me at t" as a request on the kernel's ring, which the
+I/O processor answers at t to within its polling tick, stays for
+deadlines tied to the I/O processor's own work. (Proposed.)
 
 ### 5. Memory: rings and flags
 
@@ -449,11 +502,13 @@ senders pay the bus instead, before they set a bit.
   timer, so each CPU has its own eight levels and its own message level.
 - **Each CPU points its VBR** at a vector table in its own RAM. The reset
   vector at physical 0 is common: a CPU that the I/O processor starts
-  later (its RUN bit) runs a short stub there, which reads its region
-  from the board information, sets its VBR and jumps to its own code.
+  later (its RUN bit) runs a short stub there, which learns its region
+  (how is **open**, [18](#18-open-questions)), sets its VBR and jumps to
+  its own code.
 - **Time agrees** across CPUs ([3.3](#33-the-timer)).
 - **CPU to CPU:** slow, an event in the pair's ring and level 5 on the
-  receiver; fast, the receiver's message register.
+  receiver; fast, the event in the pair's ring and then the receiver's
+  message register.
 - **Routing:** the I/O processor's table names the CPU for each source.
   Moving a source to another CPU is a change to the table, as long as
   the other CPU has a handler for it.
@@ -489,7 +544,7 @@ Software, not hardware: a convention for Fen.
   no `SPL` ([fen-latency.md](0040-rfc-interrupts/fen-latency.md)). Under
   this convention its kernel enters at `SPL #6` with I set, two
   instructions, so that messages get in; its timer moves from level 7 to
-  6, now periodic (Fen counts levels from 0, after its board's mask bits,
+  6, as the one-shot (Fen counts levels from 0, after its board's mask bits,
   so it calls these 6 and 5); its board's devices move behind the I/O
   processor; it drains its lazy rings; and each CPU sets its VBR.
 
@@ -558,28 +613,32 @@ The rule for devices that follows:
 
 ### 10. The message register
 
-- **What it gives:** one bus write, or two for a 16-bit master, carries
-  both the interrupt and its message. The handler reads the message
-  locally and is vectored by its source.
-- **Why claim, then write:** the bus has no master IDs, so the card can't
-  tell writes from different senders apart. A read, though, is atomic, so
-  a read can claim the register. The claimant then writes alone, even in
-  two halves.
+- **What it gives:** one bus write, even from a 16-bit master, raises
+  the interrupt and says which handler to run. The handler is vectored by
+  the source and has a hint in `r2`; the event itself is in a ring.
+- **Why 16 bits:** a 16-bit master writes it in one transfer, so two
+  senders can't interleave halves, and nothing has to be claimed first.
+  The bus has no master IDs, so a 32-bit register written in two halves
+  needed a claim by read, three transfers in all.
+- **Why the drop interrupts:** a write gets no reply, so a sender can't
+  learn that its message was dropped. The receiver can, and the ring has
+  the event, so DROPPED sends it to scan its rings.
 - **Slow events never use it.** They come in bursts that would keep it
-  full, so fast senders would keep failing their claims. Rings queue any
-  number of events, and batch them.
-- **How often a claim fails** depends on how the kernel holds
+  full and the receiver scanning. Rings queue any number of events, and
+  batch them.
+- **How often a message drops** depends on how the kernel holds
   interrupts off, more than on the register. Measured against Fen's
-  spans ([fen-latency.md](0040-rfc-interrupts/fen-latency.md#busy-claims-depend-on-the-kernel-not-on-the-fifo)):
-  with a kernel at `SPL #6`, under 1% of claims fail even at 10,000 fast
-  events a second; with Fen's kernel as it is, 6–39% at 1,000 a second,
-  and a FIFO of four still loses 0–29%.
+  spans ([fen-latency.md](0040-rfc-interrupts/fen-latency.md#busy-claims-depend-on-the-kernel-not-on-the-fifo),
+  where a drop is a busy claim): with a kernel at `SPL #6`, under 1% of
+  messages even at 10,000 a second; with Fen's kernel as it is, 6–39% at
+  1,000 a second, and a FIFO of four still loses 0–29%.
 
 | Semantics | Chips | Behaviour | Status |
 |---|---:|---|---|
-| **Claim, then write** | ~4–5 | No message is lost; a busy claim falls back to a ring | **tentative** |
-| First write wins; later ones set an overflow bit | ~3–4 | One transfer, but a dropped message's sender never learns of it, so the message must be in memory too | **not recommended** |
-| A small FIFO of messages (Emily's alternative) | ~5 more | Writes queue and the handler takes them off; no claim; messages are dropped only when it is full | **an alternative**, if busy claims turn out to be common; measured, they are rare with the kernel at `SPL #6` |
+| **16 bits; a write while full is dropped, sets DROPPED and interrupts** | ~2½ | One transfer from any master; the event is in a ring; a drop is rare, and the receiver's scan finds it | **tentative** (Emily, 2026-10-17) |
+| Claim, then write, 32 bits | ~4–6 | No message is dropped, but three transfers, a claim that a sender can hold, and a fall-back to a ring | **superseded** (it was tentative on 2026-10-16) |
+| First write wins; later ones set an overflow bit, with no interrupt | ~2 | A drop goes unseen until someone looks | **not recommended** |
+| A small FIFO of messages (Emily's alternative) | ~5 more | Writes queue and the handler takes them off; drops only when it is full | **an alternative**, if drops turn out to be common; measured, they are rare with the kernel at `SPL #6` |
 | A mailbox word in memory for each fast level, and one source to a level | 0 | Three fast levels for three sources, and the handler reads memory | **superseded** (RFC 0027 as revised on 2026-10-16) |
 
 ### 11. Vectoring through the SWI entries
@@ -616,16 +675,31 @@ The rule for devices that follows:
 
 ### 13. The timer
 
-- **Periodic, not tickless.** A counter and a jumper instead of a compare
-  register: a few chips fewer. Deadlines finer than a tick go to the I/O
-  processor, which has a timer of its own.
-- **Counting BCLK** gives 60 ns resolution, close to counting cycles, and
-  the same time on every CPU, with no synchronising. Counting BCLK / 4
-  gives 240 ns, still finer than any use of it so far, for about 5 chips
-  fewer.
-- **Against** RFC 0009's tickless timer, recommended there, and the one
-  Fen's board simulates. Fen already counts the ticks it missed from the
-  counter, so a periodic tick is a small change for it.
+- **A 32-bit count** (Emily, 2026-10-17), so that code can be timed with
+  interrupts off, and a **one-shot** instead of a periodic tick, so that
+  the kernel can be tickless. That is RFC 0009's timer, recommended there
+  and the one Fen's board simulates, with a down counter in place of a
+  32-bit compare register: about 5 chips against a comparator's 6 or so,
+  and a 16-bit master loads it in one transfer.
+- **Counting BCLK / 2** gives 120 ns, finer than any use of it so far,
+  and the same time on every CPU, with no synchronising. The 74HC590
+  can't count a 60 ns BCLK: TI's data sheet gives it 16 MHz at most at
+  4.5 V over temperature, and beyond two stages its cascade ripples
+  ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-timer-a-snapshot)).
+  Counting BCLK itself would take synchronous 74F161s and a register to
+  read them through, about 5 chips more.
+- **No drift:** the kernel works its deadlines out from the 32-bit
+  count and loads the one-shot with the time left, so a late handler
+  doesn't push the next deadline back.
+- **The 74HCT193,** since the 74F193 looks obsolete, and nothing here
+  needs F speed.
+
+| Design | Chips | |
+|---|---:|---|
+| **A 32-bit count and a 16-bit one-shot** | ~11 | **tentative** (Emily, 2026-10-17) |
+| A 32-bit count and a periodic tick from a jumpered bit | ~6½ | the design before; the card ≈ 13½ |
+| A tick from a stage's carry only, bits 0–15 not readable | ~5½ | the card ≈ 12½ |
+| A 32-bit count of BCLK and a snapshot register | ~11, without a one-shot | **not recommended**: the 74HC590 can't count it |
 
 ### 14. The lazy class
 
@@ -682,9 +756,9 @@ Instead:
 | [RFC 0029](0029-rfc-draft-2-system.md) | VBR (section 4); vectors relative to VBR (6); `sr`'s bit 28 as M (2, tentative); section 7 points here |
 | [RFC 0028](0028-rfc-draft-2-isa.md) | `SWI`s in the range kept for interrupt sources are privileged (tentative) |
 | [RFC 0031](0031-rfc-draft-2-cpu.md) | Its open question 7: build the eight levels, IPL and `SPL`, VBR, and the message level's entry and registers. v2_hw has built them: about 18 packages on the core, and the suite's time unchanged ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md)) |
-| [RFC 0037](0037-rfc-system-and-io-bus.md) | Sections 8 and 9 point here; the WINDOW bit leaves section 17's table; section 20's window writes are posted |
+| [RFC 0037](0037-rfc-system-and-io-bus.md) | Sections 8 and 9 point here, and section 9's table follows [section 3](#3-the-cpu-card); the WINDOW bit leaves section 17's table; section 20's window writes are posted |
 | [RFC 0027](0027-rfc-io-coprocessor.md) | Sections 7.1, 7.3 and 7.4 point here |
-| [RFC 0009](0009-rfc-ideas-io.md) | The tickless timer gives way to this one |
+| [RFC 0009](0009-rfc-ideas-io.md) | Its tickless timer returns, as the one-shot |
 | Fen ([report 0036](0036-report-fen.md)) | As [section 7](#7-the-kernels-conventions) says |
 
 ### 18. Open questions
@@ -692,7 +766,8 @@ Instead:
 For Emily:
 
 1. **The non-maskable interrupt:** its sources, and what it does to I and
-   IPL (to be confirmed).
+   IPL (to be confirmed); raised at the card's `0x1000`, or by the control
+   register's bit 3?
 2. **VBR's number** among the special registers: 15, moving `bkpt`?
    v2_hw uses 15.
 3. **The message level's registers:** a bank, 255 say, for about 2
@@ -700,25 +775,25 @@ For Emily:
    every `MTSR` writes both, and a bank lost to processes; or sixteen of
    their own, sharing the constants and special registers, for about 4.4,
    as v2_hw builds them
-   ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-message-levels-registers))? And the message in
-   `r1` and `r2`?
+   ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-message-levels-registers))?
 4. **The `SWI` numbers kept for interrupt sources:** 128–255?
-5. **The CPU card's register offsets** of [section 3](#3-the-cpu-card).
-6. **Reading the timer consistently:** a snapshot, or reading twice?
-   The snapshot is recommended. And the counter's rate: BCLK, 60 ns, for
-   about 11 chips, or BCLK / 4, 240 ns, for about 6?
-7. **The tick's default jumper:** bit 16, about 127 Hz at 60 ns (bit 14
-   counting BCLK / 4)?
-8. **Defaults for batching and lazy deadlines.**
-9. **Change detection** on the I/O processor, about 4 chips?
-10. **Requests for time** from the I/O processor ([4.5](#45-requests-for-time)),
-    in place of a compare register?
-11. **The request register:** set and clear masks, about 4–5 chips, or a
-    74x259 addressable latch, one level a write, about 1½? Every writer
-    so far raises one level at a time.
-12. **The board information's layout:** one halfword, the region in bits
-    3–0, log2 of the RAM in MB in 7–4, BCLK's period in ns in 15–8 (v2_hw);
-    or four words, the RAM's size, BCLK's period, the region and the boot
-    flags (the I/O processor study)?
-13. **The request register's bits:** bit L − 1 for level L, as both
-    studies and Fen's board have it, or bit L?
+5. **The CPU card's offsets** of [section 3](#3-the-cpu-card), and which
+   half of the `0x2000` group raises.
+6. **How a CPU learns its region N** (to reach its own registers, and its
+   CPU number) and BCLK's period, without board information: from the I/O
+   processor's boot record in its RAM, or from an address that aliases
+   its own registers, for a few gates. `0x7000_0000` can't be that alias,
+   as it would hide CPU 0's registers from the others.
+7. **Level 7 raised in the request register:** "scan the rings", sharing
+   the handler for drops, or reserved?
+8. **The control register written by its own CPU:** ignored, as
+   proposed, or allowed?
+9. **The timer's prescaler:** a fixed ÷2, or jumpered from ÷2 to ÷16, for
+   ½ chip (or 1, with the setting readable in two spare status bits)?
+   The count's period is then 120–960 ns, and it wraps in 8.6–69 minutes.
+10. **The one-shot's clock:** bit 3 of the timer, 1.92 µs a count and
+    126 ms at most, as proposed?
+11. **A periodic tick** alongside the one-shot, and **the profiling
+    tick:** fitted, at about ½ chip each?
+12. **Defaults for batching and lazy deadlines.**
+13. **Change detection** on the I/O processor, about 4 chips?

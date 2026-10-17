@@ -107,6 +107,9 @@ interrupts let in at once, the single register drops under 1% even at
 10,000 a second, and the FIFO drops none. A failed claim isn't lost: the
 event goes the slow way. So the kernel's convention, not the FIFO, decides
 whether busy claims are common, and with the convention they are rare.
+With the 16-bit message register of RFC 0040's section 3.2, as revised on
+2026-10-17, a busy claim becomes a dropped message, which the receiver
+notices and finds in its rings; the shares are the same.
 This leaves out the short spans a kernel at `SPL #6` still has, at
 exception entry and in level 8, so its real figure is a little higher.
 
