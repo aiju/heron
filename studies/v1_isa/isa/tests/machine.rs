@@ -138,3 +138,25 @@ fn tagged_operands_check_tags_and_overflow() {
     m.run(1000).unwrap();
     assert_eq!(m.traps, [(4, "illegal instruction".to_string())]);
 }
+
+#[test]
+fn an_open_console_waits_for_input() {
+    let src = "        MOV  r1, [0xFFFFFF00]\n        HALT\n";
+    let mut a = toolchain::asm::Assembler::new(v1_isa::asm::encoder("v1b").unwrap(), false);
+    a.load("t.s", Some(src)).unwrap();
+    let img = a.assemble().unwrap_or_else(|e| panic!("{e}"));
+    let mut mem = vec![0u8; 0x100];
+    for (&addr, &v) in &img.mem {
+        mem[addr as usize] = v;
+    }
+    let mut m = Machine::new(Isa::V1b, &mem, b"", Config::named("D16-overlap").unwrap());
+    m.dev.open = true;
+    m.run(1000).unwrap();
+    // waiting at the read, which hasn't happened
+    assert!(m.dev.waiting && !m.halted);
+    assert_eq!((m.pc, m.instructions, m.cycles, m.r[1]), (0, 0, 0, 0));
+    m.dev.send(b"A");
+    m.run(1000).unwrap();
+    assert!(m.halted && !m.dev.waiting);
+    assert_eq!(m.r[1], 0x41);
+}

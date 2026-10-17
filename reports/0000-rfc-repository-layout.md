@@ -300,6 +300,54 @@ holds ideas not yet worth an RFC of their own, each with a status.
   decided but not built belongs in `docs/` once its RFC is accepted. The
   clocking scheme is an example.
 
+## Figures
+
+Pictures in documents are drawn from a source in the document, in one of
+a few small languages, into an SVG next to it, instead of ASCII art
+(Emily, 2026-10-17). The code is in `heron/figures/`.
+
+- **In a document:** the source goes in a comment whose first word names
+  the language, and right after it the image that is its SVG, in the
+  document's folder:
+
+  ```markdown
+  <!-- timing
+  BCLK  8{:1 +.5:0 +.5}
+  SEL   :0 2.1[on]:1 5.1[off]:0
+  -->
+  ![An access, with STROBE = 3](0037-rfc-system-and-io-bus/access.svg)
+  ```
+
+  The image's alt text is its caption on the site. The source can't
+  contain `-->`, which ends the comment. A fenced block in the language
+  (```` ```timing ````) in place of the comment draws the same and shows
+  its source, as the pages below do.
+- **Drawing:** after changing a source, `heron figures write` draws every
+  figure into its SVG. The SVGs are committed, since GitHub only shows a
+  committed file, and `heron test` checks that each is what its source
+  draws. `heron figures draw FILE.timing` draws a source file on its own,
+  for trying things out.
+- **The languages,** each with a page on its syntax and how to use it:
+
+  | Language | For | Page |
+  |---|---|---|
+  | `timing` | signals over time | [timing](0000-rfc-repository-layout/figures-timing.md) |
+  | `bits` | bit fields: encodings, registers, table entries | [bits](0000-rfc-repository-layout/figures-bits.md) |
+  | `blocks` | block diagrams, laid out by hand | [blocks](0000-rfc-repository-layout/figures-blocks.md) |
+  | `map` | address maps | [map](0000-rfc-repository-layout/figures-map.md) |
+  | `grid` | tables drawn as charts, such as an opcode map | [grid](0000-rfc-repository-layout/figures-grid.md) |
+
+  `bits`, `blocks` and `map` share their form: a statement a line, `#`
+  comments, quoted strings, `key=value` attributes, and settings for the
+  whole figure on lines that start with a dot. `grid` is Markdown's
+  table, and `timing` keeps timepic's notation.
+- **The drawing:** the site's colours and fonts, light and dark in one
+  SVG, which follows the reader's setting by itself, on a background of
+  its own. The same source always draws the same bytes.
+- **What a figure is for:** what is spatial, such as when things happen,
+  where the bits are, what connects to what. Facts a reader looks up
+  stay in the text and in tables; a figure shows how they fit together.
+
 ## Python packaging
 
 - **One package, `heron`, spanning the folders:** the top-level folders are
@@ -328,6 +376,8 @@ holds ideas not yet worth an RFC of their own, each with a status.
   - `heron list`: the studies, with their status and dependencies;
   - `heron test [study...]`: unit tests;
   - `heron reports`: the index.
+  - `heron figures write`: the documents' figures
+    ([Figures](#figures)).
 
   Each study has a `cli.py` with `main(argv)`, so
   `python3 -m heron.studies.v1b_hw` works too. Names of studies and tools
@@ -395,6 +445,7 @@ output.
 - **`docs/` is reference for the current design only.**
 - **Studies:** a study lists what it depends on, and `infra/` never
   depends on a study. Don't fix a frozen study unless asked.
+- **Figures:** read [Figures](#figures) before drawing one.
 
 ## Decisions
 
@@ -424,6 +475,9 @@ Emily has decided, in the discussion of this RFC:
   RFCs 0001 and 0004, which were reports, and the draft 1b hardware,
   the draft 1b system, v1bx and v1bs into reports 0012, 0025, 0018 and
   0020 (2026-10-15).
+- pictures are figures, drawn from a source in a comment into an SVG
+  next to the document; the SVGs are committed, and every document's
+  ASCII art is converted, obsolete ones included (2026-10-17).
 
 ## Open questions
 

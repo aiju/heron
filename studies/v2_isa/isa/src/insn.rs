@@ -34,6 +34,10 @@ pub enum Stop {
     Trap(Trap),
     /// The simulation can't go on: an unmapped access, a fetch outside RAM.
     Error(String),
+    /// A read of the console with nothing waiting while its line is open
+    /// (`Devices::open` in machine.rs): the instruction hasn't happened,
+    /// and runs again once there is input.
+    Wait,
 }
 
 pub type Res<T> = Result<T, Stop>;

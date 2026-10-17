@@ -14,8 +14,9 @@ behaviour (filters, search, highlighting); every page reads without the
 script.
 
 --apps also builds the browser tools (the schematic viewer, the reference
-cards), which takes a few minutes. .github/workflows/pages.yml publishes
-the site from main, with them.
+cards) and the simulator (studies/websim, its own tab), which takes a few
+minutes; a build without it keeps what was built before.
+.github/workflows/pages.yml publishes the site from main, with them.
 
 Needs markdown-it-py and mdit-py-plugins: pip install -e '.[site]'.
 """
@@ -464,6 +465,7 @@ class Site:
       <a href="{root}index.html"{cur("library")}>Reports &amp; RFCs</a>
       <a href="{root}docs/index.html"{cur("design")}>Design</a>
       <a href="{root}studies/index.html"{cur("studies")}>Studies</a>
+      <a href="{root}sim/index.html"{cur("sim")}>Simulator</a>
       <a href="{root}apps/index.html"{cur("apps")}>Apps</a>
     </nav>
     <form class="find" role="search" action="{root}index.html" method="get"><input id="q" name="q" type="search" autocomplete="off" spellcheck="false" placeholder="Search all documents" aria-label="Search all documents"><kbd>/</kbd></form>
@@ -764,6 +766,29 @@ class Site:
 </div>"""
         self.write(path, self.shell(path, "Apps · Heron", body, "apps"))
 
+    def sim_page(self, build):
+        """The simulator (studies/websim), a tab of its own. Its engine and
+        machines take a minute, so `build` (--apps) makes them and a build
+        without keeps what's there; the page is written around them each
+        time, or says how to build them if there are none."""
+        from heron.studies.websim import web
+        path = "sim/index.html"
+        out = os.path.join(self.out, "sim")
+
+        def page(body):
+            return self.shell(path, "Simulator · Heron", body, "sim",
+                              "Heron's machines in the browser, on the studies' own simulators.")
+        if build:
+            web.write(out, page=page)
+        elif os.path.exists(os.path.join(out, "machines.json")):
+            self.write(path, page(web.body()))
+        else:
+            self.write(path, page("""<div class="wrap">
+<div class="h-page"><h1>Simulator</h1><span class="label">Heron's machines in the browser</span></div>
+<p class="note">Not built in this copy of the site: <span class="mono">heron site --apps</span> builds it, or
+<span class="mono">heron websim serve</span> serves it on its own.</p>
+</div>"""))
+
     # -------------------------------------------------------------- output
 
     def write(self, path, text, mode="w"):
@@ -777,7 +802,7 @@ class Site:
             if not os.path.exists(os.path.join(self.out, MARKER)):
                 raise RuntimeError(f"{self.out} isn't empty and wasn't built by heron site; not writing over it")
             for f in os.listdir(self.out):
-                if f == "apps" and not apps:
+                if f in ("apps", "sim") and not apps:
                     continue  # tools built before, kept since they take minutes
                 full = os.path.join(self.out, f)
                 if os.path.isdir(full):
@@ -821,6 +846,7 @@ class Site:
         self.index_page()
         self.studies_page()
         self.apps_page()
+        self.sim_page(apps)
         for img in self.images:
             os.makedirs(os.path.dirname(os.path.join(self.out, img)), exist_ok=True)
             if img in self.branch:

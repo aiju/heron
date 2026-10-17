@@ -88,6 +88,7 @@ heron reports                             # rewrite reports/README.md from the f
 heron reports reserve rfc slug "Title"    # reserve the next number: push a stub to main
 heron build                               # build the Rust engines' Python module
 heron site --serve                        # the website, into build/site, served on localhost:8000
+heron figures write                       # draw the documents' figures into their SVGs
 cargo test                                # the Rust crates' tests
 
 heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # draft 1b: cycles for six configurations, mix, profile

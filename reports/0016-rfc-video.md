@@ -230,22 +230,31 @@ a border.
 
 ## 4. Video memory
 
-```
-            system bus (P1 + P2)
-                    |
-           +-----------------+
-           |  bus interface  |  posted writes; WAIT on reads
-           +-----------------+
-                    |  CPU slots
-+----------+  +-------------------------+  +------------+  +---------+
-|  timing  |->|  VRAM: 4 x 512K x 8     |->| pixel path |->| palette |-> DACs -> VGA / PVM
-|  ROMs    |  |  32 bits, 79 ns slots   |  +------------+  +---------+
-+----------+  +-------------------------+        ^
-  syncs, slot     ^          ^       ^           |
-  owners          |          |       |      sprite line
-               blitter    copper  sprites,  buffers (optional)
-                                  tiles
-```
+<!-- blocks
+text sys "system bus (P1 + P2)" at 30,0
+box bif "bus interface" below sys gap 2
+text "posted writes; WAIT on reads" right of bif gap 1.5
+box tim "timing ROMs" at 0,11
+text "syncs, slot owners" below tim gap 0.5
+box vram "VRAM" "4 × 512K × 8, 32 bits" "79 ns slots" right of tim gap 4 width=27
+box pix "pixel path" right of vram gap 4
+box pal "palette" right of pix gap 3
+box dac "DACs" right of pal gap 3
+text vga "VGA / PVM" right of dac gap 3
+box cop "copper" below vram gap 4
+box blit "blitter" left of cop gap 1.5
+box spr "sprites, tiles" right of cop gap 1.5
+box buf "sprite line" "buffers (optional)" below pix gap 4 dashed
+
+sys -> bif
+bif -> vram "CPU slots"
+tim -> vram -> pix -> pal -> dac -> vga
+blit -> vram
+cop -> vram
+spr -> vram
+buf -> pix
+-->
+![The video card](0016-rfc-video/card.svg)
 
 ### 4.1 On the card
 

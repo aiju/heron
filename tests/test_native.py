@@ -33,6 +33,22 @@ class Hwsim(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("cargo"), "needs cargo (https://rustup.rs)")
+class Websim(unittest.TestCase):
+    """The website's simulator's bindings; the websim study boots its
+    machines on them."""
+
+    def test_session(self):
+        # MOV r1, #5; ADD r1, #3; HALT, in draft 1b, on the plain board
+        s = native.websim.Session("plain", [("isa", "v1b")], [("ram", 0, bytes([0x15, 0x11, 0x13, 0x41, 0, 0]))])
+        self.assertEqual(s.run(1000), "halted")
+        self.assertEqual((dict(s.registers())["r1"], s.instructions, s.clock_hz), (8, 3, 3e6))
+
+    def test_errors(self):
+        with self.assertRaisesRegex(native.websim.SimError, "the plain board takes no speed"):
+            native.websim.Session("plain", [("speed", "3")])
+
+
+@unittest.skipUnless(shutil.which("cargo"), "needs cargo (https://rustup.rs)")
 class V1(unittest.TestCase):
     """The draft 1 simulator's bindings; the v1_isa study runs programs."""
 

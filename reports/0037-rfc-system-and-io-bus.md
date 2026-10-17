@@ -618,14 +618,19 @@ the same table as the slots.
 
 ### 16. The access
 
-```
-BCLK edge   0     1     2     3     4     5     6     7
-A0-A7,      X=====================================X     address, WRITE (and write data)
-WRITE         |<-1+setup->|                 |<-1+hold->|
-SEL         ______________/‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾\__________
-                          |<---- strobe ---->|
-read data                        card drives ^ taken at the end of the strobe
-```
+<!-- timing
+.grid 1 'BCLK edge'
+.range 0 8
+BCLK            8{:1 +.5:0 +.5}
+'A0–A7, WRITE'  :x .1[a]:'address, WRITE, write data' 7.1[b]:x
+  <-> a on   '1 + SETUP'
+  <-> off b  '1 + HOLD'
+SEL             :0 2.1[on]:1 5.1[off]:0
+  <-> on off 'STROBE'
+'D, a read'     :z 3.6:'read data' off+.15:z
+  ^ off 'taken at the end of the strobe'
+-->
+![An access, with SETUP = 1, STROBE = 3 and HOLD = 1](0037-rfc-system-and-io-bus/access.svg)
 
 An access is, in bus clocks:
 

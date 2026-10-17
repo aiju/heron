@@ -157,31 +157,60 @@ into it. Simulate it before any netlist
 
 ### 2. The card
 
-```
-                                 system bus
-   A1–A31, BE, START, WRITE        D0–D15                 REQ, GNT, WAIT, ATN0–3
-  ======|=============================|==========================|===============
-        |                             |                          |
-  master: AL, AHOUT, AH0, AH1    16652: BA takes reads,     bus state; slave side:
-  (16823 x 4)                    AB drives writes; also     three ranges, address
-        |                        the slave's data path      register, WAIT
-        |                             |
-        |    +------------------------+--- T bus ---+-------------+-----------+
-        |    |              |                       |             |           |
-        | bridge         shared RAM            I/O bus side     swap      event ports,
-        | (16245)        2 MB, 4 x 512K x 8    (RFC 0037, 22)   register  doorbells
-        |    |                                      |
-        |    |                  I/O bus ============+==== D0–D15, A0–A7, SEL and INT x 16
-  ------+----+-------------------- R bus -----+-----------------+---------------
-     |              |              |                |                  |
-  SRAM 64K x 16  K <-> R        ALU: A from R,    F (16823): the     loaded from R:
-  registers      (16245)        B from AC         result, onto R     AC, X, BANK,
-  and memory        |           4 x 181 + 182     in the 2nd half    AH0, AH1, LC,
-     |              |                 |                ^             control
-  address:       K field              +----------------+
-  BANK:REG or X     |
-                    +--> uPC (4 x 161) --> microcode, 6 x flash --> uIR (3 x 16823)
-```
+<!-- blocks
+bus sys "system bus" from 0,3 to 90,3
+text "A1–A31, BE, START, WRITE" at 12,1.5
+text "D0–D15" at 33,1.5
+text "REQ, GNT, WAIT, ATN0–3" at 62,1.5
+
+box master "master" "AL, AHOUT, AH0, AH1" "16823 × 4" at 1,6
+box ab "16652" "BA takes reads, AB drives writes," "and the slave's data path" at 27,6
+box slave "bus state, slave side" "three ranges, address register," "WAIT" at 62,6
+
+bus t "T bus" from 16,17 to 90,17
+box bridge "bridge" "16245" at 16,20
+box ram "shared RAM" "2 MB, 4 × 512K × 8" at 26,20
+box iob "I/O bus side" "RFC 0037, 22" at 44,20
+box swap "swap" "register" at 60,20
+box ev "event ports," "doorbells" at 72,20 plain
+
+bus io "I/O bus" from 40,28 to 66,28
+text "D0–D15, A0–A7, SEL and INT × 16" at 67,28
+
+bus r "R bus" from 0,32 to 90,32
+box sram "SRAM" "64K × 16," "registers and memory" at 0,35
+text "address: BANK:REG or X" below sram gap 0.5
+box k "K ↔ R" "16245" at 20,35
+box alu "ALU" "A from R, B from AC" "4 × 181 + 182" at 32,35
+box f "F" "16823: the result," "onto R in the 2nd half" at 52,35
+box ld "loaded from R" "AC, X, BANK, AH0, AH1," "LC, control" at 72,35
+
+box upc "µPC" "4 × 161" below k gap 6 dx=8
+box rom "microcode" "6 × flash" right of upc gap 4
+box uir "µIR" "3 × 16823" right of rom gap 4
+
+sys - master
+sys - ab
+sys - slave
+master - r
+ab - t
+t - bridge
+t - ram
+t - iob
+t - swap
+t - ev
+bridge - r
+iob - io
+r - sram.top-3
+r - k
+r - alu
+r - f
+r - ld
+alu.bottom -> f.bottom
+k -> upc "K field"
+upc -> rom -> uir
+-->
+![The I/O processor's card](0027-rfc-io-coprocessor/card.svg)
 
 - **On the system bus** it sits in master position 3, the highest
   priority ([RFC 0037, 6.1](0037-rfc-system-and-io-bus.md#61-master-positions)).

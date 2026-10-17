@@ -104,6 +104,8 @@ The engines are Rust, everything else is Python
   deviate, or add parts, where that suits the document. Where your code
   needs something its RFC leaves open, add it to the RFC for Emily
   rather than deciding it in the study.
+- **Figures:** to put a picture in a document, read
+  [RFC 0000's figures](reports/0000-rfc-repository-layout.md#figures).
 - **Mentioning one to Emily:** in chat, a PR description or a comment,
   link a report, an RFC or any other file on GitHub, at the branch that
   has the version you mean: your PR's branch if you changed it there,
@@ -167,6 +169,7 @@ Change the generator and rerun it rather than editing the output by hand:
 - `studies/v2_hw/ticks.json`, the microcode's cycle lengths:
   `heron v2_hw hw sta --write`, after any change to draft 2's netlist or
   microcode (`heron test v2_hw` fails while it's stale);
+- the SVGs of the documents' figures: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -224,8 +227,9 @@ it's been deleted.
 - Never commit build output or downloads. `build/` holds ROM images,
   netlists, cargo's output and the engines' Python module, simulation
   scratch and the IBIS models from ti.com.
-- Don't commit anything that can be regenerated quickly from the code. The
-  signal-integrity results in report 0013 are the exception, since they
-  take hours to produce.
+- Don't commit anything that can be regenerated quickly from the code.
+  The exceptions: the signal-integrity results in report 0013, since they
+  take hours to produce, and the documents' figures, since GitHub can
+  only show a committed SVG.
 - Keep every file under 10 MB, and check `git diff --cached --stat` before
   committing.
