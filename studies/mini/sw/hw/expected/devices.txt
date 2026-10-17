@@ -1,0 +1,6 @@
+Heron Mini devices
+boot flash: boot flash ok
+cf: status 50
+"sector 3", ok
+timer: 3 interrupts, status E8
+echo: typed at the terminal

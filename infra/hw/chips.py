@@ -264,6 +264,12 @@ T("sram512", "sram",
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
   family="mem", desc="512K x 8 static RAM")
 
+# a 22V10 (GAL): ten outputs, each a sum of products of the pins
+# (infra/hw/gal.py); every pin may be an input, and CLK clocks the
+# registered outputs. The equations are the instance's (`gal`, `program`)
+T("22v10", "gal", [("CLK", "io")] + [(f"I{i}", "io") for i in range(1, 12)]
+  + [(f"IO{i}", "io") for i in range(10)], desc="22V10 programmable logic")
+
 T("flash", "rom",
   [(f"A{i}", "in") for i in range(17)] + [(f"D{i}", "tri") for i in range(8)]
   + [("CE", "in"), ("OE", "in"), ("WE", "in")],
