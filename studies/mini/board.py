@@ -56,6 +56,14 @@ def control_nets():
     return nets
 
 
+UART_HZ = 1_843_200          # the UARTs' and the timer's clock
+CF_SECTORS = 256             # the simulations' CF card: 128K
+
+
+# the video timing ROM's bits, registered at each character's end
+TIMING_BITS = ["HSYNCQ", "VSYNCQ", "DEQR", "SHLDQ", "DESCQ", "DSEQ", "LENDQ", "FENDQ"]
+
+
 def preload(k):
     """The tick counter's preload for a cycle of k ticks."""
     p = HEAD + 16 + TAIL - k
@@ -130,9 +138,11 @@ def clock_generator(nl, lengths, por_ps):
            **{"1D": "H0", "1Q": "H1", "1QN": "H1_n", "2D": "H1", "2Q": "H2",
               "3D": "GND", "4D": "GND"})
     # (a fast flip-flop: H3 starts the hold through two gates in a tick)
+    # (its other half: the timer's interrupt flag, set as OUT0 rises,
+    # cleared by a write to the interrupt status)
     nl.add("74", "U_TH3", part="74ABT74",
            **{"1D": "H2", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC", "1Q": "H3",
-              "2D": "GND", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC"})
+              "2D": "VCC", "2CLK": "TOUT0", "2PRE": "VCC", "2CLR": "TCLR_n", "2Q": "TFLAG"})
     # the write window: MID from tick 2 (J = H1) until H0 (K-bar = T2_n),
     # and not in the tail. The I/O strobe: from the hold's second tick (J =
     # HOLD) until T2 (K-bar = T1_n), a tick after the read latches close
@@ -148,7 +158,393 @@ def clock_generator(nl, lengths, por_ps):
     g("02", ["H0", "H1"], "LATE")
 
 
-def build(sim=False, lengths=None, por_ps=2_000_000):
+
+
+def video_ram(nl, VA, DB, sim):
+    """Bank 1 of the RAM, 0x0020_0000-0x003F_FFFF: the video's. Its own
+    address (B1A) and data (VD): the CPU's through buffers, the video's in
+    its slots (VSLOT: every cycle's T2 and the next one's H0, when the CPU
+    doesn't use the RAM, and an I/O access's hold, when it doesn't use
+    bank 1)."""
+    g = nl.gate
+    nl.section("Video RAM")
+    for k in range(3):
+        c = nl.add("541", f"U_B1C{k}", OE1="VSLOT", OE2="GND")
+        for i in range(8):
+            bit = 8 * k + i
+            c[f"A{i + 1}"] = VA[2 + bit] if bit < 19 else "GND"
+            if bit < 19:
+                c[f"Y{i + 1}"] = f"B1A{bit}"
+    # the bank is always enabled, its outputs on but in the CPU's writes
+    # (outside the video's slots), so neither is on the CPU's read path:
+    # onto the data bus through the transceivers when the CPU reads it,
+    # written when the bank is chosen
+    g("08", ["MEMWR", "VSLOT_n"], "B1OE_n")
+    g("20", [VA[21], "VA31_n", "VSLOT_n", "VCC"], "B1XOE_n")
+    if sim:
+        # the CPU's writes end within T1, before the video's slot switches
+        # the address: the write strobe through fast copies of T1 and T2
+        # (the other bank's ends a tick later, through four gates)
+        nl.add("74", "U_T1F", **{"1D": "TCRCO", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC",
+                                 "1Q": "T1F", "2D": "T1F", "2CLK": "MCLK", "2PRE": "VCC",
+                                 "2CLR": "VCC", "2Q": "T2F"})
+        g("32", ["T1F", "T2F"], "RWF")
+        # (MID lasts into H0: the video's ownership masks it there)
+        g("08", ["MID", "VSLOT_n"], "MIDV")
+    g("11", ["MEMWR", VA[21], "VA31_n"], "B1WR")
+    for k in range(4):
+        if sim:
+            g("20", ["B1WR", "MIDV", f"BE{k}", "VCC"], f"B1W{k}_n")
+            g("32", [f"B1W{k}_n", "RWF"], f"B1WE{k}_n")
+        else:
+            g("20", ["B1WR", "MWIN", f"BE{k}", "VCC"], f"B1WE{k}_n")
+        x = nl.add("245", f"U_B1X{k}", DIR="MEMWR", OE="B1XOE_n")
+        ram = nl.add("sram512", f"U_RAM1{k}", role="fastram", CE="GND", OE="B1OE_n",
+                     WE=f"B1WE{k}_n")
+        for i in range(19):
+            ram[f"A{i}"] = f"B1A{i}"
+        for i in range(8):
+            ram[f"IO{i}"] = f"VD{8 * k + i}"
+            x[f"A{i + 1}"], x[f"B{i + 1}"] = DB[8 * k + i], f"VD{8 * k + i}"
+    if not sim:
+        nl.add("const", "X_VSLOT", LO="VSLOT", HI="VSLOT_n")
+        return
+    for k in range(3):
+        v = nl.add("541", f"U_B1V{k}", OE1="VSLOT_n", OE2="GND")
+        for i in range(8):
+            bit = 8 * k + i
+            v[f"A{i + 1}"] = f"VAD{bit}" if bit < 19 else "GND"
+            if bit < 19:
+                v[f"Y{i + 1}"] = f"B1A{bit}"
+
+
+def video(nl, DB, VA, capture=False):
+    """The video (RFC 0041): 640 x 480 at 4 bits a pixel from bank 1, 800 x
+    525 pixel clocks of two master ticks (25.175 MHz). Each line's
+    descriptor, word 45 + y of the table at bank 1's word 0 (or 1024 with
+    TSEL), gives its first word (bits 18-0, a word address in bank 1), its
+    palette bank (22-19) and a line interrupt (23). The pixels, 80 words a
+    line, low nibble first; the palette 256 entries of RGB 5:6:5.
+
+    The video's slots: it owns bank 1 in every cycle's T2 and the next H0,
+    and in an I/O access's hold, and latches the word at its address (VAD)
+    into HR at the end of each two ticks it owned it. VAD steps when the
+    shifters take HR, so HR always holds the next word to show (a slot
+    every 11 ticks at most, a word every 16)."""
+    g = nl.gate
+    nl.section("Video timing")
+    # the ownership, a tick ahead: T2 and H0 follow T1 and T2; the hold's
+    # ticks follow HOLD. VT toggles while the video owns bank 1: its
+    # second ticks end the slots
+    g("27", ["T1", "T2", "HOLD"], "VSLOT_D")
+    g("08", ["VSLOT", "VT_n"], "VT_D")
+    nl.add("74", "U_VS", **{"1D": "VSLOT_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
+                            "1Q": "VSLOT_n", "1QN": "VSLOT",
+                            "2D": "VT_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
+                            "2Q": "VT", "2QN": "VT_n"})
+    # the pixel phase (PH: the pixel's second tick), the pixel in the
+    # character (PX, counted at the end of each pixel), P7 the character's
+    # last pixel, CHE its last tick, SLD the shifters' load then
+    nl.add("163", "U_VPX", CLK="MCLK", CLR="RESET_n", LOAD="VCC", ENP="PH", ENT="VCC",
+           A="GND", B="GND", C="GND", D="GND", QA="PX0", QB="PX1", QC="PX2")
+    g("04", ["PX0"], "PX0_n")
+    g("11", ["PX1", "PX2", "PX0_n"], "PX6")
+    g("08", ["PX6", "PH"], "P7_D")
+    nl.add("74", "U_VPH", **{"1D": "PH_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
+                             "1Q": "PH", "1QN": "PH_n",
+                             "2D": "P7_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
+                             "2Q": "P7"})
+    g("08", ["P7", "PH_n"], "CHE_D")
+    g("11", ["P7", "PH_n", "SHLDQ"], "SLD_D")
+    g("11", ["P7", "PH_n", "DESCQ"], "DLD_D")
+    g("11", ["P7", "PH_n", "DSEQ"], "DSE_D")
+    nl.add("74", "U_VCH", **{"1D": "CHE_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
+                             "1Q": "CHE", "1QN": "CHE_n",
+                             "2D": "SLD_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
+                             "2Q": "SLD"})
+    nl.add("74", "U_VLD", **{"1D": "DLD_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
+                             "1Q": "DLD", "1QN": "DLD_n",
+                             "2D": "DSE_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
+                             "2Q": "DSE", "2QN": "DSE_n"})
+    # the character (0-99) and the line (0-524): line 0-44 the vertical
+    # blanking, 45-524 the picture
+    H, V = bus("VH", 7) + ["VH7"], bus("VV", 10) + ["VV10", "VV11"]
+    g("00", ["LENDQ", "CHE"], "HCLR_n")
+    g("08", ["LENDQ", "CHE"], "LINE")
+    g("20", ["FENDQ", "LENDQ", "CHE", "VCC"], "VCLR_n")
+    rco = "VCC"
+    for k in range(2):
+        # (the carries ripple on past the edge after a step, when nothing
+        # counts: the simulator's checks are off past the first counter)
+        nl.add("163", f"U_VH{k}", part="74ACT163", CLK="MCLK", CLR="HCLR_n", LOAD="VCC",
+               nocheck=k > 0,
+               ENP="CHE", ENT=rco, A="GND", B="GND", C="GND", D="GND",
+               QA=H[4 * k], QB=H[4 * k + 1], QC=H[4 * k + 2], QD=H[4 * k + 3], RCO=f"VHC{k}")
+        rco = f"VHC{k}"
+    rco = "VCC"
+    for k in range(3):
+        nl.add("163", f"U_VV{k}", part="74ACT163", CLK="MCLK", CLR="VCLR_n", LOAD="VCC",
+               nocheck=k > 0,
+               ENP="LINE", ENT=rco, A="GND", B="GND", C="GND", D="GND",
+               QA=V[4 * k], QB=V[4 * k + 1], QC=V[4 * k + 2], QD=V[4 * k + 3], RCO=f"VVC{k}")
+        rco = f"VVC{k}"
+    # the timing ROM, by the character and the line, registered at the
+    # character's end: what to do in the next character
+    rom = nl.add("flash", "U_VTIM", role="decode", CE="GND", OE="GND", WE="VCC")
+    for i in range(7):
+        rom[f"A{i}"] = H[i]
+    for i in range(10):
+        rom[f"A{7 + i}"] = V[i]
+    tr = nl.add("377", "U_VTR", CLK="MCLK", EN="CHE_n")
+    for i, q in enumerate(TIMING_BITS):
+        tr[f"D{i + 1}"], tr[f"Q{i + 1}"] = f"VTD{i}", q
+        rom[f"D{i}"] = f"VTD{i}"
+
+    nl.section("Video fetch")
+    # VAD: the word the video reads. Loaded with the descriptor's address
+    # (DLD: TSEL and the line), then the descriptor (DSE: from HR), stepped
+    # as the shifters take a word (SLD)
+    VADn = bus("VAD", 19) + ["VAD19"]
+    HR = bus("HR", 32)
+    g("02", ["DLD", "DSE"], "VADL_n")
+    for k in range(3):
+        m = nl.add("157", f"U_VADM{k}", S="DESCQ", G="GND")
+        for j in range(4):
+            bit = 4 * k + j
+            tab = f"VV{bit}" if bit < 10 else ("TSEL" if bit == 10 else "GND")
+            m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = HR[bit], tab, f"VADD{bit}"
+    rco = "VCC"
+    for k in range(5):
+        low = k < 3
+        # (the carry ripples on past the edge after a step, when SLD is
+        # low and nothing counts, as the character and line counters' do)
+        c = nl.add("163", f"U_VAD{k}", part="74ACT163", CLK="MCLK", nocheck=k > 0,
+                   CLR="VCC" if low else "DLD_n", LOAD="VADL_n" if low else "DSE_n",
+                   ENP="SLD", ENT=rco, RCO=f"VADC{k}")
+        rco = f"VADC{k}"
+        for j, (pin, q) in enumerate(zip("ABCD", ("QA", "QB", "QC", "QD"))):
+            bit = 4 * k + j
+            c[pin] = f"VADD{bit}" if low else (HR[bit] if bit < 19 else "GND")
+            c[q] = VADn[bit]
+    # HR: the word at VAD, latched at the end of each slot (9-bit registers
+    # with a clock enable and three-state outputs, always on: the shifters'
+    # parallel inputs are their three-state I/O)
+    for k in range(4):
+        r = nl.add("823", f"U_HR{k}", CLK="MCLK", EN="VT_n", CLR="VCC", OE="GND")
+        for i in range(8):
+            r[f"D{i + 1}"], r[f"Q{i + 1}"] = f"VD{8 * k + i}", HR[8 * k + i]
+        r["D9"] = "GND"
+    # the line's mode, from its descriptor: the palette bank, the line
+    # interrupt
+    ml = nl.add("377", "U_VML", CLK="MCLK", EN="DSE_n")
+    for i in range(8):
+        ml[f"D{i + 1}"], ml[f"Q{i + 1}"] = HR[19 + i], f"VM{i}"
+
+    nl.section("Video output")
+    # the shifters: shifter k has bit k of each pixel, pixel 0 at IO7; they
+    # shift at each pixel's end (S0 = PH) and load from HR at the
+    # character's (S1 = SLD)
+    P = bus("VP", 4)
+    for k in range(4):
+        sh = nl.add("299", f"U_VSH{k}", S0="PH", S1="SLD", OE1="VCC", OE2="VCC", MR="RESET_n",
+                    CP="MCLK", DS0="GND", DS7="GND", Q7S=P[k])
+        for j in range(8):
+            sh[f"IO{7 - j}"] = HR[4 * j + k]
+    # the palette: 256 entries of 16 bits, by the line's bank and the pixel;
+    # the CPU writes it (region 7, LOC1: 0xF000_0400 + 4n)
+    PA, PD = bus("PA", 8), bus("PD", 16)
+    for k in range(2):
+        m = nl.add("157", f"U_PAM{k}", S="LOC1_n", G="GND")
+        for j in range(4):
+            bit = 4 * k + j
+            disp = P[bit] if bit < 4 else f"VM{bit - 4}"
+            m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = VA[2 + bit], disp, PA[bit]
+    g("32", ["LOC1_n", "IOWR_n"], "PWE_n")
+    g("04", ["LOC1_n"], "POE_n")
+    for k in range(2):
+        ram = nl.add("sram", f"U_PAL{k}", role="rf", CE="GND", OE="POE_n", WE="PWE_n")
+        for i in range(15):
+            ram[f"A{i}"] = PA[i] if i < 8 else "GND"
+        b = nl.add("541", f"U_PWD{k}", OE1="LOC1_n", OE2="IOWR_n")
+        for i in range(8):
+            ram[f"IO{i}"] = PD[8 * k + i]
+            b[f"A{i + 1}"], b[f"Y{i + 1}"] = DB[8 * k + i], PD[8 * k + i]
+    # the colour, registered at each pixel's end; off (black, the monitor's
+    # 75 ohms pulling the DACs down) outside the picture. DE a pixel late,
+    # as the colour is
+    nl.add("74", "U_VDE", **{"1D": "DEQ", "1CLK": "PH_n", "1PRE": "VCC", "1CLR": "RESET_n",
+                             "1Q": "DED", "1QN": "DED_n",
+                             "2D": "VIRQ_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
+                             "2Q": "VIFLAG"})
+    for k in range(2):
+        o = nl.add("574", f"U_RGB{k}", CLK="PH_n", OE="DED_n")
+        for i in range(8):
+            o[f"D{i + 1}"], o[f"Q{i + 1}"] = PD[8 * k + i], f"RGB{8 * k + i}"
+    if capture:
+        # a frame grabber: the outputs at the middle of each pixel
+        from .video import CAPTURE
+        x = nl.add("vector", "X_VCAP", CLK="PH", params={"outs": 0, "ins": len(CAPTURE),
+                                                         "conds": 1})
+        for i in range(48):
+            x[f"I{i}"] = CAPTURE[i] if i < len(CAPTURE) else "GND"
+
+    nl.section("Video registers")
+    # region 7, LOC0: 0xF000_0000 the control register (bit 0 the picture
+    # on, 1 TSEL, 2 the interrupt on), 0xF000_0004 the interrupt's
+    # acknowledge (any write)
+    g("32", ["LOC0_n", "IOWR_n"], "VREGW")
+    g("04", [VA[2]], "VA2_n")
+    g("32", ["VREGW", VA[2]], "VCTLW")
+    g("32", ["VREGW", "VA2_n"], "VACKW")
+    nl.add("175", "U_VCTL", CLK="VCTLW", CLR="RESET_n",
+           **{"1D": DB[0], "1Q": "VON", "2D": DB[1], "2Q": "TSEL", "3D": DB[2], "3Q": "VIEN",
+              "4D": "GND"})
+    g("08", ["DEQR", "VON"], "DEQ")
+    # the interrupt: set at the picture's end and by a line whose
+    # descriptor asks; cleared by the acknowledge (a write's strobe, so
+    # synchronous to the master clock)
+    g("08", ["FENDQ", "LINE"], "VFR")
+    g("08", ["DSE", "HR23"], "VLN")
+    g("02", ["VFR", "VLN"], "VSET_n")
+    g("00", ["VIFLAG", "VACKW"], "VKEEP_n")
+    g("00", ["VSET_n", "VKEEP_n"], "VIRQ_D")
+    g("08", ["VIFLAG", "VIEN"], "VIRQ")
+
+def io_space(nl, VA, DB, sim):
+    """The devices in the I/O space (system.py has the map): the strobes,
+    the devices' latched address, the 16-bit I/O data bus, the devices,
+    the on-board registers in region 7 and the interrupt line."""
+    g = nl.gate
+    if not sim:
+        # the static timing analysis leaves the I/O space out: its timing
+        # is the hold's, checked with the devices at chip level
+        nl.add("const", "X_STUB", LO="IRQ")
+        return
+    nl.section("I/O")
+    # the strobes: from the hold's second tick to T2
+    g("00", ["MEMWR", "IOSTB"], "IOWR_n")
+    g("00", ["READING", "IOSTB"], "IORD_n")
+    # the devices' address and selects, latched as the strobe starts until
+    # the next cycle's tick 1 (open for a tick between, while VA still
+    # holds): they hold 20 ns after the strobe (the 16C550's and the CF
+    # card's tAH), and the expansion ports see them settled
+    g("02", ["IOSTB", "H0"], "IOLE")
+    al = nl.add("573", "U_IOAL", LE="IOLE", OE="GND")
+    sl = nl.add("573", "U_IOSL", LE="IOLE", OE="GND")
+    for i in range(8):
+        al[f"D{i + 1}"], al[f"Q{i + 1}"] = VA[2 + i], f"IOA{2 + i}"
+        sl[f"D{i + 1}"], sl[f"Q{i + 1}"] = f"IOR{i}_n", f"IOS{i}_n"
+    g("04", ["IOA5"], "IOA5_n")
+    # the I/O data bus, 16 bits, for regions 0-6: driven from the data bus
+    # for the whole of a write, onto it for a read's strobe
+    g("11", ["IOACC", "MEMWR", "IOR7_n"], "XW")
+    g("11", ["IOSTB", "READING", "IOR7_n"], "XR")
+    g("02", ["XW", "XR"], "XOE_n")
+    for k in range(2):
+        x = nl.add("245", f"U_IOX{k}", DIR="MEMWR", OE="XOE_n")
+        rn = nl.add("pullup", f"RN_IOD{k}")
+        for i in range(8):
+            x[f"A{i + 1}"], x[f"B{i + 1}"] = DB[8 * k + i], f"IOD{8 * k + i}"
+            rn[f"P{i + 1}"] = f"IOD{8 * k + i}"
+
+    nl.section("CF card")
+    # region 0, True IDE on the I/O bus's 16 bits: CS0 (the task file) with
+    # A5 low, CS1 (the control block) with A5 high. Its strobes start two
+    # ticks after the others, for PIO mode 0's 70 ns of address setup (a
+    # read at the A bus has its address late); they end with them, at T2
+    # (J = 1 with K-bar = 0 toggles them off then)
+    g("32", ["IOS0_n", "IOA5"], "CFCS0_n")
+    g("32", ["IOS0_n", "IOA5_n"], "CFCS1_n")
+    nl.add("109", "U_CFSTB",
+           **{"1J": "IOSTB", "1K": "T1_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
+              "1Q": "CFS2", "2J": "CFS2", "2K": "T1_n", "2CLK": "MCLK", "2PRE": "VCC",
+              "2CLR": "RESET_n", "2Q": "CFS3"})
+    g("00", ["READING", "CFS3"], "CFRD_n")
+    g("00", ["MEMWR", "CFS3"], "CFWR_n")
+    cf = nl.add("cf", "U_CF", CS0="CFCS0_n", CS1="CFCS1_n", IORD="CFRD_n", IOWR="CFWR_n",
+                RESET="RESET_n", INTRQ="CFINT", WAKE="CF_WAKE", params={"sectors": CF_SECTORS})
+    for i in range(3):
+        cf[f"A{i}"] = f"IOA{2 + i}"
+    for i in range(16):
+        cf[f"D{i}"] = f"IOD{i}"
+
+    nl.section("Expansion ports")
+    # regions 1 and 2: each port's select, the latched address A2-A9, the
+    # I/O bus, the strobes, reset and an open-collector interrupt request
+    # (pulled up here); the connectors aren't in the netlist
+    nl.add("pullup", "RN_EXP", P1="EIRQ1_n", P2="EIRQ2_n")
+
+    nl.section("Timer")
+    # region 3, an 82C54 counting the UARTs' 1.8432 MHz: counter 0 the
+    # periodic interrupt (OUT0 rising sets TFLAG), counter 2 the speaker
+    nl.add("osc", "U_UOSC", part="oscillator 1.8432 MHz", OUT="UCLK",
+           params={"period_ps": round(1e12 / UART_HZ)})
+    t = nl.add("82c54", "U_PIT", A0="IOA2", A1="IOA3", CS="IOS3_n", RD="IORD_n", WR="IOWR_n",
+               OUT0="TOUT0", OUT2="TOUT2", CLK0="UCLK", CLK1="UCLK", CLK2="UCLK",
+               GATE0="VCC", GATE1="VCC", GATE2="SPKG")
+    for i in range(8):
+        t[f"D{i}"] = f"IOD{i}"
+
+    nl.section("Boot flash")
+    # region 5: a byte a word, so A0 is VA2; programmable in place
+    f = nl.add("flash", "U_BOOT", CE="IOS5_n", OE="IORD_n", WE="IOWR_n")
+    for i in range(17):
+        f[f"A{i}"] = VA[2 + i]
+    for i in range(8):
+        f[f"D{i}"] = f"IOD{i}"
+
+    nl.section("UARTs")
+    # region 6: UART 0 with A5 low, UART 1 with A5 high
+    for k, cs0 in enumerate(["IOA5_n", "IOA5"]):
+        ua = nl.add("16c550", f"U_UART{k}", CS0=cs0, CS1="VCC", CS2="IOS6_n", RD="IORD_n",
+                    WR="IOWR_n", MR="RESET", XIN="UCLK", INTR=f"UINT{k}")
+        for i in range(3):
+            ua[f"A{i}"] = f"IOA{2 + i}"
+        for i in range(8):
+            ua[f"D{i}"] = f"IOD{i}"
+
+    nl.section("On-board registers")
+    # region 7 with VA21 low, on the data bus: by VA[12:10], 0 the video's
+    # registers, 1 the palette, 2 the interrupt status (a read) and the
+    # timer's acknowledge (a write), 3 the control register
+    nl.add("138", "U_LOCD", A=VA[10], B=VA[11], C=VA[12], G1="VA21_n", G2A="IOR7_n",
+           G2B="GND", Y0="LOC0_n", Y1="LOC1_n", Y2="LOC2_n", Y3="LOC3_n")
+    st = nl.add("541", "U_ISR", OE1="LOC2_n", OE2="IORD_n")
+    for i, src in enumerate(["UINT0", "UINT1", "CFINT", "TFLAG", "VIRQ", "EIRQ1_n", "EIRQ2_n",
+                             "IRQ"]):
+        st[f"A{i + 1}"], st[f"Y{i + 1}"] = src, DB[i]
+    g("32", ["LOC2_n", "IOWR_n"], "TACK_n")
+    g("08", ["TACK_n", "RESET_n"], "TCLR_n")
+    # the control register: the speaker's gate and data, two LEDs
+    g("32", ["LOC3_n", "IOWR_n"], "CTLW")
+    nl.add("175", "U_CTL", CLK="CTLW", CLR="RESET_n",
+           **{"1D": DB[0], "1Q": "SPKG", "2D": DB[1], "2Q": "SPKD",
+              "3D": DB[2], "3Q": "LED0", "4D": DB[3], "4Q": "LED1"})
+    g("08", ["TOUT2", "SPKD"], "SPK")
+
+    nl.section("Interrupts")
+    # the line: any device's request
+    g("02", ["UINT0", "UINT1"], "IRQN1")
+    g("02", ["CFINT", "TFLAG"], "IRQN2")
+    g("02", ["VIRQ", "XIRQ"], "IRQN3")
+    g("30", ["IRQN1", "IRQN2", "IRQN3", "EIRQ1_n", "EIRQ2_n"], "IRQ")
+
+    # the suite's I/O page: a test card in region 7 with VA21 high, on the
+    # data bus. It takes a read at CLK's edge, so its read strobe lasts the
+    # cycle
+    nl.section("I/O")
+    g("32", ["IOR7_n", "VA21_n"], "XSEL_n")
+    g("00", ["READING", "LATE"], "IORDX_n")
+    x = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="XSEL_n", RD="IORDX_n", WR="IOWR_n",
+               IRQ="XIRQ")
+    for i in range(2, 8):
+        x[f"A{i}"] = VA[i]
+    for i in range(4):
+        x[f"BE{i}"] = f"BE{i}_n"
+    for i in range(32):
+        x[f"D{i}"] = DB[i]
+
+def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     nl = Netlist()
     g = nl.gate
     U = control_nets()
@@ -267,7 +663,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # the interrupt line, active high, registered at every edge (IRQQ); a
     # cycle later, with I as it is in the cycle, PEND
     g("08", ["IRQQ", "IFLAG"], "PEND_D")
-    nl.add("74", "U_IRQ",
+    nl.add("74", "U_IRQ", nocheck=True,
            **{"1D": "IRQ", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "IRQQ",
               "2D": "PEND_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "RESET_n",
               "2Q": "PEND", "2QN": "PEND_n"})
@@ -668,25 +1064,24 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
                 G2B="GND")
     for v in range(8):
         io[f"Y{v}"] = f"IOR{v}_n"
-    # the RAM: 4 MB, two banks of four 512K x 8 by VA21; its outputs on in a
-    # fetch cycle (nothing else drives the data bus then) and in a read of
-    # the RAM
+    # the RAM: 4 MB, two banks of four 512K x 8 by VA21 (bank 1, the
+    # video's, in video_ram()); its outputs on in a fetch cycle (nothing else
+    # drives the data bus then) and in a read of the RAM
     g("04", [VA[21]], "VA21_n")
     g("32", [VA[21], VA[31]], "CE0_n")
-    g("32", ["VA21_n", VA[31]], "CE1_n")
     g("08", ["READING", "VA31_n"], "RAMRD")
     g("02", ["FETCHCYC", "RAMRD"], "RAMOE_n")
     g("11", ["MEMWR", "VA31_n", "MWIN"], "MWOK")
     for k in range(4):
         g("00", ["MWOK", f"BE{k}"], f"WE{k}_n")
-    for bank in range(2):
-        for k in range(4):
-            ram = nl.add("sram512", f"U_RAM{bank}{k}", role="fastram", CE=f"CE{bank}_n",
-                         OE="RAMOE_n", WE=f"WE{k}_n")
-            for i in range(19):
-                ram[f"A{i}"] = VA[2 + i]
-            for i in range(8):
-                ram[f"IO{i}"] = DB[8 * k + i]
+    for k in range(4):
+        ram = nl.add("sram512", f"U_RAM0{k}", role="fastram", CE="CE0_n", OE="RAMOE_n",
+                     WE=f"WE{k}_n")
+        for i in range(19):
+            ram[f"A{i}"] = VA[2 + i]
+        for i in range(8):
+            ram[f"IO{i}"] = DB[8 * k + i]
+    video_ram(nl, VA, DB, sim)
     # store data: the A bus, replicated by size (a write always has one, so
     # SIZE1 is a half or a word)
     nl.section("Store data")
@@ -700,24 +1095,9 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         for i in range(8):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], DB[8 * dst + i]
 
-    nl.section("I/O")
-    # the strobes
-    g("00", ["MEMWR", "IOSTB"], "IOWR_n")
-    g("00", ["READING", "IOSTB"], "IORD_n")
-    # the suite's I/O page: a fixture in region 7, on the data bus. It
-    # takes a read at CLK's edge, so its read strobe lasts the cycle
+    io_space(nl, VA, DB, sim)
     if sim:
-        g("00", ["READING", "LATE"], "IORDX_n")
-        x = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="IOR7_n", RD="IORDX_n", WR="IOWR_n",
-                   IRQ="IRQ")
-        for i in range(2, 8):
-            x[f"A{i}"] = VA[i]
-        for i in range(4):
-            x[f"BE{i}"] = f"BE{i}_n"
-        for i in range(32):
-            x[f"D{i}"] = DB[i]
-    else:
-        nl.add("const", "X_STUB", LO="IRQ")
+        video(nl, DB, VA, capture)
 
     # ---- flags -------------------------------------------------------------------------
     nl.section("Flags")

@@ -26,6 +26,8 @@ lane, the CF card on the low half; their registers are a word apart, so
 that word, half and byte loads all find them.
 """
 
+from . import video
+
 M32 = 0xFFFFFFFF
 RAM_SIZE = 4 << 20
 IO_BASE = 0x80000000
@@ -38,9 +40,10 @@ SUITE_PAGE = 0xFFFFFF00
 IO_HOLD = {r: 16 - 2 * r for r in range(8)}
 R_CF, R_EXP1, R_EXP2, R_PIT, R_BOOT, R_UART, R_LOCAL = 0, 1, 2, 3, 5, 6, 7
 
-# video registers (region 7), offsets
-V_CTRL, V_TABLE, V_STATUS, V_IRQ = 0x000, 0x004, 0x008, 0x00C
-V_PALETTE = 0x400                    # 256 entries, a word apart: RGB 5:6:5
+# region 7's on-board registers (with PA21 low), by PA[12:10]: the video's
+# (video.py), its palette, the interrupt status (a read; a write
+# acknowledges the timer), the control register (the speaker, the LEDs)
+L_VIDEO, L_PALETTE, L_STATUS, L_CTRL = 0x000, 0x400, 0x800, 0xC00
 
 
 def replicate(size, a):
@@ -214,143 +217,47 @@ class Uart:
 
 
 class Video:
-    """The video's registers and palette, and its fetches (RFC 0041):
-    640 x 480 at 4 bits a pixel, from 800 x 525 pixel clocks of 2 master
-    ticks. Each line's descriptor, a word of the table at TB + 4 x line,
-    gives the line's address in the RAM (1 KB rows: bits 11-0 the row),
-    its first word in the row (19-12), its palette bank (23-20), and in
-    bit 31 a line interrupt. The pixels are 80 words a line, fetched in
-    the CPU's video slots (the last two ticks of every microcycle and the
-    ticks an I/O access holds); this model checks that every word was
-    fetched before the display needed it, and counts the slots it used."""
+    """The video's registers and its interrupt (video.py has the picture,
+    the timing and the layout of its registers). The interrupt is the
+    picture's end, a frame every TICKS_FRAME master ticks; line interrupts
+    (a descriptor's bit 23) aren't modelled."""
 
-    H_TOTAL, V_TOTAL = 800, 525
-    WORDS = 80                       # 640 pixels at 4 bits
-    TICKS_WORD = 16                  # 8 pixels of 2 ticks
-    LEAD = 32                        # the first word is fetched this early
-
-    def __init__(self, enabled=False):
-        self.ctrl = 1 if enabled else 0
-        self.table = 0
+    def __init__(self):
+        self.ctrl = 0
         self.palette = [0] * 256
-        self.irq_pending = 0
-        self.irq_enable = 0
-        self.underflows = 0
-        self.fetches = 0
-        self.t = 0                   # master ticks since the frame started
-        self.need = None             # the next fetch: (earliest tick, deadline)
-        self.line = 0
-        self.word = 0
-
-    # the display's schedule: for line y < 480, the descriptor in the line
-    # before's blanking, then word j's fetch, due when the shifter takes
-    # word j - 1 (or, for word 0, LEAD ticks before the line starts)
-    def _schedule(self):
-        """(earliest, deadline) of the next fetch, from the line and word."""
-        line_ticks = 2 * self.H_TOTAL
-        start = self.line * line_ticks
-        if self.word < 0:            # the descriptor, in the line before's blanking
-            return (start - 2 * 160, start - self.LEAD)
-        due = start + self.TICKS_WORD * self.word
-        earliest = due - self.TICKS_WORD if self.word else start - self.LEAD
-        return (earliest, due)
-
-    def slot(self, t0, t1):
-        """A video slot from master tick t0 to t1 (the frame's ticks wrap)."""
-        if not self.ctrl & 1:
-            return
-        frame = 2 * self.H_TOTAL * self.V_TOTAL
-        while True:
-            if self.need is None:
-                if self.line >= 480:
-                    return
-                self.need = self._schedule()
-            earliest, due = self.need
-            if t1 - 2 < earliest:
-                return
-            if t0 > due:
-                self.underflows += 1
-            self.fetches += 1
-            self._advance()
-            if t1 - t0 < 4:
-                return
-
-    def _advance(self):
-        self.need = None
-        if self.word == -1:
-            self.word = 0
-            return
-        self.word += 1
-        if self.word == self.WORDS:
-            self.word = -1
-            self.line += 1
-
-    def frame_tick(self, t):
-        """The CPU's time moved to master tick t (from the start)."""
-        frame = 2 * self.H_TOTAL * self.V_TOTAL
-        if t // frame != self.t // frame:
-            self.line, self.word, self.need = 0, -1, None
-            self.irq_pending |= 1                    # vertical blank, from the frame's end
-        self.t = t
-
-    def read(self, off):
-        if off == V_CTRL:
-            return self.ctrl
-        if off == V_TABLE:
-            return self.table
-        if off == V_STATUS:
-            return self.irq_pending
-        if off == V_IRQ:
-            return self.irq_enable
-        if V_PALETTE <= off < V_PALETTE + 0x400:
-            return self.palette[(off - V_PALETTE) >> 2]
-        return 0
+        self.flag = 0
+        self.frame = 0
 
     def write(self, off, v):
-        if off == V_CTRL:
-            self.ctrl = v & 1
-        elif off == V_TABLE:
-            self.table = v & 0x3FF000
-        elif off == V_STATUS:
-            self.irq_pending &= ~v
-        elif off == V_IRQ:
-            self.irq_enable = v & 3
-        elif V_PALETTE <= off < V_PALETTE + 0x400:
-            self.palette[(off - V_PALETTE) >> 2] = v & 0xFFFF
+        if off < 0x400:
+            if off & 4:
+                self.flag = 0                       # the acknowledge
+            else:
+                self.ctrl = v & 7
+        elif off < 0x800:
+            self.palette[(off - 0x400) >> 2] = v & 0xFFFF
+
+    def frame_tick(self, t):
+        """The CPU's time moved to master tick t."""
+        f = t // video.TICKS_FRAME
+        if f != self.frame:
+            self.frame = f
+            self.flag = 1
 
     @property
     def irq(self):
-        return bool(self.irq_pending & self.irq_enable)
-
-    def render(self, ram):
-        """The frame as the display would show it: 480 rows of 640 RGB
-        triples (bytes), from the descriptors and the palette."""
-        rows = []
-        for y in range(480):
-            d = int.from_bytes(ram[(self.table + 4 * y) % len(ram):][:4], "little")
-            base = ((d & 0xFFF) << 10) + (((d >> 12) & 0xFF) << 2)
-            bank = (d >> 20) & 15
-            row = bytearray()
-            for j in range(self.WORDS):
-                a = (base + 4 * j) % len(ram)
-                word = int.from_bytes(ram[a:a + 4], "little")
-                for k in range(8):
-                    c = self.palette[(bank << 4) | ((word >> (4 * k)) & 15)]
-                    row += bytes(((c >> 11) << 3, ((c >> 5) & 63) << 2, (c & 31) << 3))
-            rows.append(bytes(row))
-        return rows
+        return bool(self.flag and self.ctrl & 4)
 
 
 class System:
     """The board: the RAM, the I/O regions, the interrupt line, the video."""
 
-    def __init__(self, ram_size=RAM_SIZE, inp=b"", uart_inp=b"", video=False, io_hold=None,
-                 boot=b""):
+    def __init__(self, ram_size=RAM_SIZE, inp=b"", uart_inp=b"", io_hold=None, boot=b""):
         self.ram = bytearray(ram_size)
         self.mask = ram_size - 1
         self.page = SuitePage(inp)
         self.uarts = [Uart(uart_inp), Uart()]
-        self.video = Video(video)
+        self.video = Video()
         self.boot = bytearray(boot) + bytearray(0x20000 - len(boot))
         self.io_hold = dict(IO_HOLD, **(io_hold or {}))
         self.ticks = 0
@@ -404,8 +311,8 @@ class System:
             return self.uarts[(pa >> 5) & 1].read((pa >> 2) & 7)
         if region == R_LOCAL and pa & 0x0FFFFF00 == SUITE_PAGE & 0x0FFFFF00:
             return self.page.read(pa & 0xFF, size, cycle)
-        if region == R_LOCAL:
-            return self.video.read(pa & 0xFFC)
+        if region == R_LOCAL and not pa & 0x200000 and pa & 0xC00 == L_STATUS:
+            return self.status() * 0x01010101
         return 0
 
     def _io_write(self, region, pa, size, data, cycle):
@@ -413,10 +320,18 @@ class System:
             self.uarts[(pa >> 5) & 1].write((pa >> 2) & 7, data & 0xFF)
         elif region == R_LOCAL and pa & 0x0FFFFF00 == SUITE_PAGE & 0x0FFFFF00:
             self.page.write(pa & 0xFF, data, size)
-        elif region == R_LOCAL:
-            self.video.write(pa & 0xFFC, data)
+        elif region == R_LOCAL and not pa & 0x200000 and pa & 0xC00 < L_STATUS:
+            self.video.write(pa & 0x7FC, data)
 
     # ---- time ---------------------------------------------------------------
+
+    def status(self):
+        """The interrupt status register (board.py's U_ISR): the UARTs, the
+        CF card and the timer (not modelled: 0), the video, the expansion
+        ports' lines (active low, pulled up), the line."""
+        s = (self.uarts[0].irq) | (self.uarts[1].irq << 1) | (self.video.irq << 4)
+        s |= 0x60
+        return s | (self.irq() << 7)
 
     def irq(self):
         """The interrupt line (any device requesting)."""
@@ -424,21 +339,14 @@ class System:
 
     def can_interrupt(self):
         """Something could still raise the interrupt line on its own."""
-        return bool(self.page.period) or bool(self.video.irq_enable and self.video.ctrl & 1)
+        return bool(self.page.period) or bool(self.video.ctrl & 4)
 
     def cycle(self, ticks, hold):
         """A CPU microcycle of `ticks` master ticks, `hold` of them an I/O
-        access's wait: the video's slots in it (its last two ticks, and the
-        hold), and the devices' time."""
-        t0 = self.ticks
-        t1 = t0 + ticks
-        v = self.video
-        if v.ctrl & 1:
-            v.frame_tick(t0)
-            if hold:
-                v.slot(t1 - 2 - hold, t1 - 2)
-            v.slot(t1 - 2, t1)
-        self.ticks = t1
+        access's wait. The video takes its slots from bank 1 without
+        holding the CPU, so only its interrupt follows the time."""
+        self.ticks += ticks
+        self.video.frame_tick(self.ticks)
         self.page.tick()
 
     def output(self):

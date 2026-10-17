@@ -45,8 +45,8 @@ def program_paths(names=None):
 
 
 def run_rtl(image, inp=b"", max_cycles=400_000_000, trace=None, profile=False, queue=2,
-            video=False, mc=None, system=None):
-    s = system or System(inp=inp, video=video)
+            mc=None, system=None):
+    s = system or System(inp=inp)
     if image is not None:
         s.load(image)
     m = RTL(s, mc=mc, queue_words=queue)

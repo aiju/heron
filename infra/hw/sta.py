@@ -363,6 +363,22 @@ class Case:
                                       ("OE2", "OE->Y en", d["OE->Y en"])])
         return (self.pin(inst, a)[0], t, en, cause)
 
+    def m_xcvr245(self, inst, pin, d):
+        """A transceiver drives B from A with DIR high, A from B with it low,
+        while OE (active low) is low. The case must hold DIR, or the two
+        sides would feed each other."""
+        oe, dr = self.pin(inst, "OE")[0], self.pin(inst, "DIR")[0]
+        side = pin[0]
+        if oe == 1 or dr == (0 if side == "B" else 1):
+            return self._off(inst, ["OE"], "OE->Y dis", d)
+        if dr is None:
+            raise ValueError(f"{inst.ref}: the case doesn't hold DIR")
+        src, dn = ("A" if side == "B" else "B") + pin[1:], "A->B" if side == "B" else "B->A"
+        en = True if oe == 0 else None
+        t, cause = self.latest(inst, [(src, dn, d[dn]), ("OE", "OE->Y en", d["OE->Y en"]),
+                                      ("DIR", "OE->Y en", d["OE->Y en"])])
+        return (self.pin(inst, src)[0], t, en, cause)
+
     def m_cmp688(self, inst, pin, d):
         g = self.pin(inst, "G")[0]
         if g == 1:

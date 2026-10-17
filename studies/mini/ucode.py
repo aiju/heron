@@ -1477,10 +1477,33 @@ def routine(key):
     raise ValueError(key)
 
 
+BOOT_FLASH = 0xD0000000          # region 5: a byte a word
+
+
+def boot_steps(exit_node):
+    """The boot: the boot flash's image copied to the RAM from 0, then
+    exit_node. The flash holds the count of words, little-endian, then the
+    words; a count of 0, or one of 2^31 or more (an erased flash), copies
+    nothing. Ten microinstructions a word, eight of them a byte's: its read
+    at the A bus (stepping the address), then its rotation into R."""
+    rd = mi(mem="reada", size="byte", ra=TMP1, kv=4, alu="add", w=TMP1)
+    first = mi(b="tbyte", alu="passb", rms="ror8", ldr=1)          # R <- byte ror 8
+    more = mi(a="r", b="tbyte", alu="or", rms="ror8", ldr=1)       # R <- (R | byte) ror 8
+    count = Node(mi(ra=TMP2, alu="dec", ldr=1, w=TMP2), None, "reset")
+    store = Node(mi(a="r", mem="write", size="word", marinc=1), ("next", count), "reset")
+    word = chain("reset", first, rd, more, rd, more, rd, more, store)
+    count.succ = ("next", branch("reset", rd, "r31", word, exit_node))
+    setup = [mi(kv=BOOT_FLASH >> 24, alu="passb", ldr=1),
+             mi(a="r", alu="passa", rms="ror8", w=TMP1),
+             mi(kv=0, alu="passb", ldmar=1)]
+    header = [rd, first, rd, more, rd, more, rd, merge(more, mi(w=TMP2))]
+    return setup + header, count
+
+
 def reset_routine():
     """Reset (control store address 0): the flags cleared, interrupts off,
-    the register file's constants written; then the boot: the jump to the
-    reset vector, 0."""
+    the register file's constants written; then the boot (boot_steps) and
+    the jump to the reset vector, 0."""
     steps = [mi(kv=0, alu="passb", ldr=1),
              mi(a="r", alu="passa", w=ZERO, loadf=1),               # N Z C V I 0
              mi(kv=-1, alu="passb", w=ONES)]
@@ -1501,7 +1524,8 @@ def reset_routine():
     for loc in sorted(CONSTS):
         if loc not in (ZERO, ONES):
             steps += const(loc, CONSTS[loc])
-    return chain("reset", *steps, end("reset", kv=VECTORS["reset"], alu="passb", ldpc=1))
+    boot, loop = boot_steps(end("reset", kv=VECTORS["reset"], alu="passb", ldpc=1))
+    return chain("reset", *steps, *boot, loop)
 
 
 # --------------------------------------------------------------------------

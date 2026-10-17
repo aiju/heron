@@ -23,7 +23,7 @@ import time
 from heron import BUILD, native
 from heron.infra.hw import runner
 
-from . import board, parts, rtl, system, ucode as uc
+from . import board, parts, rtl, system, ucode as uc, video
 from .timing import TICK
 
 OUT = os.path.join(BUILD, "mini")
@@ -40,7 +40,7 @@ def sources():
 _LOADED = None
 
 
-def netlist(lengths=None):
+def netlist(lengths=None, capture=False):
     """The simulation netlist, exported (cached in build/mini). The cache
     is dated by the sources as this process first read them, so a run that
     started before an edit can't pass its netlist off as the new one."""
@@ -48,10 +48,11 @@ def netlist(lengths=None):
     if _LOADED is None:
         _LOADED = runner.newest(sources())
     lengths = tuple(lengths or uc.built().lengths)
-    path = os.path.join(OUT, f"netlist-{'-'.join(map(str, lengths))}.json")
+    tag = "-capture" if capture else ""
+    path = os.path.join(OUT, f"netlist-{'-'.join(map(str, lengths))}{tag}.json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
         os.makedirs(OUT, exist_ok=True)
-        nl = board.build(sim=True, lengths=lengths)
+        nl = board.build(sim=True, lengths=lengths, capture=capture)
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=parts.VARIANT, corner="max"), f)
@@ -77,10 +78,18 @@ def rom_images():
     return _rom_images
 
 
-def preloads(ram, inp):
+def preloads(ram, inp, boot=b"", uart_inp=b"", cf=None):
     """The memories' contents at the end of reset: the control store, the
-    RAM (4 MB), the register file cleared, the input."""
+    RAM (4 MB), the register file cleared, the input; the boot flash (empty:
+    reset copies nothing), UART 0's terminal input, the CF card."""
     pre = {f"U_CS{k}": img for k, img in enumerate(rom_images())}
+    pre["U_BOOT"] = bytes(boot) + bytes(0x20000 - len(boot))
+    pre["U_VTIM"] = video.timing_rom()
+    for k in range(2):
+        pre[f"U_PAL{k}"] = bytes(1 << 15)
+    pre["U_UART0"] = bytes(uart_inp)
+    pre["U_UART1"] = b""
+    pre["U_CF"] = cf if cf is not None else bytes(512 * board.CF_SECTORS)
     for bank in range(2):
         for k in range(4):
             pre[f"U_RAM{bank}{k}"] = bytes(ram[(bank << 21) + k:(bank + 1) << 21:4])
@@ -117,7 +126,8 @@ def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
         "fetch_trace": fetch_trace,
         # HALT, nothing pending, interrupts off
         "stop_when": [[("uSEQ0", 1), ("uSEQ1", 1), ("PEND", 0), ("IFLAG", 0)]],
-        "dump": ["X_IO"] + [f"U_RAM{b}{k}" for b in range(2) for k in range(4)]
+        "dump": ["X_IO", "U_UART0", "U_UART1", "U_CF"]
+        + [f"U_RAM{b}{k}" for b in range(2) for k in range(4)]
         + [f"U_RF{s}{k}" for s in "AB" for k in range(4)],
         "observe": list(FLAGS) + [f"PC{i}" for i in range(1, 32)],
     }
@@ -269,6 +279,109 @@ def cmd_run(args):
     return 1 if diffs else 0
 
 
+# sw/hw: programs for the chip-level netlist only (the register-transfer
+# model hasn't the devices)
+DEVICES = os.path.join(HERE, "sw", "hw", "devices.s")
+DEVICES_EXPECTED = os.path.join(HERE, "sw", "hw", "expected", "devices.txt")
+EOT = b"\x04"
+
+
+def devices_inputs():
+    """What the devices program finds: the boot flash (an empty header,
+    then a string), the CF card (v1b_system's pattern), UART 0's input."""
+    from heron.studies.v1b_system.programs import cf_disk
+    return {"boot": bytes(4) + b"boot flash ok\n\0", "cf": cf_disk(board.CF_SECTORS),
+            "uart_inp": b"typed at the terminal\n" + EOT}
+
+
+def run_devices(trace=None, max_cycles=2_000_000):
+    """sw/devices.s at chip level: (outcome, differences from the
+    expected output)."""
+    from heron.infra import asm as asmcore
+    from heron.infra import isas
+    import heron.studies.v2_isa  # noqa: F401
+    img = asmcore.assemble_file(isas.get("v2"), DEVICES)
+    ram = bytearray(system.RAM_SIZE)
+    for a, b in img.mem.items():
+        ram[a] = b
+    nl = netlist()
+    hw = native.hwsim.run_system(nl, config(max_cycles, trace),
+                                 preloads(ram, b"", **devices_inputs()))
+    d = hw["dumps"]
+    out = {k: bytes(d[f"U_UART{k}"]) for k in range(2)}
+    with open(DEVICES_EXPECTED, "rb") as f:
+        exp = f.read()
+    diffs = []
+    if not hw["halted"]:
+        diffs.append(f"the hardware did not halt: {hw['reason']}")
+    if out[0] != exp:
+        diffs.append(f"UART 0: {out[0]!r}, expected {exp!r}")
+    if out[1] != b"uart 1\n":
+        diffs.append(f"UART 1: {out[1]!r}")
+    return hw, out, diffs
+
+
+def cmd_devices(args):
+    t0 = time.time()
+    trace = tuple(int(x) for x in args.trace.split(":")) if args.trace else None
+    hw, out, diffs = run_devices(trace)
+    print(summarize(hw))
+    sys.stdout.write(out[0].decode("latin-1"))
+    for d in diffs:
+        print("  " + d)
+    if trace:
+        for line in hw["trace"]:
+            print(line)
+    ok = not diffs and not hw["violation_total"]
+    print(f"devices {'ok' if ok else 'FAIL'} ({time.time() - t0:.0f} s)")
+    return 0 if ok else 1
+
+
+VIDEO = os.path.join(HERE, "sw", "hw", "video.s")
+
+
+def run_video(max_cycles=None):
+    """sw/video.s at chip level with the frame grabber: (outcome, the
+    frames it sent, the picture the register-transfer model's memory
+    makes)."""
+    from heron.infra import asm as asmcore
+    from heron.infra import isas
+    import heron.studies.v2_isa  # noqa: F401
+    img = asmcore.assemble_file(isas.get("v2"), VIDEO)
+    s = system.System()
+    s.load(img)
+    m = rtl.RTL(s).run(20_000_000)
+    want = video.render(s.ram, s.video.palette)
+    ram = bytearray(system.RAM_SIZE)
+    for a, b in img.mem.items():
+        ram[a] = b
+    cfg = config(max_cycles or m.cycles * 2)
+    cfg["dump"] = cfg["dump"] + ["X_VCAP"]
+    hw = native.hwsim.run_system(netlist(capture=True), cfg, preloads(ram, b""))
+    frames = video.decode(bytes(hw["dumps"]["X_VCAP"]))
+    return hw, frames, want
+
+
+def cmd_video(args):
+    t0 = time.time()
+    hw, frames, want = run_video()
+    print(summarize(hw))
+    print(f"{len(frames)} whole frames sent")
+    ok = bool(frames) and not hw["violation_total"] and hw["halted"]
+    for i, f in enumerate(frames):
+        bad = [y for y in range(video.HEIGHT) if f[y] != want[y]]
+        print(f"  frame {i}: {'as the memory makes it' if not bad else f'{len(bad)} rows differ, the first {bad[0]}'}")
+        if i == len(frames) - 1:
+            ok = ok and not bad
+    if args.png and frames:
+        from PIL import Image
+        im = Image.new("RGB", (video.WIDTH, video.HEIGHT))
+        im.putdata([video.rgb(c) for row in frames[-1] for c in row])
+        im.save(args.png)
+    print(f"video {'ok' if ok else 'FAIL'} ({time.time() - t0:.0f} s)")
+    return 0 if ok else 1
+
+
 def cmd_bom(args):
     nl = board.build(sim=True)
     packages = nl.packages(parts.VARIANT)
@@ -301,6 +414,12 @@ def main(argv=None):
     r.add_argument("--lengths", type=lens)
     r.add_argument("--seed", type=int, default=1)
     r.set_defaults(fn=cmd_run)
+    d = sub.add_parser("devices", help="sw/devices.s: the I/O devices")
+    d.add_argument("--trace")
+    d.set_defaults(fn=cmd_devices)
+    v = sub.add_parser("video", help="sw/video.s: the video, its frames grabbed")
+    v.add_argument("--png", help="the last frame, as a PNG")
+    v.set_defaults(fn=cmd_video)
     b = sub.add_parser("bom")
     b.set_defaults(fn=cmd_bom)
     s = sub.add_parser("sta")
