@@ -12,16 +12,3 @@
 pub mod cf;
 pub mod i8254;
 pub mod uart16550;
-
-/// A device a frontend gives a machine, for the accesses the machine has
-/// nothing of its own for: on the draft 1 and draft 2 machines without a
-/// supervisor, the I/O page's registers from 0x20 on and the addresses
-/// outside RAM and the I/O page (a frame buffer and its input, say). Time
-/// is the machine's cycle count.
-pub trait Device: std::any::Any + Send + Sync {
-    /// A read of `size` bytes (1, 2 or 4, aligned) at `a`, or None if
-    /// nothing answers there.
-    fn read(&mut self, a: u32, size: u32, cycles: u64) -> Option<u32>;
-    /// A write; false if nothing answers.
-    fn write(&mut self, a: u32, size: u32, value: u32, cycles: u64) -> bool;
-}

@@ -9,7 +9,6 @@ edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-devices = { path = "../../../infra/devices" }
 toolchain = { path = "../../../infra/toolchain" }
 
 [lints]

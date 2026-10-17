@@ -171,7 +171,15 @@ static int run_source(const char *src, unsigned len, const char *name)
    statement ends with a line where its brackets, strings and blocks are
    closed and nothing says it goes on (an operator, a comma, a backslash);
    an empty line ends it anyway, and the compiler says what's wrong. The
-   console's end of input (^D) ends the session. */
+   console's end of input (^D) ends the session.
+
+   A stopgap, to be replaced: statement_complete is a second, cruder
+   lexer, which knows the language's block keywords and continuation
+   rules on its own and can disagree with the parser (a line that starts
+   with `.name` goes on the one before it, but not here). The lexer or the
+   parser should say instead whether the input so far needs more. And every
+   statement's method stays in the permanent space, so a session ends with
+   "out of permanent space" after about a thousand statements. */
 
 static int is_word(int c)
 {

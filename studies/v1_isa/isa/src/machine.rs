@@ -8,14 +8,8 @@
 //!   +08  R/W: timer period in cycles (0 = off)
 //!   +0C  R: timer flag                    W: acknowledge
 //!   +10  R: cycle counter
-//!
-//! A frontend can give the machine a device of its own (`device`): it gets
-//! the I/O page's registers from +20 on, and the addresses outside RAM and
-//! the I/O page, which are otherwise an error.
 
 use std::collections::HashMap;
-
-use devices::Device;
 
 use crate::insn::{Insn, Res, Stop, misaligned};
 use crate::key::{Key, Kind};
@@ -222,8 +216,6 @@ pub struct Machine {
     pub pages: Option<Box<PageStats>>,
     /// The system bus, instead of the I/O page (see [`Bus`]).
     pub bus: Option<Box<dyn Bus>>,
-    /// A frontend's device, beside the I/O page (the module's comment).
-    pub device: Option<Box<dyn Device>>,
     reference: Config,
     ref_cache: HashMap<Key, u32>,
     /// Decoded instructions: decoded[slot[pc / 2]].
@@ -275,7 +267,6 @@ impl Machine {
             sys: (isa == Isa::V1bs).then(|| Box::new(Sys::new())),
             pages: None,
             bus: None,
-            device: None,
             reference,
             ref_cache: HashMap::new(),
             slot: vec![NONE; half],
@@ -305,11 +296,6 @@ impl Machine {
 
     fn io_read(&mut self, a: u32, size: u32) -> Res<u32> {
         let reg = (a - IO_BASE) & !3;
-        if reg >= 0x20
-            && let Some(v) = self.device_read(a, size)
-        {
-            return Ok(v);
-        }
         let shift = 8 * (a & 3);
         let Some(v) = self.dev.read(reg, self.cycles) else {
             return Err(Stop::Wait);
@@ -317,43 +303,8 @@ impl Machine {
         Ok(((v as u64 >> shift) & ((1u64 << (8 * size)) - 1)) as u32)
     }
 
-    fn io_write(&mut self, a: u32, size: u32, v: u32) {
-        let reg = (a - IO_BASE) & !3;
-        if reg < 0x20 || !self.device_write(a, size, v) {
-            self.dev.write(reg, v, self.cycles);
-        }
-    }
-
-    fn device_read(&mut self, a: u32, size: u32) -> Option<u32> {
-        let c = self.cycles;
-        self.device.as_mut()?.read(a, size, c)
-    }
-
-    fn device_write(&mut self, a: u32, size: u32, v: u32) -> bool {
-        let c = self.cycles;
-        self.device.as_mut().is_some_and(|d| d.write(a, size, v, c))
-    }
-
-    /// The device, as its own type.
-    pub fn device_as<D: Device>(&mut self) -> Option<&mut D> {
-        let d: &mut dyn std::any::Any = self.device.as_mut()?.as_mut();
-        d.downcast_mut::<D>()
-    }
-
-    /// A read outside RAM and the I/O page: the device's, or an error.
-    fn outside_read(&mut self, a: u32, size: u32) -> Res<u32> {
-        match self.device_read(a, size) {
-            Some(v) => Ok(v),
-            None => self.bad(a),
-        }
-    }
-
-    fn outside_write(&mut self, a: u32, size: u32, v: u32) -> Res<()> {
-        if self.device_write(a, size, v) {
-            Ok(())
-        } else {
-            self.bad(a)
-        }
+    fn io_write(&mut self, a: u32, v: u32) {
+        self.dev.write((a - IO_BASE) & !3, v, self.cycles);
     }
 
     /// Where a (physical) data address goes: without a bus, RAM as it is.
@@ -430,7 +381,7 @@ impl Machine {
         if a >= IO_BASE {
             return self.io_read(a, 1);
         }
-        self.outside_read(a, 1)
+        self.bad(a)
     }
 
     pub fn rd16(&mut self, a: u32) -> Res<u32> {
@@ -450,7 +401,7 @@ impl Machine {
         if a >= IO_BASE {
             return self.io_read(a, 2);
         }
-        self.outside_read(a, 2)
+        self.bad(a)
     }
 
     pub fn rd32(&mut self, a: u32) -> Res<u32> {
@@ -470,7 +421,7 @@ impl Machine {
         if a >= IO_BASE {
             return self.io_read(a, 4);
         }
-        self.outside_read(a, 4)
+        self.bad(a)
     }
 
     pub fn wr8(&mut self, a: u32, v: u32) -> Res<()> {
@@ -488,10 +439,10 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io_write(a, 1, v & 0xFF);
+            self.io_write(a, v & 0xFF);
             return Ok(());
         }
-        self.outside_write(a, 1, v & 0xFF)
+        self.bad(a)
     }
 
     pub fn wr16(&mut self, a: u32, v: u32) -> Res<()> {
@@ -513,10 +464,10 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io_write(a, 2, v & 0xFFFF);
+            self.io_write(a, v & 0xFFFF);
             return Ok(());
         }
-        self.outside_write(a, 2, v & 0xFFFF)
+        self.bad(a)
     }
 
     pub fn wr32(&mut self, a: u32, v: u32) -> Res<()> {
@@ -539,10 +490,10 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io_write(a, 4, v);
+            self.io_write(a, v);
             return Ok(());
         }
-        self.outside_write(a, 4, v)
+        self.bad(a)
     }
 
     /// A store hit decoded code: forget every decode.

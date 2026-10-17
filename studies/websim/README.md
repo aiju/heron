@@ -108,17 +108,17 @@ machine is paused.
   again once there's input; `close` is the end of the input. Every load
   reads before it changes a register, so nothing is undone. Off, as
   before, unless a frontend turns it on.
-- **A device of the frontend's** (the same machines, and
-  `infra/devices::Device`): a machine can be given one for the addresses
-  it has nothing for, which were an error before and still are without
-  one. Nothing here uses it yet; it's for the Egret desktop
-  ([below](#the-egret-desktop)).
 - **Egret at a terminal** (studies/egret/vm/main.c): the VM read its
   whole input before running any of it. Built with `EGRET_INTERACTIVE`
   it reads a statement at a time: it ends where its brackets, strings
   and blocks close and the line doesn't go on, or at an empty line. The
   normal builds don't define it and compile to the same image as
-  before, so the study's measurements don't move.
+  before, so the study's measurements don't move. It's a stopgap, marked
+  as one in main.c: the check is a second, cruder lexer that can disagree
+  with the parser, which should say itself whether a statement needs
+  more. And each statement's method stays in Egret's permanent space,
+  so a session ends with "out of permanent space" after about a thousand
+  statements, and the machine halts until it's reset.
 - **The Lisp** needed nothing: its top level evaluates each form typed,
   and the machine's console text defines `%toplevel`, the hook the
   compiler uses, to print the value too. The terminal shows the prompt,
@@ -131,11 +131,10 @@ browser already, with a page of its own. To be a machine here:
 
 - **Its display as a device** the machine is given, rather than wired
   into every draft 1 and draft 2 machine (the first item of its "Before
-  a PR"). The machines have that now: `device`, an
-  `infra/devices::Device`, gets the I/O page's registers from +20 on and
-  the addresses outside RAM (its VRAM at 0x0100_0000), and
-  `device_as::<Display>()` gives the frontend its own type back. The
-  display implements `Device`, and its wiring in each `machine.rs` goes.
+  a PR"): an optional device on the plain machines for the I/O page's
+  registers from +20 on and the addresses outside RAM (its VRAM at
+  0x0100_0000), which its display implements, in place of its wiring in
+  each `machine.rs`.
 - **A board** in `engine/`: the plain machine with the display as its
   device, its screen from VRAM and the palette, its keys and buttons as
   the display's events (it reads the mouse's position as it is, so the

@@ -177,7 +177,8 @@ the prompt, type a statement; it runs when it's complete, and its value is print
 <code>=&gt;</code>. A class or a method can take several lines (the prompt is
 <code>...&gt;</code> until it's closed); an empty line ends one that isn't.</p>
 <p>The VM compiles its prelude when it starts, a second or two at the machine's clock.
-^D ends the session.</p>"""
+^D ends the session. Each statement's code stays in the VM's permanent space, so after
+about a thousand statements it's full and the machine stops: Reset starts afresh.</p>"""
 
 
 def egret_machine(isa, variant):
