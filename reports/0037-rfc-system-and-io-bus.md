@@ -282,8 +282,8 @@ reference assignment's spread of returns.
   - **To the kernel,** everything from `0xF000_0000` up is a register
     and everything below it memory.
   - **The main CPU card's registers** at `0x7000_0000` are those of
-    [section 9](#9-cpu-cards): its control register, board information,
-    interrupt request register, message register and timer, at the
+    [section 9](#9-cpu-cards): its control register, interrupt request
+    register, message register, timer and one-shot, at the
     offsets [RFC 0040, 3](0040-rfc-interrupts.md#3-the-cpu-card) proposes.
   - **The I/O processor's registers** are 16 doorbells, one for each
     client of its rings; its status is in its shared RAM
@@ -480,9 +480,9 @@ The interrupt design as a whole is [RFC 0040](0040-rfc-interrupts.md)'s. On this
   request register, one bit for each of draft 2's eight levels, or to its
   message register, which carries a message at level 7
   ([RFC 0040, 3](0040-rfc-interrupts.md#3-the-cpu-card)). Why it was interrupted is in a
-  ring in memory, or in the message
+  ring in memory; the message's 8 bits of data are a hint
   ([RFC 0040, 5](0040-rfc-interrupts.md#5-memory-rings-and-flags)).
-- **NMI** is a bit in the CPU card's control register, not a line (to be
+- **NMI** is a write to the CPU card's registers, not a line (to be
   confirmed, [RFC 0040, 2.5](0040-rfc-interrupts.md#25-the-non-maskable-interrupt)).
 
 ### 9. CPU cards
@@ -494,15 +494,16 @@ Among its registers, at `0x7N00_0000` for a card in region N
 | Register | What it does | Chips |
 |---|---|---:|
 | **Control** | RUN, RESET (the warm reset), STEP (a microcycle, or to the end of the instruction), NMI; status: running, halted, at an instruction boundary. At power-up RUN is off if the control store is SRAM, on if it is flash (a jumper) | ~2 |
-| **Board information** | RAM size, BCLK's period, the card's region (so its CPU's number), boot flags | ~1 |
-| **Interrupt request** | Levels 1–8, set and cleared by writes ([RFC 0040, 3.1](0040-rfc-interrupts.md#31-the-request-register)) | ~1–2 |
-| **Message register** | A source and a 24-bit message, at level 7; claimed by a read, then written (**tentative**, [RFC 0040, 3.2](0040-rfc-interrupts.md#32-the-message-register)) | ~4–5 |
-| **Timer** | A free-running 32-bit count of BCLK, and a tick at level 6 from a jumpered bit ([RFC 0040, 3.3](0040-rfc-interrupts.md#33-the-timer)) | ~4–6 |
+| **Interrupt request** | Levels 1–8, each raised and lowered by a write to its own address, in a 74HCT259 ([RFC 0040, 3.1](0040-rfc-interrupts.md#31-the-request-register)) | ~1 |
+| **Message register** | 16 bits, {source, data}, at level 7; a write while it is full is dropped, sets DROPPED and interrupts (**tentative**, [RFC 0040, 3.2](0040-rfc-interrupts.md#32-the-message-register)) | ~2½ |
+| **Timer** | A free-running 32-bit count of BCLK / 2, and a 16-bit one-shot at level 6 (**tentative**, [RFC 0040, 3.3](0040-rfc-interrupts.md#33-the-timer)) | ~11 |
 | **Slave port** into its RAM | DMA, booting, other CPUs; shares the RAM by ticks, honours LOCK and the deadlock rule (RFC 0014, section 10) | ~12–15 |
 | **Control store write port** | For an SRAM control store: each SRAM a 16-bit lane in a window, written and read back while RUN is off ([RFC 0027, 8.1](0027-rfc-io-coprocessor.md#81-what-the-cpu-card-provides)) | ~14 |
 
-A CPU card compares its two ranges like every card: its RAM's for the
-slave port, and its registers'. It needs no logic for BERR, RDY or DPH.
+There is no board information (**tentative**,
+[RFC 0040, 3](0040-rfc-interrupts.md#3-the-cpu-card)). A CPU card
+compares its two ranges like every card: its RAM's for the slave port,
+and its registers'. It needs no logic for BERR, RDY or DPH.
 
 ### 10. Electrical rules
 

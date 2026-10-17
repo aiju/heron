@@ -73,10 +73,10 @@ the rest as fast cards.
   polling. ~4–6 chips. **recommended**
   ([report 0020](0020-report-operating-system.md#the-rest)). The timer and
   the cycle counter count real time ([docs/clocking.md](../docs/clocking.md)).
-  [RFC 0040](0040-rfc-interrupts.md#33-the-timer) proposes a periodic one instead: a
-  free-running count of the bus clock, the same on every CPU, with a tick
-  from a jumpered bit, and deadlines finer than the tick from the I/O
-  processor.
+  [RFC 0040](0040-rfc-interrupts.md#33-the-timer) has one on each CPU card
+  (tentative): a free-running 32-bit count of half the bus clock, the
+  same on every CPU, and a 16-bit one-shot in place of the compare
+  register.
 - **Clean strobes and wait states** for devices: on the bus, SEL is a
   registered strobe that never glitches, and the backplane times each card
   from its class straps ([RFC 0014](0014-rfc-system-bus.md#133-sel-as-the-strobe)).
