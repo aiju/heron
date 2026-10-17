@@ -2,7 +2,7 @@
 ; timing table, then reads the flash's header and writes the LEDs in a
 ; loop, 100 passes, so that the window's accesses from the bench's second
 ; master find the I/O bus busy and the core's find the window's in the
-; way. It ends in `done`, the sum of the halfwords it read in e, a last
+; way. The timer gets a slow entry, for a check of the window's bound. It ends in `done`, the sum of the halfwords it read in e, a last
 ; one in a.
 
 .org 0
@@ -19,6 +19,8 @@ start:  BANK <- #0
         F <- #TT_TIMER | ttab <- F
         X <- #0x0F00
         F <- #TT_PORTS | ttab <- F
+        X <- #0x0E00            ; the timer, slow: a 40-clock strobe, for the window's bound
+        F <- #0x9C | ttab <- F
         F <- #0 | pg1 <- F
         e <- #0
         d <- #99

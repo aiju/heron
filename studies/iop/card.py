@@ -36,6 +36,7 @@ POR_PS = 2_000_000              # the backplane's COLD at power-up (the bench's)
 WDOG_PS = 99_000_000_000        # the watchdog: 0.45 x 220k x 1 uF
 WDCOLD_PS = 990_000_000         # and the COLD it then asserts: 0.45 x 22k x 100 nF
 RTC_TIME = 20_000_101_000_000   # the clock chip's time at power-up (yyyymmddhhmmss)
+WINDOW_BOUND = 200              # RFC 0037, 20: a window access ends within 200 clocks
 # RFC 0037, 4: another card's output reaches this card's pin 16 + 13 ns
 # after BCLK at its own pin, give or take 2.5 ns of skew; this card's
 # registers see BCLK through its clock buffer, at least 3.1 ns later
@@ -162,14 +163,15 @@ M_CONDS = 4
 M_DELAY_PS = 20_000
 
 
-def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
+def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), window_bound=WINDOW_BOUND):
     """The card. `sim`: with its bus clock's oscillator (for the
     simulator), else for timing analysis (sta.py): the bus clock as a
     fixture, BCLK's rise at 0 and its fall half a period later, and the
     bus's lines as the card's edge sees them (EDGE_PS). `bench`: with what the simulator needs
     around it on the system bus (add_bench), the backplane's COLD at
     power-up among it, and `master` a second master there. `watchdog`:
-    how long it waits for a kick, and the COLD it then asserts."""
+    how long it waits for a kick, and the COLD it then asserts;
+    `window_bound`: the clocks after which a window access is cut off."""
     nl = Netlist()
     g = nl.gate
 
@@ -619,7 +621,7 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
 
     system_bus(nl)
     slave_side(nl)
-    window(nl)
+    window(nl, window_bound)
     if bench:
         add_bench(nl, master)
     nl.finish()
@@ -884,7 +886,7 @@ def slave_side(nl):
     g("32", ["BELLL", "BELLH"], "BELLA")
 
 
-def window(nl):
+def window(nl, bound=WINDOW_BOUND):
     """The I/O bus's window from the system bus (RFC 0037, 20): device S's
     register r at 0x7F0S_0000 + 4r, run on the I/O bus side with the
     device's timing, in turns with the core's accesses. A write is posted:
@@ -893,24 +895,41 @@ def window(nl):
     WAIT until its data is registered at the strobe's end, then drives it
     for a clock. On the I/O bus side the window's access (WSEL) starts
     from S0 when the core's isn't in its setup, and the core's waits
-    through it. Not yet: an access at 4r + 2 reaching nothing, the
-    200-clock bound."""
+    through it. An access at 4r + 2 reaches nothing: a write is dropped,
+    a read answers 0. One still waiting `bound` clocks after its address
+    clock is cut off: a write dropped, a read answering what the data
+    register holds; an I/O bus access already under way goes on."""
     g = nl.gate
     nl.section("Window")
     nl.add("521", "U_SDWN", part="74F521", G="GND", PEQ="WIN_n",
            **{f"P{i}": SBA[24 + i] for i in range(8)}, **{f"Q{i}": "VCC" if (0x7F >> i) & 1 else "GND" for i in range(8)})
     g("27", ["SB_START_n", "GNTQ", "WIN_n"], "WNEW")
     # W1: a transfer waiting to be accepted; W2: a read accepted, waiting
-    # for its data; WOUT: the data on D
+    # for its data; WOUT: the data registered. WHI: the access is at
+    # 4r + 2 (A1), which reaches nothing; WCUT: the bound has run out
     g("08", ["W1", "WPEND_n"], "WACC")
     g("04", ["WACC"], "WACC_n")
-    g("08", ["W1", "WPEND"], "W1STAY")
+    g("11", ["W1", "WPEND", "WCUT_n"], "W1STAY")
     g("32", ["WNEW", "W1STAY"], "W1_D")
-    g("08", ["WACC", "SWRQ_n"], "W2A")
+    g("04", ["SSA0"], "WHI_n")
+    g("11", ["WACC", "SWRQ_n", "WHI_n"], "W2A")
     g("00", ["STBEND", "WSEL"], "WSTB_n")              # (W2 & WOUT_D_n, a gate shorter)
-    g("08", ["W2", "WSTB_n"], "W2B")
+    g("11", ["W2", "WSTB_n", "WCUT_n"], "W2B")
     g("32", ["W2A", "W2B"], "W2_D")
-    g("11", ["W2", "STBEND", "WSEL"], "WOUT_D")
+    g("11", ["W2", "STBEND", "WSEL"], "WOUTA")
+    g("11", ["WACC", "SWRQ_n", "SSA0"], "WNIL")        # a read at 4r + 2: 0 at once
+    g("08", ["W2", "WCUT"], "WOUTC")
+    g("27", ["WOUTA", "WNIL", "WOUTC"], "WOUT_D_n")
+    g("04", ["WOUT_D_n"], "WOUT_D")
+    # the bound: CNT from 255 - bound while the access waits, cut at 255
+    g("32", ["W1", "W2"], "WACT")
+    g("04", ["WACT"], "WACT_n")
+    pre = 255 - bound
+    for k in range(2):
+        nl.add("163", f"U_WBC{k}", CLK="BCLK", CLR="VCC", LOAD="WACT", ENP="VCC",
+               ENT="VCC" if k == 0 else "WBC0RC", RCO="WBC0RC" if k == 0 else "WCUT",
+               **{p: "VCC" if (pre >> (4 * k + i)) & 1 else "GND" for i, p in enumerate("ABCD")})
+    g("04", ["WCUT"], "WCUT_n")
     # WAIT, registered, as RFC 0037's 16 ns at the card's pins asks: in
     # the first data clock whatever happens (the address clock's decode
     # leaves no time for more), then in W1 for a read or while the last
@@ -925,7 +944,8 @@ def window(nl):
     g("08", ["WSEL", "HLDEND"], "WDONE")
     g("04", ["WDONE"], "WDONE_n")
     g("08", ["WPEND", "WDONE_n"], "WPSTAY")
-    g("32", ["WACC", "WPSTAY"], "WPEND_D")
+    g("08", ["WACC", "WHI_n"], "WACCIO")
+    g("32", ["WACCIO", "WPSTAY"], "WPEND_D")
     g("04", ["IOREQ"], "IOREQ_n")
     g("21", ["WPEND", "WSEL_n", "S0", "IOREQ_n"], "WGO")
     g("08", ["WSEL", "WDONE_n"], "WSSTAY")
@@ -951,8 +971,10 @@ def window(nl):
     reg(nl, "U_WD1", SBD[8:16], IOD[8:16], en="WACC_n", oe="WDOE_n")
     # a read's data, at the strobe's end, onto D in WEND
     g("20", ["STBEND", "WSEL", "AWRITE_n", "VCC"], "WRDLD_n")
-    reg(nl, "U_WRD0", IOD[0:8], SBD[0:8], en="WRDLD_n", oe="WEND_n")
-    reg(nl, "U_WRD1", IOD[8:16], SBD[8:16], en="WRDLD_n", oe="WEND_n")
+    # (held clear by an access at 4r + 2, which reads 0)
+    g("00", ["W1", "SSA0"], "WRDCLR_n")
+    reg(nl, "U_WRD0", IOD[0:8], SBD[0:8], en="WRDLD_n", oe="WEND_n", clr="WRDCLR_n")
+    reg(nl, "U_WRD1", IOD[8:16], SBD[8:16], en="WRDLD_n", oe="WEND_n", clr="WRDCLR_n")
 
 
 def add_bench(nl, master=False):

@@ -35,6 +35,18 @@ class Netlist(unittest.TestCase):
         self.assertEqual(reads, want)
         self.assertEqual(regs, model_regs)
 
+    def test_window_bound(self):
+        """The window's bound, shortened to 20 clocks: a read of a device
+        with a 40-clock strobe is cut off, answering stale data; at 200 it
+        isn't."""
+        out, reads = hw.check_window_bound(bound=20)
+        self.assertEqual(out["violation_total"], 0)
+        (magic, _), (cut, n) = reads
+        self.assertEqual(cut, magic)
+        self.assertTrue(20 <= n < 30)
+        out, reads = hw.check_window_bound(bound=200)
+        self.assertGreater(reads[1][1], 40)
+
     def test_watchdog(self):
         """The watchdog, its times shortened to 20 us and 2 us:
         ucode/hwwdog.uc kicks it 4 times and stops; COLD starts it again,

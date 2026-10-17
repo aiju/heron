@@ -242,16 +242,22 @@ class MasterScript:
 
     def results(self, log):
         """The read data, from what the master saw at each edge."""
+        return [v for v, _ in self.reads_timed(log)]
+
+    def reads_timed(self, log):
+        """[(data, data clocks)] for each read: what it read, and the edges
+        from its address clock's end to the one that took the data."""
         n = len(card.M_IN)
         seen = [log[i:i + n] for i in range(0, len(log), n)]
-        k, out = 0, []
-        for e in seen:
+        k, out, done = 0, [], {}
+        for i, e in enumerate(seen):
             if k >= len(self.steps):
                 break
             conds = self.steps[k][1]
             if all(b == 0 or e[(b - 1) // 2] == (b - 1) % 2 for b in conds):
+                done[k] = i
                 if k in self.reads:
-                    out.append(sum(e[2 + i] << i for i in range(16)))
+                    out.append((sum(e[2 + i] << i for i in range(16)), i - done.get(k - 1, i)))
                 k += 1
         return out
 
@@ -314,9 +320,12 @@ def check_window(clocks=4000, seed=1):
     m.write(win(12, 7), 0x11)
     m.read(win(13, layout.FL_MAGIC))            # after the write's done
     m.read(win(12, 7))
+    m.write(win(12, 7) + 2, 0x77)               # a word's upper half: nothing
+    m.read(win(12, 7) + 2)
+    m.read(win(12, 7))
     m.idle(2)
-    want = [0xC3, fl(layout.FL_MAGIC), fl(layout.FL_PAGES), 0x1234, fl(layout.FL_MAGIC), 0x11]
-    uart = [0, 5]                               # its D8-D15 are nobody's
+    want = [0xC3, fl(layout.FL_MAGIC), fl(layout.FL_PAGES), 0x1234, fl(layout.FL_MAGIC), 0x11, 0, 0x11]
+    uart = [0, 5, 7]                            # its D8-D15 are nobody's
     s = model(b)
     pre = preloads(b, s)
     pre["X_M"] = m.image()
@@ -359,6 +368,28 @@ def check_stuck(clocks=1500, seed=1):
     regs = [l | h << 8 for l, h in zip(d["U_RAML"][0xC008:0xC00B], d["U_RAMH"][0xC008:0xC00B])]
     f = hw["fetches"]
     return hw, regs, max(b_[0] - a_[0] for a_, b_ in zip(f, f[1:]))
+
+
+def check_window_bound(bound=20, clocks=1500, seed=1):
+    """The window's bound, shortened to `bound` clocks: a read of device
+    14, which ucode/hwwin.uc gives a 40-clock strobe, is cut off. (the
+    outcome, [(data, data clocks)] for a read of the flash's magic and
+    then the cut one.)"""
+    b = Program("hwwin.uc")
+    m = MasterScript()
+    m.step(until={"RESET_n": 1})
+    m.idle(40)
+    m.read(0x7F0D_0000 | 4 * layout.FL_MAGIC)
+    m.read(0x7F0E_0000)
+    m.idle(2)
+    s = model(b)
+    pre = preloads(b, s)
+    pre["X_M"] = m.image()
+    cfg = config(clocks, 0, seed)
+    cfg["dump"] += ["X_M"]
+    nl = card.build(sim=True, bench=True, master=True, window_bound=bound)
+    hw = native.hwsim.run_system(nl.export(variant=card.VARIANT, corner="max"), cfg, pre)
+    return hw, m.reads_timed(hw["dumps"]["X_M"])
 
 
 def where(b, a):

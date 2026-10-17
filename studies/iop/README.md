@@ -371,7 +371,13 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   so every access holds WAIT in its first data clock, a write takes 2
   data clocks and a read 3 more than its I/O bus access. The window's
   copy of the timing table is addressed through a multiplexer that a
-  table write switches: so the firmware's rule above.
+  table write switches: so the firmware's rule above. An access at
+  4r + 2, a word's upper half, reaches nothing: a write is dropped, a
+  read answers 0 from the data register held clear. An access still
+  waiting 200 clocks after its address clock is cut off (two 74F163s):
+  a write dropped, a read answering what the data register holds; an I/O
+  bus access already under way goes on (`hw.check_window_bound`, with
+  the bound shortened).
 - **Reset** (RFC 0037, 7): the card listens to COLD, through a Schmitt
   trigger and a flip-flop that ends reset at a clock edge; the bench's
   supply supervisor asserts it at power-up.
@@ -405,7 +411,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 216 packages so far (`heron iop hw bom`), against RFC 0027's
+- **Parts:** 218 packages so far (`heron iop hw bom`), against RFC 0027's
   ~95 for the whole card: 74 are gates (74F00-74F86), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
   18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
@@ -415,8 +421,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   both of the SRAM's address drivers are on. The I/O side's address
   buffers (the core's or the window's) overlap by under 2 ns as they
   change hands; a pair of 74F157s would avoid it.
-- **Not yet:** the window's 4r + 2 (reaching nothing) and its bound on
-  WAIT, the 32-bit path, LOCK, I/O cards in the slots, a hardware
+- **Not yet:** the 32-bit path, LOCK, I/O cards in the slots, a hardware
   interlock for the timing table's writes, and a printed circuit board
   (the PCB flow, `studies/pcb`, has no footprints for the 16-bit parts'
   packages, nor a way to pair their halves).
