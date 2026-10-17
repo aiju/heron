@@ -1,5 +1,5 @@
 # Register-level models of the I/O devices (a 16550 UART, an 8254 timer, a
-# CompactFlash card), shared by the chip-level simulator and the
+# CompactFlash card, a DS1302 clock chip), shared by the chip-level simulator and the
 # instruction-level system model.
 [package]
 name = "devices"

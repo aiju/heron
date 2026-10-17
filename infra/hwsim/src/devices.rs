@@ -1,14 +1,15 @@
 //! Pin-level models of the devices in infra/devices: the TL16C550C UART,
-//! the 82C54 timer and a CompactFlash card in True IDE mode. Their
-//! registers and timing live there; these models connect them to pins,
-//! check the strobe timing their datasheets ask for, and drive their
-//! outputs.
+//! the 82C54 timer, a CompactFlash card in True IDE mode and the DS1302
+//! clock chip. Their registers and timing live there; these models connect
+//! them to pins, check the strobe timing their datasheets ask for, and
+//! drive their outputs.
 //!
 //! A read happens when its strobe starts (the chip drives the data after
 //! "RD->D"), a write when its strobe ends. Strobes act only while the chip
 //! is selected.
 
 use devices::cf::CfCard;
+use devices::ds1302::Ds1302 as Clock;
 use devices::i8254::Timer;
 use devices::uart16550::Uart;
 
@@ -627,5 +628,135 @@ impl CompactFlash {
         self.reading = rd;
         self.writing = wr;
         self.update(cx, c);
+    }
+}
+
+// ---------------------------------------------------------------- DS1302 clock chip
+
+/// The DS1302: CE, SCLK and I/O. Its clock starts from the parameter
+/// `time`, yyyymmddhhmmss (devices::ds1302). It checks the three-wire
+/// interface's timing: CE's setup to SCLK's first rise (tCC) and its hold
+/// after the last (tCCH), CE's time low (tCWH), SCLK's high and low times
+/// (tCH, tCL), and I/O's setup and hold about SCLK's rise when the chip
+/// takes it (tDC, tCDH); it drives a read's bits tCDD after SCLK falls
+/// and lets go tCDZ after CE does.
+pub struct Ds1302 {
+    pub core: Clock,
+    ce: usize,
+    sclk: usize,
+    io: usize,
+    ce_rose: Time,
+    ce_fell: Time,
+    sclk_rose: Option<Time>,
+    sclk_fell: Time,
+    first: bool,
+    t_cc: Time,
+    t_cch: Time,
+    t_cwh: Time,
+    t_ch: Time,
+    t_cl: Time,
+    t_dc: Time,
+    t_cdh: Time,
+    d_cdd: Time,
+    d_cdz: Time,
+}
+
+impl Ds1302 {
+    pub fn new(s: &Spec) -> Result<Ds1302, Error> {
+        Ok(Ds1302 {
+            core: Clock::new(s.param_or("time", 20_000_101_000_000) as u64),
+            ce: s.pin("CE")?,
+            sclk: s.pin("SCLK")?,
+            io: s.pin("IO")?,
+            ce_rose: crate::sim::NEVER,
+            ce_fell: crate::sim::NEVER,
+            sclk_rose: None,
+            sclk_fell: crate::sim::NEVER,
+            first: false,
+            t_cc: s.d_or("tCC", 1_000_000),
+            t_cch: s.d_or("tCCH", 60_000),
+            t_cwh: s.d_or("tCWH", 1_000_000),
+            t_ch: s.d_or("tCH", 250_000),
+            t_cl: s.d_or("tCL", 250_000),
+            t_dc: s.d_or("tDC", 50_000),
+            t_cdh: s.d_or("tCDH", 70_000),
+            d_cdd: s.d_or("SCLK->IO", 200_000),
+            d_cdz: s.d_or("CE->IO dis", 70_000),
+        })
+    }
+
+    pub fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        cx.drive(c, self.io, 0, false, 0);
+    }
+
+    /// Whether the chip takes I/O at SCLK's rise.
+    fn taking(&self) -> bool {
+        self.core.io().is_none()
+    }
+
+    pub fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        let now = cx.now();
+        let ce = cx.input(c, self.ce) == 1;
+        let sclk = cx.input(c, self.sclk) == 1;
+        let io = cx.input(c, self.io) == 1;
+        if pin == self.io {
+            if ce && self.taking() {
+                cx.check_hold(c, pin, self.sclk_rose, self.t_cdh, "I/O after SCLK (tCDH)");
+            }
+            return;
+        }
+        if pin == self.ce {
+            if ce {
+                let slack = now - self.ce_fell - self.t_cwh;
+                if slack < 0 {
+                    cx.violate(c, pin, "CE inactive time (tCWH)", slack);
+                }
+                self.ce_rose = now;
+                self.first = true;
+            } else {
+                self.ce_fell = now;
+                if let Some(r) = self.sclk_rose {
+                    let slack = now - r - self.t_cch;
+                    if slack < 0 {
+                        cx.violate(c, pin, "SCLK to CE hold (tCCH)", slack);
+                    }
+                }
+            }
+        }
+        if pin == self.sclk && ce {
+            if sclk {
+                if self.first {
+                    let slack = now - self.ce_rose - self.t_cc;
+                    if slack < 0 {
+                        cx.violate(c, pin, "CE to SCLK setup (tCC)", slack);
+                    }
+                    self.first = false;
+                } else {
+                    let slack = now - self.sclk_fell - self.t_cl;
+                    if slack < 0 {
+                        cx.violate(c, pin, "SCLK low time (tCL)", slack);
+                    }
+                }
+                if self.taking() {
+                    cx.check_setup(c, self.io, self.t_dc, "I/O (tDC)");
+                }
+                self.sclk_rose = Some(now);
+            } else {
+                if let Some(r) = self.sclk_rose {
+                    let slack = now - r - self.t_ch;
+                    if slack < 0 {
+                        cx.violate(c, pin, "SCLK high time (tCH)", slack);
+                    }
+                }
+                self.sclk_fell = now;
+            }
+        }
+        let ns = (now.max(0) / 1000) as u64;
+        if self.core.set(ce, sclk, io, ns) {
+            match self.core.io() {
+                Some(v) => cx.drive(c, self.io, v as u8, true, self.d_cdd),
+                None => cx.drive(c, self.io, 0, false, self.d_cdz),
+            }
+        }
     }
 }

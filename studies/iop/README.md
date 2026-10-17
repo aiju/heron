@@ -24,7 +24,8 @@ needed something it leaves open, it chose (below).
   slave side (the shared RAM, the doorbells, the I/O bus's window), the
   I/O bus with its timing table, and the card's devices: the console UART
   and the 82C54 from `infra/devices`, the image flash (two SST39SF040
-  with their command sequences) and the ports. I/O cards for the slots: a
+  with their command sequences), the ports with a DS1302 clock chip (also
+  `infra/devices`) and the watchdog. I/O cards for the slots: a
   CompactFlash card, two serial lines, and a GPIO card whose INT a test
   can raise.
 - **The system:** the IOP's card and a CPU card on RFC 0037's map, the
@@ -245,7 +246,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   SRAM's test, the dictionary out of the image flash, the Forth's cold
   start) to the banner, and the Forth's interpreter on the console, with
   no timing violations at the slow corner. It is the model's, clock for
-  clock and AC for AC, for the 161,554 microinstructions up to the
+  clock and AC for AC, for the 161,170 microinstructions up to the
   timer's first tick, which the two see a few clocks apart (the model
   looks at the timer lazily); after that it runs on by itself. The bus
   side runs `ucode/hwtest.uc` the model's way, and leaves the same
@@ -303,6 +304,25 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   registered at the strobe's end, and drives it for a clock. WAIT comes
   from the window's state alone: the address clock's decode (a 74F521)
   leaves no time for more behind it before the first data clock.
+- **Reset** (RFC 0037, 7): the card listens to COLD, through a Schmitt
+  trigger and a flip-flop that ends reset at a clock edge; the bench's
+  supply supervisor asserts it at power-up.
+- **The ports** (device 15, the study's assignment of RFC 0027's list):
+  register 0 writes the LEDs and reads a 74ABT541 of inputs (bit 0 the
+  clock chip's I/O, 1 the panel's data, 2-7 jumpers); register 1 is a
+  74ABT823, cleared by reset: bits 1-3 the DS1302's CE, SCLK and its I/O
+  pulled low through an open-collector gate, 4-6 the panel's shift chain.
+  `monitor.fs` has `rtc@`, `rtc!`, `clock@`, `clock!` and `.time`; the
+  card reads the time at chip level with the chip's three-wire timing
+  checked (its numbers from memory of the data sheet, which couldn't be
+  downloaded: marked estimated in `infra/hw/datasheets/timing_bus.json`).
+- **The watchdog:** a 74HCT123. A write to register 1 with bit 0 set
+  triggers its first half, which stays high for 100 ms (0.45 x 220k x
+  1 uF); when it falls, the second half asserts COLD for 1 ms through an
+  open-collector gate, resetting the whole system and the card, which
+  clears the first half: the watchdog is armed by the first kick after
+  each COLD. `heron iop hw` checks it with its times shortened
+  (`ucode/hwwdog.uc`, tests/test_netlist.py).
 - **What the model changed to match:** an I/O bus read is latched at the
   strobe's end, so one onto R takes two clocks more than the model had;
   an access that stretches the second half ends a clock after its strobe
@@ -317,7 +337,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 198 packages so far (`heron iop hw bom`), against RFC 0027's
+- **Parts:** 202 packages so far (`heron iop hw bom`), against RFC 0027's
   ~95 for the whole card: 67 are gates (74F00-74F86), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
   18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
@@ -328,8 +348,8 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   buffers (the core's or the window's) overlap by under 2 ns as they
   change hands; a pair of 74F157s would avoid it.
 - **Not yet:** the window's 4r + 2 (reaching nothing) and its bound on
-  WAIT, the 32-bit path, LOCK, the stuck-transfer counter, the watchdog, the time of day, the ports' read
-  side, I/O cards in the slots, static timing analysis (the simulator's
+  WAIT, the 32-bit path, LOCK, the stuck-transfer counter, I/O cards in
+  the slots, static timing analysis (the simulator's
   checks catch a late signal only within a setup window, not one later
   than the edge, so the paths above were checked by hand), and a
   timer model in the microinstruction-level model exact enough to keep
@@ -342,27 +362,27 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
 | | Measured | RFC 0027 |
 |---|---:|---|
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
-| dictionary out of the flash (8705 cells, 35 pages) | 7.1 ms | 32K cells in ~30 ms |
-| power-up to the banner | 151.0 ms | - |
-| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,257,041 | about 1,000,000 |
-| microcycles a Forth word, there | 6.63 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
-| the tick's share of the IOP while Forth computes | 9.5% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,238,920 | - |
+| dictionary out of the flash (9068 cells, 36 pages) | 7.3 ms | 32K cells in ~30 ms |
+| power-up to the banner | 151.2 ms | - |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,249,900 | about 1,000,000 |
+| microcycles a Forth word, there | 6.67 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
+| the tick's share of the IOP while Forth computes | 9.7% | 5-10% (0.5-1 us a tick) |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,228,336 | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.0 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
 | booting the CPU: draft 2's control store, its decode table and the program | 92.5 ms (2.6 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
-| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 45.0 us, 63.6 us | ~5 us on top of the transfer |
-| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1377.6 us, 1396.2 us | ~5 us on top of the transfer |
-| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 154.7 us, 238.9 us | ~5 us on top of the transfer |
-| a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 281 cycles, 103 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 281 cycles, 1435 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 281 cycles, 278 us | 200-700 cycles |
-| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 380 ms, 82% busy, 7,291 cycles a KB | the CPU's time back |
-| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1664 ms, 68% busy, 26,569 cycles a KB | the CPU's time back |
+| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 40.6 us, 59.2 us | ~5 us on top of the transfer |
+| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1373.2 us, 1391.8 us | ~5 us on top of the transfer |
+| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 147.6 us, 234.1 us | ~5 us on top of the transfer |
+| a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 282 cycles, 103 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 282 cycles, 1438 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 275 us | 200-700 cycles |
+| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 380 ms, 82% busy, 7,292 cycles a KB | the CPU's time back |
+| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1665 ms, 68% busy, 26,570 cycles a KB | the CPU's time back |
 | microcode | 2231 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
-| the Forth's dictionary | 8705 cells | up to 32K |
+| the Forth's dictionary | 9068 cells | up to 32K |
 
 The copies are a job's time from its first slice to its end, with the
 ticks and the Forth's turns. A request's CPU cycles are `sw/ring.s`'s,
@@ -429,8 +449,10 @@ What the differences come from, so far:
   pages zeroed and copied by the IOP, user-level drivers with rings of
   their own; Fen's board is still its own (RFC 0014's slots, its own
   timer and interrupt mask), with the IOP's card added on RFC 0037's map.
-- **Devices:** the serial loader, PS/2, the time of day and the front
-  panel; the stuck-transfer counter; the 32-bit paths; change detection
+- **Devices:** the serial loader, PS/2 and the front panel (the ports
+  carry its shift chain; nothing drives it); the watchdog's policy (the
+  firmware never kicks it, so it stays unarmed); the stuck-transfer
+  counter; the 32-bit paths; change detection
   on the INT lines; a timer request (a completion after a delay).
 - **The rings:** a completion ring or a ring of events is never checked
   for room (RFC 0040, 5.1's rule keeps them from filling, if the client

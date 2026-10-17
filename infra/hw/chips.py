@@ -85,6 +85,14 @@ gate_type("132", "nand", 4, 2, "quad 2-input NAND, Schmitt-trigger inputs")
 gate_type("14", "nand", 6, 1, "hex inverter, Schmitt-trigger inputs")
 gate_type("05", "nand_oc", 6, 1, "hex inverter, open-collector outputs", out_kind="tri")
 
+T("123", "mono123",
+  [(f"{s}{p}", k) for s in (1, 2) for p, k in
+   (("A", "in"), ("B", "in"), ("R", "in"), ("Q", "out"), ("QN", "out"))] + [("WAKE", "io")],
+  arcs=[([f"{s}A", f"{s}B", f"{s}R"], [f"{s}Q", f"{s}QN"], "T->Q") for s in (1, 2)]
+  + [([f"{s}R"], [f"{s}Q", f"{s}QN"], "R->Q") for s in (1, 2)],
+  desc="dual retriggerable monostable with reset (A, R active low); params width1_ps, "
+       "width2_ps (0.45 Rx Cx); WAKE is the simulator's, on a net of its own")
+
 T("74", "dff74",
   [(f"{s}{p}", k) for s in (1, 2) for p, k in
    (("D", "in"), ("CLK", "in"), ("PRE", "in"), ("CLR", "in"), ("Q", "out"), ("QN", "out"))],
@@ -398,6 +406,11 @@ T("82c54", "i8254",
   + [([f"CLK{i}"], [f"OUT{i}"], "CLK->OUT") for i in range(3)], family="device",
   desc="programmable interval timer: three 16-bit counters (CS, RD, WR active low)")
 
+T("ds1302", "ds1302", [("CE", "in"), ("SCLK", "in"), ("IO", "io")],
+  arcs=[(["SCLK"], ["IO"], "SCLK->IO")], family="device",
+  desc="timekeeping chip on a three-wire interface (CE, SCLK, I/O); its clock starts from "
+       "params time, yyyymmddhhmmss")
+
 T("cf", "cf",
   [(f"D{i}", "io") for i in range(16)] + [(f"A{i}", "in") for i in range(3)]
   + [(p, "in") for p in ("CS0", "CS1", "IORD", "IOWR", "RESET")]
@@ -482,7 +495,7 @@ ACT_MISSING = {"30", "688"}
 # Parts outside the variants: families that only the card designs use,
 # named in the netlist by part number (Netlist.add(..., part=...)).
 FIXED_PARTS = {"osc": "oscillator", "por": "TL7705A", "pullup": "10k x8 resistor network",
-               "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF"}
+               "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF", "ds1302": "DS1302"}
 # Families whose parts may have no timing data (their models have defaults).
 UNTIMED = {"osc", "misc", "passive", "fixture"}
 

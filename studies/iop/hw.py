@@ -38,13 +38,15 @@ def sources():
     return runner.infra_sources() + [os.path.join(HERE, "card.py"), parts.__file__]
 
 
-def netlist(master=False):
+def netlist(master=False, watchdog=None):
     """The simulation netlist, exported (cached in build/iop); `master`:
-    with the bench's second master."""
-    path = os.path.join(OUT, "netlist-master.json" if master else "netlist.json")
+    with the bench's second master; `watchdog`: its times, if not the
+    card's."""
+    name = "netlist" + ("-master" if master else "") + (f"-wd{watchdog[0]}-{watchdog[1]}" if watchdog else "")
+    path = os.path.join(OUT, name + ".json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
         os.makedirs(OUT, exist_ok=True)
-        nl = card.build(sim=True, bench=True, master=master)
+        nl = card.build(sim=True, bench=True, master=master, watchdog=watchdog or (card.WDOG_PS, card.WDCOLD_PS))
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=card.VARIANT, corner="max"), f)
@@ -314,6 +316,23 @@ def check_window(clocks=4000, seed=1):
     regs = [l | h << 8 for l, h in zip(d["U_RAML"][0xC008:0xC010], d["U_RAMH"][0xC008:0xC010])]
     reads = [x & 0xFF if i in uart else x for i, x in enumerate(m.results(d["X_M"]))]
     return hw, reads, want, regs, s.s.sram(0xC008, 8)
+
+
+def check_watchdog(clocks=6000, seed=1, wait_ps=20_000_000, cold_ps=2_000_000):
+    """The watchdog, with its times shortened to `wait_ps` and `cold_ps`:
+    ucode/hwwdog.uc counts its starts in register 8 and kicks it a few
+    times. (the outcome, the starts, the clocks at which uIR took
+    microaddress 0 after a reset.)"""
+    b = Program("hwwdog.uc")
+    s = model(b)
+    pre = preloads(b, s)
+    first = s.s.sram(0xC008, 1)[0]
+    cfg = config(clocks, 1_000_000, seed)
+    hw = native.hwsim.run_system(netlist(watchdog=(wait_ps, cold_ps)), cfg, pre)
+    d = hw["dumps"]
+    a = d["U_RAML"][0xC008] | d["U_RAMH"][0xC008] << 8
+    starts = [f[0] for f in hw["fetches"] if f[1] == 0]
+    return hw, (a - first) & 0xFFFF, starts
 
 
 def where(b, a):

@@ -92,6 +92,15 @@ class Forth(unittest.TestCase):
         self.s.command("20 ms")
         self.assertGreater(self.s.ms - start, 20)
 
+    def test_clock_chip(self):
+        """The DS1302 on the ports: set, read, and a second on."""
+        self.s.command("$56 clock ! $34 clock 1+ ! $12 clock 2 + ! $29 clock 3 + ! "
+                       "$02 clock 4 + ! 4 clock 5 + ! $28 clock 6 + ! clock!")
+        self.says(".time", "2028-02-29 12:34:56 ok")
+        self.s.command("1100 ms", 2000)
+        self.says(".time", "2028-02-29 12:34:57 ok")
+        self.says("hex 7 rtc@ . decimal", "80  ok")       # write-protected again
+
 
 class Flash(unittest.TestCase):
     def test_save_and_cold_start(self):

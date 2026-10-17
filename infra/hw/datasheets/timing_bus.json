@@ -2358,5 +2358,86 @@
         "tPLZ": [1, 2.9, 3.7, 4.1]
       }
     }
+  },
+  "74HCT123": {
+    "family": "HCT",
+    "function": "dual retriggerable monostable multivibrator with reset",
+    "manufacturer": "Texas Instruments (ex-Harris)",
+    "part_number": "CD74HCT123",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct123.pdf",
+    "datasheet": "TI SCHS142F (Sep 1997, rev Oct 2003)",
+    "availability": "not checked",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF; input tr, tf 6 ns, Rx 10 kOhm, Cx 0",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF",
+    "delays": {
+      "T->Q": {
+        "typ": 27,
+        "max": 85
+      },
+      "R->Q": {
+        "max": 60
+      }
+    },
+    "checks": {
+      "tWL A": 25,
+      "tWH B": 25,
+      "tWL R": 25,
+      "tH A,B": 13,
+      "tREM": 13,
+      "trT": 63
+    },
+    "estimated": [
+      "R->Q typ"
+    ],
+    "notes": "T->Q is the trigger propagation delay, A, B or R to Q: tPLH 75, tPHL 85 at -40..85 C (60 and 68 at 25 C); typ 25 (tPLH) and 27 (tPHL) at 5 V, 15 pF. R->Q is the reset propagation delay, R to Q or /Q (48 at 25 C); the sheet gives it no typical. The output pulse width is tW = 0.45 Rx Cx at VCC 5 V (40-50 us at 25 C for Rx 10 kOhm, Cx 10 nF; 38.2-51.8 us over -55..125 C). trT is the minimum time between retriggers for Rx 10 kOhm, Cx 0. The 123 also triggers on R rising with A low and B high (the 423 doesn't). TTL input levels (VIH 2.0 V)."
+  },
+  "DS1302": {
+    "family": "device",
+    "function": "trickle-charge timekeeping chip, three-wire serial interface",
+    "manufacturer": "Analog Devices (ex-Maxim, ex-Dallas)",
+    "part_number": "DS1302",
+    "source": "https://www.analog.com/media/en/technical-documentation/data-sheets/DS1302.pdf",
+    "datasheet": "Maxim DS1302 data sheet, AC electrical characteristics at VCC 5.0 V",
+    "availability": "not checked",
+    "max_cond": "VCC 5.0 V, 0..70 C",
+    "typ_cond": "typ = max: guaranteed limits only",
+    "delays": {
+      "SCLK->IO": {
+        "typ": 200,
+        "max": 200
+      },
+      "CE->IO dis": {
+        "typ": 70,
+        "max": 70
+      },
+      "SCLK->IO dis": {
+        "typ": 70,
+        "max": 70
+      }
+    },
+    "checks": {
+      "tDC": 50,
+      "tCDH": 70,
+      "tCL": 250,
+      "tCH": 250,
+      "clk max MHz": 2,
+      "tCC": 1000,
+      "tCCH": 60,
+      "tCWH": 1000
+    },
+    "estimated": [
+      "SCLK->IO",
+      "CE->IO dis",
+      "SCLK->IO dis",
+      "tDC",
+      "tCDH",
+      "tCL",
+      "tCH",
+      "clk max MHz",
+      "tCC",
+      "tCCH",
+      "tCWH"
+    ],
+    "notes": "Every number here is from the DS1302 data sheet as remembered, not transcribed: the PDF could not be downloaded when this entry was written (analog.com refused the connection), so all are listed as estimated until checked. At 2.0 V the limits are about four times longer (tCC 4 us, fCLK 0.5 MHz). SCLK->IO is tCDD, the read data's delay from SCLK falling; CE->IO dis tCDZ; SCLK->IO dis tCCZ. tDC and tCDH are the write data's setup and hold about SCLK rising; tCC CE's setup to SCLK's first rise; tCCH SCLK's hold before CE falls; tCWH CE's time low between transfers. TTL-compatible inputs at 5 V (VIH 2.0 V)."
   }
 }

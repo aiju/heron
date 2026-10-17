@@ -102,8 +102,9 @@ pub struct Config {
     pub clkb_hz: f64,
     /// The shared RAM, in bytes: 2 MB fitted, up to 8 MB.
     pub shared_bytes: usize,
-    /// Whether the watchdog is fitted: a COLD reset if the firmware
-    /// doesn't kick it for 100 ms.
+    /// Whether the watchdog is fitted: once the firmware has kicked it, a
+    /// COLD reset if it then doesn't for 100 ms. (The card holds COLD for
+    /// 1 ms; here the IOP starts again at once.)
     pub watchdog: bool,
 }
 
@@ -326,7 +327,7 @@ impl Iop {
         self.doorbells = 0;
         self.stopped = false;
         self.io.reset();
-        self.io.kicked_ns = self.now_ns();
+        self.io.cold();
     }
 
     pub fn now_ns(&self) -> u64 {
@@ -439,7 +440,11 @@ impl Iop {
 
     /// Execute the microinstruction in uIR.
     pub fn step(&mut self, bus: &mut dyn SystemBus) -> Result<(), String> {
-        if self.cfg.watchdog && self.now_ns().saturating_sub(self.io.kicked_ns) > iobus::WATCHDOG_NS
+        if self.cfg.watchdog
+            && self
+                .io
+                .kicked_ns
+                .is_some_and(|k| self.now_ns().saturating_sub(k) > iobus::WATCHDOG_NS)
         {
             self.watchdog_resets += 1;
             self.cold();

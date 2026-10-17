@@ -1489,6 +1489,32 @@
   "part_number": "CD74HCT11",
   "source": "https://www.ti.com/lit/ds/symlink/cd74hct11.pdf"
  },
+ "74HCT123": {
+  "checks": {
+   "tH A,B": 13,
+   "tREM": 13,
+   "tWH B": 25,
+   "tWL A": 25,
+   "tWL R": 25,
+   "trT": 63
+  },
+  "delays": {
+   "R->Q": {
+    "max": 60,
+    "typ": 30.0
+   },
+   "T->Q": {
+    "max": 85,
+    "typ": 27
+   }
+  },
+  "estimated": [
+   "R->Q typ",
+   "R->Q typ"
+  ],
+  "part_number": "CD74HCT123",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct123.pdf"
+ },
  "74HCT125": {
   "checks": {},
   "delays": {
@@ -2651,6 +2677,47 @@
   },
   "estimated": [],
   "source": "https://cdn.components.ru/media/PDF/8018143.pdf (Cypress/Infineon CY7C199D datasheet 38-05471 Rev *N, Mar 2019, p.7)"
+ },
+ "DS1302": {
+  "checks": {
+   "clk max MHz": 2,
+   "tCC": 1000,
+   "tCCH": 60,
+   "tCDH": 70,
+   "tCH": 250,
+   "tCL": 250,
+   "tCWH": 1000,
+   "tDC": 50
+  },
+  "delays": {
+   "CE->IO dis": {
+    "max": 70,
+    "typ": 70
+   },
+   "SCLK->IO": {
+    "max": 200,
+    "typ": 200
+   },
+   "SCLK->IO dis": {
+    "max": 70,
+    "typ": 70
+   }
+  },
+  "estimated": [
+   "SCLK->IO",
+   "CE->IO dis",
+   "SCLK->IO dis",
+   "tDC",
+   "tCDH",
+   "tCL",
+   "tCH",
+   "clk max MHz",
+   "tCC",
+   "tCCH",
+   "tCWH"
+  ],
+  "part_number": "DS1302",
+  "source": "https://www.analog.com/media/en/technical-documentation/data-sheets/DS1302.pdf"
  },
  "IDT71256SA12": {
   "checks": {

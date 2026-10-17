@@ -101,8 +101,37 @@ variable left
    0 r@ USER_FIRST 5 + reg !            \ handler
    me R.link reg @ r@ R.link reg !  r> me R.link reg ! ;
 
-\ ---- the LEDs, device 15
+\ ---- the ports, device 15 (sim/src/iobus.rs): register 0 the LEDs out
+\ and the inputs in (bit 0 the clock chip's I/O, 1 the panel's data, 2-7
+\ jumpers J2-J7); register 1 the outputs (bit 0 the watchdog's kick, 1-3
+\ the clock chip's CE, SCLK and I/O pulled low, 4-6 the panel's shift
+\ chain), kept in p1 as well, as it can't be read
 
 $F00 constant ports
 : leds ( x -- ) ports io! ;
+: inputs ( -- x ) ports io@ $FF and ;
+variable p1
+: p1! ( x -- ) $FE and dup p1 ! ports 1+ io! ;
+\ The watchdog: the first kick arms it; then COLD unless kicked again
+\ within 100 ms.
+: kick ( -- ) p1 @ 1 or ports 1+ io! ;
+
+\ The clock chip, a DS1302: a transfer is CE high, a command byte, its
+\ data, CE low, each byte LSB first. A bit goes out as SCLK rises; a
+\ read's come back as it falls, the first after the command's last bit.
+: rtc-out ( c -- ) 8 0 do dup 1 and 0= 8 and 2 or dup p1! 4 or p1! u2/ loop drop ;
+: rtc-in ( -- c ) 0 8 0 do 2 p1! inputs 1 and i lshift or 6 p1! loop ;
+: rtc-cmd ( c -- ) 2 p1! rtc-out ;
+: rtc-end ( -- ) 0 p1! ;
+: rtc@ ( a -- c ) 2* $81 or rtc-cmd rtc-in rtc-end ;
+: rtc! ( c a -- ) 2* $80 or rtc-cmd rtc-out rtc-end ;
+\ The clock's eight registers at once, in BCD: seconds, minutes, hours,
+\ date, month, day, year, control. clock! leaves it write-protected.
+create clock 8 allot
+: clock@ ( -- ) $BF rtc-cmd 8 0 do rtc-in clock i + ! loop rtc-end ;
+: clock! ( -- ) 0 7 rtc!  0 clock 7 + !  $BE rtc-cmd 8 0 do clock i + @ rtc-out loop rtc-end  $80 7 rtc! ;
+: h.2 ( u -- ) base @ >r hex 0 <# # # #> type r> base ! ;
+: .time ( -- )   \ yyyy-mm-dd hh:mm:ss, in 24-hour mode
+   clock@  ." 20" clock 6 + @ h.2  [char] - emit  clock 4 + @ h.2  [char] - emit  clock 3 + @ h.2 space
+   clock 2 + @ $3F and h.2  [char] : emit  clock 1+ @ h.2  [char] : emit  clock @ $7F and h.2 ;
 

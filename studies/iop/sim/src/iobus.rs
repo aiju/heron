@@ -8,10 +8,15 @@
 //! | 12 | the console, a 16C550 from a 14.7456 MHz oscillator | 0-7, A0-A2; D0-D7 |
 //! | 13 | the image flash, 512K x 16, with its page register (device 4 register 1 on T) as A8-A18 | A0-A7 |
 //! | 14 | an 82C54, all three counters from CLKB (4 MHz): OUT0 is the polling tick, OUT2 the device's INT | 0-3, A0-A1; D0-D7 |
-//! | 15 | ports: 0 W the LEDs, R the panel's switches; 1 W bit 0 kicks the watchdog | D0-D7 |
+//! | 15 | ports: 0 W the LEDs; 0 R the inputs; 1 W the outputs | D0-D7 |
 //!
-//! The time of day (a DS1302 on the ports) and the panel's shift chain
-//! aren't modelled.
+//! The ports (the study's choice; RFC 0027 lists what they carry): port
+//! 0's inputs are bit 0 the clock chip's I/O, bit 1 the panel's shift
+//! chain's data, bits 2-7 jumpers J2-J7 (1 open). Port 1's outputs are bit
+//! 0 the watchdog's kick, as written (a 1 kicks it), bits 1-3 the clock
+//! chip's CE, SCLK and I/O pulled low, bits 4-6 the panel's shift chain's
+//! data, clock and latch. The clock chip is a DS1302 (devices::ds1302);
+//! the panel isn't modelled, so its data reads 1.
 //!
 //! **8-bit devices** drive D0-D7 only; D8-D15 keep what they last held, as
 //! do all sixteen lines for a slot with no card, by the bus-hold of the
@@ -24,6 +29,7 @@
 //! is an error here, since its timing would be whatever the SRAM held.
 
 use crate::flash::Flash;
+use devices::ds1302::Ds1302;
 use devices::i8254::Timer;
 use devices::uart16550::Uart;
 
@@ -77,9 +83,15 @@ pub struct IoBus {
     /// The LEDs, and what was written to them, with the time.
     pub leds: u8,
     pub led_log: Vec<(u64, u8)>,
-    pub switches: u8,
-    /// The last kick of the watchdog.
-    pub kicked_ns: u64,
+    /// Port 1 as last written.
+    pub port1: u8,
+    /// Jumpers J2-J7 in bits 2-7: 1 open, 0 fitted.
+    pub jumpers: u8,
+    /// The time of day.
+    pub rtc: Ds1302,
+    /// The last kick of the watchdog, None since COLD until the first:
+    /// that arms it.
+    pub kicked_ns: Option<u64>,
     pub slots: Vec<Option<Box<dyn IoCard>>>,
     /// D0-D15's last value.
     pub hold: u16,
@@ -103,8 +115,10 @@ impl IoBus {
             timer: Timer::new(),
             leds: 0,
             led_log: Vec::new(),
-            switches: 0,
-            kicked_ns: 0,
+            port1: 0,
+            jumpers: 0xFC,
+            rtc: Ds1302::default(),
+            kicked_ns: None,
             slots: (0..SLOTS).map(|_| None).collect(),
             hold: 0,
             now_ns: 0,
@@ -123,6 +137,21 @@ impl IoBus {
         self.uart.reset();
         self.timer = Timer::new();
         self.leds = 0;
+    }
+
+    /// COLD: port 1 is cleared, letting go of the clock chip, and the
+    /// watchdog disarmed.
+    pub fn cold(&mut self) {
+        self.port1 = 0;
+        self.kicked_ns = None;
+        let t = self.now_ns;
+        self.rtc.set(false, false, true, t);
+    }
+
+    /// The clock chip's I/O line: pulled up, low when port 1 pulls it
+    /// low or the chip drives it low.
+    fn rtc_io(&self) -> bool {
+        self.port1 & 8 == 0 && self.rtc.io().unwrap_or(true)
     }
 
     /// Bring the devices up to `now_ns`.
@@ -214,7 +243,10 @@ impl IoBus {
             ),
             TIMER => (self.timer.read(reg & 3) as u16, 0x00FF),
             PORTS => match reg & 1 {
-                0 => (self.switches as u16, 0x00FF),
+                0 => {
+                    let v = self.rtc_io() as u8 | 2 | (self.jumpers & 0xFC);
+                    (v as u16, 0x00FF)
+                }
                 _ => (0, 0),
             },
             s if s < SLOTS => match &mut self.slots[s] {
@@ -243,8 +275,11 @@ impl IoBus {
                 }
                 _ => {
                     if v & 1 != 0 {
-                        self.kicked_ns = t;
+                        self.kicked_ns = Some(t);
                     }
+                    self.port1 = v as u8;
+                    let io = self.rtc_io();
+                    self.rtc.set(v & 2 != 0, v & 4 != 0, io, t);
                 }
             },
             s if s < SLOTS => {

@@ -35,6 +35,18 @@ class Netlist(unittest.TestCase):
         self.assertEqual(reads, want)
         self.assertEqual(regs, model_regs)
 
+    def test_watchdog(self):
+        """The watchdog, its times shortened to 20 us and 2 us:
+        ucode/hwwdog.uc kicks it 4 times and stops; COLD starts it again,
+        a wait and a COLD later each time."""
+        out, n, starts = hw.check_watchdog()
+        self.assertEqual(out["violation_total"], 0)
+        self.assertGreater(n, 10)
+        gaps = {b - a for a, b in zip(starts[1:], starts[2:])}
+        self.assertEqual(len(gaps), 1)
+        wait = (20_000 + 2_000) // 60           # bus clocks: the wait and COLD
+        self.assertTrue(wait < gaps.pop() < wait + 100)
+
     def test_cold_start(self):
         """The firmware from power-up to just before the timer's first
         tick, which the two take a few clocks apart: the SRAM's test, the

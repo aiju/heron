@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use crate::Error;
-use crate::devices::{CompactFlash, I8254, Uart16550};
+use crate::devices::{CompactFlash, Ds1302, I8254, Uart16550};
 use crate::rng::Rng;
 use crate::sim::{ChipInfo, Ctx, Kind, Time};
 
@@ -152,6 +152,8 @@ pub enum Model {
     FanBuf(FanBuf),
     Osc(Osc),
     Por(Por),
+    Mono123(Mono123),
+    Clock(Box<Ds1302>),
     Uart(Box<Uart16550>),
     Timer(Box<I8254>),
     Cf(Box<CompactFlash>),
@@ -214,6 +216,8 @@ impl Model {
             // pull-up resistors are weak drivers in the engine (sim.rs)
             "pullup" => Model::Const,
             "por" => Model::Por(Por::new(s)?),
+            "mono123" => Model::Mono123(Mono123::new(s)?),
+            "ds1302" => Model::Clock(Box::new(Ds1302::new(s)?)),
             "uart16550" => Model::Uart(Box::new(Uart16550::new(s, preload)?)),
             "i8254" => Model::Timer(Box::new(I8254::new(s)?)),
             "cf" => Model::Cf(Box::new(CompactFlash::new(s, preload)?)),
@@ -266,6 +270,8 @@ impl Model {
             Model::FanBuf(m) => m.eval_all(cx, c, 0),
             Model::Osc(m) => m.init(cx, c),
             Model::Por(m) => m.init(cx, c),
+            Model::Mono123(m) => m.init(cx, c),
+            Model::Clock(m) => m.init(cx, c),
             Model::Uart(m) => m.init(cx, c),
             Model::Timer(m) => m.init(cx, c),
             Model::Cf(m) => m.init(cx, c),
@@ -328,6 +334,8 @@ impl Model {
             Model::FanBuf(m) => m.eval(cx, c, pin),
             Model::Osc(m) => m.eval(cx, c, pin),
             Model::Por(_) => {}
+            Model::Mono123(m) => m.eval(cx, c, pin),
+            Model::Clock(m) => m.eval(cx, c, pin),
             Model::Uart(m) => m.eval(cx, c, pin),
             Model::Timer(m) => m.eval(cx, c, pin),
             Model::Cf(m) => m.eval(cx, c, pin),
@@ -2792,6 +2800,115 @@ impl Por {
     fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
         cx.drive(c, self.rst, 0, true, 0);
         cx.drive_at(c, self.rst, 1, false, self.release);
+    }
+}
+
+// ---------------------------------------------------------------- 123 monostable
+
+/// One half of a 74HCT123.
+struct OneShot {
+    a: usize,
+    b: usize,
+    r: usize,
+    q: usize,
+    qn: usize,
+    width: Time,
+    /// Where A, B and R were, for the edges: 2 until the first value,
+    /// which is where the pin was at power-up, not an edge.
+    was: (u8, u8, u8),
+    /// When the pulse ends; None when Q is low.
+    until: Option<Time>,
+}
+
+/// The 74HCT123, a dual retriggerable monostable: each half's Q goes high
+/// for its width (`width1_ps`, `width2_ps`: 0.45 Rx Cx) when A falls with
+/// B and R high, B rises with A low and R high, or R rises with A low and
+/// B high; a new trigger while it's high starts the width again; R low
+/// ends it. WAKE is the simulator's, on a net of its own: the model is
+/// woken there when a pulse ends.
+pub struct Mono123 {
+    half: [OneShot; 2],
+    wake: usize,
+    d_trig: Time,
+    d_reset: Time,
+}
+
+impl Mono123 {
+    fn new(s: &Spec) -> Result<Mono123, Error> {
+        let half = |k: usize| -> Result<OneShot, Error> {
+            Ok(OneShot {
+                a: s.pin(&format!("{k}A"))?,
+                b: s.pin(&format!("{k}B"))?,
+                r: s.pin(&format!("{k}R"))?,
+                q: s.pin(&format!("{k}Q"))?,
+                qn: s.pin(&format!("{k}QN"))?,
+                width: s.param(&format!("width{k}_ps"))?,
+                was: (2, 2, 2),
+                until: None,
+            })
+        };
+        Ok(Mono123 {
+            half: [half(1)?, half(2)?],
+            wake: s.pin("WAKE")?,
+            d_trig: s.d_or("T->Q", 85_000),
+            d_reset: s.d_or("R->Q", 60_000),
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        cx.wake_done(c, self.wake);
+        for h in &mut self.half {
+            cx.drive(c, h.q, 0, true, 0);
+            cx.drive(c, h.qn, 1, true, 0);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        let now = cx.now();
+        if pin == self.wake {
+            if cx.input(c, pin) == 1 {
+                cx.wake_done(c, self.wake);
+                for h in &mut self.half {
+                    if h.until.is_some_and(|t| t <= now) {
+                        h.until = None;
+                        cx.drive(c, h.q, 0, true, 0);
+                        cx.drive(c, h.qn, 1, true, 0);
+                    }
+                }
+            }
+            return;
+        }
+        for h in &mut self.half {
+            if pin != h.a && pin != h.b && pin != h.r {
+                continue;
+            }
+            let now_in = (cx.input(c, h.a), cx.input(c, h.b), cx.input(c, h.r));
+            let (a0, b0, r0) = h.was;
+            let (a, b, r) = now_in;
+            h.was = now_in;
+            if r == 0 {
+                if h.until.take().is_some() {
+                    cx.drive(c, h.q, 0, true, self.d_reset);
+                    cx.drive(c, h.qn, 1, true, self.d_reset);
+                }
+                continue;
+            }
+            if a0 == 2 || b0 == 2 || r0 == 2 {
+                continue;
+            }
+            let trig = (a0 == 1 && a == 0 && b == 1)
+                || (b0 == 0 && b == 1 && a == 0)
+                || (r0 == 0 && r == 1 && a == 0 && b == 1);
+            if trig {
+                if h.until.is_none() {
+                    cx.drive(c, h.q, 1, true, self.d_trig);
+                    cx.drive(c, h.qn, 0, true, self.d_trig);
+                }
+                let t = now + self.d_trig + h.width;
+                h.until = Some(t);
+                cx.wake(c, self.wake, t);
+            }
+        }
     }
 }
 

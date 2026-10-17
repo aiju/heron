@@ -32,7 +32,10 @@ VARIANT = parts.VARIANT
 BCLK_PS = 60_000                # RFC 0037's bus clock
 UART_PS = 67_817                # 14.7456 MHz, the console UART's oscillator
 CLKB_PS = 250_000               # 4 MHz, the timer's
-POR_PS = 2_000_000
+POR_PS = 2_000_000              # the backplane's COLD at power-up (the bench's)
+WDOG_PS = 99_000_000_000        # the watchdog: 0.45 x 220k x 1 uF
+WDCOLD_PS = 990_000_000         # and the COLD it then asserts: 0.45 x 22k x 100 nF
+RTC_TIME = 20_000_101_000_000   # the clock chip's time at power-up (yyyymmddhhmmss)
 
 SUBSTITUTES = [
     ("74ABT16652 (the bus data registers, BA and AB)", "four 74ABT16823 halves"),
@@ -151,11 +154,12 @@ M_CONDS = 4
 M_DELAY_PS = 20_000
 
 
-def build(sim=True, bench=False, master=False):
-    """The card. `sim`: with its oscillators and power-on reset (for the
-    simulator), else for timing analysis (not yet). `bench`: with what the
-    simulator needs around it on the system bus (add_bench), and `master`
-    a second master there."""
+def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
+    """The card. `sim`: with its oscillators (for the simulator), else for
+    timing analysis (not yet). `bench`: with what the simulator needs
+    around it on the system bus (add_bench), the backplane's COLD at
+    power-up among it, and `master` a second master there. `watchdog`:
+    how long it waits for a kick, and the COLD it then asserts."""
     nl = Netlist()
     g = nl.gate
 
@@ -166,10 +170,13 @@ def build(sim=True, bench=False, master=False):
            params={"period_ps": BCLK_PS, "phase_ps": BCLK_PS})
     nl.add("clkdrv", "U_CK", part="CDC341", A="BCLK0", Y1="BCLK")
     g("04", ["BCLK"], "BCLK_n")
-    nl.add("por", "U_POR", RST="PORST_n", params={"release_ps": POR_PS})
-    nl.add("pullup", "RN_POR", P1="PORST_n")
-    g("14", ["PORST_n"], "RESET")
-    g("14", ["RESET"], "RESET_n")
+    # COLD (RFC 0037, 7) through a Schmitt trigger; reset ends at a clock
+    # edge, through one flip-flop
+    g("14", ["SB_COLD_n"], "COLD")
+    g("14", ["COLD"], "COLDS_n")
+    nl.add("74", "U_RSY", part="74ABT74", **{"1D": "VCC", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "COLDS_n",
+                                             "1Q": "RESET_n", "1QN": "RESET", "2D": "GND", "2CLK": "GND",
+                                             "2PRE": "VCC", "2CLR": "VCC"})
 
     # ------------------------------------------------------------ the phase
     nl.section("Microcycle")
@@ -536,10 +543,36 @@ def build(sim=True, bench=False, master=False):
            CS="CS14_n", RD="IORD_n", WR="IOWR_n", CLK0="CLKB", CLK1="CLKB", CLK2="CLKB",
            GATE0="VCC", GATE1="VCC", GATE2="VCC", OUT0="TOUT0", OUT2=INT[14])
     nl.section("Ports")
+    # register 0: the LEDs out, the inputs in; register 1 out: the
+    # watchdog's kick (bit 0, as it's written), the clock chip's CE, SCLK
+    # and I/O pulled low (1-3), the panel's shift chain's data, clock and
+    # latch (4-6). Both clocked at the strobe's end.
     g("32", ["CS15_n", "IOWR_n"], "LEDW0")
     g("32", ["LEDW0", IOA[0]], "LEDCLK")
     nl.add("574", "U_LED", OE="GND", CLK="LEDCLK", **{f"D{i + 1}": IOD[i] for i in range(8)},
            **{f"Q{i + 1}": f"LED{i}" for i in range(8)})
+    g("04", [IOA[0]], "IOA0_n")
+    g("32", ["LEDW0", "IOA0_n"], "P1W_n")
+    nl.add("823", "U_P1", OE="GND", CLK="P1W_n", EN="GND", CLR="RESET_n",
+           **{f"D{i + 1}": IOD[i] if i < 8 else "GND" for i in range(9)},
+           **{f"Q{i + 2}": n for i, n in enumerate(["RTC_CE", "RTC_SCLK", "RTC_IOLO", "PNL_DO", "PNL_CK",
+                                                     "PNL_LT"])})
+    # the inputs: the clock chip's I/O, the panel's data, jumpers J2-J7
+    # (pulled up, fitted to GND)
+    g("32", ["CS15_n", "IORD_n"], "RD15_n")
+    nl.add("541", "U_PIN", OE1="RD15_n", OE2=IOA[0], **{f"A{i + 1}": n for i, n in enumerate(
+        ["RTC_IO", "PNL_DI"] + bus("JMP", 6, 2))}, **{f"Y{i + 1}": IOD[i] for i in range(8)})
+    nl.add("pullup", "RN_1", P1="RTC_IO", P2="PNL_DI", **{f"P{i + 1}": f"JMP{i}" for i in range(2, 8)})
+    nl.section("Time of day")
+    nl.add("ds1302", "U_RTC", CE="RTC_CE", SCLK="RTC_SCLK", IO="RTC_IO", params={"time": RTC_TIME})
+    nl.section("Watchdog")
+    # armed by the first kick: 1Q high while kicks come within WDOG_PS;
+    # when it falls, the second half asserts COLD for WDCOLD_PS, which
+    # resets the whole system and this card
+    nl.add("123", "U_WDG", part="74HCT123", **{
+        "1A": "P1W_n", "1B": IOD[0], "1R": "RESET_n", "1Q": "WDOK",
+        "2A": "WDOK", "2B": "VCC", "2R": "VCC", "2Q": "WDCOLD", "WAKE": "WDG_WAKE"},
+           params={"width1_ps": watchdog[0], "width2_ps": watchdog[1]})
 
     system_bus(nl)
     slave_side(nl)
@@ -604,8 +637,8 @@ def system_bus(nl):
     buf(nl, "U_BOWN", ["STARTQ_n", "WRQ_n", "BE0Q_n", "BE1Q_n", "VCC"],
         ["SB_START_n", "SB_WRITE_n", "SB_BE0_n", "SB_BE1_n", "SB_LOCK_n"], "GNTQ_n")
     g("04", ["SESSION"], "SB_REQ3_n")
-    nl.add("05", "U_BRST", **{"1A": "BRESET", "1Y": "SB_RESET_n", "2A": "GND", "3A": "GND", "4A": "GND",
-                              "5A": "GND", "6A": "GND"})
+    nl.add("05", "U_BRST", **{"1A": "BRESET", "1Y": "SB_RESET_n", "2A": "WDCOLD", "2Y": "SB_COLD_n",
+                              "3A": "RTC_IOLO", "3Y": "RTC_IO", "4A": "GND", "5A": "GND", "6A": "GND"})
     # the data phase: from the address clock's end while WAIT is held
     g("04", ["SB_WAIT_n"], "WAIT")
     g("08", ["DP", "WAIT"], "DPW")
@@ -834,7 +867,7 @@ def window(nl):
 
 def add_bench(nl, master=False):
     """Around the card on the system bus, for the simulator: the
-    backplane's pull-ups, an arbiter that grants REQ3 4 clocks after it
+    backplane's pull-ups and COLD at power-up, an arbiter that grants REQ3 4 clocks after it
     rises (as RFC 0037, 6.2's on an idle bus), and a CPU card's RAM in
     region 0 that answers in 2 data clocks, as the model's does
     (sim/src/system.rs), 1 MB of it. ATN0-3 are quiet. `master`: a
@@ -849,7 +882,9 @@ def add_bench(nl, master=False):
         for i in range(48):
             v[f"I{i}"] = M_IN[i] if i < len(M_IN) else "GND"
     nl.add("pullup", "X_PU0", P1="SB_WAIT_n", P2="SB_RESET_n", P3="SB_ATN0_n", P4="SB_ATN1_n",
-           P5="SB_ATN2_n", P6="SB_ATN3_n", P7="SB_GNT3_n")
+           P5="SB_ATN2_n", P6="SB_ATN3_n", P7="SB_GNT3_n", P8="SB_COLD_n")
+    # the backplane's power supply supervisor: COLD at power-up
+    nl.add("por", "X_POR", RST="SB_COLD_n", params={"release_ps": POR_PS})
     g("04", ["SB_REQ3_n"], "X_REQ")
     nl.add("175", "X_ARB", CLK="BCLK", CLR="RESET_n", **{
         "1D": "X_REQ", "1Q": "X_G1", "2D": "X_G1R", "2Q": "X_G2", "3D": "X_G2R", "3Q": "X_G3",
