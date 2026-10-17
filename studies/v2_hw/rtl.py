@@ -87,6 +87,7 @@ def cond_true(n, z, c, v, cc):
 
 
 GLB = 0x2000          # register file address of the G locations (each bank has its own)
+MSGR = 0x4000         # the message level's registers (RFC 0040, 2.6): their own sixteen
 
 
 class RTL:
@@ -109,7 +110,7 @@ class RTL:
         self.decode = list(decode) if decode is not None else self.mc.decode_table()
         self.lengths = tuple(lengths or self.mc.lengths)
         self.check = check
-        self.rf = [0] * 0x4000
+        self.rf = [0] * (MSGR + 32)
         self.R = self.T = self.TL = self.MAR = self.PC = self.FPC = 0
         self.Q0 = self.Q1 = self.V0 = self.V1 = 0
         self.FOK = self.FPPN = 0     # the fetch's translation: FPC's page, if valid
@@ -171,7 +172,7 @@ class RTL:
         if reg >= uc.G:
             return GLB | (bank << 5) | (reg - uc.G)
         if self.m and self.s and not user:
-            reg |= 16                # the message level's registers: bank 0's 16-31
+            return MSGR | reg        # the message level's registers
         return (bank << 5) | reg
 
     def queue_words(self):
@@ -657,8 +658,6 @@ class RTL:
                 if self.refill_from is not None:
                     self.refill_from[(jump, self.mc.by_addr[self.uaddr].name)] += 1
         self.UBRD = f["UBR"]
-        if commit and f["BX"] == 7:
-            sysm.msg_release()
         # interrupts: the decision from the levels sampled at the last edge,
         # IPL and I as they are in this cycle; LT and MSGT hold from the
         # interrupt entry's first cycle (SSET) until I is set again or an
@@ -668,9 +667,17 @@ class RTL:
             self.LT = 0 if self.NMIQ else L
             self.MSGT = int(L == 7 and self.MSGQ and not self.NMIQ)
         self.PEND = int(bool(self.NMIQ or (i_now and L > ipl_now)))
+        # the levels as the edge samples them, and only after it the card's
+        # changes at this edge: the CPU's writes to its registers, the
+        # message register released, the NMI acknowledged, the timer
         self.RQ = sysm.levels() & 0x1FE
         self.MSGQ = int(sysm.msg_full())
         self.NMIQ = int(sysm.nmi())
+        sysm.edge()
+        if commit and f["BX"] == 7:
+            sysm.msg_release()
+        if commit and f["SSET"] and f["LFM"] == 1 and not self.LT:
+            sysm.nmi_ack()
 
         if seq == uc.SEQ_HALT and forced is None and not FAULT:
             if not (self.i or self.NMIQ) or not sysm.can_interrupt():
@@ -752,14 +759,11 @@ class RTL:
             # exception entry: supervisor mode, interrupts and tracing off,
             # and no trace pending for the instruction that trapped; out of
             # the message level's registers, or into them; an interrupt's
-            # IPL, or the NMI acknowledged
+            # IPL (the NMI is acknowledged at the edge)
             self.s, self.i, self.t, self.TS = 1, 0, 0, 0
             self.m = self.MSGT if lfm == 1 else 0
-            if lfm == 1:
-                if self.LT:
-                    self.ipl = self.LT
-                else:
-                    self.sys.nmi_ack()
+            if lfm == 1 and self.LT:
+                self.ipl = self.LT
 
     def ucond(self, cnd):
         """A microcode branch condition."""

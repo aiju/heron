@@ -448,6 +448,18 @@ T("iodev_w32", "iodev_w32",
   family="fixture", desc="draft 1 I/O page on a 32-bit data bus, one register access per "
                          "16-bit half (byte enables, IOSEL, RD, WR active low; input preloaded)")
 
+T("cpucard_w32", "iodev_w32",
+  [("CLK", "in"), ("MCLK", "in"), ("RESET_n", "in"), ("IOSEL", "in"), ("RD", "in"), ("WR", "in")]
+  + [(f"A{i}", "in") for i in list(range(2, 16)) + list(range(24, 28))]
+  + [(f"BE{i}", "in") for i in range(4)] + [(f"D{i}", "io") for i in range(32)]
+  + [("IRQ", "out")] + [(f"LV{i}", "out") for i in range(1, 9)]
+  + [("MSGF", "out"), ("NMI", "out"), ("MSGOE", "in"), ("NMIACK", "in")]
+  + [(f"B{i}", "io") for i in range(32)],
+  arcs=[([f"A{i}" for i in range(2, 8)] + ["IOSEL", "RD"], [f"D{i}" for i in range(32)], "tACC")],
+  family="fixture", desc="a CPU card's registers (RFC 0040, 3: control, the request register, "
+                         "the message register onto the CPU's B bus, the timer from the master "
+                         "clock) and draft 1's I/O page, on a 32-bit data bus")
+
 T("tickclk", "tickclk",
   [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("RW", "out"), ("RSTB", "out"),
    ("RESET", "out")],

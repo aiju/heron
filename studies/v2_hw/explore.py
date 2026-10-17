@@ -573,7 +573,7 @@ def trace_buses():
             "MD": b("MD", 24), "DB": b("DB", 32), "MAR": b("MAR", 32), "LC": b("LC", 8),
             "S0": b("QS0_", 32), "S1": b("QS1_", 32), "V": ["V0", "V1"],
             "FL": ["NFLAG", "ZFLAG", "CFLAG", "VFLAG", "IFLAG", "SFLAG", "TFLAG"],
-            "ST": ["FAULT", "FOK", "TSQ", "IRQP", "PC1F", "DECGO", "JUMP", "FETCHED", "HS"]}
+            "ST": ["FAULT", "FOK", "TSQ", "PEND", "PC1F", "DECGO", "JUMP", "FETCHED", "HS"]}
 
 
 def run_trace(name, start=0, n=None):
@@ -772,9 +772,9 @@ def _state(c, f):
     v0, fok = c["V"] & 1, (c["ST"] >> 1) & 1
     q = (("V0", v0), ("V0_n", 1 - v0), ("FOK", fok), ("FOK_n", 1 - fok))
     if f.get("SEQ") in (uc.SEQ_DECODE, uc.SEQ_HALT):
-        tsq, irqp = (c["ST"] >> 2) & 1, (c["ST"] >> 3) & 1
+        tsq, pend = (c["ST"] >> 2) & 1, (c["ST"] >> 3) & 1
         q += (("TSQ", 1), ("TSQ_n", 0)) if tsq else \
-            (("TSQ", 0), ("TSQ_n", 1), ("IRQP", irqp), ("IRQP_n", 1 - irqp))
+            (("TSQ", 0), ("TSQ_n", 1), ("PEND", pend), ("PEND_n", 1 - pend))
     return q
 
 
@@ -784,7 +784,7 @@ def _common_state(f):
     sts = sta.states(f)
     for q in sts:
         d = dict(q)
-        if d.get("V0") == 1 and d.get("FOK") == 1 and not d.get("TSQ") and not d.get("IRQP"):
+        if d.get("V0") == 1 and d.get("FOK") == 1 and not d.get("TSQ") and not d.get("PEND"):
             return q
     return sts[-1]
 

@@ -5,8 +5,9 @@ register-transfer model started the same way.
 Both start from reset: the reset routine, then the reset vector at
 physical 0, where the I/O processor's boot image (iop.boot_image) jumps to
 a shim that maps the first 1 MB and starts the program at virtual 0. The
-I/O page is on the card's data bus in both (System(io_local=True)), and
-nothing answers in the other slots.
+I/O page is on the card's data bus in both (System(io_local=True)), with
+the CPU card's registers (RFC 0040, 3) in the same fixture, and its timer
+ticking on the bit a program's "tick-bit" names; there is no bus.
 
   heron v2_hw hw test [NAMES]       programs at chip level against the RTL
                                     model: output, registers, flags, PC,
@@ -95,8 +96,10 @@ def trace_buses():
             "RES": b("RES", 32), "R": b("RQ", 32), "VA": b("VA", 32), "DB": b("DB", 32),
             "MAR": b("MAR", 32), "LC": b("LC", 8), "V": ["V0", "V1"],
             "F": ["FAULT", "DECGO", "FREFILL_n", "JUMP", "FETCHED"], "FL": list(FLAGS),
-            "SQ": ["DECACT", "HALTACT", "TSQ", "IRQP", "COMPLETE", "YOFF", "UF0", "UF1", "FTRACE",
-                   "FIRQ", "W2", "W3", "FITS1", "FOK", "PC1F"]}
+            "SQ": ["DECACT", "HALTACT", "TSQ", "PEND", "COMPLETE", "YOFF", "UF0", "UF1", "FTRACE",
+                   "FIRQ", "W2", "W3", "FITS1", "FOK", "PC1F"],
+            "LQ": [f"LQ{i}_n" for i in range(1, 9)], "INT": ["MSGQ", "NMIQ", "MSGT", "NMIT_n"],
+            "LT": b("LT", 4), "IPL": b("IPL", 4)}
 
 
 def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
@@ -109,7 +112,7 @@ def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
         "data_nets": [f"QH{i}" for i in range(16)],
         "fetch_trace": fetch_trace,
         # HALT, nothing pending, interrupts off
-        "stop_when": [[("uSEQ0", 1), ("uSEQ1", 1), ("IRQP", 0), ("FAULT", 0), ("IFLAG", 0)]],
+        "stop_when": [[("uSEQ0", 1), ("uSEQ1", 1), ("PEND", 0), ("FAULT", 0), ("IFLAG", 0)]],
         "dump": ["X_IO"] + [f"U_RAM{k}" for k in range(4)]
         + [f"U_RF{s}{k}" for s in "AB" for k in range(4)],
         "observe": list(FLAGS) + [f"PC{i}" for i in range(1, 32)],
@@ -119,10 +122,14 @@ def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
     return cfg
 
 
-def run(mem, inp=b"", max_cycles=20_000_000, trace=None, lengths=None, seed=1):
-    """Run a RAM image at chip level: the outcome, decoded."""
-    hw = native.hwsim.run_system(netlist(lengths), config(max_cycles, trace, seed=seed),
-                                 preloads(mem, inp))
+def run(mem, inp=b"", max_cycles=20_000_000, trace=None, lengths=None, seed=1, tick_bit=None):
+    """Run a RAM image at chip level: the outcome, decoded. tick_bit: the
+    timer's jumper (None: not fitted)."""
+    nl = netlist(lengths)
+    for c in nl["chips"]:
+        if c["ref"] == "X_IO":
+            c["params"]["tick_bit"] = -1 if tick_bit is None else tick_bit
+    hw = native.hwsim.run_system(nl, config(max_cycles, trace, seed=seed), preloads(mem, inp))
     d = hw["dumps"]
     hw["output"] = bytes(d["X_IO"])
     ram = bytearray(4 << 19)
@@ -132,17 +139,17 @@ def run(mem, inp=b"", max_cycles=20_000_000, trace=None, lengths=None, seed=1):
     for side in "AB":
         chips = [d[f"U_RF{side}{k}"] for k in range(4)]
         hw[f"rf_{side.lower()}"] = [sum(chips[k][a] << (8 * k) for k in range(4))
-                                    for a in range(0x2000)]
+                                    for a in range(rtl.MSGR + 32)]
     n = hw["nets"]
     hw["pc"] = sum(n[f"PC{i}"] << i for i in range(1, 32))
     hw["flags"] = {f: n[f] for f in FLAGS}
     return hw
 
 
-def reference(mem, inp=b"", max_cycles=200_000_000):
+def reference(mem, inp=b"", max_cycles=200_000_000, tick_bit=None):
     """The RTL model from reset, as the chip-level run starts: with the
     decodes it makes, (cycle from the first, PC, parcel)."""
-    s = system.System(io_local=True)
+    s = system.System(io_local=True, tick_bit=tick_bit)
     s.add(system.IO_WINDOW, system.ConsoleCard(inp))
     for a, b in mem.items():
         s.poke(a, b)
@@ -170,7 +177,7 @@ def compare(m, hw):
         diffs.append(f"output differs: hardware {hw['output'][:80]!r}, RTL {m.out[:80]!r}")
     if hw["cycles"] != m.prog_cycles:
         diffs.append(f"cycles: hardware {hw['cycles']}, RTL {m.prog_cycles}")
-    for i in range(0x2000):
+    for i in [*range(rtl.GLB), *range(rtl.MSGR, rtl.MSGR + 32)]:      # not G
         if hw["rf_a"][i] != m.rf[i]:
             diffs.append(f"RF[{i:04X}]: hardware {hw['rf_a'][i]:08X}, RTL {m.rf[i]:08X}")
             break
@@ -202,10 +209,13 @@ def check(path, trace=None, lengths=None):
     from heron.infra import isas
     from heron.infra.programs import metadata
     img = asmcore.assemble_file(isas.get("v2"), path)
-    inp = metadata(path)["input"]
+    meta = metadata(path)
+    inp, tb = meta["input"], meta.get("tick-bit")
+    tb = None if tb is None else int(tb)
     mem = iop.boot_image(img)
-    m = reference(mem, inp)
-    hw = run(mem, inp, max_cycles=m.cycles + 1000, trace=trace, lengths=lengths)   # reset too
+    m = reference(mem, inp, tick_bit=tb)
+    hw = run(mem, inp, max_cycles=m.cycles + 1000, trace=trace, lengths=lengths,   # reset too
+             tick_bit=tb)
     return m, hw, compare(m, hw)
 
 

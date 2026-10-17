@@ -79,6 +79,24 @@ class Programs(unittest.TestCase):
         self.assertLess(cached.sys.bus_fetches, plain.sys.bus_fetches)
         self.assertLess(cached.ticks, plain.ticks)
 
+    def test_nothing_answers(self):
+        # RFC 0037, 27: an access nothing answers takes its bus cycle, reads
+        # what the bus last held and traps nothing (there is no bus at chip
+        # level, so systest can't show it)
+        s = check.System()
+        s.add(check.REGION, check.MemoryCard())
+        pa, none = check.REGION + 0x40, 2 * check.REGION
+
+        class M:
+            ticks = cycles = 0
+        s.write(pa, 3, pa, 0x12345678, M)
+        s.read(pa, 3, pa, M)
+        d, hold = s.read(none, 3, none, M)
+        self.assertEqual(d, 0x12345678)
+        self.assertGreater(hold, 0)
+        self.assertGreater(s.write(none, 3, none, 0, M), 0)
+        self.assertEqual(s.unanswered, 2)
+
     def test_icache_store(self):
         # the CPU's own store into a cached word invalidates it
         s = check.System(icache=16)

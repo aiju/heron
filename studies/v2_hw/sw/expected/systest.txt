@@ -21,7 +21,6 @@ fetch fault saves its PC: ok
 user bit 31, and 16 MB-2 GB: ok
 supervisor page fault: ok
 misaligned word, FAR, base kept: ok
-nothing answers, no trap: ok
 divide, illegal, tag vectors: ok
 trace: ok
 MTSR sr keeps S: ok

@@ -324,6 +324,7 @@ class System:
         self.map = [0] * (1 << 19)
         self.cards = []              # (physical base, size, card) on the bus
         self.card = CPUCard(ram_size, tick_bit=tick_bit, prof_bit=prof_bit)
+        self.card_writes = []
         self.prefetch_bus = prefetch_bus    # prefetch from bus space in any cycle, not only refills
         self.console = None
         self.bus_transfers = 0
@@ -500,7 +501,7 @@ class System:
                     self.ram[base + k] = (d >> (8 * k)) & 0xFF
             return 0
         if self.is_own_reg(pa):
-            self.card.write(pa - REGS, d)
+            self.card_writes.append((pa - REGS, d))       # at the cycle's end
             return 0
         self.bus_writes += 1
         if self.icache and self.itag[(pa >> 2) % self.icache] == pa >> 2:
@@ -578,6 +579,14 @@ class System:
 
     def can_interrupt(self):
         return self.card.can_interrupt()
+
+    def edge(self):
+        """The CPU's clock edge, after it has sampled the levels: its writes
+        to its own registers happen (as the write strobe rises, at the
+        cycle's end)."""
+        for off, d in self.card_writes:
+            self.card.write(off, d)
+        self.card_writes.clear()
 
     def tick(self, m, ticks):
         old = self.ticks_total // TICKS_PER_BCLK

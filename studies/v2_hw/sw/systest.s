@@ -315,9 +315,11 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         MOV  r2, #7
         MTSR 3, r2              ; reserved: ignored, reads 0
         MFSR r3, 3
+        MFSR r7, SR_FSR         ; what power-up left: no fault yet
         MTSR 9, r2              ; far and fsr: read only
         MTSR 10, r2
         MFSR r8, SR_FSR
+        XOR  r8, r7
         MFSR r9, SR_BANK
         LSL  r4, #24
         LSL  r5, #16
@@ -565,15 +567,6 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         OR   r2, [t_far]
         SUB  r2, r3             ; ... + (FAR - r3) = 0x14000000 + 0
         MOV  r1, #0x14000000
-        BSR  expect
-
-        ; ---- an address nothing answers: no trap, stale data (RFC 0037, 27)
-        LEA  r1, [s_buserr]
-        BSR  puts
-        CLR  [t_vec]
-        MOV  r2, [0xA8000000]   ; region 2 (physical 0x2800_0000): no card
-        MOV  r2, [t_vec]
-        CLR  r1
         BSR  expect
 
         ; ---- divide error, illegal instruction, tag trap
@@ -1034,7 +1027,6 @@ s_xpc:     .asciz "fetch fault saves its PC: "
 s_range:   .asciz "user bit 31, and 16 MB-2 GB: "
 s_sfault:  .asciz "supervisor page fault: "
 s_mis:     .asciz "misaligned word, FAR, base kept: "
-s_buserr:  .asciz "nothing answers, no trap: "
 s_traps:   .asciz "divide, illegal, tag vectors: "
 s_trace:   .asciz "trace: "
 s_sr:      .asciz "MTSR sr keeps S: "

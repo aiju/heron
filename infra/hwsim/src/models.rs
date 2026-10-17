@@ -259,7 +259,12 @@ impl Model {
             Model::Jk109(m) => m.init(cx, c),
             Model::DReg(m) => m.init(cx, c),
             Model::Latch573(m) => m.init(cx, c),
-            Model::IoDevW(m) => cx.drive(c, m.irq, 0, true, 0),
+            Model::IoDevW(m) => {
+                cx.drive(c, m.irq, 0, true, 0);
+                if let Some(card) = m.card.as_ref() {
+                    card.outputs(cx, c);
+                }
+            }
             Model::Xcvr245(m) => m.init(cx, c),
             Model::TriBuf(m) => m.init(cx, c),
             Model::Enc148(m) => m.eval_all(cx, c, 0),
@@ -2255,6 +2260,20 @@ impl Latch573 {
 /// read leaves behind. Pins: A2-A7 (the word), BE0-BE3 (the byte lanes),
 /// IOSEL, RD and WR active low; a write happens when WR rises. The input
 /// is the chip's preload.
+///
+/// With pins LV1-LV8 it is also a CPU card's registers (RFC 0040, 3), and
+/// the I/O page is only where A27-A24 are 0xF; where they are 0, the
+/// registers: control (NMI in bit 3), the request register (set, clear,
+/// read), the message register (claim, write, release, read; on B0-B31
+/// while MSGOE is low, as {message, source}, released at that cycle's
+/// CLK edge) and the timer, which counts every third MCLK edge from the
+/// last CLK edge with RESET_n low and ticks on counter bit `tick_bit`
+/// (a parameter, -1 none); the count and the tick change only at CLK
+/// edges, as a register clocked by CLK would see them. LV1-LV8 are the levels (active low), MSGF the
+/// message register full, NMI the NMI, cleared at a CLK edge with NMIACK
+/// high. Its outputs change 12 ns after the edge that changes them, so a
+/// CLK edge in the same master-clock tick doesn't see them; a register
+/// reads onto D 10 ns after RD falls (the I/O page, 20 ns).
 pub struct IoDevW {
     clk: usize,
     iosel: usize,
@@ -2276,6 +2295,124 @@ pub struct IoDevW {
     last_empty: bool,
     cycle_hi: u16,
     d_acc: Time,
+    card: Option<Box<Card>>,
+    wr_off: Option<usize>,
+}
+
+/// The CPU card's registers, in an IoDevW.
+struct Card {
+    mclk: usize,
+    rstn: usize,
+    a_mid: [usize; 8],
+    a_top: [usize; 4],
+    lv: [usize; 8],
+    msgf: usize,
+    nmi: usize,
+    msgoe: usize,
+    nmiack: usize,
+    b: [usize; 32],
+    req: u16,
+    msg_state: u8,
+    msg: u32,
+    nmi_latch: u8,
+    count: u64,
+    ticks: u64,
+    started: bool,
+    tick: u8,
+    tick_bit: i64,
+    prev_mclk: u8,
+    b_driving: bool,
+}
+
+const MSG_FREE: u8 = 0;
+const MSG_CLAIMED: u8 = 1;
+const MSG_FULL: u8 = 2;
+const CARD_DELAY: Time = 12000;
+/// The registers' read access from RD: a buffer's enable onto the data bus.
+const CARD_READ: Time = 10000;
+
+impl Card {
+    fn levels(&self) -> u16 {
+        let lv = self.req | (self.tick as u16) << 6 | ((self.msg_state == MSG_FULL) as u16) << 7;
+        lv & 0x1FE
+    }
+
+    fn outputs(&self, cx: &mut Ctx, c: &ChipInfo) {
+        let lv = self.levels();
+        for k in 0..8 {
+            cx.drive(c, self.lv[k], b2u(lv >> (k + 1) & 1 == 0), true, CARD_DELAY);
+        }
+        cx.drive(
+            c,
+            self.msgf,
+            b2u(self.msg_state == MSG_FULL),
+            true,
+            CARD_DELAY,
+        );
+        cx.drive(c, self.nmi, self.nmi_latch, true, CARD_DELAY);
+    }
+
+    /// RESET: the registers clear, the message register free, the timer
+    /// at 0.
+    fn reset(&mut self) {
+        self.req = 0;
+        self.msg_state = MSG_FREE;
+        self.nmi_latch = 0;
+        self.count = 0;
+        self.ticks = 0;
+        self.tick = 0;
+        self.started = false;
+    }
+
+    /// A CPU clock edge: the count from the master-clock ticks, and the tick
+    /// if counter bit `tick_bit` has gone from 0 to 1 since the last.
+    fn clock(&mut self) {
+        let new = self.ticks / 3;
+        if self.tick_bit >= 0 {
+            let (n, half) = (self.tick_bit as u32, 1u64 << self.tick_bit);
+            if (new + half) >> (n + 1) != (self.count + half) >> (n + 1) {
+                self.tick = 1;
+            }
+        }
+        self.count = new;
+    }
+
+    /// A read's value; at the edge that ends it (`edge`), its side effects.
+    fn read(&mut self, off: usize, edge: bool) -> u32 {
+        match off {
+            0x0000 => 1 | 4 | (self.nmi_latch as u32) << 3,
+            0x1000 => 0x3C10,
+            0x2008 => self.req as u32,
+            0x3000 => {
+                if self.msg_state == MSG_FREE {
+                    if edge {
+                        self.msg_state = MSG_CLAIMED;
+                    }
+                    0
+                } else {
+                    1
+                }
+            }
+            0x300C => self.msg,
+            0x4000 => self.count as u32,
+            _ => 0,
+        }
+    }
+
+    fn write(&mut self, off: usize, v: u32) {
+        match off {
+            0x0000 if v & 8 != 0 => self.nmi_latch = 1,
+            0x2000 => self.req |= (v & 0x1FE) as u16,
+            0x2004 => self.req &= !(v & 0x1FE) as u16,
+            0x3004 if self.msg_state == MSG_CLAIMED => {
+                self.msg = v;
+                self.msg_state = MSG_FULL;
+            }
+            0x3008 => self.msg_state = MSG_FREE,
+            0x4004 if v & 1 != 0 => self.tick = 0,
+            _ => {}
+        }
+    }
 }
 
 impl IoDevW {
@@ -2301,7 +2438,46 @@ impl IoDevW {
             last_empty: false,
             cycle_hi: 0,
             d_acc: 20000,
+            card: if s.has("LV1") {
+                Some(Box::new(Card {
+                    mclk: s.pin("MCLK")?,
+                    rstn: s.pin("RESET_n")?,
+                    a_mid: s.pins(|i| format!("A{}", i + 8))?,
+                    a_top: s.pins(|i| format!("A{}", i + 24))?,
+                    lv: s.pins(|i| format!("LV{}", i + 1))?,
+                    msgf: s.pin("MSGF")?,
+                    nmi: s.pin("NMI")?,
+                    msgoe: s.pin("MSGOE")?,
+                    nmiack: s.pin("NMIACK")?,
+                    b: s.pins(|i| format!("B{i}"))?,
+                    req: 0,
+                    msg_state: MSG_FREE,
+                    msg: 0,
+                    nmi_latch: 0,
+                    count: 0,
+                    ticks: 0,
+                    started: false,
+                    tick: 0,
+                    tick_bit: s.param_or("tick_bit", -1),
+                    prev_mclk: 0,
+                    b_driving: false,
+                }))
+            } else {
+                None
+            },
+            wr_off: None,
         })
+    }
+
+    /// With a card: the register offset an access is at, or None for the
+    /// I/O page.
+    fn card_off(&self, cx: &Ctx, c: &ChipInfo) -> Option<usize> {
+        let card = self.card.as_ref()?;
+        if bus_value(cx, c, &card.a_top) != 0 {
+            return None;
+        }
+        let mid = bus_value(cx, c, &card.a_mid);
+        Some((mid & 0xF0) << 8 | (bus_value(cx, c, &self.a) << 2) & 0x0C)
     }
 
     fn word(&self, cx: &Ctx, c: &ChipInfo) -> usize {
@@ -2414,17 +2590,58 @@ impl IoDevW {
     }
 
     fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if let Some(card) = self.card.as_mut() {
+            // the timer's master-clock ticks, from the last CPU clock edge
+            // in reset (where the CPU's first cycle starts, the control
+            // store's word 0 in its register); its count and tick change at
+            // CPU clock edges
+            if pin == card.mclk {
+                let v = cx.input(c, card.mclk);
+                if v == 1 && card.prev_mclk == 0 && card.started {
+                    card.ticks += 1;
+                }
+                card.prev_mclk = v;
+                return;
+            }
+            if pin == self.clk && cx.input(c, self.clk) == 1 {
+                if cx.input(c, card.rstn) == 0 {
+                    card.reset();
+                    card.started = true;
+                } else {
+                    card.clock();
+                }
+            }
+        }
         if !cx.state.check_on {
+            if let Some(card) = self.card.as_ref() {
+                card.outputs(cx, c);
+            }
             return; // power-up and reset: the bus isn't meaningful yet
         }
         let cycle = cx.state.cycle;
         let sel = cx.input(c, self.iosel) == 0;
+        let coff = if sel { self.card_off(cx, c) } else { None };
         if pin == self.clk {
             let v = cx.input(c, self.clk);
             if v == 1 && self.prev == 0 {
+                if let Some(card) = self.card.as_mut() {
+                    if cx.input(c, card.msgoe) == 0 {
+                        card.msg_state = MSG_FREE;
+                    }
+                    if cx.input(c, card.nmiack) == 1 {
+                        card.nmi_latch = 0;
+                    }
+                }
                 if sel && cx.input(c, self.rd) == 0 {
-                    let (w, h) = (self.word(cx, c), self.halves(cx, c));
-                    self.read_edge(cycle, w, h);
+                    if let Some(off) = coff {
+                        self.card.as_mut().unwrap().read(off, true);
+                    } else {
+                        let (w, h) = (self.word(cx, c), self.halves(cx, c));
+                        self.read_edge(cycle, w, h);
+                    }
+                }
+                if let Some(card) = self.card.as_ref() {
+                    card.outputs(cx, c);
                 }
                 if self.timer_period > 0 && cycle >= 0 {
                     self.timer_count += 1;
@@ -2440,21 +2657,52 @@ impl IoDevW {
         let wr = sel && cx.input(c, self.wr) == 0;
         if self.writing && !wr {
             let v: u32 = (0..32).map(|i| (cx.input(c, self.d[i]) as u32) << i).sum();
-            let w = self.word(cx, c);
-            let on: Vec<bool> = (0..4).map(|i| cx.input(c, self.be[i]) == 0).collect();
-            for h in 0..2 {
-                let lanes = b2u(on[2 * h]) | b2u(on[2 * h + 1]) << 1;
-                if lanes != 0 {
-                    self.write16(w + 2 * h, (v >> (16 * h)) as u16, lanes);
+            if let Some(off) = self.wr_off {
+                let card = self.card.as_mut().unwrap();
+                card.write(off, v);
+                card.outputs(cx, c);
+            } else {
+                let w = self.word(cx, c);
+                let on: Vec<bool> = (0..4).map(|i| cx.input(c, self.be[i]) == 0).collect();
+                for h in 0..2 {
+                    let lanes = b2u(on[2 * h]) | b2u(on[2 * h + 1]) << 1;
+                    if lanes != 0 {
+                        self.write16(w + 2 * h, (v >> (16 * h)) as u16, lanes);
+                    }
                 }
             }
             cx.drive(c, self.irq, self.timer_flag, true, 5000);
         }
+        if wr {
+            self.wr_off = coff;
+        }
         self.writing = wr;
+        if let Some(card) = self.card.as_mut() {
+            // the message register onto the CPU's B bus
+            if cx.input(c, card.msgoe) == 0 {
+                let w = (card.msg & 0xFFFFFF) << 8 | card.msg >> 24;
+                for i in 0..32 {
+                    cx.drive(c, card.b[i], ((w >> i) & 1) as u8, true, 8000);
+                }
+                card.b_driving = true;
+            } else if card.b_driving {
+                for i in 0..32 {
+                    let v = cx.driven(c, card.b[i]);
+                    cx.drive(c, card.b[i], v, false, 8000);
+                }
+                card.b_driving = false;
+            }
+        }
         if sel && cx.input(c, self.rd) == 0 {
-            let v = self.value(cycle, self.word(cx, c), self.halves(cx, c));
+            let (v, acc) = match coff {
+                Some(off) => (self.card.as_mut().unwrap().read(off, false), CARD_READ),
+                None => (
+                    self.value(cycle, self.word(cx, c), self.halves(cx, c)),
+                    self.d_acc,
+                ),
+            };
             for i in 0..32 {
-                cx.drive(c, self.d[i], ((v >> i) & 1) as u8, true, self.d_acc);
+                cx.drive(c, self.d[i], ((v >> i) & 1) as u8, true, acc);
             }
             self.driving = true;
         } else if self.driving {
