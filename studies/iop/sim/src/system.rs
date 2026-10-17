@@ -22,7 +22,7 @@
 //! | `+0x2000` | the request register (RFC 0040, 3.1): +0 W set the levels whose bits are 1, bit L - 1 for level L; +4 W clear them; +8 R the levels requested, the card's own sources' included |
 //! | `+0x3000` | the message register (RFC 0040, 3.2): +0 R claim (0 if it was free and is now claimed, 1 if not); +4 W the message, which a 16-bit master writes low half, then high half; +8 W release; +C R its contents. Full, it requests level 7 |
 //! | `+0x4000` | the timer (RFC 0040, 3.3): +0 R the count of BCLK since reset; +4 W bit 0 clears the tick, which each 0-1 edge of the count's bit `tick_bit` sets (if its jumper is fitted), and which requests level 6 |
-//! | `+0x40_0000` + `0x2_0000` k | the control store's SRAM k, 64K x 16, k = 0-9, while RUN is off: draft 2's CPU (RFC 0031) has nine 16-bit lanes of microinstruction and the decode table. The CPU here runs at instruction level and doesn't use them; they're kept so that what the IOP loads can be checked |
+//! | `+0x80_0000` + `0x2_0000` k | the control store's SRAM k, 64K x 16, k = 0-9, while RUN is off: draft 2's CPU (RFC 0031) has nine 16-bit lanes of microinstruction and the decode table. The CPU here runs at instruction level and doesn't use them; they're kept so that what the IOP loads can be checked |
 //!
 //! RESET (the control register's, or the system bus's) clears the request
 //! register, frees the message register and clears the timer.
@@ -47,7 +47,7 @@ pub const INFO: u32 = 0x1000;
 pub const IRQ: u32 = 0x2000;
 pub const MSG: u32 = 0x3000;
 pub const TIMER: u32 = 0x4000;
-pub const CS: u32 = 0x40_0000;
+pub const CS: u32 = 0x80_0000;
 pub const CS_LANE: u32 = 0x2_0000;
 pub const CS_LANES: usize = 10;
 

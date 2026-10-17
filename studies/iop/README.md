@@ -231,7 +231,7 @@ RFC, not decisions.
   RFC 0040, 3's: control at +0 (RUN, RESET, STEP, NMI), board information
   at +0x1000, the request register at +0x2000 (set, clear, read), the
   message register at +0x3000 (claim, message, release, contents), the
-  timer at +0x4000, and the control store's ten lanes at +0x40_0000. The
+  timer at +0x4000, and the control store's ten lanes at +0x80_0000. The
   timer's tick jumper is off unless `System(tick=16)`, as the study's CPU
   programs don't take level 6.
 

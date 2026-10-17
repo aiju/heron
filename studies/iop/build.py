@@ -34,7 +34,7 @@ IMAGES_AT = 0x10000
 FLASH_HALFWORDS = 512 * 1024
 
 # The CPU card's control store window (studies/iop/sim/src/system.rs)
-CS_BASE = 0x7040_0000
+CS_BASE = 0x7080_0000
 CS_LANE = 0x2_0000
 CS_LANES = 9                # draft 2's 144-bit microinstruction
 DEC_LANE = 9
