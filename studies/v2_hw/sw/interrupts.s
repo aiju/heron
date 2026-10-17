@@ -1,17 +1,20 @@
-; interrupts: studies/v2_isa/programs/interrupts.s with RFC 0029's vectors.
-; The vectors are at 0x8000_0000 + 4n, which the supervisor's window maps
-; onto physical 4n, this table; SWI #n has a vector of its own at
-; 0x8000_0100 + 4n. The handlers run in the window, and reach the program's
-; data through context 0's map.
+; interrupts: studies/v2_isa/programs/interrupts.s with RFC 0029's vectors
+; and RFC 0040's timer. The vectors are at vbr + offset, vbr 0x8000_0000
+; from reset, which the supervisor's window maps onto physical 0 up, this
+; table; SWI #n has a vector of its own at vbr + 0x100 + 4n. The handlers
+; run in the window, and reach the program's data through context 0's map.
 ;
-; A timer interrupt counts ticks while the main program does interruptible
-; work, then sleeps with HALT for exact numbers of ticks; and two system
-; calls through SWI.
+; The CPU card's timer ticks at level 6 (a jumper picks the counter bit:
+; here bit 10, every 2048 bus clocks); the tick counts ticks while the main
+; program does interruptible work, then sleeps with HALT for exact numbers
+; of ticks; and two system calls through SWI.
+;
+;! tick-bit: 10
 
         .org 0x00
         JMP  start              ; reset
         .org 0x04
-        JMP  isr                ; IRQ
+        JMP  fatal              ; non-maskable interrupt
         .org 0x08
         JMP  fatal              ; illegal instruction
         .org 0x10
@@ -26,15 +29,15 @@
         JMP  fatal              ; page fault
         .org 0x24
         JMP  fatal              ; trace
+        .org 0x54
+        JMP  isr                ; level 6: the timer's tick
         .org 0x100
         JMP  sys_putc           ; SWI #0
         .org 0x104
         JMP  sys_puts           ; SWI #1
         .org 0x108
 
-TIMER_PERIOD = 0xFFFFFF08       ; both reachable as 16-bit absolute addresses
-TIMER_ACK    = 0xFFFFFF0C
-PERIOD       = 1000             ; cycles between ticks
+TICKCLR = 0xF0004004            ; the CPU card's timer: clear the tick
 
 SYS_PUTC = 0                    ; system call numbers (SWI #n), see systab
 SYS_PUTS = 1
@@ -45,11 +48,13 @@ start:  MOV  sp, #0x100000      ; top of RAM
 
 ; ---- interrupt and trap handlers ----
 
-; isr: count a tick. The CPU saves PC and the flags, and INC and CLR work
-; on memory, so the handler needs no register. It must acknowledge the
-; timer, or the level-triggered IRQ would fire again straight after RTI.
+; isr: count a tick. It must clear the tick, or level 6 would be taken
+; again straight after RTI.
 isr:    INC  [ticks]
-        CLR  [TIMER_ACK]        ; any write acknowledges
+        PUSH r1
+        MOV  r1, #1
+        MOV  [TICKCLR], r1
+        POP  r1
         RTI
 
 ; the system calls, one vector each: the caller's r1-r4 are the
@@ -77,8 +82,8 @@ main:   SAVE r7-r10
         BSR  puts
 
         CLR  [ticks]
-        MOV  r1, #PERIOD
-        MOV  [TIMER_PERIOD], r1
+        MOV  r1, #1
+        MOV  [TICKCLR], r1
         EI
 
         ; Work with interrupts firing: the sum of i*i for i = 1000 down to 1.
@@ -110,15 +115,15 @@ main:   SAVE r7-r10
         MOV  r1, #25
         BSR  timed_sleep
 
-        ; stop the timer: no more ticks
+        ; hold the timer off: no more ticks
         DI
-        CLR  [TIMER_PERIOD]
-        CLR  [TIMER_ACK]
+        SPL  #6
         EI
         MOV  r8, [ticks]
         MOV  r9, #5000          ; idle a while with interrupts enabled
 .idle:  DBNZ r9, .idle
         DI
+        SPL  #0
         LEA  r1, [s_stopped]
         BSR  puts
         LEA  r1, [s_yes]

@@ -1,35 +1,58 @@
-; systest: RFC 0029's system architecture on the draft 2 CPU. Each test
-; prints its name and "ok", or what it got instead.
+; systest: RFC 0029's system architecture and RFC 0040's interrupts on the
+; draft 2 CPU. Each test prints its name and "ok", or what it got instead.
 ;
 ; The harness has mapped context 0's first megabyte one to one and starts
 ; here in supervisor mode, bank 0. The supervisor's stack is in the window
 ; (physical 0x100000, as 0x8010_0000); user mode runs in bank 1 with its
-; own stack at 0xF0000. Exceptions vector to 0x8000_0000 + 4n: physical 4n,
-; this table, in the window.
+; own stack at 0xF0000; the message level's registers have their stack at
+; physical 0xE0000. Exceptions vector to vbr + offset, vbr 0x8000_0000 at
+; reset: physical 0 up, this table, in the window. The CPU card's registers
+; are at physical 0x7000_0000 (RFC 0040, 3), 0xF000_0000 in the window.
 ;
 ;! max-cycles: 20000000
-;
-; The special registers by the numbers this CPU gives them: its system half
-; is RFC 0029's before the status register and the eight interrupt levels
-; renumbered them (far 9, fsr 10 ... bank 14 now), so they are named here.
+;! tick-bit: 10
 
-SR_FAR = 8
-SR_FSR = 9
-SR_CTX = 10
-SR_MAPA = 11
-SR_MAPD = 12
-SR_BANK = 13
+SR_CCR  = 0
+SR_SR   = 8
+SR_FAR  = 9
+SR_FSR  = 10
+SR_CTX  = 11
+SR_MAPA = 12
+SR_MAPD = 13
+SR_BANK = 14
+SR_VBR  = 15
+
+SR_S    = 0x80000000            ; sr's bits
+SR_I    = 0x40000000
+SR_T    = 0x20000000
+SR_M    = 0x10000000
+SR_IPL  = 0x0F000000
+
+CARD    = 0xF0000000            ; the CPU card's registers, in the window
+CTRL    = CARD + 0x0000
+INFO    = CARD + 0x1000
+REQSET  = CARD + 0x2000
+REQCLR  = CARD + 0x2004
+REQ     = CARD + 0x2008
+CLAIM   = CARD + 0x3000
+MSG     = CARD + 0x3004
+RELEASE = CARD + 0x3008
+MSGREAD = CARD + 0x300C
+TIMER   = CARD + 0x4000
+TICKCLR = CARD + 0x4004
+MSGSTACK = 0x800E0000
+MSGSRC  = 200                   ; the message test's source: SWI entry 200
 
         .org 0x00
         JMP  start              ; reset
         .org 0x04
-        JMP  h_irq              ; interrupt
+        JMP  h_nmi              ; non-maskable interrupt
         .org 0x08
         JMP  h_illegal          ; illegal instruction
         .org 0x10
         JMP  h_divide           ; divide error
         .org 0x14
-        JMP  h_address          ; address error (misaligned, bus error)
+        JMP  h_address          ; address error (misaligned)
         .org 0x18
         JMP  h_tag              ; tag trap
         .org 0x1C
@@ -38,18 +61,24 @@ SR_BANK = 13
         JMP  h_page             ; page fault
         .org 0x24
         JMP  h_trace            ; trace
+        .org 0x40
+        JMP  h_lvl1             ; levels 1-8: vbr + 0x40 + 4(L - 1)
+        JMP  h_lvl2
+        JMP  h_lvl3
+        JMP  h_lvl4
+        JMP  h_lvl5
+        JMP  h_tick             ; level 6: the card's timer
+        JMP  h_lvl7
+        JMP  h_lvl8
         .org 0x100
         JMP  h_exit             ; SWI #0: back to the supervisor's test
         .org 0x104
         JMP  h_swi1             ; SWI #1: report the caller's r1 and r2
-        .org 0x108
-
-FAR  = 8
-FSR  = 9
-CTX  = 10
-MAPA = 11
-MAPD = 12
-BANK = 13
+        .org 0x100 + 4 * 128
+        JMP  h_swi128           ; SWI #128, kept for message sources
+        .org 0x100 + 4 * MSGSRC
+        JMP  h_msg              ; the message test's source
+        .org 0x500
 
 USERPAGE = 0x90                 ; a page for user data, VA 0x90000
 NOPAGE   = 0xA0                 ; a page left unmapped, VA 0xA0000
@@ -68,7 +97,7 @@ trapped:
         MOV  [t_far], r1
         MFSR r1, SR_FSR
         MOV  [t_fsr], r1
-        MOV  r1, [sp]           ; the saved flags word
+        MOV  r1, [sp]           ; the saved sr
         MOV  [t_flags], r1
         INC  [t_count]
         MOV  r1, [sp + 4]
@@ -117,11 +146,103 @@ h_trace: INC [traces]
         MOV  r1, [t_save1]
         RTI
 
-h_irq:  RTI
+; interrupts: each level counts itself in lvl_count + 4(L - 1), keeps the
+; order levels came in (lvl_seq, a nibble each), and records IPL as the
+; handler sees it and the IPL it interrupted; then clears its request
+h_lvl1: PUSH r1
+        MOV  r1, #1
+        BRA  h_level
+h_lvl2: PUSH r1
+        MOV  r1, #2
+        BRA  h_level
+h_lvl3: PUSH r1
+        MOV  r1, #3
+        BRA  h_level
+h_lvl4: PUSH r1
+        MOV  r1, #4
+        BRA  h_level
+h_lvl5: PUSH r1
+        MOV  r1, #5
+        BRA  h_level
+h_lvl7: PUSH r1
+        MOV  r1, #7
+        BRA  h_level
+h_lvl8: PUSH r1
+        MOV  r1, #8
+h_level:
+        SAVE r2-r3
+        MOV  r3, r1
+        LSL  r3, #2
+        LEA  r2, [lvl_count - 4]
+        ADD  r2, r3
+        INC  [r2]
+        MOV  r2, [lvl_seq]
+        LSL  r2, #4
+        OR   r2, r1
+        MOV  [lvl_seq], r2
+        MFSR r2, SR_SR
+        LSR  r2, #24
+        AND  r2, #15
+        MOV  [lvl_ipl], r2      ; IPL in the handler: the level
+        MOV  r2, [sp + 12]      ; the sr it interrupted
+        LSR  r2, #24
+        AND  r2, #15
+        MOV  [lvl_was], r2
+        MOV  r2, #1
+        LSL  r2, r1
+        LSR  r2, #1             ; level L is bit L - 1
+        MOV  [REQCLR], r2       ; the request served
+        MOVS r2, [nest_at]      ; nesting: at this level, raise nest_req and EI
+        CMP  r2, r1
+        BNE  .done
+        CLR  [nest_at]
+        MOV  r2, [nest_req]
+        EI
+        MOV  [REQSET], r2
+        NOP
+        NOP
+        NOP
+        NOP
+        DI
+.done:  RESTORE r2-r3
+        POP  r1
+        RTI
+
+; level 6: the timer's tick
+h_tick: PUSH r1
+        INC  [ticks]
+        MOV  r1, #1
+        MOV  [TICKCLR], r1
+        POP  r1
+        RTI
+
+; the non-maskable interrupt: taken whatever I and IPL
+h_nmi:  PUSH r1
+        INC  [nmis]
+        MFSR r1, SR_SR
+        MOV  [nmi_sr], r1
+        POP  r1
+        RTI
+
+; the message level, vectored through SWI entry MSGSRC: in its own
+; registers, the source in r1, the message in r2; it saves nothing
+h_msg:  MOV  [m_src], r1
+        MOV  [m_msg], r2
+        MFSR r3, SR_SR
+        MOV  [m_sr], r3
+        MOV  [m_sp], sp
+        MOV  r9, #0x666         ; the message level's r9, not the kernel's
+        INC  [m_count]
+        RTI
+
+; SWI #128, from supervisor mode
+h_swi128:
+        INC  [swi128]
+        RTI
 
 ; SWI #0: the user's test is over. Drop the frame and go back to where
 ; run_user was called from.
-h_exit: MFSR r1, flags
+h_exit: MFSR r1, SR_SR
         MOV  [exit_flags], r1
         LEA  sp, [sp + 8]
         JMP  [continue]
@@ -132,7 +253,7 @@ h_swi1: SAVE r1-r2
         MOV  [u_r1], r1
         MFUR r2, r2
         MOV  [u_r2], r2
-        MOV  r1, [sp + 8]       ; the flags the SWI saved
+        MOV  r1, [sp + 8]       ; the sr the SWI saved
         MOV  [swi_flags], r1
         RESTORE r1-r2
         RTI
@@ -159,16 +280,21 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         LEA  r1, [s_title]
         BSR  puts
 
-        ; ---- boot state: supervisor mode, ctx 0, bank 0
+        ; ---- boot state: supervisor mode, I T M IPL 0, ctx 0, bank 0
         LEA  r1, [s_boot]
         BSR  puts
-        MFSR r2, flags
-        AND  r2, #0x70          ; S, T and I
+        MFSR r2, SR_SR
+        AND  r2, #0xFF000000
         MFSR r3, SR_CTX
         OR   r2, r3
         MFSR r3, SR_BANK
         OR   r2, r3
-        MOV  r1, #0x20
+        MOV  r1, #SR_S
+        BSR  expect
+        LEA  r1, [s_vbr0]       ; vbr from reset
+        BSR  puts
+        MFSR r2, SR_VBR
+        MOV  r1, #0x80000000
         BSR  expect
 
         ; ---- the special registers
@@ -190,8 +316,12 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         MOV  r2, #7
         MTSR 3, r2              ; reserved: ignored, reads 0
         MFSR r3, 3
-        MFSR r8, 14
-        MFSR r9, 15
+        MFSR r7, SR_FSR         ; what power-up left: no fault yet
+        MTSR 9, r2              ; far and fsr: read only
+        MTSR 10, r2
+        MFSR r8, SR_FSR
+        XOR  r8, r7
+        MFSR r9, SR_BANK
         LSL  r4, #24
         LSL  r5, #16
         OR   r4, r5
@@ -290,14 +420,14 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         LEA  r1, [s_swiflags]   ; SWI from user mode saved S = 0
         BSR  puts
         MOV  r2, [swi_flags]
-        AND  r2, #0x20
+        AND  r2, #SR_S
         CLR  r1
         BSR  expect
-        LEA  r1, [s_exitflags]  ; and the handler runs with S set, I clear
+        LEA  r1, [s_exitflags]  ; and the handler runs with S set, I T M clear
         BSR  puts
         MOV  r2, [exit_flags]
-        AND  r2, #0x70
-        MOV  r1, #0x20
+        AND  r2, #0xF0000000
+        MOV  r1, #SR_S
         BSR  expect
 
         ; ---- privilege violations in user mode
@@ -308,8 +438,8 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         MOV  [skip], r1
         MOV  r1, #u_priv
         BSR  run_user
-        MOV  r2, [t_count]      ; EI, DI, HALT, RTI, MFSR far, MTSR ctx, MFUR, MTUR
-        MOV  r1, #8
+        MOV  r2, [t_count]      ; EI, DI, HALT, RTI, MFSR far, MTSR ctx, MFUR, MTUR,
+        MOV  r1, #12            ; SPL, MFSR sr, MTSR sr, SWI #128
         BSR  expect
         LEA  r1, [s_privvec]
         BSR  puts
@@ -317,12 +447,12 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         MOV  r1, #0x1C
         BSR  expect
 
-        ; ---- MTSR flags in user mode changes only N Z C V
+        ; ---- MTSR ccr in user mode changes only N Z C V
         LEA  r1, [s_uflags]
         BSR  puts
         MOV  r1, #u_flags
         BSR  run_user
-        MOV  r2, [u_r1]         ; the user's flags after MTSR flags, #0x7F
+        MOV  r2, [u_r1]         ; the user's ccr after MTSR ccr, #0xFFFFFFFF
         MOV  r1, #0x0F
         BSR  expect
 
@@ -440,21 +570,6 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         MOV  r1, #0x14000000
         BSR  expect
 
-        ; ---- an empty slot: a bus error, through the address error vector
-        LEA  r1, [s_buserr]
-        BSR  puts
-        MOV  r1, #6
-        MOV  [skip], r1
-        CLR  [t_vec]
-        MOV  r2, [0xA8000000]   ; slot 5 (the window, physical 0x2800_0000)
-        MOV  r2, [t_vec]
-        LSL  r2, #24
-        MOV  r3, [t_far]
-        LSR  r3, #24
-        OR   r2, r3
-        MOV  r1, #0x140000A8
-        BSR  expect
-
         ; ---- divide error, illegal instruction, tag trap
         LEA  r1, [s_traps]
         BSR  puts
@@ -488,7 +603,267 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         MOV  r1, #4             ; that traps doesn't trace: the trap clears T)
         BSR  expect
 
-        ; ---- interrupts in user mode come back to the user's bank
+        ; ---- sr: MTSR sr keeps S; ccr is its byte 0; SPL sets IPL alone
+        LEA  r1, [s_sr]
+        BSR  puts
+        MOV  r1, #0x05000005    ; IPL 5, Z and V; S clear in r1
+        MTSR SR_SR, r1
+        MFSR r2, SR_SR
+        MOV  r1, #SR_S | 0x05000005
+        BSR  expect
+        LEA  r1, [s_spl]
+        BSR  puts
+        MOV  r1, #0x0A          ; N and C
+        MTSR SR_CCR, r1
+        SPL  #3
+        MFSR r2, SR_SR
+        MFSR r3, SR_CCR
+        LSL  r3, #4
+        OR   r2, r3
+        MOV  r1, #SR_S | 0x030000AA
+        BSR  expect
+        SPL  #0
+
+        ; ---- vbr: 2 KB aligned; an exception through a second table
+        LEA  r1, [s_vbr]
+        BSR  puts
+        MOV  r1, #0x80000000 | vtab2 | 0x345
+        MTSR SR_VBR, r1
+        MFSR r4, SR_VBR
+        CLR  [ill2]
+        .align 4
+        .word 0x00FF00FF        ; two ILLEGAL parcels, through vtab2
+        MOV  r1, #0x80000000
+        MTSR SR_VBR, r1
+        MOV  r2, [ill2]
+        ADD  r2, r4
+        MOV  r1, #0x80000000 | vtab2 + 2
+        BSR  expect
+        LEA  r1, [s_vbrswi]     ; SWI goes through vbr too
+        BSR  puts
+        MOV  r1, #0x80000000 | vtab2
+        MTSR SR_VBR, r1
+        CLR  [swi128]
+        SWI  #1                 ; vtab2's: counts in swi128
+        MOV  r1, #0x80000000
+        MTSR SR_VBR, r1
+        MOV  r2, [swi128]
+        MOV  r1, #1
+        BSR  expect
+
+        ; ---- the request register: set, read, clear
+        LEA  r1, [s_reqreg]
+        BSR  puts
+        MOV  r1, #0xFF          ; levels 1-8: bits 0-7
+        MOV  [REQSET], r1
+        MOV  r2, [REQ]
+        MOV  [REQCLR], r1
+        MOV  r3, [REQ]
+        LSL  r3, #16
+        OR   r2, r3
+        MOV  r1, #0xFF
+        BSR  expect
+
+        ; ---- levels: taken above IPL, the highest first
+        LEA  r1, [s_levels]
+        BSR  puts
+        CLR  [lvl_seq]
+        SPL  #3
+        EI
+        MOV  r1, #(1 << 1) | (1 << 2) | (1 << 4)
+        MOV  [REQSET], r1       ; 5 is taken; 2 and 3 wait
+        NOP
+        NOP
+        NOP
+        NOP
+        MOV  r4, [lvl_seq]
+        SPL  #0                 ; then 3, then 2
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        DI
+        MOV  r2, [lvl_seq]
+        LSL  r4, #16
+        OR   r2, r4
+        MOV  r1, #0x50532
+        BSR  expect
+        LEA  r1, [s_lvlipl]     ; IPL in level 2's handler, and what it interrupted
+        BSR  puts
+        MOV  r2, [lvl_ipl]
+        LSL  r2, #4
+        OR   r2, [lvl_was]
+        MOV  r1, #0x20
+        BSR  expect
+
+        ; ---- nesting: level 3's handler executes EI, and level 4 gets in
+        LEA  r1, [s_nest]
+        BSR  puts
+        CLR  [lvl_seq]
+        MOV  r1, #3
+        MOV  [nest_at], r1
+        MOV  r1, #1 << 3        ; level 4
+        MOV  [nest_req], r1
+        EI
+        MOV  r1, #1 << 2        ; level 3
+        MOV  [REQSET], r1
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        DI
+        MOV  r2, [lvl_seq]
+        MOV  r1, #0x34
+        BSR  expect
+
+        ; ---- level 8, and level 7 from its request bit (no message)
+        LEA  r1, [s_lvl78]
+        BSR  puts
+        CLR  [lvl_seq]
+        EI
+        MOV  r1, #(1 << 6) | (1 << 7)
+        MOV  [REQSET], r1
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        DI
+        MOV  r2, [lvl_seq]
+        MOV  r1, #0x87
+        BSR  expect
+
+        ; ---- the message register: claimed by a read, 1 while claimed
+        LEA  r1, [s_claim]
+        BSR  puts
+        MFSR r1, SR_SR          ; the message level's registers: its sp, its r9
+        OR   r1, #SR_M
+        MTSR SR_SR, r1
+        MOV  sp, #MSGSTACK
+        MOV  r9, #0x99
+        MFSR r1, SR_SR
+        AND  r1, #~SR_M
+        MTSR SR_SR, r1          ; the kernel's registers again
+        MOV  r2, [CLAIM]
+        MOV  r3, [CLAIM]
+        LSL  r2, #4
+        OR   r2, r3
+        MOV  r1, #0x01
+        BSR  expect
+        LEA  r1, [s_msg]        ; the message: through SWI entry MSGSRC
+        BSR  puts
+        MOV  r9, #0x1234        ; the kernel's r9: must survive
+        MOV  r1, #MSGSRC << 24 | 0x123456
+        EI
+        MOV  [MSG], r1
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        DI
+        MOV  r2, [m_src]
+        LSL  r2, #24
+        OR   r2, [m_msg]
+        MOV  r1, #MSGSRC << 24 | 0x123456
+        BSR  expect
+        LEA  r1, [s_msgsr]      ; in its own registers, at IPL 7
+        BSR  puts
+        MOV  r2, [m_sr]
+        AND  r2, #SR_M | SR_IPL
+        MOV  r1, #SR_M | 0x07000000
+        BSR  expect
+        LEA  r1, [s_msgsp]      ; its frame on its own sp
+        BSR  puts
+        MOV  r2, [m_sp]
+        MOV  r1, #MSGSTACK - 8
+        BSR  expect
+        LEA  r1, [s_msgr9]      ; the kernel's registers untouched
+        BSR  puts
+        MOV  r2, r9
+        MOV  r1, #0x1234
+        BSR  expect
+        LEA  r1, [s_msgfree]    ; the entry released it: a claim gets it
+        BSR  puts
+        MOV  r2, [CLAIM]
+        MOV  [RELEASE], r2
+        CLR  r1
+        BSR  expect
+
+        ; ---- the non-maskable interrupt: through the control register,
+        ; whatever I and IPL; it leaves IPL alone and is taken once
+        LEA  r1, [s_nmi]
+        BSR  puts
+        CLR  [nmis]
+        SPL  #8
+        MOV  r1, #9             ; NMI, and RUN kept
+        MOV  [CTRL], r1
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        MOV  r2, [nmis]
+        MOV  r3, [nmi_sr]
+        AND  r3, #SR_I | SR_IPL
+        OR   r2, r3
+        MOV  r3, [CTRL]
+        AND  r3, #8
+        OR   r2, r3
+        SPL  #0
+        MOV  r1, #0x08000001
+        BSR  expect
+
+        ; ---- SWI #128 from supervisor mode
+        LEA  r1, [s_swi128]
+        BSR  puts
+        CLR  [swi128]
+        SWI  #128
+        MOV  r2, [swi128]
+        MOV  r1, #1
+        BSR  expect
+
+        ; ---- the board information: region 0, 2 MB, a 60 ns BCLK
+        LEA  r1, [s_info]
+        BSR  puts
+        MOV  r2, [INFO]
+        AND  r2, #0xFFFF
+        MOV  r1, #0x3C10
+        BSR  expect
+
+        ; ---- the timer counts; HALT waits for its tick at level 6
+        LEA  r1, [s_timer]
+        BSR  puts
+        MOV  r2, [TIMER]
+        NOP
+        NOP
+        MOV  r3, [TIMER]
+        CMP  r3, r2
+        SETHI r2
+        MOV  r1, #1
+        BSR  expect
+        LEA  r1, [s_halt]
+        BSR  puts
+        MOV  r1, #1
+        MOV  [TICKCLR], r1
+        CLR  [ticks]
+        EI
+        HALT
+        DI
+        MOVS r2, [ticks]
+        SETNE r2
+        MOV  r1, #1
+        BSR  expect
+
         LEA  r1, [s_done]
         BSR  puts
         HALT
@@ -502,7 +877,7 @@ run_user_traced:
         LEA  r2, [.back]
         MOV  [continue], r2
         PUSH r1
-        MOV  r2, #0x40          ; T
+        MOV  r2, #SR_T
         PUSH r2
         RTI
 .back:  RET
@@ -544,12 +919,16 @@ u_priv: EI
         MTSR SR_CTX, r1
         MFUR r1, r2
         MTUR r1, r2
+        SPL  #3
+        MFSR r1, SR_SR
+        MTSR SR_SR, r1
+        SWI  #128
         SWI  #0
 
 u_flags:
-        MOV  r1, #0x7F
-        MTSR flags, r1
-        MFSR r1, flags
+        MOV  r1, #-1
+        MTSR SR_CCR, r1
+        MFSR r1, SR_CCR
         SWI  #1
         SWI  #0
 
@@ -609,9 +988,26 @@ exit_flags: .word 0
 swi_flags: .word 0
 u_r1:      .word 0
 u_r2:      .word 0
+lvl_count: .word 0, 0, 0, 0, 0, 0, 0, 0
+lvl_seq:   .word 0
+lvl_ipl:   .word 0
+lvl_was:   .word 0
+nest_at:   .word 0
+nest_req:  .word 0
+ticks:     .word 0
+nmis:      .word 0
+nmi_sr:    .word 0
+m_src:     .word 0
+m_msg:     .word 0
+m_sr:      .word 0
+m_sp:      .word 0
+m_count:   .word 0
+swi128:    .word 0
+ill2:      .word 0
 
-s_title:   .asciz "RFC 0029 on the draft 2 CPU\n"
+s_title:   .asciz "RFC 0029 and RFC 0040 on the draft 2 CPU\n"
 s_boot:    .asciz "boot state: "
+s_vbr0:    .asciz "vbr after reset: "
 s_spr:     .asciz "special registers: "
 s_mapa:    .asciz "mapa: "
 s_mapd:    .asciz "map through mapd: "
@@ -621,7 +1017,7 @@ s_swiflags: .asciz "SWI saves S = 0: "
 s_exitflags: .asciz "handlers run with S, without I: "
 s_priv:    .asciz "privileged instructions trap: "
 s_privvec: .asciz "privilege violation vector: "
-s_uflags:  .asciz "user MTSR flags: "
+s_uflags:  .asciz "user MTSR ccr: "
 s_fault:   .asciz "page fault, FSR: "
 s_far:     .asciz "page fault, FAR: "
 s_retry:   .asciz "retried after mapping: "
@@ -632,9 +1028,28 @@ s_xpc:     .asciz "fetch fault saves its PC: "
 s_range:   .asciz "user bit 31, and 16 MB-2 GB: "
 s_sfault:  .asciz "supervisor page fault: "
 s_mis:     .asciz "misaligned word, FAR, base kept: "
-s_buserr:  .asciz "empty slot: "
 s_traps:   .asciz "divide, illegal, tag vectors: "
 s_trace:   .asciz "trace: "
+s_sr:      .asciz "MTSR sr keeps S: "
+s_spl:     .asciz "SPL sets IPL alone; ccr: "
+s_vbr:     .asciz "vbr, aligned, a second table: "
+s_vbrswi:  .asciz "SWI through vbr: "
+s_reqreg:  .asciz "request register set, read, clear: "
+s_levels:  .asciz "levels above IPL, highest first: "
+s_lvlipl:  .asciz "IPL in the handler, and saved: "
+s_nest:    .asciz "nesting after EI: "
+s_lvl78:   .asciz "levels 8 and 7: "
+s_claim:   .asciz "message register claim: "
+s_msg:     .asciz "message: source and 24 bits: "
+s_msgsr:   .asciz "message level: M and IPL 7: "
+s_msgsp:   .asciz "message level's own sp: "
+s_msgr9:   .asciz "the kernel's registers kept: "
+s_msgfree: .asciz "message register released: "
+s_nmi:     .asciz "NMI over IPL 8, taken once: "
+s_swi128:  .asciz "supervisor SWI #128: "
+s_info:    .asciz "board information: "
+s_timer:   .asciz "the timer counts: "
+s_halt:    .asciz "HALT waits for the tick: "
 s_done:    .asciz "done\n"
 s_ok:      .asciz "ok\n"
 s_want:    .asciz "want "
@@ -643,3 +1058,19 @@ s_got:     .asciz " got "
 
         .include "../../v2_isa/programs/lib/console.s"
         .include "../../v2_isa/programs/lib/print.s"
+
+; a second vector table for the vbr test: its illegal entry and SWI #1
+        .align 2048
+vtab2:  .org vtab2 + 0x08
+        JMP  h_ill2
+        .org vtab2 + 0x104
+        JMP  h_swi1b
+h_ill2: PUSH r1
+        INC  [ill2]
+        MOV  r1, [sp + 8]       ; past the ILLEGAL parcel
+        ADD  r1, #2
+        MOV  [sp + 8], r1
+        POP  r1
+        RTI
+h_swi1b: INC [swi128]
+        RTI

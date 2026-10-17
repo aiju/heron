@@ -96,9 +96,9 @@ QUEUE = tuple((("V0", v), ("V0_n", 1 - v), ("FOK", f), ("FOK_n", 1 - f), ("HS", 
 
 # A decode goes ahead, or a forced entry (trace, interrupt) takes the
 # address: then the decode table doesn't reach the control store
-DECODE = ((("TSQ", 0), ("TSQ_n", 1), ("IRQP", 0), ("IRQP_n", 1)),
+DECODE = ((("TSQ", 0), ("TSQ_n", 1), ("PEND", 0), ("PEND_n", 1)),
           (("TSQ", 1), ("TSQ_n", 0)),
-          (("TSQ", 0), ("TSQ_n", 1), ("IRQP", 1), ("IRQP_n", 0)))
+          (("TSQ", 0), ("TSQ_n", 1), ("PEND", 1), ("PEND_n", 0)))
 
 
 def uses_queue(f):

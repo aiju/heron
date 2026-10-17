@@ -1,5 +1,6 @@
-RFC 0029 on the draft 2 CPU
+RFC 0029 and RFC 0040 on the draft 2 CPU
 boot state: ok
+vbr after reset: ok
 special registers: ok
 mapa: ok
 map through mapd: ok
@@ -9,7 +10,7 @@ SWI saves S = 0: ok
 handlers run with S, without I: ok
 privileged instructions trap: ok
 privilege violation vector: ok
-user MTSR flags: ok
+user MTSR ccr: ok
 page fault, FSR: ok
 page fault, FAR: ok
 retried after mapping: ok
@@ -20,7 +21,26 @@ fetch fault saves its PC: ok
 user bit 31, and 16 MB-2 GB: ok
 supervisor page fault: ok
 misaligned word, FAR, base kept: ok
-empty slot: ok
 divide, illegal, tag vectors: ok
 trace: ok
+MTSR sr keeps S: ok
+SPL sets IPL alone; ccr: ok
+vbr, aligned, a second table: ok
+SWI through vbr: ok
+request register set, read, clear: ok
+levels above IPL, highest first: ok
+IPL in the handler, and saved: ok
+nesting after EI: ok
+levels 8 and 7: ok
+message register claim: ok
+message: source and 24 bits: ok
+message level: M and IPL 7: ok
+message level's own sp: ok
+the kernel's registers kept: ok
+message register released: ok
+NMI over IPL 8, taken once: ok
+supervisor SWI #128: ok
+board information: ok
+the timer counts: ok
+HALT waits for the tick: ok
 done

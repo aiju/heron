@@ -30,7 +30,7 @@ from heron.infra.programs import metadata
 
 from . import ucode as uc
 from .rtl import RTL, RTLError
-from .system import ConsoleCard, MemoryCard, System
+from .system import IO_WINDOW, REGION, ConsoleCard, MemoryCard, System
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -50,14 +50,15 @@ def program_paths(names=None):
     return paths
 
 
-def make_system(image, inp=b"", code_base=0, prefetch_bus=False, icache=0):
+def make_system(image, inp=b"", code_base=0, prefetch_bus=False, icache=0, tick_bit=None):
     """The system the suite runs on: the CPU card's 2 MB, a memory card in
-    slot 1, the console in slot 15; context 0's first 1 MB mapped onto
-    physical code_base (0: the CPU card's RAM; 0x0800_0000: the memory
-    card, to run the program over the bus)."""
-    s = System(prefetch_bus=prefetch_bus, icache=icache)
-    s.add(1, MemoryCard())
-    s.add(15, ConsoleCard(inp))
+    region 1, the I/O page at the top; context 0's first 1 MB mapped onto
+    physical code_base (0: the CPU card's RAM; 0x1000_0000: the memory
+    card, to run the program over the bus). tick_bit: the CPU card timer's
+    jumper (None: no tick)."""
+    s = System(prefetch_bus=prefetch_bus, icache=icache, tick_bit=tick_bit)
+    s.add(REGION, MemoryCard())
+    s.add(IO_WINDOW, ConsoleCard(inp))
     s.load(image, code_base)
     s.identity_map(0, 256, base=code_base)
     return s
@@ -80,8 +81,8 @@ def boot(m, pc=0, user=False):
 
 
 def run_rtl(image, inp=b"", max_cycles=200_000_000, code_base=0, prefetch_bus=False, mc=None,
-            trace=None, profile=False, user=False, icache=0):
-    s = make_system(image, inp, code_base, prefetch_bus, icache)
+            trace=None, profile=False, user=False, icache=0, tick_bit=None):
+    s = make_system(image, inp, code_base, prefetch_bus, icache, tick_bit)
     m = RTL(s, mc=mc)
     boot(m, user=user)
     m.cycles = m.ticks = m.hold_ticks = 0
@@ -101,14 +102,14 @@ def run_booted(image, inp=b"", max_cycles=200_000_000):
     reset routine, the shim, and the program. Returns (RTL model, IOP)."""
     from . import iop as iopm
     s = System()
-    s.add(1, MemoryCard())
-    s.add(15, ConsoleCard(inp))
-    slave = iopm.CPUCardSlave(s)
-    iop = iopm.IOP(slave)
+    s.add(REGION, MemoryCard())
+    s.add(IO_WINDOW, ConsoleCard(inp))
+    s.card.run = False                  # power-up: RUN is off, the control store empty
+    iop = iopm.IOP(s)
     iop.load_microcode(uc.built())
     iop.load_ram(iopm.boot_image(image))
     iop.start()
-    m = RTL(s, rom=slave.rom(), decode=slave.decode())
+    m = RTL(s, rom=iopm.control_store(s), decode=iopm.decode_table(s))
     m.run(max_cycles)
     return m, iop
 
@@ -239,11 +240,11 @@ def expected_output(name):
     return suite_expected(name)
 
 
-def check_own(path, name, img, inp, max_cycles):
+def check_own(path, name, img, inp, max_cycles, tick_bit=None):
     """A program of this study's own: its output against the expected."""
     t0 = time.time()
     try:
-        m = run_rtl(img, inp, max_cycles)
+        m = run_rtl(img, inp, max_cycles, tick_bit=tick_bit)
     except RTLError as e:
         return name, [f"RTL error: {e}"], None
     exp = expected_output(name)
@@ -281,7 +282,9 @@ def check_program(path, lock=False, verbose=False):
     inp = meta["input"]
     img = asmcore.assemble_file(isas.get("v2"), path)
     if os.path.dirname(os.path.abspath(path)) == os.path.join(HERE, "sw"):
-        return check_own(path, name, img, inp, meta["max-cycles"])
+        tb = meta.get("tick-bit")
+        return check_own(path, name, img, inp, meta["max-cycles"],
+                         None if tb is None else int(tb))
     if name == "exercise":
         return check_exercise(img, lock)
     t0 = time.time()
@@ -314,7 +317,7 @@ def main(argv=None):
     args = p.parse_args(argv)
     global CODE_BASE, ICACHE
     if args.bus:
-        CODE_BASE = 0x08000000
+        CODE_BASE = REGION
     ICACHE = args.icache
     bad = 0
     jobs = []

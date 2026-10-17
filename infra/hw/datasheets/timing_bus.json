@@ -2029,6 +2029,194 @@
     "notes": "The SN74F163A's switching characteristics, with an asynchronous clear (/CLR->Q 13 ns, /CLR->RCO 11.5 ns). CLK->Q is 9.5 ns when loading, 11 when counting. Setup of /LOAD 11.5 ns high, 9.5 low; of ENP/ENT 11.5 high, 5 low (the larger is given). Hold of /LOAD 2 ns high, 0 low."
   },
 
+  "74F193": {
+    "family": "F",
+    "function": "4-bit synchronous binary up/down counter with separate up and down clocks, asynchronous load and reset",
+    "manufacturer": "National Semiconductor",
+    "part_number": "74F193",
+    "source": "https://www.thierry-lequeu.fr/data/54F193.pdf",
+    "datasheet": "National 54F/74F193, TL/F/9497 (Nov 1994, (c) 1995)",
+    "availability": "Probably not buyable: TI's SN74F193AN is obsolete (a parametric listing, Oct 2026), Nexperia makes no 74F193, and no current maker was found. The 74HCT193 is the same counter in production.",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CP->Q": {
+        "min": 4,
+        "typ": 9.5,
+        "max": 13.5
+      },
+      "CP->TC": {
+        "min": 3.5,
+        "typ": 7,
+        "max": 10
+      },
+      "P->Q": {
+        "min": 3,
+        "typ": 11,
+        "max": 15.5
+      },
+      "P->TC": {
+        "min": 6.5,
+        "typ": 11.5,
+        "max": 15.5
+      },
+      "PL->Q": {
+        "min": 5,
+        "typ": 10,
+        "max": 14
+      },
+      "PL->TC": {
+        "min": 7,
+        "typ": 12,
+        "max": 16.5
+      },
+      "MR->Q": {
+        "min": 5.5,
+        "typ": 11,
+        "max": 15.5
+      },
+      "MR->TC": {
+        "min": 6,
+        "typ": 11.5,
+        "max": 15.5
+      }
+    },
+    "checks": {
+      "setup P": 5,
+      "hold P": 2,
+      "tw CP": 5,
+      "tw CP dir": 10,
+      "tw PL": 6,
+      "tw MR": 6,
+      "recovery PL": 6,
+      "recovery MR": 4,
+      "fmax MHz": 90
+    },
+    "estimated": [],
+    "notes": "CP is CPU or CPD, TC is TCU or TCD. Setup and hold of P are to PL's rise, the end of a load. tw CP is a clock's low width, tw CP dir the low width of the first pulse after a change of direction; no high width is given. Recovery: PL or MR inactive to a clock's rise. MR->TC is MR->TCU (tPLH) 14.5 ns and MR->TCD (tPHL) 15.5.",
+    "detail": {
+      "CPU,CPD->TCU,TCD": {
+        "tPLH": [4, 7, 9, 10],
+        "tPHL": [3.5, 6, 8, 9]
+      },
+      "CPU,CPD->Qn": {
+        "tPLH": [4, 6.5, 8.5, 9.5],
+        "tPHL": [5.5, 9.5, 12.5, 13.5]
+      },
+      "Pn->Qn": {
+        "tPLH": [3, 4.5, 7, 8],
+        "tPHL": [6, 11, 14.5, 15.5]
+      },
+      "/PL->Qn": {
+        "tPLH": [5, 8.5, 11, 12],
+        "tPHL": [5.5, 10, 13, 14]
+      },
+      "MR->Qn": {
+        "tPHL": [5.5, 11, 14.5, 15.5]
+      },
+      "MR->/TCU": {
+        "tPLH": [6, 10.5, 13.5, 14.5]
+      },
+      "MR->/TCD": {
+        "tPHL": [6, 11.5, 14.5, 15.5]
+      },
+      "/PL->/TCU,/TCD": {
+        "tPLH": [7, 12, 15.5, 16.5],
+        "tPHL": [7, 11.5, 14.5, 15.5]
+      },
+      "Pn->/TCU,/TCD": {
+        "tPLH": [7, 11.5, 14.5, 15.5],
+        "tPHL": [6.5, 11, 14, 15]
+      }
+    }
+  },
+
+  "74HCT193": {
+    "family": "HCT",
+    "function": "4-bit synchronous binary up/down counter with separate up and down clocks, asynchronous load and reset",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT193",
+    "source": "https://cdn.components.ru/media/PDF/1305593.pdf",
+    "datasheet": "Nexperia 74HC193-Q100; 74HCT193-Q100, Rev. 3 (8 Sep 2021)",
+    "availability": "TI CD74HCT193 (DIP) active (ti.com, Oct 2026); Nexperia's 74HCT193 in SO16 and TSSOP16 (status not checked).",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 4.5 V, CL 50 pF",
+    "delays": {
+      "CP->Q": {
+        "typ": 23,
+        "max": 54
+      },
+      "CP->TC": {
+        "typ": 15,
+        "max": 34
+      },
+      "P->Q": {
+        "typ": 27,
+        "max": 58
+      },
+      "P->TC": {
+        "typ": 32,
+        "max": 73
+      },
+      "PL->Q": {
+        "typ": 26,
+        "max": 58
+      },
+      "PL->TC": {
+        "typ": 31,
+        "max": 69
+      },
+      "MR->Q": {
+        "typ": 22,
+        "max": 50
+      },
+      "MR->TC": {
+        "typ": 29,
+        "max": 69
+      }
+    },
+    "checks": {
+      "setup P": 20,
+      "hold P": 0,
+      "tw CP": 31,
+      "tw CP high": 31,
+      "hold CP dir": 20,
+      "tw PL": 25,
+      "tw MR": 25,
+      "recovery PL": 13,
+      "recovery MR": 13,
+      "fmax MHz": 16
+    },
+    "estimated": [],
+    "notes": "The automotive grade's sheet: nexperia.com refuses downloads from here, so the commercial 74HC_HCT193 sheet was not read. CP is CPU or CPD, TC is TCU or TCD; tpd is both tPLH and tPHL. Setup and hold of P are to PL's rise. tw CP is a clock's width high or low; hold CP dir is from one clock's rise to the other's fall (a change of direction). TI's CD74HCT193 (SCHS163F, Oct 2003) agrees where it gives a value (CP->TC 34, PL->Q 58, recovery MR 5 ns, setup P 19, recovery PL 19, tw CP 29), except CP->Q 50 and MR->Q 54; it gives no P->Q, nor TC from PL, P or MR.",
+    "detail": {
+      "CPU,CPD->Qn": {
+        "tpd": [null, 23, 43, 54]
+      },
+      "CPU->/TCU, CPD->/TCD": {
+        "tpd": [null, 15, 27, 34]
+      },
+      "/PL->Qn": {
+        "tpd": [null, 26, 46, 58]
+      },
+      "MR->Qn": {
+        "tpd": [null, 22, 40, 50]
+      },
+      "Dn->Qn": {
+        "tpd": [null, 27, 46, 58]
+      },
+      "/PL->/TCU,/TCD": {
+        "tpd": [null, 31, 55, 69]
+      },
+      "MR->/TCU,/TCD": {
+        "tpd": [null, 29, 55, 69]
+      },
+      "Dn->/TCU,/TCD": {
+        "tpd": [null, 32, 58, 73]
+      }
+    }
+  },
+
   "74F299": {
     "family": "F",
     "function": "8-bit universal shift/storage register, three-state I/O",

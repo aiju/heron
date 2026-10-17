@@ -36,6 +36,10 @@ def _sources_tag():
     return h.hexdigest()[:12]
 
 
+# the timer's jumper for the programs that ask for one (";! tick-bit: n")
+TICK_BITS = {}
+
+
 def suite(c=True, asm=True):
     """[(name, image, input)] for the suite: hand-written, then C."""
     from heron.infra import asm as asmcore
@@ -48,16 +52,19 @@ def suite(c=True, asm=True):
             if name in ("systest", "isanotes"):
                 continue
             img = asmcore.assemble_file(isas.get("v2"), p)
-            out.append((name, img, metadata(p)["input"]))
+            meta = metadata(p)
+            if meta.get("tick-bit") is not None:
+                TICK_BITS[name] = int(meta["tick-bit"])
+            out.append((name, img, meta["input"]))
     if c:
         out += check.c_programs()
     return out
 
 
-def run_one(name, mem, inp, code_base=0, **opts):
+def run_one(name, mem, inp, code_base=0, tick_bit=None, **opts):
     from types import SimpleNamespace
     m = check.run_rtl(SimpleNamespace(mem=mem), inp, code_base=code_base, profile=True,
-                      max_cycles=MAX_CYCLES, **opts)
+                      max_cycles=MAX_CYCLES, tick_bit=tick_bit, **opts)
     return {
         "name": name, "instructions": m.instructions, "cycles": m.cycles, "ticks": m.ticks,
         "hold": m.hold_ticks, "refills": m.refills, "fetch_words": m.fetch_words,
@@ -85,7 +92,8 @@ def profile(code_base=0, force=False, jobs=4, **opts):
             return pickle.load(f)
     from concurrent.futures import ProcessPoolExecutor
     with ProcessPoolExecutor(jobs) as ex:
-        futs = [ex.submit(run_one, n, dict(i.mem), inp, code_base, **opts) for n, i, inp in progs]
+        futs = [ex.submit(run_one, n, dict(i.mem), inp, code_base, TICK_BITS.get(n), **opts)
+                for n, i, inp in progs]
         rows = [f.result() for f in futs]
     os.makedirs(OUT, exist_ok=True)
     with open(path, "wb") as f:
@@ -166,7 +174,7 @@ def main(argv=None):
     p.add_argument("--force", action="store_true")
     args = p.parse_args(argv)
     opts = {"icache": args.icache} if args.icache else {}
-    rows = profile(code_base=0x08000000 if args.bus else 0, force=args.force, **opts)
+    rows = profile(code_base=0x10000000 if args.bus else 0, force=args.force, **opts)
     lens, need = best_lengths(rows)
     times = time_with(rows, lens)
     print(f"length classes from the profile: {lens} ticks")

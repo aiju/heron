@@ -27,13 +27,14 @@ class Microcode(unittest.TestCase):
 
     def test_constants_in_every_bank(self):
         # both copies of the register file share the bank address, so the
-        # reset routine leaves each bank's G half with the constants
+        # reset routine leaves each bank's G half with the constants (but
+        # for the special registers, vbr and the vectors with it: bank 0's)
         from heron.studies.v2_hw import rtl, system
         m = rtl.RTL(system.System())
         check.boot(m)
         for bank in range(256):
             for k, v in uc.CONSTS.items():
-                if k not in (uc.CTXC, uc.BANKC, uc.MAPAS):
+                if k not in uc.SPECIAL:
                     self.assertEqual(m.rf[rtl.GLB | bank << 5 | k - uc.G], v, (bank, k))
         self.assertEqual(m.BANK, 0)
 
@@ -61,7 +62,7 @@ class Programs(unittest.TestCase):
 
     def test_bus(self):
         img = asm.assemble_file(isas.get("v2"), program("hello"))
-        m = check.run_rtl(img, code_base=0x08000000)
+        m = check.run_rtl(img, code_base=check.REGION)
         self.assertEqual(m.out, b"Hello, world!\n")
 
     def test_icache(self):
@@ -71,18 +72,36 @@ class Programs(unittest.TestCase):
         img = asm.assemble_file(isas.get("v2"), path)
         inp = metadata(path)["input"]
         sim = check.run_isa(img, inp)
-        plain = check.run_rtl(img, inp, code_base=0x08000000)
-        cached = check.run_rtl(img, inp, code_base=0x08000000, icache=64)
-        self.assertEqual(check.compare(sim, cached, code_base=0x08000000), [])
+        plain = check.run_rtl(img, inp, code_base=check.REGION)
+        cached = check.run_rtl(img, inp, code_base=check.REGION, icache=64)
+        self.assertEqual(check.compare(sim, cached, code_base=check.REGION), [])
         self.assertGreater(cached.sys.icache_hits, 0)
         self.assertLess(cached.sys.bus_fetches, plain.sys.bus_fetches)
         self.assertLess(cached.ticks, plain.ticks)
 
+    def test_nothing_answers(self):
+        # RFC 0037, 27: an access nothing answers takes its bus cycle, reads
+        # what the bus last held and traps nothing (there is no bus at chip
+        # level, so systest can't show it)
+        s = check.System()
+        s.add(check.REGION, check.MemoryCard())
+        pa, none = check.REGION + 0x40, 2 * check.REGION
+
+        class M:
+            ticks = cycles = 0
+        s.write(pa, 3, pa, 0x12345678, M)
+        s.read(pa, 3, pa, M)
+        d, hold = s.read(none, 3, none, M)
+        self.assertEqual(d, 0x12345678)
+        self.assertGreater(hold, 0)
+        self.assertGreater(s.write(none, 3, none, 0, M), 0)
+        self.assertEqual(s.unanswered, 2)
+
     def test_icache_store(self):
         # the CPU's own store into a cached word invalidates it
         s = check.System(icache=16)
-        s.add(1, check.MemoryCard())
-        pa = 0x08000040
+        s.add(check.REGION, check.MemoryCard())
+        pa = check.REGION + 0x40
 
         class M:
             ticks = cycles = 0

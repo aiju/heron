@@ -225,6 +225,21 @@ class Case:
     m_cnt161 = _counter
     m_cnt163 = _counter
 
+    def m_cnt193(self, inst, pin, d):
+        """An up/down counter: Q launches at a clock's edge, TC follows the
+        clocks; PL (while it may be low) and MR (while it may be high) load
+        or reset it asynchronously."""
+        to = "TC" if pin in ("TCU", "TCD") else "Q"
+        terms = [(cp, "CP->" + to, d["CP->" + to]) for cp in ("CPU", "CPD")]
+        mr, pl = self.pin(inst, "MR")[0], self.pin(inst, "PL")[0]
+        if mr != 0:
+            terms.append(("MR", "MR->" + to, d["MR->" + to]))
+        if mr != 1 and pl != 1:
+            terms.append(("PL", "PL->" + to, d["PL->" + to]))
+            terms += [(f"P{i}", "P->" + to, d["P->" + to]) for i in range(4)]
+        t, cause = self.latest(inst, terms)
+        return (self.const.get(inst.conn.get(pin)), t, True, cause)
+
     def _select(self, inst, sel_pins):
         vals = [self.pin(inst, p)[0] for p in sel_pins]
         if any(v is None for v in vals):
@@ -304,6 +319,22 @@ class Case:
         if s is None or None in (g1, g2a, g2b):
             return (None, t, True, cause)
         return (int(s != int(pin[1:])), t, True, cause)
+
+    def m_enc148(self, inst, pin, d):
+        t, cause = self.latest(inst, [(f"I{i}", "I->Y", d["I->Y"]) for i in range(8)]
+                               + [("EI", "EI->Y", d["EI->Y"])])
+        ei = self.pin(inst, "EI")[0]
+        if ei == 1:
+            return (1, t, True, cause)
+        ins = [self.pin(inst, f"I{i}")[0] for i in range(8)]
+        if ei is None or None in ins:
+            return (None, t, True, cause)
+        act = [i for i in range(8) if ins[i] == 0]
+        if not act:
+            return (int(pin != "EO"), t, True, cause)
+        if pin in ("GS", "EO"):
+            return (int(pin == "EO"), t, True, cause)
+        return (1 - ((max(act) >> int(pin[1])) & 1), t, True, cause)
 
     def _off(self, inst, pins, dname, d):
         """A disabled three-state output: (value, turn-off time, False, cause)

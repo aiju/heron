@@ -82,7 +82,12 @@ def clock_generator(nl, lengths, por_ps):
     nl.add("por", "U_POR", RST="PORST_n", params={"release_ps": por_ps})
     nl.add("pullup", "RN_POR", P1="PORST_n")
     g("14", ["PORST_n"], "RSTI")
-    g("14", ["RSTI"], "RESET_n")
+    g("14", ["RSTI"], "RSTA_n")
+    # asserted at once, released at a CLK edge: everything, the card's
+    # registers too, sees the same last edge of reset
+    nl.add("74", "U_RSY", **{"1D": "VCC", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RSTA_n",
+                             "1Q": "RSY1", "2D": "RSY1", "2CLK": "CLK", "2PRE": "VCC",
+                             "2CLR": "RSTA_n", "2Q": "RESET_n"})
 
     nl.section("Clock generator")
     nl.add("osc", "U_OSC", part="oscillator 50 MHz", OUT="MCLK",
@@ -202,7 +207,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
            D0=u["NEXT0"], D1="TC", D2=RQ[31], D3="CLQ", D4="CONDT", D5="MQ31", D6="TC4",
            D7="CONDT_n")
     nl.add("151", "U_CONDH", A=u["COND0"], B=u["COND1"], C=u["COND2"], G="COND3_n", Y="CONDH",
-           D0="SFLAG", D1="SXEQ", D2="FK0", D3="FK1", D4="SX15", D5="MQ0", D6=RQ[0], D7="GND")
+           D0="SFLAG", D1="SXEQ", D2="FK0", D3="FK1", D4="SX15", D5="MQ0", D6=RQ[0], D7="MSGT")
     g("32", ["CONDL", "CONDH"], "CONDY")
     for k in range((uc.Y_BITS + 1) // 2):
         m = nl.add("153", f"U_YM{k}", A=u["SEQ0"], B=u["SEQ1"], **{"1G": "YOFF", "2G": "YOFF"})
@@ -223,10 +228,10 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("08", [u["SEQ0"], "SEQ1_n"], "DECACT")
     g("08", [u["SEQ0"], u["SEQ1"]], "HALTACT")
     g("08", ["DECACT", "TSQ"], "FTRACE")
-    g("11", ["DECACT", "TSQ_n", "IRQP"], "FIRQD")
-    g("08", ["HALTACT", "IRQP"], "FIRQH")
+    g("11", ["DECACT", "TSQ_n", "PEND"], "FIRQD")
+    g("08", ["HALTACT", "PEND"], "FIRQH")
     g("32", ["FIRQD", "FIRQH"], "FIRQ")
-    g("11", ["DECACT", "TSQ_n", "IRQP_n"], "DECOK")
+    g("11", ["DECACT", "TSQ_n", "PEND_n"], "DECOK")
     # the refill entry: the instruction isn't all there, or the cycle jumps
     g("00", ["DECOK", "COMPLETE_n"], "FREFILL_n")
     g("20", ["DECOK", u["LDPC"], "JC", "VCC"], "JDOK_n")
@@ -277,12 +282,52 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
                             "2PRE": "VCC", "2CLR": "VCC", "2Q": "HS", "2QN": "HS_n"})
 
     nl.section("Interrupt request")
-    # synchronised, then held a cycle more: pending = that & I (now)
-    nl.add("74", "U_IRQ", nocheck=True,
-           **{"1D": "IRQ", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "IRQS",
-              "2D": "IRQS", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "RESET_n", "2Q": "IRQS2"})
-    g("08", ["IRQS2", "IFLAG"], "IRQP")
-    g("04", ["IRQP"], "IRQP_n")
+    # RFC 0040: the CPU card's levels 1-8 (LV1_n-LV8_n, active low), its
+    # message register full (MSGF) and its NMI, registered at every edge
+    # (LQ); a cycle later, the decision: PEND, and with it LT, the level
+    # (L, for IPL) and the vector's offset (VX, 0x40 + 4(L - 1) or the
+    # NMI's 0x04), and MSGT, level 7 with a message waiting. LT holds from
+    # an interrupt's entry (SSET) until I is set again or an NMI comes, so
+    # that the entry sees the level it was taken for
+    LQN = [f"LQ{i}_n" for i in range(1, 9)]
+    nl.add("16823h", "U_RQ", CLK="CLK", EN="GND", CLR="VCC", OE="GND",
+           **{f"D{i}": f"LV{i}_n" for i in range(1, 9)}, D9="MSGF",
+           **{f"Q{i}": LQN[i - 1] for i in range(1, 9)}, Q9="MSGQ")
+    # the highest level requesting (148: its code is ~(L - 1)), and L
+    nl.add("148", "U_LVE", EI="GND", **{f"I{i}": LQN[i] for i in range(8)},
+           A0="LEN_A0", A1="LEN_A1", A2="LEN_A2", GS="LGS_n")
+    g("86", ["LEN_A1", "LEN_A0"], "LEV1")
+    g("32", ["LEN_A1", "LEN_A0"], "LEN_A10")
+    g("86", ["LEN_A2", "LEN_A10"], "LEV2")
+    g("02", ["LEN_A2", "LEN_A10"], "LEV3")
+    # above IPL: T_k, a level above k requesting, selected by IPL (none
+    # above IPL 8 and up)
+    TN = {7: LQN[7]}
+    for k in range(6, -1, -1):
+        g("08", [LQN[k], TN[k + 1]], f"TA{k}_n")
+        TN[k] = f"TA{k}_n"
+    nl.add("151", "U_IPLC", A="IPL0", B="IPL1", C="IPL2", G="GND", W="ABOVE0",
+           **{f"D{k}": TN[k] for k in range(8)})
+    g("04", ["IPL3"], "IPL3_n")
+    g("11", ["IFLAG", "ABOVE0", "IPL3_n"], "PENDL")
+    g("32", ["NMIQ", "PENDL"], "PEND_D")
+    nl.add("74", "U_IRQ",
+           **{"1D": "NMI", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "NMIQ",
+              "1QN": "NMIQ_n", "2D": "PEND_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "RESET_n",
+              "2Q": "PEND", "2QN": "PEND_n"})
+    # LT: VX = NMI ? 001 : L - 1; L; NMIT_n; MSGT, level 7 the highest, a
+    # message waiting, no NMI
+    g("00", ["NMIQ_n", "LEN_A0"], "VX0")
+    g("02", ["NMIQ", "LEN_A1"], "VX1")
+    g("02", ["NMIQ", "LEN_A2"], "VX2")
+    g("04", [LQN[6]], "LQ7")
+    g("21", ["LQ7", LQN[7], "MSGQ", "NMIQ_n"], "MSGT_D")
+    g("32", ["IFLAG", "NMIQ"], "LTLD")
+    g("00", ["LTLD", "SSET_n"], "LTLD_n")
+    nl.add("16823h", "U_LT", CLK="CLK", EN="LTLD_n", CLR="VCC", OE="GND",
+           D1="VX0", Q1="VX0Q", D2="VX1", Q2="VX1Q", D3="VX2", Q3="VX2Q",
+           D4="LEN_A0", Q4="LT0", D5="LEV1", Q5="LT1", D6="LEV2", Q6="LT2", D7="LEV3", Q7="LT3",
+           D8="NMIQ_n", Q8="NMIT_n", D9="MSGT_D", Q9="MSGT")
 
     # ---- register file -----------------------------------------------------------
     # two copies of 16K x 32 ({G, bank, register}); read through latches in
@@ -303,6 +348,11 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = RWA[i]
     g("11", [u["RFW0"], u["RFW1"], u["RFKW4"]], RWA[4])
+    # A14: the message level's registers (M in supervisor mode, not with
+    # UBW, not G), sixteen of their own
+    g("04", ["MFLAG"], "MFLAG_n")
+    g("02", ["USEBW", "MFLAG_n"], "MBW")
+    g("00", ["MBW", "GW_n"], "MBWR_n")
     for i in range(8):
         g("08", [BANK[i], "USEBW"], RWA[5 + i])
     g("10", [u["RFWE"], "T1", "FAULT_n"], "RFWE_n")
@@ -312,9 +362,10 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # will be) so that it is there at the edge
     g("04", ["SNEXT"], "SNEXT_n")
     nl.add("157", "U_UBM", S="FAULT", G="GND",
-           **{"1A": "SNEXT_n", "1B": "SFLAG_n", "1Y": "SNX_n", "2A": "GND", "2B": "GND",
-              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
+           **{"1A": "SNEXT_n", "1B": "SFLAG_n", "1Y": "SNX_n", "2A": "MNEXT", "2B": "MFLAG",
+              "2Y": "MNX", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     g("32", [u["UBR"], "SNX_n"], "USEBR_D")
+
     g("04", ["BANKLD_n"], "BANKLD")
     BANKN, EB = bus("BANKN", 8), bus("EB", 8)
     for k in range(2):
@@ -326,6 +377,16 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         g("08", [BANKN[i], "USEBR_D"], f"EBD{i}")
     nl.add("16374h", "U_EB", CLK="CLK", OE="GND", **{f"D{i + 1}": f"EBD{i}" for i in range(8)},
            **{f"Q{i + 1}": EB[i] for i in range(8)})
+    # MB, the same way: the read's message level registers, M as it will be
+    # in supervisor mode without UBR; for a constant only if not G
+    g("02", [u["UBR"], "SNX_n"], "USEBR_N")
+    g("08", ["MNX", "USEBR_N"], "MB_D")
+    # (with a faster copy of the uIR's RFK5_n beside it)
+    rfk5 = next(b for b, n in U.items() if n == u["RFK5_n"])
+    nl.add("74", "U_MB", **{"1D": "MB_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
+                            "1Q": "MB", "1QN": "MB_n", "2D": f"UD{rfk5}", "2CLK": "CLK",
+                            "2PRE": "VCC", "2CLR": "VCC", "2Q": "RFK5F_n"})
+    g("00", ["MB", "RFK5F_n"], "MBK_n")
     # the bank, for both copies: EB, and the write's for the last two ticks
     RFBK = bus("RFBK", 8)
     for k in range(2):
@@ -337,24 +398,27 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # switches to the write address for the last two ticks, in one 74F151 a
     # bit
     for side, sel, out, oe in (("A", "RFA", ABUS, u["ARF_n"]), ("B", "RFB", BBUS, "BRFE_n")):
-        AM = bus(f"RF{side}M", 14)
-        for i in [*range(5), 13]:
+        AM = bus(f"RF{side}M", 15)
+        for i in [*range(5), 13, 14]:
             m = nl.add("151", f"U_RF{side}A{i}", A=u[f"{sel}0"], B=u[f"{sel}1"], C="RW", G="GND")
             if i < 4:
                 rd = [IR[12 + i], IR[8 + i], SX[i], u[f"RFK{i}"]]
             elif i == 4:
                 rd = ["GND", "GND", "GND", u["RFK4"]]
-            else:                           # G, from the inverted output
+            elif i == 13:                   # G, from the inverted output
                 rd = ["VCC", "VCC", "VCC", u["RFK5_n"]]
+            else:                           # A14, from the inverted output too
+                rd = ["MB_n", "MB_n", "MB_n", "MBK_n"]
+            wr = {13: "GW_n", 14: "MBWR_n"}.get(i) or RWA[i]
             for c in range(4):
-                m[f"D{c}"], m[f"D{4 + c}"] = rd[c], RWA[i] if i < 13 else "GW_n"
-            m["W" if i == 13 else "Y"] = AM[i]
+                m[f"D{c}"], m[f"D{4 + c}"] = rd[c], wr
+            m["W" if i >= 13 else "Y"] = AM[i]
         AM[5:13] = RFBK
         IO = bus(f"RF{side}IO", 32)
         for k in range(4):
             ram = nl.add("sram64k", f"U_RF{side}{k}", role="rf", CE="GND", OE="RW", WE="RFWE_n")
             for i in range(16):
-                ram[f"A{i}"] = AM[i] if i < 14 else "GND"
+                ram[f"A{i}"] = AM[i] if i < 15 else "GND"
             for i in range(8):
                 ram[f"IO{i}"] = IO[8 * k + i]
             lat = nl.add("16373h", f"U_RL{side}{k}", LE="RW_n", OE=oe)
@@ -372,7 +436,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     PCA = [u["PCK"]] + PC[1:]
     for k in range(4):
         for ref, src, oe in ((f"U_APC{k}", PCA, u["APC_n"]), (f"U_AR{k}", RQ, u["AR_n"]),
-                             (f"U_AR2{k}", R2, u["AR2_n"]), (f"U_AMAR{k}", MAR, u["AMAR_n"])):
+                             (f"U_AR2{k}", R2, u["AR2_n"])):
             b = nl.add("16244h", ref, OE1=oe, OE2=oe)
             for i in range(8):
                 b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[8 * k + i], ABUS[8 * k + i]
@@ -449,11 +513,22 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     nl.section("B bus")
     bx = nl.add("138", "U_BXD", A=u["BX0"], B=u["BX1"], C=u["BX2"], G1="VCC", G2A="GND",
                 G2B="GND")
-    for v, name in ((1, "BXMQ_n"), (2, "BXFL_n"), (3, "BXFSR_n"), (4, "BXFAR_n"), (5, "BXMAP_n")):
+    for v, name in ((1, "BXMQ_n"), (2, "BXFL_n"), (3, "BXFSR_n"), (4, "BXFAR_n"), (5, "BXMAP_n"),
+                    (6, "BXLV_n"), (7, "BXMSG_n")):
         bx[f"Y{v}"] = name
-    b = nl.add("16244h", "U_BFL", OE1="BXFL_n", OE2="BXFL_n")
-    for i, s in enumerate(["VFLAG", "CFLAG", "ZFLAG", "NFLAG", "IFLAG", "SFLAG", "TFLAG", "GND"]):
-        b[f"A{i + 1}"], b[f"Y{i + 1}"] = s, BBUS[i]
+    # sr: N Z C V in byte 0, byte 2 zero, S I T M IPL in byte 3 (byte 1 is
+    # the immediate unit's zero fill)
+    for ref, srcs, dst in (("U_BFL", ["VFLAG", "CFLAG", "ZFLAG", "NFLAG"] + ["GND"] * 4, 0),
+                           ("U_BFL2", ["GND"] * 8, 2),
+                           ("U_BFL3", [f"IPL{i}" for i in range(4)]
+                            + ["MFLAG", "TFLAG", "IFLAG", "SFLAG"], 3)):
+        b = nl.add("16244h", ref, OE1="BXFL_n", OE2="BXFL_n")
+        for i, src in enumerate(srcs):
+            b[f"A{i + 1}"], b[f"Y{i + 1}"] = src, BBUS[8 * dst + i]
+    # the interrupt's vector offset: 0x40 + 4(L - 1), or 0x04 for the NMI
+    b = nl.add("16244h", "U_BLV", OE1="BXLV_n", OE2="BXLV_n")
+    for i, src in enumerate(["GND", "GND", "VX0Q", "VX1Q", "VX2Q", "GND", "NMIT_n", "GND"]):
+        b[f"A{i + 1}"], b[f"Y{i + 1}"] = src, BBUS[i]
     mapsrc = [[MD[0], MD[1], MD[2]] + ["GND"] * 5, ["GND"] * 4 + MD[3:7], MD[7:15], MD[15:23]]
     for k in range(4):
         b = nl.add("16244h", f"U_BMAP{k}", OE1="BXMAP_n", OE2="BXMAP_n")
@@ -572,16 +647,13 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
            RCO="TC")
 
     nl.section("SX and EX")
-    for k in range(2):
-        m = nl.add("153", f"U_SXM{k}", A=u["LDSX0"], B=u["LDSX1"], **{"1G": "GND", "2G": "GND"})
-        for sec in (0, 1):
-            i = 2 * k + sec
-            for c, s in enumerate(["GND", IR[12 + i], IR[8 + i], QH[12 + i]]):
-                m[f"{sec + 1}C{c}"] = s
-            m[f"{sec + 1}Y"] = f"SXD{i}"
-    g("32", [u["LDSX0"], u["LDSX1"]], "LDSXNZ")
-    g("00", ["LDSXNZ", "FAULT_n"], "SXLD_n")
-    g("08", [u["SXINC"], "FAULT_n"], "SXEN")
+    # LDSX: 1 IR[15:12], 3 the queue head's QH[15:12], 2 count
+    m = nl.add("157", "U_SXM", S=u["LDSX1"], G="GND")
+    for i in range(4):
+        m[f"{i + 1}A"], m[f"{i + 1}B"], m[f"{i + 1}Y"] = IR[12 + i], QH[12 + i], f"SXD{i}"
+    g("00", [u["LDSX0"], "FAULT_n"], "SXLD_n")
+    g("04", [u["LDSX0"]], "LDSX0_n")
+    g("11", [u["LDSX1"], "LDSX0_n", "FAULT_n"], "SXEN")
     nl.add("161", "U_SX", CLK="CLK", CLR="VCC", LOAD="SXLD_n", ENP="SXEN", ENT="VCC",
            A="SXD0", B="SXD1", C="SXD2", D="SXD3", QA=SX[0], QB=SX[1], QC=SX[2], QD=SX[3])
     m = nl.add("157", "U_EXM", S=u["LDEX1"], G="GND")
@@ -824,16 +896,20 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("08", [u["SIZE1"], "MISV"], "MIS1")
     g("08", ["MIS1", "XLATE"], "MISALIGN")
     g("00", ["MIS1", "XLATE"], "MISALIGN_n")
-    # what answers: the card's RAM (slot 0) or the I/O page (slot 15)
+    # what answers (RFC 0037, 5.1): the card's RAM (region 0), or the
+    # registers from 0x7000_0000 (the card's own; here a fixture, which also
+    # stands for the I/O page at the top); anything else is the bus
+    # interface's, which isn't drawn
     nl.add("688", "U_LOCAL", G="GND", PEQ="LOCAL_n",
-           **{f"P{i}": PA[27 + i] if i < 5 else "GND" for i in range(8)},
+           **{f"P{i}": PA[28 + i] if i < 4 else "GND" for i in range(8)},
            **{f"Q{i}": "GND" for i in range(8)})
     g("04", ["LOCAL_n"], "LOCAL")
     nl.add("688", "U_IOSL", G="GND", PEQ="IOSLOT_n",
-           **{f"P{i}": PA[27 + i] if i < 5 else "GND" for i in range(8)},
-           **{f"Q{i}": "VCC" if i < 4 else "GND" for i in range(8)})
-    # a fault: a data access misaligned, not translated or not answered; a
-    # refill's fetch that fails when the decode needs its word (RQ)
+           **{f"P{i}": PA[28 + i] if i < 4 else "GND" for i in range(8)},
+           **{f"Q{i}": "VCC" if i < 3 else "GND" for i in range(8)})
+    # a fault: a data access misaligned or not translated; a refill's fetch
+    # that fails when the decode needs its word (RQ), which can only be from
+    # the card's RAM here
     g("32", ["V0_n", "FITS1_n"], "FNEED")
     g("11", ["MEM3", "V1_n", "FNEED"], "RQ")
     g("32", ["XLATE", "RQ"], "XQ")
@@ -852,14 +928,13 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
               "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     g("00", ["RU", "XQ"], "RUQ_n")
     g("08", ["RUQ_n", "MISALIGN_n"], "FT1_n")
-    g("20", ["LOCAL_n", "IOSLOT_n", "XLATE", "VCC"], "FT2_n")
     g("00", ["LOCAL_n", "RQ"], "FT3_n")
-    g("21", ["MAPFQ_n", "FT1_n", "FT2_n", "FT3_n"], "FAULT_n")
-    g("20", ["MAPFQ_n", "FT1_n", "FT2_n", "FT3_n"], "FAULT")
-    # FK: 0 page fault, 1 misaligned, 2 bus error; FSR for a page fault; FAR
-    g("11", ["MISALIGN_n", "XFAULT_n", "LOCAL_n"], "FK1_D")
+    g("21", ["MAPFQ_n", "FT1_n", "FT3_n", "VCC"], "FAULT_n")
+    g("20", ["MAPFQ_n", "FT1_n", "FT3_n", "VCC"], "FAULT")
+    # FK: 0 page fault, 1 misaligned (2, a bus error, no longer happens);
+    # FSR for a page fault; FAR
     nl.add("16823h", "U_FK", CLK="CLK", EN="FAULT_n", CLR="VCC", OE="GND",
-           D1="MISALIGN", Q1="FK0", D2="FK1_D", Q2="FK1", **{f"D{i}": "GND" for i in range(3, 10)})
+           D1="MISALIGN", Q1="FK0", D2="GND", Q2="FK1", **{f"D{i}": "GND" for i in range(3, 10)})
     g("10", ["FAULT", "XFAULT", "MISALIGN_n"], "FSRLD_n")
     fsr = nl.add("16823h", "U_FSR", CLK="CLK", EN="FSRLD_n", CLR="VCC", OE="BXFSR_n", D9="GND")
     for i, s in enumerate(["R_INV", "R_NOW", "R_NOX", "R_RANGE", "R_USER", "MEMWR", "FETCHCYC",
@@ -920,16 +995,24 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
         # it drives the data bus from tick 3, once the RAM's outputs are off
         g("32", ["H3", "MID"], "TICK3")
         g("00", ["READING", "TICK3"], "IORD_n")
-        io = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="IOSEL_n", RD="IORD_n", WR="IOWR_n",
-                    IRQ="IRQ")
-        for i in range(2, 8):
-            io[f"A{i}"] = VA[i]
+        io = nl.add("cpucard_w32", "X_IO", CLK="CLK", MCLK="MCLK", RESET_n="RESET_n",
+                    IOSEL="IOSEL_n", RD="IORD_n", WR="IOWR_n", IRQ="IO_IRQ",
+                    MSGF="MSGF", NMI="NMI", MSGOE="BXMSG_n", NMIACK="NMIACK",
+                    **{f"LV{i}": f"LV{i}_n" for i in range(1, 9)})
+        for i in list(range(2, 16)) + list(range(24, 28)):
+            io[f"A{i}"] = PA[i] if i >= 12 else VA[i]
         for i in range(4):
             io[f"BE{i}"] = f"BE{i}_n"
         for i in range(32):
             io[f"D{i}"] = DB[i]
+            io[f"B{i}"] = BBUS[i]
     else:
-        nl.add("const", "X_STUB", LO="IRQ")
+        # the CPU card's levels and NMI, none requesting; the message
+        # register, whose outputs drive B, is the card's
+        nl.add("const", "X_STUB", LO="MSGF")
+        nl.add("const", "X_STUBN", LO="NMI")
+        for i in range(1, 9):
+            nl.add("const", f"X_LV{i}", HI=f"LV{i}_n")
 
     # ---- flags -------------------------------------------------------------------------
     nl.section("Flags")
@@ -976,7 +1059,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
            D7="VCC")
     nl.add("153", "U_FI", A=u["FI0"], B=u["FI1"],
            **{"1G": "GND", "2G": "VCC",
-              "1C0": "IFLAG", "1C1": "VCC", "1C2": "GND", "1C3": ABUS[4], "1Y": "INEXT1",
+              "1C0": "IFLAG", "1C1": "VCC", "1C2": "GND", "1C3": ABUS[30], "1Y": "INEXT1",
               "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
     # V: FV 7 selects VT3 = A31 ^ F31, with the multiplexer off (output 0)
     # unless the operands' signs allow an overflow (VT2)
@@ -992,20 +1075,48 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     g("08", ["LOADF", u["LFM1"]], "SLOAD")
     g("04", [u["SSET"]], "SSET_n")
     nl.add("157", "U_STM", G="GND", S="TLOAD",
-           **{"1A": "TFLAG", "1B": ABUS[6], "1Y": "TN",
-              "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
+           **{"1A": "TFLAG", "1B": ABUS[29], "1Y": "TN",
+              "2A": "MFLAG", "2B": ABUS[28], "2Y": "MN1",
+              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     nl.add("157", "U_SSM", G="GND", S="SLOAD",
-           **{"1A": "SFLAG", "1B": ABUS[5], "1Y": "SN",
+           **{"1A": "SFLAG", "1B": ABUS[31], "1Y": "SN",
               "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
     g("08", ["TN", "SSET_n"], "TNEXT")
     g("32", ["SN", u["SSET"]], "SNEXT")
     g("08", ["INEXT1", "SSET_n"], "INEXT2")
-    nl.add("16823h", "U_FLAGS", CLK="CLK", EN="FAULT", CLR="VCC", OE="GND", D9="GND",
+    # also M
+    nl.add("16823h", "U_FLAGS", CLK="CLK", EN="FAULT", CLR="VCC", OE="GND",
            D1="NNEXT", Q1="NFLAG", D2="GND", D3="CNEXT", Q3="CFLAG",
            D4="VNEXT", Q4="VFLAG", D5="INEXT2", Q5="IFLAG", D6="SNEXT", Q6="SFLAG",
-           D7="TNEXT", Q7="TFLAG", D8="GND")
+           D7="TNEXT", Q7="TFLAG", D8="MNEXT", Q8="MFLAG", D9="GND")
     for f in ("C", "V", "S"):
         g("04", [f"{f}FLAG"], f"{f}FLAG_n")
+    # IPL and M (RFC 0029, 2; RFC 0040, 2.4): IPL from A[27:24] with LFM 1
+    # or 2 (a flags load that takes it, or SPL), from L at an interrupt's
+    # entry (SSET with LFM 1) unless it is the NMI, which that acknowledges;
+    # M from A28 with a flags load (TLOAD), MSGT at an interrupt's entry, 0
+    # at any other exception's
+    g("08", [u["LFM0"], "SSET_n"], "IPLA0")
+    g("08", [u["LFM1"], "SSET_n"], "IPLA1")
+    g("32", ["IPLA0", "IPLA1"], "IPLA")
+    g("04", [u["LFM1"]], "LFM1_n")
+    g("11", [u["SSET"], u["LFM0"], "LFM1_n"], "INTE")
+    g("08", ["INTE", "NMIT_n"], "IPLL")
+    g("02", ["NMIT_n", "INTE_n"], "NMIACK")
+    g("04", ["INTE"], "INTE_n")
+    m = nl.add("157", "U_IPLM", S="IPLA", G="GND")
+    for i in range(4):
+        m[f"{i + 1}A"], m[f"{i + 1}B"], m[f"{i + 1}Y"] = f"LT{i}", ABUS[24 + i], f"IPLN{i}"
+    g("02", ["IPLA", "IPLL"], "IPLHOLD")
+    g("32", ["IPLHOLD", "FAULT"], "IPLLD_n")
+    nl.add("16823h", "U_IPL", CLK="CLK", EN="IPLLD_n", CLR="VCC", OE="GND",
+           **{f"D{i + 1}": f"IPLN{i}" for i in range(4)}, **{f"Q{i + 1}": f"IPL{i}" for i in range(4)},
+           **{f"D{i}": "GND" for i in range(5, 10)})
+    # M: A28 with a flags load (the second section of T's multiplexer),
+    # cleared by SSET, MSGT at an interrupt's entry
+    g("08", ["INTE", "MSGT"], "MSGTE")
+    g("08", ["MN1", "SSET_n"], "MN2")
+    g("32", ["MN2", "MSGTE"], "MNEXT")
 
     nl.section("Condition latches")
     # CL as four bits, CL = none set (as Z): by CLSRC, the result zero, the

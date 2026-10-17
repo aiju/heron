@@ -27,7 +27,7 @@ The program suite on the register-transfer model, code and data in the CPU card'
 | strings (prints) | 5710 | 11895 | 2.08 | 1.66 ms | 291 ns | 8.33 ms |  |
 | vm | 592268 | 1978402 | 3.34 | 210.65 ms | 356 ns | 278.60 ms | 1.32x |
 | wordfreq | 65909 | 146528 | 2.22 | 18.16 ms | 276 ns | 36.90 ms | 2.03x |
-| interrupts (timer) | 10367 | 80138 | 7.73 | 7.98 ms | 770 ns | 20.60 ms |  |
+| interrupts (timer) | 10538 | 97480 | 9.25 | 9.30 ms | 883 ns | 20.60 ms |  |
 | c/arith | 72013 | 183550 | 2.55 | 23.00 ms | 319 ns |  |  |
 | c/bignum | 16444 | 65898 | 4.01 | 7.53 ms | 458 ns |  |  |
 | c/bst | 15289 | 38128 | 2.49 | 4.35 ms | 284 ns |  |  |
@@ -53,9 +53,9 @@ Each microinstruction's need from static timing analysis of the netlist (`ticks.
 
 | Ticks | Microinstructions | Executed | Share |
 |---|---:|---:|---:|
-| 4 | 3183 | 1898214 | 27.7% |
-| 5 | 1354 | 1200944 | 17.5% |
-| 6 | 1730 | 3528648 | 51.5% |
+| 4 | 3216 | 1898214 | 27.7% |
+| 5 | 1360 | 1200944 | 17.5% |
+| 6 | 1740 | 3528648 | 51.5% |
 | 7 | 20 | 62478 | 0.9% |
 | 8 | 6 | 12332 | 0.2% |
 | 9 | 3 | 144900 | 2.1% |
@@ -126,7 +126,7 @@ A refill is a cycle that fetches the next instruction's first word and decodes f
 
 ## Code over the bus
 
-The same programs with code and data on a memory card in slot 1 (a 32-bit card, RFC 0014), so every fetch and data access is a bus transfer; with the same length classes. Fetches from bus space go out only when the queue is short of the next instruction (a refill), as the prefetch would otherwise hold the bus for words a jump throws away. *With N words of cache*: the instruction cache for bus space, direct mapped by physical address, a word a line.
+The same programs with code and data on a memory card in region 1 (a 32-bit card, RFC 0037), so every fetch and data access is a bus transfer; with the same length classes. Fetches from bus space go out only when the queue is short of the next instruction (a refill), as the prefetch would otherwise hold the bus for words a jump throws away. *With N words of cache*: the instruction cache for bus space, direct mapped by physical address, a word a line.
 
 | Program | CPU card's RAM | over the bus | with 256 words of cache | with 4096 words of cache |
 |---|---:|---:|---:|---:|
@@ -178,7 +178,7 @@ From `timing.py`'s path estimate, not the netlist's timing that the rest of this
 
 ## The microcode
 
-6296 microinstructions of 144 bits; the decode table maps all 65,536 first parcels onto 2002 entry points.
+6345 microinstructions of 144 bits; the decode table maps all 65,536 first parcels onto 2011 entry points.
 
 | Routines | Microinstructions |
 |---|---:|
@@ -189,9 +189,9 @@ From `timing.py`'s path estimate, not the netlist's timing that the rest of this
 | SWI (a routine per number) | 261 |
 | the tentative instructions | 357 |
 | illegal instructions (unused slots in tables) | 294 |
-| reset, traps, interrupts, refill | 204 |
-| everything else | 244 |
-| **total** | 6296 |
+| reset, traps, interrupts, refill | 202 |
+| everything else | 295 |
+| **total** | 6345 |
 
 The tentative instructions' share:
 

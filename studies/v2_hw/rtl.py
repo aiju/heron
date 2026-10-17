@@ -19,7 +19,7 @@ length class's ticks, plus however long a bus transfer holds it.
 from collections import Counter
 
 from . import ucode as uc
-from .system import BusError, Fault
+from .system import Fault
 
 M32 = 0xFFFFFFFF
 
@@ -87,6 +87,7 @@ def cond_true(n, z, c, v, cc):
 
 
 GLB = 0x2000          # register file address of the G locations (each bank has its own)
+MSGR = 0x4000         # the message level's registers (RFC 0040, 2.6): their own sixteen
 
 
 class RTL:
@@ -109,7 +110,7 @@ class RTL:
         self.decode = list(decode) if decode is not None else self.mc.decode_table()
         self.lengths = tuple(lengths or self.mc.lengths)
         self.check = check
-        self.rf = [0] * 0x4000
+        self.rf = [0] * (MSGR + 32)
         self.R = self.T = self.TL = self.MAR = self.PC = self.FPC = 0
         self.Q0 = self.Q1 = self.V0 = self.V1 = 0
         self.FOK = self.FPPN = 0     # the fetch's translation: FPC's page, if valid
@@ -117,7 +118,13 @@ class RTL:
         self.LC = self.MQ = self.S33 = self.SGN = self.CL = 0
         self.n = self.z = self.c = self.v = self.i = self.t = 0
         self.s = 1
-        self.TS = self.irqs = self.irqp = 0
+        self.m = self.ipl = 0
+        self.TS = 0
+        # interrupts (RFC 0040, 2): the card's levels sampled at every edge
+        # (RQ, MSGQ, NMIQ); from them, a cycle later, the decision PEND
+        # with the level LT (0: the NMI) and MSGT, level 7 with a message
+        self.RQ = self.MSGQ = self.NMIQ = 0
+        self.PEND = self.LT = self.MSGT = 0
         self.UBRD = 0                # UBR of the cycle before: this cycle reads the user bank
         self.CTX = self.BANK = 0
         self.FSR = self.FAR = self.FK = 0
@@ -147,8 +154,9 @@ class RTL:
         return n.name if n else "?"
 
     def flags_word(self):
-        return (self.v | (self.c << 1) | (self.z << 2) | (self.n << 3) | (self.i << 4)
-                | (self.s << 5) | (self.t << 6))
+        """sr (RFC 0029, 2)."""
+        return (self.v | (self.c << 1) | (self.z << 2) | (self.n << 3) | (self.ipl << 24)
+                | (self.m << 28) | (self.t << 29) | (self.i << 30) | (self.s << 31))
 
     def rf_addr(self, sel, k, user):
         """Register file address for a source (0 d, 1 r, 2 SX, 3 constant)."""
@@ -163,6 +171,8 @@ class RTL:
         bank = self.BANK if (user or not self.s) else 0
         if reg >= uc.G:
             return GLB | (bank << 5) | (reg - uc.G)
+        if self.m and self.s and not user:
+            return MSGR | reg        # the message level's registers
         return (bank << 5) | reg
 
     def queue_words(self):
@@ -201,9 +211,6 @@ class RTL:
         if f["AR2"]:
             sina = (0, R >> 31, self.c, self.MQ >> 31)[f["SINA"]]
             A = ((R << 1) | sina) & M32
-            drv += 1
-        if f["AMAR"]:
-            A = MAR
             drv += 1
         if drv > 1:
             self.err("A bus contention")
@@ -250,8 +257,6 @@ class RTL:
                 itlb = (0, 0)
                 if not self.V1:
                     fetch_fault = (0, e.fsr, self.FPC)
-            except BusError:
-                fetch_fault = (2, 0, self.FPC)
         elif self.FOK:
             # a prefetch, with the kept translation: into the queue if Q1 is
             # free and the word is fast to reach
@@ -362,7 +367,14 @@ class RTL:
         if bx == 1:
             put32(self.MQ)
         elif bx == 2:
-            lanes[0].append(self.flags_word())
+            fw = self.flags_word()
+            lanes[0].append(fw & 0xFF)
+            lanes[2].append(0)
+            lanes[3].append(fw >> 24)
+        elif bx == 6:
+            lanes[0].append(4 if self.LT == 0 else 0x40 + 4 * (self.LT - 1))
+        elif bx == 7:
+            put32(sysm.msg_word())
         elif bx == 3:
             lanes[0].append(self.FSR)
         elif bx == 4:
@@ -375,11 +387,8 @@ class RTL:
         # ---- memory data, now that the address side is known
         if data_access and fault is None:
             if reading:
-                try:
-                    D, h = sysm.read(pa, size, VA, self)
-                    hold += h
-                except BusError:
-                    fault = (2, 0, VA)
+                D, h = sysm.read(pa, size, VA, self)
+                hold += h
             elif mem == 2:
                 pass                       # after the A bus has the store data
         if lanes_t is not None:
@@ -462,10 +471,7 @@ class RTL:
         if mem == 2 and fault is None:
             if A is None:
                 self.err("a store with nothing on the A bus")
-            try:
-                hold += sysm.write(pa, size, MAR, A, self)
-            except BusError:
-                fault = (2, 0, MAR)
+            hold += sysm.write(pa, size, MAR, A, self)
         if mem == 5:
             if chk and not bfull:
                 self.err("map write from a floating B bus")
@@ -514,13 +520,13 @@ class RTL:
             y = (f["NEXT"] & ~15) | ((QH >> 8) & 15)
         elif seq == uc.SEQ_HALT:
             y = f["NEXT"]
-            if self.irqp:
+            if self.PEND:
                 forced = "irq"
                 y = uc.IRQ_ADDR
         else:
             if self.TS:
                 forced, y = "trace", uc.TRACE_ADDR
-            elif self.irqp:
+            elif self.PEND:
                 forced, y = "irq", uc.IRQ_ADDR
             else:
                 # the instruction's first parcel in the queue, but for a
@@ -541,6 +547,7 @@ class RTL:
             if kind == 0:
                 self.FSR = fsr
         commit = not FAULT
+        i_now, ipl_now = self.i, self.ipl
         if commit:
             if f["RFWE"]:
                 if chk and not alu_ok:
@@ -588,11 +595,9 @@ class RTL:
             if ldsx == 1:
                 self.SX = (IR >> 12) & 15
             elif ldsx == 2:
-                self.SX = (IR >> 8) & 15
+                self.SX = (self.SX + 1) & 15
             elif ldsx == 3:
                 self.SX = (QH >> 12) & 15
-            elif f["SXINC"]:
-                self.SX = (self.SX + 1) & 15
             ldex = f["LDEX"]
             if ldex == 1:
                 self.EX = (IR >> 8) & 15
@@ -648,12 +653,29 @@ class RTL:
                 if self.refill_from is not None:
                     self.refill_from[(jump, self.mc.by_addr[self.uaddr].name)] += 1
         self.UBRD = f["UBR"]
-        # interrupt request: synchronise, then pending = request & I (next)
-        self.irqp = self.irqs & self.i
-        self.irqs = sysm.irq(self)
+        # interrupts: the decision from the levels sampled at the last edge,
+        # IPL and I as they are in this cycle; LT and MSGT hold from the
+        # interrupt entry's first cycle (SSET) until I is set again or an
+        # NMI comes, so that the entry sees the level it was taken for
+        L = self.RQ.bit_length() - 1 if self.RQ & 0x1FE else 0
+        if not f["SSET"] and (i_now or self.NMIQ):
+            self.LT = 0 if self.NMIQ else L
+            self.MSGT = int(L == 7 and self.MSGQ and not self.NMIQ)
+        self.PEND = int(bool(self.NMIQ or (i_now and L > ipl_now)))
+        # the levels as the edge samples them, and only after it the card's
+        # changes at this edge: the CPU's writes to its registers, the
+        # message register released, the NMI acknowledged, the timer
+        self.RQ = sysm.levels() & 0x1FE
+        self.MSGQ = int(sysm.msg_full())
+        self.NMIQ = int(sysm.nmi())
+        sysm.edge()
+        if commit and f["BX"] == 7:
+            sysm.msg_release()
+        if commit and f["SSET"] and f["LFM"] == 1 and not self.LT:
+            sysm.nmi_ack()
 
         if seq == uc.SEQ_HALT and forced is None and not FAULT:
-            if not self.i or not sysm.can_interrupt():
+            if not (self.i or self.NMIQ) or not sysm.can_interrupt():
                 self.halted = True
                 self.reason = "HALT"
         k = self.lengths[f["LCL"]]
@@ -673,18 +695,27 @@ class RTL:
 
     def _flags(self, f, RES, F, C32, OVF, zero, A, B, fill):
         fnz = f["FNZ"]
+        lfm = f["LFM"]
         if fnz == 3:
             # a flags load from the A bus, masked by LFM
             if A is None:
                 self.err("flags loaded from a floating A bus")
-            lfm = f["LFM"]
+            if f["SSET"]:
+                self.err("a flags load in an exception's entry")
             self.n, self.z = (A >> 3) & 1, (A >> 2) & 1
             self.c, self.v = (A >> 1) & 1, A & 1
             if lfm >= 1:
-                self.i = (A >> 4) & 1
-                self.t = (A >> 6) & 1
+                self.i = (A >> 30) & 1
+                self.t = (A >> 29) & 1
+                self.m = (A >> 28) & 1
+                self.ipl = (A >> 24) & 15
             if lfm == 2:
-                self.s = (A >> 5) & 1
+                self.s = A >> 31
+        elif lfm == 1 and not f["SSET"]:
+            # SPL: IPL from A[27:24], nothing else
+            if A is None:
+                self.err("IPL loaded from a floating A bus")
+            self.ipl = (A >> 24) & 15
         elif fnz:
             nbit = (31, 15, 7)[f["NSEL"]]
             n = (RES >> nbit) & 1
@@ -721,8 +752,13 @@ class RTL:
                 self.i = 0
         if f["SSET"]:
             # exception entry: supervisor mode, interrupts and tracing off,
-            # and no trace pending for the instruction that trapped
+            # and no trace pending for the instruction that trapped; out of
+            # the message level's registers, or into them; an interrupt's
+            # IPL (the NMI is acknowledged at the edge)
             self.s, self.i, self.t, self.TS = 1, 0, 0, 0
+            self.m = self.MSGT if lfm == 1 else 0
+            if lfm == 1 and self.LT:
+                self.ipl = self.LT
 
     def ucond(self, cnd):
         """A microcode branch condition."""
@@ -756,6 +792,8 @@ class RTL:
             return self.MQ & 1
         if cnd == 14:
             return self.R & 1
+        if cnd == 15:
+            return self.MSGT
         self.err(f"unknown condition {cnd}")
 
     def cc_of(self, ccb):
