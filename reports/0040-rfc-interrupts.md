@@ -147,7 +147,7 @@ This restates RFC 0029's section 7, with this RFC's changes.
 **decided** (Emily, 2026-10-16).
 
 - **VBR** is a supervisor special register. Which number it takes is
-  **open**: 15, if `bkpt` (itself still open) moves.
+  **open**: 15, if `bkpt` (itself still open) moves. v2_hw uses 15.
 - **Every vector is VBR plus its offset** in RFC 0029's table: `0x04` the
   non-maskable interrupt, `0x08`–`0x24` the exceptions, `0x40` + 4(L − 1)
   level L, `0x100` + 4n `SWI #n`.
@@ -169,27 +169,31 @@ This restates RFC 0029's section 7, with this RFC's changes.
   entries: VBR + `0x100` + 4 × source. That gives up to 256 sources, each
   with a handler of its own, without a table of their own.
 - **The message comes with it:** the entry copies the source into `r1`
-  and the 24-bit message into `r2` of the handler's bank, then releases
-  the register. How the microcode reaches its own card's register is
+  and the 24-bit message into `r2` of the handler's registers, then
+  releases the register. How the microcode reaches its own card's register is
   RFC 0031's business.
 - **Level 7 without a message,** from a write to the request register's
   bit 7, goes to level 7's own vector.
 - **Sources and `SWI`s share numbers.** The kernel keeps a range for
   interrupt sources, tentatively 128–255, and an `SWI` from user mode in
   that range raises a privilege violation. `SWI` already has an entry per
-  number in the decode ROM, so the check costs nothing.
+  number in the decode table, so in v2_hw the check costs one control
+  store word and no cycles ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-swi-numbers-kept-for-sources)).
 
 #### 2.4 Banks
 
 - **Exceptions and interrupts enter bank 0,** as in RFC 0029, except one.
-- **The message level enters a bank of its own** (**tentative**, Emily,
+- **The message level has registers of its own** (**tentative**, Emily,
   2026-10-16), so that its handler saves nothing. It pushes the PC and
-  `sr` on that bank's `sp`. Which bank is **open**: 255, say, the last of
-  Fen's thread banks.
+  `sr` on their `sp`. Which registers is **open**: a bank, 255 say, the
+  last of Fen's thread banks; or sixteen registers outside the banks,
+  sharing the constants and special registers, as v2_hw builds them
+  ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-message-levels-registers)).
 - **`sr`'s bit 28,** reserved now, becomes M: set while in the message
-  level's bank, kept in the `sr` an exception pushes, and restored by
-  `RTI`. A level 8 interrupt during a message handler enters bank 0 as
-  usual, and its `RTI` goes back to the message bank through M.
+  level's registers, kept in the `sr` an exception pushes, and restored
+  by `RTI`. A level 8 interrupt during a message handler enters bank 0 as
+  usual, and its `RTI` goes back to the message level's registers through
+  M.
 
 #### 2.5 The non-maskable interrupt
 
@@ -200,7 +204,9 @@ processor's watchdog, or a debugger. What it does to I and IPL is open.
 **Recommended:** the control register's NMI bit is a latch that the
 entry clears, so that one write is one NMI, and the entry does what every
 exception's does: it clears I and T and leaves IPL alone. Setting IPL to
-8 as well would matter only to a handler that executes `EI`.
+8 as well would matter only to a handler that executes `EI`. v2_hw builds
+the recommendation, with the latch as the control register's bit 3;
+setting IPL to 8 would cost it about 1 package and no cycles.
 
 ### 3. The CPU card
 
@@ -211,8 +217,8 @@ offsets are a proposal.
 
 | Offset | Register | Access |
 |---|---|---|
-| `0x0000` | Control: RUN, RESET, STEP, NMI; status ([RFC 0037, 9](0037-rfc-system-and-io-bus.md#9-cpu-cards)) | read, write |
-| `0x1000` | Board information: RAM size, BCLK's period, the region N (so the CPU's number), boot flags | read |
+| `0x0000` | Control: RUN, RESET, STEP, NMI (bit 3 in v2_hw); status ([RFC 0037, 9](0037-rfc-system-and-io-bus.md#9-cpu-cards)) | read, write |
+| `0x1000` | Board information: RAM size, BCLK's period, the region N (so the CPU's number), boot flags. Proposed: the region in bits 3–0, log2 of the RAM in MB in 7–4, BCLK's period in ns in 15–8 | read |
 | `0x2000` | Request register, set: the levels whose bits are 1 are raised | write |
 | `0x2004` | Request register, clear: the levels whose bits are 1 are lowered | write |
 | `0x2008` | Request register: the levels requested | read |
@@ -226,7 +232,10 @@ offsets are a proposal.
 
 - **The CPU reaches its own card's registers locally,** without the
   system bus, so a handler never waits for the bus to clear its level or
-  read the timer.
+  read the timer. In v2_hw a local access is an ordinary load or store,
+  about 240 ns quicker to read than a bus transfer and 300 ns to write.
+- **Parts:** about 16–21 chips in all, by the hardware session's estimate
+  ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-card)).
 - **RESET** clears the request register, frees the message register and
   clears the timer.
 
@@ -241,7 +250,9 @@ offsets are a proposal.
   card's own sources for it is: the timer at 6
   ([3.3](#33-the-timer)), the message register at 7
   ([3.2](#32-the-message-register)), and an optional profiling tick at 8.
-- **Parts:** about 1–2 chips.
+- **Parts:** about 4–5 chips: a register, its gates and a read buffer. A
+  74x259 addressable latch, raising or lowering one level a write, would
+  take about 1½ (**open**).
 
 #### 3.2 The message register
 
@@ -274,8 +285,10 @@ It is free, claimed or full:
 - **The bus has no master IDs,** so the card can't tell who claimed it.
   Only the claimant writes, by convention. A sender that claims and never
   writes holds the register until a release.
-- **Parts:** about 4–5 chips: the 32-bit register, the two state bits,
-  the decode and a read path.
+- **Parts:** about 4–6 chips: the two 16-bit halves, each with its own
+  write strobe, the state bits, and buffers to read it back, which are
+  needed only if a master other than the CPU reads its contents. The CPU
+  reads it over its own datapath.
 
 #### 3.3 The timer
 
@@ -294,12 +307,15 @@ The hardware session's design.
   level 8, so that the PC can be sampled even inside message handlers.
 - **Reading:** one word read of all 32 bits. How it stays consistent
   while the counter carries is **open**: a snapshot latched as the read
-  starts, or reading the high half twice.
+  starts, or reading the high half twice. **Recommended:** the snapshot,
+  free with 74HC590 counters, taken at the low half's read so that a
+  16-bit master reads one value
+  ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-timer-a-snapshot)).
 - **BCLK's period** is in the board information, for the kernel to scale
   the count.
 - **No compare register:** a deadline finer than the tick is a request to
   the I/O processor ([4.5](#45-requests-for-time)).
-- **Parts:** about 4–6 chips.
+- **Parts:** about 5 chips: four 74HC590s and the flags.
 
 ### 4. The I/O processor
 
@@ -466,7 +482,8 @@ Software, not hardware: a convention for Fen.
 | The I/O processor seeing an event | A CPU's level bit, or its message | 2–3 µs: the routing and a bus write |
 | … with another master holding the bus | | up to about 1.5 µs more (VRAM reads, locked sequences), or about 12 µs for a window read of a slow device |
 | A doorbell | The I/O processor reading the ring | 1–3 µs, the slice it is in |
-| A message | Its handler running, even over the kernel's critical sections | the CPU's entry, perhaps 5–10 µs (*estimate*) |
+| A message | Its handler running, even over the kernel's critical sections | the CPU's entry, 0.94 µs in v2_hw, after the instruction in progress and any exception being entered |
+| A CPU's level bit | Its handler running | the CPU's entry, 0.64 µs in v2_hw, once I and IPL let it in |
 | A slow level | A user-level driver running | 85–107 µs ([report 0020](0020-report-operating-system.md#interrupts-and-devices)'s 500–640 cycles at Fen's 6 MHz), up to about 1 ms while the kernel holds slow levels off ([report 0036](0036-report-fen.md#3-what-it-costs)) |
 | A lazy event | The kernel seeing it | up to a tick, 8–16 ms, or sooner at a context switch |
 
@@ -477,6 +494,8 @@ at the shell and 0.7 ms on the desktop, but up to 46 ms while a large
 second; and a lazy event waits a few milliseconds while the machine is
 busy ([fen-latency.md](0040-rfc-interrupts/fen-latency.md), with the
 numbers in [fen-latency-results.md](0040-rfc-interrupts/fen-latency-results.md)).
+The CPU's entries are measured on v2_hw's RTL model
+([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#time)).
 
 The rule for devices that follows:
 
@@ -496,8 +515,9 @@ The rule for devices that follows:
   I/O processor's events, the other CPUs, the timer and messages.
 - **Eight levels anyway** (**decided**, Emily, 2026-10-16). The hardware
   session found that eight real levels cost about the same as three wired
-  to fixed levels, and that ARM's two masks would save a few chips. Eight
-  real levels give:
+  to fixed levels, and that ARM's two masks would save a few chips; built
+  in v2_hw, the eight levels take about 10.3 packages of the core's 382
+  ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-core)). Eight real levels give:
   - software interrupts at a low level for deferred work;
   - a level for each kind of event, so a handler knows the source without
     looking;
@@ -508,9 +528,9 @@ The rule for devices that follows:
 
 | Design | Chips on the CPU | The instruction set | Status |
 |---|---|---|---|
-| **Eight real levels** | as RFC 0029 needs them | unchanged | **decided** |
-| Eight in the instruction set, three wired at fixed levels | about the same | unchanged | **not recommended**: no saving |
-| Two masks, as ARM's IRQ and FIQ | a few fewer | IPL and `SPL` go; an F bit in `sr` | **not recommended** |
+| **Eight real levels** | about 10.3 packages, and 1 to read IPL out of `sr` | unchanged | **decided** |
+| Eight in the instruction set, three wired at fixed levels | about 2.5 fewer | unchanged | **not recommended**: little saving |
+| Two masks, as ARM's IRQ and FIQ | about 4–5 for all the interrupt logic, against about 11 | IPL and `SPL` go; an F bit in `sr` | **not recommended** |
 
 ### 10. The message register
 
@@ -566,7 +586,7 @@ The rule for devices that follows:
 
 | Design | Cost | |
 |---|---|---|
-| **A vector base register** | a special register, and an OR in the entry | **decided**; as the 68010's VBR. It also helps a hypervisor (RFC 0029's open question on virtualisation) |
+| **A vector base register** | a special register, and an OR in the entry: in v2_hw no chips, and 18 control store words, since the traps' vectors are kept pre-ORed with it | **decided**; as the 68010's VBR. It also helps a hypervisor (RFC 0029's open question on virtualisation) |
 | One table, shared | none | every exception of the second CPU goes over the bus |
 | A private low page on each CPU card | ~2–3 chips per card | physical 0–4 KB means something different to each CPU, which DMA and debugging must remember |
 
@@ -635,7 +655,7 @@ Instead:
 |---|---|
 | [RFC 0029](0029-rfc-draft-2-system.md) | VBR (section 4); vectors relative to VBR (6); `sr`'s bit 28 as M (2, tentative); section 7 points here |
 | [RFC 0028](0028-rfc-draft-2-isa.md) | `SWI`s in the range kept for interrupt sources are privileged (tentative) |
-| [RFC 0031](0031-rfc-draft-2-cpu.md) | Its open question 7: build the eight levels, IPL and `SPL`, VBR, and the message level's entry and bank |
+| [RFC 0031](0031-rfc-draft-2-cpu.md) | Its open question 7: build the eight levels, IPL and `SPL`, VBR, and the message level's entry and registers. v2_hw has built them: about 18 packages on the core, and the suite's time unchanged ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md)) |
 | [RFC 0037](0037-rfc-system-and-io-bus.md) | Sections 8 and 9 point here; the WINDOW bit leaves section 17's table; section 20's window writes are posted |
 | [RFC 0027](0027-rfc-io-coprocessor.md) | Sections 7.1, 7.3 and 7.4 point here |
 | [RFC 0009](0009-rfc-ideas-io.md) | The tickless timer gives way to this one |
@@ -648,13 +668,25 @@ For Emily:
 1. **The non-maskable interrupt:** its sources, and what it does to I and
    IPL (to be confirmed).
 2. **VBR's number** among the special registers: 15, moving `bkpt`?
-3. **The message level's bank:** which one, 255 say? And the message in
+   v2_hw uses 15.
+3. **The message level's registers:** a bank, 255 say, for about 2
+   packages, but with the special registers read stale from it unless
+   every `MTSR` writes both, and a bank lost to processes; or sixteen of
+   their own, sharing the constants and special registers, for about 4.4,
+   as v2_hw builds them
+   ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-message-levels-registers))? And the message in
    `r1` and `r2`?
 4. **The `SWI` numbers kept for interrupt sources:** 128–255?
 5. **The CPU card's register offsets** of [section 3](#3-the-cpu-card).
 6. **Reading the timer consistently:** a snapshot, or reading twice?
+   The snapshot is recommended: it is free with 74HC590s.
 7. **The tick's default jumper:** bit 16, about 127 Hz at 60 ns?
 8. **Defaults for batching and lazy deadlines.**
 9. **Change detection** on the I/O processor, about 4 chips?
 10. **Requests for time** from the I/O processor ([4.5](#45-requests-for-time)),
     in place of a compare register?
+11. **The request register:** set and clear masks, about 4–5 chips, or a
+    74x259 addressable latch, one level a write, about 1½? Every writer
+    so far raises one level at a time.
+12. **The board information's layout:** the region in bits 3–0, log2 of
+    the RAM in MB in 7–4, BCLK's period in ns in 15–8?
