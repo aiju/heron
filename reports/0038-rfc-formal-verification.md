@@ -714,7 +714,8 @@ register file was given the hardware's shape: four byte-wide arrays,
 the same term on both sides, the solver only had to prove the adders
 equal, and ADD took 6.6 seconds. Memory had the same treatment from the
 start: the specification's bytes live in the arrays of the hardware's
-two RAM chips.
+two RAM chips. A byte goes to the chip the hardware would write, where
+the address or the assumptions say which ([6](#6-what-it-costs)).
 
 The goals are proved a group at a time: registers, the copies, flags,
 memory, control, obligations. Each group is checked under the path's
