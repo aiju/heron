@@ -70,11 +70,14 @@ As the study builds them:
 
 The I/O processor study and v2_hw ([cpu-costs.md](cpu-costs.md)) model
 the same CPU card, and agree on its offsets and on the control store's
-window. Two differences remain, both left open by RFC 0040:
+window. They differed in two places, both left open by RFC 0040:
 
 - **The request register's bits:** the I/O processor study has bit L − 1
-  for level L (bits 0–7, as Fen's board has its mask); v2_hw has bit L
+  for level L (bits 0–7, as Fen's board has its mask), and v2_hw had bit L
   (bits 1–8). The I/O processor writes these bits for every slow event.
+  v2_hw has since moved to bit L − 1: the levels fit a byte, a 16-bit
+  master writes them in one halfword, and a 74x259 indexes them with
+  three bits.
 - **The board information:** four words in the I/O processor study (the
   RAM's size, BCLK's period in ns, the region, the boot flags, at +0, +4,
   +8 and +`0xC`); one halfword in v2_hw's proposal. The I/O processor

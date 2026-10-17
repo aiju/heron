@@ -243,7 +243,10 @@ offsets are a proposal.
 
 - **Eight bits, one per level.** A write to the set address raises the
   levels whose bits are 1, and a write to the clear address lowers them.
-  Which bit is which level is **open**: bit L − 1 for level L, or bit L
+  Which bit is which level is **open**. Proposed: bit L − 1 for level L,
+  bits 0–7, as both studies have it, so that the eight levels fit a byte,
+  a 16-bit master writes them in one halfword and a 74x259 indexes them
+  with three bits
   ([iop-latency.md](0040-rfc-interrupts/iop-latency.md#where-the-studies-differ)).
   No writer reads it first, so any number of writers can't collide.
 - **Any master** can write it: the I/O processor for its events, another
@@ -717,5 +720,5 @@ For Emily:
     3–0, log2 of the RAM in MB in 7–4, BCLK's period in ns in 15–8 (v2_hw);
     or four words, the RAM's size, BCLK's period, the region and the boot
     flags (the I/O processor study)?
-13. **The request register's bits:** bit L − 1 for level L (the I/O
-    processor study, and Fen's board), or bit L (v2_hw)?
+13. **The request register's bits:** bit L − 1 for level L, as both
+    studies and Fen's board have it, or bit L?
