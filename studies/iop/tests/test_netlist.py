@@ -29,11 +29,13 @@ class Netlist(unittest.TestCase):
         """The window onto the I/O bus, against a second master on the
         bench, while ucode/hwwin.uc uses the I/O bus itself: posted writes
         one after another, reads, the shared RAM between; the program's
-        own reads as the model's."""
+        own reads as the model's; its timing table writes, which wait for
+        the window's accesses, in both copies of the table."""
         out, reads, want, regs, model_regs = hw.check_window()
         self.assertEqual(out["violation_total"], 0)
         self.assertEqual(reads, want)
         self.assertEqual(regs, model_regs)
+        self.assertEqual(out["tables"], [hw.WIN_TABLE, hw.WIN_TABLE])
 
     def test_window_bound(self):
         """The window's bound, shortened to 20 clocks: a read of a device

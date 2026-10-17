@@ -55,8 +55,7 @@ WINDOWS = {"LATE": (0.5, _late_offset(), 0.0, 0.0)}
 # read and write latches between it and T would otherwise make a loop that
 # only the I/O side's state cuts), and the window's copy of the timing
 # table's address (the window's register, set a clock before its access
-# starts, as long as the firmware doesn't write the table while a window
-# access is under way: a rule, else the core's write would move it)
+# starts; a table write, which moves it, waits for the window's access)
 STEADY = frozenset(card.IOD + [f"WTA{i}" for i in range(4)])
 
 
@@ -182,19 +181,22 @@ class Analysis:
         # in a second half, and in a first half that uses T (quiet())
         if ph == 1:
             c.update(STAKE=0, STAKE_n=1)
-        # the firmware writes the timing table only while the I/O side is
-        # idle (README, the timing table): so in such a microinstruction
-        # no access is in its states
+        # a timing table write's second half comes after TTWS has seen the
+        # I/O side idle and kept the window's accesses from starting: no
+        # access is under way. TTWS is set only in a table write
         if c.get("pTTW") == 1:
-            c.update(STB=0, STB_n=1, HLD=0, HLD_n=1, WSEL=0, WSEL_n=1, WPEND=0, WPEND_n=1,
-                     **{f"CNT{i}": 0 for i in range(8)})
+            if ph == 1:
+                c.update(STB=0, STB_n=1, HLD=0, HLD_n=1, WSEL=0, WSEL_n=1, TTWS=1, TTWS_n=0)
+        else:
+            c.update(TTWS=0, TTWS_n=1)
         return c
 
     def quiet(self, w, ph):
         """Nets that can't have changed at the edge that began this case:
         a gate enabled only in the other half that is off now; in a first
         half that reads T onto R, no device or BA left on T by the second
-        half before (uasm's t_handovers rule); STAKE (constants())."""
+        half before (uasm's t_handovers rule); STAKE (constants()); TTWS
+        in a second half, and the I/O side's start in a table write's."""
         out = {}
         c = Case(self.N, self.constants(w, ph), frozenset())
         for n in self.halfgates[ph]:
@@ -202,10 +204,21 @@ class Analysis:
                 out[n] = 1
         if ph == 0 and uasm.field(w, "RS") == uasm.RS_T:
             out.update({f"DRDY{k}B": 0 for k in range(3)}, BAOB_n=1)
-        # STAKE is 0 in every second half, so in a first half that uses T
-        # it stayed 0 at the E2 that began it
-        if ph == 0 and c.net("TNONE")[0] == 0:
+        # STAKE is 0 in every second half, and the slave side never takes T
+        # in a microinstruction that uses it: so in one that does, STAKE
+        # stays 0 all through
+        if c.net("TNONE")[0] == 0:
             out.update(STAKE=0, STAKE_n=1)
+        # TTWS changes only at the end of a table write's first half's
+        # clocks but the last, and at its E2
+        if ph == 1:
+            out.update(TTWS=c.net("TTWS")[0], TTWS_n=c.net("TTWS_n")[0])
+        # and in a table write's second half the I/O side is idle (above),
+        # in S0 with CNT at 0, as it counts in S0 only while an access's
+        # setup goes on: T on the tables' data reaches the comparators,
+        # but no access starts and CNT stays
+        if ph == 1 and c.net("pTTW")[0] == 1:
+            out.update(CZC=0, GOSTB=0)
         return out
 
     def case(self, w, ph):

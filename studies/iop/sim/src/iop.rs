@@ -566,6 +566,14 @@ impl Iop {
         let first_io = u.rs == RS_T && u.t == T_FROM_DEV;
         let mut e1 = start + if first_io && io { len + 1 } else { 1 };
         self.stats.stall_io += if first_io && io { len } else { len - 2 };
+        // A timing table write switches the tables at the end of its first
+        // half's first clock with the I/O side idle, and its first half
+        // ends the clock after.
+        if u.uses_dev() && u.dev() == DEV_TTAB && matches!(u.t, T_DEV_BA | T_DEV_F) {
+            let switched = start.max(self.io_free);
+            self.stats.stall_io += switched + 2 - e1;
+            e1 = switched + 2;
+        }
         if matches!(u.t, T_AB_BA | T_DEV_BA) && self.ba_ready > e1 {
             self.stats.stall_ba += self.ba_ready - e1;
             e1 = self.ba_ready;

@@ -205,7 +205,11 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     # (system_bus: the WAIT line's own term is last, as it comes late); E2
     # unless the second half waits, on registered signals alone, as E2EN
     # goes to every register that loads at E2
-    g("00", ["pF0", "IODONE_n"], "STALL1_IO_n")
+    # (and a timing table write's until a clock after it has switched the
+    # tables, once the I/O side is idle: timing_table)
+    g("08", ["pF0", "IODONE_n"], "STALL1_IOA")
+    g("08", ["pTTW", "TTWS_n"], "STALL1_TTW")
+    g("02", ["STALL1_IOA", "STALL1_TTW"], "STALL1_IO_n")
     g("21", ["PH_n", "STALL1_IO_n", "BSTALL_n", "WSTALL_n"], "E1EN")
     g("08", ["PH", "STALL2"], "PHSTAY")
     g("32", ["E1EN", "PHSTAY"], "PH_D")
@@ -464,9 +468,9 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
                    CE="SRA19" if b == 0 else "SRA19_n", **pins)
 
     nl.section("Timing table")
-    # addressed by X[11:8]. A write: the SRAMs' outputs off for the whole
-    # microinstruction, T onto their data in the second half, and the strobe
-    # from E1 to BCLK's fall. An access reads SETUP and STROBE while its
+    # addressed by X[11:8]. A write: the SRAMs' outputs off from the switch
+    # (below) to its end, T onto their data in the second half, and the
+    # strobe from E1 to BCLK's fall. An access reads SETUP and STROBE while its
     # microinstruction runs, so X is still its; HOLD is latched at the
     # strobe's end, as X may change after.
     # (TTSEL predecoded: the tables' enables and the window copy's address
@@ -476,9 +480,21 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     # A second copy, written with it, serves the window's accesses, by the
     # window's device: a multiplexer in front of the first would lengthen
     # an access's first clock, which starts from X
-    g("32", ["pTTW", "WSEL"], "TTOEC_n")
-    g("32", ["pTTW", "WSEL_n"], "TTOEW_n")
-    nl.add("157", "U_TTWA", S="pTTW", G="GND", **{f"{i + 1}A": f"WA{8 + i}" for i in range(4)},
+    # The write switches them (TTWS) at the end of its first half's first
+    # clock with the I/O side idle, neither the core's access nor the
+    # window's under way, and then no window access starts; its first half
+    # ends the clock after, so that the copies' addresses are settled
+    # before the strobe, and TTWS clears at its E2. (Its second half is
+    # always one clock: neither a device-0 read nor AB's load can be in it.)
+    g("08", ["S0", "WPEND_n"], "TTIDLE")
+    g("32", ["TTIDLE", "TTWS"], "TTWSA")
+    g("11", ["pTTW", "PH_n", "TTWSA"], "TTWS_D")
+    nl.add("74", "U_TTWQ", part="74ABT74", **{
+        "1D": "TTWS_D", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "TTWS", "1QN": "TTWS_n",
+        "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+    g("32", ["TTWS", "WSEL"], "TTOEC_n")
+    g("32", ["TTWS", "WSEL_n"], "TTOEW_n")
+    nl.add("157", "U_TTWA", S="TTWS", G="GND", **{f"{i + 1}A": f"WA{8 + i}" for i in range(4)},
            **{f"{i + 1}B": XQ[8 + i] for i in range(4)}, **{f"{i + 1}Y": f"WTA{i}" for i in range(4)})
     for h in range(2):
         pins = {f"A{i}": XQ[8 + i] if i < 4 else "GND" for i in range(15)}
@@ -946,7 +962,9 @@ def window(nl, bound=WINDOW_BOUND):
     g("08", ["WPEND", "WDONE_n"], "WPSTAY")
     g("08", ["WACC", "WHI_n"], "WACCIO")
     g("32", ["WACCIO", "WPSTAY"], "WPEND_D")
-    g("04", ["IOREQ"], "IOREQ_n")
+    # (not while the core's access goes on, nor once a timing table write
+    # has switched the tables)
+    g("02", ["IOREQ", "TTWS"], "IOREQ_n")
     g("21", ["WPEND", "WSEL_n", "S0", "IOREQ_n"], "WGO")
     g("08", ["WSEL", "WDONE_n"], "WSSTAY")
     g("32", ["WGO", "WSSTAY"], "WSEL_D")
@@ -996,6 +1014,10 @@ def add_bench(nl, master=False):
             v[f"I{i}"] = M_IN[i] if i < len(M_IN) else "GND"
     nl.add("pullup", "X_PU0", P1="SB_WAIT_n", P2="SB_RESET_n", P3="SB_ATN0_n", P4="SB_ATN1_n",
            P5="SB_ATN2_n", P6="SB_ATN3_n", P7="SB_GNT3_n", P8="SB_COLD_n")
+    # (and the owner's lines, which float between owners: the backplane's
+    # termination)
+    nl.add("pullup", "X_PU1", P1="SB_START_n", P2="SB_WRITE_n", P3="SB_BE0_n", P4="SB_BE1_n",
+           P5="SB_LOCK_n")
     # the backplane's power supply supervisor: COLD at power-up, and RESET
     # with it (RFC 0037, 7)
     nl.add("por", "X_POR", RST="SB_COLD_n", params={"release_ps": POR_PS})

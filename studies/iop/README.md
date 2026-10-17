@@ -284,11 +284,11 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   INT and ATN lines registered before the event ports (they change at
   any time), the shared RAM's bank select in both polarities, slave
   reads pending a clock as writes do, a few gates folded. What it
-  assumes, besides the parts' data: the firmware writes the timing
-  table only while the I/O side is idle, which no hardware enforces;
-  and a microinstruction that puts a device or BA onto T in its second
-  half isn't followed by one that reads T in its first, which the
-  microassembler enforces (`uasm.t_handovers`). Not covered: hold
+  assumes, besides the parts' data: a microinstruction that puts a
+  device or BA onto T in its second half isn't followed by one that
+  reads T in its first, which the microassembler enforces
+  (`uasm.t_handovers`); and the I/O side is idle in a timing table
+  write's second half, which its interlock makes so (below). Not covered: hold
   times (the simulation at the fast corner covers them, below), the I/O
   bus's devices (the timing table times them in clocks), the
   asynchronous parts (doorbells' sets, the synchronisers, the watchdog,
@@ -369,15 +369,26 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   WAIT is registered for the bus's 16 ns, and the address clock's decode
   (a 74F521) leaves no time for more than "this is the window" before it:
   so every access holds WAIT in its first data clock, a write takes 2
-  data clocks and a read 3 more than its I/O bus access. The window's
-  copy of the timing table is addressed through a multiplexer that a
-  table write switches: so the firmware's rule above. An access at
+  data clocks and a read 3 more than its I/O bus access. An access at
   4r + 2, a word's upper half, reaches nothing: a write is dropped, a
   read answers 0 from the data register held clear. An access still
   waiting 200 clocks after its address clock is cut off (two 74F163s):
   a write dropped, a read answering what the data register holds; an I/O
   bus access already under way goes on (`hw.check_window_bound`, with
   the bound shortened).
+- **Timing table writes** wait for the I/O side: the window's copy of
+  the table is addressed through a multiplexer that a write switches,
+  and an access under way needs its entry. A flip-flop (TTWS) switches
+  both copies at the end of the write's first clock with the I/O side
+  idle, neither the core's access nor the window's under way, and keeps
+  the window's accesses from starting until the write's E2; its first
+  half ends the clock after, so that the copies' addresses have settled
+  before the strobe. So a write takes 3 clocks at least, and waits out
+  an access (the model has the clock, not the wait, as it doesn't time
+  the window's accesses). `ucode/hwwin.uc` writes the console's entry
+  in its loop while the bench's master uses the window, and two of its
+  writes meet an access, one not yet started; both copies come out the
+  same (`hw.check_window`).
 - **Reset** (RFC 0037, 7): the card listens to COLD, through a Schmitt
   trigger and a flip-flop that ends reset at a clock edge; the bench's
   supply supervisor asserts it at power-up.
@@ -411,8 +422,9 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 218 packages so far (`heron iop hw bom`), against RFC 0027's
-  ~95 for the whole card: 74 are gates (74F00-74F86), the glue that
+- **Parts:** 223 packages so far (`heron iop hw bom`, 3 of them
+  oscillators), against RFC 0027's ~95 for the whole card: 78 are gates
+  (74F00-74F86 and a 74ACT10, as the library has no 74F10), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
   18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
   multiplexer would (RFC 0027's 3; the library has no '259).
@@ -421,8 +433,8 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   both of the SRAM's address drivers are on. The I/O side's address
   buffers (the core's or the window's) overlap by under 2 ns as they
   change hands; a pair of 74F157s would avoid it.
-- **Not yet:** the 32-bit path, LOCK, I/O cards in the slots, a hardware
-  interlock for the timing table's writes, and a printed circuit board
+- **Not yet:** the 32-bit path, LOCK, I/O cards in the slots, and a
+  printed circuit board
   (the PCB flow, `studies/pcb`, has no footprints for the 16-bit parts'
   packages, nor a way to pair their halves).
 

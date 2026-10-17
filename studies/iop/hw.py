@@ -297,13 +297,20 @@ def check_slave(clocks=3000, seed=1):
     return hw, m.results(d["X_M"]), regs
 
 
+# hwwin.uc's timing table at its end, entries 12-15: the console's as its
+# loop writes it, the flash's, the timer's slow one, the ports'
+WIN_TABLE = [layout.timing(0, 2, 1), layout.TT_FLASH, 0x9C, layout.TT_PORTS]
+
+
 def check_window(clocks=4000, seed=1):
     """The window against a second master on the bench, while
-    ucode/hwwin.uc reads the flash and writes the LEDs in a loop: posted
-    writes to the UART's scratch register, one after another and before a
-    read, read back; the flash's header; the shared RAM between. (the
-    outcome, the master's reads, what they should be, the IOP's registers
-    8-15, the model's, which runs the program without the window)."""
+    ucode/hwwin.uc reads the flash, writes the console's timing table
+    entry and writes the LEDs in a loop: posted writes to the UART's
+    scratch register, one after another and before a read, read back; the
+    flash's header; the shared RAM between. (the outcome, the master's
+    reads, what they should be, the IOP's registers 8-15, the model's,
+    which runs the program without the window). The outcome's "tables"
+    are the timing table's two copies at the end, entries 12-15."""
     b = Program("hwwin.uc")
     fl = lambda i: b.flash[2 * i] | b.flash[2 * i + 1] << 8
     win = lambda dev, r: 0x7F00_0000 | dev << 16 | 4 * r
@@ -330,10 +337,11 @@ def check_window(clocks=4000, seed=1):
     pre = preloads(b, s)
     pre["X_M"] = m.image()
     cfg = config(clocks, 0, seed)
-    cfg["dump"] += ["X_M"]
+    cfg["dump"] += ["X_M", "U_TT0", "U_TT1", "U_TTW0", "U_TTW1"]
     hw = native.hwsim.run_system(netlist(master=True), cfg, pre)
     s.s.run(s.s.clock + clocks)
     d = hw["dumps"]
+    hw["tables"] = [[d[f"{c}0"][i] | d[f"{c}1"][i] << 8 for i in range(12, 16)] for c in ("U_TT", "U_TTW")]
     regs = [l | h << 8 for l, h in zip(d["U_RAML"][0xC008:0xC010], d["U_RAMH"][0xC008:0xC010])]
     reads = [x & 0xFF if i in uart else x for i, x in enumerate(m.results(d["X_M"]))]
     return hw, reads, want, regs, s.s.sram(0xC008, 8)
@@ -488,7 +496,8 @@ def main(argv):
         print("the master read:", [hex(x) for x in reads])
         print("the IOP's registers 8-15: card ", [hex(x) for x in regs])
         print("                          model", [hex(x) for x in mregs])
-        ok = reads == want and regs == mregs
+        print("the timing table, entries 12-15:", *([hex(x) for x in t] for t in hw["tables"]))
+        ok = reads == want and regs == mregs and hw["tables"] == [WIN_TABLE, WIN_TABLE]
         print("as expected" if ok else f"expected {[hex(x) for x in want]}")
         return 0 if ok else 1
     elif a.cmd == "stuck":
