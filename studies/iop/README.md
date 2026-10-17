@@ -244,7 +244,7 @@ heron iop hw slave                       # the slave side, against a second mast
 heron iop hw window                      # the window onto the I/O bus, the same way
 heron iop hw stuck                       # the stuck-transfer counter, against a slave that never answers
 heron iop hw sta                         # static timing analysis at 60 ns, about 10 s
-heron iop hw bom                         # the parts
+heron iop hw bom [--sections]            # the parts, or by the part of the design they're in
 heron iop hw schematic                   # the schematic viewer, build/iop/schematic.html
 ```
 
@@ -441,12 +441,19 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 226 packages so far (`heron iop hw bom`, 4 of them
-  oscillators), against RFC 0027's ~95 for the whole card: 78 are gates
-  (74F00-74F86 and a 74ACT10, as the library has no 74F10), the glue that
-  decoding, the stalls and the I/O side's and slave side's states need,
-  18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
-  multiplexer would (RFC 0027's 3; the library has no '259).
+- **Parts:** 221 packages so far (`heron iop hw bom`, 4 of them
+  oscillators), against RFC 0027's ~95 for the whole card. By the part
+  of the design (`--sections`): the I/O bus side 25 and its timing table
+  9, the window 19, the doorbells 15 (two 74HC259s and a multiplexer
+  would do, RFC 0027's 3, but the library has no '259), the slave side
+  18, the event ports 11, the predecoding 9, the stuck-transfer counter
+  8.5, the system bus side 20, the shared RAM 7, the card's own devices
+  12, and the core (the ALU, registers, F, AC, X, the microcode, uPC,
+  uIR, the sequencer, LC and CTRL, the swap and page registers, T and
+  the microcycle) about 58. 73 packages are gates (74F00-74F86 and a
+  74ACT10, as the library has no 74F10), the glue that decoding, the
+  stalls and the I/O side's and slave side's states need, and 18 are
+  74F138s.
 - **Contention:** R changes hands at E1 with up to 7 ns of overlap (F's
   enable against the SRAM's disable), and while reset holds uIR cleared
   both of the SRAM's address drivers are on. The I/O side's address

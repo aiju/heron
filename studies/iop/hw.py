@@ -419,6 +419,24 @@ def check_window_bound(bound=20, clocks=1500, seed=1):
     return hw, m.reads_timed(hw["dumps"]["X_M"])
 
 
+def bom_sections():
+    """{section: packages}, the card's parts by the part of the design
+    they're in (card.py's sections): a gate counts as its share of its
+    package, so the sum is short of bom()'s by the gates left unused."""
+    from heron.infra.hw.netlist import GATE_SECTIONS
+    nl = card.build(bench=True)
+    gates = {g.ref for g in nl.gates}
+    out = {}
+    for inst in nl.instances:
+        if inst.ref.startswith("X_") or inst.type.family in ("fixture", "passive") or inst.ref in gates:
+            continue
+        out[inst.section] = out.get(inst.section, 0) + 1 / inst.type.per_package
+    for gt in nl.gates:
+        if not gt.ref.startswith("X_"):
+            out[gt.section] = out.get(gt.section, 0) + 1 / GATE_SECTIONS[gt.typ][0]
+    return out
+
+
 def where(b, a):
     return b.mc.where(a)
 
@@ -461,7 +479,8 @@ def main(argv):
     t.add_argument("--ms", type=float, default=2.0)
     t.add_argument("--seed", type=int, default=1)
     t.add_argument("--ucode", help="a microcode program of its own (ucode/NAME) instead of the firmware")
-    sub.add_parser("bom")
+    bm = sub.add_parser("bom")
+    bm.add_argument("--sections", action="store_true", help="by the part of the design instead")
     sub.add_parser("slave")
     sub.add_parser("window")
     sub.add_parser("stuck")
@@ -536,6 +555,13 @@ def main(argv):
         with open(out, "w") as f:
             f.write(html)
         print(f"{out}: {len(html) // 1024} KB")
+    elif a.cmd == "bom" and a.sections:
+        per = bom_sections()
+        for sec, n in sorted(per.items(), key=lambda kv: -kv[1]):
+            print(f"{n:6.1f}  {sec}")
+        total = sum(bom().values())
+        print(f"{total - sum(per.values()):6.1f}  gates unused in their packages")
+        print(f"{total:6}  in all")
     elif a.cmd == "bom":
         for part, n in sorted(bom().items()):
             print(f"{n:4}  {part}")

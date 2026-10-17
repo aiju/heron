@@ -1053,7 +1053,8 @@ def add_bench(nl, master=False):
     (sim/src/system.rs), 1 MB of it; a stuck slave in region 5, which
     holds WAIT until RESET. ATN0-3 are quiet. `master`: a
     scripted second master (M_OUT, M_IN), its script X_M's preload."""
-    g = nl.gate
+    def g(typ, inputs, output):
+        nl.gate(typ, inputs, output, prefix="X_")
     nl.section("Test bench")
     if master:
         v = nl.add("vector", "X_M", CLK="BCLK", params={"outs": len(M_OUT), "ins": len(M_IN),

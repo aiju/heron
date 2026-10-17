@@ -94,7 +94,7 @@ class Netlist:
     def __init__(self):
         self.instances = []
         self.refs = {}
-        self.gate_pool = defaultdict(list)   # type -> [(instance, next free section)]
+        self.gate_pool = defaultdict(list)   # (type, part, prefix) -> [(instance, next free section)]
         self.counters = defaultdict(int)
         self.current_section = None
         self.gates = []          # every gate placed: Gate (package, section, inputs, output)
@@ -118,18 +118,23 @@ class Netlist:
         inst.connect(**pins)
         return inst
 
-    def gate(self, typ, inputs, output, part=None):
+    def gate(self, typ, inputs, output, part=None, prefix=None):
         """Place one gate of a 74xx package, reusing free sections of a
-        package of the same part."""
+        package of the same part. `prefix`: in packages of their own,
+        whose references start with it (a test bench's, say)."""
         n_sec, n_in = GATE_SECTIONS[typ]
         inputs = list(inputs)
         if len(inputs) > n_in:
             raise ValueError(f"{typ} gate has {n_in} inputs, got {len(inputs)}")
         while len(inputs) < n_in:
             inputs.append("VCC" if typ in TIE_HIGH else "GND")
-        pool = self.gate_pool[(typ, part)]
+        pool = self.gate_pool[(typ, part, prefix)]
         if not pool or pool[-1][1] >= n_sec:
-            pool.append([self.add(typ, part=part), 0])
+            ref = None
+            if prefix:
+                self.counters[(prefix, typ)] += 1
+                ref = f"{prefix}U{typ}_{self.counters[(prefix, typ)]}"
+            pool.append([self.add(typ, ref=ref, part=part), 0])
         inst, sec = pool[-1]
         pool[-1][1] += 1
         letters = "ABCDEFGH"
@@ -145,7 +150,7 @@ class Netlist:
 
     def finish(self):
         """Tie off unused gate sections so every input is driven."""
-        for (typ, _), pool in self.gate_pool.items():
+        for (typ, _, _), pool in self.gate_pool.items():
             n_sec, n_in = GATE_SECTIONS[typ]
             for inst, used in pool:
                 for sec in range(used, n_sec):
