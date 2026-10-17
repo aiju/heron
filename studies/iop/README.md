@@ -91,13 +91,16 @@ rings of events and other clients' rings through the kernel's ring.
 | `layout.py` | What the microcode, the Forth and the tools share: the SRAM's map, the banks' registers, the system's variables and tables, the control register, the timing table, the image flash's header, the rings and their requests |
 | `uasm.py` | The microassembler: RFC 0027's notation, one line a microinstruction, with macros |
 | `ucode/core.uc`, `ucode/jobs.uc`, `ucode/prims.uc` | The microcode |
+| `ucode/hwtest.uc` | A microcode program of its own, for checking the netlist's system bus side, shared RAM and I/O bus against the model |
+| `card.py` | The card's netlist, for the chip-level simulator (`infra/hwsim`), with a test bench around it on the system bus |
+| `hw.py` | Running the netlist, and checking it against the model clock for clock (`heron iop hw`) |
 | `meta.py` | The metacompiler: the Forth source into the dictionary image |
 | `forth/kernel.fs`, `monitor.fs`, `system.fs`, `devices.fs`, `cold.fs` | The Forth |
 | `build.py` | The image flash: the dictionary, and the CPU's images as records |
 | `sw/hello.s`, `sw/irq.s`, `sw/ring.s` | CPU programs: the default boot program, one that waits for an interrupt from the IOP, and the kernel's side of the rings |
 | `run.py`, `cli.py` | Running it; the command line |
 | `bench.py` | The measurements |
-| `tests/` | The unit tests: the microassembler, the Forth, the system, the rings, the devices behind them, the events |
+| `tests/` | The unit tests: the microassembler, the Forth, the system, the rings, the devices behind them, the events, the netlist |
 
 ## The machine, as this study has it
 
@@ -218,6 +221,86 @@ RFC, not decisions.
   timer's tick jumper is off unless `System(tick=16)`, as the study's CPU
   programs don't take level 6.
 
+## The netlist
+
+`card.py` is the card at chip level (RFC 0027, 16, step 4), a first cut:
+the core, the devices on T, the I/O bus side with the card's own devices,
+and the system bus side as a master. `hw.py` runs it on the chip-level
+simulator and checks it against the model: every E2, the microaddress
+uIR takes and AC, must be the model's, on the same bus clock.
+
+```sh
+heron iop hw run --ms 32                 # power up: the Forth's banner, about 8 s
+heron iop hw run --ms 45 --type '1 2 + .\r'
+heron iop hw test --ms 21                # the firmware against the model, to the first tick
+heron iop hw test --ucode hwtest.uc      # the bus side, shared RAM and I/O bus against the model
+heron iop hw bom                         # the parts
+```
+
+- **What it does:** from power-up it runs the firmware's cold start (the
+  SRAM's test, the dictionary out of the image flash, the Forth's cold
+  start) to the banner, and the Forth's interpreter on the console, with
+  no timing violations at the slow corner. It is the model's, clock for
+  clock and AC for AC, for the 161,554 microinstructions up to the
+  timer's first tick, which the two see a few clocks apart (the model
+  looks at the timer lazily); after that it runs on by itself. The bus
+  side runs `ucode/hwtest.uc` the model's way, and leaves the same
+  registers and the same RAM on the bench's CPU card.
+- **The microcycle:** PH, a flip-flop, is the half. At each edge it turns
+  to the second half (E1) unless something holds the first, and back (E2)
+  unless something holds the second; every register is clocked by BCLK
+  with an enable, E1EN or E2EN. The SRAM is written from E1 until BCLK
+  falls.
+- **Predecoding** (RFC 0027, 3.6's suggestion): the first half's paths
+  don't fit 60 ns with decoders in them, so 13 bits are decoded from the
+  next microinstruction as the flash gives it and registered with it in
+  uIR's spare bits and a seventh half: the SRAM's address source (both
+  polarities), R's and T's sources, a device onto R, the I/O bus access.
+  With them a register through the ALU into F is about 54 ns.
+- **The I/O bus side** (RFC 0037, 16): an access is S0 (idle, or its
+  setup), STB and HLD, with an 8-bit counter each state starts from 0 and
+  two comparators against the timing table's fields. The table is
+  addressed by X: SETUP and STROBE are read while the access's
+  microinstruction runs, HOLD is latched at the strobe's end. An
+  access's first clock compares SETUP with two XORs, since X may have
+  changed at its start. The strobe's end is registered (IODONE), and
+  that is what the core waits on.
+- **The system bus side:** AL and AHOUT take the address at E1; START,
+  WRITE and BE are registered for the address clock, which is the second
+  half's last; BA takes read data at the data phase's end, AB drives
+  write data through it. A transfer waits at E1 for GNT and the last data
+  phase's end, with WAIT's own term last in E1EN, as it comes late in the
+  clock (RFC 0037's 29 ns); E2 can't wait for WAIT, as E2EN goes to the
+  74F161s' 11.5 ns setups.
+- **What the model changed to match:** an I/O bus read is latched at the
+  strobe's end, so one onto R takes two clocks more than the model had;
+  an access that stretches the second half ends a clock after its strobe
+  (the registered stall); an AB load waits for the clock after the last
+  write's data phase; a transfer's address clock is the second half's
+  last. RFC 0027's own figures (3.6) leave out the decoders, the
+  comparator in the I/O side and the WAIT path, which is where these
+  came from.
+- **Substitutes** for parts the library lacks: four 74ABT16823 halves for
+  the 74ABT16652; a 74F175, a 74F138 and gates for CTRL (the study's
+  74x259); 74F138s for the 74F139s and the 74HCT154; SST39SF010A (128K x
+  8) for the image flash's SST39SF040s, so 128K halfwords of it;
+  AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
+  R in a first half; CY7C199D-10 for the timing table.
+- **Parts:** 140 packages so far (`heron iop hw bom`), against RFC 0027's
+  ~95 for the whole card: about 40 are gates (74F00-74F32), the glue that
+  decoding, the stalls and the I/O side's state need, and 14 are 74F138s.
+- **Contention:** R changes hands at E1 with up to 7 ns of overlap (F's
+  enable against the SRAM's disable), and while reset holds uIR cleared
+  both of the SRAM's address drivers are on.
+- **Not yet:** the slave side (the shared RAM from the bus, sharing T
+  with the core, the doorbells, the window), the 32-bit path, LOCK, the
+  stuck-transfer counter, the watchdog, the time of day, the ports' read
+  side, I/O cards in the slots, static timing analysis (the simulator's
+  checks catch a late signal only within a setup window, not one later
+  than the edge, so the paths above were checked by hand), and a
+  timer model in the microinstruction-level model exact enough to keep
+  the two together past the first tick.
+
 ## Measurements
 
 `heron iop bench --wcs`, against RFC 0027's estimates:
@@ -225,26 +308,26 @@ RFC, not decisions.
 | | Measured | RFC 0027 |
 |---|---:|---|
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
-| dictionary out of the flash (8705 cells, 35 pages) | 6.0 ms | 32K cells in ~30 ms |
-| power-up to the banner | 149.9 ms | - |
+| dictionary out of the flash (8705 cells, 35 pages) | 7.1 ms | 32K cells in ~30 ms |
+| power-up to the banner | 151.0 ms | - |
 | Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,257,041 | about 1,000,000 |
 | microcycles a Forth word, there | 6.63 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
 | the tick's share of the IOP while Forth computes | 9.5% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,253,234 | - |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,238,920 | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.0 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
-| booting the CPU: draft 2's control store, its decode table and the program | 80.0 ms (3.1 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
-| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 41.2 us, 59.8 us | ~5 us on top of the transfer |
-| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1375.8 us, 1394.4 us | ~5 us on top of the transfer |
-| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 148.2 us, 234.7 us | ~5 us on top of the transfer |
+| booting the CPU: draft 2's control store, its decode table and the program | 92.5 ms (2.6 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
+| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 45.0 us, 63.6 us | ~5 us on top of the transfer |
+| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1377.6 us, 1396.2 us | ~5 us on top of the transfer |
+| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 154.7 us, 238.9 us | ~5 us on top of the transfer |
 | a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 281 cycles, 103 us | 200-700 cycles |
 | a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 281 cycles, 1435 us | 200-700 cycles |
 | a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 281 cycles, 278 us | 200-700 cycles |
-| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 379 ms, 82% busy, 7,290 cycles a KB | the CPU's time back |
-| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1612 ms, 70% busy, 26,567 cycles a KB | the CPU's time back |
-| microcode | 2227 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
+| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 380 ms, 82% busy, 7,291 cycles a KB | the CPU's time back |
+| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1664 ms, 68% busy, 26,569 cycles a KB | the CPU's time back |
+| microcode | 2231 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
 | the Forth's dictionary | 8705 cells | up to 32K |
 
 The copies are a job's time from its first slice to its end, with the
@@ -269,9 +352,10 @@ What the differences come from, so far:
 - **Into the shared RAM** a halfword waits a clock for BA: the CPU card's
   slave port takes 2 data clocks, so the read's data comes a clock after
   the next microinstruction's E1.
-- **Out of the image flash** a halfword is 5 clocks, not 4: the
+- **Out of the image flash** a halfword is 6 clocks, not 4: the
   SST39SF040-70 needs a 2-clock strobe (0/2/0), so the read stretches its
-  microinstruction to 3. A 45 ns part (0/1/0) would make it 4. The boot
+  microinstruction to 3, and the netlist's I/O side (below) takes a clock
+  more to end it. A 45 ns part (0/1/0) would make it 5. The boot
   is also a job for each run of the control store's used words, a few
   hundred, each started from the Forth.
 - **A request** costs the IOP about 280 microcycles (34 us) from the
@@ -319,7 +403,7 @@ What the differences come from, so far:
   keeps it); requests from the CPU's RAM rather than the shared RAM; the
   server's own windows for Forth from the kernel. The disk's errors only
   as ST_DEVICE, and a card that stays busy holds its ring job for ever.
-- **The netlist** (RFC 0027, 16, step 4).
+- **The netlist's rest:** see [The netlist](#the-netlist).
 
 Where the CPU's side doesn't match this system yet, for the RFCs rather
 than this study: draft 2's CPU card in `studies/v2_hw` (`iop.py`, after

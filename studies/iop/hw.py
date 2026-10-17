@@ -181,6 +181,20 @@ def where(b, a):
     return b.mc.where(a)
 
 
+def bom():
+    """{part: packages} on the card: the bench's (X_...) left out, the
+    halves of 16-bit parts paired."""
+    nl = card.build(bench=True)
+    per, refs = {}, {}
+    for inst in nl.instances:
+        if inst.ref.startswith("X_") or inst.type.family in ("fixture", "passive"):
+            continue
+        p = inst.part_number(card.VARIANT)
+        per[p] = inst.type.per_package
+        refs[p] = refs.get(p, 0) + 1
+    return {p: -(-n // per[p]) for p, n in refs.items()}
+
+
 def report(hw):
     print(f"{hw['cycles']:,} clocks, {hw['fetch_count']:,} microinstructions, {hw['events']:,} events, "
           f"{hw['wall_seconds']:.1f} s ({hw['reason']})")
@@ -237,13 +251,9 @@ def main(argv):
         print(f"console: card {hw['output']!r}, model {hw['model_output']!r}")
         return 0
     elif a.cmd == "bom":
-        nl = card.build()
-        pk = nl.packages(card.VARIANT)
-        total = 0
-        for part, refs in sorted(pk.items()):
-            print(f"{len(refs):4}  {part}")
-            total += len(refs)
-        print(f"{total:4}  in all")
+        for part, n in sorted(bom().items()):
+            print(f"{n:4}  {part}")
+        print(f"{sum(bom().values()):4}  in all")
         print("substitutes:")
         for want, used in card.SUBSTITUTES:
             print(f"  {want}: {used}")
