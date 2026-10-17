@@ -14,8 +14,12 @@ microinstruction level, its microcode, and the Forth the microcode
 interprets, on a system with a draft 2 CPU card that the IOP boots; then
 the native jobs, the rings with their requests, windows and completions,
 events and interrupts to the CPUs, I/O cards behind them, and the
-measurements. An experiment: RFC 0027 isn't settled, and where this study
-needed something it leaves open, it chose (below).
+measurements. And step 4, a first cut of the card at chip level
+(`card.py`, [below](#the-netlist)): 230 packages that run the
+firmware on the chip-level simulator clock for clock with the model, the
+I/O cards in their slots, and meet 60 ns in static timing analysis. An
+experiment: RFC 0027 isn't settled, and where this study needed
+something it leaves open, it chose (below).
 
 - **The simulator** (`sim/`, Rust, `heron.native.iop`): RFC 0027's core
   clocked by the bus clock, a microinstruction at a time, with its
@@ -586,8 +590,9 @@ What the differences come from, so far:
   timer and interrupt mask), with the IOP's card added on RFC 0037's map.
 - **Devices:** the serial loader, PS/2 and the front panel (the ports
   carry its shift chain; nothing drives it); the watchdog's policy (the
-  firmware never kicks it, so it stays unarmed); what a stuck transfer
-  should do beyond the Forth's report (an event to a CPU's kernel, a
+  firmware never kicks it, so it stays unarmed); what a stuck transfer,
+  or a strobe that WAIT's bound cut off, should do beyond the Forth's
+  report (an event to a CPU's kernel, a
   reboot of the CPU); the 32-bit paths; change detection on the INT
   lines; a timer request (a completion after a delay).
 - **The rings:** a completion ring or a ring of events is never checked
