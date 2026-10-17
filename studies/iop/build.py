@@ -49,10 +49,12 @@ def read(*parts):
         return f.read()
 
 
-def microcode():
-    """The assembled microcode (uasm.Microcode)."""
+def microcode(quick=False):
+    """The assembled microcode (uasm.Microcode). `quick`: the SRAM's self
+    test only of its top 16 cells, for runs at chip level."""
     try:
-        return uasm.assemble([(n, read("ucode", n)) for n in UCODE])
+        sram_from = ".equ SRAM_FROM 0xFFF0" if quick else ".equ SRAM_FROM 0"
+        return uasm.assemble([("quick", sram_from)] + [(n, read("ucode", n)) for n in UCODE])
     except uasm.AsmError as e:
         raise BuildError(str(e)) from None
 
@@ -172,8 +174,8 @@ def flash_image(m, images=()):
 class Build:
     """Everything a run needs: the microcode, the dictionary, the flash."""
 
-    def __init__(self, program=None, wcs=False, extra=()):
-        self.mc = microcode()
+    def __init__(self, program=None, wcs=False, extra=(), quick=False):
+        self.mc = microcode(quick)
         self.meta = forth(self.mc, extra)
         images = [None, None]
         self.cs = None

@@ -286,6 +286,17 @@ pub mod iop {
             self.with_iop(|i| i.trace.iter().copied().collect())
         }
 
+        /// Log every E2 from now on: the clock, the microaddress uIR takes
+        /// there, and AC after it.
+        fn log_start(&mut self) {
+            self.with_iop_mut(|i| i.log = Some(Vec::new()))
+        }
+
+        /// The log so far, emptied; it goes on.
+        fn log_take(&mut self) -> Vec<(u64, u16, u16)> {
+            self.with_iop_mut(|i| i.log.as_mut().map(std::mem::take).unwrap_or_default())
+        }
+
         #[getter]
         fn breakpoints(&self) -> Vec<u16> {
             self.with_iop(|i| i.breakpoints.clone())

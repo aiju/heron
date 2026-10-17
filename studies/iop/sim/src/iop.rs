@@ -25,20 +25,27 @@
 //! - it reads BA before the last read's data is in it: BA onto R in the
 //!   first half waits at E0, BA into AB or a device in the second half at
 //!   E1. RFC 0027 doesn't say what happens here; this model interlocks;
-//! - it loads AB while the last write's data phase hasn't ended: it waits
-//!   at E1, as a transfer does, so that the write's data holds (RFC 0027
-//!   doesn't say either; without it, back-to-back writes from registers
-//!   would have to count the slave's clocks);
+//! - it loads AB while the last write's data phase hasn't ended: its
+//!   second half lasts until that ends, so that the write's data holds
+//!   (RFC 0027 doesn't say either; without it, back-to-back writes from
+//!   registers would have to count the slave's clocks);
 //! - it accesses the I/O bus: the access starts when the last one's hold
 //!   has ended, and the microcycle lasts until its strobe ends (RFC 0027,
-//!   3.5), 1 + SETUP + STROBE clocks from the timing table, if that is
-//!   more than 2; the hold, 1 + HOLD clocks, overlaps what follows. (So the
-//!   I/O side is taken to hold A0-A7, WRITE and the data through the hold,
-//!   whatever X does.)
+//!   3.5), 1 + SETUP + STROBE clocks from the timing table, and a clock
+//!   more; the hold, 1 + HOLD clocks, overlaps what follows. (So the I/O
+//!   side holds A0-A7, WRITE and the data through the hold, whatever X
+//!   does.) Its read data is latched at the strobe's end (RFC 0037, 16).
+//!   The clock after it is the second half's last, or for a read onto R
+//!   (RS = T) the first half's, for the bridge and the ALU. The netlist
+//!   (`card.py`) registers the strobe's end, which is what costs that
+//!   clock: the stall can't wait for the strobe's counter.
 //!
 //! **The system bus:** a transfer's address is R in the first half,
 //! loaded into AL at E1, with AH0 or AH1 for A16-A31. Its address clock is
-//! E1-E2, its data clocks follow from E2, as many as the slave takes. Read
+//! E1-E2, its data clocks follow from E2, as many as the slave takes. (If
+//! an I/O bus access stretches the second half, the address clock is its
+//! last, so that START is still one clock, and AB has the access's data
+//! at E2.) Read
 //! data lands in BA at the end. Write data comes from AB, which the
 //! microinstruction making the transfer may load at its E2, the start of
 //! the data phase; changing AB later in the data phase is a microcode
@@ -219,6 +226,9 @@ pub struct Iop {
     /// The last microaddresses executed, oldest first.
     pub trace: std::collections::VecDeque<(u64, u16)>,
     pub breakpoints: Vec<u16>,
+    /// When on, every E2, the microaddress uIR takes there and AC after
+    /// it: what the netlist (card.py) is checked against.
+    pub log: Option<Vec<(u64, u16, u16)>>,
     pub stopped: bool,
     /// Cold resets the watchdog has caused.
     pub watchdog_resets: u64,
@@ -282,6 +292,7 @@ impl Iop {
             counts: vec![0; WORDS],
             trace: std::collections::VecDeque::with_capacity(TRACE),
             breakpoints: Vec::new(),
+            log: None,
             stopped: false,
             watchdog_resets: 0,
         }
@@ -461,23 +472,21 @@ impl Iop {
             start = self.ba_ready;
         }
         let mut len = 2;
+        let mut io = false;
         if let Some((strobe_end, hold)) = self.io_timing(&u)? {
             let astart = start.max(self.io_free);
             len = len.max(astart - start + strobe_end);
-            self.stats.stall_io += len - 2;
             self.io_free = astart + strobe_end + hold;
+            io = true;
         }
         let first_io = u.rs == RS_T && u.t == T_FROM_DEV;
-        let mut e1 = start + if first_io { len - 1 } else { 1 };
+        let mut e1 = start + if first_io && io { len + 1 } else { 1 };
+        self.stats.stall_io += if first_io && io { len } else { len - 2 };
         if matches!(u.t, T_AB_BA | T_DEV_BA) && self.ba_ready > e1 {
             self.stats.stall_ba += self.ba_ready - e1;
             e1 = self.ba_ready;
         }
         let ab_load = matches!(u.t, T_AB_BA | T_AB_F | T_AB_DEV);
-        if ab_load && self.write_end > e1 + 1 {
-            self.stats.stall_bus += self.write_end - e1 - 1;
-            e1 = self.write_end - 1;
-        }
         if u.bus != BUS_NONE {
             if self.ctrl & CTRL_SESSION == 0 {
                 return Err("a transfer without SESSION".into());
@@ -488,7 +497,19 @@ impl Iop {
                 e1 = ready;
             }
         }
-        let e2 = (e1 + 1).max(if first_io { 0 } else { start + len });
+        // An access that stretches the second half ends it the clock after
+        // its strobe (the netlist registers the strobe's end).
+        let mut e2 = (e1 + 1).max(if first_io || !io { 0 } else { start + len + 1 });
+        if !first_io && io {
+            self.stats.stall_io += 1;
+        }
+        if ab_load && self.write_end > e2 {
+            self.stats.stall_bus += self.write_end - e2;
+            e2 = self.write_end;
+        }
+        // A transfer's address clock is the second half's last, its data
+        // clocks from E2.
+        let (at, data_at) = (e2 - 1, e2);
 
         // The first half.
         let reg_addr = Self::reg_addr(self.bank, u.reg);
@@ -542,13 +563,13 @@ impl Iop {
                 | (u.sz == SZ_B1) as u32;
             self.stats.transfers += 1;
             if u.bus == BUS_WRITE {
-                let ans = bus.write(addr, size, self.ab, e1);
+                let ans = bus.write(addr, size, self.ab, at);
                 let n = ans.clocks.max(1) as u64;
                 self.d_hold = self.ab;
-                self.write_end = e2 + n;
-                self.bus_free = e2 + n;
+                self.write_end = data_at + n;
+                self.bus_free = data_at + n;
             } else {
-                let ans = bus.read(addr, size, e1);
+                let ans = bus.read(addr, size, at);
                 let n = ans.clocks.max(1) as u64;
                 let lanes: u16 = match u.sz {
                     SZ_B0 => 0x00FF,
@@ -561,8 +582,8 @@ impl Iop {
                 };
                 self.d_hold = v;
                 self.ba = v;
-                self.ba_ready = e2 + n;
-                self.bus_free = e2 + n;
+                self.ba_ready = data_at + n;
+                self.bus_free = data_at + n;
             }
         }
 
@@ -628,6 +649,9 @@ impl Iop {
         }
         self.prev = self.cur;
         self.cur = Some(self.upc);
+        if let Some(log) = &mut self.log {
+            log.push((e2, self.upc, self.ac));
+        }
         self.uir = self.rom[self.upc as usize];
         self.upc = next;
         self.clock = e2;

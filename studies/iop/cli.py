@@ -11,6 +11,8 @@
   words                         the dictionary's words, and their sizes
   bench [--wcs]                 what RFC 0027 estimates, measured: the boot, the Forth's
                                 speed, the tick's cost, copy rates, booting the CPU
+  hw run|test|bom ...           the card's netlist at chip level (hw.py): run it, check it
+                                against the model clock for clock, its parts
 """
 
 import argparse
@@ -140,6 +142,10 @@ def cmd_bench(args):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["hw"]:
+        from heron.studies.iop import hw
+        return hw.main(argv[1:])
     p = argparse.ArgumentParser(prog="heron iop", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)

@@ -32,18 +32,23 @@ reset:  BANK <- #NATIVE_BANK
 ; The SRAM's self test, with nothing but AC, X and F, as the registers are
 ; in the SRAM too: every cell its own address, then its complement, each
 ; read back. AC counts up, and its carry out of 0xFFFF, held into the
-; next microinstruction, ends a pass.
-sramtest: AC <- #0
+; next microinstruction, ends a pass. Each pass starts at SRAM_FROM: 0,
+; or near the top for a quick start (build.py's `quick`, for the netlist).
+sramtest: AC <- #SRAM_FROM
         X <- AC
 mt1:    [X] <- AC
         AC <- #1 + AC
         ifnot carry goto mt1
+        X <- AC
+        AC <- #SRAM_FROM
         X <- AC
 mt2:    F <- [X] ^ AC | swap <- F       ; 0 if the cell held its address
         F <- swap - 1 | if carry goto memfail
         [X] <- ~AC
         AC <- #1 + AC
         ifnot carry goto mt2
+        X <- AC
+        AC <- #SRAM_FROM
         X <- AC
 mt3:    F <- [X] ^ ~AC | swap <- F
         F <- swap - 1 | if carry goto memfail
