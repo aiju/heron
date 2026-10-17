@@ -424,16 +424,29 @@ def build(sim=True, bench=False, master=False):
     g("04", ["TTSEL_n"], "TTSEL")
     g("20", ["PH", "DEVW", "DEV5", "VCC"], "TTW_n")
     g("20", ["PH", "PHD_n", "DEVW", "DEV5"], "TTWE_n")
+    # A second copy, written with it, serves the window's accesses, by the
+    # window's device: a multiplexer in front of the first would lengthen
+    # an access's first clock, which starts from X
+    g("32", ["TTSEL", "WSEL"], "TTOEC_n")
+    g("32", ["TTSEL", "WSEL_n"], "TTOEW_n")
+    nl.add("157", "U_TTWA", S="TTSEL", G="GND", **{f"{i + 1}A": f"WA{8 + i}" for i in range(4)},
+           **{f"{i + 1}B": XQ[8 + i] for i in range(4)}, **{f"{i + 1}Y": f"WTA{i}" for i in range(4)})
     for h in range(2):
         pins = {f"A{i}": XQ[8 + i] if i < 4 else "GND" for i in range(15)}
         pins.update({f"IO{i}": TTD[8 * h + i] for i in range(8)})
-        nl.add("sram", f"U_TT{h}", part="CY7C199D-10", CE="GND", OE="TTSEL", WE="TTWE_n", **pins)
+        nl.add("sram", f"U_TT{h}", part="CY7C199D-10", CE="GND", OE="TTOEC_n", WE="TTWE_n", **pins)
+        pins = {f"A{i}": f"WTA{i}" if i < 4 else "GND" for i in range(15)}
+        pins.update({f"IO{i}": TTD[8 * h + i] for i in range(8)})
+        nl.add("sram", f"U_TTW{h}", part="CY7C199D-10", CE="GND", OE="TTOEW_n", WE="TTWE_n", **pins)
         buf(nl, f"U_TTB{h}", T[8 * h:8 * h + 8], TTD[8 * h:8 * h + 8], "TTW_n")
 
     # ------------------------------------------------------------ the I/O bus side
     nl.section("I/O bus side")
     # what the microinstruction does on the I/O bus: predecoded
-    g("08", ["pIO", "IODONE_n"], "IOREQ")
+    g("11", ["pIO", "IODONE_n", "WSEL_n"], "IOREQ")
+    # an access in S0, its setup: the core's, or the window's (WSEL)
+    g("08", ["WSEL", "S0"], "WS0")
+    g("32", ["IOREQ", "WS0"], "AREQ")
     # the state: S0 (STB and HLD both 0), STB, HLD. In S0 CNT counts the
     # setup's clocks from 0 and the first clock's comparison, against SETUP,
     # is quick, as X may have changed at its start; STB and HLD compare CNT
@@ -445,7 +458,7 @@ def build(sim=True, bench=False, master=False):
     g("02", ["SD0", "SD1"], "EQS0")
     # the strobe and the hold each end where CNT equals their field: two
     # comparators, so that nothing switches in front of them as HLD starts
-    g("11", ["S0", "IOREQ", "EQS0"], "GOSTB")
+    g("11", ["S0", "AREQ", "EQS0"], "GOSTB")
     g("08", ["STB", "PEQS"], "STBSTAY")
     g("32", ["GOSTB", "STBSTAY"], "STB_D")
     g("02", ["STB_n", "PEQS"], "STBEND")
@@ -453,7 +466,8 @@ def build(sim=True, bench=False, master=False):
     g("02", ["HLD_n", "PEQH"], "HLDEND")
     g("08", ["HLD", "PEQH"], "HLDSTAY")
     g("32", ["STBEND", "HLDSTAY"], "HLD_D")
-    g("32", ["STBEND", "IODONE"], "IODA")
+    g("08", ["STBEND", "WSEL_n"], "STBENDC")          # the core's own
+    g("32", ["STBENDC", "IODONE"], "IODA")
     g("08", ["IODA", "E2EN_n"], "IODONE_D")
     nl.add("175", "U_IOS", CLK="BCLK", CLR="RESET_n",
            **{"1D": "STB_D", "1Q": "STB", "1QN": "STB_n", "2D": "HLD_D", "2Q": "HLD", "2QN": "HLD_n",
@@ -465,7 +479,7 @@ def build(sim=True, bench=False, master=False):
     g("11", ["S0", "CNTNZ", "EQS0"], "CZC")
     g("27", ["STBEND", "HLDEND", "CZC"], "CNTLD_n")
     g("32", ["SD0", "SD1"], "EQS0_n")
-    g("20", ["S0", "IOREQ", "EQS0_n", "VCC"], "CNTS0_n")
+    g("20", ["S0", "AREQ", "EQS0_n", "VCC"], "CNTS0_n")
     g("00", ["CNTS0_n", "SBUSY_n"], "CNTEN")
     g("04", ["SBUSY"], "SBUSY_n")
     reg(nl, "U_HQ", TTD[8:12], bus("HQ", 4), en="STBEND_n")
@@ -477,17 +491,23 @@ def build(sim=True, bench=False, master=False):
            **{f"Q{i}": TTD[2 + i] if i < 6 else "GND" for i in range(8)})
     nl.add("521", "U_CMPH", part="74F521", G="GND", PEQ="PEQH", **{f"P{i}": f"CNT{i}" for i in range(8)},
            **{f"Q{i}": f"HQ{i}" if i < 4 else "GND" for i in range(8)})
-    # the address, the device and WRITE, latched when S0 ends
-    latch(nl, "U_IOA", XQ[0:8], IOA, "S0")
-    latch(nl, "U_IODV", XQ[8:12] + ["DEVW"], ADEV + ["AWRITE"], "S0")
+    # the address, the device and WRITE: the core's or the window's,
+    # latched when S0 ends
+    iox = bus("IOX", 13)
+    buf(nl, "U_IOXC0", XQ[0:8], iox[0:8], "WSEL")
+    buf(nl, "U_IOXC1", XQ[8:12] + ["DEVW"], iox[8:13], "WSEL")
+    buf(nl, "U_IOXW0", bus("WA", 8), iox[0:8], "WSEL_n")
+    buf(nl, "U_IOXW1", bus("WA", 4, 8) + ["WAWR"], iox[8:13], "WSEL_n")
+    latch(nl, "U_IOA", iox[0:8], IOA, "S0")
+    latch(nl, "U_IODV", iox[8:13], ADEV + ["AWRITE"], "S0")
     g("04", ["AWRITE"], "AWRITE_n")
     g("00", ["STB", "AWRITE_n"], "IORD_n")
     g("00", ["STB", "AWRITE"], "IOWR_n")
     # data: read, latched at the strobe's end; write, held through the hold
     latch(nl, "U_IORL0", IOD[0:8], T[0:8], "STB", oe="DRDY0_n")
     latch(nl, "U_IORL1", IOD[8:16], T[8:16], "STB", oe="DRDY0_n")
-    g("32", ["SBUSY", "IOREQ"], "IOACT")
-    g("00", ["AWRITE", "IOACT"], "IOWOE_n")
+    g("32", ["SBUSY", "AREQ"], "IOACT")
+    g("20", ["AWRITE", "IOACT", "WSEL_n", "VCC"], "IOWOE_n")
     latch(nl, "U_IOWL0", T[0:8], IOD[0:8], "HLD_n", oe="IOWOE_n")
     latch(nl, "U_IOWL1", T[8:16], IOD[8:16], "HLD_n", oe="IOWOE_n")
     # the slots' strobes (RFC 0037, 16): SEL0-SEL11, through the strobe
@@ -523,6 +543,7 @@ def build(sim=True, bench=False, master=False):
 
     system_bus(nl)
     slave_side(nl)
+    window(nl)
     if bench:
         add_bench(nl, master)
     nl.finish()
@@ -745,6 +766,70 @@ def slave_side(nl):
     g("30", [f"DB{i}_n" for i in range(8)], "BELLL")
     g("30", [f"DB{i}_n" for i in range(8, 16)], "BELLH")
     g("32", ["BELLL", "BELLH"], "BELLA")
+
+
+def window(nl):
+    """The I/O bus's window from the system bus (RFC 0037, 20): device S's
+    register r at 0x7F0S_0000 + 4r, run on the I/O bus side with the
+    device's timing, in turns with the core's accesses. A write is posted:
+    it is accepted, ending the transfer, unless the last window access is
+    still pending (WPEND), and goes on the I/O bus after. A read holds
+    WAIT until its data is registered at the strobe's end, then drives it
+    for a clock. On the I/O bus side the window's access (WSEL) starts
+    from S0 when the core's isn't in its setup, and the core's waits
+    through it. Not yet: an access at 4r + 2 reaching nothing, the
+    200-clock bound."""
+    g = nl.gate
+    nl.section("Window")
+    nl.add("521", "U_SDWN", part="74F521", G="GND", PEQ="WIN_n",
+           **{f"P{i}": SBA[24 + i] for i in range(8)}, **{f"Q{i}": "VCC" if (0x7F >> i) & 1 else "GND" for i in range(8)})
+    g("02", ["SADDR_n", "WIN_n"], "WNEW")
+    # W1: a transfer waiting to be accepted; W2: a read accepted, waiting
+    # for its data; WOUT: the data on D
+    g("08", ["W1", "WPEND_n"], "WACC")
+    g("04", ["WACC"], "WACC_n")
+    g("08", ["W1", "WPEND"], "W1STAY")
+    g("32", ["WNEW", "W1STAY"], "W1_D")
+    g("08", ["WACC", "SWRQ_n"], "W2A")
+    g("08", ["W2", "WOUT_D_n"], "W2B")
+    g("32", ["W2A", "W2B"], "W2_D")
+    g("11", ["W2", "STBEND", "WSEL"], "WOUT_D")
+    g("04", ["WOUT_D"], "WOUT_D_n")
+    # WAIT, from the first data clock on: in W1 for a read, or while the
+    # last access is pending; in W2. From the state alone: the address
+    # clock's decode leaves no time for more behind it
+    g("08", ["W1", "SWRQ_n"], "W1R")
+    g("27", ["W1STAY", "W1R", "W2"], "WWAIT_n")
+    # the I/O side: WPEND from acceptance to the access's hold's end, WSEL
+    # while the I/O side runs it
+    g("08", ["WSEL", "HLDEND"], "WDONE")
+    g("04", ["WDONE"], "WDONE_n")
+    g("08", ["WPEND", "WDONE_n"], "WPSTAY")
+    g("32", ["WACC", "WPSTAY"], "WPEND_D")
+    g("04", ["IOREQ"], "IOREQ_n")
+    g("21", ["WPEND", "WSEL_n", "S0", "IOREQ_n"], "WGO")
+    g("08", ["WSEL", "WDONE_n"], "WSSTAY")
+    g("32", ["WGO", "WSSTAY"], "WSEL_D")
+    nl.add("175", "U_WST", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "W1_D", "1Q": "W1", "2D": "W2_D", "2Q": "W2",
+        "3D": "WOUT_D", "3QN": "WOUT_n", "4D": "GND"})
+    nl.add("175", "U_WIO", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "WPEND_D", "1Q": "WPEND", "1QN": "WPEND_n", "2D": "WSEL_D", "2Q": "WSEL", "2QN": "WSEL_n",
+        "3D": "GND", "4D": "GND"})
+    nl.add("125", "U_WWT", part="74ABT125", **{"1OE": "WWAIT_n", "1A": "GND", "1Y": "SB_WAIT_n",
+                                               "2OE": "VCC", "2A": "GND", "3OE": "VCC", "3A": "GND",
+                                               "4OE": "VCC", "4A": "GND"})
+    # the access: register r (A2-A9), device S (A16-A19) and WRITE, and a
+    # write's data, taken when it's accepted
+    reg(nl, "U_WA0", bus("SSA", 8, 1), bus("WA", 8), en="WACC_n")
+    reg(nl, "U_WA1", bus("SSA", 4, 15) + ["SWRQ"], bus("WA", 4, 8) + ["WAWR"], en="WACC_n")
+    g("20", ["AWRITE", "IOACT", "WSEL", "VCC"], "WDOE_n")
+    reg(nl, "U_WD0", SBD[0:8], IOD[0:8], en="WACC_n", oe="WDOE_n")
+    reg(nl, "U_WD1", SBD[8:16], IOD[8:16], en="WACC_n", oe="WDOE_n")
+    # a read's data, at the strobe's end, onto D in WOUT
+    g("20", ["STBEND", "WSEL", "AWRITE_n", "VCC"], "WRDLD_n")
+    reg(nl, "U_WRD0", IOD[0:8], SBD[0:8], en="WRDLD_n", oe="WOUT_n")
+    reg(nl, "U_WRD1", IOD[8:16], SBD[8:16], en="WRDLD_n", oe="WOUT_n")
 
 
 def add_bench(nl, master=False):

@@ -236,6 +236,7 @@ heron iop hw run --ms 45 --type '1 2 + .\r'
 heron iop hw test --ms 21                # the firmware against the model, to the first tick
 heron iop hw test --ucode hwtest.uc      # the bus side, shared RAM and I/O bus against the model
 heron iop hw slave                       # the slave side, against a second master on the bench
+heron iop hw window                      # the window onto the I/O bus, the same way
 heron iop hw bom                         # the parts
 heron iop hw schematic                   # the schematic viewer, build/iop/schematic.html
 ```
@@ -251,7 +252,9 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   registers and the same RAM on the bench's CPU card. The slave side,
   against a scripted second master on the bench (the `vector` fixture),
   takes writes and reads of the shared RAM while the core is using T, a
-  byte lane, and a doorbell that `ucode/hwslave.uc` answers.
+  byte lane, and a doorbell that `ucode/hwslave.uc` answers. The window
+  onto the I/O bus, the same way, takes posted writes and reads of the
+  UART and the flash while `ucode/hwwin.uc` uses the I/O bus itself.
 - **The microcycle:** PH, a flip-flop, is the half. At each edge it turns
   to the second half (E1) unless something holds the first, and back (E2)
   unless something holds the second; every register is clocked by BCLK
@@ -289,6 +292,17 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   model doesn't share T this way: its slave accesses take no time.
   Doorbells are J-K flip-flops, set in the write's data clock and cleared
   at E2 by the event port.
+- **The window** (RFC 0037, 20): device S's register r at 0x7F0S_0000 +
+  4r. The access is registered when it's accepted and run by the I/O
+  side, in turns with the core's (it starts from S0 when the core's isn't
+  in its setup, and the core's waits through it), with the device's
+  timing from a second copy of the timing table, written with the first:
+  a multiplexer in front of the first would lengthen the core's accesses'
+  first clock. A write is posted, accepted in one data clock unless the
+  last is still on the I/O bus; a read holds WAIT until its data is
+  registered at the strobe's end, and drives it for a clock. WAIT comes
+  from the window's state alone: the address clock's decode (a 74F521)
+  leaves no time for more behind it before the first data clock.
 - **What the model changed to match:** an I/O bus read is latched at the
   strobe's end, so one onto R takes two clocks more than the model had;
   an access that stretches the second half ends a clock after its strobe
@@ -303,16 +317,18 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 179 packages so far (`heron iop hw bom`), against RFC 0027's
-  ~95 for the whole card: about 60 are gates (74F00-74F32), the glue that
+- **Parts:** 198 packages so far (`heron iop hw bom`), against RFC 0027's
+  ~95 for the whole card: 67 are gates (74F00-74F86), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
   18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
   multiplexer would (RFC 0027's 3; the library has no '259).
 - **Contention:** R changes hands at E1 with up to 7 ns of overlap (F's
   enable against the SRAM's disable), and while reset holds uIR cleared
-  both of the SRAM's address drivers are on.
-- **Not yet:** the I/O bus's window from the system bus, the 32-bit
-  path, LOCK, the stuck-transfer counter, the watchdog, the time of day, the ports' read
+  both of the SRAM's address drivers are on. The I/O side's address
+  buffers (the core's or the window's) overlap by under 2 ns as they
+  change hands; a pair of 74F157s would avoid it.
+- **Not yet:** the window's 4r + 2 (reaching nothing) and its bound on
+  WAIT, the 32-bit path, LOCK, the stuck-transfer counter, the watchdog, the time of day, the ports' read
   side, I/O cards in the slots, static timing analysis (the simulator's
   checks catch a late signal only within a setup window, not one later
   than the edge, so the paths above were checked by hand), and a

@@ -25,6 +25,16 @@ class Netlist(unittest.TestCase):
         self.assertEqual(reads, [0x3333, 0x1111, 0xAB34] + [0x100 + i for i in range(8)])
         self.assertEqual(regs[:3], [8, 0x1111, 0x2222])
 
+    def test_window(self):
+        """The window onto the I/O bus, against a second master on the
+        bench, while ucode/hwwin.uc uses the I/O bus itself: posted writes
+        one after another, reads, the shared RAM between; the program's
+        own reads as the model's."""
+        out, reads, want, regs, model_regs = hw.check_window()
+        self.assertEqual(out["violation_total"], 0)
+        self.assertEqual(reads, want)
+        self.assertEqual(regs, model_regs)
+
     def test_cold_start(self):
         """The firmware from power-up to just before the timer's first
         tick, which the two take a few clocks apart: the SRAM's test, the

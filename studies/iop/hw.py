@@ -6,6 +6,7 @@ must be the model's.
     heron iop hw run [--ms N] [--seed S]   power up, print what the console prints
     heron iop hw test [--ms N]             the same, against the model, clock for clock
     heron iop hw slave                     the slave side, against a second master on the bench
+    heron iop hw window                    the window onto the I/O bus, the same way
     heron iop hw bom                       the parts
     heron iop hw schematic [--out FILE]    the schematic viewer (build/iop/schematic.html)
 
@@ -24,7 +25,7 @@ import sys
 from heron import BUILD, native
 from heron.infra.hw import runner
 
-from . import build as bld, card
+from . import build as bld, card, layout
 from .run import Session
 
 OUT = os.path.join(BUILD, "iop")
@@ -276,6 +277,45 @@ def check_slave(clocks=3000, seed=1):
     return hw, m.results(d["X_M"]), regs
 
 
+def check_window(clocks=4000, seed=1):
+    """The window against a second master on the bench, while
+    ucode/hwwin.uc reads the flash and writes the LEDs in a loop: posted
+    writes to the UART's scratch register, one after another and before a
+    read, read back; the flash's header; the shared RAM between. (the
+    outcome, the master's reads, what they should be, the IOP's registers
+    8-15, the model's, which runs the program without the window)."""
+    b = Program("hwwin.uc")
+    fl = lambda i: b.flash[2 * i] | b.flash[2 * i + 1] << 8
+    win = lambda dev, r: 0x7F00_0000 | dev << 16 | 4 * r
+    m = MasterScript()
+    m.step(until={"RESET_n": 1})
+    m.idle(40)                                  # the timing table's filled in
+    m.write(win(12, 7), 0x5A)
+    m.write(win(12, 7), 0xC3)                   # waits for the first
+    m.read(win(12, 7))
+    m.read(win(13, layout.FL_MAGIC))
+    m.write(0x4000_0100, 0x1234)
+    m.read(win(13, layout.FL_PAGES))
+    m.read(0x4000_0100)
+    m.write(win(12, 7), 0x11)
+    m.read(win(13, layout.FL_MAGIC))            # after the write's done
+    m.read(win(12, 7))
+    m.idle(2)
+    want = [0xC3, fl(layout.FL_MAGIC), fl(layout.FL_PAGES), 0x1234, fl(layout.FL_MAGIC), 0x11]
+    uart = [0, 5]                               # its D8-D15 are nobody's
+    s = model(b)
+    pre = preloads(b, s)
+    pre["X_M"] = m.image()
+    cfg = config(clocks, 0, seed)
+    cfg["dump"] += ["X_M"]
+    hw = native.hwsim.run_system(netlist(master=True), cfg, pre)
+    s.s.run(s.s.clock + clocks)
+    d = hw["dumps"]
+    regs = [l | h << 8 for l, h in zip(d["U_RAML"][0xC008:0xC010], d["U_RAMH"][0xC008:0xC010])]
+    reads = [x & 0xFF if i in uart else x for i, x in enumerate(m.results(d["X_M"]))]
+    return hw, reads, want, regs, s.s.sram(0xC008, 8)
+
+
 def where(b, a):
     return b.mc.where(a)
 
@@ -317,6 +357,7 @@ def main(argv):
     t.add_argument("--ucode", help="a microcode program of its own (ucode/NAME) instead of the firmware")
     sub.add_parser("bom")
     sub.add_parser("slave")
+    sub.add_parser("window")
     sc = sub.add_parser("schematic")
     sc.add_argument("--out", help="where to write it (default build/iop/schematic.html)")
     a = p.parse_args(argv)
@@ -359,6 +400,15 @@ def main(argv):
         print("the IOP's registers 8-11:", [hex(x) for x in regs])
         want = [0x3333, 0x1111, 0xAB34] + [0x100 + i for i in range(8)]
         ok = reads == want and regs[:3] == [8, 0x1111, 0x2222]
+        print("as expected" if ok else f"expected {[hex(x) for x in want]}")
+        return 0 if ok else 1
+    elif a.cmd == "window":
+        hw, reads, want, regs, mregs = check_window()
+        report(hw)
+        print("the master read:", [hex(x) for x in reads])
+        print("the IOP's registers 8-15: card ", [hex(x) for x in regs])
+        print("                          model", [hex(x) for x in mregs])
+        ok = reads == want and regs == mregs
         print("as expected" if ok else f"expected {[hex(x) for x in want]}")
         return 0 if ok else 1
     elif a.cmd == "schematic":
