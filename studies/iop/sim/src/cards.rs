@@ -31,7 +31,7 @@ pub fn fit(iop: &mut Iop, disk: Option<Vec<u8>>, serial: bool, gpio: &[usize]) {
         iop.io.slots[DISK_SLOT] = Some(Box::new(Cf::new(image)));
     }
     if serial {
-        iop.io.slots[SERIAL_SLOT] = Some(Box::new(Serial::default()));
+        iop.io.slots[SERIAL_SLOT] = Some(Box::new(Serial::new(iop.io.edges.t0_ps)));
     }
     for &slot in gpio {
         if slot < iop.io.slots.len() {
@@ -64,11 +64,9 @@ impl Cf {
 }
 
 impl IoCard for Cf {
+    /// The card drives all of D, an 8-bit register's upper byte high.
     fn read(&mut self, reg: u8, now_ns: u64) -> (u16, u16) {
-        let cs1 = reg & 8 != 0;
-        let v = self.card.read(cs1, reg & 7, now_ns);
-        let wide = !cs1 && reg & 7 == 0 && !self.card.eight_bit();
-        (v, if wide { 0xFFFF } else { 0x00FF })
+        (self.card.read(reg & 8 != 0, reg & 7, now_ns), 0xFFFF)
     }
 
     fn write(&mut self, reg: u8, v: u16, now_ns: u64) {
@@ -83,24 +81,40 @@ impl IoCard for Cf {
         self.card.advance(now_ns);
     }
 
+    fn reset(&mut self, now_ns: u64) {
+        self.card.reset(now_ns);
+    }
+
     fn as_any(&mut self) -> &mut dyn Any {
         self
     }
 }
 
+/// Its UARTs are clocked on CLKA's rising edges as the IOP's card has
+/// them (card.py: an oscillator that starts low and rises half a period
+/// in), on the card's time line, where the model's time 0 is `t0_ps`.
 pub struct Serial {
     pub lines: [Uart; 2],
-    now_ns: u64,
-    frac: f64,
+    t0_ps: i64,
+    next_ps: i64,
+    period_ps: i64,
+}
+
+impl Serial {
+    pub fn new(t0_ps: i64) -> Serial {
+        let period_ps = (1e12 / CLKA_HZ).round() as i64;
+        Serial {
+            lines: [Uart::new(), Uart::new()],
+            t0_ps,
+            next_ps: period_ps / 2,
+            period_ps,
+        }
+    }
 }
 
 impl Default for Serial {
     fn default() -> Serial {
-        Serial {
-            lines: [Uart::new(), Uart::new()],
-            now_ns: 0,
-            frac: 0.0,
-        }
+        Serial::new(0)
     }
 }
 
@@ -121,15 +135,22 @@ impl IoCard for Serial {
     }
 
     fn advance(&mut self, now_ns: u64) {
-        if now_ns <= self.now_ns {
+        let t = self.t0_ps + now_ns as i64 * 1000;
+        if t < self.next_ps {
             return;
         }
-        let x = (now_ns - self.now_ns) as f64 * CLKA_HZ / 1e9 + self.frac;
+        let n = (t - self.next_ps) / self.period_ps + 1;
         for u in &mut self.lines {
-            u.clock(x.floor() as u64);
+            u.clock(n as u64);
         }
-        self.frac = x.fract();
-        self.now_ns = now_ns;
+        self.next_ps += n * self.period_ps;
+    }
+
+    fn reset(&mut self, now_ns: u64) {
+        self.advance(now_ns);
+        for u in &mut self.lines {
+            u.reset();
+        }
     }
 
     fn as_any(&mut self) -> &mut dyn Any {

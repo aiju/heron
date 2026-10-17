@@ -67,19 +67,29 @@ def netlist(master=False, watchdog=None, corner="max"):
 T0_PS = 35 * card.BCLK_PS + 4_900
 
 
-def model(b, inp=b""):
-    """The model, powered up on the same build, logging its E2s."""
-    s = Session(b, t0_ps=T0_PS)
+# The bench's CF card's image (card.slot_cards): 128 sectors, byte i of
+# sector k (k + i) & 255
+DISK = bytes((i // 512 + i) & 0xFF for i in range(128 * 512))
+
+
+def model(b, inp=b"", serial=b""):
+    """The model, powered up on the same build, with the bench's cards,
+    logging its E2s: `inp` what the console's terminal types, `serial`
+    the serial card's line 0's."""
+    s = Session(b, t0_ps=T0_PS, disk=DISK, serial=True)
     s.s.log_start()
     if inp:
         s.s.uart_send(inp)
+    if serial:
+        s.s.serial_send(0, serial)
     return s
 
 
-def preloads(b, s, inp=b""):
+def preloads(b, s, inp=b"", serial=b""):
     """The chips' contents at the end of reset: the microcode ROMs, the
-    image flash, the SRAM and the shared RAM as the model's power up, and
-    what the console's terminal types."""
+    image flash, the SRAM and the shared RAM as the model's power up, the
+    CF card's image, and what the console's terminal types and the serial
+    card's line 0's."""
     pre = {}
     rom = b.ucode_bytes()
     for k in range(6):
@@ -95,6 +105,8 @@ def preloads(b, s, inp=b""):
         pre[f"U_SR{k}L"] = bytes(h & 0xFF for h in half)
         pre[f"U_SR{k}H"] = bytes(h >> 8 for h in half)
     pre["U_UART"] = bytes(inp)
+    pre["X_CF"] = DISK
+    pre["X_SA"] = bytes(serial)
     ram = s.s.cpu_mem(0, 1 << 20)
     pre["X_RAML"], pre["X_RAMH"] = bytes(ram[0::2]), bytes(ram[1::2])
     return pre
@@ -107,7 +119,7 @@ def config(max_cycles, fetch_trace, seed=1, trace=None):
         "fetch_net": "E2EN", "fetch_level": 1,
         "addr_nets": UPC, "data_nets": card.ACQ,
         "fetch_trace": fetch_trace,
-        "dump": ["U_UART", "U_RAML", "U_RAMH"],
+        "dump": ["U_UART", "U_RAML", "U_RAMH", "X_SA", "X_RAML", "X_RAMH"],
         "observe": [f"LED{i}" for i in range(8)],
     }
     if trace:
@@ -120,13 +132,14 @@ def config(max_cycles, fetch_trace, seed=1, trace=None):
     return cfg
 
 
-def run(b, ms, inp=b"", seed=1, fetch_trace=0, s=None, trace=None, corner="max"):
+def run(b, ms, inp=b"", seed=1, fetch_trace=0, s=None, trace=None, corner="max", serial=b""):
     """Power up the card and run it for `ms` of simulated time."""
-    s = s or model(b, inp)
+    s = s or model(b, inp, serial)
     cycles = int(ms * 1e9 / card.BCLK_PS)
     hw = native.hwsim.run_system(netlist(corner=corner), config(cycles, fetch_trace, seed, trace),
-                                 preloads(b, s, inp))
+                                 preloads(b, s, inp, serial))
     hw["output"] = bytes(hw["dumps"]["U_UART"])
+    hw["serial_output"] = bytes(hw["dumps"]["X_SA"])
     return hw
 
 
@@ -148,16 +161,22 @@ def compare(hw, ref):
     return None
 
 
-def check(ms=2.0, inp=b"", seed=1, quiet=False, corner="max"):
+def check(ms=2.0, inp=b"", seed=1, quiet=False, corner="max", serial=b""):
     """Run the card and the model for `ms`; (the outcome, the first
-    difference or None, E2s compared)."""
+    difference or None, E2s compared). The outcome has the model's
+    console and serial line 0 output too, and the CPU card's RAM from
+    0x1000, 1 KB, the card's and the model's."""
     b = bld.Build(bld.DEFAULT_PROGRAM, quick=True)
-    s = model(b, inp)
-    hw = run(b, ms, inp, seed, fetch_trace=10_000_000, s=s, corner=corner)
+    s = model(b, inp, serial)
+    hw = run(b, ms, inp, seed, fetch_trace=10_000_000, s=s, corner=corner, serial=serial)
     s.run_ms(ms)
     ref = s.s.log_take()
     n = min(len(hw["fetches"]), len(ref))
     hw["model_output"] = s.out
+    hw["model_serial"] = s.s.serial_take(0)
+    d = hw["dumps"]
+    hw["ram"] = bytes(v for pair in zip(d["X_RAML"][0x800:0xA00], d["X_RAMH"][0x800:0xA00]) for v in pair)
+    hw["model_ram"] = bytes(s.s.cpu_mem(0x1000, 1024))
     return hw, compare(hw, ref[:n]), n
 
 

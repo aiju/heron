@@ -1925,6 +1925,46 @@
     "notes": "Mode 0 column. RD->D = t2 (8-bit register access, 290) - t5 (read data setup to -IORD rising, 50) = 240 ns: the latest a compliant card can put data out after -IORD falls if the host uses the minimum strobe width (derived, as requested). RD->D dis: t6 = 5 ns data hold (min), t6z = 30 ns tri-state (max) after -IORD rises. t2 is 290 ns for 8-bit register access and 165 ns for 16-bit data transfers ('t2 16-bit'). t2i: the spec gives no recovery time for modes 0-2 ('-'); 0 is entered so the check is vacuous, and the binding limit is t0 = 600 ns from one strobe assertion to the next (so after a 290 ns register strobe the strobe must stay negated >= 310 ns). t9 = address (and CS) hold after -IORD/-IOWR negation. t7/t8 = address valid to -IOCS16 assert/release (max), tA = IORDY setup, tB = IORDY pulse width (max); a card may extend a cycle with IORDY.",
     "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
   },
+  "CF PIO4": {
+    "family": "device",
+    "function": "CompactFlash card in True IDE mode, PIO mode 4",
+    "manufacturer": "CompactFlash Association (spec), as repeated by card makers",
+    "part_number": "CF+ & CompactFlash spec rev 4.1, True IDE PIO mode 4",
+    "source": "https://www.farnell.com/datasheets/2625955.pdf",
+    "datasheet": "The same table as the CF entry's (Delkin C400, section 4.14, CF spec rev 4.1), its mode 4 column; the numbers are ATA's PIO mode 4 timings as remembered, not transcribed from that table.",
+    "availability": "Most CF cards support PIO mode 4 and say so in IDENTIFY DEVICE word 64; the host must check that before using it.",
+    "max_cond": "spec limits (all cards)",
+    "delays": {
+      "RD->D": {
+        "typ": 50,
+        "max": 50
+      },
+      "RD->D dis": {
+        "min": 5,
+        "typ": 30,
+        "max": 30
+      }
+    },
+    "checks": {
+      "t0": 120,
+      "t1": 25,
+      "t2": 70,
+      "t2i": 25,
+      "t3": 20,
+      "t4": 10,
+      "t5": 20,
+      "t6": 5,
+      "t9": 10,
+      "t2 16-bit": 70,
+      "tA": 35,
+      "tB": 1250
+    },
+    "estimated": [
+      "t0", "t1", "t2", "t2i", "t3", "t4", "t5", "t6", "t9", "t2 16-bit", "tA", "tB", "RD->D", "RD->D dis"
+    ],
+    "notes": "Mode 4 column, as the CF entry's notes explain the fields: RD->D = t2 (70) - t5 (20) = 50 ns, the latest a compliant card can put data out after -IORD falls with the minimum strobe; RD->D dis t6 (5, min) to t6z (30, max). In mode 4 register and data accesses have the same 70 ns strobe. -IOCS16 (t7, t8) isn't used in modes 3 and 4.",
+    "typ_cond": "typ = max: the spec gives guaranteed limits only"
+  },
   "AS7C4096A-12": {
     "family": "SRAM",
     "function": "512K x 8 fast asynchronous SRAM, 5 V",

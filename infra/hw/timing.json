@@ -2522,6 +2522,51 @@
   "part_number": "CF+ & CompactFlash spec rev 4.1, True IDE PIO mode 0",
   "source": "https://www.farnell.com/datasheets/2625955.pdf"
  },
+ "CF PIO4": {
+  "checks": {
+   "t0": 120,
+   "t1": 25,
+   "t2": 70,
+   "t2 16-bit": 70,
+   "t2i": 25,
+   "t3": 20,
+   "t4": 10,
+   "t5": 20,
+   "t6": 5,
+   "t9": 10,
+   "tA": 35,
+   "tB": 1250
+  },
+  "delays": {
+   "RD->D": {
+    "max": 50,
+    "typ": 50
+   },
+   "RD->D dis": {
+    "max": 30,
+    "min": 5,
+    "typ": 30
+   }
+  },
+  "estimated": [
+   "t0",
+   "t1",
+   "t2",
+   "t2i",
+   "t3",
+   "t4",
+   "t5",
+   "t6",
+   "t9",
+   "t2 16-bit",
+   "tA",
+   "tB",
+   "RD->D",
+   "RD->D dis"
+  ],
+  "part_number": "CF+ & CompactFlash spec rev 4.1, True IDE PIO mode 4",
+  "source": "https://www.farnell.com/datasheets/2625955.pdf"
+ },
  "CY7C199C-12": {
   "checks": {
    "tAH": 0,

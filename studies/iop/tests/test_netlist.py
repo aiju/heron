@@ -71,25 +71,34 @@ class Netlist(unittest.TestCase):
         self.assertTrue(256 < wait < 300)
 
     def test_console(self):
-        """The firmware from power-up, ticks and all, to the banner and a
-        line typed at the console and answered: the SRAM's test, the
-        dictionary out of the flash, the Forth's cold start, the
-        interpreter, the console's UART."""
-        out, diff, n = hw.check(48.0, inp=b"1 2 + .\r")
+        """The firmware from power-up, ticks and all, to the banner, a
+        line typed at the console that reads a sector off the CF card
+        into the CPU card's RAM, and a line typed on the serial card's
+        line 0, which its line discipline echoes: the dictionary out of
+        the flash, the Forth's cold start with its cards, the
+        interpreter, the console's UART, the I/O bus's slots, a native
+        job onto the system bus."""
+        out, diff, n = hw.check(88.0, inp=b"3 0 $1000 0 1 cf-read .\r", serial=b"hi\r")
         self.assertIsNone(diff)
-        self.assertGreater(n, 380_000)
+        self.assertGreater(n, 700_000)
         self.assertEqual(out["violation_total"], 0)
         self.assertEqual(out["output"], out["model_output"])
-        self.assertIn(b"1 2 + . 3 ", out["output"])
+        self.assertIn(b"cf-read . -1 ", out["output"])
+        self.assertEqual(out["ram"][:512], hw.DISK[3 * 512:4 * 512])
+        self.assertEqual(out["ram"], out["model_ram"])
+        self.assertEqual(out["serial_output"], b"hi\r\n")
+        self.assertEqual(out["model_serial"], b"hi\r\n")
 
 
 class FastCorner(unittest.TestCase):
     def test_cold_start(self):
         """The same at the parts' minimum delays, where hold times fail
-        if they do: the model's microaddresses, at the same clocks."""
-        out, diff, n = hw.check(21.0, corner="min")
+        if they do: the model's microaddresses, at the same clocks, to
+        the banner, the cards' cold start among it."""
+        out, diff, n = hw.check(30.0, corner="min")
         self.assertIsNone(diff)
-        self.assertGreater(n, 150_000)
+        self.assertGreater(n, 220_000)
+        self.assertIn(b"cells", out["output"])
         self.assertEqual(out["violation_total"], 0)
 
 

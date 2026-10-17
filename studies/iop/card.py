@@ -32,6 +32,7 @@ VARIANT = parts.VARIANT
 BCLK_PS = 60_000                # RFC 0037's bus clock
 UART_PS = 67_817                # 14.7456 MHz, the console UART's oscillator
 CLKB_PS = 250_000               # 4 MHz, the timer's
+CLKA_PS = 542_535               # 1.8432 MHz, the I/O cards' UARTs' (RFC 0037, 19)
 POR_PS = 2_000_000              # the backplane's COLD at power-up (the bench's)
 WDOG_PS = 99_000_000_000        # the watchdog: 0.45 x 220k x 1 uF
 WDCOLD_PS = 990_000_000         # and the COLD it then asserts: 0.45 x 22k x 100 nF
@@ -96,9 +97,10 @@ SBD = bus("SB_D", 16)
 EDGE_IN = SBA[1:] + SBD + ["SB_START_n", "SB_WRITE_n", "SB_BE0_n", "SB_BE1_n", "SB_WAIT_n", "SB_RESET_n",
                            "SB_COLD_n", "SB_GNT3_n"] + [f"SB_ATN{i}_n" for i in range(4)]
 
-# The slots' INT lines are quiet (pulled down, RFC 0037, 19): no I/O cards
-# are fitted yet.
-STUB = {n: "GND" for n in [INT[i] for i in range(16) if i not in (12, 14)]}
+# The slots' INT lines are quiet (pulled down, RFC 0037, 19) but for the
+# bench's cards' (slot_cards): the CF card's and the serial card's, in
+# the slots the study's firmware looks in (layout.py)
+CARD_SLOTS = (0, 1)
 SRA = bus("SRA", 20)        # the shared RAM's halfword address
 
 
@@ -169,7 +171,8 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     fixture, BCLK's rise at 0 and its fall half a period later, and the
     bus's lines as the card's edge sees them (EDGE_PS). `bench`: with what the simulator needs
     around it on the system bus (add_bench), the backplane's COLD at
-    power-up among it, and `master` a second master there. `watchdog`:
+    power-up among it, the I/O cards in their slots (slot_cards), and
+    `master` a second master there. `watchdog`:
     how long it waits for a kick, and the COLD it then asserts;
     `window_bound`: the clocks after which a window access is cut off."""
     nl = Netlist()
@@ -419,7 +422,7 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
         g("02", [f"pE{k}", f"EV{k}OEB"], f"EV{k}OE_n")
     # the INT lines and ATN0-3 change at any time: registered every clock,
     # so that a read sees one value of each, settled
-    ints = [STUB.get(n, n) for n in INT]
+    ints = [n if i in (12, 14) or (bench and i in CARD_SLOTS) else "GND" for i, n in enumerate(INT)]
     # (synchronisers: their setup is missed now and then by design, and
     # the clock after is theirs to settle in)
     reg(nl, "U_INTQ0", ints[0:8], bus("INTQ", 8), nocheck=True)
@@ -584,6 +587,18 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     # the card's own devices, 12-15: chip selects from the address alone,
     # with RD and WR as the strobes
     dec(nl, "U_SELH", ADEV[0:3], g1=ADEV[3], y={k: f"CS{k + 8}_n" for k in range(4, 8)})
+    # the backplane's lines besides A0-A7 (IOA), D (IOD) and WRITE
+    # (AWRITE), RFC 0037, 14: SEL, active high, through inverting 74ABTs;
+    # IORESET, active low (14 doesn't say: so that a CF card takes it with
+    # no gate), with reset and CTRL's bit; CLKA for the cards' UARTs, and
+    # CLKB, the timer's
+    nl.add("540", "U_SELD0", part="74ABT540", OE1="GND", OE2="GND",
+           **{f"A{i + 1}": f"SEL{i}_n" for i in range(8)}, **{f"Y{i + 1}": f"SEL{i}" for i in range(8)})
+    nl.add("540", "U_SELD1", part="74ABT540", OE1="GND", OE2="GND",
+           **{f"A{i + 1}": f"SEL{8 + i}_n" if i < 4 else "VCC" for i in range(8)},
+           **{f"Y{i + 1}": f"SEL{8 + i}" for i in range(4)})
+    g("02", ["IORESET", "RESET"], "IORESET_n")
+    nl.add("osc", "U_AOSC", part="oscillator 1.8432 MHz", OUT="CLKA", params={"period_ps": CLKA_PS})
 
     # ------------------------------------------------------------ the card's own devices
     nl.section("Console UART")
@@ -640,6 +655,7 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     window(nl, window_bound)
     if bench:
         add_bench(nl, master)
+        slot_cards(nl)
     nl.finish()
     nl.check()
     return nl
@@ -993,6 +1009,40 @@ def window(nl, bound=WINDOW_BOUND):
     g("00", ["W1", "SSA0"], "WRDCLR_n")
     reg(nl, "U_WRD0", IOD[0:8], SBD[0:8], en="WRDLD_n", oe="WEND_n", clr="WRDCLR_n")
     reg(nl, "U_WRD1", IOD[8:16], SBD[8:16], en="WRDLD_n", oe="WEND_n", clr="WRDCLR_n")
+
+
+def slot_cards(nl):
+    """The I/O cards on the bench, as RFC 0037, 13 and 21 have them and
+    sim/src/cards.rs models them: in slot 0 a CompactFlash card in True
+    IDE mode (PIO mode 4) on a connector and a 74HCT132, A3 its second
+    chip select; in slot 1 the serial card, two 16C550s from CLKA, A3
+    picking the line, its INT either one's. Each card's strobes come from
+    SEL and WRITE through its 74HCT132, which takes each at two inputs.
+    The CF card's image is X_CF's preload; what each line's terminal
+    types, X_SA's and X_SB's."""
+    g = nl.gate
+    nl.section("Slot 0: the CF card")
+    nl.add("132", "X_C0G", part="74HCT132", **{
+        "1A": "AWRITE", "1B": "VCC", "1Y": "C0_WRITE_n",
+        "2A": "SEL0", "2B": "C0_WRITE_n", "2Y": "C0_IORD_n",
+        "3A": "SEL0", "3B": "AWRITE", "3Y": "C0_IOWR_n",
+        "4A": IOA[3], "4B": "VCC", "4Y": "C0_CS1_n"})
+    nl.add("cf", "X_CF", part="CF PIO4", **{f"D{i}": IOD[i] for i in range(16)},
+           **{f"A{i}": IOA[i] for i in range(3)}, CS0=IOA[3], CS1="C0_CS1_n", IORD="C0_IORD_n",
+           IOWR="C0_IOWR_n", RESET="IORESET_n", INTRQ=INT[0], WAKE="X_CF_WAKE")
+    nl.section("Slot 1: the serial card")
+    nl.add("132", "X_C1G", part="74HCT132", **{
+        "1A": "AWRITE", "1B": "VCC", "1Y": "C1_WRITE_n",
+        "2A": "SEL1", "2B": "C1_WRITE_n", "2Y": "C1_RD_n",
+        "3A": "SEL1", "3B": "AWRITE", "3Y": "C1_WR_n",
+        "4A": "IORESET_n", "4B": "VCC", "4Y": "C1_MR"})
+    for k, (cs0, cs2) in enumerate(((("VCC", IOA[3])), (IOA[3], "GND"))):
+        nl.add("16c550", f"X_S{'AB'[k]}", part="TL16C550C", **{f"D{i}": IOD[i] for i in range(8)},
+               **{f"A{i}": IOA[i] for i in range(3)}, CS0=cs0, CS1="VCC", CS2=cs2, RD="C1_RD_n",
+               WR="C1_WR_n", MR="C1_MR", XIN="CLKA", INTR=f"C1_INT{k}")
+    nl.add("32", "X_C1O", part="74HCT32", **{"1A": "C1_INT0", "1B": "C1_INT1", "1Y": INT[1],
+                                              "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND",
+                                              "4A": "GND", "4B": "GND"})
 
 
 def add_bench(nl, master=False):

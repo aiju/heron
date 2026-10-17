@@ -139,6 +139,8 @@ pub trait IoCard: Send {
     fn write(&mut self, reg: u8, v: u16, now_ns: u64);
     fn int(&self) -> bool;
     fn advance(&mut self, now_ns: u64);
+    /// IORESET (RFC 0037, 19): the card's devices to their reset state.
+    fn reset(&mut self, _now_ns: u64) {}
     /// The card itself, for the host's side of it (a terminal, a disk image).
     fn as_any(&mut self) -> &mut dyn std::any::Any;
 }
@@ -226,9 +228,14 @@ impl IoBus {
         self.edges.t0_ps + ns as i64 * 1000
     }
 
-    /// IORESET: the devices on the bus to their reset state. The table
-    /// and the page register are the IOP's and keep their contents.
+    /// IORESET: the devices on the bus to their reset state, the cards'
+    /// too. The table and the page register are the IOP's and keep their
+    /// contents.
     pub fn reset(&mut self) {
+        let t = self.now_ns;
+        for c in self.slots.iter_mut().flatten() {
+            c.reset(t);
+        }
         self.uart.reset();
         self.timer = Timer::new();
         self.leds = 0;

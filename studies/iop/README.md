@@ -211,7 +211,8 @@ RFC, not decisions.
   in it.
 - **I/O cards** (`sim/src/cards.rs`): the CF card with A3 as its second
   chip select, PIO mode 4 timing (0/3/0); the serial card's two 16C550s
-  on A3, from CLKA; a GPIO card with an INT mask register.
+  on A3, from CLKA's edges as the card's oscillator has them; a GPIO card
+  with an INT mask register. IORESET resets them.
 - **The image flash's layout:** a header page, the dictionary from page 1,
   the CPU's images from halfword 0x10000 (`build.py`), as records of
   {bus address, n, n halfwords}.
@@ -228,14 +229,15 @@ RFC, not decisions.
 `card.py` is the card at chip level (RFC 0027, 16, step 4), a first cut:
 the core, the devices on T, the I/O bus side with the card's own devices,
 and the system bus side as a master and as a slave (the shared RAM, the
-doorbells). `hw.py` runs it on the chip-level
+doorbells); on the bench, the I/O cards in slots 0 and 1. `hw.py` runs
+it on the chip-level
 simulator and checks it against the model: every E2, the microaddress
 uIR takes and AC, must be the model's, on the same bus clock.
 
 ```sh
 heron iop hw run --ms 32                 # power up: the Forth's banner, about 8 s
-heron iop hw run --ms 45 --type '1 2 + .\r'
-heron iop hw test --ms 25                # the firmware against the model: power-up to the banner
+heron iop hw run --ms 64 --type '1 2 + .\r'
+heron iop hw test --ms 30                # the firmware against the model: power-up to the banner
 heron iop hw test --ucode hwtest.uc      # the bus side, shared RAM and I/O bus against the model
 heron iop hw slave                       # the slave side, against a second master on the bench
 heron iop hw window                      # the window onto the I/O bus, the same way
@@ -250,9 +252,11 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   start) to the banner, and the Forth's interpreter on the console, with
   no timing violations at the slow corner. It is the model's, clock for
   clock and AC for AC, ticks and all: tests/test_netlist.py types a line
-  at the console and compares the 386,000 microinstructions to its
-  answer, 48 ms. For that the model runs its UART and timer on the card's
-  oscillators' edges (`iobus::Edges`, its clock 0 on the card's time line
+  at the console that reads a sector off the CF card into the CPU card's
+  RAM, and one on the serial card's line 0, and compares the 718,000
+  microinstructions to the answers, 88 ms (most of it the interpreter's
+  `find`, in Forth). For that the model runs its UARTs and timer on the
+  card's oscillators' edges (`iobus::Edges`, its clock 0 on the card's time line
   as `hw.T0_PS`), makes each I/O access when the card's strobe starts or
   ends, and sees OUT0 through the tick's synchroniser and the INT lines
   through their register, as the card does. The bus
@@ -408,6 +412,21 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   clears the first half: the watchdog is armed by the first kick after
   each COLD. `heron iop hw` checks it with its times shortened
   (`ucode/hwwdog.uc`, tests/test_netlist.py).
+- **The I/O cards** on the bench (`card.slot_cards`), as RFC 0037, 13
+  and 21 have them and `sim/src/cards.rs` models them: in slot 0 a CF
+  card in True IDE mode on its connector and a 74HCT132 (the strobes
+  from SEL and WRITE, A3 inverted for its second chip select); in slot
+  1 two 16C550s from CLKA, a 74HCT132 and a 74HCT32 for INT. The IOP's
+  card drives SEL active high through two 74ABT540s, IORESET (active
+  low: RFC 0037, 14 doesn't say, and so the CF card takes it with no
+  gate) and CLKA from its own oscillator. The CF card's timing is PIO
+  mode 4's (`CF PIO4` in `infra/hw/datasheets/timing_bus.json`, from
+  memory, so marked estimated; the mode 0 data of the `CF` entry can't
+  meet the study's 0/3/0). The Forth's cold start finds both cards and
+  reads the CF card's IDENTIFY, which puts the banner at 29 ms rather
+  than 25. The model changed to match: its CF card drives all of D (an
+  8-bit register's upper byte high, as the CF core returns it), its
+  serial card's UARTs run on CLKA's edges, and IORESET reaches the cards.
 - **What the model changed to match:** an I/O bus read is latched at the
   strobe's end, so one onto R takes two clocks more than the model had;
   an access that stretches the second half ends a clock after its strobe
@@ -422,7 +441,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 223 packages so far (`heron iop hw bom`, 3 of them
+- **Parts:** 226 packages so far (`heron iop hw bom`, 4 of them
   oscillators), against RFC 0027's ~95 for the whole card: 78 are gates
   (74F00-74F86 and a 74ACT10, as the library has no 74F10), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
@@ -433,8 +452,8 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   both of the SRAM's address drivers are on. The I/O side's address
   buffers (the core's or the window's) overlap by under 2 ns as they
   change hands; a pair of 74F157s would avoid it.
-- **Not yet:** the 32-bit path, LOCK, I/O cards in the slots, and a
-  printed circuit board
+- **Not yet:** the 32-bit path, LOCK, the I/O bus's WAIT (RFC 0037, 18;
+  the model hasn't it either), and a printed circuit board
   (the PCB flow, `studies/pcb`, has no footprints for the 16-bit parts'
   packages, nor a way to pair their halves).
 
@@ -447,23 +466,23 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
 | dictionary out of the flash (9156 cells, 36 pages) | 7.3 ms | 32K cells in ~30 ms |
 | power-up to the banner | 151.2 ms | - |
-| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,250,298 | about 1,000,000 |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,250,173 | about 1,000,000 |
 | microcycles a Forth word, there | 6.67 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
 | the tick's share of the IOP while Forth computes | 9.6% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,223,423 | - |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,223,417 | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.1 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
 | booting the CPU: draft 2's control store, its decode table and the program | 92.5 ms (2.6 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
-| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 39.8 us, 58.4 us | ~5 us on top of the transfer |
+| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 40.0 us, 58.6 us | ~5 us on top of the transfer |
 | a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1371.6 us, 1390.2 us | ~5 us on top of the transfer |
 | a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 143.6 us, 227.9 us | ~5 us on top of the transfer |
 | a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 282 cycles, 103 us | 200-700 cycles |
 | a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 282 cycles, 1435 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 275 us | 200-700 cycles |
-| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 379 ms, 82% busy, 7,291 cycles a KB | the CPU's time back |
-| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1657 ms, 68% busy, 26,572 cycles a KB | the CPU's time back |
+| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 278 us | 200-700 cycles |
+| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 379 ms, 82% busy, 7,289 cycles a KB | the CPU's time back |
+| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1658 ms, 68% busy, 26,574 cycles a KB | the CPU's time back |
 | microcode | 2239 microinstructions, 77 primitives | 1-2K; the interpreter and primitives 500-1,000 |
 | the Forth's dictionary | 9156 cells | up to 32K |
 

@@ -365,6 +365,10 @@ class Case:
                                       ("OE2", "OE->Y en", d["OE->Y en"])])
         return (self.pin(inst, a)[0], t, en, cause)
 
+    def m_buf540(self, inst, pin, d):
+        v, t, en, cause = self.m_buf541(inst, pin, d)
+        return (None if v is None else 1 - v, t, en, cause)
+
     def m_cmp688(self, inst, pin, d):
         g = self.pin(inst, "G")[0]
         if g == 1:
