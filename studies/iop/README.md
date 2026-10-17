@@ -237,6 +237,7 @@ heron iop hw test --ms 21                # the firmware against the model, to th
 heron iop hw test --ucode hwtest.uc      # the bus side, shared RAM and I/O bus against the model
 heron iop hw slave                       # the slave side, against a second master on the bench
 heron iop hw bom                         # the parts
+heron iop hw schematic                   # the schematic viewer, build/iop/schematic.html
 ```
 
 - **What it does:** from power-up it runs the firmware's cold start (the

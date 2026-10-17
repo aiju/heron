@@ -7,6 +7,7 @@ must be the model's.
     heron iop hw test [--ms N]             the same, against the model, clock for clock
     heron iop hw slave                     the slave side, against a second master on the bench
     heron iop hw bom                       the parts
+    heron iop hw schematic [--out FILE]    the schematic viewer (build/iop/schematic.html)
 
 Both start from the microcode's quick build (build.py's `quick`: the
 SRAM's self test only of its top cells), with the SRAMs holding what the
@@ -316,6 +317,8 @@ def main(argv):
     t.add_argument("--ucode", help="a microcode program of its own (ucode/NAME) instead of the firmware")
     sub.add_parser("bom")
     sub.add_parser("slave")
+    sc = sub.add_parser("schematic")
+    sc.add_argument("--out", help="where to write it (default build/iop/schematic.html)")
     a = p.parse_args(argv)
     if a.cmd == "run":
         b = bld.Build(bld.DEFAULT_PROGRAM, quick=True)
@@ -358,6 +361,15 @@ def main(argv):
         ok = reads == want and regs[:3] == [8, 0x1111, 0x2222]
         print("as expected" if ok else f"expected {[hex(x) for x in want]}")
         return 0 if ok else 1
+    elif a.cmd == "schematic":
+        from heron.infra.hw import schematic
+        out = a.out or os.path.join(OUT, "schematic.html")
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        html = schematic.page(card.build(bench=True), "The I/O processor's card", variant=card.VARIANT,
+                              standalone=True)
+        with open(out, "w") as f:
+            f.write(html)
+        print(f"{out}: {len(html) // 1024} KB")
     elif a.cmd == "bom":
         for part, n in sorted(bom().items()):
             print(f"{n:4}  {part}")
