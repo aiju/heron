@@ -22,6 +22,10 @@ also give
                    tickclk's LATE), that open at a*T + b and close at
                    c*T + d (by default WEWIN, [ws*T, we*T]), for a clock
                    generator that counts fixed ticks (the `tickclk` fixture);
+  CLOSING          latch enables that, where a microinstruction leaves them
+                   unknown, only fall in the part of the cycle analysed: a
+                   latch they enable holds what its D was while they were
+                   high, and what reaches D after it closes doesn't reach Q;
   extra_checks(case, N)  requirements of its own, in the form checks()
                    returns ("setup", c, description, net): T >= c.
   TURNOFF          True: a three-state bus is there only once the drivers
@@ -67,8 +71,12 @@ class Netlist:
 class Case:
     """Arrival/value analysis for one microinstruction at one period."""
 
-    def __init__(self, N, constants, T, ws, windows=None, turnoff=False, sharp=False):
+    def __init__(self, N, constants, T, ws, windows=None, turnoff=False, sharp=False,
+                 closing=(), fixed=None):
         self.N = N
+        self.closing = closing
+        self.fixed = fixed or {}        # net -> value, there from before the cycle
+        self.opened = {}
         self.turnoff = turnoff
         self.sharp = sharp
         self.const = constants          # net -> value (from ROM word / mode)
@@ -82,6 +90,8 @@ class Case:
     def net(self, n):
         if n in self.memo:
             return self.memo[n]
+        if n in self.fixed:
+            return (self.fixed[n], NEG, None)
         if n == "GND":
             return (0, NEG, None)
         if n == "VCC":
@@ -122,6 +132,15 @@ class Case:
 
     def pin(self, inst, p):
         return self.net(inst.conn[p]) if p in inst.conn else (0, NEG, None)
+
+    def open(self, net):
+        """This microinstruction with `net` high all along: what a latch it
+        enables sees until it closes."""
+        if net not in self.opened:
+            self.opened[net] = Case(self.N, self.const, self.T, self.ws, self.windows,
+                                    self.turnoff, self.sharp, self.closing,
+                                    {**self.fixed, net: 1})
+        return self.opened[net]
 
     def output(self, inst, pin):
         """(value, arrival, enabled, cause) of one output pin, with the
@@ -222,16 +241,25 @@ class Case:
         if reg:
             _, tc, _ = self.pin(inst, "CLK")
             return (None, max(tc, 0) + d["CLK->Q"], True, (inst.ref, "CLK", "CLK->Q"))
-        pins, val, live = set(), 0, False
+        pins, val, live = set(), 0, []
         for t in terms:
             vals = [self.pin(inst, p)[0] for p, _ in t]
             if any(x is not None and x != v for x, (_, v) in zip(vals, t)):
                 pins.update(p for (p, _), x in zip(t, vals) if x is not None)
                 continue
-            live = True
-            pins.update(p for p, _ in t)
-            if all(x is not None for x in vals):
+            rest = frozenset(lit for lit, x in zip(t, vals) if x is None)
+            live.append((rest, [p for p, _ in t]))
+            if not rest:
                 val = 1
+        # a live term whose unknown inputs include another's is covered by
+        # it (it's only true when the other is): its own inputs don't time
+        # the output
+        live.sort(key=lambda r: (len(r[0]), max((self.pin(inst, p)[1] for p in r[1]), default=NEG)))
+        kept = []
+        for rest, ps in live:
+            if not any(k <= rest for k in kept):
+                kept.append(rest)
+                pins.update(ps)
         v = 1 if val else (None if live else 0)
         t, cause = self.latest(inst, [(p, "tPD", d["tPD"]) for p in sorted(pins)])
         return (None if v is None else v ^ int(inv), t, True, cause)
@@ -490,6 +518,13 @@ class Case:
         le = self.pin(inst, "LE")[0]
         dpin = "D" + pin[1:]
         terms = [("OE", "OE->Y en", d["OE->Y en"])]
+        if le is None and inst.conn["LE"] in self.closing:
+            # closing: it holds D as it was with LE high
+            t, cause = self.latest(inst, terms)
+            _, td, _ = self.open(inst.conn["LE"]).pin(inst, dpin)
+            if td != NEG and td + d["D->Q"] > t:
+                t, cause = td + d["D->Q"], (inst.ref, inst.conn[dpin], "D->Q, LE high")
+            return (None, t, en, cause)
         if le != 0:                     # transparent: the data flows through
             terms += [(dpin, "D->Q", d["D->Q"]), ("LE", "LE->Q", d["LE->Q"])]
         t, cause = self.latest(inst, terms)
@@ -540,14 +575,17 @@ class Case:
     def path(self, net):
         out = []
         seen = set()
+        case = self
         while net and net not in seen:
             seen.add(net)
-            v, t, cause = self.net(net)
+            v, t, cause = case.net(net)
             if cause is None:
                 out.append((net, t, "", ""))
                 break
             ref, src, dn = cause
             out.append((net, t, ref, dn))
+            if dn == "D->Q, LE high":   # a closing latch: its D before it closed
+                case = case.open(self.N.by_ref[ref].conn["LE"])
             net = src if src not in ("CLK", "WEWIN") else None
             if src in ("CLK", "WEWIN"):
                 out.append((src, 0.0 if src == "CLK" else self.ws * self.T, "", ""))
@@ -725,7 +763,8 @@ def worst_check(chk, T, ws, we):
 def case_checks(machine, N, w, extra, T, ws, we):
     """The Case for one microinstruction at period T, and its requirements."""
     c = Case(N, constants_for(machine, w, dict(extra)), T, ws, getattr(machine, "WINDOWS", None),
-             getattr(machine, "TURNOFF", False), getattr(machine, "SHARP", False))
+             getattr(machine, "TURNOFF", False), getattr(machine, "SHARP", False),
+             getattr(machine, "CLOSING", ()))
     chk = checks(c, N, we)
     if hasattr(machine, "extra_checks"):
         chk += machine.extra_checks(c, N)

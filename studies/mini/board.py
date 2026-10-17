@@ -700,12 +700,15 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     # one copy, read twice in a cycle that reads B from it (BRF): the A
     # address until LATE, its latches closing then, the B address after;
     # the write address in the tail (RW). The addresses and the A latches'
-    # enable from three 22V10s
+    # enable from three 22V10s. The address moves on from A only once RLEA
+    # has closed the A latches, and from B once RW_n has closed the B
+    # latches: a gate's delay after them, for the latches' hold
     g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWE_n")
     g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWB_n")
     AM = bus("RFAM", 5)
-    a_ph = gal.AND(lit("RW", 0), gal.OR(lit("LATE", 0), lit(u["BRF_n"])))
-    b_ph = gal.AND(lit("RW", 0), lit("LATE"), lit(u["BRF_n"], 0))
+    a_ph = lit("RLEA")
+    b_ph = gal.AND(lit("RLEA", 0), lit("RW_n"))
+    w_ph = gal.AND(lit("RLEA", 0), lit("RW_n", 0))
 
     def src(sel, i, k):
         rd = [lit(IR[12 + i]), lit(IR[8 + i]), lit(SX[i]), lit(u[f"{k}{i}"])] if i < 4 else \
@@ -714,7 +717,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
 
     def addr(i):
         return (gal.OR(gal.AND(a_ph, src("RFA", i, "RFK")), gal.AND(b_ph, src("RFB", i, "RFK")),
-                       gal.AND(lit("RW"), src("RFW", i, "RFKW"))), False, False)
+                       gal.AND(w_ph, src("RFW", i, "RFKW"))), False, False)
     gal.add(nl, "U_RFG0", {AM[0]: addr(0), AM[1]: addr(1)})
     gal.add(nl, "U_RFG1", {AM[2]: addr(2), AM[3]: addr(3)})
     gal.add(nl, "U_RFG2", {AM[4]: addr(4),
