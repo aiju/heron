@@ -376,10 +376,12 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # in supervisor mode without UBR; for a constant only if not G
     g("02", [u["UBR"], "SNX_n"], "USEBR_N")
     g("08", ["MNX", "USEBR_N"], "MB_D")
+    # (with a faster copy of the uIR's RFK5_n beside it)
+    rfk5 = next(b for b, n in U.items() if n == u["RFK5_n"])
     nl.add("74", "U_MB", **{"1D": "MB_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
-                            "1Q": "MB", "1QN": "MB_n", "2D": "GND", "2CLK": "CLK",
-                            "2PRE": "VCC", "2CLR": "VCC"})
-    g("00", ["MB", u["RFK5_n"]], "MBK_n")
+                            "1Q": "MB", "1QN": "MB_n", "2D": f"UD{rfk5}", "2CLK": "CLK",
+                            "2PRE": "VCC", "2CLR": "VCC", "2Q": "RFK5F_n"})
+    g("00", ["MB", "RFK5F_n"], "MBK_n")
     # the bank, for both copies: EB, and the write's for the last two ticks
     RFBK = bus("RFBK", 8)
     for k in range(2):
