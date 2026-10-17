@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v2_isa, v2_hw, v1b_hw, v1b_tradeoffs, v1b_system, c_compiler]
+depends-on: [v2_isa, v2_hw, v1b_hw, v1b_tradeoffs, v1b_system, c_compiler, lisp]
 reports: [41]
 ---
 
@@ -24,7 +24,8 @@ It depends on `v2_isa` for the ISA, its simulator and the program suite;
 on `v2_hw` for the parts of draft 2's CPU it adapts (the microcode's
 structure, the static timing analysis); on `v1b_hw` for the shift
 planner; on `v1b_tradeoffs` for the fast parts; on `v1b_system` for the
-CF card's test pattern; on `c_compiler` for the compiled programs.
+CF card's test pattern; on `c_compiler` for the compiled programs; on
+`lisp` for the Lisp, whose type checks are address errors.
 
 | File | What's in it |
 |---|---|
@@ -43,10 +44,12 @@ CF card's test pattern; on `c_compiler` for the compiled programs.
 | `bench.py` | Graphics kernels: draft 2 code against the block instructions, on the RTL model |
 | `reduce.py` | What could be left out: the chips each reduction removes, its time from the profile |
 | `report.py` | RFC 0041's tables (`reports/0041-rfc-heron-mini/performance.md`) |
-| `sw/hw/` | Programs for the chip-level netlist only: `devices.s` (the I/O devices), `video.s` (the video) |
+| `sw/hw/` | Programs outside the suite: `devices.s` (the I/O devices) and `video.s` (the video), for the chip-level netlist; `addrerr.s` (the address error), also on the model |
 
 ```sh
 heron mini check [--c]               # the RTL model against the ISA simulator: the suite, the C programs
+heron mini check addrerr             # the address error (sw/hw/addrerr.s)
+heron mini check --lisp [--compiled] # the Lisp's short tests (studies/lisp), whose type checks are address errors
 heron mini run PROG.s [--profile]    # one program on the RTL model
 heron mini perf                      # the suite's time with the length classes
 heron mini bench                     # graphics kernels: code against the block instructions

@@ -30,6 +30,13 @@ def inventory():
     return out
 
 
+def gate_parts():
+    """The part numbers of the netlist's gate packages, with how many."""
+    nl = board.build(sim=True)
+    gate_refs = {g.ref for g in nl.gates}
+    return Counter(i.part_number(parts.VARIANT) for i in nl.instances if i.ref in gate_refs)
+
+
 def sections(inv=None):
     """{section: packages}."""
     inv = inv or inventory()

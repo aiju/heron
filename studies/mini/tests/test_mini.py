@@ -1,8 +1,8 @@
 """Heron Mini: the register-transfer model against the instruction-level
-simulator, the boot, the netlist on the chip-level simulator (a program
-exactly as the model runs it, the devices, at the measured length classes
-and with no timing violation), the measured periods current, the video's
-timing."""
+simulator, the boot, the address error, the netlist on the chip-level
+simulator (a program exactly as the model runs it, the address error, the
+devices, at the measured length classes and with no timing violation),
+the measured periods current, the video's timing."""
 
 import math
 import unittest
@@ -39,6 +39,14 @@ class Model(unittest.TestCase):
         m = rtl.RTL(s).run(100_000)
         self.assertEqual(m.out, b"Hello, world!\n")
 
+    def test_address_error(self):
+        # a misaligned access traps at its instruction and changes nothing
+        img, inp = assemble("addrerr")
+        m = chk.run_rtl(img, inp)
+        sim = chk.run_isa(img, inp)
+        self.assertEqual(chk.compare(sim, m), [])
+        self.assertEqual(len(sim.traps), 22)
+
     def test_io_hold(self):
         # region r holds an access 16 - 2r ticks
         self.assertEqual([system.IO_HOLD[r] for r in range(8)], [16, 14, 12, 10, 8, 6, 4, 2])
@@ -57,6 +65,11 @@ class ChipLevel(unittest.TestCase):
             m, out, diffs = hw.check(chk.program_paths(["hello"])[0], seed=seed)
             self.assertEqual(diffs, [], seed)
             self.assertEqual(out["violation_total"], 0, seed)
+
+    def test_address_error(self):
+        m, out, diffs = hw.check(chk.program_paths(["addrerr"])[0])
+        self.assertEqual(diffs, [])
+        self.assertEqual(out["violation_total"], 0)
 
     def test_devices(self):
         out, uarts, diffs = hw.run_devices()

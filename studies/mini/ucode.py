@@ -7,8 +7,9 @@ faults, trace or interrupt levels. The interrupt, the traps and the
 special register are those of draft 2's plain machine (the
 instruction-level simulator without a supervisor): one interrupt line,
 vectors that are code addresses from 0 (reset 0, interrupt 4, illegal
-instruction 8, SWI 0x0C, divide 0x10, tag 0x18), a frame of the PC and
-the flags word, and `ccr` holding that flags word (V C Z N I in bits 0-4).
+instruction 8, SWI 0x0C, divide 0x10, address error 0x14, tag 0x18), a
+frame of the PC and the flags word, and `ccr` holding that flags word
+(V C Z N I in bits 0-4).
 
 The control store is flash: 128K words of 136 bits in seventeen
 SST39SF010A, pipelined as on draft 1b and draft 2's CPU (the flash is
@@ -27,10 +28,20 @@ Control store address, 17 bits: {E, U[2:0], Y[12:0]}
                      cycle may jump
     E = 0, U = 010   interrupt entry (a decode or a halt with an interrupt
                      pending)
+    E = 0, U = 1LL   an address error: this cycle's data access is a half
+                     at an odd address or a word at one that isn't a
+                     multiple of 4. LL (the microinstruction's own field)
+                     is the number of parcels the instruction has
+                     consumed, so that the fault's routine can wind the PC
+                     back to the instruction. The cycle changes no
+                     register, flag, memory or device, and its decode or
+                     jump doesn't reach the IR or the PC (the queue's
+                     does: the fault's jump to the vector empties it)
 
 The forced entries fill their pages: every Y in U = 001 holds the refill,
-every Y in U = 010 the interrupt entry's first microinstruction, so that
-forcing one changes only the address's top bits (E and U), not Y.
+every Y in U = 010 the interrupt entry's first microinstruction, every Y
+in U = 1LL the address error's, so that forcing one changes only the
+address's top bits (E and U), not Y.
 
     SEQ 0  Y = NEXT, or {NEXT[12:1], cond} for a branch
     SEQ 1  decode: {1, QH}; IR <- QH and the parcel is consumed. Forced
@@ -95,6 +106,9 @@ FIELDS = [
     # decode (SEQ 1) and the refill (MEM 3) again, for the forced entries'
     # logic, one gate sooner
     ("VAS", 2, False), ("DEC", 1, False), ("REF", 1, False),
+    # in a data access: the parcels the instruction has consumed, for the
+    # address error's entry (filled in by Microcode)
+    ("LL", 2, False),
 ]
 
 WORD_BITS = 136             # seventeen 128K x 8 flash chips
@@ -192,7 +206,7 @@ RF_NAMES = {SP: "sp", TMP1: "TMP1", TMP2: "TMP2", TMP3: "TMP3", ZERO: "ZERO", ON
 
 # The plain machine's vectors: code addresses (studies/v2_isa's machine)
 VECTORS = {"reset": 0x00, "irq": 0x04, "illegal": 0x08, "swi": 0x0C, "divide": 0x10,
-           "tag": 0x18}
+           "address": 0x14, "tag": 0x18}
 
 # --------------------------------------------------------------------------
 # Building microinstructions
@@ -489,6 +503,14 @@ def interrupt_entry():
     """The interrupt entry (forced at a decode while an interrupt is
     pending): the frame, then the jump to vector 4."""
     return Node(SAVE_FLAGS, ("next", trap_tail(VECTORS["irq"], 0, "interrupt")), "interrupt")
+
+
+def fault_entry(ll):
+    """The address error's entry (forced in a misaligned data access) for
+    an instruction that has consumed ll parcels: the frame with the
+    instruction's own address, then the jump to vector 0x14."""
+    return Node(SAVE_FLAGS, ("next", trap_tail(VECTORS["address"], 2 * ll, "address error")),
+                "address error")
 
 
 # --------------------------------------------------------------------------
@@ -1628,6 +1650,8 @@ def reset_routine():
 
 REFILL_ADDR = 1 << U_SHIFT
 IRQ_ADDR = 2 << U_SHIFT
+FAULT_ADDRS = [(4 | ll) << U_SHIFT for ll in range(4)]     # by LL
+DATA = (MEM["read"], MEM["write"], MEM["reada"])
 
 
 def _successors(n):
@@ -1691,6 +1715,37 @@ def _assign_slots(roots):
     return groups
 
 
+TRAP_NAMES = ("illegal", "interrupt", "address error")
+
+
+def _assign_ll(roots):
+    """Set LL in every data access: the parcels its instruction has
+    consumed when it runs. roots: (node, that count when it starts). A
+    node reached with two counts must be one of a trap's frame pushes,
+    which fault only with sp misaligned, and then the fault's own push
+    faults again; it takes the smaller."""
+    counts = defaultdict(set)
+    stack, seen, byid = list(roots), set(), {}
+    while stack:
+        n, c = stack.pop()
+        if (id(n), c) in seen:
+            continue
+        seen.add((id(n), c))
+        counts[id(n)].add(c)
+        byid[id(n)] = n
+        c2 = c + (1 if n.f.get("CONSUME") else 0)
+        stack.extend((m, c2) for m in _successors(n))
+    for i, cs in counts.items():
+        n = byid[i]
+        if n.f.get("MEM", 0) not in DATA:
+            continue
+        if len(cs) > 1 and n.name not in TRAP_NAMES:
+            raise ValueError(f"{n.name}: a data access reached with {sorted(cs)} parcels consumed")
+        if max(cs) > 3:
+            raise ValueError(f"{n.name}: a data access after {max(cs)} parcels")
+        n.f = dict(n.f, LL=min(cs))
+
+
 def _dedup(nodes, keep, frozen=frozenset()):
     """Merge identical free-standing nodes (same fields, same successors).
     Nodes in `frozen` (by id) are never merged, though their successors
@@ -1744,7 +1799,8 @@ class Microcode:
         self.reset = reset_routine()
         self.reset.fixed = 0
         self.fixed = {REFILL_ADDR: end("refill", mem="fetch"),
-                      IRQ_ADDR: interrupt_entry()}
+                      IRQ_ADDR: interrupt_entry(),
+                      **{a: fault_entry(ll) for ll, a in enumerate(FAULT_ADDRS)}}
         for a, n in self.fixed.items():
             n.fixed = a
         self.keys = {}
@@ -1765,6 +1821,8 @@ class Microcode:
         entry_nodes = list({id(n): n for n in self.entries.values()}.values())
         roots = [self.reset, *self.fixed.values(), *entry_nodes]
         self.groups = _assign_slots(roots)
+        _assign_ll([(self.reset, 0), *((n, 0) for n in self.fixed.values()),
+                    *((n, 1) for n in entry_nodes)])
         nodes = _reachable(roots)
         entry_ids = frozenset(id(n) for n in entry_nodes)
         nodes = _dedup(nodes, {id(n) for n in roots}, entry_ids)
@@ -1853,7 +1911,7 @@ class Microcode:
 
     def _check(self):
         """Rules the hardware relies on."""
-        data = (MEM["read"], MEM["write"], MEM["reada"])
+        data = DATA
         for n in self.nodes:
             f = n.f
             mem = f.get("MEM", 0)
@@ -1873,7 +1931,7 @@ class Microcode:
         entries' pages, the entries."""
         out = {}
         for n in self.low:
-            if n.fixed in (REFILL_ADDR, IRQ_ADDR):
+            if n.fixed in (REFILL_ADDR, IRQ_ADDR, *FAULT_ADDRS):
                 w = pack(self.word(n))
                 for y in range(1 << Y_BITS):
                     out[n.fixed + y] = w

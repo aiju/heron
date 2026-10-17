@@ -44,7 +44,7 @@ K_DATA = 7                  # a data access may hold the count from tick 4
 _T = None
 HERE = os.path.dirname(os.path.abspath(__file__))
 TICKS_PATH = os.path.join(HERE, "ticks.json")
-NOT_TIMED = ("NEXT", "LCL")     # fields that don't change a cycle's paths
+NOT_TIMED = ("NEXT", "LCL", "LL")    # fields that don't change a cycle's paths
 
 
 def _d(part, name):

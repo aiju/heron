@@ -14,7 +14,7 @@ The program suite and the compiled C programs on the register-transfer model (wh
 | crc | 61552 | 118105 | 1.92 | 14.06 ms | 228 ns | 193715 | 13.8 |
 | fib | 81574 | 182165 | 2.23 | 22.47 ms | 275 ns | 314179 | 14.0 |
 | hello | 53 | 160 | 3.02 | 0.02 ms | 371 ns | 140 | 7.1 |
-| interrupts | 10381 | 81202 | 7.82 | 8.92 ms | 859 ns | 56022 | 6.3 |
+| interrupts | 10381 | 81202 | 7.82 | 9.58 ms | 923 ns | 56022 | 5.8 |
 | life | 164136 | 308638 | 1.88 | 41.34 ms | 252 ns | 700219 | 16.9 |
 | lines | 24031 | 46690 | 1.94 | 5.62 ms | 234 ns | 71715 | 12.8 |
 | mandel | 107711 | 933069 | 8.66 | 106.47 ms | 988 ns | 709266 | 6.7 |
@@ -52,8 +52,8 @@ The ticks each executed microinstruction needs (static timing analysis of the ne
 
 | Ticks needed | Cycles | Share |
 |---:|---:|---:|
-| 5 | 1132143 | 16.2% |
-| 6 | 4823608 | 69.0% |
+| 5 | 1132075 | 16.2% |
+| 6 | 4823676 | 69.0% |
 | 7 | 881023 | 12.6% |
 | 8 | 12204 | 0.2% |
 | 9 | 145028 | 2.1% |
@@ -66,19 +66,19 @@ Counted from the simulation netlist (`board.build(sim=True)`), test fixtures and
 
 | Area | Sections | Packages |
 |---|---|---:|
-| CPU: control | Control store, Next address, Instruction register, Condition latches, Branch condition, Interrupt request | 69.9 |
+| CPU: control | Control store, Next address, Instruction register, Condition latches, Branch condition, Interrupt request | 71.6 |
 | CPU: clock, reset, hold | Clock generator, Reset, Hold | 17.7 |
-| CPU: register file | Register file | 36.8 |
+| CPU: register file | Register file | 37.0 |
 | CPU: buses, immediates | A bus, B bus, Immediate unit | 52.2 |
 | CPU: ALU, result, MQ | ALU control, ALU, Result multiplexer, MQ | 37.6 |
 | CPU: registers (R, T, MAR, LC, SX, EX) | R and T, MAR, Loop counter, SX and EX | 26.7 |
-| CPU: flags | Flags | 16.6 |
+| CPU: flags | Flags | 15.8 |
 | CPU: PC, fetch, queue | PC, Prefetch queue | 47.1 |
-| Memory: address, decode, store data, bank 0 | Memory, Store data | 36.8 |
+| Memory: address, decode, store data, bank 0 | Memory, Store data | 37.9 |
 | Video RAM: bank 1, its buffers | Video RAM | 19.6 |
-| I/O: bus, devices, on-board registers, interrupts | I/O, CF card, Expansion ports, Timer, Boot flash, UARTs, On-board registers, Interrupts | 20.1 |
-| Video: timing, fetch, output, registers | Video timing, Video fetch, Video output, Video registers | 46.1 |
-| **total** | | **427** |
+| I/O: bus, devices, on-board registers, interrupts | I/O, CF card, Expansion ports, Timer, Boot flash, UARTs, On-board registers, Interrupts | 20.5 |
+| Video: timing, fetch, output, registers | Video timing, Video fetch, Video output, Video registers | 46.4 |
+| **total** | | **430** |
 
 By part:
 
@@ -86,14 +86,14 @@ By part:
 |---|---:|
 | 74ABT541 | 70 |
 | 74F153 | 49 |
-| 74F151 | 34 |
+| 74F151 | 35 |
 | 74ABT573 | 23 |
 | 74F161 | 23 |
 | 74ABT574 | 19 |
 | SST39SF010A-55 | 19 |
 | 74ABT74 | 13 |
+| 74F157 | 13 |
 | 74ACT163 | 12 |
-| 74F157 | 12 |
 | 74ABT377 | 11 |
 | AS7C256A-12 | 10 |
 | 74F181 | 8 |
@@ -113,7 +113,7 @@ By part:
 | TL7705A | 1 |
 | oscillator 1.8432 MHz | 1 |
 | oscillator 50.35 MHz | 1 |
-| gates (74F00, 02, 04, 08, 11, 20, 27, 30, 32, 86) | 69 |
+| gates (74F00, 74F02, 74F04, 74F08, 74F10, 74F11, 74F20, 74F21, 74F27, 74F32, 74F86, 74HCT14, 74HCT30) | 70 |
 
 ## What could be left out
 

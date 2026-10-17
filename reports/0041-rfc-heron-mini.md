@@ -5,7 +5,7 @@ title: Heron Mini, draft 2 on one board
 status: open
 date: 2026-10-17
 context:
-  studies: [mini, v2_isa, v2_hw, v1b_hw, v1b_tradeoffs, v1b_system, c_compiler]
+  studies: [mini, v2_isa, v2_hw, v1b_hw, v1b_tradeoffs, v1b_system, c_compiler, lisp]
   commit: 3d43d93
 depends-on: [16, 23, 24, 28, 29, 31]
 ---
@@ -37,7 +37,7 @@ costs ([15](#15-what-could-be-left-out)).
 
 ## Summary
 
-- **It works, at chip level.** 427 packages. The suite and the compiled C
+- **It works, at chip level.** 430 packages. The suite and the compiled C
   programs run on the netlist exactly as on the model, at four cycle
   lengths from 5 to 9 ticks of 19.86 ns (half the VGA pixel clock); the
   UARTs, the 82C54, the CF card and the boot flash do what a test program
@@ -47,13 +47,16 @@ costs ([15](#15-what-could-be-left-out)).
   instruction-level simulator's reference timing would take at 12 MHz.
   Egret's desktop would type a character in about 5 ms and open its
   class browser in about 170 ms ([13](#13-how-fast)).
-- **Too many chips.** The target was 200–300; the board is 427, the CPU
-  305 of them. Taking chips out of the netlist finds about 50 that could
+- **Too many chips.** The target was 200–300; the board is 430, the CPU
+  306 of them. Taking chips out of the netlist finds about 50 that could
   go for about 20% in time; under 300 needs a slower CPU, built like
   draft 1b's 213-chip one rather than like draft 2's, and that is the
   main decision this RFC asks for ([16](#16-toward-250-chips)).
 - **Multiply and divide stay in hardware:** without the MQ register
   (6 chips) the suite would take half as long again ([17](#17-isa-features-and-what-they-cost)).
+- **So does the address error** (3 packages, no time): the Lisp's `car`,
+  `cdr` and calls check their operand's type with it; without it its
+  programs would take 17–19% longer ([17](#17-isa-features-and-what-they-cost)).
 - **The video costs the CPU nothing.** It has the RAM's second bank to
   itself through buffers, takes its words in cycles' tails and in I/O
   waits, and never holds the CPU ([9](#9-video), [18](#18-the-video)).
@@ -98,7 +101,8 @@ A microcoded 32-bit CPU, its 4 MB of RAM, an I/O space and a video
 generator on one board, with no bus between them. The parts are
 [RFC 0024](0024-rfc-faster-smaller.md)'s fast set in packages for hand
 soldering: 74F and 74ABT logic in DIP (74ACT only for counters whose
-enables 74F can't set up in time), 74F181 ALUs with 74F182 carry
+enables 74F can't set up in time, and 74HCT for the power-on reset's
+Schmitt trigger and the interrupt line's 8-input NAND), 74F181 ALUs with 74F182 carry
 lookahead, SST39SF010A flash (55 ns, DIP-32), and 12 ns SRAM in SOJ, the
 only surface-mount chips besides none: AS7C256A-12 for the register file
 and the palette, AS7C4096A-12 for the RAM.
@@ -129,9 +133,16 @@ runs without a supervisor:
 
 - **Traps and the interrupt:** vectors are code addresses from 0: reset 0,
   the interrupt 4, an illegal instruction 8, `SWI` 0x0C, a divide error
-  0x10, a tag check 0x18. Taking one pushes the flags word and then the PC
-  (`sp − 8` and `sp − 4`), clears I and jumps to the vector; `RTI`
-  undoes it.
+  0x10, an address error 0x14, a tag check 0x18. Taking one pushes the
+  flags word and then the PC (`sp − 8` and `sp − 4`), clears I and jumps
+  to the vector; `RTI` undoes it.
+- **The address error:** a half at an odd address, or a word at one that
+  isn't a multiple of 4, traps with the instruction's own address, and
+  the instruction changes nothing: no register, flag, memory or device.
+  The Lisp's `car`, `cdr` and calls check their operand's type with it
+  ([17](#17-isa-features-and-what-they-cost)). A misaligned `sp` as a trap
+  is taken faults again, without end (draft 2's simulator stops).
+  Jumps ignore bit 0 of the target, as on draft 2.
 - **One interrupt line,** level-sensitive, taken at an instruction's end
   when I is set ([7](#7-the-io-space) has its sources). `EI` and `DI` set
   and clear I; `HALT` waits for an interrupt if I is set and stops the
@@ -139,9 +150,7 @@ runs without a supervisor:
 - **`ccr`** holds the flags word (V C Z N I in bits 0–4) for `MFSR` and
   `MTSR`. There are no other special registers.
 - **Left out:** RFC 0029's modes, register banks (`MFUR` and `MTUR` are
-  illegal), address translation, the other special registers, and the
-  address error: a misaligned access reaches the aligned word, half or
-  byte.
+  illegal), address translation and the other special registers.
 - **Kept:** everything else, the tentative instructions (`MULA`, `MULFX`,
   `ADD.B4`, the tagged operations) included: in microcode they cost no
   chips ([17](#17-isa-features-and-what-they-cost)).
@@ -222,9 +231,20 @@ differences below. In brief:
   into a microinstruction register of seventeen 74ABT574 at every edge.
   Its upper half holds every instruction's first microinstruction at the
   address of its first parcel, so a decode is the queue's head parcel on
-  the address lines: there's no decode table. The refill and the
-  interrupt entry fill their own pages, so that forcing one changes only
-  the address's top bits.
+  the address lines: there's no decode table. The refill, the
+  interrupt entry and the address error's entries fill their own pages,
+  so that forcing one changes only the address's top bits.
+- **The address error:** a misaligned data access (a 74F151 on the
+  size and the address's two low bits) turns off the cycle's memory
+  write, device strobe (an I/O access still holds the cycle),
+  register-file write, flags load, and the PC's and the IR's part of a
+  jump or a decode, and forces the next address to one of four pages:
+  by the number of parcels the instruction has consumed, which each
+  microinstruction that accesses data carries in two of the control
+  word's spare bits, so that the fault's microcode can wind the PC back
+  to the instruction. The prefetch queue goes on as if there were no
+  fault: the fault's microcode reads nothing from it, and its jump to
+  the vector empties it.
 
 Different from draft 2's CPU: no page map or window, no register banks or
 special registers but `ccr`, no message level or interrupt levels, no
@@ -382,23 +402,23 @@ a program can update its own boot image.
 
 ### 11. Parts
 
-427 packages as built, of which 305 are the CPU (341 with its memory
+430 packages as built, of which 306 are the CPU (344 with its memory
 interface and bank 0); by area (the full list is in
 [performance.md](0041-rfc-heron-mini/performance.md#parts)):
 
 | Area | Packages |
 |---|---:|
-| CPU: control store, sequencer, conditions | 70 |
+| CPU: control store, sequencer, conditions | 72 |
 | CPU: clock, reset, hold | 18 |
 | CPU: register file | 37 |
 | CPU: buses, immediate unit | 52 |
 | CPU: ALU, result multiplexer, MQ | 38 |
 | CPU: R, T, MAR, LC, SX, EX | 27 |
-| CPU: flags | 17 |
+| CPU: flags | 16 |
 | CPU: PC, FPC, queue | 47 |
-| Memory: address, decode, store data, bank 0 | 37 |
+| Memory: address, decode, store data, bank 0 | 38 |
 | Video RAM: bank 1, its buffers | 20 |
-| I/O | 20 |
+| I/O | 21 |
 | Video | 46 |
 
 ## Part II: Discussion
@@ -450,7 +470,7 @@ time in report 0021's breakdown.
 
 ### 14. Chips
 
-Where the 427 go ([11](#11-parts)): the CPU is 305, four fifths with
+Where the 430 go ([11](#11-parts)): the CPU is 306, four fifths with
 its memory interface. Against
 draft 2's CPU (394 for its core with 16-bit parts, about 460 with its bus
 interface), the mini drops the system half (the page map, the window,
@@ -497,7 +517,7 @@ So: the queue, the reads at the A bus and the second register-file copy
 (27 chips together) could be left out for about 20% on the suite and 17%
 on the C programs, the I/O and video items (24 more) for features alone;
 MQ, the byte lanes and the rotations are worth their chips. That takes the
-board to about 375, still far from 300.
+board to about 380, still far from 300.
 
 ### 16. Toward 250 chips
 
@@ -510,7 +530,7 @@ different one. Three ways, roughly:
    clock; on draft 1's programs RFC 0024's fast version of it took 1.35
    times draft 2's CPU's time (RFC 0031's performance.md). For draft 2,
    with a 32-bit memory and draft 2's denser encoding, perhaps 200–230
-   chips in place of this mini's 341 (the CPU with its memory interface),
+   chips in place of this mini's 344 (the CPU with its memory interface),
    perhaps 1.2–1.4 times its time: a board of about 290–320 as built
    here, 265–295 with the I/O and video reductions. These are guesses of
    the kind the netlist was built to replace. **Not built:** it is the
@@ -544,6 +564,23 @@ are few:
   half work and the constants use them; +18–25% without. **Keep.**
 - **Reads at the A bus** (`[R]` loads in one cycle): 6 chips, +6.5% on
   the suite. A candidate.
+- **The address error:** 3 packages (the netlist is 430 with it, 427
+  without: a 74F151 that decodes a misaligned access, a 74F157 for the
+  fault's page, a few gates), and no time: the suite's microinstructions
+  keep their lengths. The fault reaches the register file, the flags, the
+  IR, the PC and the next address, but not the queue, whose paths are the
+  tightest: the queue does as it would, and the fault's microcode empties
+  it with its jump. `HALT`'s waiting cycle is a tick longer (6), as the
+  interrupt entry's page now passes the fault's multiplexer: up to a tick
+  more before an interrupt that wakes it is taken. The first version of
+  this RFC left it out, but the Lisp relies on it: `car` is `MOV r,
+  [p − 1]`, aligned only if `p` is a pair, and a call jumps through
+  `[p + 1]`, aligned only for an object with a call slot (a procedure's,
+  or an error routine's), so its type checks cost nothing. Without the
+  trap they'd be instructions: report 0018 estimates its programs 17%
+  slower compiled and 19% interpreted
+  ([its what-if costings](0018-report-lisp/performance.md#what-if-costings),
+  on draft 1b). **Keep.**
 - **The tagged operations, `MULA`, `MULFX`, `ADD.B4`, `MERGE`, `LDM` and
   `STM`:** microcode only, nothing to gain.
 - **Flags by size** (N from bits 7 or 15, Z by bytes): used by 0.2% of
@@ -627,7 +664,7 @@ the same way. On the board itself it would be about 4 chips; **open**.
 ### 22. The board
 
 - **Size:** DIP boards take about 630 mm² a chip on four layers (RFC
-  0023's DIP CPU card, 269 chips on 490 × 345 mm). 427 chips is about
+  0023's DIP CPU card, 269 chips on 490 × 345 mm). 430 chips is about
   0.27 m² (600 × 450 mm), 300 about 0.19 m² (490 × 385 mm). One board of
   that size is possible (DEC's hex boards were 533 × 399 mm) but large;
   two stacked boards of half the size, the CPU on one and the RAM, video
@@ -657,6 +694,19 @@ the same way. On the board itself it would be about 4 chips; **open**.
 - **The video:** a program setting up descriptors, palette and pixels,
   its frames captured from the netlist's outputs and compared pixel for
   pixel with what the memory describes (`heron mini hw video`).
+- **The address error:** a program (`sw/hw/addrerr.s`) with 22 misaligned
+  accesses (word and half loads and stores at every kind of address,
+  arithmetic on memory, jumps and calls through memory, `LDM` and `STM`,
+  the console) and two accesses that mustn't trap: the same output,
+  registers and memory as draft 2's simulator, on the model (`heron mini
+  check addrerr`) and at chip level (`heron mini hw test addrerr`).
+- **The Lisp** ([studies/lisp](../studies/lisp/README.md), built for
+  draft 2), whose type checks are address errors: its short tests
+  interpreted (among them the two that take address errors, 23 in all),
+  and `errors` compiled, on the model against draft 2's simulator
+  (`heron mini check --lisp [--compiled]`), the log of each machine's own
+  cycle counts left out. Its benchmarks take no address errors and would
+  take hours on the model.
 - **Static timing analysis** of every microinstruction in every queue and
   interrupt state, and the I/O hold's deadline (`heron mini hw sta`).
 
@@ -680,7 +730,7 @@ For Emily:
 1. **The CPU:** build a draft 1b-like core for draft 2 (fewer speed
    features, perhaps 110–140 chips fewer, perhaps 1.2–1.4 times slower),
    or keep draft 2's CPU with the reductions of [15](#15-what-could-be-left-out)
-   (about 375 chips)? ([16](#16-toward-250-chips))
+   (about 380 chips)? ([16](#16-toward-250-chips))
 2. **The reductions:** which of [15](#15-what-could-be-left-out)'s, for a
    lean version of this one?
 3. **One board or two stacked,** and how large ([22](#22-the-board)).

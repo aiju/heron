@@ -33,10 +33,12 @@ tail ticks (the latches hold, the SRAM's address switches to the write
 address, its outputs turn off) and the write strobe is T2, the last tick.
 An access to the I/O space holds the count at H3 for 16 - 2r ticks
 (region r, VA30-28), the devices' strobe from the hold's second tick to
-T2. The video owns bank 1 in each cycle's T2 and the next H0, and in a
-hold: a read's data is latched into T, or a fetch's into its queue slot,
-before them, and the memory write window MWIN is open from tick 2 to the
-tail.
+T2. A misaligned data access (FAULT) writes nothing, strobes nothing,
+changes no register or flag, keeps its decode or jump from the IR and
+the PC, and forces the address error's entry. The video owns bank 1 in
+each cycle's T2 and the next H0, and in a hold: a read's data is latched
+into T, or a fetch's into its queue slot, before them, and the memory
+write window MWIN is open from tick 2 to the tail.
 
 See rtl.py for the register-transfer model this netlist implements, and
 ucode.py for the fields.
@@ -201,10 +203,10 @@ def video_ram(nl, VA, DB, sim):
     g("11", ["MEMWR", VA[21], "VA31_n"], "B1WR")
     for k in range(4):
         if sim:
-            g("20", ["B1WR", "MIDV", f"BE{k}", "VCC"], f"B1W{k}_n")
+            g("20", ["B1WR", "MIDV", f"BE{k}", "FAULT_n"], f"B1W{k}_n")
             g("32", [f"B1W{k}_n", "RWF"], f"B1WE{k}_n")
         else:
-            g("20", ["B1WR", "MWIN", f"BE{k}", "VCC"], f"B1WE{k}_n")
+            g("20", ["B1WR", "MWIN", f"BE{k}", "FAULT_n"], f"B1WE{k}_n")
         x = nl.add("245", f"U_B1X{k}", DIR="MEMWR", OE="B1XOE_n")
         ram = nl.add("sram512", f"U_RAM1{k}", role="fastram", CE="GND", OE="B1OE_n",
                      WE=f"B1WE{k}_n")
@@ -428,9 +430,10 @@ def io_space(nl, VA, DB, sim):
         nl.add("const", "X_STUB", LO="IRQ")
         return
     nl.section("I/O")
-    # the strobes: from the hold's second tick to T2
-    g("00", ["MEMWR", "IOSTB"], "IOWR_n")
-    g("00", ["READING", "IOSTB"], "IORD_n")
+    # the strobes: from the hold's second tick to T2; none in an address
+    # error, whose access holds the cycle all the same
+    g("10", ["MEMWR", "IOSTB", "FAULT_n"], "IOWR_n")
+    g("10", ["READING", "IOSTB", "FAULT_n"], "IORD_n")
     # the devices' address and selects, latched as the strobe starts until
     # the next cycle's tick 1 (open for a tick between, while VA still
     # holds): they hold 20 ns after the strobe (the 16C550's and the CF
@@ -466,8 +469,8 @@ def io_space(nl, VA, DB, sim):
            **{"1J": "IOSTB", "1K": "T1_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
               "1Q": "CFS2", "2J": "CFS2", "2K": "T1_n", "2CLK": "MCLK", "2PRE": "VCC",
               "2CLR": "RESET_n", "2Q": "CFS3"})
-    g("00", ["READING", "CFS3"], "CFRD_n")
-    g("00", ["MEMWR", "CFS3"], "CFWR_n")
+    g("10", ["READING", "CFS3", "FAULT_n"], "CFRD_n")
+    g("10", ["MEMWR", "CFS3", "FAULT_n"], "CFWR_n")
     cf = nl.add("cf", "U_CF", CS0="CFCS0_n", CS1="CFCS1_n", IORD="CFRD_n", IOWR="CFWR_n",
                 RESET="RESET_n", INTRQ="CFINT", WAKE="CF_WAKE", params={"sectors": CF_SECTORS})
     for i in range(3):
@@ -541,7 +544,7 @@ def io_space(nl, VA, DB, sim):
     # cycle
     nl.section("I/O")
     g("32", ["IOR7_n", "VA21_n"], "XSEL_n")
-    g("00", ["READING", "LATE"], "IORDX_n")
+    g("10", ["READING", "LATE", "FAULT_n"], "IORDX_n")
     x = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="XSEL_n", RD="IORDX_n", WR="IOWR_n",
                IRQ="XIRQ")
     for i in range(2, 8):
@@ -652,19 +655,32 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     g("08", [u["DEC"], "CANDEC_n"], "YGD")
     g("32", ["YGD", "RESET"], "YG")
     g("08", ["DECOK", "NODEC"], "UF0")
+    # nor in an address error (FAULT), whose page is U = 1LL, LL the
+    # parcels its instruction has consumed (the microinstruction's own):
+    # the IR, the PC and the next address. The queue's (DECGOQ) is as if
+    # there were none, keeping FAULT off its paths: the fault's microcode
+    # ends in a jump, which empties it, and reads nothing from it before
     g("04", [u["LDPC"]], "LDPC_n")
-    g("21", [u["DEC"], "PEND_n", "CANDEC", "LDPC_n"], "DECGO")
-    g("20", [u["DEC"], "PEND_n", "CANDEC", "LDPC_n"], "DECGO_n")
-    g("08", ["DECGO", "PC1F"], "DECGOP")
+    g("02", [u["LDPC"], "FAULT"], "LDPCF_n")
+    g("21", [u["DEC"], "PEND_n", "CANDEC", "LDPCF_n"], "DECGO")
+    g("20", [u["DEC"], "PEND_n", "CANDEC", "LDPCF_n"], "DECGO_n")
+    g("21", [u["DEC"], "PEND_n", "CANDEC", "LDPC_n"], "DECGOQ")
+    g("08", ["DECGOQ", "PC1F"], "DECGOP")
+    nl.add("157", "U_UF", S="FAULT", G="GND",
+           **{"1A": "UF0", "1B": u["LL0"], "1Y": "UA0", "2A": "FIRQ", "2B": u["LL1"], "2Y": "UA1",
+              "3A": "GND", "3B": "VCC", "3Y": "UA2", "4A": "GND", "4B": "GND"})
     nl.add("157", "U_UM", S="DECGO", G="RESET",
-           **{"1A": "UF0", "1B": QH[13], "1Y": "YU0", "2A": "FIRQ", "2B": QH[14], "2Y": "YU1",
-              "3A": "GND", "3B": QH[15], "3Y": "YU2", "4A": "GND", "4B": "VCC", "4Y": "YE"})
+           **{"1A": "UA0", "1B": QH[13], "1Y": "YU0", "2A": "UA1", "2B": QH[14], "2Y": "YU1",
+              "3A": "UA2", "3B": QH[15], "3Y": "YU2", "4A": "GND", "4B": "VCC", "4Y": "YE"})
     # jump: LDPC, always / on the branch condition / on not CL
     nl.add("153", "U_JUMP", A=u["PCCOND0"], B=u["PCCOND1"],
            **{"1G": "GND", "2G": "VCC", "1C0": "VCC", "1C1": "BCOND", "1C2": "CL_n",
               "1C3": "GND", "1Y": "JC", "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
     g("08", [u["LDPC"], "JC"], "JUMP")
     g("00", [u["LDPC"], "JC"], "JUMP_n")
+    # the PC's: none in an address error (the queue's and FPC's, JUMP, as
+    # the decode's)
+    g("10", [u["LDPC"], "JC", "FAULT_n"], "PCJ_n")
 
     nl.section("Interrupt request")
     # the interrupt line, active high, registered at every edge (IRQQ); a
@@ -688,8 +704,8 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = RWA[i]
     g("11", [u["RFW0"], u["RFW1"], u["RFKW4"]], RWA[4])
-    g("00", [u["RFWE"], "T2"], "RFWE_n")
-    g("00", [u["RFWE"], "T2"], "RFWB_n")
+    g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWE_n")
+    g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWB_n")
     # each copy's address: RFA (RFB) selects the read address, RW switches
     # to the write address for the tail, in one 74F151 a bit
     for side, sel, out, oe in (("A", "RFA", ABUS, u["ARF_n"]), ("B", "RFB", BBUS, "BRFE_n")):
@@ -941,14 +957,14 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
 
     # ---- PC, FPC and the prefetch queue ----------------------------------------------
     nl.section("PC")
-    g("04", ["JUMP_n"], "PCLD")
+    g("04", ["PCJ_n"], "PCLD")
     # a decode that goes ahead consumes its first parcel; a cycle that
     # consumes has no data access (the microcode's rules). A consume in a
     # cycle that jumps needn't be masked: the PC loads, and the queue
     # empties, whichever slot is then the head. (Masked, the jump's
     # condition was on the queue slots' flip-flops' path, through SHIFT.)
     g("32", [u["CONSUME"], "DECGO"], "CONSUMEX")
-    counter_chain(nl, "PC", PC, RES, 1, 8, "JUMP_n", "CONSUMEX")
+    counter_chain(nl, "PC", PC, RES, 1, 8, "PCJ_n", "CONSUMEX")
     counter_chain(nl, "FPC", FPC, RES, 2, 5, "JUMP_n", "FPCINC")
     # PC[1] again, from a fast flip-flop, for the queue's head
     g("86", ["PC1F", "CONSUMEX"], "PC1T")
@@ -1048,8 +1064,15 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = VA[i]
     # the size (SIZE: 1 byte, 2 half, 3 word), decoded active low; byte
-    # enables from the size and VA[1:0]. A misaligned access isn't caught:
-    # the RAM sees the aligned word, half or byte
+    # enables from the size and VA[1:0]. An address error (FAULT): a half
+    # at an odd address, or a word at one that isn't a multiple of 4, in a
+    # data access, SIZE1 & (VA0 | VA1 & SIZE0), a 74F151 on VA[1:0] and
+    # SIZE0. It writes no memory, strobes no device, writes no register or
+    # flag, keeps its decode or jump from the IR and the PC (the queue's
+    # go on), and takes the fault's page
+    nl.add("151", "U_MIS", A=VA[0], B=VA[1], C=u["SIZE0"], G="DATAACC_n", Y="FAULT",
+           W="FAULT_n", D0="GND", D1=u["SIZE1"], D2="GND", D3=u["SIZE1"], D4="GND",
+           D5=u["SIZE1"], D6=u["SIZE1"], D7=u["SIZE1"])
     nl.add("138", "U_SIZED", A=u["SIZE0"], B=u["SIZE1"], C="GND", G1="VCC", G2A="GND",
            G2B="GND", Y1="BYTE_n", Y2="HALF_n", Y3="WORD_n")
     g("04", [u["SIZE1"]], "SIZE1_n")
@@ -1080,7 +1103,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     g("32", [VA[21], VA[31]], "CE0_n")
     g("08", ["READING", "VA31_n"], "RAMRD")
     g("02", ["FETCHCYC", "RAMRD"], "RAMOE_n")
-    g("11", ["MEMWR", "VA31_n", "MWIN"], "MWOK")
+    g("21", ["MEMWR", "VA31_n", "MWIN", "FAULT_n"], "MWOK")
     for k in range(4):
         g("00", ["MWOK", f"BE{k}"], f"WE{k}_n")
     for k in range(4):
@@ -1159,7 +1182,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     g("02", ["FVOVF_n", "VT2"], "FVOFF")
     nl.add("151", "U_FV", A=u["FV0"], B=u["FV1"], C=u["FV2"], G="FVOFF", Y="VNEXT",
            D0="VFLAG", D1="GND", D2="GND", D3=ABUS[0], D4="CL_n", D5="VCC", D6="GND", D7="VT3")
-    nl.add("377", "U_FLAGS", CLK="CLK", EN="GND",
+    nl.add("377", "U_FLAGS", CLK="CLK", EN="FAULT",
            D1="NZD0", Q1=NZ[0], D2="NZD1", Q2=NZ[1], D3="NZD2", Q3=NZ[2], D4="NZD3", Q4=NZ[3],
            D5="NNEXT", Q5="NFLAG", D6="CNEXT", Q6="CFLAG", D7="VNEXT", Q7="VFLAG",
            D8="INEXT", Q8="IFLAG")

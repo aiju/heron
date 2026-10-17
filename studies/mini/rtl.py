@@ -207,6 +207,11 @@ class RTL:
             if A is None:
                 self.err("a read at the A bus with nothing on it")
             VA = A
+        # an address error: a half at an odd address, a word at one that
+        # isn't a multiple of 4. The access holds the cycle as any I/O
+        # access does, but reads and writes nothing; the cycle changes no
+        # register or flag (its decode and jump: below)
+        fault = data_access and size >= 2 and VA & (1 if size == 2 else 3) != 0
         full = len(self.queue_words()) >= self.depth
         if mem == 3:
             # a refill: the word at FPC, into the queue
@@ -302,7 +307,9 @@ class RTL:
             lanes[0].append(self.flags_word())
 
         # ---- memory data, now that the address side is known
-        if reading:
+        if reading and fault:
+            D, hold = self._faulted(VA)
+        elif reading:
             D, h = sysm.read(VA, size, self.cycles)
             hold += h
         if lanes_t is not None:
@@ -385,7 +392,10 @@ class RTL:
         if mem == 2:
             if A is None:
                 self.err("a store with nothing on the A bus")
-            hold += sysm.write(MAR, size, A, self.cycles)
+            if fault:
+                hold += self._faulted(MAR)[1]
+            else:
+                hold += sysm.write(MAR, size, A, self.cycles)
 
         # a parcel consumed with the queue empty comes from the word this
         # cycle fetches: the cycle is two ticks longer for it
@@ -433,9 +443,18 @@ class RTL:
             else:
                 forced, y = "refill", uc.REFILL_ADDR
 
+        # an address error: the fault's page; the decode doesn't go ahead
+        # and the jump isn't taken, for the IR and the PC, but the queue
+        # (and FPC) does as it would, as the hardware's does: the fault's
+        # microcode ends in a jump, which empties it
+        queue_decode = decode_ok
+        if fault:
+            forced, y = "fault", uc.FAULT_ADDRS[f["LL"]]
+            decode_ok = False
+
         # ---- clock edge ----------------------------------------------------
         i_now = self.i
-        if f["RFWE"]:
+        if f["RFWE"] and not fault:
             if chk and not alu_ok:
                 self.err("register write from a floating bus")
             self.rf[self.rf_addr(f["RFW"], f["RFKW"])] = RES
@@ -489,18 +508,20 @@ class RTL:
             self.EX = (IR >> 8) & 15
         elif ldex == 2:
             self.EX = (QH >> 12) & 15
-        self._flags(f, RES, F, C32, OVF, zero, A, fill)
+        if not fault:
+            self._flags(f, RES, F, C32, OVF, zero, A, fill)
         # the PC and the queue
         if jump:
             if chk and not alu_ok:
                 self.err("PC loaded from a floating bus")
-            self.PC = RES & 0xFFFFFFFE
+            if not fault:
+                self.PC = RES & 0xFFFFFFFE
             self.FPC = RES & 0xFFFFFFFC
             self.V0 = self.V1 = 0
             if fetched is not None:
                 self.fetch_wasted += 1
         else:
-            consume = 1 if (f["CONSUME"] or decode_ok) else 0
+            consume = 1 if (f["CONSUME"] or queue_decode) else 0
             if f["CONSUME"] and not qwords:
                 if fetched is None:
                     self.err("a parcel consumed from an empty queue, without a fetch")
@@ -512,7 +533,8 @@ class RTL:
             if consume:
                 if pc1:
                     words = words[1:]
-                self.PC = (PC + 2) & M32
+                if not fault:
+                    self.PC = (PC + 2) & M32
             if len(words) > self.depth:
                 self.err("the queue overflowed")
             self.V0 = 1 if words else 0
@@ -549,6 +571,16 @@ class RTL:
         self.uir = w
         if decode_ok and self.trace is not None:
             self.trace(self)
+
+    def _faulted(self, pa):
+        """A misaligned access: (what the data bus carries, the hold)."""
+        sysm = self.sys
+        if not sysm.is_io(pa):
+            a = pa & sysm.mask & ~3
+            return int.from_bytes(sysm.ram[a:a + 4], "little"), 0
+        hold = sysm.io_hold[(pa >> 28) & 7]
+        sysm.io_ticks += hold
+        return 0, hold
 
     def _flags(self, f, RES, F, C32, OVF, zero, A, fill):
         fnz = f["FNZ"]

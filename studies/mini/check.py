@@ -1,8 +1,8 @@
 """The register-transfer model against draft 2's instruction-level
 simulator (studies/v2_isa), on the program suite and the compiled C
-programs.
+programs, the address error's test (addrerr) and the Lisp's (--lisp).
 
-    heron mini check [NAMES] [--c] [--lockstep] [--queue 1]
+    heron mini check [NAMES] [--c] [--lisp [--compiled]] [--lockstep] [--queue 1]
 
 The suite was written for draft 1's machine, which is this one's: RAM
 from address 0, the vectors at 0, the console at 0xFFFFFF00 (here a test
@@ -29,6 +29,9 @@ from .system import System
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+TRAPS = ("addrerr",)
+
+
 def program_paths(names=None):
     from heron.studies.v2_isa.testing import program_paths as v2_paths
     paths = v2_paths(names)
@@ -36,6 +39,10 @@ def program_paths(names=None):
         from heron.studies.v2_hw import exercise
         paths.append(exercise.write())
     own = os.path.join(HERE, "sw")
+    # sw/hw's programs that run as the suite's do, when named
+    for n in TRAPS:
+        if names and n in names:
+            paths.append(os.path.join(own, "hw", n + ".s"))
     if os.path.isdir(own):
         for f in sorted(os.listdir(own)):
             if f.endswith(".s") and (not names or f[:-2] in names):
@@ -136,6 +143,29 @@ def c_programs(names=None):
     return out
 
 
+# the Lisp's tests that take minutes on the model, among them the two that
+# take address errors (errors, control); the others, and the benchmarks,
+# take hours: name them
+LISP_SHORT = ("core", "errors", "control", "lists", "reader", "reader_eoi", "symbols")
+
+
+def lisp_programs(names=None, compiled=False):
+    """The Lisp's programs and tests (studies/lisp), built for draft 2:
+    [(name, image, input, the RAM not to compare)]. Its car, cdr and calls
+    check their operand's type by the address error. compiled: booted
+    from the saved image with the compiler, which compiles each program
+    before running it. Left out of the comparison: mark_log, where
+    (%run-begin) and (%run-end) log each machine's own cycle counter."""
+    from heron.studies.lisp import machine, testing
+    img = machine.core((), "v2") if compiled else machine.image((), "v2")
+    log = machine.image((), "v2").symbols["mark_log"]
+    out = []
+    for p in testing.program_paths(names):
+        with open(p, "rb") as f:
+            out.append((f"lisp/{os.path.basename(p)[:-5]}", img, f.read(), (log, log + 4096)))
+    return out
+
+
 def check_image(name, img, inp, lock=False, queue=2, max_cycles=400_000_000, skip=None):
     t0 = time.time()
     try:
@@ -175,12 +205,21 @@ def main(argv=None):
     p.add_argument("--lockstep", action="store_true")
     p.add_argument("--c", action="store_true", help="the compiled C programs (or name them c/NAME)")
     p.add_argument("--queue", type=int, default=2, help="the prefetch queue's depth in words")
+    p.add_argument("--lisp", action="store_true",
+                   help="the Lisp's short tests, interpreted (or name any of its "
+                   "programs lisp/NAME)")
+    p.add_argument("--compiled", action="store_true", help="with --lisp: compiled")
     args = p.parse_args(argv)
     bad = 0
     jobs = []
-    asm_names = [n for n in args.names if not n.startswith("c/")]
+    asm_names = [n for n in args.names if not n.startswith(("c/", "lisp/"))]
     c_names = [n for n in args.names if n.startswith("c/")]
-    if not args.c and (asm_names or not args.names):
+    lisp_names = [n[5:] for n in args.names if n.startswith("lisp/")]
+    if args.lisp or lisp_names:
+        for name, img, inp, skip in lisp_programs(lisp_names or LISP_SHORT, args.compiled):
+            jobs.append(lambda name=name, img=img, inp=inp, skip=skip: check_image(
+                name, img, inp, args.lockstep, args.queue, 4_000_000_000, skip))
+    if not args.c and not args.lisp and (asm_names or not args.names):
         for path in program_paths(asm_names or None):
             jobs.append(lambda path=path: check_program(path, args.lockstep, args.queue))
     if args.c or c_names:

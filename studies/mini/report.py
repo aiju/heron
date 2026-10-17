@@ -142,7 +142,8 @@ def generate():
     for part, n in sorted(kinds.items(), key=lambda x: (-x[1], x[0])):
         if part != "gate":
             lines.append(f"| {part} | {n:.0f} |")
-    lines += [f"| gates (74F00, 02, 04, 08, 11, 20, 27, 30, 32, 86) | {kinds['gate']:.0f} |", ""]
+    gp = reduce.gate_parts()
+    lines += [f"| gates ({', '.join(sorted(gp))}) | {kinds['gate']:.0f} |", ""]
 
     # ---- reductions
     lines += ["## What could be left out", "",

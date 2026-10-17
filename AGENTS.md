@@ -194,9 +194,11 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   the chip-level simulator against the RTL model, about 10 minutes for the
   suite.
 - `heron mini check [--c]`: Heron Mini against the instruction-level
-  simulator. `heron mini hw test [--c]`: its netlist on the chip-level
-  simulator against the RTL model, about 6 minutes for the suite and 5
-  for the C programs; `hw devices`, `hw video` and `hw blocks` the rest.
+  simulator (`--lisp`: the Lisp's short tests, about 10 minutes;
+  `addrerr`: the address error). `heron mini hw test [--c]`: its netlist
+  on the chip-level simulator against the RTL model, about 6 minutes for
+  the suite and 5 for the C programs; `hw devices`, `hw video` and
+  `hw blocks` the rest.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
