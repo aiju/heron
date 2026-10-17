@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="-8 -8.6 592 76" width="592" height="76"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<rect class="paper" x="-8" y="-8.6" width="592" height="76"/>
+<rect class="paper" x="0" y="31" width="576" height="28"/>
+<line class="faint" x1="108" y1="31" x2="108" y2="35"/>
+<line class="faint" x1="108" y1="55" x2="108" y2="59"/>
+<line class="faint" x1="72" y1="31" x2="72" y2="35"/>
+<line class="faint" x1="72" y1="55" x2="72" y2="59"/>
+<line class="faint" x1="36" y1="31" x2="36" y2="35"/>
+<line class="faint" x1="36" y1="55" x2="36" y2="59"/>
+<text class="m" x="72" y="49.1" text-anchor="middle">rd</text>
+<line class="faint" x1="252" y1="31" x2="252" y2="35"/>
+<line class="faint" x1="252" y1="55" x2="252" y2="59"/>
+<line class="faint" x1="216" y1="31" x2="216" y2="35"/>
+<line class="faint" x1="216" y1="55" x2="216" y2="59"/>
+<line class="faint" x1="180" y1="31" x2="180" y2="35"/>
+<line class="faint" x1="180" y1="55" x2="180" y2="59"/>
+<text class="m" x="216" y="49.1" text-anchor="middle">u7 6–3</text>
+<line class="faint" x1="432" y1="31" x2="432" y2="35"/>
+<line class="faint" x1="432" y1="55" x2="432" y2="59"/>
+<line class="faint" x1="396" y1="31" x2="396" y2="35"/>
+<line class="faint" x1="396" y1="55" x2="396" y2="59"/>
+<line class="faint" x1="360" y1="31" x2="360" y2="35"/>
+<line class="faint" x1="360" y1="55" x2="360" y2="59"/>
+<line class="faint" x1="324" y1="31" x2="324" y2="35"/>
+<line class="faint" x1="324" y1="55" x2="324" y2="59"/>
+<text class="m" x="306" y="49.1" text-anchor="middle">0</text>
+<text class="m" x="342" y="49.1" text-anchor="middle">1</text>
+<text class="m" x="378" y="49.1" text-anchor="middle">1</text>
+<text class="m" x="414" y="49.1" text-anchor="middle">1</text>
+<text class="m" x="450" y="49.1" text-anchor="middle">0</text>
+<line class="faint" x1="540" y1="31" x2="540" y2="35"/>
+<line class="faint" x1="540" y1="55" x2="540" y2="59"/>
+<line class="faint" x1="504" y1="31" x2="504" y2="35"/>
+<line class="faint" x1="504" y1="55" x2="504" y2="59"/>
+<text class="m" x="522" y="49.1" text-anchor="middle">u7 2–0</text>
+<line class="ink" x1="144" y1="31" x2="144" y2="59"/>
+<line class="ink" x1="288" y1="31" x2="288" y2="59"/>
+<line class="ink" x1="468" y1="31" x2="468" y2="59"/>
+<rect class="ink" x="0" y="31" width="576" height="28"/>
+<text class="xs" x="18" y="26.6" text-anchor="middle">15</text>
+<text class="xs" x="126" y="26.6" text-anchor="middle">12</text>
+<text class="xs" x="162" y="26.6" text-anchor="middle">11</text>
+<text class="xs" x="270" y="26.6" text-anchor="middle">8</text>
+<text class="xs" x="306" y="26.6" text-anchor="middle">7</text>
+<text class="xs" x="450" y="26.6" text-anchor="middle">3</text>
+<text class="xs" x="486" y="26.6" text-anchor="middle">2</text>
+<text class="xs" x="558" y="26.6" text-anchor="middle">0</text>
+<path class="thin" d="M2 17 L2 13 L286 13 L286 17"/>
+<text class="s" x="144" y="10" text-anchor="middle">register byte</text>
+<path class="thin" d="M290 17 L290 13 L574 13 L574 17"/>
+<text class="s" x="432" y="10" text-anchor="middle">opcode byte</text>
+</svg>

@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="-8 -6 650 236" width="650" height="236"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<rect class="paper" x="-8" y="-6" width="650" height="236"/>
+<line class="grid" x1="105" y1="16" x2="105" y2="222"/>
+<text class="xs" x="105" y="11.6" text-anchor="middle">0</text>
+<line class="grid" x1="170.6" y1="16" x2="170.6" y2="222"/>
+<text class="xs" x="170.6" y="11.6" text-anchor="middle">1</text>
+<line class="grid" x1="236.3" y1="16" x2="236.3" y2="222"/>
+<text class="xs" x="236.3" y="11.6" text-anchor="middle">2</text>
+<line class="grid" x1="301.9" y1="16" x2="301.9" y2="222"/>
+<text class="xs" x="301.9" y="11.6" text-anchor="middle">3</text>
+<line class="grid" x1="367.5" y1="16" x2="367.5" y2="222"/>
+<text class="xs" x="367.5" y="11.6" text-anchor="middle">4</text>
+<line class="grid" x1="433.1" y1="16" x2="433.1" y2="222"/>
+<text class="xs" x="433.1" y="11.6" text-anchor="middle">5</text>
+<line class="grid" x1="498.8" y1="16" x2="498.8" y2="222"/>
+<text class="xs" x="498.8" y="11.6" text-anchor="middle">6</text>
+<line class="grid" x1="564.4" y1="16" x2="564.4" y2="222"/>
+<text class="xs" x="564.4" y="11.6" text-anchor="middle">7</text>
+<line class="grid" x1="630" y1="16" x2="630" y2="222"/>
+<text class="xs" x="630" y="11.6" text-anchor="middle">8</text>
+<text class="xs" x="0" y="11.6">BCLK edge</text>
+<text class="b" x="0" y="40.3">BCLK</text>
+<path class="ink" d="M105 27 L135.3 27 L137.8 36"/>
+<path class="ink" d="M137.8 36 L140.3 45 L168.1 45 L170.6 36"/>
+<path class="ink" d="M170.6 36 L173.1 27 L201 27 L203.5 36"/>
+<path class="ink" d="M203.5 36 L206 45 L233.8 45 L236.3 36"/>
+<path class="ink" d="M236.3 36 L238.8 27 L266.6 27 L269.1 36"/>
+<path class="ink" d="M269.1 36 L271.6 45 L299.4 45 L301.9 36"/>
+<path class="ink" d="M301.9 36 L304.4 27 L332.2 27 L334.7 36"/>
+<path class="ink" d="M334.7 36 L337.2 45 L365 45 L367.5 36"/>
+<path class="ink" d="M367.5 36 L370 27 L397.8 27 L400.3 36"/>
+<path class="ink" d="M400.3 36 L402.8 45 L430.6 45 L433.1 36"/>
+<path class="ink" d="M433.1 36 L435.6 27 L463.4 27 L465.9 36"/>
+<path class="ink" d="M465.9 36 L468.4 45 L496.3 45 L498.8 36"/>
+<path class="ink" d="M498.8 36 L501.3 27 L529.1 27 L531.6 36"/>
+<path class="ink" d="M531.6 36 L534.1 45 L561.9 45 L564.4 36"/>
+<path class="ink" d="M564.4 36 L566.9 27 L594.7 27 L597.2 36"/>
+<path class="ink" d="M597.2 36 L599.7 45 L630 45"/>
+<text class="b" x="0" y="76.3">A0–A7, WRITE</text>
+<path class="hatch" d="M105 63 L109.1 63 L111.6 72 L111.6 72 L109.1 81 L105 81Z"/>
+<path class="ink" d="M105 63 L109.1 63 L111.6 72"/>
+<path class="ink" d="M105 81 L109.1 81 L111.6 72"/>
+<path class="paper" d="M111.6 72 L114.1 63 L568.4 63 L570.9 72 L570.9 72 L568.4 81 L114.1 81 L111.6 72Z"/>
+<path class="ink" d="M111.6 72 L114.1 63 L568.4 63 L570.9 72"/>
+<path class="ink" d="M111.6 72 L114.1 81 L568.4 81 L570.9 72"/>
+<text class="m" x="341.3" y="76.1" text-anchor="middle">address, WRITE, write data</text>
+<path class="hatch" d="M570.9 72 L573.4 63 L630 63 L630 81 L573.4 81 L570.9 72Z"/>
+<path class="ink" d="M570.9 72 L573.4 63 L630 63"/>
+<path class="ink" d="M570.9 72 L573.4 81 L630 81"/>
+<text class="b" x="0" y="132.3">SEL</text>
+<path class="ink" d="M105 137 L240.3 137 L242.8 128"/>
+<path class="ink" d="M242.8 128 L245.3 119 L437.2 119 L439.7 128"/>
+<path class="ink" d="M439.7 128 L442.2 137 L630 137"/>
+<text class="b" x="0" y="188.3">D, a read</text>
+<path class="ink" d="M105 184 L341.3 184"/>
+<path class="paper" d="M341.3 184 L343.8 175 L447 175 L449.5 184 L449.5 184 L447 193 L343.8 193 L341.3 184Z"/>
+<path class="ink" d="M341.3 184 L343.8 175 L447 175 L449.5 184"/>
+<path class="ink" d="M341.3 184 L343.8 193 L447 193 L449.5 184"/>
+<text class="m" x="395.4" y="188.1" text-anchor="middle">read data</text>
+<path class="ink" d="M449.5 184 L630 184"/>
+<line class="dotted" x1="111.6" y1="83" x2="111.6" y2="102"/>
+<line class="dotted" x1="242.8" y1="102" x2="242.8" y2="128"/>
+<line class="thin" x1="111.6" y1="98" x2="242.8" y2="98"/>
+<path class="solid-2" d="M111.6 98 L117.6 95.4 L117.6 100.6Z"/>
+<path class="solid-2" d="M242.8 98 L236.8 100.6 L236.8 95.4Z"/>
+<text class="s" x="177.2" y="95" text-anchor="middle">1 + SETUP</text>
+<line class="dotted" x1="439.7" y1="102" x2="439.7" y2="128"/>
+<line class="dotted" x1="570.9" y1="83" x2="570.9" y2="102"/>
+<line class="thin" x1="439.7" y1="98" x2="570.9" y2="98"/>
+<path class="solid-2" d="M439.7 98 L445.7 95.4 L445.7 100.6Z"/>
+<path class="solid-2" d="M570.9 98 L564.9 100.6 L564.9 95.4Z"/>
+<text class="s" x="505.3" y="95" text-anchor="middle">1 + HOLD</text>
+<line class="dotted" x1="242.8" y1="139" x2="242.8" y2="158"/>
+<line class="dotted" x1="439.7" y1="139" x2="439.7" y2="158"/>
+<line class="thin" x1="242.8" y1="154" x2="439.7" y2="154"/>
+<path class="solid-2" d="M242.8 154 L248.8 151.4 L248.8 156.6Z"/>
+<path class="solid-2" d="M439.7 154 L433.7 156.6 L433.7 151.4Z"/>
+<text class="s" x="341.3" y="151" text-anchor="middle">STROBE</text>
+<line class="thin" x1="439.7" y1="216" x2="439.7" y2="196"/>
+<path class="solid-2" d="M439.7 196 L442.3 202 L437.1 202Z"/>
+<text class="s" x="444.7" y="215">taken at the end of the strobe</text>
+</svg>

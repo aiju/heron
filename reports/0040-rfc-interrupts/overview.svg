@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="33.2 0.4 635 448" width="635" height="448"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<rect class="paper" x="33.2" y="0.4" width="635" height="448"/>
+<rect class="ink paper" x="140" y="60" width="340" height="80"/>
+<text class="b" x="310" y="81.8" text-anchor="middle">I/O processor</text>
+<text class="s" x="310" y="96.5" text-anchor="middle">polls INT and ATN every 10 µs;</text>
+<text class="s" x="310" y="111.5" text-anchor="middle">routing table: for each source,</text>
+<text class="s" x="310" y="126.5" text-anchor="middle">its owner, class and level</text>
+<text class="s" x="140" y="19">I/O cards: INT, one line per slot</text>
+<text class="s" x="330" y="19">system-bus cards: ATN0–ATN3</text>
+<text class="s" x="70" y="104" text-anchor="end">CPUs</text>
+<rect class="ink paper" x="140" y="180" width="190" height="50"/>
+<text class="b" x="235" y="201.8" text-anchor="middle">owner: an I/O processor task</text>
+<text class="s" x="235" y="216.5" text-anchor="middle">wake that Forth task</text>
+<rect class="ink paper" x="390" y="180" width="250" height="80"/>
+<text class="b" x="515" y="201.8" text-anchor="middle">owner: a CPU</text>
+<text class="s" x="515" y="216.5" text-anchor="middle">lazy: an event into the CPU&#x27;s ring, no bit</text>
+<text class="s" x="515" y="231.5" text-anchor="middle">slow: an event into the ring, then a level&#x27;s bit</text>
+<text class="s" x="515" y="246.5" text-anchor="middle">fast: claim the message register, write it</text>
+<rect class="ink paper" x="400" y="290" width="230" height="60"/>
+<text class="b" x="515" y="309.3" text-anchor="middle">CPU card</text>
+<text class="s" x="515" y="324" text-anchor="middle">request register (levels 1–8),</text>
+<text class="s" x="515" y="339" text-anchor="middle">message register (level 7), timer (level 6)</text>
+<rect class="ink paper" x="370" y="380" width="290" height="60"/>
+<text class="b" x="515" y="399.3" text-anchor="middle">CPU</text>
+<text class="s" x="515" y="414" text-anchor="middle">level L above IPL → vector at VBR + 0x40 + 4(L − 1);</text>
+<text class="s" x="515" y="429" text-anchor="middle">with a message → vector at VBR + 0x100 + 4 × source</text>
+<path class="ink wire" d="M217.5 26.5 L217.5 60"/>
+<path class="solid" d="M217.5 60 L214.9 54 L220.1 54Z"/>
+<path class="ink wire" d="M405 26.5 L405 60"/>
+<path class="solid" d="M405 60 L402.4 54 L407.6 54Z"/>
+<path class="ink wire" d="M74 100 L140 100"/>
+<path class="solid" d="M140 100 L134 102.6 L134 97.4Z"/>
+<path class="ink wire" d="M235 140 L235 180"/>
+<path class="solid" d="M235 180 L232.4 174 L237.6 174Z"/>
+<path class="ink wire" d="M435 140 L435 180"/>
+<path class="solid" d="M435 180 L432.4 174 L437.6 174Z"/>
+<path class="ink wire" d="M515 260 L515 290"/>
+<path class="solid" d="M515 290 L512.4 284 L517.6 284Z"/>
+<path class="ink wire" d="M515 350 L515 380"/>
+<path class="solid" d="M515 380 L512.4 374 L517.6 374Z"/>
+<text class="s halo" x="107" y="96" text-anchor="middle">doorbells</text>
+</svg>
