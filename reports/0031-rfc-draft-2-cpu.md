@@ -398,7 +398,7 @@ in bits 31–28, IPL in 27–24, N, Z, C, V in 3–0.
   | `0x3000` | the message register's claim: a read returns 0 and claims it if it is free, else 1 |
   | `0x3004` | the message, {source in bits 31–24, message in 23–0}, while claimed: a word, or a 16-bit master's low half then high half, whose write completes it |
   | `0x3008`, `0x300C` | release; read the message |
-  | `0x4000` | the timer: BCLKs since reset, 32 bits. A 16-bit master reads the low half first: the count is latched as that read starts, and the high half comes from the same latch |
+  | `0x4000` | the timer: BCLKs since reset, 32 bits (**open**: or BCLK/4, which 74HC590s can count, [19](#19-the-system-half-what-rfc-0040-costs)). A 16-bit master reads the low half first: the count is latched as that read starts, and the high half comes from the same latch |
   | `0x4004` | write: bit 0 clears the tick, bit 1 the profiling tick |
 
 - **The levels** the card gives the CPU, active low: level L while the
@@ -888,8 +888,8 @@ to the gates can move a chip between sections:
 | **The netlist's core** | **394** | **231** | |
 | Bus interface, master | (30) | 30 | not drawn: the estimate |
 | Slave port, control store writes, control register | (14) | 14 | not drawn: the estimate |
-| CPU card's registers | (16–21) | | not drawn: [19](#19-the-system-half-what-rfc-0040-costs)'s estimate |
-| **Total** | **about 455** | **about 275** | |
+| CPU card's registers | (17–27) | | not drawn: [19](#19-the-system-half-what-rfc-0040-costs)'s estimate |
+| **Total** | **about 460** | **about 275** | |
 
 - **The estimate was low by two thirds** with 8-bit parts: 440 chips.
   The 16-bit parts it assumed take 55 of that back: 41 registers, 52
@@ -931,7 +931,7 @@ to the gates can move a chip between sections:
   lanes) would save nothing: they replace about as many gates as they
   cost, and put 1.4 ns more on the write enables.
 - **Against draft 1b:** its CPU card as built is 269 chips, with 8-bit
-  parts; this one about 455, for a 32-bit memory path, the queue, the
+  parts; this one about 460, for a 32-bit memory path, the queue, the
   page map and the window, the register banks and the writable control
   store, the short cycles, and RFC 0040's interrupts and timer.
 - **MAR off the A bus:** no microinstruction put MAR on the A bus, so
@@ -1135,17 +1135,29 @@ simulator has them as a fixture):
 | request register with RFC 0040's set and clear masks | 4–5 | a register, (q · ¬(clr · d)) + set · d in 16 gates, a read buffer |
 | request register as a 74x259, one level a write | 1½ | the level and set or clear in the data; a read buffer |
 | message register | 4–6 | 32 bits as two halves with their own strobes (a 16-bit master's low half goes straight in: nothing reads it until the high half sets full), two state bits, read buffers (none if only the CPU reads it) |
-| timer | 5 | four 74HC590, a 74ABT74 for the two ticks |
+| timer counting BCLK/4 (240 ns) | 6 | four 74HC590 on one clock, their enables from the lower stages' carries; a prescaler and the two ticks in 74ABT74s |
+| timer counting BCLK (60 ns) | 11 | eight 74F161 and two 74ABT16374 for the snapshot, the ticks |
 | the levels ORed, zero for the small registers' upper half | 1¾ | |
-| **in all** | **16–21** | the 259 and a snapshot, to masks |
+| **in all** | **17–27** | the 259 and BCLK/4, to masks and BCLK |
 
 - **The timer's read: a snapshot.** The 74HC590 has an output register
-  and three-state outputs, so latching the count as a read starts costs
-  nothing; latched at the low half's read, a 16-bit master's two reads
-  see one count. Reading the high half twice needs counters without
-  output registers and buffers for the bus (about 2 chips more) and
-  software. The tick's jumper taps the outputs, which a 16-bit master's
-  two reads freeze for a moment: a tick at most that late.
+  and three-state outputs, but it can't count BCLK: TI's SN74HC590A
+  (SCLS039F) is specified to 16 MHz at 4.5 V over temperature (13 MHz
+  for the SN54), against BCLK's 16.7, with CCLK to RCO up to 38 ns and
+  CCKEN's setup 25 ns, and the datasheet cascades more than two stages
+  by rippling RCO into the next stage's clock. A rippling chain can be
+  latched mid-carry, the torn read the snapshot is for. So:
+  - *counting BCLK/4*, 240 ns: all four stages on one clock, each
+    stage's enable the OR of the lower stages' (active-low) carries, and
+    RCLK tied to the counter's clock, which the datasheet allows ("the
+    register is one clock pulse behind the counter"): the register always
+    holds a settled count, held while a 16-bit master reads its two
+    halves. About 6 chips.
+  - *counting BCLK*, 60 ns: synchronous 74F161s and a 32-bit register
+    for the snapshot, about 11.
+  - *reading the high half twice* saves the register, not the counters,
+    and needs buffers onto the bus instead, and software.
+  The tick's jumper taps the register's outputs, a count behind.
 - **The local path** costs the core nothing: it already decodes the I/O
   page on the card's data bus.
 
@@ -1174,9 +1186,10 @@ simulator has them as a fixture):
       ([6](#6-the-bus-the-slave-port-and-the-cpu-cards-registers));
    6. the request register: set and clear masks (the model), or one level
       a write (a 74x259, about 3 chips fewer);
-   7. the timer's read: a snapshot here, or reading the high half twice;
-      and which bit the tick's jumper picks by default (the test programs
-      use bit 10, for speed).
+   7. the timer: a snapshot here, or reading the high half twice; counting
+      BCLK (60 ns, about 11 chips) or BCLK/4 (240 ns, about 6, with
+      74HC590s); and which bit the tick's jumper picks by default (the
+      test programs use bit 10, for speed).
 6. **The breakpoint register** (`bkpt`, RFC 0029, 4): not built; it
    would compare the PC at every decode (about 5 chips), and needs a
    special register number now that `vbr` has 15.
