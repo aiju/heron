@@ -8,9 +8,15 @@
                                    one program on the RTL model: cycles, time,
                                    where they go
   ucode  [--list]                  the microcode: its size, length classes
-  hw     test|run|bom              the chip-level netlist: programs on the
+  perf   [--force]                 the suite's time with the length classes
+  bench                            the graphics kernels: draft 2 code against
+                                   the block instructions
+  report [--write]                 RFC 0041's tables (performance.md)
+  hw     test|run|devices|video|blocks|sta|bom
+                                   the chip-level netlist: programs on the
                                    chip-level simulator against the RTL
-                                   model, the parts list
+                                   model, the devices, the video, static
+                                   timing analysis, the parts list
 """
 
 import argparse
@@ -83,5 +89,11 @@ def main(argv=None):
     u = sub.add_parser("ucode")
     u.add_argument("--list", action="store_true")
     u.set_defaults(func=cmd_ucode)
+    b = sub.add_parser("bench", help="the graphics kernels: code against the block instructions")
+    b.set_defaults(func=lambda a: __import__("heron.studies.mini.bench", fromlist=["x"]).main(a))
+    rp = sub.add_parser("report", help="RFC 0041's tables")
+    rp.add_argument("--write", action="store_true",
+                    help="write reports/0041-rfc-heron-mini/performance.md")
+    rp.set_defaults(func=lambda a: __import__("heron.studies.mini.report", fromlist=["x"]).main(a))
     args = p.parse_args(argv)
     return args.func(args)

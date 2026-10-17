@@ -5,7 +5,6 @@ and with no timing violation), the measured periods current, the video's
 timing."""
 
 import math
-import os
 import unittest
 from collections import defaultdict
 

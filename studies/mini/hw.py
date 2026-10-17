@@ -6,10 +6,17 @@ Both start from reset: the reset routine, then the reset vector at 0,
 where the program's image is in the RAM. The suite's I/O page is the test
 fixture in I/O region 7, on the data bus, in both.
 
-  heron mini hw test [NAMES]        programs at chip level against the RTL
+  heron mini hw test [--c] [NAMES] programs at chip level against the RTL
                                     model: output, registers, flags, PC,
-                                    RAM, cycles and every decode
+                                    RAM, cycles and every decode (--c the
+                                    compiled C programs)
   heron mini hw run PROG.s [--trace A:B]
+  heron mini hw devices             the devices program (UARTs, flash, CF
+                                    card, 82C54) against its expected output
+  heron mini hw video [--png F]     the video program, its frames against
+                                    what the memory describes
+  heron mini hw blocks              the block instructions against the model
+  heron mini hw sta [--write]       static timing analysis (ticks.json)
   heron mini hw bom                 the parts list
 """
 
@@ -218,7 +225,11 @@ def check(path, trace=None, lengths=None, seed=1):
     from heron.infra import isas
     from heron.infra.programs import metadata
     img = asmcore.assemble_file(isas.get("v2"), path)
-    inp = metadata(path)["input"]
+    return check_image(img, metadata(path)["input"], trace, lengths, seed)
+
+
+def check_image(img, inp, trace=None, lengths=None, seed=1):
+    """check() for an assembled image."""
     m = reference(img, inp)
     ram = bytearray(system.RAM_SIZE)
     for a, b in img.mem.items():
@@ -244,14 +255,20 @@ def summarize(hw):
 def cmd_test(args):
     from . import check as chk
     import heron.studies.v2_isa  # noqa: F401
-    paths = chk.program_paths(args.names or None)
+    if args.c:
+        progs = [(name, lambda img=img, inp=inp: check_image(img, inp, lengths=args.lengths,
+                                                              seed=args.seed))
+                 for name, img, inp in chk.c_programs(args.names or None)]
+    else:
+        progs = [(os.path.basename(p)[:-2], lambda p=p: check(p, lengths=args.lengths,
+                                                              seed=args.seed))
+                 for p in chk.program_paths(args.names or None)]
     bad = 0
-    for p in paths:
-        name = os.path.basename(p)[:-2]
+    for name, run_one in progs:
         if name == "interrupts" and not args.names:
             continue
         t0 = time.time()
-        m, hw, diffs = check(p, lengths=args.lengths, seed=args.seed)
+        m, hw, diffs = run_one()
         ok = not diffs and not hw["violation_total"]
         bad += not ok
         print(f"{name:12s} {'ok  ' if ok else 'FAIL'} {hw['cycles']:9d} cycles "
@@ -382,6 +399,46 @@ def cmd_video(args):
     return 0 if ok else 1
 
 
+def run_blocks():
+    """The block instructions (bench.py's programs) at chip level against
+    the register-transfer model: [(case, differences, outcome)]."""
+    from . import bench
+    out = []
+    for name, a4, a5, a6 in bench.CASES:
+        img = bench.program(bench.MICRO[name], a4, a5, a6)
+        s = system.System()
+        s.load(img)
+        bench.setup(s.ram)
+        m = rtl.RTL(s).run(10_000_000)
+        ram = bytearray(s.ram)
+        s2 = system.System()
+        s2.load(img)
+        bench.setup(s2.ram)
+        hw = run(s2.ram, b"", max_cycles=m.cycles + 1000)
+        diffs = []
+        if not hw["halted"]:
+            diffs.append(f"the hardware did not halt: {hw['reason']}")
+        lo, hi = bench.DST, bench.DST + 4 * bench.WORDS
+        if hw["ram"][lo:hi] != bytes(ram[lo:hi]):
+            diffs.append("the destination differs")
+        out.append((f"{name} {a6}" if name == "shift" else name, diffs, hw))
+    return out
+
+
+def cmd_blocks(args):
+    bad = 0
+    for label, diffs, hw in run_blocks():
+        ok = not diffs and not hw["violation_total"]
+        bad += not ok
+        print(f"{label:10s} {'ok' if ok else 'FAIL'} {hw['cycles']:8d} cycles, "
+              f"violations {hw['violation_total']}")
+        for d in diffs:
+            print("  " + d)
+        if hw["violation_total"]:
+            print(summarize(hw))
+    return 1 if bad else 0
+
+
 def cmd_bom(args):
     nl = board.build(sim=True)
     packages = nl.packages(parts.VARIANT)
@@ -405,6 +462,7 @@ def main(argv=None):
         return tuple(int(x) for x in v.split(","))
     t = sub.add_parser("test")
     t.add_argument("names", nargs="*")
+    t.add_argument("--c", action="store_true", help="the compiled C programs")
     t.add_argument("--lengths", type=lens, help="the length classes' ticks, e.g. 8,9,10,12")
     t.add_argument("--seed", type=int, default=1)
     t.set_defaults(fn=cmd_test)
@@ -420,6 +478,8 @@ def main(argv=None):
     v = sub.add_parser("video", help="sw/video.s: the video, its frames grabbed")
     v.add_argument("--png", help="the last frame, as a PNG")
     v.set_defaults(fn=cmd_video)
+    k = sub.add_parser("blocks", help="the block instructions (FILL, COPY, BLIT, EXPAND)")
+    k.set_defaults(fn=cmd_blocks)
     b = sub.add_parser("bom")
     b.set_defaults(fn=cmd_bom)
     s = sub.add_parser("sta")

@@ -167,6 +167,11 @@ Change the generator and rerun it rather than editing the output by hand:
 - `studies/v2_hw/ticks.json`, the microcode's cycle lengths:
   `heron v2_hw hw sta --write`, after any change to draft 2's netlist or
   microcode (`heron test v2_hw` fails while it's stale);
+- `reports/0041-rfc-heron-mini/performance.md`: `heron mini report
+  --write` (a few minutes);
+- `studies/mini/ticks.json`, Heron Mini's cycle lengths:
+  `heron mini hw sta --write`, after any change to its netlist or
+  microcode (`heron test mini` fails while it's stale);
 - the SVGs of the documents' figures: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 
@@ -178,7 +183,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
 - `heron test v1_isa v2_isa v2_hw c_compiler v1b_hw v1b_system
-  v1b_tradeoffs v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+  v1b_tradeoffs v0_hw graphics kernel bus_si mini`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
   `heron v2_isa test`: the programs against their expected output, in 1b,
@@ -188,6 +193,10 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   simulator, a few minutes in all. `heron v2_hw hw test`: its netlist on
   the chip-level simulator against the RTL model, about 10 minutes for the
   suite.
+- `heron mini check [--c]`: Heron Mini against the instruction-level
+  simulator. `heron mini hw test [--c]`: its netlist on the chip-level
+  simulator against the RTL model, about 6 minutes for the suite and 5
+  for the C programs; `hw devices`, `hw video` and `hw blocks` the rest.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and

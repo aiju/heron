@@ -1417,7 +1417,13 @@ def classify(w):
     if op == 0xFC:
         return ("swi", 0)
     if op == 0xFD:
-        return ("mulfx",) if rb == 0 else ill
+        if rb == 0:
+            return ("mulfx",)
+        if rb in (1, 2, 3):
+            return ("block", rb)
+        if 0x10 <= rb <= 0x17:
+            return ("blit", rb & 7)
+        return ill
     if op == 0xFE:
         return {0: ("ei", 1), 1: ("ei", 0), 2: ("rti",), 3: ("halt",)}.get(rb, ill)
     if row in EA_ROWS:
@@ -1470,12 +1476,101 @@ def routine(key):
         return mula_routine()
     if kind == "mulfx":
         return mulfx_routine()
+    if kind == "block":
+        return block_routine({1: "FILL", 2: "COPY", 3: "EXPAND"}[key[1]])
+    if kind == "blit":
+        return block_routine("BLIT", key[1])
     if kind == "rti":
         return rti_routine()
     if kind == "halt":
         return halt_routine()
     raise ValueError(key)
 
+
+
+# --------------------------------------------------------------------------
+# The mini's block instructions (RFC 0041), in FD's free cells: the inner
+# loops of a 4-bit framebuffer's fills, copies and glyphs. Each does r3
+# words, 0 to 256 (0: nothing), one a loop through LC; it isn't interrupted
+# (as SAVE and LDM aren't). r1 is the destination, written at MAR, and
+# steps by 4 a word; r3 doesn't change.
+#
+#   FD 01  FILL     the word r2 into r3 words from r1
+#   FD 02  COPY     r3 words from r2 (stepping) to r1
+#   FD 03  EXPAND   r3 bytes of a glyph from r2 (stepping by 1) to r3 words
+#                   from r1: each byte's eight pixels through a table of
+#                   256 nibble masks at r4, bg ^ (mask & (fg ^ bg)), r5 =
+#                   fg ^ bg, r6 = bg
+#   FD 1k  BLIT k   r3 words from r2 to r1, rotated right by 4k bits and
+#                   each merged with the one before under r0 = ~0 >> 4k:
+#                   out = hi ^ ((lo ^ hi) & r0), lo the word before rotated
+#                   (r5 on entry, and the last on exit)
+
+
+def rotation(k):
+    """Microinstructions rotating R right by 4k bits (the first takes the
+    word from T): the byte and half rotations, then single bits (right by
+    one with the bit shifted out back in at the top), or left by four with
+    the doubling's carry-in from bit 31."""
+    first = [mi(b="t", alu="passb", ldr=1)]
+    if k == 0:
+        return first
+    byte = {1: [], 2: ["ror8"], 3: ["ror8"], 4: ["ror16"], 5: ["ror16"], 6: ["ror16", "ror8"],
+            7: []}[k]
+    out = [mi(b="t", alu="passb", rms=byte[0], ldr=1)] if byte else first
+    for r in byte[1:]:
+        out.append(mi(a="r", alu="passa", rms=r, ldr=1))
+    if k in (1, 3, 5):
+        out += [mi(a="r", alu="passa", rms="shr", sin="f0", ldr=1)] * 4
+    if k == 7:
+        out += [mi(a="r", alu="dbl", cin="a31", ldr=1)] * 4
+    return out
+
+
+def block_routine(op, k=0):
+    """The block instructions: MAR <- r1, LC <- -r3 (from R cleared: the
+    two ports have one constant address; a zero count ends at once); the
+    loop; then r1 <- r1 + 4 r3."""
+    name = op if op != "BLIT" else f"BLIT {k}"
+    finish = chain(name, mi(ra=3, alu="passa", ldr=1),
+                   mi(a="r2", sina="0", alu="dbl", cin="0", ldr=1),
+                   end(name, a="r", rb=1, alu="add", w=1))
+    if op == "FILL":
+        steps = [mi(ra=2, mem="write", size="word", marinc=1, lcinc=1)]
+    elif op == "COPY":
+        steps = [mi(mem="reada", size="word", ra=2, kv=4, alu="add", w=2),
+                 mi(b="t", alu="passb", ldr=1),
+                 mi(a="r", mem="write", size="word", marinc=1, lcinc=1)]
+    elif op == "EXPAND":
+        steps = [mi(mem="reada", size="byte", ra=2, kv=1, alu="add", w=2),
+                 mi(b="tbyte", alu="passb", ldr=1),
+                 mi(a="r2", sina="0", alu="dbl", cin="0", ldr=1),
+                 mi(a="r", rb=4, alu="add", w=TMP1),
+                 mi(mem="reada", size="word", ra=TMP1),
+                 mi(ra=5, b="t", alu="and", ldr=1),
+                 mi(a="r", rb=6, alu="xor", ldr=1),
+                 mi(a="r", mem="write", size="word", marinc=1, lcinc=1)]
+    else:
+        rot = rotation(k)
+        rot[-1] = merge(rot[-1], mi(w=TMP3))                       # hi
+        steps = ([mi(mem="reada", size="word", ra=2, kv=4, alu="add", w=2)] + rot
+                 + [mi(a="r", rb=TMP2, alu="xor", ldr=1),             # lo ^ hi
+                    mi(a="r", rb=0, alu="and", ldr=1),                # & mask
+                    mi(a="r", rb=TMP3, alu="xor", ldr=1),             # ^ hi
+                    mi(a="r", mem="write", size="word", marinc=1, lcinc=1,
+                       rb=TMP3, alu="passb", w=TMP2)])                # hi is the next lo
+        finish = chain(name, mi(rb=TMP2, alu="passb", w=5), finish)
+    nodes = [Node(f, None, name) for f in steps]
+    for a, b in zip(nodes, nodes[1:]):
+        a.succ = ("next", b)
+    nodes[-1].succ = ("branch", CONDS["tc"], nodes[0], finish)
+    setup = [mi(ra=1, alu="passa", ldmar=1)]
+    if op == "BLIT":
+        setup.append(mi(ra=5, alu="passa", w=TMP2))
+    setup.append(mi(kv=0, alu="passb", ldr=1))
+    count = branch(name, mi(a="r", rb=3, alu="sub", ldlc=1, ldcl="zero"), "cl", nodes[0],
+                   end(name))
+    return chain(name, *setup, count)
 
 BOOT_FLASH = 0xD0000000          # region 5: a byte a word
 

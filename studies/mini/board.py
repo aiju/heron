@@ -1,14 +1,16 @@
 """Chip-level netlist of Heron Mini (RFC 0041): the CPU, its control
-store, the 4 MB of RAM.
+store, the 4 MB of RAM in two banks (bank 1 the video's), the I/O space
+with its devices, and the video.
 
 build(sim=True) is what the chip-level simulator runs (infra/hwsim's
 system run): it has the clock generator (a 50.35 MHz oscillator and a
-tick counter, the length classes from the uIR), a power-on reset, and
-draft 1's I/O page as a 32-bit test fixture in I/O region 7 (on the data
-bus, answering without wait states). build() has a fixture in place of the
-clock generator, for static timing analysis.
+tick counter, the length classes from the uIR, the I/O hold), a power-on
+reset, the devices (io_space) and the video (video). build() has a
+fixture in place of the clock generator, and leaves out the I/O space and
+the video's own chips, for static timing analysis.
 
-The control store is flash preloaded with the microcode.
+The control store and the boot ROM are flash preloaded with the
+microcode and the boot image.
 
 Buses
   ABUS   ALU A input   <- register file copy A (through its latches), PC
@@ -21,15 +23,20 @@ Buses
   VA     the address <- MAR, FPC, the A bus (74F153 x 13: bits 21-0 and 31-28)
   DB     32-bit memory data <- RAM, the I/O space, store data from the A bus
   QH     the prefetch queue's head parcel
+  VD     bank 1's data, to DB through transceivers; B1A its address
+  IOD    the devices' 16-bit data bus, IOA their latched address
 
 Clocking. A cycle of K ticks (19.86 ns) runs H0, H1, the count, then the
 tail ticks T1 and T2; CLK rises entering H0. The register file is read
 early (its latches transparent) and written late: RW is high for the two
 tail ticks (the latches hold, the SRAM's address switches to the write
 address, its outputs turn off) and the write strobe is T2, the last tick.
-The tail ticks are also when the video may read the RAM (RFC 0041): a
-read's data is latched into T, or a fetch's into its queue slot, before
-them, and the memory write window MWIN is open from tick 2 to the tail.
+An access to the I/O space holds the count at H3 for 16 - 2r ticks
+(region r, VA30-28), the devices' strobe from the hold's second tick to
+T2. The video owns bank 1 in each cycle's T2 and the next H0, and in a
+hold: a read's data is latched into T, or a fetch's into its queue slot,
+before them, and the memory write window MWIN is open from tick 2 to the
+tail.
 
 See rtl.py for the register-transfer model this netlist implements, and
 ucode.py for the fields.
@@ -221,7 +228,7 @@ def video_ram(nl, VA, DB, sim):
 def video(nl, DB, VA, capture=False):
     """The video (RFC 0041): 640 x 480 at 4 bits a pixel from bank 1, 800 x
     525 pixel clocks of two master ticks (25.175 MHz). Each line's
-    descriptor, word 45 + y of the table at bank 1's word 0 (or 1024 with
+    descriptor, word 44 + y of the table at bank 1's word 0 (or 1024 with
     TSEL), gives its first word (bits 18-0, a word address in bank 1), its
     palette bank (22-19) and a line interrupt (23). The pixels, 80 words a
     line, low nibble first; the palette 256 entries of RGB 5:6:5.
@@ -922,10 +929,10 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     for j in range(4):
         m[f"{j + 1}A"], m[f"{j + 1}B"], m[f"{j + 1}Y"] = IR[8 + j], QH[12 + j], f"EXD{j}"
     g("02", [u["LDEX0"], u["LDEX1"]], "EXLD_n")
-    ex = nl.add("377", "U_EX", CLK="CLK", EN="EXLD_n",
-                **{f"D{j + 1}": f"EXD{j}" for j in range(4)},
-                **{f"Q{j + 1}": EX[j] for j in range(4)},
-                **{f"D{j}": "GND" for j in range(5, 9)})
+    nl.add("377", "U_EX", CLK="CLK", EN="EXLD_n",
+           **{f"D{j + 1}": f"EXD{j}" for j in range(4)},
+           **{f"Q{j + 1}": EX[j] for j in range(4)},
+           **{f"D{j}": "GND" for j in range(5, 9)})
     nl.add("521", "U_SXEQ", G="GND", PEQ="SXEQ_n",
            **{f"P{i}": SX[i] if i < 4 else "GND" for i in range(8)},
            **{f"Q{i}": EX[i] if i < 4 else "GND" for i in range(8)})
