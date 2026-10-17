@@ -54,8 +54,8 @@ from heron.studies.v2_isa import v2
 FIELDS = [
     # sequencer
     ("NEXT", 13, False), ("SEQ", 2, False), ("COND", 4, False),
-    # A bus: register file copy A, PC (bit 0 from PCK), R, R x 2, MAR
-    ("ARF", 1, True), ("APC", 1, True), ("AR", 1, True), ("AR2", 1, True), ("AMAR", 1, True),
+    # A bus: register file copy A, PC (bit 0 from PCK), R, R x 2
+    ("ARF", 1, True), ("APC", 1, True), ("AR", 1, True), ("AR2", 1, True),
     ("PCK", 1, False), ("SINA", 2, False),
     # B bus: register file copy B, R, T (by lanes), the queue head, the
     # immediate unit, MQ, special registers, the page map
@@ -66,7 +66,7 @@ FIELDS = [
     ("RFA", 2, False), ("RFB", 2, False), ("RFW", 2, False), ("RFK", 6, 0b100000),
     ("RFKW", 6, False), ("RFWE", 1, False), ("UBR", 1, False), ("UBW", 1, False),
     # SX (a register number that counts) and EX (where a count stops)
-    ("LDSX", 2, False), ("SXINC", 1, False), ("LDEX", 2, False),
+    ("LDSX", 2, False), ("LDEX", 2, False),
     # ALU
     ("S", 4, False), ("M", 1, False), ("CIN", 3, False), ("MQM", 2, False), ("MS", 2, False),
     # result multiplexer
@@ -124,7 +124,8 @@ BL = {None: 0, "t": 1, "thalf": 2, "tbyte": 3, "qh": 4, "qh2": 5, "qhh": 6, "qhb
 # B from a special source: MQ, sr, FSR, FAR, the page map, the interrupt's
 # vector offset (from LT), the CPU card's message register
 BX = {None: 0, "mq": 1, "flags": 2, "fsr": 3, "far": 4, "map": 5, "lvec": 6, "msg": 7}
-LDSX = {None: 0, "d": 1, "r": 2, "qhx": 3}
+# SX: loaded from IR[15:12] or the queue head's top bits, or counted
+LDSX = {None: 0, "d": 1, "inc": 2, "qhx": 3}
 LDEX = {None: 0, "r": 1, "qhx": 2}
 CIN = {"0": 0, "1": 1, "c": 2, "a31": 3, "mq31": 4, "sgn": 5, "mq0": 6, "s33n": 7}
 MD = {None: (0, 0, None), "mqload": (3, 0, None), "mulu": (1, 1, "0"), "muls": (1, 2, "mq0"),
@@ -256,7 +257,7 @@ def mi(**kw):
             _put(f, "RFWE", 1)
             _rf(f, "RFW", v)
         elif k == "a":
-            _put(f, {"pc": "APC", "r": "AR", "r2": "AR2", "mar": "AMAR"}[v], 1)
+            _put(f, {"pc": "APC", "r": "AR", "r2": "AR2"}[v], 1)
         elif k == "b":
             if v in B_PRESETS:
                 for e in B_PRESETS[v]:
@@ -349,6 +350,8 @@ def mi(**kw):
             _put(f, "CCB", CCB[v])
         elif k == "ldsx":
             _put(f, "LDSX", LDSX[v])
+        elif k == "sxinc":
+            _put(f, "LDSX", LDSX["inc"])
         elif k == "ldex":
             _put(f, "LDEX", LDEX[v])
         elif k == "fnz":
@@ -379,7 +382,7 @@ def mi(**kw):
             _put(f, "LDCL", 1)
             _put(f, "CLSRC", CLSRC[v])
         elif k in ("ldr", "ldmar", "marinc", "ldpc", "consume", "ldlc", "lcinc", "ldctx",
-                   "ldbank", "pck", "sxinc", "ubr", "ubw", "sset", "czero", "ldsgn"):
+                   "ldbank", "pck", "ubr", "ubw", "sset", "czero", "ldsgn"):
             _put(f, k.upper(), 1)
         else:
             raise KeyError(f"unknown microcode keyword {k}")
@@ -1451,15 +1454,16 @@ def spl_routine(n):
 
 
 def rti_routine():
-    """Pop the flags word, then the PC, in bank 0; the flags (S with them)
+    """Pop the flags word, then the PC, from sp; the flags (S with them)
     and the jump in the last cycle."""
     name = "RTI"
     body = chain(name,
-                 mi(ra=SP, alu="passa", ldmar=1),
                  mi(mem="read", size="word", b="t", alu="passb", ldr=1, marinc=1),   # flags
                  mi(mem="read", size="word", ra=SP, kv=8, alu="add", w=SP),           # PC
                  end(name, a="r", loadf="all", b="t", alu="passb", ldpc=1))
-    return privileged(name, body)
+    # MAR <- sp as the mode is checked (a privilege violation's frame
+    # loads MAR again)
+    return privileged(name, body, f=mi(ra=SP, alu="passa", ldmar=1))
 
 
 def halt_routine():

@@ -212,9 +212,6 @@ class RTL:
             sina = (0, R >> 31, self.c, self.MQ >> 31)[f["SINA"]]
             A = ((R << 1) | sina) & M32
             drv += 1
-        if f["AMAR"]:
-            A = MAR
-            drv += 1
         if drv > 1:
             self.err("A bus contention")
 
@@ -598,11 +595,9 @@ class RTL:
             if ldsx == 1:
                 self.SX = (IR >> 12) & 15
             elif ldsx == 2:
-                self.SX = (IR >> 8) & 15
+                self.SX = (self.SX + 1) & 15
             elif ldsx == 3:
                 self.SX = (QH >> 12) & 15
-            elif f["SXINC"]:
-                self.SX = (self.SX + 1) & 15
             ldex = f["LDEX"]
             if ldex == 1:
                 self.EX = (IR >> 8) & 15

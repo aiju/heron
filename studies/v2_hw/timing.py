@@ -140,8 +140,6 @@ def estimate(f, what_if=()):
         a = d["r"]
     elif f.get("AR2"):
         a = d["r2"]
-    elif f.get("AMAR"):
-        a = d["mar"]
     if mem == 6:                                     # a read at the A bus: VA from it
         memt = a + d["vaddr_a"] + d["map"] + d["phys"] + d["ram"]
     b = 0.0

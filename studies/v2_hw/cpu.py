@@ -431,7 +431,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     PCA = [u["PCK"]] + PC[1:]
     for k in range(4):
         for ref, src, oe in ((f"U_APC{k}", PCA, u["APC_n"]), (f"U_AR{k}", RQ, u["AR_n"]),
-                             (f"U_AR2{k}", R2, u["AR2_n"]), (f"U_AMAR{k}", MAR, u["AMAR_n"])):
+                             (f"U_AR2{k}", R2, u["AR2_n"])):
             b = nl.add("16244h", ref, OE1=oe, OE2=oe)
             for i in range(8):
                 b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[8 * k + i], ABUS[8 * k + i]
@@ -642,16 +642,13 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
            RCO="TC")
 
     nl.section("SX and EX")
-    for k in range(2):
-        m = nl.add("153", f"U_SXM{k}", A=u["LDSX0"], B=u["LDSX1"], **{"1G": "GND", "2G": "GND"})
-        for sec in (0, 1):
-            i = 2 * k + sec
-            for c, s in enumerate(["GND", IR[12 + i], IR[8 + i], QH[12 + i]]):
-                m[f"{sec + 1}C{c}"] = s
-            m[f"{sec + 1}Y"] = f"SXD{i}"
-    g("32", [u["LDSX0"], u["LDSX1"]], "LDSXNZ")
-    g("00", ["LDSXNZ", "FAULT_n"], "SXLD_n")
-    g("08", [u["SXINC"], "FAULT_n"], "SXEN")
+    # LDSX: 1 IR[15:12], 3 the queue head's QH[15:12], 2 count
+    m = nl.add("157", "U_SXM", S=u["LDSX1"], G="GND")
+    for i in range(4):
+        m[f"{i + 1}A"], m[f"{i + 1}B"], m[f"{i + 1}Y"] = IR[12 + i], QH[12 + i], f"SXD{i}"
+    g("00", [u["LDSX0"], "FAULT_n"], "SXLD_n")
+    g("04", [u["LDSX0"]], "LDSX0_n")
+    g("11", [u["LDSX1"], "LDSX0_n", "FAULT_n"], "SXEN")
     nl.add("161", "U_SX", CLK="CLK", CLR="VCC", LOAD="SXLD_n", ENP="SXEN", ENT="VCC",
            A="SXD0", B="SXD1", C="SXD2", D="SXD3", QA=SX[0], QB=SX[1], QC=SX[2], QD=SX[3])
     m = nl.add("157", "U_EXM", S=u["LDEX1"], G="GND")

@@ -661,8 +661,6 @@ def describe(f):
         a.append("R")
     if f.get("AR2"):
         a.append("R x 2")
-    if f.get("AMAR"):
-        a.append("MAR")
     b = []
     if f.get("BRF"):
         b.append(f"RF[{_reg(f.get('RFB', 0), f.get('RFK', 0))}]")
