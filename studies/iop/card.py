@@ -85,10 +85,10 @@ SB = "SB_"                  # the system bus's lines (RFC 0037, 3), active low a
 SBA = [None] + bus("SB_A", 31, 1)
 SBD = bus("SB_D", 16)
 
-# Not yet: the slave side and the doorbells. Until they're there the
-# doorbells are quiet, and so are the slots' INT lines (pulled down, RFC
-# 0037, 19), as no I/O cards are fitted.
-STUB = {n: "GND" for n in ["BELL"] + bus("DB", 16) + [INT[i] for i in range(16) if i not in (12, 14)]}
+# The slots' INT lines are quiet (pulled down, RFC 0037, 19): no I/O cards
+# are fitted yet.
+STUB = {n: "GND" for n in [INT[i] for i in range(16) if i not in (12, 14)]}
+SRA = bus("SRA", 20)        # the shared RAM's halfword address
 
 
 def u(name, i=None):
@@ -142,10 +142,20 @@ def dec(nl, ref, a, g1="VCC", g2a="GND", g2b="GND", y=None):
     return nl.add("138", ref, **pins)
 
 
-def build(sim=True, bench=False):
+# A second master on the bench (add_bench's `master`): a scripted vector
+# fixture, as studies/v1b_system/bfm.py's, which owns the bus throughout
+# (the IOP mustn't ask for it then).
+M_OUT = (["SB_START_n", "SB_WRITE_n", "SB_BE0_n", "SB_BE1_n"] + SBA[1:32] + SBD)
+M_IN = ["SB_WAIT_n", "RESET_n"] + SBD
+M_CONDS = 4
+M_DELAY_PS = 20_000
+
+
+def build(sim=True, bench=False, master=False):
     """The card. `sim`: with its oscillators and power-on reset (for the
     simulator), else for timing analysis (not yet). `bench`: with what the
-    simulator needs around it on the system bus (bench())."""
+    simulator needs around it on the system bus (add_bench), and `master`
+    a second master there."""
     nl = Netlist()
     g = nl.gate
 
@@ -206,7 +216,7 @@ def build(sim=True, bench=False):
     g("00", [ud[22], "PDRS1_n"], "PD_NMEM")           # and not, for the other drivers
     g("08", [ud[23], "PDRS0_n"], "PD_K")              # RS 2: K
     g("08", [ud[22], ud[23]], "PD_T")                 # RS 3: T
-    dec(nl, "U_PDT", [ud[39], ud[40], ud[41]], y={k: f"PDT{k}_n" for k in range(2, 7)})
+    dec(nl, "U_PDT", [ud[39], ud[40], ud[41]], y={k: f"PDT{k}_n" for k in range(1, 7)})
     g("00", ["PDT2_n", "PDT5_n"], "PD_FT")            # F onto T
     g("04", ["PDT6_n"], "PDT6")
     g("08", ["PD_T", "PDT6"], "PD_TD")                # a device onto R
@@ -239,7 +249,7 @@ def build(sim=True, bench=False):
     nl.section("Sequencer")
     g("04", ["uCOND2"], "uCOND2_n")
     nl.add("151", "U_CMX", A=u("COND", 0), B=u("COND", 1), C=u("COND", 2), G="GND",
-           D0="VCC", D1="CY", D2="R15", D3="LC15_n", D4="ATTN", D5=STUB["BELL"], D6="GND", D7="GND",
+           D0="VCC", D1="CY", D2="R15", D3="LC15_n", D4="ATTN", D5="BELL", D6="GND", D7="GND",
            Y="COND", W="COND_n")
     nl.add("153", "U_SEQ", A=u("SEQ", 0), B=u("SEQ", 1), **{
         "1G": "GND", "2G": "GND", "1C0": "GND", "1C1": "COND", "1C2": "COND_n", "1C3": "VCC",
@@ -371,9 +381,8 @@ def build(sim=True, bench=False):
         g("04", [f"SB_ATN{i}_n"], f"ATN{i}")
     buf(nl, "U_EV10", bus("ATN", 4), T[0:8], "EV1OE_n")
     buf(nl, "U_EV11", ["GND"] * 7 + ["TICK"], T[8:16], "EV1OE_n")
-    dbs = [STUB.get(n, n) for n in bus("DB", 16)]
-    buf(nl, "U_EV20", dbs[0:8], T[0:8], "EV2OE_n")
-    buf(nl, "U_EV21", dbs[8:16], T[8:16], "EV2OE_n")
+    buf(nl, "U_EV20", bus("DB", 8), T[0:8], "EV2OE_n")
+    buf(nl, "U_EV21", bus("DB", 8, 8), T[8:16], "EV2OE_n")
     dec(nl, "U_EVW", [u("REG", 0), u("REG", 1), u("REG", 2)], g2a="DWDY3_n",
         y={1: "TICKCLR_n", 2: "DBCLR_n"})
     # the tick: the timer's OUT0 rising, taken into BCLK's time
@@ -384,18 +393,26 @@ def build(sim=True, bench=False):
     g("32", ["TICK", "TICKSET"], "TICKA")
     g("08", ["TICKA", "TICKCLR_n"], "TICK_D")
     g("32", ["TICK", "WORK"], "ATTA")
-    g("32", ["ATTA", STUB["BELL"]], "ATTN")
+    g("32", ["ATTA", "BELL"], "ATTN")
 
     nl.section("Shared RAM")
-    g("04", ["SRP4"], "SRP4_n")
+    # its address: the core's {page, X} but in the slave side's T clocks,
+    # the slave side's then (slave_side)
+    core_a = XQ[1:16] + bus("SRP", 5)
+    buf(nl, "U_SRAC0", core_a[0:8], SRA[0:8], "STAKE")
+    buf(nl, "U_SRAC1", core_a[8:16], SRA[8:16], "STAKE")
+    buf(nl, "U_SRAC2", core_a[16:20], SRA[16:20], "STAKE")
+    g("04", ["SRA19"], "SRA19_n")
     g("20", ["PH", "PHD_n", "DEVW", "DEV1"], "SRWE_n")
+    for side in "LH":
+        g("08", ["SRWE_n", f"SSWE{side}_n"], f"SRWE{side}_n")
+    g("08", ["DRDY1_n", "SSOE_n"], "SROE_n")
     for b in range(2):
         for h, side in enumerate("LH"):
-            pins = {f"A{i}": XQ[i + 1] for i in range(15)}
-            pins.update({f"A{15 + i}": f"SRP{i}" for i in range(4)})
+            pins = {f"A{i}": SRA[i] for i in range(19)}
             pins.update({f"IO{i}": T[8 * h + i] for i in range(8)})
-            nl.add("sram512", f"U_SR{b}{side}", part="AS7C4096A-12", OE="DRDY1_n", WE="SRWE_n",
-                   CE="SRP4" if b == 0 else "SRP4_n", **pins)
+            nl.add("sram512", f"U_SR{b}{side}", part="AS7C4096A-12", OE="SROE_n", WE=f"SRWE{side}_n",
+                   CE="SRA19" if b == 0 else "SRA19_n", **pins)
 
     nl.section("Timing table")
     # addressed by X[11:8]. A write: the SRAMs' outputs off for the whole
@@ -505,8 +522,9 @@ def build(sim=True, bench=False):
            **{f"Q{i + 1}": f"LED{i}" for i in range(8)})
 
     system_bus(nl)
+    slave_side(nl)
     if bench:
-        add_bench(nl)
+        add_bench(nl, master)
     nl.finish()
     nl.check()
     return nl
@@ -603,14 +621,148 @@ def system_bus(nl):
     reg(nl, "U_BA1", SBD[8:16], T[8:16], en="BALD_n", oe="BAOE_n")
 
 
-def add_bench(nl):
+def slave_side(nl):
+    """The system bus side as a slave (RFC 0027, 4.2-4.4): the shared RAM
+    in region 4 and the doorbells at 0x7400_0000, for the bus's other
+    masters. Not yet: the I/O bus's window at 0x7F00_0000.
+
+    An access to the shared RAM takes T for one clock, STAKE, which is
+    one the core leaves free: the microinstruction running and the next
+    one use T in neither half. It waits for one with WAIT held. A write's
+    data is registered at the end of its first data clock and written in
+    the T clock, which ends the transfer; a read's data is registered at
+    the T clock's end and driven the clock after. A doorbell is set in the write's data clock (RFC 0027's two
+    74HC259 would do in 3 chips what these flip-flops do here).
+
+    So a write takes 2 data clocks or more, a read 2 or more: the first
+    holds WAIT whatever happens, as the decode comes late in the address
+    clock."""
+    g = nl.gate
+    nl.section("Slave side: decode")
+    # in the address clock: region 4, or 0x74, and not the IOP's own
+    nl.add("521", "U_SDR4", part="74F521", G="GND", PEQ="SR4_n",
+           **{f"P{i}": SBA[28 + i] for i in range(4)}, **{f"Q{i}": "VCC" if i == 2 else "GND" for i in range(4)},
+           **{f"P{i}": "GND" for i in range(4, 8)}, **{f"Q{i}": "GND" for i in range(4, 8)})
+    nl.add("521", "U_SDDB", part="74F521", G="GND", PEQ="DB74_n",
+           **{f"P{i}": SBA[24 + i] for i in range(8)}, **{f"Q{i}": "VCC" if (0x74 >> i) & 1 else "GND" for i in range(8)})
+    g("02", ["SB_START_n", "GNTQ"], "SADDR")          # another master's address clock
+    g("04", ["SADDR"], "SADDR_n")
+    g("02", ["SADDR_n", "SR4_n"], "SNEW")             # a shared RAM access starts
+    g("20", ["SADDR", "SB_WRITE_n_", "DB74", "VCC"], "SDB_n")
+    g("04", ["SB_WRITE_n"], "SB_WRITE_n_")
+    g("04", ["DB74_n"], "DB74")
+    g("04", ["SDB_n"], "SDB_D")
+    # the address, the byte enables and WRITE, from the address clock
+    reg(nl, "U_SSA0", SBA[1:10], bus("SSA", 9), en="SADDR_n")
+    reg(nl, "U_SSA1", SBA[10:19], bus("SSA", 9, 9), en="SADDR_n")
+    # (each in the polarity it's used in: an inverter after the register
+    # would let STAKE through ahead of it)
+    for n in ("SB_BE0_n", "SB_BE1_n"):
+        g("04", [n], n[:-2] + "_")
+    reg(nl, "U_SSA2", [SBA[19], SBA[20], "SB_BE0_", "SB_BE1_", "SWRL", "SB_WRITE_n"],
+        ["SSA18", "SSA19", "SBE0Q", "SBE1Q", "SWRQ", "SWRQ_n"], en="SADDR_n")
+    # onto the shared RAM's address in STAKE
+    ssa = bus("SSA", 20)
+    buf(nl, "U_SSAB0", ssa[0:8], SRA[0:8], "STAKE_n")
+    buf(nl, "U_SSAB1", ssa[8:16], SRA[8:16], "STAKE_n")
+    buf(nl, "U_SSAB2", ssa[16:20], SRA[16:20], "STAKE_n")
+
+    nl.section("Slave side: T")
+    # is the next clock free of the core's T? if neither this
+    # microinstruction nor the next (predecoded) uses T in either half:
+    # then the clock after is free too, which the shared RAM's address,
+    # changing hands again, needs
+    g("20", ["PDT1_n", "PDT2_n", "PDT3_n", "PDT4_n"], "PDTU_A")      # T 1-4
+    g("04", ["PDT5_n"], "PDT5")
+    g("27", ["PDTU_A", "PDT5", "PD_T"], "PD_TNONE")                 # neither half
+    g("20", ["TDY1_n", "TDY2_n", "TDY3_n", "TDY4_n"], "TU_A")
+    g("04", ["TDY5_n"], "TU_B")
+    g("27", ["TU_A", "TU_B", "pT"], "TNONE")
+    g("08", ["PD_TNONE", "TNONE"], "TFREE")
+    g("00", ["PD_TNONE", "TNONE"], "TFREE_n")
+    # the state: SD1 is a new access's first data clock, SPEND waits for T
+    # (a write always, while its data is registered), STAKE has it, SOUT
+    # drives a read's data. Every access holds WAIT in its first data clock
+    g("04", ["SB_WRITE_n"], "SWRL")
+    g("11", ["SNEW", "SB_WRITE_n", "TFREE"], "STKA")    # a read, at once
+    g("08", ["SPEND", "TFREE"], "STKB")
+    g("32", ["STKA", "STKB"], "STAKE_D")
+    g("32", ["SWRL", "TFREE_n"], "SPA_")
+    g("08", ["SNEW", "SPA_"], "SPA")
+    g("08", ["SPEND", "TFREE_n"], "SPB")
+    g("32", ["SPA", "SPB"], "SPEND_D")
+    g("32", ["TFREE_n", "SWRQ_n"], "SWB_")
+    g("08", ["SPEND", "SWB_"], "SWB")
+    g("32", ["SNEW", "SWB"], "SWAIT_D")
+    g("08", ["STAKE", "SWRQ_n"], "SOUT_D")
+    nl.add("175", "U_SST", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "STAKE_D", "1Q": "STAKE", "1QN": "STAKE_n",
+        "2D": "SPEND_D", "2Q": "SPEND",
+        "3D": "SOUT_D", "3Q": "SOUT", "3QN": "SOUT_n",
+        "4D": "SWAIT_D", "4QN": "SWAIT_n"})
+    nl.add("125", "U_SWT", part="74ABT125", **{"1OE": "SWAIT_n", "1A": "GND", "1Y": "SB_WAIT_n",
+                                               "2OE": "VCC", "2A": "GND", "3OE": "VCC", "3A": "GND",
+                                               "4OE": "VCC", "4A": "GND"})
+    # a write's data, registered at the end of its first data clock, onto
+    # T in STAKE and written from STAKE's start until BCLK falls (STAKEF is
+    # STAKE taken on the falling edge); a read's from T into SRD at STAKE's
+    # end, onto D in SOUT
+    reg(nl, "U_SWD0", SBD[0:8], T[0:8], en="SD1_n", oe="SDT_n")
+    reg(nl, "U_SWD1", SBD[8:16], T[8:16], en="SD1_n", oe="SDT_n")
+    g("00", ["STAKE", "SWRQ"], "SDT_n")
+    nl.add("74", "U_STKF", **{"1D": "STAKE", "1CLK": "BCLK_n", "1PRE": "VCC", "1CLR": "RESET_n",
+                              "1QN": "STAKEF_n", "2D": "GND", "2CLK": "GND", "2PRE": "VCC",
+                              "2CLR": "VCC"})
+    g("20", ["STAKE", "STAKEF_n", "SWRQ", "SBE0Q"], "SSWEL_n")
+    g("20", ["STAKE", "STAKEF_n", "SWRQ", "SBE1Q"], "SSWEH_n")
+    g("00", ["STAKE", "SWRQ_n"], "SSOE_n")
+    reg(nl, "U_SRD0", T[0:8], SBD[0:8], en="SSOE_n", oe="SOUT_n")
+    reg(nl, "U_SRD1", T[8:16], SBD[8:16], en="SSOE_n", oe="SOUT_n")
+
+    nl.section("Doorbells")
+    # set in the write's data clock, while BCLK is low (the address
+    # register settled); cleared at E2 by the event port's write, doorbell
+    # X[3:0]
+    nl.add("175", "U_SDBQ", CLK="BCLK", CLR="RESET_n", **{"1D": "SDB_D", "1Q": "SDBQ",
+                                                          "2D": "BELLA", "2Q": "BELL",
+                                                          "3D": "SNEW", "3QN": "SD1_n", "4D": "GND"})
+    dec(nl, "U_DBS0", ["SSA1", "SSA2", "SSA3"], g1="SDBQ", g2a="BCLK", g2b="SSA4",
+        y={k: f"DBSET{k}_n" for k in range(8)})
+    dec(nl, "U_DBS1", ["SSA1", "SSA2", "SSA3"], g1="SSA4", g2a="BCLK", g2b="SDBQ_n",
+        y={k: f"DBSET{k + 8}_n" for k in range(8)})
+    g("04", ["SDBQ"], "SDBQ_n")
+    dec(nl, "U_DBC0", XQ[0:3], g2a="DBCLR_n", g2b=XQ[3], y={k: f"DBCLR{k}_n" for k in range(8)})
+    dec(nl, "U_DBC1", XQ[0:3], g1=XQ[3], g2a="DBCLR_n", y={k: f"DBCLR{k + 8}_n" for k in range(8)})
+    for k in range(8):
+        pins = {}
+        for s_ in (1, 2):
+            i = 2 * k + s_ - 1
+            pins.update({f"{s_}J": "GND", f"{s_}K": f"DBCLR{i}_n", f"{s_}CLK": "BCLK",
+                         f"{s_}PRE": f"DBSET{i}_n", f"{s_}CLR": "RESET_n",
+                         f"{s_}Q": f"DB{i}", f"{s_}QN": f"DB{i}_n"})
+        nl.add("109", f"U_DB{k}", nocheck=True, **pins)
+    # any doorbell, taken into BCLK's time for the condition
+    g("30", [f"DB{i}_n" for i in range(8)], "BELLL")
+    g("30", [f"DB{i}_n" for i in range(8, 16)], "BELLH")
+    g("32", ["BELLL", "BELLH"], "BELLA")
+
+
+def add_bench(nl, master=False):
     """Around the card on the system bus, for the simulator: the
     backplane's pull-ups, an arbiter that grants REQ3 4 clocks after it
     rises (as RFC 0037, 6.2's on an idle bus), and a CPU card's RAM in
     region 0 that answers in 2 data clocks, as the model's does
-    (sim/src/system.rs), 1 MB of it. ATN0-3 are quiet."""
+    (sim/src/system.rs), 1 MB of it. ATN0-3 are quiet. `master`: a
+    scripted second master (M_OUT, M_IN), its script X_M's preload."""
     g = nl.gate
     nl.section("Test bench")
+    if master:
+        v = nl.add("vector", "X_M", CLK="BCLK", params={"outs": len(M_OUT), "ins": len(M_IN),
+                                                         "conds": M_CONDS, "delay_ps": M_DELAY_PS})
+        for i, n in enumerate(M_OUT):
+            v[f"O{i}"] = n
+        for i in range(48):
+            v[f"I{i}"] = M_IN[i] if i < len(M_IN) else "GND"
     nl.add("pullup", "X_PU0", P1="SB_WAIT_n", P2="SB_RESET_n", P3="SB_ATN0_n", P4="SB_ATN1_n",
            P5="SB_ATN2_n", P6="SB_ATN3_n", P7="SB_GNT3_n")
     g("04", ["SB_REQ3_n"], "X_REQ")

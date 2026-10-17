@@ -91,7 +91,7 @@ rings of events and other clients' rings through the kernel's ring.
 | `layout.py` | What the microcode, the Forth and the tools share: the SRAM's map, the banks' registers, the system's variables and tables, the control register, the timing table, the image flash's header, the rings and their requests |
 | `uasm.py` | The microassembler: RFC 0027's notation, one line a microinstruction, with macros |
 | `ucode/core.uc`, `ucode/jobs.uc`, `ucode/prims.uc` | The microcode |
-| `ucode/hwtest.uc` | A microcode program of its own, for checking the netlist's system bus side, shared RAM and I/O bus against the model |
+| `ucode/hwtest.uc`, `ucode/hwslave.uc` | Microcode programs of their own, for checking the netlist's system bus side, shared RAM and I/O bus against the model, and its slave side |
 | `card.py` | The card's netlist, for the chip-level simulator (`infra/hwsim`), with a test bench around it on the system bus |
 | `hw.py` | Running the netlist, and checking it against the model clock for clock (`heron iop hw`) |
 | `meta.py` | The metacompiler: the Forth source into the dictionary image |
@@ -225,7 +225,8 @@ RFC, not decisions.
 
 `card.py` is the card at chip level (RFC 0027, 16, step 4), a first cut:
 the core, the devices on T, the I/O bus side with the card's own devices,
-and the system bus side as a master. `hw.py` runs it on the chip-level
+and the system bus side as a master and as a slave (the shared RAM, the
+doorbells). `hw.py` runs it on the chip-level
 simulator and checks it against the model: every E2, the microaddress
 uIR takes and AC, must be the model's, on the same bus clock.
 
@@ -234,6 +235,7 @@ heron iop hw run --ms 32                 # power up: the Forth's banner, about 8
 heron iop hw run --ms 45 --type '1 2 + .\r'
 heron iop hw test --ms 21                # the firmware against the model, to the first tick
 heron iop hw test --ucode hwtest.uc      # the bus side, shared RAM and I/O bus against the model
+heron iop hw slave                       # the slave side, against a second master on the bench
 heron iop hw bom                         # the parts
 ```
 
@@ -245,7 +247,10 @@ heron iop hw bom                         # the parts
   timer's first tick, which the two see a few clocks apart (the model
   looks at the timer lazily); after that it runs on by itself. The bus
   side runs `ucode/hwtest.uc` the model's way, and leaves the same
-  registers and the same RAM on the bench's CPU card.
+  registers and the same RAM on the bench's CPU card. The slave side,
+  against a scripted second master on the bench (the `vector` fixture),
+  takes writes and reads of the shared RAM while the core is using T, a
+  byte lane, and a doorbell that `ucode/hwslave.uc` answers.
 - **The microcycle:** PH, a flip-flop, is the half. At each edge it turns
   to the second half (E1) unless something holds the first, and back (E2)
   unless something holds the second; every register is clocked by BCLK
@@ -272,6 +277,17 @@ heron iop hw bom                         # the parts
   phase's end, with WAIT's own term last in E1EN, as it comes late in the
   clock (RFC 0037's 29 ns); E2 can't wait for WAIT, as E2EN goes to the
   74F161s' 11.5 ns setups.
+- **The slave side:** the address clock is decoded (region 4, 0x74) and
+  registered; an access to the shared RAM takes T for one clock that the
+  core leaves free (neither the running microinstruction nor the next,
+  predecoded, uses T: the clock after is free too, which the RAM's
+  address, changing hands back, needs), waiting with WAIT held. A write's
+  data is registered at the end of its first data clock and written in
+  that clock; a read's is registered at its end and driven the clock
+  after: 2 data clocks each at least, as RFC 0027 (4.2) estimates. The
+  model doesn't share T this way: its slave accesses take no time.
+  Doorbells are J-K flip-flops, set in the write's data clock and cleared
+  at E2 by the event port.
 - **What the model changed to match:** an I/O bus read is latched at the
   strobe's end, so one onto R takes two clocks more than the model had;
   an access that stretches the second half ends a clock after its strobe
@@ -286,15 +302,16 @@ heron iop hw bom                         # the parts
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 140 packages so far (`heron iop hw bom`), against RFC 0027's
-  ~95 for the whole card: about 40 are gates (74F00-74F32), the glue that
-  decoding, the stalls and the I/O side's state need, and 14 are 74F138s.
+- **Parts:** 179 packages so far (`heron iop hw bom`), against RFC 0027's
+  ~95 for the whole card: about 60 are gates (74F00-74F32), the glue that
+  decoding, the stalls and the I/O side's and slave side's states need,
+  18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
+  multiplexer would (RFC 0027's 3; the library has no '259).
 - **Contention:** R changes hands at E1 with up to 7 ns of overlap (F's
   enable against the SRAM's disable), and while reset holds uIR cleared
   both of the SRAM's address drivers are on.
-- **Not yet:** the slave side (the shared RAM from the bus, sharing T
-  with the core, the doorbells, the window), the 32-bit path, LOCK, the
-  stuck-transfer counter, the watchdog, the time of day, the ports' read
+- **Not yet:** the I/O bus's window from the system bus, the 32-bit
+  path, LOCK, the stuck-transfer counter, the watchdog, the time of day, the ports' read
   side, I/O cards in the slots, static timing analysis (the simulator's
   checks catch a late signal only within a setup window, not one later
   than the edge, so the paths above were checked by hand), and a

@@ -17,6 +17,14 @@ class Netlist(unittest.TestCase):
         self.assertEqual(got["regs"][8:16], want["regs"][8:16])
         self.assertEqual(got["ram"], want["ram"])
 
+    def test_slave(self):
+        """The slave side, against a second master on the bench: the
+        shared RAM written and read while the core uses T, a doorbell."""
+        out, reads, regs = hw.check_slave()
+        self.assertEqual(out["violation_total"], 0)
+        self.assertEqual(reads, [0x3333, 0x1111, 0xAB34] + [0x100 + i for i in range(8)])
+        self.assertEqual(regs[:3], [8, 0x1111, 0x2222])
+
     def test_cold_start(self):
         """The firmware from power-up to just before the timer's first
         tick, which the two take a few clocks apart: the SRAM's test, the

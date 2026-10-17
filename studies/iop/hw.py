@@ -5,6 +5,7 @@ must be the model's.
 
     heron iop hw run [--ms N] [--seed S]   power up, print what the console prints
     heron iop hw test [--ms N]             the same, against the model, clock for clock
+    heron iop hw slave                     the slave side, against a second master on the bench
     heron iop hw bom                       the parts
 
 Both start from the microcode's quick build (build.py's `quick`: the
@@ -35,12 +36,13 @@ def sources():
     return runner.infra_sources() + [os.path.join(HERE, "card.py"), parts.__file__]
 
 
-def netlist():
-    """The simulation netlist, exported (cached in build/iop)."""
-    path = os.path.join(OUT, "netlist.json")
+def netlist(master=False):
+    """The simulation netlist, exported (cached in build/iop); `master`:
+    with the bench's second master."""
+    path = os.path.join(OUT, "netlist-master.json" if master else "netlist.json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
         os.makedirs(OUT, exist_ok=True)
-        nl = card.build(sim=True, bench=True)
+        nl = card.build(sim=True, bench=True, master=master)
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=card.VARIANT, corner="max"), f)
@@ -177,6 +179,102 @@ def check_ucode(name="hwtest.uc", clocks=2000, seed=1):
     return hw, compare(hw, ref[:n]), n, b, want, got
 
 
+class MasterScript:
+    """The bench's second master's script (card.M_OUT, card.M_IN): RFC
+    0037 transfers, each an address clock and a data phase that ends at
+    the first edge it sees WAIT inactive."""
+
+    Z = None
+
+    def __init__(self):
+        self.steps = []
+        self.drive = {n: self.Z for n in card.M_OUT}
+        self.reads = []         # the steps whose end has read data
+
+    def step(self, until=None, **drive):
+        self.drive.update(drive)
+        conds = [1 + 2 * card.M_IN.index(n) + v for n, v in (until or {}).items()]
+        self.steps.append(([2 if self.drive[n] is self.Z else self.drive[n] for n in card.M_OUT],
+                           conds + [0] * (card.M_CONDS - len(conds))))
+
+    def idle(self, n=1):
+        d = {"SB_START_n": 1, "SB_WRITE_n": 1, "SB_BE0_n": 1, "SB_BE1_n": 1}
+        d.update({a: 0 for a in card.SBA[1:32]})
+        d.update({x: self.Z for x in card.SBD})
+        for _ in range(n):
+            self.step(**d)
+
+    def transfer(self, addr, write=False, data=0, size=2):
+        be = (0, 0) if size == 2 else ((addr & 1), (addr & 1) ^ 1)
+        d = {"SB_START_n": 0, "SB_WRITE_n": 0 if write else 1, "SB_BE0_n": be[0], "SB_BE1_n": be[1]}
+        d.update({card.SBA[i]: (addr >> i) & 1 for i in range(1, 32)})
+        self.step(**d)
+        dd = {x: ((data >> i) & 1 if write else self.Z) for i, x in enumerate(card.SBD)}
+        if not write:
+            self.reads.append(len(self.steps))
+        self.step(until={"SB_WAIT_n": 1}, SB_START_n=1, **dd)
+        self.drive.update({x: self.Z for x in card.SBD})
+
+    def write(self, addr, data, size=2):
+        self.transfer(addr, True, data, size)
+
+    def read(self, addr):
+        self.transfer(addr)
+
+    def image(self):
+        return bytes(b for outs, conds in self.steps for b in outs + conds)
+
+    def results(self, log):
+        """The read data, from what the master saw at each edge."""
+        n = len(card.M_IN)
+        seen = [log[i:i + n] for i in range(0, len(log), n)]
+        k, out = 0, []
+        for e in seen:
+            if k >= len(self.steps):
+                break
+            conds = self.steps[k][1]
+            if all(b == 0 or e[(b - 1) // 2] == (b - 1) % 2 for b in conds):
+                if k in self.reads:
+                    out.append(sum(e[2 + i] << i for i in range(16)))
+                k += 1
+        return out
+
+
+def check_slave(clocks=3000, seed=1):
+    """The slave side against a second master on the bench: it writes two
+    halfwords into the shared RAM and rings doorbell 3; ucode/hwslave.uc
+    answers with their sum; the master reads that back, and makes more
+    accesses while the core reads and writes the shared RAM in a loop.
+    (the outcome, the master's reads, the IOP's registers 8-11)."""
+    m = MasterScript()
+    m.step(until={"RESET_n": 1})
+    m.idle(20)
+    m.write(0x4000_0100, 0x1111)
+    m.write(0x4000_0102, 0x2222)
+    m.write(0x7400_000C, 0)
+    m.idle(60)
+    m.read(0x4000_0200)
+    m.read(0x4000_0100)
+    m.write(0x4000_0104, 0x1234)
+    m.write(0x4000_0105, 0xAB00, size=1)
+    m.read(0x4000_0104)
+    for i in range(8):
+        m.write(0x4000_0300 + 2 * i, 0x100 + i)
+    for i in range(8):
+        m.read(0x4000_0300 + 2 * i)
+    m.idle(2)
+    b = Program("hwslave.uc")
+    s = model(b)
+    pre = preloads(b, s)
+    pre["X_M"] = m.image()
+    cfg = config(clocks, 0, seed)
+    cfg["dump"] += ["X_M"]
+    hw = native.hwsim.run_system(netlist(master=True), cfg, pre)
+    d = hw["dumps"]
+    regs = [l | h << 8 for l, h in zip(d["U_RAML"][0xC008:0xC00C], d["U_RAMH"][0xC008:0xC00C])]
+    return hw, m.results(d["X_M"]), regs
+
+
 def where(b, a):
     return b.mc.where(a)
 
@@ -217,6 +315,7 @@ def main(argv):
     t.add_argument("--seed", type=int, default=1)
     t.add_argument("--ucode", help="a microcode program of its own (ucode/NAME) instead of the firmware")
     sub.add_parser("bom")
+    sub.add_parser("slave")
     a = p.parse_args(argv)
     if a.cmd == "run":
         b = bld.Build(bld.DEFAULT_PROGRAM, quick=True)
@@ -250,6 +349,15 @@ def main(argv):
         print(f"the same as the model for {n:,} microinstructions")
         print(f"console: card {hw['output']!r}, model {hw['model_output']!r}")
         return 0
+    elif a.cmd == "slave":
+        hw, reads, regs = check_slave()
+        report(hw)
+        print("the master read:", [hex(x) for x in reads])
+        print("the IOP's registers 8-11:", [hex(x) for x in regs])
+        want = [0x3333, 0x1111, 0xAB34] + [0x100 + i for i in range(8)]
+        ok = reads == want and regs[:3] == [8, 0x1111, 0x2222]
+        print("as expected" if ok else f"expected {[hex(x) for x in want]}")
+        return 0 if ok else 1
     elif a.cmd == "bom":
         for part, n in sorted(bom().items()):
             print(f"{n:4}  {part}")
