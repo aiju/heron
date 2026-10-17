@@ -26,9 +26,11 @@
 //!   first half waits at E0, BA into AB or a device in the second half at
 //!   E1. RFC 0027 doesn't say what happens here; this model interlocks;
 //! - it loads AB while the last write's data phase hasn't ended: its
-//!   second half lasts until that ends, so that the write's data holds
-//!   (RFC 0027 doesn't say either; without it, back-to-back writes from
-//!   registers would have to count the slave's clocks);
+//!   second half lasts until the clock after that ends, so that the
+//!   write's data holds (RFC 0027 doesn't say either; without it,
+//!   back-to-back writes from registers would have to count the slave's
+//!   clocks; the clock after is the netlist's, which registers the data
+//!   phase rather than wait for WAIT, too late for E2);
 //! - it accesses the I/O bus: the access starts when the last one's hold
 //!   has ended, and the microcycle lasts until its strobe ends (RFC 0027,
 //!   3.5), 1 + SETUP + STROBE clocks from the timing table, and a clock
@@ -503,9 +505,9 @@ impl Iop {
         if !first_io && io {
             self.stats.stall_io += 1;
         }
-        if ab_load && self.write_end > e2 {
-            self.stats.stall_bus += self.write_end - e2;
-            e2 = self.write_end;
+        if ab_load && self.write_end + 1 > e2 {
+            self.stats.stall_bus += self.write_end + 1 - e2;
+            e2 = self.write_end + 1;
         }
         // A transfer's address clock is the second half's last, its data
         // clocks from E2.

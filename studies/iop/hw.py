@@ -40,7 +40,7 @@ def netlist():
     path = os.path.join(OUT, "netlist.json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
         os.makedirs(OUT, exist_ok=True)
-        nl = card.build(sim=True)
+        nl = card.build(sim=True, bench=True)
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=card.VARIANT, corner="max"), f)
@@ -77,6 +77,8 @@ def preloads(b, s, inp=b""):
         pre[f"U_SR{k}L"] = bytes(h & 0xFF for h in half)
         pre[f"U_SR{k}H"] = bytes(h >> 8 for h in half)
     pre["U_UART"] = bytes(inp)
+    ram = s.s.cpu_mem(0, 1 << 20)
+    pre["X_RAML"], pre["X_RAMH"] = bytes(ram[0::2]), bytes(ram[1::2])
     return pre
 
 
@@ -93,7 +95,8 @@ def config(max_cycles, fetch_trace, seed=1, trace=None):
     if trace:
         cfg.update(trace_from=trace[0], trace_to=trace[1], trace_buses={
             "UPC": UPC, "R": card.R, "T": card.T, "AC": card.ACQ, "X": card.XQ,
-            "PH": ["PH", "E1EN", "E2EN", "STALL1", "STALL2"],
+            "PH": ["PH", "E1EN", "E2EN", "STALL1_IO_n", "STALL2"],
+            "BUS": ["DP", "STARTQ", "GNTQ", "SB_WAIT_n", "WRQ"],
             "IO": ["STB", "HLD", "IOREQ", "IODONE"], "CNT": [f"CNT{i}" for i in range(8)],
             "IOD": card.IOD})
     return cfg
@@ -140,6 +143,40 @@ def check(ms=2.0, inp=b"", seed=1, quiet=False):
     return hw, compare(hw, ref[:n]), n
 
 
+class Program:
+    """A build with a microcode program of its own (ucode/hwtest.uc) in
+    place of the firmware's, over the firmware's image flash."""
+
+    def __init__(self, name="hwtest.uc"):
+        from . import uasm
+        base = bld.Build(bld.DEFAULT_PROGRAM, quick=True)
+        self.mc = uasm.assemble([(name, bld.read("ucode", name))])
+        self.flash = base.flash
+
+    def ucode_bytes(self):
+        return self.mc.rom_bytes()
+
+
+def check_ucode(name="hwtest.uc", clocks=2000, seed=1):
+    """Run a microcode program on the card and the model to its end (a
+    goto to itself); (the outcome, the first difference or None, E2s
+    compared, the model's registers and CPU RAM, the card's)."""
+    b = Program(name)
+    s = model(b)
+    cfg = config(clocks, 1_000_000, seed)
+    cfg["dump"] += ["X_RAML", "X_RAMH"]
+    hw = native.hwsim.run_system(netlist(), cfg, preloads(b, s))
+    s.s.run(s.s.clock + clocks)
+    ref = s.s.log_take()
+    n = min(len(hw["fetches"]), len(ref))
+    d = hw["dumps"]
+    card_ram = bytes(x for pair in zip(d["X_RAML"][:0x800], d["X_RAMH"][:0x800]) for x in pair)
+    card_regs = [l | h << 8 for l, h in zip(d["U_RAML"][0xC000:0xC010], d["U_RAMH"][0xC000:0xC010])]
+    got = {"regs": card_regs, "ram": card_ram}
+    want = {"regs": s.s.sram(0xC000, 16), "ram": s.s.cpu_mem(0, 0x1000)}
+    return hw, compare(hw, ref[:n]), n, b, want, got
+
+
 def where(b, a):
     return b.mc.where(a)
 
@@ -164,6 +201,7 @@ def main(argv):
     t = sub.add_parser("test")
     t.add_argument("--ms", type=float, default=2.0)
     t.add_argument("--seed", type=int, default=1)
+    t.add_argument("--ucode", help="a microcode program of its own (ucode/NAME) instead of the firmware")
     sub.add_parser("bom")
     a = p.parse_args(argv)
     if a.cmd == "run":
@@ -172,6 +210,19 @@ def main(argv):
         sys.stdout.write(hw["output"].decode("latin-1"))
         print()
         report(hw)
+    elif a.cmd == "test" and a.ucode:
+        hw, diff, n, b, want, got = check_ucode(a.ucode, seed=a.seed)
+        report(hw)
+        if diff:
+            i, g_, w_ = diff
+            print(f"E2 {i} of {n}: the card {g_}, the model {w_}")
+            return 1
+        print(f"the same as the model for {n:,} microinstructions")
+        print("registers 8-15: card ", [hex(x) for x in got["regs"][8:16]])
+        print("               model", [hex(x) for x in want["regs"][8:16]])
+        same = got["ram"] == want["ram"]
+        print(f"the CPU card's RAM, 4 KB: {'the same' if same else 'different'}")
+        return 0 if same and got["regs"][8:16] == want["regs"][8:16] else 1
     elif a.cmd == "test":
         hw, diff, n = check(a.ms, seed=a.seed)
         report(hw)

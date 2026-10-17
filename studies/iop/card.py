@@ -81,11 +81,14 @@ def field_nets():
 U = field_nets()
 
 
-# Not yet: the system bus side, the slave side and the doorbells. Until
-# they're there nothing stalls for the bus, and ATN, the doorbells and the
-# slots' INT lines (pulled down, RFC 0037, 19) are quiet.
-STUB = {n: "GND" for n in ["STALL1_BUS", "STALL2_BUS", "BELL"] + bus("ATN", 4) + bus("DB", 16)
-        + [INT[i] for i in range(16) if i not in (12, 14)]}
+SB = "SB_"                  # the system bus's lines (RFC 0037, 3), active low as it has them
+SBA = [None] + bus("SB_A", 31, 1)
+SBD = bus("SB_D", 16)
+
+# Not yet: the slave side and the doorbells. Until they're there the
+# doorbells are quiet, and so are the slots' INT lines (pulled down, RFC
+# 0037, 19), as no I/O cards are fitted.
+STUB = {n: "GND" for n in ["BELL"] + bus("DB", 16) + [INT[i] for i in range(16) if i not in (12, 14)]}
 
 
 def u(name, i=None):
@@ -139,9 +142,10 @@ def dec(nl, ref, a, g1="VCC", g2a="GND", g2b="GND", y=None):
     return nl.add("138", ref, **pins)
 
 
-def build(sim=True):
+def build(sim=True, bench=False):
     """The card. `sim`: with its oscillators and power-on reset (for the
-    simulator), else for timing analysis (not yet)."""
+    simulator), else for timing analysis (not yet). `bench`: with what the
+    simulator needs around it on the system bus (bench())."""
     nl = Netlist()
     g = nl.gate
 
@@ -163,18 +167,18 @@ def build(sim=True):
                             "1Q": "PH", "1QN": "PH_n",
                             "2D": "PH", "2CLK": "BCLK_n", "2PRE": "VCC", "2CLR": "RESET_n",
                             "2Q": "PHD", "2QN": "PHD_n"})
-    g("04", ["STALL1"], "GO1")
-    nl.add("157", "U_PHM", S="PH", G="GND", **{"1A": "GO1", "1B": "STALL2", "1Y": "PH_D",
-                                               "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND",
-                                               "4A": "GND", "4B": "GND"})
-    g("02", ["PH", "STALL1"], "E1EN")
+    # E1 unless the first half waits: for an I/O read onto R, for the bus
+    # (system_bus: the WAIT line's own term is last, as it comes late); E2
+    # unless the second half waits, on registered signals alone, as E2EN
+    # goes to every register that loads at E2
+    g("00", ["pF0", "IODONE_n"], "STALL1_IO_n")
+    g("21", ["PH_n", "STALL1_IO_n", "BSTALL_n", "WSTALL_n"], "E1EN")
+    g("08", ["PH", "STALL2"], "PHSTAY")
+    g("32", ["E1EN", "PHSTAY"], "PH_D")
+    g("08", ["pIOS2", "IODONE_n"], "STALL2_IO")
+    g("32", ["STALL2_IO", "STALL2_BUS"], "STALL2")
     g("02", ["PH_n", "STALL2"], "E2EN")
     g("04", ["E2EN"], "E2EN_n")
-    # STALL1: the first half waits; STALL2: the second
-    g("08", ["pF0", "IODONE_n"], "STALL1_IO")
-    g("32", ["STALL1_IO", STUB["STALL1_BUS"]], "STALL1")
-    g("08", ["pIOS2", "IODONE_n"], "STALL2_IO")
-    g("32", ["STALL2_IO", STUB["STALL2_BUS"]], "STALL2")
 
     # ------------------------------------------------------------ microcode
     nl.section("Microprogram counter")
@@ -216,6 +220,7 @@ def build(sim=True):
     g("27", [ud[19], ud[20], ud[21]], "PDDEV0")
     g("08", ["PDDEV0", "PDT345"], "PD_IOS2")          # the I/O bus, stretching the second half
     g("32", ["PD_IOS2", "PD_F0"], "PD_IO")            # the I/O bus at all
+    g("08", ["PD_T", "PDT6_n"], "PD_BAR")             # BA onto R
     nl.section("Microinstruction register")
     reg(nl, "U_IR0", UD[0:9], KB[0:9], en="E2EN_n", clr="RESET_n", oe="KOE_n")
     reg(nl, "U_IR1", UD[9:16], KB[9:16], en="E2EN_n", clr="RESET_n", oe="KOE_n")
@@ -229,6 +234,7 @@ def build(sim=True):
         reg(nl, f"U_IR{h + 2}", d, q, en="E2EN_n", clr="RESET_n")
     reg(nl, "U_IR6", ["PD_FT", "PD_F0", "PD_F1", "PD_F2", "PD_E0", "PD_E1", "PD_E2", "PD_IOS2", "PD_IO"],
         ["pFT", "pF0", "pF1", "pF2", "pE0", "pE1", "pE2", "pIOS2", "pIO"], en="E2EN_n", clr="RESET_n")
+    reg(nl, "U_IR7", ["PD_BAR"], ["pBAR"], en="E2EN_n", clr="RESET_n")
 
     nl.section("Sequencer")
     g("04", ["uCOND2"], "uCOND2_n")
@@ -361,7 +367,9 @@ def build(sim=True):
     ints = [STUB.get(n, n) for n in INT]
     buf(nl, "U_EV00", ints[0:8], T[0:8], "EV0OE_n")
     buf(nl, "U_EV01", ints[8:16], T[8:16], "EV0OE_n")
-    buf(nl, "U_EV10", [STUB.get(n, n) for n in bus("ATN", 4)], T[0:8], "EV1OE_n")
+    for i in range(4):
+        g("04", [f"SB_ATN{i}_n"], f"ATN{i}")
+    buf(nl, "U_EV10", bus("ATN", 4), T[0:8], "EV1OE_n")
     buf(nl, "U_EV11", ["GND"] * 7 + ["TICK"], T[8:16], "EV1OE_n")
     dbs = [STUB.get(n, n) for n in bus("DB", 16)]
     buf(nl, "U_EV20", dbs[0:8], T[0:8], "EV2OE_n")
@@ -496,6 +504,151 @@ def build(sim=True):
     nl.add("574", "U_LED", OE="GND", CLK="LEDCLK", **{f"D{i + 1}": IOD[i] for i in range(8)},
            **{f"Q{i + 1}": f"LED{i}" for i in range(8)})
 
+    system_bus(nl)
+    if bench:
+        add_bench(nl)
     nl.finish()
     nl.check()
     return nl
+
+
+def system_bus(nl):
+    """The system bus side as a master (RFC 0027, 4.1; RFC 0037, 5-6). A
+    transfer's address clock is the second half's last: E1-E2, unless an
+    I/O bus access stretches the second half; its data clocks follow from
+    E2 while the slave holds WAIT. AL and AHOUT take the address at E1,
+    START, WRITE and BE are registered for the address clock; BA takes the
+    read data at the data phase's end, AB drives the write data through
+    it. Not yet: the 32-bit path, LOCK, the stuck-transfer counter."""
+    g = nl.gate
+    nl.section("System bus: addresses")
+    reg(nl, "U_AH00", R[0:9], bus("AH0_", 9), en="LDAH0_n")
+    reg(nl, "U_AH01", R[9:16], bus("AH0_", 7, 9), en="LDAH0_n")
+    reg(nl, "U_AH10", R[0:9], bus("AH1_", 9), en="LDAH1_n")
+    reg(nl, "U_AH11", R[9:16], bus("AH1_", 7, 9), en="LDAH1_n")
+    # AH0 or AH1 onto AHI by SEG, for AHOUT
+    g("04", ["uSEG"], "uSEG_n")
+    for k, (lo, n) in enumerate(((0, 8), (8, 8))):
+        buf(nl, f"U_AHS0{k}", bus("AH0_", n, lo), bus("AHI", n, lo), "uSEG")
+        buf(nl, f"U_AHS1{k}", bus("AH1_", n, lo), bus("AHI", n, lo), "uSEG_n")
+    g("08", ["uBUS0_n_", "uBUS1_n_"], "BUSOP_n")
+    g("04", ["uBUS0"], "uBUS0_n_")
+    g("04", ["uBUS1"], "uBUS1_n_")
+    g("04", ["BUSOP_n"], "BUSOP")
+    g("00", ["E1EN", "BUSOP"], "ALLD_n")
+    reg(nl, "U_AL0", R[0:9], ["AL0"] + SBA[1:9], en="ALLD_n", oe="GNTQ_n")
+    reg(nl, "U_AL1", R[9:16], SBA[9:16], en="ALLD_n", oe="GNTQ_n")
+    reg(nl, "U_AHO0", bus("AHI", 9), SBA[16:25], en="ALLD_n", oe="GNTQ_n")
+    reg(nl, "U_AHO1", bus("AHI", 7, 9), SBA[25:32], en="ALLD_n", oe="GNTQ_n")
+
+    nl.section("System bus: control")
+    # START for the address clock: from E1, or, when an I/O access
+    # stretches the second half, from the strobe's end
+    g("04", ["pIOS2"], "pIOS2_n")
+    g("08", ["BUSOP", "pIOS2_n"], "BSTA")
+    g("08", ["E1EN", "BSTA"], "STA_A")
+    g("21", ["PH", "pIOS2", "STBEND", "BUSOP"], "STA_B")
+    g("32", ["STA_A", "STA_B"], "START_D")
+    g("04", ["START_D"], "START_D_n")
+    # WRITE (BUS 2) and the byte enables (SZ: 0 byte 0, 1 byte 1, 2 both)
+    g("08", ["uBUS1", "uBUS0_n_"], "BWRITE")
+    g("02", ["uSZ0", "uSZ1"], "BBE1_n_")
+    reg(nl, "U_BCTL", ["BWRITE", "uSZ0", "BBE1_n_"], ["WRQ", "BE0Q_n", "BE1Q_n"], en="START_D_n")
+    g("04", ["WRQ"], "WRQ_n")
+    # the owner's lines, while GNT was sampled; START a clock
+    nl.add("175", "U_BST", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "START_D", "1Q": "STARTQ", "1QN": "STARTQ_n",
+        "2D": "DP_D", "2Q": "DP", "2QN": "DP_n",
+        "3D": "GNT", "3Q": "GNTQ", "3QN": "GNTQ_n",
+        "4D": "GND"})
+    g("04", ["SB_GNT3_n"], "GNT")
+    buf(nl, "U_BOWN", ["STARTQ_n", "WRQ_n", "BE0Q_n", "BE1Q_n", "VCC"],
+        ["SB_START_n", "SB_WRITE_n", "SB_BE0_n", "SB_BE1_n", "SB_LOCK_n"], "GNTQ_n")
+    g("04", ["SESSION"], "SB_REQ3_n")
+    nl.add("05", "U_BRST", **{"1A": "BRESET", "1Y": "SB_RESET_n", "2A": "GND", "3A": "GND", "4A": "GND",
+                              "5A": "GND", "6A": "GND"})
+    # the data phase: from the address clock's end while WAIT is held
+    g("04", ["SB_WAIT_n"], "WAIT")
+    g("08", ["DP", "WAIT"], "DPW")
+    g("32", ["STARTQ", "DPW"], "DP_D")
+    g("08", ["DP", "SB_WAIT_n"], "DPEND")
+    g("08", ["DP", "WRQ"], "WDP")
+    g("08", ["DP", "WRQ_n"], "RDP")
+    g("00", ["DPEND", "WRQ_n"], "BALD_n")
+    # stalls: a transfer waits at E1 for GNT and for the last data phase's
+    # end, a move of BA for the read's data (onto R, a clock more): the
+    # terms without WAIT in BSTALL_n, WAIT's in WSTALL_n. AB's loads wait in
+    # the second half for the clock after the last write's end
+    g("04", ["GNT"], "GNT_n")
+    g("08", ["BUSOP", "GNT_n"], "BSA")
+    g("08", ["pBAR", "RDP"], "BSB")
+    g("02", ["BSA", "BSB"], "BSTALL_n")
+    g("08", ["BUSOP", "DP"], "WSA")
+    g("08", ["TBA", "RDP"], "WSB")
+    g("02", ["WSA", "WSB"], "WSAB_n")
+    g("32", ["SB_WAIT_n", "WSAB_n"], "WSTALL_n")
+    g("08", ["ABLOAD", "WDP"], "STALL2_BUS")
+
+    nl.section("System bus: data")
+    g("20", ["TDY1_n", "TDY2_n", "TDY3_n", "VCC"], "ABLOAD")
+    g("00", ["TDY1_n", "TDY4_n"], "TBA")             # BA onto T in the second half
+    g("00", ["E2EN", "ABLOAD"], "ABLD_n")
+    g("00", ["PH_n", "pBAR"], "BAOA_n")
+    g("00", ["PH", "TBA"], "BAOB_n")
+    g("08", ["BAOA_n", "BAOB_n"], "BAOE_n")
+    g("04", ["WDP"], "WDP_n")
+    reg(nl, "U_AB0", T[0:8], SBD[0:8], en="ABLD_n", oe="WDP_n")
+    reg(nl, "U_AB1", T[8:16], SBD[8:16], en="ABLD_n", oe="WDP_n")
+    reg(nl, "U_BA0", SBD[0:8], T[0:8], en="BALD_n", oe="BAOE_n")
+    reg(nl, "U_BA1", SBD[8:16], T[8:16], en="BALD_n", oe="BAOE_n")
+
+
+def add_bench(nl):
+    """Around the card on the system bus, for the simulator: the
+    backplane's pull-ups, an arbiter that grants REQ3 4 clocks after it
+    rises (as RFC 0037, 6.2's on an idle bus), and a CPU card's RAM in
+    region 0 that answers in 2 data clocks, as the model's does
+    (sim/src/system.rs), 1 MB of it. ATN0-3 are quiet."""
+    g = nl.gate
+    nl.section("Test bench")
+    nl.add("pullup", "X_PU0", P1="SB_WAIT_n", P2="SB_RESET_n", P3="SB_ATN0_n", P4="SB_ATN1_n",
+           P5="SB_ATN2_n", P6="SB_ATN3_n", P7="SB_GNT3_n")
+    g("04", ["SB_REQ3_n"], "X_REQ")
+    nl.add("175", "X_ARB", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "X_REQ", "1Q": "X_G1", "2D": "X_G1R", "2Q": "X_G2", "3D": "X_G2R", "3Q": "X_G3",
+        "4D": "GND"})
+    g("08", ["X_G1", "X_REQ"], "X_G1R")
+    g("08", ["X_G2", "X_REQ"], "X_G2R")
+    g("00", ["X_G3", "X_REQ"], "SB_GNT3_n")
+    # the RAM: the address clock registered, WAIT in the first data clock,
+    # the data in the second
+    g("04", ["SB_START_n"], "X_START")
+    g("02", ["SB_A28", "SB_A29"], "X_R0A")
+    g("02", ["SB_A30", "SB_A31"], "X_R0B")
+    g("11", ["X_START", "X_R0A", "X_R0B"], "X_SEL")
+    reg(nl, "X_SA0", SBA[1:10], bus("X_SA", 9, 1), en="SB_START_n")
+    reg(nl, "X_SA1", SBA[10:19], bus("X_SA", 9, 10), en="SB_START_n")
+    reg(nl, "X_SA2", [SBA[19], "SB_WRITE_n", "SB_BE0_n", "SB_BE1_n"],
+        ["X_SA19", "X_WR_n", "X_BE0_n", "X_BE1_n"], en="SB_START_n")
+    nl.add("175", "X_SDP", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "X_SEL", "1Q": "X_D1", "1QN": "X_D1_n", "2D": "X_D1", "2Q": "X_D2", "3D": "GND",
+        "4D": "GND"})
+    nl.add("125", "X_WAIT", part="74ABT125", **{"1OE": "X_D1_n", "1A": "GND", "1Y": "SB_WAIT_n",
+                                                "2OE": "VCC", "2A": "GND", "3OE": "VCC", "3A": "GND",
+                                                "4OE": "VCC", "4A": "GND"})
+    g("04", ["X_WR_n"], "X_WR")
+    g("00", ["X_D2", "X_WR_n"], "X_OE_n")
+    # the write strobe: from data clock 2's start until BCLK falls, as the
+    # IOP's own SRAM's (X_D2F is X_D2 taken on the falling edge)
+    nl.add("74", "X_D2F", **{"1D": "X_D2", "1CLK": "BCLK_n", "1PRE": "VCC", "1CLR": "RESET_n",
+                             "1QN": "X_D2F_n", "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+    g("08", ["X_D2", "X_D2F_n"], "X_WWIN")
+    g("20", ["X_WWIN", "X_WR", "X_BE0", "VCC"], "X_WEL_n")
+    g("20", ["X_WWIN", "X_WR", "X_BE1", "VCC"], "X_WEH_n")
+    g("04", ["X_BE0_n"], "X_BE0")
+    g("04", ["X_BE1_n"], "X_BE1")
+    for h, side in enumerate("LH"):
+        pins = {f"A{i}": f"X_SA{i + 1}" for i in range(19)}
+        pins.update({f"IO{i}": SBD[8 * h + i] for i in range(8)})
+        nl.add("sram512", f"X_RAM{side}", part="AS7C4096A-12", CE="GND", OE="X_OE_n",
+               WE=f"X_WE{side}_n", **pins)
