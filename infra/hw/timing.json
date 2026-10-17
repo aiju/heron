@@ -1250,6 +1250,64 @@
   "estimated": [],
   "source": "https://dmf.unisalento.it/~panareo/Elettronica_Digitale/Data%20sheet/74f182.pdf (Fairchild DS009492, Apr 1988, rev. Sep 2000, p.6)"
  },
+ "74F193": {
+  "checks": {
+   "fmax MHz": 90,
+   "hold P": 2,
+   "recovery MR": 4,
+   "recovery PL": 6,
+   "setup P": 5,
+   "tw CP": 5,
+   "tw CP dir": 10,
+   "tw MR": 6,
+   "tw PL": 6
+  },
+  "delays": {
+   "CP->Q": {
+    "max": 13.5,
+    "min": 4,
+    "typ": 9.5
+   },
+   "CP->TC": {
+    "max": 10,
+    "min": 3.5,
+    "typ": 7
+   },
+   "MR->Q": {
+    "max": 15.5,
+    "min": 5.5,
+    "typ": 11
+   },
+   "MR->TC": {
+    "max": 15.5,
+    "min": 6,
+    "typ": 11.5
+   },
+   "P->Q": {
+    "max": 15.5,
+    "min": 3,
+    "typ": 11
+   },
+   "P->TC": {
+    "max": 15.5,
+    "min": 6.5,
+    "typ": 11.5
+   },
+   "PL->Q": {
+    "max": 14,
+    "min": 5,
+    "typ": 10
+   },
+   "PL->TC": {
+    "max": 16.5,
+    "min": 7,
+    "typ": 12
+   }
+  },
+  "estimated": [],
+  "part_number": "74F193",
+  "source": "https://www.thierry-lequeu.fr/data/54F193.pdf"
+ },
  "74F20": {
   "checks": {},
   "delays": {
@@ -1697,6 +1755,57 @@
   "estimated": [],
   "part_number": "74HCT175",
   "source": "https://assets.nexperia.com/documents/data-sheet/74HC_HCT175.pdf"
+ },
+ "74HCT193": {
+  "checks": {
+   "fmax MHz": 16,
+   "hold CP dir": 20,
+   "hold P": 0,
+   "recovery MR": 13,
+   "recovery PL": 13,
+   "setup P": 20,
+   "tw CP": 31,
+   "tw CP high": 31,
+   "tw MR": 25,
+   "tw PL": 25
+  },
+  "delays": {
+   "CP->Q": {
+    "max": 54,
+    "typ": 23
+   },
+   "CP->TC": {
+    "max": 34,
+    "typ": 15
+   },
+   "MR->Q": {
+    "max": 50,
+    "typ": 22
+   },
+   "MR->TC": {
+    "max": 69,
+    "typ": 29
+   },
+   "P->Q": {
+    "max": 58,
+    "typ": 27
+   },
+   "P->TC": {
+    "max": 73,
+    "typ": 32
+   },
+   "PL->Q": {
+    "max": 58,
+    "typ": 26
+   },
+   "PL->TC": {
+    "max": 69,
+    "typ": 31
+   }
+  },
+  "estimated": [],
+  "part_number": "74HCT193",
+  "source": "https://cdn.components.ru/media/PDF/1305593.pdf"
  },
  "74HCT20": {
   "checks": {},

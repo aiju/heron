@@ -1,5 +1,6 @@
 //! The event-driven core on small circuits: delays, the latest-arrival
-//! rule, bus contention, and setup and hold checks.
+//! rule, bus contention, and setup and hold checks; and the 74x193, whose
+//! loads and resets are asynchronous.
 
 use std::collections::HashMap;
 
@@ -277,5 +278,137 @@ fn netlist_errors_name_the_chip() {
     assert_eq!(
         err("nand", &[("1A", "in", "a"), ("1Y", "out", "b")]),
         "U9 (nand): no timing value \"A->Y\""
+    );
+}
+
+/// A 4-bit bus's value from nets `{name}0`..`{name}3`.
+fn nibble(sim: &Sim, name: &str) -> u8 {
+    (0..4).map(|i| val(sim, &format!("{name}{i}")).0 << i).sum()
+}
+
+#[test]
+fn a_193_counts_both_ways_loads_resets_and_cascades() {
+    let mut c = Circuit::default();
+    c.rails();
+    c.sources(&["cpu", "cpd", "mr", "pl", "p0"]);
+    let delays = [
+        ("CP->Q", 10_000),
+        ("CP->TC", 7000),
+        ("P->Q", 11_000),
+        ("P->TC", 12_000),
+        ("PL->Q", 9000),
+        ("PL->TC", 13_000),
+        ("MR->Q", 8000),
+        ("MR->TC", 14_000),
+        ("setup P", 5000),
+        ("hold P", 2000),
+        ("tw CP", 5000),
+        ("tw CP dir", 10_000),
+        ("tw PL", 6000),
+        ("tw MR", 6000),
+        ("recovery PL", 6000),
+        ("recovery MR", 4000),
+    ];
+    // U2 counts U1's carries and borrows: an 8-bit counter
+    let counter = |c: &mut Circuit, r: &str, ins: [&str; 5], q: &str, tc: [&str; 2]| {
+        let qs: Vec<String> = (0..4).map(|i| format!("{q}{i}")).collect();
+        let mut pins = vec![
+            ("CPU", "in", ins[0]),
+            ("CPD", "in", ins[1]),
+            ("MR", "in", ins[2]),
+            ("PL", "in", ins[3]),
+            ("P0", "in", ins[4]),
+            ("P1", "in", "lo"),
+            ("P2", "in", "lo"),
+            ("P3", "in", "lo"),
+        ];
+        for (i, n) in qs.iter().enumerate() {
+            pins.push((["Q0", "Q1", "Q2", "Q3"][i], "out", n));
+        }
+        pins.extend([("TCU", "out", tc[0]), ("TCD", "out", tc[1])]);
+        c.chip(r, "cnt193", &pins, &delays);
+    };
+    counter(
+        &mut c,
+        "U1",
+        ["cpu", "cpd", "mr", "pl", "p0"],
+        "a",
+        ["cy", "bw"],
+    );
+    counter(
+        &mut c,
+        "U2",
+        ["cy", "bw", "lo", "pl", "lo"],
+        "b",
+        ["-", "-"],
+    );
+    let mut sim = c.build();
+    sim.state.check_on = true;
+    // both load 0 while PL is low; the clocks rise then, so count nothing
+    set(&mut sim, "cpu", 10_000, 1);
+    set(&mut sim, "cpd", 10_000, 1);
+    set(&mut sim, "pl", 30_000, 1);
+    // 17 up: U1 carries into U2 on the 16th
+    for k in 0..17 {
+        set(&mut sim, "cpu", 50_000 + 40_000 * k, 0);
+        set(&mut sim, "cpu", 70_000 + 40_000 * k, 1);
+    }
+    sim.run(750_000);
+    assert_eq!((nibble(&sim, "a"), nibble(&sim, "b")), (1, 1));
+    assert_eq!(val(&sim, "b0"), (1, 687_000));
+    // 2 down: U1 borrows from U2 on the second
+    for k in 0..2 {
+        set(&mut sim, "cpd", 760_000 + 40_000 * k, 0);
+        set(&mut sim, "cpd", 780_000 + 40_000 * k, 1);
+    }
+    sim.run(850_000);
+    assert_eq!((nibble(&sim, "a"), nibble(&sim, "b")), (15, 0));
+    assert_eq!(val(&sim, "bw"), (1, 827_000));
+    // a load: Q follows P while PL is low; P changes 3 ns before PL's
+    // rise and 1 ns after, and a short pulse counts 4 ns after it
+    set(&mut sim, "p0", 860_000, 1);
+    set(&mut sim, "pl", 870_000, 0);
+    set(&mut sim, "p0", 880_000, 0);
+    set(&mut sim, "p0", 890_000, 1);
+    set(&mut sim, "pl", 893_000, 1);
+    set(&mut sim, "p0", 894_000, 0);
+    set(&mut sim, "cpu", 895_000, 0);
+    set(&mut sim, "cpu", 897_000, 1);
+    sim.run(905_000);
+    assert_eq!((nibble(&sim, "a"), val(&sim, "a0")), (1, (1, 901_000)));
+    sim.run(915_000);
+    assert_eq!(nibble(&sim, "a"), 2);
+    // a reset, too short
+    set(&mut sim, "mr", 920_000, 1);
+    set(&mut sim, "mr", 923_000, 0);
+    set(&mut sim, "cpu", 930_000, 0);
+    set(&mut sim, "cpu", 950_000, 1);
+    sim.run(940_000);
+    assert_eq!((nibble(&sim, "a"), val(&sim, "a1")), (0, (0, 928_000)));
+    sim.run(1_000_000);
+    assert_eq!((nibble(&sim, "a"), val(&sim, "a0")), (1, (1, 960_000)));
+    let v: Vec<_> = sim
+        .state
+        .violations
+        .iter()
+        .map(|v| {
+            (
+                v.chip.as_str(),
+                v.pin.as_str(),
+                v.kind.as_str(),
+                v.at_ps,
+                v.slack_ps,
+            )
+        })
+        .collect();
+    assert_eq!(
+        v,
+        [
+            ("U1", "P0", "setup P", 893_000, -2000),
+            ("U1", "P0", "hold P", 894_000, -1000),
+            ("U1", "CPU", "tw CP dir", 897_000, -8000),
+            ("U1", "CPU", "recovery PL", 897_000, -2000),
+            ("U1", "MR", "tw MR", 923_000, -3000),
+        ]
     );
 }

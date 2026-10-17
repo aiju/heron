@@ -144,6 +144,22 @@ for _n, _model in (("161", "cnt161"), ("163", "cnt163")):
       arcs=_arcs, checks=_checks,
       desc="4-bit binary counter, " + ("async clear" if _n == "161" else "sync clear"))
 
+T("193", "cnt193",
+  [(p, "in") for p in ("CPU", "CPD", "MR", "PL", "P0", "P1", "P2", "P3")]
+  + [(p, "out") for p in ("Q0", "Q1", "Q2", "Q3", "TCU", "TCD")],
+  arcs=[(["CPU", "CPD"], ["Q0", "Q1", "Q2", "Q3"], "CP->Q"),
+        (["CPU", "CPD"], ["TCU", "TCD"], "CP->TC"),
+        ([f"P{i}" for i in range(4)], ["Q0", "Q1", "Q2", "Q3"], "P->Q"),
+        ([f"P{i}" for i in range(4)], ["TCU", "TCD"], "P->TC"),
+        (["PL"], ["Q0", "Q1", "Q2", "Q3"], "PL->Q"),
+        (["PL"], ["TCU", "TCD"], "PL->TC"),
+        (["MR"], ["Q0", "Q1", "Q2", "Q3"], "MR->Q"),
+        (["MR"], ["TCU", "TCD"], "MR->TC")],
+  checks=[([f"P{i}" for i in range(4)], "PL", "rise", "setup P", "hold P")],
+  desc="4-bit up/down binary counter with separate up and down clocks (PL, TCU, TCD active "
+       "low; MR active high): CPU or CPD rising counts while the other is high; MR resets and "
+       "PL loads P, asynchronously; TCU is CPU at 15, TCD is CPD at 0, to clock the next counter")
+
 T("175", "dff175",
   [("CLK", "in"), ("CLR", "in")] + [(f"{i}D", "in") for i in range(1, 5)]
   + [(f"{i}{q}", "out") for i in range(1, 5) for q in ("Q", "QN")],
@@ -483,12 +499,12 @@ VARIANTS = {
     # Faster ALU: 74F181 + 74F182 (also new-old-stock only).
     "hct-f181": {"logic": "74HCT", "alu": "74F181", "cla": "74F182",
                  "rf": "AS7C256A-15", "ram": "AS6C62256-55", "rom": "SST39SF010A-55"},
-    # Everything fast: 74ACT logic where it exists (no ACT30/ACT688: HCT used).
+    # Everything fast: 74ACT logic where it exists (no ACT30/ACT688/ACT193: HCT used).
     "act-f181": {"logic": "74ACT", "alu": "74F181", "cla": "74F182",
                  "rf": "AS7C256A-12", "ram": "AS6C62256-55", "rom": "SST39SF010A-55"},
 }
 DEFAULT_VARIANT = "hct-ls181"
-ACT_MISSING = {"30", "688"}
+ACT_MISSING = {"30", "688", "193"}
 
 
 # Parts outside the variants: families that only the card designs use,

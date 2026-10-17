@@ -129,6 +129,7 @@ pub enum Model {
     Mux153(Mux153),
     Mux157(Mux157),
     Counter(Counter),
+    Cnt193(Cnt193),
     Dff175(Dff175),
     Reg377(Reg377),
     Buf541(Buf541),
@@ -183,6 +184,7 @@ impl Model {
             "mux157" => Model::Mux157(Mux157::new(s)?),
             "cnt161" => Model::Counter(Counter::new(s, rng, false)?),
             "cnt163" => Model::Counter(Counter::new(s, rng, true)?),
+            "cnt193" => Model::Cnt193(Cnt193::new(s, rng)?),
             "dff175" => Model::Dff175(Dff175::new(s, rng)?),
             "reg377" => Model::Reg377(Reg377::new(s, rng)?),
             "buf541" => Model::Buf541(Buf541::new(s, false)?),
@@ -237,6 +239,7 @@ impl Model {
             Model::Mux153(m) => m.init(cx, c),
             Model::Mux157(m) => m.init(cx, c),
             Model::Counter(m) => m.out(cx, c, 0, 0),
+            Model::Cnt193(m) => m.init(cx, c),
             Model::Dff175(m) => m.out(cx, c, 0),
             Model::Reg377(m) => m.init(cx, c),
             Model::Buf541(m) => m.init(cx, c),
@@ -312,6 +315,7 @@ impl Model {
             Model::Mux153(m) => m.eval(cx, c, pin),
             Model::Mux157(m) => m.eval(cx, c, pin),
             Model::Counter(m) => m.eval(cx, c, pin),
+            Model::Cnt193(m) => m.eval(cx, c, pin),
             Model::Dff175(m) => m.eval(cx, c, pin),
             Model::Reg377(m) => m.eval(cx, c, pin),
             Model::Buf541(m) => m.eval(cx, c, pin),
@@ -892,6 +896,261 @@ impl Counter {
             cx.check_hold(c, pin, self.last_edge, self.h_load, "LOAD");
         } else if self.load_at_edge {
             cx.check_hold(c, pin, self.last_edge, self.h_data, "data");
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 193 up/down counter
+
+/// A 74x193: a 4-bit counter with an up clock and a down clock, each
+/// counting on its rising edge while the other is high; an asynchronous
+/// reset (MR high) and load (PL low: Q follows P) that override both; and
+/// terminal-count outputs that repeat a clock's low phase at 15 (TCU) or
+/// 0 (TCD), to clock the next counter.
+pub struct Cnt193 {
+    cpu: usize,
+    cpd: usize,
+    mr: usize,
+    pl: usize,
+    tcu: usize,
+    tcd: usize,
+    p: [usize; 4],
+    q: [usize; 4],
+    p_idx: Vec<Option<usize>>,
+    state: u8,
+    prev_cpu: u8,
+    prev_cpd: u8,
+    cpu_fall: Option<Time>,
+    cpd_fall: Option<Time>,
+    cpu_rise: Option<Time>,
+    cpd_rise: Option<Time>,
+    pl_fall: Option<Time>,
+    pl_rise: Option<Time>,
+    mr_rise: Option<Time>,
+    mr_fall: Option<Time>,
+    /// the direction of the last count: true up
+    last_up: Option<bool>,
+    d_cp_q: Time,
+    d_cp_tc: Time,
+    d_p_q: Time,
+    d_p_tc: Time,
+    d_pl_q: Time,
+    d_pl_tc: Time,
+    d_mr_q: Time,
+    d_mr_tc: Time,
+    su_p: Time,
+    h_p: Time,
+    tw_cp: Time,
+    /// the low width after a change of direction, the high width, and
+    /// the time from one clock's rise to the other's fall: each 0 where
+    /// the datasheet gives none
+    tw_cp_dir: Time,
+    tw_cp_high: Time,
+    h_cp_dir: Time,
+    tw_pl: Time,
+    tw_mr: Time,
+    rec_pl: Time,
+    rec_mr: Time,
+}
+
+impl Cnt193 {
+    fn new(s: &Spec, rng: &mut Rng) -> Result<Cnt193, Error> {
+        let p = s.pins(|i| format!("P{i}"))?;
+        let mut state = 0;
+        for i in 0..4 {
+            state |= rng.bit() << i;
+        }
+        Ok(Cnt193 {
+            cpu: s.pin("CPU")?,
+            cpd: s.pin("CPD")?,
+            mr: s.pin("MR")?,
+            pl: s.pin("PL")?,
+            tcu: s.pin("TCU")?,
+            tcd: s.pin("TCD")?,
+            p_idx: s.index(&p),
+            p,
+            q: s.pins(|i| format!("Q{i}"))?,
+            state,
+            prev_cpu: 0,
+            prev_cpd: 0,
+            cpu_fall: None,
+            cpd_fall: None,
+            cpu_rise: None,
+            cpd_rise: None,
+            pl_fall: None,
+            pl_rise: None,
+            mr_rise: None,
+            mr_fall: None,
+            last_up: None,
+            d_cp_q: s.d("CP->Q")?,
+            d_cp_tc: s.d("CP->TC")?,
+            d_p_q: s.d("P->Q")?,
+            d_p_tc: s.d("P->TC")?,
+            d_pl_q: s.d("PL->Q")?,
+            d_pl_tc: s.d("PL->TC")?,
+            d_mr_q: s.d("MR->Q")?,
+            d_mr_tc: s.d("MR->TC")?,
+            su_p: s.d("setup P")?,
+            h_p: s.d("hold P")?,
+            tw_cp: s.d("tw CP")?,
+            tw_cp_dir: s.d_or("tw CP dir", 0),
+            tw_cp_high: s.d_or("tw CP high", 0),
+            h_cp_dir: s.d_or("hold CP dir", 0),
+            tw_pl: s.d("tw PL")?,
+            tw_mr: s.d("tw MR")?,
+            rec_pl: s.d("recovery PL")?,
+            rec_mr: s.d("recovery MR")?,
+        })
+    }
+
+    /// What MR or PL holds the count to: 0 in reset, P while loading.
+    fn forced(&self, cx: &Ctx, c: &ChipInfo) -> Option<u8> {
+        if cx.input(c, self.mr) == 1 {
+            Some(0)
+        } else if cx.input(c, self.pl) == 0 {
+            Some(bus_value(cx, c, &self.p) as u8)
+        } else {
+            None
+        }
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        self.prev_cpu = cx.input(c, self.cpu);
+        self.prev_cpd = cx.input(c, self.cpd);
+        if let Some(v) = self.forced(cx, c) {
+            self.state = v;
+        }
+        self.out(cx, c, 0, 0);
+    }
+
+    fn tc(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        let tcu = b2u(!(self.state == 15 && cx.input(c, self.cpu) == 0));
+        let tcd = b2u(!(self.state == 0 && cx.input(c, self.cpd) == 0));
+        cx.drive(c, self.tcu, tcu, true, d);
+        cx.drive(c, self.tcd, tcd, true, d);
+    }
+
+    fn out(&self, cx: &mut Ctx, c: &ChipInfo, dq: Time, dtc: Time) {
+        for i in 0..4 {
+            cx.drive(c, self.q[i], (self.state >> i) & 1, true, dq);
+        }
+        self.tc(cx, c, dtc);
+    }
+
+    /// At least `min` must have passed since `since`: a pulse width or a
+    /// recovery time.
+    fn since(cx: &mut Ctx, c: &ChipInfo, pin: usize, since: Option<Time>, min: Time, what: &str) {
+        if let Some(t) = since {
+            let slack = cx.now() - t - min;
+            if slack < 0 {
+                cx.violate(c, pin, what, slack);
+            }
+        }
+    }
+
+    fn clock(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize, up: bool) {
+        let v = cx.input(c, pin);
+        let prev = if up {
+            &mut self.prev_cpu
+        } else {
+            &mut self.prev_cpd
+        };
+        if v == *prev {
+            return;
+        }
+        *prev = v;
+        let now = cx.now();
+        let (fall, rise, other_rise, other) = if up {
+            (self.cpu_fall, self.cpu_rise, self.cpd_rise, self.cpd)
+        } else {
+            (self.cpd_fall, self.cpd_rise, self.cpu_rise, self.cpu)
+        };
+        if v == 0 {
+            Self::since(cx, c, pin, rise, self.tw_cp_high, "tw CP high");
+            Self::since(cx, c, pin, other_rise, self.h_cp_dir, "hold CP dir");
+            if up {
+                self.cpu_fall = Some(now);
+            } else {
+                self.cpd_fall = Some(now);
+            }
+            self.tc(cx, c, self.d_cp_tc);
+            return;
+        }
+        if up {
+            self.cpu_rise = Some(now);
+        } else {
+            self.cpd_rise = Some(now);
+        }
+        if self.last_up == Some(!up) {
+            Self::since(cx, c, pin, fall, self.tw_cp_dir, "tw CP dir");
+        } else {
+            Self::since(cx, c, pin, fall, self.tw_cp, "tw CP");
+        }
+        if self.forced(cx, c).is_none() {
+            Self::since(cx, c, pin, self.pl_rise, self.rec_pl, "recovery PL");
+            Self::since(cx, c, pin, self.mr_fall, self.rec_mr, "recovery MR");
+            if cx.input(c, other) == 0 {
+                cx.violate(c, pin, "count with the other clock low", 0);
+            }
+            self.state = if up {
+                self.state + 1
+            } else {
+                self.state.wrapping_sub(1)
+            } & 15;
+            self.last_up = Some(up);
+            for i in 0..4 {
+                cx.drive(c, self.q[i], (self.state >> i) & 1, true, self.d_cp_q);
+            }
+        }
+        self.tc(cx, c, self.d_cp_tc);
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        let now = cx.now();
+        if pin == self.cpu || pin == self.cpd {
+            self.clock(cx, c, pin, pin == self.cpu);
+        } else if pin == self.mr {
+            if cx.input(c, pin) == 1 {
+                self.mr_rise = Some(now);
+                self.state = 0;
+                self.out(cx, c, self.d_mr_q, self.d_mr_tc);
+            } else {
+                Self::since(cx, c, pin, self.mr_rise, self.tw_mr, "tw MR");
+                self.mr_fall = Some(now);
+                if let Some(v) = self.forced(cx, c) {
+                    self.state = v;
+                    self.out(cx, c, self.d_pl_q, self.d_pl_tc);
+                }
+            }
+        } else if pin == self.pl {
+            let reset = cx.input(c, self.mr) == 1;
+            if cx.input(c, pin) == 0 {
+                self.pl_fall = Some(now);
+                if !reset {
+                    self.state = bus_value(cx, c, &self.p) as u8;
+                    self.out(cx, c, self.d_pl_q, self.d_pl_tc);
+                }
+            } else {
+                Self::since(cx, c, pin, self.pl_fall, self.tw_pl, "tw PL");
+                self.pl_rise = Some(now);
+                if !reset {
+                    for i in 0..4 {
+                        cx.check_setup(c, self.p[i], self.su_p, "P");
+                    }
+                }
+            }
+        } else if let Some(i) = self.p_idx[pin] {
+            if cx.input(c, self.mr) == 1 {
+                return;
+            }
+            if cx.input(c, self.pl) == 0 {
+                let b = cx.input(c, pin);
+                self.state = (self.state & !(1 << i)) | (b << i);
+                cx.drive(c, self.q[i], b, true, self.d_p_q);
+                self.tc(cx, c, self.d_p_tc);
+            } else {
+                cx.check_hold(c, pin, self.pl_rise, self.h_p, "P");
+            }
         }
     }
 }
