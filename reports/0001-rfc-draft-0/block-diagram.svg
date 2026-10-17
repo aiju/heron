@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="-8 -8 697 331" width="697" height="331"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<rect class="paper" x="-8" y="-8" width="697" height="331"/>
+<line class="ink bus" x1="510" y1="120" x2="510" y2="250"/>
+<text class="b" style="font-size:11px" x="510" y="114" text-anchor="middle">RES</text>
+<text class="s" x="0" y="39">STEP (163)</text>
+<rect class="ink paper" x="95" y="0" width="80" height="70"/>
+<text class="b" x="135" y="31.8" text-anchor="middle">microcode</text>
+<text class="s" x="135" y="46.5" text-anchor="middle">6 × flash</text>
+<text class="s" x="215" y="11.5">ROM address: step, IR[15:12], IR[3:0],</text>
+<text class="s" x="215" y="26.5">irq pending, link, mode bits</text>
+<text class="s" x="215" y="51.5">48 control lines</text>
+<text class="s" x="215" y="66.5">(bus enables, register loads, ALU function …)</text>
+<rect class="ink paper" x="0" y="130" width="80" height="50"/>
+<text class="b" x="40" y="151.8" text-anchor="middle">RF copy A</text>
+<text class="s" x="40" y="166.5" text-anchor="middle">2 × SRAM</text>
+<rect class="ink paper" x="0" y="230" width="80" height="50"/>
+<text class="b" x="40" y="251.8" text-anchor="middle">RF copy B</text>
+<text class="s" x="40" y="266.5" text-anchor="middle">2 × SRAM</text>
+<rect class="ink paper" x="170" y="130" width="90" height="150"/>
+<text class="b" x="215" y="194.3" text-anchor="middle">ALU</text>
+<text class="s" x="215" y="209" text-anchor="middle">4 × 74LS181</text>
+<text class="s" x="215" y="224" text-anchor="middle">+ 74S182</text>
+<rect class="ink paper" x="310" y="130" width="140" height="80"/>
+<text class="b" x="380" y="151.8" text-anchor="middle">result mux</text>
+<text class="s" x="380" y="166.5" text-anchor="middle">lanes, swap, shift right,</text>
+<text class="s" x="380" y="181.5" text-anchor="middle">sign/zero ext</text>
+<text class="s" x="380" y="196.5" text-anchor="middle">8 × 74HCT153</text>
+<text class="s" x="530" y="134">R (377) → A bus, B bus</text>
+<text class="s" x="530" y="164">MAR (via mux) → address mux</text>
+<text class="s" x="530" y="194">PC (161 × 4, load)</text>
+<text class="s" x="530" y="224">flags (N Z C V)</text>
+<text class="s" x="530" y="254">D bus (541 × 2)</text>
+<text class="s" x="150" y="184" text-anchor="end">PC</text>
+<text class="s" x="150" y="199" text-anchor="end">R</text>
+<text class="s" x="150" y="229" text-anchor="end">IMM</text>
+<text class="s" x="215" y="311.5" text-anchor="middle">MEM (D bus)</text>
+<text class="s" x="267.2" y="311.5">T, R, flags also drive the B bus</text>
+<path class="ink wire" d="M60.7 35 L95 35"/>
+<path class="solid" d="M95 35 L89 37.6 L89 32.4Z"/>
+<path class="ink wire" d="M211 15 L175 15"/>
+<path class="solid" d="M175 15 L181 12.4 L181 17.6Z"/>
+<path class="ink wire" d="M175 55 L211 55"/>
+<path class="solid" d="M211 55 L205 57.6 L205 52.4Z"/>
+<path class="ink wire" d="M80 155 L170 155"/>
+<path class="solid" d="M170 155 L164 157.6 L164 152.4Z"/>
+<path class="ink wire" d="M80 255 L170 255"/>
+<path class="solid" d="M170 255 L164 257.6 L164 252.4Z"/>
+<path class="ink wire" d="M154 180 L170 180"/>
+<path class="solid" d="M170 180 L164 182.6 L164 177.4Z"/>
+<path class="ink wire" d="M154 195 L170 195"/>
+<path class="solid" d="M170 195 L164 197.6 L164 192.4Z"/>
+<path class="ink wire" d="M154 225 L170 225"/>
+<path class="solid" d="M170 225 L164 227.6 L164 222.4Z"/>
+<path class="ink wire" d="M215 296 L215 280"/>
+<path class="solid" d="M215 280 L217.6 286 L212.4 286Z"/>
+<path class="ink wire" d="M260 170 L310 170"/>
+<path class="solid" d="M310 170 L304 172.6 L304 167.4Z"/>
+<path class="ink wire" d="M450 170 L510 170"/>
+<path class="solid" d="M510 170 L504 172.6 L504 167.4Z"/>
+<path class="ink wire" d="M510 130 L526 130"/>
+<path class="solid" d="M526 130 L520 132.6 L520 127.4Z"/>
+<circle class="solid" cx="510" cy="130" r="2.6"/>
+<path class="ink wire" d="M510 160 L526 160"/>
+<path class="solid" d="M526 160 L520 162.6 L520 157.4Z"/>
+<circle class="solid" cx="510" cy="160" r="2.6"/>
+<path class="ink wire" d="M510 190 L526 190"/>
+<path class="solid" d="M526 190 L520 192.6 L520 187.4Z"/>
+<circle class="solid" cx="510" cy="190" r="2.6"/>
+<path class="ink wire" d="M510 220 L526 220"/>
+<path class="solid" d="M526 220 L520 222.6 L520 217.4Z"/>
+<circle class="solid" cx="510" cy="220" r="2.6"/>
+<path class="ink wire" d="M510 250 L526 250"/>
+<path class="solid" d="M526 250 L520 252.6 L520 247.4Z"/>
+<circle class="solid" cx="510" cy="250" r="2.6"/>
+<text class="s halo" x="125" y="151" text-anchor="middle">A bus</text>
+<text class="s halo" x="125" y="251" text-anchor="middle">B bus</text>
+<text class="s halo" x="285" y="166" text-anchor="middle">F</text>
+</svg>

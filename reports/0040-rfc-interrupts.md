@@ -75,28 +75,24 @@ Part II: Discussion
 
 ### 1. Overview
 
-```
- I/O cards ------ INT, one line per slot ----+
- system-bus cards -------- ATN0-ATN3 --------+
-                                             v
-                      +-------------------------------------+
-   CPUs --doorbells-> |  I/O processor                      |
-                      |  polls INT and ATN every 10 us;     |
-                      |  routing table: for each source,    |
-                      |  its owner, class and level         |
-                      +---------+-------------------+-------+
-            owner: an I/O       |                   |  owner: a CPU
-            processor task      v                   v
-                    wake that Forth task     lazy: an event into the CPU's ring, no bit
-                                             slow: an event into the ring, then a level's bit
-                                             fast: claim the message register, write it
-                                                    v
-            CPU card: request register (levels 1-8), message register (level 7),
-                      timer (level 6)
-                                                    v
-            CPU: level L above IPL -> vector at VBR + 0x40 + 4(L - 1);
-                 with a message    -> vector at VBR + 0x100 + 4 x source
-```
+<!-- blocks
+box iop "I/O processor" "polls INT and ATN every 10 µs;" "routing table: for each source," "its owner, class and level" at 14,6 width=34
+text io "I/O cards: INT, one line per slot" at 14,1.5
+text sb "system-bus cards: ATN0–ATN3" at 33,1.5
+text cpus "CPUs" left of iop gap 7
+box forth "owner: an I/O processor task" "wake that Forth task" below iop gap 4 align=left
+box ring "owner: a CPU" "lazy: an event into the CPU's ring, no bit" "slow: an event into the ring, then a level's bit" "fast: claim the message register, write it" below iop gap 4 align=right dx=16
+box card "CPU card" "request register (levels 1–8)," "message register (level 7), timer (level 6)" below ring gap 3
+box cpu "CPU" "level L above IPL → vector at VBR + 0x40 + 4(L − 1);" "with a message → vector at VBR + 0x100 + 4 × source" below card gap 3
+io -> iop
+sb -> iop
+cpus -> iop "doorbells"
+iop -> forth
+iop -> ring
+ring -> card
+card -> cpu
+-->
+![Where an interrupt goes](0040-rfc-interrupts/overview.svg)
 
 - **Devices never interrupt a CPU directly.** Every device's interrupt
   goes to the I/O processor, which serves it itself or forwards it.

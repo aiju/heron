@@ -1,22 +1,23 @@
-"""The figure languages: every figure in the repository's Markdown draws,
-and its SVG is what its source draws now; drawing is deterministic; and
-bad sources say what's wrong, on the document's line."""
+"""The figures (heron figures): every figure in the repository's Markdown
+draws, and its SVG is what its source draws now; drawing is
+deterministic; and bad sources say what's wrong, on the document's line."""
 
 import unittest
 
-from heron.studies.figures import bits, blocks, docs, grid, maps, timing
-from heron.studies.figures.svg import Error, lines, textwidth
+from heron import figures
+from heron.figures import bits, blocks, grid, maps, timing
+from heron.figures.svg import Error, lines, textwidth
 
 
 class Documents(unittest.TestCase):
     def test_every_figure_is_current(self):
-        figs = docs.every()
-        self.assertTrue(any(f.doc == "studies/figures/gallery.md" for f in figs))
-        bad = [f"{f}: {why}" for f, why in docs.stale(figs)]
+        figs = figures.every()
+        self.assertTrue(figs)
+        bad = [f"{f}: {why}" for f, why in figures.stale(figs)]
         self.assertEqual(bad, [], "heron figures write draws them again")
 
     def test_deterministic(self):
-        for f in docs.every(["studies/figures/gallery.md"]):
+        for f in figures.every():
             self.assertEqual(f.render(), f.render(), str(f))
 
     def test_finding_figures(self):
@@ -24,17 +25,17 @@ class Documents(unittest.TestCase):
                 "```bits\nword 4\n  3-0 x\n```\n![b](b.svg)\n\n"
                 "```timing\nS :0\n```\n\nNot a figure: no image.\n\n"
                 "```markdown\n<!-- timing\nS :0\n-->\n![c](c.svg)\n```\n")
-        figs = docs.figures("r/doc.md", text)
+        figs = figures.figures("r/doc.md", text)
         self.assertEqual([(f.line, f.lang, f.svg) for f in figs],
                          [(3, "timing", "r/a/s.svg"), (9, "bits", "r/b.svg")])
         self.assertEqual(figs[0].source, "S :0 1:1")
 
     def test_errors_name_the_document_line(self):
-        f = docs.figures("r/doc.md", "\n<!-- bits\nword 8\n  7-1 x\n-->\n![a](a.svg)\n")[0]
+        f = figures.figures("r/doc.md", "\n<!-- bits\nword 8\n  7-1 x\n-->\n![a](a.svg)\n")[0]
         with self.assertRaisesRegex(Error, r"r/doc.md: line 3: bits 0 have no field"):
             f.render()
         with self.assertRaisesRegex(Error, "followed by its image"):
-            docs.figures("r/doc.md", "<!-- bits\nword 8\n-->\n\nNo image.\n")
+            figures.figures("r/doc.md", "<!-- bits\nword 8\n-->\n\nNo image.\n")
 
 
 class Languages(unittest.TestCase):
