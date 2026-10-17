@@ -37,6 +37,13 @@ pub const ADDR_VECTOR: u32 = 0x14;
 pub const TAG_VECTOR: u32 = 0x18;
 
 /// The console, the timer and the cycle counter.
+///
+/// The console's input is all there from the start, as for a program's
+/// run, unless its line is `open`: then more may come (`send`) until it's
+/// closed (`close`), as at a terminal. A read of +00 with nothing waiting
+/// on an open line waits for input: the instruction stops before it
+/// happens (`Stop::Wait`), the machine is `waiting`, and the instruction
+/// runs again at the next step. +04 reads 0 meanwhile.
 #[derive(Default)]
 pub struct Devices {
     pub out: Vec<u8>,
@@ -45,6 +52,9 @@ pub struct Devices {
     pub timer_period: u64,
     pub timer_next: u64,
     pub timer_flag: u32,
+    pub open: bool,
+    /// A read waited for input, and none has come since.
+    pub waiting: bool,
 }
 
 impl Devices {
@@ -57,18 +67,22 @@ impl Devices {
         }
     }
 
-    fn read(&mut self, reg: u32, cycles: u64) -> u32 {
-        match reg {
+    /// A register's value, or None for a read that waits for input.
+    fn read(&mut self, reg: u32, cycles: u64) -> Option<u32> {
+        Some(match reg {
             0x00 => match self.inp.get(self.pos) {
                 Some(&b) => {
                     self.pos += 1;
                     b as u32
                 }
+                None if self.open => return None,
                 None => 0xFFFF_FFFF,
             },
             0x04 => {
                 if self.pos < self.inp.len() {
                     1
+                } else if self.open {
+                    0
                 } else {
                     2
                 }
@@ -77,7 +91,19 @@ impl Devices {
             0x0C => self.timer_flag,
             0x10 => cycles as u32,
             _ => 0,
-        }
+        })
+    }
+
+    /// More console input, on an open line.
+    pub fn send(&mut self, bytes: &[u8]) {
+        self.inp.extend_from_slice(bytes);
+        self.waiting = false;
+    }
+
+    /// The end of the console's input: past what's there, reads read -1.
+    pub fn close(&mut self) {
+        self.open = false;
+        self.waiting = false;
     }
 
     fn write(&mut self, reg: u32, value: u32, cycles: u64) {
@@ -119,6 +145,9 @@ pub enum RunStatus {
     /// The step count ran out.
     Steps,
 }
+
+/// System mode has no console of the I/O page to wait for.
+const SYSTEM_WAIT: &str = "a console wait in system mode";
 
 /// Traps (all but SWI) kept for `traps` in system mode, where an operating
 /// system takes them all the time.
@@ -275,19 +304,17 @@ impl Machine {
         Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8)
     }
 
-    fn io(&mut self, a: u32, size: u32, value: Option<u32>) -> u32 {
+    fn io_read(&mut self, a: u32, size: u32) -> Res<u32> {
         let reg = (a - IO_BASE) & !3;
         let shift = 8 * (a & 3);
-        match value {
-            None => {
-                let v = self.dev.read(reg, self.cycles) as u64;
-                ((v >> shift) & ((1u64 << (8 * size)) - 1)) as u32
-            }
-            Some(v) => {
-                self.dev.write(reg, v, self.cycles);
-                0
-            }
-        }
+        let Some(v) = self.dev.read(reg, self.cycles) else {
+            return Err(Stop::Wait);
+        };
+        Ok(((v as u64 >> shift) & ((1u64 << (8 * size)) - 1)) as u32)
+    }
+
+    fn io_write(&mut self, a: u32, v: u32) {
+        self.dev.write((a - IO_BASE) & !3, v, self.cycles);
     }
 
     fn bad<T>(&self, a: u32) -> Res<T> {
@@ -365,7 +392,7 @@ impl Machine {
             return Ok(self.mem[a as usize] as u32);
         }
         if a >= IO_BASE {
-            return Ok(self.io(a, 1, None));
+            return self.io_read(a, 1);
         }
         self.bad(a)
     }
@@ -383,7 +410,7 @@ impl Machine {
             return Ok(self.mem[a] as u32 | (self.mem[a + 1] as u32) << 8);
         }
         if a >= IO_BASE {
-            return Ok(self.io(a, 2, None));
+            return self.io_read(a, 2);
         }
         self.bad(a)
     }
@@ -401,7 +428,7 @@ impl Machine {
             return Ok(u32::from_le_bytes(self.mem[a..a + 4].try_into().unwrap()));
         }
         if a >= IO_BASE {
-            return Ok(self.io(a, 4, None));
+            return self.io_read(a, 4);
         }
         self.bad(a)
     }
@@ -419,7 +446,7 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io(a, 1, Some(v & 0xFF));
+            self.io_write(a, v & 0xFF);
             return Ok(());
         }
         self.bad(a)
@@ -442,7 +469,7 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io(a, 2, Some(v & 0xFFFF));
+            self.io_write(a, v & 0xFFFF);
             return Ok(());
         }
         self.bad(a)
@@ -466,7 +493,7 @@ impl Machine {
             return Ok(());
         }
         if a >= IO_BASE {
-            self.io(a, 4, Some(v));
+            self.io_write(a, v);
             return Ok(());
         }
         self.bad(a)
@@ -486,6 +513,7 @@ impl Machine {
         let (insn, n) = decode::decode(self, pc).map_err(|e| match e {
             Stop::Error(e) => e,
             Stop::Trap(t) => t.why,
+            Stop::Wait => format!("a console wait decoding at {pc:08X}"),
         })?;
         let d = Decoded { insn, n, va: pc };
         let s = (pc >> 1) as usize;
@@ -605,12 +633,14 @@ impl Machine {
             Ok((d, ppc)) => match self.exec(d.insn, pc, d.n) {
                 Ok(key) => (key, ppc, false),
                 Err(Stop::Error(e)) => return Err(e),
+                Err(Stop::Wait) => return Err(SYSTEM_WAIT.into()),
                 Err(Stop::Trap(t)) => {
                     self.take_trap_system(pc, t)?;
                     (Key::new(d.n, pc, Kind::Trap), ppc, true)
                 }
             },
             Err(Stop::Error(e)) => return Err(e),
+            Err(Stop::Wait) => return Err(SYSTEM_WAIT.into()),
             Err(Stop::Trap(t)) => {
                 // a fault fetching the instruction: no physical address to
                 // count it at, so it counts with the interrupts
@@ -699,6 +729,7 @@ impl Machine {
     fn enter_system(&mut self, offset: u32, ret: u32, ipl: Option<u8>) -> Result<(), String> {
         self.enter_exception(offset, ret, ipl).map_err(|e| match e {
             Stop::Error(e) => e,
+            Stop::Wait => SYSTEM_WAIT.into(),
             Stop::Trap(t) => format!(
                 "{} at {:08X} while entering the exception at vector offset {offset:#X}",
                 trap_name_system(t.vector, t.fsr),
@@ -762,6 +793,10 @@ impl Machine {
         let key = match self.exec(d.insn, pc, d.n) {
             Ok(key) => key,
             Err(Stop::Error(e)) => return Err(e),
+            Err(Stop::Wait) => {
+                self.dev.waiting = true;
+                return Ok(());
+            }
             Err(Stop::Trap(t)) => {
                 self.take_trap(pc, t)?;
                 Key::new(d.n, pc, Kind::Trap)
@@ -829,12 +864,17 @@ impl Machine {
         self.enter_interrupt(vector, ret).map_err(|e| match e {
             Stop::Error(e) => e,
             Stop::Trap(t) => format!("{} while entering the {} vector", t.why, trap_name(vector)),
+            Stop::Wait => format!(
+                "a console wait while entering the {} vector",
+                trap_name(vector)
+            ),
         })
     }
 
-    /// Run until HALT, or until more than `max_cycles` cycles.
+    /// Run until HALT, or until more than `max_cycles` cycles, or until it
+    /// waits for console input.
     pub fn run(&mut self, max_cycles: u64) -> Result<(), String> {
-        while !self.run_for(max_cycles, u64::MAX)? {}
+        while !self.run_for(max_cycles, u64::MAX)? && !self.dev.waiting {}
         Ok(())
     }
 
@@ -842,7 +882,7 @@ impl Machine {
     /// whether the machine halted.
     pub fn run_for(&mut self, max_cycles: u64, steps: u64) -> Result<bool, String> {
         for _ in 0..steps {
-            if self.halted {
+            if self.halted || self.dev.waiting {
                 break;
             }
             self.step()?;

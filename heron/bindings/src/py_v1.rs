@@ -184,6 +184,7 @@ pub mod v1 {
             self.m.parcel(addr).map_err(|e| match e {
                 v1_isa::insn::Stop::Error(e) => SimError::new_err(e),
                 v1_isa::insn::Stop::Trap(t) => SimError::new_err(t.why),
+                v1_isa::insn::Stop::Wait => SimError::new_err("a console wait"),
             })
         }
 

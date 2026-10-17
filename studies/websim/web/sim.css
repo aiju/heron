@@ -1,0 +1,157 @@
+/* The simulator's page (studies/websim), in the site's look (heron/site/
+   site.css: its colours, fonts and buttons): a front panel over the
+   machine's terminal or screen, with its lamps. */
+
+.sim {
+  --term-bg: #12110F;
+  --term-ink: #E9E3D6;
+  --term-dim: #8C877D;
+  --term-cursor: var(--lamp, #F5A524);
+}
+.sim .h-page .label { flex: 1 1 18rem; }
+
+/* ---------------------------------------------------------------- the panel */
+.sim-panel { border: 2px solid var(--ink); background: var(--paper); position: relative; }
+.sim-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+  padding: 8px 10px; border-bottom: 1px solid var(--ink); background: var(--screen);
+}
+.sim-bar .label { display: block; margin-bottom: 3px; }
+.sim-bar select, .sim-addr, .sim-mem input {
+  font: 500 13px/1.2 var(--f-mono); color: var(--ink); background: var(--paper);
+  border: 1.5px solid var(--ink-3); border-radius: 0; padding: 4px 6px; max-width: 100%;
+}
+.sim-bar select:focus, .sim-mem input:focus { border-color: var(--ink); outline: none; box-shadow: 0 0 0 2px var(--tint); }
+.sim-pick { flex: 0 1 19rem; min-width: 0; }
+.sim-pick select { width: 100%; }
+.sim-ctl { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.sim-ctl .btn, .sim-more .btn { cursor: pointer; min-width: 4.6rem; }
+.sim-ctl .btn:disabled, .sim-inspect .btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+.sim-speed { margin-left: 4px; }
+
+.sim-lamps { display: flex; gap: 10px; margin-left: auto; align-items: center; }
+.lamp {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 700 10px/1 var(--f-display); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
+}
+.lamp::before {
+  content: ""; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--lamp-off); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.lamp.on { color: var(--ink); }
+.lamp.on::before { background: var(--lamp); box-shadow: 0 0 6px 1px color-mix(in srgb, var(--lamp) 70%, transparent); }
+.lamp[data-lamp="halt"].on::before { background: var(--spot); box-shadow: 0 0 6px 1px color-mix(in srgb, var(--spot) 60%, transparent); }
+.sim-clock { font: 500 12.5px/1.2 var(--f-mono); color: var(--ink-2); min-width: 9.5rem; text-align: right; }
+
+.sim-more { position: relative; }
+.sim-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; min-width: 17rem;
+  background: var(--paper); border: 1.5px solid var(--ink); box-shadow: 4px 4px 0 var(--rule);
+  display: flex; flex-direction: column; padding: 4px 0;
+}
+.sim-menu button {
+  text-align: left; background: none; border: 0; padding: 7px 12px; cursor: pointer;
+  font: 500 14px/1.3 var(--f-display); color: var(--ink);
+}
+.sim-menu button:hover, .sim-menu button:focus-visible { background: var(--tint); color: var(--spot); outline: none; }
+
+/* ---------------------------------------------------------------- tabs and views */
+.sim-tabs { display: flex; gap: 0 18px; padding: 0 10px; border-bottom: 1px solid var(--rule); }
+.sim-tabs button {
+  background: none; border: 0; border-bottom: 3px solid transparent; padding: 7px 0 5px; cursor: pointer;
+  font: 700 11px/1 var(--f-display); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2);
+}
+.sim-tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--spot); }
+
+.sim-display { position: relative; background: var(--term-bg); min-height: 12rem; }
+.sim-overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+  padding: 24px; color: var(--term-ink); font: 500 15px/1.4 var(--f-display); background: var(--term-bg); z-index: 5;
+}
+.sim-overlay.bad { color: #FF9DBF; }
+.sim-status {
+  padding: 6px 10px; border-top: 1px solid var(--ink); font: 400 13.5px/1.35 var(--f-display); color: var(--ink-2);
+  min-height: 2.1em; overflow-wrap: anywhere;
+}
+.sim-status.bad { color: var(--spot); }
+
+/* the terminal */
+.term { position: relative; outline: none; }
+.term-view {
+  height: calc(24 * 1.32em + 20px); overflow-y: auto; padding: 10px 12px;
+  font: 400 14px/1.32 var(--f-mono); color: var(--term-ink); background: var(--term-bg);
+  white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; scrollbar-color: #4A4640 transparent;
+}
+.term-view .ln { min-height: 1.32em; }
+.term-view .cursor { outline: 1px solid var(--term-dim); outline-offset: -1px; }
+.term.focused .term-view .cursor { background: var(--term-cursor); color: var(--term-bg); outline: 0; }
+.term.focused.waiting .term-view .cursor { animation: sim-blink 1.1s steps(1) infinite; }
+@keyframes sim-blink { 50% { background: transparent; color: var(--term-ink); outline: 1px solid var(--term-cursor); } }
+.term.bell .term-view { animation: sim-bell .25s; }
+@keyframes sim-bell { from { background: #3A2A10; } }
+.term-input {
+  position: absolute; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0;
+  resize: none; overflow: hidden; font-size: 16px; /* no zoom on phones */
+}
+.sim-log {
+  margin: 0; height: calc(24 * 1.32em + 20px); overflow: auto; padding: 10px 12px;
+  font: 400 13px/1.32 var(--f-mono); color: var(--term-dim); background: var(--term-bg); white-space: pre-wrap;
+}
+
+/* the screen */
+.sim-screen { display: flex; justify-content: center; padding: 0; background: #000; overflow: hidden; }
+.sim-screen canvas {
+  display: block; image-rendering: pixelated; image-rendering: crisp-edges; outline: none;
+  touch-action: none; max-width: 100%;
+}
+.sim-screen canvas:focus-visible { outline: 2px solid var(--lamp); outline-offset: -2px; }
+
+/* ---------------------------------------------------------------- the inspector */
+.sim.inspecting { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: 0 18px; align-items: start; }
+.sim.inspecting > .h-page, .sim.inspecting > .sim-about { grid-column: 1 / -1; }
+.sim-inspect { border: 2px solid var(--ink); padding: 10px 12px; font: 400 13px/1.4 var(--f-display); background: var(--paper); }
+.sim-inspect-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.sim-inspect-head .label { flex: 1; }
+.sim-inspect .btn { cursor: pointer; padding: 5px 9px 4px; }
+.sim-x { background: none; border: 0; font: 400 22px/1 var(--f-display); color: var(--ink-2); cursor: pointer; padding: 0 2px; }
+.sim-x:hover { color: var(--spot); }
+.sim-stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0 0 10px; }
+.sim-stats dt { color: var(--ink-3); font: 700 10px/1.9 var(--f-display); letter-spacing: .1em; text-transform: uppercase; }
+.sim-stats dd { margin: 0; font: 500 12.5px/1.6 var(--f-mono); }
+.sim-regs {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px 12px;
+  font: 400 12.5px/1.5 var(--f-mono); border-top: 1px solid var(--rule); padding-top: 8px; margin-bottom: 10px;
+}
+.sim-regs .reg.wide { grid-column: 1 / -1; }
+.sim-regs b { display: inline-block; min-width: 2.6em; color: var(--ink-3); font-weight: 600; }
+.sim-regs i { color: var(--spot); font-style: normal; }
+.sim-mem { border-top: 1px solid var(--rule); padding-top: 8px; }
+.sim-mem label { display: flex; align-items: center; gap: 8px; }
+.sim-mem input { flex: 1; min-width: 0; }
+.sim-mem pre { margin: 6px 0 0; font: 400 11px/1.45 var(--f-mono); overflow-x: auto; color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- about */
+.sim-about { margin-top: 18px; max-width: 76ch; }
+.sim-about h2 { margin: 4px 0 6px; font: 750 20px/1.2 var(--f-display); letter-spacing: -.01em; }
+.sim-about p { margin: 0 0 10px; color: var(--ink-2); font-size: 16px; }
+.sim-about code { font: 500 .9em var(--f-mono); background: var(--screen); padding: 0 3px; }
+.sim-examples { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 12px 0 8px; }
+.sim-examples .label { margin-right: 4px; }
+.sim-examples .btn { cursor: pointer; text-transform: none; letter-spacing: 0; font: 600 13px/1 var(--f-display); padding: 6px 9px 5px; }
+.sim-links { display: flex; flex-wrap: wrap; gap: 4px 16px; font: 500 14px/1.5 var(--f-display); }
+
+.sim-dialog { border: 2px solid var(--ink); background: var(--paper); color: var(--ink); max-width: 36rem; padding: 18px 22px; }
+.sim-dialog::backdrop { background: color-mix(in srgb, var(--ink) 35%, transparent); }
+.sim-dialog h2 { margin: 0 0 8px; font: 750 20px/1.2 var(--f-display); }
+.sim-dialog p { font-size: 15.5px; color: var(--ink-2); }
+.sim-dialog .btn { cursor: pointer; }
+
+@media (max-width: 900px) {
+  .sim.inspecting { display: block; }
+  .sim-inspect { margin-top: 14px; }
+}
+@media (max-width: 560px) {
+  .sim-lamps { margin-left: 0; }
+  .sim-clock { text-align: left; min-width: 0; }
+  .term-view, .sim-log { font-size: 12px; }
+}

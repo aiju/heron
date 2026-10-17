@@ -35,6 +35,7 @@ dependencies = [
  "v1-isa",
  "v1b-system-model",
  "v2-isa",
+ "websim",
 ]
 
 [[package]]
@@ -261,4 +262,21 @@ name = "v2-isa"
 version = "0.1.0"
 dependencies = [
  "toolchain",
+]
+
+[[package]]
+name = "websim"
+version = "0.1.0"
+dependencies = [
+ "fen-board",
+ "toolchain",
+ "v1-isa",
+ "v2-isa",
+]
+
+[[package]]
+name = "websim-wasm"
+version = "0.1.0"
+dependencies = [
+ "websim",
 ]
