@@ -394,7 +394,7 @@ in bits 31–28, IPL in 27–24, N, Z, C, V in 3–0.
   |---|---|
   | `0x0000` | control. Write: bit 0 RUN, bit 1 RESET (clears the registers below; the reset routine runs when RUN is next set), bit 3 NMI. Read: bit 0 running, bit 1 halted, bit 2 1, bit 3 an NMI pending |
   | `0x1000` | board information (**open**): the region in bits 3–0, log₂ of the RAM's size in MB in 7–4, BCLK's period in ns in 15–8 |
-  | `0x2000`, `0x2004`, `0x2008` | the request register: set, clear (the levels whose bits are 1), read; bit L is level L, 1–8 |
+  | `0x2000`, `0x2004`, `0x2008` | the request register: set, clear (the levels whose bits are 1), read; bit L − 1 is level L, 1–8, as the I/O processor's firmware writes it (**open**, RFC 0040 leaves the bits unsaid) |
   | `0x3000` | the message register's claim: a read returns 0 and claims it if it is free, else 1 |
   | `0x3004` | the message, {source in bits 31–24, message in 23–0}, while claimed: a word, or a 16-bit master's low half then high half, whose write completes it |
   | `0x3008`, `0x300C` | release; read the message |
@@ -402,7 +402,7 @@ in bits 31–28, IPL in 27–24, N, Z, C, V in 3–0.
   | `0x4004` | write: bit 0 clears the tick, bit 1 the profiling tick |
 
 - **The levels** the card gives the CPU, active low: level L while the
-  request register's bit L is set, and level 6 while the tick is
+  request register's bit L − 1 is set, and level 6 while the tick is
   set, 7 while the message register is full, 8 while the profiling tick
   is set. The tick is set by each 0→1 edge of the timer's bit n, a jumper
   (**open** which; the profiling tick likewise). Also the message

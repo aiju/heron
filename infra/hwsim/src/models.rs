@@ -2263,10 +2263,10 @@ impl Latch573 {
 ///
 /// With pins LV1-LV8 it is also a CPU card's registers (RFC 0040, 3), and
 /// the I/O page is only where A27-A24 are 0xF; where they are 0, the
-/// registers: control (NMI in bit 3), the request register (set, clear,
-/// read), the message register (claim, write, release, read; on B0-B31
-/// while MSGOE is low, as {message, source}, released at that cycle's
-/// CLK edge) and the timer, which counts every third MCLK edge from the
+/// registers: control (NMI in bit 3), the request register (bit L - 1
+/// for level L: set, clear, read), the message register (claim, write,
+/// release, read; on B0-B31 while MSGOE is low, as {message, source},
+/// released at that cycle's CLK edge) and the timer, which counts every third MCLK edge from the
 /// last CLK edge with RESET_n low and ticks on counter bit `tick_bit`
 /// (a parameter, -1 none); the count and the tick change only at CLK
 /// edges, as a register clocked by CLK would see them. LV1-LV8 are the levels (active low), MSGF the
@@ -2333,7 +2333,8 @@ const CARD_READ: Time = 10000;
 
 impl Card {
     fn levels(&self) -> u16 {
-        let lv = self.req | (self.tick as u16) << 6 | ((self.msg_state == MSG_FULL) as u16) << 7;
+        let lv =
+            self.req << 1 | (self.tick as u16) << 6 | ((self.msg_state == MSG_FULL) as u16) << 7;
         lv & 0x1FE
     }
 
@@ -2402,8 +2403,8 @@ impl Card {
     fn write(&mut self, off: usize, v: u32) {
         match off {
             0x0000 if v & 8 != 0 => self.nmi_latch = 1,
-            0x2000 => self.req |= (v & 0x1FE) as u16,
-            0x2004 => self.req &= !(v & 0x1FE) as u16,
+            0x2000 => self.req |= (v & 0xFF) as u16,
+            0x2004 => self.req &= !(v & 0xFF) as u16,
             0x3004 if self.msg_state == MSG_CLAIMED => {
                 self.msg = v;
                 self.msg_state = MSG_FULL;

@@ -208,7 +208,7 @@ class CPUCard:
     def reset(self):
         """RESET: the request register clear, the message register free, the
         timer cleared, no NMI."""
-        self.req = 0                 # bit L: level L, 1-8
+        self.req = 0                 # bit L - 1: level L, 1-8
         self.msg_state, self.msg, self.msg_lo = MSG_FREE, 0, None
         self.nmi_latch = 0
         self.count = 0               # BCLKs
@@ -218,7 +218,8 @@ class CPUCard:
     # ---- what the CPU's interrupt logic sees
 
     def levels(self):
-        lv = self.req | (self.tick << 6) | ((self.msg_state == MSG_FULL) << 7) | (self.prof << 8)
+        lv = (self.req << 1) | (self.tick << 6) | ((self.msg_state == MSG_FULL) << 7) \
+            | (self.prof << 8)
         return lv & 0x1FE
 
     def msg_word(self):
@@ -283,9 +284,9 @@ class CPUCard:
                 self.nmi_latch = 1
             self.run = bool(v & CTRL_RUN)
         elif off == R_REQ_SET and half != 1:
-            self.req |= v & 0x1FE
+            self.req |= v & 0xFF
         elif off == R_REQ_CLR and half != 1:
-            self.req &= ~v & 0x1FE
+            self.req &= ~v & 0xFF
         elif off == R_MSG:
             if self.msg_state != MSG_CLAIMED:
                 return                                   # ignored: free or full

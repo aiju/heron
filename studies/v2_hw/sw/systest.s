@@ -190,6 +190,7 @@ h_level:
         MOV  [lvl_was], r2
         MOV  r2, #1
         LSL  r2, r1
+        LSR  r2, #1             ; level L is bit L - 1
         MOV  [REQCLR], r2       ; the request served
         MOVS r2, [nest_at]      ; nesting: at this level, raise nest_req and EI
         CMP  r2, r1
@@ -653,14 +654,14 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         ; ---- the request register: set, read, clear
         LEA  r1, [s_reqreg]
         BSR  puts
-        MOV  r1, #0x1FE
+        MOV  r1, #0xFF          ; levels 1-8: bits 0-7
         MOV  [REQSET], r1
         MOV  r2, [REQ]
         MOV  [REQCLR], r1
         MOV  r3, [REQ]
         LSL  r3, #16
         OR   r2, r3
-        MOV  r1, #0x1FE
+        MOV  r1, #0xFF
         BSR  expect
 
         ; ---- levels: taken above IPL, the highest first
@@ -669,7 +670,7 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         CLR  [lvl_seq]
         SPL  #3
         EI
-        MOV  r1, #(1 << 2) | (1 << 3) | (1 << 5)
+        MOV  r1, #(1 << 1) | (1 << 2) | (1 << 4)
         MOV  [REQSET], r1       ; 5 is taken; 2 and 3 wait
         NOP
         NOP
@@ -703,10 +704,10 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         CLR  [lvl_seq]
         MOV  r1, #3
         MOV  [nest_at], r1
-        MOV  r1, #1 << 4
+        MOV  r1, #1 << 3        ; level 4
         MOV  [nest_req], r1
         EI
-        MOV  r1, #1 << 3
+        MOV  r1, #1 << 2        ; level 3
         MOV  [REQSET], r1
         NOP
         NOP
@@ -724,7 +725,7 @@ start:  JMP  #0x80000000 + .win  ; run in the window, where ctx doesn't matter
         BSR  puts
         CLR  [lvl_seq]
         EI
-        MOV  r1, #(1 << 7) | (1 << 8)
+        MOV  r1, #(1 << 6) | (1 << 7)
         MOV  [REQSET], r1
         NOP
         NOP
