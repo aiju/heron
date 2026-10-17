@@ -1,0 +1,1985 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heron Opcode Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root {
+  /* Layout: a printed opcode reference card. The 16×16 map is the page; an inspector and a tabbed catalog sit to its right */
+  --bg: #eef1f5;
+  --panel: #fbfcfd;
+  --ink: #141a22;
+  --muted: #566173;
+  --faint: #8a94a4;
+  --line: #d6dce4;
+  --line-2: #b4bdca;
+  --hover: #e3e8ef;
+  --bad: #b42318;
+  --warn: #a15c07;
+  --ok: #067647;
+  --info: #3456b0;
+  --font-display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --font-ui: "Barlow", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --g-alu-bg: #dce6fb; --g-alu-bd: #7d9ad8;
+  --g-mov-bg: #d4efe8; --g-mov-bd: #4fa892;
+  --g-muldiv-bg: #e7defa; --g-muldiv-bd: #9479d4;
+  --g-bits-bg: #f8e9c4; --g-bits-bd: #c99a2e;
+  --g-unary-bg: #e0efd2; --g-unary-bd: #78a64f;
+  --g-ctrl-bg: #f9dbe2; --g-ctrl-bd: #cf6680;
+  --g-sys-bg: #e1e5ec; --g-sys-bd: #8590a3;
+  --g-block-bg: #fbdfcc; --g-block-bd: #d9834a;
+  --g-tag-bg: #f4daef; --g-tag-bd: #b95ba4;
+  --g-esc-bg: #d4ecf6; --g-esc-bd: #3b97be;
+  --fc0: #3456b0; --fc1: #0f766e; --fc2: #a15c07; --fc3: #9b2c8f; --fc4: #4d7c0f; --fc5: #b42318;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1015; --panel: #151a21; --ink: #e6ebf2; --muted: #9ba6b6; --faint: #677285;
+    --line: #252c37; --line-2: #3a4352; --hover: #1e242d;
+    --bad: #f97066; --warn: #f5b546; --ok: #4cc38a; --info: #86a8ff;
+    --g-alu-bg: #1c2944; --g-alu-bd: #4c6cb5;
+    --g-mov-bg: #133430; --g-mov-bd: #2f8f78;
+    --g-muldiv-bg: #2a2246; --g-muldiv-bd: #7459c0;
+    --g-bits-bg: #3a2f12; --g-bits-bd: #a9821f;
+    --g-unary-bg: #1f3019; --g-unary-bd: #5b8d38;
+    --g-ctrl-bg: #3d1c26; --g-ctrl-bd: #b04d68;
+    --g-sys-bg: #232933; --g-sys-bd: #687489;
+    --g-block-bg: #3d2516; --g-block-bd: #bb6630;
+    --g-tag-bg: #391a35; --g-tag-bd: #9e4689;
+    --g-esc-bg: #12303d; --g-esc-bd: #2a7ea2;
+    --fc0: #86a8ff; --fc1: #4fd1c5; --fc2: #f5b546; --fc3: #e57bd4; --fc4: #9bd36a; --fc5: #f97066;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1015; --panel: #151a21; --ink: #e6ebf2; --muted: #9ba6b6; --faint: #677285;
+  --line: #252c37; --line-2: #3a4352; --hover: #1e242d;
+  --bad: #f97066; --warn: #f5b546; --ok: #4cc38a; --info: #86a8ff;
+  --g-alu-bg: #1c2944; --g-alu-bd: #4c6cb5;
+  --g-mov-bg: #133430; --g-mov-bd: #2f8f78;
+  --g-muldiv-bg: #2a2246; --g-muldiv-bd: #7459c0;
+  --g-bits-bg: #3a2f12; --g-bits-bd: #a9821f;
+  --g-unary-bg: #1f3019; --g-unary-bd: #5b8d38;
+  --g-ctrl-bg: #3d1c26; --g-ctrl-bd: #b04d68;
+  --g-sys-bg: #232933; --g-sys-bd: #687489;
+  --g-block-bg: #3d2516; --g-block-bd: #bb6630;
+  --g-tag-bg: #391a35; --g-tag-bd: #9e4689;
+  --g-esc-bg: #12303d; --g-esc-bd: #2a7ea2;
+  --fc0: #86a8ff; --fc1: #4fd1c5; --fc2: #f5b546; --fc3: #e57bd4; --fc4: #9bd36a; --fc5: #f97066;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 400 14px/1.4 var(--font-ui); }
+#app { height: 100%; }
+.boot { padding: 24px 16px; color: var(--muted); }
+.app {
+  height: 100%; display: flex; flex-direction: column;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 12px;
+}
+.mono { font-family: var(--font-mono); }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-block: 10px; border-bottom: 1px solid var(--line); }
+.brand { margin: 0; font: 600 23px/1 var(--font-display); letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; }
+.brand span { color: var(--muted); font-weight: 500; }
+.maps, .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.spacer { flex: 1; }
+.save { font-size: 12px; color: var(--muted); }
+.save.bad { color: var(--bad); font-weight: 600; }
+
+/* controls */
+.btn { font: 500 13px/1.2 var(--font-ui); color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); border-radius: 4px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.btn:hover:not(:disabled) { background: var(--hover); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.btn.primary:hover:not(:disabled) { background: var(--ink); opacity: .86; }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.btn.small { padding: 2px 8px; font-size: 12px; }
+:focus-visible { outline: 2px solid var(--info); outline-offset: 1px; }
+.inp { font: 400 14px/1.3 var(--font-ui); color: var(--ink); background: var(--bg); border: 1px solid var(--line-2); border-radius: 4px; padding: 6px 8px; width: 100%; min-width: 0; }
+.inp.mono { font-family: var(--font-mono); font-size: 13px; }
+select.inp { padding: 5px 6px; }
+textarea.inp { resize: vertical; }
+.seg { display: inline-flex; align-items: center; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.seg > span { margin-right: 6px; }
+.seg button { font: 500 12px/1.2 var(--font-ui); color: var(--ink); background: var(--panel); border: 1px solid var(--line-2); padding: 5px 9px; cursor: pointer; }
+.seg button + button { border-left: 0; }
+.seg button:first-of-type { border-radius: 4px 0 0 4px; }
+.seg button:last-of-type { border-radius: 0 4px 4px 0; }
+.seg button.on { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.row { display: flex; align-items: center; }
+.gap { gap: 6px; flex-wrap: wrap; }
+.chk { display: flex; gap: 6px; align-items: center; font-size: 13px; margin: 4px 0; color: var(--ink); }
+.hint { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+.facts { font-size: 12.5px; color: var(--muted); }
+.err { color: var(--bad); font-size: 13px; margin: 6px 0; }
+.lbl { font: 600 12.5px/1.2 var(--font-display); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+/* layout */
+.main {
+  flex: 1; min-height: 0; display: grid; gap: 14px; padding-top: 12px;
+  grid-template-columns: minmax(0, 1fr) 372px;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "grid insp" "grid side";
+}
+.gp { grid-area: grid; min-width: 0; min-height: 0; overflow: auto; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; min-width: 0; }
+.insp { grid-area: insp; max-height: 54vh; overflow: auto; }
+.side { grid-area: side; min-height: 0; overflow: auto; padding-top: 0; }
+@media (min-width: 1680px) {
+  .main { grid-template-columns: minmax(0, 1fr) 360px 340px; grid-template-rows: minmax(0, 1fr); grid-template-areas: "grid insp side"; }
+  .insp { max-height: none; }
+}
+@media (max-width: 1020px) {
+  html, body, #app, .app { height: auto; }
+  .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; grid-template-areas: "grid" "insp" "side"; }
+  .gp, .insp, .side { overflow: visible; max-height: none; }
+}
+
+/* the grid */
+.gtabs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.gtabs button { font: 500 13px var(--font-ui); color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 9px; cursor: pointer; }
+.gtabs button:hover { color: var(--ink); }
+.gtabs button.on { color: var(--ink); background: var(--panel); border-color: var(--line-2); }
+.gtabs small { font: 400 11px var(--font-mono); color: var(--faint); margin-left: 6px; }
+.gwrap { overflow-x: auto; padding: 3px; }
+.grid {
+  display: grid; gap: 3px; min-width: 840px;
+  grid-template-columns: 30px repeat(16, minmax(48px, 1fr));
+  grid-template-rows: 22px; grid-auto-rows: 52px;
+}
+.colh, .corner { display: flex; align-items: flex-end; justify-content: center; font: 500 11px var(--font-mono); color: var(--muted); padding-bottom: 2px; }
+.rowh { font: 600 12px var(--font-mono); color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 3px; cursor: pointer; padding: 0; }
+.rowh:hover { background: var(--hover); color: var(--ink); }
+.rowh.on { background: var(--ink); color: var(--panel); }
+.rowh.drop, .cell.drop { box-shadow: 0 0 0 2px var(--info); }
+.cell {
+  position: relative; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end;
+  padding: 3px 5px 4px; border-radius: 3px; border: 1px solid var(--c-bd, var(--line)); background: var(--c-bg, var(--panel));
+  cursor: pointer; overflow: hidden; font-family: var(--font-mono); color: var(--ink);
+}
+.cell.empty { --c-bd: var(--line); --c-bg: var(--panel); }
+.cell.empty:hover { --c-bg: var(--hover); }
+.cell .code { position: absolute; top: 2px; left: 5px; font-size: 9.5px; color: var(--muted); }
+.cell.empty .code { color: var(--faint); }
+.cell .len { position: absolute; top: 2px; right: 5px; font-size: 9.5px; color: var(--muted); }
+.cell .mn { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.15; }
+.cell .md { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .8; line-height: 1.25; }
+.cell.wide { justify-content: center; align-items: center; }
+.cell.wide .mn { font-size: 13px; }
+.cell.wide .syn { font-weight: 400; }
+.cell.sel { box-shadow: 0 0 0 2px var(--ink); z-index: 1; }
+.cell.bad::after { content: ""; position: absolute; bottom: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); }
+.cell.ext { --c-bd: var(--line-2); background: repeating-linear-gradient(135deg, var(--panel) 0 5px, var(--hover) 5px 10px); }
+.cell.ext .mn { font: 600 14px/1.1 var(--font-display); letter-spacing: .06em; }
+@media (prefers-reduced-motion: no-preference) { .cell, .rowh { transition: box-shadow .12s, background-color .12s; } }
+
+.g-alu { --c-bg: var(--g-alu-bg); --c-bd: var(--g-alu-bd); }
+.g-mov { --c-bg: var(--g-mov-bg); --c-bd: var(--g-mov-bd); }
+.g-muldiv { --c-bg: var(--g-muldiv-bg); --c-bd: var(--g-muldiv-bd); }
+.g-bits { --c-bg: var(--g-bits-bg); --c-bd: var(--g-bits-bd); }
+.g-unary { --c-bg: var(--g-unary-bg); --c-bd: var(--g-unary-bd); }
+.g-ctrl { --c-bg: var(--g-ctrl-bg); --c-bd: var(--g-ctrl-bd); }
+.g-sys { --c-bg: var(--g-sys-bg); --c-bd: var(--g-sys-bd); }
+.g-block { --c-bg: var(--g-block-bg); --c-bd: var(--g-block-bd); }
+.g-tag { --c-bg: var(--g-tag-bg); --c-bd: var(--g-tag-bd); }
+.g-esc { --c-bg: var(--g-esc-bg); --c-bd: var(--g-esc-bd); }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--c-bg); border: 1px solid var(--c-bd); flex: none; }
+
+/* summary under the grid */
+.sum { margin-top: 12px; display: grid; gap: 8px; }
+.bar { display: flex; height: 10px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.bar i { display: block; height: 100%; background: var(--c-bd, var(--line-2)); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend b { font: 600 11px var(--font-mono); color: var(--ink); }
+.checks { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 1px; font-size: 13px; }
+.checks li { display: flex; gap: 10px; align-items: baseline; padding: 3px 6px; border-radius: 3px; cursor: pointer; }
+.checks li:hover { background: var(--hover); }
+.checks .where { font: 500 12px var(--font-mono); color: var(--muted); white-space: nowrap; }
+.lvl { font: 600 11px var(--font-display); text-transform: uppercase; letter-spacing: .08em; width: 40px; flex: none; }
+.lvl.bad { color: var(--bad); }
+.lvl.warn { color: var(--warn); }
+.lvl.info { color: var(--info); }
+
+/* inspector */
+.ihead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.addr { font: 600 13px var(--font-mono); }
+.wi { position: relative; }
+.sug { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--line-2); border-radius: 4px; background: var(--panel); display: grid; gap: 1px; max-height: 300px; overflow: auto; }
+.sug li { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 3px; cursor: pointer; font-size: 13px; min-width: 0; }
+.sug li.on, .sug li:hover { background: var(--hover); }
+.sug li.none { cursor: default; color: var(--muted); }
+.sug .cells { font: 500 11px var(--font-mono); color: var(--warn); white-space: nowrap; }
+.sug .xb { padding: 1px 6px; font-size: 11px; }
+.sug b { font: 600 12.5px var(--font-mono); }
+.syn { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.srcs { margin-left: auto; font-size: 11px; color: var(--faint); white-space: nowrap; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font: 500 11px/1.45 var(--font-ui); padding: 0 6px; border-radius: 3px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.chip.st-recommended { color: var(--ok); border-color: var(--ok); }
+.chip.st-measured { color: var(--info); border-color: var(--info); }
+.chip.st-notrec { color: var(--warn); border-color: var(--warn); }
+.chip.st-rejected { color: var(--bad); border-color: var(--bad); }
+.plt { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mnbig { font: 600 20px var(--font-mono); }
+.desc { margin: 6px 0; font-size: 13.5px; }
+.desc.small { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.ref { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.fld { display: grid; gap: 4px; margin: 10px 0; font-size: 12.5px; color: var(--muted); }
+.mp { display: flex; gap: 6px; min-width: 0; }
+.mp .sz { width: 96px; flex: none; }
+.mp .tb { width: 170px; flex: none; }
+.enc { margin: 12px 0; display: grid; gap: 6px; }
+.parcel { display: grid; gap: 3px; }
+.phex { font: 600 13px var(--font-mono); letter-spacing: .08em; }
+.phex small { font-weight: 400; color: var(--muted); letter-spacing: 0; margin-left: 10px; }
+.bits { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)) 6px repeat(8, minmax(0, 1fr)); gap: 2px; }
+.bit { font: 600 11px/20px var(--font-mono); text-align: center; border-radius: 2px; background: var(--bg); color: var(--muted); }
+.bit.f { background: var(--fc); color: var(--panel); }
+.bit.u { color: var(--faint); font-weight: 400; }
+.bytecap { display: grid; grid-template-columns: 1fr 6px 1fr; gap: 2px; font-size: 11px; color: var(--muted); text-align: center; }
+.xp { font: 500 12px var(--font-mono); color: var(--muted); padding: 3px 7px; border: 1px dashed var(--line-2); border-radius: 3px; }
+.fkeys { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 500 11.5px var(--font-mono); color: var(--muted); }
+.fkeys span { display: inline-flex; gap: 5px; align-items: center; }
+.fkeys i { width: 9px; height: 9px; border-radius: 2px; background: var(--fc); display: inline-block; }
+.probs { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.probs li { padding: 5px 8px; border-radius: 3px; background: var(--bg); }
+.probs .bad { color: var(--bad); }
+.probs .warn { color: var(--warn); }
+.probs .info { color: var(--info); }
+.conf { padding: 10px; border: 1px solid var(--warn); border-radius: 4px; display: grid; gap: 8px; font-size: 13px; margin-bottom: 10px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.grid2 > label { display: grid; gap: 3px; font-size: 12.5px; color: var(--muted); align-content: start; }
+.grid2 small { font-size: 11.5px; }
+.span2 { grid-column: 1 / -1; }
+.plan { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 1px; font-size: 12.5px; }
+.plan li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 6px; padding: 2px 4px; border-radius: 2px; }
+.plan .pc { font-family: var(--font-mono); color: var(--muted); }
+.plan .pm { font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plan .ps { color: var(--muted); font-size: 12px; text-align: right; }
+.plan .s-ok .ps { color: var(--ok); }
+.plan .s-busy .ps { color: var(--warn); }
+.plan .s-illegal, .plan .s-wide, .plan .s-empty { opacity: .55; }
+.chosen { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink); }
+.chosen b { font-family: var(--font-mono); }
+.link { background: none; border: 0; padding: 0; color: var(--info); font: inherit; cursor: pointer; text-decoration: underline; }
+
+/* sidebar */
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: 0 -14px 10px; padding: 0 8px; position: sticky; top: 0; background: var(--panel); z-index: 2; }
+.tabs button { font: 600 13.5px var(--font-display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 11px 8px 8px; cursor: pointer; }
+.tabs button.on { color: var(--ink); border-bottom-color: var(--ink); }
+.filters { display: grid; gap: 6px; margin-bottom: 4px; }
+.toggles { display: flex; flex-wrap: wrap; gap: 4px; }
+.toggles button { font: 500 12px var(--font-ui); padding: 2px 8px; border-radius: 3px; border: 1px solid var(--ink); background: var(--ink); color: var(--panel); cursor: pointer; }
+.toggles button.off { background: transparent; color: var(--muted); border-color: var(--line-2); text-decoration: line-through; }
+.gh { font: 600 12.5px var(--font-display); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 14px 0 4px; display: flex; align-items: center; gap: 7px; }
+.cat { list-style: none; margin: 0; padding: 0; }
+.ci { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 5px 6px; border-radius: 3px; cursor: pointer; }
+.ci:hover { background: var(--hover); }
+.ci .top1 { display: flex; gap: 7px; align-items: baseline; min-width: 0; }
+.ci .top1 b { font: 600 13px var(--font-mono); white-space: nowrap; }
+.ci .top1 .syn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci .cd { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci.open .cd { white-space: normal; }
+.ci .cr { display: flex; gap: 4px; align-items: center; padding-top: 1px; }
+.ci.dim { opacity: .6; }
+.used { font: 600 11px var(--font-mono); color: var(--ink); }
+.mt { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mt td, .mt th { padding: 3px 4px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.mt th { font: 600 11.5px var(--font-display); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+.mt td.mono { font-size: 12px; white-space: nowrap; }
+.mt td.n { font-family: var(--font-mono); font-size: 12px; text-align: right; }
+.mt tr.sub td { font: 600 11.5px var(--font-display); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding-top: 10px; }
+.slots { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 3px; }
+.slots li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 6px; align-items: center; }
+.hist { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 1px; }
+.hist li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 6px; border-radius: 3px; cursor: pointer; font-size: 13px; }
+.hist li:hover { background: var(--hover); }
+.hist li.cur { background: var(--ink); color: var(--panel); }
+.hist li.undone { color: var(--faint); }
+.hist li.undone span { text-decoration: line-through; }
+.hist time { font-size: 11.5px; opacity: .75; white-space: nowrap; }
+.def { display: grid; gap: 8px; }
+
+/* overlays */
+.modal-bg { position: fixed; inset: 0; background: rgb(0 0 0 / .38); display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); z-index: 20; }
+.modal { background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px; padding: 16px; width: min(760px, 100%); max-height: 100%; overflow: auto; display: grid; gap: 10px; }
+.modal textarea { font: 12px/1.45 var(--font-mono); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--panel); padding: 7px 14px; border-radius: 4px; font-size: 13px; z-index: 30; max-width: calc(100% - 32px); }
+</style>
+
+<div id="app"><p class="boot">Loading the opcode map…</p></div>
+
+<script type="application/json" id="heron-map">null</script>
+<script type="module">
+import { html, render, useState, useEffect, useRef } from 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.module.js';
+
+const HEX = '0123456789ABCDEF';
+const hex2 = n => HEX[(n >> 4) & 15] + HEX[n & 15];
+const D1 = ['1a', '1b'];
+
+/* ------------------------------------------------------------------ */
+/* The instruction catalog: draft 1a, 1b, v1bs, v1bx and the RFCs      */
+/* f: operand fields in the first parcel, name:bits, in fill order     */
+/* ea: takes an addressing mode (any, mem, addr, value)                */
+/* ------------------------------------------------------------------ */
+const GROUPS = [
+  ['alu', 'ALU'], ['mov', 'Moves and memory'], ['muldiv', 'Multiply and divide'], ['bits', 'Shifts and bits'],
+  ['unary', 'Unary'], ['ctrl', 'Branches and calls'], ['sys', 'System'], ['block', 'Block and multiple'],
+  ['tag', 'Tagged'], ['esc', 'Escapes'],
+];
+const SRCS = [['1a', '1a'], ['1b', '1b'], ['v1bs', 'v1bs'], ['v1bx', 'v1bx'], ['rfc', 'RFC'], ['custom', 'yours']];
+const SRCL = Object.fromEntries(SRCS);
+const STL = { adopted: 'draft 1', recommended: 'recommended', measured: 'measured', open: 'open', notrec: 'not recommended', rejected: 'rejected', alias: 'alias', custom: 'yours' };
+
+const C = [];
+const I = (id, m, syn, f, o = {}) => C.push({ id, m, syn, f, ea: null, ext: 0, xl: '', g: 'alu', src: D1, st: 'adopted', d: '', ...o });
+const RFC = { src: ['rfc'], st: 'open' };
+
+[
+  ['add', 'ADD', 'rd ← rd + src'],
+  ['adc', 'ADC', 'rd ← rd + src + C, with a sticky Z for 64-bit chains. 1b: registers only'],
+  ['sub', 'SUB', 'rd ← rd − src'],
+  ['sbc', 'SBC', 'rd ← rd − src − !C, sticky Z. 1b: registers only'],
+  ['and', 'AND', 'rd ← rd & src'],
+  ['or', 'OR', 'rd ← rd | src'],
+  ['xor', 'XOR', 'rd ← rd ^ src'],
+  ['bic', 'BIC', 'rd ← rd & ~src. 1b: registers only'],
+  ['cmp', 'CMP', 'Flags of rd − src'],
+  ['tst', 'TST', 'Flags of rd & src. 1b: registers only'],
+].forEach(([id, m, d]) => I(id, m, 'rd, ea', 'rd:4', { ea: 'any', d }));
+I('mov', 'MOV', 'rd, ea', 'rd:4', { ea: 'any', g: 'mov', d: 'rd ← src: a load, a copy or a constant; sets N and Z. 1a spells the loads LD, LDB, LDH, LDSB, LDSH' });
+I('movs', 'MOVS', 'rd, ea', 'rd:4', { ...RFC, ea: 'any', g: 'mov', d: 'rd ← src, setting N and Z (ARM’s S suffix), for a MOV that leaves the flags alone. Loads followed by a branch on N or Z: 5.0% of hand-written and 1.9% of compiled instructions, mostly byte [R]+ (string loops) and [R] (null links)' });
+I('st', 'ST', 'rs, ea', 'rs:4', { ea: 'mem', wr: true, g: 'mov', d: 'Store rs at the operand, at the operand’s size. 1a: ST, STB, STH' });
+I('lea', 'LEA', 'rd, ea', 'rd:4', { ea: 'addr', g: 'mov', d: 'rd ← the operand’s address; flags unchanged. 1b’s LEA [rA + rB*s] is its only three-operand add' });
+[
+  ['mulu', 'MULU', 'r0:rd ← rd × src, unsigned'],
+  ['muls', 'MULS', 'r0:rd ← rd × src, signed'],
+  ['divu', 'DIVU', 'rd ← rd ÷ src, r0 ← remainder, unsigned'],
+  ['divs', 'DIVS', 'rd ← rd ÷ src toward zero, r0 ← remainder'],
+  ['divul', 'DIVUL', 'rd ← r0:rd ÷ src, r0 ← remainder: 64/32, chains through a bignum'],
+].forEach(([id, m, d]) => I(id, m, 'r0:rd, ea', 'rd:4', { ea: 'any', g: 'muldiv', d: d + '. Draft 1 had HI where draft 2 has r0; 1b: registers only' }));
+
+// draft 1a's own one-parcel forms
+I('mvi', 'MVI', 'rd, #s8', 'imm:8 rd:4', { g: 'mov', src: ['1a'], d: 'rd ← an 8-bit constant, one parcel', cs: '#s8' });
+I('addi', 'ADDI', 'rd, #s8', 'imm:8 rd:4', { src: ['1a'], d: 'rd ← rd + an 8-bit constant; sets N and Z only', cs: '#s8' });
+I('cmpi', 'CMPI', 'rd, #s8', 'imm:8 rd:4', { src: ['1a'], d: 'Flags of rd − an 8-bit constant', cs: '#s8' });
+I('mvi7', 'MVI', 'rd, #u7', 'rd:4 imm:7', { ...RFC, g: 'mov', d: 'rd ← a constant 0–127, zero-extended; flags untouched. Characters and small counts in one parcel, for half a row', cs: '#u7' });
+I('cmpi7', 'CMPI', 'rd, #u7', 'rd:4 imm:7', { ...RFC, d: 'Flags of rd − a constant 0–127: character tests in one parcel, for half a row', cs: '#u7' });
+I('ld4', 'LD', 'rd, [rs + 4o]', 'rd:4 rs:4 o:4', { g: 'mov', src: ['1a'], d: 'Word load, offset 0–60, one parcel', cs: '[rs+4o]' });
+I('st4', 'ST', 'rd, [rs + 4o]', 'rd:4 rs:4 o:4', { g: 'mov', src: ['1a'], d: 'Word store, offset 0–60, one parcel', cs: '[rs+4o]' });
+I('ldb1', 'LDB', 'rd, [rs + o]', 'rd:4 rs:4 o:4', { g: 'mov', src: ['1a'], d: 'Byte load, zero-extended, offset 0–15', cs: '[rs+o]' });
+I('stb1', 'STB', 'rd, [rs + o]', 'rd:4 rs:4 o:4', { g: 'mov', src: ['1a'], d: 'Byte store, offset 0–15', cs: '[rs+o]' });
+
+// unary: rd ← f(rs)
+[
+  ['not', 'NOT', 'rd ← ~rs'], ['neg', 'NEG', 'rd ← 0 − rs; sets NZCV'],
+  ['inc', 'INC', 'rd ← rs + 1; sets N and Z only'], ['dec', 'DEC', 'rd ← rs − 1; sets N and Z only'],
+  ['rlc', 'RLC', 'rd ← rs rotated left through C'], ['rrc', 'RRC', 'rd ← rs rotated right through C'],
+  ['swap', 'SWAP', 'rd ← rs with its 16-bit halves swapped'],
+  ['sxb', 'SXB', 'rd ← the low byte of rs, sign-extended'], ['zxb', 'ZXB', 'rd ← the low byte of rs, zero-extended'],
+  ['sxh', 'SXH', 'rd ← the low half of rs, sign-extended'], ['zxh', 'ZXH', 'rd ← the low half of rs, zero-extended'],
+  ['clz', 'CLZ', 'rd ← the leading zero bits of rs, 0–32'],
+].forEach(([id, m, d]) => I(id, m, 'rd, rs', 'rd:4 rs:4', { g: 'unary', d }));
+I('rev', 'REV', 'rd, rs', 'rd:4 rs:4', { ...RFC, g: 'unary', r: 'RFC 0006 §5', d: 'rd ← rs with its bytes reversed: big-endian data, SHA-256' });
+I('popc', 'POPC', 'rd, rs', 'rd:4 rs:4', { ...RFC, g: 'unary', r: 'RFC 0006 §5', d: 'rd ← the set bits in rs: scheduler and allocator bitmaps' });
+I('ffs', 'FFS', 'rd, rs', 'rd:4 rs:4', { ...RFC, g: 'unary', r: 'RFC 0006 §5', d: 'rd ← the index of rs’s lowest set bit' });
+
+// shifts
+[['lsl', 'LSL', 'shifted left'], ['lsr', 'LSR', 'shifted right, logically'], ['asr', 'ASR', 'shifted right, arithmetically'], ['ror', 'ROR', 'rotated right']].forEach(([id, m, d]) => {
+  I(id + '_i', m, 'rd, #n', 'rd:4 n:5', { g: 'bits', d: `rd ← rd ${d} by 0–31`, cs: '#n' });
+  I(id + '_r', m, 'rd, rs', 'rd:4 rs:4', { g: 'bits', d: `rd ← rd ${d} by rs & 31`, cs: 'rs' });
+  I(id + '_3', m, 'rd, rs, #n', 'rd:4 rs:4 n:5', { g: 'bits', src: ['rfc'], st: 'recommended', r: 'RFC 0006 §5', d: `rd ← rs ${d} by n, into a separate register: MOV was 25–27% of sha256’s instructions`, cs: 'rs,#n' });
+});
+I('rol', 'ROL', 'rd, #n', 'rd:4 n:5', { ...RFC, g: 'bits', r: 'RFC 0006 §5', d: 'Rotate left: ROR #29 is 7 steps on a narrow datapath', cs: '#n' });
+I('fsr', 'FSR', 'rd, rs', 'rd:4 rs:4', { ...RFC, g: 'bits', r: 'RFC 0006 §5', d: 'Funnel shift: rd ← (rd:rs) >> n, the count in HI. A word of a bit-aligned copy 26.5 → 13.5 cycles' });
+I('merge', 'MERGE', 'rd, rs, r0', 'rd:4 rs:4', { ...RFC, g: 'bits', r: 'RFC 0006 §5', d: 'rd ← (rd & ~r0) | (rs & r0), the mask in r0: −20% of the glyph loop' });
+I('bfx', 'BFX', 'rd, rs, #pos, #len', 'rd:4 rs:4', { ...RFC, g: 'bits', ext: 1, xl: 'pos len', r: 'RFC 0006 §5', d: 'Bit-field extract: protocols, file formats, graphics' });
+I('bfi', 'BFI', 'rd, rs, #pos, #len', 'rd:4 rs:4', { ...RFC, g: 'bits', ext: 1, xl: 'pos len', r: 'RFC 0006 §5', d: 'Bit-field insert' });
+
+// more ALU proposals
+I('addb4', 'ADD.B4', 'rd, rs', 'rd:4 rs:4', { ...RFC, r: 'RFC 0006 §5', d: 'Packed byte add, the carries gated at byte boundaries: pixels, zero-byte search. 1–2 chips' });
+I('add3', 'ADD3', 'rd, rs, rt', 'rd:4 rs:4 rt:4', { ...RFC, r: 'RFC 0006 §4', d: 'Three-operand add, like 1b’s LEA [rA + rB*s] as an ALU operation', cs: 'rs,rt' });
+I('xor3', 'XOR3', 'rd, rs, rt', 'rd:4 rs:4 rt:4', { src: ['rfc'], st: 'notrec', r: 'RFC 0006 §6', d: 'Three-operand XOR for Egret’s method-cache hash: under 1%', cs: 'rs,rt' });
+I('addh', 'ADD.H', 'rd, ea', 'rd:4', { ...RFC, ea: 'any', r: 'RFC 0006 §5', d: '16-bit add, flags from 16 bits (68000 .W). Rejected for doubling the encodings, then reopened' });
+I('subh', 'SUB.H', 'rd, ea', 'rd:4', { ...RFC, ea: 'any', r: 'RFC 0006 §5', d: '16-bit subtract (68000 .W). Reopened' });
+I('cmph', 'CMP.H', 'rd, ea', 'rd:4', { ...RFC, ea: 'any', r: 'RFC 0006 §5', d: '16-bit compare (68000 .W). Reopened' });
+I('mula', 'MULA', 'r0:r1, rd, rs', 'rd:4 rs:4', { ...RFC, g: 'muldiv', r: 'RFC 0006 §5', d: 'Multiply-accumulate into r0:r1: multiply was 50% of mandel; audio, graphics, DSP' });
+I('mulfx', 'MULFX', 'r0:rd, rs, #n', 'rd:4 rs:4 n:5', { ...RFC, g: 'muldiv', r: 'RFC 0006 §5', d: 'Fixed-point multiply: multiply, then shift right by n; r0 ← the product’s high half', cs: 'rs,#n' });
+I('setcc', 'SETcc', 'rd, cc', 'rd:4 cc:4', { d: 'rd ← 1 if cc holds, else 0; flags unchanged' });
+
+// branches, jumps, calls
+I('bcc', 'Bcc', 'cc, s8', 'off:8 cc:4', { g: 'ctrl', d: 'PC ← PC + 2·s8 if cc holds. cc = E is BRA, cc = F is BSR. 95% of draft 0’s branches fit 6 bits', cs: 's8' });
+I('jcc16', 'Jcc', 'cc, rel16', 'cc:4', { g: 'ctrl', ext: 1, xl: 'rel16', d: 'PC ← PC + 2·s16 if cc holds. cc = E is JMP, cc = F is CALL', cs: 'rel16' });
+I('jcc32', 'Jcc', 'cc, abs32', 'cc:4', { g: 'ctrl', ext: 2, xl: 'abs32', d: 'PC ← a 32-bit address if cc holds. cc = E is JMP, cc = F is CALL', cs: 'abs32' });
+I('jmpea', 'JMP', 'ea', '', { g: 'ctrl', ea: 'value', src: ['1b'], d: 'PC ← the operand’s value: JMP [table + r] is a whole jump table' });
+I('callea', 'CALL', 'ea', '', { g: 'ctrl', ea: 'value', src: ['1b'], d: 'Push the return address; PC ← the operand’s value. The Lisp calls through a code word with CALL [r + 1]' });
+I('jmpr', 'JMP', 'rs', 'rs:4', { g: 'ctrl', d: 'PC ← rs', cs: 'rs' });
+I('callr', 'CALL', 'rs', 'rs:4', { g: 'ctrl', d: 'Push the return address; PC ← rs', cs: 'rs' });
+I('ret', 'RET', '', '', { g: 'ctrl', d: 'Pop PC' });
+I('dbnz', 'DBNZ', 'r, d7', 'r:4 off:7', { ...RFC, g: 'ctrl', r: 'RFC 0006 §5', d: 'Decrement r, branch if it isn’t zero. 2.3% of draft 0’s instructions; rejected, then reopened', cs: 'r,d7' });
+I('dbnz4', 'DBNZ', 'r, back4', 'r:4 off:4', { ...RFC, g: 'ctrl', d: 'Decrement r and branch 1–16 parcels back if it isn’t zero; flags untouched. Over 99% of the hand-written programs’ decrement-and-branch loops fit, and it takes one cell', cs: 'r,back4' });
+I('loop', 'LOOP', 'rc, end', 'rc:4 off:8', { ...RFC, g: 'ctrl', r: 'RFC 0006 §5', d: 'Zero-overhead loop (DSP style), about 10 chips for a PC comparator', cs: 'rc,end' });
+I('skip', 'SKIPcc', 'cc', 'cc:4', { ...RFC, g: 'ctrl', r: 'RFC 0006 §5', d: 'Skip the next instruction if cc holds (PDP-8 skips, Thumb-2 IT): branch-free min, max and conditional moves' });
+I('bl', 'BL', 'rel16', '', { ...RFC, g: 'ctrl', ext: 1, xl: 'rel16', r: 'RFC 0006 §5', d: 'Call that leaves the return address in a register. 0.7% of Egret’s JIT; rejected, then reopened' });
+I('cbcc', 'CBcc', 'rd, rs, cc, rel16', 'rd:4 rs:4 cc:4', { g: 'ctrl', src: ['rfc'], st: 'rejected', ext: 1, xl: 'rel16', r: 'RFC 0006 §7', d: 'Compare and branch: two parcels either way, about a cycle saved', cs: 'rd,rs' });
+I('bsr12', 'BSR', 's12', 'off:12', { g: 'ctrl', src: ['rfc'], st: 'rejected', r: 'RFC 0006 §7', d: 'A ±4 KB call (SuperH): about 9% less code and no cycles', cs: 's12' });
+
+// system
+I('halt', 'HALT', '', '', { g: 'sys', d: 'Stop, or wait for an interrupt. The all-zero parcel is HALT, so zeroed memory stops' });
+I('nop', 'NOP', '', '', { g: 'sys', d: 'Nothing. .align should pad code with it' });
+I('rti', 'RTI', '', '', { g: 'sys', d: 'Pop the flags, then PC' });
+I('ei', 'EI', '', '', { g: 'sys', d: 'I ← 1' });
+I('di', 'DI', '', '', { g: 'sys', d: 'I ← 0' });
+I('mfsr', 'MFSR', 'rd, n', 'rd:4 n:4', { g: 'sys', d: 'rd ← special register n. Draft 2: ccr (0) for user mode, and the supervisor’s 8–15 (RFC 0029). 1b: flags and HI; v1bs added far, fsr, ctx, mapa, mapd, bank and sysctl', cs: 'rd,n' });
+I('mtsr', 'MTSR', 'n, rs', 'n:4 rs:4', { g: 'sys', d: 'Special register n ← rs', cs: 'n,rs' });
+I('swi', 'SWI', '#n', 'n:8', { g: 'sys', d: 'Software interrupt. A vectored SWI, each n its own entry, takes a null system call from 39 to about 23 cycles', cs: '#n' });
+I('illegal', 'ILLEGAL', '', '', { g: 'sys', d: 'Always traps. 0xFFFF must stay illegal, so erased memory traps' });
+I('mfur', 'MFUR', 'rd, rs', 'rd:4 rs:4', { g: 'sys', src: ['v1bs'], st: 'measured', r: 'report 0020', d: 'Supervisor only: rd ← the user’s register rs, from its bank' });
+I('mtur', 'MTUR', 'rd, rs', 'rd:4 rs:4', { g: 'sys', src: ['v1bs'], st: 'measured', r: 'report 0020', d: 'Supervisor only: the user’s register rd ← rs' });
+I('in', 'IN', 'rd, #port', 'port:8 rd:4', { g: 'sys', src: ['rfc'], st: 'notrec', r: 'RFC 0006 §7', d: 'A separate I/O space. Memory-mapped I/O already works with every addressing mode', cs: '#port' });
+I('out', 'OUT', '#port, rs', 'port:8 rs:4', { g: 'sys', src: ['rfc'], st: 'notrec', r: 'RFC 0006 §7', d: 'Output to a separate I/O space', cs: '#port' });
+
+// block and multiple
+I('save', 'SAVE', 'ra-rb', 'ra:4 rb:4', { g: 'block', d: 'Push ra…rb. Replaced 14 pushes and pops in draft 0’s programs', cs: 'ra-rb' });
+I('restore', 'RESTORE', 'ra-rb', 'ra:4 rb:4', { g: 'block', d: 'Pop ra…rb; flags unchanged', cs: 'ra-rb' });
+I('ldm', 'LDM', 'rb, ra-rc', 'rb:4 ra:4 rc:4', { g: 'block', src: ['rfc'], st: 'recommended', r: 'RFC 0006 §5', d: 'Load-multiple through any register, with writeback (68000 MOVEM, ARM LDM): a copied word 9.2 → 5.1 cycles', cs: 'rb,ra-rc' });
+I('stm', 'STM', 'rb, ra-rc', 'rb:4 ra:4 rc:4', { g: 'block', src: ['rfc'], st: 'recommended', r: 'RFC 0006 §5', d: 'Store-multiple through any register: zeroing a page −41%', cs: 'rb,ra-rc' });
+I('bmove', 'BMOVE', '', '', { ...RFC, g: 'block', r: 'RFC 0006 §5', d: 'Interruptible block move, addresses and count in registers: about 2 bus cycles a halfword' });
+I('bfill', 'BFILL', '', '', { ...RFC, g: 'block', r: 'RFC 0006 §5', d: 'Interruptible block fill' });
+I('bcmp', 'BCMP', '', '', { ...RFC, g: 'block', r: 'RFC 0006 §5', d: 'Interruptible block compare' });
+I('inblk', 'INBLK', '', '', { ...RFC, g: 'block', r: 'RFC 0009', d: 'Block input from a device (Z80 INIR): 5–6 cycles a word against 12–15' });
+I('outblk', 'OUTBLK', '', '', { ...RFC, g: 'block', r: 'RFC 0009', d: 'Block output to a device' });
+
+// moves and memory: aliases and proposals
+I('push', 'PUSH', 'rs', 'rs:4', { g: 'mov', st: 'alias', d: 'Draft 1 alias: ST rs, -[sp] in 1b, SAVE rs-rs in 1a', cs: 'rs' });
+I('pop', 'POP', 'rd', 'rd:4', { g: 'mov', st: 'alias', d: 'Draft 1 alias: MOV rd, [sp]+ in 1b, which sets N and Z. A POP that leaves the flags alone is an open gap', cs: 'rd' });
+I('clr', 'CLR', 'ea', '', { ...RFC, g: 'mov', ea: 'mem', wr: true, r: 'RFC 0006 §3.2', d: 'Store zero at any size; it would replace ST r0' });
+I('sti', 'STI', 'ea, #s16', '', { ...RFC, g: 'mov', ea: 'mem', wr: true, ext: 1, xl: 's16', r: 'RFC 0006 §3.2', d: 'Store an immediate' });
+I('incm', 'INC', 'ea', '', { src: ['rfc'], st: 'recommended', ea: 'mem', wr: true, r: 'RFC 0006 §3.2', d: 'Memory increment: fib’s call counter, a timer handler’s load, add and store' });
+I('decm', 'DEC', 'ea', '', { ...RFC, ea: 'mem', wr: true, r: 'RFC 0006 §3.2', d: 'Memory decrement' });
+I('addm', 'ADD', 'ea, rs', 'rs:4', { src: ['rfc'], st: 'notrec', ea: 'mem', wr: true, r: 'RFC 0006 §7', d: 'Memory-destination ALU operations: 0.4% of draft 0’s instructions, all in fib' });
+I('xchg', 'XCHG', 'rs, ea', 'rs:4', { ...RFC, g: 'mov', ea: 'mem', wr: true, r: 'RFC 0006 §5', d: 'Atomic exchange, with LOCK on the bus' });
+I('tas', 'TAS', 'ea', '', { ...RFC, g: 'mov', ea: 'mem', wr: true, r: 'RFC 0006 §5', d: 'Test-and-set' });
+I('ldhu', 'LDHU', 'rd, ea', 'rd:4', { g: 'mov', src: ['rfc'], st: 'notrec', ea: 'mem', r: 'RFC 0006 §6', d: 'A 16-bit load at any alignment, for Egret’s jump offsets: about 1%' });
+
+// tagged arithmetic, for the Lisp and Egret
+I('tadd', 'TADD', 'rd, rs', 'rd:4 rs:4', { g: 'tag', src: ['v1bx', 'rfc'], st: 'measured', r: 'RFC 0006 §6', d: 'Add; traps unless both are integers, or on overflow (SPARC TADDccTV): −6.4% of the Lisp’s compiled cycles. v1bx: ADD with mode E' });
+I('tsub', 'TSUB', 'rd, rs', 'rd:4 rs:4', { g: 'tag', src: ['v1bx', 'rfc'], st: 'measured', r: 'RFC 0006 §6', d: 'Subtract; traps unless both are integers, or on overflow' });
+I('tcmp', 'TCMP', 'rd, rs', 'rd:4 rs:4', { g: 'tag', src: ['v1bx', 'rfc'], st: 'measured', r: 'RFC 0006 §6', d: 'Compare; traps unless both are integers' });
+I('tmov', 'TMOV', 'rd, rs', 'rd:4 rs:4', { g: 'tag', src: ['v1bx'], st: 'measured', r: 'report 0018', d: 'Move; traps unless rs is an integer (v1bx’s MOV.T)' });
+I('ttst', 'TTST', 'rd, rs', 'rd:4 rs:4', { ...RFC, g: 'tag', r: 'report 0017', d: 'Z unless both are integers: 2.7% of Egret’s JIT runs' });
+I('ldclass', 'LDCLASS', 'rd, rs', 'rd:4 rs:4', { g: 'tag', src: ['rfc'], st: 'notrec', r: 'RFC 0006 §6', d: 'Load a value’s class, for Egret’s inline caches: about 1%' });
+I('chk', 'CHK', 'rd, ea', 'rd:4', { g: 'tag', src: ['rfc'], st: 'notrec', ea: 'any', r: 'RFC 0006 §6', d: 'Compare with a bound and trap (68000 CHK): under 1%' });
+
+// escapes
+I('fpu', 'FPU', 'ea, #cmd', '', { ...RFC, g: 'esc', ea: 'any', ext: 1, xl: 'command', r: 'RFC 0006 §8', d: 'Floating-point escape with a command word (68000 line F, 8086 ESC). Traps without an FPU, so software can emulate it' });
+I('uop', 'UOP', 'rd, ea', 'rd:4', { ...RFC, g: 'esc', ea: 'any', r: 'RFC 0005 §3', d: 'A user-defined opcode, run by a writable control store' });
+
+const CAT = new Map(C.map(x => [x.id, x]));
+
+/* ------------------------------------------------------------------ */
+/* Addressing modes. A sized memory mode is kind.size                  */
+/* ------------------------------------------------------------------ */
+const MD = [];
+const Md = (id, syn, short, f, cls, o = {}) => MD.push({ id, kind: id, syn, short, f, cls, ext: 0, xl: '', src: [], d: '', ...o });
+Md('r', 'rs', 'rs', 'R:4', 'reg', { src: D1, d: 'A register' });
+Md('rt', 'rs.T', 'rs.T', 'R:4', 'reg', { src: ['v1bx'], d: 'A register, trapping unless both operands are integers: v1bx’s mode E, −6.4% of the Lisp’s compiled cycles' });
+Md('q', '#q', '#q', 'q:4', 'const', { src: ['1b'], d: 'A constant 0…15 in the instruction' });
+Md('nq', '#−q', '#−q', 'q:4', 'const', { src: ['1b'], d: 'A constant −1…−16 in the instruction' });
+Md('q5', '#s5', '#s5', 'q:5', 'const', { d: 'A constant −16…15: 1b’s two quick-constant modes as one, two cells wide' });
+Md('i8', '#s8', '#s8', 'imm:8', 'const', { d: 'An 8-bit constant in the first parcel. With a register, that’s 12 bits: a row of cells. Characters and masks would fit' });
+Md('i16', '#s16', '#s16', '', 'const', { ext: 1, xl: 's16', src: D1, d: 'A signed 16-bit constant' });
+Md('u16', '#u16', '#u16', '', 'const', { ext: 1, xl: 'u16', src: D1, d: 'An unsigned 16-bit constant' });
+Md('h16', '#hi16', '#hi16', '', 'const', { ext: 1, xl: 'hi16', src: D1, d: 'A 16-bit constant shifted left 16' });
+Md('i32', '#imm32', '#32', '', 'const', { ext: 2, xl: 'imm32', src: D1, d: 'A 32-bit constant' });
+Md('spc', 'special', 'spec', 'R:4', 'spec', { ext: [1, 2], xl: '1–2 parcels', src: ['1b'], d: '1b’s mode F: R picks a 16- or 32-bit constant, or an absolute or PC-relative word, byte or half' });
+Md('idx', '[R + Rx·s + d8]', '[R+X·s]', 'R:4', 'mem', { ext: 1, xl: 'x s z d8', src: ['1b'], d: 'Indexed: index register, scale ×1–8, size and an 8-bit displacement in the extension parcel. The d8 can’t hold a table address' });
+Md('sp', '[sp + 4R]', '[sp+4R]', 'R:4', 'mem', { src: ['1b'], d: 'A stack slot, 0–60 (R is the offset). 0.0% of hand-written operands, 0.1% of compiled ones' });
+const SZ = [
+  ['w', '', '', 'word', 'a word'],
+  ['b', 'byte ', 'b', 'byte', 'a byte, zero-extended when read'],
+  ['h', 'half ', 'h', 'half', 'a half, zero-extended when read'],
+  ['sb', 'sbyte ', 'sb', 'sbyte', 'a byte, sign-extended'],
+  ['sh', 'shalf ', 'sh', 'shalf', 'a half, sign-extended'],
+];
+const MK = [
+  ['ind', '[R]', '[R]', 'R:4', 0, '', 'At R'],
+  ['d16', '[R + d16]', '[R+d16]', 'R:4', 1, 'd16', 'At R plus a 16-bit displacement'],
+  ['d32', '[R + d32]', '[R+d32]', 'R:4', 2, 'd32', 'At R plus a 32-bit displacement. 1b’s [label + reg] reaches only ±32 KB'],
+  ['k', null, null, 'R:4 k:4', 0, '', 'At R plus a 4-bit offset scaled by the size: struct fields in one parcel, for a row of cells'],
+  ['inc', '[R]+', '[R]+', 'R:4', 0, '', 'At R, then R steps on by the size', true],
+  ['dec', '-[R]', '-[R]', 'R:4', 0, '', 'R steps back by the size, then at R', true],
+  ['a16', '[abs16]', '[a16]', '', 1, 'abs16', 'At a sign-extended 16-bit address; the I/O page is at the top'],
+  ['a32', '[abs32]', '[a32]', '', 2, 'abs32', 'At a 32-bit address'],
+  ['pc', '[pc + d16]', '[pc+d]', '', 1, 'd16', 'At PC plus a 16-bit displacement'],
+];
+const KSYN = { w: '[R + 4k]', b: '[R + k]', sb: '[R + k]', h: '[R + 2k]', sh: '[R + 2k]' };
+const KSHORT = { w: '[R+4k]', b: '[R+k]', sb: '[R+k]', h: '[R+2k]', sh: '[R+2k]' };
+const IN1B = new Set('ind.w d16.w inc.w dec.w ind.b d16.b inc.b ind.h d16.h a16.w a16.b a16.h a32.w a32.b a32.h pc.w pc.b pc.h'.split(' '));
+const IN1A = new Set('d16.w d16.b d16.h d16.sb d16.sh d32.w d32.b k.w k.b'.split(' '));
+const SIZED = new Set(MK.map(k => k[0]));
+for (const [k, syn, short, f, ext, xl, d, wb] of MK) for (const [s, kw, pre, , sd] of SZ) {
+  const id = k + '.' + s;
+  MD.push({
+    id, kind: k, sz: s, syn: kw + (syn || KSYN[s]), short: pre + (short || KSHORT[s]), f, cls: 'mem', ext, xl, wb: !!wb,
+    src: [...(IN1A.has(id) ? ['1a'] : []), ...(IN1B.has(id) ? ['1b'] : [])], d: `${d}: ${sd}`,
+  });
+}
+const MCAT = new Map(MD.map(m => [m.id, m]));
+
+const PRESETS = [
+  { id: 's1b', name: '1b’s 16 modes', slots: ['r', 'q', 'ind.w', 'd16.w', 'sp', 'idx', 'inc.w', 'dec.w', 'ind.b', 'd16.b', 'inc.b', 'ind.h', 'd16.h', 'nq', null, 'spc'] },
+  { id: 'smem', name: 'Word memory', slots: ['ind.w', 'd16.w', 'inc.w', 'dec.w', 'idx', 'a16.w', 'pc.w', 'a32.w'] },
+  { id: 'sbh', name: 'Byte and half memory', slots: ['ind.b', 'd16.b', 'inc.b', 'dec.b', 'ind.sb', 'd16.sb', 'inc.sb', 'dec.sb', 'ind.h', 'd16.h', 'inc.h', 'dec.h', 'ind.sh', 'd16.sh', 'inc.sh', 'dec.sh'] },
+  { id: 'sconst', name: 'Constants', slots: ['q', 'nq', 'i16', 'u16', 'h16', 'i32'] },
+  { id: 'salu8', name: 'Eight for ALU ops (a sketch)', slots: ['r', 'q', 'nq', 'ind.w', 'd16.w', 'inc.w', 'd16.b', 'spc'] },
+];
+const pad16 = a => Array.from({ length: 16 }, (_, i) => a[i] || null);
+
+/* ------------------------------------------------------------------ */
+/* State, history and storage                                          */
+/* ------------------------------------------------------------------ */
+const S = {
+  ready: false, saved: true,
+  maps: [], mapId: null, mapName: '', created: 0,
+  st: null, log: [], cur: 0,
+  pending: null, modal: null, toast: null,
+  ui: {
+    grid: 'root', focus: null, wantFocus: false, over: null, tab: 'instr',
+    q: '', srcOff: {}, hideRej: false, unplaced: false, openIns: null,
+    rp: { i: null, set: 's1b', start: 0, skip: true, rep: false },
+    setSel: 's1b', def: null, renaming: null, delMap: false,
+    exp: { kind: 'json', hist: true }, imp: '', impErr: '',
+  },
+};
+let R = () => {};
+const presetSets = () => Object.fromEntries(PRESETS.map(s => [s.id, { name: s.name, slots: pad16(s.slots) }]));
+const emptyState = () => ({ cells: {}, grids: {}, instrs: {}, modes: {}, sets: presetSets(), settings: { opLow: true } });
+const migrate = st => {
+  st = st || {};
+  return { cells: st.cells || {}, grids: st.grids || {}, instrs: st.instrs || {}, modes: st.modes || {}, sets: st.sets || presetSets(), settings: { opLow: true, ...(st.settings || {}) } };
+};
+const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const ck = (g, b) => g + '/' + hex2(b);
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } }
+
+function applyOne(st, c, k, v) {
+  const coll = { ...st[c] };
+  if (v === null || v === undefined) delete coll[k]; else coll[k] = v;
+  return { ...st, [c]: coll };
+}
+function applyPatch(st, patch, dir) {
+  if (dir > 0) for (const e of patch) st = applyOne(st, e.c, e.k, e.a);
+  else for (let i = patch.length - 1; i >= 0; i--) st = applyOne(st, patch[i].c, patch[i].k, patch[i].b);
+  return st;
+}
+
+// IndexedDB: one record per map (its current state and history position), one per history step
+const store = {
+  db: null,
+  mem: { maps: new Map(), logs: new Map() },
+  open() {
+    return new Promise(res => {
+      try {
+        const rq = indexedDB.open('heron-opcode-map', 1);
+        rq.onupgradeneeded = () => {
+          const d = rq.result;
+          if (!d.objectStoreNames.contains('maps')) d.createObjectStore('maps', { keyPath: 'id' });
+          if (!d.objectStoreNames.contains('log')) d.createObjectStore('log', { keyPath: ['map', 'seq'] });
+        };
+        rq.onsuccess = () => { this.db = rq.result; res(true); };
+        rq.onerror = () => res(false);
+        rq.onblocked = () => res(false);
+      } catch (e) { res(false); }
+    });
+  },
+  req(rq) { return new Promise(res => { rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null); }); },
+  async maps() {
+    if (!this.db) return [...this.mem.maps.values()];
+    try { return (await this.req(this.db.transaction('maps').objectStore('maps').getAll())) || []; } catch (e) { return []; }
+  },
+  async getMap(id) {
+    if (!this.db) return this.mem.maps.get(id) || null;
+    try { return await this.req(this.db.transaction('maps').objectStore('maps').get(id)); } catch (e) { return null; }
+  },
+  async log(id) {
+    if (!this.db) return (this.mem.logs.get(id) || []).slice();
+    try { return (await this.req(this.db.transaction('log').objectStore('log').getAll(IDBKeyRange.bound([id, 0], [id, Infinity])))) || []; } catch (e) { return []; }
+  },
+  write({ map = null, puts = [], cut = null, drop = null }) {
+    if (!this.db) {
+      if (cut) this.mem.logs.set(cut.map, (this.mem.logs.get(cut.map) || []).filter(x => x.seq < cut.seq));
+      for (const e of puts) this.mem.logs.set(e.map, [...(this.mem.logs.get(e.map) || []), e]);
+      if (map) this.mem.maps.set(map.id, map);
+      if (drop) { this.mem.maps.delete(drop); this.mem.logs.delete(drop); }
+      return;
+    }
+    try {
+      const t = this.db.transaction(['maps', 'log'], 'readwrite');
+      const ms = t.objectStore('maps'), ls = t.objectStore('log');
+      if (cut) ls.delete(IDBKeyRange.bound([cut.map, cut.seq], [cut.map, Infinity]));
+      for (const e of puts) ls.put(e);
+      if (map) ms.put(map);
+      if (drop) { ms.delete(drop); ls.delete(IDBKeyRange.bound([drop, 0], [drop, Infinity])); }
+      t.onabort = lost; t.onerror = lost;
+    } catch (e) { lost(); }
+  },
+  record() { return { id: S.mapId, name: S.mapName, created: S.created, updated: Date.now(), st: S.st, cur: S.cur }; },
+  commit(e) { this.write({ cut: { map: S.mapId, seq: e.seq }, puts: [e], map: this.record() }); touchMap(); },
+  saveMap() { this.write({ map: this.record() }); touchMap(); },
+};
+function lost() { if (S.saved) { S.saved = false; flash('Saving failed: this browser refused to store the map. Export it to keep it.'); } }
+function touchMap() { const m = S.maps.find(x => x.id === S.mapId); if (m) { m.name = S.mapName; m.updated = Date.now(); } }
+
+function commit(label, changes) {
+  let st = S.st;
+  const patch = [];
+  for (const ch of changes) {
+    const b = st[ch.c][ch.k] ?? null, a = ch.v ?? null;
+    if (same(a, b)) continue;
+    patch.push({ c: ch.c, k: ch.k, b, a });
+    st = applyOne(st, ch.c, ch.k, a);
+  }
+  if (!patch.length) return false;
+  S.st = st;
+  S.log = S.log.slice(0, S.cur);
+  const e = { map: S.mapId, seq: S.cur, label, time: Date.now(), patch };
+  S.log.push(e);
+  S.cur++;
+  store.commit(e);
+  afterChange();
+  return true;
+}
+function afterChange() {
+  if (!GI()[S.ui.grid]) { S.ui.grid = 'root'; S.ui.focus = null; }
+  R();
+}
+function undo() {
+  if (!S.cur) return;
+  const e = S.log[S.cur - 1];
+  S.st = applyPatch(S.st, e.patch, -1); S.cur--; S.pending = null;
+  store.saveMap(); flash('Undid: ' + e.label); afterChange();
+}
+function redo() {
+  if (S.cur >= S.log.length) return;
+  const e = S.log[S.cur];
+  S.st = applyPatch(S.st, e.patch, 1); S.cur++; S.pending = null;
+  store.saveMap(); flash('Redid: ' + e.label); afterChange();
+}
+function jumpTo(n) {
+  while (S.cur > n) { S.st = applyPatch(S.st, S.log[S.cur - 1].patch, -1); S.cur--; }
+  while (S.cur < n) { S.st = applyPatch(S.st, S.log[S.cur].patch, 1); S.cur++; }
+  S.pending = null; store.saveMap(); afterChange();
+}
+
+let toastTimer = 0;
+function flash(msg) {
+  S.toast = msg; clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { S.toast = null; R(); }, 2800);
+  R();
+}
+
+/* maps */
+async function openMap(id) {
+  const rec = await store.getMap(id);
+  if (!rec) return;
+  S.mapId = rec.id; S.mapName = rec.name; S.created = rec.created || Date.now();
+  S.st = migrate(rec.st);
+  S.log = (await store.log(id)).sort((a, b) => a.seq - b.seq);
+  S.cur = Math.min(rec.cur || 0, S.log.length);
+  S.ui.grid = 'root'; S.ui.focus = null; S.ui.def = null; S.ui.renaming = null; S.ui.delMap = false; S.pending = null;
+  lsSet('heron-opcode-map:current', id);
+  R();
+}
+async function newMap(name, st, log = [], cur = 0) {
+  const id = uid('m');
+  const rec = { id, name, created: Date.now(), updated: Date.now(), st: st || emptyState(), cur };
+  store.write({ map: rec, puts: log.map((e, i) => ({ map: id, seq: i, label: e.label, time: e.time, patch: e.patch })) });
+  S.maps.push({ id, name, updated: rec.updated });
+  await openMap(id);
+}
+const nextMapName = () => { let n = S.maps.length + 1; while (S.maps.some(m => m.name === 'Map ' + n)) n++; return 'Map ' + n; };
+async function dupMap() { await newMap(S.mapName + ' copy', S.st, S.log, S.cur); flash('Duplicated, with its history'); }
+async function delMap() {
+  const id = S.mapId;
+  store.write({ drop: id });
+  S.maps = S.maps.filter(m => m.id !== id);
+  if (!S.maps.length) await newMap('Draft 2'); else await openMap(S.maps[0].id);
+  flash('Map deleted');
+}
+function finishRename() {
+  const u = S.ui;
+  if (u.renaming === null) return;
+  const n = u.renaming.trim();
+  u.renaming = null;
+  if (n && n !== S.mapName) { S.mapName = n; store.saveMap(); }
+  R();
+}
+
+// The map the page was built with (heron opcode_map build, and the
+// website): RFC 0028's, named after the commit that last changed it. A
+// first visit opens it; a later one opens it as a map of its own when it
+// has changed since, and leaves the visitor's maps as they were.
+const BUNDLED = (() => {
+  try { const b = JSON.parse(document.getElementById('heron-map').textContent); return b && b.map && b.map.state ? b : null; }
+  catch (e) { return null; }
+})();
+async function openBundled() { await newMap(BUNDLED.name, migrate(BUNDLED.map.state)); }
+
+async function boot() {
+  S.saved = await store.open();
+  let maps = await store.maps();
+  const changed = !!BUNDLED && lsGet('heron-opcode-map:bundled') !== BUNDLED.stamp;
+  if (!maps.length) {
+    const rec = { id: uid('m'), name: BUNDLED ? BUNDLED.name : 'Draft 2', created: Date.now(), updated: Date.now(),
+      st: BUNDLED ? migrate(BUNDLED.map.state) : emptyState(), cur: 0 };
+    store.write({ map: rec });
+    maps = [rec];
+  }
+  maps.sort((a, b) => (a.created || 0) - (b.created || 0));
+  S.maps = maps.map(m => ({ id: m.id, name: m.name, updated: m.updated }));
+  const want = lsGet('heron-opcode-map:current');
+  await openMap(maps.some(m => m.id === want) ? want : maps[maps.length - 1].id);
+  const fresh = changed && !S.maps.some(m => m.name === BUNDLED.name);
+  if (fresh) await openBundled();
+  if (BUNDLED) lsSet('heron-opcode-map:bundled', BUNDLED.stamp);
+  S.ready = true;
+  R();
+  if (fresh) flash(`${BUNDLED.name} is new, so it opened as a map of its own; yours are as you left them`);
+}
+
+/* ------------------------------------------------------------------ */
+/* Lookups and encoding                                                */
+/* ------------------------------------------------------------------ */
+function ins(id) {
+  return S.st.instrs[id] || CAT.get(id) || { id, m: '?' + id, syn: '', f: '', ea: null, ext: 0, g: 'sys', src: [], st: 'open', d: 'An instruction this map no longer knows', missing: true };
+}
+// A mode table: the mode number and its register fill the register byte, the modes coming from a mode set (1b's M field)
+const TABLE_FITS = m => !!m && m.cls !== 'table' && fbits(parseF(m.f)) <= 4;
+const defaultTable = () => S.st.sets.s1b ? 's1b' : (Object.keys(S.st.sets)[0] || 's1b');
+function tableMode(id) {
+  const sid = id.slice(3), set = S.st.sets[sid];
+  const base = { id, kind: 'ea', table: sid, syn: 'ea', short: 'ea', f: 'M:4 R:4', cls: 'table', first: true, xl: 'the mode’s data', src: ['1b'] };
+  if (!set) return { ...base, ext: 0, d: 'A mode table that no longer exists', missing: true };
+  let lo = Infinity, hi = 0;
+  for (const mid of set.slots) {
+    if (!mid || mid.startsWith('ea:')) continue;
+    const m = mode(mid);
+    if (!TABLE_FITS(m)) continue;
+    const [a, b] = extRange(m.ext);
+    lo = Math.min(lo, a); hi = Math.max(hi, b);
+  }
+  return { ...base, ext: [lo === Infinity ? 0 : lo, hi], d: `Any mode from the table “${set.name}”: the mode number and its register fill the register byte, so a one-operand instruction takes every mode in one cell. 1b’s main format and its op B work this way` };
+}
+function mode(id) {
+  if (!id) return null;
+  if (id.startsWith('ea:')) return tableMode(id);
+  return S.st.modes[id] || MCAT.get(id) || { id, kind: id, syn: '?' + id, short: '?', f: '', cls: 'mem', ext: 0, src: [], d: 'A mode this map no longer knows', missing: true };
+}
+function allIns() {
+  const o = S.st.instrs;
+  const out = C.map(x => o[x.id] || x);
+  for (const id in o) if (!CAT.has(id)) out.push(o[id]);
+  return out;
+}
+const allModes = () => [...MD, ...Object.values(S.st.modes)];
+const parseF = s => (s || '').trim().split(/\s+/).filter(Boolean).map(t => { const [n, b] = t.split(':'); return { n, b: parseInt(b, 10) || 0 }; });
+const fbits = fs => fs.reduce((a, f) => a + f.b, 0);
+const extRange = e => Array.isArray(e) ? e : [e || 0, e || 0];
+const synWithMode = (I, M) => (I.syn || '').replace(/\bea\b/, M ? M.syn : 'ea');
+function placeLabel(p) {
+  if (p.x) return 'an extension grid';
+  const I = ins(p.i);
+  return (I.m + ' ' + synWithMode(I, mode(p.m))).trim();
+}
+const lenText = ([a, b]) => a === b ? `${a} parcel${a > 1 ? 's' : ''}` : `${a}–${b} parcels`;
+function defaultMode(I) {
+  if (!parseF(I.f).length) { const t = 'ea:' + defaultTable(); if (!legal(I, mode(t))) return t; }
+  return I.ea === 'mem' ? 'ind.w' : I.ea === 'addr' ? 'd16.w' : 'r';
+}
+
+function legal(I, M) {
+  if (!I) return null;
+  if (!I.ea) return M ? `${I.m} takes no addressing mode` : null;
+  if (!M) return 'it needs an addressing mode';
+  if (M.missing) return 'the mode is unknown';
+  if (M.cls === 'table') {
+    const ok = (S.st.sets[M.table]?.slots || []).some(mid => mid && !mid.startsWith('ea:') && TABLE_FITS(mode(mid)) && !legal(I, mode(mid)));
+    return ok ? null : `none of the table’s modes suit ${I.m}`;
+  }
+  const mem = M.cls === 'mem' || M.cls === 'spec';
+  if (I.ea === 'mem') {
+    if (!mem) return `${I.m} needs a memory operand`;
+    if (I.wr && (M.sz === 'sb' || M.sz === 'sh')) return 'a store has no signed size';
+  }
+  if (I.ea === 'addr') {
+    if (!mem) return `${I.m} needs an address`;
+    if (M.wb) return 'an auto-increment mode has no single address';
+    if (M.sz && M.sz !== 'w' && M.kind !== 'k') return 'the size makes no difference to an address';
+  }
+  return null;
+}
+
+// Where the operand bits go: the register byte first, then low opcode bits (a block of cells),
+// or an extension parcel. In an extension grid every operand goes in extension parcels.
+function layout(p, depth) {
+  if (p.x) return { span: 1, B: 0, fields: [], len: [1, 1], over: 0, unused: 0 };
+  const In = ins(p.i), M = mode(p.m);
+  const fields = M && M.first ? [...parseF(M.f), ...parseF(In.f)] : [...parseF(In.f), ...(M ? parseF(M.f) : [])];
+  const B = fbits(fields);
+  const me = extRange(M ? M.ext : 0), ie = extRange(In.ext);
+  let span = 1, first = 1, over = 0;
+  if (depth === 0) {
+    if (B > 8) {
+      if (p.ov === 'ext' || B > 16) { over = B - 8; first = 1 + Math.ceil(over / 16); }
+      else span = 1 << (B - 8);
+    }
+  } else first = Math.ceil((8 * (depth + 1) + B) / 16);
+  return { span, B, fields, over, first, len: [first + me[0] + ie[0], first + me[1] + ie[1]], unused: depth === 0 && B < 8 ? 8 - B : 0 };
+}
+
+function encoding(p, base, depth, path) {
+  const L = layout(p, depth);
+  const opLow = S.st.settings.opLow !== false;
+  const opPos = opLow ? 8 : 0, regPos = opLow ? 0 : 8; // bit index 0 is bit 15
+  const parcels = [], free = [];
+  const newP = () => { const a = Array.from({ length: 16 }, () => ({ t: 'u' })); parcels.push(a); return a; };
+  const setByte = (P, pos, v) => { for (let i = 0; i < 8; i++) P[pos + i] = { t: (v >> (7 - i)) & 1 ? '1' : '0' }; };
+  if (depth === 0) {
+    const P = newP();
+    setByte(P, opPos, base);
+    const e = Math.log2(L.span);
+    for (let i = 0; i < 8; i++) free.push([P, regPos + i]);
+    for (let i = 8 - e; i < 8; i++) { P[opPos + i] = { t: 'u' }; free.push([P, opPos + i]); }
+  } else {
+    const ops = [...path, base];
+    let P = null;
+    ops.forEach((v, k) => { if (k % 2 === 0) P = newP(); setByte(P, k % 2 === 0 ? opPos : regPos, v); });
+    if (ops.length % 2 === 1) for (let i = 0; i < 8; i++) free.push([P, regPos + i]);
+  }
+  const next = () => { if (!free.length) { const P = newP(); for (let i = 0; i < 16; i++) free.push([P, i]); } return free.shift(); };
+  L.fields.forEach((f, fi) => { for (let b = f.b - 1; b >= 0; b--) { const [P, idx] = next(); P[idx] = { t: 'f', fi, fb: b }; } });
+  return { parcels, L, opLow };
+}
+const fieldLetter = n => n === 'R' ? 'R' : /^r[a-z]$/.test(n) ? n[1] : n[0];
+function nibbleText(P, fields) {
+  let s = '';
+  for (let n = 0; n < 4; n++) {
+    const q = P.slice(n * 4, n * 4 + 4);
+    if (q.every(x => x.t === '0' || x.t === '1')) s += HEX[parseInt(q.map(x => x.t).join(''), 2)];
+    else if (q.every(x => x.t === 'f' && x.fi === q[0].fi)) s += fieldLetter(fields[q[0].fi].n);
+    else s += '·';
+  }
+  return s;
+}
+
+/* grids */
+let giCache = { st: null, gi: null };
+function GI() {
+  if (giCache.st === S.st) return giCache.gi;
+  const st = S.st, links = {};
+  for (const k in st.cells) {
+    const p = st.cells[k];
+    if (p.x && p.g) { const i = k.lastIndexOf('/'); links[p.g] = { parent: k.slice(0, i), byte: parseInt(k.slice(i + 1), 16) }; }
+  }
+  const gi = { root: { parent: null, byte: null, depth: 0, path: [] } };
+  const resolve = (id, n = 0) => {
+    if (gi[id]) return gi[id];
+    const l = links[id];
+    if (!l || !st.grids[id] || n > 12) return null;
+    const par = resolve(l.parent, n + 1);
+    if (!par) return null;
+    return (gi[id] = { ...l, depth: par.depth + 1, path: [...par.path, l.byte] });
+  };
+  for (const id in st.grids) resolve(id);
+  giCache = { st, gi };
+  return gi;
+}
+const depthOf = g => GI()[g]?.depth ?? 0;
+function gridOrder() {
+  const gi = GI(), kids = {}, out = [];
+  for (const id in gi) if (id !== 'root') (kids[gi[id].parent] = kids[gi[id].parent] || []).push(id);
+  const walk = id => { out.push(id); (kids[id] || []).sort((a, b) => gi[a].byte - gi[b].byte).forEach(walk); };
+  walk('root');
+  return out;
+}
+function gridLabel(id) {
+  if (id === 'root') return 'Root';
+  const g = GI()[id];
+  const name = S.st.grids[id]?.name;
+  return (g ? g.path.map(hex2).join(' › ') : '?') + (name ? ' ' + name : '');
+}
+function addrText(g, base, s = 1) {
+  const path = GI()[g]?.path || [];
+  const own = s > 1 ? `${hex2(base)}–${hex2(base + s - 1)}` : hex2(base);
+  return path.length ? path.map(hex2).join(' ') + ' ' + own : own;
+}
+function coverOf(st, g, b) {
+  for (let s = 1; s <= 256; s <<= 1) {
+    const base = b & ~(s - 1) & 255;
+    const p = st.cells[ck(g, base)];
+    if (p && (p.s || 1) === s) return { base, p, s };
+  }
+  return null;
+}
+function inBlock(st, g, base, s) {
+  const seen = new Map();
+  for (let b = base; b < base + s; b++) { const c = coverOf(st, g, b); if (c) seen.set(c.base, c); }
+  return [...seen.values()];
+}
+function usedCells(g) {
+  const pre = g + '/';
+  let n = 0;
+  for (const k in S.st.cells) if (k.startsWith(pre)) n += S.st.cells[k].s || 1;
+  return n;
+}
+function removeChanges(st, g, base, p) {
+  const ch = [{ c: 'cells', k: ck(g, base), v: null }];
+  const dropGrid = gid => {
+    ch.push({ c: 'grids', k: gid, v: null });
+    const pre = gid + '/';
+    for (const k in st.cells) if (k.startsWith(pre)) { ch.push({ c: 'cells', k, v: null }); if (st.cells[k].x) dropGrid(st.cells[k].g); }
+  };
+  if (p.x && p.g) dropGrid(p.g);
+  return ch;
+}
+function usage() {
+  const u = {};
+  for (const k in S.st.cells) { const p = S.st.cells[k]; if (!p.x) u[p.i] = (u[p.i] || 0) + 1; }
+  return u;
+}
+function modeUsage() {
+  const u = {};
+  for (const k in S.st.cells) { const p = S.st.cells[k]; if (p.m) u[p.m] = (u[p.m] || 0) + 1; }
+  return u;
+}
+
+/* ------------------------------------------------------------------ */
+/* Actions                                                             */
+/* ------------------------------------------------------------------ */
+function tryPlace(g, byte, pl, { replaceBase = null, force = false, label } = {}) {
+  const L = layout(pl, depthOf(g));
+  const s = L.span, base = byte & ~(s - 1) & 255;
+  const p = { ...pl, s };
+  const hits = inBlock(S.st, g, base, s).filter(c => c.base !== replaceBase);
+  if (hits.length && !force) {
+    S.pending = { g, byte, pl, replaceBase, label, hits, base, s };
+    S.ui.focus = { type: 'cell', byte };
+    R();
+    return false;
+  }
+  const ch = [];
+  if (replaceBase !== null) {
+    const old = S.st.cells[ck(g, replaceBase)];
+    if (old && (replaceBase !== base || old.x)) ch.push(...removeChanges(S.st, g, replaceBase, old));
+  }
+  for (const h of hits) ch.push(...removeChanges(S.st, g, h.base, h.p));
+  ch.push({ c: 'cells', k: ck(g, base), v: p });
+  S.pending = null;
+  S.ui.focus = { type: 'cell', byte: base };
+  commit(label || `Place ${placeLabel(p)} at ${addrText(g, base, s)}`, ch);
+  return true;
+}
+function placeIns(g, byte, In, modeId, replaceBase = null, ov = null) {
+  const pl = { i: In.id };
+  if (In.ea) pl.m = modeId || defaultMode(In);
+  if (ov) pl.ov = ov;
+  return tryPlace(g, byte, pl, { replaceBase });
+}
+function makeExt(g, byte) {
+  if (coverOf(S.st, g, byte)) return;
+  const id = uid('g');
+  commit(`Make ${addrText(g, byte)} an extension grid`, [
+    { c: 'grids', k: id, v: { name: '' } },
+    { c: 'cells', k: ck(g, byte), v: { x: 1, g: id, s: 1 } },
+  ]);
+}
+function clearCell(g, byte) {
+  const c = coverOf(S.st, g, byte);
+  if (!c) return;
+  if (c.p.x) { flash('Remove an extension grid from the inspector: it deletes everything in it'); return; }
+  commit(`Clear ${addrText(g, c.base, c.s)} (${placeLabel(c.p)})`, removeChanges(S.st, g, c.base, c.p));
+}
+function moveCell(g, from, to) {
+  const c = coverOf(S.st, g, from);
+  if (!c) { R(); return; }
+  const tb = to & ~(c.s - 1) & 255;
+  if (tb === c.base) { R(); return; }
+  const hits = inBlock(S.st, g, tb, c.s);
+  if (!hits.length) {
+    commit(`Move ${placeLabel(c.p)} from ${addrText(g, c.base, c.s)} to ${addrText(g, tb, c.s)}`, [
+      { c: 'cells', k: ck(g, c.base), v: null }, { c: 'cells', k: ck(g, tb), v: c.p },
+    ]);
+  } else if (hits.length === 1 && hits[0].s === c.s) {
+    const h = hits[0];
+    commit(`Swap ${addrText(g, c.base, c.s)} and ${addrText(g, h.base, h.s)}`, [
+      { c: 'cells', k: ck(g, c.base), v: h.p }, { c: 'cells', k: ck(g, h.base), v: c.p },
+    ]);
+  } else { flash('Can’t move it there: those cells hold placements of a different size'); return; }
+  S.ui.focus = { type: 'cell', byte: tb };
+  R();
+}
+function swapRows(g, a, b) {
+  if (a === b) { R(); return; }
+  const A = inBlock(S.st, g, a * 16, 16), B = inBlock(S.st, g, b * 16, 16);
+  if ([...A, ...B].some(c => c.s > 16)) { flash('Can’t swap: a placement spans more than one row'); return; }
+  const ch = [];
+  for (const c of [...A, ...B]) ch.push({ c: 'cells', k: ck(g, c.base), v: null });
+  for (const c of A) ch.push({ c: 'cells', k: ck(g, b * 16 + (c.base & 15)), v: c.p });
+  for (const c of B) ch.push({ c: 'cells', k: ck(g, a * 16 + (c.base & 15)), v: c.p });
+  commit(`Swap rows ${HEX[a]}_ and ${HEX[b]}_${g === 'root' ? '' : ' in ' + gridLabel(g)}`, ch);
+  S.ui.focus = { type: 'row', row: b };
+  R();
+}
+function rowPlan(g, row, In, slots, start) {
+  const out = [];
+  let last = -1;
+  slots.forEach((m, i) => { if (m) last = i; });
+  const depth = depthOf(g);
+  for (let i = 0; i <= last; i++) {
+    const col = start + i;
+    if (col > 15) break;
+    const m = slots[i];
+    if (!m) { out.push({ col, m: null, status: 'empty', why: 'left alone' }); continue; }
+    const why = legal(In, mode(m));
+    if (why) { out.push({ col, m, status: 'illegal', why }); continue; }
+    const L = layout({ i: In.id, m }, depth);
+    if (L.span > 1) { out.push({ col, m, status: 'wide', why: `needs ${L.span} cells` }); continue; }
+    const c = coverOf(S.st, g, row * 16 + col);
+    if (c) out.push({ col, m, status: 'busy', why: 'holds ' + (c.p.x ? 'an extension' : ins(c.p.i).m) });
+    else out.push({ col, m, status: 'ok', why: 'free' });
+  }
+  return out;
+}
+function fillRow(g, row, In, set, start, opt) {
+  let st = S.st;
+  const ch = [];
+  let n = 0, sk = 0;
+  for (const it of rowPlan(g, row, In, set.slots, start)) {
+    if (it.status === 'empty') continue;
+    if ((it.status === 'illegal' && opt.skip) || it.status === 'wide') { sk++; continue; }
+    const b = row * 16 + it.col;
+    const hits = inBlock(st, g, b, 1);
+    if (hits.length && !opt.rep) { sk++; continue; }
+    for (const h of hits) for (const c of removeChanges(st, g, h.base, h.p)) { ch.push(c); st = applyOne(st, c.c, c.k, c.v); }
+    const p = { i: In.id, m: it.m, s: 1 };
+    ch.push({ c: 'cells', k: ck(g, b), v: p });
+    st = applyOne(st, 'cells', ck(g, b), p);
+    n++;
+  }
+  if (!n) { flash('Nothing placed: every slot was skipped'); return; }
+  commit(`Fill row ${HEX[row]}_ with ${In.m} (${set.name})`, ch);
+  flash(`Placed ${n}${sk ? `, skipped ${sk}` : ''}`);
+}
+function setOpLow(v) { commit(`Opcode byte ${v ? 'first' : 'second'} in memory`, [{ c: 'settings', k: 'opLow', v }]); }
+
+function selectCell(b, focusInput = false) {
+  S.ui.focus = { type: 'cell', byte: b }; S.ui.def = null; S.pending = null;
+  if (focusInput) S.ui.wantFocus = true;
+  R();
+}
+function selectRow(r) { S.ui.focus = { type: 'row', row: r }; S.ui.def = null; S.pending = null; R(); }
+function openGrid(id) { S.ui.grid = id; S.ui.focus = null; S.ui.def = null; S.pending = null; R(); }
+
+/* instruction definitions */
+function openDef(id, forCell, mn = '') {
+  const In = id ? ins(id) : null;
+  S.ui.def = {
+    id, forCell,
+    form: In
+      ? { m: In.m, syn: In.syn, f: In.f, ea: In.ea || '', ext: String(extRange(In.ext)[1]), xl: In.xl || '', g: In.g, d: In.d || '', cs: In.cs || '' }
+      : { m: mn, syn: 'rd, rs', f: 'rd:4 rs:4', ea: '', ext: '0', xl: '', g: 'alu', d: '', cs: '' },
+  };
+  R();
+}
+function defError(f) {
+  if (!f.m.trim()) return 'Give it a mnemonic.';
+  const fs = parseF(f.f);
+  if (fs.some(x => !/^[A-Za-z]\w*$/.test(x.n) || !(x.b >= 1 && x.b <= 16))) return 'Fields are name:bits, like rd:4, with 1 to 16 bits each.';
+  if (fbits(fs) > 32) return 'That’s more than 32 bits of fields.';
+  return '';
+}
+function saveDef() {
+  const d = S.ui.def, f = d.form;
+  if (defError(f)) return;
+  const id = d.id || uid('i');
+  const base = CAT.get(id);
+  const prev = S.st.instrs[id] || base;
+  const def = {
+    id, m: f.m.trim(), syn: f.syn.trim(), f: f.f.trim(), ea: f.ea || null, ext: +f.ext || 0, xl: f.xl.trim(), g: f.g, d: f.d.trim(), cs: f.cs.trim(),
+    wr: f.ea === 'mem' ? (prev ? !!prev.wr : false) : false,
+    src: prev ? prev.src : ['custom'], st: prev ? prev.st : 'custom', r: prev?.r || '',
+  };
+  S.ui.def = null;
+  commit(d.id ? `Edit ${def.m}` : `New instruction ${def.m}`, [{ c: 'instrs', k: id, v: def }]);
+  if (d.forCell) placeIns(d.forCell.g, d.forCell.byte, def, null, d.forCell.replaceBase ?? null);
+}
+
+/* export and import */
+function exportJSON(withHistory) {
+  return JSON.stringify({
+    format: 'heron-opcode-map', version: 1, name: S.mapName, exported: new Date().toISOString(), state: S.st,
+    ...(withHistory ? { history: S.log.map(({ label, time, patch }) => ({ label, time, patch })), cursor: S.cur } : {}),
+  }, null, 1);
+}
+function exportMD() {
+  const lines = [`# ${S.mapName}`, '', `The opcode byte comes ${S.st.settings.opLow !== false ? 'first' : 'second'} in memory. "+n": extension parcels.`, ''];
+  for (const g of gridOrder()) {
+    lines.push(`## ${g === 'root' ? 'Root' : 'Extension ' + gridLabel(g)}`, '');
+    lines.push('| | ' + [...HEX].map(h => '_' + h).join(' | ') + ' |', '|---|' + '---|'.repeat(16));
+    for (let r = 0; r < 16; r++) {
+      const row = [];
+      for (let c = 0; c < 16; c++) {
+        const b = r * 16 + c, cov = coverOf(S.st, g, b);
+        if (!cov) row.push('');
+        else if (cov.base !== b) row.push('↳');
+        else if (cov.p.x) row.push('ext ' + (S.st.grids[cov.p.g]?.name || ''));
+        else {
+          const In = ins(cov.p.i), M = mode(cov.p.m), L = layout(cov.p, depthOf(g));
+          const extra = L.len[1] > 1 ? ' +' + (L.len[0] === L.len[1] ? L.len[0] - 1 : `${L.len[0] - 1}–${L.len[1] - 1}`) : '';
+          row.push(`${In.m} ${M ? M.short : In.cs || ''}`.trim() + (cov.s > 1 ? ` ×${cov.s}` : '') + extra);
+        }
+      }
+      lines.push(`| ${HEX[r]}_ | ` + row.map(x => x.replace(/\|/g, '\\|')).join(' | ') + ' |');
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+async function doImport() {
+  const u = S.ui;
+  let o;
+  try { o = JSON.parse(u.imp); } catch (e) { u.impErr = 'That isn’t valid JSON.'; R(); return; }
+  if (!o || o.format !== 'heron-opcode-map' || !o.state) { u.impErr = 'That JSON isn’t an exported opcode map.'; R(); return; }
+  const hist = Array.isArray(o.history) ? o.history.filter(e => e && Array.isArray(e.patch)) : [];
+  const cur = Math.max(0, Math.min(hist.length, Number.isInteger(o.cursor) ? o.cursor : hist.length));
+  S.modal = null; u.imp = ''; u.impErr = '';
+  await newMap((o.name || 'Map') + ' (imported)', migrate(o.state), hist, cur);
+  flash('Imported as a new map');
+}
+function copyText(text, id) {
+  const fallback = () => { const el = document.getElementById(id); if (el) { el.focus(); el.select(); } flash('Copying is blocked here. The text is selected: press Ctrl+C or ⌘C'); };
+  try { navigator.clipboard.writeText(text).then(() => flash('Copied'), fallback); } catch (e) { fallback(); }
+}
+
+/* write-in parsing */
+const nrm = s => (s || '').toLowerCase().replace(/[−–]/g, '-').replace(/\s+/g, '').replace(/r(\d{1,2}|s|d|x|t)?(?![a-z])/g, 'r').replace(/#-?(0x[0-9a-f]+|\d+)/g, '#n');
+function parseMode(In, text) {
+  if (!In.ea) return null;
+  const raw = text.trim().split(/\s+/).slice(1).join(' ').toLowerCase().replace(/\s+/g, '');
+  if (!raw) return null;
+  const tryIds = ids => ids.find(id => !legal(In, mode(id))) || null;
+  const num = raw.replace(/^r\d{0,2}[sd]?,/, '').match(/^#(-?(?:0x[0-9a-f]+|\d+))$/);
+  if (num) {
+    const v = parseInt(num[1]);
+    return tryIds([...(v >= 0 && v <= 15 ? ['q'] : []), ...(v >= -16 && v <= -1 ? ['nq'] : []), ...(v >= -32768 && v <= 32767 ? ['i16'] : []), ...(v >= 0 && v <= 65535 ? ['u16'] : []), 'i32']);
+  }
+  let r = nrm(raw).replace(/^r,/, '').replace(/,r$/, '');
+  if (r === 'ea') { const t = 'ea:' + defaultTable(); return legal(In, mode(t)) ? null : t; }
+  for (const M of allModes()) if ((nrm(M.syn) === r || nrm(M.short) === r) && !legal(In, M)) return M.id;
+  return null;
+}
+function suggest(text) {
+  const t = text.trim();
+  if (!t) return [];
+  const parts = t.split(/\s+/), mn = parts[0].toLowerCase(), rest = nrm(parts.slice(1).join(' '));
+  const out = [];
+  for (const In of allIns()) {
+    const im = In.m.toLowerCase();
+    let sc;
+    if (im === mn) sc = 100;
+    else if (im.startsWith(mn)) sc = 70 - (im.length - mn.length);
+    else if (t.length >= 3 && (In.d || '').toLowerCase().includes(t.toLowerCase())) sc = 20;
+    else continue;
+    if (rest) {
+      const sn = nrm(In.syn);
+      if (sn === rest || sn === 'r,' + rest) sc += 25;
+      if (In.ea && parseMode(In, t)) sc += 15;
+    }
+    if (In.st === 'rejected' || In.st === 'notrec') sc -= 5;
+    out.push([sc, In]);
+  }
+  return out.sort((a, b) => b[0] - a[0] || a[1].m.localeCompare(b[1].m)).slice(0, 10).map(x => x[1]);
+}
+
+/* problems */
+let chkCache = { st: null, list: [] };
+function checks() {
+  if (chkCache.st === S.st) return chkCache.list;
+  const st = S.st, gi = GI(), out = [], seen = new Map();
+  for (const k in st.cells) {
+    const p = st.cells[k];
+    const i = k.lastIndexOf('/'), g = k.slice(0, i), b = parseInt(k.slice(i + 1), 16);
+    if (!gi[g] || p.x) continue;
+    const In = ins(p.i), M = mode(p.m), L = layout(p, gi[g].depth);
+    const where = addrText(g, b, p.s || 1);
+    if (In.missing) out.push({ lvl: 'bad', g, b, where, msg: `${p.i} is no longer defined` });
+    const why = legal(In, M);
+    if (why) out.push({ lvl: 'bad', g, b, where, msg: `${placeLabel(p)}: ${why}` });
+    if (L.span !== (p.s || 1)) out.push({ lvl: 'warn', g, b, where, msg: `${placeLabel(p)} now needs ${L.span} cell${L.span > 1 ? 's' : ''}: re-place it from the inspector` });
+    if (L.len[1] > 3) out.push({ lvl: 'warn', g, b, where, msg: `${placeLabel(p)} is ${lenText(L.len)}; draft 1 decided on at most 2 extension parcels` });
+    const key = p.i + '|' + (p.m || '');
+    if (!seen.has(key)) seen.set(key, []);
+    seen.get(key).push([g, b, where]);
+  }
+  for (const locs of seen.values()) if (locs.length > 1) {
+    const [g, b] = locs[0];
+    out.push({ lvl: 'info', g, b, where: locs.map(l => l[2]).join(', '), msg: `${placeLabel(st.cells[ck(g, b)])} is encoded ${locs.length} times` });
+  }
+  let zg = 'root', z = coverOf(st, 'root', 0);
+  if (z && z.p.x) { zg = z.p.g; z = coverOf(st, zg, 0); }
+  if (!z) out.push({ lvl: 'info', g: zg, b: 0, where: '0000', msg: 'The all-zero parcel traps. Draft 1 makes it HALT, so a jump into zeroed memory stops' });
+  else if (!z.p.x && z.p.i !== 'halt') out.push({ lvl: 'warn', g: zg, b: 0, where: '0000', msg: `The all-zero parcel is ${placeLabel(z.p)}. Draft 1 makes it HALT` });
+  let fg = 'root', f = coverOf(st, 'root', 255);
+  if (f && f.p.x) { fg = f.p.g; f = coverOf(st, fg, 255); }
+  if (f && !f.p.x && f.p.i !== 'illegal') out.push({ lvl: 'warn', g: fg, b: 255, where: 'FFFF', msg: `The all-ones parcel is ${placeLabel(f.p)}. It has to trap, so a jump into erased memory traps` });
+  const rank = { bad: 0, warn: 1, info: 2 };
+  out.sort((a, b) => rank[a.lvl] - rank[b.lvl]);
+  chkCache = { st, list: out };
+  return out;
+}
+function badKeys() {
+  const s = new Set();
+  for (const x of checks()) if (x.lvl !== 'info') s.add(ck(x.g, x.b));
+  return s;
+}
+
+/* drag and drop */
+function dragStart(e, data) { try { e.dataTransfer.setData('text/plain', data); e.dataTransfer.effectAllowed = 'move'; } catch (err) { /* ignore */ } }
+function dragOver(e, key) { e.preventDefault(); if (S.ui.over !== key) { S.ui.over = key; R(); } }
+function dragEnd() { if (S.ui.over !== null) { S.ui.over = null; R(); } }
+function drop(e, at) {
+  e.preventDefault();
+  let d = '';
+  try { d = e.dataTransfer.getData('text/plain') || ''; } catch (err) { d = ''; }
+  S.ui.over = null;
+  const g = S.ui.grid;
+  if (at.row !== undefined) { if (d.startsWith('row:')) swapRows(g, +d.slice(4), at.row); else R(); return; }
+  if (d.startsWith('cell:')) moveCell(g, +d.slice(5), at.byte);
+  else if (d.startsWith('ins:')) {
+    const c = coverOf(S.st, g, at.byte);
+    if (c && c.p.x) { flash('That cell is an extension grid'); return; }
+    placeIns(g, at.byte, ins(d.slice(4)), null, null);
+  } else R();
+}
+
+/* keyboard */
+function onKey(e) {
+  const t = e.target;
+  const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && !typing && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+  if (mod && !typing && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
+  if (typing || mod || e.altKey) return;
+  if (S.modal) { if (e.key === 'Escape') { S.modal = null; R(); } return; }
+  const f = S.ui.focus, g = S.ui.grid;
+  if (e.key === 'Escape') { S.ui.focus = null; S.pending = null; S.ui.def = null; R(); return; }
+  const d = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -16, ArrowDown: 16 }[e.key];
+  if (d !== undefined) {
+    e.preventDefault();
+    if (f && f.type === 'row') { if (Math.abs(d) === 16) selectRow(Math.min(15, Math.max(0, f.row + d / 16))); return; }
+    if (!f) { selectCell(0); return; }
+    const cur = coverOf(S.st, g, f.byte);
+    const rowOf = x => x >> 4;
+    let nb = f.byte + d;
+    const offRow = x => Math.abs(d) === 1 && rowOf(x) !== rowOf(f.byte);
+    if (offRow(nb)) return;
+    while (cur && nb >= 0 && nb < 256) {
+      const c2 = coverOf(S.st, g, nb);
+      if (!c2 || c2.base !== cur.base) break;
+      nb += d;
+      if (offRow(nb)) return;
+    }
+    if (nb < 0 || nb > 255) return;
+    selectCell(nb);
+    return;
+  }
+  if (!f || f.type !== 'cell') return;
+  if (e.key === 'Enter') { e.preventDefault(); S.ui.wantFocus = true; R(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); clearCell(g, f.byte); }
+}
+
+/* ------------------------------------------------------------------ */
+/* Components                                                          */
+/* ------------------------------------------------------------------ */
+function Chips({ In, compact }) {
+  const src = compact && In.src.length === 2 && In.src[0] === '1a' && In.src[1] === '1b' ? ['draft 1'] : In.src.map(s => SRCL[s] || s);
+  return html`${src.map(s => html`<span class="chip">${s}</span>`)}${In.st !== 'adopted' && In.st !== 'custom' ? html`<span class=${'chip st-' + In.st}>${STL[In.st] || In.st}</span>` : ''}`;
+}
+
+function Header() {
+  const u = S.ui;
+  const opLow = S.st.settings.opLow !== false;
+  return html`<header class="top">
+    <h1 class="brand">Heron <span>Opcode Map</span></h1>
+    <div class="maps">
+      ${u.renaming !== null
+        ? html`<input class="inp" id="map-name" style="width:190px" value=${u.renaming} aria-label="Map name"
+            onInput=${e => { u.renaming = e.target.value; }}
+            onKeyDown=${e => { if (e.key === 'Enter') finishRename(); if (e.key === 'Escape') { u.renaming = null; R(); } }}
+            onBlur=${finishRename} ref=${el => el && document.activeElement !== el && el.focus()}/>`
+        : html`<select class="inp" id="map-select" style="width:190px" aria-label="Map" value=${S.mapId} onChange=${e => openMap(e.target.value)}>
+            ${S.maps.map(m => html`<option value=${m.id}>${m.name}</option>`)}
+          </select>`}
+      <button class="btn" onClick=${() => newMap(nextMapName())}>New</button>
+      ${BUNDLED && html`<button class="btn" title=${`A fresh copy of ${BUNDLED.name}, from ${BUNDLED.source}`}
+        onClick=${async () => { await openBundled(); flash(`Opened a fresh copy of ${BUNDLED.name}`); }}>RFC map</button>`}
+      <button class="btn" onClick=${dupMap}>Duplicate</button>
+      <button class="btn" onClick=${() => { u.renaming = S.mapName; R(); }}>Rename</button>
+      ${u.delMap
+        ? html`<span class="row gap"><span>Delete “${S.mapName}” and its history?</span>
+            <button class="btn danger" onClick=${() => { u.delMap = false; delMap(); }}>Delete</button>
+            <button class="btn" onClick=${() => { u.delMap = false; R(); }}>Keep</button></span>`
+        : html`<button class="btn" onClick=${() => { u.delMap = true; R(); }}>Delete</button>`}
+    </div>
+    <div class="spacer"></div>
+    <div class="tools">
+      <div class="seg" role="group" aria-label="Where the opcode byte sits" title="Where the opcode byte sits in a parcel: first in memory (the low byte) or second (the high byte)">
+        <span>Opcode byte</span>
+        <button class=${opLow ? 'on' : ''} onClick=${() => setOpLow(true)}>first</button>
+        <button class=${!opLow ? 'on' : ''} onClick=${() => setOpLow(false)}>second</button>
+      </div>
+      <button class="btn" disabled=${!S.cur} onClick=${undo} title="Ctrl+Z">Undo</button>
+      <button class="btn" disabled=${S.cur >= S.log.length} onClick=${redo} title="Ctrl+Shift+Z">Redo</button>
+      <button class="btn" onClick=${() => { S.modal = 'export'; R(); }}>Export</button>
+      <button class="btn" onClick=${() => { S.modal = 'import'; u.imp = ''; u.impErr = ''; R(); }}>Import</button>
+      <span class=${'save' + (S.saved ? '' : ' bad')}>${S.saved ? 'Saved in this browser' : 'Not saved: storage is blocked'}</span>
+    </div>
+  </header>`;
+}
+
+function GridPane() {
+  const g = S.ui.grid, gi = GI();
+  return html`
+    <nav class="gtabs" aria-label="Grids">
+      ${gridOrder().map(id => html`<button class=${id === g ? 'on' : ''} onClick=${() => openGrid(id)}>${gridLabel(id)}<small>${usedCells(id)}/256</small></button>`)}
+    </nav>
+    <p class="hint">${g === 'root'
+      ? 'Rows are the opcode byte’s high nibble, columns its low nibble. '
+      : `The second byte of ${gi[g].path.map(hex2).join(' ')} xx picks the opcode; operands go in extension parcels. `}Click a cell to write in an instruction, click a row label to fill the row with addressing modes, and drag cells or row labels to move them.</p>
+    <div class="gwrap"><${Grid}/></div>
+    <${Summary}/>`;
+}
+
+function Grid() {
+  const st = S.st, g = S.ui.grid, f = S.ui.focus, over = S.ui.over;
+  const selBase = f && f.type === 'cell' ? (coverOf(st, g, f.byte)?.base ?? f.byte) : null;
+  const selRow = f && f.type === 'row' ? f.row : null;
+  const bad = badKeys();
+  const depth = depthOf(g);
+  const out = [html`<div class="corner" style="grid-row:1;grid-column:1"></div>`];
+  for (let c = 0; c < 16; c++) out.push(html`<div class="colh" style=${`grid-row:1;grid-column:${c + 2}`}>_${HEX[c]}</div>`);
+  const covered = new Uint8Array(256);
+  for (let r = 0; r < 16; r++) {
+    out.push(html`<button class=${'rowh' + (selRow === r ? ' on' : '') + (over === 'r' + r ? ' drop' : '')}
+      style=${`grid-row:${r + 2};grid-column:1`} draggable="true" title=${`Row ${HEX[r]}_: fill it with addressing modes`}
+      onClick=${() => selectRow(r)} onDragStart=${e => dragStart(e, 'row:' + r)} onDragOver=${e => dragOver(e, 'r' + r)}
+      onDrop=${e => drop(e, { row: r })} onDragEnd=${dragEnd}>${HEX[r]}_</button>`);
+    for (let c = 0; c < 16; c++) {
+      const b = r * 16 + c;
+      if (covered[b]) continue;
+      const cov = coverOf(st, g, b);
+      if (!cov) {
+        out.push(html`<div role="gridcell" class=${'cell empty' + (selBase === b ? ' sel' : '') + (over === b ? ' drop' : '')}
+          style=${`grid-row:${r + 2};grid-column:${c + 2}`} title=${addrText(g, b) + ': empty'}
+          onClick=${() => selectCell(b, true)} onDragOver=${e => dragOver(e, b)} onDrop=${e => drop(e, { byte: b })}>
+          <span class="code">${hex2(b)}</span></div>`);
+        continue;
+      }
+      const { base, p, s } = cov;
+      for (let i = 0; i < s; i++) covered[base + i] = 1;
+      const style = s <= 16
+        ? `grid-row:${r + 2};grid-column:${c + 2} / span ${s}`
+        : `grid-row:${r + 2} / span ${s / 16};grid-column:2 / span 16`;
+      const range = s > 1 ? `${hex2(base)}–${hex2(base + s - 1)}` : hex2(base);
+      const common = {
+        role: 'gridcell', style, draggable: 'true',
+        onClick: () => selectCell(base), onDragStart: e => dragStart(e, 'cell:' + base),
+        onDragOver: e => dragOver(e, base), onDrop: e => drop(e, { byte: base }), onDragEnd: dragEnd,
+      };
+      if (p.x) {
+        const name = st.grids[p.g]?.name;
+        out.push(html`<div ...${common} class=${'cell ext' + (selBase === base ? ' sel' : '') + (over === base ? ' drop' : '')}
+          title=${`${addrText(g, base)}: extension grid${name ? ' ' + name : ''}. Double-click to open`} onDblClick=${() => openGrid(p.g)}>
+          <span class="code">${range}</span><span class="mn">EXT</span><span class="md">${name || usedCells(p.g) + ' used'}</span></div>`);
+        continue;
+      }
+      const In = ins(p.i), M = mode(p.m), L = layout(p, depth);
+      const sub = M ? M.short : (In.cs || '');
+      const lenT = L.len[1] > 1 ? '+' + (L.len[0] === L.len[1] ? L.len[0] - 1 : `${L.len[0] - 1}–${L.len[1] - 1}`) : '';
+      out.push(html`<div ...${common}
+        class=${'cell g-' + In.g + (s > 1 ? ' wide' : '') + (selBase === base ? ' sel' : '') + (bad.has(ck(g, base)) ? ' bad' : '') + (over === base ? ' drop' : '')}
+        title=${`${addrText(g, base, s)}: ${placeLabel(p)} · ${lenText(L.len)}${p.n ? '\n' + p.n : ''}`}>
+        <span class="code">${range}</span>
+        ${lenT && html`<span class="len">${lenT}</span>`}
+        <span class="mn">${In.m}${s > 1 ? html` <span class="syn">${synWithMode(In, M)}</span>` : ''}</span>
+        ${s === 1 && sub ? html`<span class="md">${sub}</span>` : ''}
+      </div>`);
+    }
+  }
+  return html`<div class="grid" role="grid" aria-label=${'Opcode map, ' + gridLabel(g)}>${out}</div>`;
+}
+
+function Summary() {
+  const st = S.st, g = S.ui.grid, pre = g + '/';
+  const byG = {};
+  let used = 0, ext = 0;
+  for (const k in st.cells) {
+    if (!k.startsWith(pre)) continue;
+    const p = st.cells[k], s = p.s || 1;
+    used += s;
+    if (p.x) { ext++; continue; }
+    const gg = ins(p.i).g;
+    byG[gg] = (byG[gg] || 0) + s;
+  }
+  return html`<div class="sum">
+    <div class="row gap" style="justify-content:space-between">
+      <span class="lbl">${gridLabel(g)}</span>
+      <span class="facts">${used} of 256 cells used · ${256 - used} free${ext ? ` · ${ext} extension grid${ext > 1 ? 's' : ''}` : ''} · “+1” marks an extension parcel</span>
+    </div>
+    <div class="bar" aria-hidden="true">
+      ${GROUPS.filter(([id]) => byG[id]).map(([id]) => html`<i class=${'g-' + id} style=${`width:${byG[id] / 2.56}%`}></i>`)}
+      ${ext ? html`<i style=${`width:${ext / 2.56}%`}></i>` : ''}
+    </div>
+    <div class="legend">${GROUPS.map(([id, name]) => html`<span><i class=${'sw g-' + id}></i>${name}${byG[id] ? html` <b>${byG[id]}</b>` : ''}</span>`)}</div>
+    <${Checks}/>
+  </div>`;
+}
+
+function Checks() {
+  const list = checks();
+  if (!list.length) return html`<p class="facts">No problems found.</p>`;
+  const LV = { bad: 'Error', warn: 'Warn', info: 'Note' };
+  return html`<div>
+    <div class="lbl" style="margin-top:6px">Checks</div>
+    <ul class="checks">${list.slice(0, 60).map(x => html`<li onClick=${() => { S.ui.grid = x.g; S.ui.focus = { type: 'cell', byte: x.b }; S.pending = null; S.ui.def = null; R(); }}>
+      <span class=${'lvl ' + x.lvl}>${LV[x.lvl]}</span><span class="where">${x.where}</span><span>${x.msg}</span></li>`)}</ul>
+    ${list.length > 60 ? html`<p class="facts">…and ${list.length - 60} more.</p>` : ''}
+  </div>`;
+}
+
+function cellsAt(g, In, text) {
+  const pl = { i: In.id };
+  if (In.ea) pl.m = parseMode(In, text) || defaultMode(In);
+  return layout(pl, depthOf(g)).span;
+}
+
+function WriteIn({ onPick, onNew, onPickExt, cellsFor, placeholder, id }) {
+  const [t, setT] = useState('');
+  const [hi, setHi] = useState(0);
+  const ref = useRef(null);
+  useEffect(() => { if (S.ui.wantFocus && ref.current) { S.ui.wantFocus = false; ref.current.focus(); } });
+  const sug = t.trim() ? suggest(t) : [];
+  const mn = (t.trim().split(/\s+/)[0] || '').toUpperCase();
+  const showNew = !!onNew && !!mn && !sug.some(x => x.m.toUpperCase() === mn);
+  const n = sug.length + (showNew ? 1 : 0);
+  const choose = i => {
+    if (i < sug.length) { const text = t; setT(''); setHi(0); onPick(sug[i], text); }
+    else if (showNew) onNew(mn);
+  };
+  const chooseExt = i => { if (i < sug.length && onPickExt) { const text = t; setT(''); setHi(0); onPickExt(sug[i], text); } };
+  const spans = sug.map(x => cellsFor ? cellsFor(x, t) : 1);
+  const key = e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHi(Math.min(hi + 1, Math.max(0, n - 1))); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi(Math.max(hi - 1, 0)); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!n) return;
+      const i = Math.min(hi, n - 1);
+      if (e.shiftKey && onPickExt && i < sug.length) chooseExt(i); else choose(i);
+    }
+    else if (e.key === 'Escape') { if (t) setT(''); else e.target.blur(); }
+  };
+  return html`<div class="wi">
+    <input ref=${ref} id=${id} class="inp mono" placeholder=${placeholder} value=${t} autocomplete="off" spellcheck=${false}
+      aria-label="Instruction" onInput=${e => { setT(e.target.value); setHi(0); }} onKeyDown=${key}/>
+    ${t.trim() ? html`<ul class="sug" role="listbox">
+      ${sug.map((x, i) => {
+        const pm = x.ea ? parseMode(x, t) : null;
+        return html`<li role="option" aria-selected=${i === hi} class=${i === hi ? 'on' : ''} onMouseDown=${e => { e.preventDefault(); choose(i); }}>
+          <i class=${'sw g-' + x.g}></i><b>${x.m}</b><span class="syn">${pm ? synWithMode(x, mode(pm)) : x.syn}</span>
+          <span class="srcs">${x.src.map(s => SRCL[s] || s).join(' ')}${x.st !== 'adopted' && x.st !== 'custom' ? ' · ' + STL[x.st] : ''}</span>
+          ${spans[i] > 1 ? html`<span class="cells">${spans[i]} cells</span>` : ''}
+          ${spans[i] > 1 && onPickExt ? html`<button class="btn small xb" title="Shift+Enter" onMouseDown=${e => { e.preventDefault(); e.stopPropagation(); chooseExt(i); }}>1 cell + ext</button>` : ''}</li>`;
+      })}
+      ${showNew ? html`<li role="option" class=${hi === sug.length ? 'on' : ''} onMouseDown=${e => { e.preventDefault(); choose(sug.length); }}>New instruction <b>${mn}</b>…</li>` : ''}
+      ${!n ? html`<li class="none">No instruction matches</li>` : ''}
+    </ul>` : ''}
+    ${onPickExt && spans.some(s => s > 1) ? html`<p class="facts" style="margin:6px 0 0">Shift+Enter, or “1 cell + ext”, keeps a wide one to this cell, with its extra operand bits in an extension parcel.</p>` : ''}
+  </div>`;
+}
+
+function ModePicker({ value, In, onChange, allowEmpty, noTable, id }) {
+  const cur = value ? mode(value) : null;
+  const kind = cur ? cur.kind : '';
+  const sz = cur && cur.sz ? cur.sz : 'w';
+  const okId = mid => !legal(In, mode(mid));
+  const okKind = k => k === 'ea' ? okId('ea:' + defaultTable()) : SIZED.has(k) ? SZ.some(([s]) => okId(k + '.' + s)) : okId(k);
+  const pickKind = k => {
+    if (!k) { onChange(null); return; }
+    if (k === 'ea') { onChange('ea:' + (cur && cur.kind === 'ea' ? cur.table : defaultTable())); return; }
+    if (!SIZED.has(k)) { onChange(k); return; }
+    const s = okId(k + '.' + sz) ? sz : (SZ.map(x => x[0]).find(x => okId(k + '.' + x)) || 'w');
+    onChange(k + '.' + s);
+  };
+  const plain = MD.filter(m => !m.sz);
+  const groups = [
+    ['Any mode', noTable ? [] : [['ea', 'ea: any mode, from a table']]],
+    ['Registers', plain.filter(m => m.cls === 'reg').map(m => [m.id, m.syn])],
+    ['Constants', plain.filter(m => m.cls === 'const' || m.cls === 'spec').map(m => [m.id, m.syn === 'special' ? 'special (R picks)' : m.syn])],
+    ['Memory', [...MK.map(k => [k[0], k[1] || '[R + k·size]']), ...plain.filter(m => m.cls === 'mem').map(m => [m.id, m.syn])]],
+    ['Your modes', Object.values(S.st.modes).map(m => [m.id, m.syn])],
+  ].filter(x => x[1].length);
+  return html`<div class="mp">
+    <select class="inp mono" id=${id} aria-label="Addressing mode" value=${kind} onChange=${e => pickKind(e.target.value)}>
+      ${allowEmpty || !kind ? html`<option value="">(empty)</option>` : ''}
+      ${groups.map(([gn, items]) => html`<optgroup label=${gn}>${items.map(([k, label]) => html`<option value=${k} disabled=${!okKind(k)}>${label}</option>`)}</optgroup>`)}
+    </select>
+    ${kind === 'ea' ? html`<select class="inp tb" aria-label="Mode table" value=${cur.table} onChange=${e => onChange('ea:' + e.target.value)}>
+      ${Object.entries(S.st.sets).map(([sid, s]) => html`<option value=${sid} disabled=${!okId('ea:' + sid)}>${s.name}</option>`)}
+    </select>` : ''}
+    ${SIZED.has(kind) ? html`<select class="inp sz" aria-label="Size" value=${sz} onChange=${e => onChange(kind + '.' + e.target.value)}>
+      ${SZ.map(([s, , , label]) => html`<option value=${s} disabled=${!okId(kind + '.' + s)}>${label}</option>`)}
+    </select>` : ''}
+  </div>`;
+}
+
+function Encoding({ p, base, depth, path }) {
+  const { parcels, L, opLow } = encoding(p, base, depth, path);
+  const In = ins(p.i), M = mode(p.m);
+  const extras = [];
+  const me = extRange(M ? M.ext : 0), ie = extRange(In.ext);
+  if (me[1]) extras.push(`${M.xl || 'mode'}${me[0] !== me[1] ? ` (${me[0]}–${me[1]} parcels)` : me[1] > 1 ? ' (2 parcels)' : ''}`);
+  if (ie[1]) extras.push(`${In.xl || 'operand'}${ie[1] > 1 ? ' (2 parcels)' : ''}`);
+  const cap0 = depth === 0
+    ? (opLow ? ['register byte', 'opcode byte'] : ['opcode byte', 'register byte'])
+    : (opLow ? ['opcode byte 2', 'opcode byte 1'] : ['opcode byte 1', 'opcode byte 2']);
+  const bitCell = (x, j) => html`<span class=${'bit ' + x.t} style=${x.t === 'f' ? `--fc: var(--fc${x.fi % 6})` : ''}>${x.t === 'f' ? fieldLetter(L.fields[x.fi].n) : x.t === 'u' ? '·' : x.t}</span>`;
+  return html`<div class="enc">
+    <div class="lbl">Encoding</div>
+    ${parcels.map((P, i) => {
+      const nib = nibbleText(P, L.fields);
+      return html`<div class="parcel">
+        <div class="phex">${nib}<small>in memory: ${nib.slice(2)} ${nib.slice(0, 2)}</small></div>
+        <div class="bits">${P.slice(0, 8).map(bitCell)}<span></span>${P.slice(8).map(bitCell)}</div>
+        ${i === 0 ? html`<div class="bytecap"><span>${cap0[0]}</span><span></span><span>${cap0[1]}</span></div>` : ''}
+      </div>`;
+    })}
+    ${extras.map(x => html`<div class="xp">+ ${x}</div>`)}
+    ${L.fields.length ? html`<div class="fkeys">${L.fields.map((f, i) => html`<span style=${`--fc: var(--fc${i % 6})`}><i></i>${f.n}:${f.b}</span>`)}</div>` : ''}
+    <div class="facts">${L.B} operand bit${L.B === 1 ? '' : 's'} in the first parcel${L.unused ? `, ${L.unused} spare` : ''} · ${L.span > 1 ? `${L.span} cells` : '1 cell'} · ${lenText(L.len)}</div>
+  </div>`;
+}
+
+function TableView({ M, In }) {
+  const set = S.st.sets[M.table];
+  if (!set) return '';
+  return html`<ol class="plan" aria-label=${'Mode table ' + set.name}>${pad16(set.slots).map((mid, i) => {
+    const m = mid ? mode(mid) : null;
+    const e = m ? extRange(m.ext) : [0, 0];
+    const why = !m ? 'traps' : m.cls === 'table' ? 'traps: tables don’t nest' : !TABLE_FITS(m) ? `traps: needs ${fbits(parseF(m.f))} bits` : legal(In, m) ? 'traps for ' + In.m : '';
+    return html`<li class=${why ? 's-illegal' : 's-ok'}><span class="pc">M=${HEX[i]}</span><span class="pm">${m ? m.syn : '·'}</span><span class="ps">${why || (e[1] ? '+' + (e[0] === e[1] ? e[0] : e[0] + '–' + e[1]) : 'ok')}</span></li>`;
+  })}</ol>`;
+}
+
+function Pending() {
+  const P = S.pending;
+  const names = P.hits.map(h => h.p.x ? 'an extension grid' : placeLabel(h.p));
+  return html`<div class="conf">
+    <div><b>${placeLabel(P.pl)}</b> needs ${P.s > 1 ? `cells ${hex2(P.base)}–${hex2(P.base + P.s - 1)}` : `cell ${hex2(P.base)}`}, which already hold${P.hits.length === 1 ? 's' : ''} ${names.join(', ')}.${P.hits.some(h => h.p.x) ? ' Replacing an extension grid deletes everything in it.' : ''}</div>
+    <div class="row gap">
+      <button class="btn primary" onClick=${() => tryPlace(P.g, P.byte, P.pl, { replaceBase: P.replaceBase, force: true, label: P.label })}>Replace ${P.hits.length === 1 ? 'it' : 'them'}</button>
+      ${P.s > 1 && depthOf(P.g) === 0 ? html`<button class="btn" onClick=${() => tryPlace(P.g, P.byte, { ...P.pl, ov: 'ext' }, { replaceBase: P.replaceBase })}>One cell + extension parcel</button>` : ''}
+      <button class="btn" onClick=${() => { S.pending = null; R(); }}>Cancel</button>
+    </div>
+  </div>`;
+}
+
+function Inspector() {
+  if (S.ui.def) return html`<${DefEditor}/>`;
+  const f = S.ui.focus, g = S.ui.grid;
+  if (!f) return html`<div class="ihead"><span class="lbl">Inspector</span></div>
+    <p class="hint">Select a cell to write in an instruction, or a row label to fill a whole row with addressing modes.</p>
+    <p class="facts">Keys: arrows move, Enter writes in, Delete clears, Ctrl+Z and Ctrl+Shift+Z undo and redo, Esc deselects.</p>`;
+  if (f.type === 'row') return html`<${RowPanel} row=${f.row} key=${g + ':r' + f.row}/>`;
+  return html`<${CellPanel} b=${f.byte} key=${g + ':c' + f.byte}/>`;
+}
+
+function CellPanel({ b }) {
+  const g = S.ui.grid, st = S.st, gi = GI(), depth = gi[g]?.depth ?? 0;
+  const cov = coverOf(st, g, b);
+  const [replacing, setReplacing] = useState(false);
+  const [confirmRm, setConfirmRm] = useState(false);
+  const [note, setNote] = useState(cov && cov.p.n ? cov.p.n : '');
+  const [gname, setGname] = useState(cov && cov.p.x ? st.grids[cov.p.g]?.name || '' : '');
+  const base = cov ? cov.base : b, s = cov ? cov.s : 1;
+  const head = html`<div class="ihead"><span class="lbl">${!cov ? 'Empty cell' : cov.p.x ? 'Extension' : 'Instruction'}</span><span class="addr">${addrText(g, base, s)}</span></div>`;
+  const pend = S.pending && S.pending.g === g ? html`<${Pending}/>` : '';
+  const forCell = { g, byte: b, replaceBase: null };
+
+  if (!cov) return html`${head}${pend}
+    <${WriteIn} id=${'wi-' + g + '-' + b} placeholder="Write in: ADD [R]+, LSL rd, #n, MVI…"
+      onPick=${(x, text) => placeIns(g, b, x, parseMode(x, text), null)} onNew=${mn => openDef(null, forCell, mn)}
+      onPickExt=${(x, text) => placeIns(g, b, x, parseMode(x, text), null, 'ext')} cellsFor=${(x, text) => cellsAt(g, x, text)}/>
+    <div class="row gap" style="margin-top:10px"><button class="btn" onClick=${() => makeExt(g, b)}>Make an extension grid</button></div>
+    <p class="hint" style="margin-top:8px">An empty cell traps as an illegal instruction. ${depth === 0
+      ? 'An extension grid turns the register byte into a second opcode byte: 256 more opcodes, with their operands in extension parcels.'
+      : 'Another level makes one more byte an opcode byte.'}</p>`;
+
+  if (cov.p.x) {
+    const p = cov.p, gr = st.grids[p.g] || {}, n = usedCells(p.g);
+    return html`${head}${pend}
+      <label class="fld"><span>Name</span><input class="inp" id=${'gname-' + p.g} value=${gname} placeholder="System, floating point…"
+        onInput=${e => setGname(e.target.value)} onChange=${e => commit(`Name grid ${addrText(g, base)}`, [{ c: 'grids', k: p.g, v: { ...gr, name: e.target.value.trim() } }])}/></label>
+      <p class="facts">${n} of 256 cells used. The byte after ${addrText(g, base)} picks one of 256 opcodes, and their operands go in extension parcels.</p>
+      <div class="row gap">
+        <button class="btn primary" onClick=${() => openGrid(p.g)}>Open grid</button>
+        ${confirmRm
+          ? html`<span>Remove it and its ${n} cell${n === 1 ? '' : 's'}?</span>
+              <button class="btn danger" onClick=${() => commit(`Remove extension ${addrText(g, base)}`, removeChanges(st, g, base, p))}>Remove</button>
+              <button class="btn" onClick=${() => setConfirmRm(false)}>Keep</button>`
+          : html`<button class="btn" onClick=${() => setConfirmRm(true)}>Remove…</button>`}
+      </div>`;
+  }
+
+  const p = cov.p, In = ins(p.i), M = mode(p.m), L = layout(p, depth);
+  const why = legal(In, M);
+  const replace = (np, label) => tryPlace(g, base, np, { replaceBase: base, label });
+  const dupAt = Object.keys(st.cells).filter(k => k !== ck(g, base) && !st.cells[k].x && st.cells[k].i === p.i && (st.cells[k].m || '') === (p.m || ''));
+  const saveNote = v => {
+    v = v.trim();
+    if (v === (p.n || '')) return;
+    const q = { ...p };
+    if (v) q.n = v; else delete q.n;
+    commit(`Note on ${addrText(g, base, s)}`, [{ c: 'cells', k: ck(g, base), v: q }]);
+  };
+  return html`${head}${pend}
+    <div class="plt"><i class=${'sw g-' + In.g}></i><span class="mnbig">${In.m}</span><span class="syn">${synWithMode(In, M)}</span></div>
+    <div class="chips" style="margin-top:6px"><${Chips} In=${In}/></div>
+    <p class="desc">${In.d}${In.r ? html` <span class="ref">(${In.r})</span>` : ''}</p>
+    ${In.ea ? html`<div class="fld"><span>Addressing mode</span>
+        <${ModePicker} id=${'mode-' + g + base} value=${p.m} In=${In} onChange=${m => m && replace({ ...p, m }, `Change ${addrText(g, base, s)} to ${In.m} ${synWithMode(In, mode(m))}`)}/>
+        ${M ? html`<span class="desc small">${M.d}</span>` : ''}
+        ${M && M.cls === 'table' ? html`<${TableView} M=${M} In=${In}/>` : ''}</div>` : ''}
+    ${depth === 0 && L.B > 8 ? html`<div class="fld"><span>${L.B} operand bits: ${L.B - 8} more than the register byte holds</span>
+      ${L.B <= 16 ? html`<div class="seg">
+          <button class=${p.ov !== 'ext' ? 'on' : ''} onClick=${() => { const q = { ...p }; delete q.ov; replace(q, `${placeLabel(p)}: operand bits in the opcode byte`); }}>Take ${L.B - 8} opcode bit${L.B - 8 > 1 ? 's' : ''} (${1 << (L.B - 8)} cells)</button>
+          <button class=${p.ov === 'ext' ? 'on' : ''} onClick=${() => replace({ ...p, ov: 'ext' }, `${placeLabel(p)}: operand bits in an extension parcel`)}>Extension parcel</button>
+        </div>` : html`<span>They go in an extension parcel.</span>`}
+    </div>` : ''}
+    <${Encoding} p=${p} base=${base} depth=${depth} path=${gi[g].path}/>
+    ${why || L.span !== s || L.len[1] > 3 || dupAt.length ? html`<ul class="probs">
+      ${why ? html`<li class="bad">${In.m} with ${M ? M.syn : 'no mode'}: ${why}.</li>` : ''}
+      ${L.span !== s ? html`<li class="warn">It now needs ${L.span} cell${L.span > 1 ? 's' : ''}, not ${s}. <button class="link" onClick=${() => replace(p, `Re-place ${placeLabel(p)}`)}>Re-place it</button></li>` : ''}
+      ${L.len[1] > 3 ? html`<li class="warn">It’s ${lenText(L.len)}: draft 1 decided on at most 2 extension parcels.</li>` : ''}
+      ${dupAt.length ? html`<li class="info">Also encoded at ${dupAt.map(k => { const i = k.lastIndexOf('/'); return addrText(k.slice(0, i), parseInt(k.slice(i + 1), 16)); }).join(', ')}.</li>` : ''}
+    </ul>` : ''}
+    <label class="fld"><span>Note</span><textarea class="inp" id=${'note-' + g + base} rows="2" value=${note}
+      onInput=${e => setNote(e.target.value)} onBlur=${e => saveNote(e.target.value)}></textarea></label>
+    <div class="row gap">
+      <button class="btn" onClick=${() => { S.ui.wantFocus = true; setReplacing(true); }}>Replace…</button>
+      <button class="btn" onClick=${() => openDef(In.id, null)}>Edit definition</button>
+      <button class="btn danger" onClick=${() => clearCell(g, base)}>Clear</button>
+    </div>
+    ${replacing ? html`<div style="margin-top:10px"><${WriteIn} id=${'wr-' + g + '-' + base} placeholder="Replace with…"
+      onPick=${(x, text) => placeIns(g, base, x, parseMode(x, text), base)} onNew=${mn => openDef(null, { g, byte: base, replaceBase: base }, mn)}
+      onPickExt=${(x, text) => placeIns(g, base, x, parseMode(x, text), base, 'ext')} cellsFor=${(x, text) => cellsAt(g, x, text)}/></div>` : ''}`;
+}
+
+function RowPanel({ row }) {
+  const g = S.ui.grid, rp = S.ui.rp, sets = S.st.sets;
+  const sid = sets[rp.set] ? rp.set : Object.keys(sets)[0];
+  const set = sid ? sets[sid] : null;
+  const In = rp.i ? ins(rp.i) : null;
+  const [confirmClear, setConfirmClear] = useState(false);
+  const inRow = inBlock(S.st, g, row * 16, 16);
+  const plan = In && In.ea && set ? rowPlan(g, row, In, set.slots, rp.start) : [];
+  const nPlace = plan.filter(x => x.status === 'ok' || (x.status === 'busy' && rp.rep) || (x.status === 'illegal' && !rp.skip)).length;
+  return html`
+    <div class="ihead"><span class="lbl">Row</span><span class="addr">${addrText(g, row * 16, 16).replace(/[0-9A-F]0–[0-9A-F]F$/, HEX[row] + '_')}</span></div>
+    <div class="fld"><span>Fill it with</span>
+      ${In
+        ? html`<div class="chosen"><i class=${'sw g-' + In.g}></i><b>${In.m}</b><span class="syn">${In.syn}</span><button class="link" onClick=${() => { rp.i = null; S.ui.wantFocus = true; R(); }}>change</button></div>`
+        : html`<${WriteIn} id=${'rowins-' + row} placeholder="An instruction: ADD, MOV, ST…" onPick=${x => { rp.i = x.id; R(); }}/>`}
+    </div>
+    ${In && !In.ea ? html`<p class="hint">${In.m} takes no addressing mode, so there is nothing to spread along a row.</p>
+      <button class="btn" onClick=${() => tryPlace(g, row * 16, { i: In.id })}>Place it at ${addrText(g, row * 16)}</button>` : ''}
+    ${In && In.ea && !set ? html`<p class="hint">There are no mode sets. Make one in the Modes tab.</p>` : ''}
+    ${In && In.ea && set ? html`
+      <div class="grid2">
+        <label>Mode set<select class="inp" id="row-set" value=${sid} onChange=${e => { rp.set = e.target.value; R(); }}>
+          ${Object.entries(sets).map(([id, s]) => html`<option value=${id}>${s.name}</option>`)}</select></label>
+        <label>Starting at<select class="inp mono" id="row-start" value=${rp.start} onChange=${e => { rp.start = +e.target.value; R(); }}>
+          ${[...HEX].map((h, i) => html`<option value=${i}>${HEX[row]}${h}</option>`)}</select></label>
+      </div>
+      <label class="chk"><input type="checkbox" checked=${rp.skip} onChange=${e => { rp.skip = e.target.checked; R(); }}/> Skip modes ${In.m} can’t take</label>
+      <label class="chk"><input type="checkbox" checked=${rp.rep} onChange=${e => { rp.rep = e.target.checked; R(); }}/> Replace cells already in use</label>
+      <ol class="plan">${plan.map(it => html`<li class=${'s-' + it.status}><span class="pc">${HEX[row]}${HEX[it.col]}</span><span class="pm">${it.m ? mode(it.m).syn : '·'}</span><span class="ps">${it.why}</span></li>`)}</ol>
+      <button class="btn primary" disabled=${!nPlace} onClick=${() => fillRow(g, row, In, set, rp.start, rp)}>Fill ${nPlace} cell${nPlace === 1 ? '' : 's'}</button>` : ''}
+    <div class="row gap" style="margin-top:14px">
+      ${confirmClear
+        ? html`<span>Clear ${inRow.length} placement${inRow.length === 1 ? '' : 's'}${inRow.some(c => c.p.x) ? ', extension grids included' : ''}?</span>
+            <button class="btn danger" onClick=${() => { setConfirmClear(false); commit(`Clear row ${HEX[row]}_`, inRow.flatMap(c => removeChanges(S.st, g, c.base, c.p))); }}>Clear</button>
+            <button class="btn" onClick=${() => setConfirmClear(false)}>Keep</button>`
+        : html`<button class="btn" disabled=${!inRow.length} onClick=${() => setConfirmClear(true)}>Clear row…</button>`}
+    </div>
+    <p class="hint" style="margin-top:8px">Drag a row label onto another to swap the two rows.</p>`;
+}
+
+function DefEditor() {
+  const d = S.ui.def, f = d.form;
+  const set = (k, v) => { d.form = { ...d.form, [k]: v }; R(); };
+  const err = defError(f);
+  const B = fbits(parseF(f.f));
+  const overridden = d.id && CAT.has(d.id) && S.st.instrs[d.id];
+  return html`<div class="def">
+    <div class="ihead"><span class="lbl">${d.id ? 'Edit instruction' : 'New instruction'}</span>${d.forCell ? html`<span class="addr">for ${addrText(d.forCell.g, d.forCell.byte)}</span>` : ''}</div>
+    <div class="grid2">
+      <label>Mnemonic<input class="inp mono" id="def-m" value=${f.m} onInput=${e => set('m', e.target.value)}/></label>
+      <label>Group<select class="inp" id="def-g" value=${f.g} onChange=${e => set('g', e.target.value)}>${GROUPS.map(([id, n]) => html`<option value=${id}>${n}</option>`)}</select></label>
+      <label class="span2">Operands, as written<input class="inp mono" id="def-syn" value=${f.syn} placeholder="rd, rs   (write ea for the addressing mode)" onInput=${e => set('syn', e.target.value)}/></label>
+      <label class="span2">Fields in the first parcel<input class="inp mono" id="def-f" value=${f.f} placeholder="rd:4 rs:4" onInput=${e => set('f', e.target.value)}/>
+        <small>name:bits, in order. They fill the register byte first, then low opcode bits. Now ${B} bit${B === 1 ? '' : 's'}.</small></label>
+      <label>Addressing mode<select class="inp" id="def-ea" value=${f.ea} onChange=${e => set('ea', e.target.value)}>
+        <option value="">none</option><option value="any">any operand</option><option value="mem">memory only</option><option value="addr">an address (like LEA)</option><option value="value">a jump target</option></select></label>
+      <label>Extension parcels<select class="inp" id="def-ext" value=${f.ext} onChange=${e => set('ext', e.target.value)}><option value="0">0</option><option value="1">1</option><option value="2">2</option></select></label>
+      ${f.ext !== '0' ? html`<label class="span2">What they hold<input class="inp mono" id="def-xl" value=${f.xl} placeholder="rel16" onInput=${e => set('xl', e.target.value)}/></label>` : ''}
+      <label class="span2">Cell label<input class="inp mono" id="def-cs" value=${f.cs} placeholder="#n" onInput=${e => set('cs', e.target.value)}/></label>
+      <label class="span2">Description<textarea class="inp" id="def-d" rows="2" value=${f.d} onInput=${e => set('d', e.target.value)}></textarea></label>
+    </div>
+    ${err ? html`<p class="err">${err}</p>` : ''}
+    <div class="row gap">
+      <button class="btn primary" disabled=${!!err} onClick=${saveDef}>${d.forCell ? 'Save and place' : 'Save'}</button>
+      <button class="btn" onClick=${() => { S.ui.def = null; R(); }}>Cancel</button>
+      ${overridden ? html`<button class="btn" onClick=${() => { S.ui.def = null; commit(`Reset ${f.m} to the catalog`, [{ c: 'instrs', k: d.id, v: null }]); }}>Reset to the catalog</button>` : ''}
+    </div>
+    ${d.id && CAT.has(d.id) ? html`<p class="facts">Editing a catalog instruction keeps your version in this map. Placements that no longer fit show up under Checks.</p>` : ''}
+  </div>`;
+}
+
+function Side() {
+  const t = S.ui.tab;
+  const tab = (id, label) => html`<button role="tab" aria-selected=${t === id} class=${t === id ? 'on' : ''} onClick=${() => { S.ui.tab = id; R(); }}>${label}</button>`;
+  return html`<div class="tabs" role="tablist">${tab('instr', 'Instructions')}${tab('modes', 'Modes')}${tab('hist', 'History')}</div>
+    ${t === 'instr' ? html`<${Catalog}/>` : t === 'modes' ? html`<${Modes}/>` : html`<${History}/>`}`;
+}
+
+function Catalog() {
+  const u = S.ui, g = u.grid, f = u.focus;
+  const used = usage();
+  const target = f && f.type === 'cell' ? f.byte : null;
+  const tc = target !== null ? coverOf(S.st, g, target) : null;
+  const q = u.q.trim().toLowerCase();
+  const list = allIns().filter(x =>
+    (!q || (x.m + ' ' + x.syn + ' ' + x.d).toLowerCase().includes(q)) &&
+    x.src.some(s => !u.srcOff[s]) &&
+    (!u.hideRej || (x.st !== 'rejected' && x.st !== 'notrec')) &&
+    (!u.unplaced || !used[x.id]));
+  const click = (x, ext) => {
+    if (target === null) { u.openIns = u.openIns === x.id ? null : x.id; R(); return; }
+    if (tc && tc.p.x) { flash('The selected cell is an extension grid. Pick another cell.'); return; }
+    placeIns(g, tc ? tc.base : target, x, null, tc ? tc.base : null, ext ? 'ext' : null);
+  };
+  return html`<div class="filters">
+      <input class="inp" id="cat-q" type="search" placeholder="Search mnemonics and descriptions" value=${u.q} onInput=${e => { u.q = e.target.value; R(); }}/>
+      <div class="toggles" role="group" aria-label="Sources">${SRCS.map(([s, l]) => html`<button aria-pressed=${!u.srcOff[s]} class=${u.srcOff[s] ? 'off' : ''} onClick=${() => { u.srcOff[s] = !u.srcOff[s]; R(); }}>${l}</button>`)}</div>
+      <label class="chk"><input type="checkbox" checked=${u.hideRej} onChange=${e => { u.hideRej = e.target.checked; R(); }}/> Hide rejected and not recommended</label>
+      <label class="chk"><input type="checkbox" checked=${u.unplaced} onChange=${e => { u.unplaced = e.target.checked; R(); }}/> Only what isn’t placed yet</label>
+      <p class="hint">${target !== null
+        ? html`Click an instruction to place it in <b class="mono">${addrText(g, tc ? tc.base : target, tc ? tc.s : 1)}</b>, or drag it onto any cell. Shift-click keeps a wide one to this cell, with an extension parcel.`
+        : 'Select a cell, then click an instruction to place it. Or drag one onto a cell.'}</p>
+    </div>
+    ${GROUPS.map(([gid, gname]) => {
+      const items = list.filter(x => x.g === gid);
+      if (!items.length) return '';
+      return html`<div><h4 class="gh"><i class=${'sw g-' + gid}></i>${gname}</h4><ul class="cat">
+        ${items.map(x => html`<li class=${'ci' + (u.openIns === x.id ? ' open' : '') + (x.st === 'rejected' || x.st === 'notrec' ? ' dim' : '')}
+            tabindex="0" draggable="true" title=${x.d} onDragStart=${e => dragStart(e, 'ins:' + x.id)} onDragEnd=${dragEnd}
+            onClick=${e => click(x, e.shiftKey)} onKeyDown=${e => { if (e.key === 'Enter') click(x, e.shiftKey); }}>
+          <div style="min-width:0"><div class="top1"><b>${x.m}</b><span class="syn">${x.syn}</span></div>
+            <div class="cd">${x.d}${x.r ? ` (${x.r})` : ''}</div></div>
+          <div class="cr"><${Chips} In=${x} compact=${true}/>${used[x.id] ? html`<span class="used" title="Cells it’s placed in">×${used[x.id]}</span>` : ''}</div>
+        </li>`)}</ul></div>`;
+    })}
+    ${!list.length ? html`<p class="hint">Nothing matches.</p>` : ''}
+    <div class="row gap" style="margin-top:12px"><button class="btn" onClick=${() => openDef(null, null, '')}>New instruction…</button></div>`;
+}
+
+function SetEditor({ sid }) {
+  const s = S.st.sets[sid];
+  const [name, setName] = useState(s.name);
+  const [del, setDel] = useState(false);
+  const setSlot = (i, m) => {
+    const slots = pad16(s.slots);
+    slots[i] = m || null;
+    commit(`${s.name}: slot ${HEX[i]} ${m ? '= ' + mode(m).syn : 'emptied'}`, [{ c: 'sets', k: sid, v: { ...s, slots } }]);
+  };
+  return html`
+    <label class="fld"><span>Name</span><input class="inp" id=${'set-name-' + sid} value=${name} onInput=${e => setName(e.target.value)}
+      onChange=${e => { const n = e.target.value.trim(); if (n && n !== s.name) commit(`Rename mode set to ${n}`, [{ c: 'sets', k: sid, v: { ...s, name: n } }]); }}/></label>
+    <p class="facts">Slot n fills the column n after the starting column.</p>
+    <ol class="slots">${pad16(s.slots).map((m, i) => html`<li><span class="mono facts">${HEX[i]}</span>
+      <${ModePicker} id=${'slot-' + sid + i} value=${m} In=${null} allowEmpty=${true} noTable=${true} onChange=${v => setSlot(i, v)}/></li>`)}</ol>
+    <div class="row gap">${del
+      ? html`<span>Delete this set?</span><button class="btn danger" onClick=${() => { setDel(false); commit(`Delete mode set ${s.name}`, [{ c: 'sets', k: sid, v: null }]); }}>Delete</button><button class="btn" onClick=${() => setDel(false)}>Keep</button>`
+      : html`<button class="btn" onClick=${() => setDel(true)}>Delete set…</button>`}</div>`;
+}
+
+function ModeDef() {
+  const blank = { syn: '', short: '', f: 'R:4', ext: '0', cls: 'mem', wb: false, d: '' };
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(blank);
+  if (!open) return html`<div class="row gap" style="margin-top:12px"><button class="btn" onClick=${() => setOpen(true)}>New addressing mode…</button></div>`;
+  const set = (k, v) => setF({ ...f, [k]: v });
+  const fs = parseF(f.f);
+  const err = !f.syn.trim() ? 'Write how the mode looks, like [R + 8k].'
+    : fs.some(x => !/^[A-Za-z]\w*$/.test(x.n) || !(x.b >= 1 && x.b <= 16)) ? 'Fields are name:bits, like R:4.' : '';
+  const save = () => {
+    const id = uid('md');
+    commit(`New mode ${f.syn.trim()}`, [{ c: 'modes', k: id, v: {
+      id, kind: id, syn: f.syn.trim(), short: (f.short.trim() || f.syn.trim()).replace(/\s+/g, ''), f: f.f.trim(), cls: f.cls,
+      ext: +f.ext, xl: 'mode', wb: !!f.wb, src: ['custom'], d: f.d.trim() || 'Your mode',
+    } }]);
+    setOpen(false); setF(blank);
+  };
+  return html`<div class="def" style="margin-top:12px">
+    <div class="lbl">New addressing mode</div>
+    <div class="grid2">
+      <label class="span2">Syntax<input class="inp mono" id="md-syn" value=${f.syn} placeholder="[R + 8k]" onInput=${e => set('syn', e.target.value)}/></label>
+      <label>Cell label<input class="inp mono" id="md-short" value=${f.short} placeholder="[R+8k]" onInput=${e => set('short', e.target.value)}/></label>
+      <label>Fields<input class="inp mono" id="md-f" value=${f.f} onInput=${e => set('f', e.target.value)}/></label>
+      <label>Kind<select class="inp" id="md-cls" value=${f.cls} onChange=${e => set('cls', e.target.value)}><option value="reg">register</option><option value="const">constant</option><option value="mem">memory</option></select></label>
+      <label>Extension parcels<select class="inp" id="md-ext" value=${f.ext} onChange=${e => set('ext', e.target.value)}><option value="0">0</option><option value="1">1</option><option value="2">2</option></select></label>
+      <label class="chk span2"><input type="checkbox" checked=${f.wb} onChange=${e => set('wb', e.target.checked)}/> It changes its register, like [R]+</label>
+      <label class="span2">Description<input class="inp" id="md-d" value=${f.d} onInput=${e => set('d', e.target.value)}/></label>
+    </div>
+    ${err ? html`<p class="err">${err}</p>` : ''}
+    <div class="row gap"><button class="btn primary" disabled=${!!err} onClick=${save}>Add mode</button><button class="btn" onClick=${() => setOpen(false)}>Cancel</button></div>
+  </div>`;
+}
+
+function Modes() {
+  const u = S.ui, sets = S.st.sets, ids = Object.keys(sets);
+  const sid = sets[u.setSel] ? u.setSel : ids[0];
+  const mu = modeUsage();
+  const newSet = () => { const id = uid('s'); u.setSel = id; commit('New mode set', [{ c: 'sets', k: id, v: { name: 'New set', slots: pad16([]) } }]); };
+  const dupSet = () => { const s = sets[sid], id = uid('s'); u.setSel = id; commit(`Duplicate mode set ${s.name}`, [{ c: 'sets', k: id, v: { name: s.name + ' copy', slots: pad16(s.slots) } }]); };
+  const row = m => {
+    const e = extRange(m.ext);
+    const custom = !!S.st.modes[m.id];
+    return html`<tr title=${m.d}><td class="mono">${m.syn}</td><td class="n">${fbits(parseF(m.f))}</td><td class="n">${e[0] === e[1] ? e[0] : e[0] + '–' + e[1]}</td>
+      <td>${m.src.map(s => SRCL[s] || s).join(' ')}</td><td class="n">${mu[m.id] || ''}${custom && !mu[m.id] ? html` <button class="link" onClick=${() => commit(`Delete mode ${m.syn}`, [{ c: 'modes', k: m.id, v: null }])}>delete</button>` : ''}</td></tr>`;
+  };
+  const sub = t => html`<tr class="sub"><td colspan="5">${t}</td></tr>`;
+  const plain = MD.filter(m => !m.sz);
+  return html`
+    <div class="ihead"><span class="lbl">Mode sets</span><span class="facts">what “fill a row” lays out</span></div>
+    <div class="row gap">
+      <select class="inp" id="set-sel" style="flex:1;width:auto" aria-label="Mode set" value=${sid || ''} onChange=${e => { u.setSel = e.target.value; R(); }}>
+        ${ids.map(id => html`<option value=${id}>${sets[id].name}</option>`)}</select>
+      <button class="btn" onClick=${newSet}>New</button>
+      ${sid ? html`<button class="btn" onClick=${dupSet}>Duplicate</button>` : ''}
+    </div>
+    ${sid ? html`<${SetEditor} sid=${sid} key=${sid + '|' + sets[sid].name}/>` : html`<p class="hint">No mode sets yet.</p>`}
+    <div class="ihead" style="margin-top:20px"><span class="lbl">Addressing modes</span></div>
+    <p class="hint">Bits: what a mode needs in the first parcel, beside the instruction’s own register. Parcels: the extension parcels it adds. Hover for details.</p>
+    <table class="mt">
+      <thead><tr><th>Mode</th><th>Bits</th><th>Parcels</th><th>From</th><th>Used</th></tr></thead>
+      <tbody>
+        ${sub('From a table')}<tr title="The mode number and its register fill the register byte; the table is one of your mode sets"><td class="mono">ea</td><td class="n">8</td><td class="n">0–2</td><td>1b</td><td class="n">${Object.entries(mu).filter(([k]) => k.startsWith('ea:')).reduce((a, [, n]) => a + n, 0) || ''}</td></tr>
+        ${sub('Registers and constants')}${plain.filter(m => m.cls !== 'mem').map(row)}
+        ${sub('Memory')}${plain.filter(m => m.cls === 'mem').map(row)}${MD.filter(m => m.sz).map(row)}
+        ${Object.keys(S.st.modes).length ? html`${sub('Yours')}${Object.values(S.st.modes).map(row)}` : ''}
+      </tbody>
+    </table>
+    <${ModeDef}/>`;
+}
+
+function ago(t) {
+  const s = (Date.now() - t) / 1000;
+  if (s < 45) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + ' min ago';
+  if (s < 86400) return Math.round(s / 3600) + ' h ago';
+  return new Date(t).toLocaleDateString();
+}
+function History() {
+  const shown = S.log.map((e, i) => [e, i]).reverse();
+  return html`
+    <div class="row gap"><button class="btn" disabled=${!S.cur} onClick=${undo}>Undo</button><button class="btn" disabled=${S.cur >= S.log.length} onClick=${redo}>Redo</button>
+      <span class="facts">${S.cur} of ${S.log.length} step${S.log.length === 1 ? '' : 's'}</span></div>
+    <p class="hint" style="margin-top:8px">Click a step to go back or forward to it. A new change after an undo drops the undone steps. The history is kept with the map.</p>
+    <ol class="hist">
+      ${shown.map(([e, i]) => html`<li class=${(i === S.cur - 1 ? 'cur' : '') + (i >= S.cur ? ' undone' : '')} onClick=${() => jumpTo(i + 1)}><span>${e.label}</span><time>${ago(e.time)}</time></li>`)}
+      <li class=${S.cur === 0 ? 'cur' : ''} onClick=${() => jumpTo(0)}><span>Start</span><time></time></li>
+    </ol>`;
+}
+
+function Modal() {
+  const u = S.ui;
+  const close = () => { S.modal = null; R(); };
+  if (S.modal === 'export') {
+    const text = u.exp.kind === 'json' ? exportJSON(u.exp.hist) : exportMD();
+    return html`<div class="modal-bg" onClick=${close}><div class="modal" role="dialog" aria-label="Export" onClick=${e => e.stopPropagation()}>
+      <div class="ihead"><span class="lbl">Export “${S.mapName}”</span><button class="btn small" onClick=${close}>Close</button></div>
+      <div class="row gap">
+        <div class="seg"><button class=${u.exp.kind === 'json' ? 'on' : ''} onClick=${() => { u.exp.kind = 'json'; R(); }}>JSON</button><button class=${u.exp.kind === 'md' ? 'on' : ''} onClick=${() => { u.exp.kind = 'md'; R(); }}>Markdown tables</button></div>
+        ${u.exp.kind === 'json' ? html`<label class="chk"><input type="checkbox" checked=${u.exp.hist} onChange=${e => { u.exp.hist = e.target.checked; R(); }}/> With the undo history</label>` : ''}
+      </div>
+      <textarea class="inp" id="exp-text" rows="16" readonly value=${text}></textarea>
+      <div class="row gap"><button class="btn primary" onClick=${() => copyText(text, 'exp-text')}>Copy</button>
+        <span class="facts">${(text.length / 1024).toFixed(1)} KB. JSON imports back as a new map, and you can paste either into a chat with Claude.</span></div>
+    </div></div>`;
+  }
+  return html`<div class="modal-bg" onClick=${close}><div class="modal" role="dialog" aria-label="Import" onClick=${e => e.stopPropagation()}>
+    <div class="ihead"><span class="lbl">Import a map</span><button class="btn small" onClick=${close}>Close</button></div>
+    <p class="hint">Paste JSON exported from this page, or choose a file. It comes in as a new map; nothing is overwritten.</p>
+    <textarea class="inp mono" id="imp-text" rows="12" value=${u.imp} onInput=${e => { u.imp = e.target.value; }}></textarea>
+    <input type="file" id="imp-file" accept=".json,application/json" onChange=${e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const r = new FileReader();
+      r.onload = () => { u.imp = String(r.result); u.impErr = ''; R(); };
+      r.readAsText(file);
+    }}/>
+    ${u.impErr ? html`<p class="err">${u.impErr}</p>` : ''}
+    <div class="row gap"><button class="btn primary" onClick=${doImport}>Import as a new map</button></div>
+  </div></div>`;
+}
+
+function App() {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    R = () => setTick(t => t + 1);
+    boot();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  if (!S.ready) return html`<p class="boot">Opening your maps…</p>`;
+  return html`<div class="app">
+    <${Header}/>
+    <div class="main">
+      <section class="gp" aria-label="Opcode grid"><${GridPane}/></section>
+      <section class="insp panel" aria-label="Inspector"><${Inspector}/></section>
+      <section class="side panel" aria-label="Catalog"><${Side}/></section>
+    </div>
+    ${S.modal ? html`<${Modal}/>` : ''}
+    ${S.toast ? html`<div class="toast" role="status">${S.toast}</div>` : ''}
+  </div>`;
+}
+
+const mount = document.getElementById('app');
+mount.textContent = '';
+render(html`<${App}/>`, mount);
+</script>
