@@ -388,23 +388,33 @@ class SpecMem:
         self.assumptions = []        # the specification's, as it makes them
 
     def decided_lane(self, lane, g):
-        """A write's lane when the address alone doesn't say: the solver
-        asked whether the assumptions so far decide it where the write
-        happens (a push: the stack is aligned when a fault is entered).
-        Then the write goes to one chip, as the hardware's does, and not
-        to both under a condition."""
+        """A write's lane when the address alone doesn't say. If the guard
+        decides it (the address was just checked aligned), the write keeps
+        its condition on the lane, which mirrors the hardware's chip
+        select. If only the assumptions do (a push while entering a fault:
+        the stack is assumed aligned), the write goes to that one chip, as
+        the hardware's does; under a condition the solver can't see
+        through it, and the address-error paths of word and half accesses
+        ran out of time."""
         s = z3.Solver()
         s.set("timeout", 10_000)
-        s.add(*[a for a, _ in self.assumptions])
         s.add(g)
-        for bit in (0, 1):
-            s.push()
-            s.add(lane == bit)
-            r = s.check()
-            s.pop()
-            if r == z3.unsat:
-                return z3.BitVecVal(1 - bit, 1)
-        return lane
+
+        def forced():
+            for bit in (0, 1):
+                s.push()
+                s.add(lane == bit)
+                r = s.check()
+                s.pop()
+                if r == z3.unsat:
+                    return z3.BitVecVal(1 - bit, 1)
+            return None
+
+        if forced() is not None:
+            return lane
+        s.add(*[a for a, _ in self.assumptions])
+        one = forced()
+        return lane if one is None else one
 
     def _split(self, a):
         t = S.term(a)
