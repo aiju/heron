@@ -20,7 +20,8 @@ start:  BANK <- #0
         CTRL <- #(8 | CTRL_SESSION)
         AC <- ev1
         a <- AC
-        F <- #0 | ev3 <- F      ; STUCK and OWN cleared
+        F <- #0 | ev3 <- F      ; STUCK and OWN cleared, a clock later
+        nop
         AC <- ev1
         b <- AC
         F <- #0x1234 | AB <- F

@@ -435,6 +435,10 @@ T("vector", "vector", [("CLK", "in")] + [(f"O{i}", "tri") for i in range(64)]
 T("clockgen", "clockgen", [("CLK", "out"), ("WEWIN", "out"), ("RESET", "out")],
   family="fixture", desc="clock, write window and reset (oscillator + phase logic)")
 
+T("edge", "edge", [(f"Y{i}", "tri") for i in range(64)], family="fixture",
+  desc="for static timing analysis: the other cards on a card's bus lines, which may drive "
+       "them, changing at params arrival_ps after BCLK's edge as the card sees it")
+
 T("iodev", "iodev",
   [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WEL", "in"), ("WEH", "in")]
   + [(f"A{i}", "in") for i in range(8)] + [(f"D{i}", "io") for i in range(16)] + [("IRQ", "out")],

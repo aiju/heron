@@ -51,7 +51,8 @@ class Netlist:
         self.insts = nl.instances
         self.delay = {}
         for inst in self.insts:
-            if inst.type.family == "fixture":
+            if inst.type.family == "fixture" or (inst.type.family in chips.UNTIMED
+                                                  and inst.part_number(variant) not in timing):
                 self.delay[inst.ref] = {}
             else:
                 part = inst.part_number(variant)
@@ -192,8 +193,10 @@ class Case:
     def m_xor(self, inst, pin, d): return self._gate(inst, pin, d, "xor")
 
     def _seq(self, inst, pin, dname):
-        """Register outputs launch at clock-to-output after the edge."""
-        _, tc, _ = self.pin(inst, inst.type.name == "74" and pin[0] + "CLK" or "CLK")
+        """Register outputs launch at clock-to-output after the edge (a
+        dual part's section at its own clock's)."""
+        clk = pin[0] + "CLK" if pin[0] + "CLK" in inst.type.pin_index else "CLK"
+        _, tc, _ = self.pin(inst, clk)
         v = self.const.get(inst.conn.get(pin))
         return (v, max(tc, 0) + self.N.delay[inst.ref][dname], True, (inst.ref, "CLK", dname))
 
@@ -209,6 +212,7 @@ class Case:
         return (v, t, True if oe == 0 else None, cause)
 
     def m_dff74(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
+    def m_jk109(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
     def m_dff175(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
     def m_reg377(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
 
@@ -313,6 +317,43 @@ class Case:
         t, cause = self.latest(inst, [(p, dname, d[dname]) for p in pins
                                       if self.pin(inst, p)[0] == (0 if p == "WE" else 1)])
         return (None, t, False, cause)
+
+    def m_tribuf(self, inst, pin, d):
+        """74x125: four buffers, each with its own OE."""
+        s = pin[0]
+        oe = self.pin(inst, f"{s}OE")[0]
+        if oe == 1:
+            return self._off(inst, [f"{s}OE"], "OE->Y dis", d)
+        v = self.pin(inst, f"{s}A")[0]
+        t, cause = self.latest(inst, [(f"{s}A", "A->Y", d["A->Y"]), (f"{s}OE", "OE->Y en", d["OE->Y en"])])
+        return (v if oe == 0 else None, t, True if oe == 0 else None, cause)
+
+    def m_nand_oc(self, inst, pin, d):
+        """An open-collector NAND (or inverter): it pulls low when its inputs
+        are all high, and lets go otherwise."""
+        ins = gate_inputs(inst, pin)
+        vals = [self.pin(inst, p)[0] for p in ins]
+        if 0 in vals:
+            if not self.turnoff:
+                return (None, NEG, False, None)
+            t, cause = self.latest(inst, [(p, "release", d["release"]) for p, v in zip(ins, vals) if v == 0])
+            return (None, t, False, cause)
+        t, cause = self.latest(inst, [(p, "A->Y", d["A->Y"]) for p in ins])
+        return (0, t, True if all(v == 1 for v in vals) else None, cause)
+
+    def m_fanbuf(self, inst, pin, d):
+        v, t, _ = self.pin(inst, "A")
+        return (v, t + d["A->Y"] if t != NEG else NEG, True, (inst.ref, inst.conn["A"], "A->Y"))
+
+    def _async(self, inst, pin, d):
+        """A device that moves by itself or on its own strobes (a UART, a
+        timer, a clock chip, a monostable, an oscillator): its outputs
+        change at no time this analysis can place, so they count as there
+        before the edge; an I/O bus's timing table times its reads."""
+        en = True if inst.type.kind(pin) == "out" else None
+        return (None, NEG, en, None)
+
+    m_uart16550 = m_i8254 = m_ds1302 = m_mono123 = m_cf = m_osc = _async
 
     def m_buf541(self, inst, pin, d):
         oe1, oe2 = self.pin(inst, "OE1")[0], self.pin(inst, "OE2")[0]
@@ -429,6 +470,9 @@ class Case:
         if pin == "RESET":
             return (1, NEG, True, None)
         return (0, NEG, True, None)     # RW, RSTB
+
+    def m_edge(self, inst, pin, d):
+        return (None, inst.params["arrival_ps"] / 1000.0, None, (inst.ref, pin, "the bus"))
 
     def m_const(self, inst, pin, d):
         return (int(pin == "HI"), NEG, True, None)

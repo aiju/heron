@@ -9,6 +9,7 @@ must be the model's.
     heron iop hw window                    the window onto the I/O bus, the same way
     heron iop hw stuck                     the stuck-transfer counter, against a slave that never answers
     heron iop hw bom                       the parts
+    heron iop hw sta [--paths N]           static timing analysis at 60 ns (sta.py)
     heron iop hw schematic [--out FILE]    the schematic viewer (build/iop/schematic.html)
 
 Both start from the microcode's quick build (build.py's `quick`: the
@@ -379,6 +380,9 @@ def report(hw):
 
 
 def main(argv):
+    if argv[:1] == ["sta"]:
+        from . import sta
+        return sta.main(argv[1:])
     p = argparse.ArgumentParser(prog="heron iop hw")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")

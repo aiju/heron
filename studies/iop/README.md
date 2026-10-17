@@ -239,6 +239,8 @@ heron iop hw test --ms 21                # the firmware against the model, to th
 heron iop hw test --ucode hwtest.uc      # the bus side, shared RAM and I/O bus against the model
 heron iop hw slave                       # the slave side, against a second master on the bench
 heron iop hw window                      # the window onto the I/O bus, the same way
+heron iop hw stuck                       # the stuck-transfer counter, against a slave that never answers
+heron iop hw sta                         # static timing analysis at 60 ns, about 10 s
 heron iop hw bom                         # the parts
 heron iop hw schematic                   # the schematic viewer, build/iop/schematic.html
 ```
@@ -257,17 +259,46 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   byte lane, and a doorbell that `ucode/hwslave.uc` answers. The window
   onto the I/O bus, the same way, takes posted writes and reads of the
   UART and the flash while `ucode/hwwin.uc` uses the I/O bus itself.
+- **Static timing analysis** (`sta.py`, on `infra/hw/sta.py`'s case
+  analysis): every distinct microinstruction, in each half, with uIR's
+  fields, its predecoded bits and PH held and everything else unknown,
+  at the slow corner. Registers that load only at E1 or only at E2
+  launch a clock early in the other half's cases, so uPC through the
+  microcode flash into uIR is a 2-clock path; PHD and STAKEF capture at
+  BCLK's fall; the bus's lines arrive as RFC 0037, 4 lets them (29 ns
+  and the skew at the pin), and the card's own must be valid at the pin
+  16 ns after BCLK. Every check meets 60 ns; the worst slack is 0.2 ns,
+  WRITE and BE at the card's pins. It found 100 late checks at first, the
+  simulator having seen none: those it can't, paths that end after the
+  edge, and paths no test happened to exercise. The fixes are in
+  `card.py`, each with its reason: TFREE only at E2 (the flash has the
+  next microinstruction 66 ns after E2, so in the first half its
+  predecode was the old one's or nothing), WAIT, GNTQ, START, STARTQ,
+  WRITE and the data's enables from 74ABT74s and register outputs for
+  RFC 0037's 16 ns, START with GNT a gate before its flip-flop, the
+  timing table's write and CTRL's load predecoded (16 bits now), the
+  INT and ATN lines registered before the event ports (they change at
+  any time), the shared RAM's bank select in both polarities, slave
+  reads pending a clock as writes do, a few gates folded. What it
+  assumes, besides the parts' data: the firmware writes the timing
+  table only while the I/O side is idle, which no hardware enforces;
+  and a microinstruction that puts a device or BA onto T in its second
+  half isn't followed by one that reads T in its first, which the
+  microassembler enforces (`uasm.t_handovers`). Not covered: hold
+  times, the I/O bus's devices (the timing table times them in clocks),
+  the asynchronous parts (doorbells' sets, the synchronisers, the
+  watchdog, the clock chip).
 - **The microcycle:** PH, a flip-flop, is the half. At each edge it turns
   to the second half (E1) unless something holds the first, and back (E2)
   unless something holds the second; every register is clocked by BCLK
   with an enable, E1EN or E2EN. The SRAM is written from E1 until BCLK
   falls.
 - **Predecoding** (RFC 0027, 3.6's suggestion): the first half's paths
-  don't fit 60 ns with decoders in them, so 14 bits are decoded from the
+  don't fit 60 ns with decoders in them, so 16 bits are decoded from the
   next microinstruction as the flash gives it and registered with it in
   uIR's spare bits and a seventh half: the SRAM's address source (both
   polarities), R's and T's sources, a device onto R, the I/O bus access,
-  a system bus transfer.
+  a system bus transfer, a timing table write, a CTRL load.
   With them a register through the ALU into F is about 54 ns.
 - **The I/O bus side** (RFC 0037, 16): an access is S0 (idle, or its
   setup), STB and HLD, with an 8-bit counter each state starts from 0 and
@@ -283,9 +314,13 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   write data through it. A transfer waits at E1 for GNT and the last data
   phase's end, with WAIT's own term last in E1EN, as it comes late in the
   clock (RFC 0037's 29 ns); E2 can't wait for WAIT, as E2EN goes to the
-  74F161s' 11.5 ns setups. GNT, which comes late too, goes into the stall
-  as the bus line has it, active low: through two inverters, START's
-  flip-flop missed its setup by 2 ns when a transfer waited for it.
+  74F161s' 11.5 ns setups. GNT, which comes late too (RFC 0037 has it
+  settle 29 ns after the edge), goes into the stall as the bus line has
+  it, active low, and into START a gate before its flip-flop: RFC 0037,
+  6.3 has a master start just after an edge at which it samples GNT, so
+  it can't be registered first. The owner's lines turn on with GNTQ, from
+  a 74ABT74, and START, WRITE and BE come from registers, for the bus's
+  16 ns.
 - **The stuck-transfer counter** (RFC 0027, 4.1; RFC 0037, 5.6): two
   74F163s count the bus's consecutive data clocks, whoever's they are. At
   256 the card asserts RESET for 256 clocks, counted by the same
@@ -301,10 +336,13 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   registered; an access to the shared RAM takes T for one clock that the
   core leaves free (neither the running microinstruction nor the next,
   predecoded, uses T: the clock after is free too, which the RAM's
-  address, changing hands back, needs), waiting with WAIT held. A write's
-  data is registered at the end of its first data clock and written in
-  that clock; a read's is registered at its end and driven the clock
-  after: 2 data clocks each at least, as RFC 0027 (4.2) estimates. The
+  address, changing hands back, needs), decided at E2 only, as the next
+  microinstruction's predecode isn't there before, waiting with WAIT
+  held. Every access waits from its address clock (the decode leaves no
+  time to take T at once). A write's data is registered at the end of
+  its first data clock and written in its T clock, which ends it; a
+  read's is registered at the T clock's end and driven the clock after:
+  3 data clocks each at least, against RFC 0027's estimate of 2 (4.2). The
   model doesn't share T this way: its slave accesses take no time.
   Doorbells are J-K flip-flops, set in the write's data clock and cleared
   at E2 by the event port.
@@ -314,11 +352,15 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   in its setup, and the core's waits through it), with the device's
   timing from a second copy of the timing table, written with the first:
   a multiplexer in front of the first would lengthen the core's accesses'
-  first clock. A write is posted, accepted in one data clock unless the
-  last is still on the I/O bus; a read holds WAIT until its data is
-  registered at the strobe's end, and drives it for a clock. WAIT comes
-  from the window's state alone: the address clock's decode (a 74F521)
-  leaves no time for more behind it before the first data clock.
+  first clock. A write is posted, accepted at the end of its first data
+  clock unless the last is still on the I/O bus; a read waits until its
+  data is registered at the strobe's end, and drives it the clock after.
+  WAIT is registered for the bus's 16 ns, and the address clock's decode
+  (a 74F521) leaves no time for more than "this is the window" before it:
+  so every access holds WAIT in its first data clock, a write takes 2
+  data clocks and a read 3 more than its I/O bus access. The window's
+  copy of the timing table is addressed through a multiplexer that a
+  table write switches: so the firmware's rule above.
 - **Reset** (RFC 0037, 7): the card listens to COLD, through a Schmitt
   trigger and a flip-flop that ends reset at a clock edge; the bench's
   supply supervisor asserts it at power-up.
@@ -352,8 +394,8 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 211 packages so far (`heron iop hw bom`), against RFC 0027's
-  ~95 for the whole card: 67 are gates (74F00-74F86), the glue that
+- **Parts:** 215 packages so far (`heron iop hw bom`), against RFC 0027's
+  ~95 for the whole card: 74 are gates (74F00-74F86), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
   18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
   multiplexer would (RFC 0027's 3; the library has no '259).
@@ -363,12 +405,12 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   buffers (the core's or the window's) overlap by under 2 ns as they
   change hands; a pair of 74F157s would avoid it.
 - **Not yet:** the window's 4r + 2 (reaching nothing) and its bound on
-  WAIT, the 32-bit path, LOCK, I/O cards in
-  the slots, static timing analysis (the simulator's
-  checks catch a late signal only within a setup window, not one later
-  than the edge, so the paths above were checked by hand), and a
-  timer model in the microinstruction-level model exact enough to keep
-  the two together past the first tick.
+  WAIT, the 32-bit path, LOCK, I/O cards in the slots, hold-time
+  analysis, a hardware interlock for the timing table's writes, a
+  printed circuit board (the PCB flow, `studies/pcb`, has no footprints
+  for the 16-bit parts' packages, nor a way to pair their halves), and
+  a timer model in the microinstruction-level model exact enough to
+  keep the two together past the first tick.
 
 ## Measurements
 
@@ -377,27 +419,27 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
 | | Measured | RFC 0027 |
 |---|---:|---|
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
-| dictionary out of the flash (9068 cells, 36 pages) | 7.3 ms | 32K cells in ~30 ms |
+| dictionary out of the flash (9156 cells, 36 pages) | 7.3 ms | 32K cells in ~30 ms |
 | power-up to the banner | 151.2 ms | - |
-| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,249,900 | about 1,000,000 |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,249,903 | about 1,000,000 |
 | microcycles a Forth word, there | 6.67 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
 | the tick's share of the IOP while Forth computes | 9.7% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,228,336 | - |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,223,449 | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
 | copy, the CPU's RAM to its RAM, 8192 halfwords | 3.0 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
 | booting the CPU: draft 2's control store, its decode table and the program | 92.5 ms (2.6 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
-| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 40.6 us, 59.2 us | ~5 us on top of the transfer |
-| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1373.2 us, 1391.8 us | ~5 us on top of the transfer |
-| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 147.6 us, 234.1 us | ~5 us on top of the transfer |
+| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 36.8 us, 61.3 us | ~5 us on top of the transfer |
+| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1375.1 us, 1393.7 us | ~5 us on top of the transfer |
+| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 146.0 us, 230.3 us | ~5 us on top of the transfer |
 | a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 282 cycles, 103 us | 200-700 cycles |
 | a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 282 cycles, 1438 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 275 us | 200-700 cycles |
-| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 380 ms, 82% busy, 7,292 cycles a KB | the CPU's time back |
-| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1665 ms, 68% busy, 26,570 cycles a KB | the CPU's time back |
-| microcode | 2231 microinstructions, 76 primitives | 1-2K; the interpreter and primitives 500-1,000 |
-| the Forth's dictionary | 9068 cells | up to 32K |
+| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 278 us | 200-700 cycles |
+| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 380 ms, 82% busy, 7,290 cycles a KB | the CPU's time back |
+| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1664 ms, 68% busy, 26,570 cycles a KB | the CPU's time back |
+| microcode | 2239 microinstructions, 77 primitives | 1-2K; the interpreter and primitives 500-1,000 |
+| the Forth's dictionary | 9156 cells | up to 32K |
 
 The copies are a job's time from its first slice to its end, with the
 ticks and the Forth's turns. A request's CPU cycles are `sw/ring.s`'s,

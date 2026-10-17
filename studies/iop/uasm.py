@@ -348,6 +348,12 @@ class Assembler:
                 words[addr] = self.encode_line(ln)
             except AsmError as e:
                 raise AsmError(f"{ln.where}: {e} in {ln.src!r}") from None
+        where = {addr: ln for addr, ln in self.lines}
+        for a, b in t_handovers(words):
+            ln = where[a]
+            raise AsmError(f"{ln.where}: a device or BA onto T in the second half, and then T read in the "
+                           f"next microinstruction's first half ({where[b].where if b in where else hex(b)}): "
+                           f"it lets go of T too late (studies/iop/README.md) in {ln.src!r}")
         return words
 
     def set_k(self, ln, v):
@@ -602,6 +608,32 @@ class Microcode:
             if a <= addr and (best is None or a > best[1]):
                 best = (name, a)
         return f"{best[0]}+{addr - best[1]}" if best else f"{addr:04X}"
+
+
+def field(w, name):
+    bit, n = FIELDS[name]
+    return (w >> bit) & ((1 << n) - 1)
+
+
+def t_handovers(words):
+    """[(a, b)]: a microinstruction a that puts a device or BA onto T in
+    its second half (AB <- dev, AB <- BA), which turns it off only 25-30
+    ns after E2, and one that can follow it, b, that reads T onto R in its
+    first half. b follows a as its next microinstruction, or, when a is a
+    branch's delay slot, as the branch's target; a in a dispatch's delay
+    slot can't be checked, so it counts."""
+    out = []
+    for a, w in words.items():
+        if field(w, "T") not in (T_AB_DEV, T_AB_BA):
+            continue
+        nxt = [a + 1]
+        prev = words.get(a - 1)
+        if prev is not None and field(prev, "SEQ") in (1, 2):
+            nxt.append(field(prev, "K"))
+        elif prev is not None and field(prev, "SEQ") == 3:
+            out.append((a, a - 1))
+        out += [(a, b) for b in nxt if b in words and field(words[b], "RS") == RS_T]
+    return out
 
 
 def assemble(sources):

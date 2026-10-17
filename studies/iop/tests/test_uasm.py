@@ -53,6 +53,15 @@ class Errors(unittest.TestCase):
             one(line)
         self.assertIn(what, str(e.exception))
 
+    def test_t_handover(self):
+        """A device read onto T in a second half, then T onto R in the
+        next first half: the device lets go of T too late."""
+        with self.assertRaisesRegex(uasm.AsmError, "too late"):
+            uasm.assemble([("t", "F <- #0 | AB <- io\nAC <- sr\n")])
+        with self.assertRaisesRegex(uasm.AsmError, "too late"):
+            uasm.assemble([("t", "goto x\nF <- #0 | AB <- io\nnop\nx: AC <- sr\n")])
+        uasm.assemble([("t", "F <- #0 | AB <- io\nnop\nAC <- sr\n")])
+
     def test_k_twice(self):
         self.bad("F <- #5 + AC | goto here", "K is needed for both")
 
