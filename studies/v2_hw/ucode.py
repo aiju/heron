@@ -498,14 +498,21 @@ def trap_tail(vecreg, pcfix, name, ubr=0):
     key = (vecreg, pcfix, ubr)
     if key in _trap_cache:
         return _trap_cache[key]
-    pc = mi(a="pc", kv=pcfix, alu="sub") if pcfix else mi(a="pc", alu="passa")
-    node = chain(name,
-                 merge(pc, mi(w=TMP1)),                               # TMP1 <- saved PC
-                 mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),           # bank 0's sp
-                 mi(a="r", mem="write", size="word", marinc=1,        # the flags word;
-                    rb=TMP1, alu="passb", ldr=1, ubr=ubr or None),    # R <- saved PC
-                 end(name, a="r", mem="write", size="word", rb=vecreg, alu="passb",
-                     ldpc=1))
+    if pcfix:
+        node = chain(name,
+                     mi(a="pc", kv=pcfix, alu="sub", w=TMP1),             # TMP1 <- saved PC
+                     mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),           # bank 0's sp
+                     mi(a="r", mem="write", size="word", marinc=1,        # the flags word;
+                        rb=TMP1, alu="passb", ldr=1, ubr=ubr or None),    # R <- saved PC
+                     end(name, a="r", mem="write", size="word", rb=vecreg, alu="passb",
+                         ldpc=1))
+    else:
+        # the PC as it is: stored straight from the A bus as it loads
+        node = chain(name,
+                     mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),
+                     mi(a="r", mem="write", size="word", marinc=1, ubr=ubr or None),
+                     end(name, a="pc", mem="write", size="word", rb=vecreg, alu="passb",
+                         ldpc=1))
     _trap_cache[key] = node
     return node
 
@@ -540,11 +547,10 @@ def interrupt_entry():
     # the message: the frame first, on the message level's own sp (M is
     # set from here on), while R holds sr; then the message
     name = "message"
-    msg = chain(name, mi(a="pc", alu="passa", w=TMP1),
-                mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),
-                mi(a="r", mem="write", size="word", marinc=1, rb=TMP1, alu="passb", ldr=1),
-                mi(a="r", mem="write", size="word"),
-                mi(b="msg", alu="passb", w=TMP2),                      # releases it
+    msg = chain(name, mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),
+                mi(a="r", mem="write", size="word", marinc=1),
+                mi(a="pc", mem="write", size="word",
+                   b="msg", alu="passb", w=TMP2),                      # releases it
                 mi(ra=TMP2, alu="passa", rz=0b1110, ldr=1, w=1),       # r1, R <- source
                 mi(ra=TMP2, alu="passa", rms="ror8", rz=0b1000, w=2),  # r2 <- message
                 mi(a="r2", sina="0", alu="dbl", cin="0", ldr=1),       # R <- 4 x source
@@ -1937,7 +1943,7 @@ class Microcode:
                 raise ValueError(f"{n.name}: consumes a parcel and decodes")
             if f.get("CONSUME") and mem in data:
                 raise ValueError(f"{n.name}: consumes a parcel in a data access")
-            if mem == MEM["write"] and not f.get("ARF") and not f.get("AR"):
+            if mem == MEM["write"] and not (f.get("ARF") or f.get("AR") or f.get("APC")):
                 raise ValueError(f"{n.name}: a write with nothing on the A bus")
             if mem == MEM["reada"] and not f.get("ARF"):
                 raise ValueError(f"{n.name}: a read at the A bus without a register on it")
