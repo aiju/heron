@@ -15,7 +15,7 @@ interprets, on a system with a draft 2 CPU card that the IOP boots; then
 the native jobs, the rings with their requests, windows and completions,
 events and interrupts to the CPUs, I/O cards behind them, and the
 measurements. And step 4, a first cut of the card at chip level
-(`card.py`, [below](#the-netlist)): 230 packages that run the
+(`card.py`, [below](#the-netlist)): 212 packages that run the
 firmware on the chip-level simulator clock for clock with the model, the
 I/O cards in their slots, and meet 60 ns in static timing analysis. An
 experiment: RFC 0027 isn't settled, and where this study needed
@@ -480,28 +480,33 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 223 packages so far (`heron iop hw bom`, 4 of them
+- **Parts:** 212 packages so far (`heron iop hw bom`, 4 of them
   oscillators), against RFC 0027's ~95 for the whole card. By the part
   of the design (`--sections`): the I/O bus side 33 (WAIT 9 of it) and
-  its timing table 9, the window 19, the doorbells 9 (RFC 0027's 3: two
+  its timing table 9, the window 18, the doorbells 9 (RFC 0027's 3: two
   74HCT259s, but strobing them safely takes a register, a multiplexer
   and two flip-flops, and BELL a 16-bit zero test), the slave side
-  18, the event ports 11, the predecoding 9, the stuck-transfer counter
-  8.5, the system bus side 20, the shared RAM 7, the card's own devices
+  18, the event ports 10, the predecoding 9, the stuck-transfer counter
+  8, the system bus side 18, the shared RAM 7, the card's own devices
   12, and the core (the ALU, registers, F, AC, X, the microcode, uPC,
   uIR, the sequencer, LC and CTRL, the swap and page registers, T and
-  the microcycle) about 58. 78 packages are gates (74F00-74F86 and a
-  74ACT10, as the library has no 74F10), the glue that decoding, the
-  stalls and the I/O side's and slave side's states need, and 14 are
-  74F138s. CTRL stays a 74F175, a 74F138 and gates (5.7 packages) rather
-  than a '259: the '259 takes up to 51 ns, and R holds CTRL's value only
+  the microcycle) about 56. 70 packages are gates (74F00-74F86), the
+  glue that decoding, the stalls and the I/O side's and slave side's
+  states need, and 14 are 74F138s. Registers drive buses through their
+  own output enables where they can (AH0 and AH1 onto AHI, INT and ATN
+  onto T), and flip-flops' inverted outputs and gates that invert stand
+  in for inverters. CTRL stays a 74F175, a 74F138 and gates (4.3
+  packages: the decoder takes R[3] with the bit, so its outputs are each
+  bit's clear and set) rather than a '259: the '259 takes up to 51 ns, and R holds CTRL's value only
   from E1's handover until E2, so its strobe would end on an edge where
   R changes; with a register after it CTRL would change a clock later.
 - **Contention:** R changes hands at E1 with up to 7 ns of overlap (F's
   enable against the SRAM's disable), and while reset holds uIR cleared
   both of the SRAM's address drivers are on. The I/O side's address
   buffers (the core's or the window's) overlap by under 2 ns as they
-  change hands; a pair of 74F157s would avoid it.
+  change hands; a pair of 74F157s would avoid it. AH0's and AH1's
+  registers overlap onto AHI by an inverter's delay as SEG changes,
+  though nothing takes AHI until E1.
 - **Not yet:** the 32-bit path, LOCK, and a printed circuit board
   (the PCB flow, `studies/pcb`, has no footprints for the 16-bit parts'
   packages, nor a way to pair their halves).

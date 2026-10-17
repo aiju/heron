@@ -257,11 +257,10 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     g("00", [ud[22], "PDRS1_n"], "PD_NMEM")           # and not, for the other drivers
     g("08", [ud[23], "PDRS0_n"], "PD_K")              # RS 2: K
     g("08", [ud[22], ud[23]], "PD_T")                 # RS 3: T
-    dec(nl, "U_PDT", [ud[39], ud[40], ud[41]], y={k: f"PDT{k}_n" for k in range(1, 7)})
+    dec(nl, "U_PDT", [ud[39], ud[40], ud[41]], y={k: f"PDT{k}_n" for k in range(8)})
     g("00", ["PDT2_n", "PDT5_n"], "PD_FT")            # F onto T
     g("04", ["PDT6_n"], "PDT6")
-    g("08", ["PD_T", "PDT6"], "PD_TD")                # a device onto R
-    g("04", ["PD_TD"], "PD_TD_n")
+    g("00", ["PD_T", "PDT6"], "PD_TD_n")              # a device onto R
     dec(nl, "U_PDD", [ud[19], ud[20], ud[21]], g2a="PD_TD_n", y={k: f"PDF{k}_n" for k in range(4)})
     dec(nl, "U_PDE", [ud[16], ud[17], ud[18]], g2a="PDF3_n", y={k: f"PDE{k}_n" for k in range(3)})
     for k in range(3):
@@ -366,22 +365,23 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     # CTRL, RFC 0027's control register as the study has it: loading it
     # from R sets bit R[2:0] to R[3]. In every clock of the second half,
     # not just at E2: R holds still, so a stretched second half loads the
-    # same again, and E2EN's decode came too late
+    # same again, and E2EN's decode came too late. The decoder takes R[3]
+    # with the bit, so that its outputs are each bit's clear and set
+    # (bits 4-7 don't exist: R[2] disables it)
     g("00", ["PH", "pLDC"], "LDCTRL_n")
-    dec(nl, "U_CSEL", [R[0], R[1], R[2]], g2a="LDCTRL_n", y={i: f"CSEL{i}_n" for i in range(4)})
+    dec(nl, "U_CSEL", [R[0], R[1], R[3]], g2a="LDCTRL_n", g2b=R[2],
+        y={**{i: f"CCLR{i}_n" for i in range(4)}, **{4 + i: f"CSET{i}_n" for i in range(4)}})
     ctrl = ["SESSION", "WORK", "BRESET", "IORESET"]
     for i, q in enumerate(ctrl):
-        g("04", [f"CSEL{i}_n"], f"CSEL{i}")
-        g("00", [q, f"CSEL{i}_n"], f"CK{i}A")
-        g("00", [R[3], f"CSEL{i}"], f"CK{i}B")
-        g("00", [f"CK{i}A", f"CK{i}B"], f"CTRL{i}_D")
+        g("00", [q, f"CCLR{i}_n"], f"CK{i}A")
+        g("00", [f"CK{i}A", f"CSET{i}_n"], f"CTRL{i}_D")
     nl.add("175", "U_CTRL", CLK="BCLK", CLR="RESET_n",
            **{f"{i + 1}D": f"CTRL{i}_D" for i in range(4)}, **{f"{i + 1}Q": q for i, q in enumerate(ctrl)},
            **{"1QN": "SB_REQ3_n"})                 # REQ, straight from its flip-flop (RFC 0037's 16 ns)
 
     # ------------------------------------------------------------ T and its devices
     nl.section("T bus")
-    dec(nl, "U_TD", [u("T", 0), u("T", 1), u("T", 2)], y={k: f"TDY{k}_n" for k in range(1, 7)})
+    dec(nl, "U_TD", [u("T", 0), u("T", 1), u("T", 2)], y={k: f"TDY{k}_n" for k in range(8)})
     # the bridge, a buffer each way: T onto R in the first half (RS 3), F
     # onto T in the second (AB <- F, dev <- F)
     g("00", ["PH_n", "pT"], "TROE_n")
@@ -398,13 +398,14 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     # a device onto T: in the first half for RS 3 (predecoded, the whole
     # microinstruction, as nothing else uses T then), in the second for
     # AB <- dev
-    g("00", ["PH", "TY3"], "DEVRD2_n")
-    g("04", ["TDY3_n"], "TY3")
+    g("32", ["PH_n", "TDY3_n"], "DEVRD2_n")
     dec(nl, "U_DRD", [u("REG", 3), u("REG", 4), u("REG", 5)], g2a="DEVRD2_n",
         y={0: "DRDY0B_n", 1: "DRDY1B_n", 2: "DRDY2B_n", 3: "DRDY3_n"})
+    # (device 1's, the shared RAM's, is in SROE_n)
     for k in range(3):
         g("04", [f"DRDY{k}B_n"], f"DRDY{k}B")
-        g("02", [f"pF{k}", f"DRDY{k}B"], f"DRDY{k}_n")
+        if k != 1:
+            g("02", [f"pF{k}", f"DRDY{k}B"], f"DRDY{k}_n")
     dec(nl, "U_DWD", [u("REG", 3), u("REG", 4), u("REG", 5)], g1="E2EN", g2a="DEVW_n",
         y={2: "DWDY2_n", 4: "DWDY4_n"})
 
@@ -429,14 +430,11 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     ints = [n if i in (12, 14) or (bench and i in CARD_SLOTS) else "GND" for i, n in enumerate(INT)]
     # (synchronisers: their setup is missed now and then by design, and
     # the clock after is theirs to settle in)
-    reg(nl, "U_INTQ0", ints[0:8], bus("INTQ", 8), nocheck=True)
-    reg(nl, "U_INTQ1", ints[8:16], bus("INTQ", 8, 8), nocheck=True)
-    reg(nl, "U_ATNQ", [f"SB_ATN{i}_n" for i in range(4)], [f"ATNQ{i}_n" for i in range(4)], nocheck=True)
-    buf(nl, "U_EV00", bus("INTQ", 8), T[0:8], "EV0OE_n")
-    buf(nl, "U_EV01", bus("INTQ", 8, 8), T[8:16], "EV0OE_n")
+    reg(nl, "U_INTQ0", ints[0:8], T[0:8], oe="EV0OE_n", nocheck=True)
+    reg(nl, "U_INTQ1", ints[8:16], T[8:16], oe="EV0OE_n", nocheck=True)
     for i in range(4):
-        g("04", [f"ATNQ{i}_n"], f"ATN{i}")
-    buf(nl, "U_EV10", bus("ATN", 4), T[0:8], "EV1OE_n")
+        g("04", [f"SB_ATN{i}_n"], f"ATN{i}")
+    reg(nl, "U_ATNQ", bus("ATN", 4), T[0:8], oe="EV1OE_n", nocheck=True)
     buf(nl, "U_EV11", bus("TOD", 4) + ["IOTO", "OWN", "STUCK", "TICK"], T[8:16], "EV1OE_n")
     buf(nl, "U_EV20", bus("DB", 8), T[0:8], "EV2OE_n")
     buf(nl, "U_EV21", bus("DB", 8, 8), T[8:16], "EV2OE_n")
@@ -715,15 +713,12 @@ def system_bus(nl):
     it. Not yet: the 32-bit path, LOCK, the stuck-transfer counter."""
     g = nl.gate
     nl.section("System bus: addresses")
-    reg(nl, "U_AH00", R[0:9], bus("AH0_", 9), en="LDAH0_n")
-    reg(nl, "U_AH01", R[9:16], bus("AH0_", 7, 9), en="LDAH0_n")
-    reg(nl, "U_AH10", R[0:9], bus("AH1_", 9), en="LDAH1_n")
-    reg(nl, "U_AH11", R[9:16], bus("AH1_", 7, 9), en="LDAH1_n")
     # AH0 or AH1 onto AHI by SEG, for AHOUT
     g("04", ["uSEG"], "uSEG_n")
-    for k, (lo, n) in enumerate(((0, 8), (8, 8))):
-        buf(nl, f"U_AHS0{k}", bus("AH0_", n, lo), bus("AHI", n, lo), "uSEG")
-        buf(nl, f"U_AHS1{k}", bus("AH1_", n, lo), bus("AHI", n, lo), "uSEG_n")
+    reg(nl, "U_AH00", R[0:9], bus("AHI", 9), en="LDAH0_n", oe="uSEG")
+    reg(nl, "U_AH01", R[9:16], bus("AHI", 7, 9), en="LDAH0_n", oe="uSEG")
+    reg(nl, "U_AH10", R[0:9], bus("AHI", 9), en="LDAH1_n", oe="uSEG_n")
+    reg(nl, "U_AH11", R[9:16], bus("AHI", 7, 9), en="LDAH1_n", oe="uSEG_n")
     g("04", ["uBUS0"], "uBUS0_n_")
     g("00", ["E1EN", "BUSOP"], "ALLD_n")
     reg(nl, "U_AL0", R[0:9], ["AL0"] + SBA[1:9], en="ALLD_n", oe="GNTQ_n")
@@ -765,10 +760,9 @@ def system_bus(nl):
                               "3A": "RTC_IOLO", "3Y": "RTC_IO", "4A": "GND", "5A": "GND", "6A": "GND"})
     # the data phase: from the address clock's end while WAIT is held
     g("04", ["SB_WAIT_n"], "WAIT")
-    g("11", ["DP", "WAIT", "PMASK_n"], "DPW")
+    g("27", ["DP_n", "SB_WAIT_n", "PMASK"], "DPW")
     g("32", ["STARTQ", "DPW"], "DP_D")
     g("08", ["DP", "SB_WAIT_n"], "DPEND")
-    g("08", ["DP", "WRQ"], "WDP")
     g("08", ["DP_D", "WRQ"], "WDP_D")
     g("08", ["DP", "WRQ_n"], "RDP")
     g("00", ["DPEND", "WRQ_n"], "BALD_n")
@@ -817,7 +811,6 @@ def stuck_counter(nl):
         nl.add("163", f"U_STC{k}", CLK="BCLK", CLR="STCNT", LOAD="VCC", ENP="VCC",
                ENT="VCC" if k == 0 else "STC0RC", RCO="STC0RC" if k == 0 else "STC255",
                A="GND", B="GND", C="GND", D="GND")
-    g("04", ["PULSE"], "PULSE_n_")
     g("11", ["STC255", "WAIT", "PULSE_n_"], "STSET")
     g("04", ["STC255"], "STC255_n")
     g("08", ["PULSE", "STC255_n"], "PULSTAY")
@@ -828,11 +821,10 @@ def stuck_counter(nl):
     g("08", ["OWN", "STKCLRQ_n"], "OWNSTAY")
     g("32", ["OWNSET", "OWNSTAY"], "OWN_D")
     nl.add("175", "U_STK", CLK="BCLK", CLR="RESET_n", **{
-        "1D": "PULSE_D", "1Q": "PULSE", "2D": "STUCK_D", "2Q": "STUCK", "3D": "OWN_D", "3Q": "OWN",
-        "4D": "PULSE", "4Q": "PULSE1"})
+        "1D": "PULSE_D", "1Q": "PULSE", "1QN": "PULSE_n_", "2D": "STUCK_D", "2Q": "STUCK",
+        "3D": "OWN_D", "3Q": "OWN", "4D": "PULSE", "4Q": "PULSE1"})
     # RESET's first two clocks
     g("08", ["PULSE", "PULSE2_n"], "PMASK")
-    g("00", ["PULSE", "PULSE2_n"], "PMASK_n")
     g("32", ["BRESET", "PULSE"], "BRESETX")
 
 
@@ -860,8 +852,7 @@ def slave_side(nl):
            **{f"P{i}": "GND" for i in range(4, 8)}, **{f"Q{i}": "GND" for i in range(4, 8)})
     nl.add("521", "U_SDDB", part="74F521", G="GND", PEQ="DB74_n",
            **{f"P{i}": SBA[24 + i] for i in range(8)}, **{f"Q{i}": "VCC" if (0x74 >> i) & 1 else "GND" for i in range(8)})
-    g("02", ["SB_START_n", "GNTQ"], "SADDR")          # another master's address clock
-    g("04", ["SADDR"], "SADDR_n")
+    g("32", ["SB_START_n", "GNTQ"], "SADDR_n")        # another master's address clock
     g("27", ["SB_START_n", "GNTQ", "SR4_n"], "SNEW")  # a shared RAM access starts
     g("27", ["SADDR_n", "SB_WRITE_n", "DB74_n"], "SDB_D")
     # the address, the byte enables and WRITE, from the address clock
@@ -887,14 +878,13 @@ def slave_side(nl):
     # changing hands again, needs. Only at E2: until the microcode flash
     # has the next microinstruction, 66 ns after the last E2, its
     # predecode is the old one's or nothing
-    g("20", ["PDT1_n", "PDT2_n", "PDT3_n", "PDT4_n"], "PDTU_A")      # T 1-4
-    g("04", ["PDT5_n"], "PDT5")
-    g("27", ["PDTU_A", "PDT5", "PD_T"], "PD_TNONE")                 # neither half
-    g("20", ["TDY1_n", "TDY2_n", "TDY3_n", "TDY4_n"], "TU_A")
-    g("04", ["TDY5_n"], "TU_B")
-    g("27", ["TU_A", "TU_B", "pT"], "TNONE")
+    # (T 1-5: not 0, 6 or 7)
+    g("21", ["PDT0_n", "PDT6_n", "PDT7_n", "VCC"], "PDTU")
+    g("27", ["PDTU", "PD_T"], "PD_TNONE")                           # neither half
+    g("11", ["TDY0_n", "TDY6_n", "TDY7_n"], "TU")
+    g("27", ["TU", "pT"], "TNONE")
     g("11", ["PD_TNONE", "TNONE", "PH"], "TFREE")
-    g("10", ["PD_TNONE", "TNONE", "PH"], "TFREE_n")
+    g("20", ["PD_TNONE", "TNONE", "PH", "VCC"], "TFREE_n")
     # the state: SD1 is a new access's first data clock, SPEND waits for T
     # (from the address clock: its decode leaves no time to take T at
     # once, and a write's data is registered at the first data clock's
@@ -907,7 +897,6 @@ def slave_side(nl):
     g("32", ["TFREE_n", "SWRQ_n"], "SWB_")
     g("08", ["SPEND", "SWB_"], "SWB")
     g("32", ["SNEW", "SWB"], "SWAIT_D")
-    g("08", ["STAKE", "SWRQ_n"], "SOUT_D")
     nl.add("175", "U_SST", CLK="BCLK", CLR="RESET_n", **{
         "1D": "STAKE_D", "1Q": "STAKE", "1QN": "STAKE_n",
         "2D": "SPEND_D", "2Q": "SPEND", "3D": "GND", "4D": "GND"})
@@ -915,7 +904,7 @@ def slave_side(nl):
     # 16 ns at the card's pins
     nl.add("74", "U_SSQ", part="74ABT74", **{
         "1D": "SWAIT_D", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "RESET_n", "1QN": "SWAIT_n",
-        "2D": "SOUT_D", "2CLK": "BCLK", "2PRE": "VCC", "2CLR": "RESET_n", "2Q": "SOUT", "2QN": "SOUT_n"})
+        "2D": "SSOE", "2CLK": "BCLK", "2PRE": "VCC", "2CLR": "RESET_n", "2Q": "SOUT", "2QN": "SOUT_n"})
     buf(nl, "U_SWT", ["GND"], ["SB_WAIT_n"], "SWAIT_n")
     # a write's data, registered at the end of its first data clock, onto
     # T in STAKE and written from STAKE's start until BCLK falls (STAKEF is
@@ -945,10 +934,9 @@ def slave_side(nl):
     # before they change. A set wins a clock it shares with a clear, which
     # is lost: the doorbell reads rung again, and the native layer looks at
     # the client's ring once more.
-    nl.add("175", "U_SDBQ", CLK="BCLK", CLR="RESET_n", **{"1D": "SDB_D", "1Q": "SDBQ",
+    nl.add("175", "U_SDBQ", CLK="BCLK", CLR="RESET_n", **{"1D": "SDB_D", "1Q": "SDBQ", "1QN": "SDBQ_n",
                                                           "2D": "BELLS", "2Q": "BELL",
                                                           "3D": "SNEW", "3QN": "SD1_n", "4D": "GND"})
-    g("04", ["SDBQ"], "SDBQ_n")
     nl.add("157", "U_DBA", S="SDBQ", G="GND",
            **{f"{i + 1}A": XQ[i] for i in range(4)}, **{f"{i + 1}B": f"SSA{i + 1}" for i in range(4)},
            **{f"{i + 1}Y": f"DBM{i}" for i in range(4)})
@@ -1012,7 +1000,6 @@ def window(nl, bound=WINDOW_BOUND):
     g("04", ["WOUT_D_n"], "WOUT_D")
     # the bound: CNT from 255 - bound while the access waits, cut at 255
     g("32", ["W1", "W2"], "WACT")
-    g("04", ["WACT"], "WACT_n")
     pre = 255 - bound
     for k in range(2):
         nl.add("163", f"U_WBC{k}", CLK="BCLK", CLR="VCC", LOAD="WACT", ENP="VCC",
@@ -1027,11 +1014,9 @@ def window(nl, bound=WINDOW_BOUND):
     g("32", ["SWRQ_n", "WPEND"], "WRP")
     g("08", ["W1", "WRP"], "W1T")
     g("27", ["WNEW", "W1T", "W2"], "WWAIT_D_n")
-    g("04", ["WWAIT_D_n"], "WWAIT_D")
     # the I/O side: WPEND from acceptance to the access's hold's end, WSEL
     # while the I/O side runs it
-    g("08", ["WSEL", "HLDEND"], "WDONE")
-    g("04", ["WDONE"], "WDONE_n")
+    g("00", ["WSEL", "HLDEND"], "WDONE_n")
     g("08", ["WPEND", "WDONE_n"], "WPSTAY")
     g("08", ["WACC", "WHI_n"], "WACCIO")
     g("32", ["WACCIO", "WPSTAY"], "WPEND_D")
@@ -1045,7 +1030,7 @@ def window(nl, bound=WINDOW_BOUND):
         "1D": "W1_D", "1Q": "W1", "2D": "W2_D", "2Q": "W2",
         "3D": "WOUT_D", "3Q": "WOUT", "4D": "GND"})
     nl.add("74", "U_WWQ", part="74ABT74", **{
-        "1D": "WWAIT_D", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "RESET_n", "1QN": "WWAIT_n",
+        "1D": "WWAIT_D_n", "1CLK": "BCLK", "1PRE": "RESET_n", "1CLR": "VCC", "1Q": "WWAIT_n",
         "2D": "WOUT", "2CLK": "BCLK", "2PRE": "VCC", "2CLR": "RESET_n", "2QN": "WEND_n"})
     # (WSEL in a 74ABT74: it switches the timing table's copies, whose
     # output reaches the comparators and back within the clock)
