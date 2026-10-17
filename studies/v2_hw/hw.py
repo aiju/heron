@@ -143,7 +143,7 @@ def reference(mem, inp=b"", max_cycles=200_000_000):
     """The RTL model from reset, as the chip-level run starts: with the
     decodes it makes, (cycle from the first, PC, parcel)."""
     s = system.System(io_local=True)
-    s.add(15, system.ConsoleCard(inp))
+    s.add(system.IO_WINDOW, system.ConsoleCard(inp))
     for a, b in mem.items():
         s.poke(a, b)
     m = rtl.RTL(s)

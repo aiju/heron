@@ -17,7 +17,7 @@ from . import perf, timing, ucode as uc
 
 OUT = os.path.join(ROOT, "reports", "0031-rfc-draft-2-cpu", "performance.md")
 V1B = os.path.join(ROOT, "reports", "0024-rfc-faster-smaller", "results.md")
-BUS_BASE = 0x08000000
+BUS_BASE = 0x10000000
 ICACHES = (256, 4096)
 NS = timing.TICK
 
@@ -263,8 +263,8 @@ def bus_section(local, buses, lens):
     return "\n".join([
         "## Code over the bus",
         "",
-        "The same programs with code and data on a memory card in slot 1 (a 32-bit card, "
-        "RFC 0014), so every fetch and data access is a bus transfer; with the same length "
+        "The same programs with code and data on a memory card in region 1 (a 32-bit card, "
+        "RFC 0037), so every fetch and data access is a bus transfer; with the same length "
         "classes. Fetches from bus space go out only when the queue is short of the next "
         "instruction (a refill), as the prefetch would otherwise hold the bus for words a "
         "jump throws away. *With N words of cache*: the instruction cache for bus space, "

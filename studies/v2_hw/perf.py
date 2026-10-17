@@ -166,7 +166,7 @@ def main(argv=None):
     p.add_argument("--force", action="store_true")
     args = p.parse_args(argv)
     opts = {"icache": args.icache} if args.icache else {}
-    rows = profile(code_base=0x08000000 if args.bus else 0, force=args.force, **opts)
+    rows = profile(code_base=0x10000000 if args.bus else 0, force=args.force, **opts)
     lens, need = best_lengths(rows)
     times = time_with(rows, lens)
     print(f"length classes from the profile: {lens} ticks")

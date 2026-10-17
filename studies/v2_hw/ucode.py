@@ -116,13 +116,14 @@ CONTROL_BITS = sum(w for _, w, _ in FIELDS)
 SEQ_NEXT, SEQ_DECODE, SEQ_DISPATCH, SEQ_HALT = 0, 1, 2, 3
 CONDS = {"false": 0, "tc": 1, "r31": 2, "cl": 3, "condt": 4, "mq31": 5, "tc4": 6,
          "ncondt": 7, "sup": 8, "sxeq": 9, "fk0": 10, "fk1": 11, "sx15": 12, "mq0": 13,
-         "r0": 14}
+         "r0": 14, "msg": 15}
 RFSEL = {"d": 0, "r": 1, "s": 2, "x": 2}           # 3 = RFK constant
 # B lanes from T (by the access's size and address) or the queue's head
 # parcel: as it is, x 2 (a branch offset), in the upper half, its low byte
 BL = {None: 0, "t": 1, "thalf": 2, "tbyte": 3, "qh": 4, "qh2": 5, "qhh": 6, "qhb": 7}
-# B from a special source: MQ, the flags word, FSR, FAR, the page map
-BX = {None: 0, "mq": 1, "flags": 2, "fsr": 3, "far": 4, "map": 5}
+# B from a special source: MQ, sr, FSR, FAR, the page map, the interrupt's
+# vector offset (from LT), the CPU card's message register
+BX = {None: 0, "mq": 1, "flags": 2, "fsr": 3, "far": 4, "map": 5, "lvec": 6, "msg": 7}
 LDSX = {None: 0, "d": 1, "r": 2, "qhx": 3}
 LDEX = {None: 0, "r": 1, "qhx": 2}
 CIN = {"0": 0, "1": 1, "c": 2, "a31": 3, "mq31": 4, "sgn": 5, "mq0": 6, "s33n": 7}
@@ -149,11 +150,13 @@ NSEL = {31: 0, 15: 1, 7: 2}
 FC = {None: 0, "csrc": 1, "aluc": 2, "ncl": 3}
 CSRC = {"b1": 0, "f0": 1, "f7": 2, "f8": 3, "f15": 4, "f31": 5, "f7x": 6, "f15x": 7}
 FV = {None: 0, "0": 2, "a0": 3, "ncl": 4, "1": 5, "ovf": 7}
-FI = {None: 0, "1": 1, "0": 2, "a4": 3}
-# which flags a flags load (FNZ loadf, from the A bus) takes: NZCV (MTSR in
-# user mode), NZCV, I and T (MTSR in supervisor mode), or all of them with
-# S (RTI)
-LFM = {"nzcv": 0, "sup": 1, "all": 2}
+FI = {None: 0, "1": 1, "0": 2, "a30": 3}
+# which flags a flags load (FNZ loadf, from the A bus) takes: NZCV (MTSR
+# ccr), all but S (MTSR sr: NZCV, IPL, M, T, I), or all of them with S
+# (RTI). Without a flags load, LFM 1 qualifies two other things: IPL from
+# A[27:24] (SPL), and with SSET the interrupt entry (IPL <- LT unless an
+# NMI, which it acknowledges; M <- MSGT)
+LFM = {"nzcv": 0, "sup": 1, "all": 2, "ipl": 1, "int": 1}
 # condition latch CL: RES == 0, the ALU carry, RES[31:16] == 0,
 # RES[31:15] == 0, or one of the last two ANDed with CL
 CLSRC = {"zero": 0, "aluc": 1, "hz16": 2, "hz17": 3, "and_hz16": 4, "and_hz17": 5}
@@ -185,22 +188,32 @@ G = 32
 TMP1, TMP2, TMP3 = G + 0, G + 1, G + 2
 ZERO, ONES, VBASE, K0FFF, KE1, KE0, K1000 = G + 3, G + 4, G + 5, G + 6, G + 7, G + 8, G + 9
 CTXC, BANKC, MAPAS = G + 10, G + 11, G + 12      # ctx, bank, and mapa << 12
+# vbr (RFC 0040, 2.2), and the trap and SWI vectors with it ORed in, so
+# that an exception's entry takes no longer: MTSR vbr rewrites them in bank
+# 0, the only bank the supervisor's G half is in. The reset vector is
+# VBASE, physical 0, whatever vbr; an interrupt's vector is vbr ORed with
+# the offset LT gives (BX lvec)
+VBR, K7FF = G + 13, G + 14
 VEC = {}                                         # vector name -> its RFK
-VECTORS = {"reset": 0x00, "irq": 0x04, "illegal": 0x08, "divide": 0x10, "address": 0x14,
-           "tag": 0x18, "privilege": 0x1C, "page": 0x20, "trace": 0x24}
+VECTORS = {"illegal": 0x08, "divide": 0x10, "address": 0x14, "tag": 0x18,
+           "privilege": 0x1C, "page": 0x20, "trace": 0x24}
 for _i, _n in enumerate(VECTORS):
-    VEC[_n] = G + 13 + _i
-VSWI = [G + 22 + k for k in range(4)]            # 0x8000_0100 + 0x100 k: SWI #64k..
+    VEC[_n] = G + 15 + _i
+VSWI = [G + 22 + k for k in range(4)]            # vbr + 0x100 + 0x100 k: SWI #64k..
 K80, K7F, MAPMASK, KMULFX = G + 26, G + 27, G + 28, G + 29
+VBR_RESET = 0x80000000
 CONSTS = {ZERO: 0, ONES: 0xFFFFFFFF, VBASE: 0x80000000, K0FFF: 0x0FFF, KE1: 0xE1, KE0: 0xE0,
           K1000: 0x1000, CTXC: 0, BANKC: 0, MAPAS: 0, K80: 0x80808080, K7F: 0x7F7F7F7F,
-          MAPMASK: 0x7FFFF000, KMULFX: 0xE0}
-CONSTS.update({VEC[n]: 0x80000000 | v for n, v in VECTORS.items()})
-CONSTS.update({VSWI[k]: 0x80000100 + 0x100 * k for k in range(4)})
+          MAPMASK: 0x7FFFF000, KMULFX: 0xE0, VBR: VBR_RESET, K7FF: 0x7FF}
+CONSTS.update({VEC[n]: VBR_RESET | v for n, v in VECTORS.items()})
+CONSTS.update({VSWI[k]: VBR_RESET + 0x100 + 0x100 * k for k in range(4)})
+# the special registers in bank 0's G half, which MTSR changes
+SPECIAL = (CTXC, BANKC, MAPAS, VBR, *VEC.values())
 RF_NAMES = {SP: "sp", TMP1: "TMP1", TMP2: "TMP2", TMP3: "TMP3",
             ZERO: "ZERO", ONES: "ONES", VBASE: "VBASE", K0FFF: "K0FFF", KE1: "KE1",
             KE0: "KE0", K1000: "K1000", CTXC: "CTXC", BANKC: "BANKC", MAPAS: "MAPAS",
-            K80: "K80", K7F: "K7F", MAPMASK: "MAPMASK", KMULFX: "KMULFX"}
+            K80: "K80", K7F: "K7F", MAPMASK: "MAPMASK", KMULFX: "KMULFX", VBR: "VBR",
+            K7FF: "K7FF"}
 RF_NAMES.update({VEC[n]: f"V_{n}" for n in VECTORS})
 RF_NAMES.update({VSWI[k]: f"V_SWI{k}" for k in range(4)})
 
@@ -272,12 +285,16 @@ def mi(**kw):
                 _put(f, "BF1", 1)
                 _put(f, "BF23", 1)
                 _put(f, "FSEL", FSEL["qh7"])
-            elif v in ("flags", "fsr"):
+            elif v == "flags":                # sr: bytes 0, 2 and 3; byte 1 zero
+                _put(f, "BX", BX[v])
+                _put(f, "BF1", 1)
+                _put(f, "FSEL", FSEL["0"])
+            elif v in ("fsr", "lvec"):        # byte 0, zero-extended
                 _put(f, "BX", BX[v])
                 _put(f, "BF1", 1)
                 _put(f, "BF23", 1)
                 _put(f, "FSEL", FSEL["0"])
-            elif v in ("far", "map", "mq"):
+            elif v in ("far", "map", "mq", "msg"):
                 _put(f, "BX", BX[v])
             else:
                 raise KeyError(v)
@@ -348,6 +365,8 @@ def mi(**kw):
             _put(f, "FV", FV[v])
         elif k == "fi":
             _put(f, "FI", FI[v])
+        elif k == "lfm":                      # SPL's IPL load; the interrupt entry
+            _put(f, "LFM", LFM[v])
         elif k == "loadf":                    # flags from the A bus
             _put(f, "FNZ", FNZ["loadf"])
             _put(f, "FC", FC["csrc"])
@@ -355,7 +374,7 @@ def mi(**kw):
             _put(f, "FV", FV["a0"])
             _put(f, "LFM", LFM[v])
             if v != "nzcv":
-                _put(f, "FI", FI["a4"])
+                _put(f, "FI", FI["a30"])
         elif k == "ldcl":
             _put(f, "LDCL", 1)
             _put(f, "CLSRC", CLSRC[v])
@@ -454,15 +473,23 @@ def loop(name, f, cond, exit_node):
 # --------------------------------------------------------------------------
 # Traps
 #
-# Entering an exception (RFC 0029, 6): the flags word as it was into R,
-# and S <- 1 (bank 0), I <- 0, T <- 0; the PC and the flags pushed on
-# bank 0's sp; the jump to the vector, whose address is a constant in the
-# register file. Five cycles, then the refill at the vector. Nothing goes
-# into the register file before S changes: that would be in the bank that
-# was in use, and the rest reads bank 0's.
+# Entering an exception (RFC 0029, 6): sr as it was into R, and S <- 1
+# (bank 0), I <- 0, T <- 0, M <- 0; the PC and sr pushed on bank 0's sp;
+# the jump to the vector, whose address is a constant in the register file
+# with vbr ORed in. Five cycles, then the refill at the vector. Nothing
+# goes into the register file before S changes: that would be in the bank
+# that was in use, and the rest reads bank 0's.
+#
+# An interrupt (RFC 0040, 2) is taken at a decode when PEND is set: LT,
+# registered with it, is the level (0 for the non-maskable interrupt), and
+# MSGT says that it is level 7 with a message waiting. Its first cycle
+# (SAVE_INT) also sets IPL to LT, or acknowledges the NMI, and M to MSGT;
+# M makes registers r0-r15 bank 0's locations 16-31, the message level's
+# own (RFC 0040, 2.4).
 
 _trap_cache = {}
 SAVE_FLAGS = mi(ldr=1, b="flags", alu="passb", sset=1)
+SAVE_INT = mi(ldr=1, b="flags", alu="passb", sset=1, lfm="int")
 
 
 def trap_tail(vecreg, pcfix, name, ubr=0):
@@ -476,7 +503,7 @@ def trap_tail(vecreg, pcfix, name, ubr=0):
                  merge(pc, mi(w=TMP1)),                               # TMP1 <- saved PC
                  mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),           # bank 0's sp
                  mi(a="r", mem="write", size="word", marinc=1,        # the flags word;
-                    rb=TMP1, alu="passb", ldr=1, ubr=ubr),            # R <- saved PC
+                    rb=TMP1, alu="passb", ldr=1, ubr=ubr or None),    # R <- saved PC
                  end(name, a="r", mem="write", size="word", rb=vecreg, alu="passb",
                      ldpc=1))
     _trap_cache[key] = node
@@ -499,6 +526,30 @@ def privileged(name, body, pcfix=2, f=None):
     """In user mode, a privilege violation; in supervisor mode, body. f:
     fields of the cycle that checks."""
     return branch(name, f or {}, "sup", trap("privilege", pcfix, name), body)
+
+
+def interrupt_entry():
+    """The interrupt entry (forced at a decode while PEND is set). A level
+    L (or the NMI) jumps to vbr + its offset, which LT puts on B; a message
+    goes through the SWI entries, vbr + 0x100 + 4 x source, with its source
+    in r1 and its 24 bits in r2 of the message level's registers. Reading
+    the message register (BX msg: {message, source}) releases it."""
+    name = "interrupt"
+    level = chain(name, mi(ra=VBR, b="lvec", alu="or", w=TMP2),
+                  trap_tail(TMP2, 0, name))
+    # the message: the frame first, on the message level's own sp (M is
+    # set from here on), while R holds sr; then the message
+    name = "message"
+    msg = chain(name, mi(a="pc", alu="passa", w=TMP1),
+                mi(ra=SP, kv=8, alu="sub", ldmar=1, w=SP),
+                mi(a="r", mem="write", size="word", marinc=1, rb=TMP1, alu="passb", ldr=1),
+                mi(a="r", mem="write", size="word"),
+                mi(b="msg", alu="passb", w=TMP2),                      # releases it
+                mi(ra=TMP2, alu="passa", rz=0b1110, ldr=1, w=1),       # r1, R <- source
+                mi(ra=TMP2, alu="passa", rms="ror8", rz=0b1000, w=2),  # r2 <- message
+                mi(a="r2", sina="0", alu="dbl", cin="0", ldr=1),       # R <- 4 x source
+                end(name, ra=VSWI[0], b="r", alu="add", ldpc=1))
+    return branch("interrupt", SAVE_INT, "msg", level, msg)
 
 
 # --------------------------------------------------------------------------
@@ -1270,63 +1321,85 @@ def ldm_routine(store):
 
 
 def mfsr_routine(n):
+    """MFSR rd, n (RFC 0029, 4): ccr and the reserved 1-7 in either mode,
+    8-15 the supervisor's."""
     name = f"MFSR {n}"
 
     def rd(**kw):
         return end(name, _fields=merge(mi(**kw), mi(w="d")))
     if n == 0:
-        return rd(b="flags", alu="passb")
-    if n < 8:                                   # 1 and 2, once HI and LO: reserved
+        return rd(b="flags", alu="passb", rz=0b1000)         # sr's byte 0
+    if n < 8:                                   # reserved: 3 the FPU's, the rest
         return rd(rb=ZERO, alu="passb")
     if n == 8:
-        body = rd(b="far", alu="passb")
+        body = rd(b="flags", alu="passb")
     elif n == 9:
-        body = rd(b="fsr", alu="passb")
+        body = rd(b="far", alu="passb")
     elif n == 10:
-        body = rd(rb=CTXC, alu="passb")
+        body = rd(b="fsr", alu="passb")
     elif n == 11:
+        body = rd(rb=CTXC, alu="passb")
+    elif n == 12:
         # mapa, kept as mapa << 12: >> 8 by a rotation, then four shifts
         body = chain(name, mi(ra=MAPAS, alu="passa", rms="ror8", rz=0b1000, ldr=1),
                      mi(a="r", alu="passa", rms="shr", sin="0", ldr=1),
                      mi(a="r", alu="passa", rms="shr", sin="0", ldr=1),
                      mi(a="r", alu="passa", rms="shr", sin="0", ldr=1),
                      rd(a="r", alu="passa", rms="shr", sin="0"))
-    elif n == 12:
+    elif n == 13:
         # the map entry at mapa: MAR <- mapa << 12, the map onto B
         body = chain(name, mi(rb=MAPAS, alu="passb", ldmar=1),
                      rd(mem="mapr", b="map", alu="passb"))
-    elif n == 13:
+    elif n == 14:
         body = rd(rb=BANKC, alu="passb")
     else:
-        body = rd(rb=ZERO, alu="passb")
+        body = rd(rb=VBR, alu="passb")
     return privileged(name, body)
 
 
 def mtsr_routine(n):
+    """MTSR n, rs: ccr (byte 0 of sr alone) in either mode; the reserved 1-7
+    are ignored; 8-15 the supervisor's, of which far and fsr are read only."""
     name = f"MTSR {n}"
     if n == 0:
-        return branch(name, {}, "sup", end(name, ra="r", loadf="nzcv"),
-                      end(name, ra="r", loadf="sup"))
+        return end(name, ra="r", loadf="nzcv")
     if n < 8:
         return end(name)
-    if n in (8, 9, 14, 15):
-        body = end(name)                              # read only, or reserved
-    elif n == 10:
-        body = end(name, ra="r", kv=0x7F, alu="and", w=CTXC, ldctx=1)
+    if n in (9, 10):
+        body = end(name)                              # read only
+    elif n == 8:
+        body = end(name, ra="r", loadf="sup")         # every bit but S
     elif n == 11:
+        body = end(name, ra="r", kv=0x7F, alu="and", w=CTXC, ldctx=1)
+    elif n == 12:
         # mapa <- rs, kept as (rs << 12) & 0x7FFFF000: x4 a cycle
         dbl = mi(a="r2", sina="0", alu="dbl", cin="0", ldr=1)
         body = chain(name, mi(ra="r", alu="passa", ldr=1), dbl, dbl, dbl, dbl, dbl, dbl,
                      end(name, a="r", rb=MAPMASK, alu="and", w=MAPAS))
-    elif n == 12:
+    elif n == 13:
         # map[mapa] <- rs, and mapa moves on by one
         body = chain(name, mi(rb=MAPAS, alu="passb", ldmar=1),
                      mi(mem="mapw", rb="r", ra=K1000, alu="passa", ldr=1),
                      end(name, ra=MAPAS, b="r", alu="add", w=MAPAS))
-    elif n == 13:
+    elif n == 14:
         body = end(name, ra="r", alu="passa", rz=0b1110, w=BANKC, ldbank=1)
     else:
-        raise ValueError(n)
+        # vbr <- rs, 2 KB aligned; then the vectors with vbr in them
+        steps = [mi(ra="r", rb=K7FF, alu="bic", w=VBR, ldr=1)]
+        steps += [mi(a="r", kv=off, alu="or", w=VEC[v]) for v, off in VECTORS.items()]
+        steps += [mi(kv=128, alu="passb", w=TMP2),
+                  mi(ra=TMP2, alu="dbl", cin="0", w=TMP2)]                 # 0x100
+        steps += [mi(a="r", rb=TMP2, alu="add", ldr=1, w=VSWI[k]) for k in range(4)]
+        # the SWI vectors into every bank's G half (bank <- LC, 1-255,
+        # copied with UBW), then bank back from BANKC
+        rest = end(name, rb=BANKC, alu="passb", ldbank=1)
+        copies = [mi(ra=k, alu="passa", w=k, ubw=1) for k in VSWI]
+        last = branch(name, merge(copies.pop(), mi(lcinc=1)), "tc", None, rest)
+        head = chain(name, mi(b="simm", v8="lc", fill="0", alu="passb", ldbank=1),
+                     *copies, last)
+        last.succ = ("branch", CONDS["tc"], head, rest)
+        steps.append(mi(kv=1, alu="passb", ldlc=1))
+        body = chain(name, *steps, head)
     return privileged(name, body)
 
 
@@ -1339,13 +1412,36 @@ def mtur_routine():
     return privileged("MTUR", end("MTUR", ra="r", alu="passa", w="d", ubw=1))
 
 
+# SWI numbers from here up are kept for the message level's sources, and
+# raise a privilege violation in user mode (RFC 0040, 2.3; tentative)
+SWI_PRIVILEGED = 128
+
+
+_swi_tail = _swi_priv = None
+
+
 def swi_routine(n):
-    """SWI #n: through vector 0x8000_0100 + 4n, the next instruction saved."""
+    """SWI #n: through vector vbr + 0x100 + 4n, the next instruction saved.
+    The vector goes into bank's TMP2 (UBW), whatever the mode, from the SWI
+    vectors, which every bank has with vbr in them, and is read back from
+    there (UBR) after S has changed. From SWI_PRIVILEGED up, that cycle
+    also checks the mode."""
+    global _swi_tail, _swi_priv
     name = f"SWI #{n}"
-    # the vector into bank's TMP2 (UBW), whatever the mode, and read back
-    # from there (UBR) after S has changed
-    return chain(name, mi(ra=VSWI[n >> 6], kv=4 * (n & 63), alu="add", w=TMP2, ubw=1),
-                 Node(SAVE_FLAGS, ("next", trap_tail(TMP2, 0, "SWI", ubr=1)), name))
+    if _swi_tail is None:
+        _swi_tail = Node(SAVE_FLAGS, ("next", trap_tail(TMP2, 0, "SWI", ubr=1)), "SWI")
+        _swi_priv = trap("privilege", 2, "SWI")
+    vec = mi(ra=VSWI[n >> 6], kv=4 * (n & 63), alu="add", w=TMP2, ubw=1)
+    if n >= SWI_PRIVILEGED:
+        return branch(name, vec, "sup", _swi_priv, _swi_tail)
+    return Node(vec, ("next", _swi_tail), name)
+
+
+def spl_routine(n):
+    """SPL #n: IPL <- n, from A[27:24], nothing else changes."""
+    name = f"SPL #{n}"
+    return privileged(name, end(name, a="r", lfm="ipl"),
+                      f=mi(kv=n, alu="passb", rms="ror8", ldr=1))      # R <- n << 24
 
 
 def rti_routine():
@@ -1503,6 +1599,8 @@ def classify(w):
     if op == 0xFD:
         return (("mulfx",), 2) if rb == 0 else ill
     if op == 0xFE:
+        if 0x10 <= rb <= 0x18:
+            return ("spl", rb - 0x10), 1
         return {0: ("ei", 1), 1: ("ei", 0), 2: ("rti",), 3: ("halt",)}.get(rb, ("illegal",)), 1
     if row in EA_ROWS:
         if row == 3 and col in (1, 0xD):
@@ -1535,6 +1633,7 @@ def routine(key):
     simple = {"bcc": bcc_routine, "shreg": shift_reg_routine, "un": unary_routine,
               "setcc": setcc_routine, "rr": rr_routine, "dbnz": dbnz_routine,
               "swi": swi_routine, "ei": ei_di, "mfsr": mfsr_routine, "mtsr": mtsr_routine,
+              "spl": spl_routine,
               "ldm": ldm_routine, "tag": tagged_routine}
     if kind in simple:
         return simple[kind](key[1])
@@ -1565,13 +1664,14 @@ def routine(key):
 
 
 def reset_routine():
-    """Reset (control store address 0): ctx and bank 0, the flags (S set,
-    nothing else), the register file's constants in bank 0 and then copied
-    into the other banks' G halves, then the jump to the reset vector,
-    0x8000_0000."""
+    """Reset (control store address 0): ctx and bank 0, sr (S set, nothing
+    else: IPL and M 0 too), the register file's constants in bank 0 and then
+    copied into the other banks' G halves (vbr 0x8000_0000 with them), then
+    the jump to the reset vector, 0x8000_0000, physical 0."""
     steps = [mi(kv=0, alu="passb", ldr=1, ldctx=1, ldbank=1),
-             mi(a="r", alu="passa", w=ZERO, loadf="nzcv", sset=1),   # S; I, T, N Z C V 0
-             mi(kv=-1, alu="passb", w=ONES),
+             mi(a="r", alu="passa", w=ZERO, loadf="sup"),            # I T M IPL N Z C V 0
+             mi(kv=-1, alu="passb", w=ONES, sset=1),                 # S
+
              mi(kv=1, alu="passb", rms="shr", sin="f0", w=VBASE)]    # 0x8000_0000
 
     def const(loc, val):
@@ -1593,11 +1693,12 @@ def reset_routine():
         if loc not in (ZERO, ONES, VBASE):
             steps += const(loc, CONSTS[loc])
     # banks 1-255 (LC): bank <- LC, then each constant from bank 0 into
-    # that bank's (UBW); the special registers are only needed in bank 0
+    # that bank's (UBW); the special registers, vbr and the vectors with it
+    # are only needed in bank 0
     rest = chain("reset", mi(alu="zero", ldbank=1),
-                 end("reset", rb=VEC["reset"], alu="passb", ldpc=1))
+                 end("reset", rb=VBASE, alu="passb", ldpc=1))
     copies = [mi(ra=k, alu="passa", w=k, ubw=1)
-              for k in sorted(CONSTS) if k not in (CTXC, BANKC, MAPAS)]
+              for k in sorted(CONSTS) if k not in SPECIAL]
     last = branch("reset", merge(copies.pop(), mi(lcinc=1)), "tc", None, rest)
     head = chain("reset", mi(b="simm", v8="lc", fill="0", alu="passb", ldbank=1),
                  *copies, last)
@@ -1738,7 +1839,7 @@ class Microcode:
         self.reset = reset_routine()
         self.reset.fixed = 0
         self.fixed = {REFILL_ADDR: end("refill", mem="fetch"),
-                      IRQ_ADDR: trap("irq", 0, "interrupt"),
+                      IRQ_ADDR: interrupt_entry(),
                       TRACE_ADDR: trap("trace", 0, "trace")}
         for ln in range(4):
             self.fixed[fault_addr(ln)] = fault_entry(ln)

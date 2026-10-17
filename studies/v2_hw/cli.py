@@ -35,7 +35,7 @@ def cmd_run(args):
     from . import check, ucode as uc
     img = asmcore.assemble_file(isas.get("v2"), args.file)
     inp = args.input.encode() if args.input is not None else metadata(args.file)["input"]
-    m = check.run_rtl(img, inp, code_base=0x08000000 if args.bus else 0,
+    m = check.run_rtl(img, inp, code_base=0x10000000 if args.bus else 0,
                       prefetch_bus=args.prefetch_bus, profile=args.profile, icache=args.icache)
     sys.stdout.write(m.out.decode("latin-1"))
     print(f"\n{m.instructions} instructions, {m.cycles} cycles (CPI {m.cycles / m.instructions:.2f}), "
