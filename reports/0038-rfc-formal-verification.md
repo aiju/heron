@@ -691,7 +691,35 @@ A proof is only as good as what it stands on:
 
 ### 4. Results
 
-RESULTS
+All 1096 decode cases, 15 minutes each, four at a time on a 4-core
+machine: 5.7 hours. [results.md](0038-rfc-formal-verification/results.md)
+has the tables by kind, mode and operation, and every case not proved.
+
+| | Cases |
+|---|---:|
+| Proved | 1061 |
+| Out of time | 35 |
+| Failed | 0 |
+
+- **Nothing failed.** Every case that finished proved: for every
+  instruction but the 35, from every state the abstraction allows,
+  faults included, the 1b hardware does what the specification says.
+  Reset is proved too (P6).
+- **Most cases are quick:** the median is 3 seconds, 897 of the 1061
+  take under a minute, and the slowest proved took 814 seconds (SAVE
+  r12–r14).
+- **What ran out of time:**
+  - multiply and divide (5), as expected ([6](#6-what-it-costs));
+  - the indexed mode (10 of its 11 cases; LEA's proved);
+  - SAVE of 11 to 14 registers (9);
+  - CALL through `[rn]+`, `-[rn]`, `[rn + d16]`, `[abs16]` and `[abs32]`,
+    and four more word or half accesses (9);
+  - two of the 15 cases of illegal instructions (opcodes 0 and A).
+- **The budget's line moves.** A run before the change in
+  [6](#6-what-it-costs) that sends a push to one RAM chip finished 1069
+  of the cases, and 52 of them ran out of time; on the same cases, 22
+  did after it. Some of the 35 might prove with more time; that wasn't
+  tried.
 
 ### 5. What the microcode relies on
 
@@ -749,6 +777,21 @@ decided how much:
 - **One query per group of goals.** One query for all fifteen registers is
   several times faster than fifteen, since the solver proves the value
   written once rather than once per register.
+- **Where a write goes.** The specification's memory is the
+  hardware's two RAM chips (P7), but a write whose address's bit 0
+  isn't known went to both, each under a condition. When a word or half
+  access faults on its alignment, entering the vector pushes onto the
+  stack, whose address is aligned only by assumption. So every push went
+  to both chips, and the solver had to match a memory written by
+  condition with one written outright. Asking the solver, once per
+  write, whether the assumptions decide the chip, and writing just that
+  one if they do, took `XOR rd, [rn]` from over 900 seconds to 12 and
+  `ST rd, half [rn]` from over 600 to 2. Over 1069 cases, 42 proved that
+  had run out of time (33 word or half accesses, seven SAVEs, two stack
+  slots), and 12 ran out that had proved: nine long SAVEs (SAVE r1–r14
+  from 38 seconds to over 900) and three word or half accesses. Keeping
+  the condition where the guard alone decides the chip, or dropping
+  writes that can't happen, didn't bring the SAVEs back.
 - **The shape of a term, not only its meaning.** Two ways of writing
   the same condition can differ thirtyfold in proof time, and not the
   same way for every case. The second version of the interpreter
@@ -779,7 +822,9 @@ What is still slow, or out of reach:
   - or leave multiply and divide to the tests (W4).
 - **The indexed mode** dispatches on its extension parcel's scale and size
   and on whether its displacement is 0: up to 32 paths, each with its own
-  address arithmetic.
+  address arithmetic. Only LEA's case proved.
+- **Long SAVEs,** of 11 to 14 registers: 44 to 56 byte writes, each
+  matched against the hardware's.
 - **Loops whose count is data.** A shift by a register and CLZ split once
   per count, 32 or 33 paths, at a few seconds each (D4).
 
