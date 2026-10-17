@@ -59,7 +59,7 @@ class Netlist:
         self.drivers = defaultdict(list)    # net -> [(inst, pin)]
         for inst in self.insts:
             for pin, net in inst.conn.items():
-                if inst.type.kind(pin) in ("out", "tri", "io"):
+                if inst.kind(pin) in ("out", "tri", "io"):
                     self.drivers[net].append((inst, pin))
         self.by_ref = {i.ref: i for i in self.insts}
 
@@ -209,6 +209,32 @@ class Case:
         return (v, t, True if oe == 0 else None, cause)
 
     def m_dff74(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
+
+    def m_gal(self, inst, pin, d):
+        """A 22V10 (infra/hw/gal.py): a registered output changes at CLK; a
+        combinatorial one with the inputs of the terms constants don't
+        rule out (and those constants), tPD later. A pin that isn't an
+        output drives nothing."""
+        out = next((o for o in inst.gal if o[0] == pin), None)
+        if out is None:
+            return (None, NEG, False, None)
+        _pin, reg, inv, terms = out
+        if reg:
+            _, tc, _ = self.pin(inst, "CLK")
+            return (None, max(tc, 0) + d["CLK->Q"], True, (inst.ref, "CLK", "CLK->Q"))
+        pins, val, live = set(), 0, False
+        for t in terms:
+            vals = [self.pin(inst, p)[0] for p, _ in t]
+            if any(x is not None and x != v for x, (_, v) in zip(vals, t)):
+                pins.update(p for (p, _), x in zip(t, vals) if x is not None)
+                continue
+            live = True
+            pins.update(p for p, _ in t)
+            if all(x is not None for x in vals):
+                val = 1
+        v = 1 if val else (None if live else 0)
+        t, cause = self.latest(inst, [(p, "tPD", d["tPD"]) for p in sorted(pins)])
+        return (None if v is None else v ^ int(inv), t, True, cause)
 
     def m_jk109(self, inst, pin, d):
         """A J-K-bar flip-flop: its outputs launch at its clock's edge, as a
@@ -618,6 +644,17 @@ def checks(case, N, we_frac):
                 if ta == NEG:
                     continue
                 out.append(("setup", ta + su, f"{inst.ref}.{p} setup", inst.conn[p]))
+        elif t.model == "gal":
+            if case.pin(inst, "CLK")[1] == NEG:
+                continue
+            for _pin, reg, _inv, terms in inst.gal:
+                if not reg:
+                    continue
+                for p in sorted({p for term in terms for p, _ in term}):
+                    ta = case.pin(inst, p)[1]
+                    if ta != NEG:
+                        out.append(("setup", ta + d["setup"], f"{inst.ref}.{p} setup",
+                                    inst.conn[p]))
         elif t.model == "sram":
             we_net = inst.conn["WE"]
             if not N.drivers.get(we_net):

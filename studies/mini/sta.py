@@ -139,7 +139,8 @@ def sta_words():
 def extra_checks(case, N):
     out = []
     u = {v[1:]: v for v in board.control_nets().values()}
-    d = {ref: N.delay[ref] for ref in ("U_RWA0", "U_RFAA0", "U_RFA0", "U_RLA0")}
+    d = {ref: N.delay[ref] for ref in ("U_RWA0", "U_RFG0", "U_RFA0", "U_RLA0")}
+    gtpd = d["U_RFG0"]["tPD"]
     nand2 = N.delay[N.drivers["RFWE_n"][0][0].ref]["A->Y"]
     inv = N.delay[N.drivers["RW_n"][0][0].ref]["A->Y"]
     and3 = N.delay[N.drivers["TLE"][0][0].ref]["A->Y"]
@@ -155,8 +156,20 @@ def extra_checks(case, N):
             continue
         if le == "RW_n" and case.pin(inst, "OE")[0] == 1:
             continue                    # the register file's latch, not on its bus
-        if le == "RW_n":
-            close = rw + inv
+        if le == "RLEA" and case.net(u["BRF_n"])[0] == 0:
+            # an A operand latch in a cycle that reads B too: it closes at
+            # LATE, and its data is the A address's read
+            srcs = [u["RFA0"], u["RFA1"]] + [f"IR{i}" for i in range(8, 16)] + \
+                [f"SX{i}" for i in range(4)] + [u[f"RFK{i}"] for i in range(5)]
+            ta = max(case.net(n)[1] for n in srcs) + gtpd + sram["tAA"]
+            late = 2 * TICK + OFFSETS["LATE"] + gtpd
+            su = N.delay[inst.ref]["setup D"]
+            if ta + su > late:
+                out.append(("setup", 1000.0, f"{inst.ref}: the A operand late for LATE by "
+                            f"{ta + su - late:.1f} ns", "RFAM0"))
+            continue
+        if le in ("RW_n", "RLEA"):
+            close = rw + (inv if le == "RW_n" else gtpd)
         elif le == "TLE":
             close = rw + inv + and3
         else:                           # a queue slot: its J-K flip-flop, entering T1
@@ -203,10 +216,10 @@ def extra_checks(case, N):
         buf = d["U_RWA0"]["A->Y"]
         out.append(("setup", t + buf + sram["tDW"] - nand2,
                     "register file write: data setup to end of write (tDW)", worst))
-        rwa = [f"RWA{i}" for i in range(5)]
+        rwa = [u["RFW0"], u["RFW1"]] + [f"IR{i}" for i in range(8, 16)] + \
+            [f"SX{i}" for i in range(4)] + [u[f"RFKW{i}"] for i in range(5)]
         worst = max(rwa, key=lambda n: case.net(n)[1])
-        mux = d["U_RFAA0"]["D->Y"]
-        out.append(("setup", case.net(worst)[1] + mux + sram["tAS"] - strobe,
+        out.append(("setup", case.net(worst)[1] + gtpd + sram["tAS"] - strobe,
                     "register file write: address setup to write (tAS)", worst))
     return out
 
@@ -217,14 +230,14 @@ def fixed_checks(N):
     sram = N.delay["U_RFA0"]
     nand2 = N.delay[N.drivers["RFWE_n"][0][0].ref]["A->Y"]
     buf = N.delay["U_RWA0"]
-    mux = N.delay["U_RFAA0"]
+    mux = N.delay["U_RFG0"]
     rw = -2 * TICK + OFFSETS["RW"]
     strobe = -TICK + nand2
     return [
         ("register file: write buffers on, tDW before the strobe ends",
          nand2 - (-TICK + nand2 + buf["OE->Y en"] + sram["tDW"])),
         ("register file: write address switched (RW), tAS before the strobe",
-         strobe - (rw + mux["S->Y"] + sram["tAS"])),
+         strobe - (rw + mux["tPD"] + sram["tAS"])),
         ("register file: write pulse width (tWP)", TICK - sram["tWP"]),
         ("memory: write pulse width at the shortest write (K_WRITE)",
          (timing.K_WRITE - 4) * TICK - _delays("sram512", "AS7C4096A-12")["tWP"]),

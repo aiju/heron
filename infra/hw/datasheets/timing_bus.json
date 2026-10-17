@@ -104,6 +104,35 @@
       }
     }
   },
+  "ATF22V10C-5": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10C-5JX",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf",
+    "datasheet": "Atmel 0735U-PLD-7/10",
+    "availability": "ATF22V10C-5JX (PLCC-28, commercial); the fastest in DIP is the ATF22V10C-7PX (7.5 ns).",
+    "max_cond": "max/min: commercial, 0..70 C, VCC 4.75-5.25 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 1,
+        "typ": 3.5,
+        "max": 5
+      },
+      "CLK->Q": {
+        "min": 1,
+        "typ": 3,
+        "max": 4
+      }
+    },
+    "checks": {
+      "setup": 3,
+      "hold": 0
+    },
+    "estimated": ["typ"],
+    "notes": "tPD: an input or a feedback to a combinatorial output; CLK->Q is tCO. The datasheet gives no typical delays. ICC 85 mA typical, 130 maximum."
+  },
   "74F10": {
     "family": "F",
     "function": "triple 3-input NAND",

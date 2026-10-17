@@ -19,5 +19,6 @@ VARIANT = "mini"
 chips.VARIANTS[VARIANT] = {
     "logic": "74ACT", "alu": "74F181", "cla": "74F182", "rf": "AS7C256A-12",
     "ram": "AS6C62256-55", "ram512": "AS7C4096A-12", "rom": "SST39SF010A-55",
-    "parts": dict(FAST_LOGIC, **{"573": "74ABT573", "521": "74F521", "10": "74F10"}),
+    "parts": dict(FAST_LOGIC, **{"573": "74ABT573", "521": "74F521", "10": "74F10",
+                                 "22v10": "ATF22V10C-5"}),
 }

@@ -44,6 +44,8 @@ See rtl.py for the register-transfer model this netlist implements, and
 ucode.py for the fields.
 """
 
+from heron.infra.hw import gal
+from heron.infra.hw.gal import lit
 from heron.infra.hw.netlist import Netlist
 
 from . import parts, ucode as uc
@@ -695,42 +697,43 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     # two copies of 32 x 32 bits (r0-r15, then the microcode's own), read
     # through latches in the cycle's first part, written in its last tick
     nl.section("Register file")
-    RWA = bus("RWA", 5)
-    for k in range(2):
-        m = nl.add("153", f"U_RFWM{k}", A=u["RFW0"], B=u["RFW1"], **{"1G": "GND", "2G": "GND"})
-        for sec in (0, 1):
-            i = 2 * k + sec
-            for c, s in enumerate([IR[12 + i], IR[8 + i], SX[i], u[f"RFKW{i}"]]):
-                m[f"{sec + 1}C{c}"] = s
-            m[f"{sec + 1}Y"] = RWA[i]
-    g("11", [u["RFW0"], u["RFW1"], u["RFKW4"]], RWA[4])
+    # one copy, read twice in a cycle that reads B from it (BRF): the A
+    # address until LATE, its latches closing then, the B address after;
+    # the write address in the tail (RW). The addresses and the A latches'
+    # enable from three 22V10s
     g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWE_n")
     g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWB_n")
-    # each copy's address: RFA (RFB) selects the read address, RW switches
-    # to the write address for the tail, in one 74F151 a bit
-    for side, sel, out, oe in (("A", "RFA", ABUS, u["ARF_n"]), ("B", "RFB", BBUS, "BRFE_n")):
-        AM = bus(f"RF{side}M", 5)
-        for i in range(5):
-            m = nl.add("151", f"U_RF{side}A{i}", A=u[f"{sel}0"], B=u[f"{sel}1"], C="RW", G="GND",
-                       Y=AM[i])
-            if i < 4:
-                rd = [IR[12 + i], IR[8 + i], SX[i], u[f"RFK{i}"]]
-            else:
-                rd = ["GND", "GND", "GND", u["RFK4"]]
-            for c in range(4):
-                m[f"D{c}"], m[f"D{4 + c}"] = rd[c], RWA[i]
-        IO = bus(f"RF{side}IO", 32)
-        for k in range(4):
-            ram = nl.add("sram", f"U_RF{side}{k}", role="rf", CE="GND", OE="RW", WE="RFWE_n")
-            for i in range(15):
-                ram[f"A{i}"] = AM[i] if i < 5 else "GND"
-            for i in range(8):
-                ram[f"IO{i}"] = IO[8 * k + i]
-            lat = nl.add("573", f"U_RL{side}{k}", LE="RW_n", OE=oe)
-            buf = nl.add("541", f"U_RW{side}{k}", OE1="RFWB_n", OE2="RFWB_n")
-            for i in range(8):
-                lat[f"D{i + 1}"], lat[f"Q{i + 1}"] = IO[8 * k + i], out[8 * k + i]
-                buf[f"A{i + 1}"], buf[f"Y{i + 1}"] = RES[8 * k + i], IO[8 * k + i]
+    AM = bus("RFAM", 5)
+    a_ph = gal.AND(lit("RW", 0), gal.OR(lit("LATE", 0), lit(u["BRF_n"])))
+    b_ph = gal.AND(lit("RW", 0), lit("LATE"), lit(u["BRF_n"], 0))
+
+    def src(sel, i, k):
+        rd = [lit(IR[12 + i]), lit(IR[8 + i]), lit(SX[i]), lit(u[f"{k}{i}"])] if i < 4 else \
+            [0, 0, 0, lit(u[f"{k}{i}"])]
+        return gal.mux([u[f"{sel}0"], u[f"{sel}1"]], rd)
+
+    def addr(i):
+        return (gal.OR(gal.AND(a_ph, src("RFA", i, "RFK")), gal.AND(b_ph, src("RFB", i, "RFK")),
+                       gal.AND(lit("RW"), src("RFW", i, "RFKW"))), False, False)
+    gal.add(nl, "U_RFG0", {AM[0]: addr(0), AM[1]: addr(1)})
+    gal.add(nl, "U_RFG1", {AM[2]: addr(2), AM[3]: addr(3)})
+    gal.add(nl, "U_RFG2", {AM[4]: addr(4),
+                           "RLEA": (gal.AND(lit("RW", 0), gal.OR(lit("LATE", 0), lit(u["BRF_n"]))),
+                                    False, False)})
+    IO = bus("RFAIO", 32)
+    for k in range(4):
+        ram = nl.add("sram", f"U_RFA{k}", role="rf", CE="GND", OE="RW", WE="RFWE_n")
+        for i in range(15):
+            ram[f"A{i}"] = AM[i] if i < 5 else "GND"
+        for i in range(8):
+            ram[f"IO{i}"] = IO[8 * k + i]
+        la = nl.add("573", f"U_RLA{k}", LE="RLEA", OE=u["ARF_n"])
+        lb = nl.add("573", f"U_RLB{k}", LE="RW_n", OE="BRFE_n")
+        buf = nl.add("541", f"U_RWA{k}", OE1="RFWB_n", OE2="RFWB_n")
+        for i in range(8):
+            la[f"D{i + 1}"], la[f"Q{i + 1}"] = IO[8 * k + i], ABUS[8 * k + i]
+            lb[f"D{i + 1}"], lb[f"Q{i + 1}"] = IO[8 * k + i], BBUS[8 * k + i]
+            buf[f"A{i + 1}"], buf[f"Y{i + 1}"] = RES[8 * k + i], IO[8 * k + i]
 
     # ---- A bus -------------------------------------------------------------------
     nl.section("A bus")
@@ -865,13 +868,14 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
             a[f"A{i}"], a[f"B{i}"], a[f"F{i}"] = ABUS[4 * k + i], BBUS[4 * k + i], F[4 * k + i]
         if k == 7:
             a["CN4"] = "CARRY_n"
-    nl.add("182", "U_CLA0", CN="CIN_n", CNX="C4_n", CNY="C8_n", CNZ="C12_n", P="GP0", G="GG0",
-           **{f"P{i}": f"ALUP{i}" for i in range(4)}, **{f"G{i}": f"ALUG{i}" for i in range(4)})
-    nl.add("182", "U_CLA1", CN="C16_n", CNX="C20_n", CNY="C24_n", CNZ="C28_n",
-           **{f"P{i}": f"ALUP{4 + i}" for i in range(4)},
-           **{f"G{i}": f"ALUG{4 + i}" for i in range(4)})
-    nl.add("182", "U_CLA2", CN="CIN_n", CNX="C16_n", P0="GP0", G0="GG0",
-           P1="VCC", G1="VCC", P2="VCC", G2="VCC", P3="VCC", G3="VCC")
+    # the carries C4-C28 in one level: a 22V10 from the 74F181s' P and G
+    # (low for propagate and generate) and the carry in (low for a carry),
+    # each carry out low for a carry, as three 74F182s gave them in two
+    carry, outs = lit("CIN_n", 0), {}
+    for k in range(1, 8):
+        carry = gal.OR(lit(f"ALUG{k - 1}", 0), gal.AND(lit(f"ALUP{k - 1}", 0), carry))
+        outs[f"C{4 * k}_n"] = (carry, False, True)
+    gal.add(nl, "U_CLAG", outs)
     g("04", ["CARRY_n"], "C32")
     # overflow: V = (A31 ^ B31 ^ S0) & (A31 ^ F31)
     g("86", [BBUS[31], SE[0]], "VT1")
@@ -1140,52 +1144,65 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     for k in range(4):
         nl.add("521", f"U_Z{k}", G="GND", PEQ=NZR[k],
                **{f"P{i}": RES[8 * k + i] for i in range(8)}, **{f"Q{i}": "GND" for i in range(8)})
-    g("32", [NZR[0], "ZFLAG_n"], "NZS0")
-    g("04", [ABUS[2]], "ABUS2_n")
-    for k in range(2):
-        m = nl.add("153", f"U_NZM{k}", A=u["FNZ0"], B=u["FNZ1"], **{"1G": "GND", "2G": "GND"})
-        for sec in (0, 1):
-            i = 2 * k + sec
-            for c, src in enumerate([NZ[i], NZR[i], "NZS0" if i == 0 else NZR[i],
-                                     "ABUS2_n" if i == 0 else "GND"]):
-                m[f"{sec + 1}C{c}"] = src
-            m[f"{sec + 1}Y"] = f"NZD{i}"
-    g("02", [NZ[0], NZ[1]], "NZA")
-    g("02", [NZ[2], NZ[3]], "NZB")
-    g("08", ["NZA", "NZB"], "ZFLAG")
-    g("00", ["NZA", "NZB"], "ZFLAG_n")
-    nl.add("153", "U_NSEL", A=u["NSEL0"], B=u["NSEL1"],
-           **{"1G": "GND", "2G": "VCC", "1C0": RES[31], "1C1": RES[15], "1C2": RES[7],
-              "1C3": "GND", "1Y": "NSELV", "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
-    nl.add("153", "U_FNZ", A=u["FNZ0"], B=u["FNZ1"],
-           **{"1G": "GND", "2G": "VCC",
-              "1C0": "NFLAG", "1C1": "NSELV", "1C2": "NSELV", "1C3": ABUS[3], "1Y": "NNEXT",
-              "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
+    # the register and its next state: two 22V10s on CLK, from the flags
+    # code (FLG, a combination of FNZ, NSEL, FC, CZERO, CSRC, FV and FI:
+    # ucode.FLAG_TABLE); an address error (FAULT) holds them
+    FLG = [u[f"FLG{i}"] for i in range(5)]
+    table = [dict(zip(uc.FLAG_FIELDS, t)) for t in uc.FLAG_TABLE]
+    used = range(len(table))
+
+    def when(pred):
+        return gal.when(FLG, [c for c, t in enumerate(table) if pred(t)], used)
+
+    def nxt(q, cases):
+        """q's next state: held in a fault, else as the cases say:
+        (predicate on the fields, sum of products)."""
+        f = gal.OR(*[gal.AND(when(p), f) for p, f in cases])
+        return (gal.OR(gal.AND(lit("FAULT"), lit(q)), gal.AND(lit("FAULT", 0), f)), True, False)
+    zn = gal.OR(*[lit(n) for n in NZ])                  # Z clear
+    fa = {}
+    for i in range(4):
+        sticky = gal.OR(lit(NZR[0]), zn) if i == 0 else lit(NZR[i])
+        fa[NZ[i]] = nxt(NZ[i], [(lambda t: t["FNZ"] == 0, lit(NZ[i])),
+                                (lambda t: t["FNZ"] == 1, lit(NZR[i])),
+                                (lambda t: t["FNZ"] == 2, sticky),
+                                (lambda t: t["FNZ"] == 3, lit(ABUS[2], 0) if i == 0 else gal.ZERO)])
+    ncases = [(lambda t: t["FNZ"] == 0, lit("NFLAG")), (lambda t: t["FNZ"] == 3, lit(ABUS[3]))]
+    for j, r in enumerate((31, 15, 7)):
+        ncases.append((lambda t, j=j: t["FNZ"] in (1, 2) and t["NSEL"] == j, lit(RES[r])))
+    fa["NFLAG"] = nxt("NFLAG", ncases)
+    fa["ZFLAG"] = (gal.AND(*[lit(n, 0) for n in NZ]), False, False)
+    gal.add(nl, "U_FLGA", fa, clock="CLK")
+    g("04", ["ZFLAG"], "ZFLAG_n")
     g("86", [F[7], "FILL"], "F7X")
     g("86", [F[15], "FILL"], "F15X")
     # C, from the inverted output: the carry as the ALU gives it (CN4, low
     # for a carry), one gate sooner
-    nl.add("151", "U_CSRC", A=u["CSRC0"], B=u["CSRC1"], C=u["CSRC2"], G="GND", Y="CSRCY",
+    nl.add("151", "U_CSRC", A="CSRC0", B="CSRC1", C="CSRC2", G="GND", Y="CSRCY",
            W="CSRCY_n", D0=ABUS[1], D1=F[0], D2=F[7], D3=F[8], D4=F[15], D5=F[31], D6="F7X",
            D7="F15X")
-    nl.add("151", "U_FC", A=u["FC0"], B=u["FC1"], C=u["CZERO"], G="GND", W="CNEXT",
-           D0="CFLAG_n", D1="CSRCY_n", D2="CARRY_n", D3="CLQ", D4="VCC", D5="VCC", D6="VCC",
-           D7="VCC")
-    # I: hold, set, clear, or A4 with a flags load (FI 3)
-    nl.add("153", "U_FI", A=u["FI0"], B=u["FI1"],
-           **{"1G": "GND", "2G": "VCC",
-              "1C0": "IFLAG", "1C1": "VCC", "1C2": "GND", "1C3": ABUS[4], "1Y": "INEXT",
-              "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
-    # V: FV 7 selects VT3 = A31 ^ F31, with the multiplexer off (output 0)
-    # unless the operands' signs allow an overflow (VT2)
-    g("10", [u["FV0"], u["FV1"], u["FV2"]], "FVOVF_n")
-    g("02", ["FVOVF_n", "VT2"], "FVOFF")
-    nl.add("151", "U_FV", A=u["FV0"], B=u["FV1"], C=u["FV2"], G="FVOFF", Y="VNEXT",
-           D0="VFLAG", D1="GND", D2="GND", D3=ABUS[0], D4="CL_n", D5="VCC", D6="GND", D7="VT3")
-    nl.add("377", "U_FLAGS", CLK="CLK", EN="FAULT",
-           D1="NZD0", Q1=NZ[0], D2="NZD1", Q2=NZ[1], D3="NZD2", Q3=NZ[2], D4="NZD3", Q4=NZ[3],
-           D5="NNEXT", Q5="NFLAG", D6="CNEXT", Q6="CFLAG", D7="VNEXT", Q7="VFLAG",
-           D8="INEXT", Q8="IFLAG")
+    # C from the inverted carry and source (low for a carry, one gate
+    # sooner); V: FV 7 is VT3 = A31 ^ F31 if the operands' signs allow an
+    # overflow (VT2); I: hold, set, clear, or A4 with a flags load
+    ok = lambda t: not t["CZERO"]
+    fb = {"CFLAG": nxt("CFLAG", [(lambda t: ok(t) and t["FC"] == 0, lit("CFLAG")),
+                                 (lambda t: ok(t) and t["FC"] == 1, lit("CSRCY_n", 0)),
+                                 (lambda t: ok(t) and t["FC"] == 2, lit("CARRY_n", 0)),
+                                 (lambda t: ok(t) and t["FC"] == 3, lit("CLQ", 0))]),
+          "VFLAG": nxt("VFLAG", [(lambda t: t["FV"] == 0, lit("VFLAG")),
+                                 (lambda t: t["FV"] == 3, lit(ABUS[0])),
+                                 (lambda t: t["FV"] == 4, lit("CL_n")),
+                                 (lambda t: t["FV"] == 5, gal.ONE),
+                                 (lambda t: t["FV"] == 7, gal.AND(lit("VT2"), lit("VT3")))]),
+          "IFLAG": nxt("IFLAG", [(lambda t: t["FI"] == 0, lit("IFLAG")),
+                                 (lambda t: t["FI"] == 1, gal.ONE),
+                                 (lambda t: t["FI"] == 3, lit(ABUS[4]))])}
+    # the C source's select, which matters only for FC 1
+    csrc = [c for c, t in enumerate(table) if t["FC"] == 1 and not t["CZERO"]]
+    for k in range(3):
+        fb[f"CSRC{k}"] = (gal.when(FLG, [c for c in csrc if table[c]["CSRC"] >> k & 1], csrc),
+                          False, False)
+    gal.add(nl, "U_FLGB", fb, clock="CLK")
     for f in ("C", "V"):
         g("04", [f"{f}FLAG"], f"{f}FLAG_n")
 

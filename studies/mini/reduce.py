@@ -93,11 +93,6 @@ REDUCTIONS = [
      _r("U_VAM", 13), [("74F157", 7)],
      lambda f, k: 6 if _mem(f) == 6 else 0,
      "a load at [R] (and [R]+) takes a cycle more, to load MAR (6 ticks)"),
-    ("rf1", "one copy of the register file, read twice a cycle",
-     _r("U_RFB", 4) + _r("U_RWB", 4) + _r("U_RFBA", 5), [],
-     lambda f, k: 1 if f.get("BRF") else 0,
-     "the B operand from the register file comes a read later: a tick more "
-     "where it's read (more where it's on the critical path)"),
     ("nomq", "no MQ: multiply and divide by shifts and adds of registers",
      _r("U_MQ", 4) + ["U_SM0", "U_SM1"], [],
      lambda f, k: 15 if (f.get("MQM") or f.get("MS")) else 0,

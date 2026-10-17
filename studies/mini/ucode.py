@@ -97,8 +97,9 @@ FIELDS = [
     # memory
     ("MEM", 3, False), ("SIZE", 2, False),
     # flags and condition latches
-    ("FNZ", 2, False), ("NSEL", 2, False), ("FC", 2, False), ("CZERO", 1, False),
-    ("CSRC", 3, False), ("FV", 3, False), ("FI", 2, False),
+    # (FNZ, NSEL, FC, CZERO, CSRC, FV, FI), as one of the combinations the
+    # microcode uses (FLAG_TABLE), decoded by the flags' GALs
+    ("FLG", 5, False),
     ("LDCL", 1, False), ("CLSRC", 3, False),
     # length class
     ("LCL", 2, False),
@@ -111,7 +112,7 @@ FIELDS = [
     ("LL", 2, False),
 ]
 
-WORD_BITS = 136             # seventeen 128K x 8 flash chips
+WORD_BITS = 128             # sixteen 128K x 8 flash chips
 Y_BITS = 13
 U_SHIFT = Y_BITS
 ENTRY = 1 << 16             # the upper half: first microinstructions, by parcel
@@ -374,9 +375,20 @@ def merge(*parts):
     return out
 
 
+FLAG_FIELDS = ("FNZ", "NSEL", "FC", "CZERO", "CSRC", "FV", "FI")
+# the flags fields' combinations, sorted, none changing the flags first:
+# FLG is the index. Microcode sets it from the microcode's own
+FLAG_TABLE = [(0,) * len(FLAG_FIELDS)]
+
+
+def flag_tuple(f):
+    return tuple(f.get(k, 0) for k in FLAG_FIELDS)
+
+
 def pack(f):
     """Field dict -> integer control word (physical levels)."""
     word = 0
+    f = dict(f, FLG=FLAG_TABLE.index(flag_tuple(f)))
     for name, (bit, w, al) in _pos.items():
         v = f.get(name, 0)
         assert 0 <= v < (1 << w), (name, v)
@@ -388,6 +400,7 @@ def unpack(word):
     out = {}
     for name, (bit, w, al) in _pos.items():
         out[name] = ((word >> bit) & ((1 << w) - 1)) ^ al
+    out.update(zip(FLAG_FIELDS, FLAG_TABLE[out["FLG"]]))
     return out
 
 
@@ -940,7 +953,7 @@ def shift_routine(kind, n):
     steps = [dict(s) for s in v1b_uc.cached_plan(kind, n)]
     for s in steps:
         for k in s:
-            if k not in _pos:
+            if k not in _pos and k not in FLAG_FIELDS:
                 raise ValueError(f"shift plan field {k} isn't in this datapath")
     body = [merge(s, mi(ldr=1)) for s in steps[:-1]]
     return chain(name, *body, end(name, _fields=merge(steps[-1], mi(w="d", fnz="nz", fv="0"))))
@@ -1828,6 +1841,9 @@ class Microcode:
         nodes = _dedup(nodes, {id(n) for n in roots}, entry_ids)
         self.entry_nodes = entry_nodes
         self.nodes = _reachable(roots)
+        FLAG_TABLE[:] = sorted({flag_tuple(n.f) for n in self.nodes} | {FLAG_TABLE[0]})
+        if len(FLAG_TABLE) > 1 << _pos["FLG"][1]:
+            raise ValueError(f"{len(FLAG_TABLE)} combinations of the flags fields")
         self.low = [n for n in self.nodes if id(n) not in entry_ids]
         self._place()
         self._check()

@@ -100,9 +100,8 @@ def preloads(ram, inp, boot=b"", uart_inp=b"", cf=None):
     for bank in range(2):
         for k in range(4):
             pre[f"U_RAM{bank}{k}"] = bytes(ram[(bank << 21) + k:(bank + 1) << 21:4])
-    for side in "AB":
-        for k in range(4):
-            pre[f"U_RF{side}{k}"] = bytes(1 << 15)
+    for k in range(4):
+        pre[f"U_RFA{k}"] = bytes(1 << 15)
     pre["X_IO"] = bytes(inp)
     return pre
 
@@ -135,7 +134,7 @@ def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
         "stop_when": [[("uSEQ0", 1), ("uSEQ1", 1), ("PEND", 0), ("IFLAG", 0)]],
         "dump": ["X_IO", "U_UART0", "U_UART1", "U_CF"]
         + [f"U_RAM{b}{k}" for b in range(2) for k in range(4)]
-        + [f"U_RF{s}{k}" for s in "AB" for k in range(4)],
+        + [f"U_RFA{k}" for k in range(4)],
         "observe": list(FLAGS) + [f"PC{i}" for i in range(1, 32)],
     }
     if trace:
@@ -154,7 +153,7 @@ def run(ram, inp=b"", max_cycles=20_000_000, trace=None, lengths=None, seed=1):
         for k in range(4):
             out[(bank << 21) + k:(bank + 1) << 21:4] = d[f"U_RAM{bank}{k}"]
     hw["ram"] = bytes(out)
-    for side in "AB":
+    for side in "A":
         chips = [d[f"U_RF{side}{k}"] for k in range(4)]
         hw[f"rf_{side.lower()}"] = [sum(chips[k][a] << (8 * k) for k in range(4))
                                     for a in range(32)]
@@ -197,8 +196,6 @@ def compare(m, hw):
         if hw["rf_a"][i] != m.rf[i]:
             diffs.append(f"r{i}: hardware {hw['rf_a'][i]:08X}, RTL {m.rf[i]:08X}")
             break
-    if hw["rf_a"] != hw["rf_b"]:
-        diffs.append("the register file's copies differ")
     for f, attr in zip(FLAGS, "nzcvi"):
         if hw["flags"][f] != getattr(m, attr):
             diffs.append(f"flag {f[0]}: hardware {hw['flags'][f]}, RTL {getattr(m, attr)}")

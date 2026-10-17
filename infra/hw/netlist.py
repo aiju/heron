@@ -51,9 +51,18 @@ class Instance:
         self.nocheck = nocheck
         self.extra = {}             # delay name -> extra ps
         self.pin_extra = {}         # output pin -> extra ps (the wiring)
+        self.gal = None             # a 22V10's equations (infra/hw/gal.py)
+        self.program = None         # ... as the chip-level simulator takes them
         self.conn = {}
         self.section = nl.current_section if nl else None
 
+
+    def kind(self, pin):
+        """The pin's kind; a 22V10's pins are the outputs its equations
+        drive and inputs."""
+        if self.gal is not None:
+            return "out" if any(o[0] == pin for o in self.gal) else "in"
+        return self.type.kind(pin)
     def part_number(self, variant=chips.DEFAULT_VARIANT):
         return chips.part_number(variant, self.type.name, self.role, self.part)
 
@@ -160,7 +169,7 @@ class Netlist:
         out = defaultdict(list)
         for inst in self.instances:
             for pin, net in inst.conn.items():
-                out[net].append((inst, pin, inst.type.kind(pin)))
+                out[net].append((inst, pin, inst.kind(pin)))
         return out
 
     def check(self):
@@ -216,6 +225,7 @@ class Netlist:
                 "delays": delays,
                 "params": {k: int(v) for k, v in inst.params.items()},
                 "nocheck": inst.nocheck,
+                **({"program": inst.program} if inst.program else {}),
                 **({"pin_delays": [int(inst.pin_extra.get(p, 0)) for p, _ in t.pins]}
                    if inst.pin_extra else {}),
             })
@@ -268,6 +278,7 @@ class Netlist:
                            inst.nocheck)
             new.extra = dict(inst.extra)
             new.pin_extra = dict(inst.pin_extra)
+            new.gal, new.program = inst.gal, inst.program
             new.conn = {p: rename(n) for p, n in inst.conn.items()}
             new.section = inst.section
             new.card = prefix
