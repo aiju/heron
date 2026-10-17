@@ -1542,11 +1542,15 @@ class Spec:
             self._consts[name] = Run(self, None).eval(self.decls[name][2], {})
         return self._consts[name]
 
-    def step(self, state, record=False):
+    def step(self, state, record=False, assumptions=None):
         """Run one instruction on `state` (changed in place). Returns the Run:
         its fault (vector, return address), fault guard, assumptions and
-        halt. With `record`, run.record lists every decision it met."""
+        halt. With `record`, run.record lists every decision it met. A list
+        given as `assumptions` collects them as they are made (for a memory
+        that wants to know them)."""
         run = Run(self, state)
+        if assumptions is not None:
+            run.assumptions = assumptions
         if record:
             run.record = []
         run.step()

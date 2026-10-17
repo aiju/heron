@@ -385,6 +385,26 @@ class SpecMem:
     def __init__(self, lo, hi):
         self.lo, self.hi = lo, hi
         self.addrs = {}              # every address used, as MAR would hold it
+        self.assumptions = []        # the specification's, as it makes them
+
+    def decided_lane(self, lane, g):
+        """A write's lane when the address alone doesn't say: the solver
+        asked whether the assumptions so far decide it where the write
+        happens (a push: the stack is aligned when a fault is entered).
+        Then the write goes to one chip, as the hardware's does, and not
+        to both under a condition."""
+        s = z3.Solver()
+        s.set("timeout", 10_000)
+        s.add(*[a for a, _ in self.assumptions])
+        s.add(g)
+        for bit in (0, 1):
+            s.push()
+            s.add(lane == bit)
+            r = s.check()
+            s.pop()
+            if r == z3.unsat:
+                return z3.BitVecVal(1 - bit, 1)
+        return lane
 
     def _split(self, a):
         t = S.term(a)
@@ -407,6 +427,8 @@ class SpecMem:
         idx, lane = self._split(a)
         d = S.term(v)
         g = boolterm(g)
+        if not z3.is_bv_value(lane):
+            lane = self.decided_lane(lane, g)
         for which, bit in (("lo", 0), ("hi", 1)):
             arr = getattr(self, which)
             cond = z3.simplify(z3.And(g, lane == bit))
@@ -502,7 +524,7 @@ class Prover:
         regs.update(self.flags0)
         self.smem = SpecMem(self.lo0, self.hi0)
         self.sst = S.State(self.spec, regs, {"mem": self.smem})
-        self.run = self.spec.step(self.sst)
+        self.run = self.spec.step(self.sst, assumptions=self.smem.assumptions)
         self.hyps += [a for a, _ in self.run.assumptions]
 
         # the hardware
