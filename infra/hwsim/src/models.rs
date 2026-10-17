@@ -3600,7 +3600,10 @@ struct GalOut {
 impl Gal {
     fn new(s: &Spec) -> Result<Gal, Error> {
         let bad = || Error(format!("{}: a malformed 22V10 program", s.info.reference));
-        let mut words = s.program.iter().map(|&w| usize::try_from(w).map_err(|_| bad()));
+        let mut words = s
+            .program
+            .iter()
+            .map(|&w| usize::try_from(w).map_err(|_| bad()));
         let mut next = || words.next().unwrap_or_else(|| Err(bad()));
         let n = s.info.pin_names.len();
         let mut outs = Vec::new();
