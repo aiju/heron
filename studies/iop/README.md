@@ -235,7 +235,7 @@ uIR takes and AC, must be the model's, on the same bus clock.
 ```sh
 heron iop hw run --ms 32                 # power up: the Forth's banner, about 8 s
 heron iop hw run --ms 45 --type '1 2 + .\r'
-heron iop hw test --ms 21                # the firmware against the model, to the first tick
+heron iop hw test --ms 25                # the firmware against the model: power-up to the banner
 heron iop hw test --ucode hwtest.uc      # the bus side, shared RAM and I/O bus against the model
 heron iop hw slave                       # the slave side, against a second master on the bench
 heron iop hw window                      # the window onto the I/O bus, the same way
@@ -249,9 +249,13 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   SRAM's test, the dictionary out of the image flash, the Forth's cold
   start) to the banner, and the Forth's interpreter on the console, with
   no timing violations at the slow corner. It is the model's, clock for
-  clock and AC for AC, for the 161,170 microinstructions up to the
-  timer's first tick, which the two see a few clocks apart (the model
-  looks at the timer lazily); after that it runs on by itself. The bus
+  clock and AC for AC, ticks and all: tests/test_netlist.py types a line
+  at the console and compares the 386,000 microinstructions to its
+  answer, 48 ms. For that the model runs its UART and timer on the card's
+  oscillators' edges (`iobus::Edges`, its clock 0 on the card's time line
+  as `hw.T0_PS`), makes each I/O access when the card's strobe starts or
+  ends, and sees OUT0 through the tick's synchroniser and the INT lines
+  through their register, as the card does. The bus
   side runs `ucode/hwtest.uc` the model's way, and leaves the same
   registers and the same RAM on the bench's CPU card. The slave side,
   against a scripted second master on the bench (the `vector` fixture),
@@ -413,11 +417,9 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   change hands; a pair of 74F157s would avoid it.
 - **Not yet:** the window's 4r + 2 (reaching nothing) and its bound on
   WAIT, the 32-bit path, LOCK, I/O cards in the slots, a hardware
-  interlock for the timing table's writes, a
-  printed circuit board (the PCB flow, `studies/pcb`, has no footprints
-  for the 16-bit parts' packages, nor a way to pair their halves), and
-  a timer model in the microinstruction-level model exact enough to
-  keep the two together past the first tick.
+  interlock for the timing table's writes, and a printed circuit board
+  (the PCB flow, `studies/pcb`, has no footprints for the 16-bit parts'
+  packages, nor a way to pair their halves).
 
 ## Measurements
 
@@ -428,23 +430,23 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
 | SRAM self test (64K cells, two patterns) | 125.8 ms | - |
 | dictionary out of the flash (9156 cells, 36 pages) | 7.3 ms | 32K cells in ~30 ms |
 | power-up to the banner | 151.2 ms | - |
-| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,249,903 | about 1,000,000 |
+| Forth words a second, in a loop of `i inc dup + over swap - drop` | 1,250,298 | about 1,000,000 |
 | microcycles a Forth word, there | 6.67 | NEXT 3 (2 with its delay slot used), most primitives 5-7 |
-| the tick's share of the IOP while Forth computes | 9.7% | 5-10% (0.5-1 us a tick) |
-| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,223,449 | - |
+| the tick's share of the IOP while Forth computes | 9.6% | 5-10% (0.5-1 us a tick) |
+| Forth words a second, `words` (the console, `emit` waiting on the UART) | 1,223,423 | - |
 | fill, the CPU's RAM, 8192 halfwords | 6.1 MB/s | 9.9 MB/s |
-| copy, the CPU's RAM to its RAM, 8192 halfwords | 3.0 MB/s | 4.9 MB/s |
+| copy, the CPU's RAM to its RAM, 8192 halfwords | 3.1 MB/s | 4.9 MB/s |
 | copy, the shared RAM to the CPU's RAM, 8192 halfwords | 4.6 MB/s | 7.6 MB/s |
 | copy, the CPU's RAM to the shared RAM, 8192 halfwords | 3.8 MB/s | 7.6 MB/s |
 | booting the CPU: draft 2's control store, its decode table and the program | 92.5 ms (2.6 MB/s) | about 35 ms for the 1b's (130K halfwords at 7.6 MB/s) |
-| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 36.8 us, 61.3 us | ~5 us on top of the transfer |
-| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1375.1 us, 1393.7 us | ~5 us on top of the transfer |
-| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 146.0 us, 230.3 us | ~5 us on top of the transfer |
+| a request, the IOP's side: fill 64 bytes, from the doorbell to its completion, and to the interrupt | 39.8 us, 58.4 us | ~5 us on top of the transfer |
+| a request, the IOP's side: copy a 4 KB page, from the doorbell to its completion, and to the interrupt | 1371.6 us, 1390.2 us | ~5 us on top of the transfer |
+| a request, the IOP's side: OP_NOP, through the Forth's server, from the doorbell to its completion, and to the interrupt | 143.6 us, 227.9 us | ~5 us on top of the transfer |
 | a request from the CPU at 6 MHz: fill 64 bytes, its cycles (the handler included), and the time from one to the next | 282 cycles, 103 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 282 cycles, 1438 us | 200-700 cycles |
-| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 278 us | 200-700 cycles |
-| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 380 ms, 82% busy, 7,290 cycles a KB | the CPU's time back |
-| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1664 ms, 68% busy, 26,570 cycles a KB | the CPU's time back |
+| a request from the CPU at 6 MHz: copy a 4 KB page, its cycles (the handler included), and the time from one to the next | 282 cycles, 1435 us | 200-700 cycles |
+| a request from the CPU at 6 MHz: a request to the Forth's server (OP_NOP), its cycles (the handler included), and the time from one to the next | 282 cycles, 275 us | 200-700 cycles |
+| Fen: `cat /tmp/big > /dev/null`, 256 KB: its own PIO driver; through the IOP | 527 ms, 100% busy, 12,317 cycles a KB; 379 ms, 82% busy, 7,291 cycles a KB | the CPU's time back |
+| Fen: `cp /tmp/big /tmp/copy`, 256 KB: its own PIO driver; through the IOP | 2343 ms, 100% busy, 54,893 cycles a KB; 1657 ms, 68% busy, 26,572 cycles a KB | the CPU's time back |
 | microcode | 2239 microinstructions, 77 primitives | 1-2K; the interpreter and primitives 500-1,000 |
 | the Forth's dictionary | 9156 cells | up to 32K |
 

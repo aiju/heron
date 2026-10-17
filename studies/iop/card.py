@@ -106,14 +106,15 @@ def u(name, i=None):
     return U[bit + (i or 0)]
 
 
-def reg(nl, ref, d, q, clk="BCLK", en="GND", clr="VCC", oe="GND", part=None):
-    """A 74ABT16823 half: up to 9 bits, D to Q."""
+def reg(nl, ref, d, q, clk="BCLK", en="GND", clr="VCC", oe="GND", part=None, nocheck=False):
+    """A 74ABT16823 half: up to 9 bits, D to Q. `nocheck`: a synchroniser,
+    whose inputs change at any time."""
     pins = {"CLK": clk, "EN": en, "CLR": clr, "OE": oe}
     for i in range(9):
         pins[f"D{i + 1}"] = d[i] if i < len(d) else "GND"
         if i < len(q) and q[i] is not None:
             pins[f"Q{i + 1}"] = q[i]
-    return nl.add("16823h", ref, part=part, **pins)
+    return nl.add("16823h", ref, part=part, nocheck=nocheck, **pins)
 
 
 def buf(nl, ref, a, y, oe):
@@ -413,9 +414,11 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
     # the INT lines and ATN0-3 change at any time: registered every clock,
     # so that a read sees one value of each, settled
     ints = [STUB.get(n, n) for n in INT]
-    reg(nl, "U_INTQ0", ints[0:8], bus("INTQ", 8))
-    reg(nl, "U_INTQ1", ints[8:16], bus("INTQ", 8, 8))
-    reg(nl, "U_ATNQ", [f"SB_ATN{i}_n" for i in range(4)], [f"ATNQ{i}_n" for i in range(4)])
+    # (synchronisers: their setup is missed now and then by design, and
+    # the clock after is theirs to settle in)
+    reg(nl, "U_INTQ0", ints[0:8], bus("INTQ", 8), nocheck=True)
+    reg(nl, "U_INTQ1", ints[8:16], bus("INTQ", 8, 8), nocheck=True)
+    reg(nl, "U_ATNQ", [f"SB_ATN{i}_n" for i in range(4)], [f"ATNQ{i}_n" for i in range(4)], nocheck=True)
     buf(nl, "U_EV00", bus("INTQ", 8), T[0:8], "EV0OE_n")
     buf(nl, "U_EV01", bus("INTQ", 8, 8), T[8:16], "EV0OE_n")
     for i in range(4):

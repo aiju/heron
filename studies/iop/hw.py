@@ -59,9 +59,17 @@ def netlist(master=False, watchdog=None, corner="max"):
         return json.load(f)
 
 
+# The model's clock 0 on the card's time line: the BCLK edge after the one
+# that ends reset, the first after COLD's release reaches the synchroniser
+# (2 us, the Schmitt triggers; BCLK rises at 60 ns + k 60 ns, the CDC341
+# after). With it the model's UART and timer run on the card's
+# oscillators' edges.
+T0_PS = 35 * card.BCLK_PS + 4_900
+
+
 def model(b, inp=b""):
     """The model, powered up on the same build, logging its E2s."""
-    s = Session(b)
+    s = Session(b, t0_ps=T0_PS)
     s.s.log_start()
     if inp:
         s.s.uart_send(inp)

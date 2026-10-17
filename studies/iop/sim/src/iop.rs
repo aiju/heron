@@ -108,6 +108,10 @@ pub struct Config {
     /// COLD reset if it then doesn't for 100 ms. (The card holds COLD for
     /// 1 ms; here the IOP starts again at once.)
     pub watchdog: bool,
+    /// Where clock 0's edge is on the card's time line, in ps from its
+    /// power-up: where the UART's and the timer's oscillators are against
+    /// the bus clock (iobus::Edges). The chip-level check sets the card's.
+    pub t0_ps: i64,
 }
 
 impl Default for Config {
@@ -118,9 +122,14 @@ impl Default for Config {
             clkb_hz: 4e6,
             shared_bytes: 2 << 20,
             watchdog: false,
+            t0_ps: 0,
         }
     }
 }
+
+/// From an I/O access's strobe's edges to its RD falling and WR rising, at
+/// the card's slow corner: the strobe's flip-flop and the gate after it.
+const IO_STROBE_PS: i64 = 15_500;
 
 /// A slave's answer to the IOP's transfer: the data it drove (None if
 /// nothing answered) and the data clocks the transfer took (at least 1).
@@ -212,7 +221,15 @@ pub struct Iop {
     pub swap: u16,
     pub sr_page: u16,
     pub io: IoBus,
+    /// TICK, as the card's flip-flop last had it: cleared at
+    /// `tick_cleared`'s edge, and set two edges after the first at which
+    /// the timer's OUT0 is seen high (its synchroniser's).
     pub tick: bool,
+    tick_cleared: u64,
+    /// This microinstruction's I/O bus access: when its RD falls and its
+    /// WR rises, on the card's time line.
+    io_rd_ps: i64,
+    io_wr_ps: i64,
     pub doorbells: u16,
     /// Bus clocks since power-up: E0 of the microinstruction in uIR.
     pub clock: u64,
@@ -234,6 +251,9 @@ pub struct Iop {
     /// When on, every E2, the microaddress uIR takes there and AC after
     /// it: what the netlist (card.py) is checked against.
     pub log: Option<Vec<(u64, u16, u16)>>,
+    /// With the log: each tick, when OUT0 rose (ps on the card's time line)
+    /// and the clock TICK was set at.
+    pub tick_log: Vec<(i64, u64)>,
     pub stopped: bool,
     /// Cold resets the watchdog has caused.
     pub watchdog_resets: u64,
@@ -259,7 +279,10 @@ impl Iop {
         };
         let sram = (0..0x10000).map(|_| noise()).collect();
         let shared = (0..cfg.shared_bytes / 2).map(|_| noise()).collect();
-        let io = IoBus::new(flash, cfg.uart_hz, cfg.clkb_hz);
+        let io = IoBus::new(
+            flash,
+            iobus::Edges::card(cfg.uart_hz, cfg.clkb_hz, cfg.t0_ps),
+        );
         Iop {
             cfg,
             words: w,
@@ -284,6 +307,9 @@ impl Iop {
             sr_page: 0,
             io,
             tick: false,
+            tick_cleared: 0,
+            io_rd_ps: 0,
+            io_wr_ps: 0,
             doorbells: 0,
             clock: 0,
             ba_ready: 0,
@@ -298,6 +324,7 @@ impl Iop {
             trace: std::collections::VecDeque::with_capacity(TRACE),
             breakpoints: Vec::new(),
             log: None,
+            tick_log: Vec::new(),
             stopped: false,
             watchdog_resets: 0,
         }
@@ -326,6 +353,8 @@ impl Iop {
         self.prev = None;
         self.ctrl = 0;
         self.tick = false;
+        self.tick_cleared = self.clock;
+        self.io.out0_rises.clear();
         self.doorbells = 0;
         self.stopped = false;
         self.io.reset();
@@ -340,6 +369,40 @@ impl Iop {
         self.tick || self.doorbells != 0 || self.ctrl & CTRL_WORK != 0
     }
 
+    /// Clock c's edge on the card's time line.
+    fn edge_ps(&self, c: u64) -> i64 {
+        self.cfg.t0_ps + (c * self.cfg.bclk_ns * 1000) as i64
+    }
+
+    /// TICK in clock c: OUT0's rises up to then taken in, as the card's
+    /// synchroniser does, TICK set two edges after the first edge that
+    /// sees OUT0 high.
+    fn tick_at(&mut self, c: u64) -> bool {
+        let t = self.edge_ps(c);
+        self.io.advance_ps(t);
+        let p = (self.cfg.bclk_ns * 1000) as i64;
+        while let Some(&r) = self.io.out0_rises.front() {
+            let first = (r - self.cfg.t0_ps).div_euclid(p) + 1;
+            let set = (first + 1).max(0) as u64;
+            if set > c {
+                break;
+            }
+            self.io.out0_rises.pop_front();
+            if self.log.is_some() {
+                self.tick_log.push((r, set));
+            }
+            if set > self.tick_cleared {
+                self.tick = true;
+            }
+        }
+        self.tick
+    }
+
+    /// Attention in clock c.
+    fn attention_at(&mut self, c: u64) -> bool {
+        self.tick_at(c) || self.doorbells != 0 || self.ctrl & CTRL_WORK != 0
+    }
+
     /// The SRAM address of register `r` of bank `b`.
     pub fn reg_addr(bank: u8, r: u8) -> usize {
         0xC000 | (bank as usize) << 6 | r as usize
@@ -348,10 +411,6 @@ impl Iop {
     fn advance_devices(&mut self) {
         let now = self.now_ns();
         self.io.advance(now);
-        if self.io.tick_edges > 0 {
-            self.io.tick_edges = 0;
-            self.tick = true;
-        }
         // Look again within about a microsecond, or at the UART's next
         // change if that's sooner.
         let mut next = 16;
@@ -361,22 +420,27 @@ impl Iop {
         self.next_dev = self.clock + next;
     }
 
-    /// A device on T, read. Returns the value and the I/O bus clocks.
-    fn dev_read(&mut self, reg: u8, bus: &mut dyn SystemBus) -> Result<(u16, u32), String> {
+    /// A device on T, read in clock c (the one before the edge that takes
+    /// it). Returns the value and the I/O bus clocks.
+    fn dev_read(&mut self, reg: u8, c: u64, bus: &mut dyn SystemBus) -> Result<(u16, u32), String> {
         let r = reg & 7;
         Ok(match reg >> 3 {
             DEV_IO => {
-                let now = self.now_ns();
+                let t = self.io_rd_ps;
                 self.io
-                    .access(((self.x >> 8) & 15) as usize, self.x as u8, None, now)?
+                    .access_at(((self.x >> 8) & 15) as usize, self.x as u8, None, t)?
             }
             DEV_SR => (self.shared[self.sr_index()], 0),
             DEV_SWAP => (self.swap.rotate_left(8), 0),
             DEV_EVENTS => {
                 self.advance_devices();
                 let v = match r {
-                    0 => self.io.int_lines(),
-                    1 => (bus.atn(self.clock) & 15) as u16 | (self.tick as u16) << 15,
+                    // the INT lines' register takes them at each edge
+                    0 => {
+                        let t = self.edge_ps(c);
+                        self.io.int_lines_at(t)
+                    }
+                    1 => (bus.atn(self.clock) & 15) as u16 | (self.tick_at(c) as u16) << 15,
                     2 => self.doorbells,
                     _ => 0xFFFF,
                 };
@@ -390,15 +454,16 @@ impl Iop {
         ((self.sr_page as usize) << 15 | (self.x >> 1) as usize) % self.shared.len()
     }
 
-    /// A device on T, written. Returns the I/O bus clocks.
-    fn dev_write(&mut self, reg: u8, v: u16) -> Result<u32, String> {
+    /// A device on T, written at E2, clock e2's edge. Returns the I/O bus
+    /// clocks.
+    fn dev_write(&mut self, reg: u8, v: u16, e2: u64) -> Result<u32, String> {
         let r = reg & 7;
         match reg >> 3 {
             DEV_IO => {
-                let now = self.now_ns();
+                let t = self.io_wr_ps;
                 return Ok(self
                     .io
-                    .access(((self.x >> 8) & 15) as usize, self.x as u8, Some(v), now)?
+                    .access_at(((self.x >> 8) & 15) as usize, self.x as u8, Some(v), t)?
                     .1);
             }
             DEV_SR => {
@@ -407,7 +472,12 @@ impl Iop {
             }
             DEV_SWAP => self.swap = v,
             DEV_EVENTS => match r {
-                1 => self.tick = false,
+                // cleared at E2, with any tick set at that edge
+                1 => {
+                    self.tick_at(e2);
+                    self.tick = false;
+                    self.tick_cleared = e2;
+                }
                 2 => self.doorbells &= !(1 << (self.x & 15)),
                 _ => {}
             },
@@ -487,6 +557,11 @@ impl Iop {
             len = len.max(astart - start + strobe_end);
             self.io_free = astart + strobe_end + hold;
             io = true;
+            // the strobe from SETUP's end to the access's strobe_end
+            let setup =
+                strobe_end - 2 - ((self.io.entry(((self.x >> 8) & 15) as usize)? >> 2) & 63) as u64;
+            self.io_rd_ps = self.edge_ps(astart + 1 + setup) + IO_STROBE_PS;
+            self.io_wr_ps = self.edge_ps(astart + strobe_end) + IO_STROBE_PS;
         }
         let first_io = u.rs == RS_T && u.t == T_FROM_DEV;
         let mut e1 = start + if first_io && io { len + 1 } else { 1 };
@@ -530,7 +605,7 @@ impl Iop {
         let a = match u.rs {
             RS_REG | RS_MEM => self.sram[addr],
             RS_K => u.k,
-            _ if u.t == T_FROM_DEV => self.dev_read(u.reg, bus)?.0,
+            _ if u.t == T_FROM_DEV => self.dev_read(u.reg, e1 - 1, bus)?.0,
             _ => self.ba,
         };
         if !u.hold {
@@ -551,12 +626,12 @@ impl Iop {
         match u.t {
             T_AB_BA => self.ab = old_ba,
             T_AB_F => self.ab = f,
-            T_AB_DEV => self.ab = self.dev_read(u.reg, bus)?.0,
+            T_AB_DEV => self.ab = self.dev_read(u.reg, e2 - 1, bus)?.0,
             T_DEV_BA => {
-                self.dev_write(u.reg, old_ba)?;
+                self.dev_write(u.reg, old_ba, e2)?;
             }
             T_DEV_F => {
-                self.dev_write(u.reg, f)?;
+                self.dev_write(u.reg, f, e2)?;
             }
             _ => {}
         }
@@ -608,7 +683,7 @@ impl Iop {
                 }
                 !done
             }
-            COND_ATTN => self.attention(),
+            COND_ATTN => self.attention_at(e2 - 1),
             COND_BELL => self.doorbells != 0,
             _ => false,
         };

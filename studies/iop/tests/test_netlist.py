@@ -56,14 +56,17 @@ class Netlist(unittest.TestCase):
         self.assertEqual(regs, [0x6000, 0, 0x1234])
         self.assertTrue(256 < wait < 300)
 
-    def test_cold_start(self):
-        """The firmware from power-up to just before the timer's first
-        tick, which the two take a few clocks apart: the SRAM's test, the
-        dictionary out of the flash, the Forth's cold start."""
-        out, diff, n = hw.check(21.0)
+    def test_console(self):
+        """The firmware from power-up, ticks and all, to the banner and a
+        line typed at the console and answered: the SRAM's test, the
+        dictionary out of the flash, the Forth's cold start, the
+        interpreter, the console's UART."""
+        out, diff, n = hw.check(48.0, inp=b"1 2 + .\r")
         self.assertIsNone(diff)
-        self.assertGreater(n, 150_000)
+        self.assertGreater(n, 380_000)
         self.assertEqual(out["violation_total"], 0)
+        self.assertEqual(out["output"], out["model_output"])
+        self.assertIn(b"1 2 + . 3 ", out["output"])
 
 
 class FastCorner(unittest.TestCase):

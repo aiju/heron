@@ -27,6 +27,14 @@
 //! takes (1 + SETUP) + STROBE + (1 + HOLD) bus clocks. The table is SRAM:
 //! an access to a device whose entry hasn't been written since power-up
 //! is an error here, since its timing would be whatever the SRAM held.
+//!
+//! **Time** is the card's ([`Edges`]): the UART is clocked on XIN's
+//! rising edges and the timer on CLKB's falling edges where the card's
+//! oscillators have them, and a device's outputs change its own delay
+//! after, so that the core can see OUT0 and the INT lines at the clocks
+//! the card does.
+
+use std::collections::VecDeque;
 
 use crate::flash::Flash;
 use devices::ds1302::Ds1302;
@@ -43,6 +51,85 @@ pub const TT_WAIT: u16 = 1 << 12;
 
 /// The watchdog's time: COLD if not kicked for this long (RFC 0027, 5).
 pub const WATCHDOG_NS: u64 = 100_000_000;
+
+/// The card's oscillators as edges on its time line, in ps from power-up:
+/// XIN rises at `xin_first_ps` + k `xin_period_ps`, CLKB falls (the
+/// 82C54 counts on its fall) at `clkb_first_ps` + k `clkb_period_ps`.
+/// `t0_ps` is the model's time 0 on that line. The delays are the parts'
+/// at the slow corner: the 82C54's CLK and WR to OUT, the 16C550's XIN to
+/// INTR, as the chip-level simulator has them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Edges {
+    pub t0_ps: i64,
+    pub xin_first_ps: i64,
+    pub xin_period_ps: i64,
+    pub clkb_first_ps: i64,
+    pub clkb_period_ps: i64,
+    pub timer_out_ps: i64,
+    pub timer_wr_out_ps: i64,
+    pub uart_out_ps: i64,
+}
+
+impl Edges {
+    /// The card's (card.py): oscillators that start low and rise half a
+    /// period in.
+    pub fn card(uart_hz: f64, clkb_hz: f64, t0_ps: i64) -> Edges {
+        let xp = (1e12 / uart_hz).round() as i64;
+        let bp = (1e12 / clkb_hz).round() as i64;
+        Edges {
+            t0_ps,
+            xin_first_ps: xp / 2,
+            xin_period_ps: xp,
+            clkb_first_ps: bp / 2 + bp / 2,
+            clkb_period_ps: bp,
+            timer_out_ps: 100_000,
+            timer_wr_out_ps: 240_000,
+            uart_out_ps: 30_000,
+        }
+    }
+}
+
+/// A line's changes, in time order: what it was before the first, and
+/// what it changed to when.
+#[derive(Clone, Debug, Default)]
+struct Line {
+    base: bool,
+    last: bool,
+    changes: VecDeque<(i64, bool)>,
+}
+
+impl Line {
+    fn note(&mut self, t: i64, v: bool) {
+        if v == self.last {
+            return;
+        }
+        self.last = v;
+        let i = self
+            .changes
+            .iter()
+            .rposition(|&(t2, _)| t2 <= t)
+            .map_or(0, |i| i + 1);
+        self.changes.insert(i, (t, v));
+    }
+
+    /// The line at time t; what came before is forgotten.
+    fn at(&mut self, t: i64) -> bool {
+        while let Some(&(t2, v)) = self.changes.front() {
+            if t2 > t {
+                break;
+            }
+            self.base = v;
+            self.changes.pop_front();
+        }
+        self.base
+    }
+
+    fn reset(&mut self, v: bool) {
+        self.base = v;
+        self.last = v;
+        self.changes.clear();
+    }
+}
 
 /// An I/O card in a slot: its registers by A0-A7, and its INT line.
 pub trait IoCard: Send {
@@ -96,17 +183,19 @@ pub struct IoBus {
     /// D0-D15's last value.
     pub hold: u16,
     pub now_ns: u64,
-    uart_hz: f64,
-    clkb_hz: f64,
-    uart_frac: f64,
-    clkb_frac: f64,
-    /// Rising edges of the timer's OUT0 not yet taken as ticks.
-    pub tick_edges: u64,
+    pub edges: Edges,
+    /// The next XIN and CLKB edges not yet applied, on the card's time line.
+    xin_next: i64,
+    clkb_next: i64,
+    /// When the timer's OUT0 rose (its delay after), not yet taken as ticks.
+    pub out0_rises: VecDeque<i64>,
+    intr: Line,
+    out2: Line,
     pub accesses: u64,
 }
 
 impl IoBus {
-    pub fn new(flash: &[u8], uart_hz: f64, clkb_hz: f64) -> IoBus {
+    pub fn new(flash: &[u8], edges: Edges) -> IoBus {
         IoBus {
             ttab: [None; 16],
             uart: Uart::new(),
@@ -122,13 +211,19 @@ impl IoBus {
             slots: (0..SLOTS).map(|_| None).collect(),
             hold: 0,
             now_ns: 0,
-            uart_hz,
-            clkb_hz,
-            uart_frac: 0.0,
-            clkb_frac: 0.0,
-            tick_edges: 0,
+            edges,
+            xin_next: edges.xin_first_ps,
+            clkb_next: edges.clkb_first_ps,
+            out0_rises: VecDeque::new(),
+            intr: Line::default(),
+            out2: Line::default(),
             accesses: 0,
         }
+    }
+
+    /// A time of the model's, in ns, on the card's time line.
+    pub fn abs_ps(&self, ns: u64) -> i64 {
+        self.edges.t0_ps + ns as i64 * 1000
     }
 
     /// IORESET: the devices on the bus to their reset state. The table
@@ -137,6 +232,9 @@ impl IoBus {
         self.uart.reset();
         self.timer = Timer::new();
         self.leds = 0;
+        self.out0_rises.clear();
+        self.intr.reset(self.uart.intr());
+        self.out2.reset(self.timer.out(2));
     }
 
     /// COLD: port 1 is cleared, letting go of the clock chip, and the
@@ -156,32 +254,74 @@ impl IoBus {
 
     /// Bring the devices up to `now_ns`.
     pub fn advance(&mut self, now_ns: u64) {
-        if now_ns <= self.now_ns {
-            return;
-        }
-        let dt = (now_ns - self.now_ns) as f64 / 1e9;
-        let x = dt * self.uart_hz + self.uart_frac;
-        self.uart.clock(x.floor() as u64);
-        self.uart_frac = x.fract();
-        let p = dt * self.clkb_hz + self.clkb_frac;
-        let n = p.floor() as u64;
-        self.clkb_frac = p.fract();
-        if n > 0 {
-            self.tick_edges += self.timer.clock_n(0, n);
-            self.timer.clock_n(1, n);
-            self.timer.clock_n(2, n);
-        }
+        let t = self.abs_ps(now_ns);
+        self.advance_ps(t);
         for c in self.slots.iter_mut().flatten() {
             c.advance(now_ns);
         }
-        self.now_ns = now_ns;
+        self.now_ns = self.now_ns.max(now_ns);
+    }
+
+    /// Apply the oscillators' edges up to t on the card's time line: the
+    /// UART's in steps to its next change, the timer's one by one, noting
+    /// when OUT0 rises and the INT outputs change.
+    pub fn advance_ps(&mut self, t: i64) {
+        let (xp, bp) = (self.edges.xin_period_ps, self.edges.clkb_period_ps);
+        while self.xin_next <= t {
+            let avail = ((t - self.xin_next) / xp + 1) as u64;
+            let step = match self.uart.next_change() {
+                Some(n) if n >= 1 && n < avail => n,
+                _ => avail,
+            };
+            self.uart.clock(step);
+            let last = self.xin_next + (step as i64 - 1) * xp;
+            self.xin_next += step as i64 * xp;
+            let v = self.uart.intr();
+            self.intr.note(last + self.edges.uart_out_ps, v);
+        }
+        while self.clkb_next <= t {
+            let was = self.timer.out(0);
+            for i in 0..3 {
+                self.timer.clock(i);
+            }
+            let at = self.clkb_next + self.edges.timer_out_ps;
+            if !was && self.timer.out(0) {
+                self.out0_rises.push_back(at);
+            }
+            let v = self.timer.out(2);
+            self.out2.note(at, v);
+            self.clkb_next += bp;
+        }
     }
 
     /// The UART's next change, in ns from now, if it has one coming.
     pub fn uart_next_ns(&self) -> Option<u64> {
-        self.uart
-            .next_change()
-            .map(|x| ((x as f64 - self.uart_frac).max(0.0) * 1e9 / self.uart_hz).ceil() as u64)
+        let now = self.abs_ps(self.now_ns);
+        self.uart.next_change().map(|x| {
+            let t = self.xin_next + (x as i64 - 1) * self.edges.xin_period_ps;
+            ((t - now).max(0) / 1000) as u64 + 1
+        })
+    }
+
+    /// The INT lines as the card's register takes them at time t on its
+    /// time line.
+    pub fn int_lines_at(&mut self, t: i64) -> u16 {
+        self.advance_ps(t);
+        let mut m = 0u16;
+        for (i, c) in self.slots.iter().enumerate() {
+            if let Some(c) = c
+                && c.int()
+            {
+                m |= 1 << i;
+            }
+        }
+        if self.intr.at(t) {
+            m |= 1 << UART;
+        }
+        if self.out2.at(t) {
+            m |= 1 << TIMER;
+        }
+        m
     }
 
     /// The INT lines: one per device.
@@ -219,9 +359,25 @@ impl IoBus {
         write: Option<u16>,
         now_ns: u64,
     ) -> Result<(u16, u32), String> {
+        let t = self.abs_ps(now_ns);
+        self.access_at(dev, reg, write, t)
+    }
+
+    /// The same, at time t on the card's time line: a read when its strobe
+    /// starts, a write when its strobe ends, as the card's devices see them.
+    pub fn access_at(
+        &mut self,
+        dev: usize,
+        reg: u8,
+        write: Option<u16>,
+        t: i64,
+    ) -> Result<(u16, u32), String> {
         let e = self.entry(dev)?;
-        self.advance(now_ns);
+        let ns = ((t - self.edges.t0_ps).max(0) / 1000) as u64;
+        self.advance(ns);
+        self.advance_ps(t);
         self.accesses += 1;
+        let out0_was = self.timer.out(0);
         let v = match write {
             Some(v) => {
                 self.write(dev, reg, v);
@@ -229,6 +385,21 @@ impl IoBus {
             }
             None => self.read(dev, reg),
         };
+        match dev {
+            UART => {
+                let v = self.uart.intr();
+                self.intr.note(t + self.edges.uart_out_ps, v);
+            }
+            TIMER if write.is_some() => {
+                let at = t + self.edges.timer_wr_out_ps;
+                if !out0_was && self.timer.out(0) {
+                    self.out0_rises.push_back(at);
+                }
+                let v = self.timer.out(2);
+                self.out2.note(at, v);
+            }
+            _ => {}
+        }
         Ok((v, access_clocks(e)))
     }
 
@@ -329,7 +500,7 @@ mod tests {
 
     #[test]
     fn hold_on_eight_bit_devices() {
-        let mut b = IoBus::new(&[0x34, 0x12], 14_745_600.0, 4e6);
+        let mut b = IoBus::new(&[0x34, 0x12], Edges::card(14_745_600.0, 4e6, 0));
         assert!(b.access(FLASH, 0, None, 0).is_err());
         for d in 12..16 {
             b.ttab[d] = Some(1 << 2);

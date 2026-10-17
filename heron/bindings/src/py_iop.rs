@@ -64,9 +64,11 @@ pub mod iop {
         /// `disk`: a CF card's image, in slot 0; `serial`: the serial card,
         /// two lines, in slot 1; `gpio`: general-purpose I/O cards, in
         /// these slots; `tick`: the CPU card's tick jumper, the timer's
-        /// bit (RFC 0040, 3.3: 16), or none.
+        /// bit (RFC 0040, 3.3: 16), or none; `t0_ps`: where the IOP's clock
+        /// 0 is on its card's time line (iobus::Edges), for the chip-level
+        /// check.
         #[new]
-        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false, gpio=Vec::new(), tick=None))]
+        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false, gpio=Vec::new(), tick=None, t0_ps=0))]
         #[allow(clippy::too_many_arguments)]
         fn new(
             ucode: &[u8],
@@ -80,10 +82,12 @@ pub mod iop {
             serial: bool,
             gpio: Vec<usize>,
             tick: Option<u32>,
+            t0_ps: i64,
         ) -> PyResult<System> {
             let cfg = Config {
                 watchdog,
                 shared_bytes,
+                t0_ps,
                 ..Config::default()
             };
             let timing = match reference {
@@ -290,6 +294,19 @@ pub mod iop {
         /// there, and AC after it.
         fn log_start(&mut self) {
             self.with_iop_mut(|i| i.log = Some(Vec::new()))
+        }
+
+        /// The timer's OUT0 rises not yet taken as ticks, on the card's time
+        /// line (ps), and the timer's counters' state: for checking the
+        /// model's devices against the card.
+        fn out0_rises(&mut self) -> Vec<i64> {
+            self.with_iop_mut(|i| i.io.out0_rises.iter().copied().collect())
+        }
+
+        /// With the log on: each tick, when OUT0 rose (ps on the card's time
+        /// line) and the clock TICK was set at; emptied.
+        fn tick_log_take(&mut self) -> Vec<(i64, u64)> {
+            self.with_iop_mut(|i| std::mem::take(&mut i.tick_log))
         }
 
         /// The log so far, emptied; it goes on.
