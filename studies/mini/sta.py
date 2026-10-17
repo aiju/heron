@@ -52,16 +52,10 @@ def _delays(chip_type, part=None):
 
 def _clock_offsets():
     """When the clock generator's phases change, after CLK's edge, beyond
-    their ticks: each is a flip-flop on the master clock, as CLK is, and
-    gates."""
-    d175 = _delays("175")["CLK->Q"]
-    return {
-        "MWIN": _delays("109")["CLK->Q"] - d175 + _delays("08")["A->Y"],
-        "LATE": _delays("02")["A->Y"],
-        "RW": _delays("32")["A->Y"],
-        "QLE": _delays("109")["CLK->Q"] - d175,
-        "T2": 0.0,
-    }
+    their ticks: each is a 22V10's register on the master clock, as CLK
+    is, the combinatorial ones (MWIN, LATE, RW) a 22V10 later."""
+    gal = _delays("22v10")["tPD"]
+    return {"MWIN": gal, "LATE": gal, "RW": gal, "QLE": 0.0, "T2": 0.0}
 
 
 OFFSETS = _clock_offsets()
@@ -182,29 +176,21 @@ def extra_checks(case, N):
         if t != hsta.NEG:
             out.append(("setup", t + su - close, f"{inst.ref} latch setup (closes at RW)",
                         inst.conn[f"D{worst}"]))
-    # the queue slots' J-K flip-flops, on the master clock: at the edge
-    # that ends T2, a master-clock flip-flop's delay before CLK's, J and K
-    # take whether the slot is empty after it (E0N_n, E1N_n), through a
-    # gate to J and two to K
-    d175 = _delays("175")["CLK->Q"]
-    su = N.delay["U_QLE"]["setup JK"]
-    for k in range(2):
-        t = case.net(f"E{k}N_n")[1]
-        if t == hsta.NEG:
-            continue
-        j = N.delay[N.drivers[f"LE{k}J"][0][0].ref]["A->Y"]
-        k1 = N.delay[N.drivers[f"LE{k}K1_n"][0][0].ref]["A->Y"]
-        k2 = N.delay[N.drivers[f"LE{k}K_n"][0][0].ref]["A->Y"]
-        out.append(("setup", t + max(j, k1 + k2) + su + d175,
-                    f"U_QLE.{k + 1}J/K setup (the master clock's edge ending T2)", f"E{k}N_n"))
-    # an access to the I/O space starts the hold as tick 3 ends: IOACC
-    # through two gates to HOLD's flip-flop, the region to the hold
-    # counter's preload. Not a matter of the period: a microinstruction
-    # that misses it can't hold
+    # the queue slots' enables, a 22V10 on the master clock: at the edge
+    # that ends T2, a 22V10's clock-to-output before CLK's, it takes whether
+    # the slots are empty after it, from the queue's next state
+    gd = _delays("22v10")
+    for net in ("V0_D", "V1_D", "HS_D"):
+        t = case.net(net)[1]
+        if t != hsta.NEG:
+            out.append(("setup", t + gd["setup"] + gd["CLK->Q"],
+                        "U_QGB setup (the master clock's edge ending T2)", net))
+    # an access to the I/O space starts the hold as tick 3 ends: IOACC to
+    # HOLD's register, the region to the hold counter's preload. Not a
+    # matter of the period: a microinstruction that misses it can't hold
     if case.net("IOACC")[0] != 0:
-        e3 = 4 * TICK - _delays("175")["CLK->Q"]
-        nand = _delays("00")["A->Y"]
-        need = [("IOACC", nand * 2 + _delays("74", "74ABT74")["setup D"], "the hold's start")]
+        e3 = 4 * TICK - gd["CLK->Q"]
+        need = [("IOACC", gd["setup"], "the hold's start")]
         need += [(f"VA{i}", _delays("163", "74ACT163")["setup data"], "the hold counter's preload")
                  for i in (28, 29, 30)]
         for net, after, what in need:

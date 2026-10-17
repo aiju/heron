@@ -54,6 +54,13 @@ from .timing import HEAD, TAIL
 TICK_PS = 19_861
 
 
+def sop(nets, f):
+    """A sum of products over nets (LSB first), true where f(bits) is."""
+    n = len(nets)
+    return gal.when(nets, [c for c in range(1 << n)
+                           if f(*[(c >> i) & 1 for i in range(n)])], range(1 << n))
+
+
 def bus(name, n, start=0):
     return [f"{name}{i}" for i in range(start, start + n)]
 
@@ -102,73 +109,72 @@ def clock_generator(nl, lengths, por_ps):
     nl.section("Clock generator")
     nl.add("osc", "U_OSC", part="oscillator 50.35 MHz", OUT="MCLK",
            params={"period_ps": TICK_PS, "phase_ps": TICK_PS})
-    # the preload, by the length class and XL: a parcel consumed with the
+    # two 22V10s on the master clock. K1: the tick count TC, cleared at T2,
+    # preloaded at H1 by the length class and XL, held in an I/O access's
+    # hold, its carry TCRCO; T1 after the carry, T2 after T1, H0 after T2,
+    # H1 after H0, and CLK, T2 or H0. The preloads are K1's equations, so
+    # the length classes are its program. XL: a parcel consumed with the
     # queue empty comes from the word the cycle fetches, which takes two
-    # ticks more (rtl.DEMAND_HOLD)
+    # ticks more (rtl.DEMAND_HOLD). H0 never stays on two ticks, so a
+    # second pulse dies whatever the registers powered up as
     from .rtl import DEMAND_HOLD
     pre = [preload(k) for k in lengths] + [preload(k + DEMAND_HOLD) for k in lengths]
-    g("08", ["uCONSUME", "V0_n"], "XL")
-    for bit in range(4):
-        m = nl.add("151", f"U_LM{bit}", A="uLCL0", B="uLCL1", C="XL", G="GND", Y=f"PSEL{bit}")
-        for c in range(8):
-            m[f"D{c}"] = "VCC" if (pre[c] >> bit) & 1 else "GND"
-    nl.add("163", "U_TC", part="74ACT163", CLK="MCLK", CLR="T2_n", LOAD="H1_n", ENP="VCC",
-           ENT="HOLD_n", A="PSEL0", B="PSEL1", C="PSEL2", D="PSEL3",
-           QA="TC0", QB="TC1", QC="TC2", QD="TC3", RCO="TCRCO")
-    # the hold: the wait states of an access to the I/O space. HOLD from
-    # tick 4 for 16 - 2r ticks, r the region (VA[30:28]): the count stops,
-    # and its carry, which T1 waits for, is off (a data cycle is 7 ticks
-    # or more, so the count is 15 or below). Tick 4, not 3: a read at the
-    # A bus has its address from the register file, too late for tick 3.
-    # Every step is a flip-flop on the master clock: the hold counter,
-    # loaded with 2r + 1 until HOLD rises, counts to its carry, HEND
-    # registers that, and HOLD falls a tick later
+    TC = bus("TC", 4)
+    sel = ["uLCL0", "uLCL1", "uCONSUME", "V0"]
+    k1 = {}
+    for b in range(4):
+        load = sop(sel, lambda l0, l1, c, v0: pre[l0 + 2 * l1 + 4 * (c & (1 - v0))] >> b & 1)
+        carry = gal.AND(*[lit(TC[i]) for i in range(b)])
+        count = gal.OR(gal.AND(lit(TC[b]), gal.OR(*[lit(TC[i], 0) for i in range(b)])),
+                       gal.AND(lit(TC[b], 0), carry))
+        k1[TC[b]] = (gal.AND(lit("T2", 0), gal.OR(
+            gal.AND(lit("H1"), load),
+            gal.AND(lit("H1", 0), lit("HOLD"), lit(TC[b])),
+            gal.AND(lit("H1", 0), lit("HOLD", 0), count))), True, False)
+    rco = gal.AND(*[lit(t) for t in TC], lit("HOLD", 0))
+    k1["TCRCO"] = (rco, False, False)
+    k1["T1"] = (rco, True, False)
+    k1["T2"] = (lit("T1"), True, False)
+    k1["H0"] = (gal.AND(lit("T2"), lit("H0", 0)), True, False)
+    k1["H1"] = (lit("H0"), True, False)
+    k1["CLK"] = (gal.OR(lit("T2"), lit("H0")), True, False)
+    gal.add(nl, "U_K1", k1, clock="MCLK")
+    # K2: H2 and H3 after H1; the write window MID, from tick 2 until H0
+    # (J = H1, K-bar = T2_n), and MWIN, MID outside the tail; RW, T1 or T2;
+    # LATE from tick 2. The hold: the wait states of an access to the I/O
+    # space, from tick 4 for 16 - 2r ticks, r the region (VA[30:28]): the
+    # count stops, and its carry, which T1 waits for, is off (a data cycle
+    # is 7 ticks or more, so the count is 15 or below). Tick 4, not 3: a
+    # read at the A bus has its address from the register file, too late
+    # for tick 3. The hold counter, loaded with 2r + 1 until HOLD rises,
+    # counts to its carry, HEND registers that, and HOLD falls a tick
+    # later. The I/O strobe: from the hold's second tick (J = HOLD) until
+    # T2 (K-bar = T1_n), a tick after the read latches close
+    rst = lit("RESET_n")
+    rw = gal.OR(lit("T1"), lit("T2"))
+    gal.add(nl, "U_K2", {
+        "H2": (lit("H1"), True, False),
+        "H3": (lit("H2"), True, False),
+        "MID": (gal.OR(gal.AND(lit("H1"), lit("MID", 0)), gal.AND(lit("T2", 0), lit("MID"))),
+                True, False),
+        "IOSTB": (gal.AND(rst, gal.OR(gal.AND(lit("HOLD"), lit("IOSTB", 0)),
+                                      gal.AND(lit("T1", 0), lit("IOSTB")))), True, False),
+        "HOLD": (gal.AND(rst, gal.OR(gal.AND(lit("H3"), lit("IOACC")),
+                                     gal.AND(lit("HOLD"), lit("HEND", 0)))), True, False),
+        "HEND": (gal.AND(rst, lit("HCRCO")), True, False),
+        "RW": (rw, False, False),
+        "RW_n": (rw, False, True),
+        "MWIN": (gal.AND(lit("MID"), lit("T1", 0), lit("T2", 0)), False, False),
+        "LATE": (gal.AND(lit("H0", 0), lit("H1", 0)), False, False)}, clock="MCLK")
     nl.section("Hold")
-    g("00", ["H3", "IOACC"], "HSTART_n")
-    g("00", ["HOLD", "HEND_n"], "HKEEP_n")
-    g("00", ["HSTART_n", "HKEEP_n"], "HOLD_D")
-    nl.add("74", "U_HOLD", part="74ABT74",
-           **{"1D": "HOLD_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
-              "1Q": "HOLD", "1QN": "HOLD_n",
-              "2D": "HCRCO", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
-              "2Q": "HEND", "2QN": "HEND_n"})
     nl.add("163", "U_HC", part="74ACT163", CLK="MCLK", CLR="VCC", LOAD="HOLD", ENP="HOLD",
            ENT="HOLD", A="VCC", B="VA28", C="VA29", D="VA30", RCO="HCRCO")
     nl.section("Clock generator")
-    # T1 after the count's carry, T2 after T1; H0 after T2, H1 after H0.
-    # H0 never stays on two ticks, so a second pulse dies whatever the
-    # flip-flops powered up as
-    nl.add("175", "U_TH", CLK="MCLK", CLR="VCC",
-           **{"1D": "TCRCO", "1Q": "T1", "1QN": "T1_n",
-              "2D": "T1", "2Q": "T2", "2QN": "T2_n",
-              "3D": "H0_D", "3Q": "H0", "3QN": "H0_n",
-              "4D": "CLK_D", "4Q": "CLK"})
-    g("08", ["T2", "H0_n"], "H0_D")
-    g("32", ["T2", "H0"], "CLK_D")
-    nl.add("175", "U_TH2", CLK="MCLK", CLR="VCC",
-           **{"1D": "H0", "1Q": "H1", "1QN": "H1_n", "2D": "H1", "2Q": "H2",
-              "3D": "GND", "4D": "GND"})
-    # (a fast flip-flop: H3 starts the hold through two gates in a tick)
-    # (its other half: the timer's interrupt flag, set as OUT0 rises,
-    # cleared by a write to the interrupt status)
-    nl.add("74", "U_TH3", part="74ABT74",
-           **{"1D": "H2", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC", "1Q": "H3",
-              "2D": "VCC", "2CLK": "TOUT0", "2PRE": "VCC", "2CLR": "TCLR_n", "2Q": "TFLAG"})
-    # the write window: MID from tick 2 (J = H1) until H0 (K-bar = T2_n),
-    # and not in the tail. The I/O strobe: from the hold's second tick (J =
-    # HOLD) until T2 (K-bar = T1_n), a tick after the read latches close
-    nl.add("109", "U_WIN",
-           **{"1J": "H1", "1K": "T2_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC",
-              "1Q": "MID",
-              "2J": "HOLD", "2K": "T1_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
-              "2Q": "IOSTB"})
-    g("32", ["T1", "T2"], "RW")
-    g("02", ["T1", "T2"], "RW_n")
-    g("08", ["MID", "RW_n"], "MWIN")
-    # LATE: from tick 2, when the cycle before's drivers are off
-    g("02", ["H0", "H1"], "LATE")
-
-
+    # the timer's interrupt flag, set as OUT0 rises, cleared by a write to
+    # the interrupt status
+    nl.add("74", "U_TH3", **{"1D": "GND", "1CLK": "GND", "1PRE": "VCC", "1CLR": "VCC",
+                             "2D": "VCC", "2CLK": "TOUT0", "2PRE": "VCC", "2CLR": "TCLR_n",
+                             "2Q": "TFLAG"})
 
 
 def video_ram(nl, VA, DB, sim):
@@ -189,9 +195,8 @@ def video_ram(nl, VA, DB, sim):
     # the bank is always enabled, its outputs on but in the CPU's writes
     # (outside the video's slots), so neither is on the CPU's read path:
     # onto the data bus through the transceivers when the CPU reads it,
-    # written when the bank is chosen
-    g("08", ["MEMWR", "VSLOT_n"], "B1OE_n")
-    g("20", [VA[21], "VA31_n", "VSLOT_n", "VCC"], "B1XOE_n")
+    # written when the bank is chosen (B1OE_n, B1XOE_n and the write
+    # enables B1WE_n from the memory's 22V10s)
     if sim:
         # the CPU's writes end within T1, before the video's slot switches
         # the address: the write strobe through fast copies of T1 and T2
@@ -202,13 +207,7 @@ def video_ram(nl, VA, DB, sim):
         g("32", ["T1F", "T2F"], "RWF")
         # (MID lasts into H0: the video's ownership masks it there)
         g("08", ["MID", "VSLOT_n"], "MIDV")
-    g("11", ["MEMWR", VA[21], "VA31_n"], "B1WR")
     for k in range(4):
-        if sim:
-            g("20", ["B1WR", "MIDV", f"BE{k}", "FAULT_n"], f"B1W{k}_n")
-            g("32", [f"B1W{k}_n", "RWF"], f"B1WE{k}_n")
-        else:
-            g("20", ["B1WR", "MWIN", f"BE{k}", "FAULT_n"], f"B1WE{k}_n")
         x = nl.add("245", f"U_B1X{k}", DIR="MEMWR", OE="B1XOE_n")
         ram = nl.add("sram512", f"U_RAM1{k}", role="fastram", CE="GND", OE="B1OE_n",
                      WE=f"B1WE{k}_n")
@@ -244,45 +243,45 @@ def video(nl, DB, VA, capture=False):
     every 11 ticks at most, a word every 16)."""
     g = nl.gate
     nl.section("Video timing")
-    # the ownership, a tick ahead: T2 and H0 follow T1 and T2; the hold's
-    # ticks follow HOLD. VT toggles while the video owns bank 1: its
-    # second ticks end the slots
-    g("27", ["T1", "T2", "HOLD"], "VSLOT_D")
-    g("08", ["VSLOT", "VT_n"], "VT_D")
-    nl.add("74", "U_VS", **{"1D": "VSLOT_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
-                            "1Q": "VSLOT_n", "1QN": "VSLOT",
-                            "2D": "VT_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
-                            "2Q": "VT", "2QN": "VT_n"})
-    # the pixel phase (PH: the pixel's second tick), the pixel in the
-    # character (PX, counted at the end of each pixel), P7 the character's
-    # last pixel, CHE its last tick, SLD the shifters' load then
-    nl.add("163", "U_VPX", CLK="MCLK", CLR="RESET_n", LOAD="VCC", ENP="PH", ENT="VCC",
-           A="GND", B="GND", C="GND", D="GND", QA="PX0", QB="PX1", QC="PX2")
-    g("04", ["PX0"], "PX0_n")
-    g("11", ["PX1", "PX2", "PX0_n"], "PX6")
-    g("08", ["PX6", "PH"], "P7_D")
-    nl.add("74", "U_VPH", **{"1D": "PH_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
-                             "1Q": "PH", "1QN": "PH_n",
-                             "2D": "P7_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
-                             "2Q": "P7"})
-    g("08", ["P7", "PH_n"], "CHE_D")
-    g("11", ["P7", "PH_n", "SHLDQ"], "SLD_D")
-    g("11", ["P7", "PH_n", "DESCQ"], "DLD_D")
-    g("11", ["P7", "PH_n", "DSEQ"], "DSE_D")
-    nl.add("74", "U_VCH", **{"1D": "CHE_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
-                             "1Q": "CHE", "1QN": "CHE_n",
-                             "2D": "SLD_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
-                             "2Q": "SLD"})
-    nl.add("74", "U_VLD", **{"1D": "DLD_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
-                             "1Q": "DLD", "1QN": "DLD_n",
-                             "2D": "DSE_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
-                             "2Q": "DSE", "2QN": "DSE_n"})
+    # two 22V10s on the master clock, cleared in a reset. V1: the pixel
+    # phase (PH: the pixel's second tick), the pixel in the character (PX,
+    # counted at the end of each pixel), P7 the character's last pixel, CHE
+    # its last tick, SLD the shifters' load then, DLD the descriptor
+    # address's load
+    rst = lit("RESET_n")
+    PX = bus("PX", 3)
+    last = gal.AND(rst, lit("P7"), lit("PH", 0))
+    v1 = {"PH": (gal.AND(rst, lit("PH", 0)), True, False),
+          "PH_n": (gal.AND(rst, lit("PH", 0)), True, True),
+          "P7": (gal.AND(rst, lit(PX[0], 0), lit(PX[1]), lit(PX[2]), lit("PH")), True, False),
+          "CHE": (last, True, False), "CHE_n": (last, True, True),
+          "SLD": (gal.AND(last, lit("SHLDQ")), True, False),
+          "DLD": (gal.AND(last, lit("DESCQ")), True, False)}
+    for b in range(3):
+        carry = gal.AND(lit("PH"), *[lit(PX[i]) for i in range(b)])
+        v1[PX[b]] = (gal.AND(rst, gal.OR(
+            gal.AND(lit(PX[b]), gal.OR(lit("PH", 0), *[lit(PX[i], 0) for i in range(b)])),
+            gal.AND(lit(PX[b], 0), carry))), True, False)
+    gal.add(nl, "U_V1", v1, clock="MCLK")
+    # V2: the ownership, a tick ahead: T2 and H0 follow T1 and T2; the
+    # hold's ticks follow HOLD (VSLOT, set in a reset). VT toggles while
+    # the video owns bank 1: its second ticks end the slots. DSE (the
+    # descriptor's load), DLD_n; the character and line counters' clears
+    # and the line's step
+    slot = gal.AND(rst, lit("T1", 0), lit("T2", 0), lit("HOLD", 0))
+    gal.add(nl, "U_V2", {
+        "VSLOT_n": (slot, True, False), "VSLOT": (slot, True, True),
+        "VT_n": (gal.AND(rst, lit("VSLOT"), lit("VT_n")), True, True),
+        "DSE": (gal.AND(last, lit("DSEQ")), True, False),
+        "DSE_n": (gal.AND(last, lit("DSEQ")), True, True),
+        "DLD_n": (gal.AND(last, lit("DESCQ")), True, True),
+        "HCLR_n": (gal.AND(lit("LENDQ"), lit("CHE")), False, True),
+        "LINE": (gal.AND(lit("LENDQ"), lit("CHE")), False, False),
+        "VCLR_n": (gal.AND(lit("FENDQ"), lit("LENDQ"), lit("CHE")), False, True)},
+        clock="MCLK")
     # the character (0-99) and the line (0-524): line 0-44 the vertical
     # blanking, 45-524 the picture
     H, V = bus("VH", 7) + ["VH7"], bus("VV", 10) + ["VV10", "VV11"]
-    g("00", ["LENDQ", "CHE"], "HCLR_n")
-    g("08", ["LENDQ", "CHE"], "LINE")
-    g("20", ["FENDQ", "LENDQ", "CHE", "VCC"], "VCLR_n")
     rco = "VCC"
     for k in range(2):
         # (the carries ripple on past the edge after a step, when nothing
@@ -383,10 +382,6 @@ def video(nl, DB, VA, capture=False):
     # the colour, registered at each pixel's end; off (black, the monitor's
     # 75 ohms pulling the DACs down) outside the picture. DE a pixel late,
     # as the colour is
-    nl.add("74", "U_VDE", **{"1D": "DEQ", "1CLK": "PH_n", "1PRE": "VCC", "1CLR": "RESET_n",
-                             "1Q": "DED", "1QN": "DED_n",
-                             "2D": "VIRQ_D", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
-                             "2Q": "VIFLAG"})
     for k in range(2):
         o = nl.add("574", f"U_RGB{k}", CLK="PH_n", OE="DED_n")
         for i in range(8):
@@ -402,24 +397,31 @@ def video(nl, DB, VA, capture=False):
     nl.section("Video registers")
     # region 7, LOC0: 0xF000_0000 the control register (bit 0 the picture
     # on, 1 TSEL, 2 the interrupt on), 0xF000_0004 the interrupt's
-    # acknowledge (any write)
-    g("32", ["LOC0_n", "IOWR_n"], "VREGW")
-    g("04", [VA[2]], "VA2_n")
-    g("32", ["VREGW", VA[2]], "VCTLW")
-    g("32", ["VREGW", "VA2_n"], "VACKW")
-    nl.add("175", "U_VCTL", CLK="VCTLW", CLR="RESET_n",
-           **{"1D": DB[0], "1Q": "VON", "2D": DB[1], "2Q": "TSEL", "3D": DB[2], "3Q": "VIEN",
-              "4D": "GND"})
-    g("08", ["DEQR", "VON"], "DEQ")
-    # the interrupt: set at the picture's end and by a line whose
-    # descriptor asks; cleared by the acknowledge (a write's strobe, so
-    # synchronous to the master clock)
-    g("08", ["FENDQ", "LINE"], "VFR")
-    g("08", ["DSE", "HR23"], "VLN")
-    g("02", ["VFR", "VLN"], "VSET_n")
-    g("00", ["VIFLAG", "VACKW"], "VKEEP_n")
-    g("00", ["VSET_n", "VKEEP_n"], "VIRQ_D")
-    g("08", ["VIFLAG", "VIEN"], "VIRQ")
+    # acknowledge (any write): a 22V10 on the master clock, loading the
+    # control register through a write's strobe (synchronous to the master
+    # clock). The interrupt: set at the picture's end and by a line whose
+    # descriptor asks; cleared by the acknowledge. DE, the colour's output
+    # enable: the picture on and in it, a pixel late, as the colour is
+    # (registered as PH falls)
+    rst = lit("RESET_n")
+    wr = [lit("LOC0_n", 0), lit("IOWR_n", 0)]
+    ctl = gal.AND(*wr, lit(VA[2], 0))
+    noctl = gal.OR(lit("LOC0_n"), lit("IOWR_n"), lit(VA[2]))
+    noack = gal.OR(lit("LOC0_n"), lit("IOWR_n"), lit(VA[2], 0))
+    v3 = {}
+    for i, q in enumerate(["VON", "TSEL", "VIEN"]):
+        v3[q] = (gal.AND(rst, gal.OR(gal.AND(ctl, lit(DB[i])), gal.AND(noctl, lit(q)))), True,
+                 False)
+    v3["VIFLAG"] = (gal.AND(rst, gal.OR(gal.AND(lit("FENDQ"), lit("LINE")),
+                                        gal.AND(lit("DSE"), lit("HR23")),
+                                        gal.AND(lit("VIFLAG"), noack))), True, False)
+    v3["VIRQ"] = (gal.AND(lit("VIFLAG"), lit("VIEN")), False, False)
+    ded = gal.AND(rst, gal.OR(gal.AND(lit("PH"), lit("DEQR"), lit("VON")),
+                              gal.AND(lit("PH", 0), lit("DED"))))
+    v3["DED"] = (ded, True, False)
+    v3["DED_n"] = (ded, True, True)
+    gal.add(nl, "U_V3", v3, clock="MCLK")
+
 
 def io_space(nl, VA, DB, sim):
     """The devices in the I/O space (system.py has the map): the strobes,
@@ -432,26 +434,43 @@ def io_space(nl, VA, DB, sim):
         nl.add("const", "X_STUB", LO="IRQ")
         return
     nl.section("I/O")
-    # the strobes: from the hold's second tick to T2; none in an address
-    # error, whose access holds the cycle all the same
-    g("10", ["MEMWR", "IOSTB", "FAULT_n"], "IOWR_n")
-    g("10", ["READING", "IOSTB", "FAULT_n"], "IORD_n")
-    # the devices' address and selects, latched as the strobe starts until
-    # the next cycle's tick 1 (open for a tick between, while VA still
-    # holds): they hold 20 ns after the strobe (the 16C550's and the CF
-    # card's tAH), and the expansion ports see them settled
-    g("02", ["IOSTB", "H0"], "IOLE")
+    # the strobes, the latches' enable, the I/O data bus's enable and the
+    # CF card's selects and strobes: a 22V10 on the master clock. The
+    # strobes from the hold's second tick to T2; none in an address error,
+    # whose access holds the cycle all the same. The devices' address and
+    # selects, latched as the strobe starts until the next cycle's tick 1
+    # (open for a tick between, while VA still holds): they hold 20 ns
+    # after the strobe (the 16C550's and the CF card's tAH), and the
+    # expansion ports see them settled. The I/O data bus, 16 bits, for
+    # regions 0-6: driven from the data bus for the whole of a write, onto
+    # it for a read's strobe. The CF card, region 0, True IDE on the I/O
+    # bus's 16 bits: CS0 (the task file) with A5 low, CS1 (the control
+    # block) with A5 high. Its strobes start two ticks after the others,
+    # for PIO mode 0's 70 ns of address setup (a read at the A bus has its
+    # address late); they end with them, at T2 (J = 1 with K-bar = 0
+    # toggles them off then)
+    rst, ok = lit("RESET_n"), lit("FAULT", 0)
+    gal.add(nl, "U_IOG", {
+        "IOWR_n": (gal.AND(lit("MEMWR"), lit("IOSTB"), ok), False, True),
+        "IORD_n": (gal.AND(lit("READING"), lit("IOSTB"), ok), False, True),
+        "IOLE": (gal.OR(lit("IOSTB"), lit("H0")), False, True),
+        "XOE_n": (gal.AND(lit("IOR7_n"), gal.OR(gal.AND(lit("IOACC"), lit("MEMWR")),
+                                                gal.AND(lit("IOSTB"), lit("READING")))),
+                  False, True),
+        "CFCS0_n": (gal.OR(lit("IOS0_n"), lit("IOA5")), False, False),
+        "CFCS1_n": (gal.OR(lit("IOS0_n"), lit("IOA5", 0)), False, False),
+        "CFS2": (gal.AND(rst, gal.OR(gal.AND(lit("IOSTB"), lit("CFS2", 0)),
+                                     gal.AND(lit("T1", 0), lit("CFS2")))), True, False),
+        "CFS3": (gal.AND(rst, gal.OR(gal.AND(lit("CFS2"), lit("CFS3", 0)),
+                                     gal.AND(lit("T1", 0), lit("CFS3")))), True, False),
+        "CFRD_n": (gal.AND(lit("READING"), lit("CFS3"), ok), False, True),
+        "CFWR_n": (gal.AND(lit("MEMWR"), lit("CFS3"), ok), False, True)}, clock="MCLK")
     al = nl.add("573", "U_IOAL", LE="IOLE", OE="GND")
     sl = nl.add("573", "U_IOSL", LE="IOLE", OE="GND")
     for i in range(8):
         al[f"D{i + 1}"], al[f"Q{i + 1}"] = VA[2 + i], f"IOA{2 + i}"
         sl[f"D{i + 1}"], sl[f"Q{i + 1}"] = f"IOR{i}_n", f"IOS{i}_n"
     g("04", ["IOA5"], "IOA5_n")
-    # the I/O data bus, 16 bits, for regions 0-6: driven from the data bus
-    # for the whole of a write, onto it for a read's strobe
-    g("11", ["IOACC", "MEMWR", "IOR7_n"], "XW")
-    g("11", ["IOSTB", "READING", "IOR7_n"], "XR")
-    g("02", ["XW", "XR"], "XOE_n")
     for k in range(2):
         x = nl.add("245", f"U_IOX{k}", DIR="MEMWR", OE="XOE_n")
         rn = nl.add("pullup", f"RN_IOD{k}")
@@ -460,19 +479,6 @@ def io_space(nl, VA, DB, sim):
             rn[f"P{i + 1}"] = f"IOD{8 * k + i}"
 
     nl.section("CF card")
-    # region 0, True IDE on the I/O bus's 16 bits: CS0 (the task file) with
-    # A5 low, CS1 (the control block) with A5 high. Its strobes start two
-    # ticks after the others, for PIO mode 0's 70 ns of address setup (a
-    # read at the A bus has its address late); they end with them, at T2
-    # (J = 1 with K-bar = 0 toggles them off then)
-    g("32", ["IOS0_n", "IOA5"], "CFCS0_n")
-    g("32", ["IOS0_n", "IOA5_n"], "CFCS1_n")
-    nl.add("109", "U_CFSTB",
-           **{"1J": "IOSTB", "1K": "T1_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
-              "1Q": "CFS2", "2J": "CFS2", "2K": "T1_n", "2CLK": "MCLK", "2PRE": "VCC",
-              "2CLR": "RESET_n", "2Q": "CFS3"})
-    g("10", ["READING", "CFS3", "FAULT_n"], "CFRD_n")
-    g("10", ["MEMWR", "CFS3", "FAULT_n"], "CFWR_n")
     cf = nl.add("cf", "U_CF", CS0="CFCS0_n", CS1="CFCS1_n", IORD="CFRD_n", IOWR="CFWR_n",
                 RESET="RESET_n", INTRQ="CFINT", WAKE="CF_WAKE", params={"sectors": CF_SECTORS})
     for i in range(3):
@@ -525,27 +531,26 @@ def io_space(nl, VA, DB, sim):
     for i, src in enumerate(["UINT0", "UINT1", "CFINT", "TFLAG", "VIRQ", "EIRQ1_n", "EIRQ2_n",
                              "IRQ"]):
         st[f"A{i + 1}"], st[f"Y{i + 1}"] = src, DB[i]
-    g("32", ["LOC2_n", "IOWR_n"], "TACK_n")
-    g("08", ["TACK_n", "RESET_n"], "TCLR_n")
+    # the timer's acknowledge, the control register's strobe, the speaker,
+    # the interrupt line (any device's request) and the suite's I/O page's
+    # select: a 22V10
+    reqs = ["UINT0", "UINT1", "CFINT", "TFLAG", "VIRQ", "XIRQ"]
+    gal.add(nl, "U_ONB", {
+        "TCLR_n": (gal.AND(lit("RESET_n"), gal.OR(lit("LOC2_n"), lit("IOWR_n"))), False, False),
+        "CTLW": (gal.OR(lit("LOC3_n"), lit("IOWR_n")), False, False),
+        "SPK": (gal.AND(lit("TOUT2"), lit("SPKD")), False, False),
+        "IRQ": (gal.OR(*[lit(r) for r in reqs], lit("EIRQ1_n", 0), lit("EIRQ2_n", 0)),
+                False, False),
+        "XSEL_n": (gal.OR(lit("IOR7_n"), lit(VA[21], 0)), False, False)})
     # the control register: the speaker's gate and data, two LEDs
-    g("32", ["LOC3_n", "IOWR_n"], "CTLW")
     nl.add("175", "U_CTL", CLK="CTLW", CLR="RESET_n",
            **{"1D": DB[0], "1Q": "SPKG", "2D": DB[1], "2Q": "SPKD",
               "3D": DB[2], "3Q": "LED0", "4D": DB[3], "4Q": "LED1"})
-    g("08", ["TOUT2", "SPKD"], "SPK")
-
-    nl.section("Interrupts")
-    # the line: any device's request
-    g("02", ["UINT0", "UINT1"], "IRQN1")
-    g("02", ["CFINT", "TFLAG"], "IRQN2")
-    g("02", ["VIRQ", "XIRQ"], "IRQN3")
-    g("30", ["IRQN1", "IRQN2", "IRQN3", "EIRQ1_n", "EIRQ2_n"], "IRQ")
 
     # the suite's I/O page: a test card in region 7 with VA21 high, on the
     # data bus. It takes a read at CLK's edge, so its read strobe lasts the
     # cycle
     nl.section("I/O")
-    g("32", ["IOR7_n", "VA21_n"], "XSEL_n")
     g("10", ["READING", "LATE", "FAULT_n"], "IORDX_n")
     x = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="XSEL_n", RD="IORDX_n", WR="IOWR_n",
                IRQ="XIRQ")
@@ -583,7 +588,6 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
         nl.add("tickclk", "X_CLK", CLK="CLK", MWIN="MWIN", LATE="LATE", RW="RW", RSTB="T2",
                RESET="RESET_n")
         g("04", ["RW"], "RW_n")
-        g("04", ["T2"], "T2_n")
         for net in ("T1", "TCRCO", "MCLK", "H0", "H1", "H2"):
             nl.add("const", f"X_{net}", LO=net)
         nl.add("const", "X_HOLD", LO="HOLD", HI="HOLD_n")
@@ -598,7 +602,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     for k in range(uc.WORD_BITS // 8):
         rom = nl.add("flash", f"U_CS{k}", CE="GND", OE="GND", WE="VCC")
         for i in range(17):
-            rom[f"A{i}"] = Y[i] if i < uc.Y_BITS else (YU[i - uc.Y_BITS] if i < 16 else "YE")
+            rom[f"A{i}"] = Y[i] if i < uc.Y_BITS else (YU[i - uc.Y_BITS] if i < 16 else "DECGO")
         for i in range(8):
             rom[f"D{i}"] = f"UD{8 * k + i}"
         r = nl.add("574", f"U_UIR{k}", CLK="CLK", OE="GND")
@@ -615,13 +619,14 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
 
     # ---- next address ---------------------------------------------------------------
     nl.section("Next address")
-    g("04", [u["COND3"]], "COND3_n")
-    nl.add("151", "U_CONDL", A=u["COND0"], B=u["COND1"], C=u["COND2"], G=u["COND3"], Y="CONDL",
-           D0=u["NEXT0"], D1="TC", D2=RQ[31], D3="CLQ", D4="CONDT", D5="MQ31", D6="TC4",
-           D7="CONDT_n")
-    nl.add("151", "U_CONDH", A=u["COND0"], B=u["COND1"], C=u["COND2"], G="COND3_n", Y="CONDH",
-           D0="PEND", D1="SXEQ", D2="GND", D3="GND", D4="SX15", D5="MQ0", D6=RQ[0], D7="GND")
-    g("32", ["CONDL", "CONDH"], "CONDY")
+    # the condition, by COND: with COND3 low, NEXT0, TC, R31, CL, the
+    # branch condition, MQ31, TC4 or the branch condition's complement;
+    # with it high, PEND, SX = EX, -, -, SX15, MQ0 or R0. A 22V10
+    COND = [u[f"COND{i}"] for i in range(4)]
+    gal.add(nl, "U_CNY", {"CONDY": (gal.mux(COND, [
+        lit(u["NEXT0"]), lit("TC"), lit(RQ[31]), lit("CLQ"), lit("CONDT"), lit("MQ31"), lit("TC4"),
+        lit("CONDT", 0), lit("PEND"), lit("SXEQ_n", 0), 0, 0, lit("SX15"), lit("MQ0"), lit(RQ[0]),
+        0]), False, False)})
     for k in range((uc.Y_BITS + 1) // 2):
         m = nl.add("153", f"U_YM{k}", A=u["SEQ0"], B=u["SEQ1"], **{"1G": "YG", "2G": "YG"})
         for sec in (0, 1):
@@ -635,54 +640,56 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
             for c, s_ in enumerate([nxt, QH[i], disp, u[f"NEXT{i}"]]):
                 m[f"{sec + 1}C{c}"] = s_
             m[f"{sec + 1}Y"] = Y[i]
-    # SEQ 1 decode (DEC, from the uIR), 3 halt; the forced entries (refill
-    # 001, interrupt 010), which fill their pages, so that only E and U
-    # change; and the decode that goes ahead: its first microinstruction
-    # at {1, QH}
-    g("08", [u["SEQ0"], u["SEQ1"]], "HALTACT")
-    g("32", [u["DEC"], "HALTACT"], "DECHALT")
-    g("08", ["DECHALT", "PEND"], "FIRQ")
-    g("08", [u["DEC"], "PEND_n"], "DECOK")
-    # the first parcel is there: in Q0, or (a refill) in the word it fetches
-    g("32", ["V0", u["REF"]], "CANDEC")
-    g("04", ["CANDEC"], "CANDEC_n")
-    # a decode in a cycle that may jump (LDPC) goes to the refill whether it
-    # jumps or not, so that the jump's condition isn't on the control
-    # store's address: the refill decodes from the queue if it still holds
-    # the instruction
-    g("32", ["CANDEC_n", u["LDPC"]], "NODEC")
-    # Y's low bits are 0 in a decode that can't have its first parcel (a
-    # transparent slot, the data bus moving): the refill's page doesn't
-    # care, and the address is stable
-    g("08", [u["DEC"], "CANDEC_n"], "YGD")
-    g("32", ["YGD", "RESET"], "YG")
-    g("08", ["DECOK", "NODEC"], "UF0")
-    # nor in an address error (FAULT), whose page is U = 1LL, LL the
-    # parcels its instruction has consumed (the microinstruction's own):
-    # the IR, the PC and the next address. The queue's (DECGOQ) is as if
-    # there were none, keeping FAULT off its paths: the fault's microcode
-    # ends in a jump, which empties it, and reads nothing from it before
-    g("04", [u["LDPC"]], "LDPC_n")
-    g("02", [u["LDPC"], "FAULT"], "LDPCF_n")
-    g("21", [u["DEC"], "PEND_n", "CANDEC", "LDPCF_n"], "DECGO")
-    g("20", [u["DEC"], "PEND_n", "CANDEC", "LDPCF_n"], "DECGO_n")
-    g("21", [u["DEC"], "PEND_n", "CANDEC", "LDPC_n"], "DECGOQ")
-    g("08", ["DECGOQ", "PC1F"], "DECGOP")
-    nl.add("157", "U_UF", S="FAULT", G="GND",
-           **{"1A": "UF0", "1B": u["LL0"], "1Y": "UA0", "2A": "FIRQ", "2B": u["LL1"], "2Y": "UA1",
-              "3A": "GND", "3B": "VCC", "3Y": "UA2", "4A": "GND", "4B": "GND"})
-    nl.add("157", "U_UM", S="DECGO", G="RESET",
-           **{"1A": "UA0", "1B": QH[13], "1Y": "YU0", "2A": "UA1", "2B": QH[14], "2Y": "YU1",
-              "3A": "UA2", "3B": QH[15], "3Y": "YU2", "4A": "GND", "4B": "VCC", "4Y": "YE"})
-    # jump: LDPC, always / on the branch condition / on not CL
-    nl.add("153", "U_JUMP", A=u["PCCOND0"], B=u["PCCOND1"],
-           **{"1G": "GND", "2G": "VCC", "1C0": "VCC", "1C1": "BCOND", "1C2": "CL_n",
-              "1C3": "GND", "1Y": "JC", "2C0": "GND", "2C1": "GND", "2C2": "GND", "2C3": "GND"})
-    g("08", [u["LDPC"], "JC"], "JUMP")
-    g("00", [u["LDPC"], "JC"], "JUMP_n")
-    # the PC's: none in an address error (the queue's and FPC's, JUMP, as
-    # the decode's)
-    g("10", [u["LDPC"], "JC", "FAULT_n"], "PCJ_n")
+    # the decode's glue, a 22V10. SEQ 1 decode (DEC, from the uIR), 3 halt;
+    # the forced entries (refill 001, interrupt 010), which fill their
+    # pages, so that only E and U change; and the decode that goes ahead
+    # (DECGO): its first microinstruction at {1, QH}. The first parcel is
+    # there: in Q0, or (a refill) in the word it fetches (CANDEC). A decode
+    # in a cycle that may jump (LDPC) goes to the refill whether it jumps
+    # or not, so that the jump's condition isn't on the control store's
+    # address: the refill decodes from the queue if it still holds the
+    # instruction. Y's low bits are 0 in a decode that can't have its first
+    # parcel (a transparent slot, the data bus moving): the refill's page
+    # doesn't care, and the address is stable (YG). Nor in an address error
+    # (FAULT), whose page is U = 1LL, LL the parcels its instruction has
+    # consumed (the microinstruction's own): the IR, the PC and the next
+    # address. The queue's (DECGOQ, in DECGOP) is as if there were none,
+    # keeping FAULT off its paths: the fault's microcode ends in a jump,
+    # which empties it, and reads nothing from it before. In a reset, Y,
+    # YU and YE (DECGO) are 0
+    DEC = u["DEC"]
+    candec = gal.OR(lit("V0"), lit(u["REF"]))
+    nocan = gal.AND(lit("V0", 0), lit(u["REF"], 0))
+    goq = gal.AND(lit(DEC), lit("PEND", 0), lit(u["LDPC"], 0), candec)
+    decgo = gal.AND(goq, lit("FAULT", 0), lit("RESET", 0))
+    uf0 = gal.AND(lit(DEC), lit("PEND", 0), gal.OR(nocan, lit(u["LDPC"])))
+    firq = gal.AND(gal.OR(lit(DEC), gal.AND(lit(u["SEQ0"]), lit(u["SEQ1"]))), lit("PEND"))
+    ua = [gal.OR(gal.AND(lit("FAULT"), lit(u["LL0"])), gal.AND(lit("FAULT", 0), uf0)),
+          gal.OR(gal.AND(lit("FAULT"), lit(u["LL1"])), gal.AND(lit("FAULT", 0), firq)),
+          lit("FAULT")]
+    seq = {"DECGO": (decgo, False, False), "DECGO_n": (decgo, False, True),
+           "DECGOP": (gal.AND(goq, lit("PC1F")), False, False),
+           "YG": (gal.OR(gal.AND(lit(DEC), nocan), lit("RESET")), False, False)}
+    for i in range(3):
+        seq[f"YU{i}"] = (gal.AND(lit("RESET", 0), gal.OR(gal.AND(lit("DECGO"), lit(QH[13 + i])),
+                                                         gal.AND(lit("DECGO", 0), ua[i]))),
+                         False, False)
+    gal.add(nl, "U_SEQ", seq)
+    # the branch condition (CONDT, the condition before cc's low bit
+    # inverts it) and the jump: LDPC, always / on the branch condition / on
+    # not CL; the PC's (PCJ_n) none in an address error (the queue's and
+    # FPC's, JUMP, as the decode's). A 22V10
+    CC = bus("CC", 4)
+    nv = gal.OR(gal.AND(lit("NFLAG"), lit("VFLAG")), gal.AND(lit("NFLAG", 0), lit("VFLAG", 0)))
+    condt = gal.mux(CC[1:], [lit("ZFLAG"), lit("CFLAG"), lit("NFLAG"), lit("VFLAG"),
+                             gal.AND(lit("CFLAG"), lit("ZFLAG", 0)), nv,
+                             gal.AND(lit("ZFLAG", 0), nv), 1])
+    bcond = gal.OR(gal.AND(lit("CONDT"), lit(CC[0], 0)), gal.AND(lit("CONDT", 0), lit(CC[0])))
+    jump = gal.AND(lit(u["LDPC"]), gal.mux([u["PCCOND0"], u["PCCOND1"]],
+                                            [1, bcond, lit("CLQ", 0), 0]))
+    gal.add(nl, "U_BRC", {"CONDT": (condt, False, False), "JUMP": (jump, False, False),
+                          "JUMP_n": (jump, False, True),
+                          "PCJ_n": (gal.AND(jump, lit("FAULT", 0)), False, True)})
 
     nl.section("Interrupt request")
     # the interrupt line, active high, registered at every edge (IRQQ); a
@@ -959,12 +966,10 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     nl.add("521", "U_SXEQ", G="GND", PEQ="SXEQ_n",
            **{f"P{i}": SX[i] if i < 4 else "GND" for i in range(8)},
            **{f"Q{i}": EX[i] if i < 4 else "GND" for i in range(8)})
-    g("04", ["SXEQ_n"], "SXEQ")
     g("21", SX, "SX15")
 
     # ---- PC, FPC and the prefetch queue ----------------------------------------------
     nl.section("PC")
-    g("04", ["PCJ_n"], "PCLD")
     # a decode that goes ahead consumes its first parcel; a cycle that
     # consumes has no data access (the microcode's rules). A consume in a
     # cycle that jumps needn't be masked: the PC loads, and the queue
@@ -973,65 +978,56 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     g("32", [u["CONSUME"], "DECGO"], "CONSUMEX")
     counter_chain(nl, "PC", PC, RES, 1, 8, "PCJ_n", "CONSUMEX")
     counter_chain(nl, "FPC", FPC, RES, 2, 5, "JUMP_n", "FPCINC")
-    # PC[1] again, from a fast flip-flop, for the queue's head
-    g("86", ["PC1F", "CONSUMEX"], "PC1T")
-    nl.add("157", "U_PCFM", S="PCLD", G="GND",
-           **{"1A": "PC1T", "1B": RES[1], "1Y": "PC1F_D", "2A": "GND", "2B": "GND",
-              "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
-    nl.add("74", "U_PCF", **{"1D": "PC1F_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n",
-                             "1Q": "PC1F", "1QN": "PC1F_n",
-                             "2D": "HS_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "VCC",
-                             "2Q": "HS", "2QN": "HS_n"})
+    # (PC[1] again, PC1F, for the queue's head: in the queue's 22V10)
 
     nl.section("Prefetch queue")
-    # a fetch: in any cycle without a data access, if Q1 is free; the word
-    # goes into the empty slot (Q0's, slot HS, if the queue is empty)
-    g("08", ["FETCHCYC", "V1_n"], "FETCHED")
-    g("08", ["FETCHED", "JUMP_n"], "FPCINC")
-    # the head word is used up when its high parcel is consumed
-    g("08", [u["CONSUME"], "PC1F"], "SHIFTC")
-    g("32", ["SHIFTC", "DECGOP"], "SHIFT")
-    g("04", ["SHIFT"], "SHIFT_n")
-    g("86", ["HS", "SHIFT"], "HS_D")
-    # the queue's words after the edge: n = V0 + V1 + fetched - shifted,
-    # none after a jump
-    g("08", ["V0", "FETCHED"], "QVF")
-    g("32", ["V0", "FETCHED"], "QVOF")
-    g("08", ["QVOF", "SHIFT_n"], "QVS")
-    g("27", ["V1", "QVF", "QVS"], "V0P_n")
-    g("02", ["V0P_n", "JUMP"], "V0_D")
-    g("32", ["V1", "QVF"], "QV1F")
-    g("11", ["QV1F", "SHIFT_n", "JUMP_n"], "V1_D")
-    nl.add("74", "U_V", **{"1D": "V0_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
-                           "1Q": "V0", "1QN": "V0_n",
-                           "2D": "V1_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "VCC",
-                           "2Q": "V1", "2QN": "V1_n"})
+    # the queue's state, a 22V10 on CLK: V0 and V1, the words it holds; HS,
+    # the slot of its head; PC1F, PC[1] again for the head's parcel (the
+    # result's bit 1 when the PC loads, else toggled by a consume; 0 in a
+    # reset). Their next states are outputs too, for the slots' flip-flops.
+    # A fetch: in any cycle without a data access, if Q1 is free; the word
+    # goes into the empty slot (Q0's, slot HS, if the queue is empty). The
+    # head word is used up when its high parcel is consumed (SHIFT). The
+    # queue's words after the edge: n = V0 + V1 + fetched - shifted, none
+    # after a jump
+    fetched = gal.AND(lit("FETCHCYC"), lit("V1", 0))
+    shift = gal.OR(gal.AND(lit(u["CONSUME"]), lit("PC1F")), lit("DECGOP"))
+    noshift = gal.OR(gal.AND(lit("DECGOP", 0), lit(u["CONSUME"], 0)),
+                     gal.AND(lit("DECGOP", 0), lit("PC1F", 0)))
+    v0d = gal.AND(lit("JUMP", 0), gal.OR(lit("V1"), gal.AND(lit("V0"), fetched),
+                                          gal.AND(gal.OR(lit("V0"), fetched), noshift)))
+    v1d = gal.AND(lit("JUMP", 0), noshift, gal.OR(lit("V1"), gal.AND(lit("V0"), fetched)))
+    hsd = gal.OR(gal.AND(lit("HS"), noshift), gal.AND(lit("HS", 0), shift))
+    consumex = gal.OR(lit(u["CONSUME"]), lit("DECGO"))
+    toggle = gal.OR(gal.AND(lit("PC1F"), lit(u["CONSUME"], 0), lit("DECGO", 0)),
+                    gal.AND(lit("PC1F", 0), consumex))
+    pc1f = gal.AND(lit("RESET", 0), gal.OR(gal.AND(lit("PCJ_n", 0), lit(RES[1])),
+                                           gal.AND(lit("PCJ_n"), toggle)))
+    gal.add(nl, "U_QGA", {"V0": (v0d, True, False), "V1": (v1d, True, False),
+                          "HS": (hsd, True, False), "PC1F": (pc1f, True, False),
+                          "V0_D": (v0d, False, False), "V1_D": (v1d, False, False),
+                          "HS_D": (hsd, False, False),
+                          "FPCINC": (gal.AND(fetched, lit("JUMP", 0)), False, False)},
+            clock="CLK")
     # two slots, latches from the data bus: Q0 is slot HS and Q1 the other.
     # A slot is transparent while it is empty, from the cycle's start (so
     # that a word fetched for the decode, or for a parcel the cycle reads,
-    # reaches the head at once) until the tail: a J-K flip-flop a slot, set
-    # at the CPU clock's edge if the slot is empty after it, cleared
-    # entering T1
-    g("02", ["HS_D", "V0_D"], "E0A")        # slot 0 empty after the edge: HS' = 0, V0' = 0,
-    g("04", ["V1_D"], "V1D_n")
-    g("08", ["HS_D", "V1D_n"], "E0B")       # or HS' = 1, V1' = 0
-    g("27", ["E0A", "E0B", "GND"], "E0N_n")
-    g("04", ["HS_D"], "HSD_n")
-    g("08", ["HSD_n", "V1D_n"], "E1A")      # slot 1: HS' = 0, V1' = 0,
-    g("02", ["HSD_n", "V0_D"], "E1B")       # or HS' = 1, V0' = 0
-    g("27", ["E1A", "E1B", "GND"], "E1N_n")
-    # J-K-bar: set entering H0 if the slot is empty then, clear entering
-    # H0 if not, and entering T1 (TCRCO); hold otherwise
-    g("04", ["TCRCO"], "TCRCO_n")
+    # reaches the head at once) until the tail: QLE, J-K a slot on the
+    # master clock, set at the CPU clock's edge (entering H0) if the slot
+    # is empty after it, cleared then if not and entering T1 (TCRCO); and
+    # the head parcel's three-state bus, slot HS's half by PC1F. A 22V10
+    qle = {}
     for k in range(2):
-        g("02", ["T2_n", f"E{k}N_n"], f"LE{k}J")
-        g("00", ["T2", f"E{k}N_n"], f"LE{k}K1_n")
-        g("08", [f"LE{k}K1_n", "TCRCO_n"], f"LE{k}K_n")
-    nl.add("109", "U_QLE",
-           **{"1J": "LE0J", "1K": "LE0K_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC",
-              "1Q": "QLE0",
-              "2J": "LE1J", "2K": "LE1K_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC",
-              "2Q": "QLE1"})
+        mine, other = ("V0_D", "V1_D") if k == 0 else ("V1_D", "V0_D")
+        empty = gal.OR(gal.AND(lit("HS_D", 0), lit(mine, 0)), gal.AND(lit("HS_D"), lit(other, 0)))
+        q = f"QLE{k}"
+        qle[q] = (gal.OR(gal.AND(lit("T2"), empty, lit(q, 0)),
+                         gal.AND(lit("T2", 0), lit("TCRCO", 0), lit(q)),
+                         gal.AND(empty, lit("TCRCO", 0), lit(q))), True, False)
+    for sl in range(2):
+        for half, pv in (("L", 0), ("H", 1)):
+            qle[f"QH{sl}{half}_n"] = (gal.AND(lit("HS", sl), lit("PC1F", pv)), False, True)
+    gal.add(nl, "U_QGB", qle, clock="MCLK")
     for sl in range(2):
         QS = bus(f"QS{sl}_", 32)
         for k in range(4):
@@ -1041,24 +1037,9 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
             for i in range(8):
                 lat[f"D{i + 1}"], lat[f"Q{i + 1}"] = DB[8 * k + i], QS[8 * k + i]
                 b[f"A{i + 1}"], b[f"Y{i + 1}"] = QS[8 * k + i], QH[8 * (k & 1) + i]
-    # the head parcel, a three-state bus: slot HS's half, by PC1F
-    g("00", ["HS_n", "PC1F_n"], "QH0L_n")
-    g("00", ["HS_n", "PC1F"], "QH0H_n")
-    g("00", ["HS", "PC1F_n"], "QH1L_n")
-    g("00", ["HS", "PC1F"], "QH1H_n")
 
     # ---- memory: the address, the RAM, the I/O space ----------------------------------
     nl.section("Memory")
-    md = nl.add("138", "U_MEMD", A=u["MEM0"], B=u["MEM1"], C=u["MEM2"], G1="VCC", G2A="GND",
-                G2B="GND")
-    for v in range(8):
-        md[f"Y{v}"] = f"MEM{v}_n"
-    g("00", ["MEM1_n", "MEM6_n"], "READING")
-    g("04", ["READING"], "READING_n")
-    g("04", ["MEM2_n"], "MEMWR")
-    g("04", ["MEM3_n"], "MEM3")
-    g("20", ["MEM1_n", "MEM2_n", "MEM6_n", "VCC"], "DATAACC")
-    g("04", ["DATAACC"], "FETCHCYC")
     # the address: MAR, FPC (fetch cycles) or the A bus (a read at the A
     # bus), by VAS, which the microcode derives from MEM; bits 21-0 and
     # 31-28 (27-22 aren't decoded)
@@ -1070,49 +1051,61 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
             for c, s in enumerate([MAR[i], FPC[i], ABUS[i], "GND"]):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = VA[i]
-    # the size (SIZE: 1 byte, 2 half, 3 word), decoded active low; byte
-    # enables from the size and VA[1:0]. An address error (FAULT): a half
-    # at an odd address, or a word at one that isn't a multiple of 4, in a
-    # data access, SIZE1 & (VA0 | VA1 & SIZE0), a 74F151 on VA[1:0] and
-    # SIZE0. It writes no memory, strobes no device, writes no register or
-    # flag, keeps its decode or jump from the IR and the PC (the queue's
-    # go on), and takes the fault's page
-    nl.add("151", "U_MIS", A=VA[0], B=VA[1], C=u["SIZE0"], G="DATAACC_n", Y="FAULT",
-           W="FAULT_n", D0="GND", D1=u["SIZE1"], D2="GND", D3=u["SIZE1"], D4="GND",
-           D5=u["SIZE1"], D6=u["SIZE1"], D7=u["SIZE1"])
-    nl.add("138", "U_SIZED", A=u["SIZE0"], B=u["SIZE1"], C="GND", G1="VCC", G2A="GND",
-           G2B="GND", Y1="BYTE_n", Y2="HALF_n", Y3="WORD_n")
-    g("04", [u["SIZE1"]], "SIZE1_n")
-    g("08", [u["SIZE0"], u["SIZE1"]], "WORD")
-    nl.add("138", "U_BYTED", A=VA[0], B=VA[1], C="GND", G1="VCC", G2A="BYTE_n", G2B="GND",
-           Y0="BYT0_n", Y1="BYT1_n", Y2="BYT2_n", Y3="BYT3_n")
-    g("04", [VA[1]], "VA1_n")
-    g("02", ["HALF_n", VA[1]], "HLO")
-    g("02", ["HALF_n", "VA1_n"], "HHI")
-    g("02", ["WORD", "HLO"], "WHL_n")
-    g("02", ["WORD", "HHI"], "WHH_n")
-    for k, wh in enumerate(["WHL_n", "WHL_n", "WHH_n", "WHH_n"]):
-        g("08", [wh, f"BYT{k}_n"], f"BE{k}_n")
-        g("04", [f"BE{k}_n"], f"BE{k}")
-    # the I/O space: bit 31 of a data access's address; the region from
-    # bits 30-28
-    g("04", [VA[31]], "VA31_n")
-    g("04", ["DATAACC"], "DATAACC_n")
-    g("08", ["DATAACC", VA[31]], "IOACC")
-    io = nl.add("138", "U_IORD", A=VA[28], B=VA[29], C=VA[30], G1=VA[31], G2A="DATAACC_n",
+    # the access's decode, three 22V10s. MEM: 1 and 6 read, 2 writes; the
+    # others are fetch cycles. The size (SIZE: 1 byte, 2 half, 3 word); the
+    # byte lanes an access uses, from it and VA[1:0]. An address error
+    # (FAULT): a half at an odd address, or a word at one that isn't a
+    # multiple of 4, in a data access. It writes no memory, strobes no
+    # device, writes no register or flag, keeps its decode or jump from the
+    # IR and the PC (the queue's go on), and takes the fault's page. The
+    # I/O space: bit 31 of a data access's address (IOACC). The RAM: 4 MB,
+    # two banks of four 512K x 8 by VA21 (bank 1, the video's, in
+    # video_ram(), written in its window, MIDV, and outside its fast tail,
+    # RWF); bank 0's outputs on in a fetch cycle (nothing else drives the
+    # data bus then) and in a read of the RAM
+    MEM = [u["MEM0"], u["MEM1"], u["MEM2"]]
+    SZ = [u["SIZE0"], u["SIZE1"], VA[0], VA[1]]
+
+    def mem(*vs):
+        return gal.when(MEM, list(vs), range(8))
+
+    def lane(k):
+        def f(s0, s1, a0, a1):
+            size, a = s0 + 2 * s1, a0 + 2 * a1
+            return (size == 1 and k == a or size == 2 and a0 == 0 and k >> 1 == a1
+                    or size == 3 and a == 0)
+        return sop(SZ, f)
+    acc, wr = mem(1, 2, 6), mem(2)
+    fault = gal.AND(acc, sop(SZ, lambda s0, s1, a0, a1: s1 and (a0 or a1 and s0)))
+    win = [lit("MIDV"), lit("RWF", 0)] if sim else [lit("MWIN")]
+    mw = {"FAULT": (fault, False, False), "FAULT_n": (fault, False, True)}
+    for k in range(4):
+        mw[f"WE{k}_n"] = (gal.AND(wr, lit(VA[31], 0), lit("MWIN"), lane(k)), False, True)
+        mw[f"B1WE{k}_n"] = (gal.AND(wr, lit(VA[21]), lit(VA[31], 0), *win, lane(k)), False, True)
+    gal.add(nl, "U_MEMW", mw)
+    fetch = mem(0, 3, 4, 5, 7)
+    gal.add(nl, "U_MEMC", {
+        "READING": (mem(1, 6), False, False), "MEMWR": (wr, False, False),
+        "FETCHCYC": (fetch, False, False), "IOACC": (gal.AND(acc, lit(VA[31])), False, False),
+        "RAMOE_n": (gal.OR(fetch, gal.AND(mem(1, 6), lit(VA[31], 0))), False, True),
+        "CE0_n": (gal.OR(lit(VA[21]), lit(VA[31])), False, False),
+        "B1OE_n": (gal.AND(wr, lit("VSLOT_n")), False, False),
+        "B1XOE_n": (gal.AND(lit(VA[21]), lit(VA[31], 0), lit("VSLOT_n")), False, True),
+        "VA21_n": (lit(VA[21]), False, True)})
+    # the store data's enables, by the size, and the lanes for the suite's
+    # I/O page
+    ms = {"BYTE_n": (sop(SZ[:2], lambda s0, s1: s0 and not s1), False, True),
+          "HALF_n": (sop(SZ[:2], lambda s0, s1: s1 and not s0), False, True),
+          "WORD": (sop(SZ[:2], lambda s0, s1: s0 and s1), False, False),
+          "WORD_n": (sop(SZ[:2], lambda s0, s1: s0 and s1), False, True),
+          "SIZE1_n": (lit(u["SIZE1"]), False, True)}
+    for k in range(4):
+        ms[f"BE{k}_n"] = (lane(k), False, True)
+    gal.add(nl, "U_MEMS", ms)
+    io = nl.add("138", "U_IORD", A=VA[28], B=VA[29], C=VA[30], G1="IOACC", G2A="GND",
                 G2B="GND")
     for v in range(8):
         io[f"Y{v}"] = f"IOR{v}_n"
-    # the RAM: 4 MB, two banks of four 512K x 8 by VA21 (bank 1, the
-    # video's, in video_ram()); its outputs on in a fetch cycle (nothing else
-    # drives the data bus then) and in a read of the RAM
-    g("04", [VA[21]], "VA21_n")
-    g("32", [VA[21], VA[31]], "CE0_n")
-    g("08", ["READING", "VA31_n"], "RAMRD")
-    g("02", ["FETCHCYC", "RAMRD"], "RAMOE_n")
-    g("21", ["MEMWR", "VA31_n", "MWIN", "FAULT_n"], "MWOK")
-    for k in range(4):
-        g("00", ["MWOK", f"BE{k}"], f"WE{k}_n")
     for k in range(4):
         ram = nl.add("sram512", f"U_RAM0{k}", role="fastram", CE="CE0_n", OE="RAMOE_n",
                      WE=f"WE{k}_n")
@@ -1176,7 +1169,6 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     fa["NFLAG"] = nxt("NFLAG", ncases)
     fa["ZFLAG"] = (gal.AND(*[lit(n, 0) for n in NZ]), False, False)
     gal.add(nl, "U_FLGA", fa, clock="CLK")
-    g("04", ["ZFLAG"], "ZFLAG_n")
     g("86", [F[7], "FILL"], "F7X")
     g("86", [F[15], "FILL"], "F15X")
     # C, from the inverted output: the carry as the ALU gives it (CN4, low
@@ -1194,7 +1186,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
                                  (lambda t: ok(t) and t["FC"] == 3, lit("CLQ", 0))]),
           "VFLAG": nxt("VFLAG", [(lambda t: t["FV"] == 0, lit("VFLAG")),
                                  (lambda t: t["FV"] == 3, lit(ABUS[0])),
-                                 (lambda t: t["FV"] == 4, lit("CL_n")),
+                                 (lambda t: t["FV"] == 4, lit("CLQ", 0)),
                                  (lambda t: t["FV"] == 5, gal.ONE),
                                  (lambda t: t["FV"] == 7, gal.AND(lit("VT2"), lit("VT3")))]),
           "IFLAG": nxt("IFLAG", [(lambda t: t["FI"] == 0, lit("IFLAG")),
@@ -1206,54 +1198,34 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
         fb[f"CSRC{k}"] = (gal.when(FLG, [c for c in csrc if table[c]["CSRC"] >> k & 1], csrc),
                           False, False)
     gal.add(nl, "U_FLGB", fb, clock="CLK")
-    for f in ("C", "V"):
-        g("04", [f"{f}FLAG"], f"{f}FLAG_n")
 
     nl.section("Condition latches")
-    # CL as four bits, CL = none set (as Z): by CLSRC, the result zero, the
-    # carry, RES[31:16] or RES[31:15] zero, those ANDed with CL
-    g("32", ["CL_n", RES[15]], "CLB0H")
-    CLB = bus("CLB", 4)
-    srcs = [[NZR[0], "CARRY_n", "GND", RES[15], "CL_n", "CLB0H", "GND", "GND"],
-            [NZR[1], "GND", "GND", "GND", "GND", "GND", "GND", "GND"],
-            [NZR[2], "GND", NZR[2], NZR[2], NZR[2], NZR[2], "GND", "GND"],
-            [NZR[3], "GND", NZR[3], NZR[3], NZR[3], NZR[3], "GND", "GND"]]
-    for i in range(4):
-        nl.add("151", f"U_CLM{i}", A=u["CLSRC0"], B=u["CLSRC1"], C=u["CLSRC2"], G="GND",
-               Y=f"CLD{i}", **{f"D{c}": srcs[i][c] for c in range(8)})
-    g("04", [u["LDCL"]], "LDCL_n")
-    nl.add("377", "U_CLB", CLK="CLK", EN="LDCL_n",
-           **{f"D{i + 1}": f"CLD{i}" for i in range(4)}, **{f"Q{i + 1}": CLB[i] for i in range(4)},
-           **{f"D{i}": "GND" for i in range(5, 9)})
-    g("02", [CLB[0], CLB[1]], "CLA")
-    g("02", [CLB[2], CLB[3]], "CLBB")
-    g("08", ["CLA", "CLBB"], "CLQ")
-    g("00", ["CLA", "CLBB"], "CL_n")
-    # SGN, S33
-    nl.add("157", "U_LATM", S=u["LDSGN"], G="GND",
-           **{"1A": "SGNQ", "1B": "FILL", "1Y": "SGN_D",
-              "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
-    # divide step: S33 = R31 ^ C32 ^ (subtracting = not S33); the quotient
-    # bit is its complement. MQ loads clear S33.
-    g("86", [RQ[31], "S33_n"], "RG")
-    g("04", ["RG"], "RG_n")
-    g("86", ["RG", "CARRY_n"], "QBIT")
-    g("86", ["RG_n", "CARRY_n"], "S33NEW")
-    g("04", [u["MQM0"]], "MQM0_n")
-    g("08", ["MQM0_n", u["MQM1"]], "DIVSTEPC")
-    g("00", [u["MQM0"], u["MQM1"]], "MQLOADC_n")
-    g("08", ["S33Q", "MQLOADC_n"], "S33KEEP")
-    nl.add("157", "U_S33MX", S="DIVSTEPC", G="GND",
-           **{"1A": "S33KEEP", "1B": "S33NEW", "1Y": "S33_D",
-              "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND", "4A": "GND", "4B": "GND"})
-    nl.add("74", "U_LAT0", **{"1D": "S33_D", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "VCC",
-                              "1Q": "S33Q", "1QN": "S33_n",
-                              "2D": "SGN_D", "2CLK": "CLK", "2PRE": "VCC", "2CLR": "VCC",
-                              "2Q": "SGNQ"})
+    # a 22V10 on CLK. CL, loaded by LDCL from CLSRC: the result zero, the
+    # carry, RES[31:16] or RES[31:15] zero, those ANDed with CL, or 1 (NZR,
+    # each a byte of the result nonzero, from the flags' 74F521s). SGN,
+    # loaded by LDSGN from FILL. The divide step: S33 = R31 ^ C32 ^
+    # (subtracting = not S33); the quotient bit is its complement. MQ
+    # loads clear S33
+    CLS = [u[f"CLSRC{i}"] for i in range(3)]
+
+    def nz(*ks):
+        return gal.AND(*[lit(NZR[k], 0) for k in ks])
+    hi = nz(2, 3)
+    cl = gal.mux(CLS, [nz(0, 1, 2, 3), lit("CARRY_n", 0), hi, gal.AND(lit(RES[15], 0), hi),
+                       gal.AND(lit("CLQ"), hi), gal.AND(lit("CLQ"), lit(RES[15], 0), hi), 1, 1])
+    ld = lit(u["LDCL"])
+    s33 = sop([u["MQM0"], u["MQM1"], RQ[31], "S33Q", "CARRY_n"],
+              lambda m0, m1, r, q, c: (r ^ q ^ c) if (not m0 and m1) else (q and not m1))
+    gal.add(nl, "U_CLG", {
+        "CLQ": (gal.OR(gal.AND(ld, cl), gal.AND(lit(u["LDCL"], 0), lit("CLQ"))), True, False),
+        "SGNQ": (gal.OR(gal.AND(lit(u["LDSGN"]), lit("FILL")),
+                        gal.AND(lit(u["LDSGN"], 0), lit("SGNQ"))), True, False),
+        "S33Q": (s33, True, False), "S33_n": (s33, True, True),
+        "QBIT": (sop([RQ[31], "S33Q", "CARRY_n"], lambda r, q, c: r ^ (1 - q) ^ c), False,
+                 False)}, clock="CLK")
 
     nl.section("Branch condition")
     # cc from IR[15:12] (Jcc), IR[3:0] (Bcc) or IR[11:8] (SETcc)
-    CC = bus("CC", 4)
     for k in range(2):
         m = nl.add("153", f"U_CCM{k}", A=u["CCB0"], B=u["CCB1"], **{"1G": "GND", "2G": "GND"})
         for sec in (0, 1):
@@ -1261,14 +1233,6 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
             for c, s in enumerate([IR[12 + i], IR[i], IR[8 + i], "GND"]):
                 m[f"{sec + 1}C{c}"] = s
             m[f"{sec + 1}Y"] = CC[i]
-    g("08", ["CFLAG", "ZFLAG_n"], "C_HI")
-    g("86", ["NFLAG", "VFLAG"], "N_NE_V")
-    g("04", ["N_NE_V"], "N_EQ_V")
-    g("02", ["ZFLAG", "N_NE_V"], "C_GT")
-    nl.add("151", "U_COND", A=CC[1], B=CC[2], C=CC[3], G="GND", Y="CONDT", W="CONDT_n",
-           D0="ZFLAG", D1="CFLAG", D2="NFLAG", D3="VFLAG", D4="C_HI", D5="N_EQ_V", D6="C_GT",
-           D7="VCC")
-    g("86", ["CONDT", CC[0]], "BCOND")
 
     nl.finish()
     nl.check()

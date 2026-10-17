@@ -688,7 +688,14 @@ def checks(case, N, we_frac):
             for _pin, reg, _inv, terms in inst.gal:
                 if not reg:
                     continue
-                for p in sorted({p for term in terms for p, _ in term}):
+                # the inputs of the terms constants don't rule out, and the
+                # constants that rule the others out
+                pins = set()
+                for term in terms:
+                    vals = [case.pin(inst, p)[0] for p, _ in term]
+                    out_ = any(x is not None and x != v for x, (_, v) in zip(vals, term))
+                    pins.update(p for (p, _), x in zip(term, vals) if not out_ or x is not None)
+                for p in sorted(pins):
                     ta = case.pin(inst, p)[1]
                     if ta != NEG:
                         out.append(("setup", ta + d["setup"], f"{inst.ref}.{p} setup",

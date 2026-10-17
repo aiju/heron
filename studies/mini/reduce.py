@@ -119,7 +119,7 @@ REDUCTIONS += [
      "a long access, or several in a row, can starve it; two ORs on the "
      "address multiplexer's select"),
     ("nodesc", "no line descriptors: one frame buffer from bank 1's word 0",
-     _r("U_VADM", 3) + ["U_VML", "U_VLD"], [], None,
+     _r("U_VADM", 3) + ["U_VML"], [], None,
      "per-line addresses (scrolling, repeated or split screens), per-line "
      "palette banks, line interrupts"),
     ("pal8", "an 8-bit palette (RGB 3:3:2)",
@@ -128,10 +128,6 @@ REDUCTIONS += [
      ["U_IOAL", "U_IOSL"], [], None,
      "the address holds 12 ns after a strobe at worst, not the 16C550's "
      "and the CF card's 20 (26 typically); the expansion ports see VA"),
-    ("cfstb", "the CF card on the other devices' strobes",
-     ["U_CFSTB"], [], None,
-     "38 ns of address setup against PIO mode 0's 70: the card is run "
-     "out of spec until it's set to mode 2 or faster"),
     ("isr", "no interrupt status register",
      ["U_ISR"], [], None, "an interrupt handler polls the devices"),
     ("ctl", "no control register (the speaker, the LEDs)",

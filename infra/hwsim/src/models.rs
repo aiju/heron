@@ -3656,17 +3656,23 @@ impl Gal {
         })
     }
 
-    fn sum(cx: &Ctx, c: &ChipInfo, o: &GalOut) -> u8 {
-        let on = o
-            .terms
-            .iter()
-            .any(|t| t.iter().all(|&(p, v)| cx.input(c, p) == v));
+    /// The output as the inputs are, or with one of them (`flip`) the
+    /// other way.
+    fn sum(cx: &Ctx, c: &ChipInfo, o: &GalOut, flip: Option<usize>) -> u8 {
+        let on = o.terms.iter().any(|t| {
+            t.iter()
+                .all(|&(p, v)| cx.input(c, p) ^ u8::from(flip == Some(p)) == v)
+        });
         u8::from(on) ^ u8::from(o.inv)
     }
 
     fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
         for o in &self.outs {
-            let v = if o.reg { o.state } else { Self::sum(cx, c, o) };
+            let v = if o.reg {
+                o.state
+            } else {
+                Self::sum(cx, c, o, None)
+            };
             cx.drive(c, o.pin, v, true, 0);
         }
     }
@@ -3679,10 +3685,15 @@ impl Gal {
                     if !self.outs[i].reg {
                         continue;
                     }
+                    let state = Self::sum(cx, c, &self.outs[i], None);
+                    // an input the output doesn't depend on, as the others
+                    // are, needn't be set up
                     for k in 0..self.outs[i].inputs.len() {
-                        cx.check_setup(c, self.outs[i].inputs[k], self.setup, "input");
+                        let p = self.outs[i].inputs[k];
+                        if Self::sum(cx, c, &self.outs[i], Some(p)) != state {
+                            cx.check_setup(c, p, self.setup, "input");
+                        }
                     }
-                    let state = Self::sum(cx, c, &self.outs[i]);
                     self.outs[i].state = state;
                     cx.drive(c, self.outs[i].pin, state, true, self.tco);
                 }
@@ -3691,7 +3702,7 @@ impl Gal {
         }
         for k in 0..self.fanout[pin].len() {
             let o = &self.outs[self.fanout[pin][k]];
-            let v = Self::sum(cx, c, o);
+            let v = Self::sum(cx, c, o, None);
             cx.drive(c, o.pin, v, true, self.tpd);
         }
     }
