@@ -852,14 +852,19 @@ impl Counter {
             let v = cx.input(c, self.clk);
             if v == 1 && self.prev == 0 {
                 let (clr, load) = (cx.input(c, self.clr), cx.input(c, self.load));
-                cx.check_setup(c, self.load, self.su_load, "LOAD");
-                cx.check_setup(c, self.enp, self.su_en, "ENP");
-                cx.check_setup(c, self.ent, self.su_en, "ENT");
+                // an asynchronous clear holds the count whatever the edge
+                // sees, so its inputs' timing doesn't matter then
+                let held = !self.sync && clr == 0;
+                if !held {
+                    cx.check_setup(c, self.load, self.su_load, "LOAD");
+                    cx.check_setup(c, self.enp, self.su_en, "ENP");
+                    cx.check_setup(c, self.ent, self.su_en, "ENT");
+                }
                 if self.sync {
                     cx.check_setup(c, self.clr, self.su_clr, "CLR");
                 }
                 self.load_at_edge = load == 0;
-                if load == 0 {
+                if load == 0 && !held {
                     for i in 0..4 {
                         cx.check_setup(c, self.d[i], self.su_data, "data");
                     }

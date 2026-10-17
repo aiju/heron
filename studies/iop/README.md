@@ -285,9 +285,16 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   and a microinstruction that puts a device or BA onto T in its second
   half isn't followed by one that reads T in its first, which the
   microassembler enforces (`uasm.t_handovers`). Not covered: hold
-  times, the I/O bus's devices (the timing table times them in clocks),
-  the asynchronous parts (doorbells' sets, the synchronisers, the
-  watchdog, the clock chip).
+  times (the simulation at the fast corner covers them, below), the I/O
+  bus's devices (the timing table times them in clocks), the
+  asynchronous parts (doorbells' sets, the synchronisers, the watchdog,
+  the clock chip).
+- **The fast corner:** the simulation at the parts' minimum delays
+  (`hw.check(corner="min")`, tests/test_netlist.py) runs the cold start
+  the model's way with no violations, and the bench's checks too. It
+  found one hold problem: at a taken branch's E2, uIR takes the next
+  word as uPC takes K from it, and the 74ABT16823's 1.6 ns outran the
+  74F161's 2 ns hold; K now reaches uPC through a 16244.
 - **The microcycle:** PH, a flip-flop, is the half. At each edge it turns
   to the second half (E1) unless something holds the first, and back (E2)
   unless something holds the second; every register is clocked by BCLK
@@ -394,7 +401,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 215 packages so far (`heron iop hw bom`), against RFC 0027's
+- **Parts:** 216 packages so far (`heron iop hw bom`), against RFC 0027's
   ~95 for the whole card: 74 are gates (74F00-74F86), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
   18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
@@ -405,8 +412,8 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   buffers (the core's or the window's) overlap by under 2 ns as they
   change hands; a pair of 74F157s would avoid it.
 - **Not yet:** the window's 4r + 2 (reaching nothing) and its bound on
-  WAIT, the 32-bit path, LOCK, I/O cards in the slots, hold-time
-  analysis, a hardware interlock for the timing table's writes, a
+  WAIT, the 32-bit path, LOCK, I/O cards in the slots, a hardware
+  interlock for the timing table's writes, a
   printed circuit board (the PCB flow, `studies/pcb`, has no footprints
   for the 16-bit parts' packages, nor a way to pair their halves), and
   a timer model in the microinstruction-level model exact enough to

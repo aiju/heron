@@ -40,18 +40,20 @@ def sources():
     return runner.infra_sources() + [os.path.join(HERE, "card.py"), parts.__file__]
 
 
-def netlist(master=False, watchdog=None):
+def netlist(master=False, watchdog=None, corner="max"):
     """The simulation netlist, exported (cached in build/iop); `master`:
     with the bench's second master; `watchdog`: its times, if not the
-    card's."""
-    name = "netlist" + ("-master" if master else "") + (f"-wd{watchdog[0]}-{watchdog[1]}" if watchdog else "")
+    card's; `corner`: the parts' delays, max (the slow corner, the
+    default), typ or min (the fast one, for hold times)."""
+    name = ("netlist" + ("-master" if master else "") + (f"-wd{watchdog[0]}-{watchdog[1]}" if watchdog else "")
+            + ("" if corner == "max" else f"-{corner}"))
     path = os.path.join(OUT, name + ".json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
         os.makedirs(OUT, exist_ok=True)
         nl = card.build(sim=True, bench=True, master=master, watchdog=watchdog or (card.WDOG_PS, card.WDCOLD_PS))
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
-            json.dump(nl.export(variant=card.VARIANT, corner="max"), f)
+            json.dump(nl.export(variant=card.VARIANT, corner=corner), f)
         os.replace(tmp, path)
     with open(path) as f:
         return json.load(f)
@@ -110,11 +112,11 @@ def config(max_cycles, fetch_trace, seed=1, trace=None):
     return cfg
 
 
-def run(b, ms, inp=b"", seed=1, fetch_trace=0, s=None, trace=None):
+def run(b, ms, inp=b"", seed=1, fetch_trace=0, s=None, trace=None, corner="max"):
     """Power up the card and run it for `ms` of simulated time."""
     s = s or model(b, inp)
     cycles = int(ms * 1e9 / card.BCLK_PS)
-    hw = native.hwsim.run_system(netlist(), config(cycles, fetch_trace, seed, trace),
+    hw = native.hwsim.run_system(netlist(corner=corner), config(cycles, fetch_trace, seed, trace),
                                  preloads(b, s, inp))
     hw["output"] = bytes(hw["dumps"]["U_UART"])
     return hw
@@ -138,12 +140,12 @@ def compare(hw, ref):
     return None
 
 
-def check(ms=2.0, inp=b"", seed=1, quiet=False):
+def check(ms=2.0, inp=b"", seed=1, quiet=False, corner="max"):
     """Run the card and the model for `ms`; (the outcome, the first
     difference or None, E2s compared)."""
     b = bld.Build(bld.DEFAULT_PROGRAM, quick=True)
     s = model(b, inp)
-    hw = run(b, ms, inp, seed, fetch_trace=10_000_000, s=s)
+    hw = run(b, ms, inp, seed, fetch_trace=10_000_000, s=s, corner=corner)
     s.run_ms(ms)
     ref = s.s.log_take()
     n = min(len(hw["fetches"]), len(ref))

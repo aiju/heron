@@ -213,10 +213,16 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
 
     # ------------------------------------------------------------ microcode
     nl.section("Microprogram counter")
+    # K reaches uPC through a buffer: at a taken branch's E2, uIR takes the
+    # next word as uPC takes K, and the 74F161's 2 ns of data hold would
+    # outlast the 74ABT16823's 1.6 ns at the fast corner
+    kp = bus("KP", 16)
+    buf(nl, "U_KP0", KB[0:8], kp[0:8], "GND")
+    buf(nl, "U_KP1", KB[8:16], kp[8:16], "GND")
     for k in range(4):
         nl.add("161", f"U_PC{k}", CLK="BCLK", CLR="RESET_n", LOAD="UPCLD_n", ENP="E2EN",
                ENT="VCC" if k == 0 else f"PCC{k - 1}", RCO=f"PCC{k}",
-               A=KB[4 * k], B=KB[4 * k + 1], C=KB[4 * k + 2], D=KB[4 * k + 3],
+               A=kp[4 * k], B=kp[4 * k + 1], C=kp[4 * k + 2], D=kp[4 * k + 3],
                QA=UPC[4 * k], QB=UPC[4 * k + 1], QC=UPC[4 * k + 2], QD=UPC[4 * k + 3])
     nl.section("Microcode")
     for k in range(6):
@@ -546,8 +552,11 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
     latch(nl, "U_IORL1", IOD[8:16], T[8:16], "STB", oe="DRDY0_n")
     g("32", ["SBUSY", "AREQ"], "IOACT")
     g("20", ["AWRITE", "IOACT", "WSEL_n", "VCC"], "IOWOE_n")
-    latch(nl, "U_IOWL0", T[0:8], IOD[0:8], "HLD_n", oe="IOWOE_n")
-    latch(nl, "U_IOWL1", T[8:16], IOD[8:16], "HLD_n", oe="IOWOE_n")
+    # (open through the window's accesses, which have their own: closing
+    # on whatever T carries for the core then races its changes)
+    g("32", ["HLD_n", "WSEL"], "IOWLE")
+    latch(nl, "U_IOWL0", T[0:8], IOD[0:8], "IOWLE", oe="IOWOE_n")
+    latch(nl, "U_IOWL1", T[8:16], IOD[8:16], "IOWLE", oe="IOWOE_n")
     # the slots' strobes (RFC 0037, 16): SEL0-SEL11, through the strobe
     dec(nl, "U_SELL", ADEV[0:3], g2a=ADEV[3], g2b="STB_n", y={k: f"SEL{k}_n" for k in range(8)})
     dec(nl, "U_SELM", ADEV[0:3], g1=ADEV[3], g2a=ADEV[2], g2b="STB_n", y={k: f"SEL{k + 8}_n" for k in range(4)})

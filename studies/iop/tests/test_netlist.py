@@ -66,5 +66,15 @@ class Netlist(unittest.TestCase):
         self.assertEqual(out["violation_total"], 0)
 
 
+class FastCorner(unittest.TestCase):
+    def test_cold_start(self):
+        """The same at the parts' minimum delays, where hold times fail
+        if they do: the model's microaddresses, at the same clocks."""
+        out, diff, n = hw.check(21.0, corner="min")
+        self.assertIsNone(diff)
+        self.assertGreater(n, 150_000)
+        self.assertEqual(out["violation_total"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
