@@ -483,9 +483,9 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
 - **Parts:** 223 packages so far (`heron iop hw bom`, 4 of them
   oscillators), against RFC 0027's ~95 for the whole card. By the part
   of the design (`--sections`): the I/O bus side 33 (WAIT 9 of it) and
-  its timing table 9, the window 19, the doorbells 7 (RFC 0027's 3: two
-  74HCT259s, but strobing them safely takes a register and two
-  flip-flops, and BELL a 16-bit zero test), the slave side
+  its timing table 9, the window 19, the doorbells 9 (RFC 0027's 3: two
+  74HCT259s, but strobing them safely takes a register, a multiplexer
+  and two flip-flops, and BELL a 16-bit zero test), the slave side
   18, the event ports 11, the predecoding 9, the stuck-transfer counter
   8.5, the system bus side 20, the shared RAM 7, the card's own devices
   12, and the core (the ALU, registers, F, AC, X, the microcode, uPC,
