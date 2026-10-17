@@ -119,10 +119,11 @@ OR gates, but has two snags:
 | The request register, with RFC 0040's set and clear masks: a register, 16 gates for (q \| set & d) & ~(clr & d), a read buffer | 4–5 |
 | … or as a 74x259 addressable latch, one level per write, the level and set or clear in the data | 1½ |
 | The message register: two 16-bit halves with their own write strobes (2), the claim and full state (½–1), read-back buffers (2) | 4–6 |
-| The timer: 4 × 74HC590, and ½ × 74 for the tick's and profiling tick's flags | about 5 |
+| The timer counting BCLK / 4: 4 × 74HC590 on one counter clock, each stage enabled by the lower stages' RCOs (a couple of 74F32 gates), a ÷4 prescaler and the two tick flags in 74ABT74s | about 6 |
+| … or counting BCLK: 8 × 74F161, 2 × 74ABT16374 as the snapshot and the bus driver, and the flags | about 11 |
 | The levels ORed | ¾ |
 | Zero fill for the small registers' upper half | 1 |
-| **In all** | **16–17** (the 259, a snapshot) **to 20–21** (masks, reading twice) |
+| **In all** | **about 17** (the 259, BCLK / 4) **to 27** (masks, BCLK) |
 
 - **The message register's low half** goes straight into the register
   from a 16-bit master: no holding register is needed, since nothing
@@ -136,14 +137,40 @@ OR gates, but has two snags:
 
 ### The timer: a snapshot
 
-- **Free:** the 74HC590 has an output register (RCLK) and three-state
-  outputs.
-- **Taken at the low half's read,** a 16-bit master reads one value in
-  two halves. The CPU's 32-bit read is one access anyway.
-- **Reading twice** needs counters without output registers, bus buffers
-  (about 2 chips more) and software.
-- **The tick** taps the 590s' outputs. They freeze between a 16-bit
-  master's two reads, which delays a tick's edge by at most that long.
+The first estimate, about 5 chips, had four 74HC590s count BCLK. TI's
+data sheet for the SN74HC590A (SCLS039F) rules that out:
+
+- **Its clock:** at most 16 MHz at 4.5 V over −40 to 85 °C (the SN54, 13
+  MHz; 20 MHz at 25 °C). A 60 ns BCLK is 16.7 MHz.
+- **Its cascade:** CCLK↑ to RCO takes up to 38 ns, and CCKEN's setup is
+  25 ns, so even two stages, RCO into CCKEN, need about 63 ns. Beyond
+  two, the data sheet has each stage's RCO clock the next, which ripples,
+  about 38 ns a stage. A snapshot taken mid-ripple would hold a torn
+  value.
+- **Its register:** the data sheet allows RCLK tied to CCLK, the register
+  then one count behind the counter.
+
+So there are two timers, both read through a snapshot:
+
+- **Counting BCLK / 4,** 240 ns, about 6 chips: four 74HC590s on one
+  counter clock at 4.2 MHz, each stage's CCKEN the OR of the lower
+  stages' RCOs, so that every stage changes on one edge with no ripple.
+  RCLK is tied to the counter clock, so the register always holds a
+  settled count, one behind, and is held while a 16-bit master reads its
+  two halves. A ÷4 prescaler and the two tick flags in 74ABT74s.
+- **Counting BCLK,** 60 ns, about 11 chips: eight synchronous 74F161s
+  (their ENT chain settles in about 57 ns, which is tight), two
+  74ABT16374s as the snapshot and the bus driver, and the flags.
+
+- **Held from the low half's read,** the snapshot gives a 16-bit master
+  one value in two halves. The CPU's 32-bit read is one access anyway.
+- **Reading twice** saves the snapshot's register but not the counters,
+  needs bus buffers instead, and software.
+- **The tick** taps the register's outputs. They follow the count one
+  behind, except while a 16-bit master's read holds them, which delays a
+  tick's edge by at most that long.
+- **v2_hw** still counts BCLK in its model and fixture; changing the rate
+  is a line. RFC 0031 marks the rate open.
 
 ### The local path
 
@@ -165,11 +192,12 @@ cycles.
 - **Eight levels** cost about 11 packages of the core's 382, about 2.5
   more than three fixed levels and about 6 more than ARM's two masks.
   Eight levels are Emily's decision; the cost is now known.
-- **The whole RFC** costs about 18 packages on the core and 16–21 on the
+- **The whole RFC** costs about 18 packages on the core and 17–27 on the
   card, and no time in the suite.
 - **The message entry** takes under a microsecond, so the latency
   table's "perhaps 5–10 µs" was pessimistic: what remains is the
   instruction in progress and any exception being entered.
 - **For Emily:** the message level's registers (sixteen of their own, or
   bank 255), the request register (masks, or a 259 with one level per
-  write), the timer's snapshot, and the board information's layout.
+  write), the timer's rate (BCLK, or BCLK / 4 for about 5 chips fewer),
+  and the board information's layout.

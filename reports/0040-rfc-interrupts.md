@@ -234,7 +234,7 @@ offsets are a proposal.
   system bus, so a handler never waits for the bus to clear its level or
   read the timer. In v2_hw a local access is an ordinary load or store,
   about 240 ns quicker to read than a bus transfer and 300 ns to write.
-- **Parts:** about 16–21 chips in all, by the hardware session's estimate
+- **Parts:** about 17–27 chips in all, by the hardware session's estimate
   ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-card)).
 - **RESET** clears the request register, frees the message register and
   clears the timer.
@@ -294,28 +294,31 @@ It is free, claimed or full:
 
 The hardware session's design.
 
-- **A 32-bit counter of BCLK,** free-running and cleared by RESET. Every
-  card counts the same clock from the same reset, so every CPU reads the
-  same time.
-- **At a 60 ns BCLK** it counts in 60 ns and wraps every 4.3 minutes. The
-  kernel extends it in software at each tick.
+- **A 32-bit counter of BCLK, or of BCLK / 4** (**open**), free-running
+  and cleared by RESET. Every card counts the same clock from the same
+  reset, so every CPU reads the same time.
+- **Counting a 60 ns BCLK,** it counts in 60 ns and wraps every 4.3
+  minutes; counting BCLK / 4, in 240 ns, and every 17 minutes. The kernel
+  extends it in software at each tick.
 - **The tick:** a jumper picks counter bit n. Each 0→1 edge of that bit
   sets the tick flag, which requests level 6 until a write clears it. Bit
-  n ticks every 2ⁿ⁺¹ clocks: at 60 ns, bit 16 every 7.9 ms (about 127 Hz)
-  and bit 17 every 15.7 ms.
+  n ticks every 2ⁿ⁺¹ counts: counting BCLK, bit 16 every 7.9 ms (about
+  127 Hz) and bit 17 every 15.7 ms; counting BCLK / 4, bits 14 and 15.
 - **A profiling tick** (**optional**): a second jumper and flag, onto
   level 8, so that the PC can be sampled even inside message handlers.
 - **Reading:** one word read of all 32 bits. How it stays consistent
   while the counter carries is **open**: a snapshot latched as the read
   starts, or reading the high half twice. **Recommended:** the snapshot,
-  free with 74HC590 counters, taken at the low half's read so that a
-  16-bit master reads one value
+  held from the low half's read so that a 16-bit master reads one value
   ([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#the-timer-a-snapshot)).
 - **BCLK's period** is in the board information, for the kernel to scale
   the count.
 - **No compare register:** a deadline finer than the tick is a request to
   the I/O processor ([4.5](#45-requests-for-time)).
-- **Parts:** about 5 chips: four 74HC590s and the flags.
+- **Parts:** counting BCLK / 4, about 6 chips: four 74HC590s, whose
+  output registers are the snapshot, a prescaler and the flags. Counting
+  BCLK, about 11: eight 74F161s, two 74ABT16374s as the snapshot, and the
+  flags. A 74HC590 can't count a 60 ns BCLK in the worst case.
 
 ### 4. The I/O processor
 
@@ -596,7 +599,9 @@ The rule for devices that follows:
   register: a few chips fewer. Deadlines finer than a tick go to the I/O
   processor, which has a timer of its own.
 - **Counting BCLK** gives 60 ns resolution, close to counting cycles, and
-  the same time on every CPU, with no synchronising.
+  the same time on every CPU, with no synchronising. Counting BCLK / 4
+  gives 240 ns, still finer than any use of it so far, for about 5 chips
+  fewer.
 - **Against** RFC 0009's tickless timer, recommended there, and the one
   Fen's board simulates. Fen already counts the ticks it missed from the
   counter, so a periodic tick is a small change for it.
@@ -679,8 +684,10 @@ For Emily:
 4. **The `SWI` numbers kept for interrupt sources:** 128–255?
 5. **The CPU card's register offsets** of [section 3](#3-the-cpu-card).
 6. **Reading the timer consistently:** a snapshot, or reading twice?
-   The snapshot is recommended: it is free with 74HC590s.
-7. **The tick's default jumper:** bit 16, about 127 Hz at 60 ns?
+   The snapshot is recommended. And the counter's rate: BCLK, 60 ns, for
+   about 11 chips, or BCLK / 4, 240 ns, for about 6?
+7. **The tick's default jumper:** bit 16, about 127 Hz at 60 ns (bit 14
+   counting BCLK / 4)?
 8. **Defaults for batching and lazy deadlines.**
 9. **Change detection** on the I/O processor, about 4 chips?
 10. **Requests for time** from the I/O processor ([4.5](#45-requests-for-time)),
