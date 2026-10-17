@@ -37,7 +37,53 @@ specification belongs is one of the open questions
 
 ## Summary
 
-SUMMARY
+Can the hardware be proved to do what its instruction set says, not
+just tested? For draft 1b, nearly all of it. Of its 1096 decode cases,
+1061 were proved and none failed. The 35 left ran out of their 15
+minutes: multiply and divide, the indexed mode, long SAVEs and a few
+memory accesses. The tools are about 4000 lines of Python on the z3
+solver. The chip-level netlist runs with symbolic registers, splitting
+only where a symbolic bit reaches the control store's address; the
+instruction set, written as a specification that runs, runs on the same
+symbols; the solver proves the two agree.
+
+What it buys:
+
+- **Mistakes found in corners.** Of 29 mistakes put into the hardware
+  on purpose, the proofs caught 22 and the chip-level tests 17. Six were
+  caught only by the proofs, each wrong only where no test program goes:
+  the PC above 1 MB, `CMP` with −9, a branch 32 KB away. The tests caught
+  one the proofs can't reach, in MULS.
+- **A precise instruction set.** The specification is useful on its own.
+  It was checked against the simulator by 100,000 random cases, and by
+  4172 cases the solver chose to reach every reachable outcome of every
+  decision.
+  Writing it found a question RFC 0004 doesn't answer.
+- **What the microcode relies on, written down.** That found that reset
+  leaves the register file's two copies disagreeing, which no test can
+  see ([5](#5-what-the-microcode-relies-on)).
+
+Part I proposes the flow as rules for draft 2:
+
+- a specification for every instruction set, checked against the
+  simulator, from now on;
+- proofs of the microcode's changes and full runs in the slow CI, once
+  draft 2's netlist can run symbolically ([8](#8-draft-2));
+- hardware designed so that the proof stays cheap.
+
+Part II is the specification language: strict, typed and checked, revised
+after review and proved to say the same as its first version. Part III
+is what the 1b study did and found.
+
+For Emily to decide:
+
+- whether to adopt the flow;
+- where an instruction set's specification lives
+  ([1.5](#15-where-things-live));
+- whether a failing proof blocks a merge (W1);
+- what reset should do with the register file
+  ([5](#5-what-the-microcode-relies-on));
+- the smaller questions marked **open** through the text.
 
 ## Contents
 
@@ -133,8 +179,10 @@ Terms:
   abstraction's invariants.
 - **P7 Make the terms meet.** Give the specification's state the
   hardware's shape (the register file's lanes and addresses, the RAM
-  chips), and cut memory addresses where they are loaded (MAR). Both are
-  what make the proofs fast enough ([6](#6-what-it-costs)).
+  chips), write each byte to the chip the hardware would where the
+  assumptions decide which, and cut memory addresses where they are
+  loaded (MAR). These are what make the proofs fast enough
+  ([6](#6-what-it-costs)).
 - **P8 Budgets.** Every decode case has a time budget (15 minutes on 1b).
   A case that runs out is listed with the results, not dropped, and is
   left to the tests (W4).
