@@ -758,7 +758,7 @@ is counted once, under one of them).
   work and trap in the same cycle. About 2 chips.
 - **None of them needs datapath hardware** as specified here: each is
   microcode on what the other instructions need. Dropping all of them
-  saves about 350 microinstructions of the 6,261 (most of them
+  saves about 350 microinstructions of the 6,345 (most of them
   `MULFX`'s) and nothing else.
 - **What they buy** is RFC 0028's to measure (9.8 there). One finding
   here: `MULFX r1, r2, #8` takes 37 cycles with 16-bit operands, where
