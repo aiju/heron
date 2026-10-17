@@ -8,6 +8,9 @@
                                    one program on the RTL model: cycles, time,
                                    where they go
   ucode  [--list]                  the microcode: its size, length classes
+  hw     test|run|bom              the chip-level netlist: programs on the
+                                   chip-level simulator against the RTL
+                                   model, the parts list
 """
 
 import argparse
@@ -63,6 +66,9 @@ def main(argv=None):
     if argv and argv[0] == "check":
         from . import check
         return check.main(argv[1:])
+    if argv and argv[0] == "hw":
+        from . import hw
+        return hw.main(argv[1:])
     p = argparse.ArgumentParser(prog="heron mini")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")

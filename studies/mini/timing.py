@@ -4,17 +4,20 @@ estimate from the paths the microinstruction uses, with worst-case
 datasheet delays (infra/hw/timing.json) for the parts RFC 0041 names.
 
 A cycle is K ticks of the 50.35 MHz master clock (twice VGA's pixel
-clock, 19.86 ns a tick), K = 4 to 19, from a clock generator like draft
-2's CPU's (RFC 0031, 2). Times are from the CPU clock's rising edge; the
-cycle's own work must be done by the next one:
+clock, 19.86 ns a tick), K = 5 to 20, from a clock generator like draft
+2's CPU's (RFC 0031, 2) with two tail ticks: two head ticks, the count,
+two tail ticks. Times are from the CPU clock's rising edge; the cycle's
+own work must be done by the next one:
 
   - a register (R, MAR, PC, flags, ...) needs its input `setup` before the
     edge;
-  - the register file is written in the last tick;
-  - the last two ticks belong to the video (RFC 0041): RAM data a cycle
-    reads must be in T (or a queue slot) by then, and a write's window
-    closes as they start;
-  - memory is written in a window from tick 2 to the last two;
+  - the register file is written in the last tick, its address switched
+    to the write address for the two tail ticks;
+  - the two tail ticks also belong to the video (RFC 0041): RAM data a
+    cycle reads must be in T (or a queue slot) by then;
+  - memory is written in a window from tick 2 to the tail;
+  - a data access may be to the I/O space, whose wait states hold the
+    count from tick 3: such a cycle is at least 6 ticks;
   - the next microinstruction's address must reach the control store
     flash tACC + the uIR's setup before the edge.
 
@@ -31,10 +34,12 @@ import os
 from heron.infra.hw import chips
 
 TICK = 1e3 / 50.35          # ns: the master clock is twice the pixel clock, 25.175 MHz
-K_MIN, K_MAX = 4, 19
-VIDEO_TICKS = 2             # the last two ticks are the video's
-K_WRITE = 2 + 1 + VIDEO_TICKS   # the write window: tick 2 to the video's ticks
-K_READ = 2 + VIDEO_TICKS    # a read's data is in by the video's ticks
+HEAD, TAIL = 2, 2
+K_MIN, K_MAX = HEAD + 1 + TAIL, HEAD + 16 + TAIL
+VIDEO_TICKS = TAIL          # the tail ticks are the video's
+K_WRITE = HEAD + 1 + TAIL   # the write window: tick 2 to the tail
+K_READ = HEAD + TAIL + 1    # a read's data is in by the tail
+K_DATA = 6                  # a data access may hold the count from tick 3
 
 _T = None
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -151,7 +156,7 @@ def estimate(f):
     if f.get("MS"):
         t_f = max(a, b) + 12 + d["alu_add"]          # the step select in front of S
     t_res = t_f + d["res"] + (d["rz"] if f.get("RZ") else 0)
-    need = 3 * TICK                                  # nothing is shorter than 4 ticks
+    need = (K_MIN - 1) * TICK                        # nothing is shorter than K_MIN
     if f.get("RFWE"):
         need = max(need, t_res + d["rf_setup"])
     if f.get("LDR"):
@@ -193,11 +198,13 @@ def estimate(f):
         ticks = max(ticks, K_READ, math.ceil((rd + d["reg_setup"]) / TICK) + VIDEO_TICKS)
     if mem == 2:
         ticks = max(ticks, K_WRITE)
+    if mem in (1, 2, 6):
+        ticks = max(ticks, K_DATA)
     return need, min(ticks, K_MAX)
 
 
 # Four lengths, the jumpers. Until a profile picks them: the commonest needs.
-DEFAULT_LENGTHS = (4, 5, 6, 8)
+DEFAULT_LENGTHS = (5, 6, 7, 8)
 
 
 def best_lengths(need_counts, k=4):
@@ -260,6 +267,8 @@ def ticks_of(ns, f):
         t = max(t, K_READ)
     if mem == 2:
         t = max(t, K_WRITE)
+    if mem in (1, 2, 6):
+        t = max(t, K_DATA)
     return t
 
 
