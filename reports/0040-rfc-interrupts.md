@@ -243,6 +243,8 @@ offsets are a proposal.
 
 - **Eight bits, one per level.** A write to the set address raises the
   levels whose bits are 1, and a write to the clear address lowers them.
+  Which bit is which level is **open**: bit L − 1 for level L, or bit L
+  ([iop-latency.md](0040-rfc-interrupts/iop-latency.md#where-the-studies-differ)).
   No writer reads it first, so any number of writers can't collide.
 - **Any master** can write it: the I/O processor for its events, another
   CPU, or the CPU itself, for deferred work.
@@ -358,6 +360,10 @@ kernel through its ring
 | Source number | For a fast event: the source field of its message |
 | Mask and state | Set when the event is forwarded; cleared when its owner says it has been served |
 
+The I/O processor study keeps 8 cells for each of 48 sources: the INT
+lines, ATN0–3 and each client's completions
+([iop-latency.md](0040-rfc-interrupts/iop-latency.md#routing-masking-and-batching)).
+
 #### 4.4 Delivery
 
 - **To one of its own tasks:** it clears that task's wait.
@@ -367,12 +373,19 @@ kernel through its ring
 - **Slow:** it writes the event into the ring, then the level's bit to
   the set address of that CPU's request register. It may hold the bit
   back for the source's batching time, to post several events with one
-  interrupt.
+  interrupt. The I/O processor study keeps one countdown, to the
+  shortest hold waiting, and when it runs out writes every held level to
+  each CPU's set address at once.
 - **Fast:** it claims the CPU's message register and, if it gets it,
   writes {source, message}. If not, it sends the event as slow.
 - **Masking:** it masks the source from then until its owner says it has
   been served: one of its tasks by waiting again, a CPU's driver by a
-  request. So each source has at most one event outstanding.
+  request. So each source has at most one event outstanding. For a
+  ring's completions, the I/O processor study serves the source without
+  a request: the rings' head words count the events posted and handled
+  in their high halves, and the next is posted only when the two are
+  equal (an option,
+  [iop-latency.md](0040-rfc-interrupts/iop-latency.md#routing-masking-and-batching)).
 
 #### 4.5 Requests for time
 
@@ -482,9 +495,10 @@ Software, not hardware: a convention for Fen.
 | From | To | About |
 |---|---|---|
 | A device's INT | The I/O processor seeing it | up to 10 µs, its polling tick |
-| The I/O processor seeing an event | A CPU's level bit, or its message | 2–3 µs: the routing and a bus write |
+| The I/O processor seeing an event | A CPU's level bit, or its message | 2–3 µs: the routing and a bus write (*estimate*); about 10.5 µs in the I/O processor study, with the event ring's entry and head written into the CPU's RAM |
 | … with another master holding the bus | | up to about 1.5 µs more (VRAM reads, locked sequences), or about 12 µs for a window read of a slow device |
-| A doorbell | The I/O processor reading the ring | 1–3 µs, the slice it is in |
+| A doorbell | The I/O processor reading the ring | 1–3 µs, the slice it is in; 1.4–3.2 µs in the I/O processor study to take the doorbell |
+| A request | Its completion's interrupt | the transfer and a few µs (*estimate*); about 60 µs for a 64-byte fill in the I/O processor study, 18 of them in two scheduling waits |
 | A message | Its handler running, even over the kernel's critical sections | the CPU's entry, 0.94 µs in v2_hw, after the instruction in progress and any exception being entered |
 | A CPU's level bit | Its handler running | the CPU's entry, 0.64 µs in v2_hw, once I and IPL let it in |
 | A slow level | A user-level driver running | 85–107 µs ([report 0020](0020-report-operating-system.md#interrupts-and-devices)'s 500–640 cycles at Fen's 6 MHz), up to about 1 ms while the kernel holds slow levels off ([report 0036](0036-report-fen.md#3-what-it-costs)) |
@@ -498,7 +512,11 @@ second; and a lazy event waits a few milliseconds while the machine is
 busy ([fen-latency.md](0040-rfc-interrupts/fen-latency.md), with the
 numbers in [fen-latency-results.md](0040-rfc-interrupts/fen-latency-results.md)).
 The CPU's entries are measured on v2_hw's RTL model
-([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#time)).
+([cpu-costs.md](0040-rfc-interrupts/cpu-costs.md#time)), the I/O
+processor's side on the I/O processor study's model
+([iop-latency.md](0040-rfc-interrupts/iop-latency.md)): its two scheduling waits, for the tick to run a
+queued job and for the ring to be found empty before posting, are its
+choices, and without them a request comes close to the estimate.
 
 The rule for devices that follows:
 
@@ -695,5 +713,9 @@ For Emily:
 11. **The request register:** set and clear masks, about 4–5 chips, or a
     74x259 addressable latch, one level a write, about 1½? Every writer
     so far raises one level at a time.
-12. **The board information's layout:** the region in bits 3–0, log2 of
-    the RAM in MB in 7–4, BCLK's period in ns in 15–8?
+12. **The board information's layout:** one halfword, the region in bits
+    3–0, log2 of the RAM in MB in 7–4, BCLK's period in ns in 15–8 (v2_hw);
+    or four words, the RAM's size, BCLK's period, the region and the boot
+    flags (the I/O processor study)?
+13. **The request register's bits:** bit L − 1 for level L (the I/O
+    processor study, and Fen's board), or bit L (v2_hw)?
