@@ -2,7 +2,7 @@
 number: 38
 type: rfc
 title: Formal verification of the hardware
-status: draft
+status: open
 date: 2026-10-16
 context:
   studies: [formal, v1b_hw, v1_isa]

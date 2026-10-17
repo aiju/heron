@@ -41,6 +41,7 @@ repository needs. The flow it suggests, the language, and the results: [RFC 0038
 | `v1b.py` | The 1b hardware under it: the state by name, the I/O page fixture, the abstraction at an instruction boundary, the decode cases, the proofs (and reset) |
 | `prove.py` | Proving decode cases in parallel, each with a time budget |
 | `mutate.py` | Mutation testing: mistakes put into the netlist or the microcode on purpose (by hand, and at random), and whether the chip-level tests and the proofs catch them |
+| `versions.py` | The specification language's two versions, proved to say the same on draft 1b: the first read from git, both run on the same symbols |
 | `report.py` | RFC 0038's generated tables, from the proof and mutation runs |
 
 ```sh
