@@ -141,6 +141,13 @@ pub trait IoCard: Send {
     fn advance(&mut self, now_ns: u64);
     /// IORESET (RFC 0037, 19): the card's devices to their reset state.
     fn reset(&mut self, _now_ns: u64) {}
+    /// The I/O bus's WAIT (RFC 0037, 18): for an access whose SEL rises at
+    /// `sel_ps` on the card's time line, when the card's letting go of WAIT
+    /// reaches the IOP's synchroniser, or None if it never does. At
+    /// `sel_ps` or before for a card that doesn't hold it.
+    fn wait_release_ps(&self, sel_ps: i64, _edges: &Edges) -> Option<i64> {
+        Some(sel_ps)
+    }
     /// The card itself, for the host's side of it (a terminal, a disk image).
     fn as_any(&mut self) -> &mut dyn std::any::Any;
 }
@@ -182,6 +189,9 @@ pub struct IoBus {
     /// that arms it.
     pub kicked_ns: Option<u64>,
     pub slots: Vec<Option<Box<dyn IoCard>>>,
+    /// The device whose strobe WAIT's bound cut off (IOTO, event port
+    /// register 1), until register 3 is written.
+    pub wait_timeout: Option<u8>,
     /// D0-D15's last value.
     pub hold: u16,
     pub now_ns: u64,
@@ -211,6 +221,7 @@ impl IoBus {
             rtc: Ds1302::default(),
             kicked_ns: None,
             slots: (0..SLOTS).map(|_| None).collect(),
+            wait_timeout: None,
             hold: 0,
             now_ns: 0,
             edges,
@@ -249,6 +260,7 @@ impl IoBus {
     pub fn cold(&mut self) {
         self.port1 = 0;
         self.kicked_ns = None;
+        self.wait_timeout = None;
         let t = self.now_ns;
         self.rtc.set(false, false, true, t);
     }

@@ -101,6 +101,10 @@ EDGE_IN = SBA[1:] + SBD + ["SB_START_n", "SB_WRITE_n", "SB_BE0_n", "SB_BE1_n", "
 # bench's cards' (slot_cards): the CF card's and the serial card's, in
 # the slots the study's firmware looks in (layout.py)
 CARD_SLOTS = (0, 1)
+# The bench's WAIT cards (wait_cards), as sim/src/cards.rs's Waiter takes
+# them: (slot, what a read answers, CLKB's rises WAIT is held for, or None
+# for as long as SEL is)
+WAIT_CARDS = [(2, 0x5A, 15), (3, 0xC3, None)]
 SRA = bus("SRA", 20)        # the shared RAM's halfword address
 
 
@@ -433,7 +437,7 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     for i in range(4):
         g("04", [f"ATNQ{i}_n"], f"ATN{i}")
     buf(nl, "U_EV10", bus("ATN", 4), T[0:8], "EV1OE_n")
-    buf(nl, "U_EV11", ["GND"] * 5 + ["OWN", "STUCK", "TICK"], T[8:16], "EV1OE_n")
+    buf(nl, "U_EV11", bus("TOD", 4) + ["IOTO", "OWN", "STUCK", "TICK"], T[8:16], "EV1OE_n")
     buf(nl, "U_EV20", bus("DB", 8), T[0:8], "EV2OE_n")
     buf(nl, "U_EV21", bus("DB", 8, 8), T[8:16], "EV2OE_n")
     dec(nl, "U_EVW", [u("REG", 0), u("REG", 1), u("REG", 2)], g2a="DWDY3_n",
@@ -553,9 +557,45 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     reg(nl, "U_HQ", TTD[8:12], bus("HQ", 4), en="STBEND_n")
     for k in range(2):
         nl.add("161", f"U_CNT{k}", CLK="BCLK", CLR="RESET_n", LOAD="CNTLD_n", ENP="CNTEN",
-               ENT="VCC" if k == 0 else "CNTC0", RCO=f"CNTC{k}", A="GND", B="GND", C="GND", D="GND",
+               ENT="WFRZ_n" if k == 0 else "CNTC0", RCO=f"CNTC{k}", A="GND", B="GND", C="GND", D="GND",
                QA=f"CNT{4 * k}", QB=f"CNT{4 * k + 1}", QC=f"CNT{4 * k + 2}", QD=f"CNT{4 * k + 3}")
-    nl.add("521", "U_CMPS", part="74F521", G="GND", PEQ="PEQS", **{f"P{i}": f"CNT{i}" for i in range(8)},
+    # WAIT (RFC 0037, 18), from the slots, open collector: taken through
+    # two flip-flops, the second gated by the entry's WAIT bit, which is
+    # the table's while the strobe goes on. While the second shows it
+    # (WEXT), CNT stands and the strobe comparator is off: the strobe ends
+    # the clock after it shows WAIT gone at the earliest. The first takes
+    # it at the strobe's second clock's end, so a card must have it within
+    # 30 ns of SEL and a STROBE of 3 or more. After 256 clocks of it (IWB)
+    # the strobe goes on regardless (WTO), and IOTO is set with the device
+    # in TOD, event port register 1's bits 12 and 8-11, until its register
+    # 3 is written.
+    nl.add("pullup", "RN_2", P1="IOWAIT_n")
+    g("04", ["IOWAIT_n"], "IOWAIT")
+    nl.add("74", "U_IOWS", part="74ABT74", nocheck=True, **{
+        "1D": "IOWAIT", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "IW1",
+        "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+    g("08", ["IW1", TTD[12]], "IW2_D")
+    g("08", ["IW2", "WTO_n"], "WEXT")
+    g("00", ["STB", "WEXT"], "WFRZ_n")
+    g("04", ["WFRZ_n"], "WWAITING")
+    for k in range(2):
+        nl.add("163", f"U_IWB{k}", CLK="BCLK", CLR="WWAITING", LOAD="VCC", ENP="VCC",
+               ENT="VCC" if k == 0 else "IWB0RC", RCO="IWB0RC" if k == 0 else "IWB255",
+               A="GND", B="GND", C="GND", D="GND")
+    g("08", ["IWB255", "WWAITING"], "WTOSET")
+    g("08", ["WTO", "STB"], "WTOSTAY")
+    g("32", ["WTOSET", "WTOSTAY"], "WTO_D")
+    g("08", ["IOTO", "STKCLRQ_n"], "IOTOSTAY")
+    g("32", ["WTOSET", "IOTOSTAY"], "IOTO_D")
+    nl.add("175", "U_IOWT", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "IW2_D", "1Q": "IW2", "2D": "WTO_D", "2Q": "WTO", "2QN": "WTO_n", "3D": "IOTO_D", "3Q": "IOTO",
+        "4D": "GND"})
+    g("04", ["WTOSET"], "WTOSET_n")
+    # (TOD cleared with IOTO: the tick's quick path in the microcode wants
+    # register 1's bits 4-14 clear)
+    g("08", ["RESET_n", "STKCLRQ_n"], "IOTDCLR_n")
+    reg(nl, "U_IOTD", ADEV, bus("TOD", 4), en="WTOSET_n", clr="IOTDCLR_n")
+    nl.add("521", "U_CMPS", part="74F521", G="WEXT", PEQ="PEQS", **{f"P{i}": f"CNT{i}" for i in range(8)},
            **{f"Q{i}": TTD[2 + i] if i < 6 else "GND" for i in range(8)})
     nl.add("521", "U_CMPH", part="74F521", G="GND", PEQ="PEQH", **{f"P{i}": f"CNT{i}" for i in range(8)},
            **{f"Q{i}": f"HQ{i}" if i < 4 else "GND" for i in range(8)})
@@ -1043,6 +1083,39 @@ def slot_cards(nl):
     nl.add("32", "X_C1O", part="74HCT32", **{"1A": "C1_INT0", "1B": "C1_INT1", "1Y": INT[1],
                                               "2A": "GND", "2B": "GND", "3A": "GND", "3B": "GND",
                                               "4A": "GND", "4B": "GND"})
+    wait_cards(nl)
+
+
+def wait_cards(nl):
+    """Two cards that hold the I/O bus's WAIT (RFC 0037, 18), as WAIT_CARDS
+    has them: a read of any register answers a 74HCT541's jumpers. Slot
+    2's is the RFC's card that lines up with CLKB: WAIT from SEL until a
+    74HCT163, cleared while SEL is low, has counted 15 of CLKB's rises
+    (an asynchronous sample, so unchecked); slot 3's holds it as long as
+    SEL. WAIT comes from SEL through a 74F00 and a 74ABT125 for RFC 0037's
+    30 ns; the read strobes through a 74HCT132."""
+    (s2, v2, n2), (s3, v3, _) = WAIT_CARDS
+    assert n2 == 15
+    nl.section("Slots 2 and 3: WAIT cards")
+    nl.add("132", "X_C2G", part="74HCT132", **{
+        "1A": "AWRITE", "1B": "VCC", "1Y": "C2_WRITE_n",
+        "2A": f"SEL{s2}", "2B": "C2_WRITE_n", "2Y": "C2_RD_n",
+        "3A": f"SEL{s3}", "3B": "C2_WRITE_n", "3Y": "C3_RD_n",
+        "4A": "GND", "4B": "GND"})
+    nl.add("163", "X_C2C", part="74HCT163", nocheck=True, CLK="CLKB", CLR=f"SEL{s2}", LOAD="VCC",
+           ENP="C2_TC_n", ENT="VCC", RCO="C2_TC", A="GND", B="GND", C="GND", D="GND")
+    nl.add("00", "X_C2N", part="74F00", **{
+        "1A": "C2_TC", "1B": "VCC", "1Y": "C2_TC_n",
+        "2A": f"SEL{s2}", "2B": "C2_TC_n", "2Y": "C2_WEN_n",
+        "3A": f"SEL{s3}", "3B": "VCC", "3Y": "C3_WEN_n",
+        "4A": "GND", "4B": "GND"})
+    nl.add("125", "X_C2W", part="74ABT125", **{
+        "1OE": "C2_WEN_n", "1A": "GND", "1Y": "IOWAIT_n", "2OE": "C3_WEN_n", "2A": "GND", "2Y": "IOWAIT_n",
+        "3OE": "VCC", "3A": "GND", "4OE": "VCC", "4A": "GND"})
+    for ref, rd, v in (("X_C2D", "C2_RD_n", v2), ("X_C3D", "C3_RD_n", v3)):
+        nl.add("541", ref, part="74HCT541", OE1=rd, OE2="GND",
+               **{f"A{i + 1}": "VCC" if (v >> i) & 1 else "GND" for i in range(8)},
+               **{f"Y{i + 1}": IOD[i] for i in range(8)})
 
 
 def add_bench(nl, master=False):

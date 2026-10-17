@@ -11,8 +11,10 @@
 //! - [`Gpio`]: general-purpose I/O, two latches and two buffers: register
 //!   0 R the inputs, W the outputs; register 1 W the inputs that raise
 //!   INT. Its inputs are the host's, so a test can raise INT.
+//! - [`Waiter`]: the chip-level bench's WAIT cards (card.py's
+//!   wait_cards), which hold the I/O bus's WAIT (RFC 0037, 18).
 
-use crate::iobus::IoCard;
+use crate::iobus::{Edges, IoCard};
 use crate::iop::Iop;
 use devices::cf::CfCard;
 use devices::uart16550::Uart;
@@ -25,13 +27,24 @@ pub const DISK_SLOT: usize = 0;
 pub const SERIAL_SLOT: usize = 1;
 
 /// Cards into an IOP's slots: a CF card holding `disk`, the serial card,
-/// GPIO cards.
-pub fn fit(iop: &mut Iop, disk: Option<Vec<u8>>, serial: bool, gpio: &[usize]) {
+/// GPIO cards, WAIT cards as (slot, value, CLKB rises) (Waiter).
+pub fn fit(
+    iop: &mut Iop,
+    disk: Option<Vec<u8>>,
+    serial: bool,
+    gpio: &[usize],
+    waiters: &[(usize, u8, Option<u32>)],
+) {
     if let Some(image) = disk {
         iop.io.slots[DISK_SLOT] = Some(Box::new(Cf::new(image)));
     }
     if serial {
         iop.io.slots[SERIAL_SLOT] = Some(Box::new(Serial::new(iop.io.edges.t0_ps)));
+    }
+    for &(slot, value, clkb) in waiters {
+        if slot < iop.io.slots.len() {
+            iop.io.slots[slot] = Some(Box::new(Waiter { value, clkb }));
+        }
     }
     for &slot in gpio {
         if slot < iop.io.slots.len() {
@@ -185,6 +198,46 @@ impl IoCard for Gpio {
     }
 
     fn advance(&mut self, _now_ns: u64) {}
+
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// A card that answers reads of any register with `value` and holds
+/// WAIT from SEL's rise: until a 74HCT163 clocked by CLKB has counted
+/// `clkb` rises with SEL high, or for as long as SEL is (None). CLKB rises
+/// half a period in and every period after (card.py's oscillator); the
+/// count's end reaches the IOP's synchroniser through the counter's RCO,
+/// two 74F00s, a 74ABT125's turn-off and the IOP's 74F04, at the slow
+/// corner.
+pub struct Waiter {
+    pub value: u8,
+    pub clkb: Option<u32>,
+}
+
+const WAITER_RELEASE_PS: i64 = 61_000 + 6_000 + 6_000 + 6_200 + 6_000;
+
+impl IoCard for Waiter {
+    fn read(&mut self, _reg: u8, _now_ns: u64) -> (u16, u16) {
+        (self.value as u16, 0x00FF)
+    }
+
+    fn write(&mut self, _reg: u8, _v: u16, _now_ns: u64) {}
+
+    fn int(&self) -> bool {
+        false
+    }
+
+    fn advance(&mut self, _now_ns: u64) {}
+
+    fn wait_release_ps(&self, sel_ps: i64, edges: &Edges) -> Option<i64> {
+        let n = self.clkb? as i64;
+        let p = edges.clkb_period_ps;
+        // the first rise after SEL's
+        let k0 = (sel_ps - p / 2).div_euclid(p) + 1;
+        Some(p / 2 + (k0 + n - 1) * p + WAITER_RELEASE_PS)
+    }
 
     fn as_any(&mut self) -> &mut dyn Any {
         self

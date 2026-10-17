@@ -76,7 +76,7 @@ def model(b, inp=b"", serial=b""):
     """The model, powered up on the same build, with the bench's cards,
     logging its E2s: `inp` what the console's terminal types, `serial`
     the serial card's line 0's."""
-    s = Session(b, t0_ps=T0_PS, disk=DISK, serial=True)
+    s = Session(b, t0_ps=T0_PS, disk=DISK, serial=True, waiters=card.WAIT_CARDS)
     s.s.log_start()
     if inp:
         s.s.uart_send(inp)
@@ -194,7 +194,7 @@ class Program:
         return self.mc.rom_bytes()
 
 
-def check_ucode(name="hwtest.uc", clocks=2000, seed=1):
+def check_ucode(name="hwtest.uc", clocks=2000, seed=1, corner="max"):
     """Run a microcode program on the card and the model to its end (a
     goto to itself); (the outcome, the first difference or None, E2s
     compared, the model's registers and CPU RAM, the card's)."""
@@ -202,7 +202,7 @@ def check_ucode(name="hwtest.uc", clocks=2000, seed=1):
     s = model(b)
     cfg = config(clocks, 1_000_000, seed)
     cfg["dump"] += ["X_RAML", "X_RAMH"]
-    hw = native.hwsim.run_system(netlist(), cfg, preloads(b, s))
+    hw = native.hwsim.run_system(netlist(corner=corner), cfg, preloads(b, s))
     s.s.run(s.s.clock + clocks)
     ref = s.s.log_take()
     n = min(len(hw["fetches"]), len(ref))

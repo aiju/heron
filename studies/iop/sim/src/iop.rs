@@ -131,6 +131,15 @@ impl Default for Config {
 /// the card's slow corner: the strobe's flip-flop and the gate after it.
 const IO_STROBE_PS: i64 = 15_500;
 
+/// From the strobe's first edge to SEL rising at the slots, at the card's
+/// slow corner: the strobe's flip-flop (74F175), the decoder (74F138) and
+/// the driver (74ABT540).
+const SEL_PS: i64 = 9_500 + 9_000 + 4_800;
+
+/// WAIT's bound (RFC 0037, 18): the clocks of a strobe held by WAIT after
+/// which it goes on regardless, the clock it's first seen in counted.
+const WAIT_BOUND: u64 = 256;
+
 /// A slave's answer to the IOP's transfer: the data it drove (None if
 /// nothing answered) and the data clocks the transfer took (at least 1).
 #[derive(Clone, Copy, Debug)]
@@ -440,7 +449,10 @@ impl Iop {
                         let t = self.edge_ps(c);
                         self.io.int_lines_at(t)
                     }
-                    1 => (bus.atn(self.clock) & 15) as u16 | (self.tick_at(c) as u16) << 15,
+                    1 => {
+                        let ioto = self.io.wait_timeout.map_or(0, |d| 0x1000 | (d as u16) << 8);
+                        (bus.atn(self.clock) & 15) as u16 | ioto | (self.tick_at(c) as u16) << 15
+                    }
                     2 => self.doorbells,
                     _ => 0xFFFF,
                 };
@@ -479,6 +491,7 @@ impl Iop {
                     self.tick_cleared = e2;
                 }
                 2 => self.doorbells &= !(1 << (self.x & 15)),
+                3 => self.io.wait_timeout = None,
                 _ => {}
             },
             DEV_PAGE => match r {
@@ -490,6 +503,40 @@ impl Iop {
             _ => {}
         }
         Ok(0)
+    }
+
+    /// The I/O bus's WAIT (RFC 0037, 18), as the card has it, for an
+    /// access starting in clock `astart`: the clocks to its strobe's end.
+    /// A slot whose entry has WAIT set takes it through two flip-flops,
+    /// the second gated by the bit: the first takes it at each edge from
+    /// the strobe's second clock's end, so the second shows it from the
+    /// strobe's third clock, when CNT stands and the strobe can't end. The
+    /// clock the second shows it gone, CNT goes on, at 2 for a STROBE of
+    /// 3, and the strobe ends when it reaches STROBE less one. After
+    /// WAIT_BOUND clocks of it the strobe goes on regardless and the
+    /// device is recorded.
+    fn wait_strobe(&mut self, dev: usize, entry: u16, astart: u64, strobe_end: u64) -> u64 {
+        let f = ((entry >> 2) & 63) as u64;
+        if entry & iobus::TT_WAIT == 0 || dev >= iobus::SLOTS || f < 2 {
+            return strobe_end;
+        }
+        let s = astart + 1 + (entry & 3) as u64;
+        let sel_ps = self.edge_ps(s) + SEL_PS;
+        let release = match &self.io.slots[dev] {
+            Some(c) => c.wait_release_ps(sel_ps, &self.io.edges),
+            None => return strobe_end,
+        };
+        // the first edge from s + 1 on that sees WAIT gone
+        let k = match release {
+            Some(r) if r < self.edge_ps(s + 1) => return strobe_end,
+            Some(r) => (r - self.cfg.t0_ps).div_euclid((self.cfg.bclk_ns * 1000) as i64) as u64 + 1,
+            None => u64::MAX / 2,
+        };
+        let bound = s + 2 + WAIT_BOUND;
+        if k + 1 > bound {
+            self.io.wait_timeout = Some(dev as u8);
+        }
+        (k + 1).min(bound) + f - 2 + 1 - astart
     }
 
     /// A microinstruction's access to the I/O bus, if it makes one: the
@@ -554,12 +601,14 @@ impl Iop {
         let mut io = false;
         if let Some((strobe_end, hold)) = self.io_timing(&u)? {
             let astart = start.max(self.io_free);
+            let dev = ((self.x >> 8) & 15) as usize;
+            let entry = self.io.entry(dev)?;
+            let strobe_end = self.wait_strobe(dev, entry, astart, strobe_end);
             len = len.max(astart - start + strobe_end);
             self.io_free = astart + strobe_end + hold;
             io = true;
             // the strobe from SETUP's end to the access's strobe_end
-            let setup =
-                strobe_end - 2 - ((self.io.entry(((self.x >> 8) & 15) as usize)? >> 2) & 63) as u64;
+            let setup = (entry & 3) as u64;
             self.io_rd_ps = self.edge_ps(astart + 1 + setup) + IO_STROBE_PS;
             self.io_wr_ps = self.edge_ps(astart + strobe_end) + IO_STROBE_PS;
         }

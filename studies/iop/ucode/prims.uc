@@ -844,10 +844,10 @@ enq_done: CTRL <- #(8 | CTRL_WORK)
         AC <- ev0
         NEXT
 
-.prim stuck@                    ; ( -- x ) the stuck-transfer counter's STUCK and OWN, then cleared
+.prim stuck@                    ; ( -- x ) the stuck-transfer counter's STUCK and OWN, WAIT's bound's IOTO and device, then cleared
         sp, X <- sp - 1
         [X] <- AC
-        AC <- #0x6000
+        AC <- #0x7F00
         AC <- ev1 & AC
         F <- #0 | ev3 <- F
         NEXT

@@ -67,7 +67,7 @@ pub mod fen {
             let c = match (iop_ucode, iop_flash) {
                 (Some(rom), Some(flash)) => {
                     let mut iop = Iop::from_rom(IopConfig::default(), rom, flash);
-                    cards::fit(&mut iop, iop_disk, false, &[]);
+                    cards::fit(&mut iop, iop_disk, false, &[], &[]);
                     Engine::with_iop(cfg, cf_image.to_vec(), iop)
                 }
                 _ => Engine::new(cfg, cf_image.to_vec()),

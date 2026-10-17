@@ -65,6 +65,18 @@ class Forth(unittest.TestCase):
         self.says("`", "` ?")
         self.says("{", "{ ?")
 
+    def test_io_wait(self):
+        """The I/O bus's WAIT: a card that holds it as long as SEL (the
+        chip-level bench's slot 3, cards::Waiter) answers when its bound
+        cuts the strobe off, and the console says so after the line."""
+        s = Session(self.b, waiters=[(3, 0xC3, None)])
+        s.boot()
+        out = s.command(f"{layout.TT_WAIT | 2 << 2} 3 ttab! $300 io@ $FF and .")
+        self.assertIn("195  ok", out)
+        s.run_ms(2)
+        self.assertIn(b"195  ok\r\nI/O bus device 3 held WAIT 256 clocks", s.out)
+        self.assertEqual(s.command("stuck@ ."), "stuck@ . 0  ok\r\n")
+
     def test_data(self):
         self.says("variable v 42 v ! v ?", "42  ok")
         self.says("5 constant five : f five 2* ; f .", "10  ok")

@@ -61,6 +61,19 @@ class Netlist(unittest.TestCase):
         wait = (20_000 + 2_000) // 60           # bus clocks: the wait and COLD
         self.assertTrue(wait < gaps.pop() < wait + 100)
 
+    def test_io_wait(self):
+        """The I/O bus's WAIT (ucode/hwiowait.uc) against the bench's WAIT
+        cards, the model's way clock for clock: slot 2's held for 15 of
+        CLKB's rises, slot 3's cut off by the bound, IOTO and the device
+        in event port register 1 until register 3 is written; at both
+        corners."""
+        for corner in ("max", "min"):
+            out, diff, n, b, want, got = hw.check_ucode("hwiowait.uc", corner=corner)
+            self.assertIsNone(diff, corner)
+            self.assertEqual(out["violation_total"], 0, corner)
+            self.assertEqual(got["regs"][8:13], [0x5A, 0, 0xC3, 0x1300, 0], corner)
+            self.assertEqual(got["regs"], want["regs"], corner)
+
     def test_stuck(self):
         """The stuck-transfer counter: a read from a slave that holds
         WAIT ends after 256 data clocks with RESET, STUCK and OWN set; a

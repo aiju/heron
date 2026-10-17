@@ -66,9 +66,10 @@ pub mod iop {
         /// these slots; `tick`: the CPU card's tick jumper, the timer's
         /// bit (RFC 0040, 3.3: 16), or none; `t0_ps`: where the IOP's clock
         /// 0 is on its card's time line (iobus::Edges), for the chip-level
-        /// check.
+        /// check; `waiters`: the chip-level bench's WAIT cards, as (slot,
+        /// value, CLKB rises or None) (cards::Waiter).
         #[new]
-        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false, gpio=Vec::new(), tick=None, t0_ps=0))]
+        #[pyo3(signature = (ucode, flash, ram_size=4 << 20, cpu_hz=6e6, watchdog=false, shared_bytes=2 << 20, reference=None, disk=None, serial=false, gpio=Vec::new(), tick=None, t0_ps=0, waiters=Vec::new()))]
         #[allow(clippy::too_many_arguments)]
         fn new(
             ucode: &[u8],
@@ -83,6 +84,7 @@ pub mod iop {
             gpio: Vec<usize>,
             tick: Option<u32>,
             t0_ps: i64,
+            waiters: Vec<(usize, u8, Option<u32>)>,
         ) -> PyResult<System> {
             let cfg = Config {
                 watchdog,
@@ -95,7 +97,7 @@ pub mod iop {
                 None => v2_isa::timing::Config::named(v2_isa::timing::REFERENCE).unwrap(),
             };
             let mut iop = Iop::from_rom(cfg, ucode, flash);
-            cards::fit(&mut iop, disk, serial, &gpio);
+            cards::fit(&mut iop, disk, serial, &gpio, &waiters);
             let mut s = Engine::new(iop, ram_size, cpu_hz, timing);
             s.card().tick_bit = tick;
             Ok(System { s })
