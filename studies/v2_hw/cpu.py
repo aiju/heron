@@ -82,7 +82,12 @@ def clock_generator(nl, lengths, por_ps):
     nl.add("por", "U_POR", RST="PORST_n", params={"release_ps": por_ps})
     nl.add("pullup", "RN_POR", P1="PORST_n")
     g("14", ["PORST_n"], "RSTI")
-    g("14", ["RSTI"], "RESET_n")
+    g("14", ["RSTI"], "RSTA_n")
+    # asserted at once, released at a CLK edge: everything, the card's
+    # registers too, sees the same last edge of reset
+    nl.add("74", "U_RSY", **{"1D": "VCC", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RSTA_n",
+                             "1Q": "RSY1", "2D": "RSY1", "2CLK": "CLK", "2PRE": "VCC",
+                             "2CLR": "RSTA_n", "2Q": "RESET_n"})
 
     nl.section("Clock generator")
     nl.add("osc", "U_OSC", part="oscillator 50 MHz", OUT="MCLK",

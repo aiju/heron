@@ -131,6 +131,10 @@ map and the card's RAM. The registers, latches and buffers are 16-bit
   clock's edge inside the register file's write; so H0 loads T1 only
   while H0 is off, which kills a second pulse from any state the
   flip-flops power up in.
+- **Reset** (RESET_n) is asserted at once by the power-on reset and
+  released at a CLK edge, through two flip-flops: the CPU and the card's
+  registers then agree which edge ends it, and the first cycle, the reset
+  routine's word 0, starts at the last edge with RESET_n low.
 
 ### 3. Datapath
 
@@ -1017,11 +1021,16 @@ the branch-target adder from the profile:
   timing violation; at long cycles (`--lengths 10,11,12,14`) they match
   too, which separates logic from timing. Its log of bus contention
   found the turn-off problem of [15](#15-the-netlist-and-its-timing).
-  The simulator powers every flip-flop up at random; hello also runs
-  from three more power-ups, which found the clock generator's lock-up
+  The simulator powers every flip-flop up at random; hello, the system
+  tests and the interrupt program also run from six more power-ups (three
+  for the interrupt program). They found the clock generator's lock-up
   ([2](#2-clock-and-cycles)): 52 of the 128 states of its flip-flops and
   counter kept two pulses going while the cycles were 4 ticks, so that
-  every register file write failed.
+  every register file write failed. They also found reset released
+  asynchronously: when it rose within a few nanoseconds of a clock edge,
+  the card's timer and the CPU disagreed about which edge ended reset,
+  and the timer's tick came a cycle off; reset is now released at a CLK
+  edge.
 - **`ticks.json` is current:** `heron test v2_hw` runs the analysis and
   compares it with the table the microcode uses.
 
