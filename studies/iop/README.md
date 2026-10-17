@@ -140,9 +140,10 @@ RFC, not decisions.
 - **REQ and GNT:** GNT comes 4 clocks after SESSION rises (an idle bus;
   the CPU's own use of the bus isn't modelled). A transfer without
   SESSION is a microcode error here.
-- **The event ports** (device 3): register 0 the INT lines; 1 ATN0-3 and
-  the tick in bit 15, written to clear the tick; 2 the doorbells, written
-  to clear doorbell X[3:0].
+- **The event ports** (device 3): register 0 the INT lines; 1 ATN0-3,
+  the stuck-transfer counter's OWN and STUCK in bits 13 and 14, and the
+  tick in bit 15, written to clear the tick; 2 the doorbells, written to
+  clear doorbell X[3:0]; 3, written, clears STUCK and OWN.
 - **The shared RAM takes X as a byte address,** its bit 0 ignored, and
   its page register (device 4 register 0, 7 bits for up to 8 MB) as
   address bits 16-22: a CPU's physical address in region 4 splits into
@@ -262,10 +263,11 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   with an enable, E1EN or E2EN. The SRAM is written from E1 until BCLK
   falls.
 - **Predecoding** (RFC 0027, 3.6's suggestion): the first half's paths
-  don't fit 60 ns with decoders in them, so 13 bits are decoded from the
+  don't fit 60 ns with decoders in them, so 14 bits are decoded from the
   next microinstruction as the flash gives it and registered with it in
   uIR's spare bits and a seventh half: the SRAM's address source (both
-  polarities), R's and T's sources, a device onto R, the I/O bus access.
+  polarities), R's and T's sources, a device onto R, the I/O bus access,
+  a system bus transfer.
   With them a register through the ALU into F is about 54 ns.
 - **The I/O bus side** (RFC 0037, 16): an access is S0 (idle, or its
   setup), STB and HLD, with an 8-bit counter each state starts from 0 and
@@ -281,7 +283,20 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   write data through it. A transfer waits at E1 for GNT and the last data
   phase's end, with WAIT's own term last in E1EN, as it comes late in the
   clock (RFC 0037's 29 ns); E2 can't wait for WAIT, as E2EN goes to the
-  74F161s' 11.5 ns setups.
+  74F161s' 11.5 ns setups. GNT, which comes late too, goes into the stall
+  as the bus line has it, active low: through two inverters, START's
+  flip-flop missed its setup by 2 ns when a transfer waited for it.
+- **The stuck-transfer counter** (RFC 0027, 4.1; RFC 0037, 5.6): two
+  74F163s count the bus's consecutive data clocks, whoever's they are. At
+  256 the card asserts RESET for 256 clocks, counted by the same
+  counter, and sets STUCK, and OWN if the transfer was its own: event
+  port register 1's bits 14 and 13, until a write to register 3 clears
+  them (`stuck@`; the Forth's prompt reports it). A slave lets go of WAIT
+  when RESET reaches it, at any time in a clock, so the IOP's own data
+  phase and stalls ignore WAIT for RESET's first two clocks. The bench
+  has a slave in region 5 that holds WAIT until RESET (`ucode/hwstuck.uc`,
+  `heron iop hw stuck`), and asserts RESET with COLD at power-up, as the
+  backplane does.
 - **The slave side:** the address clock is decoded (region 4, 0x74) and
   registered; an access to the shared RAM takes T for one clock that the
   core leaves free (neither the running microinstruction nor the next,
@@ -337,7 +352,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   8) for the image flash's SST39SF040s, so 128K halfwords of it;
   AS7C4096A-12 for the shared RAM, as the AS6C4008-55 can't be read onto
   R in a first half; CY7C199D-10 for the timing table.
-- **Parts:** 202 packages so far (`heron iop hw bom`), against RFC 0027's
+- **Parts:** 211 packages so far (`heron iop hw bom`), against RFC 0027's
   ~95 for the whole card: 67 are gates (74F00-74F86), the glue that
   decoding, the stalls and the I/O side's and slave side's states need,
   18 are 74F138s, and the doorbells take 14 where two 74HC259s and a
@@ -348,7 +363,7 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   buffers (the core's or the window's) overlap by under 2 ns as they
   change hands; a pair of 74F157s would avoid it.
 - **Not yet:** the window's 4r + 2 (reaching nothing) and its bound on
-  WAIT, the 32-bit path, LOCK, the stuck-transfer counter, I/O cards in
+  WAIT, the 32-bit path, LOCK, I/O cards in
   the slots, static timing analysis (the simulator's
   checks catch a late signal only within a setup window, not one later
   than the edge, so the paths above were checked by hand), and a
@@ -451,9 +466,10 @@ What the differences come from, so far:
   timer and interrupt mask), with the IOP's card added on RFC 0037's map.
 - **Devices:** the serial loader, PS/2 and the front panel (the ports
   carry its shift chain; nothing drives it); the watchdog's policy (the
-  firmware never kicks it, so it stays unarmed); the stuck-transfer
-  counter; the 32-bit paths; change detection
-  on the INT lines; a timer request (a completion after a delay).
+  firmware never kicks it, so it stays unarmed); what a stuck transfer
+  should do beyond the Forth's report (an event to a CPU's kernel, a
+  reboot of the CPU); the 32-bit paths; change detection on the INT
+  lines; a timer request (a completion after a delay).
 - **The rings:** a completion ring or a ring of events is never checked
   for room (RFC 0040, 5.1's rule keeps them from filling, if the client
   keeps it); requests from the CPU's RAM rather than the shared RAM; the

@@ -7,6 +7,7 @@ must be the model's.
     heron iop hw test [--ms N]             the same, against the model, clock for clock
     heron iop hw slave                     the slave side, against a second master on the bench
     heron iop hw window                    the window onto the I/O bus, the same way
+    heron iop hw stuck                     the stuck-transfer counter, against a slave that never answers
     heron iop hw bom                       the parts
     heron iop hw schematic [--out FILE]    the schematic viewer (build/iop/schematic.html)
 
@@ -335,6 +336,20 @@ def check_watchdog(clocks=6000, seed=1, wait_ps=20_000_000, cold_ps=2_000_000):
     return hw, (a - first) & 0xFFFF, starts
 
 
+def check_stuck(clocks=1500, seed=1):
+    """The stuck-transfer counter: ucode/hwstuck.uc reads from the bench's
+    stuck slave, which holds WAIT until RESET. (the outcome, the IOP's
+    registers 8-10, the longest wait between two E2s in clocks.)"""
+    b = Program("hwstuck.uc")
+    s = model(b)
+    cfg = config(clocks, 1_000_000, seed)
+    hw = native.hwsim.run_system(netlist(), cfg, preloads(b, s))
+    d = hw["dumps"]
+    regs = [l | h << 8 for l, h in zip(d["U_RAML"][0xC008:0xC00B], d["U_RAMH"][0xC008:0xC00B])]
+    f = hw["fetches"]
+    return hw, regs, max(b_[0] - a_[0] for a_, b_ in zip(f, f[1:]))
+
+
 def where(b, a):
     return b.mc.where(a)
 
@@ -377,6 +392,7 @@ def main(argv):
     sub.add_parser("bom")
     sub.add_parser("slave")
     sub.add_parser("window")
+    sub.add_parser("stuck")
     sc = sub.add_parser("schematic")
     sc.add_argument("--out", help="where to write it (default build/iop/schematic.html)")
     a = p.parse_args(argv)
@@ -429,6 +445,14 @@ def main(argv):
         print("                          model", [hex(x) for x in mregs])
         ok = reads == want and regs == mregs
         print("as expected" if ok else f"expected {[hex(x) for x in want]}")
+        return 0 if ok else 1
+    elif a.cmd == "stuck":
+        hw, regs, wait = check_stuck()
+        report(hw)
+        print(f"the read waited {wait} clocks; the event port's register 1 then {regs[0]:#06x}, "
+              f"cleared {regs[1]:#06x}; the bus after it read {regs[2]:#06x}")
+        ok = regs == [0x6000, 0, 0x1234] and 256 < wait < 300
+        print("as expected" if ok else "expected 0x6000, 0, 0x1234 and a wait of 256 clocks and a little")
         return 0 if ok else 1
     elif a.cmd == "schematic":
         from heron.infra.hw import schematic

@@ -59,7 +59,7 @@ start:  BANK <- #0
         AC <- BA
         c <- AC
 ; nobody there: one data clock, and D as it was
-        AH1 <- #0x5000
+        AH1 <- #0x6000
         F <- #0x0000 | rd.h AH1
         AC <- BA
         d <- AC

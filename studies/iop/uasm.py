@@ -75,7 +75,7 @@ CONDS = {"always": 0, "carry": 1, "F15": 2, "lc": 3, "attn": 4, "bell": 5}
 # Devices on T: name -> (device, register or None when REG's low bits are free)
 DEVICES = {
     "io": (0, None), "sr": (1, None), "swap": (2, None),
-    "ev0": (3, 0), "ev1": (3, 1), "ev2": (3, 2),
+    "ev0": (3, 0), "ev1": (3, 1), "ev2": (3, 2), "ev3": (3, 3),
     "pg0": (4, 0), "pg1": (4, 1),
     "ttab": (5, None), "d6": (6, None), "d7": (7, None),
 }

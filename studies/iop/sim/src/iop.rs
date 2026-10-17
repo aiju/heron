@@ -72,8 +72,10 @@
 //!   for 2 MB);
 //! - 2 the swap register: written from T, read with its bytes swapped;
 //! - 3 the event ports: register 0 R the INT lines; 1 R ATN0-3 in bits
-//!   0-3 and the tick in bit 15, W clears the tick; 2 R the doorbells, W
-//!   clears doorbell X[3:0];
+//!   0-3, the stuck-transfer counter's OWN and STUCK in 13 and 14 (never
+//!   set here: no slave holds WAIT for 256 clocks) and the tick in bit
+//!   15, W clears the tick; 2 R the doorbells, W clears doorbell X[3:0];
+//!   3 W clears STUCK and OWN;
 //! - 4 page registers, write-only: 0 the shared RAM's (7 bits, 64 KB
 //!   pages), 1 the image flash's (11 bits);
 //! - 5 the timing table, write-only, entry X[11:8];

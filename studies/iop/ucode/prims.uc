@@ -782,6 +782,14 @@ enq_done: CTRL <- #(8 | CTRL_WORK)
         AC <- ev0
         NEXT
 
+.prim stuck@                    ; ( -- x ) the stuck-transfer counter's STUCK and OWN, then cleared
+        sp, X <- sp - 1
+        [X] <- AC
+        AC <- #0x6000
+        AC <- ev1 & AC
+        F <- #0 | ev3 <- F
+        NEXT
+
 .prim ttab!                     ; ( entry dev -- ) the timing table's entry for an I/O bus device
         F <- AC | swap <- F
         AC <- swap              ; dev << 8

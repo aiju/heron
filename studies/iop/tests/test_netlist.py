@@ -47,6 +47,15 @@ class Netlist(unittest.TestCase):
         wait = (20_000 + 2_000) // 60           # bus clocks: the wait and COLD
         self.assertTrue(wait < gaps.pop() < wait + 100)
 
+    def test_stuck(self):
+        """The stuck-transfer counter: a read from a slave that holds
+        WAIT ends after 256 data clocks with RESET, STUCK and OWN set; a
+        write to the event port clears them; the bus works after it."""
+        out, regs, wait = hw.check_stuck()
+        self.assertEqual(out["violation_total"], 0)
+        self.assertEqual(regs, [0x6000, 0, 0x1234])
+        self.assertTrue(256 < wait < 300)
+
     def test_cold_start(self):
         """The firmware from power-up to just before the timer's first
         tick, which the two take a few clocks apart: the SRAM's test, the

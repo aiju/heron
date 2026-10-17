@@ -175,8 +175,8 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
     g("14", ["SB_COLD_n"], "COLD")
     g("14", ["COLD"], "COLDS_n")
     nl.add("74", "U_RSY", part="74ABT74", **{"1D": "VCC", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "COLDS_n",
-                                             "1Q": "RESET_n", "1QN": "RESET", "2D": "GND", "2CLK": "GND",
-                                             "2PRE": "VCC", "2CLR": "VCC"})
+                                             "1Q": "RESET_n", "1QN": "RESET", "2D": "PULSE1", "2CLK": "BCLK",
+                                             "2PRE": "VCC", "2CLR": "RESET_n", "2QN": "PULSE2_n"})
 
     # ------------------------------------------------------------ the phase
     nl.section("Microcycle")
@@ -214,8 +214,8 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
     # what the first half's paths need at once, decoded from the next
     # microinstruction as the flash gives it and registered with it in
     # uIR's spare bits (RFC 0027, 3.6): the SRAM's address, R's and T's
-    # sources, a device onto R, the I/O bus. Reset clears uIR, so the
-    # active-low ones are stored inverted (n... = not).
+    # sources, a device onto R, the I/O bus, the system bus. Reset clears
+    # uIR, so the active-low ones are stored inverted (n... = not).
     ud = {b: UD[b] for b in range(48)}
     g("04", [ud[22]], "PDRS0_n")
     g("04", [ud[23]], "PDRS1_n")
@@ -238,6 +238,7 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
     g("08", ["PDDEV0", "PDT345"], "PD_IOS2")          # the I/O bus, stretching the second half
     g("32", ["PD_IOS2", "PD_F0"], "PD_IO")            # the I/O bus at all
     g("08", ["PD_T", "PDT6_n"], "PD_BAR")             # BA onto R
+    g("32", [ud[34], ud[35]], "PD_BUS")               # a transfer on the system bus
     nl.section("Microinstruction register")
     reg(nl, "U_IR0", UD[0:9], KB[0:9], en="E2EN_n", clr="RESET_n", oe="KOE_n")
     reg(nl, "U_IR1", UD[9:16], KB[9:16], en="E2EN_n", clr="RESET_n", oe="KOE_n")
@@ -251,7 +252,7 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
         reg(nl, f"U_IR{h + 2}", d, q, en="E2EN_n", clr="RESET_n")
     reg(nl, "U_IR6", ["PD_FT", "PD_F0", "PD_F1", "PD_F2", "PD_E0", "PD_E1", "PD_E2", "PD_IOS2", "PD_IO"],
         ["pFT", "pF0", "pF1", "pF2", "pE0", "pE1", "pE2", "pIOS2", "pIO"], en="E2EN_n", clr="RESET_n")
-    reg(nl, "U_IR7", ["PD_BAR"], ["pBAR"], en="E2EN_n", clr="RESET_n")
+    reg(nl, "U_IR7", ["PD_BAR", "PD_BUS"], ["pBAR", "BUSOP"], en="E2EN_n", clr="RESET_n")
 
     nl.section("Sequencer")
     g("04", ["uCOND2"], "uCOND2_n")
@@ -387,11 +388,11 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS)):
     for i in range(4):
         g("04", [f"SB_ATN{i}_n"], f"ATN{i}")
     buf(nl, "U_EV10", bus("ATN", 4), T[0:8], "EV1OE_n")
-    buf(nl, "U_EV11", ["GND"] * 7 + ["TICK"], T[8:16], "EV1OE_n")
+    buf(nl, "U_EV11", ["GND"] * 5 + ["OWN", "STUCK", "TICK"], T[8:16], "EV1OE_n")
     buf(nl, "U_EV20", bus("DB", 8), T[0:8], "EV2OE_n")
     buf(nl, "U_EV21", bus("DB", 8, 8), T[8:16], "EV2OE_n")
     dec(nl, "U_EVW", [u("REG", 0), u("REG", 1), u("REG", 2)], g2a="DWDY3_n",
-        y={1: "TICKCLR_n", 2: "DBCLR_n"})
+        y={1: "TICKCLR_n", 2: "DBCLR_n", 3: "STKCLR_n"})
     # the tick: the timer's OUT0 rising, taken into BCLK's time
     nl.add("74", "U_TKS", nocheck=True, **{
         "1D": "TOUT0", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "TKS1",
@@ -603,10 +604,7 @@ def system_bus(nl):
     for k, (lo, n) in enumerate(((0, 8), (8, 8))):
         buf(nl, f"U_AHS0{k}", bus("AH0_", n, lo), bus("AHI", n, lo), "uSEG")
         buf(nl, f"U_AHS1{k}", bus("AH1_", n, lo), bus("AHI", n, lo), "uSEG_n")
-    g("08", ["uBUS0_n_", "uBUS1_n_"], "BUSOP_n")
     g("04", ["uBUS0"], "uBUS0_n_")
-    g("04", ["uBUS1"], "uBUS1_n_")
-    g("04", ["BUSOP_n"], "BUSOP")
     g("00", ["E1EN", "BUSOP"], "ALLD_n")
     reg(nl, "U_AL0", R[0:9], ["AL0"] + SBA[1:9], en="ALLD_n", oe="GNTQ_n")
     reg(nl, "U_AL1", R[9:16], SBA[9:16], en="ALLD_n", oe="GNTQ_n")
@@ -637,27 +635,29 @@ def system_bus(nl):
     buf(nl, "U_BOWN", ["STARTQ_n", "WRQ_n", "BE0Q_n", "BE1Q_n", "VCC"],
         ["SB_START_n", "SB_WRITE_n", "SB_BE0_n", "SB_BE1_n", "SB_LOCK_n"], "GNTQ_n")
     g("04", ["SESSION"], "SB_REQ3_n")
-    nl.add("05", "U_BRST", **{"1A": "BRESET", "1Y": "SB_RESET_n", "2A": "WDCOLD", "2Y": "SB_COLD_n",
+    nl.add("05", "U_BRST", **{"1A": "BRESETX", "1Y": "SB_RESET_n", "2A": "WDCOLD", "2Y": "SB_COLD_n",
                               "3A": "RTC_IOLO", "3Y": "RTC_IO", "4A": "GND", "5A": "GND", "6A": "GND"})
     # the data phase: from the address clock's end while WAIT is held
     g("04", ["SB_WAIT_n"], "WAIT")
-    g("08", ["DP", "WAIT"], "DPW")
+    g("11", ["DP", "WAIT", "PMASK_n"], "DPW")
     g("32", ["STARTQ", "DPW"], "DP_D")
     g("08", ["DP", "SB_WAIT_n"], "DPEND")
     g("08", ["DP", "WRQ"], "WDP")
     g("08", ["DP", "WRQ_n"], "RDP")
     g("00", ["DPEND", "WRQ_n"], "BALD_n")
+    stuck_counter(nl)
     # stalls: a transfer waits at E1 for GNT and for the last data phase's
     # end, a move of BA for the read's data (onto R, a clock more): the
     # terms without WAIT in BSTALL_n, WAIT's in WSTALL_n. AB's loads wait in
     # the second half for the clock after the last write's end
-    g("04", ["GNT"], "GNT_n")
-    g("08", ["BUSOP", "GNT_n"], "BSA")
+    g("08", ["BUSOP", "SB_GNT3_n"], "BSA")            # (GNT, active low: it comes late)
     g("08", ["pBAR", "RDP"], "BSB")
     g("02", ["BSA", "BSB"], "BSTALL_n")
     g("08", ["BUSOP", "DP"], "WSA")
     g("08", ["TBA", "RDP"], "WSB")
-    g("02", ["WSA", "WSB"], "WSAB_n")
+    # (not in the stuck-transfer counter's RESET's first two clocks: a
+    # slave's WAIT lets go when RESET clears it, at any time in the clock)
+    g("27", ["WSA", "WSB", "PMASK"], "WSAB_n")
     g("32", ["SB_WAIT_n", "WSAB_n"], "WSTALL_n")
     g("08", ["ABLOAD", "WDP"], "STALL2_BUS")
 
@@ -673,6 +673,41 @@ def system_bus(nl):
     reg(nl, "U_AB1", T[8:16], SBD[8:16], en="ABLD_n", oe="WDP_n")
     reg(nl, "U_BA0", SBD[0:8], T[0:8], en="BALD_n", oe="BAOE_n")
     reg(nl, "U_BA1", SBD[8:16], T[8:16], en="BALD_n", oe="BAOE_n")
+
+
+def stuck_counter(nl):
+    """The stuck-transfer counter (RFC 0027, 4.1; RFC 0037, 5.6): CNT
+    counts the bus's consecutive data clocks, whoever's transfer it is.
+    At 256 it asserts RESET for 256 clocks (PULSE: CNT counts them, as no
+    slave holds WAIT through a reset), and sets STUCK, and OWN if the
+    transfer was the IOP's own: event port register 1's bits 14 and 13,
+    until a write to its register 3 clears them. The IOP's own data phase
+    and stalls ignore WAIT for RESET's first two clocks (PMASK), as a
+    slave lets go of it whenever reset reaches it."""
+    g = nl.gate
+    nl.section("Stuck-transfer counter")
+    g("32", ["WAIT", "PULSE"], "STCNT")                # else CNT to 0
+    for k in range(2):
+        nl.add("163", f"U_STC{k}", CLK="BCLK", CLR="STCNT", LOAD="VCC", ENP="VCC",
+               ENT="VCC" if k == 0 else "STC0RC", RCO="STC0RC" if k == 0 else "STC255",
+               A="GND", B="GND", C="GND", D="GND")
+    g("04", ["PULSE"], "PULSE_n_")
+    g("11", ["STC255", "WAIT", "PULSE_n_"], "STSET")
+    g("04", ["STC255"], "STC255_n")
+    g("08", ["PULSE", "STC255_n"], "PULSTAY")
+    g("32", ["STSET", "PULSTAY"], "PULSE_D")
+    g("08", ["STUCK", "STKCLR_n"], "STKSTAY")
+    g("32", ["STSET", "STKSTAY"], "STUCK_D")
+    g("08", ["STSET", "DP"], "OWNSET")
+    g("08", ["OWN", "STKCLR_n"], "OWNSTAY")
+    g("32", ["OWNSET", "OWNSTAY"], "OWN_D")
+    nl.add("175", "U_STK", CLK="BCLK", CLR="RESET_n", **{
+        "1D": "PULSE_D", "1Q": "PULSE", "2D": "STUCK_D", "2Q": "STUCK", "3D": "OWN_D", "3Q": "OWN",
+        "4D": "PULSE", "4Q": "PULSE1"})
+    # RESET's first two clocks
+    g("08", ["PULSE", "PULSE2_n"], "PMASK")
+    g("00", ["PULSE", "PULSE2_n"], "PMASK_n")
+    g("32", ["BRESET", "PULSE"], "BRESETX")
 
 
 def slave_side(nl):
@@ -870,7 +905,8 @@ def add_bench(nl, master=False):
     backplane's pull-ups and COLD at power-up, an arbiter that grants REQ3 4 clocks after it
     rises (as RFC 0037, 6.2's on an idle bus), and a CPU card's RAM in
     region 0 that answers in 2 data clocks, as the model's does
-    (sim/src/system.rs), 1 MB of it. ATN0-3 are quiet. `master`: a
+    (sim/src/system.rs), 1 MB of it; a stuck slave in region 5, which
+    holds WAIT until RESET. ATN0-3 are quiet. `master`: a
     scripted second master (M_OUT, M_IN), its script X_M's preload."""
     g = nl.gate
     nl.section("Test bench")
@@ -883,8 +919,10 @@ def add_bench(nl, master=False):
             v[f"I{i}"] = M_IN[i] if i < len(M_IN) else "GND"
     nl.add("pullup", "X_PU0", P1="SB_WAIT_n", P2="SB_RESET_n", P3="SB_ATN0_n", P4="SB_ATN1_n",
            P5="SB_ATN2_n", P6="SB_ATN3_n", P7="SB_GNT3_n", P8="SB_COLD_n")
-    # the backplane's power supply supervisor: COLD at power-up
+    # the backplane's power supply supervisor: COLD at power-up, and RESET
+    # with it (RFC 0037, 7)
     nl.add("por", "X_POR", RST="SB_COLD_n", params={"release_ps": POR_PS})
+    nl.add("por", "X_PORR", RST="SB_RESET_n", params={"release_ps": POR_PS})
     g("04", ["SB_REQ3_n"], "X_REQ")
     nl.add("175", "X_ARB", CLK="BCLK", CLR="RESET_n", **{
         "1D": "X_REQ", "1Q": "X_G1", "2D": "X_G1R", "2Q": "X_G2", "3D": "X_G2R", "3Q": "X_G3",
@@ -906,8 +944,18 @@ def add_bench(nl, master=False):
         "1D": "X_SEL", "1Q": "X_D1", "1QN": "X_D1_n", "2D": "X_D1", "2Q": "X_D2", "3D": "GND",
         "4D": "GND"})
     nl.add("125", "X_WAIT", part="74ABT125", **{"1OE": "X_D1_n", "1A": "GND", "1Y": "SB_WAIT_n",
-                                                "2OE": "VCC", "2A": "GND", "3OE": "VCC", "3A": "GND",
-                                                "4OE": "VCC", "4A": "GND"})
+                                                "2OE": "X_STK_n", "2A": "GND", "2Y": "SB_WAIT_n",
+                                                "3OE": "VCC", "3A": "GND", "4OE": "VCC", "4A": "GND"})
+    # a stuck slave in region 5: it holds WAIT from its address clock
+    # until the system bus's RESET
+    g("04", ["SB_A31"], "X_A31_n")
+    g("04", ["SB_A29"], "X_A29_n")
+    g("21", ["X_START", "X_A31_n", "SB_A30", "X_A29_n"], "X_R5A")
+    g("08", ["X_R5A", "SB_A28"], "X_SEL5")
+    g("32", ["X_SEL5", "X_STK"], "X_STK_D")
+    nl.add("74", "X_STKF", **{"1D": "X_STK_D", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "SB_RESET_n",
+                              "1Q": "X_STK", "1QN": "X_STK_n", "2D": "GND", "2CLK": "GND", "2PRE": "VCC",
+                              "2CLR": "VCC"})
     g("04", ["X_WR_n"], "X_WR")
     g("00", ["X_D2", "X_WR_n"], "X_OE_n")
     # the write strobe: from data clock 2's start until BCLK falls, as the

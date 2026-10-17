@@ -245,9 +245,12 @@ create wbuf 66 allot
    'tib @ >r  #tib @ >r  >in @ >r
    #tib !  'tib !  0 >in !  ['] interpret catch
    r> >in !  r> #tib !  r> 'tib !  throw ;
+\ The stuck-transfer counter reset the system bus: a transfer held WAIT
+\ for 256 data clocks (RFC 0037, 5.6), the IOP's own or another's.
+: .stuck ( -- ) stuck@ ?dup if ." stuck transfer: the system bus reset" $2000 and if ." , in the IOP's own" then cr then ;
 : quit ( -- )
    r0 rp!  0 state !
-   begin query space interpret state @ 0= if ."  ok" then cr again ;
+   begin query space interpret state @ 0= if ."  ok" then cr .stuck again ;
 : (abort) ( -- ) s0 sp! quit ;
 ' (abort) 'abort !
 
