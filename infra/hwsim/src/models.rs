@@ -146,6 +146,7 @@ pub enum Model {
     Jk109(Jk109),
     DReg(DReg),
     Latch573(Latch573),
+    Latch259(Latch259),
     Xcvr245(Xcvr245),
     TriBuf(TriBuf),
     Enc148(Enc148),
@@ -207,6 +208,7 @@ impl Model {
             "dreg" => Model::DReg(DReg::new(s, rng, false)?),
             "dreg_inv" => Model::DReg(DReg::new(s, rng, true)?),
             "latch573" => Model::Latch573(Latch573::new(s, rng)?),
+            "latch259" => Model::Latch259(Latch259::new(s, rng)?),
             "iodev_w32" => Model::IoDevW(IoDevW::new(s, preload)?),
             "xcvr245" => Model::Xcvr245(Xcvr245::new(s)?),
             "tribuf" => Model::TriBuf(TriBuf::new(s)?),
@@ -263,6 +265,7 @@ impl Model {
             Model::Jk109(m) => m.init(cx, c),
             Model::DReg(m) => m.init(cx, c),
             Model::Latch573(m) => m.init(cx, c),
+            Model::Latch259(m) => m.init(cx, c),
             Model::IoDevW(m) => cx.drive(c, m.irq, 0, true, 0),
             Model::Xcvr245(m) => m.init(cx, c),
             Model::TriBuf(m) => m.init(cx, c),
@@ -327,6 +330,7 @@ impl Model {
             Model::Jk109(m) => m.eval(cx, c, pin),
             Model::DReg(m) => m.eval(cx, c, pin),
             Model::Latch573(m) => m.eval(cx, c, pin),
+            Model::Latch259(m) => m.eval(cx, c, pin),
             Model::IoDevW(m) => m.eval(cx, c, pin),
             Model::Xcvr245(m) => m.eval(cx, c, pin),
             Model::TriBuf(m) => m.eval(cx, c, pin),
@@ -2253,6 +2257,129 @@ impl Latch573 {
             } else {
                 cx.check_hold(c, pin, self.last_fall, self.h_d, "D");
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 259 addressable latch
+
+/// The 74x259: G low and CLR high, the latch S0-S2 picks follows D (the
+/// others hold); G high, all hold; CLR low clears them, or with G low all
+/// but the picked one, which follows D (the demultiplexer). D and S are
+/// checked for setup and hold about G's rise, and G's and CLR's low
+/// widths.
+pub struct Latch259 {
+    s: [usize; 3],
+    d: usize,
+    g: usize,
+    clr: usize,
+    q: [usize; 8],
+    state: [u8; 8],
+    g_fell: Option<Time>,
+    g_rose: Option<Time>,
+    clr_fell: Option<Time>,
+    d_dq: Time,
+    d_gq: Time,
+    d_sq: Time,
+    d_clrq: Time,
+    su: Time,
+    h: Time,
+    tw_g: Time,
+    tw_clr: Time,
+}
+
+impl Latch259 {
+    fn new(s: &Spec, rng: &mut Rng) -> Result<Latch259, Error> {
+        let mut state = [0; 8];
+        for b in state.iter_mut() {
+            *b = rng.bit();
+        }
+        Ok(Latch259 {
+            s: s.pins(|i| format!("S{i}"))?,
+            d: s.pin("D")?,
+            g: s.pin("G")?,
+            clr: s.pin("CLR")?,
+            q: s.pins(|i| format!("Q{i}"))?,
+            state,
+            g_fell: None,
+            g_rose: None,
+            clr_fell: None,
+            d_dq: s.d("D->Q")?,
+            d_gq: s.d("G->Q")?,
+            d_sq: s.d("S->Q")?,
+            d_clrq: s.d("CLR->Q")?,
+            su: s.d("setup D")?,
+            h: s.d("hold D")?,
+            tw_g: s.d("tw G")?,
+            tw_clr: s.d("tw CLR")?,
+        })
+    }
+
+    /// What each output is as the inputs now have it.
+    fn next(&self, cx: &Ctx, c: &ChipInfo) -> [u8; 8] {
+        let g = cx.input(c, self.g) == 0;
+        let clr = cx.input(c, self.clr) == 0;
+        let a: usize = (0..3)
+            .map(|i| ((cx.input(c, self.s[i]) & 1) as usize) << i)
+            .sum();
+        let d = cx.input(c, self.d);
+        let mut out = self.state;
+        for (i, v) in out.iter_mut().enumerate() {
+            if g && i == a {
+                *v = d;
+            } else if clr {
+                *v = 0;
+            }
+        }
+        out
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        self.state = self.next(cx, c);
+        for i in 0..8 {
+            cx.drive(c, self.q[i], self.state[i], true, 0);
+        }
+    }
+
+    /// The outputs that change, each driven `dly` later.
+    fn settle(&mut self, cx: &mut Ctx, c: &ChipInfo, dly: Time) {
+        let next = self.next(cx, c);
+        for (i, &v) in next.iter().enumerate() {
+            if v != self.state[i] {
+                self.state[i] = v;
+                cx.drive(c, self.q[i], v, true, dly);
+            }
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        let now = cx.now();
+        if pin == self.g {
+            if cx.input(c, pin) == 0 {
+                self.g_fell = Some(now);
+            } else {
+                for p in [self.d, self.s[0], self.s[1], self.s[2]] {
+                    cx.check_setup(c, p, self.su, "D");
+                }
+                if let Some(f) = self.g_fell.filter(|&f| now - f < self.tw_g) {
+                    cx.violate(c, pin, "G width", now - f - self.tw_g);
+                }
+                self.g_rose = Some(now);
+            }
+            self.settle(cx, c, self.d_gq);
+        } else if pin == self.clr {
+            if cx.input(c, pin) == 0 {
+                self.clr_fell = Some(now);
+            } else if let Some(f) = self.clr_fell.filter(|&f| now - f < self.tw_clr) {
+                cx.violate(c, pin, "CLR width", now - f - self.tw_clr);
+            }
+            self.settle(cx, c, self.d_clrq);
+        } else {
+            if cx.input(c, self.g) == 1 {
+                cx.check_hold(c, pin, self.g_rose, self.h, "D");
+            }
+            let dly = if pin == self.d { self.d_dq } else { self.d_sq };
+            self.settle(cx, c, dly);
         }
     }
 }

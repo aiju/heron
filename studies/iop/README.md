@@ -370,8 +370,17 @@ heron iop hw schematic                   # the schematic viewer, build/iop/schem
   read's is registered at the T clock's end and driven the clock after:
   3 data clocks each at least, against RFC 0027's estimate of 2 (4.2). The
   model doesn't share T this way: its slave accesses take no time.
-  Doorbells are J-K flip-flops, set in the write's data clock and cleared
-  at E2 by the event port.
+  The doorbells are two 74HCT259s (RFC 0027's): a doorbell write's data
+  clock, or the event port's write at E2, is registered with its doorbell
+  and D, and the latch is strobed in the next clock while BCLK is high,
+  by a flip-flop that toggles at its edge and one that follows at its
+  fall, so the strobe neither opens nor closes on an edge where its
+  address changes (a first cut strobed with BCLK itself, and the
+  simulator caught the next clock's edge opening it with the address
+  changing). A set wins a clock it shares with a clear, which is lost:
+  the doorbell reads rung again, and the native layer looks at the
+  client's ring once more. BELL takes them through two flip-flops: the
+  latches settle anywhere from a few ns to 48 ns after their strobe.
 - **The window** (RFC 0037, 20): device S's register r at 0x7F0S_0000 +
   4r. The access is registered when it's accepted and run by the I/O
   side, in turns with the core's (it starts from S0 when the core's isn't

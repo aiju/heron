@@ -460,6 +460,21 @@ class Case:
         v = self.pin(inst, dpin)[0] if le == 1 else None
         return (v, t, en, cause)
 
+    def m_latch259(self, inst, pin, d):
+        """An addressable latch: an output changes only while G is low
+        (its latch picked by S, following D) or CLR is."""
+        g, clr = self.pin(inst, "G")[0], self.pin(inst, "CLR")[0]
+        terms = []
+        if g != 1:
+            terms += [("G", "G->Q", d["G->Q"]), ("D", "D->Q", d["D->Q"])]
+            terms += [(f"S{i}", "S->Q", d["S->Q"]) for i in range(3)]
+        if clr != 1:
+            terms.append(("CLR", "CLR->Q", d["CLR->Q"]))
+        if not terms:
+            return (None, NEG, True, None)
+        t, cause = self.latest(inst, terms)
+        return (None, t, True, cause)
+
     def m_tickclk(self, inst, pin, d):
         """A tick clock generator, as the cycle's first part sees it: CLK's
         edge at 0, the memory write window opening and the late phase

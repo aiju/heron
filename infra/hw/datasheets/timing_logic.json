@@ -653,6 +653,42 @@
     },
     "notes": "TI/Harris names: P0-P3 = D, PE = ENP, TE = ENT, SPE = /LOAD, MR = /CLR, TC = RCO, CP = CLK. 'tw CLK' is specified for CLK low only. The datasheet's fmax note says cascaded counters are limited by CLK->RCO + ENT setup + hold instead."
   },
+  "74HCT259": {
+    "family": "HCT",
+    "function": "8-bit addressable latch",
+    "manufacturer": "Texas Instruments",
+    "part_number": "CD74HCT259",
+    "source": "https://www.ti.com/lit/ds/symlink/cd74hct259.pdf",
+    "datasheet": "TI CD54HC259, CD74HC259, CD54HCT259, CD74HCT259, SCHS173D (Nov 1997, revised Nov 2021), 5.5 and 5.6",
+    "availability": "TI CD74HCT259E (PDIP-16) and CD74HCT259M (SOIC-16) active on ti.com (checked Oct 2026).",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 15 pF",
+    "max_cond": "max: -40..+85 C, VCC 4.5 V, CL 50 pF",
+    "arcs": {
+      "D->Q": {
+        "typ": 16,
+        "max": 49
+      },
+      "/G->Q": {
+        "typ": 16,
+        "max": 48
+      },
+      "S->Q": {
+        "typ": 17,
+        "max": 51
+      },
+      "/CLR->Q": {
+        "typ": 16,
+        "max": 49
+      }
+    },
+    "checks": {
+      "setup D,S->/G": 21,
+      "hold D,S->/G": 0,
+      "tw /G": 23,
+      "tw /CLR": 23
+    },
+    "notes": "TI names: G = the active-low enable (/E elsewhere), S0-S2 = the address (A0-A2), CLR = active-low clear. G low and CLR high: the addressed latch follows D; G high: all hold; CLR low and G high: all clear; both low: the addressed output follows D and the rest are 0. The setup and hold are D's and S's to G's rise; the HCT rows give the pulse width for G and CLR together."
+  },
   "74HCT163": {
     "family": "HCT",
     "function": "4-bit sync binary counter, sync clear",

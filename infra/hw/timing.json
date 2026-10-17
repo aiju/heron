@@ -1772,6 +1772,35 @@
   "part_number": "SN74HCT245",
   "source": "https://www.ti.com/lit/ds/symlink/sn74hct245.pdf"
  },
+ "74HCT259": {
+  "checks": {
+   "hold D": 0,
+   "setup D": 21,
+   "tw CLR": 23,
+   "tw G": 23
+  },
+  "delays": {
+   "CLR->Q": {
+    "max": 49,
+    "typ": 16
+   },
+   "D->Q": {
+    "max": 49,
+    "typ": 16
+   },
+   "G->Q": {
+    "max": 48,
+    "typ": 16
+   },
+   "S->Q": {
+    "max": 51,
+    "typ": 17
+   }
+  },
+  "estimated": [],
+  "part_number": "CD74HCT259",
+  "source": "https://www.ti.com/lit/ds/symlink/cd74hct259.pdf"
+ },
  "74HCT27": {
   "checks": {},
   "delays": {

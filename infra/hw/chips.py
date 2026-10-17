@@ -160,6 +160,15 @@ T("175", "dff175",
   checks=[([f"{i}D" for i in range(1, 5)], "CLK", "rise", "setup D", "hold D")],
   desc="quad D flip-flop with clear")
 
+T("259", "latch259",
+  [(p, "in") for p in ("S0", "S1", "S2", "D", "G", "CLR")] + [(f"Q{i}", "out") for i in range(8)],
+  arcs=[(["D"], [f"Q{i}" for i in range(8)], "D->Q"), (["G"], [f"Q{i}" for i in range(8)], "G->Q"),
+        ([f"S{i}" for i in range(3)], [f"Q{i}" for i in range(8)], "S->Q"),
+        (["CLR"], [f"Q{i}" for i in range(8)], "CLR->Q")],
+  checks=[(["D", "S0", "S1", "S2"], "G", "rise", "setup D", "hold D")],
+  desc="8-bit addressable latch (G and CLR active low): G low, the latch S0-S2 picks follows D; "
+       "CLR low clears them, or with G low all but that one")
+
 T("377", "reg377",
   [("CLK", "in"), ("EN", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
   + [(f"Q{i}", "out") for i in range(1, 9)],

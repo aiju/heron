@@ -55,8 +55,10 @@ WINDOWS = {"LATE": (0.5, _late_offset(), 0.0, 0.0)}
 # read and write latches between it and T would otherwise make a loop that
 # only the I/O side's state cuts), and the window's copy of the timing
 # table's address (the window's register, set a clock before its access
-# starts; a table write, which moves it, waits for the window's access)
-STEADY = frozenset(card.IOD + [f"WTA{i}" for i in range(4)])
+# starts; a table write, which moves it, waits for the window's access);
+# and the doorbells, which their strobes change at times this analysis
+# can't place (a read of them is a sample, and BELL synchronises them)
+STEADY = frozenset(card.IOD + [f"WTA{i}" for i in range(4)] + [f"DB{i}" for i in range(16)])
 
 
 class Case(hsta.Case):

@@ -406,7 +406,7 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
         g("04", [f"DRDY{k}B_n"], f"DRDY{k}B")
         g("02", [f"pF{k}", f"DRDY{k}B"], f"DRDY{k}_n")
     dec(nl, "U_DWD", [u("REG", 3), u("REG", 4), u("REG", 5)], g1="E2EN", g2a="DEVW_n",
-        y={2: "DWDY2_n", 3: "DWDY3_n", 4: "DWDY4_n"})
+        y={2: "DWDY2_n", 4: "DWDY4_n"})
 
     nl.section("Swap and page registers")
     reg(nl, "U_SW0", T[8:16], T[0:8], en="DWDY2_n", oe="DRDY2_n")
@@ -440,7 +440,10 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     buf(nl, "U_EV11", bus("TOD", 4) + ["IOTO", "OWN", "STUCK", "TICK"], T[8:16], "EV1OE_n")
     buf(nl, "U_EV20", bus("DB", 8), T[0:8], "EV2OE_n")
     buf(nl, "U_EV21", bus("DB", 8, 8), T[8:16], "EV2OE_n")
-    dec(nl, "U_EVW", [u("REG", 0), u("REG", 1), u("REG", 2)], g2a="DWDY3_n",
+    # (a write to device 3 never stretches its second half, so PH is E2EN
+    # there, and much earlier: the doorbells' strobe wants it)
+    g("20", [u("REG", 3), u("REG", 4), "uREG5_n", "VCC"], "DEV3_n")
+    dec(nl, "U_EVW", [u("REG", 0), u("REG", 1), u("REG", 2)], g1="PH", g2a="DEV3_n", g2b="DEVW_n",
         y={1: "TICKCLR_n", 2: "DBCLR_n", 3: "STKCLR_n"})
     # the tick: the timer's OUT0 rising, taken into BCLK's time
     nl.add("74", "U_TKS", nocheck=True, **{
@@ -571,9 +574,10 @@ def build(sim=True, bench=False, master=False, watchdog=(WDOG_PS, WDCOLD_PS), wi
     # 3 is written.
     nl.add("pullup", "RN_2", P1="IOWAIT_n")
     g("04", ["IOWAIT_n"], "IOWAIT")
+    # (its other half is the doorbells' BELL's first flip-flop: Doorbells)
     nl.add("74", "U_IOWS", part="74ABT74", nocheck=True, **{
         "1D": "IOWAIT", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "IW1",
-        "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+        "2D": "BELLA", "2CLK": "BCLK", "2PRE": "VCC", "2CLR": "RESET_n", "2Q": "BELLS"})
     g("08", ["IW1", TTD[12]], "IW2_D")
     g("08", ["IW2", "WTO_n"], "WEXT")
     g("00", ["STB", "WEXT"], "WFRZ_n")
@@ -931,31 +935,44 @@ def slave_side(nl):
     reg(nl, "U_SRD1", T[8:16], SBD[8:16], en="SSOE_n", oe="SOUT_n")
 
     nl.section("Doorbells")
-    # set in the write's data clock, while BCLK is low (the address
-    # register settled); cleared at E2 by the event port's write, doorbell
-    # X[3:0]
+    # two 74HCT259s, which a doorbell write (SDBQ, its data clock) sets,
+    # doorbell SSA4-1, and the event port's register 2 written (DBCLR, at
+    # E2) clears, doorbell X[3:0]. The event's doorbell and D are
+    # registered at the clock's end (U_DBR), and the latch is strobed while
+    # BCLK is high in the next: DBT1 toggles at that clock's edge, DBT2
+    # follows at its fall, and their difference is the strobe, which so
+    # opens after the register's outputs have settled and closes long
+    # before they change. A set wins a clock it shares with a clear, which
+    # is lost: the doorbell reads rung again, and the native layer looks at
+    # the client's ring once more.
     nl.add("175", "U_SDBQ", CLK="BCLK", CLR="RESET_n", **{"1D": "SDB_D", "1Q": "SDBQ",
-                                                          "2D": "BELLA", "2Q": "BELL",
+                                                          "2D": "BELLS", "2Q": "BELL",
                                                           "3D": "SNEW", "3QN": "SD1_n", "4D": "GND"})
-    dec(nl, "U_DBS0", ["SSA1", "SSA2", "SSA3"], g1="SDBQ", g2a="BCLK", g2b="SSA4",
-        y={k: f"DBSET{k}_n" for k in range(8)})
-    dec(nl, "U_DBS1", ["SSA1", "SSA2", "SSA3"], g1="SSA4", g2a="BCLK", g2b="SDBQ_n",
-        y={k: f"DBSET{k + 8}_n" for k in range(8)})
     g("04", ["SDBQ"], "SDBQ_n")
-    dec(nl, "U_DBC0", XQ[0:3], g2a="DBCLR_n", g2b=XQ[3], y={k: f"DBCLR{k}_n" for k in range(8)})
-    dec(nl, "U_DBC1", XQ[0:3], g1=XQ[3], g2a="DBCLR_n", y={k: f"DBCLR{k + 8}_n" for k in range(8)})
-    for k in range(8):
-        pins = {}
-        for s_ in (1, 2):
-            i = 2 * k + s_ - 1
-            pins.update({f"{s_}J": "GND", f"{s_}K": f"DBCLR{i}_n", f"{s_}CLK": "BCLK",
-                         f"{s_}PRE": f"DBSET{i}_n", f"{s_}CLR": "RESET_n",
-                         f"{s_}Q": f"DB{i}", f"{s_}QN": f"DB{i}_n"})
-        nl.add("109", f"U_DB{k}", nocheck=True, **pins)
-    # any doorbell, taken into BCLK's time for the condition
-    g("30", [f"DB{i}_n" for i in range(8)], "BELLL")
-    g("30", [f"DB{i}_n" for i in range(8, 16)], "BELLH")
-    g("32", ["BELLL", "BELLH"], "BELLA")
+    nl.add("157", "U_DBA", S="SDBQ", G="GND",
+           **{f"{i + 1}A": XQ[i] for i in range(4)}, **{f"{i + 1}B": f"SSA{i + 1}" for i in range(4)},
+           **{f"{i + 1}Y": f"DBM{i}" for i in range(4)})
+    g("04", ["DBM3"], "DBM3_n")
+    reg(nl, "U_DBR", bus("DBM", 4) + ["DBM3_n", "SDBQ"], bus("DBA", 4) + ["DBA3_n", "DBD"])
+    g("00", ["SDBQ_n", "DBCLR_n"], "DBEV")
+    g("86", ["DBT1", "DBEV"], "DBT1_D")
+    nl.add("74", "U_DBT", part="74ABT74", **{
+        "1D": "DBT1_D", "1CLK": "BCLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "DBT1",
+        "2D": "DBT1", "2CLK": "BCLK_n", "2PRE": "VCC", "2CLR": "RESET_n", "2Q": "DBT2"})
+    g("86", ["DBT1", "DBT2"], "DBSTR")
+    g("00", ["DBSTR", "DBA3_n"], "DBG0_n")
+    g("00", ["DBSTR", "DBA3"], "DBG1_n")
+    for k in range(2):
+        nl.add("259", f"U_DBL{k}", part="74HCT259", S0="DBA0", S1="DBA1", S2="DBA2", D="DBD",
+               G=f"DBG{k}_n", CLR="RESET_n", **{f"Q{i}": f"DB{8 * k + i}" for i in range(8)})
+    # any doorbell, for the condition, through two flip-flops (U_IOWS's
+    # second half, unchecked, then U_SDBQ): the latches' outputs settle
+    # anywhere from a few ns to 48 after the strobe, so for BELL they're
+    # asynchronous
+    for k in range(2):
+        nl.add("521", f"U_DBZ{k}", part="74F521", G="GND", PEQ=f"DBZ{k}",
+               **{f"P{i}": f"DB{8 * k + i}" for i in range(8)}, **{f"Q{i}": "GND" for i in range(8)})
+    g("32", ["DBZ0", "DBZ1"], "BELLA")
 
 
 def window(nl, bound=WINDOW_BOUND):
