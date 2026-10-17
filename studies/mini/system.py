@@ -7,19 +7,21 @@ Addresses (physical: there is no translation):
     0x0000_0000-0x7FFF_FFFF  RAM, 4 MB, repeated
     0x8000_0000 + region << 28, region 0-7: the I/O space, by PA[30:28]
 
-        0  0x8000_0000  boot flash, 128K x 8, one byte a word (PA[18:2])
-        1  0x9000_0000  UART 0, 16C550, a register a word (PA[4:2])
-        2  0xA000_0000  UART 1
+        0  0x8000_0000  CF card, True IDE: CS0 registers at PA[4:2], CS1 with PA[5]
+        1  0x9000_0000  expansion port 1
+        2  0xA000_0000  expansion port 2
         3  0xB000_0000  82C54 timer (PA[3:2])
-        4  0xC000_0000  CF card, True IDE: CS0 registers at PA[4:2], CS1 with PA[5]
-        5  0xD000_0000  video: registers, palette, the interrupt status
-        6  0xE000_0000  expansion port 1
-        7  0xF000_0000  expansion port 2; in the simulations, a test card with
-                        the program suite's I/O page (draft 1's console,
-                        timer and cycle counter) at 0xFFFF_FF00
+        4  0xC000_0000  (free)
+        5  0xD000_0000  boot flash, 128K x 8, one byte a word (PA[18:2])
+        6  0xE000_0000  UARTs, 16C550, a register a word (PA[4:2]); UART 1 with PA[5]
+        7  0xF000_0000  video: registers, palette, the interrupt status; in the
+                        simulations, a test card with the program suite's I/O
+                        page (draft 1's console, timer and cycle counter) at
+                        0xFFFF_FF00
 
 An I/O access holds the CPU's microcycle for the region's wait states
-(IO_HOLD, in master-clock ticks). The 8-bit devices are on the low byte
+(IO_HOLD, in master-clock ticks): 16 - 2r for region r, the slow devices
+low. The 8-bit devices are on the low byte
 lane, the CF card on the low half; their registers are a word apart, so
 that word, half and byte loads all find them.
 """
@@ -28,12 +30,15 @@ M32 = 0xFFFFFFFF
 RAM_SIZE = 4 << 20
 IO_BASE = 0x80000000
 SUITE_PAGE = 0xFFFFFF00
-# the wait states, per region: the access's strobe and recovery, from the
-# devices' datasheets (TL16C550C 45 ns read, 82C54 185 ns from the
-# address, the CF card in PIO mode 0, 290 ns of strobe), in ticks of 19.86 ns
-IO_HOLD = {0: 4, 1: 4, 2: 4, 3: 11, 4: 16, 5: 2, 6: 8, 7: 2}
+# the wait states, per region, in ticks of 19.86 ns: the board's hold
+# counter starts at 2r + 1 (the strobe is the hold's ticks but the first,
+# and two more). Against the devices' datasheets: the CF card in PIO mode
+# 0, 290 ns of strobe; the 82C54, 185 ns from the address; the boot flash,
+# 55 ns; the TL16C550C, a 45 ns read
+IO_HOLD = {r: 16 - 2 * r for r in range(8)}
+R_CF, R_EXP1, R_EXP2, R_PIT, R_BOOT, R_UART, R_LOCAL = 0, 1, 2, 3, 5, 6, 7
 
-# video registers (region 5), offsets
+# video registers (region 7), offsets
 V_CTRL, V_TABLE, V_STATUS, V_IRQ = 0x000, 0x004, 0x008, 0x00C
 V_PALETTE = 0x400                    # 256 entries, a word apart: RGB 5:6:5
 
@@ -393,23 +398,23 @@ class System:
         return int.from_bytes(self.ram[a:a + 4], "little")
 
     def _io_read(self, region, pa, size, cycle):
-        if region == 0:
+        if region == R_BOOT:
             return self.boot[(pa >> 2) & 0x1FFFF]
-        if region in (1, 2):
-            return self.uarts[region - 1].read((pa >> 2) & 7)
-        if region == 5:
-            return self.video.read(pa & 0xFFC)
-        if region == 7 and pa & 0x0FFFFF00 == SUITE_PAGE & 0x0FFFFF00:
+        if region == R_UART:
+            return self.uarts[(pa >> 5) & 1].read((pa >> 2) & 7)
+        if region == R_LOCAL and pa & 0x0FFFFF00 == SUITE_PAGE & 0x0FFFFF00:
             return self.page.read(pa & 0xFF, size, cycle)
+        if region == R_LOCAL:
+            return self.video.read(pa & 0xFFC)
         return 0
 
     def _io_write(self, region, pa, size, data, cycle):
-        if region in (1, 2):
-            self.uarts[region - 1].write((pa >> 2) & 7, data & 0xFF)
-        elif region == 5:
-            self.video.write(pa & 0xFFC, data)
-        elif region == 7 and pa & 0x0FFFFF00 == SUITE_PAGE & 0x0FFFFF00:
+        if region == R_UART:
+            self.uarts[(pa >> 5) & 1].write((pa >> 2) & 7, data & 0xFF)
+        elif region == R_LOCAL and pa & 0x0FFFFF00 == SUITE_PAGE & 0x0FFFFF00:
             self.page.write(pa & 0xFF, data, size)
+        elif region == R_LOCAL:
+            self.video.write(pa & 0xFFC, data)
 
     # ---- time ---------------------------------------------------------------
 

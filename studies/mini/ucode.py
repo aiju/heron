@@ -24,8 +24,13 @@ Control store address, 17 bits: {E, U[2:0], Y[12:0]}
                      addresses with the queue's head parcel
     E = 0, U = 000   Y, the next address the sequencer chose
     E = 0, U = 001   refill: the decode found the queue empty, or the
-                     cycle jumped
-    E = 0, U = 010   interrupt entry (a decode with an interrupt pending)
+                     cycle may jump
+    E = 0, U = 010   interrupt entry (a decode or a halt with an interrupt
+                     pending)
+
+The forced entries fill their pages: every Y in U = 001 holds the refill,
+every Y in U = 010 the interrupt entry's first microinstruction, so that
+forcing one changes only the address's top bits (E and U), not Y.
 
     SEQ 0  Y = NEXT, or {NEXT[12:1], cond} for a branch
     SEQ 1  decode: {1, QH}; IR <- QH and the parcel is consumed. Forced
@@ -86,8 +91,10 @@ FIELDS = [
     ("LDCL", 1, False), ("CLSRC", 3, False),
     # length class
     ("LCL", 2, False),
-    # from MEM (word() fills it in): the address multiplexer's select
-    ("VAS", 2, False),
+    # filled in by word(): the address multiplexer's select (from MEM), a
+    # decode (SEQ 1) and the refill (MEM 3) again, for the forced entries'
+    # logic, one gate sooner
+    ("VAS", 2, False), ("DEC", 1, False), ("REF", 1, False),
 ]
 
 WORD_BITS = 136             # seventeen 128K x 8 flash chips
@@ -1703,6 +1710,7 @@ class Microcode:
         """Field dict of node n as stored at its address."""
         f = dict(n.f)
         f["VAS"] = VAS_OF_MEM.get(f.get("MEM", 0), 1)
+        f["REF"] = int(f.get("MEM", 0) == MEM["fetch"])
         s = n.succ
         if s[0] == "next":
             assert s[1].addr is not None and s[1].addr < (1 << Y_BITS), n.name
@@ -1713,6 +1721,7 @@ class Microcode:
             f["SEQ"], f["NEXT"], f["COND"] = SEQ_NEXT, a0, s[1]
         elif s[0] == "decode":
             f["SEQ"] = SEQ_DECODE
+            f["DEC"] = 1
         elif s[0] == "dispatch":
             base = s[1][0].addr
             assert base % TABLE == 0
@@ -1741,9 +1750,15 @@ class Microcode:
                 raise ValueError(f"{n.name}: a dispatch that doesn't consume its parcel")
 
     def rom(self):
-        """{control store address: control word}."""
+        """{control store address: control word}: the lower half, the forced
+        entries' pages, the entries."""
         out = {}
         for n in self.low:
+            if n.fixed in (REFILL_ADDR, IRQ_ADDR):
+                w = pack(self.word(n))
+                for y in range(1 << Y_BITS):
+                    out[n.fixed + y] = w
+                continue
             out[n.addr] = pack(self.word(n))
         cache = {}
         for w, n in self.entries.items():

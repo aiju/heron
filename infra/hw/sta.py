@@ -209,6 +209,14 @@ class Case:
         return (v, t, True if oe == 0 else None, cause)
 
     def m_dff74(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
+
+    def m_jk109(self, inst, pin, d):
+        """A J-K-bar flip-flop: its outputs launch at its clock's edge, as a
+        74's do (each section by its own clock pin)."""
+        _, tc, _ = self.pin(inst, pin[0] + "CLK")
+        v = self.const.get(inst.conn.get(pin))
+        return (v, max(tc, 0) + self.N.delay[inst.ref]["CLK->Q"], True,
+                (inst.ref, pin[0] + "CLK", "CLK->Q"))
     def m_dff175(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
     def m_reg377(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
 
@@ -548,7 +556,8 @@ def checks(case, N, we_frac):
     for inst in N.insts:
         t = inst.type
         d = N.delay[inst.ref]
-        if t.model in ("reg377", "dreg", "dff74", "dff175", "cnt161", "cnt163", "sr299"):
+        if t.model in ("reg377", "dreg", "dff74", "jk109", "dff175", "cnt161", "cnt163",
+                       "sr299"):
             pins = []
             if t.model in ("reg377", "dreg"):
                 en = 0                    # a 74x574 or 16374 has no enable: it always loads
@@ -563,6 +572,11 @@ def checks(case, N, we_frac):
                     if case.pin(inst, f"{s}CLK")[1] == NEG:
                         continue          # unused section (CLK tied to a rail)
                     pins.append((f"{s}D", d["setup D"]))
+            elif t.model == "jk109":
+                for s in "12":
+                    if case.pin(inst, f"{s}CLK")[1] == NEG:
+                        continue
+                    pins += [(f"{s}J", d["setup JK"]), (f"{s}K", d["setup JK"])]
             elif t.model == "dff175":
                 pins += [(f"{i}D", d["setup D"]) for i in range(1, 5)]
             elif t.model == "sr299":

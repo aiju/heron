@@ -37,8 +37,16 @@ def sources():
     return runner.infra_sources() + glob.glob(os.path.join(HERE, "*.py")) + [v2.__file__]
 
 
+_LOADED = None
+
+
 def netlist(lengths=None):
-    """The simulation netlist, exported (cached in build/mini)."""
+    """The simulation netlist, exported (cached in build/mini). The cache
+    is dated by the sources as this process first read them, so a run that
+    started before an edit can't pass its netlist off as the new one."""
+    global _LOADED
+    if _LOADED is None:
+        _LOADED = runner.newest(sources())
     lengths = tuple(lengths or uc.built().lengths)
     path = os.path.join(OUT, f"netlist-{'-'.join(map(str, lengths))}.json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
@@ -47,6 +55,7 @@ def netlist(lengths=None):
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=parts.VARIANT, corner="max"), f)
+        os.utime(tmp, (_LOADED, _LOADED))
         os.replace(tmp, path)
     with open(path) as f:
         return json.load(f)
@@ -90,16 +99,17 @@ def trace_buses():
         return [f"{name}{i}" for i in range(start, start + n)]
     return {"Y": b("Y", uc.Y_BITS), "YU": b("YU", 3) + ["YE"], "PC": ["GND"] + b("PC", 31, 1),
             "QH": b("QH", 16), "IR": b("IR", 16), "ABUS": b("ABUS", 32), "BBUS": b("BBUS", 32),
-            "RES": b("RES", 32), "R": b("RQ", 32), "VA": b("VA", 32), "DB": b("DB", 32),
+            "RES": b("RES", 32), "R": b("RQ", 32), "VA": b("VA", 22), "DB": b("DB", 32),
             "MAR": b("MAR", 22), "LC": b("LC", 8), "V": ["V0", "V1", "HS", "PC1F"],
-            "S": ["DECGO", "JUMP", "FETCHED", "SHIFT", "PEND", "YOFF", "UF0", "FIRQ",
-                  "QLE0", "QLE1"], "FL": list(FLAGS)}
+            "S": ["DECGO", "JUMP", "FETCHED", "SHIFT", "PEND", "XL", "UF0", "FIRQ",
+                  "QLE0", "QLE1", "T1", "T2", "HOLD", "MID", "LATE"], "FL": list(FLAGS)}
 
 
 def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
     """seed: the simulator's random power-up state of every flip-flop."""
     cfg = {
         "seed": seed, "max_cycles": max_cycles,
+        "max_ps": int(max_cycles * 30 * 20_000),       # a stopped clock ends the run too
         "clock_net": "CLK", "reset_net": "RESET_n",
         "fetch_net": "DECGO", "fetch_level": 1,
         "addr_nets": ["GND"] + [f"PC{i}" for i in range(1, 32)],
@@ -269,6 +279,11 @@ def cmd_bom(args):
     return 0
 
 
+def cmd_sta(args):
+    from . import sta
+    return sta.main(args)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="heron mini hw")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -288,5 +303,13 @@ def main(argv=None):
     r.set_defaults(fn=cmd_run)
     b = sub.add_parser("bom")
     b.set_defaults(fn=cmd_bom)
+    s = sub.add_parser("sta")
+    s.add_argument("--paths", type=int, default=3)
+    s.add_argument("--force", action="store_true", help="redo the analysis, not the cached one")
+    s.add_argument("--write", action="store_true",
+                   help="write ticks.json, the measured periods the microcode's classes come from")
+    s.add_argument("--no-profile", action="store_true",
+                   help="without the suite's counts (which take minutes the first time)")
+    s.set_defaults(fn=cmd_sta)
     args = p.parse_args(argv)
     return args.fn(args)

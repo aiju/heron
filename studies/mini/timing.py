@@ -39,7 +39,7 @@ K_MIN, K_MAX = HEAD + 1 + TAIL, HEAD + 16 + TAIL
 VIDEO_TICKS = TAIL          # the tail ticks are the video's
 K_WRITE = HEAD + 1 + TAIL   # the write window: tick 2 to the tail
 K_READ = HEAD + TAIL + 1    # a read's data is in by the tail
-K_DATA = 6                  # a data access may hold the count from tick 3
+K_DATA = 7                  # a data access may hold the count from tick 4
 
 _T = None
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -83,17 +83,39 @@ def clock_generator(nl, lengths, por_ps):
     nl.section("Clock generator")
     nl.add("osc", "U_OSC", part="oscillator 50.35 MHz", OUT="MCLK",
            params={"period_ps": TICK_PS, "phase_ps": TICK_PS})
-    pre = [preload(k) for k in lengths]
-    for k in range(2):
-        m = nl.add("153", f"U_LM{k}", A="uLCL0", B="uLCL1", **{"1G": "GND", "2G": "GND"})
-        for sec in (0, 1):
-            bit = 2 * k + sec
-            for c in range(4):
-                m[f"{sec + 1}C{c}"] = "VCC" if (pre[c] >> bit) & 1 else "GND"
-            m[f"{sec + 1}Y"] = f"PSEL{bit}"
+    # the preload, by the length class and XL: a parcel consumed with the
+    # queue empty comes from the word the cycle fetches, which takes two
+    # ticks more (rtl.DEMAND_HOLD)
+    from .rtl import DEMAND_HOLD
+    pre = [preload(k) for k in lengths] + [preload(k + DEMAND_HOLD) for k in lengths]
+    g("08", ["uCONSUME", "V0_n"], "XL")
+    for bit in range(4):
+        m = nl.add("151", f"U_LM{bit}", A="uLCL0", B="uLCL1", C="XL", G="GND", Y=f"PSEL{bit}")
+        for c in range(8):
+            m[f"D{c}"] = "VCC" if (pre[c] >> bit) & 1 else "GND"
     nl.add("163", "U_TC", part="74ACT163", CLK="MCLK", CLR="T2_n", LOAD="H1_n", ENP="VCC",
-           ENT="VCC", A="PSEL0", B="PSEL1", C="PSEL2", D="PSEL3",
+           ENT="HOLD_n", A="PSEL0", B="PSEL1", C="PSEL2", D="PSEL3",
            QA="TC0", QB="TC1", QC="TC2", QD="TC3", RCO="TCRCO")
+    # the hold: the wait states of an access to the I/O space. HOLD from
+    # tick 4 for 16 - 2r ticks, r the region (VA[30:28]): the count stops,
+    # and its carry, which T1 waits for, is off (a data cycle is 7 ticks
+    # or more, so the count is 15 or below). Tick 4, not 3: a read at the
+    # A bus has its address from the register file, too late for tick 3.
+    # Every step is a flip-flop on the master clock: the hold counter,
+    # loaded with 2r + 1 until HOLD rises, counts to its carry, HEND
+    # registers that, and HOLD falls a tick later
+    nl.section("Hold")
+    g("00", ["H3", "IOACC"], "HSTART_n")
+    g("00", ["HOLD", "HEND_n"], "HKEEP_n")
+    g("00", ["HSTART_n", "HKEEP_n"], "HOLD_D")
+    nl.add("74", "U_HOLD", part="74ABT74",
+           **{"1D": "HOLD_D", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "RESET_n",
+              "1Q": "HOLD", "1QN": "HOLD_n",
+              "2D": "HCRCO", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
+              "2Q": "HEND", "2QN": "HEND_n"})
+    nl.add("163", "U_HC", part="74ACT163", CLK="MCLK", CLR="VCC", LOAD="HOLD", ENP="HOLD",
+           ENT="HOLD", A="VCC", B="VA28", C="VA29", D="VA30", RCO="HCRCO")
+    nl.section("Clock generator")
     # T1 after the count's carry, T2 after T1; H0 after T2, H1 after H0.
     # H0 never stays on two ticks, so a second pulse dies whatever the
     # flip-flops powered up as
@@ -107,12 +129,18 @@ def clock_generator(nl, lengths, por_ps):
     nl.add("175", "U_TH2", CLK="MCLK", CLR="VCC",
            **{"1D": "H0", "1Q": "H1", "1QN": "H1_n", "2D": "H1", "2Q": "H2",
               "3D": "GND", "4D": "GND"})
+    # (a fast flip-flop: H3 starts the hold through two gates in a tick)
+    nl.add("74", "U_TH3", part="74ABT74",
+           **{"1D": "H2", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC", "1Q": "H3",
+              "2D": "GND", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC"})
     # the write window: MID from tick 2 (J = H1) until H0 (K-bar = T2_n),
-    # and not in the tail
+    # and not in the tail. The I/O strobe: from the hold's second tick (J =
+    # HOLD) until T2 (K-bar = T1_n), a tick after the read latches close
     nl.add("109", "U_WIN",
            **{"1J": "H1", "1K": "T2_n", "1CLK": "MCLK", "1PRE": "VCC", "1CLR": "VCC",
               "1Q": "MID",
-              "2J": "GND", "2K": "VCC", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "VCC"})
+              "2J": "HOLD", "2K": "T1_n", "2CLK": "MCLK", "2PRE": "VCC", "2CLR": "RESET_n",
+              "2Q": "IOSTB"})
     g("32", ["T1", "T2"], "RW")
     g("02", ["T1", "T2"], "RW_n")
     g("08", ["MID", "RW_n"], "MWIN")
@@ -141,9 +169,17 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     if sim:
         clock_generator(nl, lengths, por_ps)
     else:
+        # for static timing analysis: the clock generator's outputs as
+        # functions of the cycle (CLK's edge at 0), and its other phases
+        # as they are in the cycle's first part
         nl.add("tickclk", "X_CLK", CLK="CLK", MWIN="MWIN", LATE="LATE", RW="RW", RSTB="T2",
                RESET="RESET_n")
         g("04", ["RW"], "RW_n")
+        g("04", ["T2"], "T2_n")
+        for net in ("T1", "TCRCO", "MCLK", "H0", "H1", "H2"):
+            nl.add("const", f"X_{net}", LO=net)
+        nl.add("const", "X_HOLD", LO="HOLD", HI="HOLD_n")
+        nl.add("const", "X_IOSTB", LO="IOSTB")
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
     nl.section("Reset")
     g("04", ["RESET_n"], "RESET")
@@ -179,7 +215,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
            D0="PEND", D1="SXEQ", D2="GND", D3="GND", D4="SX15", D5="MQ0", D6=RQ[0], D7="GND")
     g("32", ["CONDL", "CONDH"], "CONDY")
     for k in range((uc.Y_BITS + 1) // 2):
-        m = nl.add("153", f"U_YM{k}", A=u["SEQ0"], B=u["SEQ1"], **{"1G": "YOFF", "2G": "YOFF"})
+        m = nl.add("153", f"U_YM{k}", A=u["SEQ0"], B=u["SEQ1"], **{"1G": "YG", "2G": "YG"})
         for sec in (0, 1):
             i = 2 * k + sec
             if i >= uc.Y_BITS:
@@ -188,31 +224,35 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
                 continue
             nxt = "CONDY" if i == 0 else u[f"NEXT{i}"]
             disp = QH[8 + i] if i < 4 else u[f"NEXT{i}"]
-            for c, s in enumerate([nxt, QH[i], disp, u[f"NEXT{i}"]]):
-                m[f"{sec + 1}C{c}"] = s
+            for c, s_ in enumerate([nxt, QH[i], disp, u[f"NEXT{i}"]]):
+                m[f"{sec + 1}C{c}"] = s_
             m[f"{sec + 1}Y"] = Y[i]
-    # SEQ 1 decode, 3 halt; the forced entries (refill 001, interrupt 010)
-    # and the decode that goes ahead: its first microinstruction at {1, QH}
-    g("04", [u["SEQ1"]], "SEQ1_n")
-    g("08", [u["SEQ0"], "SEQ1_n"], "DECACT")
+    # SEQ 1 decode (DEC, from the uIR), 3 halt; the forced entries (refill
+    # 001, interrupt 010), which fill their pages, so that only E and U
+    # change; and the decode that goes ahead: its first microinstruction
+    # at {1, QH}
     g("08", [u["SEQ0"], u["SEQ1"]], "HALTACT")
-    g("32", ["DECACT", "HALTACT"], "DECHALT")
+    g("32", [u["DEC"], "HALTACT"], "DECHALT")
     g("08", ["DECHALT", "PEND"], "FIRQ")
-    g("08", ["DECACT", "PEND_n"], "DECOK")
+    g("08", [u["DEC"], "PEND_n"], "DECOK")
     # the first parcel is there: in Q0, or (a refill) in the word it fetches
-    g("02", ["V0", "MEM3"], "CANDEC_n")
-    g("04", ["CANDEC_n"], "CANDEC")
-    g("08", ["DECOK", "CANDEC_n"], "FREFILL0")
-    g("08", ["DECOK", "JUMP"], "JDOK")
-    g("32", ["FREFILL0", "JDOK"], "UF0")
-    g("27", ["RESET", "FIRQ", "UF0"], "YOFF_n")
-    g("04", ["YOFF_n"], "YOFF")
-    g("11", ["DECOK", "CANDEC", "JUMP_n"], "DECGO")
-    g("10", ["DECOK", "CANDEC", "JUMP_n"], "DECGO_n")
-    # for the PC's count and the queue's shift, a jump needn't count: the
-    # PC loads, the queue empties
-    g("08", ["DECOK", "CANDEC"], "DECGOX")
-    g("11", ["DECOK", "CANDEC", "PC1F"], "DECGOP")
+    g("32", ["V0", u["REF"]], "CANDEC")
+    g("04", ["CANDEC"], "CANDEC_n")
+    # a decode in a cycle that may jump (LDPC) goes to the refill whether it
+    # jumps or not, so that the jump's condition isn't on the control
+    # store's address: the refill decodes from the queue if it still holds
+    # the instruction
+    g("32", ["CANDEC_n", u["LDPC"]], "NODEC")
+    # Y's low bits are 0 in a decode that can't have its first parcel (a
+    # transparent slot, the data bus moving): the refill's page doesn't
+    # care, and the address is stable
+    g("08", [u["DEC"], "CANDEC_n"], "YGD")
+    g("32", ["YGD", "RESET"], "YG")
+    g("08", ["DECOK", "NODEC"], "UF0")
+    g("04", [u["LDPC"]], "LDPC_n")
+    g("21", [u["DEC"], "PEND_n", "CANDEC", "LDPC_n"], "DECGO")
+    g("20", [u["DEC"], "PEND_n", "CANDEC", "LDPC_n"], "DECGO_n")
+    g("08", ["DECGO", "PC1F"], "DECGOP")
     nl.add("157", "U_UM", S="DECGO", G="RESET",
            **{"1A": "UF0", "1B": QH[13], "1Y": "YU0", "2A": "FIRQ", "2B": QH[14], "2Y": "YU1",
               "3A": "GND", "3B": QH[15], "3Y": "YU2", "4A": "GND", "4B": "VCC", "4Y": "YE"})
@@ -502,7 +542,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # a decode that goes ahead consumes its first parcel; a cycle that
     # consumes has no data access (the microcode's rules)
     g("08", [u["CONSUME"], "JUMP_n"], "CONSC")
-    g("32", ["CONSC", "DECGOX"], "CONSUMEX")
+    g("32", ["CONSC", "DECGO"], "CONSUMEX")
     counter_chain(nl, "PC", PC, RES, 1, 8, "JUMP_n", "CONSUMEX")
     counter_chain(nl, "FPC", FPC, RES, 2, 5, "JUMP_n", "FPCINC")
     # PC[1] again, from a fast flip-flop, for the queue's head
@@ -623,6 +663,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
     # bits 30-28
     g("04", [VA[31]], "VA31_n")
     g("04", ["DATAACC"], "DATAACC_n")
+    g("08", ["DATAACC", VA[31]], "IOACC")
     io = nl.add("138", "U_IORD", A=VA[28], B=VA[29], C=VA[30], G1=VA[31], G2A="DATAACC_n",
                 G2B="GND")
     for v in range(8):
@@ -660,11 +701,14 @@ def build(sim=False, lengths=None, por_ps=2_000_000):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = src[i], DB[8 * dst + i]
 
     nl.section("I/O")
-    # the suite's I/O page: a fixture in region 7, on the data bus
-    g("00", ["MEMWR", "MWIN"], "IOWR_n")
+    # the strobes
+    g("00", ["MEMWR", "IOSTB"], "IOWR_n")
+    g("00", ["READING", "IOSTB"], "IORD_n")
+    # the suite's I/O page: a fixture in region 7, on the data bus. It
+    # takes a read at CLK's edge, so its read strobe lasts the cycle
     if sim:
-        g("00", ["READING", "LATE"], "IORD_n")
-        x = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="IOR7_n", RD="IORD_n", WR="IOWR_n",
+        g("00", ["READING", "LATE"], "IORDX_n")
+        x = nl.add("iodev_w32", "X_IO", CLK="CLK", IOSEL="IOR7_n", RD="IORDX_n", WR="IOWR_n",
                    IRQ="IRQ")
         for i in range(2, 8):
             x[f"A{i}"] = VA[i]

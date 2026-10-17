@@ -24,6 +24,9 @@ from . import ucode as uc
 M32 = 0xFFFFFFFF
 
 
+DEMAND_HOLD = 2
+
+
 class RTLError(Exception):
     pass
 
@@ -90,7 +93,8 @@ class RTL:
     """rom: the control store's contents ({address: word}); by default, the
     microcode as built."""
 
-    def __init__(self, system, mc=None, check=True, lengths=None, rom=None, queue_words=2):
+    def __init__(self, system, mc=None, check=True, lengths=None, rom=None, queue_words=2,
+                 jump_decodes=False):
         self.mc = mc or uc.built()
         self.sys = system
         if rom is None:
@@ -104,6 +108,11 @@ class RTL:
         self.lengths = tuple(lengths or self.mc.lengths)
         self.check = check
         self.depth = queue_words
+        # a decode in a cycle that may jump (LDPC) goes to the refill
+        # whether it jumps or not, so that the jump's condition isn't on
+        # the control store's address; jump_decodes: as draft 2's CPU,
+        # a decode that doesn't jump goes ahead
+        self.jump_decodes = jump_decodes
         self.rf = [0] * 32
         self.R = self.T = self.TL = self.MAR = self.PC = self.FPC = 0
         self.Q0 = self.Q1 = self.V0 = self.V1 = 0
@@ -378,6 +387,9 @@ class RTL:
                 self.err("a store with nothing on the A bus")
             hold += sysm.write(MAR, size, A, self.cycles)
 
+        # a parcel consumed with the queue empty comes from the word this
+        # cycle fetches: the cycle is two ticks longer for it
+        extra = DEMAND_HOLD if f["CONSUME"] and not self.V0 else 0
         # ---- sequencer
         seq = f["SEQ"]
         jump = False
@@ -411,7 +423,8 @@ class RTL:
         else:
             if self.PEND:
                 forced, y = "irq", uc.IRQ_ADDR
-            elif view and not jump and (qwords or mem == 3):
+            elif view and not jump and (qwords or mem == 3) and \
+                    (self.jump_decodes or not f["LDPC"]):
                 # the instruction's first parcel in the queue (or, for a
                 # refill, in the word it fetches): its first microinstruction
                 # is at that parcel's address in the upper half
@@ -522,7 +535,7 @@ class RTL:
             if not self.i or not sysm.can_interrupt():
                 self.halted = True
                 self.reason = "HALT"
-        k = self.lengths[f["LCL"]] + hold
+        k = self.lengths[f["LCL"]] + extra + hold
         self.ticks += k
         self.hold_ticks += hold
         sysm.cycle(k, hold)
