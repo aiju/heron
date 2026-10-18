@@ -53,6 +53,39 @@ class Model(unittest.TestCase):
         self.assertEqual(chk.compare(sim, m), [])
         self.assertEqual(len(sim.traps), 22)
 
+    def test_block_count(self):
+        # a block instruction's count isn't the condition latch an earlier
+        # instruction left: FILL of 4 words after CL was set, of none
+        # after it was cleared
+        src = """
+        .org 0x00
+        JMP  start
+        .org 0x1C
+start:  MOV  sp, #0x100000
+        MOV  r1, #0
+        CLZ  r1, r1
+        MOV  r1, #0x210000
+        MOV  r2, #0x55555555
+        MOV  r3, #4
+        .half 0x01FD
+        MOV  [0x1000], r1
+        MOV  r1, #-1
+        CLZ  r1, r1
+        MOV  r1, #0x220000
+        MOV  r3, #0
+        .half 0x01FD
+        MOV  [0x1004], r1
+        HALT
+"""
+        a = asmcore.Assembler(isas.get("v2"))
+        a.load("block.s", text=src)
+        m = chk.run_rtl(a.assemble())
+        ram = m.sys.ram
+        word = lambda x: int.from_bytes(bytes(ram[x:x + 4]), "little")
+        self.assertEqual([word(0x1000), word(0x1004)], [0x210010, 0x220000])
+        self.assertEqual([word(0x210000 + 4 * i) for i in range(5)], [0x55555555] * 4 + [0])
+        self.assertEqual(word(0x220000), 0)
+
     def test_io_hold(self):
         # region r holds an access 16 - 2r ticks
         self.assertEqual([system.IO_HOLD[r] for r in range(8)], [16, 14, 12, 10, 8, 6, 4, 2])

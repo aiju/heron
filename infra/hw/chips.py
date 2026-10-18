@@ -483,12 +483,12 @@ T("cpucard_w32", "iodev_w32",
                          "clock) and draft 1's I/O page, on a 32-bit data bus")
 
 T("tickclk", "tickclk",
-  [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("RW", "out"), ("RSTB", "out"),
-   ("RESET", "out")],
+  [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("PHASE", "out"), ("RW", "out"),
+   ("RSTB", "out"), ("RESET", "out")],
   family="fixture", desc="for static timing analysis: a tick clock generator's outputs as "
                          "functions of the cycle (CLK's edge at 0; the memory write window, "
-                         "a phase from a later tick, the register file's write phase and its "
-                         "write strobe)")
+                         "two phases from later ticks, the register file's write phase and "
+                         "its write strobe)")
 
 T("iodev32", "iodev32",
   [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WEL", "in"), ("WEH", "in")]

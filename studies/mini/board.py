@@ -381,11 +381,15 @@ def video(nl, DB, VA, capture=False):
             b[f"A{i + 1}"], b[f"Y{i + 1}"] = DB[8 * k + i], PD[8 * k + i]
     # the colour, registered at each pixel's end; off (black, the monitor's
     # 75 ohms pulling the DACs down) outside the picture. DE a pixel late,
-    # as the colour is
+    # as the colour is. On the master clock, enabled in the pixel's second
+    # tick (PH), at the edge the shifters shift on: clocked by PH_n, a
+    # 22V10's clock-to-output later, the pixel after was there before its
+    # hold had passed
     for k in range(2):
-        o = nl.add("574", f"U_RGB{k}", CLK="PH_n", OE="DED_n")
+        o = nl.add("823", f"U_RGB{k}", CLK="MCLK", EN="PH_n", CLR="VCC", OE="DED_n")
         for i in range(8):
             o[f"D{i + 1}"], o[f"Q{i + 1}"] = PD[8 * k + i], f"RGB{8 * k + i}"
+        o["D9"] = "GND"
     if capture:
         # a frame grabber: the outputs at the middle of each pixel
         from .video import CAPTURE
@@ -585,10 +589,12 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
         # for static timing analysis: the clock generator's outputs as
         # functions of the cycle (CLK's edge at 0), and its other phases
         # as they are in the cycle's first part
-        nl.add("tickclk", "X_CLK", CLK="CLK", MWIN="MWIN", LATE="LATE", RW="RW", RSTB="T2",
-               RESET="RESET_n")
-        g("04", ["RW"], "RW_n")
-        for net in ("T1", "TCRCO", "MCLK", "H0", "H1", "H2"):
+        nl.add("tickclk", "X_CLK", CLK="CLK", MWIN="MWIN", LATE="LATE", PHASE="H1", RW="RW",
+               RSTB="T2", RESET="RESET_n")
+        # RW_n is K2's output, as RW is: high in the read phase, falling as
+        # RW rises (sta.py's tail checks)
+        nl.add("const", "X_RW_n", HI="RW_n")
+        for net in ("T1", "TCRCO", "MCLK", "H0", "H2"):
             nl.add("const", f"X_{net}", LO=net)
         nl.add("const", "X_HOLD", LO="HOLD", HI="HOLD_n")
         nl.add("const", "X_IOSTB", LO="IOSTB")
@@ -705,11 +711,18 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     # through latches in the cycle's first part, written in its last tick
     nl.section("Register file")
     # one copy, read twice in a cycle that reads B from it (BRF): the A
-    # address until LATE, its latches closing then, the B address after;
+    # address until the late phase (H0 and H1 over, as LATE says, but
+    # from the clock generator's registers, a GAL sooner), its latches
+    # closing then, the B address after;
     # the write address in the tail (RW). The addresses and the A latches'
     # enable from three 22V10s. The address moves on from A only once RLEA
     # has closed the A latches, and from B once RW_n has closed the B
-    # latches: a gate's delay after them, for the latches' hold
+    # latches: a gate's delay after them, for the latches' hold. The SRAMs
+    # drive their data until the write's tick (T2), so that the B read has
+    # until the B latches close, which is after RW: off at RW, they cut a
+    # B read short in a 5-tick cycle, the latches keeping the A read's
+    # data. T2 turns them off (tOHZ, 3 ns) as the write buffers come on
+    # (a NAND and their enable after it, 2.9 ns at the least)
     g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWE_n")
     g("10", [u["RFWE"], "T2", "FAULT_n"], "RFWB_n")
     AM = bus("RFAM", 5)
@@ -728,11 +741,12 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
     gal.add(nl, "U_RFG0", {AM[0]: addr(0), AM[1]: addr(1)})
     gal.add(nl, "U_RFG1", {AM[2]: addr(2), AM[3]: addr(3)})
     gal.add(nl, "U_RFG2", {AM[4]: addr(4),
-                           "RLEA": (gal.AND(lit("RW", 0), gal.OR(lit("LATE", 0), lit(u["BRF_n"]))),
+                           "RLEA": (gal.AND(lit("RW", 0), gal.OR(lit("H0"), lit("H1"),
+                                                                 lit(u["BRF_n"]))),
                                     False, False)})
     IO = bus("RFAIO", 32)
     for k in range(4):
-        ram = nl.add("sram", f"U_RFA{k}", role="rf", CE="GND", OE="RW", WE="RFWE_n")
+        ram = nl.add("sram", f"U_RFA{k}", role="rf", CE="GND", OE="T2", WE="RFWE_n")
         for i in range(15):
             ram[f"A{i}"] = AM[i] if i < 5 else "GND"
         for i in range(8):
@@ -828,11 +842,10 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
 
     nl.section("B bus")
     # BX: 1 MQ, 2 the flags word (V C Z N I in byte 0; the immediate unit's
-    # zero fill in bytes 1-3)
-    g("00", [u["BX0"], "BX1_n"], "BXMQ_n")
-    g("00", ["BX0_n", u["BX1"]], "BXFL_n")
-    g("04", [u["BX0"]], "BX0_n")
-    g("04", [u["BX1"]], "BX1_n")
+    # zero fill in bytes 1-3). Its bit 0 is stored inverted, so that each
+    # is a gate from the uIR, as the other enables are
+    g("32", [u["BX0_n"], u["BX1"]], "BXMQ_n")
+    g("00", [u["BX0_n"], u["BX1"]], "BXFL_n")
     b = nl.add("541", "U_BFL", OE1="BXFL_n", OE2="BXFL_n")
     for i, src in enumerate(["VFLAG", "CFLAG", "ZFLAG", "NFLAG", "IFLAG", "GND", "GND", "GND"]):
         b[f"A{i + 1}"], b[f"Y{i + 1}"] = src, BBUS[i]
@@ -1142,7 +1155,7 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False):
                **{f"P{i}": RES[8 * k + i] for i in range(8)}, **{f"Q{i}": "GND" for i in range(8)})
     # the register and its next state: two 22V10s on CLK, from the flags
     # code (FLG, a combination of FNZ, NSEL, FC, CZERO, CSRC, FV and FI:
-    # ucode.FLAG_TABLE); an address error (FAULT) holds them
+    # ucode.FLAG_TABLE, all 32 codes); an address error (FAULT) holds them
     FLG = [u[f"FLG{i}"] for i in range(5)]
     table = [dict(zip(uc.FLAG_FIELDS, t)) for t in uc.FLAG_TABLE]
     used = range(len(table))

@@ -66,7 +66,8 @@ from collections import defaultdict
 from heron.studies.v2_isa import v2
 
 # --------------------------------------------------------------------------
-# Control word: (name, width, active_low)
+# Control word: (name, width, active_low: True, or a mask of the bits stored
+# inverted)
 
 FIELDS = [
     # sequencer
@@ -76,7 +77,7 @@ FIELDS = [
     ("PCK", 1, False), ("SINA", 2, False),
     # B bus: register file copy B, R, T (by lanes) or the queue's head
     # (BL), MQ or the flags (BX), the immediate unit's bytes
-    ("BRF", 1, True), ("BR", 1, True), ("BL", 3, False), ("BX", 2, False),
+    ("BRF", 1, True), ("BR", 1, True), ("BL", 3, False), ("BX", 2, 0b01),
     ("BS0", 1, True), ("BF1", 1, True), ("BF23", 1, True),
     # register file: read addresses for the two copies (RFK when constant),
     # the write address (RFKW when constant)
@@ -97,8 +98,8 @@ FIELDS = [
     # memory
     ("MEM", 3, False), ("SIZE", 2, False),
     # flags and condition latches
-    # (FNZ, NSEL, FC, CZERO, CSRC, FV, FI), as one of the combinations the
-    # microcode uses (FLAG_TABLE), decoded by the flags' GALs
+    # (FNZ, NSEL, FC, CZERO, CSRC, FV, FI), as one of FLAG_TABLE's fixed
+    # combinations, decoded by the flags' GALs
     ("FLG", 5, False),
     ("LDCL", 1, False), ("CLSRC", 3, False),
     # length class
@@ -376,9 +377,37 @@ def merge(*parts):
 
 
 FLAG_FIELDS = ("FNZ", "NSEL", "FC", "CZERO", "CSRC", "FV", "FI")
-# the flags fields' combinations, sorted, none changing the flags first:
-# FLG is the index. Microcode sets it from the microcode's own
-FLAG_TABLE = [(0,) * len(FLAG_FIELDS)]
+# the flags fields' combinations, FLG their index: a fixed set, so that
+# the flags' decode doesn't follow what the microcode happens to use (a
+# combination missing here is an error). The I mask set and cleared; the
+# flags word loaded; N and Z by the result's word, half or byte; logic's
+# (V cleared, C too, or C cleared and V set); C from each of its eight
+# sources, with N and Z and V cleared (the shifts) or alone; the ALU's
+# carry, alone, with N and Z, with V (arithmetic) and Z sticky (ADC,
+# SBC); C and V from CL (a multiply's overflow); V set. In an order that
+# keeps the decode small: C's source is FLG's low bits, and the upper
+# half and code 7 set N and Z (FNZ 1)
+FLAG_TABLE = [
+    (0, 0, 0, 0, 0, 0, 0),                              # 0 nothing
+    (0, 0, 0, 0, 0, 0, 1),                              # 1 I set
+    (0, 0, 0, 0, 0, 0, 2),                              # 2 I cleared
+    (0, 0, 0, 0, 0, 5, 0),                              # 3 V set
+    (0, 0, 2, 0, 0, 0, 0),                              # 4 C the ALU's carry
+    (2, 0, 2, 0, 0, 7, 0),                              # 5 N Z C V, Z sticky
+    (3, 0, 1, 0, 0, 3, 3),                              # 6 the flags word from the A bus
+    (1, 0, 0, 0, 0, 0, 0),                              # 7 N Z by the word
+    *[(0, 0, 1, 0, k, 0, 0) for k in range(8)],         # 8-15 C from source k
+    (1, 1, 0, 0, 0, 0, 0),                              # 16 N Z by the half
+    (1, 2, 0, 0, 0, 0, 0),                              # 17 ... the byte
+    (1, 0, 0, 0, 0, 2, 0),                              # 18 N Z, V cleared
+    (1, 0, 0, 1, 0, 2, 0),                              # 19 N Z, C and V cleared
+    (1, 0, 0, 1, 0, 5, 0),                              # 20 N Z, C cleared, V set
+    (1, 0, 2, 0, 0, 2, 0),                              # 21 N Z C, V cleared
+    (1, 0, 2, 0, 0, 7, 0),                              # 22 N Z C V: arithmetic
+    (1, 0, 3, 0, 0, 4, 0),                              # 23 N Z, C and V from CL
+    *[(1, 0, 1, 0, k, 2, 0) for k in range(8)],         # 24-31 N Z, C from source k, V cleared
+]
+assert len(FLAG_TABLE) == 32 and len(set(FLAG_TABLE)) == 32
 
 
 def flag_tuple(f):
@@ -1563,9 +1592,10 @@ def rotation(k):
 
 
 def block_routine(op, k=0):
-    """The block instructions: MAR <- r1, LC <- -r3 (from R cleared: the
-    two ports have one constant address; a zero count ends at once); the
-    loop; then r1 <- r1 + 4 r3."""
+    """The block instructions: LC <- -r3 and CL <- r3 == 0 (from R
+    cleared: the two ports have one constant address), then MAR <- r1 in
+    the cycle that branches on CL (a branch tests it as the cycle starts),
+    a zero count ending there; the loop; then r1 <- r1 + 4 r3."""
     name = op if op != "BLIT" else f"BLIT {k}"
     finish = chain(name, mi(ra=3, alu="passa", ldr=1),
                    mi(a="r2", sina="0", alu="dbl", cin="0", ldr=1),
@@ -1599,13 +1629,10 @@ def block_routine(op, k=0):
     for a, b in zip(nodes, nodes[1:]):
         a.succ = ("next", b)
     nodes[-1].succ = ("branch", CONDS["tc"], nodes[0], finish)
-    setup = [mi(ra=1, alu="passa", ldmar=1)]
-    if op == "BLIT":
-        setup.append(mi(ra=5, alu="passa", w=TMP2))
-    setup.append(mi(kv=0, alu="passb", ldr=1))
-    count = branch(name, mi(a="r", rb=3, alu="sub", ldlc=1, ldcl="zero"), "cl", nodes[0],
-                   end(name))
-    return chain(name, *setup, count)
+    setup = [mi(ra=5, alu="passa", w=TMP2)] if op == "BLIT" else []
+    setup += [mi(kv=0, alu="passb", ldr=1), mi(a="r", rb=3, alu="sub", ldlc=1, ldcl="zero")]
+    start = branch(name, mi(ra=1, alu="passa", ldmar=1), "cl", nodes[0], end(name))
+    return chain(name, *setup, start)
 
 BOOT_FLASH = 0xD0000000          # region 5: a byte a word
 
@@ -1841,9 +1868,9 @@ class Microcode:
         nodes = _dedup(nodes, {id(n) for n in roots}, entry_ids)
         self.entry_nodes = entry_nodes
         self.nodes = _reachable(roots)
-        FLAG_TABLE[:] = sorted({flag_tuple(n.f) for n in self.nodes} | {FLAG_TABLE[0]})
-        if len(FLAG_TABLE) > 1 << _pos["FLG"][1]:
-            raise ValueError(f"{len(FLAG_TABLE)} combinations of the flags fields")
+        missing = {flag_tuple(n.f) for n in self.nodes} - set(FLAG_TABLE)
+        if missing:
+            raise ValueError(f"flags combinations FLG can't give: {sorted(missing)}")
         self.low = [n for n in self.nodes if id(n) not in entry_ids]
         self._place()
         self._check()

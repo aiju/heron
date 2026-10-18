@@ -112,12 +112,13 @@ FLAGS = ("NFLAG", "ZFLAG", "CFLAG", "VFLAG", "IFLAG")
 def trace_buses():
     def b(name, n, start=0):
         return [f"{name}{i}" for i in range(start, start + n)]
-    return {"Y": b("Y", uc.Y_BITS), "YU": b("YU", 3) + ["YE"], "PC": ["GND"] + b("PC", 31, 1),
+    return {"Y": b("Y", uc.Y_BITS), "YU": b("YU", 3), "PC": ["GND"] + b("PC", 31, 1),
             "QH": b("QH", 16), "IR": b("IR", 16), "ABUS": b("ABUS", 32), "BBUS": b("BBUS", 32),
             "RES": b("RES", 32), "R": b("RQ", 32), "VA": b("VA", 22), "DB": b("DB", 32),
             "MAR": b("MAR", 22), "LC": b("LC", 8), "V": ["V0", "V1", "HS", "PC1F"],
-            "S": ["DECGO", "JUMP", "FETCHED", "SHIFT", "PEND", "XL", "UF0", "FIRQ",
-                  "QLE0", "QLE1", "T1", "T2", "HOLD", "MID", "LATE"], "FL": list(FLAGS)}
+            "S": ["DECGO", "JUMP", "PEND", "QLE0", "QLE1", "T1", "T2", "HOLD", "MID", "LATE"],
+            "FL": list(FLAGS), "MQ": ["MQ0", "MQ31", "S33Q", "QBIT", "CARRY_n", "CLQ", "SGNQ"],
+            "SE": b("SE", 4) + ["CIN_n"]}
 
 
 def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
