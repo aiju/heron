@@ -305,6 +305,14 @@
     if (ctx && !ui.screen.hidden) {
       const p = E.sim_screen(0);
       if (p) {
+        // a machine whose video changes mode changes the screen's size
+        const w = E.sim_screen_width(), h = E.sim_screen_height();
+        if (w !== ui.canvas.width || h !== ui.canvas.height) {
+          ui.canvas.width = w;
+          ui.canvas.height = h;
+          image = ctx.createImageData(w, h);
+          fitScreen();
+        }
         image.data.set(mem().subarray(p, p + image.data.length));
         ctx.putImageData(image, 0, 0);
       }
