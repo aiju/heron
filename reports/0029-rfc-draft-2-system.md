@@ -246,9 +246,9 @@ CPUs. The eight levels, IPL and `SPL` below stay (**decided**, Emily,
   room for one, from the CPU's own board, through vector `0x8000_0004`,
   taken between instructions whatever I and IPL. Its source, how it's triggered, and what it does to I and
   IPL are open.
-- **A register bank of its own for the message level,** level 7, so
-  that its handler saves nothing, is **tentative**
-  ([RFC 0040, 2.4](0040-rfc-interrupts.md#24-banks)). Other levels enter
+- **Registers of its own for the message level,** level 7, a bank or
+  sixteen outside the banks, so that its handler saves nothing, are
+  **tentative** ([RFC 0040, 2.4](0040-rfc-interrupts.md#24-banks)). Other levels enter
   bank 0, as every exception does.
 - **The timer** is the CPU card's
   ([RFC 0040, 3.3](0040-rfc-interrupts.md#33-the-timer)).
