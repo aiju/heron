@@ -1,0 +1,5 @@
+title = "Plasma and fire"
+about = "M1 at 8 bits: a plasma computed per pixel at 320 x 240, 120 and 60 (lines repeated by the descriptors), palette cycling, a descriptor plasma, fire; how many pixels the CPU can touch"
+sources = ["plasma.c", "plasma.s", "../rasterbars/fx.c"]
+variants = ["c", "asm"]
+frames = 1100
