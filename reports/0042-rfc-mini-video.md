@@ -307,6 +307,50 @@ frame, palette changes within a line (a split column in the descriptor,
 or a bank per 8-pixel column), smooth horizontal scrolling (a pixel
 offset in the descriptor), a hardware cursor of other sizes.
 
+**A line buffer, for sprites** (a sketch; estimates, nothing measured).
+A Neo Geo-like game mode, sprites and no background or sprites over
+one, rests on a line buffer: two small fast SRAMs, ping-ponged, one
+shown while the next line is drawn into the other, each line's pixels (8
+bits: a sprite's 4-bit palette and its 4-bit pixel) cleared as they're
+shown (a read and a write in a pixel's time: 80 ns at 320 wide), so each
+line starts empty. About 10–12 chips with their address multiplexers,
+buffers and a 22V10. What it gives:
+
+- **Sprites without a framebuffer's redraw:** only the sprites are drawn,
+  a line at a time, into a buffer that clears itself; no erasing, no
+  double buffering, no tearing, and bank 1's picture isn't touched.
+- **Sprites over a background,** for 2–3 chips more: the line buffer's
+  pixel where it isn't 0, else the framebuffer's (M1 at 320 × 240 × 8,
+  say); a palette per sprite.
+- **The display apart from bank 1's bandwidth:** fine horizontal scroll
+  (the read starting at an offset), a line stretched, a floor rotated and
+  scaled a line at a time (the SNES's mode 7) drawn by microcode.
+
+Who fills it, in three strengths:
+
+1. **Microcode,** about 10–14 chips with the buffers: a write port on
+   the data bus at memory speed, its byte enables from the pixels so that
+   a transparent one isn't written. A block instruction draws a sprite's
+   row: two words of 4-bit pixels read, expanded to bytes with the
+   sprite's palette, aligned, four words written; about 15–20 cycles a
+   16-pixel row. At 320 × 240 a buffer line lasts two VGA lines, about
+   500 cycles: some 25–30 sprites a line with all of the CPU, half that
+   with half. A microcode task ([RFC 0041, 21](0041-rfc-heron-mini.md#21-microcode-tasks))
+   woken as the buffers swap would fill it.
+2. **Microcode and helpers:** the write address counting itself, the X,
+   flip and palette in registers, the 4-to-8-bit expansion in hardware;
+   perhaps twice the rate for 6–10 chips more.
+3. **A sprite engine** (the Neo Geo's, small): a sprite attribute RAM
+   walked each line against its Y, a pattern RAM of its own (not bank 1),
+   the pixels written into the line buffer at 25 MHz: about 48 sprites of
+   16 pixels a VGA line (96 with 16-bit writes), as report 0043's games
+   wanted; shrinking by skip tables, 5–10 chips more. About 45–60 chips
+   with the buffers: a board of its own. The CPU writes tables.
+
+The first is the cheap experiment, and its line buffer is most of what
+the third needs, so the engine could follow behind the same buffers if
+microcode proves too slow.
+
 ### 12. The simulator
 
 The study's simulator (`heron mini sim`, [studies/mini/sim.py](../studies/mini/sim.py)
