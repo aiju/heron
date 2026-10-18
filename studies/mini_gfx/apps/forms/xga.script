@@ -1,0 +1,134 @@
+# The forms application's script for 1024 x 768 (M5, M6): prog.toml's,
+# with the clicks where the windows are in that layout (the record window
+# and the chart are open from the start, the list has 26 rows).
+#
+#   heron mini_gfx run apps/forms --poke mode=5 --layout L1 \
+#       --script studies/mini_gfx/apps/forms/xga.script
+
+# the list: the selection moves, a page, a row at a time
+60 shot list
+70 key down
+76 key down
+82 key down
+88 key up
+94 key pgdn
+104 key pgdn
+114 key pgdn
+124 key down
+130 key down
+136 key down
+142 key down
+148 key down
+154 key up
+160 key home
+# the search: a character at a time, then back
+180 click 150 38
+190 key d
+196 key i
+202 key s
+208 key c
+214 shot search
+230 key backspace
+236 key backspace
+242 key backspace
+248 key backspace
+260 key b
+266 key o
+272 key l
+278 key t
+284 key esc
+# the sort: by description, by quantity, then the other way
+300 click 200 61
+320 click 650 61
+340 click 650 61
+356 shot sorted
+# a double click opens a record
+370 click 200 110
+376 click 200 110
+400 shot record
+# edits: the description, then a bad quantity
+410 key end
+412 key space
+414 type (spare)
+430 key tab
+432 key tab
+434 key right
+436 key tab
+440 key backspace
+442 key backspace
+444 type 4x
+450 key tab
+460 shot error
+470 keydown shift
+470 key tab
+470 keyup shift
+474 key backspace
+478 key enter
+490 shot saved
+# the drop-down by the mouse, a check box, a radio button
+500 click 320 530
+512 shot popup
+520 click 340 628
+534 click 118 634
+540 click 466 582
+# the drop-down from the keyboard
+550 click 320 530
+560 key down
+564 key down
+568 key enter
+576 key enter
+# a change, then Esc reverts it
+590 click 140 608
+594 type 999
+600 key esc
+# a new part
+620 keydown ctrl
+620 key n
+620 keyup ctrl
+630 type FA-9001
+640 key tab
+642 key down
+646 key tab
+648 type A01-1
+656 key tab
+658 type Hex bolt M5 x 15 zinc
+682 key tab
+684 type Ashdown Fixings
+700 key tab
+702 key tab
+704 key backspace
+706 type 250
+712 key enter
+724 shot new
+# the delete, confirmed
+740 keydown ctrl
+740 key d
+740 keyup ctrl
+756 shot dialog
+770 key enter
+786 shot deleted
+# the chart off and on, a full redraw
+800 key f2
+810 key f2
+820 shot chart
+830 key f5
+# the scroll bar: the thumb dragged, a page clicked
+870 drag 980 90 980 300 30
+910 click 980 470
+916 click 980 470
+930 click 980 75
+944 shot scrollbar
+# a longer search
+960 click 150 38
+966 key h
+972 key e
+978 key x
+984 key space
+990 key b
+996 key o
+1002 key l
+1008 key t
+1014 shot search2
+1030 keydown ctrl
+1030 key q
+1030 keyup ctrl
