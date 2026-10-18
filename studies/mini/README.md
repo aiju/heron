@@ -6,7 +6,7 @@ reports: [41]
 
 # Heron Mini
 
-Draft 2's user level on one board, beside the full Heron as a 360/20 was
+Draft 2's user level without a system bus, beside the full Heron as a 360/20 was
 beside the 360/40: a microcoded CPU with its RAM hardwired, no system
 bus, an I/O space with a UART pair, an 82C54, a CF card, a boot flash and
 two expansion ports, and a 640 x 480 x 4 framebuffer with per-line

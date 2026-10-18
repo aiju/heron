@@ -1,7 +1,7 @@
 ---
 number: 41
 type: rfc
-title: Heron Mini, draft 2 on one board
+title: "Heron Mini: draft 2 without a system bus"
 status: open
 date: 2026-10-17
 context:
@@ -10,48 +10,57 @@ context:
 depends-on: [16, 23, 24, 28, 29, 31]
 ---
 
-# RFC 0041: Heron Mini, draft 2 on one board
+# RFC 0041: Heron Mini: draft 2 without a system bus
 
 A small Heron beside the full one, as the 360/20 was beside the 360/40:
-draft 2's user instruction set ([RFC 0028](0028-rfc-draft-2-isa.md)) on
-one board, with its RAM wired to the CPU and no system bus, a few devices
-in an I/O space, and a 640 × 480 framebuffer, for Egret's desktop and for
-games. Compatibility with the full Heron is not a goal; running draft 2's
-programs is. Part I specifies the machine as built; Part II is what it
-measures, what it costs, what could be left out, and what's left for Emily
-to decide.
+draft 2's user instruction set ([RFC 0028](0028-rfc-draft-2-isa.md)) with
+its RAM wired to the CPU and no system bus, a few devices in an I/O space,
+and a framebuffer, for Egret's desktop and for games. Compatibility with
+the full Heron is not a goal; running draft 2's programs is. Part I
+specifies the machine as built; Part II is what it measures, what it
+costs, what could be left out or added, and what's left for Emily to
+decide. The video's modes and features are
+[RFC 0042](0042-rfc-mini-video.md)'s.
 
 The study is [studies/mini](../studies/mini/README.md): the microcode, a
 register-transfer model checked against draft 2's instruction-level
-simulator, and a chip-level netlist of the whole board: CPU, RAM, I/O
-devices and video. On the chip-level simulator the netlist runs the program
-suite exactly as the model does, cycle for cycle, with no timing violation,
-at cycle lengths that static timing analysis of the netlist measures; the
-devices and the video are checked against what their programs should give.
-The tables are in [performance.md](0041-rfc-heron-mini/performance.md).
+simulator, a fast simulator for software, and a chip-level netlist of the
+whole machine: CPU, RAM, I/O devices and video. On the chip-level
+simulator the netlist runs the program suite exactly as the model does,
+cycle for cycle, with no timing violation, at cycle lengths that static
+timing analysis of the netlist measures; the devices and the video are
+checked against what their programs should give. The tables are in
+[performance.md](0041-rfc-heron-mini/performance.md).
 
-As Emily asked, the netlist is **overbuilt**: it has every feature that
-seemed useful, built in full, and what could be left out is estimated by
+As Emily asked, the netlist was first **overbuilt**: every feature that
+seemed useful, built in full, with what could be left out estimated by
 taking chips out of it rather than by guessing what adding a feature
-costs ([15](#15-what-could-be-left-out)).
+costs ([15](#15-what-could-be-left-out)). Since then 22V10s have taken
+the place of most of its gates, decoders and small multiplexers.
 
 ## Summary
 
-- **It works, at chip level.** 430 packages. The suite and the compiled C
-  programs run on the netlist exactly as on the model, at four cycle
-  lengths from 5 to 9 ticks of 19.86 ns (half the VGA pixel clock); the
+- **It works, at chip level.** 334 packages. The suite and the compiled C
+  programs run on the netlist exactly as on the model, at three cycle
+  lengths, 5, 6 and 7 ticks of 19.86 ns (half the VGA pixel clock); the
   UARTs, the 82C54, the CF card and the boot flash do what a test program
   expects of them; the video sends the frame its memory describes.
-- **Fast:** the suite and the C programs take 1.11 times the full
-  Heron's time ([RFC 0031](0031-rfc-draft-2-cpu.md)), about what the
-  instruction-level simulator's reference timing would take at 12 MHz.
-  Egret's desktop would type a character in about 5 ms and open its
-  class browser in about 170 ms ([13](#13-how-fast)).
-- **Too many chips.** The target was 200–300; the board is 430, the CPU
-  306 of them. Taking chips out of the netlist finds about 50 that could
-  go for about 20% in time; under 300 needs a slower CPU, built like
-  draft 1b's 213-chip one rather than like draft 2's, and that is the
-  main decision this RFC asks for ([16](#16-toward-250-chips)).
+- **Fast:** the suite and the C programs take 1.05 times the full
+  Heron's time ([RFC 0031](0031-rfc-draft-2-cpu.md)), what the
+  instruction-level simulator's reference timing would take at about
+  13 MHz. Egret's desktop would type a character in under 5 ms and open
+  its class browser in about 160 ms ([13](#13-how-fast)).
+- **Draft 2's CPU, cut down,** is the CPU: Emily's choice over a draft
+  1b-like core ([16](#16-the-cpu-and-the-smaller-ones-considered)). The
+  CPU is 237 packages, 266 with its memory; which of the reductions to
+  take is open ([15](#15-what-could-be-left-out)).
+- **Two stacked boards for the core,** A4, at most about 190 chips each;
+  whether the video and the I/O go on them or a third board is open, and
+  so is how the microcode gets updated without taking the stack apart
+  ([28](#28-the-boards)).
+- **A programmable clock chip** is to replace the oscillator: the CPU at
+  any speed down to single steps, the video's clocks in step with it
+  ([20](#20-the-clock)).
 - **Multiply and divide stay in hardware:** without the MQ register
   (6 chips) the suite would take half as long again ([17](#17-isa-features-and-what-they-cost)).
 - **So does the address error** (3 packages, no time): the Lisp's `car`,
@@ -60,7 +69,7 @@ costs ([15](#15-what-could-be-left-out)).
 - **The video costs the CPU nothing.** It has the RAM's second bank to
   itself through buffers, takes its words in cycles' tails and in I/O
   waits, and never holds the CPU ([9](#9-video), [18](#18-the-video)).
-- **Blitting in microcode** gains 1.8 to 4.5 times over draft 2 code for
+- **Blitting in microcode** gains 1.7 to 3.9 times over draft 2 code for
   fills, copies, shifted copies and glyphs ([19](#19-blitting-in-microcode)).
 
 ## Contents
@@ -82,37 +91,45 @@ costs ([15](#15-what-could-be-left-out)).
   - [13. How fast](#13-how-fast)
   - [14. Chips](#14-chips)
   - [15. What could be left out](#15-what-could-be-left-out)
-  - [16. Toward 250 chips](#16-toward-250-chips)
+  - [16. The CPU, and the smaller ones considered](#16-the-cpu-and-the-smaller-ones-considered)
   - [17. ISA features and what they cost](#17-isa-features-and-what-they-cost)
   - [18. The video](#18-the-video)
   - [19. Blitting in microcode](#19-blitting-in-microcode)
-  - [20. A fast link](#20-a-fast-link)
-  - [21. Sound](#21-sound)
-  - [22. The board](#22-the-board)
-  - [23. How it was checked](#23-how-it-was-checked)
-  - [24. Open questions](#24-open-questions)
-  - [25. Next steps](#25-next-steps)
+  - [20. The clock](#20-the-clock)
+  - [21. Microcode tasks](#21-microcode-tasks)
+  - [22. Keyboard and mouse](#22-keyboard-and-mouse)
+  - [23. A fast link](#23-a-fast-link)
+  - [24. Sound](#24-sound)
+  - [25. More RAM](#25-more-ram)
+  - [26. A 74HCT mini](#26-a-74hct-mini)
+  - [27. Software to try](#27-software-to-try)
+  - [28. The boards](#28-the-boards)
+  - [29. How it was checked](#29-how-it-was-checked)
+  - [30. Open questions](#30-open-questions)
+  - [31. Open tasks](#31-open-tasks)
 
 ## Part I: Specification
 
 ### 1. Overview
 
 A microcoded 32-bit CPU, its 4 MB of RAM, an I/O space and a video
-generator on one board, with no bus between them. The parts are
+generator, with no bus between them. The parts are
 [RFC 0024](0024-rfc-faster-smaller.md)'s fast set in packages for hand
 soldering: 74F and 74ABT logic in DIP (74ACT only for counters whose
 enables 74F can't set up in time, and 74HCT for the power-on reset's
-Schmitt trigger and the interrupt line's 8-input NAND), 74F181 ALUs with 74F182 carry
-lookahead, SST39SF010A flash (55 ns, DIP-32), and 12 ns SRAM in SOJ, the
-only surface-mount chips besides none: AS7C256A-12 for the register file
-and the palette, AS7C4096A-12 for the RAM.
+Schmitt trigger), ATF22V10C-5 programmable logic (5 ns, 22 of them),
+74F181 ALUs, SST39SF010A flash (55 ns, DIP-32), and 12 ns SRAM in SOJ,
+the only surface-mount chips: AS7C256A-12 for the register file and the
+palette, AS7C4096A-12 for the RAM.
 
 - **Clock:** a 50.35 MHz oscillator, twice VGA's pixel clock; a cycle is
-  5, 6, 7 or 9 of its ticks (19.86 ns), as the microinstruction's length
+  5, 6 or 7 of its ticks (19.86 ns), as the microinstruction's length
   class says, plus two when a parcel must be fetched in the cycle that
   reads it, plus an I/O access's wait states ([4](#4-clock-and-cycles)).
+  A programmable clock chip is to take the oscillator's place
+  ([20](#20-the-clock)).
 - **CPU:** draft 2's CPU ([RFC 0031](0031-rfc-draft-2-cpu.md)) without
-  its system half: the same datapath and prefetch queue, a 136-bit
+  its system half: the same datapath and prefetch queue, a 128-bit
   microinstruction in flash, the first microinstruction of every
   instruction at the address of its first parcel, no decode table
   ([5](#5-cpu)).
@@ -123,7 +140,8 @@ and the palette, AS7C4096A-12 for the RAM.
   two 16C550 UARTs and the on-board registers; one interrupt line
   ([7](#7-the-io-space)).
 - **Video:** 640 × 480 at 4 bits a pixel from bank 1, with a descriptor
-  per line and a palette of 256 RGB 5:6:5 entries ([9](#9-video)).
+  per line and a palette of 256 RGB 5:6:5 entries ([9](#9-video)); more
+  modes are [RFC 0042](0042-rfc-mini-video.md)'s.
 
 ### 2. Instruction set
 
@@ -170,6 +188,9 @@ doesn't change. They aren't interrupted, as `SAVE` and `LDM` aren't.
 | `FD 03` | `EXPAND` | from the bytes at `r2` up (`r2` ends past them), each byte's eight bits as eight pixels: `r6 ^ (m & r5)`, `m` the byte's entry in a table of 256 nibble masks at `r4`; with `r5 = fg ^ bg` and `r6 = bg`, a glyph in two colours |
 | `FD 1k` | `BLIT k` | the words from `r2` up, each rotated right by 4k bits and merged with the one before (`lo`) under `r0`: `hi ^ ((lo ^ hi) & r0)`; with `r0 = ~0 >> 4k`, a copy shifted by k pixels. `lo` is `r5` on entry, and the last word rotated on exit |
 
+[RFC 0042, 10](0042-rfc-mini-video.md#10-block-instructions) has their
+variants for other pixel sizes, microcode only.
+
 ### 3. Address map
 
 | Address | What |
@@ -182,24 +203,28 @@ doesn't change. They aren't interrupted, as `SAVE` and `LDM` aren't.
 ### 4. Clock and cycles
 
 RFC 0024's clock generator for short cycles, as draft 2's CPU has it
-([RFC 0031, 2](0031-rfc-draft-2-cpu.md#2-clock-and-cycles)), with two
-tail ticks: a cycle of K ticks runs H0 and H1, a 4-bit count from a
-preload to 15, then T1 and T2; the CPU's clock rises entering H0. The
-register file is read in the cycle's first part, its latches transparent,
-and written in T2; RW (T1 or T2) switches its address to the write
-address once its latches have closed, and its SRAMs drive their outputs
-until T2, so that a read has until the latches close. The memory's write
-window is from tick 2 to T1.
+([RFC 0031, 2](0031-rfc-draft-2-cpu.md#2-clock-and-cycles)), in two
+22V10s on the master clock, with two tail ticks: a cycle of K ticks runs
+H0 and H1, a 4-bit count from a preload to 15, then T1 and T2; the CPU's
+clock rises entering H0. The register file is read in the cycle's first
+part, its latches transparent, and written in T2; RW (T1 or T2) switches
+its address to the write address once its latches have closed, and its
+SRAMs drive their outputs until T2, so that a read has until the latches
+close. The memory's write window is from tick 2 to T1.
 
 - **Length classes:** up to four, chosen to minimise the suite's time over
   what static timing analysis measures each microinstruction to need
   (`ticks.json`): 5, 6 and 7 ticks, as the netlist stands. A
-  microinstruction's 2-bit field picks one.
+  microinstruction's 2-bit field picks one; the preloads are the clock
+  generator's equations, so the classes are its program.
 - **Data accesses take 7 ticks or more** (K_DATA): the I/O hold below
   must start before the count ends.
 - **A demand fetch** (a parcel read from the queue's head when the queue
   is empty, so from the word the cycle fetches) lengthens its cycle by two
-  ticks, through the preload.
+  ticks, through the preload. Every microinstruction that may make one is
+  in the 5-tick class as the microcode stands, so no cycle outside an I/O
+  hold is longer than 7 ticks ([RFC 0042, 9](0042-rfc-mini-video.md#9-bandwidth-and-the-cpu)
+  depends on it).
 - **The I/O hold:** an access to the I/O space stops the count from tick 4
   for the region's wait states ([7](#7-the-io-space)).
 
@@ -210,34 +235,42 @@ The datapath and the fetch are draft 2's CPU's
 where it has 16-bit ones, without the system half, and with the
 differences below. In brief:
 
-- **Register file:** 32 registers (r0–r15 and the microcode's own) in two
-  copies of four 32K × 8 SRAMs (one per read port), each read through
-  74ABT573 latches and written through 74ABT541 buffers; the read
-  addresses from the instruction, a counter (SX) or the microinstruction,
-  a 74F151 per bit and copy.
+- **Register file:** 32 registers (r0–r15 and the microcode's own) in one
+  copy of four 32K × 8 SRAMs, read twice in a cycle that reads both ports
+  from it: the A address until the late phase (H0 and H1 over), its
+  74ABT573 latches closing then, the B address after, its own latches
+  closing as RW rises; written through 74ABT541 buffers in T2. The
+  addresses (from the instruction, a counter SX or the microinstruction)
+  and the A latches' enable come from three 22V10s.
 - **Buses:** an A bus (a register, PC, R, R × 2) and a B bus (a register,
   R, the loaded word T by byte lanes, the queue's head parcel four ways,
   the immediate unit, MQ, the flags word), 74ABT541 drivers.
-- **ALU and result:** eight 74F181 with three 74F182; a result multiplexer
-  (74F153 × 16) that passes, shifts right by one, rotates by 8 or 16 and
-  clears bytes; MQ (four 74F299) for multiply and divide steps.
+- **ALU and result:** eight 74F181 with their carry lookahead in a 22V10;
+  a result multiplexer (74F153 × 16) that passes, shifts right by one,
+  rotates by 8 or 16 and clears bytes; MQ (four 74F299) for multiply and
+  divide steps.
 - **Registers:** R, T (a latch on the data bus, by lanes), MAR (a counter
   for 22 bits and the top four), the loop counter LC, SX and EX, the
-  flags (N, Z as four bytes' worth, C, V, I) and the condition latch CL.
+  flags (N, Z as four bytes' worth, C, V, I, in two 22V10s) and the
+  condition latch CL (a 22V10 with the divide step's sign).
 - **Fetch:** PC, a fetch counter FPC and a prefetch queue of two 32-bit
   words, filled in cycles that don't use memory; the decode reads the
   queue's head parcel; a parcel needed when the queue is empty comes from
-  the word the cycle fetches.
-- **Control store:** 128K words of 136 bits in seventeen SST39SF010A,
-  pipelined: addressed with the next microinstruction's address, clocked
-  into a microinstruction register of seventeen 74ABT574 at every edge.
-  Its upper half holds every instruction's first microinstruction at the
-  address of its first parcel, so a decode is the queue's head parcel on
-  the address lines: there's no decode table. The refill, the
-  interrupt entry and the address error's entries fill their own pages,
-  so that forcing one changes only the address's top bits.
-- **The address error:** a misaligned data access (a 74F151 on the
-  size and the address's two low bits) turns off the cycle's memory
+  the word the cycle fetches. The queue's control is two 22V10s.
+- **Control store:** 128K words of 128 bits (124 used) in sixteen
+  SST39SF010A, pipelined: addressed with the next microinstruction's
+  address, clocked into a microinstruction register of sixteen 74ABT574
+  at every edge. Its upper half holds every instruction's first
+  microinstruction at the address of its first parcel, so a decode is the
+  queue's head parcel on the address lines: there's no decode table. The
+  refill, the interrupt entry and the address error's entries fill their
+  own pages, so that forcing one changes only the address's top bits.
+  The next address's condition, the decode's glue and the branch
+  condition are a 22V10 each. The flags' seven fields are one 5-bit code
+  in a fixed table of 32 behaviours (`ucode.FLAG_TABLE`), not the
+  combinations the microcode happens to use.
+- **The address error:** a misaligned data access (decoded with the
+  memory's write enables, in a 22V10) turns off the cycle's memory
   write, device strobe (an I/O access still holds the cycle),
   register-file write, flags load, and the PC's and the IR's part of a
   jump or a decode, and forces the next address to one of four pages:
@@ -250,15 +283,16 @@ differences below. In brief:
 
 Different from draft 2's CPU: no page map or window, no register banks or
 special registers but `ccr`, no message level or interrupt levels, no
-trace, and the control store in flash (so no boot through an I/O
-processor: the microcode is programmed like a ROM).
+trace, one register-file copy, and the control store in flash (so no
+boot through an I/O processor: the microcode is programmed like a ROM;
+[28](#28-the-boards) is about updating it).
 
 ### 6. Memory
 
 One access a cycle, a fetch or a data access, at an address from MAR,
 FPC or the A bus (74F153 × 13, bits 21–0 and 31–28; 27–22 aren't
 decoded), 32 bits wide with byte enables; a store's data is the A bus,
-replicated by size.
+replicated by size. The decode and the write enables are three 22V10s.
 
 - **Bank 0** (VA21 low): four AS7C4096A-12 on the CPU's address and data
   buses.
@@ -270,8 +304,7 @@ replicated by size.
   always enabled and its outputs are on but in the CPU's writes, so that
   neither its chip enable nor its output enable is on the CPU's read path:
   a read of bank 1 takes the CPU no longer than one of bank 0. Its write
-  strobe ends within T1, through fast copies of T1 and T2, before the
-  video's slot changes the address.
+  strobe ends within T1, before the video's slot changes the address.
 
 ### 7. The I/O space
 
@@ -287,7 +320,7 @@ are in the low regions:
 | 1 | 0x9000_0000 | 14 | 298 ns | expansion port 1 |
 | 2 | 0xA000_0000 | 12 | 258 ns | expansion port 2 |
 | 3 | 0xB000_0000 | 10 | 218 ns | 82C54 timer: counters 0–2 at `+0`, `+4`, `+8`, the control word at `+0xC` |
-| 4 | 0xC000_0000 | 8 | 179 ns | **open** (free) |
+| 4 | 0xC000_0000 | 8 | 179 ns | **open** (free; the keyboard and mouse, [22](#22-keyboard-and-mouse)) |
 | 5 | 0xD000_0000 | 6 | 139 ns | boot flash, 128K × 8, a byte a word: byte n at `+4n` |
 | 6 | 0xE000_0000 | 4 | 99 ns | UART 0 (16C550) at `+4n`, UART 1 at `+0x20 + 4n` |
 | 7 | 0xF000_0000 | 2 | 60 ns | the on-board registers, at addresses with bit 21 low |
@@ -355,13 +388,17 @@ regions.
 (two master ticks). A line is 100 characters of 8 pixels (0–79 the
 picture, 80–81 the front porch, 82–93 the sync, 94–99 the back porch); a
 frame is 525 lines (0–9 the front porch, 10–11 the sync, 12–44 the back
-porch, 45–524 the picture). The syncs are active low.
+porch, 45–524 the picture). The syncs are active low. The other modes,
+layouts, the cursor and the rest are options in
+[RFC 0042](0042-rfc-mini-video.md), which this section's design is the
+base of.
 
 - **Timing:** a pixel counter, a character counter (0–99) and a line
   counter (0–524), and a timing ROM (an SST39SF010A addressed by the
   character and the line) whose byte is registered at each character's
   end: the syncs, the picture, when the shifters load, when a line's
-  descriptor is read, the line's and the frame's ends.
+  descriptor is read, the line's and the frame's ends. Three 22V10s make
+  the pixel phase, the slots and the registers.
 - **Descriptors:** picture line y has a descriptor, word 44 + y of a table
   at bank 1's word 0 (or 1024, with `TSEL`), read in the line before's
   blanking:
@@ -376,9 +413,9 @@ porch, 45–524 the picture). The syncs are active low.
   The line is the 80 words from there; a word is 8 pixels, the low nibble
   first. A pixel's colour is palette entry 16 × bank + pixel.
 - **Palette:** 256 entries of RGB 5:6:5 in two 32K × 8 SRAMs, written by
-  the CPU (they can't be read); a 74ABT574 per colour byte registers each
-  pixel, its outputs off (black, the monitor's 75 Ω pulling the resistor
-  DACs down) outside the picture.
+  the CPU (they can't be read); a 74ABT823 per colour byte, on the master
+  clock, registers each pixel, its outputs off (black, the monitor's
+  75 Ω pulling the resistor DACs down) outside the picture.
 - **Registers** ([7](#7-the-io-space)): the control register (bit 0 the
   picture on, 1 `TSEL`, 2 the interrupt on) and the interrupt's
   acknowledge. The interrupt is set as the picture ends (the frame's last
@@ -405,24 +442,28 @@ a program can update its own boot image.
 
 ### 11. Parts
 
-430 packages as built, of which 306 are the CPU (344 with its memory
+334 packages as built, of which 237 are the CPU (266 with its memory
 interface and bank 0); by area (the full list is in
 [performance.md](0041-rfc-heron-mini/performance.md#parts)):
 
 | Area | Packages |
 |---|---:|
-| CPU: control store, sequencer, conditions | 72 |
-| CPU: clock, reset, hold | 18 |
-| CPU: register file | 37 |
-| CPU: buses, immediate unit | 52 |
-| CPU: ALU, result multiplexer, MQ | 38 |
+| CPU: control store, sequencer, conditions | 48 |
+| CPU: clock, reset, hold | 8 |
+| CPU: register file | 20 |
+| CPU: buses, immediate unit | 53 |
+| CPU: ALU, result multiplexer, MQ | 36 |
 | CPU: R, T, MAR, LC, SX, EX | 27 |
-| CPU: flags | 16 |
-| CPU: PC, FPC, queue | 47 |
-| Memory: address, decode, store data, bank 0 | 38 |
-| Video RAM: bank 1, its buffers | 20 |
-| I/O | 21 |
-| Video | 46 |
+| CPU: flags | 8 |
+| CPU: PC, FPC, queue | 37 |
+| Memory: address, decode, store data, bank 0 | 30 |
+| Video RAM: bank 1, its buffers | 16 |
+| I/O | 16 |
+| Video | 37 |
+
+The most numerous parts: 66 74ABT541 (the buses' drivers), 41 74F153,
+23 74ABT573, 23 74F161, 22 ATF22V10C-5, 18 SST39SF010A (the control
+store, the video's timing and the boot flash).
 
 ## Part II: Discussion
 
@@ -440,17 +481,24 @@ draft 2's CPU ([RFC 0031, 16](0031-rfc-draft-2-cpu.md#16-chips)).
 The CPU is draft 2's CPU cut down rather than a new design: its datapath,
 fetch and microcode were already checked against draft 2, and what the
 system level costs could be taken out of it chip by chip. That choice
-carries draft 2's CPU's speed features along (two register-file copies
-with latches, the queue, reads at the A bus, short variable cycles), and
-with them most of its chips: [16](#16-toward-250-chips) is about that.
+carries draft 2's CPU's speed features along (the queue, reads at the A
+bus, short variable cycles), and with them most of its chips. The first
+netlist was 430 packages; 22V10s in place of gates, decoders, small
+multiplexers and the carry lookahead, and one register-file copy read
+twice a cycle in place of two, took it to 334, and the timing that came
+with them made it faster rather than slower (the suite went from 523.5
+to 495.2 ms). Emily has since chosen to keep this CPU
+([16](#16-the-cpu-and-the-smaller-ones-considered)), A4 boards of at most
+about 190 chips, and two of them stacked for the core
+([28](#28-the-boards)).
 
 ### 13. How fast
 
 | | Mini | Full Heron (RFC 0031) | |
 |---|---:|---:|---:|
-| The suite, hand-written | 523.5 ms | 465.3 ms | 1.13× |
-| Compiled C | 316.1 ms | 287.8 ms | 1.10× |
-| Both | 839.6 ms | 753.1 ms | 1.11× |
+| The suite, hand-written | 495.2 ms | 465.3 ms | 1.06× |
+| Compiled C | 295.9 ms | 287.8 ms | 1.03× |
+| Both | 791.2 ms | 753.1 ms | 1.05× |
 
 The per-program table is in
 [performance.md](0041-rfc-heron-mini/performance.md#the-suite). The mini
@@ -461,38 +509,51 @@ accesses take at least 7 ticks, for the I/O hold; and its parts are 8-bit
 
 Against the instruction-level simulator's reference timing (D16-overlap,
 the one report 0021 quotes "at 3 MHz"), the mini takes on the suite what
-the reference would at about 12 MHz: about four times that report's
-speeds. So Egret's desktop ([report 0021](0021-report-egret-gui.md), on
-draft 2 at 3 MHz in its *On draft 2* table) would, on the mini, type a
-character in about 5 ms, open the Browser in about 170 ms, compile itself
-at boot in about 4.5 s, and run Gadgets' table at its full 30 frames a
-second. Multiplication-heavy work gains less: `mandel` runs at a 6.7 MHz
-reference's speed. The block instructions ([19](#19-blitting-in-microcode))
-would take a little more off drawing, which is 10–40% of the desktop's
-time in report 0021's breakdown.
+the reference would at about 12.8 MHz, and on the C programs at 13.9:
+over four times that report's speeds. So Egret's desktop ([report
+0021](0021-report-egret-gui.md), on draft 2 at 3 MHz in its *On draft 2*
+table) would, on the mini, type a character in under 5 ms, open the
+Browser in about 160 ms, compile itself at boot in about 4.2 s, and run
+Gadgets' table at its full 30 frames a second. Multiplication-heavy work
+gains less: `mandel` runs at a 7 MHz reference's speed. The block
+instructions ([19](#19-blitting-in-microcode)) would take a little more
+off drawing, which is 10–40% of the desktop's time in report 0021's
+breakdown.
+
+15% of the cycles need 7 ticks, most of them memory operands through T's
+byte-lane latches: the late phase (LATE), T's latch enable, its lanes,
+the ALU, the flags. The register file's reads had the same chain until
+its address logic took the clock generator's H0 and H1 itself, a 22V10
+sooner, which brought register-to-register `ADD` and `CMP` back to 6
+ticks; the same for T might do the same for these (an open task,
+[31](#31-open-tasks)).
 
 ### 14. Chips
 
-Where the 430 go ([11](#11-parts)): the CPU is 306, four fifths with
-its memory interface. Against
-draft 2's CPU (394 for its core with 16-bit parts, about 460 with its bus
-interface), the mini drops the system half (the page map, the window,
-the banks, the interrupt levels, the bus) but keeps the datapath and the
-fetch, which are most of it. Against draft 1b's CPU (213 chips, report
-0012), it has two register-file copies with latches and write buffers (37
-against 14), a prefetch queue and fetch counter (33 against none), a
-three-way address multiplexer (13 against a 2-way), 32-bit memory
-(16-bit on 1b), the fast clock generator, and wider flags and condition
-logic (33 against 16). Those are what make it 2.4 times as fast as 1b on
-the same programs ([RFC 0031, 12](0031-rfc-draft-2-cpu.md#12-how-fast)
-against draft 1b's fast system), and what put it over the target.
+Where the 334 go ([11](#11-parts)): the CPU is 237, four fifths with its
+memory interface. Against draft 2's CPU (394 for its core with 16-bit
+parts, about 460 with its bus interface), the mini drops the system half
+(the page map, the window, the banks, the interrupt levels, the bus) and
+the second register-file copy, but keeps the datapath and the fetch,
+which are most of it. Against draft 1b's CPU (213 chips with its memory
+interface, report 0012) it has a prefetch queue and fetch counter, reads
+at the A bus, a 32-bit memory (16-bit on 1b) and the fast clock
+generator: what makes draft 2's CPU 1.35 times as fast as 1b's fast
+system on the same programs ([RFC 0031](0031-rfc-draft-2-cpu.md#12-how-fast)),
+and the mini within 5% of draft 2's CPU.
 
-The microinstruction is dense: its fields need 130 of their 132 bits one
-by one. Grouped (the A bus's sources, the B bus's, the ALU's, the flags'),
-56 bits would do, but only with decode memories as fast as the SRAM,
-which would cost more chips than the nine flash and latch pairs they'd
-save; decoding the few one-hot groups with 74F138s would save two or
-three pairs for a gate's delay in their paths.
+The buses' drivers and the multiplexers are now most of the CPU: 66
+74ABT541 and 41 74F153, the A and B buses' sources, the address
+multiplexer, the result multiplexer. 16-bit parts (74ABT16541) would halve
+them, but only in fine-pitch packages; a 22V10 is no help with a 32-bit
+bus.
+
+The microinstruction is dense: its fields need 124 of their 128 bits one
+by one, the flags' seven fields already one code. Grouped further (the A
+bus's sources, the B bus's, the ALU's), 56 bits would do, but only with
+decode memories as fast as the SRAM, which would cost more chips than the
+flash and latch pairs they'd save; decoding the few one-hot groups with
+74F138s would save two or three pairs for a gate's delay in their paths.
 
 ### 15. What could be left out
 
@@ -503,54 +564,69 @@ has one, otherwise estimated from the profile (the rule is in
 
 | Reduction | Chips | Suite | C | What's lost |
 |---|---:|---:|---:|---|
-| A prefetch queue of one word | 8 | +9.2% | +10.3% | measured |
-| No reads at the A bus (MAR and FPC only) | 6 | +6.5% | +1.6% | a load at `[R]` takes a cycle more |
-| One register-file copy, read twice a cycle | 13 | +5.1% | +5.3% | a tick more where B comes from the register file (more where it's critical) |
-| No MQ | 6 | +53.5% | +52.3% | multiply and divide steps take three cycles more |
-| Byte and half lanes in microcode | 13 | +24.5% | +17.7% | a byte or half load or store takes three cycles more |
-| No rotations by 8 and 16 | 8 | +17.9% | +24.6% | a rotation becomes 8 or 16 shifts |
+| A prefetch queue of one word | 8 | +9.7% | +11.0% | measured |
+| No reads at the A bus (MAR and FPC only) | 6 | +6.8% | +1.7% | a load at `[R]` takes a cycle more |
+| No MQ | 6 | +56.6% | +55.9% | multiply and divide steps take three cycles more |
+| Byte and half lanes in microcode | 13 | +25.9% | +18.9% | a byte or half load or store takes three cycles more |
+| No rotations by 8 and 16 | 8 | +19.0% | +26.3% | a rotation becomes 8 or 16 shifts |
 | The video in the one RAM | 10 | | | the video can be starved by long I/O accesses |
-| No line descriptors | 5 | | | per-line addresses, palette banks and interrupts |
+| No line descriptors | 4 | | | per-line addresses, palette banks and interrupts |
 | An 8-bit palette | 3 | | | 256 of 65,536 colours become 256 of 256 |
 | No latch for the devices' address | 2 | | | 12 ns of address hold where the 16C550 and the CF card want 20 |
-| The CF card on the others' strobes | 1 | | | PIO mode 0's address setup |
 | No interrupt status, no control register, one UART | 3 | | | |
 
-So: the queue, the reads at the A bus and the second register-file copy
-(27 chips together) could be left out for about 20% on the suite and 17%
-on the C programs, the I/O and video items (24 more) for features alone;
-MQ, the byte lanes and the rotations are worth their chips. That takes the
-board to about 380, still far from 300.
+The second register-file copy, the first version's largest reduction (13
+chips for about 5%), is taken: the netlist has one copy, read twice a
+cycle, and the early register-file phase won its time back
+([13](#13-how-fast)).
 
-### 16. Toward 250 chips
+Which to take is **open**; the case for each, now that the core is two
+A4 boards of at most about 190 chips ([28](#28-the-boards)) and chips
+matter by the board rather than by the total:
 
-The reductions above trim draft 2's CPU; reaching 250–300 needs a
-different one. Three ways, roughly:
+- **MQ, the byte lanes and the rotations:** worth their chips by a wide
+  margin (19–57%). Keep.
+- **The queue's second word** (8 chips, 10–11%) and **the reads at the A
+  bus** (6 chips, 7% on the suite, 2% on C): the cheapest time in the
+  machine; the first to go if a board is over, the last otherwise. The C
+  programs barely use `[R]` loads in one cycle, so the reads at the A bus
+  are the better one to lose.
+- **The video's own bank** (10 chips): what lets the video read through
+  I/O accesses, and what [RFC 0042](0042-rfc-mini-video.md)'s bandwidth
+  (B0, no stealing) rests on. Keep.
+- **The descriptors** (4 chips): kept, as Emily chose (RFC 0042's D0).
+- **The 8-bit palette** (3 chips): the graphics software uses the 16-bit
+  colours and the per-line banks. Keep.
+- **The devices' address latch** (2 chips): the 16C550's and the CF
+  card's datasheet hold times. Keep.
+- **The interrupt status, the control register, the second UART** (3):
+  small conveniences; the interrupt status becomes more useful with the
+  keyboard and mouse ([22](#22-keyboard-and-mouse)).
 
-1. **A draft 1b-like core for draft 2.** Draft 1b's CPU was 213 chips with
-   its memory interface: one register-file access a phase, no prefetch
-   queue (a fetch cycle per instruction), a 16-bit memory and a simpler
-   clock; on draft 1's programs RFC 0024's fast version of it took 1.35
-   times draft 2's CPU's time (RFC 0031's performance.md). For draft 2,
-   with a 32-bit memory and draft 2's denser encoding, perhaps 200–230
-   chips in place of this mini's 344 (the CPU with its memory interface),
-   perhaps 1.2–1.4 times its time: a board of about 290–320 as built
-   here, 265–295 with the I/O and video reductions. These are guesses of
-   the kind the netlist was built to replace. **Not built:** it is the
-   main thing this RFC proposes doing next.
-2. **A 16-bit datapath** for draft 2's 32-bit registers: the register
-   file, buses, ALU, result multiplexer, R, T, MQ, store data and queue
-   halve, about 75 chips fewer than this one; but nearly every 32-bit
-   operation takes two microcycles, so about 1.7–2 times this mini's
-   time. A 16-bit datapath suits a 16-bit ISA better; for draft 2 the
-   first option gives more for less.
+So the likely reductions are the reads at the A bus and perhaps the
+queue's second word, 6–14 chips for 7–17%, and only if a board needs
+them; the board split decides ([31](#31-open-tasks)).
+
+### 16. The CPU, and the smaller ones considered
+
+Emily's choice is this CPU: draft 2's, cut down, with the 22V10s. The
+first version of this RFC asked whether to build a smaller one instead,
+when the board was 430 and the target 200–300; these were the options,
+kept here as considered:
+
+1. **A draft 1b-like core for draft 2:** one register-file access a
+   phase, no prefetch queue, a 16-bit memory and a simpler clock; perhaps
+   200–230 chips with its memory interface, perhaps 1.2–1.4 times this
+   one's time. Draft 1b's fast system took 1.35 times draft 2's CPU's
+   time on draft 1's programs.
+2. **A 16-bit datapath** for draft 2's 32-bit registers: about 75 chips
+   fewer, about 1.7–2 times the time; a 16-bit datapath suits a 16-bit
+   ISA better.
 3. **Both,** for the smallest machine: perhaps 230–250 chips for the
-   board, about three times slower than this one: about draft 1b's
-   speed.
+   board, about three times slower: about draft 1b's speed.
 
-Not proposed: SMD parts (16-bit 74ABT16xxx would save about 50 packages
-as on draft 2's CPU, but only in fine-pitch packages), or programmable
-logic (a 22V10 would replace several gates and decoders each).
+Not proposed: SMD logic (16-bit 74ABT16xxx would save about 50 packages,
+but only in fine-pitch packages).
 
 ### 17. ISA features and what they cost
 
@@ -559,23 +635,19 @@ in the flash. What costs chips is datapath, and the features that need it
 are few:
 
 - **Multiply and divide:** MQ and its step logic, 6 chips. Without them
-  the suite would take +54% (21% of its cycles are multiply and divide
+  the suite would take +57% (21% of its cycles are multiply and divide
   steps, `mandel`'s most of all). **Keep.**
 - **Bytes and halves:** the lanes that move a loaded byte or half down
-  and replicate a stored one, 13 chips, +18–25% without them. **Keep.**
+  and replicate a stored one, 13 chips, +19–26% without them. **Keep.**
 - **Rotations by 8 and 16** in the result path, 8 chips: the byte and
-  half work and the constants use them; +18–25% without. **Keep.**
-- **Reads at the A bus** (`[R]` loads in one cycle): 6 chips, +6.5% on
-  the suite. A candidate.
-- **The address error:** 3 packages (the netlist is 430 with it, 427
-  without: a 74F151 that decodes a misaligned access, a 74F157 for the
-  fault's page, a few gates), and no time: the suite's microinstructions
-  keep their lengths. The fault reaches the register file, the flags, the
-  IR, the PC and the next address, but not the queue, whose paths are the
-  tightest: the queue does as it would, and the fault's microcode empties
-  it with its jump. `HALT`'s waiting cycle is a tick longer (6), as the
-  interrupt entry's page now passes the fault's multiplexer: up to a tick
-  more before an interrupt that wakes it is taken. The first version of
+  half work and the constants use them; +19–26% without. **Keep.**
+- **Reads at the A bus** (`[R]` loads in one cycle): 6 chips, +6.8% on
+  the suite. A candidate ([15](#15-what-could-be-left-out)).
+- **The address error:** 3 packages and no time: the suite's
+  microinstructions keep their lengths. The fault reaches the register
+  file, the flags, the IR, the PC and the next address, but not the
+  queue, whose paths are the tightest: the queue does as it would, and
+  the fault's microcode empties it with its jump. The first version of
   this RFC left it out, but the Lisp relies on it: `car` is `MOV r,
   [p − 1]`, aligned only if `p` is a pair, and a call jumps through
   `[p + 1]`, aligned only for an object with a call slot (a procedure's,
@@ -590,7 +662,30 @@ are few:
   cycles; dropping them would save perhaps 3 chips and change the ISA.
   Not worth it.
 
+And for draft 2's ISA as a whole, which the mini only follows:
+
+- **Addressing modes** ([aiju/heron#81](https://github.com/aiju/heron/issues/81)):
+  Emily's review finds abs16, abs24 + x × s and abs32 luxurious, and
+  they tie the memory map to the ISA. On the mini they cost microcode
+  only, so it neither gains nor loses chips by any outcome; their
+  encodings would free parcels for other instructions.
+- **`LDM` and `STM` with increments** ([aiju/heron#82](https://github.com/aiju/heron/issues/82)):
+  autoincrement and autodecrement forms; microcode only on the mini.
+- **Floating point in microcode:** draft 2 has none. Single-precision
+  add, multiply, divide, compare and conversions as instructions would be
+  microcode only: the ALU for exponents and mantissas, MQ for the
+  mantissa's multiply and divide steps, LC loops for the shifts that
+  align and normalise. Faster than the same in draft 2 code by what the
+  block instructions gain (no fetches and decodes, a shift planned per
+  instruction), but an ISA question first: which encodings, and whether
+  the full Heron would follow.
+
 ### 18. The video
+
+[RFC 0042](0042-rfc-mini-video.md) has the video's options: more modes,
+layouts, the cursor, the bandwidth, and a 15 kHz family for a Sony PVM
+(**open**); its report, [report 0043](0043-report-mini-graphics.md), is
+graphics software written against them. Two things from building it:
 
 - **Its own bank.** The first plan had the video read the one RAM in the
   CPU's tail ticks. That shares the data bus with the I/O space: during a
@@ -598,22 +693,12 @@ are few:
   bus is the I/O's, and the video, which needs a word every 16 ticks,
   starves. With bank 1 on its own buses (10 chips) the video reads in
   every cycle's tail and all through an I/O access, and a read of bank 1
-  costs the CPU no time ([6](#6-memory)): the static timing analysis's
-  suite time didn't change when it was added.
-- **Line descriptors** give, for 5 chips, what a copper would most often
+  costs the CPU no time ([6](#6-memory)).
+- **Line descriptors** give, for 4 chips, what a copper would most often
   be used for: per-line start addresses (scrolling, split screens, a line
   repeated), per-line palette banks (16 of 16 colours from 65,536), and a
-  line interrupt for the rest (the CPU changes the palette or the table at
-  a given line).
-- **Higher resolutions.** 640 × 480 × 4 needs a word every 16 ticks; the
-  slots come every 7 at most, as the microcode stands. 640 × 480 × 8 (a
-  word every 8 ticks) or 800 × 600 × 4 (a 40 MHz pixel clock, a word
-  every 10) fit within them, with other shifter arrangements and timing;
-  longer cycles would need the video to take bank 1 also in cycles that
-  don't use it, a few chips more. **Not built**: [RFC 0042](0042-rfc-mini-video.md)
-  has these as options, with 320 × 240 × 8 (pixels and lines doubled, a
-  descriptor repeating a line) and 1024 × 768 at 1 or 2 bits a pixel
-  (65 MHz).
+  line interrupt for the rest. The graphics software used them more than
+  anything else.
 
 ### 19. Blitting in microcode
 
@@ -622,14 +707,14 @@ ticks a word, on the model:
 
 | Kernel | Draft 2 code | Block instruction | |
 |---|---:|---:|---:|
-| Fill | 20.3 | 7.3 | 2.8× |
-| Copy | 35.5 | 19.3 | 1.8× |
-| Copy shifted 4 bits | 102.1 | 54.5 | 1.9× |
-| Copy shifted 12 bits | 150.1 | 54.5 | 2.8× |
-| Copy shifted 28 bits | 246.2 | 54.6 | 4.5× |
-| Expand a glyph | 85.0 | 47.3 | 1.8× |
+| Fill | 19.0 | 7.3 | 2.6× |
+| Copy | 33.0 | 19.3 | 1.7× |
+| Copy shifted 4 bits | 93.1 | 54.4 | 1.7× |
+| Copy shifted 12 bits | 133.1 | 54.5 | 2.4× |
+| Copy shifted 28 bits | 213.2 | 54.6 | 3.9× |
+| Expand a glyph | 81.0 | 47.3 | 1.7× |
 
-A screen fill takes 5.6 ms, a screen copy 15 ms, a shifted one 42 ms
+A screen fill takes 5.5 ms, a screen copy 15 ms, a shifted one 42 ms
 whatever the shift. What the microcode gains: no instruction fetches and
 decodes, and a rotation planned per instruction from the byte and half
 rotations (draft 2's `ROR` by a register goes a bit a cycle). What it
@@ -639,13 +724,148 @@ cycles a word. A copy register on the data bus (4 chips) would make it
 two; a nibble rotator (about 16 chips) would make a shifted copy as fast
 as an aligned one. Neither is in the netlist.
 
-### 20. A fast link
+### 20. The clock
+
+**Decided:** a programmable clock chip takes the 50.35 MHz oscillator's
+place, so that the CPU can run at any speed, from single steps and 1 MHz
+for debugging up to what the timing analysis allows, and the video's
+pixel clocks come in a fixed phase with the CPU's
+([RFC 0042, 2](0042-rfc-mini-video.md#2-timing): 1024 × 768 at 65 MHz
+needs one). Which chip is **open**.
+
+What it has to do:
+
+- **The master clock:** 50.35 MHz as now (VGA's pixel clock is two of its
+  ticks), lower for debugging, and for XGA a master clock in step with
+  65 MHz: from one PLL, say a VCO at 650 MHz divided by 13 (50 MHz, the
+  CPU a little slower than now) and by 10 (65 MHz), the two in a fixed
+  phase, so the video's hand-over between them is a schedule rather than
+  a synchroniser. The timing analysis's lengths are in ticks of 19.86 ns:
+  a faster master clock needs it rerun.
+- **The other clocks,** from the same chip if it has the outputs: the
+  UARTs' and the 82C54's 1.8432 MHz (or 14.7456 MHz for 921,600 baud,
+  [23](#23-a-fast-link)), an FM synthesiser's 3.58 MHz ([24](#24-sound)),
+  in place of their oscillators.
+- **A clock at power-up,** before the CPU can program anything: either
+  the chip's own non-volatile defaults, or a plain oscillator that the
+  CPU runs from until it has programmed the chip.
+- **Switching without a glitch:** a PLL's output wanders while it's
+  reprogrammed, so the master clock comes through a glitch-free switch
+  (two flip-flops and a gate, or a few terms of a 22V10) between two of
+  the chip's outputs (or the chip and the power-up oscillator): program
+  the one not in use, then switch. The same switch takes a push button
+  for single steps. About 2 chips.
+- **Programming:** I²C or a serial interface, bit-banged by software
+  through two bits of the control register (0xF000_0C00) and one of a
+  readable register; or pins set from a register.
+
+The options:
+
+| Kind | Examples | Outputs | Power-up | Notes |
+|---|---|---|---|---|
+| Multi-output PLL, I²C, non-volatile | CY22393 (3 PLLs, 6 outputs), CDCE913 / CDCE925 (1–2 PLLs, 3–5 outputs) | master, pixel, UART, sound | its stored configuration | 3.3 V, TSSOP: modern, on a small adapter; the outputs from one PLL in phase |
+| Multi-output PLL, I²C, volatile | Si5351A (2 PLLs, 3 or 8 outputs) | as above | nothing: needs the power-up oscillator | the most common, cheap, modules everywhere; 3.3 V |
+| Period dual-PLL graphics clock | ICD2061A, ICS9161A (the early-1990s SVGA cards') | two (a pixel clock and a memory clock) | VGA's frequencies | 5 V, DIP-16, serially programmed; obsolete, from surplus; its two PLLs aren't in phase, so XGA would still want RFC 0042's synchroniser |
+| Pin-configured PLL | ICS525 | one | the register's reset value | the dividers from pins, so a register the CPU writes (three 8-bit registers) sets it, no protocol; one output, so the CPU's clock only |
+| Programmable oscillator | DS1085, LTC6903 | one (and a reference) | stored, or set at power-up | 8–10 pins; the CPU's clock only |
+
+The multi-output PLLs do everything asked; the period part is the one
+that fits the machine's age; the single-output ones change the CPU's
+speed only. None comes in PLCC.
+
+### 21. Microcode tasks
+
+The Xerox Alto ran its devices in microcode: sixteen tasks, each with its
+own microprogram counter, the hardware switching to the highest-priority
+task asking for service at points its microcode marks, the instruction
+set's emulator the lowest. The disk, the display and the Ethernet were
+microcode with a few registers each. A limited version on the mini
+would let microcode do per-line video work (a copper, sprites drawn per
+line, RFC 0042's later ideas), keyboard and serial service, sound
+samples or a disk's data, without an interrupt's entry and exit. What it
+would take, in two strengths:
+
+**A. Tasks at instruction boundaries** (microcode interrupts). A device
+asks for its task with a wakeup line; at the next decode the decode's
+glue (a 22V10) forces the task's entry page, as it forces the interrupt
+entry's now, instead of the instruction's. The task's microcode runs and
+ends with a decode, which starts the next instruction from the queue as
+if nothing had happened. At a decode the ISA's state is the register
+file's r0–r15, the PC, the queue and the flags; everything else (R, T,
+MAR, LC, MQ, SX, EX, CL, the microcode's own registers) is dead, so the
+task may use all of it, and the rules are few and checkable: no jumps
+(the queue), the flags saved and restored if it touches them (the flags
+word to the B bus and back, two cycles), nothing of r0–r15 but what it
+owns by convention. Cost: the wakeup lines into the decode's glue, a
+page for the tasks' entries (one of the control store's eight pages is
+free: the forced entries use the refill's, the interrupt's and the
+address error's four; the tasks would share it, by a wakeup number on its
+low address bits), an acknowledge per task (a spare control-word bit or a
+decoded strobe): **0–2 chips**. The catch is latency: a task waits for the instruction to
+end, a 256-word `COPY` for three lines, a 32-bit `MULU` for about 40
+cycles; the block
+instructions would need switch points in their loops, where a task saves
+and restores MAR, R and LC in the microcode's own registers, about six
+cycles each way.
+
+**B. Tasks at microinstructions** (the Alto's). A switch at any
+microinstruction its microcode marks (a control-word bit), saving the
+emulator's next address in a register (three 74ABT574) and taking it
+back when the task ends (a fifth source for the next address's
+multiplexers, or the forced-entry path with the saved address): **about
+5–8 chips**. The latency is a few cycles. The cost is a discipline: at a
+switch point the emulator's live transient registers (R, T, MAR, LC, MQ,
+CL, SX, EX) must not be the task's to change, and the queue must not
+move. Statically checkable: the microcode is a graph in `ucode.py`, and a
+liveness pass over it gives, at each marked point, what the emulator
+reads later before writing; the task's microcode may write only what's
+dead at every point it can switch in, and its own registers. A task that
+needs MAR or R saves and restores them. The queue keeps fetching in the
+emulator's cycles only (the task's cycles don't fetch), which the queue's
+control would need to know: a task bit into its 22V10s.
+
+Either is microcode's to fill: per-line palette changes, a sprite
+compositor, a PS/2 port sampled ([22](#22-keyboard-and-mouse)), a UART's
+FIFO emptied into memory. **Open:** whether either is wanted, A or B, and
+which tasks; A is nearly free and worth trying first in the model.
+
+### 22. Keyboard and mouse
+
+USB is out. The options:
+
+1. **PS/2 ports with shift registers,** about 4 chips each (a Schmitt
+   trigger on the port's clock, an 8-bit shift register, a bit counter
+   and a flag for the 11-bit frame): the keyboard and the mouse in region
+   4, a status bit each. Sending to the device (the keyboard's LEDs, the
+   mouse's "enable data reporting", which it needs before it sends
+   anything) is bit-banged by software through open-collector outputs.
+   As Fen's I/O card has them ([report 0036](0036-report-fen.md)) and
+   [RFC 0027](0027-rfc-io-coprocessor.md) counts them.
+2. **An 8042-type keyboard controller** (the PC/AT's: a preprogrammed
+   microcontroller sold as one, VIA VT82C42 or a keyboard-controller
+   8742, DIP-40, a crystal): the keyboard and a PS/2 mouse, the AT's data
+   and command registers in region 4, its two interrupt outputs. One or
+   two chips, period-correct, but its firmware isn't ours.
+3. **A serial mouse on UART 1** (the Microsoft protocol at 1200 baud,
+   the mouse powered from RTS and DTR, RS-232 levels from a driver if the
+   board has none): no chips for the mouse; the keyboard still needs 1 or
+   2, or a terminal.
+4. **A microcontroller on an expansion port** doing PS/2 and handing the
+   mouse's moves and the keys over as bytes: the fewest chips on the
+   board, the least period-correct.
+
+With microcode tasks ([21](#21-microcode-tasks)) a PS/2 port could be a
+register of its lines sampled by a task, at the cost of a wakeup per
+clock edge. **Open:** which.
+
+### 23. A fast link
 
 What's cheapest, from no chips up:
 
 - **The UART:** SLIP or PPP to a PC through a USB-serial adapter: 11
-  KB/s at 115,200 baud; 90 KB/s at 921,600 with a 14.7456 MHz crystal (the
-  TL16C550C takes up to 16 MHz) and the 82C54 then clocked from
+  KB/s at 115,200 baud; 90 KB/s at 921,600 with 14.7456 MHz (the
+  TL16C550C takes up to 16 MHz), from the clock chip
+  ([20](#20-the-clock)) or a crystal, the 82C54 then clocked from
   elsewhere.
 - **A USB FIFO on an expansion port:** an FTDI UM245R module (DIP-24, an
   FT245R) on D0–D7 with its RD and WR from the port's strobes: about 1
@@ -656,31 +876,93 @@ What's cheapest, from no chips up:
   does TCP/IP itself. Or, hackiest, an NE2000 ISA card on an adapter: the
   port's strobes are about ISA's, but its address is 8 bits.
 
-### 21. Sound
+### 24. Sound
 
 The 82C54's counter 2 drives a speaker (a transistor), as on a PC. For
 music, an FM synthesiser on an expansion port: a YM3812 (OPL2, DIP-24)
 with its YM3014B DAC (DIP-8) and an op-amp, its 3.58 MHz from its own
-oscillator; its write timing fits the ports' strobes, and the waits it
-needs between writes (3.3 µs and 23 µs) are software's. A YM2151 (OPM)
-the same way. On the board itself it would be about 4 chips; **open**.
+oscillator or the clock chip; its write timing fits the ports' strobes,
+and the waits it needs between writes (3.3 µs and 23 µs) are software's.
+A YM2151 (OPM) the same way. On the board itself it would be about 4
+chips; **open**.
 
-### 22. The board
+### 25. More RAM
 
-- **Size:** DIP boards take about 630 mm² a chip on four layers (RFC
-  0023's DIP CPU card, 269 chips on 490 × 345 mm). 430 chips is about
-  0.27 m² (600 × 450 mm), 300 about 0.19 m² (490 × 385 mm). One board of
-  that size is possible (DEC's hex boards were 533 × 399 mm) but large;
-  two stacked boards of half the size, the CPU on one and the RAM, video
-  and I/O on the other, would need about 100 signals between them (the
-  address and data buses, the video's bank, the strobes), two
-  board-to-board connectors rather than a backplane. **Open.**
-- **Power:** from the datasheets' supply currents, roughly 8–10 A at 5 V
-  (the 74F counters, ALUs and multiplexers and the SRAMs most of it).
-- **SMD:** the SRAMs only (eighteen in SOJ), as no fast SRAM is made in
-  DIP; the CF card's socket.
+**Open,** perhaps as sockets left empty at first. The address map leaves
+0x0040_0000–0x7FFF_FFFF to the RAM, which now repeats every 4 MB. More
+needs the memory's address multiplexer to carry bits 22 up (27–22 aren't
+decoded now: another 74F153 or two), a bank decode in its 22V10s, and
+four more 512K × 8 SRAMs for each 2 MB. Each bank adds load to the CPU's
+address and data buses, which the timing analysis would need to see; and
+board space, which the board split decides ([28](#28-the-boards)).
 
-### 23. How it was checked
+### 26. A 74HCT mini
+
+**Open:** the same machine in 74HCT, much slower, with a few exceptions
+where speed is the point (the video's pixel path). The flash, the SRAMs
+and the 22V10s (in slower grades) stay. The netlist names its parts by a
+variant (`parts.py`), so the timing analysis can measure it rather than
+guess: a variant with 74HCT's delays and the length classes it gives.
+
+### 27. Software to try
+
+- **A preemptively multitasking OS** in one big address space, its
+  programs position-independent (draft 2's PC-relative addressing), the
+  82C54's interrupt slicing time; no protection, as there's no address
+  translation. A test of how far draft 2's user level goes without its
+  system level; Fen ([report 0036](0036-report-fen.md)) has the parts.
+- **Egret's desktop:** its display through the video's registers and
+  descriptors, its kernels as block instructions.
+- **Doom.** We're going to have to port Doom. RFC 0042's M1 (320 × 240 ×
+  8, lines doubled by the descriptors), the C compiler, fixed point on
+  `MUL`, and perhaps a textured column as a block instruction.
+
+### 28. The boards
+
+- **Decided:** A4 boards (297 × 210 mm) of at most about 190 chips each,
+  and the CPU core on **two stacked boards**: the CPU (237) and its
+  memory interface and bank 0 (30), 133 a board. **Open:** whether the
+  video (37), its RAM (16) and the I/O (16) go on them too (168 a board,
+  near the limit) or on a third.
+- **Density:** at RFC 0023's DIP CPU card's 630 mm² a chip (269 chips on
+  490 × 345 mm, four layers) an A4 board holds about 100; 190 needs about
+  330 mm² a chip, so PLCC and SOIC where there's a choice, and perhaps
+  more layers. The PCB study will tell ([31](#31-open-tasks)).
+- **The cut:** where the two core boards part decides the connector. The
+  microinstruction's 124 lines are the widest bundle; a cut that leaves
+  them on one board crosses the buses instead (about 100 signals between
+  the CPU and the memory, video and I/O). Board-to-board delays go into
+  the timing analysis once the PCB study gives them.
+- **Stacked or a backplane:** stacked boards with board-to-board
+  connectors are simpler mechanically and need no extra board; a
+  backplane makes each board removable, at the cost of the backplane and
+  its connectors and about a nanosecond more for each signal through
+  them.
+- **Updating the microcode** shouldn't mean taking the stack apart:
+  1. **The control store on the top board, in sockets:** the sixteen
+     flashes (PLCC-32 sockets) pulled, programmed and put back. No chips;
+     sixteen chips to handle each time.
+  2. **A backplane,** the control store's board pulled out.
+  3. **In-system programming:** each flash's data pins switched onto a
+     programming bus (sixteen 74CBT3245 bus switches, or 74ABT245s), its
+     address from a counter, the machine held in reset while a programmer
+     on a header (a USB FIFO module, [23](#23-a-fast-link)) writes them:
+     about 18–20 chips, 40 s or so for the whole store.
+  4. **The control store in SRAM, loaded at reset** from one large flash,
+     as draft 2's CPU loads its own through its I/O processor: the SRAMs
+     in place of the flashes, a loader (a counter and the flash) and the
+     same sixteen switches; the flash written by the CPU itself, as the
+     boot flash is now. About 20 chips; updates from software, and an
+     SRAM's 12 ns in place of the flash's 55 for the microinstruction.
+  **Open:** which.
+- **Power:** roughly 8–10 A at 5 V for the first netlist, from the
+  datasheets' supply currents (the 74F counters, ALUs and multiplexers
+  and the SRAMs most of it); not redone for the 22V10s, which draw about
+  0.1 A each.
+- **SMD:** the SRAMs (fourteen in SOJ), as no fast SRAM is made in DIP;
+  the CF card's socket; and the clock chip ([20](#20-the-clock)).
+
+### 29. How it was checked
 
 - **The model against draft 2's simulator:** the suite and the compiled C
   programs, output, registers, flags and memory (`heron mini check
@@ -714,46 +996,69 @@ the same way. On the board itself it would be about 4 chips; **open**.
 - **Static timing analysis** of every microinstruction in every queue and
   interrupt state, and the I/O hold's deadline (`heron mini hw sta`).
 
-The compiled C programs at chip level found one path the static timing
-analysis didn't check: the queue slots' J-K flip-flops are on the master
-clock, which the analysis held constant, and a conditional jump that
-consumed a parcel reached them from the flags through 17 gates (its
-condition masked the consume, which moved the queue's head, which decided
-which slot would be empty). `sha256`'s inner loop missed their setup by
-0.2 ns. The analysis now checks them, and the consume is no longer masked
-by the jump (the PC loads and the queue empties whatever the head does),
-which leaves the jump 6 ticks.
+What the chip-level runs found that the analysis hadn't:
 
-Contention: the B bus's drivers overlap by up to 6 ns as they hand over,
-as on draft 2's CPU, between drivers built for it.
+- The queue slots' J-K flip-flops are on the master clock, which the
+  analysis held constant; a conditional jump that consumed a parcel
+  reached them from the flags through 17 gates. `sha256`'s inner loop
+  missed their setup by 0.2 ns. The analysis now checks them, and the
+  consume is no longer masked by the jump.
+- The register file's second read lost to its own output enable: the
+  SRAMs turned off at RW, as the B latches closed, before a 5-tick
+  cycle's B data was there, so multiplies and divides that read two
+  registers went wrong. The analysis's netlist made RW_n with an
+  inverter, 6 ns the real one (a 22V10's output, as RW is) hasn't. The
+  SRAMs now drive until T2, and the analysis's RW_n is the real one.
+- The colour register, clocked by a 22V10's output, broke its hold as the
+  shifters shifted on the master clock; it's on the master clock now.
 
-### 24. Open questions
+**Contention:** the buses' drivers overlap by up to 6 ns as they hand
+over, as on draft 2's CPU, between drivers built for it: most on the B
+bus between cycles, the longest between T's byte lanes as an I/O byte
+read's lane select settles. Nothing samples the bus then, but a
+break-before-make look at the worst of them is an open task.
+
+### 30. Open questions
 
 For Emily:
 
-1. **The CPU:** build a draft 1b-like core for draft 2 (fewer speed
-   features, perhaps 110–140 chips fewer, perhaps 1.2–1.4 times slower),
-   or keep draft 2's CPU with the reductions of [15](#15-what-could-be-left-out)
-   (about 380 chips)? ([16](#16-toward-250-chips))
-2. **The reductions:** which of [15](#15-what-could-be-left-out)'s, for a
-   lean version of this one?
-3. **One board or two stacked,** and how large ([22](#22-the-board)).
-4. **The video:** its own bank (as built) or the one RAM; descriptors;
-   the palette's width; an 8-bit or 800 × 600 mode ([18](#18-the-video)).
-5. **The block instructions:** keep them; add a copy register for faster
-   copies; allow counts over 256 ([19](#19-blitting-in-microcode)).
-6. **The I/O map:** the regions, the free region 4, the expansion ports'
+1. **The reductions:** which of [15](#15-what-could-be-left-out)'s, if
+   any; likely none unless a board is over.
+2. **The boards:** whether the video and the I/O go on the two core
+   boards or a third; stacked or a backplane; how the microcode is
+   updated ([28](#28-the-boards)).
+3. **The clock chip:** which ([20](#20-the-clock)).
+4. **The block instructions:** a copy register for faster copies; counts
+   over 256 ([19](#19-blitting-in-microcode)).
+5. **The I/O map:** the regions, the free region 4, the expansion ports'
    pinout and number, an FM synthesiser on the board ([7](#7-the-io-space),
-   [8](#8-expansion-ports), [21](#21-sound)).
-7. **The UARTs' clock:** 1.8432 MHz (as built, the 82C54 shares it) or
-   14.7456 MHz (921,600 baud) ([20](#20-a-fast-link)).
-8. **The name:** Heron Mini, or a smaller heron: the bittern.
+   [8](#8-expansion-ports), [24](#24-sound)).
+6. **The UARTs' clock:** 1.8432 MHz (as built, the 82C54 shares it) or
+   14.7456 MHz (921,600 baud), from the clock chip either way
+   ([23](#23-a-fast-link)).
+7. **Keyboard and mouse:** which of [22](#22-keyboard-and-mouse)'s.
+8. **Microcode tasks:** whether, A or B, and for what ([21](#21-microcode-tasks)).
+9. **More RAM** ([25](#25-more-ram)) and **a 74HCT mini**
+   ([26](#26-a-74hct-mini)).
+10. **The name:** Heron Mini or mini-heron.
 
-### 25. Next steps
+The video's questions are [RFC 0042, 14](0042-rfc-mini-video.md#14-open-questions)'s.
 
-- With Emily's answer to the first question, the leaner CPU as a netlist
-  of its own, measured the same way.
-- The video's 8-bit mode, if wanted.
-- Egret's desktop on the mini: its display through the video's registers
-  and descriptors, its kernels as block instructions, measured on the
-  model.
+### 31. Open tasks
+
+- **The board split and a PCB study:** where the core boards part, the
+  connectors, the density; then the boards' delays fed back into the
+  timing analysis.
+- **The clock chip in the netlist,** once chosen, with its glitch-free
+  switch, and the CPU's speed at other master clocks.
+- **T's path to 6 ticks:** the 7-tick memory-operand microinstructions
+  through T's latches, as the register file's was ([13](#13-how-fast)).
+- **Contention:** a break-before-make look at the worst hand-overs
+  ([29](#29-how-it-was-checked)).
+- **The video's options in the netlist** as RFC 0042's questions are
+  decided, and the pixel layout measured on a netlist (its open question
+  2).
+- **Microcode tasks, A, in the model** if wanted ([21](#21-microcode-tasks)).
+- **A 74HCT variant's timing** ([26](#26-a-74hct-mini)).
+- **Software:** the multitasking OS, Egret's desktop, Doom
+  ([27](#27-software-to-try)).

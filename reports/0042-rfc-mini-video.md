@@ -63,20 +63,21 @@ its acknowledge. The options:
 | **M0** | 640 × 480 × 4 | built |
 | **M1** | 320 × 480 × 8 | +1–2 |
 | **M2** | 640 × 480 × 8 | +1–2 (B0 while cycles stay within 7 ticks, else B1 or B2) |
-| **M3**, **M4** | 640 × 480 × 2, × 1 | +1 |
-| **M5**, **M6** | 1024 × 768 × 2, × 1 | +5–9 and a clock (K1 or K2); M5 wants B1 |
+| **M3**, **M4** | 640 × 480 × 2, × 1 | +1, or nothing with M5 and M6 (the same shifters' chaining) |
+| **M5**, **M6** | 1024 × 768 × 2, × 1 | +5–9 and the clock chip (K2) |
 | **L0** | the chunky layout | built |
 | **L1** | the planar layout | 0 (other wiring), instead of L0 |
 | **F1** | 1- and 2-bit pixels linear in L0 | +8–12 |
-| **D0** | line descriptors | built (5 chips of RFC 0041's) |
-| **D1** | no descriptors: a frame base register | −5 |
-| **C1** | a 32 × 32 cursor of 2 bits a pixel | +12–14 |
+| **D0** | line descriptors | built (4 chips of RFC 0041's); **chosen** |
+| **D1** | no descriptors: a frame base register | −4; not taken |
+| **C1** | a 32 × 32 cursor of 2 bits a pixel | +12–14 (other sizes: [13](#13-what-each-option-costs)); **chosen**, its size open |
 | **P1** | the beam's position, readable | +2 |
 | **B1** | cycle stealing, a second holding register | +5–7 |
 | **B2** | bank 1 64 bits wide | +16 |
-| **K1**, **K2** | a 65 MHz pixel clock: an oscillator, or a clock chip | +2–3, or the clock chip in place of both oscillators |
+| **K1**, **K2** | a 65 MHz pixel clock: an oscillator, or a clock chip | K2 **chosen**: the clock chip in place of the oscillators ([RFC 0041, 20](0041-rfc-heron-mini.md#20-the-clock)) |
+| **T15** | a 15 kHz family for RGB monitors (a Sony PVM) | 0–2 and a timing table; **open** |
 | **X0** | `FILL`, `COPY`, `EXPAND`, `BLIT k` | built (microcode) |
-| **X1** | their variants for 8-, 2- and 1-bit pixels | microcode only |
+| **X1** | their variants for 8-, 2- and 1-bit pixels, and more | microcode only: whichever the software uses |
 
 The modes' mode register and the new registers' decode are another 2
 chips, shared by all of them. [13](#13-what-each-option-costs) has where
@@ -89,13 +90,23 @@ in the 128K's place holds four):
 
 | | VGA (M0–M4) | XGA (M5, M6) |
 |---|---|---|
-| Pixel clock | 25.175 MHz, two master ticks | 65 MHz (K1, K2) |
+| Pixel clock | 25.175 MHz, two master ticks | 65 MHz, from the clock chip (K2) |
 | A line | 100 characters of 8 pixels: 0–79 the picture, 80–81 the front porch, 82–93 the sync, 94–99 the back porch | 168: 0–127 the picture, 128–130 the front porch, 131–147 the sync, 148–167 the back porch |
 | A frame | 525 lines: 0–9 the front porch, 10–11 the sync, 12–44 the back porch, 45–524 the picture | 806: 0–2 the front porch, 3–8 the sync, 9–37 the back porch, 38–805 the picture |
 | The rates | 31.47 kHz, 59.94 Hz (16.68 ms a frame) | 48.36 kHz, 60.0 Hz (16.67 ms) |
 
 The syncs are active low in both. The picture's lines come last, so the
 picture's end is the frame's.
+
+**T15** (an option, **open**), for a 15 kHz RGB monitor such as a Sony
+PVM: the same 100 characters of 8 pixels at half VGA's pixel clock
+(12.59 MHz, four master ticks: a line of 63.6 µs, 15.73 kHz), 262 lines
+with 240 in the picture (60.05 Hz, progressive), or 525 in two fields for
+480 interlaced; the sync composite, which the table's HSYNC bit carries
+in this family, active low. Its modes are M0's and M1's with half the
+lines: 640 × 240 × 4 and 320 × 240 × 8. The RGB outputs are VGA's
+(0.7 V into 75 Ω) as they are; the cable is BNC (R, G, B, sync) or
+SCART (with its RGB-select pin held high).
 
 ### 3. Modes
 
@@ -157,7 +168,7 @@ or the other, not both (both would be F1's multiplexers again).
 
 ### 5. Lines: descriptors or a frame base
 
-**D0, descriptors** (as built): picture line y's descriptor is word
+**D0, descriptors** (as built, and chosen): picture line y's descriptor is word
 T + y of a table at bank 1's word 0, or word 1024 with `TSEL`, read in the
 line before's blanking; T is 44 (VGA) or 37 (XGA), the line before the
 picture's first.
@@ -175,7 +186,7 @@ line before, as the sync's third character ends (character 84 in VGA,
 133 in XGA), so a write to either shows from the first line whose
 descriptor is read after it, within the frame being shown.
 
-**D1, a frame base** (instead of D0): the frame base register gives the
+**D1, a frame base** (instead of D0; not taken): the frame base register gives the
 first line's word and the palette bank, the lines follow each other in
 memory, and there is no line interrupt. The register is taken as the
 frame starts, so a write shows from the next frame.
@@ -223,7 +234,7 @@ Region 7, on the data bus ([RFC 0041, 7](0041-rfc-heron-mini.md#7-the-io-space))
 | 0xF000_0800 | the interrupt status, read | bit 4 the video's interrupt, as built |
 
 A mode's change takes effect at the next frame. The layout (L0 or L1),
-the bandwidth (B0–B2) and the XGA clock (K1, K2) are the board's, not
+the bandwidth (B0–B2) and the clock chip's (K2) are the board's, not
 registers.
 
 The interrupt is set as the picture ends, whether bit 2 is set or not,
@@ -341,8 +352,9 @@ cycle, not per tick.
   the bits shifted in are thrown away at the next load anyway, so only
   the link between shifters 1 and 2 depends on the mode. A GAL or a
   multiplexer forms the palette index's low bits. The fetch rate is the
-  timing table's.
-- **M5, M6, +5–9 and a clock:** a 65 MHz pixel clock (K1: an oscillator
+  timing table's. M5 and M6 need the same chaining and palette index,
+  so with them M3 and M4 cost nothing but their timing table.
+- **M5, M6, +5–9 and a clock:** a 65 MHz pixel clock (K2 chosen; K1: an oscillator
   and a synchroniser for the hand-over between the clocks, 2–3; K2: a
   programmable clock chip whose outputs, from one PLL, stay in a fixed
   phase, so the hand-over is a schedule and no synchroniser), a pipeline
@@ -354,13 +366,31 @@ cycle, not per tick.
   order; the same chips.
 - **F1, +8–12:** a 3-way reordering of 32 bits into the shifters (4, 2
   and 1 bit), 16 dual 4-to-1 multiplexers, or fewer with GALs.
-- **D1, −5:** RFC 0041's reduction (the table address multiplexers, the
+- **D1, −4:** RFC 0041's reduction (the table address multiplexers, the
   line mode register, the descriptor loads), for a frame base register.
 - **C1, +12–14:** 64 bits of shift register (eight 8-bit shift
   registers), the X compare and the Y count (two GALs), the X, Y and
   image registers (two or three), the row fetch in blanking (the video
-  GALs), and the palette index's override (a GAL). A 16 × 16 cursor is
-  about 8; one colour and a mask (two planes of 1 bit) the same as 2 bits.
+  GALs), and the palette index's override (a GAL). The shift registers
+  grow with the cursor's width and its bits a pixel; the rest stays
+  about 5–6 chips (the Y count a bit wider), and a row is fetched in the
+  line's blanking whatever its size:
+
+  | Cursor | A row | Shift registers | Chips |
+  |---|---:|---:|---:|
+  | 16 × 16, 2 bits | 1 word | 4 | about 9 |
+  | 32 × 32, 2 bits | 2 words | 8 | 12–14 |
+  | 32 × 32, 1 bit and a mask | 2 words | 8 | 12–14 |
+  | 64 × 64, 2 bits | 4 words | 16 | about 22 |
+  | 64 × 64, 1 bit | 2 words | 8 | 12–14 |
+
+  The graphics software found 16 × 16 enough for a pointer; a schematic
+  editor wanted a larger crosshair, which 1 bit a pixel at 64 × 64 gives
+  for the cost of 32 × 32 at 2.
+- **T15, 0–2:** a fourth timing table in the timing flash; the pixel
+  phase every four master ticks (the video 22V10's equations and a mode
+  bit); the composite sync from the table, no gate; an interlaced
+  frame's half lines in the table's 525 lines.
 - **P1, +2:** two 74541s put the line and character counters on the data
   bus.
 - **B1, +5–7:** a second holding register (four 74823s), the steal
@@ -371,21 +401,37 @@ cycle, not per tick.
 
 ### 14. Open questions
 
-1. Which modes, judging by the software written against the simulator.
-2. L0 or L1, and whether F1 is worth its chips.
-3. D0 or D1: what the descriptors are used for, beyond what a frame base
-   gives.
-4. The cursor's size and colours, or no cursor and a software one.
-5. B1 or B2, if M2 is wanted, or a rule that the microcode keeps every
-   cycle outside an I/O hold within 7 ticks (as it does now), so that B0
-   does: a microinstruction that fetches on demand in a 6- or 7-tick
-   cycle, or a longer length class, would break it.
-6. Which of X1's block instructions.
-7. The descriptors' bits 31–24.
-8. The cursor's position and image: read line by line, or taken as the
+Decided, by Emily:
+
+- **Modes:** M0, M1, M2, M5 and M6; M3 and M4 as well, as they come
+  free with M5 and M6 ([13](#13-what-each-option-costs)).
+- **D0,** the descriptors.
+- **A cursor** (C1), its size open.
+- **The clock chip** (K2), which [RFC 0041, 20](0041-rfc-heron-mini.md#20-the-clock)
+  has the options for.
+- **X1:** microcode is free, so whichever block instructions the
+  software uses.
+
+Open:
+
+1. L0 or L1, and whether F1 is worth its chips: to be measured on a
+   netlist.
+2. B1 or B2 for M2, or a rule that the microcode keeps every cycle
+   outside an I/O hold within 7 ticks (as it does now), so that B0
+   suffices. The rule binds all future microcode, and breaks silently: a
+   microinstruction that fetches on demand in a 6- or 7-tick cycle, or a
+   longer length class, starves M2. The microcode's build could check it;
+   B1 (5–7 chips) removes it.
+3. The cursor's size ([13](#13-what-each-option-costs) has the costs).
+4. The descriptors' bits 31–24: a pixel offset or a repeat count, as the
+   software asks.
+5. The cursor's position and image: read line by line, or taken as the
    frame starts.
-9. A status bit for the frame's interrupt and another for the lines'.
+6. A status bit for the frame's interrupt and another for the lines'.
+7. T15, the 15 kHz family for a PVM ([2](#2-timing)); not in the
+   simulator yet.
 
 [Report 0043](0043-report-mini-graphics.md) wrote graphics software
 against this RFC on the simulator, and answers these from what it
-measured.
+measured. The open tasks (the chosen options in the netlist, the layouts
+measured there) are [RFC 0041, 31](0041-rfc-heron-mini.md#31-open-tasks)'s.
