@@ -10,6 +10,8 @@ come in three variants:
     asm   draft 2 assembly (gfx/asm/), the general instruction set
     blk   the same with the mini's block instructions (gfx/blk/): FILL,
           COPY, EXPAND and BLIT k (RFC 0041, 2.1)
+    wif   the same with the what-if block instructions too (whatif.py,
+          gfx/wif/): X1's and two more, on an extended control store
 
 C files compile to object files cached in build/mini_gfx/obj/, by their
 text, the headers' and the defines.
@@ -26,13 +28,13 @@ from heron.studies.c_compiler.cc import driver
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(BUILD, "mini_gfx")
-VARIANTS = ("c", "asm", "blk")
+VARIANTS = ("c", "asm", "blk", "wif")
 INCLUDE = [os.path.join(HERE, d) for d in ("rt", "gfx", "wm")]
 LIBS = ["rt/rt.c", "rt/video.c", "rt/input.c", "rt/perf.c", "rt/palette.c"]
 GFX = sorted(os.path.relpath(p, HERE) for p in glob.glob(os.path.join(HERE, "gfx", "*.c")))
 WM = sorted(os.path.relpath(p, HERE) for p in glob.glob(os.path.join(HERE, "wm", "*.c")))
-KERNELS = {v: sorted(os.path.relpath(p, HERE) for p in glob.glob(os.path.join(HERE, "gfx", v, "*.s")))
-           for v in ("asm", "blk")}
+KERNELS = {v: sorted(os.path.relpath(p, HERE) for p in glob.glob(os.path.join(HERE, "gfx", v, "*.[sc]")))
+           for v in ("asm", "blk", "wif")}
 
 
 def _headers():
@@ -120,9 +122,11 @@ def build(sources, variant="c", defines=None, wm=False, name=None):
     the fonts and, with wm, the window manager."""
     if variant not in VARIANTS:
         raise ValueError(f"variant: one of {', '.join(VARIANTS)}")
-    d = {"GFX_ASM": "1"} if variant in ("asm", "blk") else {}
-    if variant == "blk":
+    d = {"GFX_ASM": "1"} if variant != "c" else {}
+    if variant in ("blk", "wif"):
         d["GFX_BLK"] = "1"
+    if variant == "wif":
+        d["GFX_WIF"] = "1"
     d.update(defines or {})
     headers = _headers()
     include = INCLUDE + sorted({os.path.join(HERE, os.path.dirname(s)) for s in sources})
@@ -135,9 +139,11 @@ def build(sources, variant="c", defines=None, wm=False, name=None):
             p.add_object(c_object(path, d, include, headers))
         else:
             p.add_object(asm_object(path))
-    if variant != "c":
-        for s in KERNELS["asm"] + (KERNELS["blk"] if variant == "blk" else []):
-            p.add_object(asm_object(os.path.join(HERE, s)))
+    kernels = {"c": [], "asm": ["asm"], "blk": ["asm", "blk"], "wif": ["asm", "blk", "wif"]}[variant]
+    for k in kernels:
+        for s in KERNELS[k]:
+            path = os.path.join(HERE, s)
+            p.add_object(c_object(path, d, include, headers) if s.endswith(".c") else asm_object(path))
     p.add_object(fonts_object())
     p.add_library()
     img = p.link()

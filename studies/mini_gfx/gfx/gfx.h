@@ -244,10 +244,20 @@ void fill_rows_blk(const FillJob *j);
 void copy_rows_blk(const CopyJob *j);
 void shift_rows_blk(const ShiftJob *j);
 void expand_rows_blk(const ExpandJob *j);
+#ifdef GFX_WIF
+/* the what-if block instructions (whatif.py, gfx/wif) */
+void fill_rows_wif(const FillJob *j);
+void shift_rows_wif(const ShiftJob *j);
+void expand_rows_wif(const ExpandJob *j);
+#define fill_rows fill_rows_wif
+#define shift_rows shift_rows_wif
+#define expand_rows expand_rows_wif
+#else
 #define fill_rows fill_rows_blk
-#define copy_rows copy_rows_blk
 #define shift_rows shift_rows_blk
 #define expand_rows expand_rows_blk
+#endif
+#define copy_rows copy_rows_blk
 #else
 #define fill_rows fill_rows_asm
 #define copy_rows copy_rows_asm

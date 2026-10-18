@@ -1,7 +1,7 @@
 """The study's command line: heron mini_gfx <command> ...
 
   list                      the programs
-  run PROG [--variant c|asm|blk] [--layout L0|L1] [--bandwidth B0|B1|B2]
+  run PROG [--variant c|asm|blk|wif] [--layout L0|L1] [--bandwidth B0|B1|B2]
            [--frames N] [--script FILE] [--png-dir DIR] [--profile N]
            [--poke NAME=V] [-D NAME=V]
                             a program on the mini's simulator, with its
@@ -82,7 +82,7 @@ def main(argv=None):
     sub.add_parser("list")
     r = sub.add_parser("run")
     r.add_argument("prog")
-    r.add_argument("--variant", choices=("c", "asm", "blk"))
+    r.add_argument("--variant", choices=("c", "asm", "blk", "wif"))
     r.add_argument("--layout", choices=("L0", "L1"))
     r.add_argument("--bandwidth", choices=("B0", "B1", "B2"))
     r.add_argument("--frames", type=int)

@@ -113,7 +113,7 @@ def generate(progress=print):
            "(`bench/kernels`, `bench/wm`); don't edit by hand. Times are on the mini's "
            "simulator (studies/mini), ticks of 19.86 ns read from the beam (P1).", ""]
     res = {}
-    for v in ("c", "asm", "blk"):
+    for v in ("c", "asm", "blk", "wif"):
         progress(f"kernels, {v}")
         res[v] = kernels(v)
     out += ["## The library's operations", "",
@@ -122,11 +122,13 @@ def generate(progress=print):
             "L1 at 1), as the time it would take over a whole screen of 640 x 480, or "
             "for a character or a pixel. A row of the fills and copies is 512 pixels.", ""]
     for v, title in (("c", "C kernels"), ("asm", "Assembly kernels"),
-                     ("blk", "Assembly kernels with the block instructions")):
+                     ("blk", "Assembly kernels with the block instructions"),
+                     ("wif", "With the what-if block instructions too (whatif.py; their "
+                      "microwords' lengths estimated, not from static timing analysis)")):
         out += [f"### {title} ({v})", "", kernel_table(res, v), ""]
     rows = []
     for label, mode, layout, opts in WM_CASES:
-        for v in ("c", "asm", "blk"):
+        for v in ("c", "asm", "blk", "wif"):
             progress(f"wm, {label}, {v}")
             rows.append((label, v, wm(v, mode, layout, opts)))
     out += ["## The window manager", "",

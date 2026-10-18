@@ -100,7 +100,11 @@ class Session:
     def __init__(self, build, layout="L0", bandwidth="B0", pokes=None):
         self.build = build
         self.layout, self.bandwidth = layout, bandwidth
-        self.m = sim.machine(layout=layout, bandwidth=bandwidth)
+        mc = None
+        if build.variant == "wif":
+            from . import whatif
+            mc = whatif.extended()
+        self.m = sim.machine(layout=layout, bandwidth=bandwidth, mc=mc)
         sim.load(self.m, build.img)
         # the board's layout for the library (gfx/format.c), and the run's variables
         pokes = dict(pokes or {})

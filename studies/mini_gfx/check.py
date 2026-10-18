@@ -40,7 +40,7 @@ def modes():
 
 def main():
     ok = True
-    for v in ("c", "asm", "blk"):
+    for v in ("c", "asm", "blk", "wif"):
         good, last = selftest(v)
         print(f"selftest {v:3s}: {last}")
         ok &= good
