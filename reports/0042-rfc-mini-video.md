@@ -62,7 +62,7 @@ its acknowledge. The options:
 |---|---|---:|
 | **M0** | 640 × 480 × 4 | built |
 | **M1** | 320 × 480 × 8 | +1–2 |
-| **M2** | 640 × 480 × 8 | +1–2, and B1 or B2 |
+| **M2** | 640 × 480 × 8 | +1–2 (B0 while cycles stay within 7 ticks, else B1 or B2) |
 | **M3**, **M4** | 640 × 480 × 2, × 1 | +1 |
 | **M5**, **M6** | 1024 × 768 × 2, × 1 | +5–9 and a clock (K1 or K2); M5 wants B1 |
 | **L0** | the chunky layout | built |
@@ -221,15 +221,19 @@ acknowledge.
 
 **B0** (as built): the video reads one word in every CPU cycle's tail
 (T2 and the next H0) and all through an I/O access's hold, into a
-holding register; the shifters take a word at each word's end. A cycle
-is 5–11 ticks, so slots come at least every 11 ticks, which holds the
-modes that need a word every 13 ticks or less often: M0, M1, M3, M4, M6.
-The CPU never waits.
+holding register; the shifters take a word at each word's end. Outside
+an I/O access's hold a cycle is 5–7 ticks as the microcode stands (its
+length classes are 5, 6 and 7, and every microinstruction that may fetch
+a parcel on demand, two ticks more, is in the 5-tick class), so slots
+come at least every 7 ticks: every mode, M2's word every 8 ticks
+included. That is the microcode's to keep (**open**,
+[14](#14-open-questions)): a cycle of 9 ticks or more starves M2. The
+CPU never waits.
 
 **B1, cycle stealing:** a second holding register, and when both run low
 before a slot comes, the video holds the CPU for two ticks (the hold an
-I/O access uses) and reads. It's needed by M2 (a word every 8 ticks) and
-wanted by M5 (a word every ~12.4 ticks). The CPU loses the stolen ticks,
+I/O access uses) and reads. It's needed by M2 (a word every 8 ticks) if
+cycles may be longer than 7 ticks. The CPU loses the stolen ticks,
 none when its cycles are short and the slots keep up.
 
 **B2, a 64-bit bank:** bank 1 as eight 256K × 8 SRAMs, two words a slot
@@ -289,9 +293,10 @@ as PNG files and where the time went. The rules it follows:
   first words are in the holding registers as it starts. A load with no
   word is an underrun with B0 and B2 (counted: the picture would glitch,
   though the simulator still shows the line as it should be), a steal of
-  two ticks with B1. With cycles of at most 9 ticks (7, and 2 for a
-  parcel fetched on demand), B0 keeps up with every mode but M2 in this
-  model; M5's margin is the hardware's question.
+  two ticks with B1. With cycles of at most 7 ticks outside I/O holds
+  (the microcode as it stands, [9](#9-bandwidth-and-the-cpu)), B0 keeps
+  up with every mode in this model, M2 included; the hardware's margins
+  (the slot's two ticks, the shifters' load) are a netlist's question.
 
 Two simplifications: a line's words are read when the line starts (the
 hardware reads them across the line), and B1's stealing is counted per
@@ -319,7 +324,7 @@ cycle, not per tick.
   register before the palette (15 ns a pixel is too short for the
   multiplexer, the SRAM and the colour register in one), 8–10 ns palette
   SRAMs, faster shifters, and the timing table. M5 needs a word every
-  ~12.4 ticks against slots every 11, so B1 to be safe.
+  ~12.4 ticks against slots every 7.
 - **L1, 0:** the holding register's bits reach the shifters in another
   order; the same chips.
 - **F1, +8–12:** a 3-way reordering of 32 bits into the shifters (4, 2
@@ -346,6 +351,9 @@ cycle, not per tick.
 3. D0 or D1: what the descriptors are used for, beyond what a frame base
    gives.
 4. The cursor's size and colours, or no cursor and a software one.
-5. B1 or B2, if M2 or M5 is wanted.
+5. B1 or B2, if M2 is wanted, or a rule that the microcode keeps every
+   cycle outside an I/O hold within 7 ticks (as it does now), so that B0
+   does: a microinstruction that fetches on demand in a 6- or 7-tick
+   cycle, or a longer length class, would break it.
 6. Which of X1's block instructions.
 7. The descriptors' bits 31–24.

@@ -240,7 +240,7 @@ def video(nl, DB, VA, capture=False):
     and in an I/O access's hold, and latches the word at its address (VAD)
     into HR at the end of each two ticks it owned it. VAD steps when the
     shifters take HR, so HR always holds the next word to show (a slot
-    every 11 ticks at most, a word every 16)."""
+    every 7 ticks at most, a word every 16)."""
     g = nl.gate
     nl.section("Video timing")
     # two 22V10s on the master clock, cleared in a reset. V1: the pixel
