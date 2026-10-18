@@ -61,9 +61,7 @@ _expand_rows_blk:
         CMP  r3, #256
         BLS  .exp
         MOV  r3, #256
-.exp:  MOV  r0, #-1           ; CL <- 0 first (the microcode's count test
-        CLZ  r0, r0            ; reads CL before it loads it: see the README)
-        .half 0x03FD            ; EXPAND
+.exp:        .half 0x03FD            ; EXPAND
         SUB  r14, r3
         BNE  .chunk
         MOVS r0, byte [r2]      ; the last word

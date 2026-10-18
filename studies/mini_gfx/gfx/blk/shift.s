@@ -84,9 +84,7 @@ _shift_rows_blk:
         CMP  r3, #256
         BLS  .blit
         MOV  r3, #256
-.blit:  MOV  r13, #-1          ; CL <- 0 first (the microcode's count test
-        CLZ  r13, r13          ; reads CL before it loads it: see the README)
-.blitop: .half 0x10FD           ; BLIT k
+.blit:.blitop: .half 0x10FD           ; BLIT k
         SUB  r14, r3
         BNE  .chunk
         MOV  r13, [r2]

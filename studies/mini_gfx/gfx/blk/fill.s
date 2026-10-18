@@ -41,9 +41,7 @@ _fill_rows_blk:
         CMP  r3, #256
         BLS  .fill
         MOV  r3, #256
-.fill:  MOV  r0, #-1           ; CL <- 0 first (the microcode's count test
-        CLZ  r0, r0            ; reads CL before it loads it: see the README)
-        .half 0x01FD            ; FILL
+.fill:        .half 0x01FD            ; FILL
         SUB  r14, r3
         BNE  .chunk
         TST  r6, r6

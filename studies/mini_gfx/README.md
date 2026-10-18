@@ -139,11 +139,10 @@ callee's to save; calls leave the return address in `r7`, so a routine
 that calls saves it (`SAVE r7-r14` ... `RESTORE r7-r14`, `RET`). Calls
 reach ±64 KB. Interrupt handlers are C functions on the runtime's hooks.
 The block instructions are written `.half 0x01FD` (FILL), `0x02FD`
-(COPY), `0x03FD` (EXPAND), `0x10FD + 0x100 * k` (BLIT k), each after
-`MOV rX, #-1; CLZ rX, rX`: the microcode tests its count's condition
-latch a microinstruction before it loads it, so without that a block
-instruction does nothing if the latch was left set (reported to the
-mini study; `gfx/blk/blk.s`).
+(COPY), `0x03FD` (EXPAND), `0x10FD + 0x100 * k` (BLIT k). (They used to
+need the condition latch cleared before them: the microcode tested their
+count's zero a cycle before it loaded it; the mini study fixed that in
+2dc9fff after this study found it.)
 
 ## How the library works
 

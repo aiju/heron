@@ -42,9 +42,7 @@ _copy_rows_blk:
         CMP  r3, #256
         BLS  .copy
         MOV  r3, #256
-.copy:  MOV  r0, #-1           ; CL <- 0 first (the microcode's count test
-        CLZ  r0, r0            ; reads CL before it loads it: see the README)
-        .half 0x02FD            ; COPY
+.copy:        .half 0x02FD            ; COPY
         SUB  r14, r3
         BNE  .chunk
         MOV  r0, [r1]
