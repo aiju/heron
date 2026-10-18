@@ -1,0 +1,5 @@
+title = "Fennec Run"
+about = "a side-scrolling platformer on M1 (320 x 240 x 8): parallax bands by descriptors, fine scrolling four ways, sprites in spare lines"
+sources = ["platformer.c", "scroll.c", "art.c", "level.c", "kernels.c", "kernels.s"]
+frames = 1500
+script = "run.script"
