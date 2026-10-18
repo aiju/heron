@@ -220,10 +220,13 @@ class Session:
                 res.shots[shot_at.pop(f)] = m.frame()
             if on_frame:
                 on_frame(self, f)
+            if done:
+                res.status = "done"
+                break
             if m.halted:
                 res.status = "halted"
                 break
-            if done or (si >= len(steps) and steps and steps[-1][1] == "stop" and f >= steps[-1][0]):
+            if si >= len(steps) and steps and steps[-1][1] == "stop" and f >= steps[-1][0]:
                 res.status = "done"
                 break
         else:

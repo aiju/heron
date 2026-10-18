@@ -54,8 +54,10 @@ def cmd_run(args):
     if r.trap:
         print(f"TRAP {r.trap}")
     for name, v in r.perf.items():
-        print(f"  {name:28s} " + "  ".join(f"{x * TICK / 1e3:.1f} us" if i < 2 else str(x)
-                                         for i, x in enumerate(v)))
+        # the first value is ticks in rt/perf.h's spans and frames; the rest
+        # may be anything the program counts
+        print(f"  {name:28s} {' '.join(str(x) for x in v):24s} ({v[0] * TICK / 1e3:.1f} us)"
+              if v else f"  {name}")
     if r.shots:
         print(f"screenshots in {shots}: {', '.join(r.shots)}")
     if r.profile:

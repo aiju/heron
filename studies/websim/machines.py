@@ -313,6 +313,11 @@ prints on the simulations' console.</p>"""
 # (program, the menu's line, a sentence, variant, layout)
 MINI = [
     ("apps/desktop", "desktop", "the window manager, with a few windows to move about", "blk", "L0"),
+    ("games/snake", "snake", "Snake at 320 x 240 x 8, with palette and descriptor tricks: arrow keys, "
+     "a for the autopilot", "blk", "L0"),
+    ("games/snake_asm", "snake in assembly", "the same Snake written in draft 2 assembly", "c", "L0"),
+    ("games/mines", "minesweeper", "Minesweeper with the hardware cursor: left click reveals, right "
+     "click flags", "blk", "L0"),
     ("demos/testcard", "test card", "a test card in every video mode, a key or a click for the next",
      "blk", "L0"),
 ]
