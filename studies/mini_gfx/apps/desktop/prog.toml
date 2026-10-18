@@ -1,0 +1,28 @@
+title = "Desktop"
+about = "the window manager with a few windows: moves, raises, menus; the mode and options from pokes"
+sources = ["desktop.c"]
+wm = true
+frames = 700
+script = """
+10 mouse 200 300
+20 shot desktop
+30 drag 240 40 330 140 30
+80 shot moved
+90 click 300 330
+95 click 200 300
+100 click 160 350
+110 shot shapes
+120 click 600 450
+140 mouse 640 470
+150 click 640 471
+170 shot menu
+200 drag 520 50 200 380 40
+260 shot moved2
+300 drag 140 255 20 20 25
+360 click 465 255
+380 shot closed
+400 click 600 30
+420 mouse 600 100
+425 click 600 100
+440 shot quit
+"""

@@ -19,6 +19,7 @@
 //! the clock (or a multiple of it) wants, or as fast as it can.
 
 pub mod fen;
+pub mod mini;
 pub mod plain;
 
 use std::collections::VecDeque;
@@ -145,6 +146,7 @@ impl Setup {
         let board: Box<dyn Board> = match self.board.as_str() {
             "plain" => Box::new(plain::Plain::new(&mut p, &self.loads)?),
             "fen" => Box::new(fen::Fen::new(&mut p, &self.loads)?),
+            "mini" => Box::new(mini::Mini::new(&mut p, &self.loads)?),
             b => return Err(format!("no board {b:?}")),
         };
         p.finish(&self.board)?;

@@ -1,0 +1,5 @@
+title = "Wobble"
+about = "a logo bent by the descriptors: coarse and smooth (8 shifted copies) waves, stretch, flip, zoom; a vertical scroller; a split screen with a smooth text scroller and a 3D starfield"
+sources = ["wobble.c", "stars.s", "../rasterbars/fx.c"]
+variants = ["c", "asm", "blk"]
+frames = 1300

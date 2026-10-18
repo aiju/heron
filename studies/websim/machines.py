@@ -256,6 +256,102 @@ def fen_machine(serial):
     )
 
 
+# ---- Heron Mini ---------------------------------------------------------------------
+
+_mini_rom = None
+
+
+def mini_rom():
+    """The mini's control store for the board (engine/src/mini.rs): the
+    count of distinct microwords, their fields, the index of every
+    microaddress, the sequencer's addresses and the length classes, as
+    little-endian words."""
+    global _mini_rom
+    if _mini_rom is None:
+        import array
+        from heron.studies.mini import sim
+        words, index, entry, refill, irq, fault, lengths, _ = sim.rom()
+        from heron import native
+        n = len(words) // len(native.mini.FIELDS)
+        a = array.array("I", [n] + list(words) + [i & 0xFFFFFFFF for i in index]
+                        + [entry, refill, irq] + list(fault) + list(lengths))
+        if a.itemsize != 4:
+            raise RuntimeError("array 'I' isn't 32 bits here")
+        _mini_rom = a.tobytes()
+    return _mini_rom
+
+
+def mini(name, variant, layout):
+    def make():
+        from heron.studies.mini_gfx import programs
+        p = programs.get(name)
+        b = p.build(variant)
+        loads = [("rom", 0, mini_rom()), ("ram", 0, ram_bytes(b.img.mem))]
+        pokes = dict(p.pokes)
+        pokes.setdefault("_board_layout", 1 if layout == "L1" else 0)
+        for sym, v in pokes.items():
+            if sym in b.symbols:
+                loads.append(("ram", b.symbols[sym], (v & 0xFFFFFFFF).to_bytes(4, "little")))
+        return Build("mini", {"layout": layout, "bandwidth": p.bandwidth}, loads,
+                     code_symbols(b.symbols))
+    return make
+
+
+MINI_LINKS = [("The mini_gfx study", "studies/mini_gfx/README.md"),
+              ("Report 0043", "reports/0043-report-mini-graphics.md"),
+              ("RFC 0042: the mini's video", "reports/0042-rfc-mini-video.md"),
+              ("RFC 0041: Heron Mini", "reports/0041-rfc-heron-mini.md")]
+
+MINI_ABOUT = """<p>{about}</p>
+<p>Heron Mini (RFC 0041) with the video options of RFC 0042, on the mini study's
+register-transfer model, at the machine's own speed: its clock is the 50.35 MHz master
+clock, and a frame is 16.7 ms of it. The program is studies/mini_gfx's
+<code>{name}</code>, built with its {variant} kernels. Click the screen to give it the
+keyboard and the mouse; the keyboard is a US one. The terminal shows what the program
+prints on the simulations' console.</p>"""
+
+# (program, the menu's line, a sentence, variant, layout[, the ms it takes to draw])
+MINI = [
+    ("apps/desktop", "desktop", "the window manager, with a few windows to move about", "blk", "L0"),
+    ("games/snake", "snake", "Snake at 320 x 240 x 8, with palette and descriptor tricks: arrow keys, "
+     "a for the autopilot", "blk", "L0"),
+    ("games/snake_asm", "snake in assembly", "the same Snake written in draft 2 assembly", "c", "L0"),
+    ("games/mines", "minesweeper", "Minesweeper with the hardware cursor: left click reveals, right "
+     "click flags", "blk", "L0"),
+    ("demos/testcard", "test card", "a test card in every video mode, a key or a click for the next",
+     "blk", "L0"),
+    ("apps/editor", "text editor", "a text editor in two windows: typing, arrows, the mouse to "
+     "select, Ctrl+C/X/V, Ctrl+F to find", "blk", "L0"),
+    ("apps/forms", "parts inventory", "a forms application: a sortable, searchable list, a record "
+     "form, a chart", "blk", "L0"),
+    ("apps/schematic", "schematic editor", "a schematic editor in the window manager: place, wire, "
+     "pan with the arrows or a right drag", "blk", "L0"),
+    ("games/rocks", "shards", "a vector game at 1024 x 768 x 1: arrows to turn and thrust, Space "
+     "to fire", "blk", "L0"),
+    ("games/platformer", "fennec run", "a side-scroller at 320 x 240 x 8 with parallax by "
+     "descriptors: arrows, Space to jump (it takes a few seconds to start)", "blk", "L0", 8000),
+    ("games/racer", "racer", "a pseudo-3D road drawn by descriptors: arrows to steer, accelerate "
+     "and brake (it takes a few seconds to start)", "blk", "L0", 8000),
+]
+
+
+def mini_machine(name, line, summary, variant, layout, boot=1000):
+    return Machine(
+        id="mini-" + name.split("/")[1].replace("_", "-"),
+        group="Heron Mini",
+        variant=line,
+        summary=f"Heron Mini: {summary}.",
+        make=mini(name, variant, layout),
+        about=MINI_ABOUT.format(about=summary[0].upper() + summary[1:] + ".", name=name,
+                                variant={"c": "C", "asm": "assembly",
+                                         "blk": "block-instruction"}[variant]),
+        terminal=dict(RAW),
+        screen=True,
+        links=MINI_LINKS,
+        check=[("run", boot), ("screen",)],
+    )
+
+
 MACHINES = [
     lisp_machine("v2", False),
     lisp_machine("v2", True),
@@ -267,7 +363,7 @@ MACHINES = [
     egret_machine("v1b", "jit"),
     fen_machine(True),
     fen_machine(False),
-]
+] + [mini_machine(*m) for m in MINI]
 
 
 def get(mid):

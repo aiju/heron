@@ -264,6 +264,12 @@ T("sram512", "sram",
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
   family="mem", desc="512K x 8 static RAM")
 
+# a 22V10 (GAL): ten outputs, each a sum of products of the pins
+# (infra/hw/gal.py); every pin may be an input, and CLK clocks the
+# registered outputs. The equations are the instance's (`gal`, `program`)
+T("22v10", "gal", [("CLK", "io")] + [(f"I{i}", "io") for i in range(1, 12)]
+  + [(f"IO{i}", "io") for i in range(10)], desc="22V10 programmable logic")
+
 T("flash", "rom",
   [(f"A{i}", "in") for i in range(17)] + [(f"D{i}", "tri") for i in range(8)]
   + [("CE", "in"), ("OE", "in"), ("WE", "in")],
@@ -477,12 +483,12 @@ T("cpucard_w32", "iodev_w32",
                          "clock) and draft 1's I/O page, on a 32-bit data bus")
 
 T("tickclk", "tickclk",
-  [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("RW", "out"), ("RSTB", "out"),
-   ("RESET", "out")],
+  [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("PHASE", "out"), ("RW", "out"),
+   ("RSTB", "out"), ("RESET", "out")],
   family="fixture", desc="for static timing analysis: a tick clock generator's outputs as "
                          "functions of the cycle (CLK's edge at 0; the memory write window, "
-                         "a phase from a later tick, the register file's write phase and its "
-                         "write strobe)")
+                         "two phases from later ticks, the register file's write phase and "
+                         "its write strobe)")
 
 T("iodev32", "iodev32",
   [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WEL", "in"), ("WEH", "in")]

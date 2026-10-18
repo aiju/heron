@@ -1,0 +1,64 @@
+title = "Editor"
+about = "a text editor in windows: two documents, C's colours, selection, clipboard, search; rows copied in the store when they only move"
+sources = ["editor.c", "edit.c", "text.c", "textcol.s", "sample.c"]
+wm = true
+frames = 900
+# the C file's text is at (32, 40), the notes' at (264, 262); cells are 8 x 16
+script = """
+5 mouse 420 190
+60 shot open
+70 click 510 352
+80 key enter
+86 type static int typed = 42;
+120 shot typing
+130 key home
+136 keydown shift
+138 key up
+144 key up
+150 key up
+156 keyup shift
+160 keydown ctrl
+160 key c
+160 keyup ctrl
+170 shot select
+180 click 34 224
+190 keydown ctrl
+190 key v
+190 keyup ctrl
+216 shot paste
+230 drag 74 288 300 336 12
+260 shot drag
+270 keydown ctrl
+270 key f
+270 keyup ctrl
+276 type ring
+290 key enter
+306 shot find
+310 key enter
+326 shot find_next
+330 key esc
+340 keydown ctrl
+340 key down
+344 key down
+348 key down
+352 key down
+356 key down
+360 key down
+364 key down
+368 key down
+372 keyup ctrl
+390 shot scrolled
+400 drag 520 60 520 300 20
+440 shot bar
+450 click 600 450
+470 shot notes_front
+480 keydown ctrl
+480 key end
+480 keyup ctrl
+490 key enter
+496 type Typed in the other window.
+540 shot notes
+560 keydown ctrl
+560 key q
+560 keyup ctrl
+"""

@@ -1,0 +1,5 @@
+title = "Rotozoomer"
+about = "a 256 x 256 texture turning and zooming in M1, every texel looked up each frame at 160 x 120 and 80 x 60: fixed point, two coordinates in one register"
+sources = ["rotozoom.c", "rotozoom.s", "../rasterbars/fx.c"]
+variants = ["c", "asm"]
+frames = 500

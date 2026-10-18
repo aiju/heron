@@ -1,0 +1,7 @@
+title = "Minesweeper"
+about = "M0 640 x 480 x 4 with the hardware cursor; M3 and M5 at two bits (mode=3, 5); software cursors saved under or in a band of descriptors (swcursor=1, 2)"
+sources = ["mines.c"]
+variants = ["c", "asm", "blk"]
+frames = 700
+# made by make_scripts.py; m5.script is M5's (--poke mode=5 --script ...)
+script = "m0.script"

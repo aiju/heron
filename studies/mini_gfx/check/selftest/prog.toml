@@ -1,0 +1,4 @@
+title = "Self-test"
+about = "the library's kernels against pixel-at-a-time references, in all nine formats"
+sources = ["selftest.c"]
+frames = 3000

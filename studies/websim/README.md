@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v1_isa, v2_isa, lisp, egret, fen]
+depends-on: [v1_isa, v2_isa, lisp, egret, fen, mini, mini_gfx]
 reports: []
 ---
 
@@ -9,8 +9,9 @@ reports: []
 Heron's machines in a browser: the studies' own instruction-level
 simulators, built for WebAssembly, with a terminal, a screen, the
 keyboard and the mouse, in the website's Simulator tab (`sim/`). The
-Lisp and Egret at their terminals, on draft 1b and draft 2, and Fen with
-its shell on the serial console or its desktop on the video card, at the
+Lisp and Egret at their terminals, on draft 1b and draft 2, Fen with
+its shell on the serial console or its desktop on the video card, and
+Heron Mini running the mini_gfx study's programs on its video, at the
 machine's own clock or as fast as the browser goes. A machine is a description, so a new one, or one whose study has
 changed its memory map, is a few lines of Python here.
 
@@ -37,6 +38,7 @@ The browser's engine needs Rust's WebAssembly target:
 | `egret-v2-jit`, `egret-v1b-jit` | The same with its JIT |
 | `fen-serial` | [Fen](../fen/README.md) with its shell on the serial console |
 | `fen-desktop` | Fen's desktop, on the video card, the PS/2 keyboard and the mouse |
+| `mini-...` | [Heron Mini](../mini/README.md)'s register-transfer model with RFC 0042's video, running a [mini_gfx](../mini_gfx/README.md) program: its window manager and applications, its games and demos (`machines.py`'s `MINI` lists them) |
 
 The page's address names a machine (`sim/#fen-desktop`), so a report
 can link to one.
@@ -45,7 +47,7 @@ can link to one.
 
 | File | What's in it |
 |---|---|
-| `engine/` | The engine, a plain Rust crate: a machine put together from a description (a board, its parameters, what to load where) and run in slices of time; the boards: `plain`, draft 1 or 2 with the I/O page's console, and `fen`, Fen's board |
+| `engine/` | The engine, a plain Rust crate: a machine put together from a description (a board, its parameters, what to load where) and run in slices of time; the boards: `plain`, draft 1 or 2 with the I/O page's console, `fen`, Fen's board, and `mini`, Heron Mini's (its microcode loaded as a blob, its keyboard and mouse as mini_gfx's packets on UART 1, its cycles the master clock's ticks) |
 | `wasm/` | The engine for the browser, as exported functions without wasm-bindgen; Python has it as `heron.native.websim` (heron/bindings) |
 | `machines.py` | The machines: how each is made from its study's build, how the page shows it, and its check |
 | `web/` | The page: `body.html`, `sim.js` (loading, running, the screen, the inspector, the menus), `term.js` (the terminal), `sim.css` |
@@ -93,6 +95,10 @@ machine's PS/2 mouse there at most 200 counts a sample, 40 samples a
 second as Fen asks for, since a mouse drops more than 255, and gives a
 change of buttons a sample of its own, so a click isn't lost between
 two.
+
+**A screen that changes size**: a mini program can switch between the
+640 x 480 and 1024 x 768 modes, so the page sizes the canvas to the
+screen each time it draws one of another size.
 
 **The inspector** (the More menu): the cycles, the instructions and the
 speed, the registers with the symbol at the PC, and memory at an

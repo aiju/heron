@@ -1,0 +1,4 @@
+title = "Bandwidth"
+about = "the video's bandwidth under workloads: underruns with B0 and B2, stolen ticks with B1"
+sources = ["bandwidth.c", "spin.s"]
+frames = 60

@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 
 mod py_fen;
 mod py_hwsim;
+mod py_mini;
 mod py_pcbroute;
 mod py_sisim;
 mod py_toolchain;
@@ -21,6 +22,8 @@ mod native {
     use crate::py_fen::fen;
     #[pymodule_export]
     use crate::py_hwsim::hwsim;
+    #[pymodule_export]
+    use crate::py_mini::mini;
     #[pymodule_export]
     use crate::py_pcbroute::pcbroute;
     #[pymodule_export]

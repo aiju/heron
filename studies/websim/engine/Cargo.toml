@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 fen-board = { path = "../../fen/board" }
+mini-engine = { path = "../../mini/engine" }
 v1-isa = { path = "../../v1_isa/isa" }
 v2-isa = { path = "../../v2_isa/isa" }
 

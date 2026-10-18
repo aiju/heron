@@ -14,6 +14,7 @@ pub struct Spec<'a> {
     pub info: &'a ChipInfo,
     pub delays: &'a HashMap<String, Time>,
     pub params: &'a HashMap<String, i64>,
+    pub program: &'a [i64],
 }
 
 impl Spec<'_> {
@@ -157,6 +158,7 @@ pub enum Model {
     Timer(Box<I8254>),
     Cf(Box<CompactFlash>),
     Vector(Vector),
+    Gal(Gal),
 }
 
 impl Model {
@@ -220,6 +222,7 @@ impl Model {
             "i8254" => Model::Timer(Box::new(I8254::new(s)?)),
             "cf" => Model::Cf(Box::new(CompactFlash::new(s, preload)?)),
             "vector" => Model::Vector(Vector::new(s, preload)?),
+            "gal" => Model::Gal(Gal::new(s)?),
             _ => {
                 return Err(Error(format!(
                     "{}: unknown model {:?}",
@@ -278,6 +281,7 @@ impl Model {
             Model::Timer(m) => m.init(cx, c),
             Model::Cf(m) => m.init(cx, c),
             Model::Vector(m) => m.init(cx, c),
+            Model::Gal(m) => m.init(cx, c),
         }
     }
 
@@ -341,6 +345,7 @@ impl Model {
             Model::Timer(m) => m.eval(cx, c, pin),
             Model::Cf(m) => m.eval(cx, c, pin),
             Model::Vector(m) => m.eval(cx, c, pin),
+            Model::Gal(m) => m.eval(cx, c, pin),
         }
     }
 }
@@ -3562,5 +3567,143 @@ impl Vector {
             }
         }
         self.prev = v;
+    }
+}
+
+// ---------------------------------------------------------------- 22V10
+
+/// A 22V10 (GAL) programmed with sums of products (the netlist's
+/// `program`, infra/hw/gal.py): each output the sum of its terms, or the
+/// complement; a registered output loads at CLK's rising edge, the others
+/// follow their inputs. A term reads an output's pin, which feeds back.
+pub struct Gal {
+    clk: usize,
+    prev: u8,
+    outs: Vec<GalOut>,
+    /// The combinatorial outputs each pin reaches.
+    fanout: Vec<Vec<usize>>,
+    tpd: Time,
+    tco: Time,
+    setup: Time,
+}
+
+struct GalOut {
+    pin: usize,
+    reg: bool,
+    inv: bool,
+    /// Each term: (pin, the value it must have).
+    terms: Vec<Vec<(usize, u8)>>,
+    inputs: Vec<usize>,
+    state: u8,
+}
+
+impl Gal {
+    fn new(s: &Spec) -> Result<Gal, Error> {
+        let bad = || Error(format!("{}: a malformed 22V10 program", s.info.reference));
+        let mut words = s
+            .program
+            .iter()
+            .map(|&w| usize::try_from(w).map_err(|_| bad()));
+        let mut next = || words.next().unwrap_or_else(|| Err(bad()));
+        let n = s.info.pin_names.len();
+        let mut outs = Vec::new();
+        for _ in 0..next()? {
+            let pin = next()?;
+            let flags = next()?;
+            let mut terms = Vec::new();
+            for _ in 0..next()? {
+                let mut t = Vec::new();
+                for _ in 0..next()? {
+                    let l = next()?;
+                    if l / 2 >= n {
+                        return Err(bad());
+                    }
+                    t.push((l / 2, (1 - l % 2) as u8));
+                }
+                terms.push(t);
+            }
+            let mut inputs: Vec<usize> = terms.iter().flatten().map(|&(p, _)| p).collect();
+            inputs.sort_unstable();
+            inputs.dedup();
+            if pin >= n {
+                return Err(bad());
+            }
+            outs.push(GalOut {
+                pin,
+                reg: flags & 1 != 0,
+                inv: flags & 2 != 0,
+                terms,
+                inputs,
+                state: 0,
+            });
+        }
+        let mut fanout = vec![Vec::new(); n];
+        for (i, o) in outs.iter().enumerate() {
+            if !o.reg {
+                for &p in &o.inputs {
+                    fanout[p].push(i);
+                }
+            }
+        }
+        Ok(Gal {
+            clk: s.pin("CLK")?,
+            prev: 0,
+            outs,
+            fanout,
+            tpd: s.d("tPD")?,
+            tco: s.d("CLK->Q")?,
+            setup: s.d("setup")?,
+        })
+    }
+
+    /// The output as the inputs are, or with one of them (`flip`) the
+    /// other way.
+    fn sum(cx: &Ctx, c: &ChipInfo, o: &GalOut, flip: Option<usize>) -> u8 {
+        let on = o.terms.iter().any(|t| {
+            t.iter()
+                .all(|&(p, v)| cx.input(c, p) ^ u8::from(flip == Some(p)) == v)
+        });
+        u8::from(on) ^ u8::from(o.inv)
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        for o in &self.outs {
+            let v = if o.reg {
+                o.state
+            } else {
+                Self::sum(cx, c, o, None)
+            };
+            cx.drive(c, o.pin, v, true, 0);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin == self.clk {
+            let v = cx.input(c, self.clk);
+            if v == 1 && self.prev == 0 {
+                for i in 0..self.outs.len() {
+                    if !self.outs[i].reg {
+                        continue;
+                    }
+                    let state = Self::sum(cx, c, &self.outs[i], None);
+                    // an input the output doesn't depend on, as the others
+                    // are, needn't be set up
+                    for k in 0..self.outs[i].inputs.len() {
+                        let p = self.outs[i].inputs[k];
+                        if Self::sum(cx, c, &self.outs[i], Some(p)) != state {
+                            cx.check_setup(c, p, self.setup, "input");
+                        }
+                    }
+                    self.outs[i].state = state;
+                    cx.drive(c, self.outs[i].pin, state, true, self.tco);
+                }
+            }
+            self.prev = v;
+        }
+        for k in 0..self.fanout[pin].len() {
+            let o = &self.outs[self.fanout[pin][k]];
+            let v = Self::sum(cx, c, o, None);
+            cx.drive(c, o.pin, v, true, self.tpd);
+        }
     }
 }

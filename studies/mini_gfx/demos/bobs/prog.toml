@@ -1,0 +1,6 @@
+title = "Bobs"
+about = "software sprites: how many 16 x 16 and 32 x 32 masked sprites a frame, by technique, erase, mode and variant"
+sources = ["bobs.c", "sprite.c", "art.c", "jit.c", "draw.s", "blk.s"]
+variants = ["blk", "asm", "c"]
+frames = 1500
+script = ""
