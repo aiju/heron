@@ -388,8 +388,9 @@ porch, 45–524 the picture). The syncs are active low.
   cycle and an I/O access's hold), always the word at its address
   counter, into a holding register; the counter steps as the shifters
   (four 74F299) take that word, at each character's end. A slot comes at
-  least every 11 ticks and a word is needed every 16, so the video never
-  waits and never holds the CPU.
+  least every 7 ticks (the longest cycle outside an I/O hold, whose ticks
+  are all slots) and a word is needed every 16, so the video never waits
+  and never holds the CPU.
 
 ### 10. Reset and boot
 
@@ -605,13 +606,14 @@ are few:
   line interrupt for the rest (the CPU changes the palette or the table at
   a given line).
 - **Higher resolutions.** 640 × 480 × 4 needs a word every 16 ticks; the
-  slots come every 11 at most. 640 × 480 × 8, or 800 × 600 × 4 (a 40 MHz
-  pixel clock, a word every 10 ticks), would need the video to take bank
-  1 also in cycles that don't use it (most cycles): possible with this
-  design, a few chips more, **not built**. 320 × 240 × 8 (pixels and lines
-  doubled, a descriptor repeating a line) is within today's bandwidth and
-  needs only another shifter arrangement. 1024 × 768 (65 MHz) is out of
-  reach.
+  slots come every 7 at most, as the microcode stands. 640 × 480 × 8 (a
+  word every 8 ticks) or 800 × 600 × 4 (a 40 MHz pixel clock, a word
+  every 10) fit within them, with other shifter arrangements and timing;
+  longer cycles would need the video to take bank 1 also in cycles that
+  don't use it, a few chips more. **Not built**: [RFC 0042](0042-rfc-mini-video.md)
+  has these as options, with 320 × 240 × 8 (pixels and lines doubled, a
+  descriptor repeating a line) and 1024 × 768 at 1 or 2 bits a pixel
+  (65 MHz).
 
 ### 19. Blitting in microcode
 
