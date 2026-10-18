@@ -1,0 +1,5 @@
+title = "WM costs"
+about = "the window manager's composites timed: a full one, moves, a raise, a typed character"
+sources = ["wmbench.c"]
+wm = true
+frames = 400

@@ -536,24 +536,10 @@ static void mouse_event(const Event *e)
         w->mouse(w, e, e->x - w->c.x0, e->y - w->c.y0);
 }
 
-void wm_frame(void)
+/* the damage to the screen, the cursor over it */
+void wm_compose(void)
 {
-    Event e;
-    Window *w, *n;
     int i;
-    video_wait();
-    perf_frame_begin();
-    while (input_next(&e)) {
-        if (e.type == EV_MOUSE)
-            mouse_event(&e);
-        else if (wm.focus && wm.focus->key)
-            wm.focus->key(wm.focus, &e);
-    }
-    for (w = wm.top; w; w = n) {
-        n = w->below;
-        if (w->tick)
-            w->tick(w);
-    }
     if (wm.opts & WM_SOFTCURSOR) {
         if (ndamage || mouse_x != cur_x || mouse_y != cur_y)
             soft_hide();
@@ -573,6 +559,26 @@ void wm_frame(void)
     ndamage = 0;
     if ((wm.opts & WM_SOFTCURSOR) && !cur_shown)
         soft_show();
+}
+
+void wm_frame(void)
+{
+    Event e;
+    Window *w, *n;
+    video_wait();
+    perf_frame_begin();
+    while (input_next(&e)) {
+        if (e.type == EV_MOUSE)
+            mouse_event(&e);
+        else if (wm.focus && wm.focus->key)
+            wm.focus->key(wm.focus, &e);
+    }
+    for (w = wm.top; w; w = n) {
+        n = w->below;
+        if (w->tick)
+            w->tick(w);
+    }
+    wm_compose();
     perf_frame_end();
     wm.frames++;
 }

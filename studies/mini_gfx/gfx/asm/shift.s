@@ -9,7 +9,8 @@
 ; the planes (a + b = 8 or 16) shift each word both ways.
 ;
 ; ShiftJob: d 0, s 4, dpitch 8, spitch 12, h 16, n 20, lmask 24, rmask 28,
-; rop 32, nterm 36, terms from 40 (src 0, sh 4, m 8; 12 bytes each)
+; rop 32, nterm 36, terms from 40 (src 0, sh 4, m 8; 12 bytes each). Three or
+; four terms go to shift4.s.
 
         .global _shift_rows_asm
         .section .text._shift_rows_asm
@@ -18,7 +19,11 @@ _shift_rows_asm:
         BNE  .c
         MOV  r0, [r1 + 36]
         CMP  r0, #2
-        BNE  .c
+        BEQ  .two
+        CMP  r0, #4             ; three or four terms: shift4.s
+        BHI  .c
+        JMP  _shift_multi
+.two:
         MOVS r0, [r1 + 44]      ; lo shifted right
         BPL  .c
         MOVS r0, [r1 + 52]      ; then hi

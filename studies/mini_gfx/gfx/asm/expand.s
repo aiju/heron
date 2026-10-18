@@ -1,7 +1,7 @@
 ; expand_rows_asm(job): 1-bit expansion in draft 2 (blit.c has the job and
 ; the C kernel), for the formats of 8 pixels a word (PL4 and LIN4: a
 ; source byte a destination word, through the format's table of 256
-; masks); the others go to the C kernel.
+; masks); the others go to expand2.s.
 ;
 ; Each row in two passes: the source's bits from soff lined up into a
 ; buffer, 32 at a time (two words rotated by soff, a constant patched in,
@@ -18,12 +18,13 @@
 _expand_rows_asm:
         MOV  r2, [r1 + 48]
         MOV  r3, [r2 + 4]
-        CMP  r3, #3             ; 8 pixels a word
-        BNE  .c
+        CMP  r3, #3             ; 8 pixels a word; the others: expand2.s
+        BNE  .wide
         MOV  r3, [r1 + 20]
         CMP  r3, #250           ; and the buffer holds the row
         BLO  .go
-.c:     JMP  _expand_rows_c
+        JMP  _expand_rows_c
+.wide:  JMP  _expand_wide
 
 .go:    SAVE r7-r14
         SUB  sp, #8
@@ -194,4 +195,4 @@ _xpand_m:
         .bss
         .align 4
 _xpand_buf:
-        .space 256
+        .space 512

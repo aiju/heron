@@ -99,25 +99,36 @@ int font_draw(Surface *s, const Font *f, int x, int y, const char *str, unsigned
     return font_drawn(s, f, x, y, str, strlen(str), fg, bg);
 }
 
-/* a cell-font string, its cells' top at y, transparent if bg < 0: each of the 16 rows
-   of the cells as one 1-bit row (a byte a character), expanded at once */
+/* a cell-font string, its cells' top at y, transparent if bg < 0: the
+   string's 16 rows put together as a 1-bit bitmap (a byte a character),
+   a glyph's column at a time, and expanded in one call */
 void font_cells(Surface *s, int x, int y, const char *str, int n, unsigned fg, int bg)
 {
-    static unsigned row[64];
-    unsigned char *b = (unsigned char *)row;
+    static unsigned rows[16 * 66];
+    unsigned char *b = (unsigned char *)rows;
     Bitmap bm;
-    int r, k;
+    int r, k, pitch, stride, end = 0;
     if (n > 256)
         n = 256;
-    bm.bits = row;
-    bm.pitch = 0;
-    for (r = 0; r < 16; r++) {
-        for (k = 0; k < n; k++) {
-            int c = (unsigned char)str[k];
-            if (c < 32 || c > 126)
-                c = c ? '?' : ' ';
-            b[k] = font_cell8[16 * (c - 32) + r];
+    pitch = (n + 3) / 4 + 1;
+    stride = 4 * pitch;
+    for (k = 0; k < n; k++) {
+        int c = end ? ' ' : (unsigned char)str[k];
+        const unsigned char *g;
+        unsigned char *d = b + k;
+        if (!c) {
+            end = 1;
+            c = ' ';
         }
-        gfx_expand(s, x, y + r, &bm, 0, 0, 8 * n, 1, fg, bg, bg >= 0);
+        if (c < 32 || c > 126)
+            c = '?';
+        g = font_cell8 + 16 * (c - 32);
+        for (r = 0; r < 16; r++) {
+            *d = *g++;
+            d += stride;
+        }
     }
+    bm.bits = rows;
+    bm.pitch = pitch;
+    gfx_expand(s, x, y, &bm, 0, 0, 8 * n, 16, fg, bg, bg >= 0);
 }

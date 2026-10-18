@@ -1,0 +1,4 @@
+title = "Kernels"
+about = "the library's operations in every pixel format, timed: bench.py's tables"
+sources = ["kernels.c"]
+frames = 6000

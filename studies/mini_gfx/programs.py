@@ -24,7 +24,7 @@ from . import build as B
 from . import run as R
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-AREAS = ("check", "demos", "games", "apps")
+AREAS = ("check", "bench", "demos", "games", "apps")
 
 
 class Program:

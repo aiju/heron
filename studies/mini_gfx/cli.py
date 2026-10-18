@@ -10,6 +10,7 @@
   check                     the library against pixel references in every
                             format and variant, and against the video's
                             decoder in every mode and layout
+  bench [--write]           report 0043's tables (--write: its performance.md)
 """
 
 import argparse
@@ -64,6 +65,11 @@ def cmd_run(args):
     return 1 if r.trap else 0
 
 
+def cmd_bench(args):
+    from . import bench
+    return bench.main(args)
+
+
 def cmd_check(args):
     from . import check
     return check.main()
@@ -86,5 +92,8 @@ def main(argv=None):
     r.add_argument("--poke", action="append")
     r.add_argument("-D", "--define", action="append")
     sub.add_parser("check")
+    b = sub.add_parser("bench")
+    b.add_argument("--write", action="store_true")
     args = ap.parse_args(argv)
-    return {"list": cmd_list, "run": cmd_run, "check": cmd_check}[args.cmd](args)
+    return {"list": cmd_list, "run": cmd_run, "check": cmd_check,
+            "bench": cmd_bench}[args.cmd](args)

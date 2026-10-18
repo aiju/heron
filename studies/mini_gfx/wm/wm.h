@@ -89,6 +89,8 @@ void wm_damage_screen(int x0, int y0, int x1, int y1);
 void wm_run(void);
 /* one frame of it, for programs with a loop of their own */
 void wm_frame(void);
+/* the composition alone: the damage copied to the screen, the cursor */
+void wm_compose(void);
 /* the frame's size around a content area */
 #define WM_BORDER 1
 #define WM_TITLE_H 18
