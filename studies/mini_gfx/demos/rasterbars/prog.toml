@@ -1,0 +1,5 @@
+title = "Raster bars"
+about = "palette changes down the screen: line interrupts (a vector of its own, the C hook), palette banks, both together; latency and fades"
+sources = ["rasterbars.c", "fx.c", "fast.s", "load.s"]
+variants = ["c"]
+frames = 1300
