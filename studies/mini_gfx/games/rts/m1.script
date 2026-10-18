@@ -1,0 +1,29 @@
+# The RTS's session in M1 (320 x 240 x 8, lines doubled):
+#   heron mini_gfx run games/rts --poke mode=1 --script studies/mini_gfx/games/rts/m1.script
+# The screen's coordinates are the cursor's (640 x 480); the HUD starts
+# at line 384. Start-up takes 60-85 frames.
+120 mouse 330 210
+130 shot m1_start
+# a selection rectangle round the soldiers right of the hall
+140 drag 250 190 380 340 30
+165 shot m1_drag
+180 click 590 250 2
+250 shot m1_move
+# scroll right at the screen's edge
+270 mouse 639 250
+330 shot m1_scroll
+340 mouse 400 250
+# the minimap: the enemy's hall, then home
+360 click 120 456
+400 shot m1_enemy
+420 click 20 404
+430 key +
+440 key +
+450 key +
+470 key 4
+530 shot m1_full
+550 key 1
+610 shot m1_dirty
+630 key 3
+690 shot m1_double
+700 stop
