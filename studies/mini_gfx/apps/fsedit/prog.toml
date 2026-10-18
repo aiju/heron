@@ -1,0 +1,54 @@
+title = "Full-screen editor"
+about = "the editor's core on the whole screen (M6, 128 x 47 cells and a status line): rows moved by rewriting line descriptors, palette banks tint the caret's line and the status"
+sources = ["fsedit.c", "../editor/edit.c", "../editor/text.c", "../editor/textcol.s", "../editor/sample.c"]
+frames = 900
+# the text is at the screen's top left in cells of 8 x 16
+script = """
+5 mouse 600 300
+40 shot open
+50 click 1000 312
+60 key enter
+66 type static int typed = 42;
+100 shot typing
+110 key home
+116 keydown shift
+118 key up
+124 key up
+130 key up
+136 keyup shift
+140 keydown ctrl
+140 key c
+140 keyup ctrl
+150 shot select
+160 click 2 184
+170 keydown ctrl
+170 key v
+170 keyup ctrl
+190 shot paste
+200 drag 40 248 300 296 12
+230 shot drag
+240 keydown ctrl
+240 key f
+240 keyup ctrl
+246 type ring
+260 key enter
+276 shot find
+280 key esc
+290 keydown ctrl
+290 key down
+294 key down
+298 key down
+302 key down
+306 key down
+310 key down
+314 key down
+318 key down
+322 keyup ctrl
+340 shot scrolled
+350 key pgdn
+380 key pgdn
+410 shot page
+420 keydown ctrl
+420 key q
+420 keyup ctrl
+"""
