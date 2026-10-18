@@ -164,9 +164,41 @@ static void test_format(int fmt)
     }
 }
 
+/* text: font_draw's string at once against its glyphs one at a time */
+static void test_text(int fmt)
+{
+    static const char str[] = "Wavy jig, ho! 0123 {x} Mjq";
+    Surface a, b;
+    const Font *f = font_sans;
+    int k, pen, x = 7 + fmt, y = 15, opaque;
+    gfx_init(&a, a_bits, W, H, PITCH, fmt);
+    gfx_init(&b, b_bits, W, H, PITCH, fmt);
+    for (opaque = 0; opaque < 2; opaque++) {
+        for (k = 0; k < PITCH * H; k++)
+            a_bits[k] = b_bits[k] = rnd();
+        gfx_clip(&a, 0, 0, W - 9, H);
+        gfx_clip(&b, 0, 0, W - 9, H);
+        font_draw(&a, f, x, y, str, 1, opaque ? 2 : -1);
+        if (opaque)
+            gfx_fill(&b, x, y - f->ascent, x + font_width(f, str), y + f->descent, 2, ROP_COPY);
+        pen = x;
+        for (k = 0; str[k]; k++) {
+            const Glyph *g = &f->glyphs[(unsigned char)str[k] - f->first];
+            if (g->w)
+                gfx_expand(&b, pen + g->xoff, y + g->yoff, &f->strike, g->sx, 0, g->w, g->h, 1, 0,
+                           0);
+            pen += g->adv;
+        }
+        compare(&a, &b, opaque ? "text opaque" : "text", fmt, 0);
+    }
+}
+
 int main(void)
 {
     int fmt;
+    font_init();
+    for (fmt = 0; fmt < PF_N; fmt++)
+        test_text(fmt);
     for (fmt = 0; fmt < PF_N; fmt++) {
         test_format(fmt);
         printf("format %d done\n", fmt);

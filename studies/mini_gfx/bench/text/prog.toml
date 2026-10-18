@@ -1,0 +1,4 @@
+title = "Text"
+about = "lines of proportional and cell text, timed (for profiling)"
+sources = ["text.c"]
+frames = 200

@@ -74,24 +74,88 @@ int font_width(const Font *f, const char *s)
     return font_widthn(f, s, strlen(s));
 }
 
+/* a glyph's rows (each at most 32 pixels, starting on a word of the
+   strike) ORed into a 1-bit buffer from bit `bit` of word dst on */
+void text_or_c(unsigned *dst, int dpitch, const unsigned *src, int spitch, int bit, int rows)
+{
+    while (rows-- > 0) {
+        unsigned w = *src;
+        dst[0] |= w << bit;
+        if (bit)
+            dst[1] |= w >> (32 - bit);
+        dst += dpitch;
+        src += spitch;
+    }
+}
+
+#ifdef GFX_ASM
+void text_or_asm(unsigned *dst, int dpitch, const unsigned *src, int spitch, int bit, int rows);
+#define text_or text_or_asm
+#else
+#define text_or text_or_c
+#endif
+
+/* A proportional string: its glyphs ORed into a 1-bit buffer as wide as
+   the string and as tall as the font, then the buffer expanded onto the
+   surface in one go (opaque: the box in bg). One expansion of the whole
+   string costs much less than one a glyph: each has a row's set-up. */
 int font_drawn(Surface *s, const Font *f, int x, int y, const char *str, int n, unsigned fg,
                int bg)
 {
+    static unsigned buf[20 * 66];
     const Glyph *g;
-    int pen = x;
+    Bitmap bm;
+    int pen = 0, k, x0 = 0, x1 = 0, pitch, h = f->ascent + f->descent;
     if (f->cell) {
         font_cells(s, x, y - 12, str, n, fg, bg);
         return x + 8 * n;
     }
-    if (bg >= 0)
-        gfx_fill(s, x, y - f->ascent, x + font_widthn(f, str, n), y + f->descent, bg, ROP_COPY);
-    while (n-- > 0 && *str) {
-        g = glyph(f, (unsigned char)*str++);
-        if (g->w)
-            gfx_expand(s, pen + g->xoff, y + g->yoff, &f->strike, g->sx, 0, g->w, g->h, fg, 0, 0);
+    /* the box: where the glyphs reach, left and right of the pens */
+    for (k = 0; k < n && str[k]; k++) {
+        g = glyph(f, (unsigned char)str[k]);
+        if (g->w && pen + g->xoff < x0)
+            x0 = pen + g->xoff;
+        if (g->w && pen + g->xoff + g->w > x1)
+            x1 = pen + g->xoff + g->w;
         pen += g->adv;
     }
-    return pen;
+    n = k;
+    if (pen > x1)
+        x1 = pen;
+    if (x1 - x0 > 2048 || h > 20) {
+        /* too big for the buffer: a glyph at a time */
+        pen = x;
+        if (bg >= 0)
+            gfx_fill(s, x, y - f->ascent, x + font_widthn(f, str, n), y + f->descent, bg,
+                     ROP_COPY);
+        for (k = 0; k < n; k++) {
+            g = glyph(f, (unsigned char)str[k]);
+            if (g->w)
+                gfx_expand(s, pen + g->xoff, y + g->yoff, &f->strike, g->sx, 0, g->w, g->h, fg,
+                           0, 0);
+            pen += g->adv;
+        }
+        return pen;
+    }
+    pitch = ((x1 - x0) >> 5) + 2;
+    memset(buf, 0, 4 * pitch * h);
+    pen = -x0;
+    for (k = 0; k < n; k++) {
+        g = glyph(f, (unsigned char)str[k]);
+        if (g->w) {
+            int bx = pen + g->xoff, row = f->ascent + g->yoff;
+            text_or(buf + row * pitch + (bx >> 5), pitch, f->strike.bits + (g->sx >> 5),
+                    f->strike.pitch, bx & 31, g->h);
+        }
+        pen += g->adv;
+    }
+    bm.bits = buf;
+    bm.pitch = pitch;
+    if (bg >= 0)
+        gfx_expand(s, x, y - f->ascent, &bm, -x0, 0, pen + x0, h, fg, bg, 1);
+    else
+        gfx_expand(s, x + x0, y - f->ascent, &bm, 0, 0, x1 - x0, h, fg, 0, 0);
+    return x + pen + x0;
 }
 
 int font_draw(Surface *s, const Font *f, int x, int y, const char *str, unsigned fg, int bg)
