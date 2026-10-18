@@ -19,7 +19,7 @@ modes, other ways of laying pixels out in memory, a hardware cursor, the
 descriptors and the blitting as options, each with what it would cost in
 chips. None of it is decided. The point is to write graphics software
 against all of it and find out which options earn their chips, so every
-option here but X1's microcode is in the study's simulator
+option here but X1's microcode, M7 and T15 is in the study's simulator
 ([12](#12-the-simulator)), and a program picks them with registers, as
 the hardware would.
 
@@ -65,6 +65,7 @@ its acknowledge. The options:
 | **M2** | 640 × 480 × 8 | +1–2 (B0 while cycles stay within 7 ticks, else B1 or B2) |
 | **M3**, **M4** | 640 × 480 × 2, × 1 | +1, or nothing with M5 and M6 (the same shifters' chaining) |
 | **M5**, **M6** | 1024 × 768 × 2, × 1 | +5–9 and the clock chip (K2) |
+| **M7** | 640 × 480 × 3, a palette of 8 colours chosen per 8 pixels from 256 | +2–3 |
 | **L0** | the chunky layout | built |
 | **L1** | the planar layout | 0 (other wiring), instead of L0 |
 | **F1** | 1- and 2-bit pixels linear in L0 | +8–12 |
@@ -121,8 +122,11 @@ A mode is the timing family, the bits a pixel and how wide a pixel is:
 | **M4** | 640 × 480 | 1 | 20 | 16 × bank + pixel |
 | **M5** | 1024 × 768 | 2 | 64 | 16 × bank + pixel |
 | **M6** | 1024 × 768 | 1 | 32 | 16 × bank + pixel |
+| **M7** | 640 × 480 | 3, and an 8-bit attribute a word | 80 | 8 × attribute + pixel |
 
 `bank` is the line's palette bank ([5](#5-lines-descriptors-or-a-frame-base)).
+M7's `attribute` is the word's own, so each 8 pixels of a line choose one
+of 256 palettes of 8 colours (2,048 entries); the line's bank isn't used.
 320 × 240 × 8 is M1 with every line shown twice, two descriptors pointing
 at the same words.
 
@@ -143,6 +147,9 @@ for 1 bit, 0 ← 1 and 2 ← 3 for 2), the rest falls out:
 | 2 | 16 | low bit 4·(p mod 8) + ⌊p/8⌋, high bit that + 2 |
 | 1 | 32 | bit 4·(p mod 8) + ⌊p/8⌋ |
 
+In M7 shifter 3's byte is the word's attribute: pixel p is bits 4p…4p+2,
+and the attribute's bit i is bit 4i + 3 (`w & 0x88888888`, spread out).
+
 At 1 bit, an 8-pixel character cell c is bit c of every nibble, so a
 font stored spread out (a row's bits at 0, 4, 8, …) draws with a shift
 and a mask: `w = (w & ~(0x11111111 << c)) | (row << c)`. At 2 bits, cell
@@ -161,6 +168,9 @@ so byte k is bit plane k of the word's eight pixels:
 | 8 | 4 | bit i at 8i + 2p for i < 4, 8(i − 4) + 2p + 1 for i ≥ 4 |
 | 2 | 16 | low bit p, high bit 16 + p |
 | 1 | 32 | bit p |
+
+In M7 pixel p is bits p, 8 + p and 16 + p, and the attribute is byte 3
+(`w >> 24`).
 
 L1 makes the 1- and 2-bit modes plain and the 8-bit one scattered; L0
 the other way round. They're different wiring of the same chips, so one
@@ -194,7 +204,8 @@ frame starts, so a write shows from the next frame.
 ### 6. The palette
 
 256 entries of RGB 5:6:5 at 0xF000_0400 + 4n, written, not read, as
-built. Outside the picture the output is black. A pixel's colour is
+built; M7's 2,048 at 0xF000_2000 + 4n (the first 256 at both). Outside
+the picture the output is black. A pixel's colour is
 looked up as it's shown, so a write shows at once, from the pixel the
 beam is at: written in the picture, it splits its line. While the CPU
 writes it, the palette's address is the CPU's, so the few pixels shown
@@ -205,7 +216,7 @@ then have the written entry's colour.
 **C1**: a 32 × 32 picture over the frame, 2 bits a pixel: 0 is
 transparent, 1–3 are palette entries 253–255 (bank 15's last three in
 the 4-, 2- and 1-bit modes, the top three pixel values in the 8-bit
-ones). Its rows are 2 words each
+ones, attribute 31's last three in M7). Its rows are 2 words each
 (64 bits, pixel p at bits 2p and 2p + 1 of the pair, the first word
 pixels 0–15), 32 rows from the cursor base register's word in bank 1,
 read in each line's blanking. Its position is its top left corner in the
@@ -223,7 +234,7 @@ Region 7, on the data bus ([RFC 0041, 7](0041-rfc-heron-mini.md#7-the-io-space))
 
 | Address | | |
 |---|---|---|
-| 0xF000_0000 | control, written | bit 0 the picture on, 1 `TSEL`, 2 the interrupt on (as built); 6–4 the mode (0–6: M0–M6); 7 F1; 8 the cursor on (C1); 9 D1 |
+| 0xF000_0000 | control, written | bit 0 the picture on, 1 `TSEL`, 2 the interrupt on (as built); 6–4 the mode (0–7: M0–M7); 7 F1; 8 the cursor on (C1); 9 D1 |
 | 0xF000_0004 | the interrupt's acknowledge, written | as built |
 | 0xF000_0008 | the beam, read (P1) | bits 9–0 the line (0–524, 0–805), 23–16 the character (0–99, 0–167) |
 | 0xF000_000C | the frame base, written (D1) | bits 18–0 the first line's word in bank 1, 22–19 the palette bank |
@@ -302,7 +313,8 @@ The study's simulator (`heron mini sim`, [studies/mini/sim.py](../studies/mini/s
 on the Rust engine in [studies/mini/engine](../studies/mini/engine))
 runs the microcode on a register-transfer model of the CPU, a port of
 the study's Python model (`rtl.py`) that matches it cycle for cycle and
-tick for tick, with the board and every option here except X1. A
+tick for tick, with the board and every option here except X1, M7 and
+T15. A
 program picks the mode, the cursor and the descriptors with the
 registers of [8](#8-registers); the board's choices (L0 or L1, B0–B2,
 the XGA clock) are the simulator's. It runs 10–14 million cycles a
@@ -362,6 +374,21 @@ cycle, not per tick.
   multiplexer, the SRAM and the colour register in one), 8–10 ns palette
   SRAMs, faster shifters, and the timing table. M5 needs a word every
   ~12.4 ticks against slots every 7.
+- **M7, +2–3:** an 8-bit register that takes the attribute (shifter 3's
+  byte) from the holding register as the shifters load the word, and
+  holds it for the word's 8 pixels; the palette's address 11 bits (8 ×
+  attribute + pixel) where M0's is 8, one more 74F157; the larger palette
+  window in the on-board registers' decode; a mode bit. The palette SRAMs
+  are 32K × 8, so the room is there. Memory and bandwidth are M0's.
+  Granularity 8 × 1 pixels: finer than the NES's 16 × 16 attributes, with
+  8 colours a cell where it has 4, from 256 palettes where it has 4.
+  `FILL` and `COPY` work as they are; `BLIT k` carries the attribute bits
+  along with the pixels, so a copy shifted by other than whole words mixes
+  its cells' palettes (copies of whole cells, or the attributes fixed
+  after). The alternative, an attribute map apart from the pixels (16
+  colours a cell, the attributes fetched in each line's blanking into a
+  line buffer, as the Spectrum's and the C64's colour memory), would be
+  about 5–8 chips and an eighth more bandwidth.
 - **L1, 0:** the holding register's bits reach the shifters in another
   order; the same chips.
 - **F1, +8–12:** a 3-way reordering of 32 bits into the shifters (4, 2
@@ -429,6 +456,8 @@ Open:
    frame starts.
 6. A status bit for the frame's interrupt and another for the lines'.
 7. T15, the 15 kHz family for a PVM ([2](#2-timing)); not in the
+   simulator yet.
+8. M7, palettes chosen per 8 pixels ([3](#3-modes)); not in the
    simulator yet.
 
 [Report 0043](0043-report-mini-graphics.md) wrote graphics software
