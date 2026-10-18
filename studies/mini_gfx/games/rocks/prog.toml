@@ -1,0 +1,10 @@
+title = "Shards"
+about = "a vector game in M6/M5 (and M0/M3/M4): lines only, double-buffered with TSEL, four erase strategies, line kernels in C and assembly"
+sources = ["rocks.c", "vec.c", "vline.s"]
+variants = ["asm", "c", "blk"]
+frames = 1000
+script = "play.script"
+
+[pokes]
+_mode = 6
+_frames = 900
