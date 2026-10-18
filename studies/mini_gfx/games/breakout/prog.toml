@@ -1,0 +1,21 @@
+title = "Heron Bricks"
+about = "a brick breaker in M1 (320 x 240 x 8): compiled sprites, particles, a status line of its own, palette cycling, a descriptor wobble"
+sources = ["breakout.c", "../../demos/bobs/sprite.c", "../../demos/bobs/jit.c", "../../demos/bobs/draw.s"]
+variants = ["blk", "asm", "c"]
+frames = 1500
+# The title, then a game: the autopilot (A) plays until frame 1000, then
+# the mouse has the paddle for a while, then Esc gives up. The program
+# takes its own screenshots:
+# the title, the game 300 frames in, ten frames after the first capsule
+# is caught (the picture wobbling), the game over.
+script = """
+10 mouse 320 400
+100 key space
+110 key a
+1000 key a
+1010 mouse 200 400
+1050 mouse 450 400
+1100 mouse 300 400
+1180 key esc
+1300 stop
+"""
