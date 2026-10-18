@@ -1592,9 +1592,10 @@ def rotation(k):
 
 
 def block_routine(op, k=0):
-    """The block instructions: MAR <- r1, LC <- -r3 (from R cleared: the
-    two ports have one constant address; a zero count ends at once); the
-    loop; then r1 <- r1 + 4 r3."""
+    """The block instructions: LC <- -r3 and CL <- r3 == 0 (from R
+    cleared: the two ports have one constant address), then MAR <- r1 in
+    the cycle that branches on CL (a branch tests it as the cycle starts),
+    a zero count ending there; the loop; then r1 <- r1 + 4 r3."""
     name = op if op != "BLIT" else f"BLIT {k}"
     finish = chain(name, mi(ra=3, alu="passa", ldr=1),
                    mi(a="r2", sina="0", alu="dbl", cin="0", ldr=1),
@@ -1628,13 +1629,10 @@ def block_routine(op, k=0):
     for a, b in zip(nodes, nodes[1:]):
         a.succ = ("next", b)
     nodes[-1].succ = ("branch", CONDS["tc"], nodes[0], finish)
-    setup = [mi(ra=1, alu="passa", ldmar=1)]
-    if op == "BLIT":
-        setup.append(mi(ra=5, alu="passa", w=TMP2))
-    setup.append(mi(kv=0, alu="passb", ldr=1))
-    count = branch(name, mi(a="r", rb=3, alu="sub", ldlc=1, ldcl="zero"), "cl", nodes[0],
-                   end(name))
-    return chain(name, *setup, count)
+    setup = [mi(ra=5, alu="passa", w=TMP2)] if op == "BLIT" else []
+    setup += [mi(kv=0, alu="passb", ldr=1), mi(a="r", rb=3, alu="sub", ldlc=1, ldcl="zero")]
+    start = branch(name, mi(ra=1, alu="passa", ldmar=1), "cl", nodes[0], end(name))
+    return chain(name, *setup, start)
 
 BOOT_FLASH = 0xD0000000          # region 5: a byte a word
 
