@@ -1,0 +1,13 @@
+title = "Racer"
+about = "a pseudo-3D road racer: the road drawn once; curves, hills, stripes and the sky by line descriptors"
+sources = ["main.c", "track.c", "scene.c", "sprites.c", "kern.s"]
+variants = ["c", "asm", "blk"]
+frames = 1500
+# the car drives itself (the autopilot) when no steering key is down; the
+# script holds the throttle and steers left by hand for a moment
+script = """
+5 keydown up
+545 keydown left
+560 shot lean
+575 keyup left
+"""
