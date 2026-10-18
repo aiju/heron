@@ -85,7 +85,7 @@ unsigned video_word(const void *p)
 
 unsigned video_desc(const void *addr, int bank)
 {
-    return video_word(addr) | (unsigned)bank << 19;
+    return video_word(addr) | (unsigned)(bank & 15) << 19;
 }
 
 void video_lines(int t, int y0, int n, const void *addr, int pitch, int bank)

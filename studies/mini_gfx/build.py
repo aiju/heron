@@ -37,9 +37,11 @@ KERNELS = {v: sorted(os.path.relpath(p, HERE) for p in glob.glob(os.path.join(HE
            for v in ("asm", "blk", "wif")}
 
 
-def _headers():
+def _headers(dirs=INCLUDE):
+    """The headers a C file might include: the library's and its program's
+    own, for the object cache's key."""
     text = b""
-    for d in INCLUDE:
+    for d in dirs:
         for p in sorted(glob.glob(os.path.join(d, "*.h"))):
             with open(p, "rb") as f:
                 text += f.read()
@@ -128,8 +130,8 @@ def build(sources, variant="c", defines=None, wm=False, name=None):
     if variant == "wif":
         d["GFX_WIF"] = "1"
     d.update(defines or {})
-    headers = _headers()
     include = INCLUDE + sorted({os.path.join(HERE, os.path.dirname(s)) for s in sources})
+    headers = _headers(include)
     p = driver.Program("v2", need_main=False)
     p.add_object(asm_object(os.path.join(HERE, "rt", "start.s")))
     files = LIBS + GFX + (WM if wm else []) + list(sources)
