@@ -1,0 +1,16 @@
+title = "Test card"
+about = "every mode in turn: its colours, lines, circles, three fonts, the hardware cursor"
+sources = ["testcard.c"]
+frames = 1500
+script = """
+5 mouse 300 200
+150 key space
+300 mouse 160 120
+310 key space
+460 key space
+600 key space
+750 key space
+900 mouse 700 500
+910 key space
+1060 key space
+"""

@@ -1,0 +1,4 @@
+title = "Modes"
+about = "the library's pixel formats against the video's decoder, in a mode, layout and F1 (pokes)"
+sources = ["modes.c"]
+frames = 600

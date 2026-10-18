@@ -8,7 +8,7 @@
 
 static void rop_consts(const Surface *s, unsigned c, int rop, unsigned *ka, unsigned *kx)
 {
-    unsigned pat = gfx_solid(s->fmt, c);
+    unsigned pat = gfx_solidf(s->f, c);
     switch (rop) {
     case ROP_COPY: *ka = ~0u; *kx = pat; break;
     case ROP_XOR: *ka = 0; *kx = pat; break;
@@ -46,7 +46,7 @@ static int minor_range(int d, int m, int a, int lo, int hi, int *t0, int *t1)
 
 void gfx_line(Surface *s, int x0, int y0, int x1, int y1, unsigned c, int rop)
 {
-    const Format *f = gfx_format(s->fmt);
+    const Format *f = s->f;
     LineJob j;
     int dx, dy, t0, t1, sy, ppw = 1 << s->pshift, x, y, mn;
     rop_consts(s, c, rop, &j.ka, &j.kx);

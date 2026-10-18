@@ -33,7 +33,22 @@ static int clip_copy(const Surface *dst, int *dx, int *dy, const Surface *src, i
 /* the terms of a shift by `phase` pixels in format fmt: destination
    pixel t's bits come from pixel t + phase of lo, or of hi if that's past
    the word */
+static int term_n[PF_N][32];
+static Term term_cache[PF_N][32][6];
+
+static int shift_terms_of(int fmt, int phase, Term *t);
+
 int shift_terms(int fmt, int phase, Term *t)
+{
+    int n = term_n[fmt][phase], k;
+    if (!n)
+        n = term_n[fmt][phase] = shift_terms_of(fmt, phase, term_cache[fmt][phase]);
+    for (k = 0; k < n; k++)
+        t[k] = term_cache[fmt][phase][k];
+    return n;
+}
+
+static int shift_terms_of(int fmt, int phase, Term *t)
 {
     const Format *f = gfx_format(fmt);
     int ppw = 1 << f->pshift, p, i, k, n = 0;
@@ -73,7 +88,7 @@ static unsigned row_buf[1100];
 void gfx_blit(Surface *dst, int dx, int dy, const Surface *src, int sx, int sy, int w, int h,
               int rop)
 {
-    const Format *f = gfx_format(dst->fmt);
+    const Format *f = dst->f;
     int ps = dst->pshift, last = (1 << ps) - 1;
     int w0, w1, n, base, phase, sw, y, down;
     unsigned lmask, rmask;
@@ -256,7 +271,7 @@ void shift_rows_c(const ShiftJob *j)
 void gfx_expand(Surface *dst, int dx, int dy, const Bitmap *src, int sx, int sy, int w, int h,
                 unsigned fg, unsigned bg, int opaque)
 {
-    const Format *f = gfx_format(dst->fmt);
+    const Format *f = dst->f;
     int ps = dst->pshift, last = (1 << ps) - 1, w0, w1, base;
     ExpandJob j;
     if (!clip_copy(dst, &dx, &dy, 0, &sx, &sy, &w, &h))
@@ -279,8 +294,8 @@ void gfx_expand(Surface *dst, int dx, int dy, const Bitmap *src, int sx, int sy,
     j.d = dst->bits + dy * dst->pitch + w0;
     j.dpitch = dst->pitch;
     j.h = h;
-    j.fg = gfx_solid(dst->fmt, fg);
-    j.bg = gfx_solid(dst->fmt, bg);
+    j.fg = gfx_solidf(f, fg);
+    j.bg = gfx_solidf(f, bg);
     j.opaque = opaque;
     j.f = f;
     j.fmt = dst->fmt;
@@ -321,7 +336,7 @@ void expand_rows_c(const ExpandJob *j)
 void gfx_masked(Surface *dst, int dx, int dy, const Surface *img, const Bitmap *mask, int sx,
                 int sy, int w, int h)
 {
-    const Format *f = gfx_format(dst->fmt);
+    const Format *f = dst->f;
     int ps = dst->pshift, last = (1 << ps) - 1, ppw = 1 << ps;
     int w0, w1, n, base, phase, sw, y, k, nterm;
     unsigned lmask, rmask, keep;

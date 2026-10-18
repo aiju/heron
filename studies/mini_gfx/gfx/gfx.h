@@ -32,15 +32,6 @@ typedef struct {
     int x0, y0, x1, y1;
 } Rect;
 
-typedef struct {
-    unsigned *bits;             /* row 0's first word */
-    int w, h;
-    int pitch;                  /* words a row */
-    int fmt;
-    int bpp, pshift;            /* bits a pixel; log2 of the pixels a word */
-    Rect clip;
-} Surface;
-
 /* ---- formats (format.c) ---- */
 typedef struct {
     int bpp, pshift;
@@ -51,8 +42,20 @@ typedef struct {
        pixel) to the mask of their pixels, through nx tables of 256 */
     int nx;
     unsigned *xt;               /* nx * 256 words, built when first used */
-    unsigned *solid;            /* each colour's word, built when first used */
+    unsigned *solid;            /* each colour's word */
+    unsigned from[33];          /* the mask of pixels i on (gfx_from) */
+    int ready;
 } Format;
+
+typedef struct {
+    unsigned *bits;             /* row 0's first word */
+    int w, h;
+    int pitch;                  /* words a row */
+    int fmt;
+    int bpp, pshift;            /* bits a pixel; log2 of the pixels a word */
+    Rect clip;
+    const Format *f;
+} Surface;
 
 extern Format gfx_formats[PF_N];
 extern int board_layout;        /* 0: L0, 1: L1; the harness sets it */
@@ -231,6 +234,12 @@ void shift_rows_asm(const ShiftJob *j);
 void expand_rows_asm(const ExpandJob *j);
 void line_run_asm(const LineJob *j);
 #ifdef GFX_BLK
+/* the block instructions from C (gfx/blk/blk.s), any count */
+void blk_fill(unsigned *d, unsigned v, int n);
+void blk_copy(unsigned *d, const unsigned *s, int n);
+void blk_expand(unsigned *d, const unsigned char *s, int n, const unsigned *table,
+                unsigned fg_xor_bg, unsigned bg);
+unsigned blk_blit(unsigned *d, const unsigned *s, int n, int k, unsigned lo, unsigned mask);
 void fill_rows_blk(const FillJob *j);
 void copy_rows_blk(const CopyJob *j);
 void shift_rows_blk(const ShiftJob *j);
@@ -255,7 +264,9 @@ void expand_rows_blk(const ExpandJob *j);
 #endif
 
 /* edges: the mask of pixels from i on, and before i (0 <= i <= ppw) */
-unsigned gfx_from(const Format *f, int i);
-unsigned gfx_before(const Format *f, int i);
+#define gfx_from(f, i) ((f)->from[i])
+#define gfx_before(f, i) (~(f)->from[i])
+/* a word of colour c in every pixel */
+#define gfx_solidf(f, c) ((f)->solid[(c) & ((1u << (f)->bpp) - 1)])
 
 #endif

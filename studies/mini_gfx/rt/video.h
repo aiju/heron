@@ -55,6 +55,11 @@ void video_pal(int n, unsigned c);
 void video_pal_rgb(int n, int r, int g, int b);
 /* entry n in every palette bank (4, 2 and 1 bits a pixel) */
 void video_pal_all(int n, unsigned c);
+/* palette.c: the mode's default palette (16 colours in every bank, a
+   cube at 8 bits, greys at 2), the cursor's black, white and yellow */
+void video_default_palette(void);
+extern const unsigned char pal16[16][3];
+extern unsigned vid_palette[256];
 
 /* the cursor (C1): 32 x 32, 2 bits a pixel, its rows two words each in
    bank 1; colours 1-3 are palette entries 253-255 */

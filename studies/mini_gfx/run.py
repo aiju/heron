@@ -19,6 +19,7 @@ lines of text ("30 click 120 200"); the frame counts from the run's start:
 The program's console lines that start with '@' are for the harness:
 
     @mark NAME CYCLES       a mark (rt_mark), kept with the frame it came in
+    @perf NAME VALUES...    a measurement (rt/perf.h): ticks of 19.86 ns
     @shot NAME              a screenshot of the frame two after (rt_shot)
     @done                   the end of the run
     @trap ...               a trap (rt/start.s): the run stops
@@ -79,6 +80,7 @@ class Result:
         self.status = None
         self.frames = 0
         self.marks = []             # [Mark]
+        self.perf = {}              # name -> [numbers] (@perf lines)
         self.shots = {}             # name -> (w, h, rgb565 bytes)
         self.output = ""            # the console, but the harness's lines
         self.lines = []             # every console line
@@ -112,7 +114,10 @@ class Session:
         self.mx = self.my = 0
         self.out_pos = 0
         self.partial = ""
-        self.addrs = [a for a, _ in build.labels]
+        # functions only: the labels without a local part
+        funcs = [(a, n) for a, n in build.labels if "." not in n]
+        self.addrs = [a for a, _ in funcs]
+        self.funcs = funcs
 
     # ---- input ----
     def send(self, data):
@@ -157,7 +162,7 @@ class Session:
 
     def where(self, pc):
         i = bisect.bisect_right(self.addrs, pc) - 1
-        return self.build.labels[i][1] if i >= 0 else "?"
+        return self.funcs[i][1] if i >= 0 else "?"
 
     def run(self, frames=600, script=(), shots_dir=None, profile=0, max_cycles=2_000_000_000,
             on_frame=None):
@@ -198,6 +203,8 @@ class Session:
             for ev in events:
                 if ev[0] == "mark":
                     res.marks.append(Mark(ev[1], int(ev[2]) if len(ev) > 2 else 0, f, m.ticks))
+                elif ev[0] == "perf":
+                    res.perf[ev[1]] = [int(v) for v in ev[2:]]
                 elif ev[0] == "shot":
                     shot_at[f + 2] = ev[1]
                 elif ev[0] == "done":

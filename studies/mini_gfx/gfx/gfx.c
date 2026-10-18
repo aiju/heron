@@ -13,6 +13,7 @@ void gfx_init(Surface *s, void *bits, int w, int h, int pitch, int fmt)
     s->fmt = fmt;
     s->bpp = f->bpp;
     s->pshift = f->pshift;
+    s->f = f;
     gfx_noclip(s);
 }
 
@@ -58,10 +59,10 @@ void gfx_pixel(Surface *s, int x, int y, unsigned c, int rop)
     unsigned *p, m, pat;
     if (x < s->clip.x0 || x >= s->clip.x1 || y < s->clip.y0 || y >= s->clip.y1)
         return;
-    f = gfx_format(s->fmt);
+    f = s->f;
     p = s->bits + y * s->pitch + (x >> s->pshift);
     m = f->pmask[x & ((1 << s->pshift) - 1)];
-    pat = gfx_solid(s->fmt, c) & m;
+    pat = gfx_solidf(f, c) & m;
     switch (rop) {
     case ROP_COPY: *p = (*p & ~m) | pat; break;
     case ROP_XOR: *p ^= pat; break;
@@ -77,7 +78,7 @@ unsigned gfx_get(const Surface *s, int x, int y)
     int p, i;
     if (x < 0 || x >= s->w || y < 0 || y >= s->h)
         return 0;
-    f = gfx_format(s->fmt);
+    f = s->f;
     w = s->bits[y * s->pitch + (x >> s->pshift)];
     p = x & ((1 << s->pshift) - 1);
     if (f->lin)
@@ -100,7 +101,7 @@ static int clip(const Surface *s, int *x0, int *y0, int *x1, int *y1)
 /* the job for the words of rows x0..x1 */
 static void fill_job(FillJob *j, Surface *s, int x0, int y0, int x1, int y1)
 {
-    const Format *f = gfx_format(s->fmt);
+    const Format *f = s->f;
     int ps = s->pshift, last = (1 << ps) - 1;
     int w0 = x0 >> ps, w1 = (x1 - 1) >> ps;
     j->p = s->bits + y0 * s->pitch + w0;
@@ -125,7 +126,7 @@ void gfx_fill(Surface *s, int x0, int y0, int x1, int y1, unsigned c, int rop)
     if (!clip(s, &x0, &y0, &x1, &y1))
         return;
     fill_job(&j, s, x0, y0, x1, y1);
-    j.pat = gfx_solid(s->fmt, c);
+    j.pat = gfx_solidf(s->f, c);
     j.rop = rop;
     fill_rows(&j);
 }
@@ -138,8 +139,8 @@ void gfx_fill_rect(Surface *s, const Rect *r, unsigned c, int rop)
 void gfx_fill_pat(Surface *s, int x0, int y0, int x1, int y1, const unsigned char *rows,
                   unsigned fg, unsigned bg)
 {
-    const Format *f = gfx_format(s->fmt);
-    unsigned pats[8], fw = gfx_solid(s->fmt, fg), bw = gfx_solid(s->fmt, bg);
+    const Format *f = s->f;
+    unsigned pats[8], fw = gfx_solidf(f, fg), bw = gfx_solidf(f, bg);
     FillJob j;
     int k, y;
     if (!clip(s, &x0, &y0, &x1, &y1))

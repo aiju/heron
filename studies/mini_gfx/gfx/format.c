@@ -8,8 +8,6 @@
 
 Format gfx_formats[PF_N];
 int board_layout;
-static int ready;
-static unsigned from_tab[PF_N][33];
 
 static const unsigned char bpps[PF_N] = {1, 2, 4, 8, 1, 2, 2, 4, 8};
 
@@ -28,36 +26,46 @@ int gfx_bitpos(int fmt, int p, int i)
     }
 }
 
-static void setup(void)
+static void setup(int fmt)
 {
-    int fmt, p, i, ppw;
-    Format *f;
-    for (fmt = 0; fmt < PF_N; fmt++) {
-        f = &gfx_formats[fmt];
-        f->bpp = bpps[fmt];
-        f->pshift = f->bpp == 1 ? 5 : f->bpp == 2 ? 4 : f->bpp == 4 ? 3 : 2;
-        f->lin = fmt <= PF_LIN8;
-        ppw = 1 << f->pshift;
-        for (p = 0; p < ppw; p++) {
-            f->pmask[p] = 0;
-            for (i = 0; i < f->bpp; i++)
-                f->pmask[p] |= 1u << gfx_bitpos(fmt, p, i);
-            f->lsb[p] = 1u << gfx_bitpos(fmt, p, 0);
+    Format *f = &gfx_formats[fmt];
+    int p, i, ppw, n;
+    unsigned planes[8];
+    f->bpp = bpps[fmt];
+    f->pshift = f->bpp == 1 ? 5 : f->bpp == 2 ? 4 : f->bpp == 4 ? 3 : 2;
+    f->lin = fmt <= PF_LIN8;
+    ppw = 1 << f->pshift;
+    for (i = 0; i < f->bpp; i++)
+        planes[i] = 0;
+    for (p = 0; p < ppw; p++) {
+        f->pmask[p] = 0;
+        for (i = 0; i < f->bpp; i++) {
+            unsigned b = 1u << gfx_bitpos(fmt, p, i);
+            f->pmask[p] |= b;
+            planes[i] |= b;     /* bit i of every pixel */
         }
-        from_tab[fmt][ppw] = 0;
-        for (p = ppw - 1; p >= 0; p--)
-            from_tab[fmt][p] = from_tab[fmt][p + 1] | f->pmask[p];
-        f->nx = (ppw + 7) >> 3;
-        f->xt = 0;
-        f->solid = 0;
+        f->lsb[p] = 1u << gfx_bitpos(fmt, p, 0);
     }
-    ready = 1;
+    f->from[ppw] = 0;
+    for (p = ppw - 1; p >= 0; p--)
+        f->from[p] = f->from[p + 1] | f->pmask[p];
+    f->nx = (ppw + 7) >> 3;
+    f->xt = 0;
+    f->solid = malloc((1 << f->bpp) * sizeof(unsigned));
+    for (n = 0; n < 1 << f->bpp; n++) {
+        unsigned w = 0;
+        for (i = 0; i < f->bpp; i++)
+            if (n >> i & 1)
+                w |= planes[i];
+        f->solid[n] = w;
+    }
+    f->ready = 1;
 }
 
 const Format *gfx_format(int fmt)
 {
-    if (!ready)
-        setup();
+    if (!gfx_formats[fmt].ready)
+        setup(fmt);
     return &gfx_formats[fmt];
 }
 
@@ -77,43 +85,10 @@ int gfx_screen_format(void)
     return gfx_format_of(vid.bpp, board_layout, (vid.ctrl & VC_F1) != 0);
 }
 
-unsigned gfx_from(const Format *f, int i)
-{
-    return from_tab[f - gfx_formats][i];
-}
-
-unsigned gfx_before(const Format *f, int i)
-{
-    return ~from_tab[f - gfx_formats][i];
-}
-
 unsigned gfx_solid(int fmt, unsigned c)
 {
-    Format *f = (Format *)gfx_format(fmt);
-    unsigned w;
-    int p, ppw = 1 << f->pshift, n;
-    if (f->lin) {
-        c &= (1u << f->bpp) - 1;
-        switch (f->bpp) {
-        case 1: return c ? ~0u : 0;
-        case 2: return c * 0x55555555u;
-        case 4: return c * 0x11111111u;
-        default: return c * 0x01010101u;
-        }
-    }
-    if (!f->solid) {
-        f->solid = malloc((1 << f->bpp) * sizeof(unsigned));
-        for (n = 0; n < 1 << f->bpp; n++) {
-            int i;
-            w = 0;
-            for (p = 0; p < ppw; p++)
-                for (i = 0; i < f->bpp; i++)
-                    if (n >> i & 1)
-                        w |= 1u << gfx_bitpos(fmt, p, i);
-            f->solid[n] = w;
-        }
-    }
-    return f->solid[c & ((1u << f->bpp) - 1)];
+    const Format *f = gfx_format(fmt);
+    return gfx_solidf(f, c);
 }
 
 /* the expansion tables: table j, entry v: the mask of pixels 8j..8j+7
