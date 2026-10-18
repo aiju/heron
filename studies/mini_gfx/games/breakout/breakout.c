@@ -439,20 +439,31 @@ static void reset_score(void)
     }
 }
 
-/* the descriptors of table t: the status line, then the picture, each
-   line shifted by off(y) words (the wobble); off 0 is the picture */
+/* The descriptors of table t: the status line (once), then the picture,
+   each line shifted by a wave of `amp` (0-4) words (the wobble), from a
+   table made at start-up: computing a wave with a multiply and a divide
+   a line took 96,000 ticks a frame */
 static const signed char wave[32] = {0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 2, 2, 2, 1, 1,
                                      0, -1, -1, -2, -2, -2, -3, -3, -3, -3, -3, -2, -2, -2, -1, -1};
+static signed char waves[5][64];        /* each amplitude's, twice over */
+
+static void status_lines(int t)
+{
+    unsigned *d = video_table(t), w = video_desc(status_fb, 0);
+    int y;
+    for (y = 0; y < SROWS * 2; y += 2)
+        d[y] = d[y + 1] = w + (y >> 1) * (W / 4);
+}
 
 static void descriptors(int t, int amp)
 {
-    unsigned *d = video_table(t), w = video_desc(pic[t].bits, 0);
+    unsigned *d = video_table(t) + 2 * SROWS, w = video_desc(pic[t].bits, 0) + SROWS * PITCH;
+    const signed char *off = waves[amp] + ((SROWS + frame_no) & 31);
     int y;
-    for (y = 0; y < SROWS * 2; y++)
-        d[y] = video_desc(status_fb + (y >> 1) * (W / 4), 0);
-    for (y = SROWS; y < H; y++) {
-        int off = amp ? wave[(y + frame_no) & 31] * amp / 4 : 0;
-        d[2 * y] = d[2 * y + 1] = w + y * PITCH + off;
+    for (y = SROWS; y < H; y++, d += 2, w += PITCH) {
+        d[0] = d[1] = w + *off++;
+        if (off == waves[amp] + 64)
+            off -= 32;
     }
 }
 
@@ -480,6 +491,11 @@ static void screen(void)
     bob_pitch = PITCH;
     palette();
     cycle_init();
+    for (b = 0; b < 5; b++)
+        for (y = 0; y < 64; y++)
+            waves[b][y] = wave[y & 31] * b / 4;
+    status_lines(0);
+    status_lines(1);
     descriptors(0, 0);
     descriptors(1, 0);
     for (y = 0; y < W; y++)
@@ -563,18 +579,26 @@ static void draw(int paddle)
     npdrawn[b] = npart;
 }
 
-/* show the back buffer from the next frame */
+/* show the back buffer from the next frame; in the blank, the wobble's
+   descriptors and the palette's cycling (their ticks in t_wob, t_cyc) */
+static unsigned t_cyc, t_wob, n_wob;
+
 static int flip(void)
 {
     int n = video_wait();
+    unsigned t0 = video_ticks(), t1;
     if (wobble) {
         descriptors(back, wobble > 16 ? 4 : wobble / 4);
         wobble--;
+        t_wob += video_ticks() - t0;
+        n_wob++;
     }
     video_ctrl(back ? VC_TSEL : 0, VC_TSEL);
     back ^= 1;
     frame_no++;
+    t1 = video_ticks();
     cycle();
+    t_cyc += video_ticks() - t1;
     return n;
 }
 
@@ -901,6 +925,7 @@ static void play(void)
     padx = W / 2;
     level_start();
     t_erase = t_logic = t_draw = nframes = t_max = missed = most_parts = sum_parts = 0;
+    t_cyc = t_wob = n_wob = 0;
     video_wait();               /* the set-up's frames aren't the game's */
     for (;;) {
         int go;
@@ -967,6 +992,9 @@ static void play(void)
            " %u frames missed; particles %u on average, %u at most\n", nframes, t_erase / nframes,
            t_logic / nframes, t_draw / nframes, t_max, missed, sum_parts / nframes, most_parts);
     printf("@perf play_parts %u %u\n", sum_parts / nframes, most_parts);
+    printf("in the blank: the palette's cycling %u ticks a frame; the wobble's descriptors %u"
+           " a frame for %u frames\n", t_cyc / nframes, n_wob ? t_wob / n_wob : 0, n_wob);
+    printf("@perf play_blank %u %u\n", t_cyc / nframes, n_wob ? t_wob / n_wob : 0);
 }
 
 static void game_over(void)
