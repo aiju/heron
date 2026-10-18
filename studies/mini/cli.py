@@ -7,6 +7,10 @@
   run    FILE.s [--input TEXT] [--profile]
                                    one program on the RTL model: cycles, time,
                                    where they go
+  sim    FILE.s [--frames N] [--png F] [--png-dir D] [--layout L0|L1]
+         [--bandwidth B0|B1|B2]   a program on the fast simulator, with RFC
+                                   0042's video: frames as PNGs, where the
+                                   time went
   ucode  [--list]                  the microcode: its size, length classes
   perf   [--force]                 the suite's time with the length classes
   bench                            the graphics kernels: draft 2 code against
@@ -99,6 +103,21 @@ def main(argv=None):
     r.add_argument("--profile", action="store_true")
     r.add_argument("--queue", type=int, default=2)
     r.set_defaults(func=cmd_run)
+    sm = sub.add_parser("sim", help="a program on the fast simulator, with RFC 0042's video")
+    sm.add_argument("file")
+    sm.add_argument("--input", help="the console's input (default: the program's)")
+    sm.add_argument("--uart", help="UART 0's input")
+    sm.add_argument("--frames", type=int, default=0, help="stop after this many frames")
+    sm.add_argument("--png", help="the picture at the end: the memory's if the program halted, "
+                    "else the last frame shown")
+    sm.add_argument("--png-dir", help="every frame shown, as DIR/NNNNN.png")
+    sm.add_argument("--every", type=int, default=1, help="with --png-dir, every Nth frame")
+    sm.add_argument("--layout", choices=["L0", "L1"], default="L0")
+    sm.add_argument("--bandwidth", choices=["B0", "B1", "B2"], default="B0")
+    sm.add_argument("--max-cycles", type=int, default=2_000_000_000)
+    sm.add_argument("--profile", action="store_true")
+    sm.add_argument("--queue", type=int, default=2)
+    sm.set_defaults(func=lambda a: __import__("heron.studies.mini.sim", fromlist=["x"]).main(a))
     pf = sub.add_parser("perf")
     pf.add_argument("--force", action="store_true")
     pf.set_defaults(func=lambda a: __import__("heron.studies.mini.perf", fromlist=["x"]).main(a))

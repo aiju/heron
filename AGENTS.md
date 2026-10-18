@@ -200,7 +200,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   `addrerr`: the address error). `heron mini hw test [--c]`: its netlist
   on the chip-level simulator against the RTL model, about 6 minutes for
   the suite and 5 for the C programs; `hw devices`, `hw video` and
-  `hw blocks` the rest.
+  `hw blocks` the rest. `heron mini sim FILE.s`: a program on the fast
+  simulator (the Rust engine, cycle for cycle as the RTL model) with
+  RFC 0042's video options, its frames as PNGs.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and

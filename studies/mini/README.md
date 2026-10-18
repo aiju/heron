@@ -31,6 +31,8 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 |---|---|
 | `ucode.py` | The control word, the microcode for every instruction, the parcel-indexed entries, the block instructions, the boot from the flash |
 | `rtl.py` | The register-transfer model: datapath, prefetch queue, sequencer, the I/O hold |
+| `engine/` | The same model in Rust (the crate `mini-engine`), cycle for cycle, with the board and the video options of [RFC 0042](../../reports/0042-rfc-mini-video.md): about 200 times faster |
+| `sim.py` | The fast simulator for software: the engine from Python (`heron.native.mini`), frames as PNG files |
 | `system.py` | The board behind the CPU in the model: RAM, the I/O regions and their wait states, the suite's I/O page, the UARTs, the video's registers |
 | `video.py` | The video: the timing ROM, the picture a frame's memory makes, decoding the frames the netlist sends |
 | `timing.py` | How long each microinstruction's cycle must be (`ticks.json`, else an estimate), the four length classes |
@@ -44,6 +46,7 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 | `bench.py` | Graphics kernels: draft 2 code against the block instructions, on the RTL model |
 | `reduce.py` | What could be left out: the chips each reduction removes, its time from the profile |
 | `report.py` | RFC 0041's tables (`reports/0041-rfc-heron-mini/performance.md`) |
+| `sw/video/` | `demo.s`: RFC 0042's options from a program (1024 x 768 x 2 from a frame base, the cursor, the beam) |
 | `sw/hw/` | Programs outside the suite: `devices.s` (the I/O devices) and `video.s` (the video), for the chip-level netlist; `addrerr.s` (the address error), also on the model |
 
 ```sh
@@ -51,6 +54,7 @@ heron mini check [--c]               # the RTL model against the ISA simulator: 
 heron mini check addrerr             # the address error (sw/hw/addrerr.s)
 heron mini check --lisp [--compiled] # the Lisp's short tests (studies/lisp), whose type checks are address errors
 heron mini run PROG.s [--profile]    # one program on the RTL model
+heron mini sim PROG.s [--png F]      # one program on the fast simulator, with RFC 0042's video
 heron mini perf                      # the suite's time with the length classes
 heron mini bench                     # graphics kernels: code against the block instructions
 heron mini report [--write]          # RFC 0041's tables (performance.md; a few minutes)
@@ -63,3 +67,32 @@ heron mini hw sta [--write]          # static timing analysis; --write rewrites 
 heron mini hw bom                    # the parts list
 heron test mini                      # the unit tests
 ```
+
+## Software on the simulator
+
+`heron mini sim` runs a program on the Rust engine with every video
+option of [RFC 0042](../../reports/0042-rfc-mini-video.md) (its Part I
+is the programmer's reference; 12 says how the simulator models it):
+
+```sh
+heron mini sim studies/mini/sw/video/demo.s --png demo.png   # the picture as it halts
+heron mini sim prog.s --frames 60 --png-dir frames/  # the first 60 frames shown
+heron mini sim prog.s --bandwidth B1 --layout L1     # the board's options
+heron mini sim prog.s --profile                      # where the microcycles go
+```
+
+It prints the program's console output and where the time went: cycles,
+ticks, the I/O holds, the ticks the video stole (B1) and the shifter
+loads that found no word (B0, B2: a glitch on the real machine). A
+program runs from reset with its image at 0, like the suite's (draft 2
+code, `heron.infra.asm`; the suite's `lib/` has a console and number
+printing); the console at 0xFFFF_FF00 and its timer and cycle counter
+are there, and the UARTs, the boot flash and the video's registers. A
+program that waits in `HALT` for interrupts runs until `--frames` or
+`--max-cycles`.
+
+From Python, `sim.machine(layout=, bandwidth=)` gives a
+`heron.native.mini.Machine` to load (`sim.load`), run
+(`run(max_cycles, frames=N)`), look at (`frame()`, `snapshot()`, `r`,
+`read(addr, n)`, the counters) and feed (`console_input`, `uart_input`);
+`sim.write_png` writes a frame.

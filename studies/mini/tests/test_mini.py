@@ -2,9 +2,12 @@
 simulator, the boot, the address error, the netlist on the chip-level
 simulator (a program exactly as the model runs it, the address error, the
 devices, at the measured length classes and with no timing violation),
-the measured periods current, the video's timing."""
+the measured periods current, the video's timing; the fast simulator
+(sim.py, the Rust engine) against the model, with RFC 0042's video."""
 
+import array
 import math
+import os
 import unittest
 from collections import defaultdict
 
@@ -12,7 +15,10 @@ import heron.studies.v2_isa  # noqa: F401
 from heron.infra import asm as asmcore
 from heron.infra import isas
 from heron.infra.programs import metadata
-from heron.studies.mini import board, check as chk, hw, rtl, sta, system, timing, ucode as uc, video
+from heron.studies.mini import board, check as chk, hw, rtl, sim, sta, system, timing, ucode as uc, video
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def assemble(name):
@@ -128,6 +134,57 @@ class Video(unittest.TestCase):
         ram[w:w + 4] = (0x32323232).to_bytes(4, "little")
         rows = video.render(ram, pal)
         self.assertEqual(rows[0][:4], [0x1234, 0x5678, 0x1234, 0x5678])
+
+
+class Simulator(unittest.TestCase):
+    def test_against_model(self):
+        # cycle for cycle and tick for tick, with B0 (which never holds the
+        # CPU), the interrupts and the address error
+        for name in ("hello", "arith", "interrupts", "addrerr"):
+            img, inp = assemble(name)
+            r = chk.run_rtl(img, inp)
+            m = sim.machine()
+            m.console_input(inp)
+            sim.load(m, img)
+            self.assertEqual(m.run(10_000_000), "halted")
+            self.assertEqual((m.cycles, m.ticks, m.instructions, m.output(), list(m.r), m.flags),
+                             (r.cycles, r.ticks, r.instructions, r.out, r.r, r.flags_word()), name)
+
+    def test_video_program(self):
+        # sw/hw/video.s: the model's cycles with its frame interrupts, and
+        # the frame shown is the reference rendering of the memory
+        img = sim.assemble(os.path.join(HERE, "..", "sw", "hw", "video.s"))
+        r = chk.run_rtl(img)
+        m = sim.machine()
+        sim.load(m, img)
+        self.assertEqual(m.run(10_000_000), "halted")
+        self.assertEqual((m.cycles, m.ticks, m.frames), (r.cycles, r.ticks, 3))
+        w, h, data = m.frame()
+        want = video.render(m.read(0, system.RAM_SIZE), r.sys.video.palette)
+        self.assertEqual((w, h), (640, 480))
+        self.assertEqual(list(array.array("H", data)), [c for row in want for c in row])
+
+    def test_demo(self):
+        # sw/video/demo.s: M5 from a frame base, the cursor, the beam
+        m = sim.machine()
+        sim.load(m, os.path.join(HERE, "..", "sw", "video", "demo.s"))
+        self.assertEqual(m.run(50_000_000), "halted")
+        line, char = m.output().split()
+        self.assertEqual(int(line, 16), 0)
+        self.assertLess(int(char, 16), 40)
+        w, h, data = m.snapshot()
+        self.assertEqual((w, h), (1024, 768))
+        self.assertEqual(m.frame()[2], data)
+        px = array.array("H", data)
+
+        def at(x, y):
+            return px[y * w + x]
+        # colour (x/64 + y/64) mod 4: black, red, green, blue
+        self.assertEqual([at(0, 0), at(64, 0), at(64, 64), at(0, 767)],
+                         [0, 0xF800, 0x07E0, 0x001F])
+        # the cursor at (500, 300): a yellow top edge, white sides
+        self.assertEqual([at(500, 300), at(531, 300), at(500, 301), at(531, 331), at(501, 301)],
+                         [0xFFE0, 0xFFE0, 0xFFFF, 0xFFE0, 0x001F])
 
 
 if __name__ == "__main__":
