@@ -1,0 +1,19 @@
+title = "Snake"
+about = "M1 as 320 x 240 x 8 (two descriptors a row): incremental drawing, colours cycled through the palette, banners and a shake by descriptors"
+sources = ["snake.c"]
+variants = ["c", "asm", "blk"]
+frames = 1500
+script = """
+# the title, then a game: a few turns by hand, the autopilot, a crash
+70 key space
+100 key up
+124 key right
+148 key down
+172 key right
+196 key up
+220 key a
+700 key p
+720 shot paused
+740 key p
+1000 key a
+"""

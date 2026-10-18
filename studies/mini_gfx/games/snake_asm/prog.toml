@@ -1,0 +1,20 @@
+title = "Snake in assembly"
+about = "games/snake written in draft 2 assembly: the same game and video tricks, no graphics library, the C runtime called from assembly"
+sources = ["main.c", "snake.s"]
+variants = ["asm", "blk", "c"]
+frames = 1500
+script = """
+# the same as games/snake's: the title, a few turns by hand, the
+# autopilot, a pause, a crash
+70 key space
+100 key up
+124 key right
+148 key down
+172 key right
+196 key up
+220 key a
+700 key p
+720 shot paused
+740 key p
+1000 key a
+"""
