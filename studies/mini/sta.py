@@ -6,6 +6,8 @@ file in its read phase.
 
   MWIN   the memory write window, from tick 2 to the tail
   LATE   from tick 2: the store data's drivers, T's latches
+  PHASE  H1, falling as tick 2 starts (H0 is over by then): the register
+         file's A latches and its address
 
 The tail, which the case analysis doesn't see, is checked here
 (extra_checks), at the corner's delays:
@@ -62,9 +64,11 @@ OFFSETS = _clock_offsets()
 WINDOWS = {
     "MWIN": (0.0, 2 * TICK + OFFSETS["MWIN"], 1.0, -2 * TICK + OFFSETS["MWIN"]),
     "LATE": (0.0, 2 * TICK + OFFSETS["LATE"], 0.0, 0.0),
+    "PHASE": (0.0, 2 * TICK, 0.0, 0.0),
 }
-# the A operand latches close at LATE in a cycle that reads B from the
-# register file too: the B read after it doesn't reach the A bus
+# the A operand latches close as the late phase starts (PHASE) in a cycle
+# that reads B from the register file too: the B read after it doesn't
+# reach the A bus
 CLOSING = ("RLEA",)
 
 
@@ -139,10 +143,9 @@ def extra_checks(case, N):
     d = {ref: N.delay[ref] for ref in ("U_RWA0", "U_RFG0", "U_RFA0", "U_RLA0")}
     gtpd = d["U_RFG0"]["tPD"]
     nand2 = N.delay[N.drivers["RFWE_n"][0][0].ref]["A->Y"]
-    inv = N.delay[N.drivers["RW_n"][0][0].ref]["A->Y"]
     and3 = N.delay[N.drivers["TLE"][0][0].ref]["A->Y"]
     sram = d["U_RFA0"]
-    rw = -2 * TICK + OFFSETS["RW"]                   # RW rises, after T
+    rw = -2 * TICK + OFFSETS["RW"]                   # RW rises and RW_n falls, after T
     strobe = -TICK + OFFSETS["T2"] + nand2          # the write strobe falls, after T
     # the latches close as LE falls: they hold what's there their setup before
     for inst in N.insts:
@@ -154,20 +157,21 @@ def extra_checks(case, N):
         if le == "RW_n" and case.pin(inst, "OE")[0] == 1:
             continue                    # the register file's latch, not on its bus
         if le == "RLEA" and case.net(u["BRF_n"])[0] == 0:
-            # an A operand latch in a cycle that reads B too: it closes at
-            # LATE, whatever the period, holding the A address's read
+            # an A operand latch in a cycle that reads B too: it closes as
+            # the late phase starts, whatever the period, holding the A
+            # address's read
             opened = case.open("RLEA")
             ta = max(opened.pin(inst, f"D{i}")[1] for i in range(1, 9))
             late = case.net("RLEA")[1]
             su = N.delay[inst.ref]["setup D"]
             if ta + su > late:
-                out.append(("setup", 1000.0, f"{inst.ref}: the A operand late for LATE by "
+                out.append(("setup", 1000.0, f"{inst.ref}: the A operand late for the late phase by "
                             f"{ta + su - late:.1f} ns", inst.conn["D1"]))
             continue
         if le in ("RW_n", "RLEA"):
-            close = rw + (inv if le == "RW_n" else gtpd)
+            close = rw + (0.0 if le == "RW_n" else gtpd)
         elif le == "TLE":
-            close = rw + inv + and3
+            close = rw + and3
         else:                           # a queue slot: its J-K flip-flop, entering T1
             close = -2 * TICK + OFFSETS["QLE"]
         su = N.delay[inst.ref]["setup D"]
@@ -208,7 +212,7 @@ def extra_checks(case, N):
             [f"SX{i}" for i in range(4)] + [u[f"RFKW{i}"] for i in range(5)]
         worst = max(rwa, key=lambda n: case.net(n)[1])
         # the address moves on once RW_n and RLEA have closed the latches
-        t = max(case.net(worst)[1], rw + max(inv, gtpd))
+        t = max(case.net(worst)[1], rw + gtpd)
         out.append(("setup", t + gtpd + sram["tAS"] - strobe,
                     "register file write: address setup to write (tAS)", worst))
     return out
@@ -221,14 +225,13 @@ def fixed_checks(N):
     nand2 = N.delay[N.drivers["RFWE_n"][0][0].ref]["A->Y"]
     buf = N.delay["U_RWA0"]
     mux = N.delay["U_RFG0"]
-    inv = N.delay[N.drivers["RW_n"][0][0].ref]["A->Y"]
     rw = -2 * TICK + OFFSETS["RW"]
     strobe = -TICK + nand2
     return [
         ("register file: write buffers on, tDW before the strobe ends",
          nand2 - (-TICK + nand2 + buf["OE->Y en"] + sram["tDW"])),
         ("register file: write address switched (RW), tAS before the strobe",
-         strobe - (rw + max(inv, mux["tPD"]) + mux["tPD"] + sram["tAS"])),
+         strobe - (rw + mux["tPD"] + mux["tPD"] + sram["tAS"])),
         ("register file: write pulse width (tWP)", TICK - sram["tWP"]),
         ("memory: write pulse width at the shortest write (K_WRITE)",
          (timing.K_WRITE - 4) * TICK - _delays("sram512", "AS7C4096A-12")["tWP"]),

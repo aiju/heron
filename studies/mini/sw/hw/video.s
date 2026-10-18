@@ -131,8 +131,11 @@ main:   SAVE r7-r12
         BLO  .pg
 
         ; ---- on, and three frames ----
+        ; the frame's end has set the interrupt since reset (the timing's
+        ; counters run into one as they power up): acknowledged first
         CLR  [frames]
         MOV  r11, #VIDEO
+        CLR  [r11 + 4]
         MOV  r1, #5             ; the picture and its interrupt on
         MOV  [r11], r1
         EI

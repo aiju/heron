@@ -19,7 +19,7 @@ control nets and distinct microinstructions come from it. A machine may
 also give
   WINDOWS          {net: (open fraction, open ns, close fraction, close ns)}:
                    write windows, and other phases of the cycle (the
-                   tickclk's LATE), that open at a*T + b and close at
+                   tickclk's LATE and PHASE), that open at a*T + b and close at
                    c*T + d (by default WEWIN, [ws*T, we*T]), for a clock
                    generator that counts fixed ticks (the `tickclk` fixture);
   CLOSING          latch enables that, where a microinstruction leaves them
@@ -533,14 +533,15 @@ class Case:
 
     def m_tickclk(self, inst, pin, d):
         """A tick clock generator, as the cycle's first part sees it: CLK's
-        edge at 0, the memory write window opening and the late phase
+        edge at 0, the memory write window opening and the late phases
         starting (their values unknown, so writes are checked), and the
         register file still being read (its write phase and strobe off)."""
         if pin == "CLK":
             return (None, 0.0, True, None)
-        if pin in ("MWIN", "LATE"):
+        if pin in ("MWIN", "LATE", "PHASE"):
             a, b, _, _ = self.windows[pin]
-            what = "write window opens" if pin == "MWIN" else "late phase starts"
+            what = {"MWIN": "write window opens", "LATE": "late phase starts",
+                    "PHASE": "phase changes"}[pin]
             return (None, a * self.T + b, True, (inst.ref, pin, what))
         if pin == "RESET":
             return (1, NEG, True, None)

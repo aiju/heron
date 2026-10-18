@@ -187,12 +187,14 @@ tail ticks: a cycle of K ticks runs H0 and H1, a 4-bit count from a
 preload to 15, then T1 and T2; the CPU's clock rises entering H0. The
 register file is read in the cycle's first part, its latches transparent,
 and written in T2; RW (T1 or T2) switches its address to the write
-address. The memory's write window is from tick 2 to T1.
+address once its latches have closed, and its SRAMs drive their outputs
+until T2, so that a read has until the latches close. The memory's write
+window is from tick 2 to T1.
 
-- **Length classes:** four, chosen to minimise the suite's time over what
-  static timing analysis measures each microinstruction to need
-  (`ticks.json`): 5, 6, 7 and 9 ticks. A microinstruction's 2-bit field
-  picks one.
+- **Length classes:** up to four, chosen to minimise the suite's time over
+  what static timing analysis measures each microinstruction to need
+  (`ticks.json`): 5, 6 and 7 ticks, as the netlist stands. A
+  microinstruction's 2-bit field picks one.
 - **Data accesses take 7 ticks or more** (K_DATA): the I/O hold below
   must start before the count ends.
 - **A demand fetch** (a parcel read from the queue's head when the queue
