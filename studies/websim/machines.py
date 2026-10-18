@@ -310,7 +310,7 @@ clock, and a frame is 16.7 ms of it. The program is studies/mini_gfx's
 keyboard and the mouse; the keyboard is a US one. The terminal shows what the program
 prints on the simulations' console.</p>"""
 
-# (program, the menu's line, a sentence, variant, layout)
+# (program, the menu's line, a sentence, variant, layout[, the ms it takes to draw])
 MINI = [
     ("apps/desktop", "desktop", "the window manager, with a few windows to move about", "blk", "L0"),
     ("games/snake", "snake", "Snake at 320 x 240 x 8, with palette and descriptor tricks: arrow keys, "
@@ -320,12 +320,24 @@ MINI = [
      "click flags", "blk", "L0"),
     ("demos/testcard", "test card", "a test card in every video mode, a key or a click for the next",
      "blk", "L0"),
+    ("apps/editor", "text editor", "a text editor in two windows: typing, arrows, the mouse to "
+     "select, Ctrl+C/X/V, Ctrl+F to find", "blk", "L0"),
+    ("apps/forms", "parts inventory", "a forms application: a sortable, searchable list, a record "
+     "form, a chart", "blk", "L0"),
+    ("apps/schematic", "schematic editor", "a schematic editor in the window manager: place, wire, "
+     "pan with the arrows or a right drag", "blk", "L0"),
+    ("games/rocks", "shards", "a vector game at 1024 x 768 x 1: arrows to turn and thrust, Space "
+     "to fire", "blk", "L0"),
+    ("games/platformer", "fennec run", "a side-scroller at 320 x 240 x 8 with parallax by "
+     "descriptors: arrows, Space to jump (it takes a few seconds to start)", "blk", "L0", 8000),
+    ("games/racer", "racer", "a pseudo-3D road drawn by descriptors: arrows to steer, accelerate "
+     "and brake (it takes a few seconds to start)", "blk", "L0", 8000),
 ]
 
 
-def mini_machine(name, line, summary, variant, layout):
+def mini_machine(name, line, summary, variant, layout, boot=1000):
     return Machine(
-        id="mini-" + name.split("/")[1],
+        id="mini-" + name.split("/")[1].replace("_", "-"),
         group="Heron Mini",
         variant=line,
         summary=f"Heron Mini: {summary}.",
@@ -336,7 +348,7 @@ def mini_machine(name, line, summary, variant, layout):
         terminal=dict(RAW),
         screen=True,
         links=MINI_LINKS,
-        check=[("run", 1000), ("screen",)],
+        check=[("run", boot), ("screen",)],
     )
 
 
