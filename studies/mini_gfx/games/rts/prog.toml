@@ -1,0 +1,6 @@
+title = "RTS"
+about = "a real-time strategy scene: a scrolling tile map in a world bitmap, units on flow fields, five redraw strategies, the hardware cursor, a HUD in its own palette bank"
+sources = ["rts.c", "art.c", "map.c", "units.c", "render.c", "hud.c", "kern.c", "kern.s", "kern_blk.s"]
+variants = ["asm", "c", "blk"]
+frames = 1200
+script = "session.script"

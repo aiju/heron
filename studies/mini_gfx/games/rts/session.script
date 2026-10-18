@@ -1,0 +1,42 @@
+# The RTS's session in M0 (prog.toml's script): start-up takes 100-130
+# frames, so the session starts at 150.
+150 mouse 330 210
+170 shot start
+# a selection rectangle round the soldiers below the hall
+180 drag 120 112 250 200 30
+205 shot drag
+215 shot selected
+# send them east, past the trees; the target cursor
+225 click 560 260 2
+290 shot move
+# scroll right at the screen's edge, a word a frame
+340 mouse 639 250
+430 shot scroll
+440 mouse 400 250
+# the minimap: to the enemy's hall
+460 click 96 464
+500 shot enemy
+# back home; 96 more soldiers; the redraw strategies in turn
+520 click 14 414
+540 key +
+550 key +
+560 key +
+580 key 1
+640 shot dirty
+641 shot dirty2
+660 key 2
+720 shot beam
+721 shot beam2
+740 key 4
+800 shot full
+820 key 5
+880 shot tiles
+900 key 3
+960 shot double
+# every soldier at once, then scatter
+980 drag 8 8 630 396 20
+1010 click 300 350 2
+1060 shot march
+1100 key x
+1140 shot scatter
+1160 stop
