@@ -1,0 +1,14 @@
+# M0 (640 x 480 x 4), zoom 2: grid point (gx, gy) is at (128 + 8 gx, 22 + 8 gy)
+#   heron mini_gfx run apps/schematic --poke sch_mode=0 --frames 130 \
+#       --script studies/mini_gfx/apps/schematic/m0.script
+5 mouse 400 400
+40 shot m0_start
+# the ground net, from J1's ground wire
+50 key n
+55 click 208 350
+70 shot m0_net
+80 key esc
+# a rectangle round the oscillator's gates
+90 key s
+95 drag 250 170 420 260 15
+115 shot m0_selected

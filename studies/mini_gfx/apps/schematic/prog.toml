@@ -1,0 +1,101 @@
+title = "Schematic"
+about = "a schematic editor on the window manager: parts, wires, rubber bands, panning, zooming, nets"
+sources = ["schematic.c", "sheet.c", "symbols.c", "view.c", "xpand.c", "xpand.s", "spfill.s",
+           "sheetview.c", "bench.c", "sch_wm.c", "../../wm/ui.c"]
+wm = false
+frames = 640
+# M5 at zoom 3: grid point (gx, gy) is at (160 + 12 gx, 22 + 12 gy) on the screen
+script = """
+5 mouse 600 560
+40 shot start
+# an inverter, a resistor, an LED and a ground: a second LED in antiphase
+50 click 36 202
+55 mouse 500 400
+60 mouse 556 382
+66 shot place_ghost
+68 click 556 382
+75 click 36 98
+80 mouse 628 382
+84 click 628 382
+90 click 96 254
+95 mouse 676 382
+98 key r
+104 shot place_rotated
+106 click 676 382
+112 click 36 306
+117 mouse 676 430
+121 shot place_cursor
+123 click 676 430
+130 key esc
+# wires: the inverter's input up to U1B's inputs, its output to R3
+135 key w
+140 drag 556 382 532 274 20
+152 shot wire_band
+170 drag 604 382 628 382 8
+185 shot wired
+190 key esc
+# a rectangle round the new parts, then they move with the wire following
+195 drag 545 335 720 470 20
+207 shot select_rect
+220 shot selected
+225 drag 652 382 688 406 24
+240 shot moving
+260 shot moved
+# a click on nothing: the selection off (it shares its blue with the net's)
+262 click 400 650
+# the net through the new wire
+265 key n
+270 click 532 340
+285 shot net
+290 key esc
+# C2 selected and deleted
+300 click 916 166
+306 key del
+315 shot deleted
+# pans: the arrows, then a drag with the right button
+320 key right
+330 key down
+340 mouse 700 500
+341 down 2
+342 mouse 690 496
+344 mouse 670 488
+346 mouse 640 476
+348 mouse 610 464
+350 mouse 580 452
+352 up 2
+360 shot panned
+# zooms
+370 key -
+385 shot zoom2
+390 key -
+405 shot overview
+410 key =
+415 key =
+420 key =
+435 shot zoom4
+440 key -
+460 shot back
+# the sheet view: the whole sheet in bank 1, the descriptors pan it
+470 key f
+500 shot sheet_view
+505 key right
+510 key right
+515 key right
+520 key down
+525 key down
+535 shot sheet_panned
+540 mouse 700 500
+541 down 2
+542 mouse 690 480
+544 mouse 670 450
+546 mouse 650 420
+548 mouse 620 380
+550 mouse 600 360
+552 up 2
+560 key w
+565 drag 400 500 520 400 12
+572 shot sheet_band
+585 key esc
+590 key f
+605 shot back_from_sheet
+"""
