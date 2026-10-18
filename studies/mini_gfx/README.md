@@ -115,6 +115,22 @@ the worst. `rt_shot("name")` takes a screenshot of the next frame
 frame. `printf` goes to the simulations' console; a line `@done` ends
 the run.
 
+**The window manager** (`wm/wm.h`, with `wm = true` in prog.toml):
+`wm_init(mode, options)` sets up the screen, the theme (for 1, 2, 4
+and 8 bits), the fonts and the input; `wm_open(x, y, w, h, title,
+WF_TITLE)` makes a window whose content is a surface of its own
+(`w->s`, its backing store) that the application draws into at any
+time, then `wm_damage(w, x0, y0, x1, y1)` (content coordinates) to have
+it shown; the window's `key`, `mouse` (content coordinates; a window
+gets the moves and the release after a press in it), `tick` (every
+frame) and `close` are the application's. `wm_run()` loops a frame at
+a time: events, ticks, then the compositor copies the visible parts of
+the damage to the screen. `wm_menu` pops up a menu; `ui_*` draw
+widgets in the theme (`th`'s colours). The options, measured against
+each other: `WM_SOFTCURSOR` (a software cursor instead of C1),
+`WM_OUTLINE` (moves drag an XOR outline), `WM_SNAP` (windows' content
+starts on a word, so copies are never shifted), `WM_F1`.
+
 **C and assembly.** The compiler is studies/c_compiler (C89 and some
 C99; no floating point, `long long` or bit fields; `char` is unsigned).
 C names get a `_` in the assembly. Arguments in `r1`–`r4`, then the
