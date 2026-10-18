@@ -274,6 +274,7 @@ name = "websim"
 version = "0.1.0"
 dependencies = [
  "fen-board",
+ "mini-engine",
  "toolchain",
  "v1-isa",
  "v2-isa",
