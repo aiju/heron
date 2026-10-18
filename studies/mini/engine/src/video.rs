@@ -7,9 +7,10 @@
 //! pixel clocks are whole numbers of them: VGA's is two ticks, XGA's 65
 //! MHz pixel 1007 sub-ticks (50.35 / 65 = 1007 / 1300).
 //!
-//! A line is rendered when it starts, from the memory and the registers
-//! as they are then; its descriptor is read in the line before's
-//! blanking. The shifters' loads and the slots that refill the holding
+//! A line's pixels are read when it starts, from the memory and the
+//! registers as they are then, and their colours looked up as they're
+//! shown: a palette write changes the line from the beam's position on.
+//! Its descriptor is read in the line before's blanking. The shifters' loads and the slots that refill the holding
 //! registers are followed through each CPU cycle, for the bandwidth: B0
 //! counts the loads that found no word (the picture would glitch), B1
 //! stretches the cycle by two ticks for each such load (the steal), B2
@@ -226,6 +227,8 @@ pub struct Video {
     mode: Option<Mode>,
     f1: bool,
     d1: bool,
+    /// D1's frame base, latched as the frame starts.
+    fbase_frame: u32,
     family: Family,
     pixel: u64,
     frame_start: u64,
@@ -237,6 +240,13 @@ pub struct Video {
     decoder: Decoder,
     decoder_key: (u32, Layout, bool),
     picture: Vec<u16>,
+    /// The line being shown: its palette indices (BLACK: none), the
+    /// line, when it started, and how many of its pixels have their
+    /// colours
+    row: Vec<u16>,
+    row_y: Option<usize>,
+    row_start: u64,
+    row_done: usize,
     /// The frames completed, and the last one.
     pub frames: u64,
     pub last: Vec<u16>,
@@ -269,6 +279,7 @@ impl Video {
             mode: Mode::of(0),
             f1: false,
             d1: false,
+            fbase_frame: 0,
             family: VGA,
             pixel: 2 * SUB,
             frame_start: 0,
@@ -279,6 +290,10 @@ impl Video {
             decoder: Decoder::new(4, board.layout, false),
             decoder_key: (4, board.layout, false),
             picture: vec![0; VGA.width * VGA.height],
+            row: vec![BLACK; VGA.width],
+            row_y: None,
+            row_start: 0,
+            row_done: 0,
             frames: 0,
             last: Vec::new(),
             last_size: (VGA.width, VGA.height),
@@ -300,9 +315,13 @@ impl Video {
         self.flag && self.ctrl & 4 != 0
     }
 
-    /// A write to the registers (offset: PA[10:0], a word's).
-    pub fn write(&mut self, off: u32, v: u32) {
+    /// A write to the registers (offset: PA[10:0], a word's) at sub-tick
+    /// `now`.
+    pub fn write(&mut self, off: u32, v: u32, now: u64) {
         if off >= 0x400 {
+            // the line so far in the colours it had
+            let x = now.saturating_sub(self.row_start) / self.pixel;
+            self.colour_row(x as usize);
             self.palette[((off - 0x400) >> 2) as usize & 255] = v as u16;
             return;
         }
@@ -440,8 +459,9 @@ impl Video {
     fn read_descriptor(&mut self, ram: &[u8], y: u32) {
         if self.d1 {
             let words = self.mode.map_or(0, |m| m.words() as u32);
-            let base = (self.fbase & 0x7_FFFF).wrapping_add(y * words) & (BANK1_WORDS - 1);
-            self.desc = base | (self.fbase & 0x78_0000);
+            let fb = self.fbase_frame;
+            let base = (fb & 0x7_FFFF).wrapping_add(y * words) & (BANK1_WORDS - 1);
+            self.desc = base | (fb & 0x78_0000);
             return;
         }
         let tsel = if self.ctrl & 2 != 0 { 1024 } else { 0 };
@@ -455,6 +475,8 @@ impl Video {
     /// The frame's end, as its last line ends: the interrupt, the picture
     /// kept, the next frame's mode.
     fn end_frame(&mut self, now: u64) {
+        self.colour_row(usize::MAX);
+        self.row_y = None;
         self.flag = true;
         self.frames += 1;
         self.last_size = (self.family.width, self.family.height);
@@ -462,6 +484,7 @@ impl Video {
         self.mode = Mode::of((self.ctrl >> 4) & 7);
         self.f1 = self.ctrl & 0x80 != 0;
         self.d1 = self.ctrl & 0x200 != 0;
+        self.fbase_frame = self.fbase;
         if let Some(m) = self.mode {
             self.family = m.family;
         }
@@ -471,6 +494,7 @@ impl Video {
             2 * SUB
         };
         self.picture = vec![0; self.family.width * self.family.height];
+        self.row = vec![BLACK; self.family.width];
         self.frame_start = now;
         self.line = 0;
     }
@@ -478,12 +502,15 @@ impl Video {
     /// Picture line y starts at sub-tick `now`: its pixels from the
     /// memory as it is, and its loads.
     fn start_line(&mut self, ram: &[u8], now: u64, y: usize) {
-        let w = self.family.width;
+        self.colour_row(usize::MAX);
+        self.row_y = Some(y);
+        self.row_start = now;
+        self.row_done = 0;
         let on = self.ctrl & 1 != 0;
         let mode = match self.mode {
             Some(m) if on => m,
             _ => {
-                self.picture[y * w..(y + 1) * w].fill(0);
+                self.row.fill(BLACK);
                 self.loads_left = 0;
                 return;
             }
@@ -496,7 +523,7 @@ impl Video {
         };
         self.units = (words / unit) as u64;
         self.loads_left = self.units;
-        self.load_period = w as u64 * self.pixel / self.units;
+        self.load_period = self.family.width as u64 * self.pixel / self.units;
         self.next_load = now;
         self.ahead = self.cap().min(self.units);
         self.fetched = self.ahead;
@@ -508,8 +535,8 @@ impl Video {
             self.decoder_key = key;
         }
         let base = self.desc & 0x7_FFFF;
-        let bank = ((self.desc >> 19) & 15) as usize;
-        let row = &mut self.picture[y * w..(y + 1) * w];
+        let bank = ((self.desc >> 19) & 15) as u16;
+        let row = &mut self.row;
         let mut px = [0u8; 32];
         let mut x = 0;
         for j in 0..words as u32 {
@@ -517,9 +544,9 @@ impl Video {
                 .decode(bank1_word(ram, base.wrapping_add(j)), &mut px);
             for &p in &px[..self.decoder.per_word] {
                 let c = if mode.bits == 8 {
-                    self.palette[p as usize]
+                    u16::from(p)
                 } else {
-                    self.palette[16 * bank + p as usize]
+                    16 * bank + u16::from(p)
                 };
                 if mode.double {
                     row[x] = c;
@@ -536,6 +563,26 @@ impl Video {
         }
     }
 
+    /// The line being shown, its pixels up to x given their colours from
+    /// the palette as it is.
+    fn colour_row(&mut self, x: usize) {
+        let Some(y) = self.row_y else { return };
+        let w = self.family.width;
+        let x = x.min(w);
+        if x <= self.row_done {
+            return;
+        }
+        let out = &mut self.picture[y * w + self.row_done..y * w + x];
+        for (o, &i) in out.iter_mut().zip(&self.row[self.row_done..x]) {
+            *o = if i == BLACK {
+                0
+            } else {
+                self.palette[i as usize]
+            };
+        }
+        self.row_done = x;
+    }
+
     /// The cursor over picture line y (C1).
     fn cursor(&mut self, ram: &[u8], y: usize) {
         let r = y as i32 - self.cursor_y;
@@ -550,7 +597,7 @@ impl Video {
             let v = (bits >> (2 * p)) & 3;
             let x = self.cursor_x + p;
             if v != 0 && (0..w as i32).contains(&x) {
-                self.picture[y * w + x as usize] = self.palette[252 + v as usize];
+                self.row[x as usize] = 252 + v as u16;
             }
         }
     }
@@ -571,9 +618,13 @@ impl Video {
             v.read_descriptor(ram, y as u32);
             v.start_line(ram, 0, y);
         }
+        v.colour_row(usize::MAX);
         (v.family.width, v.family.height, v.picture)
     }
 }
+
+/// A row's pixel outside the picture: black.
+const BLACK: u16 = 0xFFFF;
 
 fn sign12(v: u32) -> i32 {
     ((v << 20) as i32) >> 20
@@ -713,14 +764,16 @@ mod tests {
         }
     }
 
-    /// D1: lines one after another from the frame base; a descriptor's
-    /// interrupt only with D0.
+    /// D1: lines one after another from the frame base, which a frame
+    /// takes as it starts; a descriptor's interrupt only with D0.
     #[test]
     fn frame_base() {
         let (mut v, mut ram, mut t) = setup(Board::default(), 1 | (4 << 4) | 0x200);
         v.fbase = 0x200 | (1 << 19);
         put(&mut ram, 0x200 + 20, 1);
         put(&mut ram, VGA.table + 2, 1 << 23);
+        frame(&mut v, &ram, &mut t, 5);
+        assert_eq!(v.last[640], 0);
         frame(&mut v, &ram, &mut t, 5);
         assert_eq!(v.last[640], 16 + 1);
         assert_eq!(v.last[641], 16);
@@ -743,6 +796,22 @@ mod tests {
         frame(&mut v, &ram, &mut t, 5);
         assert_eq!(&v.last[640 * 10..640 * 10 + 3], &[253, 255, 0]);
         assert_eq!(v.last[640 * 9], 0);
+    }
+
+    /// A palette write changes the line being shown from the beam's
+    /// pixel on, and the lines after.
+    #[test]
+    fn palette_mid_line() {
+        let (mut v, ram, mut t) = setup(Board::default(), 1);
+        let line0 = t + 45 * 1600;
+        while t < line0 + 10 {
+            v.cycle(&ram, t, 5, 0);
+            t += 5;
+        }
+        v.write(0x400, 0x1234, (line0 + 2 * 100) * SUB);
+        frame(&mut v, &ram, &mut t, 5);
+        assert_eq!(&v.last[98..102], &[0, 0, 0x1234, 0x1234]);
+        assert_eq!(v.last[640], 0x1234);
     }
 
     /// The beam: line and character.

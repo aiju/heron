@@ -170,27 +170,41 @@ picture's first.
 | 31–24 | 0 (**open**) |
 
 The line is the mode's words from there, each word from the next address
-(bank 1 wraps at its 2 MB).
+(bank 1 wraps at its 2 MB). A descriptor, and `TSEL`, are read in the
+line before, as the sync's third character ends (character 84 in VGA,
+133 in XGA), so a write to either shows from the first line whose
+descriptor is read after it, within the frame being shown.
 
 **D1, a frame base** (instead of D0): the frame base register gives the
 first line's word and the palette bank, the lines follow each other in
-memory, and there is no line interrupt.
+memory, and there is no line interrupt. The register is taken as the
+frame starts, so a write shows from the next frame.
 
 ### 6. The palette
 
 256 entries of RGB 5:6:5 at 0xF000_0400 + 4n, written, not read, as
-built. Outside the picture the output is black.
+built. Outside the picture the output is black. A pixel's colour is
+looked up as it's shown, so a write shows at once, from the pixel the
+beam is at: written in the picture, it splits its line. While the CPU
+writes it, the palette's address is the CPU's, so the few pixels shown
+then have the written entry's colour.
 
 ### 7. The cursor
 
 **C1**: a 32 × 32 picture over the frame, 2 bits a pixel: 0 is
-transparent, 1–3 are palette entries 253–255. Its rows are 2 words each
+transparent, 1–3 are palette entries 253–255 (bank 15's last three in
+the 4-, 2- and 1-bit modes, the top three pixel values in the 8-bit
+ones). Its rows are 2 words each
 (64 bits, pixel p at bits 2p and 2p + 1 of the pair, the first word
 pixels 0–15), 32 rows from the cursor base register's word in bank 1,
 read in each line's blanking. Its position is its top left corner in the
 timing family's own pixels (640 × 480 or 1024 × 768, whatever the mode's
 pixel width), a signed 12-bit number in each of the X and Y registers, so
-it can hang off any edge. The hotspot is the software's business.
+it can hang off any edge. The hotspot is the software's business. Its
+position and image are read line by line, with each line's row, so a
+move while the picture is shown splits it for a frame: software moves it
+at the frame's interrupt (**open**: taking them as the frame starts, a
+few chips more).
 
 ### 8. Registers
 
@@ -212,10 +226,16 @@ A mode's change takes effect at the next frame. The layout (L0 or L1),
 the bandwidth (B0–B2) and the XGA clock (K1, K2) are the board's, not
 registers.
 
-The interrupt is set as the picture ends and by a line whose descriptor
-asks (as its descriptor is read, in the line before's blanking); it's
-seen when the control register's bit 2 is set, and cleared by the
-acknowledge.
+The interrupt is set as the picture ends, whether bit 2 is set or not,
+and by a line whose descriptor asks; it's seen when the control
+register's bit 2 is set, and cleared by the acknowledge (so software
+acknowledges before setting bit 2). A line's interrupt comes as its
+descriptor is read, 15 characters (240 ticks) before the line starts in
+VGA, 34 in XGA: a handler in C writes the palette about 30 characters
+into a VGA line, so a change meant for a line's start is asked for by
+the line before's descriptor. The frame's interrupt and the lines' share the
+status bit and the acknowledge; the beam's position (P1) tells them
+apart (**open**: a bit each).
 
 ### 9. Bandwidth and the CPU
 
@@ -244,7 +264,9 @@ slots, none stolen. The CPU still sees 32 bits.
 
 **X0** (as built, [RFC 0041, 2.1](0041-rfc-heron-mini.md#21-block-instructions)):
 `FILL`, `COPY`, `EXPAND` and `BLIT k` in cell `FD`. `FILL` and `COPY`
-work on words, so in any mode. `BLIT k` rotates by 4k bits: k pixels at 4
+work on words, so in any mode. They aren't interrupted: an interrupt
+waits for the instruction's end, about three lines for a 256-word
+`COPY`, 125 characters for a 256-word `FILL`. `BLIT k` rotates by 4k bits: k pixels at 4
 bits, k/2 at 8 bits (k even). `EXPAND` writes 4-bit pixels.
 
 **X1** (microcode only, **not in the simulator yet**): `EXPAND` for 8,
@@ -276,13 +298,14 @@ the XGA clock) are the simulator's. It runs 10–14 million cycles a
 second, about one and a half times the real machine, and writes frames
 as PNG files and where the time went. The rules it follows:
 
-- The video starts with the CPU, in M0; a frame's mode, F1 and D1 are
-  latched as it starts.
-- A line is rendered as it starts, from the memory and the registers as
-  they are then (the palette, the cursor's position and image); its
-  descriptor (or, with D1, its address) is read in the line before, at
-  the end of the sync's third character (character 84 in VGA, 133 in
-  XGA).
+- The video starts with the CPU, in M0; a frame's mode, F1, D1 and
+  frame base are latched as it starts.
+- A line's pixels are read as it starts, from the memory and the
+  registers as they are then (the cursor's position and image too), and
+  their colours looked up as they're shown: a palette write changes the
+  line from the beam's pixel on. Its descriptor (or, with D1, its
+  address) is read in the line before, at the end of the sync's third
+  character (character 84 in VGA, 133 in XGA).
 - The frame's interrupt is set at every frame's end, enabled or not, so a
   program that enables it acknowledges first.
 - With the picture off, the lines are black and nothing is read but the
@@ -298,8 +321,10 @@ as PNG files and where the time went. The rules it follows:
   up with every mode in this model, M2 included; the hardware's margins
   (the slot's two ticks, the shifters' load) are a netlist's question.
 
-Two simplifications: a line's words are read when the line starts (the
-hardware reads them across the line), and B1's stealing is counted per
+The simplifications: a line's words are read when the line starts (the
+hardware reads them across the line); a palette write takes effect as
+its cycle's hold ends, to within a pixel or two, without the written
+colour on the pixels shown during it; B1's stealing is counted per
 cycle, not per tick.
 
 ### 13. What each option costs
@@ -357,3 +382,10 @@ cycle, not per tick.
    cycle, or a longer length class, would break it.
 6. Which of X1's block instructions.
 7. The descriptors' bits 31–24.
+8. The cursor's position and image: read line by line, or taken as the
+   frame starts.
+9. A status bit for the frame's interrupt and another for the lines'.
+
+[Report 0043](0043-report-mini-graphics.md) wrote graphics software
+against this RFC on the simulator, and answers these from what it
+measured.

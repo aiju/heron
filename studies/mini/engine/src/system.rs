@@ -319,7 +319,9 @@ impl System {
         } else if region == R_LOCAL && System::suite_page(pa) {
             self.page.write(pa & 0xFF, data, size);
         } else if region == R_LOCAL && pa & 0x20_0000 == 0 && pa & 0xC00 < L_STATUS {
-            self.video.write(pa & 0x7FC, data);
+            // as the strobe ends, after the hold from tick 4
+            let now = (self.ticks + 4 + self.io_hold[region as usize]) * SUB;
+            self.video.write(pa & 0x7FC, data, now);
         }
     }
 
