@@ -24,6 +24,7 @@ commands, and `heron test <study>` runs its unit tests.
 | [v1b_system](v1b_system/README.md) | Draft 1b on the RFC 0014 bus: the backplane, the CPU card with variable-length cycles, a memory card and an I/O card, at chip level |
 | [v1b_tradeoffs](v1b_tradeoffs/README.md) | Faster and smaller: where the 1b system's time and chips go, faster parts and a clock generator for them at chip level, cycle floors and other microarchitectures |
 | [pcb](pcb/README.md) | The cards as printed circuit boards: placed and routed by code, written as KiCad boards, checked against the simulated netlist |
+| [pcb_columns](pcb_columns/README.md) | Placement on a grid of columns and half-columns (RFC 0046): a prototype placer, a slice of the 1b CPU card on a double Eurocard |
 | [c_compiler](c_compiler/README.md) | A C compiler for drafts 1a, 1b and 2 |
 | [lisp](lisp/README.md) | A Lisp for drafts 1b and 2: interpreter, compiler and collector on the machine, and what it wants from the ISA |
 | [bus_si](bus_si/README.md) | Signal integrity of the system bus backplane: loading, ground bounce, crosstalk, the clock tree, the strobes |
