@@ -79,6 +79,17 @@ PINOUTS = {
     # a push button to ground: a 6 mm tactile switch, whose footprint has
     # each of its two terminals on two pads
     "button": "OUT GND",
+    # CY22393 (Cypress 38-07186 Rev. *N, figure 1 and the pin definitions,
+    # 16-pin TSSOP): a 3.3 V part, VDD and AVDD on a 3.3 V rail; OE is
+    # SHUTDOWN/OE, SDAT and SCLK the serial port (S0 and S1 at start-up),
+    # S2 the frequency select's bit 2. A TSSOP-to-DIP adapter keeps the
+    # numbering
+    "cy22393": "CLKC VDD GND XTALIN XTALOUT XBUF CLKD CLKE CLKB CLKA GND SDAT SCLK AVDD S2 OE",
+    # LM1117-3.3 (TI SNOS412): SOT-223 and TO-220 both 1 GND, 2 the output
+    # (the tab), 3 the input
+    "ldo33": "GND OUT VCC",
+    # two-terminal parts
+    "rpull": "A R", "cap": "A B", "capbulk": "A B", "xtal": "X1 X2",
     # JEDEC 28-pin 32K x 8 SRAM (AS7C256A, AS6C62256: SOJ, PDIP)
     "sram": ("A14 A12 A7 A6 A5 A4 A3 A2 A1 A0 IO0 IO1 IO2 GND "
              "IO3 IO4 IO5 IO6 IO7 CE A10 OE A11 A9 A8 A13 WE VCC"),
@@ -252,6 +263,8 @@ DIP_PACKAGE = {
     "823": "DIP24", "181": "DIP24W", "82c54": "DIP24W", "22v10": "DIP24", "16c550": "DIP40W",
     "sram": "DIP28", "flash": "DIP32W", "flash4": "DIP32W", "sram512": "DIP32W",
     "por": "DIP8", "osc": "OSC", "pullup": "SIP9", "button": "BUTTON",
+    "cy22393": "DIP16", "ldo33": "TO220", "rpull": "RES", "cap": "CAP", "capbulk": "CAPBULK",
+    "xtal": "XTAL",
 }
 
 FP = {
@@ -270,6 +283,9 @@ FP = {
         "CAP": "Capacitor_THT:C_Disc_D3.0mm_W1.6mm_P2.50mm",
         "CAPBULK": "Capacitor_THT:CP_Radial_D6.3mm_P2.50mm",
         "BUTTON": "Button_Switch_THT:SW_PUSH_6mm",
+        "TO220": "Package_TO_SOT_THT:TO-220-3_Vertical",
+        "RES": "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal",
+        "XTAL": "Crystal:Crystal_HC49-U_Vertical",
     },
     "smd": {
         "DIP8": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
@@ -289,12 +305,17 @@ FP = {
         "CAP": "Capacitor_SMD:C_0603_1608Metric",
         "CAPBULK": "Capacitor_SMD:C_1206_3216Metric",
         "BUTTON": "Button_Switch_THT:SW_PUSH_6mm",
+        "TSSOP16": "Package_SO:TSSOP-16_4.4x5mm_P0.65mm",
+        "SOT223": "Package_TO_SOT_SMD:SOT-223-3_TabPin2",
+        "RES": "Resistor_SMD:R_0603_1608Metric",
+        "XTAL": "Crystal:Crystal_SMD_HC49-SD",
     },
 }
 
 # per style, chip types whose package differs from DIP_PACKAGE's choice
 OVERRIDES = {
-    "smd": {"flash": "PLCC32", "flash4": "PLCC32", "182": "DIP16THT"},
+    "smd": {"flash": "PLCC32", "flash4": "PLCC32", "182": "DIP16THT", "cy22393": "TSSOP16",
+            "ldo33": "SOT223"},
     "dip": {},
 }
 FP["smd"]["DIP16THT"] = "Package_DIP:DIP-16_W7.62mm"

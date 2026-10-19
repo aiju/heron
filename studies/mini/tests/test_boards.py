@@ -115,6 +115,18 @@ class Export(unittest.TestCase):
             self.assertEqual(len(paths), len(boards.BOARDS) + 1)
 
 
+class SavedCut(unittest.TestCase):
+    def test_saved_cut_holds(self):
+        # the default assignment keeps every chip of the saved cut on its board
+        w = boards._weights_file()
+        if not w or not w.get("boards"):
+            self.skipTest("no saved cut")
+        a = boards.default()
+        for ref, b in w["boards"].items():
+            if ref in a.board_of:
+                self.assertEqual(a.board_of[ref], b, ref)
+
+
 class Delays(unittest.TestCase):
     def test_sta_netlist(self):
         a = boards.default()

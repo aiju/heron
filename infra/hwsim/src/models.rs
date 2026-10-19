@@ -221,8 +221,10 @@ impl Model {
             "clocksynth" => Model::ClockSynth(ClockSynth::new(s)?),
             "button" => Model::Button(Button::new(s)?),
             "ps2dev" => Model::Ps2(Box::new(crate::devices::Ps2Device::new(s, preload)?)),
-            // pull-up resistors are weak drivers in the engine (sim.rs)
-            "pullup" => Model::Const,
+            // pull-up resistors are weak drivers in the engine (sim.rs); the
+            // other passive parts (capacitors, crystals, regulators) are only
+            // their pins' kinds
+            "pullup" | "passive" => Model::Const,
             "por" => Model::Por(Por::new(s)?),
             "uart16550" => Model::Uart(Box::new(Uart16550::new(s, preload)?)),
             "i8254" => Model::Timer(Box::new(I8254::new(s)?)),

@@ -405,10 +405,12 @@ T("osc", "osc", [("OUT", "io")], family="osc",
 
 T("cy22393", "clocksynth",
   [(p, "io") for p in ("CLKA", "CLKB", "CLKC", "CLKD", "CLKE", "XBUF")]
-  + [("SCLK", "in"), ("SDAT", "io"), ("S2", "in")], family="osc",
+  + [("SCLK", "in"), ("SDAT", "io"), ("S2", "in"), ("OE", "in"), ("XTALIN", "in"),
+     ("XTALOUT", "io"), ("VDD", "in"), ("AVDD", "in")], family="osc",
   desc="programmable clock chip, three PLLs and six outputs from its stored configuration "
        "(params <a-e, x>_ps and _phase: each output's period and first rising edge); its "
-       "serial port (SCLK, SDAT) isn't modelled")
+       "serial port (SCLK, SDAT), its crystal (XTALIN, XTALOUT) and SHUTDOWN/OE (OE) aren't "
+       "modelled. A 3.3 V part: VDD and AVDD on a 3.3 V rail, and its inputs no higher")
 
 T("button", "button", [("OUT", "tri")], family="misc",
   desc="push button to ground (params press_ps, release_ps: when the simulation presses it)")
@@ -423,6 +425,19 @@ T("por", "por", [("RST", "tri")], family="misc",
 
 T("pullup", "pullup", [(f"P{i}", "pull") for i in range(1, 9)], family="passive",
   desc="eight pull-up resistors to VCC (a resistor network)")
+
+# parts on a board that the simulation doesn't model beyond a pull-up: they
+# are in the netlist for the boards' PCBs
+T("rpull", "passive", [("A", "pull"), ("R", "in")], family="passive",
+  desc="a pull-up resistor from A to the rail R (one other than VCC)")
+T("cap", "passive", [("A", "in"), ("B", "in")], family="passive",
+  desc="a capacitor (its value the part); decoupling on a rail other than VCC")
+T("capbulk", "passive", [("A", "in"), ("B", "in")], family="passive",
+  desc="a bulk capacitor, 10 uF or so (its value the part)")
+T("xtal", "passive", [("X1", "io"), ("X2", "io")], family="passive",
+  desc="a crystal (its frequency the part)")
+T("ldo33", "passive", [("OUT", "pull")], family="passive",
+  desc="a 3.3 V regulator from VCC: OUT the 3.3 V rail, which reads high")
 
 # ---- devices: register-level models in infra/devices, pins in hwsim ----
 
@@ -540,7 +555,9 @@ ACT_MISSING = {"30", "688", "193"}
 # named in the netlist by part number (Netlist.add(..., part=...)).
 FIXED_PARTS = {"osc": "oscillator", "por": "TL7705A", "pullup": "10k x8 resistor network",
                "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF", "cy22393": "CY22393",
-               "button": "push button", "flash4": "SST39SF040-55"}
+               "button": "push button", "flash4": "SST39SF040-55", "rpull": "resistor",
+               "cap": "capacitor", "capbulk": "capacitor", "xtal": "crystal",
+               "ldo33": "LM1117-3.3"}
 # Families whose parts may have no timing data (their models have defaults).
 UNTIMED = {"osc", "misc", "passive", "fixture"}
 

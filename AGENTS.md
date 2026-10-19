@@ -175,9 +175,11 @@ Change the generator and rerun it rather than editing the output by hand:
   lengths at its two master clocks: `heron mini hw sta --write` and
   `heron mini hw sta --xga --write`, after any change to its netlist or
   microcode (`heron test mini` fails while they're stale);
-- `studies/mini/board-weights.json`, the weights the board cut gives the
-  nets on the timing's critical paths: `heron mini boards --tune 2`
-  (about ten minutes), after a change to the netlist;
+- `studies/mini/board-weights.json`, the boards' cut and the weights it
+  gives the nets on the timing's critical paths: `heron mini boards
+  --tune 2` (about ten minutes). It cuts afresh, moving chips between
+  boards, so not while the boards' PCBs are laid out: otherwise the
+  saved cut holds, and chips added to the netlist are placed around it;
 - the SVGs of the documents' figures: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 

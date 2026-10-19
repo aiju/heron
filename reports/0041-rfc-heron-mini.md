@@ -771,10 +771,10 @@ small adapter. **Built** in the netlist:
 
 - **The chip** (`U_CLK`, its stored configuration): CLKA 50.35 MHz, the
   master clock for VGA (its pixel clock twice); CLKB 65 MHz, XGA's pixel
-  clock; CLKC 1.8432 MHz for the UARTs and the 82C54. Each from its own
-  PLL. Its serial port (SCLK, SDAT) is pulled up, for a programmer on a
-  header: reprogramming it from the CPU, and the debugging speeds, are
-  **open** (Emily: not yet).
+  clock; CLKC 1.8432 MHz for the UARTs and the 82C54. CLKA and CLKB
+  from a PLL each, CLKC from the crystal. Its serial port (SCLK, SDAT)
+  is pulled up, for a programmer on a header: reprogramming it from the
+  CPU, and the debugging speeds, are **open** (Emily: not yet).
 - **The master clock is CLKB while an XGA mode is shown,** so the whole
   machine runs at 65 MHz then and the video stays synchronous to one
   clock in both families ([RFC 0042, 2](0042-rfc-mini-video.md#2-timing)).
@@ -798,6 +798,36 @@ small adapter. **Built** in the netlist:
   is ever shorter than its class at the clock it runs on.
 - **A clock at power-up:** the chip's stored configuration; the switch's
   flip-flops are cleared by the power-on reset and start on CLKA.
+- **From its datasheet** (Cypress 38-07186), in the netlist as built:
+  - **3.3 V:** VDD and AVDD 3.135–3.465 V, from a regulator of its own
+    (an LM1117-3.3) with its decoupling; its inputs take no more than
+    AVDD + 0.5 V, so the serial port's pull-ups and SHUTDOWN/OE are on
+    that rail, not on VCC. Its outputs swing to within 0.5 V of VDD,
+    enough for the TTL-level inputs they drive.
+  - **The reference:** a crystal of 8–30 MHz with the load capacitors on
+    the chip. 14.7456 MHz makes the UARTs' clock the crystal divided by
+    8 (or by 1, for 14.7456 MHz, [23](#23-a-fast-link)) and leaves PLL3
+    free; PLL1 and PLL2 make 50.35 and 65 MHz within 1.5 ppm (PLL =
+    reference × (2(P + 3) + PO) / (Q + 2), then a 7-bit divider; Cypress's
+    CyClocksRT checks the rules the datasheet leaves out). Any common
+    crystal would do about as well; 20 or 24 MHz gives all three exactly,
+    with every PLL used.
+  - **Programming:** a part bought blank (CY22393FXC) has its outputs
+    off until its flash holds a configuration, which Cypress's
+    programmer writes, or Cypress programs to order (CY22393ZXC-xxx);
+    the serial port, 400 kHz I²C-like, changes the running
+    configuration. So the machine needs a programmed part, or something
+    that configures a blank one over the serial port before the CPU runs
+    (**open**).
+  - **Lock:** the PLLs take up to 3 ms to lock after power-up, so the
+    power-on reset is to last longer than that (the TL7705A's delay
+    capacitor, 10 ms or so).
+  - **Loads:** each output is meant for one load of 15 pF or less. CLKA
+    and CLKB go to the switch beside the chip; CLKC goes to the UARTs and
+    the 82C54 on the I/O board, so it wants a series resistor at the chip
+    and a buffer at the far end.
+  - **Jitter:** about 400 ps peak to peak, typical, on a period; the
+    timing analysis assumes an ideal clock.
 
 What remains of the options, should the CY22393 not do:
 
@@ -1034,7 +1064,10 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   40% of the CPU): the CPU would rather be one board. On the chip-level
   simulator, with the delays on the cut's crossings, the suite runs as
   on the model at the one-board length classes, with no timing
-  violation (`heron mini hw test --boards`).
+  violation (`heron mini hw test --boards`). The cut is saved
+  (`board-weights.json`): a later change to the netlist places its new
+  chips around it rather than cutting again, so the boards' layouts
+  aren't undone; only `--tune` cuts afresh.
 - **For the PCB study:** `heron mini boards --write` writes each board's
   netlist (its chips, footprints in an SMD and a DIP style, nets, and
   the IDC headers' pin maps, a ground after every signal) into
@@ -1079,7 +1112,8 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   and the SRAMs most of it); not redone for the 22V10s, which draw about
   0.1 A each.
 - **SMD:** the SRAMs (fourteen in SOJ), as no fast SRAM is made in DIP;
-  the CF card's socket; and the clock chip ([20](#20-the-clock)).
+  the CF card's socket; and the clock chip ([20](#20-the-clock)), with
+  its 3.3 V regulator, crystal and passives.
 
 ### 29. How it was checked
 
@@ -1174,8 +1208,10 @@ For Emily:
    boards, the CPU on two, tentatively); the clock buffers each board
    would need; how the microcode is updated.
 3. **The clock chip:** the CY22393 (or a CDCE913) tentatively, in TSSOP
-   on an adapter; reprogramming it from the CPU, and the debugging
-   speeds, later ([20](#20-the-clock)).
+   on an adapter; how a part gets its configuration (programmed
+   beforehand, or loaded over its serial port at power-up), the crystal
+   (14.7456 MHz as built); reprogramming it from the CPU, and the
+   debugging speeds, later ([20](#20-the-clock)).
 4. **The block instructions:** a copy register for faster copies; counts
    over 256 ([19](#19-blitting-in-microcode)).
 5. **The I/O map:** the free region 4 now holds the PS/2 ports; the
@@ -1206,7 +1242,7 @@ The video's questions are [RFC 0042, 14](0042-rfc-mini-video.md#14-open-question
   (`heron mini boards --write`), and the real delays between the boards
   fed back into the timing analysis in place of the flat 1.5 ns
   ([28](#28-the-boards)); the clock buffers in the netlist; the clock
-  chip's pinout for the PCB flow.
+  chip's serial-port header and UCLK's buffer.
 - **Contention:** a break-before-make look at the worst hand-overs
   ([29](#29-how-it-was-checked)), the A bus's first (tentatively
   decided).

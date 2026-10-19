@@ -67,8 +67,11 @@ the plain cut, each round finds the microinstruction states that need
 more ticks with the boards' delays, weights every net on their critical
 paths (1 + 2 a path, at most 21) and cuts again; the round that gives
 the suite the least time wins, and its weights go to
-board-weights.json, which the default assignment reads. Rerun it after
-the netlist changes (its paths are the netlist's).
+board-weights.json with the cut itself. The default assignment keeps
+that cut's chips where it put them and places only chips added since
+around them, so that a change to the netlist doesn't reshuffle the
+boards (whose PCBs may be under way); `--tune` cuts afresh, for a
+netlist that has changed enough to want it.
 
   heron mini boards [--list] [--header 40|50|64] [--per-ground 1|2|3]
                     [--limit N] [--write] [--sta] [--slowed] [--tune ROUNDS]
@@ -367,8 +370,9 @@ class Assignment:
         return math.ceil(sum(weight(self.nl.refs[r]) for r in self.refs(b)) - 1e-9)
 
 
-def _placement(nl, sections=None, overrides=None):
-    """(start {ref: board}, allowed {ref: boards}, fixed refs, warnings)."""
+def _placement(nl, sections=None, overrides=None, keep=None):
+    """(start {ref: board}, allowed {ref: boards}, fixed refs, warnings).
+    keep {ref: board}: chips held where an earlier cut put them."""
     sections = SECTIONS if sections is None else sections
     overrides = OVERRIDES if overrides is None else overrides
     gsec = gate_sections(nl)
@@ -410,6 +414,11 @@ def _placement(nl, sections=None, overrides=None):
         why = "its name" if sec and IO_WORDS.search(sec) else "their nets"
         warnings.append(f"section {sec!r} isn't in boards.SECTIONS: its {len(refs)} chips start "
                         f"on {', '.join(where)} by a guess ({why})")
+    for ref, b in (keep or {}).items():
+        if ref in start and b in allowed[ref] and ref not in overrides:
+            start[ref] = b
+            allowed[ref] = (b,)
+            fixed.add(ref)
     for ref, b in overrides.items():
         if ref not in nl.refs:
             warnings.append(f"OVERRIDES names {ref}, which isn't in the netlist")
@@ -423,7 +432,7 @@ def _placement(nl, sections=None, overrides=None):
 
 
 def assign(nl=None, target=TARGET, sections=None, overrides=None, chains=4, restarts=30,
-           seed=1, weights=None):
+           seed=1, weights=None, keep=None):
     """The boards for every instance of the mini's netlist (default:
     board.build(sim=True)): an Assignment. After the refinement from the
     start, `chains` independent chains (random seeds seed, seed + 1, ...)
@@ -431,9 +440,11 @@ def assign(nl=None, target=TARGET, sections=None, overrides=None, chains=4, rest
     the chain's best, refine, keep it if better. The best of the chains
     wins (on the mini's netlist of 333 packages, about 4 s). `weights`
     {net: weight} makes a net's wires count more (default 1): the nets on
-    critical paths, for a cut that keeps them on one board."""
+    critical paths, for a cut that keeps them on one board. `keep`
+    {ref: board} holds chips where an earlier cut put them (the saved
+    cut, board-weights.json): only the others move."""
     nl = nl or mini_board.build(sim=True)
-    start, allowed, fixed, warnings = _placement(nl, sections, overrides)
+    start, allowed, fixed, warnings = _placement(nl, sections, overrides, keep)
     refs = sorted(start, key=natural)
     index = {r: i for i, r in enumerate(refs)}
     bi = {b: i for i, b in enumerate(BOARDS)}
@@ -501,11 +512,13 @@ def weights():
 
 
 def default():
-    """The assignment of board.build(sim=True), with tune()'s net
-    weights, computed once."""
+    """The assignment of board.build(sim=True), computed once: tune()'s
+    saved cut, its chips where it put them and the netlist's newer ones
+    placed around them, with its net weights."""
     global _DEFAULT
     if _DEFAULT is None:
-        _DEFAULT = assign(weights=weights())
+        w = _weights_file() or {}
+        _DEFAULT = assign(weights=w.get("weights"), keep=w.get("boards"))
     return _DEFAULT
 
 
@@ -1415,7 +1428,7 @@ def tune(rounds=3, ps=DELAY_PS, gain=TUNE_GAIN, cap=TUNE_CAP, log=print):
         log(f"round {r}: {ms:.1f} ms ({100 * (ms / plain - 1):+.1f}% on {plain:.1f}), "
             f"{cut} nets cross, packages {', '.join(f'{b} {a.packages(b)}' for b in BOARDS)}")
         if best is None or ms < best[0] - 1e-9:
-            best = (ms, w)
+            best = (ms, w, dict(a.board_of))
         if r == rounds:
             break
         worse, paths, _ = slowed_paths(a, ps)
@@ -1425,11 +1438,11 @@ def tune(rounds=3, ps=DELAY_PS, gain=TUNE_GAIN, cap=TUNE_CAP, log=print):
                     count[net] += 1
         w = {n: 1 + min(gain * c, cap) for n, c in sorted(count.items())}
         log(f"  {len(worse)} states lose a tick; {len(w)} nets weighted")
-    ms, w = best
+    ms, w, cut = best
     with open(WEIGHTS_PATH, "w") as f:
         json.dump({"generated by": "heron mini boards --tune", "board delay ps": ps,
                    "suite ms": round(ms, 1), "plain ms": round(plain, 1),
-                   "weights": w or {}}, f, indent=0, sort_keys=True)
+                   "weights": w or {}, "boards": cut}, f, indent=0, sort_keys=True)
         f.write("\n")
     return w, ms, plain
 
@@ -1469,6 +1482,9 @@ def main(argv=None):
         tune(args.tune, round(args.board_delay * 1000))
         _DEFAULT = None
     a = default() if args.limit == TARGET else assign(target=args.limit, weights=weights())
+    if args.limit == TARGET and not args.tune and _weights_file() and \
+            not _weights_file().get("boards"):
+        print("board-weights.json has no saved cut: `--tune` makes one", file=sys.stderr)
     print(report(a, args.header, args.per_ground, listing=args.list))
     if args.write:
         for path in write(a, args.header, args.per_ground):

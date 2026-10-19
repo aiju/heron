@@ -111,7 +111,7 @@ def clock_generator(nl, lengths, xlengths, por_ps):
     g = nl.gate
     nl.section("Reset")
     nl.add("por", "U_POR", RST="PORST_n", params={"release_ps": por_ps})
-    nl.add("pullup", "RN_POR", P1="PORST_n", P2="CKSCL", P3="CKSDA", P4="DBGB_n")
+    nl.add("pullup", "RN_POR", P1="PORST_n", P4="DBGB_n")
     g("14", ["PORST_n"], "RSTI")
     g("14", ["RSTI"], "RSTA_n")
     # asserted at once, released at a CLK edge
@@ -121,11 +121,24 @@ def clock_generator(nl, lengths, xlengths, por_ps):
 
     nl.section("Clock")
     # the clock chip, from its stored configuration: CLKA 50.35 MHz (VGA's
-    # pixel clock twice), CLKB 65 MHz (XGA's), CLKC the UARTs' and the
-    # timer's 1.8432 MHz, each from its own PLL. Its serial port (SCLK,
-    # SDAT) is on a header, for reprogramming it: open (RFC 0041, 20)
+    # pixel clock twice) and CLKB 65 MHz (XGA's) from a PLL each, CLKC the
+    # UARTs' and the timer's 1.8432 MHz, its 14.7456 MHz crystal / 8 (the
+    # load capacitors are on the chip). Its serial port (SCLK, SDAT) is
+    # for a programmer on a header: reprogramming it is open (RFC 0041,
+    # 20). A 3.3 V part (Cypress 38-07186): its own regulator, decoupled,
+    # and its inputs no higher, so the serial port's pull-ups and OE
+    # (SHUTDOWN/OE, high: on) are on that rail. A blank part's outputs are
+    # off: its flash is programmed beforehand
+    nl.add("ldo33", "U_V33", OUT="V33")
+    nl.add("capbulk", "C_V33", part="10 uF tantalum", A="V33", B="GND")
+    nl.add("cap", "C_CLK1", part="100 nF", A="V33", B="GND")
+    nl.add("cap", "C_CLK2", part="100 nF", A="V33", B="GND")
+    nl.add("rpull", "R_CKSCL", part="4.7 kohm", A="CKSCL", R="V33")
+    nl.add("rpull", "R_CKSDA", part="4.7 kohm", A="CKSDA", R="V33")
+    nl.add("xtal", "Y_CLK", part="14.7456 MHz crystal", X1="CKXI", X2="CKXO")
     nl.add("cy22393", "U_CLK", CLKA="CLKA", CLKB="CLKB", CLKC="UCLK", SCLK="CKSCL",
-           SDAT="CKSDA", S2="GND",
+           SDAT="CKSDA", S2="GND", OE="V33", XTALIN="CKXI", XTALOUT="CKXO", VDD="V33",
+           AVDD="V33",
            params={"a_ps": TICK_PS, "a_phase": TICK_PS, "b_ps": XGA_TICK_PS,
                    "b_phase": XGA_TICK_PS + 3_000, "c_ps": round(1e12 / UART_HZ)})
     # the switch: each clock's enable from two flip-flops on its rising
