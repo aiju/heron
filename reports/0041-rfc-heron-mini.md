@@ -212,11 +212,18 @@ its address to the write address once its latches have closed, and its
 SRAMs drive their outputs until T2, so that a read has until the latches
 close. The memory's write window is from tick 2 to T1.
 
-- **Length classes:** up to four, chosen to minimise the suite's time over
-  what static timing analysis measures each microinstruction to need
-  (`ticks.json`): 5, 6 and 7 ticks, as the netlist stands. A
-  microinstruction's 2-bit field picks one; the preloads are the clock
-  generator's equations, so the classes are its program.
+- **The master clock** comes from a programmable clock chip
+  ([20](#20-the-clock)): 50.35 MHz, a tick of 19.86 ns, in the VGA
+  modes; 65 MHz, a tick of 15.38 ns, while an XGA mode is shown, the
+  whole machine on it. A switch of two enables changes between them
+  without a short pulse, as a frame starts.
+- **Length classes:** four, each a pair of lengths, one for each master
+  clock, chosen to minimise the suite's time over what static timing
+  analysis measures each microinstruction to need at that clock's tick
+  (`ticks.json`, `ticks-xga.json`): (5, 6), (6, 8), (7, 8) and (5, 7)
+  ticks, as the netlist stands. A microinstruction's 2-bit field picks
+  one; the preloads are the clock generator's equations, so the classes
+  are its program.
 - **Data accesses take 7 ticks or more** (K_DATA): the I/O hold below
   must start before the count ends.
 - **A demand fetch** (a parcel read from the queue's head when the queue
@@ -227,6 +234,10 @@ close. The memory's write window is from tick 2 to T1.
   depends on it).
 - **The I/O hold:** an access to the I/O space stops the count from tick 4
   for the region's wait states ([7](#7-the-io-space)).
+- **Cycle stealing:** while a picture's line is shown, a cycle whose T1
+  finds the video's two holding registers empty has T2 held two ticks
+  more ([RFC 0042, 9](0042-rfc-mini-video.md#9-bandwidth-and-the-cpu)).
+  With the length classes as they are it never happens.
 
 ### 5. CPU
 
@@ -320,7 +331,7 @@ are in the low regions:
 | 1 | 0x9000_0000 | 14 | 298 ns | expansion port 1 |
 | 2 | 0xA000_0000 | 12 | 258 ns | expansion port 2 |
 | 3 | 0xB000_0000 | 10 | 218 ns | 82C54 timer: counters 0–2 at `+0`, `+4`, `+8`, the control word at `+0xC` |
-| 4 | 0xC000_0000 | 8 | 179 ns | **open** (free; the keyboard and mouse, [22](#22-keyboard-and-mouse)) |
+| 4 | 0xC000_0000 | 8 | 179 ns | the PS/2 ports, below |
 | 5 | 0xD000_0000 | 6 | 139 ns | boot flash, 128K × 8, a byte a word: byte n at `+4n` |
 | 6 | 0xE000_0000 | 4 | 99 ns | UART 0 (16C550) at `+4n`, UART 1 at `+0x20 + 4n` |
 | 7 | 0xF000_0000 | 2 | 60 ns | the on-board registers, at addresses with bit 21 low |
@@ -340,6 +351,8 @@ are in the low regions:
   |---|---|---|
   | 0xF000_0000 | – | the video's control register ([9](#9-video)) |
   | 0xF000_0004 | – | the video's interrupt acknowledge |
+  | 0xF000_0008 | the beam's position ([9](#9-video)) | – |
+  | 0xF000_0010 | – | the cursor's X ([9](#9-video)) |
   | 0xF000_0400 + 4n | – | palette entry n, RGB 5:6:5 |
   | 0xF000_0800 | the interrupt status: bit 0 UART 0, 1 UART 1, 2 the CF card, 3 the timer, 4 the video, 5 and 6 expansion ports 1 and 2 (their lines as they are, active low), 7 the interrupt line | acknowledges the timer |
   | 0xF000_0C00 | – | the control register: bit 0 the 82C54's GATE2, 1 the speaker's enable (OUT2 to the speaker), 2 and 3 two LEDs |
@@ -347,11 +360,24 @@ are in the low regions:
 - **The interrupt line** is any of: either UART's INTR, the CF card's
   INTRQ, the timer's flag (set as the 82C54's OUT0 rises, cleared by a
   write to the interrupt status), the video's interrupt, either expansion
-  port's `IRQ_n` (open collector, pulled up). Each device's own enables
-  mask it; there's no mask register.
+  port's `IRQ_n` (open collector, pulled up), a PS/2 port's byte
+  waiting. Each device's own enables mask it; there's no mask register.
+  The PS/2 ports have no bit in the interrupt status (its eight are
+  taken): their own status says which (tentatively decided).
+- **The PS/2 ports** (region 4), the keyboard's and the mouse's, by the
+  address's bits 3–2: 0 the keyboard's byte (read, inverted; a write
+  clears it), 1 the mouse's, 2 the status (read: bit 0 the keyboard's
+  byte waiting, 1 the mouse's, 2–3 the keyboard's clock and data lines,
+  4–5 the mouse's) and the control register (written: bit 0 the
+  keyboard's clock low, 1 its data low, 2–3 the mouse's). A port
+  receives a frame by itself and holds its clock low while its byte
+  waits, so the device waits; a write to the port clears the byte and
+  lets the device go on. Sending to a device is software's, through the
+  control and status registers, on the device's clock.
 - **The 82C54** counts the UARTs' 1.8432 MHz on all three counters:
   counter 0 the periodic interrupt, counter 2 the speaker.
-- **The UARTs:** two TL16C550C at 1.8432 MHz (115,200 baud at most).
+- **The UARTs:** two TL16C550C at 1.8432 MHz (115,200 baud at most), the
+  clock chip's third output.
 - **Software's duty:** the 82C54 needs 165 ns between accesses (two I/O
   instructions in a row don't give it); the CF card needs 600 ns between
   accesses in PIO mode 0, until it is set to a faster mode.
@@ -384,50 +410,34 @@ regions.
 
 ### 9. Video
 
-640 × 480 at 4 bits a pixel, VGA timing from a 25.175 MHz pixel clock
-(two master ticks). A line is 100 characters of 8 pixels (0–79 the
-picture, 80–81 the front porch, 82–93 the sync, 94–99 the back porch); a
-frame is 525 lines (0–9 the front porch, 10–11 the sync, 12–44 the back
-porch, 45–524 the picture). The syncs are active low. The other modes,
-layouts, the cursor and the rest are options in
-[RFC 0042](0042-rfc-mini-video.md), which this section's design is the
-base of.
+The video is [RFC 0042](0042-rfc-mini-video.md)'s Part I as built: its
+modes, timing, layout, descriptors, cursor, registers and bandwidth are
+specified there. In brief:
 
-- **Timing:** a pixel counter, a character counter (0–99) and a line
-  counter (0–524), and a timing ROM (an SST39SF010A addressed by the
-  character and the line) whose byte is registered at each character's
-  end: the syncs, the picture, when the shifters load, when a line's
-  descriptor is read, the line's and the frame's ends. Three 22V10s make
-  the pixel phase, the slots and the registers.
-- **Descriptors:** picture line y has a descriptor, word 44 + y of a table
-  at bank 1's word 0 (or 1024, with `TSEL`), read in the line before's
-  blanking:
-
-  | Bits | |
-  |---|---|
-  | 18–0 | the line's first word, a word address in bank 1 |
-  | 22–19 | its palette bank |
-  | 23 | an interrupt as the line is set up |
-  | 31–24 | 0 (**open**) |
-
-  The line is the 80 words from there; a word is 8 pixels, the low nibble
-  first. A pixel's colour is palette entry 16 × bank + pixel.
-- **Palette:** 256 entries of RGB 5:6:5 in two 32K × 8 SRAMs, written by
-  the CPU (they can't be read); a 74ABT823 per colour byte, on the master
-  clock, registers each pixel, its outputs off (black, the monitor's
-  75 Ω pulling the resistor DACs down) outside the picture.
+- **Two timing families,** from a timing flash (an SST39SF040, 512K × 8,
+  by the family, the line and the character): VGA, 640 × 480 at
+  60 Hz on a 25.175 MHz pixel (two ticks of the 50.35 MHz master clock),
+  and XGA, 1024 × 768 at 60 Hz on a 65 MHz pixel, the master clock
+  itself, switched to 65 MHz while an XGA mode is shown
+  ([4](#4-clock-and-cycles), [20](#20-the-clock)).
+- **Seven modes:** M0 640 × 480 × 4, M1 320 × 480 × 8, M2 640 × 480 × 8,
+  M3 and M4 640 × 480 × 2 and × 1, M5 and M6 1024 × 768 × 2 and × 1; a
+  word's pixels linear, pixel 0 in the low bits.
+- **Line descriptors** in a table in bank 1: each picture line's first
+  word, palette bank and interrupt.
+- **The palette:** 256 entries of RGB 5:6:5, written by the CPU, in two
+  copies (XGA's even and odd pixels each look up their own).
+- **A cursor** of 32 pixels, 2 bits each, its rows in two tables in
+  bank 1 beside the descriptors, its left edge an X register.
 - **Registers** ([7](#7-the-io-space)): the control register (bit 0 the
-  picture on, 1 `TSEL`, 2 the interrupt on) and the interrupt's
-  acknowledge. The interrupt is set as the picture ends (the frame's last
-  line) and by a line whose descriptor asks; it is bit 4 of the interrupt
-  status.
-- **Fetching:** the video reads bank 1 in its slots (the end of every
-  cycle and an I/O access's hold), always the word at its address
-  counter, into a holding register; the counter steps as the shifters
-  (four 74F299) take that word, at each character's end. A slot comes at
-  least every 7 ticks (the longest cycle outside an I/O hold, whose ticks
-  are all slots) and a word is needed every 16, so the video never waits
-  and never holds the CPU.
+  picture on, 1 `TSEL`, 2 the interrupt on, 6–4 the mode, 8 the cursor
+  on), the interrupt's acknowledge, the beam's position (read) and the
+  cursor's X. The interrupt is set as the picture ends and by a line
+  whose descriptor asks; it is bit 4 of the interrupt status.
+- **Fetching:** the video reads bank 1 in its slots (every cycle's tail,
+  and all through an I/O access's hold) into two holding registers;
+  should both be empty as a cycle's T1 starts in the picture, it steals
+  two ticks ([4](#4-clock-and-cycles)).
 
 ### 10. Reset and boot
 
@@ -439,6 +449,13 @@ the words; a count of 0, or of 2³¹ or more (an erased flash), copies
 nothing. The copy takes about 1.7 µs a word: 55 ms for the whole flash.
 The flash can be written in place (its `WE` is the I/O write strobe), so
 a program can update its own boot image.
+
+**The debug button,** a push button on the board, breaks into the
+running program whatever it is doing: its press is taken at the next
+instruction boundary, or at a `HALT`, even with interrupts off, and
+enters the microcode's debug entry, which pushes the flags word and the
+PC as an interrupt does, turns interrupts off and jumps to vector 0x1C.
+What the routine there does is software's.
 
 ### 11. Parts
 
@@ -860,8 +877,8 @@ ports in region 4, the keyboard's and the mouse's, seven chips for both:
   A waiting byte raises the interrupt line (KIRQ); the interrupt status
   has no bit of its own for it (its eight are taken), the PS/2 status
   says which.
-- **Chips:** the two 22V10s, a 74F14, a 74F05 (open collector), the
-  175, the 541, and a 22V10 (`U_KBD`) for the status and control
+- **Chips:** the two 22V10s, a 74HCT14 (Schmitt inputs), a 74HCT05
+  (open collector), the 175, the 541, and a 22V10 (`U_KBD`) for the status and control
   decode, the interrupt and the suite's I/O page's select, which moved
   there from `U_ONB` to make room for the PS/2 interrupt.
 
@@ -1029,9 +1046,23 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   (16-bit `READ SECTORS`) and the 82C54's interrupt, against its expected
   output, the device models checking their datasheets' strobe, address and
   data timing (`heron mini hw devices`).
-- **The video:** a program setting up descriptors, palette and pixels,
-  its frames captured from the netlist's outputs and compared pixel for
-  pixel with what the memory describes (`heron mini hw video`).
+- **The video:** a program (`sw/hw/modes.s`) in each of the seven modes:
+  sixteen rows of pseudo-random words, descriptors pointing the lines at
+  them with a palette bank every sixteen lines, the whole palette, the
+  cursor's rows in its tables and its X register near the left edge; its
+  third frame captured from the netlist's outputs (the colour, the syncs,
+  the picture's enable, at each pixel) and compared pixel for pixel with
+  what the memory and the registers describe (`heron mini hw video
+  --modes`, M5 and M6 at 65 MHz). M2 again with every length class 9 to
+  12 ticks, so that the video must steal (`--lengths 9,10,11,12`). The
+  first video program's frame too (`heron mini hw video`).
+- **The PS/2 ports:** a keyboard and a mouse modelled on their cables
+  (open-collector clock and data, the protocol's timing): the keyboard's
+  three bytes received and printed, 0xF4 sent to the mouse bit by bit
+  and its 0xFA received (`heron mini hw ps2`).
+- **The debug button,** pressed while a program loops with interrupts
+  off: the debug entry taken, vector 0x1C, the flags word and the PC
+  pushed (`heron mini hw debug`).
 - **The address error:** a program (`sw/hw/addrerr.s`) with 22 misaligned
   accesses (word and half loads and stores at every kind of address,
   arithmetic on memory, jumps and calls through memory, `LDM` and `STM`,
@@ -1046,7 +1077,9 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   cycle counts left out. Its benchmarks take no address errors and would
   take hours on the model.
 - **Static timing analysis** of every microinstruction in every queue and
-  interrupt state, and the I/O hold's deadline (`heron mini hw sta`).
+  interrupt state, and the I/O hold's deadline, at both master clocks
+  (`heron mini hw sta [--xga]`); with the boards' delays, `heron mini
+  boards --sta` ([28](#28-the-boards)).
 
 What the chip-level runs found that the analysis hadn't:
 
@@ -1063,6 +1096,16 @@ What the chip-level runs found that the analysis hadn't:
   SRAMs now drive until T2, and the analysis's RW_n is the real one.
 - The colour register, clocked by a 22V10's output, broke its hold as the
   shifters shifted on the master clock; it's on the master clock now.
+- With the video built out: a word fetched as the line's events emptied
+  the holding registers landed in the emptied queue, so a line took a
+  cursor word for a descriptor; the fetch now waits a tick after any
+  change of the video's address (two at 65 MHz, where the address
+  counters' path to the holding registers takes 33 ns, over two ticks).
+  The timing ROM's model had a fixed 17 address bits, which dropped the
+  line counter's top bit (frames of 512 lines); it counts its pins now.
+- The clock switch's first form, flip-flops on each clock's falling edge
+  behind inverters, could make a short pulse at 65 MHz's half period;
+  the enables now gate the clocks in an OR-AND form.
 
 **Contention:** the buses' drivers overlap by up to 6 ns as they hand
 over, as on draft 2's CPU, between drivers built for it: most on the B

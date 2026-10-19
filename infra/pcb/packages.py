@@ -72,6 +72,13 @@ PINOUTS = {
     # JEDEC 32-pin 1 Mbit flash (SST39SF010A, PDIP and PLCC)
     "flash": ("NC A16 A15 A12 A7 A6 A5 A4 A3 A2 A1 A0 D0 D1 D2 GND "
               "D3 D4 D5 D6 D7 CE A10 OE A11 A9 A8 A13 A14 NC WE VCC"),
+    # JEDEC 32-pin 4 Mbit flash (SST39SF040, PDIP and PLCC): the 1 Mbit
+    # part's pins, A18 on pin 1 and A17 on pin 30
+    "flash4": ("A18 A16 A15 A12 A7 A6 A5 A4 A3 A2 A1 A0 D0 D1 D2 GND "
+               "D3 D4 D5 D6 D7 CE A10 OE A11 A9 A8 A13 A14 A17 WE VCC"),
+    # a push button to ground: a 6 mm tactile switch, whose footprint has
+    # each of its two terminals on two pads
+    "button": "OUT GND",
     # JEDEC 28-pin 32K x 8 SRAM (AS7C256A, AS6C62256: SOJ, PDIP)
     "sram": ("A14 A12 A7 A6 A5 A4 A3 A2 A1 A0 IO0 IO1 IO2 GND "
              "IO3 IO4 IO5 IO6 IO7 CE A10 OE A11 A9 A8 A13 WE VCC"),
@@ -123,7 +130,8 @@ KICAD_SYMBOLS = {
     "08": "74xx:74LS08", "10": "74xx:74LS10", "11": "74xx:74LS11", "14": "74xx:74LS14",
     "20": "74xx:74LS20", "21": "74xx:74LS21", "27": "74xx:74LS27", "30": "74xx:74LS30",
     "32": "74xx:74LS32", "86": "74xx:74LS86", "125": "74xx:74LS125", "132": "74xx:74LS132",
-    "flash": "Memory_Flash:SST39SF010", "sram512": "Memory_RAM:AS6C4008-55PCN",
+    "flash": "Memory_Flash:SST39SF010", "flash4": "Memory_Flash:SST39SF040",
+    "sram512": "Memory_RAM:AS6C4008-55PCN",
     "sram": "Memory_RAM:IS62C256AL", "82c54": "Timer:82C54",
     "534": "74xx:74LS374",            # the 534 has the 374's pins
     "por": "Power_Supervisor:TL7705A",
@@ -192,7 +200,7 @@ def kicad_pin_name(typ, pin):
         return f"{pin[0]}{int(pin[1:]) - 1}"
     if typ in ("688", "521"):
         return {"G": "G", "PEQ": "P=R"}.get(pin) or (pin if pin[0] == "P" else f"R{pin[1]}")
-    if typ == "flash":
+    if typ in ("flash", "flash4"):
         return {"WE": "PGM"}.get(pin, pin)
     if typ == "sram":
         if pin.startswith("IO"):
@@ -242,8 +250,8 @@ DIP_PACKAGE = {
     **{t: "DIP20" for t in ("245", "299", "377", "540", "541", "573", "574", "534", "688", "521",
                             "clkdrv")},
     "823": "DIP24", "181": "DIP24W", "82c54": "DIP24W", "22v10": "DIP24", "16c550": "DIP40W",
-    "sram": "DIP28", "flash": "DIP32W", "sram512": "DIP32W",
-    "por": "DIP8", "osc": "OSC", "pullup": "SIP9",
+    "sram": "DIP28", "flash": "DIP32W", "flash4": "DIP32W", "sram512": "DIP32W",
+    "por": "DIP8", "osc": "OSC", "pullup": "SIP9", "button": "BUTTON",
 }
 
 FP = {
@@ -261,6 +269,7 @@ FP = {
         "SIP9": "Resistor_THT:R_Array_SIP9",
         "CAP": "Capacitor_THT:C_Disc_D3.0mm_W1.6mm_P2.50mm",
         "CAPBULK": "Capacitor_THT:CP_Radial_D6.3mm_P2.50mm",
+        "BUTTON": "Button_Switch_THT:SW_PUSH_6mm",
     },
     "smd": {
         "DIP8": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
@@ -279,12 +288,13 @@ FP = {
         "SIP9": "Resistor_SMD:R_Array_Convex_4x0603",
         "CAP": "Capacitor_SMD:C_0603_1608Metric",
         "CAPBULK": "Capacitor_SMD:C_1206_3216Metric",
+        "BUTTON": "Button_Switch_THT:SW_PUSH_6mm",
     },
 }
 
 # per style, chip types whose package differs from DIP_PACKAGE's choice
 OVERRIDES = {
-    "smd": {"flash": "PLCC32", "182": "DIP16THT"},
+    "smd": {"flash": "PLCC32", "flash4": "PLCC32", "182": "DIP16THT"},
     "dip": {},
 }
 FP["smd"]["DIP16THT"] = "Package_DIP:DIP-16_W7.62mm"

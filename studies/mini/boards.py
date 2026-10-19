@@ -45,17 +45,19 @@ it). `heron mini boards --write` writes the boards as JSON with a README
 into build/mini/boards/.
 
 For the timing: add_board_delays(nl) adds a fixed delay (default 1.5 ns:
-connector, ribbon, connector) to every output that drives a pin on
-another board, in any netlist of the mini (the static timing analysis's
-has fixtures for the clock generator and no video: its chips are matched
-to the assignment's by their connections). The delay is the output's, so
-its loads on its own board see it too: pessimistic for a clean line,
-about right for an unterminated ribbon, whose near loads may wait for the
-far end's reflection. The clocks (CLK, MCLK) are left out unless asked:
-a clock sent to each board through a buffer of matched delay arrives
-everywhere together. `heron mini hw sta --boards` and the chip-level
-runs' `--boards` use it; `heron mini boards --sta` compares the analysis
-with the plain one.
+connector, ribbon, connector) between the boards, in any netlist of the
+mini (the static timing analysis's has fixtures for the clock generator
+and no video: its chips are matched to the assignment's by their
+connections). A net driven from one board is delayed at its inputs on
+the others, by a wire element in front of each; its own board's inputs
+see it at once (a ribbon of about 100 ohms, driven by an F or ABT
+output, steps most of the way at the near end). A bus driven from
+several boards is delayed at each driver with a reader elsewhere, which
+its near loads see too: pessimistic. The clocks (CLK, MCLK) are left
+out unless asked: a clock sent to each board through a buffer of
+matched delay arrives everywhere together. `heron mini hw sta --boards`
+and the chip-level runs' `--boards` use it; `heron mini boards --sta`
+compares the analysis with the plain one.
 
   heron mini boards [--list] [--header 40|50|64] [--per-ground 1|2|3]
                     [--limit N] [--write] [--sta [--board-delay NS]]
@@ -89,9 +91,12 @@ DELAY_PS = 1500                 # connector, ribbon, connector
 HEADERS = {40: (2, 20), 50: (2, 25), 64: (2, 32)}
 HEADER = 64
 PER_GROUND = 1                  # signals between grounds
-CLOCKS = ("MCLK", "CLK")        # a ground each side in the ribbon; no board delay by default
+# the clocks: MCLK and the clock generator's outputs, which go to each board
+# through a buffer of matched delay (a ground each side in the ribbon; no
+# board delay by default)
+CLOCKS = ("MCLK", "CLK", "H0", "H1", "T1", "T2")
 RESETS = ("RESET", "RESET_n")
-NOT_CHIPS = {"cf": "connector"}  # types that are on a board but aren't chips
+NOT_CHIPS = {"cf": "connector", "button": "other"}  # on a board, not chips
 RN_TYPES = ("pullup",)
 
 # section -> (the board it starts on, the boards it may move to)
@@ -110,11 +115,15 @@ SECTIONS = {
     "Video RAM": _IO, "I/O": _IO, "CF card": _IO, "Expansion ports": _IO, "Timer": _IO,
     "Boot flash": _IO, "UARTs": _IO, "On-board registers": _IO, "Video timing": _IO,
     "Video fetch": _IO, "Video output": _IO, "Video registers": _IO,
+    "Clock": _SEQ, "Cursor": _IO, "Keyboard and mouse": _IO,
 }
 # a section SECTIONS doesn't name goes on io if its name has one of these
 IO_WORDS = re.compile(r"video|palette|uart|serial|keyboard|mouse|ps/?2|timer|sound|speaker|"
                       r"expansion|port|cf\b|compactflash|boot|i/o|led|vram", re.I)
 OVERRIDES = {}                  # ref -> board: chips pinned to a board
+# the timing's net weights (tune(), `heron mini boards --tune`): {net: weight}
+WEIGHTS_PATH = os.path.join(os.path.dirname(__file__), "board-weights.json")
+TUNE_GAIN, TUNE_CAP = 2, 20     # a net's weight: 1 + 2 a path it's on, at most 21
 
 
 # ---- the netlist's parts ------------------------------------------------------------
@@ -466,11 +475,20 @@ def assign(nl=None, target=TARGET, sections=None, overrides=None, chains=4, rest
 _DEFAULT = None
 
 
+def weights():
+    """tune()'s net weights (board-weights.json), or None."""
+    if not os.path.exists(WEIGHTS_PATH):
+        return None
+    with open(WEIGHTS_PATH) as f:
+        return json.load(f)["weights"]
+
+
 def default():
-    """The assignment of board.build(sim=True), computed once."""
+    """The assignment of board.build(sim=True), with tune()'s net
+    weights, computed once."""
     global _DEFAULT
     if _DEFAULT is None:
-        _DEFAULT = assign()
+        _DEFAULT = assign(weights=weights())
     return _DEFAULT
 
 
@@ -938,20 +956,25 @@ def readme(a, header=HEADER, per_ground=PER_GROUND):
         "",
         "Also not in the netlist yet, so not on the boards: the UARTs' serial side",
         "(SIN, SOUT, RCLK to BAUDOUT, the modem inputs: the 16C550's pinout names them, no",
-        "net reaches them), the expansion ports' connectors, the video connector,",
-        "the power input.",
+        "net reaches them), the expansion ports' connectors, the video connector",
+        "and its resistor DACs (RGB0-15, HSYNCQ, VSYNCQ), the PS/2 ports' mini-DIN",
+        "connectors (the netlist has a keyboard and a mouse as fixtures on the",
+        "port nets, after RN_PS2's pull-ups), the clock chip's crystal, the power",
+        "input.",
         "",
         "## Timing",
         "",
         "`heron mini hw sta --boards` and the chip-level runs' `--boards` add",
-        f"{DELAY_PS / 1000} ns (`--board-delay`) to every output that drives a pin on another",
-        "board: the connector, the ribbon and the connector. It delays the",
-        "output's loads on its own board too, which is pessimistic for a clean",
-        "line and about right for an unterminated one, whose near loads may wait",
-        "for the far end's reflection. The clocks are left out (`--board-clocks`",
-        "puts them in): a clock sent to each board through a buffer of matched",
-        "delay arrives everywhere together. `heron mini boards --sta` lists the",
-        "microinstructions that need more ticks.",
+        f"{DELAY_PS / 1000} ns (`--board-delay`) between the boards: the connector, the",
+        "ribbon and the connector. A net driven from one board is delayed at its",
+        "inputs on the others; its own board's see it at once (a ribbon of about",
+        "100 ohms, driven by an F or ABT output, steps most of the way at the near",
+        "end). A bus driven from several boards is delayed at each driver with a",
+        "reader elsewhere, so its near loads wait too. The clocks are left out",
+        "(`--board-clocks` puts them in): a clock sent to each board through a",
+        "buffer of matched delay arrives everywhere together. `heron mini boards",
+        "--sta` lists the microinstructions that need more ticks, `--slowed` the",
+        "crossings on their critical paths.",
         "",
         "## The cut",
         "",
@@ -975,6 +998,8 @@ def readme(a, header=HEADER, per_ground=PER_GROUND):
 
 MISSING_NOTES = {
     "cf": "a CompactFlash socket: its footprint depends on the socket chosen",
+    "cy22393": "the clock chip, TSSOP-16 (or a CDCE913, TSSOP-14): its pinout is to be taken "
+               "from the datasheet; its crystal or reference input isn't in the netlist",
 }
 
 
@@ -1104,8 +1129,12 @@ def match(nl, a=None):
 
 
 def board_delays(nl, a=None, ps=DELAY_PS, clocks=False):
-    """[(ref, pin, ps)]: every output pin of nl that drives a net read on
-    another board (by match()), the clocks only with clocks=True."""
+    """[(ref, pin, ps)]: the boards' delays on nl (by match()), the clocks
+    only with clocks=True. A net driven from one board is delayed at each
+    of its inputs on another (pin an input: a wire element in front of
+    it, apply_board_delays()); a net driven from several (a bus) at each
+    driver that has a reader on another board (pin an output: the
+    pin's delay, which its own board's readers see too)."""
     where = match(nl, a)
     rail = rails(nl)
     nets = defaultdict(list)
@@ -1116,7 +1145,13 @@ def board_delays(nl, a=None, ps=DELAY_PS, clocks=False):
     for net, pins in sorted(nets.items()):
         if net in rail or (net in CLOCKS and not clocks):
             continue
+        drivers = {where[i.ref] for i, p, k in pins if k in ("out", "tri", "io") and i.ref in where}
         readers = {where[i.ref] for i, p, k in pins if k in ("in", "io") and i.ref in where}
+        if len(drivers) == 1:
+            b, = drivers
+            out += [(i.ref, p, ps) for i, p, k in pins
+                    if k == "in" and where.get(i.ref, b) != b]
+            continue
         for inst, pin, k in pins:
             b = where.get(inst.ref)
             if k in ("out", "tri", "io") and b is not None and readers - {b}:
@@ -1124,27 +1159,53 @@ def board_delays(nl, a=None, ps=DELAY_PS, clocks=False):
     return out
 
 
+def apply_board_delays(nl, delays):
+    """Put board_delays()'s delays on nl: an input's as a wire element in
+    front of it (infra/pcb/wires.py's), an output's as its pin delay
+    (Instance.add_pin_delay, which infra/hw/sta.py and the chip-level
+    simulator honour)."""
+    for ref, pin, ps in delays:
+        inst = nl.refs[ref]
+        if inst.kind(pin) == "in":
+            net = inst.conn[pin]
+            w = nl.add("wire", f"W~{ref}~{pin}", A=net, Y=f"{net}~{ref}~{pin}")
+            w.add_pin_delay("Y", ps)
+            inst.conn[pin] = f"{net}~{ref}~{pin}"
+        else:
+            inst.add_pin_delay(pin, ps)
+
+
 def add_board_delays(nl, a=None, ps=DELAY_PS, clocks=False):
-    """Add board_delays() to nl's instances (Instance.add_pin_delay, which
-    infra/hw/sta.py and the chip-level simulator honour). Returns them."""
+    """Add board_delays() to nl (apply_board_delays()). Returns them."""
     d = board_delays(nl, a, ps, clocks)
-    for ref, pin, x in d:
-        nl.refs[ref].add_pin_delay(pin, x)
+    apply_board_delays(nl, d)
     return d
 
 
-def sta_compare(ps=DELAY_PS, clocks=False, force=False, show=25):
+def _delayed(a=None, ps=DELAY_PS, clocks=False):
+    """(the analysis with the boards' delays, the delays), cached."""
+    from . import sta
+    delays = board_delays(sta.build(), a, ps=ps, clocks=clocks)
+    sta.BOARD_DELAYS = delays
+    try:
+        return sta.analyse(), delays
+    finally:
+        sta.BOARD_DELAYS = None
+
+
+def _profile():
+    """perf.profile()'s rows (minutes, the first time after an edit)."""
+    from . import perf
+    return perf.profile()
+
+
+def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25):
     """The static timing analysis with the boards' delays against the
     plain one (both cached in build/mini): the microinstructions that need
-    more ticks, as text."""
+    more ticks, and the suite's time, as text."""
     from . import sta, ucode as uc
-    plain = sta.analyse(force=force)
-    sta.BOARD_DELAYS = board_delays(sta.build(), ps=ps, clocks=clocks)
-    try:
-        delayed = sta.analyse(force=force)
-    finally:
-        n_delays = len(sta.BOARD_DELAYS)
-        sta.BOARD_DELAYS = None
+    plain = sta.analyse()
+    delayed, delays = _delayed(a, ps, clocks)
     mc = uc.built()
     t0, t1 = sta.node_ticks(plain), sta.node_ticks(delayed)
     rows = []
@@ -1154,9 +1215,13 @@ def sta_compare(ps=DELAY_PS, clocks=False, force=False, show=25):
         rows.append((label, T0, k0, T1, k1))
     worse = [r for r in rows if r[4] != r[2]]
     by = Counter((r[2], r[4]) for r in rows)
-    out = [f"static timing analysis with {ps / 1000:.2f} ns on {n_delays} outputs that drive "
-           f"another board ({'clocks too' if clocks else 'not the clocks'}), against the plain "
-           "analysis (`heron mini hw sta --boards` has the suite's time with the profile):",
+    prof = _profile()
+    ms0, ms1 = sta.suite_ms(plain, prof), sta.suite_ms(delayed, prof)
+    out = [f"static timing analysis with {ps / 1000:.2f} ns between the boards ({len(delays)} "
+           f"inputs and bus drivers; {'clocks too' if clocks else 'not the clocks'}), against the "
+           "plain analysis:",
+           f"  the suite and the C programs: {ms0:.1f} ms plain, {ms1:.1f} ms with the boards "
+           f"({100 * (ms1 / ms0 - 1):+.1f}%)",
            f"  the slowest microinstruction: {max(r[1] for r in rows):.1f} ns plain, "
            f"{max(r[3] for r in rows):.1f} ns with the boards",
            f"  {len(worse)} of {len(rows)} microinstructions need more ticks:"]
@@ -1175,6 +1240,125 @@ def sta_compare(ps=DELAY_PS, clocks=False, force=False, show=25):
     out.append(f"  the critical check with the boards: {worst[3][0]}: {worst[5]} "
                f"({worst[0]:.1f} ns)")
     return "\n".join(out)
+
+
+def slowed_paths(a=None, ps=DELAY_PS, clocks=False):
+    """(states, paths, delays): the analysis's rows (microinstruction
+    states) that need more ticks with the boards' delays than without,
+    their critical paths with the delays (sta.traces()), and the
+    delays."""
+    from . import sta, ucode as uc
+    plain = sta.analyse()
+    delayed, delays = _delayed(a, ps, clocks)
+    p_ticks = {(r[1], json.dumps(r[2])): sta.ticks_of(r[0], uc.unpack(r[1])) for r in plain}
+    worse = [r for r in delayed
+             if sta.ticks_of(r[0], uc.unpack(r[1])) > p_ticks[(r[1], json.dumps(r[2]))]]
+    sta.BOARD_DELAYS = delays
+    try:
+        paths = sta.traces(worse)
+    finally:
+        sta.BOARD_DELAYS = None
+    return worse, paths, delays
+
+
+def _runs():
+    """{control word (masked): runs in the suite and the C programs}."""
+    from . import perf, sta, ucode as uc
+    prof = perf.node_profile(_profile())
+    mc = uc.built()
+    mask = sta.timing.word_mask()
+    runs = Counter()
+    for n in mc.nodes:
+        runs[uc.pack(mc.word(n, 0 if n.addr is None else n.addr)) & mask] += prof[id(n)]
+    return runs
+
+
+def slowed(a=None, ps=DELAY_PS, clocks=False, top=30):
+    """What makes the boards' delays cost ticks: the crossings on the
+    critical paths of the microinstruction states that need more ticks
+    (slowed_paths()), counted by the states and by how often the suite
+    runs them. As text."""
+    from . import sta
+    worse, paths, delays = slowed_paths(a, ps, clocks)
+    nl = sta.build()
+    where = match(nl, a)
+    bus = {(ref, nl.refs[ref].conn[pin]) for ref, pin, _ in delays if nl.refs[ref].kind(pin) != "in"}
+    drivers = defaultdict(set)
+    for inst in nl.instances:
+        for pin, net in inst.conn.items():
+            if inst.kind(pin) in ("out", "tri", "io") and inst.ref in where:
+                drivers[net].add(inst.ref)
+    runs = _runs()
+    states, dyn = Counter(), Counter()
+    per_path = Counter()
+    for r, path in zip(worse, paths):
+        seen = set()
+        for net, t, ref, dn in path:
+            if dn == "wire":                     # a wire in front of an input on another board
+                base, reader = net.split("~")[0], net.split("~")[1]
+                src = sorted(drivers.get(base, ()))
+                key = (base, "/".join(sorted({where.get(d, "-") for d in src})),
+                       where.get(reader, "-"), ",".join(src[:2]))
+            elif (ref, net) in bus:                # a bus driver's delay
+                key = (net, where.get(ref, "-"), "bus", ref)
+            else:
+                continue
+            if key not in seen:
+                seen.add(key)
+                states[key] += 1
+                dyn[key] += runs[r[1]]
+        per_path[len(seen)] += 1
+    out = [f"{len(worse)} microinstruction states need more ticks with {ps / 1000:.2f} ns between "
+           "the boards; crossings on their critical paths: "
+           + ", ".join(f"{k} on {c}" for k, c in sorted(per_path.items())),
+           "the crossings on the most paths (states; runs in the suite):"]
+    for key, c in sorted(states.items(), key=lambda kv: (-kv[1], -dyn[kv[0]]))[:top]:
+        net, fb, tb, src = key
+        out.append(f"  {net:<14} {fb:>4} -> {tb:<4} from {src:<16} {c:5d}  {dyn[key]:>12,}")
+    return "\n".join(out)
+
+
+def tune(rounds=3, ps=DELAY_PS, gain=TUNE_GAIN, cap=TUNE_CAP, log=print):
+    """Timing-driven weights for the assignment: from the unweighted cut,
+    each round weights every net on the critical paths of the
+    microinstruction states that need more ticks with the boards
+    (slowed_paths(), accumulated over the rounds) and cuts again. The
+    round whose cut gives the suite the least time wins; its weights go
+    to board-weights.json. Returns (weights, the suite's ms, the plain
+    ms)."""
+    from . import sta
+    prof = _profile()
+    plain = sta.suite_ms(sta.analyse(), prof)
+    nl = mini_board.build(sim=True)
+    known = set(signal_nets(nl))
+    count = Counter()
+    w = None
+    best = None
+    for r in range(rounds + 1):
+        a = assign(nl, weights=w)
+        delayed, _ = _delayed(a, ps)
+        ms = sta.suite_ms(delayed, prof)
+        cut = len(crossing(a))
+        log(f"round {r}: {ms:.1f} ms ({100 * (ms / plain - 1):+.1f}% on {plain:.1f}), "
+            f"{cut} nets cross, packages {', '.join(f'{b} {a.packages(b)}' for b in BOARDS)}")
+        if best is None or ms < best[0] - 1e-9:
+            best = (ms, w)
+        if r == rounds:
+            break
+        worse, paths, _ = slowed_paths(a, ps)
+        for path in paths:
+            for net in {n.split("~")[0] for n, *_ in path}:
+                if net in known and net not in CLOCKS:
+                    count[net] += 1
+        w = {n: 1 + min(gain * c, cap) for n, c in sorted(count.items())}
+        log(f"  {len(worse)} states lose a tick; {len(w)} nets weighted")
+    ms, w = best
+    with open(WEIGHTS_PATH, "w") as f:
+        json.dump({"generated by": "heron mini boards --tune", "board delay ps": ps,
+                   "suite ms": round(ms, 1), "plain ms": round(plain, 1),
+                   "weights": w or {}}, f, indent=0, sort_keys=True)
+        f.write("\n")
+    return w, ms, plain
 
 
 # ---- the command line -------------------------------------------------------------------------
@@ -1197,17 +1381,29 @@ def main(argv=None):
     p.add_argument("--board-delay", type=float, default=DELAY_PS / 1000, metavar="NS",
                    help="a crossing's delay (default %(default)s ns)")
     p.add_argument("--clocks", action="store_true", help="delay the clocks too (--sta)")
+    p.add_argument("--tune", type=int, metavar="ROUNDS",
+                   help="timing-driven net weights: ROUNDS rounds of cutting, timing and "
+                        "weighting the slowed paths' nets; writes board-weights.json (about "
+                        "five minutes a round)")
+    p.add_argument("--slowed", action="store_true",
+                   help="the crossings on the critical paths of the microinstructions the "
+                        "boards' delays slow by a tick (minutes, then cached)")
     args = p.parse_args(argv)
+    global _DEFAULT
     if args.limit > LIMIT:
         p.error(f"--limit above {LIMIT}")
-    a = default() if args.limit == TARGET else assign(target=args.limit)
+    if args.tune:
+        tune(args.tune, round(args.board_delay * 1000))
+        _DEFAULT = None
+    a = default() if args.limit == TARGET else assign(target=args.limit, weights=weights())
     print(report(a, args.header, args.per_ground, listing=args.list))
     if args.write:
         for path in write(a, args.header, args.per_ground):
             print(f"wrote {os.path.relpath(path)}")
     if args.sta:
-        if args.limit != TARGET:
-            print("--sta uses the default assignment", file=sys.stderr)
         print()
-        print(sta_compare(round(args.board_delay * 1000), args.clocks))
+        print(sta_compare(a, round(args.board_delay * 1000), args.clocks))
+    if args.slowed:
+        print()
+        print(slowed(a, round(args.board_delay * 1000), args.clocks))
     return 0

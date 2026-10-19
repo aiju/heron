@@ -1908,7 +1908,9 @@ impl Rom {
     fn new(s: &Spec, preload: Option<&[u8]>) -> Result<Rom, Error> {
         // A0 up: 17 of them (128K) or 19 (512K)
         let n = (0..).take_while(|i| s.has(&format!("A{i}"))).count();
-        let a = (0..n).map(|i| s.pin(&format!("A{i}"))).collect::<Result<Vec<_>, _>>()?;
+        let a = (0..n)
+            .map(|i| s.pin(&format!("A{i}")))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut is_a = vec![false; s.info.pin_names.len()];
         for &p in &a {
             is_a[p] = true;

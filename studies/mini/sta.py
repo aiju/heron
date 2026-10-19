@@ -29,6 +29,7 @@ timing.py's estimate, and the program suite's time with each.
 """
 
 import json
+import sys
 import math
 import os
 from collections import Counter, defaultdict
@@ -79,20 +80,26 @@ BOARD_DELAYS = None
 
 def build():
     nl = board.build(sim=False)
-    for ref, pin, ps in BOARD_DELAYS or ():
-        nl.refs[ref].add_pin_delay(pin, ps)
+    if BOARD_DELAYS:
+        from . import boards
+        boards.apply_board_delays(nl, BOARD_DELAYS)
     return nl
 
 
 def cache_path():
-    """The analysis's cache: one for the plain netlist, one for each set of
-    board delays."""
-    tick = "" if abs(TICK - timing.VGA_TICK) < 1e-6 else f"-{TICK:.3f}"
-    if not BOARD_DELAYS:
-        return os.path.join(hw.OUT, f"sta{tick}.json")
+    """The analysis's cache, named by what it depends on: the netlist (with
+    any board delays), the microinstructions, the tick and the analysis's
+    code, so that edits elsewhere in the study (boards.py) don't redo it."""
     import hashlib
-    tag = hashlib.sha1(repr(sorted(BOARD_DELAYS)).encode()).hexdigest()[:10]
-    return os.path.join(hw.OUT, f"sta{tick}-boards-{tag}.json")
+    import inspect
+    h = hashlib.sha1()
+    h.update(json.dumps(build().export(variant=parts.VARIANT, corner=CORNER),
+                        sort_keys=True).encode())
+    h.update(repr(sorted(sta_words().items())).encode())
+    h.update(repr((TICK, parts.VARIANT, CORNER)).encode())
+    for m in (sys.modules[__name__], timing, hsta):
+        h.update(inspect.getsource(m).encode())
+    return os.path.join(hw.OUT, f"sta-{h.hexdigest()[:12]}.json")
 
 
 def control_nets():
@@ -215,7 +222,7 @@ def extra_checks(case, N):
     if case.net("IOACC")[0] != 0:
         e3 = 4 * TICK - gd["CLK->Q"]
         need = [("IOACC", gd["setup"], "the hold's start")]
-        need += [(f"VA{i}", _delays("163", "74ACT163")["setup data"], "the hold counter's preload")
+        need += [(f"VA{i}", gd["setup"], "the hold counter's preload")
                  for i in (28, 29, 30)]
         for net, after, what in need:
             t = case.net(net)[1]
@@ -286,8 +293,7 @@ def analyse(force=False, jobs=4):
     """[(period, control word, extra constants, labels, count, critical
     check, endpoint)], slowest first, cached in build/mini by the sources."""
     path = cache_path()
-    if not force and os.path.exists(path) and \
-            os.path.getmtime(path) >= runner.newest(hw.sources()):
+    if not force and os.path.exists(path):
         with open(path) as f:
             return [tuple(r) for r in json.load(f)]
     items = list(sta_words().items())
@@ -298,6 +304,23 @@ def analyse(force=False, jobs=4):
     with open(path, "w") as f:
         json.dump(res, f)
     return res
+
+
+def _trace(item):
+    import sys
+    T, w, extra, net = item
+    extra = tuple(tuple(e) for e in extra)
+    c, _chk = hsta.case_checks(sys.modules[__name__], _N, w, extra,
+                               T if T < math.inf else 1000.0, WS, WE)
+    return [(n, t, ref, dn) for n, t, ref, dn in c.path(net)]
+
+
+def traces(rows, jobs=4):
+    """The critical paths of some of analyse()'s rows (with the current
+    BOARD_DELAYS): [[(net, arrival, ref, delay name)]], in a pool."""
+    items = [(r[0], r[1], r[2], r[6]) for r in rows]
+    with ProcessPoolExecutor(jobs, initializer=_init, initargs=(BOARD_DELAYS,)) as ex:
+        return list(ex.map(_trace, items, chunksize=4))
 
 
 def ticks_of(T, f):
@@ -318,6 +341,39 @@ def node_ticks(res):
         T = by_word[uc.pack(f) & mask]
         out[id(n)] = (T, ticks_of(T, f))
     return out
+
+
+def _suite(ticks):
+    """(ticks, the length classes) for {ticks needed: cycles}, with the
+    best classes for them."""
+    lens = timing.best_lengths(ticks)
+    return sum(k * min(L for L in lens if L >= t) for t, k in ticks.items()), lens
+
+
+def suite_ticks(res, rows):
+    """(ticks, length classes, {ticks needed: cycles}) the suite and the C
+    programs take with analyse()'s periods (rows: perf.profile()'s), not
+    counting the I/O holds; ticks None if a microinstruction never meets
+    its timing."""
+    from . import perf
+    nt = node_ticks(res)
+    need = Counter()
+    for i, k in perf.node_profile(rows).items():
+        need[nt[i][1]] += k
+    finite = {t: k for t, k in need.items() if t != math.inf}
+    if len(finite) != len(need):
+        return None, None, finite
+    ts, lens = _suite(finite)
+    return ts, lens, finite
+
+
+def suite_ms(res, rows):
+    """The suite and the C programs in ms with analyse()'s periods, the
+    I/O holds included."""
+    from . import perf
+    ts, _lens, _ = suite_ticks(res, rows)
+    hold = sum(r["hold"] for r in rows if r["name"] not in perf.SKIP)
+    return None if ts is None else (ts + hold) * TICK / 1e6
 
 
 def _fmt_T(T):
@@ -354,17 +410,12 @@ def report(res, rows=None, paths=4):
         out.append(f"  estimate {est:2d}  netlist {t!s:>3}  {k:5d}  {dyn[(est, t)]:>12,}")
     out.append("")
     if rows:
-        need, need_e = Counter(), Counter()
+        need_e = Counter()
         for i, k in count.items():
-            need[nt[i][1]] += k
             need_e[est_ticks[i]] += k
-        finite = {t: k for t, k in need.items() if t != math.inf}
-        if len(finite) == len(need):
-            def suite(ticks):
-                lens = timing.best_lengths(ticks)
-                return sum(k * min(L for L in lens if L >= t) for t, k in ticks.items()), lens
-            ts, lens = suite(finite)
-            te, elens = suite(need_e)
+        ts, lens, finite = suite_ticks(res, rows)
+        if ts is not None:
+            te, elens = _suite(need_e)
             hold = sum(r["hold"] for r in rows if r["name"] not in perf.SKIP)
             out.append(f"the suite and the C programs: {(te + hold) * TICK / 1e6:.1f} ms "
                        f"with the estimate's ticks (classes {elens}), "
@@ -373,6 +424,12 @@ def report(res, rows=None, paths=4):
                              for t, k in sorted(finite.items()))
             out.append(f"  cycles by ticks needed: {dist}")
             out.append("")
+    # with the boards' delays, each step's board, and * where it crosses
+    where, crossing = {}, set()
+    if BOARD_DELAYS:
+        from . import boards
+        where = boards.match(board.build(sim=False))
+        crossing = {(ref, pin) for ref, pin, _ in BOARD_DELAYS}
     seen = set()
     shown = 0
     for T, w, extra, labels, nlab, what, net in res[:len(res) if paths else 0]:
@@ -386,7 +443,13 @@ def report(res, rows=None, paths=4):
         q = "queue empty" if e.get("V0") == 0 else "queue not empty"
         out.append(f"{_fmt_T(T)} ns: {labels[0]} ({nlab} cases, {q}): {what}")
         for net_, t, ref, dn in c.path(net):
-            out.append(f"    {t:7.1f} ns  {net_:<14} {ref:<10} {dn}")
+            b = ""
+            if where:
+                inst = N.by_ref.get(ref)
+                x = any((ref, pin) in crossing for pin, n_ in inst.conn.items() if n_ == net_) \
+                    if inst else False
+                b = f"  {where.get(ref, '-'):<5}{' *' if x else ''}"
+            out.append(f"    {t:7.1f} ns  {net_:<14} {ref:<10} {dn}{b}")
         out.append("")
         shown += 1
         if shown >= paths:
@@ -426,7 +489,7 @@ def main(args):
         BOARD_DELAYS = boards.board_delays(build(), ps=round(args.board_delay * 1000),
                                            clocks=args.board_clocks)
         print(f"with the boards' delays (boards.py): {args.board_delay} ns on "
-              f"{len(BOARD_DELAYS)} outputs that drive another board"
+              f"{len(BOARD_DELAYS)} inputs on another board than their net's driver and bus drivers"
               f"{', the clocks too' if args.board_clocks else ''}\n")
     res = analyse(force=args.force)
     if args.write:

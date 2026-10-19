@@ -213,8 +213,19 @@ def clock_generator(nl, lengths, xlengths, por_ps):
         "MWIN": (gal.AND(lit("MID"), lit("T1", 0), lit("T2", 0)), False, False),
         "LATE": (gal.AND(lit("H0", 0), lit("H1", 0)), False, False)}, clock="MCLK")
     nl.section("Hold")
-    nl.add("163", "U_HC", part="74ACT163", CLK="MCLK", CLR="VCC", LOAD="HOLD", ENP="HOLD",
-           ENT="HOLD", A="VCC", B="VA28", C="VA29", D="VA30", RCO="HCRCO")
+    # the hold counter: a 22V10 (a 74ACT163's 15 ns to its carry is too
+    # slow at 65 MHz), loaded with 2r + 1 while HOLD is low, counting while
+    # it's high; HCRCO, its carry, at 15
+    HCQ = bus("HCQ", 4)
+    load_v = ["VCC", "VA28", "VA29", "VA30"]
+    hc = {}
+    for b in range(4):
+        cnt = gal.OR(gal.AND(lit(HCQ[b]), gal.OR(*[lit(HCQ[i], 0) for i in range(b)])),
+                     gal.AND(lit(HCQ[b], 0), *[lit(HCQ[i]) for i in range(b)]))
+        ld = gal.ONE if b == 0 else lit(load_v[b])
+        hc[HCQ[b]] = (gal.OR(gal.AND(lit("HOLD"), cnt), gal.AND(lit("HOLD", 0), ld)), True, False)
+    hc["HCRCO"] = (gal.AND(lit("HOLD"), *[lit(q) for q in HCQ]), False, False)
+    gal.add(nl, "U_HC", hc, clock="MCLK")
     nl.section("Clock generator")
     # the timer's interrupt flag, set as OUT0 rises, cleared by a write to
     # the interrupt status
@@ -379,9 +390,16 @@ def video(nl, DB, VA, capture=False):
     PX = bus("PX", 3)
     last = gal.AND(rst, gal.OR(gal.AND(lit("FAM", 0), lit("P7"), lit("PH", 0)),
                                gal.AND(lit("FAM"), lit(PX[0], 0), lit(PX[1]), lit(PX[2]))))
+    # CHE1: the tick before CHE, for the controls registered a tick ahead
+    # of the character's end (a 74ACT163's 6.6 ns of setup leaves no room
+    # for a 22V10 after CHE at 65 MHz)
+    before = gal.AND(rst, gal.OR(gal.AND(lit("FAM", 0), lit(PX[0], 0), lit(PX[1]), lit(PX[2]),
+                                         lit("PH")),
+                                 gal.AND(lit("FAM"), lit(PX[0]), lit(PX[1], 0), lit(PX[2]))))
     v1 = {"PH": (gal.AND(rst, gal.OR(lit("PH", 0), lit("FAM"))), True, False),
           "P7": (gal.AND(rst, lit(PX[0], 0), lit(PX[1]), lit(PX[2]), lit("PH")), True, False),
-          "CHE": (last, True, False), "CHE_n": (last, True, True)}
+          "CHE": (last, True, False), "CHE_n": (last, True, True),
+          "CHE1": (before, True, False)}
     for b in range(3):
         carry = gal.AND(lit("PH"), *[lit(PX[i]) for i in range(b)])
         v1[PX[b]] = (gal.AND(rst, gal.OR(
@@ -402,9 +420,9 @@ def video(nl, DB, VA, capture=False):
     gal.add(nl, "U_V2", {
         "VSLOT_n": (slot, True, False), "VSLOT": (slot, True, True),
         "VT_n": (gal.AND(rst, lit("VSLOT"), lit("VT_n")), True, True),
-        "HCLR_n": (gal.AND(lend, lit("CHE")), False, True),
-        "LINE": (gal.AND(lend, lit("CHE")), False, False),
-        "VCLR_n": (gal.AND(lit("FENDQ"), lend, lit("CHE")), False, True),
+        "HCLR_n": (gal.AND(lend, lit("CHE1")), True, True),
+        "LINE": (gal.AND(lend, lit("CHE1")), True, False),
+        "VCLR_n": (gal.AND(lit("FENDQ"), lend, lit("CHE1")), True, True),
         "TABX": (gal.OR(gal.AND(lit("H1"), tx), gal.AND(lit("H1", 0), lit("TABX"))), True,
                  False),
         "CLKSEL": (gal.AND(lit("FAM"), lit("TABX")), False, False)}, clock="MCLK")
@@ -443,16 +461,16 @@ def video(nl, DB, VA, capture=False):
     # region 7, LOC0, by VA[4:2]: 0 the control register (written), 1 the
     # interrupt's acknowledge (any write), 2 the beam (read), 4 the
     # cursor's X (written)
+    # (the writes from the I/O strobe itself, IOWR_n's 22V10 left out of
+    # the path: at 65 MHz there's no room for two before a register)
+    wr_ = gal.AND(lit("MEMWR"), lit("IOSTB"), lit("FAULT", 0), lit("LOC0_n", 0))
+
+    def reg(n):
+        return gal.AND(wr_, *[lit(VA[2 + i], n >> i & 1) for i in range(3)])
     gal.add(nl, "U_VDEC", {
-        "VCTLW": (sop(["LOC0_n", "IOWR_n", VA[2], VA[3], VA[4]],
-                     lambda l, w, a2, a3, a4: not l and not w and not (a2 or a3 or a4)),
-                 False, False),
-        "ACKW": (sop(["LOC0_n", "IOWR_n", VA[2], VA[3], VA[4]],
-                     lambda l, w, a2, a3, a4: not l and not w and a2 and not a3 and not a4),
-                 False, False),
-        "XW_n": (sop(["LOC0_n", "IOWR_n", VA[2], VA[3], VA[4]],
-                     lambda l, w, a2, a3, a4: not l and not w and not a2 and not a3 and a4),
-                 False, True),
+        "VCTLW": (reg(0), False, False),
+        "ACKW": (reg(1), False, False),
+        "XW_n": (reg(4), False, True),
         "BEAMR_n": (sop(["LOC0_n", "IORD_n", VA[2], VA[3], VA[4]],
                         lambda l, r, a2, a3, a4: not l and not r and not a2 and a3 and not a4),
                     False, True)})
@@ -511,15 +529,16 @@ def video(nl, DB, VA, capture=False):
     # the steal (B1): STRETCH for two ticks from T2 if a picture's line
     # finds the queue empty in T1
     steal = gal.AND(lit("T1"), lit("CNT0", 0), lit("DEQR"))
+    che1 = lit("CHE1")
     gal.add(nl, "U_VE", {
-        "VADL_n": (gal.AND(che, ev(vid.EV_C0LD, vid.EV_C0TK, vid.EV_C1TK, vid.EV_DSE)), False,
+        "VADL_n": (gal.AND(che1, ev(vid.EV_C0LD, vid.EV_C0TK, vid.EV_C1TK, vid.EV_DSE)), True,
                    True),
-        "VADC_n": (gal.AND(che, tables), False, True),
-        "VADH_n": (gal.AND(che, ev(vid.EV_DSE)), False, True),
+        "VADC_n": (gal.AND(che1, tables), True, True),
+        "VADH_n": (gal.AND(che1, ev(vid.EV_DSE)), True, True),
         "VADS": (tables, False, False),
         "B10": (gal.OR(ev(vid.EV_C0TK), gal.AND(ev(vid.EV_C1TK), lit("TSEL"))), False, False),
         "B11": (ev(vid.EV_C0LD, vid.EV_C0TK), False, False),
-        "DSE_n": (gal.AND(che, ev(vid.EV_DSE)), False, True),
+        "DSE_n": (gal.AND(che1, ev(vid.EV_DSE)), True, True),
         "STRETCH": (gal.AND(rst, gal.OR(steal, gal.AND(lit("STRETCH"), lit("STRX", 0)))), True,
                     False),
         "STRX": (gal.AND(rst, lit("STRETCH"), lit("STRX", 0)), True, False)}, clock="MCLK")
@@ -533,10 +552,10 @@ def video(nl, DB, VA, capture=False):
     def fifo(che, e0, e1, e2, vslot, vt_n, sld, c0, c1, wp, rp, fen, ch1, fam, r):
         # the count as a thermometer: CNT0 one or more, CNT1 two
         e = e0 + 2 * e1 + 4 * e2
-        if e in (5, 6) or (c1 and not c0):
-            return None                          # no such event; no such count
+        if e in (5, 6):
+            return None                          # no such event
         flush = che and e in fl_ev
-        count = c0 + c1
+        count = 2 if c1 else c0
         # a slot's word, but only if VAD has stood since the slot started,
         # in XGA since a tick before (FEN: from VAD's change the word is 33
         # ns coming, the 74ACT163, the buffer, the RAM; two of XGA's ticks
@@ -561,12 +580,20 @@ def video(nl, DB, VA, capture=False):
              "FEN_": ("SLD", "CNT0", "WP", "RP", "RESET_n")}
 
     def ft(name):
-        # over the nets the output depends on (fvars: those it doesn't)
+        # over the nets the output depends on (fvars: those it doesn't,
+        # which is checked: the same for every value of them)
         nets = [n for n in fnets if n not in fvars.get(name, ())]
+        rest = [n for n in fnets if n not in nets]
 
         def f(*b):
-            r = fifo(*[dict(zip(nets, b)).get(n, 0) for n in fnets])
-            return None if r is None else int(bool(r[name]))
+            vals = set()
+            for k in range(1 << len(rest)):
+                v = dict(zip(nets, b), **{n: (k >> i) & 1 for i, n in enumerate(rest)})
+                r = fifo(*[v[n] for n in fnets])
+                vals.add(None if r is None else int(bool(r[name])))
+            if len(vals) > 1:
+                raise ValueError(f"U_VF: {name} depends on {rest}")
+            return vals.pop()
         return gal.table(nets, f)
     gal.add(nl, "U_VF", {
         "CNT0": (ft("CNT0"), True, False),

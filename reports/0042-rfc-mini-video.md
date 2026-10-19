@@ -12,16 +12,19 @@ depends-on: [41]
 
 # RFC 0042: Heron Mini's video modes and features
 
-Heron Mini's video ([RFC 0041, 9](0041-rfc-heron-mini.md#9-video)) is
-one mode, 640 × 480 at 4 bits a pixel, with line descriptors and the
+Heron Mini's video ([RFC 0041, 9](0041-rfc-heron-mini.md#9-video)) began
+as one mode, 640 × 480 at 4 bits a pixel, with line descriptors and the
 CPU's block instructions. This RFC lists what else it could do: more
 modes, other ways of laying pixels out in memory, a hardware cursor, the
 descriptors and the blitting as options, each with what it would cost in
-chips. None of it is decided. The point is to write graphics software
-against all of it and find out which options earn their chips, so every
-option here but X1's microcode, M7 and T15 is in the study's simulator
-([12](#12-the-simulator)), and a program picks them with registers, as
-the hardware would.
+chips. Emily has since had most of it built ([1](#1-overview)): seven
+modes in two timing families, VGA and XGA, the cursor, the beam's
+position and cycle stealing, all in the netlist and checked at chip
+level; M7, the planar layout, T15 and X1's microcode are not. Every
+option but X1's microcode, M7 and T15 is in the study's software
+simulator ([12](#12-the-simulator)), and a program picks them with
+registers, as the hardware would, so graphics software can still try
+the ones not built.
 
 Part I specifies the options as a programmer sees them; Part II is what
 each costs, where it comes from, and what's left open. The fancier ideas
@@ -367,22 +370,35 @@ microcode proves too slow.
 
 ### 12. The simulator
 
-The study's simulator (`heron mini sim`, [studies/mini/sim.py](../studies/mini/sim.py)
+Two simulations check this RFC: the netlist on the chip-level simulator,
+and a faster model for software.
+
+**The netlist** (`heron mini hw video --modes`): `sw/hw/modes.s` in each
+of M0–M6, sixteen rows of pseudo-random words under 480 or 768
+descriptors with all sixteen palette banks, 256 palette colours and the
+cursor's 32 rows (in XGA hanging off the right edge), its frames captured
+from the netlist's outputs and compared pixel for pixel with what the
+memory and the registers make (`studies/mini/video.py`'s `render`): every
+mode as the memory makes it, the clock switching to 65 MHz for M5 and
+M6, no timing violation, at the datasheets' worst-case delays. With the
+length classes made longer (9–12 ticks, `--lengths`), M2 needs the
+steals, and still shows as it should.
+
+**The software's simulator** (`heron mini sim`, [studies/mini/sim.py](../studies/mini/sim.py)
 on the Rust engine in [studies/mini/engine](../studies/mini/engine))
 runs the microcode on a register-transfer model of the CPU, a port of
 the study's Python model (`rtl.py`) that matches it cycle for cycle and
-tick for tick, with the board and every option here except X1, M7 and
-T15. A
+tick for tick, with the board and the options here but X1, M7 and T15. A
 program picks the mode, the cursor and the descriptors with the
 registers of [8](#8-registers); the board's choices (L0 or L1, B0–B2,
-the XGA clock) are the simulator's. It runs 10–14 million cycles a
-second, about one and a half times the real machine, and writes frames
-as PNG files and where the time went. The rules it follows:
+D1) are the simulator's. It runs 10–14 million cycles a second, about
+one and a half times the real machine, and writes frames as PNG files
+and where the time went. The rules it follows:
 
-- The video starts with the CPU, in M0; a frame's mode, F1, D1 and
-  frame base are latched as it starts.
+- The video starts with the CPU, in M0; a frame's mode is latched as it
+  starts.
 - A line's pixels are read as it starts, from the memory and the
-  registers as they are then (the cursor's position and image too), and
+  registers as they are then (the cursor's tables and X too), and
   their colours looked up as they're shown: a palette write changes the
   line from the beam's pixel on. Its descriptor (or, with D1, its
   address) is read in the line before, at the end of the sync's third
@@ -397,126 +413,122 @@ as PNG files and where the time went. The rules it follows:
   first words are in the holding registers as it starts. A load with no
   word is an underrun with B0 and B2 (counted: the picture would glitch,
   though the simulator still shows the line as it should be), a steal of
-  two ticks with B1. With cycles of at most 7 ticks outside I/O holds
-  (the microcode as it stands, [9](#9-bandwidth-and-the-cpu)), B0 keeps
-  up with every mode in this model, M2 included; the hardware's margins
-  (the slot's two ticks, the shifters' load) are a netlist's question.
+  two ticks with B1.
 
-The simplifications: a line's words are read when the line starts (the
-hardware reads them across the line); a palette write takes effect as
-its cycle's hold ends, to within a pixel or two, without the written
-colour on the pixels shown during it; B1's stealing is counted per
-cycle, not per tick.
+Where it differs from the netlist: XGA's CPU runs at 50.35 MHz in the
+model (a 65 MHz pixel as 1007/1300 of a tick), where the netlist runs the
+whole machine at 65 MHz with XGA's length classes, so the model's CPU
+is a little slower there than the machine; a line's words are read when
+the line starts (the hardware reads them across the line); a palette
+write takes effect as its cycle's hold ends, to within a pixel or two,
+without the written colour on the pixels shown during it; B1's stealing
+is counted per cycle, not per tick; and the descriptor is read one
+character earlier in VGA.
 
 ### 13. What each option costs
 
-- **The register and decode, 2:** the control register as built is three
-  bits in a 22V10; the mode bits, the flags and the new registers'
-  decode (VA[4:2]) are a register and a GAL, or a second GAL.
-- **M1, M2, +1–2:** the shifters still give a nibble a step; a 4-bit
-  latch holds a pixel's first nibble, and the palette's address takes it
-  where the line's bank goes now. M1 steps once a VGA pixel and takes a
-  pixel every two; M2 steps every tick. The video GALs' equations change;
-  a 74F299 at 50 MHz is near its limit (74ACT299 if not).
-- **M3, M4, +1:** the shifters' serial pins chain them; in 4-bit modes
-  the bits shifted in are thrown away at the next load anyway, so only
-  the link between shifters 1 and 2 depends on the mode. A GAL or a
-  multiplexer forms the palette index's low bits. The fetch rate is the
-  timing table's. M5 and M6 need the same chaining and palette index,
-  so with them M3 and M4 cost nothing but their timing table.
-- **M5, M6, +5–9 and a clock:** a 65 MHz pixel clock (K2 chosen; K1: an oscillator
-  and a synchroniser for the hand-over between the clocks, 2–3; K2: a
-  programmable clock chip whose outputs, from one PLL, stay in a fixed
-  phase, so the hand-over is a schedule and no synchroniser), a pipeline
-  register before the palette (15 ns a pixel is too short for the
-  multiplexer, the SRAM and the colour register in one), 8–10 ns palette
-  SRAMs, faster shifters, and the timing table. M5 needs a word every
-  ~12.4 ticks against slots every 7.
+As built, the video is 87 chips with bank 1's RAM (53 for the first
+netlist's one mode):
+
+| Part | Chips | |
+|---|---:|---|
+| Timing | 9 | the pixel and character counters (22V10), the line and character counters (five 74ACT163), the timing flash (512K × 8) and its register, the slot and line controls (22V10) |
+| Registers | 8 | the control register and the frame's mode (two 22V10s), their decode (22V10), the cursor's X (two 74ABT377), the beam (three 74ABT541: P1) |
+| Fetch | 19 | VAD (five 74ACT163) and its multiplexer (three 74F157), two holding registers (eight 74ABT823: B1 is four of them), the queue's control and the steal (22V10), the events (22V10), the line's bank (74ABT377) |
+| Output | 23 | the shifters (four 74F299), the sequencer and the pixel registers (four 22V10s), the palette's two copies (four 12 ns SRAMs), their address multiplexers (four 74F157) and write buffers (four 74ABT541), the colour register (three 22V10s) |
+| Cursor | 13 | its lanes (eight 74F299), the X compare (two 74F521), its control (two 22V10s) and a gate package |
+| Bank 1 | 15 | four 512K × 8 SRAMs, their address buffers (six 74ABT541) and data transceivers (four 74ABT245), the fast write strobe's flip-flops |
+
+Against the first netlist's one mode: the modes and the linear pixels
+cost the sequencer, the pixel registers and LN (four 22V10s in place of
+nothing) and the timing flash's family; XGA the palette's second copy
+(two SRAMs, two multiplexers, two buffers) and the colour register's
+22V10s in place of two 74ABT823s, and the clock chip's switch
+([RFC 0041, 20](0041-rfc-heron-mini.md#20-the-clock), five chips, not
+counted here); B1 five (the second holding register, the queue's
+22V10); the cursor 13 and its X register two; P1 three.
+
+What the options not built would cost, as estimated before:
+
 - **M7, +2–3:** an 8-bit register that takes the attribute (shifter 3's
-  byte) from the holding register as the shifters load the word, and
-  holds it for the word's 8 pixels; the palette's address 11 bits (8 ×
-  attribute + pixel) where M0's is 8, one more 74F157; the larger palette
-  window in the on-board registers' decode; a mode bit. The palette SRAMs
-  are 32K × 8, so the room is there. Memory and bandwidth are M0's.
-  Granularity 8 × 1 pixels: finer than the NES's 16 × 16 attributes, with
-  8 colours a cell where it has 4, from 256 palettes where it has 4.
-  `FILL` and `COPY` work as they are; `BLIT k` carries the attribute bits
-  along with the pixels, so a copy shifted by other than whole words mixes
-  its cells' palettes (copies of whole cells, or the attributes fixed
-  after). The alternative, an attribute map apart from the pixels (16
-  colours a cell, the attributes fetched in each line's blanking into a
-  line buffer, as the Spectrum's and the C64's colour memory), would be
-  about 5–8 chips and an eighth more bandwidth.
+  byte) as the shifters load the word, and holds it for the word's 8
+  pixels; the palette's address 11 bits (8 × attribute + pixel) where
+  M0's is 8; the larger palette window in the on-board registers' decode.
+  The palette SRAMs are 32K × 8, so the room is there. Memory and
+  bandwidth are M0's. Granularity 8 × 1 pixels: finer than the NES's 16
+  × 16 attributes, with 8 colours a cell where it has 4, from 256
+  palettes where it has 4. `FILL` and `COPY` work as they are; `BLIT k`
+  carries the attribute bits along with the pixels, so a copy shifted by
+  other than whole words mixes its cells' palettes. The alternative, an
+  attribute map apart from the pixels (16 colours a cell, the attributes
+  fetched in each line's blanking into a line buffer, as the Spectrum's
+  and the C64's colour memory), would be about 5–8 chips and an eighth
+  more bandwidth.
 - **L1, 0:** the holding register's bits reach the shifters in another
-  order; the same chips.
-- **F1, +8–12:** a 3-way reordering of 32 bits into the shifters (4, 2
-  and 1 bit), 16 dual 4-to-1 multiplexers, or fewer with GALs.
-- **D1, −4:** RFC 0041's reduction (the table address multiplexers, the
-  line mode register, the descriptor loads), for a frame base register.
-- **C1, +12–14:** 64 bits of shift register (eight 8-bit shift
-  registers), the X compare and the Y count (two GALs), the X, Y and
-  image registers (two or three), the row fetch in blanking (the video
-  GALs), and the palette index's override (a GAL). The shift registers
-  grow with the cursor's width and its bits a pixel; the rest stays
-  about 5–6 chips (the Y count a bit wider), and a row is fetched in the
-  line's blanking whatever its size:
-
-  | Cursor | A row | Shift registers | Chips |
-  |---|---:|---:|---:|
-  | 16 × 16, 2 bits | 1 word | 4 | about 9 |
-  | 32 × 32, 2 bits | 2 words | 8 | 12–14 |
-  | 32 × 32, 1 bit and a mask | 2 words | 8 | 12–14 |
-  | 64 × 64, 2 bits | 4 words | 16 | about 22 |
-  | 64 × 64, 1 bit | 2 words | 8 | 12–14 |
-
-  The graphics software found 16 × 16 enough for a pointer; a schematic
-  editor wanted a larger crosshair, which 1 bit a pixel at 64 × 64 gives
-  for the cost of 32 × 32 at 2.
-- **T15, 0–2:** a fourth timing table in the timing flash; the pixel
-  phase every four master ticks (the video 22V10's equations and a mode
-  bit); the composite sync from the table, no gate; an interlaced
-  frame's half lines in the table's 525 lines.
-- **P1, +2:** two 74541s put the line and character counters on the data
-  bus.
-- **B1, +5–7:** a second holding register (four 74823s), the steal
-  request (a GAL, a term in the clock GAL's hold).
-- **B2, +16:** four more SRAMs (eight 256K × 8 in place of four 512K × 8),
-  four more 74823s for the holding register, four more shifters, and
-  four transceivers so the CPU reads and writes either half.
+  order; the same chips, but the pixel registers' selections for 1 and 2
+  bits change.
+- **D1, −4:** the table address multiplexers, the line mode register,
+  the descriptor loads, for a frame base register.
+- **Other cursor sizes:** the lanes grow with the cursor's width and its
+  bits a pixel, the rest stays: 16 × 2 bits four 74F299s fewer, 64 × 2
+  bits eight more, 64 × 1 bit the same as now (its height is the
+  software's, from the tables).
+- **B2, +16:** four more SRAMs (eight 256K × 8 in place of four 512K ×
+  8), four more 74ABT823s, four more shifters, four transceivers so the
+  CPU reads and writes either half.
+- **A RAMDAC** (a Bt476/ADV476/IMSG176-class palette and DACs in one
+  chip, 66 MHz or faster, the early-1990s SVGA cards' way): in place of
+  the palette's two copies, their multiplexers and buffers and the colour
+  register, about −13 chips; but RGB 6:6:6 written through an index
+  register and three bytes, not RGB 5:6:5 in one word, and from surplus
+  stock. **Open.**
+- **T15, 0–2:** a third timing table; the pixel phase every four master
+  ticks (V1's equations and a mode bit); the composite sync from the
+  table; an interlaced frame's half lines in the table's 525 lines.
 
 ### 14. Open questions
 
 Decided, by Emily:
 
 - **Modes:** M0, M1, M2, M5 and M6; M3 and M4 as well, as they come
-  free with M5 and M6 ([13](#13-what-each-option-costs)).
-- **D0,** the descriptors.
-- **A cursor** (C1), its size open.
+  free with M5 and M6. **Built.**
+- **D0,** the descriptors. **Built.**
+- **A cursor** (C1), 32 × 32 × 2. **Built.**
 - **The clock chip** (K2), which [RFC 0041, 20](0041-rfc-heron-mini.md#20-the-clock)
-  has the options for.
+  has. **Built.**
 - **X1:** microcode is free, so whichever block instructions the
   software uses.
+- **Tentatively:** the cursor's position and image read line by line
+  (as built); one status bit for the frame's interrupt and the lines'
+  (as built).
+
+Resolved in the netlist, for Emily to confirm:
+
+1. **L0, with F1's linear 1- and 2-bit pixels,** at no cost: the pixel
+   registers pick among the shifters' outputs ([4](#4-pixel-layouts)).
+   Every mode's pixels are linear, pixel 0 in the low bits.
+2. **B1 built,** so the microcode isn't bound to cycles of 7 ticks or
+   fewer ([9](#9-bandwidth-and-the-cpu)).
+3. **XGA with the whole machine at 65 MHz,** not a synchronised
+   hand-over between clocks: the CPU is as fast there, and the video is
+   on one clock ([2](#2-timing)).
+4. **The palette in two copies,** for XGA's 15.4 ns pixel; a RAMDAC is
+   the other way ([13](#13-what-each-option-costs)).
+5. **The cursor's rows from tables in memory,** a line's row in two
+   words beside its descriptor, in place of a Y register and an image
+   address: fewer chips (no Y compare, no row counter, no image
+   register), any height, and a different shape on every line if the
+   software likes; moving it up or down is 64 words written. The X
+   register is a beam position (XSTART pixels before the cursor).
 
 Open:
 
-1. L0 or L1, and whether F1 is worth its chips: to be measured on a
-   netlist.
-2. B1 or B2 for M2, or a rule that the microcode keeps every cycle
-   outside an I/O hold within 7 ticks (as it does now), so that B0
-   suffices. The rule binds all future microcode, and breaks silently: a
-   microinstruction that fetches on demand in a 6- or 7-tick cycle, or a
-   longer length class, starves M2. The microcode's build could check it;
-   B1 (5–7 chips) removes it.
-3. The cursor's size ([13](#13-what-each-option-costs) has the costs).
-4. The descriptors' bits 31–24: a pixel offset or a repeat count, as the
+1. The descriptors' bits 31–24: a pixel offset or a repeat count, as the
    software asks.
-5. The cursor's position and image: read line by line, or taken as the
-   frame starts.
-6. A status bit for the frame's interrupt and another for the lines'.
-7. T15, the 15 kHz family for a PVM ([2](#2-timing)); not in the
+2. T15, the 15 kHz family for a PVM ([2](#2-timing)); not in the
    simulator yet.
-8. M7, palettes chosen per 8 pixels ([3](#3-modes)); not in the
-   simulator yet.
+3. M7, palettes chosen per 8 pixels ([3](#3-modes)); not built.
+4. A RAMDAC in place of the palette's copies.
 
 [Report 0043](0043-report-mini-graphics.md) wrote graphics software
 against this RFC on the simulator, and answers these from what it
