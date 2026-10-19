@@ -110,7 +110,7 @@ Part II: Discussion
   that is both its register file, in banks of 64 registers, and its
   working memory. In one microinstruction it can step a register through
   the ALU and write it back, make one bus transfer, move data between the
-  bus and a device, count a loop and branch.
+  system bus and the I/O bus or the shared RAM, count a loop and branch.
 - **Two levels of program:**
   - **microcode,** for the Forth's inner interpreter and primitives, and
     for everything that moves data or has tight timing: copies and fills,
@@ -231,8 +231,8 @@ Three buses on the card:
   in the second half of every microcycle. Everything that loads, loads
   from R.
 - **T** (16 bits), the transfer bus: the A side of the system bus's data
-  transceiver, the shared RAM, the I/O bus side and the other devices of
-  [3.5](#35-devices-on-t). A bridge joins it to R. Copies move across T
+  transceiver, the shared RAM, the I/O bus side and the other T units of
+  [3.5](#35-t-units). A bridge joins it to R. Copies move across T
   while R does the address arithmetic.
 - **K** (16 bits): the microinstruction's constant field, onto R through
   a transceiver, and into the microprogram counter as a branch target. A
@@ -248,7 +248,7 @@ Two bus clocks, from edge E0 through E1 to E2:
 | SRAM | Read | F written back, if asked, from E1 until BCLK falls |
 | ALU | A from R, B from AC; F and the carry latched at E1, unless HOLD | – |
 | System bus | The previous transfer's data clock | This microinstruction's address clock: AL loaded from R at E1, AHOUT from AH0 or AH1 |
-| T bus | Read data, or a device, onto R if asked | A move into AB (write data) or a device, taken at E2 |
+| T bus | Read data, or a T unit, onto R if asked | A move into AB (write data) or a T unit, taken at E2 |
 | At E2 | | The next microinstruction; AC, X, BANK, AH0, AH1, LC or the control register loaded from R if asked |
 
 - **One register a microcycle,** read and written back: `src ← src + AC`
@@ -272,7 +272,7 @@ Two bus clocks, from edge E0 through E1 to E2:
 - **Read data** is in BA when its transfer ends, during the next
   microinstruction. That one can move it into AB in its second half, for
   a copy; the one after can put it on R.
-- **Devices on T stretch the microcycle:** an I/O bus access by its
+- **T units stretch the microcycle:** an I/O bus access by its
   device's entry in the timing table
   ([RFC 0037, 17](0037-rfc-system-and-io-bus.md#17-the-timing-table)),
   the shared RAM by a clock or two while the system bus is using it.
@@ -286,7 +286,7 @@ Two bus clocks, from edge E0 through E1 to E2:
 | Field | Bits | Meaning |
 |---|---:|---|
 | K | 16 | A constant onto R, or a branch target |
-| REG | 6 | A register in the current bank, or a device on T and its register (bits 5–3, 2–0) |
+| REG | 6 | A register in the current bank, or a T unit and its register (bits 5–3, 2–0) |
 | RS | 2 | R in the first half: the register, memory at X, K, or T |
 | ALU | 6 | The 74181's S0–S3 and M, and the carry in. One of the codes that repeat a logic function (with M = 1 the carry in is ignored) means HOLD |
 | WB | 1 | Write F back in the second half: to the register, or to memory at X if RS chose memory |
@@ -294,7 +294,7 @@ Two bus clocks, from edge E0 through E1 to E2:
 | BUS | 2 | None, read, write; the fourth value is kept for a locked read |
 | SEG | 1 | AH0 or AH1 onto A16–A31 |
 | SZ | 2 | Byte lanes: byte 0, byte 1, halfword, word |
-| T | 3 | None; AB ← BA (a copy); AB ← F; AB ← a device; a device ← BA; a device ← F; T ← a device (for RS = T); spare |
+| T | 3 | None; AB ← BA (a copy); AB ← F; AB ← a T unit; a T unit ← BA; a T unit ← F; T ← a T unit (for RS = T); spare |
 | SEQ | 2 | Next; branch to K if the condition holds; branch to K if it doesn't; to F if the condition holds, otherwise to K |
 | COND | 3 | Always, carry, F's bit 15, LC not done (and count), attention, doorbell, two spare |
 | TASK | 1 | Reserved for hardware tasks ([section 14](#14-alternatives)): a task switch may follow this microinstruction. Ignored until then |
@@ -314,7 +314,7 @@ Two bus clocks, from edge E0 through E1 to E2:
   ALU's B input, so the A side needs −1, and K is taken by the branch
   target. A register that holds −1 in the bank (`m1` in a Forth task's)
   gives it: `F ← m1 + AC` carries exactly when AC isn't 0. That costs no
-  chip. A spare device on T reading all ones through pull-up resistors
+  chip. A spare T unit reading all ones through pull-up resistors
   would be too slow: T carries about 100 pF, and its value goes straight
   into the 56 ns path from T through the ALU.
 - ***Attention*** is set by the polling tick, by any doorbell, and by a
@@ -345,12 +345,14 @@ One 64K × 16 SRAM (IS61C6416AL-12), addressed in 16-bit cells:
   in the microinstruction that steps the register that shadows it
   (`xr, X ← xr + AC`).
 
-#### 3.5 Devices on T
+#### 3.5 T units
 
-A microinstruction picks a device with REG bits 5–3 and a register of it
-with bits 2–0:
+A *T unit* is one of the eight things a microinstruction reads or writes
+over T. It picks one with REG bits 5–3, and one of the unit's registers
+with bits 2–0. *Device* is kept for the I/O bus's devices (a UART, a CF
+card, the console), which are all behind T unit 0:
 
-| Device | What | Address |
+| T unit | What | Address |
 |---|---|---|
 | 0 | The I/O bus: any device on an I/O card, or on this card ([section 5](#5-the-io-bus-side-and-the-devices-on-the-card)) | X: 256 × device + register ([RFC 0037, 15](0037-rfc-system-and-io-bus.md#15-devices-and-addresses)) |
 | 1 | The shared RAM ([4.3](#43-the-shared-ram)) | {page, X} |
@@ -364,30 +366,30 @@ with bits 2–0:
 - **An I/O bus access** stalls the core until its strobe ends; reads and
   writes alike. Posting writes, so that the core runs on, is **open**: it
   needs the I/O side to hold the address and data, which it may already.
-- **Bulk reads** go straight into AB (`AB ← a device`), which leaves R
+- **Bulk reads** go straight into AB (`AB ← a T unit`), which leaves R
   free for the pointer being stepped.
 - **X addresses both the I/O bus and the shared RAM,** so a loop between
   the two reloads X every halfword, about 3–4 microinstructions. An
   address counter for the shared RAM and the spare T code (the shared
-  RAM takes a device's data from T) would make it one: about 3 chips,
+  RAM takes another T unit's data from T) would make it one: about 3 chips,
   **optional**.
-- **Registers come in groups, one per device on T.** A microinstruction
-  that uses a register and a device on T at once has only REG's 6 bits
-  for both, so the register's bits 5–3 must be the device's number:
+- **Registers come in groups, one per T unit.** A microinstruction that
+  uses a register and a T unit at once has only REG's 6 bits for both,
+  so the register's bits 5–3 must be the unit's number:
 
   | Registers | Go with | |
   |---|---|---|
-  | 0–7 | device 0, the I/O bus | any of the eight, as the address comes from X |
-  | 8–15 | device 1, the shared RAM | any of the eight, likewise |
-  | 16–63 | devices 2–7 | exactly one: bits 2–0 also pick the device's own register, so reading event port 2 while stepping a register steps register 26 |
+  | 0–7 | T unit 0, the I/O bus | any of the eight, as the address comes from X |
+  | 8–15 | T unit 1, the shared RAM | any of the eight, likewise |
+  | 16–63 | T units 2–7 | exactly one: bits 2–0 also pick the unit's own register, so reading event port 2 while stepping a register steps register 26 |
 
-  So a native loop between a device and the bus keeps its pointers in
-  that device's group. The Forth's own registers can sit anywhere: NEXT,
-  `nest` and the stack words never use a device, and the words that do
+  So a native loop between a T unit and the bus keeps its pointers in
+  that unit's group. The Forth's own registers can sit anywhere: NEXT,
+  `nest` and the stack words never use a T unit, and the words that do
   (`io@`, `sr@`) combine it with AC and X, not with a bank register. This
-  is a numbering convention, which costs nothing. A separate device field
-  would need a seventh microcode flash, 56 bits; worth looking into only
-  if the convention turns out to be a problem.
+  is a numbering convention, which costs nothing. A separate field for
+  the T unit would need a seventh microcode flash, 56 bits; worth looking
+  into only if the convention turns out to be a problem.
 
 #### 3.6 Timing
 
@@ -473,7 +475,7 @@ fixed, so the card needs no jumpers:
 - **From the system bus:** region 4, at `0x4000_0000` + its byte
   address; halfwords and bytes. About 3 clocks a transfer, 4 when the
   core was using it (*estimate*), like report 0025's memory card.
-- **From the IOP:** device 1 on T, at {page, X}. A halfword in a
+- **From the IOP:** T unit 1, at {page, X}. A halfword in a
   microcycle, unless the bus has it.
 - **The system bus comes first;** the core waits.
 - **What it holds:** the rings of requests to the IOP and their buffers
@@ -529,7 +531,8 @@ At `0x7400_0000`, the range RFC 0037 left open for them:
   specifies: about 15 chips
   ([22](0037-rfc-system-and-io-bus.md#22-the-io-processors-side)),
   which replace the first version's device decode and stretch counter.
-- **Addressing:** device S, register r is device 0 on T with X = 256S + r.
+- **Addressing:** device S, register r is reached through T unit 0, with
+  X = 256S + r.
 - **The window's accesses** take turns with the IOP's own
   ([RFC 0037, 20](0037-rfc-system-and-io-bus.md#20-the-window-from-the-system-bus)).
 - **Devices 12–15 are on this card,** with the same rules and the same
