@@ -632,7 +632,8 @@ def report(a=None, header=HEADER, per_ground=PER_GROUND, listing=False, top=15):
     nl = a.nl
     cross = crossing(a)
     pairs = pair_signals(a, cross)
-    out = [f"Heron Mini on {len(BOARDS)} boards (stacked {', '.join(STACK)}, top to bottom): "
+    up = ", ".join(reversed(STACK))
+    out = [f"Heron Mini on {len(BOARDS)} boards (stacked bottom to top {up}): "
            f"{sum(a.packages(b) for b in BOARDS)} packages, at most {TARGET} a board "
            f"({LIMIT} the limit)", ""]
     for w in a.warnings:
@@ -908,7 +909,7 @@ def readme(a, header=HEADER, per_ground=PER_GROUND):
         "`heron mini boards` (`--list` lists every crossing signal, `--sta` the",
         "board delays' effect on the microinstructions).",
         "",
-        f"Three boards, stacked on standoffs top to bottom {', '.join(STACK)}, joined by",
+        f"Three boards, stacked on standoffs bottom to top {', '.join(reversed(STACK))}, joined by",
         f"IDC ribbon cables. The CPU is on cpu1 and cpu2, the video, its RAM and the",
         f"I/O on io. At most {TARGET} packages a board (Emily: ideally 160, {LIMIT} at",
         "most); resistor networks and connectors don't count.",
@@ -1271,8 +1272,9 @@ def markdown(a=None, ps=DELAY_PS):
     nl = a.nl
     lines = ["## The boards", "",
              f"The netlist cut into {len(BOARDS)} boards (`heron mini boards`, `boards.py`): "
-             f"stacked top to bottom {', '.join(STACK)}, joined by IDC ribbon cables, at most "
-             f"{TARGET} packages a board (resistor networks and connectors not counted).", "",
+             f"stacked bottom to top {', '.join(reversed(STACK))}, joined by IDC ribbon cables, "
+             f"at most {TARGET} packages a board (resistor networks and connectors not "
+             "counted).", "",
              "| Board | Packages | Its largest sections |", "|---|---:|---|"]
     for b in BOARDS:
         secs = Counter(nl.refs[r].section for r in a.refs(b, "chip"))

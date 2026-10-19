@@ -119,7 +119,7 @@ By part:
 
 ## The boards
 
-The netlist cut into 3 boards (`heron mini boards`, `boards.py`): stacked top to bottom cpu1, cpu2, io, joined by IDC ribbon cables, at most 160 packages a board (resistor networks and connectors not counted).
+The netlist cut into 3 boards (`heron mini boards`, `boards.py`): stacked bottom to top cpu1, cpu2, io, joined by IDC ribbon cables, at most 160 packages a board (resistor networks and connectors not counted).
 
 | Board | Packages | Its largest sections |
 |---|---:|---|
@@ -131,9 +131,9 @@ The netlist cut into 3 boards (`heron mini boards`, `boards.py`): stacked top to
 
 | Boards | Signals | 64-pin headers, a ground after each signal |
 |---|---:|---:|
-| cpu1-cpu2 | 183 | 6 |
-| cpu1-io | 45 | 2 |
-| cpu2-io | 61 | 2 |
+| io-cpu2 | 61 | 2 |
+| io-cpu1 | 45 | 2 |
+| cpu2-cpu1 | 183 | 6 |
 
 With 1.5 ns on every crossing (at the inputs on the far board; the clocks and the clock generator's phases by matched buffers, not delayed), the static timing analysis's slowest microinstruction is 119.3 ns (117.9 ns on one board), 1 of 10845 microinstructions need more ticks, and the suite and the C programs take 790.5 ms against 790.3 ms (+0.0%). The cut weights the 35 nets on the critical paths (`heron mini boards --tune`, `board-weights.json`).
 
