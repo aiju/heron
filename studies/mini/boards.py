@@ -23,7 +23,8 @@ The assignment (assign()):
      at or below the package limit (160, LIMIT 190 at most) and each CPU
      board at least 40 % of the CPU's packages. It is deterministic:
      passes from the start, then restarts from seeded perturbations of
-     the best.
+     the best. A net counts its weight in wires: 1, or the timing's
+     weight (board-weights.json, below) for a net on a critical path.
 A package counts as 1 (a half of a two-part package as a half);
 resistor networks and connectors (the CF card's socket) are on boards
 but are listed apart and don't count. Fixtures (the test I/O page, the
@@ -53,14 +54,25 @@ the others, by a wire element in front of each; its own board's inputs
 see it at once (a ribbon of about 100 ohms, driven by an F or ABT
 output, steps most of the way at the near end). A bus driven from
 several boards is delayed at each driver with a reader elsewhere, which
-its near loads see too: pessimistic. The clocks (CLK, MCLK) are left
-out unless asked: a clock sent to each board through a buffer of
-matched delay arrives everywhere together. `heron mini hw sta --boards`
-and the chip-level runs' `--boards` use it; `heron mini boards --sta`
-compares the analysis with the plain one.
+its near loads see too: pessimistic. The clocks (MCLK, and the clock
+generator's CLK, H0, H1, T1, T2) are left out unless asked: a clock
+sent to each board through a buffer of matched delay arrives
+everywhere together. `heron mini hw sta --boards` and the chip-level
+runs' `--boards` use it; `heron mini boards --sta` compares the
+analysis with the plain one, and `--slowed` lists the crossings on the
+critical paths of the microinstructions that lose a tick.
+
+The timing-driven cut (tune(), `heron mini boards --tune ROUNDS`): from
+the plain cut, each round finds the microinstruction states that need
+more ticks with the boards' delays, weights every net on their critical
+paths (1 + 2 a path, at most 21) and cuts again; the round that gives
+the suite the least time wins, and its weights go to
+board-weights.json, which the default assignment reads. Rerun it after
+the netlist changes (its paths are the netlist's).
 
   heron mini boards [--list] [--header 40|50|64] [--per-ground 1|2|3]
-                    [--limit N] [--write] [--sta [--board-delay NS]]
+                    [--limit N] [--write] [--sta] [--slowed] [--tune ROUNDS]
+                    [--board-delay NS]
 """
 
 import argparse
@@ -983,6 +995,10 @@ def readme(a, header=HEADER, per_ground=PER_GROUND):
         "refinement then moves chips to minimise the wires between boards, keeping",
         f"each board at or below {TARGET} packages, each CPU board at least",
         f"{int(CPU_BALANCE * 100)} % of the CPU's, and the video and I/O sections on io.",
+        "The nets on the timing's critical paths weigh more"
+        + (f" ({len(weights() or {})} of them, studies/mini/board-weights.json from "
+           "`heron mini boards --tune`)," if weights() else ",")
+        + " so that the cut keeps them on one board where it can.",
         "",
         "Signals per pair:",
         "",
@@ -1240,6 +1256,47 @@ def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25):
     out.append(f"  the critical check with the boards: {worst[3][0]}: {worst[5]} "
                f"({worst[0]:.1f} ns)")
     return "\n".join(out)
+
+
+def markdown(a=None, ps=DELAY_PS):
+    """The boards as a section of performance.md (report.py): each board's
+    packages, the cables, and the boards' delays' cost on the suite."""
+    from . import sta
+    a = a or default()
+    nl = a.nl
+    lines = ["## The boards", "",
+             f"The netlist cut into {len(BOARDS)} boards (`heron mini boards`, `boards.py`): "
+             f"stacked top to bottom {', '.join(STACK)}, joined by IDC ribbon cables, at most "
+             f"{TARGET} packages a board (resistor networks and connectors not counted).", "",
+             "| Board | Packages | Its largest sections |", "|---|---:|---|"]
+    for b in BOARDS:
+        secs = Counter(nl.refs[r].section for r in a.refs(b, "chip"))
+        top = ", ".join(f"{x} {n}" for x, n in sorted(secs.items(), key=lambda kv: -kv[1])[:5])
+        lines.append(f"| {b} | {a.packages(b)} | {top} |")
+    cross = crossing(a)
+    lines += ["", f"{len(cross)} nets cross between boards, by cable (a net on all three takes "
+              "two):", "", f"| Boards | Signals | {HEADER}-pin headers, a ground after each "
+              "signal |", "|---|---:|---:|"]
+    for (x, y), nets in pair_signals(a, cross).items():
+        lines.append(f"| {x}-{y} | {len(nets)} | {len(pack(nets))} |")
+    plain = sta.analyse()
+    delayed, delays = _delayed(a, ps)
+    prof = _profile()
+    ms0, ms1 = sta.suite_ms(plain, prof), sta.suite_ms(delayed, prof)
+    t0, t1 = sta.node_ticks(plain), sta.node_ticks(delayed)
+    worse = sum(1 for k in t0 if t1[k][1] != t0[k][1])
+    w = weights()
+    lines += ["", f"With {ps / 1000:.1f} ns on every crossing (at the inputs on the far board; "
+              "the clocks and the clock generator's phases by matched buffers, not delayed), "
+              f"the static timing analysis's slowest microinstruction is {max(v[0] for v in t1.values()):.1f} ns "
+              f"({max(v[0] for v in t0.values()):.1f} ns on one board), {worse} of {len(t0)} "
+              f"microinstructions need more ticks, and the suite and the C programs take "
+              f"{ms1:.1f} ms against {ms0:.1f} ms ({100 * (ms1 / ms0 - 1):+.1f}%). "
+              + (f"The cut weights the {len(w)} nets on the critical paths "
+                 "(`heron mini boards --tune`, `board-weights.json`)." if w else
+                 "The cut doesn't weight the critical paths' nets (no `board-weights.json`)."),
+              ""]
+    return "\n".join(lines)
 
 
 def slowed_paths(a=None, ps=DELAY_PS, clocks=False):

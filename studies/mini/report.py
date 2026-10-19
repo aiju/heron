@@ -25,7 +25,7 @@ TOTAL_SKIP = ("hello", "interrupts")    # left out of the totals, as RFC 0031's
 AREAS = [
     ("CPU: control", ["Control store", "Next address", "Instruction register", "Condition latches",
                       "Branch condition", "Interrupt request"]),
-    ("CPU: clock, reset, hold", ["Clock generator", "Reset", "Hold"]),
+    ("Clock, reset, hold", ["Clock", "Clock generator", "Reset", "Hold"]),
     ("CPU: register file", ["Register file"]),
     ("CPU: buses, immediates", ["A bus", "B bus", "Immediate unit"]),
     ("CPU: ALU, result, MQ", ["ALU control", "ALU", "Result multiplexer", "MQ"]),
@@ -34,11 +34,11 @@ AREAS = [
     ("CPU: PC, fetch, queue", ["PC", "Prefetch queue"]),
     ("Memory: address, decode, store data, bank 0", ["Memory", "Store data"]),
     ("Video RAM: bank 1, its buffers", ["Video RAM"]),
-    ("I/O: bus, devices, on-board registers, interrupts",
+    ("I/O: bus, devices, on-board registers, interrupts, keyboard and mouse",
      ["I/O", "CF card", "Expansion ports", "Timer", "Boot flash", "UARTs",
-      "On-board registers", "Interrupts"]),
-    ("Video: timing, fetch, output, registers",
-     ["Video timing", "Video fetch", "Video output", "Video registers"]),
+      "On-board registers", "Interrupts", "Keyboard and mouse"]),
+    ("Video: timing, fetch, output, registers, cursor",
+     ["Video timing", "Video fetch", "Video output", "Video registers", "Cursor"]),
 ]
 
 
@@ -144,6 +144,10 @@ def generate():
             lines.append(f"| {part} | {n:.0f} |")
     gp = reduce.gate_parts()
     lines += [f"| gates ({', '.join(sorted(gp))}) | {kinds['gate']:.0f} |", ""]
+
+    # ---- the boards
+    from . import boards
+    lines += [boards.markdown()]
 
     # ---- reductions
     lines += ["## What could be left out", "",

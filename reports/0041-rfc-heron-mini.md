@@ -36,39 +36,53 @@ As Emily asked, the netlist was first **overbuilt**: every feature that
 seemed useful, built in full, with what could be left out estimated by
 taking chips out of it rather than by guessing what adding a feature
 costs ([15](#15-what-could-be-left-out)). Since then 22V10s have taken
-the place of most of its gates, decoders and small multiplexers.
+the place of most of its gates, decoders and small multiplexers, and a
+second round of Emily's choices has added the clock chip, the video's
+modes and cursor, the PS/2 ports and a debug button, and cut the netlist
+into three boards.
 
 ## Summary
 
-- **It works, at chip level.** 334 packages. The suite and the compiled C
-  programs run on the netlist exactly as on the model, at three cycle
+- **It works, at chip level.** 375 packages. The suite and the compiled
+  C programs run on the netlist exactly as on the model, at three cycle
   lengths, 5, 6 and 7 ticks of 19.86 ns (half the VGA pixel clock); the
-  UARTs, the 82C54, the CF card and the boot flash do what a test program
-  expects of them; the video sends the frame its memory describes.
+  UARTs, the 82C54, the CF card, the boot flash, the PS/2 ports and the
+  debug button do what a test program expects of them; the video sends
+  the frame its memory describes in each of its seven modes, the cursor
+  on.
 - **Fast:** the suite and the C programs take 1.05 times the full
   Heron's time ([RFC 0031](0031-rfc-draft-2-cpu.md)), what the
   instruction-level simulator's reference timing would take at about
   13 MHz. Egret's desktop would type a character in under 5 ms and open
   its class browser in about 160 ms ([13](#13-how-fast)).
 - **Draft 2's CPU, cut down,** is the CPU: Emily's choice over a draft
-  1b-like core ([16](#16-the-cpu-and-the-smaller-ones-considered)). The
-  CPU is 237 packages, 266 with its memory; which of the reductions to
-  take is open ([15](#15-what-could-be-left-out)).
-- **Two stacked boards for the core,** A4, at most about 190 chips each;
-  whether the video and the I/O go on them or a third board is open, and
-  so is how the microcode gets updated without taking the stack apart
-  ([28](#28-the-boards)).
-- **A programmable clock chip** is to replace the oscillator: the CPU at
-  any speed down to single steps, the video's clocks in step with it
+  1b-like core ([16](#16-the-cpu-and-the-smaller-ones-considered)).
+  Which of the reductions to take is open ([15](#15-what-could-be-left-out)).
+- **Three boards,** stacked on standoffs and joined by IDC ribbon
+  cables, the CPU on two: 107, 160 and 108 packages. With 1.5 ns for
+  each crossing the cut costs the suite nothing measurable, the nets on
+  the critical paths kept on one board; each board's netlist is
+  exported for the PCB study ([28](#28-the-boards)).
+- **A programmable clock chip** (the CY22393, tentatively) gives the
+  master clock, the UARTs' clock, and 65 MHz for the XGA modes, the
+  whole machine switching to it while one is shown
   ([20](#20-the-clock)).
+- **The video** is RFC 0042's, built out: 640 × 480 at 1, 2, 4 and
+  8 bits a pixel, 320 × 480 × 8, 1024 × 768 at 1 and 2 bits, line
+  descriptors, a 32 × 32 cursor, the beam's position, cycle stealing
+  ([9](#9-video)). 88 packages with bank 1.
+- **Keyboard and mouse** on two PS/2 ports (7 chips), and a **debug
+  button** that breaks into any program through the microcode
+  ([22](#22-keyboard-and-mouse)).
 - **Multiply and divide stay in hardware:** without the MQ register
   (6 chips) the suite would take half as long again ([17](#17-isa-features-and-what-they-cost)).
 - **So does the address error** (3 packages, no time): the Lisp's `car`,
   `cdr` and calls check their operand's type with it; without it its
   programs would take 17–19% longer ([17](#17-isa-features-and-what-they-cost)).
-- **The video costs the CPU nothing.** It has the RAM's second bank to
-  itself through buffers, takes its words in cycles' tails and in I/O
-  waits, and never holds the CPU ([9](#9-video), [18](#18-the-video)).
+- **The video costs the CPU nothing** as the length classes stand: it
+  has the RAM's second bank to itself, takes its words in cycles' tails
+  and in I/O waits, and steals only should the cycles grow long
+  ([9](#9-video), [18](#18-the-video)).
 - **Blitting in microcode** gains 1.7 to 3.9 times over draft 2 code for
   fills, copies, shifted copies and glyphs ([19](#19-blitting-in-microcode)).
 
@@ -459,28 +473,29 @@ What the routine there does is software's.
 
 ### 11. Parts
 
-334 packages as built, of which 237 are the CPU (266 with its memory
+375 packages as built (377 parts with the CF card's socket and the debug
+button), of which 238 are the CPU with its clock (268 with its memory
 interface and bank 0); by area (the full list is in
 [performance.md](0041-rfc-heron-mini/performance.md#parts)):
 
 | Area | Packages |
 |---|---:|
-| CPU: control store, sequencer, conditions | 48 |
-| CPU: clock, reset, hold | 8 |
+| CPU: control store, sequencer, conditions, the debug button | 51 |
+| Clock chip and switch, clock generator, reset, hold | 13 |
 | CPU: register file | 20 |
-| CPU: buses, immediate unit | 53 |
+| CPU: buses, immediate unit | 45 |
 | CPU: ALU, result multiplexer, MQ | 36 |
 | CPU: R, T, MAR, LC, SX, EX | 27 |
 | CPU: flags | 8 |
-| CPU: PC, FPC, queue | 37 |
+| CPU: PC, FPC, queue | 38 |
 | Memory: address, decode, store data, bank 0 | 30 |
 | Video RAM: bank 1, its buffers | 16 |
-| I/O | 16 |
-| Video | 37 |
+| I/O, keyboard and mouse | 22 |
+| Video: timing, fetch, output, registers, cursor | 73 |
 
-The most numerous parts: 66 74ABT541 (the buses' drivers), 41 74F153,
-23 74ABT573, 23 74F161, 22 ATF22V10C-5, 18 SST39SF010A (the control
-store, the video's timing and the boot flash).
+The most numerous parts: 72 74ABT541 (the buses' drivers), 41 74F153,
+41 ATF22V10C-5, 23 74ABT573, 23 74F161, 18 SST39SF010A and SST39SF040
+(the control store, the boot flash and the video's timing).
 
 ## Part II: Discussion
 
@@ -502,11 +517,12 @@ carries draft 2's CPU's speed features along (the queue, reads at the A
 bus, short variable cycles), and with them most of its chips. The first
 netlist was 430 packages; 22V10s in place of gates, decoders, small
 multiplexers and the carry lookahead, and one register-file copy read
-twice a cycle in place of two, took it to 334, and the timing that came
+twice a cycle in place of two, took it to 334 (the second round's
+features to 375), and the timing that came
 with them made it faster rather than slower (the suite went from 523.5
 to 495.2 ms). Emily has since chosen to keep this CPU
 ([16](#16-the-cpu-and-the-smaller-ones-considered)), A4 boards of at most
-about 190 chips, and two of them stacked for the core
+190 chips, and, for now, three of them, the CPU on two
 ([28](#28-the-boards)).
 
 ### 13. How fast
@@ -537,18 +553,20 @@ instructions ([19](#19-blitting-in-microcode)) would take a little more
 off drawing, which is 10–40% of the desktop's time in report 0021's
 breakdown.
 
-15% of the cycles need 7 ticks, most of them memory operands through T's
-byte-lane latches: the late phase (LATE), T's latch enable, its lanes,
-the ALU, the flags. The register file's reads had the same chain until
-its address logic took the clock generator's H0 and H1 itself, a 22V10
-sooner, which brought register-to-register `ADD` and `CMP` back to 6
-ticks; the same for T might do the same for these (an open task,
-[31](#31-open-tasks)).
+15% of the cycles need 7 ticks, most of them memory operands: the
+register to the address, the RAM, T's latches (open), the B bus, the
+ALU, the zero detection and the flags, 115–120 ns in all. The register
+file's reads were slower still until its address logic took the clock
+generator's H0 and H1 itself, a 22V10 sooner, which brought
+register-to-register `ADD` and `CMP` back to 6 ticks. T's latch enable
+and lanes have since gone the same way (one 22V10 that takes the phases
+itself, six chips fewer; tentatively decided), but gained no tick: the
+memory operands' paths are the data's own now, not T's enable.
 
 ### 14. Chips
 
-Where the 334 go ([11](#11-parts)): the CPU is 237, four fifths with its
-memory interface. Against draft 2's CPU (394 for its core with 16-bit
+Where the 375 go ([11](#11-parts)): the CPU is 238 with its clock, 268
+with its memory interface, and the video 88 with its RAM. Against draft 2's CPU (394 for its core with 16-bit
 parts, about 460 with its bus interface), the mini drops the system half
 (the page map, the window, the banks, the interrupt levels, the bus) and
 the second register-file copy, but keeps the datapath and the fetch,
@@ -584,11 +602,11 @@ has one, otherwise estimated from the profile (the rule is in
 | A prefetch queue of one word | 8 | +9.7% | +11.0% | measured |
 | No reads at the A bus (MAR and FPC only) | 6 | +6.8% | +1.7% | a load at `[R]` takes a cycle more |
 | No MQ | 6 | +56.6% | +55.9% | multiply and divide steps take three cycles more |
-| Byte and half lanes in microcode | 13 | +25.9% | +18.9% | a byte or half load or store takes three cycles more |
+| Byte and half lanes in microcode | 8 | +25.9% | +18.9% | a byte or half load or store takes three cycles more |
 | No rotations by 8 and 16 | 8 | +19.0% | +26.3% | a rotation becomes 8 or 16 shifts |
 | The video in the one RAM | 10 | | | the video can be starved by long I/O accesses |
 | No line descriptors | 4 | | | per-line addresses, palette banks and interrupts |
-| An 8-bit palette | 3 | | | 256 of 65,536 colours become 256 of 256 |
+| An 8-bit palette | 5 | | | 256 of 65,536 colours become 256 of 256 |
 | No latch for the devices' address | 2 | | | 12 ns of address hold where the 16C550 and the CF card want 20 |
 | No interrupt status, no control register, one UART | 3 | | | |
 
@@ -597,9 +615,9 @@ chips for about 5%), is taken: the netlist has one copy, read twice a
 cycle, and the early register-file phase won its time back
 ([13](#13-how-fast)).
 
-Which to take is **open**; the case for each, now that the core is two
-A4 boards of at most about 190 chips ([28](#28-the-boards)) and chips
-matter by the board rather than by the total:
+Which to take is **open**; the case for each, now that the machine is
+three A4 boards of at most 190 chips, 160 better ([28](#28-the-boards)),
+and chips matter by the board rather than by the total:
 
 - **MQ, the byte lanes and the rotations:** worth their chips by a wide
   margin (19–57%). Keep.
@@ -612,7 +630,7 @@ matter by the board rather than by the total:
   I/O accesses, and what [RFC 0042](0042-rfc-mini-video.md)'s bandwidth
   (B0, no stealing) rests on. Keep.
 - **The descriptors** (4 chips): kept, as Emily chose (RFC 0042's D0).
-- **The 8-bit palette** (3 chips): the graphics software uses the 16-bit
+- **The 8-bit palette** (5 chips): the graphics software uses the 16-bit
   colours and the per-line banks. Keep.
 - **The devices' address latch** (2 chips): the 16C550's and the CF
   card's datasheet hold times. Keep.
@@ -622,7 +640,8 @@ matter by the board rather than by the total:
 
 So the likely reductions are the reads at the A bus and perhaps the
 queue's second word, 6–14 chips for 7–17%, and only if a board needs
-them; the board split decides ([31](#31-open-tasks)).
+them. The cut as it stands has every board within 160 packages, so none
+is needed yet ([28](#28-the-boards)).
 
 ### 16. The CPU, and the smaller ones considered
 
@@ -965,48 +984,70 @@ guess: a variant with 74HCT's delays and the length classes it gives.
 
 ### 28. The boards
 
-- **Decided:** A4 boards (297 × 210 mm) of at most about 190 chips each,
-  and the CPU core on **two stacked boards**: the CPU (237) and its
-  memory interface and bank 0 (30), 133 a board. **Open:** whether the
-  video (37), its RAM (16) and the I/O (16) go on them too (168 a board,
-  near the limit) or on a third.
-- **Density:** at RFC 0023's DIP CPU card's 630 mm² a chip (269 chips on
-  490 × 345 mm, four layers) an A4 board holds about 100; 190 needs about
-  330 mm² a chip, so PLCC and SOIC where there's a choice, and perhaps
-  more layers. The PCB study will tell ([31](#31-open-tasks)).
-- **The cut:** where the two core boards part decides the connector. The
-  microinstruction's 124 lines are the widest bundle; a cut that leaves
-  them on one board crosses the buses instead (about 100 signals between
-  the CPU and the memory, video and I/O). Board-to-board delays go into
-  the timing analysis once the PCB study gives them.
-- **Stacked or a backplane:** stacked boards with board-to-board
-  connectors are simpler mechanically and need no extra board; a
-  backplane makes each board removable, at the cost of the backplane and
-  its connectors and about a nanosecond more for each signal through
-  them.
-- **Stacked on standoffs, joined by ribbon cables** (Emily's idea, a
-  third way): the boards stacked vertically on threaded hex standoffs for
-  the mechanics, the signals between them on short IDC ribbon cables, so
-  that the stack comes apart one cable at a time rather than by prying a
-  few hundred pins of stacking connector apart. What it takes:
+- **Decided:** A4 boards (297 × 210 mm) of at most 190 chips each,
+  160 or fewer if the PCB study allows it; for now **three boards, the
+  CPU on two** (Emily), **stacked on standoffs and joined by short IDC
+  ribbon cables** (Emily's idea: the stack comes apart one cable at a
+  time rather than by prying a few hundred pins of stacking connector
+  apart; tentatively the plan).
+- **The cut** (`boards.py`, `heron mini boards`; its numbers in
+  [performance.md](0041-rfc-heron-mini/performance.md#the-boards)):
+  top to bottom, **cpu1** the control store, the sequencer, the clock,
+  the flags and conditions; **cpu2** the datapath, the register file,
+  the PC and queue, the memory and bank 0; **io** the video, bank 1, the
+  I/O devices and the PS/2 ports. Each chip starts on its section's
+  board, and a min-cut refinement (k-way Fiduccia–Mattheyses) moves
+  chips between the CPU's two boards to cut the fewest wires, each
+  board within 160 packages and each CPU board at 40% of the CPU or
+  more, the nets on the timing's critical paths weighted (below). 107
+  packages on cpu1, 160 on cpu2, 108 on io; 250 nets cross: 183 between
+  cpu1 and cpu2, 45 between cpu1 and io, 61 between cpu2 and io, six,
+  two and two 64-way cables with a ground beside each signal.
+- **The boards' delays:** a crossing costs about 1.5 ns (header, a few
+  centimetres of ribbon, header). The timing analysis carries it on
+  every input on another board than its net's driver; a bus driven from
+  several boards carries it at each driver, so even its near loads wait
+  (pessimistic). The clocks are left out: MCLK, CLK and the clock
+  generator's phases (H0, H1, T1, T2), which come out of one 22V10
+  together and would go to each board through a buffer of matched delay
+  (a CDC341 or a 74ABT541 a board, not in the netlist yet).
+- **Timing with the cut:** the plain min-cut costs the suite and the C
+  programs 5.0%: 122 microinstruction states need a tick more, 74 of
+  them for a single crossing, the register file's address from its
+  22V10s on cpu1 to its SRAMs on cpu2; the rest the B bus's sources on
+  both boards (the immediates, the flags word, MQ) and the multiply's
+  sign, which went from cpu2 to cpu1 and back. So the cut is now
+  timing-driven (`heron mini boards --tune`): the nets on the critical
+  paths of the states that lose a tick weigh more in the min-cut, and it
+  cuts again. One round of it gives the suite and the C programs
+  790.5 ms against 790.3 ms on one board: one microinstruction needs a
+  tick more. The price is eight more nets and a cable: the prefetch
+  queue and the B bus's sources went to cpu1 and half the control store
+  (the microinstruction's datapath fields) to cpu2, so the data bus and
+  the B bus span both CPU boards. Both limits bind (cpu2 at 160, cpu1 at
+  40% of the CPU): the CPU would rather be one board.
+- **For the PCB study:** `heron mini boards --write` writes each board's
+  netlist (its chips, footprints in an SMD and a DIP style, nets, and
+  the IDC headers' pin maps, a ground after every signal) into
+  `build/mini/boards/`, with a README; `boards.netlist(board)` and
+  `pcb_board()` hand a board to the PCB flow. Still missing there: the
+  clock chip's pinout, the connectors that leave the stack (video, PS/2,
+  serial, expansion ports, power) and the clock buffers.
+- **Ribbon cables, what they take:**
   - **Grounds in the ribbon.** The edges are fast (74F, 74ABT, 22V10s),
-    so a ribbon wants a ground beside each signal, or one ground for every
-    two signals at most; a 64-way cable then carries 32 to 42 signals,
-    and a cut of 100–150 signals between two boards is three to five
-    cables.
-  - **Delay.** 5–10 cm of ribbon is half a nanosecond; with the two
-    headers about 1–2 ns a crossing, which the timing analysis can carry
-    as a fixed delay on each crossing signal (the board split's rough
-    timing does).
-  - **Clocks.** The master clock and CLK should not run over a ribbon if
-    it can be helped: series-terminated at the driver with grounds on
-    both sides if they must, or each board makes its own phases from one
-    clock.
+    so each signal has a ground beside it (`--per-ground 2` or 3 packs
+    tighter); a 64-way cable then carries 32 signals, fewer with clocks.
+  - **Clocks** each with a ground on both sides, series-terminated at
+    the buffer.
   - **Microcode updates** get easier: the control store's board comes off
     once its cables are unplugged.
   - **Room:** shrouded headers take board edge or area, and the pinouts
     should be planned so each cable runs straight from one board to the
     next, without a twist.
+- **Density:** at RFC 0023's DIP CPU card's 630 mm² a chip (269 chips on
+  490 × 345 mm, four layers) an A4 board holds about 100; 190 needs about
+  330 mm² a chip, so PLCC and SOIC where there's a choice, and perhaps
+  more layers. The PCB study will tell ([31](#31-open-tasks)).
 - **Updating the microcode** shouldn't mean taking the stack apart:
   1. **The control store on the top board, in sockets:** the sixteen
      flashes (PLCC-32 sockets) pulled, programmed and put back. No chips;
@@ -1119,40 +1160,53 @@ For Emily:
 
 1. **The reductions:** which of [15](#15-what-could-be-left-out)'s, if
    any; likely none unless a board is over.
-2. **The boards:** whether the video and the I/O go on the two core
-   boards or a third; stacked or a backplane; how the microcode is
-   updated ([28](#28-the-boards)).
-3. **The clock chip:** which ([20](#20-the-clock)).
+2. **The boards** ([28](#28-the-boards)): the cut as it stands (three
+   boards, the CPU on two, tentatively); the clock buffers each board
+   would need; how the microcode is updated.
+3. **The clock chip:** the CY22393 (or a CDCE913) tentatively, in TSSOP
+   on an adapter; reprogramming it from the CPU, and the debugging
+   speeds, later ([20](#20-the-clock)).
 4. **The block instructions:** a copy register for faster copies; counts
    over 256 ([19](#19-blitting-in-microcode)).
-5. **The I/O map:** the regions, the free region 4, the expansion ports'
-   pinout and number, an FM synthesiser on the board ([7](#7-the-io-space),
-   [8](#8-expansion-ports), [24](#24-sound)).
-6. **The UARTs' clock:** 1.8432 MHz (as built, the 82C54 shares it) or
-   14.7456 MHz (921,600 baud), from the clock chip either way
+5. **The I/O map:** the free region 4 now holds the PS/2 ports; the
+   expansion ports' pinout and number, an FM synthesiser on the board
+   ([7](#7-the-io-space), [8](#8-expansion-ports), [24](#24-sound)).
+6. **The UARTs' clock:** from the clock chip (decided); 1.8432 MHz (as
+   built, the 82C54 shares it) or 14.7456 MHz (921,600 baud)
    ([23](#23-a-fast-link)).
-7. **Keyboard and mouse:** which of [22](#22-keyboard-and-mouse)'s.
-8. **Microcode tasks:** whether, A or B, and for what ([21](#21-microcode-tasks)).
-9. **More RAM** ([25](#25-more-ram)) and **a 74HCT mini**
-   ([26](#26-a-74hct-mini)).
-10. **The name:** Heron Mini or mini-heron.
+7. **Keyboard and mouse:** the two PS/2 ports as built, for now
+   ([22](#22-keyboard-and-mouse)).
+8. **The debug button:** something more than a button, later
+   ([22.1](#221-the-debug-button)).
+9. **Microcode tasks:** whether, A or B, and for what ([21](#21-microcode-tasks)).
+10. **More RAM** ([25](#25-more-ram)) and **a 74HCT mini**
+    ([26](#26-a-74hct-mini)).
+11. **The name:** Heron Mini or mini-heron.
+
+Tentatively decided, as built: the cursor's X register and rows read
+line by line, the frame's and the lines' interrupts sharing the video's
+status bit ([RFC 0042](0042-rfc-mini-video.md)), and T's latch enable
+from a 22V10 (the T-latch speed-up, [13](#13-how-fast)).
 
 The video's questions are [RFC 0042, 14](0042-rfc-mini-video.md#14-open-questions)'s.
 
 ### 31. Open tasks
 
-- **The board split and a PCB study:** where the core boards part, the
-  connectors, the density; then the boards' delays fed back into the
-  timing analysis.
-- **The clock chip in the netlist,** once chosen, with its glitch-free
-  switch, and the CPU's speed at other master clocks.
-- **T's path to 6 ticks:** the 7-tick memory-operand microinstructions
-  through T's latches, as the register file's was ([13](#13-how-fast)).
+- **The boards' PCBs:** each board placed and routed from its netlist
+  (`heron mini boards --write`), and the real delays between the boards
+  fed back into the timing analysis in place of the flat 1.5 ns
+  ([28](#28-the-boards)); the clock buffers in the netlist; the clock
+  chip's pinout for the PCB flow.
 - **Contention:** a break-before-make look at the worst hand-overs
-  ([29](#29-how-it-was-checked)).
+  ([29](#29-how-it-was-checked)), the A bus's first (tentatively
+  decided).
+- **The clock chip:** the CPU's speed at other master clocks, VGA's at
+  75.5 MHz among them ([20](#20-the-clock)).
+- **XGA in the fast simulator:** the Rust engine keeps the CPU at VGA's
+  tick in the XGA modes, with XGA's pixel clock beside it, where the
+  netlist runs the whole machine at 65 MHz.
 - **The video's options in the netlist** as RFC 0042's questions are
-  decided, and the pixel layout measured on a netlist (its open question
-  2).
+  decided (M7, T15, a RAMDAC in place of the palette's SRAMs).
 - **Microcode tasks, A, in the model** if wanted ([21](#21-microcode-tasks)).
 - **A 74HCT variant's timing** ([26](#26-a-74hct-mini)).
 - **Software:** the multitasking OS, Egret's desktop, Doom

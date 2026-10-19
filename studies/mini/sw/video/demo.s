@@ -4,10 +4,11 @@
 ; position (P1) read as each frame's interrupt is taken. After two frames
 ; it prints the line and the character it last read, and halts.
 ;
-; The frame is 768 lines of 64 words from bank 1's word FBW. In the
-; chunky layout (L0) pixel p's low bit is bit 4(p mod 8) + p/8 and its
-; high bit that + 2, so a word of 16 pixels all of colour c is c's entry
-; in `solid`. Pixel (x, y) has colour (x/64 + y/64) mod 4.
+; The frame is 768 lines of 64 words from bank 1's word FBW. A word's
+; pixels are linear (pixel p is bits 2p and 2p + 1), so a word of 16
+; pixels all of colour c is c's entry in `solid`. Pixel (x, y) has colour
+; (x/64 + y/64) mod 4. The cursor's rows are in its two tables, line y's
+; at words 2048 + T + y and 3072 + T + y of bank 1 (T = 37 in XGA).
 ;
 ; Calls write the return address into r7 (RFC 0028, 5.7).
 
@@ -28,14 +29,15 @@
         .org 0x1C
 
 VIDEO    = 0xF0000000           ; +0 control, +4 acknowledge, +8 the beam,
-                                ; +C the frame base, +10/+14 the cursor's
-                                ; X and Y, +18 its image
+                                ; +C the frame base, +10 the cursor's X
 PALETTE  = 0xF0000400
 CONSOLE  = 0xFFFFFF00
 FB       = 0x00210000           ; the frame: bank 1's word 0x4000
 FBW      = 0x4000
-CUR      = 0x00208000           ; the cursor's image: bank 1's word 0x2000
-CURW     = 0x2000
+T        = 37                   ; XGA's tables: line y's word is T + y
+CT0      = 0x00200000 + 4 * (2048 + T + 300)    ; the cursor's rows at line 300
+CT1      = 0x00200000 + 4 * (3072 + T + 300)
+CX       = 500 - 4              ; its X: the beam 4 pixels before x = 500
 CTRL     = 0x355                ; on, the interrupt on, M5, the cursor on, D1
 
 start:  MOV  sp, #0x100000
@@ -76,20 +78,23 @@ start:  MOV  sp, #0x100000
         CMP  r8, #768
         BLO  .y
 
-        ; ---- the cursor: a box, yellow along the top and bottom, white
-        ; down the sides (pixel p is bits 2p, 2p + 1 of a row's two words)
-        MOV  r11, #CUR
+        ; ---- the cursor: a box in lines 300-331, yellow along the top
+        ; and bottom, white down the sides (pixel p is bits 2p, 2p + 1 of
+        ; a row's two words, one in each table)
+        MOV  r11, #CT0
+        MOV  r12, #CT1
         MOV  r1, #-1
         MOV  [r11], r1
-        MOV  [r11 + 4], r1
-        MOV  [r11 + 248], r1
-        MOV  [r11 + 252], r1
-        ADD  r11, #8
+        MOV  [r12], r1
+        MOV  [r11 + 124], r1
+        MOV  [r12 + 124], r1
+        ADD  r11, #4
+        ADD  r12, #4
         MOV  r8, #30
         MOV  r1, #1             ; pixel 0: colour 1
         MOV  r2, #0x40000000    ; pixel 31
 .c:     MOV  [r11]+, r1
-        MOV  [r11]+, r2
+        MOV  [r12]+, r2
         DEC  r8
         BNE  .c
 
@@ -99,12 +104,8 @@ start:  MOV  sp, #0x100000
         MOV  r11, #VIDEO
         MOV  r1, #FBW           ; the frame base, palette bank 0
         MOV  [r11 + 12], r1
-        MOV  r1, #CURW
-        MOV  [r11 + 24], r1
-        MOV  r1, #500
+        MOV  r1, #CX
         MOV  [r11 + 16], r1
-        MOV  r1, #300
-        MOV  [r11 + 20], r1
         CLR  [frames]
         CLR  [r11 + 4]
         MOV  r1, #CTRL
@@ -159,6 +160,6 @@ hex:    MOV  r3, r2
         RET
 
         .align 4
-solid:  .word 0, 0x33333333, 0xCCCCCCCC, 0xFFFFFFFF
+solid:  .word 0, 0x55555555, 0xAAAAAAAA, 0xFFFFFFFF
 frames: .word 0
 beam:   .word 0

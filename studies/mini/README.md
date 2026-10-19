@@ -43,7 +43,8 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 | `board.py` | The chip-level netlist: CPU, the clock chip and its switch, clock generator and hold, the debug button, RAM and video RAM, I/O space and devices, PS/2 ports, video |
 | `hw.py` | The netlist on the chip-level simulator: the suite against the RTL model, the devices, PS/2, debug and video programs, the parts list |
 | `sta.py` | Static timing analysis of the netlist, per microinstruction |
-| `boards.py` | The netlist on three stacked boards (cpu1, cpu2, io): each chip's board (a min-cut refinement within the package limits), the signals between them and their IDC ribbon cables' headers, each board's netlist for the PCB study (`build/mini/boards/`), the boards' delays for the timing |
+| `boards.py` | The netlist on three stacked boards (cpu1, cpu2, io): each chip's board (a min-cut refinement within the package limits, weighted for the timing's critical nets), the signals between them and their IDC ribbon cables' headers, each board's netlist for the PCB study (`build/mini/boards/`), the boards' delays for the timing |
+| `board-weights.json` | The board cut's weights for the nets on critical paths (`heron mini boards --tune`) |
 | `perf.py` | Profiles the suite on the RTL model (cached in `build/mini/`) |
 | `check.py` | The RTL model against the instruction-level simulator |
 | `bench.py` | Graphics kernels: draft 2 code against the block instructions, on the RTL model |
@@ -74,7 +75,10 @@ heron mini hw sta --xga [--write]    # ... at XGA's 65 MHz master clock (ticks-x
 heron mini hw bom                    # the parts list
 heron mini boards [--list] [--write] # the boards: chips, crossing signals, IDC headers; --write the
                                      # boards' netlists as JSON (build/mini/boards/)
-heron mini boards --sta              # the timing analysis with 1.5 ns a crossing against the plain one
+heron mini boards --sta [--slowed]   # the timing analysis with 1.5 ns a crossing against the plain
+                                     # one; --slowed: the crossings on the paths that lose a tick
+heron mini boards --tune 2           # the cut weighted for the timing's critical nets
+                                     # (board-weights.json; rerun after netlist changes)
 heron mini hw sta --boards [--board-delay NS]  # the analysis with the boards' delays (test, run,
                                      # devices, video and blocks take --boards too)
 heron test mini                      # the unit tests

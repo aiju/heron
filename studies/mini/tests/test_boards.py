@@ -121,18 +121,38 @@ class Delays(unittest.TestCase):
         nl = board.build(sim=False)
         where = boards.match(nl, a)
         self.assertEqual(where["X_CLK"], a.board_of["U_K1"])     # the clock generator's stand-in
+        conn = {i.ref: dict(i.conn) for i in nl.instances}
+        drivers = {}
+        for inst in nl.instances:
+            for pin, net in inst.conn.items():
+                if inst.kind(pin) in ("out", "tri", "io") and inst.ref in where:
+                    drivers.setdefault(net, set()).add(where[inst.ref])
         d = boards.add_board_delays(nl, a, ps=1500)
         self.assertTrue(d)
+        kinds = set()
         for ref, pin, ps in d:
             inst = nl.refs[ref]
-            self.assertIn(inst.kind(pin), ("out", "tri", "io"))
-            self.assertEqual(inst.pin_extra[pin], 1500)
-            self.assertNotIn(inst.conn[pin], boards.CLOCKS)
+            net = conn[ref][pin]
+            self.assertNotIn(net, boards.CLOCKS)
+            if inst.kind(pin) == "in":
+                # a wire in front of an input on another board than the net's driver
+                self.assertEqual(drivers[net] - {where[ref]}, drivers[net])
+                w = nl.refs[f"W~{ref}~{pin}"]
+                self.assertEqual((w.conn["A"], w.conn["Y"]), (net, inst.conn[pin]))
+                self.assertEqual(w.pin_extra["Y"], 1500)
+            else:
+                # a bus driven from several boards: the driver's delay
+                self.assertGreater(len(drivers[net]), 1)
+                self.assertEqual(inst.pin_extra[pin], 1500)
+            kinds.add(inst.kind(pin) == "in")
+        self.assertEqual(kinds, {True, False})
         # the simulator's export carries them
         chips = {c["ref"]: c for c in nl.export(variant=parts.VARIANT)["chips"]}
-        ref, pin, _ = d[0]
-        c = chips[ref]
-        self.assertEqual(c["pin_delays"][c["pins"].index(pin)], 1500)
+        for ref, pin, _ in d[:1] + [x for x in d if nl.refs[x[0]].kind(x[1]) != "in"][:1]:
+            if nl.refs[ref].kind(pin) == "in":
+                ref, pin = f"W~{ref}~{pin}", "Y"
+            c = chips[ref]
+            self.assertEqual(c["pin_delays"][c["pins"].index(pin)], 1500)
 
 
 if __name__ == "__main__":

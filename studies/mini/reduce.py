@@ -99,8 +99,8 @@ REDUCTIONS = [
      "a multiply or divide step takes three cycles more (about 15 ticks)"),
     ("lanes", "byte and half lanes in microcode: loads moved down, stores "
      "replicated, by rotations",
-     ["U_BT20", "U_BT31", "U_BT10", "U_BT30", "U_BT1E", "U_BT20E", "U_TH1E", "U_TB1E",
-      "U_TB3E", "U_SDB1", "U_SDB2", "U_SDH3", "U_SDB3"], [],
+     # T's lane enables are a 22V10 (U_BTL) that T would still need
+     ["U_BT20", "U_BT31", "U_BT10", "U_BT30", "U_SDB1", "U_SDB2", "U_SDH3", "U_SDB3"], [],
      lambda f, k: 18 if (f.get("BL", 0) in (2, 3) or (_mem(f) == 2 and f.get("SIZE", 0) in (1, 2)))
      else 0,
      "a byte or half load or store takes three cycles more (rotating by the "
@@ -123,7 +123,9 @@ REDUCTIONS += [
      "per-line addresses (scrolling, repeated or split screens), per-line "
      "palette banks, line interrupts"),
     ("pal8", "an 8-bit palette (RGB 3:3:2)",
-     ["U_PAL1", "U_RGB1", "U_PWD1"], [], None, "colours: 256 of 65536 become 256 of 256"),
+     # each palette copy's second SRAM and buffer, and a colour 22V10 of three
+     ["U_PALE1", "U_PALO1", "U_PWDE1", "U_PWDO1", "U_COL1"], [], None,
+     "colours: 256 of 65536 become 256 of 256"),
     ("ioal", "no latch for the devices' address and selects",
      ["U_IOAL", "U_IOSL"], [], None,
      "the address holds 12 ns after a strobe at worst, not the 16C550's "

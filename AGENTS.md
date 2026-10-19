@@ -175,6 +175,9 @@ Change the generator and rerun it rather than editing the output by hand:
   lengths at its two master clocks: `heron mini hw sta --write` and
   `heron mini hw sta --xga --write`, after any change to its netlist or
   microcode (`heron test mini` fails while they're stale);
+- `studies/mini/board-weights.json`, the weights the board cut gives the
+  nets on the timing's critical paths: `heron mini boards --tune 2`
+  (about ten minutes), after a change to the netlist;
 - the SVGs of the documents' figures: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 
@@ -202,7 +205,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   on the chip-level simulator against the RTL model, about 6 minutes for
   the suite and 5 for the C programs; `hw devices`, `hw ps2`, `hw debug`,
   `hw video` (`--modes`: every video mode, about 10 minutes) and
-  `hw blocks` the rest. `heron mini sim FILE.s`: a program on the fast
+  `hw blocks` the rest. `heron mini boards [--sta] [--write]`: the
+  netlist on three boards, the boards' delays' cost on the timing, each
+  board's netlist for the PCB study. `heron mini sim FILE.s`: a program on the fast
   simulator (the Rust engine, cycle for cycle as the RTL model) with
   RFC 0042's video options, its frames as PNGs.
 - `heron c_compiler bench`: the C versions of the programs on both
