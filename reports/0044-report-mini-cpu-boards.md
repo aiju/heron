@@ -252,8 +252,10 @@ bottom, with the decoupling capacitors under the chips.*
 ![cpu2, the first cut: 160 chips on A4, six layers](0044-report-mini-cpu-boards/cpu2.png)
 
 *cpu2 (in the middle): its headers to cpu1 on the bottom side, under the
-long edges, and to io on the top at the east edge. The eight grey
-blocks on the left are the 74F181s in DIP.*
+long edges, and to io on the top at the east edge. The eight large
+blocks with round pads, mostly in the left half, are the 74F181s in
+DIP; the square ones at the bottom right, the control store's
+flashes in PLCC.*
 
 Both boards are placed on RFC 0026's grid (R15: every chip the same way
 round, in rows and columns of slots), routed by the flow's own router on
