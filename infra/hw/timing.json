@@ -928,6 +928,19 @@
   "part_number": "SN74F08",
   "source": "https://www.ti.com/lit/ds/symlink/sn74f08.pdf"
  },
+ "74F10": {
+  "checks": {},
+  "delays": {
+   "A->Y": {
+    "max": 6,
+    "min": 1,
+    "typ": 3.3
+   }
+  },
+  "estimated": [],
+  "part_number": "SN74F10",
+  "source": "https://www.ti.com/lit/ds/symlink/sn74f10.pdf"
+ },
  "74F109": {
   "checks": {
    "fmax MHz": 90,
@@ -2544,6 +2557,29 @@
   "estimated": [],
   "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/AT28C256-Industrial-Grade-256-Kbit-Paged-Parallel-EEPROM-Data-Sheet-DS20006386.pdf (Microchip DS20006386B, 2022, Tables 6-2, 6-3, 6-4). Older Atmel doc0006M (12/2009) gives identical -15 values."
  },
+ "ATF22V10C-5": {
+  "checks": {
+   "hold": 0,
+   "setup": 3
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 4,
+    "min": 1,
+    "typ": 3
+   },
+   "tPD": {
+    "max": 5,
+    "min": 1,
+    "typ": 3.5
+   }
+  },
+  "estimated": [
+   "typ"
+  ],
+  "part_number": "ATF22V10C-5JX",
+  "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf"
+ },
  "CDC341": {
   "checks": {
    "fclock max MHz both banks loaded": 40,
@@ -3092,6 +3128,31 @@
    "tDF": {
     "max": 25,
     "typ": 25
+   },
+   "tOE": {
+    "max": 35,
+    "typ": 35
+   }
+  },
+  "estimated": [],
+  "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)"
+ },
+ "SST39SF040-55": {
+  "checks": {
+   "tOH": 0
+  },
+  "delays": {
+   "tACC": {
+    "max": 55,
+    "typ": 55
+   },
+   "tCE": {
+    "max": 55,
+    "typ": 55
+   },
+   "tDF": {
+    "max": 20,
+    "typ": 20
    },
    "tOE": {
     "max": 35,

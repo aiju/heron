@@ -1,0 +1,145 @@
+"""Heron Mini's command line: heron mini <command> ...
+
+  check  [NAMES] [--c] [--lockstep] [--queue N]
+                                   the register-transfer model against the
+                                   instruction-level simulator (the suite,
+                                   --c the compiled C programs)
+  run    FILE.s [--input TEXT] [--profile]
+                                   one program on the RTL model: cycles, time,
+                                   where they go
+  sim    FILE.s [--frames N] [--png F] [--png-dir D] [--layout L0|L1]
+         [--bandwidth B0|B1|B2]   a program on the fast simulator, with RFC
+                                   0042's video: frames as PNGs, where the
+                                   time went
+  ucode  [--list]                  the microcode: its size, length classes
+  perf   [--force]                 the suite's time with the length classes
+  bench                            the graphics kernels: draft 2 code against
+                                   the block instructions
+  report [--write]                 RFC 0041's tables (performance.md)
+  schematic [--out FILE]           the netlist in the schematic viewer
+                                   (build/mini/schematic.html)
+  hw     test|run|devices|video|blocks|sta|bom
+                                   the chip-level netlist: programs on the
+                                   chip-level simulator against the RTL
+                                   model, the devices, the video, static
+                                   timing analysis, the parts list
+  boards [--list] [--write] [--sta]
+                                   the netlist on three boards: the chips on
+                                   each, the signals between them, their
+                                   ribbon cables' connectors (--write: the
+                                   boards' netlists into build/mini/boards)
+"""
+
+import argparse
+import sys
+
+
+def cmd_schematic(args):
+    import os
+    from heron import BUILD
+    from heron.infra.hw import schematic
+    from . import board
+    out = args.out or os.path.join(BUILD, "mini", "schematic.html")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    html = schematic.page(board.build(sim=True), "Heron Mini", standalone=True)
+    with open(out, "w") as f:
+        f.write(html)
+    print(f"{out}: {len(html) // 1024} KB")
+    return 0
+
+
+def cmd_run(args):
+    from collections import Counter
+    from heron.infra import asm as asmcore
+    from heron.infra import isas
+    from heron.infra.programs import metadata
+    from . import check
+    from .timing import TICK
+    img = asmcore.assemble_file(isas.get("v2"), args.file)
+    meta = metadata(args.file)
+    inp = args.input.encode() if args.input is not None else meta["input"]
+    m = check.run_rtl(img, inp, profile=args.profile, queue=args.queue)
+    sys.stdout.write(m.out.decode("latin-1"))
+    print(f"\n{m.instructions} instructions, {m.cycles} cycles (CPI {m.cycles / m.instructions:.2f}), "
+          f"{m.ticks * TICK / 1e6:.3f} ms, {m.ticks / m.cycles * TICK:.0f} ns a cycle; "
+          f"I/O holds {m.hold_ticks * TICK / 1e6:.3f} ms; refills {m.refills}, "
+          f"words fetched {m.fetch_words} (wasted {m.fetch_wasted}), parcels fetched on "
+          f"demand {m.demand}")
+    if args.profile:
+        names = Counter()
+        for a, n in m.ucount.items():
+            node = m.mc.by_addr.get(a)
+            names[node.name if node else f"{a:05X}"] += n
+        for name, n in names.most_common(25):
+            print(f"  {n:9d} {100 * n / m.cycles:5.1f}%  {name}")
+    return 0
+
+
+def cmd_ucode(args):
+    from collections import Counter
+    from . import ucode as uc
+    mc = uc.built()
+    print(f"control word: {uc.CONTROL_BITS} bits of {uc.WORD_BITS}")
+    print(f"lower half: {mc.used_low} of {1 << uc.Y_BITS} words; "
+          f"{len(mc.entry_nodes)} distinct first microinstructions for the 65,536 parcels")
+    print(f"length classes {mc.lengths}; ticks needed: "
+          f"{dict(sorted(Counter(mc.ticks.values()).items()))} ({mc.estimated} estimated)")
+    if args.list:
+        for n in sorted(mc.low, key=lambda n: n.addr):
+            f = mc.word(n)
+            print(f"{n.addr:04X} {n.name:20s} {uc.explain(f)}")
+    return 0
+
+
+def main(argv=None):
+    import heron.studies.v2_isa  # noqa: F401
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "check":
+        from . import check
+        return check.main(argv[1:])
+    if argv and argv[0] == "hw":
+        from . import hw
+        return hw.main(argv[1:])
+    if argv and argv[0] == "boards":
+        from . import boards
+        return boards.main(argv[1:])
+    p = argparse.ArgumentParser(prog="heron mini")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("run")
+    r.add_argument("file")
+    r.add_argument("--input")
+    r.add_argument("--profile", action="store_true")
+    r.add_argument("--queue", type=int, default=2)
+    r.set_defaults(func=cmd_run)
+    sm = sub.add_parser("sim", help="a program on the fast simulator, with RFC 0042's video")
+    sm.add_argument("file")
+    sm.add_argument("--input", help="the console's input (default: the program's)")
+    sm.add_argument("--uart", help="UART 0's input")
+    sm.add_argument("--frames", type=int, default=0, help="stop after this many frames")
+    sm.add_argument("--png", help="the picture at the end: the memory's if the program halted, "
+                    "else the last frame shown")
+    sm.add_argument("--png-dir", help="every frame shown, as DIR/NNNNN.png")
+    sm.add_argument("--every", type=int, default=1, help="with --png-dir, every Nth frame")
+    sm.add_argument("--layout", choices=["L0", "L1"], default="L0")
+    sm.add_argument("--bandwidth", choices=["B0", "B1", "B2"], default="B0")
+    sm.add_argument("--max-cycles", type=int, default=2_000_000_000)
+    sm.add_argument("--profile", action="store_true")
+    sm.add_argument("--queue", type=int, default=2)
+    sm.set_defaults(func=lambda a: __import__("heron.studies.mini.sim", fromlist=["x"]).main(a))
+    pf = sub.add_parser("perf")
+    pf.add_argument("--force", action="store_true")
+    pf.set_defaults(func=lambda a: __import__("heron.studies.mini.perf", fromlist=["x"]).main(a))
+    u = sub.add_parser("ucode")
+    u.add_argument("--list", action="store_true")
+    u.set_defaults(func=cmd_ucode)
+    b = sub.add_parser("bench", help="the graphics kernels: code against the block instructions")
+    b.set_defaults(func=lambda a: __import__("heron.studies.mini.bench", fromlist=["x"]).main(a))
+    rp = sub.add_parser("report", help="RFC 0041's tables")
+    rp.add_argument("--write", action="store_true",
+                    help="write reports/0041-rfc-heron-mini/performance.md")
+    rp.set_defaults(func=lambda a: __import__("heron.studies.mini.report", fromlist=["x"]).main(a))
+    sc = sub.add_parser("schematic", help="the netlist in the schematic viewer")
+    sc.add_argument("--out", help="where to write it (default build/mini/schematic.html)")
+    sc.set_defaults(func=cmd_schematic)
+    args = p.parse_args(argv)
+    return args.func(args)

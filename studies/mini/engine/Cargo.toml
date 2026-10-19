@@ -1,0 +1,14 @@
+# Heron Mini's register-transfer model in Rust (RFC 0041, RFC 0042): the
+# microcode run cycle by cycle on the datapath, as studies/mini/rtl.py
+# does, with the board and the video options of RFC 0042. Python uses it
+# through heron/bindings as heron.native.mini (studies/mini/sim.py).
+[package]
+name = "mini-engine"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v1b_system, bus_si, v1b_hw]
+depends-on: [v1b_system, bus_si, v1b_hw, mini]
 reports: [23, 26]
 ---
 
@@ -21,7 +21,7 @@ checks, the routed wires' delays, DSN/SES for other routers) and
 
 | File | What's in it |
 |---|---|
-| `cards.py` | The cards as boards: their netlists, the DIN 41612 connectors at the back edge and their pin maps, the grid's slot sizes, the timing-critical nets for placement |
+| `cards.py` | The cards as boards: their netlists, the DIN 41612 connectors at the back edge and their pin maps, the grid's slot sizes, the timing-critical nets for placement; Heron Mini's boards (`mini-cpu1`, `mini-cpu2`, `mini-io`) from `studies/mini/boards.py` |
 | `flow.py` | The flow for one board: parts, placement, fanout, routing, the board file and a picture, the checks |
 | `sweep.py` | The experiments: board sizes, layer counts, SMD and DIP, one and two sides, the routed wires back in the simulation and the timing analysis, Freerouting |
 | `split.py` | What splitting the CPU card in two would cost |
@@ -31,6 +31,7 @@ checks, the routed wires' delays, DSN/SES for other routers) and
 heron pcb build cpu --size 340x233.35         # place, route and check the CPU card (SMD, 6 layers, a grid, 6U)
 heron pcb build cpu --style dip --size 490x345 --layers 4   # the DIP version
 heron pcb build cpu --free --size 320x233.35  # the parts anywhere, not on a grid
+heron pcb build mini-cpu1 --size 297x210      # one of Heron Mini's boards (A4, its IDC headers)
 heron pcb view                                # the boards as a web page: build/pcb/viewer.html
 heron pcb build cpu --router freerouting      # route with Freerouting instead (needs its jar)
 heron pcb check build/pcb/<name>/board.kicad_pcb   # check a board file against the netlist

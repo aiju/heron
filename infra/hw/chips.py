@@ -264,6 +264,20 @@ T("sram512", "sram",
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
   family="mem", desc="512K x 8 static RAM")
 
+# a 22V10 (GAL): ten outputs, each a sum of products of the pins
+# (infra/hw/gal.py); every pin may be an input, and CLK clocks the
+# registered outputs. The equations are the instance's (`gal`, `program`)
+T("flash4", "rom",
+  [(f"A{i}", "in") for i in range(19)] + [(f"D{i}", "tri") for i in range(8)]
+  + [("CE", "in"), ("OE", "in"), ("WE", "in")],
+  arcs=[([f"A{i}" for i in range(19)], [f"D{i}" for i in range(8)], "tACC"),
+        (["CE"], [f"D{i}" for i in range(8)], "tCE"),
+        (["OE"], [f"D{i}" for i in range(8)], "tOE")],
+  family="mem", desc="512K x 8 parallel flash")
+
+T("22v10", "gal", [("CLK", "io")] + [(f"I{i}", "io") for i in range(1, 12)]
+  + [(f"IO{i}", "io") for i in range(10)], desc="22V10 programmable logic")
+
 T("flash", "rom",
   [(f"A{i}", "in") for i in range(17)] + [(f"D{i}", "tri") for i in range(8)]
   + [("CE", "in"), ("OE", "in"), ("WE", "in")],
@@ -389,11 +403,41 @@ T("clkdrv", "fanbuf", [("A", "in")] + [(f"Y{i}", "out") for i in range(1, 9)],
 T("osc", "osc", [("OUT", "io")], family="osc",
   desc="crystal oscillator (params period_ps, phase_ps: the first rising edge)")
 
+T("cy22393", "clocksynth",
+  [(p, "io") for p in ("CLKA", "CLKB", "CLKC", "CLKD", "CLKE", "XBUF")]
+  + [("SCLK", "in"), ("SDAT", "io"), ("S2", "in"), ("OE", "in"), ("XTALIN", "in"),
+     ("XTALOUT", "io"), ("VDD", "in"), ("AVDD", "in")], family="osc",
+  desc="programmable clock chip, three PLLs and six outputs from its stored configuration "
+       "(params <a-e, x>_ps and _phase: each output's period and first rising edge); its "
+       "serial port (SCLK, SDAT), its crystal (XTALIN, XTALOUT) and SHUTDOWN/OE (OE) aren't "
+       "modelled. A 3.3 V part: VDD and AVDD on a 3.3 V rail, and its inputs no higher")
+
+T("button", "button", [("OUT", "tri")], family="misc",
+  desc="push button to ground (params press_ps, release_ps: when the simulation presses it)")
+
+T("ps2dev", "ps2dev", [("CLK", "io"), ("DATA", "io"), ("WAKE", "io")], family="fixture",
+  desc="a PS/2 keyboard or mouse on its cable (open-collector CLK and DATA): sends its preload, "
+       "answers the host's bytes with 0xFA, dumps what the host sent (params half_ps, gap_ps, "
+       "start_ps); WAKE is the simulator's, on a net of its own")
+
 T("por", "por", [("RST", "tri")], family="misc",
   desc="supply supervisor as power-on reset: open-collector RST low until params release_ps")
 
 T("pullup", "pullup", [(f"P{i}", "pull") for i in range(1, 9)], family="passive",
   desc="eight pull-up resistors to VCC (a resistor network)")
+
+# parts on a board that the simulation doesn't model beyond a pull-up: they
+# are in the netlist for the boards' PCBs
+T("rpull", "passive", [("A", "pull"), ("R", "in")], family="passive",
+  desc="a pull-up resistor from A to the rail R (one other than VCC)")
+T("cap", "passive", [("A", "in"), ("B", "in")], family="passive",
+  desc="a capacitor (its value the part); decoupling on a rail other than VCC")
+T("capbulk", "passive", [("A", "in"), ("B", "in")], family="passive",
+  desc="a bulk capacitor, 10 uF or so (its value the part)")
+T("xtal", "passive", [("X1", "io"), ("X2", "io")], family="passive",
+  desc="a crystal (its frequency the part)")
+T("ldo33", "passive", [("OUT", "pull")], family="passive",
+  desc="a 3.3 V regulator from VCC: OUT the 3.3 V rail, which reads high")
 
 # ---- devices: register-level models in infra/devices, pins in hwsim ----
 
@@ -477,12 +521,12 @@ T("cpucard_w32", "iodev_w32",
                          "clock) and draft 1's I/O page, on a 32-bit data bus")
 
 T("tickclk", "tickclk",
-  [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("RW", "out"), ("RSTB", "out"),
-   ("RESET", "out")],
+  [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("PHASE", "out"), ("RW", "out"),
+   ("RSTB", "out"), ("RESET", "out")],
   family="fixture", desc="for static timing analysis: a tick clock generator's outputs as "
                          "functions of the cycle (CLK's edge at 0; the memory write window, "
-                         "a phase from a later tick, the register file's write phase and its "
-                         "write strobe)")
+                         "two phases from later ticks, the register file's write phase and "
+                         "its write strobe)")
 
 T("iodev32", "iodev32",
   [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WEL", "in"), ("WEH", "in")]
@@ -510,7 +554,10 @@ ACT_MISSING = {"30", "688", "193"}
 # Parts outside the variants: families that only the card designs use,
 # named in the netlist by part number (Netlist.add(..., part=...)).
 FIXED_PARTS = {"osc": "oscillator", "por": "TL7705A", "pullup": "10k x8 resistor network",
-               "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF"}
+               "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF", "cy22393": "CY22393",
+               "button": "push button", "flash4": "SST39SF040-55", "rpull": "resistor",
+               "cap": "capacitor", "capbulk": "capacitor", "xtal": "crystal",
+               "ldo33": "LM1117-3.3"}
 # Families whose parts may have no timing data (their models have defaults).
 UNTIMED = {"osc", "misc", "passive", "fixture"}
 
