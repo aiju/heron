@@ -160,7 +160,12 @@ def weights(nl):
 
 
 def board(card, style="smd", width=380.0, height=220.0, layers=6, rules=None, nl=None):
-    """A card's board with its parts, unplaced but for the connectors."""
+    """A card's board with its parts, unplaced but for the connectors.
+    Heron Mini's boards (mini-cpu1, mini-cpu2, mini-io) are its own
+    (studies/mini/boards.py: IDC headers, no backplane)."""
+    if card.startswith("mini-"):
+        from heron.studies.mini import boards as mini_boards   # builds the mini's netlist
+        return mini_boards.pcb_board(card[len("mini-"):], style, width, height, layers, rules, nl)
     nl = nl or netlists()[card]
     b = B.Board(f"{card}-{style}", width, height, layers=layers, rules=rules)
     conns = connectors(nl, width, height)
