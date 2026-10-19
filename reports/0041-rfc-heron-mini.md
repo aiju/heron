@@ -1031,7 +1031,10 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   queue and the B bus's sources went to cpu1 and half the control store
   (the microinstruction's datapath fields) to cpu2, so the data bus and
   the B bus span both CPU boards. Both limits bind (cpu2 at 160, cpu1 at
-  40% of the CPU): the CPU would rather be one board.
+  40% of the CPU): the CPU would rather be one board. On the chip-level
+  simulator, with the delays on the cut's crossings, the suite runs as
+  on the model at the one-board length classes, with no timing
+  violation (`heron mini hw test --boards`).
 - **For the PCB study:** `heron mini boards --write` writes each board's
   netlist (its chips, footprints in an SMD and a DIP style, nets, and
   the IDC headers' pin maps, a ground after every signal) into
@@ -1126,7 +1129,8 @@ guess: a variant with 74HCT's delays and the length classes it gives.
 - **Static timing analysis** of every microinstruction in every queue and
   interrupt state, and the I/O hold's deadline, at both master clocks
   (`heron mini hw sta [--xga]`); with the boards' delays, `heron mini
-  boards --sta` ([28](#28-the-boards)).
+  boards --sta`, and the suite at chip level with them, `heron mini hw
+  test --boards` ([28](#28-the-boards)).
 
 What the chip-level runs found that the analysis hadn't:
 

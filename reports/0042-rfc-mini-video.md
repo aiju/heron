@@ -264,7 +264,10 @@ Region 7, on the data bus ([RFC 0041, 7](0041-rfc-heron-mini.md#7-the-io-space))
 | 0xF000_0800 | the interrupt status, read | bit 4 the video's interrupt |
 
 A mode's change takes effect at the next frame, its family too (and the
-master clock with it). The layout and the bandwidth (B1) are the board's,
+master clock with it); the picture's, the interrupt's and the cursor's
+bits at once. So a write that turns the picture on and changes the mode
+shows a frame in the old mode first: software sets the mode a frame
+before it turns the picture on, or blanks that frame. The layout and the bandwidth (B1) are the board's,
 not registers.
 
 The interrupt is set as the picture ends, whether bit 2 is set or not,
