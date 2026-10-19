@@ -243,5 +243,23 @@ class MiniStack(unittest.TestCase):
         self.assertEqual(mini.cable_ps("cpu2", "io"), mini.cable_ps("cpu1", "cpu2"))
 
 
+class MiniFeedback(unittest.TestCase):
+    def test_a_registered_output_read_by_its_own_chip(self):
+        # a 22V10's register feeds back inside the chip: its output's pin
+        # delay would delay its own equations (the simulator reads the pin)
+        from heron.infra.hw import gal
+        from heron.studies.pcb import mini
+        nl = Netlist()
+        gal.add(nl, "U1", {"Q": (gal.OR(gal.AND(gal.lit("A"), gal.lit("Q", 0)),
+                                        gal.AND(gal.lit("B"), gal.lit("Q"))), True, False),
+                           "W": (gal.AND(gal.lit("Q"), gal.lit("A")), False, False),
+                           "R": (gal.lit("B"), True, False)}, clock="CLK")
+        u = nl.refs["U1"]
+        pin = {net: p for p, net in u.conn.items()}
+        self.assertTrue(mini._fed_back(u, pin["Q"]))
+        self.assertFalse(mini._fed_back(u, pin["W"]))   # combinatorial, not read
+        self.assertFalse(mini._fed_back(u, pin["R"]))   # registered, not read
+
+
 if __name__ == "__main__":
     unittest.main()

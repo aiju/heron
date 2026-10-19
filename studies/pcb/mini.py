@@ -312,6 +312,17 @@ def routed(names=("cpu1", "cpu2"), variant="smd-6", a=None):
     return out
 
 
+def _fed_back(inst, pin):
+    """Whether pin is a 22V10's registered output that its own
+    equations (gal.add()'s) read."""
+    gal = getattr(inst, "gal", None) or ()
+    terms = [t for _, _, _, f in gal for t in f]
+    terms += [t for f in (getattr(inst, "gal_oe", None) or {}).values() for t in f]
+    terms += getattr(inst, "gal_ar", None) or []
+    return (any(p == pin and reg for p, reg, _, _ in gal)
+            and any(p == pin for t in terms for p, _ in t))
+
+
 def _family_ns(part):
     fam = wires._family(part)
     return wires.NS_PER_PF.get(fam, NS_PER_PF) if fam else NS_PER_PF
@@ -335,7 +346,9 @@ def delays(built, a=None, load=True):
     if that is later (a bus's other transceivers and memories, which a
     wire element can't sit in front of); each input further along by the
     rest of its flight from the driver that reaches it latest (load=False:
-    the flights alone, no load). The clocks
+    the flights alone, no load). A 22V10's registered output that its own
+    equations read has its delay on its other inputs instead, as the
+    register feeds back inside the chip. The clocks
     (CLOCKS) are in "nets" but not in "delays": the timing takes them as
     its reference, each board's through a buffer of matched delay."""
     from heron.studies.mini import parts as mini_parts
@@ -433,22 +446,27 @@ def delays(built, a=None, load=True):
                 "board": a.board_of[s[0]], "load_ps": load_,
                 "flight": {f"{r}.{p}": ps for (r, p), ps in sorted(f.items())}}
         out_nets[net] = info
-        # the back-annotation
-        base = {}
+        # the back-annotation: each driver's pin delay, and what each input
+        # has after it. A 22V10's registered output that its own equations
+        # read takes none: the register feeds back inside the chip, not
+        # from the pin (the simulator reads the pin), so its load and
+        # flight go on the other inputs
+        load_of = {s: info["drivers"][f"{s[0]}.{s[1]}"]["load_ps"] for s in flights}
+        pin, worst_drv = {}, 0
         for s, f in flights.items():
             ins = [ps for k, ps in f.items() if kinds[k] == "in"]
             ios = [ps for k, ps in f.items() if kinds[k] == "io"]
-            base[s] = max(min(ins, default=0), max(ios, default=0))
-        worst_drv, worst_load = 0, 0
-        for s in flights:
-            ps = info["drivers"][f"{s[0]}.{s[1]}"]["load_ps"] + base[s]
-            worst_drv = max(worst_drv, ps)
-            if net not in CLOCKS and ps > 0:
-                back[s] = ps
+            near = load_of[s] + max(min(ins, default=0), max(ios, default=0))
+            pin[s] = 0 if _fed_back(nl.refs[s[0]], s[1]) else near
+            worst_drv = max(worst_drv, pin[s])
+            if net not in CLOCKS and pin[s] > 0:
+                back[s] = pin[s]
+        worst_load = 0
         for k in pins:
             if kinds[k] != "in":
                 continue
-            rest = max((f[k] - base[s] for s, f in flights.items() if k in f), default=0)
+            rest = max((f[k] + load_of[s] - pin[s] for s, f in flights.items()
+                        if k in f and k[0] != s[0]), default=0)
             worst_load = max(worst_load, rest)
             if net not in CLOCKS and rest >= wires.MIN_WIRE_PS:
                 back[k] = rest
