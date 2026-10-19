@@ -61,7 +61,9 @@ class Instance:
         """The pin's kind; a 22V10's pins are the outputs its equations
         drive and inputs."""
         if self.gal is not None:
-            return "out" if any(o[0] == pin for o in self.gal) else "in"
+            if any(o[0] == pin for o in self.gal):
+                return "tri" if pin in getattr(self, "gal_oe", {}) else "out"
+            return "in"
         return self.type.kind(pin)
     def part_number(self, variant=chips.DEFAULT_VARIANT):
         return chips.part_number(variant, self.type.name, self.role, self.part)
@@ -279,6 +281,9 @@ class Netlist:
             new.extra = dict(inst.extra)
             new.pin_extra = dict(inst.pin_extra)
             new.gal, new.program = inst.gal, inst.program
+            for attr in ("gal_oe", "gal_ar"):
+                if hasattr(inst, attr):
+                    setattr(new, attr, getattr(inst, attr))
             new.conn = {p: rename(n) for p, n in inst.conn.items()}
             new.section = inst.section
             new.card = prefix

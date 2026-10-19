@@ -171,9 +171,10 @@ Change the generator and rerun it rather than editing the output by hand:
   microcode (`heron test v2_hw` fails while it's stale);
 - `reports/0041-rfc-heron-mini/performance.md`: `heron mini report
   --write` (a few minutes);
-- `studies/mini/ticks.json`, Heron Mini's cycle lengths:
-  `heron mini hw sta --write`, after any change to its netlist or
-  microcode (`heron test mini` fails while it's stale);
+- `studies/mini/ticks.json` and `ticks-xga.json`, Heron Mini's cycle
+  lengths at its two master clocks: `heron mini hw sta --write` and
+  `heron mini hw sta --xga --write`, after any change to its netlist or
+  microcode (`heron test mini` fails while they're stale);
 - the SVGs of the documents' figures: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 
@@ -199,7 +200,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   simulator (`--lisp`: the Lisp's short tests, about 10 minutes;
   `addrerr`: the address error). `heron mini hw test [--c]`: its netlist
   on the chip-level simulator against the RTL model, about 6 minutes for
-  the suite and 5 for the C programs; `hw devices`, `hw video` and
+  the suite and 5 for the C programs; `hw devices`, `hw ps2`, `hw debug`,
+  `hw video` (`--modes`: every video mode, about 10 minutes) and
   `hw blocks` the rest. `heron mini sim FILE.s`: a program on the fast
   simulator (the Rust engine, cycle for cycle as the RTL model) with
   RFC 0042's video options, its frames as PNGs.

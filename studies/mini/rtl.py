@@ -648,6 +648,8 @@ class RTL:
             return self.PEND
         if cnd == 9:
             return int(self.SX == self.EX)
+        if cnd == 10:
+            return 0                            # the debug button's request (not modelled)
         if cnd == 12:
             return int(self.SX == 15)
         if cnd == 13:

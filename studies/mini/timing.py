@@ -33,7 +33,13 @@ import os
 
 from heron.infra.hw import chips
 
-TICK = 1e3 / 50.35          # ns: the master clock is twice the pixel clock, 25.175 MHz
+# ns: the master clock is twice VGA's pixel clock, 25.175 MHz; while an
+# XGA mode is shown it is 65 MHz, XGA's pixel clock (RFC 0042), and the
+# clock generator's length classes are another table, from static timing
+# analysis at that tick (HERON_MINI_TICK: the tick the analysis runs at)
+VGA_TICK = 1e3 / 50.35
+XGA_TICK = 1e3 / 65
+TICK = float(os.environ.get("HERON_MINI_TICK", VGA_TICK))
 HEAD, TAIL = 2, 2
 K_MIN, K_MAX = HEAD + 1 + TAIL, HEAD + 16 + TAIL
 VIDEO_TICKS = TAIL          # the tail ticks are the video's
@@ -43,7 +49,8 @@ K_DATA = 7                  # a data access may hold the count from tick 4
 
 _T = None
 HERE = os.path.dirname(os.path.abspath(__file__))
-TICKS_PATH = os.path.join(HERE, "ticks.json")
+XTICKS_PATH = os.path.join(HERE, "ticks-xga.json")
+TICKS_PATH = os.path.join(HERE, "ticks.json") if abs(TICK - VGA_TICK) < 1e-6 else XTICKS_PATH
 NOT_TIMED = ("NEXT", "LCL", "LL")    # fields that don't change a cycle's paths
 
 
@@ -242,27 +249,28 @@ def timing_key(f):
     return f"{uc.pack(f) & word_mask():x}"
 
 
-_TABLE = None
+_TABLE = {}
 
 
-def measured():
-    """{key: ns} from static timing analysis (ticks.json), or {}."""
-    global _TABLE
-    if _TABLE is None:
-        _TABLE = {}
-        if os.path.exists(TICKS_PATH):
-            with open(TICKS_PATH) as f:
-                _TABLE = json.load(f)["ns"]
-    return _TABLE
+def measured(path=None):
+    """{key: ns} from static timing analysis (ticks.json, or path), or {}."""
+    path = path or TICKS_PATH
+    if path not in _TABLE:
+        _TABLE[path] = {}
+        if os.path.exists(path):
+            with open(path) as f:
+                _TABLE[path] = json.load(f)["ns"]
+    return _TABLE[path]
 
 
-def ticks_of(ns, f):
+def ticks_of(ns, f, tick=None):
     """Ticks for a cycle that needs ns, at least what the clock generator
     and the memory rules make it."""
-    if ns > K_MAX * TICK:
+    tick = tick or TICK
+    if ns > K_MAX * tick:
         raise ValueError(f"a cycle of {ns:.1f} ns is longer than {K_MAX} ticks")
     mem = f.get("MEM", 0)
-    t = max(K_MIN, math.ceil(ns / TICK - 1e-9))
+    t = max(K_MIN, math.ceil(ns / tick - 1e-9))
     if mem in (1, 3, 6):
         t = max(t, K_READ)
     if mem == 2:
@@ -310,3 +318,34 @@ def assign_classes(mc, lengths=None, profile=None):
             raise ValueError(f"{n.name}: needs {t} ticks, longer than every length class")
         n.f = dict(n.f)
         n.f["LCL"] = cls
+    # XGA's lengths: each class as long as its longest member needs at
+    # XGA's tick (measured, or estimated from the VGA need)
+    xtable = measured(XTICKS_PATH) if abs(TICK - VGA_TICK) < 1e-6 else {}
+    mc.xticks = {}
+    for n in mc.nodes:
+        f = mc.word(n, 0 if n.addr is None else n.addr)
+        ns = xtable.get(timing_key(f))
+        if ns is None:
+            ns = mc.need_ns[id(n)] + 2 * (VGA_TICK - XGA_TICK) + XGA_TICK
+        mc.xticks[id(n)] = ticks_of(ns, f, XGA_TICK)
+    xl = [max([mc.xticks[id(n)] for n in mc.nodes if n.f["LCL"] == c] or [lengths[c] + 1])
+          for c in range(len(lengths))]
+    if len(lengths) < 4:
+        # a spare class: split the one whose members' XGA ticks differ the
+        # most, those that need fewer in the class as it is
+        best = None
+        for c in range(len(lengths)):
+            xs = Counter(mc.xticks[id(n)] for n in mc.nodes if n.f["LCL"] == c)
+            for lo in xs:
+                gain = sum(k * (xl[c] - lo) for x, k in xs.items() if x <= lo)
+                if lo < xl[c] and (best is None or gain > best[0]):
+                    best = (gain, c, lo)
+        if best:
+            _, c, lo = best
+            for n in mc.nodes:
+                if n.f["LCL"] == c and mc.xticks[id(n)] > lo:
+                    n.f["LCL"] = len(lengths)
+            lengths = lengths + (lengths[c],)
+            xl = xl[:c] + [lo] + xl[c + 1:] + [xl[c]]
+            mc.lengths = lengths
+    mc.xlengths = tuple(xl)

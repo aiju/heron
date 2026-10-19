@@ -220,9 +220,9 @@ pub struct Video {
     pub palette: [u16; 256],
     pub flag: bool,
     pub fbase: u32,
-    pub cursor_x: i32,
-    pub cursor_y: i32,
-    pub cursor_base: u32,
+    /// The cursor's X register: a beam position (bits 10-3 the
+    /// character, 2-0 the pixel), XSTART pixels before its first.
+    pub cursor_x: u32,
     /// The frame's mode (None: mode 7), F1 and D1, latched as it starts.
     mode: Option<Mode>,
     f1: bool,
@@ -274,8 +274,6 @@ impl Video {
             flag: false,
             fbase: 0,
             cursor_x: 0,
-            cursor_y: 0,
-            cursor_base: 0,
             mode: Mode::of(0),
             f1: false,
             d1: false,
@@ -329,9 +327,7 @@ impl Video {
             0x00 => self.ctrl = v & 0x3FF,
             0x04 => self.flag = false,
             0x0C => self.fbase = v & 0x7F_FFFF,
-            0x10 => self.cursor_x = sign12(v),
-            0x14 => self.cursor_y = sign12(v),
-            0x18 => self.cursor_base = v & 0x7_FFFF,
+            0x10 => self.cursor_x = v & 0x7FF,
             _ => {}
         }
     }
@@ -482,7 +478,8 @@ impl Video {
         self.last_size = (self.family.width, self.family.height);
         std::mem::swap(&mut self.last, &mut self.picture);
         self.mode = Mode::of((self.ctrl >> 4) & 7);
-        self.f1 = self.ctrl & 0x80 != 0;
+        // the netlist's L0 has its 1- and 2-bit pixels linear (F1) always
+        self.f1 = true;
         self.d1 = self.ctrl & 0x200 != 0;
         self.fbase_frame = self.fbase;
         if let Some(m) = self.mode {
@@ -583,20 +580,26 @@ impl Video {
         self.row_done = x;
     }
 
-    /// The cursor over picture line y (C1).
+    /// The cursor over picture line y (C1): its row from the cursor's two
+    /// tables, as the descriptor's (words 2048 + T + y and 3072 + T + y),
+    /// at the X register's beam position and XSTART pixels on (XGA: at
+    /// an even pixel).
     fn cursor(&mut self, ram: &[u8], y: usize) {
-        let r = y as i32 - self.cursor_y;
-        if !(0..32).contains(&r) {
-            return;
+        let w = self.family.width as i64;
+        let a = self.family.table + y as u32;
+        let bits = u64::from(bank1_word(ram, CURSOR0 + a))
+            | (u64::from(bank1_word(ram, CURSOR1 + a)) << 32);
+        let line = 8 * self.family.chars as i64;
+        let xga = self.family == XGA;
+        let xs = i64::from(self.cursor_x & if xga { 0x7FE } else { 0x7FF });
+        let mut x0 = ((xs >> 3) * 8 + (xs & 7) + XSTART[usize::from(xga)]) % line;
+        if x0 >= line - 32 {
+            x0 -= line;
         }
-        let w = self.family.width;
-        let a = self.cursor_base.wrapping_add(2 * r as u32);
-        let bits =
-            u64::from(bank1_word(ram, a)) | (u64::from(bank1_word(ram, a.wrapping_add(1))) << 32);
         for p in 0..32 {
             let v = (bits >> (2 * p)) & 3;
-            let x = self.cursor_x + p;
-            if v != 0 && (0..w as i32).contains(&x) {
+            let x = x0 + p;
+            if v != 0 && (0..w).contains(&x) {
                 self.row[x as usize] = 252 + v as u16;
             }
         }
@@ -610,8 +613,6 @@ impl Video {
         v.palette = self.palette;
         v.fbase = self.fbase;
         v.cursor_x = self.cursor_x;
-        v.cursor_y = self.cursor_y;
-        v.cursor_base = self.cursor_base;
         // as the next frame would latch them
         v.end_frame(0);
         for y in 0..v.family.height {
@@ -626,9 +627,12 @@ impl Video {
 /// A row's pixel outside the picture: black.
 const BLACK: u16 = 0xFFFF;
 
-fn sign12(v: u32) -> i32 {
-    ((v << 20) as i32) >> 20
-}
+/// The cursor's tables (word addresses in bank 1), and how far after the
+/// X register's beam position its first pixel is, VGA's and XGA's
+/// (studies/mini/video.py).
+const CURSOR0: u32 = 2048;
+const CURSOR1: u32 = 3072;
+const XSTART: [i64; 2] = [1, 4];
 
 /// Bank 1's word at a word address.
 fn bank1_word(ram: &[u8], a: u32) -> u32 {
@@ -736,31 +740,28 @@ mod tests {
         assert_eq!(v.last[640], (0x100 & 0xFF) as u16);
     }
 
-    /// M3 in L0, with F1 and in L1; the palette bank.
+    /// M3 in L0 (linear, as the netlist's) and in L1; the palette bank.
     #[test]
     fn m3_layouts() {
-        // bits 0, 3 and 4. L0: pixel 0 is bits 0 and 2, 1 bits 4 and 6, 2
-        // bits 8 and 10; F1: 0 is bits 0 and 1, 1 bits 2 and 3, 2 bits 4
-        // and 5; L1: pixel p bits p and 16 + p
+        // bits 0, 3 and 4. L0: pixel 0 is bits 0 and 1, 1 bits 2 and 3, 2
+        // bits 4 and 5; L1: pixel p bits p and 16 + p
         let w = 0b1_1001u32;
-        for (board, ctrl, want) in [
-            (Board::default(), 0, [1, 1, 0]),
-            (Board::default(), 0x80, [1, 2, 1]),
+        for (board, want) in [
+            (Board::default(), [1, 2, 1]),
             (
                 Board {
                     layout: Layout::L1,
                     ..Board::default()
                 },
-                0,
                 [1, 0, 0],
             ),
         ] {
-            let (mut v, mut ram, mut t) = setup(board, 1 | (3 << 4) | ctrl);
+            let (mut v, mut ram, mut t) = setup(board, 1 | (3 << 4));
             put(&mut ram, VGA.table, 0x100 | (2 << 19));
             put(&mut ram, 0x100, w);
             frame(&mut v, &ram, &mut t, 5);
             let got: Vec<u16> = v.last[..3].iter().map(|c| c - 32).collect();
-            assert_eq!(got, want, "{board:?} {ctrl:x}");
+            assert_eq!(got, want, "{board:?}");
         }
     }
 
@@ -784,15 +785,15 @@ mod tests {
         assert_eq!(v.line_irqs, 1);
     }
 
-    /// The cursor, hanging off the left edge.
+    /// The cursor, hanging off the left edge: its X register a beam
+    /// position in the line before's blanking.
     #[test]
     fn cursor() {
         let (mut v, mut ram, mut t) = setup(Board::default(), 1 | 0x100);
-        v.cursor_base = 0x300;
-        v.cursor_x = -2;
-        v.cursor_y = 10;
-        // row 0: pixels 2 and 3 (on the screen's 0 and 1) colours 1 and 3
-        put(&mut ram, 0x300, (1 << 4) | (3 << 6));
+        // x = -2: the beam's pixel 800 - 2 - XSTART
+        v.cursor_x = 800 - 2 - 1;
+        // row of line 10: pixels 2 and 3 (on the screen's 0 and 1) colours 1 and 3
+        put(&mut ram, CURSOR0 + VGA.table + 10, (1 << 4) | (3 << 6));
         frame(&mut v, &ram, &mut t, 5);
         assert_eq!(&v.last[640 * 10..640 * 10 + 3], &[253, 255, 0]);
         assert_eq!(v.last[640 * 9], 0);

@@ -3137,6 +3137,31 @@
   "estimated": [],
   "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)"
  },
+ "SST39SF040-55": {
+  "checks": {
+   "tOH": 0
+  },
+  "delays": {
+   "tACC": {
+    "max": 55,
+    "typ": 55
+   },
+   "tCE": {
+    "max": 55,
+    "typ": 55
+   },
+   "tDF": {
+    "max": 20,
+    "typ": 20
+   },
+   "tOE": {
+    "max": 35,
+    "typ": 35
+   }
+  },
+  "estimated": [],
+  "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)"
+ },
  "TL16C550C": {
   "checks": {
    "recovery": 40,

@@ -15,7 +15,11 @@ fixture in I/O region 7, on the data bus, in both.
                                     card, 82C54) against its expected output
   heron mini hw video [--png F]     the video program, its frames against
                                     what the memory describes
+  heron mini hw video --modes [0,5] the modes program in modes 0-6, likewise
   heron mini hw blocks              the block instructions against the model
+  heron mini hw ps2                 the PS/2 ports: the keyboard's bytes, a byte
+                                    sent to the mouse and its answer
+  heron mini hw debug               the debug button: the debug entry, interrupts off
   heron mini hw sta [--write]       static timing analysis (ticks.json)
   heron mini hw bom                 the parts list
 """
@@ -47,7 +51,7 @@ def sources():
 _LOADED = None
 
 
-def netlist(lengths=None, capture=False):
+def netlist(lengths=None, capture=False, debug_ps=0):
     """The simulation netlist, exported (cached in build/mini). The cache
     is dated by the sources as this process first read them, so a run that
     started before an edit can't pass its netlist off as the new one."""
@@ -55,11 +59,11 @@ def netlist(lengths=None, capture=False):
     if _LOADED is None:
         _LOADED = runner.newest(sources())
     lengths = tuple(lengths or uc.built().lengths)
-    tag = "-capture" if capture else ""
+    tag = ("-capture" if capture else "") + (f"-debug{debug_ps}" if debug_ps else "")
     path = os.path.join(OUT, f"netlist-{'-'.join(map(str, lengths))}{tag}.json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
         os.makedirs(OUT, exist_ok=True)
-        nl = board.build(sim=True, lengths=lengths, capture=capture)
+        nl = board.build(sim=True, lengths=lengths, capture=capture, debug_ps=debug_ps)
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=parts.VARIANT, corner="max"), f)
@@ -85,15 +89,25 @@ def rom_images():
     return _rom_images
 
 
-def preloads(ram, inp, boot=b"", uart_inp=b"", cf=None):
+_timing_rom = None
+
+
+def preloads(ram, inp, boot=b"", uart_inp=b"", cf=None, keyboard=b"", mouse=b""):
     """The memories' contents at the end of reset: the control store, the
     RAM (4 MB), the register file cleared, the input; the boot flash (empty:
-    reset copies nothing), UART 0's terminal input, the CF card."""
+    reset copies nothing), UART 0's terminal input, the CF card, what the
+    keyboard and the mouse send."""
+    global _timing_rom
+    if _timing_rom is None:
+        _timing_rom = video.timing_rom()
     pre = {f"U_CS{k}": img for k, img in enumerate(rom_images())}
     pre["U_BOOT"] = bytes(boot) + bytes(0x20000 - len(boot))
-    pre["U_VTIM"] = video.timing_rom()
-    for k in range(2):
-        pre[f"U_PAL{k}"] = bytes(1 << 15)
+    pre["U_VTIM"] = _timing_rom
+    for side in "EO":
+        for k in range(2):
+            pre[f"U_PAL{side}{k}"] = bytes(1 << 15)
+    pre["X_KBD"] = bytes(keyboard)
+    pre["X_MOUSE"] = bytes(mouse)
     pre["U_UART0"] = bytes(uart_inp)
     pre["U_UART1"] = b""
     pre["U_CF"] = cf if cf is not None else bytes(512 * board.CF_SECTORS)
@@ -352,49 +366,143 @@ def cmd_devices(args):
     return 0 if ok else 1
 
 
-VIDEO = os.path.join(HERE, "sw", "hw", "video.s")
+PS2 = os.path.join(HERE, "sw", "hw", "ps2.s")
+PS2_KEYS = b"\x1c\xf0\x1c"               # 'A' pressed and released
+PS2_EXPECTED = b"1C F0 1C \nFA \n"
+DEBUG = os.path.join(HERE, "sw", "hw", "debug.s")
+DEBUG_PS = 300_000_000                     # the button pressed 0.3 ms after power-up
+DEBUG_EXPECTED = b"debug y0\n"
 
 
-def run_video(max_cycles=None):
-    """sw/video.s at chip level with the frame grabber: (outcome, the
-    frames it sent, the picture the register-transfer model's memory
-    makes)."""
+def run_hwprog(path, expected, max_cycles=2_000_000, debug_ps=0, **inputs):
+    """A program for the chip-level netlist only, its console output
+    against what's expected: (outcome, output, differences)."""
     from heron.infra import asm as asmcore
     from heron.infra import isas
     import heron.studies.v2_isa  # noqa: F401
-    img = asmcore.assemble_file(isas.get("v2"), VIDEO)
-    s = system.System()
-    s.load(img)
-    m = rtl.RTL(s).run(20_000_000)
-    want = video.render(s.ram, s.video.palette)
+    img = asmcore.assemble_file(isas.get("v2"), path)
     ram = bytearray(system.RAM_SIZE)
     for a, b in img.mem.items():
         ram[a] = b
+    cfg = config(max_cycles)
+    cfg["dump"] = cfg["dump"] + ["X_KBD", "X_MOUSE"]
+    hw = native.hwsim.run_system(netlist(debug_ps=debug_ps), cfg, preloads(ram, b"", **inputs))
+    out = bytes(hw["dumps"]["X_IO"])
+    diffs = []
+    if not hw["halted"]:
+        diffs.append(f"the hardware did not halt: {hw['reason']}")
+    if out != expected:
+        diffs.append(f"output {out!r}, expected {expected!r}")
+    return hw, out, diffs
+
+
+def cmd_hwprog(args):
+    t0 = time.time()
+    if args.cmd == "ps2":
+        hw, out, diffs = run_hwprog(PS2, PS2_EXPECTED, keyboard=PS2_KEYS)
+        mouse = bytes(hw["dumps"]["X_MOUSE"])
+        if mouse != b"\xf4":
+            diffs.append(f"the mouse received {mouse!r}, not F4")
+    else:
+        hw, out, diffs = run_hwprog(DEBUG, DEBUG_EXPECTED, debug_ps=DEBUG_PS)
+    print(summarize(hw))
+    sys.stdout.write(out.decode("latin-1"))
+    for d in diffs:
+        print("  " + d)
+    ok = not diffs and not hw["violation_total"]
+    print(f"{args.cmd} {'ok' if ok else 'FAIL'} ({time.time() - t0:.0f} s)")
+    return 0 if ok else 1
+
+
+VIDEO = os.path.join(HERE, "sw", "hw", "video.s")
+MODES = os.path.join(HERE, "sw", "hw", "modes.s")
+# the modes program's cursor: its X register and first line, by family
+# (VGA: x = 101; XGA: x = 1004, its last 12 pixels past the right edge)
+MODE_CURSOR = {0: (100, 20), 1: (1000, 700)}
+
+
+def run_video(mode=None, max_cycles=None, cursor=None, lengths=None):
+    """A video program at chip level with the frame grabber: sw/video.s
+    (mode None), or sw/modes.s in a mode with the cursor (X register,
+    first line). Returns (outcome, the frames it sent, the picture the
+    register-transfer model's memory and registers make)."""
+    from heron.infra import asm as asmcore
+    from heron.infra import isas
+    import heron.studies.v2_isa  # noqa: F401
+    img = asmcore.assemble_file(isas.get("v2"), VIDEO if mode is None else MODES)
+    ram = bytearray(system.RAM_SIZE)
+    for a, b in img.mem.items():
+        ram[a] = b
+    if mode is not None:
+        x, cy = cursor or MODE_CURSOR[video.family_of(mode).xga]
+        p = img.symbols["params"]
+        for i, v in enumerate((mode, x, cy)):
+            ram[p + 4 * i:p + 4 * i + 4] = v.to_bytes(4, "little")
+    s = system.System()
+    s.ram[:] = ram
+    m = rtl.RTL(s).run(20_000_000)
+    v = s.video
+    want = video.render(s.ram, v.palette, v.ctrl if mode is not None else 1, v.cursor_x)
     cfg = config(max_cycles or m.cycles * 2)
     cfg["dump"] = cfg["dump"] + ["X_VCAP"]
-    hw = native.hwsim.run_system(netlist(capture=True), cfg, preloads(ram, b""))
+    hw = native.hwsim.run_system(netlist(lengths, capture=True), cfg, preloads(ram, b""))
     frames = video.decode(bytes(hw["dumps"]["X_VCAP"]))
     return hw, frames, want
 
 
-def cmd_video(args):
+def check_video(mode=None, png=None, lengths=None):
+    """(ok, report lines) for run_video's program."""
     t0 = time.time()
-    hw, frames, want = run_video()
-    print(summarize(hw))
-    print(f"{len(frames)} whole frames sent")
+    hw, frames, want = run_video(mode, lengths=lengths)
+    name = "video" if mode is None else f"M{mode}"
+    out = [f"{name}: {summarize(hw).strip()}", f"  {len(frames)} whole frames sent"]
     ok = bool(frames) and not hw["violation_total"] and hw["halted"]
     for i, f in enumerate(frames):
-        bad = [y for y in range(video.HEIGHT) if f[y] != want[y]]
-        print(f"  frame {i}: {'as the memory makes it' if not bad else f'{len(bad)} rows differ, the first {bad[0]}'}")
+        if len(f) != len(want) or len(f[0]) != len(want[0]):
+            out.append(f"  frame {i}: {len(f[0])} x {len(f)}, not the mode's")
+            if i == len(frames) - 1:
+                ok = False
+            continue
+        bad = [y for y in range(len(want)) if f[y] != want[y]]
+        msg = "as the memory makes it" if not bad else f"{len(bad)} rows differ, the first {bad[0]}"
+        if bad:
+            y = bad[0]
+            xs = [x for x in range(len(want[y])) if f[y][x] != want[y][x]]
+            msg += f" (x {xs[0]}..{xs[-1]}, {len(xs)} pixels: {f[y][xs[0]]:04X} for {want[y][xs[0]]:04X})"
+        out.append(f"  frame {i}: {msg}")
         if i == len(frames) - 1:
             ok = ok and not bad
-    if args.png and frames:
+    if png and frames:
         from PIL import Image
-        im = Image.new("RGB", (video.WIDTH, video.HEIGHT))
-        im.putdata([video.rgb(c) for row in frames[-1] for c in row])
-        im.save(args.png)
-    print(f"video {'ok' if ok else 'FAIL'} ({time.time() - t0:.0f} s)")
-    return 0 if ok else 1
+        f = frames[-1]
+        im = Image.new("RGB", (len(f[0]), len(f)))
+        im.putdata([video.rgb(c) for row in f for c in row])
+        im.save(png)
+    out.append(f"{name} {'ok' if ok else 'FAIL'} ({time.time() - t0:.0f} s)")
+    return ok, out
+
+
+def _check_video(args):
+    return check_video(*args)
+
+
+def cmd_video(args):
+    modes = [None] if args.modes is None else \
+        ([int(m) for m in args.modes.split(",")] if args.modes else list(range(7)))
+    jobs = [(m, f"{args.png}-{m}.png" if args.png and m is not None else args.png, args.lengths)
+            for m in modes]
+    netlist(args.lengths, capture=True)         # once, before the workers
+    if len(jobs) == 1:
+        results = [_check_video(jobs[0])]
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(min(args.jobs, len(jobs))) as ex:
+            results = list(ex.map(_check_video, jobs))
+    bad = 0
+    for ok, lines in results:
+        bad += not ok
+        print("\n".join(lines))
+    return 1 if bad else 0
 
 
 def run_blocks():
@@ -473,9 +581,19 @@ def main(argv=None):
     d = sub.add_parser("devices", help="sw/devices.s: the I/O devices")
     d.add_argument("--trace")
     d.set_defaults(fn=cmd_devices)
-    v = sub.add_parser("video", help="sw/video.s: the video, its frames grabbed")
-    v.add_argument("--png", help="the last frame, as a PNG")
+    v = sub.add_parser("video", help="sw/video.s (or sw/modes.s, --modes): the video, its "
+                                     "frames grabbed")
+    v.add_argument("--png", help="the last frame, as a PNG (with --modes, a prefix)")
+    v.add_argument("--modes", nargs="?", const="",
+                   help="sw/modes.s in these modes (0-6, comma-separated; all without a list)")
+    v.add_argument("--jobs", type=int, default=4)
+    v.add_argument("--lengths", type=lens, help="the length classes' ticks (longer ones make "
+                                                "the video steal cycles: B1)")
     v.set_defaults(fn=cmd_video)
+    for name, desc in (("ps2", "sw/ps2.s: the keyboard's bytes, a byte to the mouse"),
+                       ("debug", "sw/debug.s: the debug button")):
+        x = sub.add_parser(name, help=desc)
+        x.set_defaults(fn=cmd_hwprog)
     k = sub.add_parser("blocks", help="the block instructions (FILL, COPY, BLIT, EXPAND)")
     k.set_defaults(fn=cmd_blocks)
     b = sub.add_parser("bom")
@@ -485,6 +603,8 @@ def main(argv=None):
     s.add_argument("--force", action="store_true", help="redo the analysis, not the cached one")
     s.add_argument("--write", action="store_true",
                    help="write ticks.json, the measured periods the microcode's classes come from")
+    s.add_argument("--xga", action="store_true",
+                   help="at XGA's 65 MHz master clock (ticks-xga.json with --write)")
     s.add_argument("--no-profile", action="store_true",
                    help="without the suite's counts (which take minutes the first time)")
     s.set_defaults(fn=cmd_sta)

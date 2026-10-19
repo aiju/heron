@@ -115,6 +115,17 @@ class ChipLevel(unittest.TestCase):
         self.assertEqual(diffs, [])
         self.assertEqual(out["violation_total"], 0)
 
+    def test_ps2(self):
+        out, text, diffs = hw.run_hwprog(hw.PS2, hw.PS2_EXPECTED, keyboard=hw.PS2_KEYS)
+        self.assertEqual(diffs, [])
+        self.assertEqual(out["violation_total"], 0)
+        self.assertEqual(bytes(out["dumps"]["X_MOUSE"]), b"\xf4")
+
+    def test_debug(self):
+        out, text, diffs = hw.run_hwprog(hw.DEBUG, hw.DEBUG_EXPECTED, debug_ps=hw.DEBUG_PS)
+        self.assertEqual(diffs, [])
+        self.assertEqual(out["violation_total"], 0)
+
     def test_netlists(self):
         # both build and pass the netlist's checks
         board.build(sim=True, capture=True)
@@ -137,36 +148,65 @@ class Timing(unittest.TestCase):
 
 class Video(unittest.TestCase):
     def test_timing_rom(self):
-        # VGA 640 x 480: per line 640 pixels shown, a 96-pixel sync; per
-        # frame 480 lines shown, a 2-line sync
+        # each family: its picture's pixels a line, its syncs, its lines,
+        # a word for each of the picture's characters, the events in the
+        # lines before the picture's
         rom = video.timing_rom()
-
-        def held(h, v):           # what the register holds in character h of line v
-            ph, pv = (h - 1, v) if h else (video.H_CHARS - 1, (v - 1) % video.V_LINES)
-            return rom[ph | (pv << 7)]
-        line = [held(h, 100) for h in range(video.H_CHARS)]
-        self.assertEqual(sum(8 for b in line if b >> video.DE & 1), 640)
-        self.assertEqual(sum(8 for b in line if not b >> video.HSYNC & 1), 96)
-        shown = sum(1 for v in range(video.V_LINES) if held(0, v) >> video.DE & 1)
-        self.assertEqual(shown, 480)
-        vsync = sum(1 for v in range(video.V_LINES) if not held(10, v) >> video.VSYNC & 1)
-        self.assertEqual(vsync, 2)
-        loads = sum(1 for h in range(video.H_CHARS) for v in range(video.V_LINES)
-                    if held(h, v) >> video.SHLD & 1)
-        self.assertEqual(loads, 480 * video.WORDS)
+        for f, sync, vsync in ((video.VGA, 96, 2), (video.XGA, 136, 6)):
+            def held(h, v):   # what the register holds in character h of line v
+                ph, pv = (h - 1, v) if h else (f.chars - 1, (v - 1) % f.lines)
+                return rom[(f.xga << 18) | ph | (pv << 8)]
+            line = [held(h, f.first + 100) for h in range(f.chars)]
+            self.assertEqual(sum(8 for b in line if b >> video.DE & 1), f.width, f.name)
+            self.assertEqual(sum(8 for b in line if not b >> video.HSYNC & 1), sync, f.name)
+            shown = sum(1 for v in range(f.lines) if held(0, v) >> video.DE & 1)
+            self.assertEqual(shown, f.height, f.name)
+            vs = sum(1 for v in range(f.lines) if not held(10, v) >> video.VSYNC & 1)
+            self.assertEqual(vs, vsync, f.name)
+            loads = sum(1 for h in range(f.chars) for v in range(f.lines)
+                        if held(h, v) >> video.SHLD & 1)
+            self.assertEqual(loads, f.height * f.picture, f.name)
+            evs = sorted(held(h, f.first + 5) >> video.EV0 & 7 for h in range(f.chars))
+            self.assertEqual([e for e in evs if e], [1, 2, 3, 4, 7], f.name)
 
     def test_render(self):
-        # a line's descriptor picks its words and its palette bank
+        # a line's descriptor picks its words and its palette bank; the
+        # cursor's tables put their pixels over it
         ram = bytearray(system.RAM_SIZE)
-        pal = [0] * 256
-        pal[0x12], pal[0x13] = 0x1234, 0x5678
+        pal = list(range(256))
         d = (1 << 19) | 0x1000                       # bank 1, word 0x1000 of bank 1
-        a = video.BANK1 + 4 * video.TABLE
+        a = video.BANK1 + 4 * video.VGA.table
         ram[a:a + 4] = d.to_bytes(4, "little")
         w = video.BANK1 + 4 * 0x1000
         ram[w:w + 4] = (0x32323232).to_bytes(4, "little")
-        rows = video.render(ram, pal)
-        self.assertEqual(rows[0][:4], [0x1234, 0x5678, 0x1234, 0x5678])
+        self.assertEqual(video.render(ram, pal)[0][:4], [0x12, 0x13, 0x12, 0x13])
+        # M3, 2 bits a pixel: pixel p is bits 2p and 2p + 1
+        self.assertEqual(video.render(ram, pal, 0x31)[0][:4], [0x12, 0x10, 0x13, 0x10])
+        # M2: the bytes
+        self.assertEqual(video.render(ram, pal, 0x21)[0][:2], [0x32, 0x32])
+        c = video.BANK1 + 4 * (video.CURSOR0 + video.VGA.table)
+        ram[c:c + 4] = (0b11100100).to_bytes(4, "little")    # pixels 0-3: 0, 1, 2, 3
+        rows = video.render(ram, pal, 0x101, cursor_x=10)
+        x = 10 + video.XSTART[0]
+        self.assertEqual(rows[0][x:x + 4], [0x10, 253, 254, 255])  # 0 is transparent
+
+    def test_sequencer(self):
+        # every mode's shifter steps: eight a word, a word a word's time
+        for mode, (f, bits, double) in video.MODES.items():
+            ticks = f.ticks(32 // bits) * (2 if double else 1)
+            shifts = loads = 0
+            ph, px, c = 1, 7 if f.xga else 7, 0
+            for n in range(ticks * 4):
+                shift, load, _sel, _cs = board.sequence(mode, ph, px, c & 1, c >> 1 & 1, 1, 1,
+                                                        1, 1)
+                shifts += shift
+                loads += load
+                t = px if f.xga else 2 * px + ph
+                t = (t + 1) % (8 if f.xga else 16)
+                if t == 0:
+                    c += 1
+                ph, px = (1, t) if f.xga else (t & 1, t >> 1)
+            self.assertEqual((shifts, loads), (32, 4), mode)
 
 
 class Simulator(unittest.TestCase):

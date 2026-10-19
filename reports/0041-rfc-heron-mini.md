@@ -726,40 +726,42 @@ as an aligned one. Neither is in the netlist.
 
 ### 20. The clock
 
-**Decided:** a programmable clock chip takes the 50.35 MHz oscillator's
-place, so that the CPU can run at any speed, from single steps and 1 MHz
-for debugging up to what the timing analysis allows, and the video's
-pixel clocks come in a fixed phase with the CPU's
-([RFC 0042, 2](0042-rfc-mini-video.md#2-timing): 1024 × 768 at 65 MHz
-needs one). Which chip is **open**.
+**Decided:** a programmable clock chip takes the oscillators' place, so
+that the video's pixel clocks come from it and the CPU can later run at
+other speeds. **Tentatively the CY22393** (or a CDCE913), in TSSOP on a
+small adapter. **Built** in the netlist:
 
-What it has to do:
+- **The chip** (`U_CLK`, its stored configuration): CLKA 50.35 MHz, the
+  master clock for VGA (its pixel clock twice); CLKB 65 MHz, XGA's pixel
+  clock; CLKC 1.8432 MHz for the UARTs and the 82C54. Each from its own
+  PLL. Its serial port (SCLK, SDAT) is pulled up, for a programmer on a
+  header: reprogramming it from the CPU, and the debugging speeds, are
+  **open** (Emily: not yet).
+- **The master clock is CLKB while an XGA mode is shown,** so the whole
+  machine runs at 65 MHz then and the video stays synchronous to one
+  clock in both families ([RFC 0042, 2](0042-rfc-mini-video.md#2-timing)).
+  The CPU's timing analysis at the 15.4 ns tick finds every
+  microinstruction within 6–8 ticks (92–123 ns, against 5–7 ticks,
+  99–139 ns, at 19.9 ns), so the CPU is no slower: the fixed parts of a
+  cycle (the register file's read in H0 and H1, the write window from
+  tick 2) still fit, with less slack (the fixed requirements' 3.4 ns at
+  the least). The clock generator has a table of length classes for each
+  clock (`ticks.json`, `ticks-xga.json`); the length class field's four
+  classes are pairs, (5, 6), (6, 8), (7, 8) and (5, 7) ticks at the two
+  clocks, the spare fourth class splitting the 5-tick one by what its
+  members need at 65 MHz.
+- **The switch** (`U_CKN`, `U_CKA`, `U_CKO`, `U_CKFA`, `U_CKFB`: five
+  chips): each clock's enable from two flip-flops on its own falling
+  edge, set only once the other's enable is off, so the master clock
+  never has a short pulse; a tick is stretched as it changes. The video
+  asks for the XGA clock (CLKSEL) as an XGA frame starts, but only once
+  the clock generator has taken XGA's longer lengths (at an H1, as it
+  loads the count), and drops it at once on the way back, so no cycle
+  is ever shorter than its class at the clock it runs on.
+- **A clock at power-up:** the chip's stored configuration; the switch's
+  flip-flops are cleared by the power-on reset and start on CLKA.
 
-- **The master clock:** 50.35 MHz as now (VGA's pixel clock is two of its
-  ticks), lower for debugging, and for XGA a master clock in step with
-  65 MHz: from one PLL, say a VCO at 650 MHz divided by 13 (50 MHz, the
-  CPU a little slower than now) and by 10 (65 MHz), the two in a fixed
-  phase, so the video's hand-over between them is a schedule rather than
-  a synchroniser. The timing analysis's lengths are in ticks of 19.86 ns:
-  a faster master clock needs it rerun.
-- **The other clocks,** from the same chip if it has the outputs: the
-  UARTs' and the 82C54's 1.8432 MHz (or 14.7456 MHz for 921,600 baud,
-  [23](#23-a-fast-link)), an FM synthesiser's 3.58 MHz ([24](#24-sound)),
-  in place of their oscillators.
-- **A clock at power-up,** before the CPU can program anything: either
-  the chip's own non-volatile defaults, or a plain oscillator that the
-  CPU runs from until it has programmed the chip.
-- **Switching without a glitch:** a PLL's output wanders while it's
-  reprogrammed, so the master clock comes through a glitch-free switch
-  (two flip-flops and a gate, or a few terms of a 22V10) between two of
-  the chip's outputs (or the chip and the power-up oscillator): program
-  the one not in use, then switch. The same switch takes a push button
-  for single steps. About 2 chips.
-- **Programming:** I²C or a serial interface, bit-banged by software
-  through two bits of the control register (0xF000_0C00) and one of a
-  readable register; or pins set from a register.
-
-The options:
+What remains of the options, should the CY22393 not do:
 
 | Kind | Examples | Outputs | Power-up | Notes |
 |---|---|---|---|---|
@@ -772,6 +774,10 @@ The options:
 The multi-output PLLs do everything asked; the period part is the one
 that fits the machine's age; the single-output ones change the CPU's
 speed only. None comes in PLCC.
+
+Since the CPU is as fast at 65 MHz, a faster master clock for VGA too
+(75.5 MHz, three ticks a pixel) might make it faster still; the timing
+analysis at that tick would tell (**open**).
 
 ### 21. Microcode tasks
 
@@ -831,32 +837,55 @@ which tasks; A is nearly free and worth trying first in the model.
 
 ### 22. Keyboard and mouse
 
-USB is out. The options:
+USB is out. **Built** (Emily: "cheap but acceptable for now"): two PS/2
+ports in region 4, the keyboard's and the mouse's, seven chips for both:
 
-1. **PS/2 ports with shift registers,** about 4 chips each (a Schmitt
-   trigger on the port's clock, an 8-bit shift register, a bit counter
-   and a flag for the 11-bit frame): the keyboard and the mouse in region
-   4, a status bit each. Sending to the device (the keyboard's LEDs, the
-   mouse's "enable data reporting", which it needs before it sends
-   anything) is bit-banged by software through open-collector outputs.
-   As Fen's I/O card has them ([report 0036](0036-report-fen.md)) and
-   [RFC 0027](0027-rfc-io-coprocessor.md) counts them.
-2. **An 8042-type keyboard controller** (the PC/AT's: a preprogrammed
-   microcontroller sold as one, VIA VT82C42 or a keyboard-controller
-   8742, DIP-40, a crystal): the keyboard and a PS/2 mouse, the AT's data
-   and command registers in region 4, its two interrupt outputs. One or
-   two chips, period-correct, but its firmware isn't ours.
-3. **A serial mouse on UART 1** (the Microsoft protocol at 1200 baud,
-   the mouse powered from RTS and DTR, RS-232 levels from a driver if the
-   board has none): no chips for the mouse; the keyboard still needs 1 or
-   2, or a terminal.
-4. **A microcontroller on an expansion port** doing PS/2 and handing the
-   mouse's moves and the keys over as bytes: the fewest chips on the
-   board, the least period-correct.
+- **Receiving** is a 22V10 a port (`U_PS0`, `U_PS1`), clocked by the
+  port's clock through a Schmitt inverter: the data, inverted, shifts in
+  at each falling edge, the start bit's 1 reaching the last register
+  after ten; that register then holds the frame (through its stop bit)
+  and the clock low through an open-collector inverter, so the device
+  waits. The byte's eight registers drive the I/O bus as the port is
+  read (the 22V10's output enables); a write to the port clears it (the
+  22V10's asynchronous reset).
+- **Sending** (the keyboard's LEDs, the mouse's "enable data
+  reporting", which it needs before it sends anything) is software's: a
+  control register (a 74ABT175) pulls each port's lines low, the status
+  register reads them (a 74ABT541), and a program clocks the bits out on
+  the device's clock (`sw/hw/ps2.s` sends 0xF4).
+- **The registers,** by the address's bits 3–2: 0 the keyboard's byte
+  (read, inverted; a write clears it), 1 the mouse's, 2 the status (read:
+  bits 0–1 a byte waiting, 2–5 the lines) and the control register
+  (written: bits 0–1 the keyboard's clock and data low, 2–3 the mouse's).
+  A waiting byte raises the interrupt line (KIRQ); the interrupt status
+  has no bit of its own for it (its eight are taken), the PS/2 status
+  says which.
+- **Chips:** the two 22V10s, a 74F14, a 74F05 (open collector), the
+  175, the 541, and a 22V10 (`U_KBD`) for the status and control
+  decode, the interrupt and the suite's I/O page's select, which moved
+  there from `U_ONB` to make room for the PS/2 interrupt.
 
-With microcode tasks ([21](#21-microcode-tasks)) a PS/2 port could be a
-register of its lines sampled by a task, at the cost of a wakeup per
-clock edge. **Open:** which.
+The other options, still possible: an 8042-type keyboard controller
+(the PC/AT's, VT82C42 or 8742, one or two chips, period-correct, its
+firmware not ours); a serial mouse on UART 1 (no chips); a
+microcontroller on an expansion port (the fewest chips, the least
+period-correct); or, with microcode tasks ([21](#21-microcode-tasks)), a
+register of the lines sampled by a task.
+
+#### 22.1 The debug button
+
+**Built** (Emily: a push button that enters a microcode routine, for
+now): a push button to ground, through a Schmitt inverter and a
+flip-flop on CLK, sets DBGQ (`U_DBG`, a 22V10) on its press; DBGQ raises
+PEND whatever the I flag, so the next instruction boundary (or a HALT)
+takes the interrupt entry; the entry's first microinstruction branches on
+DBGQ (a free condition code, 10) to the debug entry: the flags word and
+the PC pushed as for an interrupt, interrupts off, and a jump to vector
+0x1C. DBGQ clears once the interrupt entry has run. So a program stuck
+in a loop with interrupts off can be broken into, and the microcode
+routine can be made to do anything later (a monitor in the boot flash,
+single steps). Two chips with the button (the 22V10 takes the place of
+PEND's gate; the Schmitt inverter is the PS/2 ports' spare).
 
 ### 23. A fast link
 
@@ -938,6 +967,29 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   backplane makes each board removable, at the cost of the backplane and
   its connectors and about a nanosecond more for each signal through
   them.
+- **Stacked on standoffs, joined by ribbon cables** (Emily's idea, a
+  third way): the boards stacked vertically on threaded hex standoffs for
+  the mechanics, the signals between them on short IDC ribbon cables, so
+  that the stack comes apart one cable at a time rather than by prying a
+  few hundred pins of stacking connector apart. What it takes:
+  - **Grounds in the ribbon.** The edges are fast (74F, 74ABT, 22V10s),
+    so a ribbon wants a ground beside each signal, or one ground for every
+    two signals at most; a 64-way cable then carries 32 to 42 signals,
+    and a cut of 100–150 signals between two boards is three to five
+    cables.
+  - **Delay.** 5–10 cm of ribbon is half a nanosecond; with the two
+    headers about 1–2 ns a crossing, which the timing analysis can carry
+    as a fixed delay on each crossing signal (the board split's rough
+    timing does).
+  - **Clocks.** The master clock and CLK should not run over a ribbon if
+    it can be helped: series-terminated at the driver with grounds on
+    both sides if they must, or each board makes its own phases from one
+    clock.
+  - **Microcode updates** get easier: the control store's board comes off
+    once its cables are unplugged.
+  - **Room:** shrouded headers take board edge or area, and the pinouts
+    should be planned so each cable runs straight from one board to the
+    next, without a twist.
 - **Updating the microcode** shouldn't mean taking the stack apart:
   1. **The control store on the top board, in sockets:** the sixteen
      flashes (PLCC-32 sockets) pulled, programmed and put back. No chips;

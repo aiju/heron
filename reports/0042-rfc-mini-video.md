@@ -53,51 +53,58 @@ without them.
 
 ### 1. Overview
 
-Everything as built stays: bank 1 of the RAM (0x0020_0000–0x003F_FFFF,
-2 MB) is the video's, read in its slots without holding the CPU; a
-256-entry palette of RGB 5:6:5; the control register, the interrupt and
-its acknowledge. The options:
+Bank 1 of the RAM (0x0020_0000–0x003F_FFFF, 2 MB) is the video's, read
+in its slots without holding the CPU; a 256-entry palette of RGB 5:6:5;
+the control register, the interrupt and its acknowledge. The options,
+and which the netlist has (`studies/mini/board.py`, checked on the
+chip-level simulator, [12](#12-the-simulator)):
 
-| Option | What | Chips (estimate) |
-|---|---|---:|
-| **M0** | 640 × 480 × 4 | built |
-| **M1** | 320 × 480 × 8 | +1–2 |
-| **M2** | 640 × 480 × 8 | +1–2 (B0 while cycles stay within 7 ticks, else B1 or B2) |
-| **M3**, **M4** | 640 × 480 × 2, × 1 | +1, or nothing with M5 and M6 (the same shifters' chaining) |
-| **M5**, **M6** | 1024 × 768 × 2, × 1 | +5–9 and the clock chip (K2) |
-| **M7** | 640 × 480 × 3, a palette of 8 colours chosen per 8 pixels from 256 | +2–3 |
-| **L0** | the chunky layout | built |
-| **L1** | the planar layout | 0 (other wiring), instead of L0 |
-| **F1** | 1- and 2-bit pixels linear in L0 | +8–12 |
-| **D0** | line descriptors | built (4 chips of RFC 0041's); **chosen** |
-| **D1** | no descriptors: a frame base register | −4; not taken |
-| **C1** | a 32 × 32 cursor of 2 bits a pixel | +12–14 (other sizes: [13](#13-what-each-option-costs)); **chosen**, its size open |
-| **P1** | the beam's position, readable | +2 |
-| **B1** | cycle stealing, a second holding register | +5–7 |
-| **B2** | bank 1 64 bits wide | +16 |
-| **K1**, **K2** | a 65 MHz pixel clock: an oscillator, or a clock chip | K2 **chosen**: the clock chip in place of the oscillators ([RFC 0041, 20](0041-rfc-heron-mini.md#20-the-clock)) |
-| **T15** | a 15 kHz family for RGB monitors (a Sony PVM) | 0–2 and a timing table; **open** |
-| **X0** | `FILL`, `COPY`, `EXPAND`, `BLIT k` | built (microcode) |
-| **X1** | their variants for 8-, 2- and 1-bit pixels, and more | microcode only: whichever the software uses |
+| Option | What | Chips | |
+|---|---|---:|---|
+| **M0** | 640 × 480 × 4 | | built |
+| **M1** | 320 × 480 × 8 | | built |
+| **M2** | 640 × 480 × 8 | | built |
+| **M3**, **M4** | 640 × 480 × 2, × 1 | | built |
+| **M5**, **M6** | 1024 × 768 × 2, × 1 | | built: the master clock at 65 MHz while shown |
+| **M7** | 640 × 480 × 3, a palette of 8 colours chosen per 8 pixels from 256 | +2–3 | not built (Later) |
+| **L0** | the chunky layout, with 1- and 2-bit pixels linear (F1) | | built |
+| **L1** | the planar layout | 0, instead of L0 | not built |
+| **D0** | line descriptors | | built; **chosen** |
+| **D1** | no descriptors: a frame base register | −4 | not taken |
+| **C1** | a 32 × 32 cursor of 2 bits a pixel, its rows in memory | 14 | built; **chosen** |
+| **P1** | the beam's position, readable | 3 | built |
+| **B1** | cycle stealing, a second holding register | 5 | built |
+| **B2** | bank 1 64 bits wide | +16 | not built |
+| **K2** | the clock chip | | built ([RFC 0041, 20](0041-rfc-heron-mini.md#20-the-clock)) |
+| **T15** | a 15 kHz family for RGB monitors (a Sony PVM) | 0–2 and a timing table | **open** |
+| **X0** | `FILL`, `COPY`, `EXPAND`, `BLIT k` | | built (microcode) |
+| **X1** | their variants for 8-, 2- and 1-bit pixels, and more | microcode only | whichever the software uses |
 
-The modes' mode register and the new registers' decode are another 2
-chips, shared by all of them. [13](#13-what-each-option-costs) has where
-the numbers come from.
+All of it is 88 chips with bank 1's RAM and its buffers (the first
+netlist's one mode was 53); [13](#13-what-each-option-costs) has where
+they go.
 
 ### 2. Timing
 
-Two families, each with a timing table in the timing flash (a 512K part
-in the 128K's place holds four):
+Two families, each a timing table in the timing flash (a 512K × 8, by
+the family, the line and the character):
 
 | | VGA (M0–M4) | XGA (M5, M6) |
 |---|---|---|
-| Pixel clock | 25.175 MHz, two master ticks | 65 MHz, from the clock chip (K2) |
+| Pixel clock | 25.175 MHz, two ticks of the 50.35 MHz master clock | 65 MHz: the master clock itself, switched to 65 MHz while an XGA mode is shown |
 | A line | 100 characters of 8 pixels: 0–79 the picture, 80–81 the front porch, 82–93 the sync, 94–99 the back porch | 168: 0–127 the picture, 128–130 the front porch, 131–147 the sync, 148–167 the back porch |
 | A frame | 525 lines: 0–9 the front porch, 10–11 the sync, 12–44 the back porch, 45–524 the picture | 806: 0–2 the front porch, 3–8 the sync, 9–37 the back porch, 38–805 the picture |
 | The rates | 31.47 kHz, 59.94 Hz (16.68 ms a frame) | 48.36 kHz, 60.0 Hz (16.67 ms) |
 
 The syncs are active low in both. The picture's lines come last, so the
 picture's end is the frame's.
+
+While an XGA mode is shown the whole machine runs on the 65 MHz clock:
+the CPU too, its microinstructions in their own length classes at that
+tick ([RFC 0041, 20](0041-rfc-heron-mini.md#20-the-clock)), about as fast
+as at 50.35 MHz. So the video is synchronous to one clock in both
+families, with no hand-over between clock domains. The family changes as
+a frame starts; the clock switches during its first, blank, line.
 
 **T15** (an option, **open**), for a 15 kHz RGB monitor such as a Sony
 PVM: the same 100 characters of 8 pixels at half VGA's pixel clock
@@ -133,34 +140,33 @@ at the same words.
 ### 4. Pixel layouts
 
 How a word's bits become pixels follows from how the four shifters
-(74F299s, 8 bits each) are loaded and chained. Pixel 0 is the leftmost;
+(74F299s, 8 bits each) are loaded and read. Pixel 0 is the leftmost;
 bit 0 is the word's least significant.
 
-**L0, chunky** (as built): shifter k holds bit k of the word's eight
-nibbles, nibble 0 first out. Chained for fewer bits a pixel (0 ← 1 ← 2 ← 3
-for 1 bit, 0 ← 1 and 2 ← 3 for 2), the rest falls out:
+**L0** (as built): shifter k holds bit k of the word's eight nibbles,
+nibble 0 first out, so the four shifters' outputs are a nibble at a
+time. The pixel registers (three 22V10s) take a pixel from them by the
+mode: a nibble; two nibbles, the low one first through a nibble
+register; the outputs in pairs (bits 0–1 of the nibble, then 2–3); or
+one at a time. So in every mode a word's pixels are linear, pixel 0 in
+the low bits:
 
 | Bits | Pixels a word | Pixel p is |
 |---:|---:|---|
 | 4 | 8 | bits 4p…4p+3 |
 | 8 | 4 | byte p |
-| 2 | 16 | low bit 4·(p mod 8) + ⌊p/8⌋, high bit that + 2 |
-| 1 | 32 | bit 4·(p mod 8) + ⌊p/8⌋ |
+| 2 | 16 | bits 2p and 2p+1 |
+| 1 | 32 | bit p |
 
-In M7 shifter 3's byte is the word's attribute: pixel p is bits 4p…4p+2,
-and the attribute's bit i is bit 4i + 3 (`w & 0x88888888`, spread out).
+This is F1's layout, without F1's multiplexers: picking among the
+shifters' outputs is the pixel registers' doing, so the 1- and 2-bit
+modes need no other chips, and there is no F1 bit to set.
 
-At 1 bit, an 8-pixel character cell c is bit c of every nibble, so a
-font stored spread out (a row's bits at 0, 4, 8, …) draws with a shift
-and a mask: `w = (w & ~(0x11111111 << c)) | (row << c)`. At 2 bits, cell
-c is bits c and c + 2 of every nibble.
+(The first netlist's chunky 1- and 2-bit layout, an 8-pixel character
+cell at bit c of every nibble, isn't built.)
 
-**F1, linear** (an option on top of L0): at 2 bits pixel p is bits 2p and
-2p + 1; at 1 bit, bit p. Multiplexers reorder the holding register's bits
-into the shifters by mode.
-
-**L1, planar** (instead of L0): shifter k holds byte k, bit 0 first out,
-so byte k is bit plane k of the word's eight pixels:
+**L1, planar** (instead of L0, not built): shifter k holds byte k, bit 0
+first out, so byte k is bit plane k of the word's eight pixels:
 
 | Bits | Pixels a word | Pixel p is |
 |---:|---:|---|
@@ -169,12 +175,9 @@ so byte k is bit plane k of the word's eight pixels:
 | 2 | 16 | low bit p, high bit 16 + p |
 | 1 | 32 | bit p |
 
-In M7 pixel p is bits p, 8 + p and 16 + p, and the attribute is byte 3
-(`w >> 24`).
-
-L1 makes the 1- and 2-bit modes plain and the 8-bit one scattered; L0
-the other way round. They're different wiring of the same chips, so one
-or the other, not both (both would be F1's multiplexers again).
+In M7 (not built) L0's pixel p would be bits 4p…4p+2 and the attribute
+bit i bit 4i + 3; L1's pixel p bits p, 8 + p and 16 + p, the attribute
+byte 3.
 
 ### 5. Lines: descriptors or a frame base
 
@@ -192,9 +195,10 @@ picture's first.
 
 The line is the mode's words from there, each word from the next address
 (bank 1 wraps at its 2 MB). A descriptor, and `TSEL`, are read in the
-line before, as the sync's third character ends (character 84 in VGA,
-133 in XGA), so a write to either shows from the first line whose
-descriptor is read after it, within the frame being shown.
+line before, as character 85 ends in VGA (the sync's fourth), 133 in XGA,
+after the cursor's two words ([7](#7-the-cursor)); so a write to either
+shows from the first line whose descriptor is read after it, within the
+frame being shown.
 
 **D1, a frame base** (instead of D0; not taken): the frame base register gives the
 first line's word and the palette bank, the lines follow each other in
@@ -203,30 +207,45 @@ frame starts, so a write shows from the next frame.
 
 ### 6. The palette
 
-256 entries of RGB 5:6:5 at 0xF000_0400 + 4n, written, not read, as
-built; M7's 2,048 at 0xF000_2000 + 4n (the first 256 at both). Outside
-the picture the output is black. A pixel's colour is
-looked up as it's shown, so a write shows at once, from the pixel the
-beam is at: written in the picture, it splits its line. While the CPU
-writes it, the palette's address is the CPU's, so the few pixels shown
-then have the written entry's colour.
+256 entries of RGB 5:6:5 at 0xF000_0400 + 4n, written, not read; M7's
+2,048 (not built) would be at 0xF000_2000 + 4n. Outside the picture the
+output is black. A pixel's colour is looked up as it's shown, so a write
+shows at once, from the pixel the beam is at: written in the picture, it
+splits its line. While the CPU writes it, the palette's address is the
+CPU's, so the few pixels shown then have the written entry's colour.
+
+The palette is two copies of the 256 entries, which the CPU writes at
+once: E's, which VGA's pixels and XGA's even ones look up, and O's,
+XGA's odd ones. So each lookup has two ticks, where XGA's 15.4 ns pixel
+is too short for a 22V10, a 12 ns SRAM and a register one after another
+(about 19 ns).
 
 ### 7. The cursor
 
-**C1**: a 32 × 32 picture over the frame, 2 bits a pixel: 0 is
-transparent, 1–3 are palette entries 253–255 (bank 15's last three in
-the 4-, 2- and 1-bit modes, the top three pixel values in the 8-bit
-ones, attribute 31's last three in M7). Its rows are 2 words each
-(64 bits, pixel p at bits 2p and 2p + 1 of the pair, the first word
-pixels 0–15), 32 rows from the cursor base register's word in bank 1,
-read in each line's blanking. Its position is its top left corner in the
-timing family's own pixels (640 × 480 or 1024 × 768, whatever the mode's
-pixel width), a signed 12-bit number in each of the X and Y registers, so
-it can hang off any edge. The hotspot is the software's business. Its
-position and image are read line by line, with each line's row, so a
-move while the picture is shown splits it for a frame: software moves it
-at the frame's interrupt (**open**: taking them as the frame starts, a
-few chips more).
+**C1** (built): 32 pixels wide, 2 bits a pixel: 0 is transparent, 1–3
+are palette entries 253–255 (bank 15's last three in the 4-, 2- and
+1-bit modes, the top three pixel values in the 8-bit ones). Each line has
+its own row of it, in two tables in bank 1 laid out as the descriptors'
+are: picture line y's pixels 0–15 at word 2048 + T + y, 16–31 at word
+3072 + T + y (pixel k at bits 2k and 2k + 1 of the pair), read in the
+line before's blanking, before its descriptor. Software writes the
+cursor's rows into the tables of the lines it covers and zeros
+elsewhere: moving it up or down is 64 words written (the old rows
+cleared, the new written). Its height is any: each line's row is its
+own, so the 32 pixels at the cursor's X can show something different on
+every line.
+
+Its left edge is the X register's, a beam position: the cursor's first
+pixel is XSTART pixels after the pixel the register names (VGA 1, XGA 4),
+the pixel counted from the line's start (0–799 in VGA, 0–1343 in XGA), so
+for a cursor at x the register is (x − XSTART) mod the line's pixels,
+from −32 to the picture's width: the cursor can hang off either edge. In
+XGA x is even (the register's bit 0 is ignored). The position is in the
+family's own pixels (640 or 1024 wide), whatever the mode's pixel width.
+
+The hotspot is the software's business. The X register and the tables
+are read line by line, so a move while the picture is shown splits it
+for a frame: software moves it at the frame's interrupt.
 
 ### 8. Registers
 
@@ -234,53 +253,48 @@ Region 7, on the data bus ([RFC 0041, 7](0041-rfc-heron-mini.md#7-the-io-space))
 
 | Address | | |
 |---|---|---|
-| 0xF000_0000 | control, written | bit 0 the picture on, 1 `TSEL`, 2 the interrupt on (as built); 6–4 the mode (0–7: M0–M7); 7 F1; 8 the cursor on (C1); 9 D1 |
-| 0xF000_0004 | the interrupt's acknowledge, written | as built |
-| 0xF000_0008 | the beam, read (P1) | bits 9–0 the line (0–524, 0–805), 23–16 the character (0–99, 0–167) |
-| 0xF000_000C | the frame base, written (D1) | bits 18–0 the first line's word in bank 1, 22–19 the palette bank |
-| 0xF000_0010 | the cursor's X, written (C1) | bits 11–0, signed |
-| 0xF000_0014 | the cursor's Y, written (C1) | bits 11–0, signed |
-| 0xF000_0018 | the cursor's image, written (C1) | bits 18–0, a word address in bank 1 |
-| 0xF000_0400 + 4n | palette entry n, written | as built |
-| 0xF000_0800 | the interrupt status, read | bit 4 the video's interrupt, as built |
+| 0xF000_0000 | control, written | bit 0 the picture on, 1 `TSEL`, 2 the interrupt on, 6–4 the mode (0–7: M0–M6; 7 is black), 8 the cursor on |
+| 0xF000_0004 | the interrupt's acknowledge, written | any value |
+| 0xF000_0008 | the beam, read (P1) | bits 9–0 the line (0–524, 0–805), 23–16 the character (0–99, 0–167): the line a half read at 0xF000_0008, the character a byte read at 0xF000_000A (a word read's bits 31–24 aren't driven) |
+| 0xF000_0010 | the cursor's X, written | bits 10–0, a beam position ([7](#7-the-cursor)) |
+| 0xF000_0400 + 4n | palette entry n, written | RGB 5:6:5 |
+| 0xF000_0800 | the interrupt status, read | bit 4 the video's interrupt |
 
-A mode's change takes effect at the next frame. The layout (L0 or L1),
-the bandwidth (B0–B2) and the clock chip's (K2) are the board's, not
-registers.
+A mode's change takes effect at the next frame, its family too (and the
+master clock with it). The layout and the bandwidth (B1) are the board's,
+not registers.
 
 The interrupt is set as the picture ends, whether bit 2 is set or not,
 and by a line whose descriptor asks; it's seen when the control
 register's bit 2 is set, and cleared by the acknowledge (so software
 acknowledges before setting bit 2). A line's interrupt comes as its
-descriptor is read, 15 characters (240 ticks) before the line starts in
+descriptor is read, 14 characters (224 ticks) before the line starts in
 VGA, 34 in XGA: a handler in C writes the palette about 30 characters
 into a VGA line, so a change meant for a line's start is asked for by
-the line before's descriptor. The frame's interrupt and the lines' share the
-status bit and the acknowledge; the beam's position (P1) tells them
-apart (**open**: a bit each).
+the line before's descriptor. The frame's interrupt and the lines' share
+the status bit and the acknowledge (tentatively decided); the beam's
+position (P1) tells them apart.
 
 ### 9. Bandwidth and the CPU
 
-**B0** (as built): the video reads one word in every CPU cycle's tail
-(T2 and the next H0) and all through an I/O access's hold, into a
-holding register; the shifters take a word at each word's end. Outside
-an I/O access's hold a cycle is 5–7 ticks as the microcode stands (its
-length classes are 5, 6 and 7, and every microinstruction that may fetch
-a parcel on demand, two ticks more, is in the 5-tick class), so slots
-come at least every 7 ticks: every mode, M2's word every 8 ticks
-included. That is the microcode's to keep (**open**,
-[14](#14-open-questions)): a cycle of 9 ticks or more starves M2. The
-CPU never waits.
+The video reads a word in every CPU cycle's tail (T2 and the next H0) and
+all through an I/O access's hold, into one of two holding registers if
+one is free; the shifters take the older at each word's end. Outside an
+I/O access's hold a cycle is 5–7 ticks as the microcode stands (VGA's
+length classes; XGA's are 6–8 ticks of the faster clock), so slots come
+at least every 7 ticks (8 in XGA): every mode, M2's word every 8 ticks
+included, with no help (**B0**).
 
-**B1, cycle stealing:** a second holding register, and when both run low
-before a slot comes, the video holds the CPU for two ticks (the hold an
-I/O access uses) and reads. It's needed by M2 (a word every 8 ticks) if
-cycles may be longer than 7 ticks. The CPU loses the stolen ticks,
-none when its cycles are short and the slots keep up.
+**B1, cycle stealing** (built): when a picture's line finds both holding
+registers empty as a cycle's T1 starts, the clock generator holds T2 two
+ticks more: the video's slot is four ticks and brings two words. The
+CPU's cycle is two ticks longer; nothing else about it changes. So the
+microcode isn't bound to short cycles: M2 is fed whatever the cycles'
+length. With the length classes as they are no steal happens.
 
-**B2, a 64-bit bank:** bank 1 as eight 256K × 8 SRAMs, two words a slot
-into a 64-bit holding register and eight shifters: every mode within the
-slots, none stolen. The CPU still sees 32 bits.
+**B2, a 64-bit bank** (not built): bank 1 as eight 256K × 8 SRAMs, two
+words a slot into a 64-bit holding register and eight shifters: every
+mode within the slots, none stolen. The CPU still sees 32 bits.
 
 ### 10. Block instructions
 

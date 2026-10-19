@@ -140,7 +140,7 @@ CONTROL_BITS = sum(w for _, w, _ in FIELDS)
 
 SEQ_NEXT, SEQ_DECODE, SEQ_DISPATCH, SEQ_HALT = 0, 1, 2, 3
 CONDS = {"false": 0, "tc": 1, "r31": 2, "cl": 3, "condt": 4, "mq31": 5, "tc4": 6,
-         "ncondt": 7, "irq": 8, "sxeq": 9, "sx15": 12, "mq0": 13, "r0": 14}
+         "ncondt": 7, "irq": 8, "sxeq": 9, "dbg": 10, "sx15": 12, "mq0": 13, "r0": 14}
 RFSEL = {"d": 0, "r": 1, "s": 2, "x": 2}           # 3 = RFK constant
 # B lanes from T (by the access's size and address) or the queue's head
 # parcel: as it is, x 2 (a branch offset), in the upper half, its low byte
@@ -208,7 +208,7 @@ RF_NAMES = {SP: "sp", TMP1: "TMP1", TMP2: "TMP2", TMP3: "TMP3", ZERO: "ZERO", ON
 
 # The plain machine's vectors: code addresses (studies/v2_isa's machine)
 VECTORS = {"reset": 0x00, "irq": 0x04, "illegal": 0x08, "swi": 0x0C, "divide": 0x10,
-           "address": 0x14, "tag": 0x18}
+           "address": 0x14, "tag": 0x18, "debug": 0x1C}
 
 # --------------------------------------------------------------------------
 # Building microinstructions
@@ -543,8 +543,11 @@ def illegal(pcfix=2):
 
 def interrupt_entry():
     """The interrupt entry (forced at a decode while an interrupt is
-    pending): the frame, then the jump to vector 4."""
-    return Node(SAVE_FLAGS, ("next", trap_tail(VECTORS["irq"], 0, "interrupt")), "interrupt")
+    pending): the frame, then the jump to vector 4; or, if the debug
+    button asked (COND dbg, whatever I), to vector 0x1C, the debug entry,
+    which a debugger can make whatever it likes."""
+    return Node(SAVE_FLAGS, ("branch", CONDS["dbg"], trap_tail(VECTORS["irq"], 0, "interrupt"),
+                             trap_tail(VECTORS["debug"], 0, "debug")), "interrupt")
 
 
 def fault_entry(ll):

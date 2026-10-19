@@ -267,6 +267,14 @@ T("sram512", "sram",
 # a 22V10 (GAL): ten outputs, each a sum of products of the pins
 # (infra/hw/gal.py); every pin may be an input, and CLK clocks the
 # registered outputs. The equations are the instance's (`gal`, `program`)
+T("flash4", "rom",
+  [(f"A{i}", "in") for i in range(19)] + [(f"D{i}", "tri") for i in range(8)]
+  + [("CE", "in"), ("OE", "in"), ("WE", "in")],
+  arcs=[([f"A{i}" for i in range(19)], [f"D{i}" for i in range(8)], "tACC"),
+        (["CE"], [f"D{i}" for i in range(8)], "tCE"),
+        (["OE"], [f"D{i}" for i in range(8)], "tOE")],
+  family="mem", desc="512K x 8 parallel flash")
+
 T("22v10", "gal", [("CLK", "io")] + [(f"I{i}", "io") for i in range(1, 12)]
   + [(f"IO{i}", "io") for i in range(10)], desc="22V10 programmable logic")
 
@@ -395,6 +403,21 @@ T("clkdrv", "fanbuf", [("A", "in")] + [(f"Y{i}", "out") for i in range(1, 9)],
 T("osc", "osc", [("OUT", "io")], family="osc",
   desc="crystal oscillator (params period_ps, phase_ps: the first rising edge)")
 
+T("cy22393", "clocksynth",
+  [(p, "io") for p in ("CLKA", "CLKB", "CLKC", "CLKD", "CLKE", "XBUF")]
+  + [("SCLK", "in"), ("SDAT", "io"), ("S2", "in")], family="osc",
+  desc="programmable clock chip, three PLLs and six outputs from its stored configuration "
+       "(params <a-e, x>_ps and _phase: each output's period and first rising edge); its "
+       "serial port (SCLK, SDAT) isn't modelled")
+
+T("button", "button", [("OUT", "tri")], family="misc",
+  desc="push button to ground (params press_ps, release_ps: when the simulation presses it)")
+
+T("ps2dev", "ps2dev", [("CLK", "io"), ("DATA", "io"), ("WAKE", "io")], family="fixture",
+  desc="a PS/2 keyboard or mouse on its cable (open-collector CLK and DATA): sends its preload, "
+       "answers the host's bytes with 0xFA, dumps what the host sent (params half_ps, gap_ps, "
+       "start_ps); WAKE is the simulator's, on a net of its own")
+
 T("por", "por", [("RST", "tri")], family="misc",
   desc="supply supervisor as power-on reset: open-collector RST low until params release_ps")
 
@@ -516,7 +539,8 @@ ACT_MISSING = {"30", "688", "193"}
 # Parts outside the variants: families that only the card designs use,
 # named in the netlist by part number (Netlist.add(..., part=...)).
 FIXED_PARTS = {"osc": "oscillator", "por": "TL7705A", "pullup": "10k x8 resistor network",
-               "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF"}
+               "16c550": "TL16C550C", "82c54": "82C54", "cf": "CF", "cy22393": "CY22393",
+               "button": "push button", "flash4": "SST39SF040-55"}
 # Families whose parts may have no timing data (their models have defaults).
 UNTIMED = {"osc", "misc", "passive", "fixture"}
 

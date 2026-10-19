@@ -224,16 +224,21 @@ class Video:
 
     def __init__(self):
         self.ctrl = 0
+        self.cursor_x = 0
         self.palette = [0] * 256
         self.flag = 0
         self.frame = 0
 
     def write(self, off, v):
         if off < 0x400:
-            if off & 4:
+            r = (off >> 2) & 7
+            if r == 1:
                 self.flag = 0                       # the acknowledge
-            else:
-                self.ctrl = v & 7
+            elif r == 0:
+                self.ctrl = v & 0x1F7               # the picture, TSEL, the interrupt, the mode,
+                                                    # the cursor
+            elif r == 4:
+                self.cursor_x = v & 0x7FF
         elif off < 0x800:
             self.palette[(off - 0x400) >> 2] = v & 0xFFFF
 

@@ -8,9 +8,11 @@ reports: [41]
 
 Draft 2's user level without a system bus, beside the full Heron as a 360/20 was
 beside the 360/40: a microcoded CPU with its RAM hardwired, no system
-bus, an I/O space with a UART pair, an 82C54, a CF card, a boot flash and
-two expansion ports, and a 640 x 480 x 4 framebuffer with per-line
-descriptors. The design and what it measures are
+bus, an I/O space with a UART pair, an 82C54, a CF card, a boot flash,
+two PS/2 ports and two expansion ports, a debug button, a clock chip,
+and the video of [RFC 0042](../../reports/0042-rfc-mini-video.md): seven
+modes from 640 x 480 x 8 to 1024 x 768 x 1, per-line descriptors, a
+cursor. The design and what it measures are
 [RFC 0041](../../reports/0041-rfc-heron-mini.md).
 
 The design is built as a chip-level netlist and run on the chip-level
@@ -34,12 +36,12 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 | `engine/` | The same model in Rust (the crate `mini-engine`), cycle for cycle, with the board and the video options of [RFC 0042](../../reports/0042-rfc-mini-video.md): about 200 times faster |
 | `sim.py` | The fast simulator for software: the engine from Python (`heron.native.mini`), frames as PNG files |
 | `system.py` | The board behind the CPU in the model: RAM, the I/O regions and their wait states, the suite's I/O page, the UARTs, the video's registers |
-| `video.py` | The video: the timing ROM, the picture a frame's memory makes, decoding the frames the netlist sends |
-| `timing.py` | How long each microinstruction's cycle must be (`ticks.json`, else an estimate), the four length classes |
-| `ticks.json` | Every distinct microinstruction's period from static timing analysis (generated: `heron mini hw sta --write`) |
+| `video.py` | The video: its two timing families and the timing ROM, the modes, the picture a frame's memory and registers make, decoding the frames the netlist sends |
+| `timing.py` | How long each microinstruction's cycle must be (`ticks.json`, else an estimate), the four length classes, and their lengths at XGA's 65 MHz master clock (`ticks-xga.json`) |
+| `ticks.json`, `ticks-xga.json` | Every distinct microinstruction's period from static timing analysis at the 50.35 MHz and the 65 MHz master clock (generated: `heron mini hw sta --write`, `heron mini hw sta --xga --write`) |
 | `parts.py` | The parts: 74F and 74ABT in DIP, flash, 12 ns SRAM |
-| `board.py` | The chip-level netlist: CPU, clock generator and hold, RAM and video RAM, I/O space and devices, video |
-| `hw.py` | The netlist on the chip-level simulator: the suite against the RTL model, the devices and video programs, the parts list |
+| `board.py` | The chip-level netlist: CPU, the clock chip and its switch, clock generator and hold, the debug button, RAM and video RAM, I/O space and devices, PS/2 ports, video |
+| `hw.py` | The netlist on the chip-level simulator: the suite against the RTL model, the devices, PS/2, debug and video programs, the parts list |
 | `sta.py` | Static timing analysis of the netlist, per microinstruction |
 | `perf.py` | Profiles the suite on the RTL model (cached in `build/mini/`) |
 | `check.py` | The RTL model against the instruction-level simulator |
@@ -47,7 +49,7 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 | `reduce.py` | What could be left out: the chips each reduction removes, its time from the profile |
 | `report.py` | RFC 0041's tables (`reports/0041-rfc-heron-mini/performance.md`) |
 | `sw/video/` | `demo.s`: RFC 0042's options from a program (1024 x 768 x 2 from a frame base, the cursor, the beam) |
-| `sw/hw/` | Programs outside the suite: `devices.s` (the I/O devices) and `video.s` (the video), for the chip-level netlist; `addrerr.s` (the address error), also on the model |
+| `sw/hw/` | Programs outside the suite: `devices.s` (the I/O devices), `ps2.s` (the keyboard and the mouse), `debug.s` (the debug button), `video.s` (the descriptors) and `modes.s` (every mode and the cursor), for the chip-level netlist; `addrerr.s` (the address error), also on the model |
 
 ```sh
 heron mini check [--c]               # the RTL model against the ISA simulator: the suite, the C programs
@@ -61,9 +63,13 @@ heron mini report [--write]          # RFC 0041's tables (performance.md; a few 
 heron mini schematic                 # the netlist in the schematic viewer (build/mini/schematic.html)
 heron mini hw test [--c] [NAMES]     # the suite (--c the C programs) at chip level against the RTL model (about 6 minutes)
 heron mini hw devices                # the devices program at chip level (UARTs, flash, CF, 82C54)
-heron mini hw video [--png F]        # the video program at chip level, its frames grabbed (about 90 s)
+heron mini hw video [--png F]        # the video program at chip level, its frames grabbed (about 4 minutes)
+heron mini hw video --modes [0,5]    # the modes program in each mode (0-6), with the cursor (four at a time, about 5 minutes each)
+heron mini hw ps2                    # the PS/2 ports: the keyboard's bytes, a byte to the mouse and its answer
+heron mini hw debug                  # the debug button: its entry with interrupts off
 heron mini hw blocks                 # the block instructions at chip level against the RTL model
 heron mini hw sta [--write]          # static timing analysis; --write rewrites ticks.json
+heron mini hw sta --xga [--write]    # ... at XGA's 65 MHz master clock (ticks-xga.json)
 heron mini hw bom                    # the parts list
 heron test mini                      # the unit tests
 ```

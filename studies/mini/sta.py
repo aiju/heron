@@ -143,7 +143,8 @@ def extra_checks(case, N):
     d = {ref: N.delay[ref] for ref in ("U_RWA0", "U_RFG0", "U_RFA0", "U_RLA0")}
     gtpd = d["U_RFG0"]["tPD"]
     nand2 = N.delay[N.drivers["RFWE_n"][0][0].ref]["A->Y"]
-    and3 = N.delay[N.drivers["TLE"][0][0].ref]["A->Y"]
+    tle = N.delay[N.drivers["TLE"][0][0].ref]
+    and3 = tle.get("A->Y", tle.get("tPD"))           # T's latch enable: a 22V10 (U_BTL)
     sram = d["U_RFA0"]
     rw = -2 * TICK + OFFSETS["RW"]                   # RW rises and RW_n falls, after T
     strobe = -TICK + OFFSETS["T2"] + nand2          # the write strobe falls, after T
@@ -264,7 +265,7 @@ def _one(item):
 def analyse(force=False, jobs=4):
     """[(period, control word, extra constants, labels, count, critical
     check, endpoint)], slowest first, cached in build/mini by the sources."""
-    path = os.path.join(hw.OUT, "sta.json")
+    path = os.path.join(hw.OUT, "sta.json" if abs(TICK - 1e3 / 50.35) < 1e-6 else f"sta-{TICK:.3f}.json")
     if not force and os.path.exists(path) and \
             os.path.getmtime(path) >= runner.newest(hw.sources()):
         with open(path) as f:
@@ -388,6 +389,13 @@ def write_table(res):
 
 
 def main(args):
+    if getattr(args, "xga", False) and abs(TICK - timing.XGA_TICK) > 1e-6:
+        # the analysis at XGA's tick, in a process that has it from the start
+        import subprocess
+        import sys
+        argv = [a for a in sys.argv[1:] if a != "--xga"]
+        env = dict(os.environ, HERON_MINI_TICK=repr(timing.XGA_TICK))
+        return subprocess.run([sys.executable, "-m", "heron"] + argv, env=env).returncode
     res = analyse(force=args.force)
     if args.write:
         write_table(res)

@@ -6,6 +6,12 @@ simulator and the static timing analysis read the same equations.
 
 A sum of products is a list of terms, each a dict {net: the value it
 must have}; [] is 0 and [{}] is 1.
+
+An output may have an output enable (a sum of products: the pin drives
+while it's true, else it's off), and the GAL an asynchronous reset (AR,
+a sum of products clearing every register while it's true), as the
+22V10's macrocells and its AR term have. Static timing analysis reads
+neither (the GALs that use them are outside its netlists).
 """
 
 ZERO, ONE = [], [{}]
@@ -50,11 +56,13 @@ def mux(sel, cases):
     return _tidy(out)
 
 
-def add(nl, ref, outputs, clock=None):
-    """A 22V10: outputs {net: (sum of products, registered, inverted)}, the
-    output the sum or, inverted, its complement; registered outputs load
-    at clock's rising edge (an output's own net in a term is its pin, fed
-    back)."""
+def add(nl, ref, outputs, clock=None, ar=None):
+    """A 22V10: outputs {net: (sum of products, registered, inverted[,
+    output enable])}, the output the sum or, inverted, its complement;
+    registered outputs load at clock's rising edge (an output's own net in
+    a term is its pin, fed back); ar, the asynchronous reset."""
+    oes = {net: o[3] for net, o in outputs.items() if len(o) > 3}
+    outputs = {net: o[:3] for net, o in outputs.items()}
     outs = sorted(outputs.items(), key=lambda kv: -len(kv[1][0]))
     if any(reg for _, (_, reg, _) in outs) and clock is None:
         raise ValueError(f"{ref}: registered outputs need a clock")
@@ -67,7 +75,9 @@ def add(nl, ref, outputs, clock=None):
         pins[net] = f"IO{cell}"
     if len(outs) > 10:
         raise ValueError(f"{ref}: {len(outs)} outputs")
-    ins = sorted({n for _, (terms, _, _) in outs for t in terms for n in t} - set(pins))
+    extra = [t for f in list(oes.values()) + [ar or []] for t in f]
+    ins = sorted(({n for _, (terms, _, _) in outs for t in terms for n in t}
+                  | {n for t in extra for n in t}) - set(pins))
     free = ([] if clock else ["CLK"]) + INPUTS[1:] + [f"IO{i}" for i in range(10)
                                                        if f"IO{i}" not in pins.values()]
     if len(ins) > len(free):
@@ -81,13 +91,26 @@ def add(nl, ref, outputs, clock=None):
     inst = nl.add("22v10", ref, **conn)
     inst.gal = [(pins[net], reg, inv, [[(pins[n], v) for n, v in t.items()] for t in terms])
                 for net, (terms, reg, inv) in outs]
+    inst.gal_oe = {pins[net]: [[(pins[n], v) for n, v in t.items()] for t in f]
+                   for net, f in oes.items()}
+    inst.gal_ar = [[(pins[n], v) for n, v in t.items()] for t in ar] if ar else None
     index = inst.type.pin_index
+
+    def sop(terms):
+        out = [len(terms)]
+        for t in terms:
+            out.append(len(t))
+            out += [index[p] * 2 + (1 - v) for p, v in t]
+        return out
     prog = [len(inst.gal)]
     for pin, reg, inv, terms in inst.gal:
-        prog += [index[pin], int(reg) | int(inv) << 1, len(terms)]
-        for t in terms:
-            prog.append(len(t))
-            prog += [index[p] * 2 + (1 - v) for p, v in t]
+        oe = inst.gal_oe.get(pin)
+        prog += [index[pin], int(reg) | int(inv) << 1 | int(oe is not None) << 2]
+        prog += sop(terms)
+        if oe is not None:
+            prog += sop(oe)
+    if inst.gal_ar:
+        prog += sop(inst.gal_ar)
     inst.program = prog
     return inst
 
@@ -121,6 +144,61 @@ def minimise(on, dc, n):
         out.append({i: (val >> i) & 1 for i in range(n) if care >> i & 1})
         left -= ms
     return out
+
+
+def minimise_qm(on, dc, n):
+    """minimise() for more variables: the prime cubes by merging
+    (Quine-McCluskey), then a greedy cover. Cubes are (care, value)."""
+    on, ok = set(on), set(on) | set(dc)
+    full = (1 << n) - 1
+    level = {(full, m) for m in ok}
+    primes = set()
+    while level:
+        merged, nxt = set(), set()
+        for care, val in level:
+            for i in range(n):
+                b = 1 << i
+                if care & b and not val & b and (care, val | b) in level:
+                    nxt.add((care & ~b, val))
+                    merged.add((care, val))
+                    merged.add((care, val | b))
+        primes |= level - merged
+        level = nxt
+
+    def covers(cube):
+        care, val = cube
+        free = [i for i in range(n) if not care >> i & 1]
+        out = set()
+        for k in range(1 << len(free)):
+            m = val
+            for j, i in enumerate(free):
+                if k >> j & 1:
+                    m |= 1 << i
+            out.add(m)
+        return out
+    cubes = [(c, covers(c) & on) for c in primes]
+    cubes = [c for c in cubes if c[1]]
+    out, left = [], set(on)
+    while left:
+        (care, val), ms = max(cubes, key=lambda c: (len(c[1] & left),
+                                                    -bin(c[0][0]).count("1")))
+        out.append({i: (val >> i) & 1 for i in range(n) if care >> i & 1})
+        left -= ms
+    return out
+
+
+def table(nets, f):
+    """A sum of products over nets (LSB first) true where f(*bits) is,
+    None where it doesn't care."""
+    n = len(nets)
+    on, dc = [], []
+    for c in range(1 << n):
+        v = f(*[(c >> i) & 1 for i in range(n)])
+        if v is None:
+            dc.append(c)
+        elif v:
+            on.append(c)
+    return [{nets[i]: v for i, v in t.items()} for t in minimise_qm(on, dc, n)]
 
 
 def when(nets, codes, used):

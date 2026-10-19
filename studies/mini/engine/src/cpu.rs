@@ -932,6 +932,8 @@ impl Cpu {
             6 => u32::from(self.lc & 15 == 15),
             8 => self.pend,
             9 => u32::from(self.sx == self.ex),
+            // the debug button's request (the board's, not modelled)
+            10 => 0,
             12 => u32::from(self.sx == 15),
             13 => self.mq & 1,
             14 => self.r & 1,
