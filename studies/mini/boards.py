@@ -3,8 +3,8 @@ board, the signals between the boards, the ribbon cables' connectors,
 each board's netlist for the PCB study, and the boards' delays for the
 timing analysis.
 
-The boards are stacked on standoffs, top to bottom cpu1, cpu2, io (STACK),
-and joined by IDC ribbon cables. The CPU is on cpu1 and cpu2: cpu1 starts
+The boards are stacked on standoffs, bottom to top cpu1, cpu2, io (STACK
+lists them top to bottom), and joined by IDC ribbon cables. The CPU is on cpu1 and cpu2: cpu1 starts
 with the sequencer's side (the control store and what the microinstruction
 addresses, the clock and the flags), cpu2 with the datapath and the
 memory; the video, the video RAM and the I/O are on io.
@@ -40,10 +40,10 @@ For the PCB study: netlist(board) is one board's Netlist, its signals
 that leave the board renamed BUS.<net>, as the system cards name their
 connector pins, so that infra/pcb's parts() and check.compare() put them
 on the connector pads by the pin maps (connectors(board): the IDC
-headers as (ref, footprint, {pad: net})). pcb_board() is cards.board()'s
-counterpart (studies/pcb/cards.py hands `heron pcb build mini-<board>` to
-it). `heron mini boards --write` writes the boards as JSON with a README
-into build/mini/boards/.
+headers as (ref, footprint, {pad: net})); studies/pcb/mini.py makes the
+boards of them, the stack's mechanics and the headers' sites with them
+(`heron pcb build mini-<board>`). `heron mini boards --write` writes the
+boards as JSON with a README into build/mini/boards/.
 
 For the timing: add_board_delays(nl) adds a fixed delay (default 1.5 ns:
 connector, ribbon, connector) between the boards, in any netlist of the
@@ -93,7 +93,7 @@ from . import board as mini_board, parts
 OUT = os.path.join(BUILD, "mini", "boards")
 
 BOARDS = ("cpu1", "cpu2", "io")
-STACK = BOARDS                  # top to bottom
+STACK = ("io", "cpu2", "cpu1")  # top to bottom: the I/O board on top (Emily)
 CPU = ("cpu1", "cpu2")
 IO = ("io",)
 TARGET = 160                    # packages a board, ideally (Emily)
@@ -753,6 +753,7 @@ def board_netlist(name, a=None, header=HEADER, per_ground=PER_GROUND):
         if any(i.section == s[1] for i in out.instances):
             out.sections.append(s)
     out.board = name
+    out.variant = parts.VARIANT
     out.connectors = [(c["ref"], c["footprint"], dict(c["pinmap"]))
                       for c in connectors(a, header, per_ground) if c["board"] == name]
     return out
@@ -763,12 +764,14 @@ def netlist(name, a=None, header=HEADER, per_ground=PER_GROUND):
     return board_netlist(name, a, header, per_ground)
 
 
-def footprints(typ):
-    """{style: KiCad footprint or None} for a chip type."""
+def footprints(typ, part=None):
+    """{style: KiCad footprint or None} for a chip type (the part number
+    `part`)."""
     out = {}
     for style in ("smd", "dip"):
         try:
-            out[style] = packages.footprint_for(typ, style) if typ in packages.PINOUTS else None
+            out[style] = (packages.footprint_for(typ, style, part)
+                          if packages.pinout_of(typ, part) in packages.PINOUTS else None)
         except KeyError:
             out[style] = None
     return out
@@ -783,7 +786,7 @@ def export(name, a=None, header=HEADER, per_ground=PER_GROUND):
     cross = crossing(a)
     chips_ = []
     for inst in sorted(nl.instances, key=lambda i: natural(i.ref)):
-        fp = footprints(inst.type.name)
+        fp = footprints(inst.type.name, inst.part_number(parts.VARIANT))
         chips_.append({
             "ref": inst.ref, "type": inst.type.name, "kind": kind(inst),
             "part": inst.part_number(parts.VARIANT), "section": inst.section,
@@ -854,9 +857,9 @@ def missing_footprints(a=None):
     a = a or default()
     out = defaultdict(list)
     for r in a.board_of:
-        t = a.nl.refs[r].type.name
-        if None in footprints(t).values():
-            out[t].append(r)
+        i = a.nl.refs[r]
+        if None in footprints(i.type.name, i.part_number(parts.VARIANT)).values():
+            out[i.type.name].append(r)
     return dict(out)
 
 
@@ -949,10 +952,9 @@ def readme(a, header=HEADER, per_ground=PER_GROUND):
         "`Netlist`, its offboard nets named `BUS.<net>` and its headers on",
         "`nl.connectors` [(ref, footprint, {pin: net})], the way infra/pcb's",
         "`physical.parts()` and `check.compare()` take a card's connectors;",
-        "`boards.load(path)` reads a JSON back into one; `boards.pcb_board(board,",
-        "style, width, height)` is studies/pcb/cards.py's `board()` for it, so",
-        "`heron pcb build mini-cpu1 --size 297x210` runs the PCB flow (it needs",
-        "footprints for every type, below).",
+        "`boards.load(path)` reads a JSON back into one; studies/pcb/mini.py makes",
+        "a board of it, so `heron pcb build mini-cpu1 --size 297x210` runs the PCB",
+        "flow (it needs footprints for every type, below).",
         "",
         "## Missing footprints",
         "",
@@ -1030,92 +1032,7 @@ def readme(a, header=HEADER, per_ground=PER_GROUND):
 
 MISSING_NOTES = {
     "cf": "a CompactFlash socket: its footprint depends on the socket chosen",
-    "cy22393": "the clock chip, TSSOP-16 (or a CDCE913, TSSOP-14): its pinout is to be taken "
-               "from the datasheet; its crystal or reference input isn't in the netlist",
 }
-
-
-# ---- for the PCB flow ----------------------------------------------------------------------
-
-MOUNTING_HOLE = "MountingHole:MountingHole_3.2mm_M3"
-EDGE = 5.0                      # mm: the connectors' and the holes' distance from the edge
-CORNER = 12.0                   # mm kept clear of the connectors at each corner (the holes)
-GAP = 3.0                       # mm between connectors, and to the parts' region
-
-
-def pcb_connectors(nl, width, height):
-    """The board's IDC headers as parts for infra/pcb: [(Part, {pad:
-    net})], fixed, their pin rows along the board's width, in rows: along
-    the top edge, along the bottom edge, then rows further in, top and
-    bottom by turns (a ribbon reaches a header anywhere on a stacked
-    board). A first placement for the PCB study to move."""
-    from heron.infra.pcb import board as B
-    out = []
-    rows = []                       # [edge ("top", "bottom"), y of its edge side, x reached]
-    for ref, fp, pinmap in nl.connectors:
-        part = B.Part(ref, fp, {}, value=f"IDC {len(pinmap)}", kind="conn")
-        part.place(0, 0, 90)
-        x0, y0, x1, y1 = part.courtyard()
-        w, d = x1 - x0, y1 - y0
-        for row in rows:
-            start = EDGE + CORNER if row[1] in (EDGE, height - EDGE) else EDGE
-            if max(row[2], start) + w <= width - start:
-                break
-        else:
-            k = len(rows)
-            edge = ("top", "bottom")[k % 2]
-            inset = EDGE + (k // 2) * (d + GAP)
-            row = [edge, inset if edge == "top" else height - inset, 0.0]
-            if sum(d + GAP for _ in range(k + 1)) > height - 2 * EDGE:
-                raise ValueError(f"the IDC headers don't fit on a {width} x {height} board")
-            rows.append(row)
-        start = EDGE + CORNER if row[1] in (EDGE, height - EDGE) else EDGE
-        x = max(row[2], start)
-        y = row[1] - y0 if row[0] == "top" else row[1] - y1
-        part.place(x - x0, y, 90)
-        row[2] = x + w + GAP
-        part.edge = row[0]
-        part.fixed = True
-        out.append((part, dict(pinmap)))
-    return out
-
-
-def pcb_board(name, style="smd", width=297.0, height=210.0, layers=6, rules=None, nl=None):
-    """A mini board for studies/pcb's flow, as cards.board() makes a
-    card: its parts, the IDC headers placed and fixed, M3 holes in the
-    corners for the standoffs, the region left for the parts. Types
-    without a footprint (missing_footprints()) raise."""
-    from heron.infra.pcb import board as B
-    from heron.infra.pcb import physical
-    nl = nl or netlist(name)
-    miss = sorted({i.type.name for i in nl.instances if kind(i) != "fixture"
-                   and None in footprints(i.type.name).values()})
-    if miss:
-        raise KeyError(f"no footprint in infra/pcb/packages.py for {', '.join(miss)} "
-                       f"(on board {name})")
-    b = B.Board(f"mini-{name}-{style}", width, height, layers=layers, rules=rules)
-    conns = pcb_connectors(nl, width, height)
-    for p in physical.parts(nl, style, connectors=conns):
-        b.add(p)
-    for i, (x, y) in enumerate(((EDGE, EDGE), (width - EDGE, EDGE), (EDGE, height - EDGE),
-                                (width - EDGE, height - EDGE))):
-        h = B.Part(f"H{i + 1}", MOUNTING_HOLE, {}, value="M3", kind="mech")
-        h.place(x, y, 0)
-        h.fixed = True
-        b.add(h)
-    b.pin_maps = [(p.ref, m) for p, m in conns]
-    b.netlist = nl
-    b.style = style
-    # the parts' region: inside the holes, between the headers' rows
-    x0, y0, x1, y1 = 2 * EDGE + GAP, 2 * EDGE + GAP, width - 2 * EDGE - GAP, height - 2 * EDGE - GAP
-    for p, _ in conns:
-        c = p.courtyard()
-        if p.edge == "top":
-            y0 = max(y0, c[3] + GAP)
-        else:
-            y1 = min(y1, c[1] - GAP)
-    b.region = (x0, y0, x1, y1)
-    return b
 
 
 # ---- the boards' delays ---------------------------------------------------------------------
@@ -1214,10 +1131,65 @@ def add_board_delays(nl, a=None, ps=DELAY_PS, clocks=False):
     return d
 
 
-def _delayed(a=None, ps=DELAY_PS, clocks=False):
+# the routed boards' delays (studies/pcb/mini.py: `heron pcb mini delays
+# --write`): a JSON whose "delays" are [ref, pin, net, ps] on the
+# simulation's netlist and whose "net delays" are each net's worst
+PCB_DELAYS = os.path.join(BUILD, "pcb", "mini-delays.json")
+
+
+def pcb_delays(nl, path=None, clocks=False):
+    """[(ref, pin, ps)]: the routed boards' delays on nl, as
+    board_delays() gives the flat ones (apply_board_delays() puts them
+    on). A chip the delays' netlist has on the same net ("on") takes its
+    own: its pin's, or (a pin that netlist wires otherwise: the analysis
+    clocks a register by its window) its pins' on that net. An instance
+    it doesn't have there (a fixture standing in for chips, a gate
+    package placed in another order) takes its net's worst: an input the
+    worst rest of a flight. On a net none of whose drivers in nl the
+    delays have (a fixture drives it), every input has the worst
+    driver's delay too. The clocks only with clocks=True
+    (the file leaves them out by default, as the timing's reference)."""
+    with open(path or PCB_DELAYS) as f:
+        d = json.load(f)
+    on = {r: set(nets) for r, nets in d["on"].items()}
+    own, by_net = {}, {}
+    for r, p, net, ps, kind in d["delays"]:
+        own[(r, p)] = (net, ps)
+        by_net[(r, net, kind == "in")] = max(ps, by_net.get((r, net, kind == "in"), 0))
+    per = d["net delays"]
+
+    def known(inst, net):
+        return net in on.get(inst.ref, ())
+    named = {net for inst in nl.instances for pin, net in inst.conn.items()
+             if inst.kind(pin) in ("out", "tri", "io") and known(inst, net)}
+    out = []
+    for inst in nl.instances:
+        for pin, net in inst.conn.items():
+            if net not in per or (net in CLOCKS and not clocks):
+                continue
+            k = inst.kind(pin)
+            driver = 0 if net in named else per[net]["driver"]
+            if known(inst, net):
+                mine = own.get((inst.ref, pin))
+                if mine and mine[0] == net:
+                    ps = mine[1]
+                else:
+                    ps = by_net.get((inst.ref, net, k == "in"), 0)
+                ps += driver if k == "in" else 0
+                if ps > 0:
+                    out.append((inst.ref, pin, ps))
+            elif k == "in" and inst.type.family != "fixture":
+                ps = per[net]["load"] + driver
+                if ps > 0:
+                    out.append((inst.ref, pin, ps))
+    return out
+
+
+def _delayed(a=None, ps=DELAY_PS, clocks=False, delays=None):
     """(the analysis with the boards' delays, the delays), cached."""
     from . import sta
-    delays = board_delays(sta.build(), a, ps=ps, clocks=clocks)
+    if delays is None:
+        delays = board_delays(sta.build(), a, ps=ps, clocks=clocks)
     sta.BOARD_DELAYS = delays
     try:
         return sta.analyse(), delays
@@ -1231,13 +1203,14 @@ def _profile():
     return perf.profile()
 
 
-def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25):
+def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25, delays=None, what=None):
     """The static timing analysis with the boards' delays against the
     plain one (both cached in build/mini): the microinstructions that need
-    more ticks, and the suite's time, as text."""
+    more ticks, and the suite's time, as text. delays: [(ref, pin, ps)]
+    in place of the flat ones (pcb_delays()), described as `what`."""
     from . import sta, ucode as uc
     plain = sta.analyse()
-    delayed, delays = _delayed(a, ps, clocks)
+    delayed, delays = _delayed(a, ps, clocks, delays)
     mc = uc.built()
     t0, t1 = sta.node_ticks(plain), sta.node_ticks(delayed)
     rows = []
@@ -1249,9 +1222,9 @@ def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25):
     by = Counter((r[2], r[4]) for r in rows)
     prof = _profile()
     ms0, ms1 = sta.suite_ms(plain, prof), sta.suite_ms(delayed, prof)
-    out = [f"static timing analysis with {ps / 1000:.2f} ns between the boards ({len(delays)} "
-           f"inputs and bus drivers; {'clocks too' if clocks else 'not the clocks'}), against the "
-           "plain analysis:",
+    what = what or (f"{ps / 1000:.2f} ns between the boards ({len(delays)} inputs and bus "
+                    f"drivers; {'clocks too' if clocks else 'not the clocks'})")
+    out = [f"static timing analysis with {what}, against the plain analysis:",
            f"  the suite and the C programs: {ms0:.1f} ms plain, {ms1:.1f} ms with the boards "
            f"({100 * (ms1 / ms0 - 1):+.1f}%)",
            f"  the slowest microinstruction: {max(r[1] for r in rows):.1f} ns plain, "

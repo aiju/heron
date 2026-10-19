@@ -25,7 +25,10 @@ fixture in I/O region 7, on the data bus, in both.
 
 --boards (with --board-delay NS, default 1.5) runs test, run, devices,
 video, blocks or sta on the netlist split into boards (boards.py): every
-output that drives a pin on another board is that much later.
+output that drives a pin on another board is that much later. --pcb
+[FILE] takes the routed boards' own delays instead (studies/pcb/mini.py,
+`heron pcb mini delays`): each net's flight to each load across the
+boards and cables, and its load.
 """
 
 import argparse
@@ -55,6 +58,8 @@ def sources():
 _LOADED = None
 # ps on every output that drives another board (boards.py; --boards), or None
 BOARD_DELAY = None
+# the routed boards' delays, a file (boards.pcb_delays(); --pcb), or None
+PCB_DELAYS = None
 
 
 def netlist(lengths=None, capture=False, debug_ps=0):
@@ -68,13 +73,22 @@ def netlist(lengths=None, capture=False, debug_ps=0):
     tag = ("-capture" if capture else "") + (f"-debug{debug_ps}" if debug_ps else "")
     if BOARD_DELAY:
         tag += f"-boards{BOARD_DELAY}"
+    newest = runner.newest(sources())
+    if PCB_DELAYS:
+        import hashlib
+        with open(PCB_DELAYS, "rb") as f:
+            tag += f"-pcb{hashlib.sha1(f.read()).hexdigest()[:10]}"
+        newest = max(newest, os.path.getmtime(PCB_DELAYS))
     path = os.path.join(OUT, f"netlist-{'-'.join(map(str, lengths))}{tag}.json")
-    if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
+    if not os.path.exists(path) or os.path.getmtime(path) < newest:
         os.makedirs(OUT, exist_ok=True)
         nl = board.build(sim=True, lengths=lengths, capture=capture, debug_ps=debug_ps)
         if BOARD_DELAY:
             from . import boards
             boards.add_board_delays(nl, ps=BOARD_DELAY)
+        if PCB_DELAYS:
+            from . import boards
+            boards.apply_board_delays(nl, boards.pcb_delays(nl, PCB_DELAYS))
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=parts.VARIANT, corner="max"), f)
@@ -627,8 +641,16 @@ def main(argv=None):
                         help="the netlist split into boards: a delay on every signal between them")
         sp.add_argument("--board-delay", type=float, default=1.5, metavar="NS",
                         help="with --boards, the delay (default %(default)s ns)")
+        sp.add_argument("--pcb", nargs="?", const="", metavar="FILE",
+                        help="the routed boards' delays (default: build/pcb/mini-delays.json, "
+                             "from `heron pcb mini delays`) on every net they cross")
     args = p.parse_args(argv)
-    global BOARD_DELAY
+    global BOARD_DELAY, PCB_DELAYS
     if getattr(args, "boards", False) and args.fn is not cmd_sta:
         BOARD_DELAY = round(args.board_delay * 1000)
+    if getattr(args, "pcb", None) is not None:
+        if getattr(args, "boards", False):
+            p.error("--pcb and --boards are two models of the same delays: one or the other")
+        from . import boards
+        PCB_DELAYS = args.pcb or boards.PCB_DELAYS
     return args.fn(args)

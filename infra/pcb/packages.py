@@ -82,6 +82,17 @@ PINOUTS = {
     # JEDEC 28-pin 32K x 8 SRAM (AS7C256A, AS6C62256: SOJ, PDIP)
     "sram": ("A14 A12 A7 A6 A5 A4 A3 A2 A1 A0 IO0 IO1 IO2 GND "
              "IO3 IO4 IO5 IO6 IO7 CE A10 OE A11 A9 A8 A13 WE VCC"),
+    # JEDEC 36-pin SOJ 512K x 8 fast SRAM, centre power and ground
+    # (AS7C4096A-12; the same pins as ISSI's IS61C5128AL-10KLI, whose
+    # KiCad symbol the check holds it against)
+    "sram512j": ("A0 A1 A2 A3 A4 CE IO0 IO1 VCC GND IO2 IO3 WE A5 A6 A7 A8 A9 NC "
+                 "A10 A11 A12 A13 A14 IO4 IO5 VCC GND IO6 IO7 OE A15 A16 A17 A18 NC"),
+    # CY22393 (Infineon/Cypress 001-95834, figure 1: TSSOP-16) on a DIP-16
+    # adapter that keeps its pin numbers: the chip runs at 3.3 V, so the
+    # adapter carries a regulator fed from pin 2 (5 V; the chip's VDD) and
+    # makes AVDD (14) itself, the crystal on XTALIN and XTALOUT (4, 5), and
+    # OE (16) tied high; XBUF, CLKD and CLKE (6-8) aren't used
+    "cy22393": "CLKC VCC GND NC NC NC NC NC CLKB CLKA GND SDAT SCLK NC S2 NC",
     # JEDEC 32-pin 512K x 8 SRAM (AS6C4008: SOP, PDIP)
     "sram512": ("A18 A16 A14 A12 A7 A6 A5 A4 A3 A2 A1 A0 IO0 IO1 IO2 GND "
                 "IO3 IO4 IO5 IO6 IO7 CE A10 OE A11 A9 A8 A13 WE A17 A15 VCC"),
@@ -133,6 +144,7 @@ KICAD_SYMBOLS = {
     "flash": "Memory_Flash:SST39SF010", "flash4": "Memory_Flash:SST39SF040",
     "sram512": "Memory_RAM:AS6C4008-55PCN",
     "sram": "Memory_RAM:IS62C256AL", "82c54": "Timer:82C54",
+    "sram512j": "Memory_RAM:IS61C5128AL-10KLI",
     "534": "74xx:74LS374",            # the 534 has the 374's pins
     "por": "Power_Supervisor:TL7705A",
 }
@@ -202,7 +214,7 @@ def kicad_pin_name(typ, pin):
         return {"G": "G", "PEQ": "P=R"}.get(pin) or (pin if pin[0] == "P" else f"R{pin[1]}")
     if typ in ("flash", "flash4"):
         return {"WE": "PGM"}.get(pin, pin)
-    if typ == "sram":
+    if typ in ("sram", "sram512j"):
         if pin.startswith("IO"):
             return f"I/O{pin[2:]}"
         return {"CE": "~{CE}", "OE": "~{OE}", "WE": "~{WE}", "VCC": "VDD"}.get(pin, pin)
@@ -252,6 +264,7 @@ DIP_PACKAGE = {
     "823": "DIP24", "181": "DIP24W", "82c54": "DIP24W", "22v10": "DIP24", "16c550": "DIP40W",
     "sram": "DIP28", "flash": "DIP32W", "flash4": "DIP32W", "sram512": "DIP32W",
     "por": "DIP8", "osc": "OSC", "pullup": "SIP9", "button": "BUTTON",
+    "sram512j": "SOJ36", "cy22393": "ADAPTER16",
 }
 
 FP = {
@@ -268,8 +281,13 @@ FP = {
         "OSC": "Oscillator:Oscillator_DIP-14",
         "SIP9": "Resistor_THT:R_Array_SIP9",
         "CAP": "Capacitor_THT:C_Disc_D3.0mm_W1.6mm_P2.50mm",
+        # under a DIP on the bottom, soldered by hand
+        "CAP_UNDER": "Capacitor_SMD:C_0805_2012Metric",
         "CAPBULK": "Capacitor_THT:CP_Radial_D6.3mm_P2.50mm",
         "BUTTON": "Button_Switch_THT:SW_PUSH_6mm",
+        "SOJ28": "Package_SO:SOJ-28_7.62x18.415mm_P1.27mm",
+        "SOJ36": "Package_SO:SOJ-36_10.16x23.495mm_P1.27mm",
+        "ADAPTER16": "Package_DIP:DIP-16_W7.62mm",
     },
     "smd": {
         "DIP8": "Package_SO:SOIC-8_3.9x4.9mm_P1.27mm",
@@ -289,6 +307,9 @@ FP = {
         "CAP": "Capacitor_SMD:C_0603_1608Metric",
         "CAPBULK": "Capacitor_SMD:C_1206_3216Metric",
         "BUTTON": "Button_Switch_THT:SW_PUSH_6mm",
+        "SOJ28": "Package_SO:SOJ-28_7.62x18.415mm_P1.27mm",
+        "SOJ36": "Package_SO:SOJ-36_10.16x23.495mm_P1.27mm",
+        "ADAPTER16": "Package_DIP:DIP-16_W7.62mm",
     },
 }
 
@@ -298,6 +319,11 @@ OVERRIDES = {
     "dip": {},
 }
 FP["smd"]["DIP16THT"] = "Package_DIP:DIP-16_W7.62mm"
+
+# Parts whose package or pinout isn't their type's, in every style: the
+# fast SRAMs are made in SOJ only, and the 512K x 8 one has its own pins
+PART_PINOUTS = {"AS7C4096A-12": "sram512j"}
+PART_PACKAGES = {"AS7C256A-12": "SOJ28"}
 
 # oscillator pads differ between the DIP-14 can and the SMD part
 OSC_PADS = {"dip": {1: "=VCC", 7: "GND", 8: "OUT", 14: "VCC"}}
@@ -310,14 +336,22 @@ OSC_PADS = {"dip": {1: "=VCC", 7: "GND", 8: "OUT", 14: "VCC"}}
 IDC_HEADERS = {n: f"Connector_IDC:IDC-Header_2x{n // 2}_P2.54mm_Vertical" for n in (40, 50, 64)}
 
 
-def footprint_for(typ, style):
-    pkg = OVERRIDES.get(style, {}).get(typ) or DIP_PACKAGE[typ]
+def pinout_of(typ, part=None):
+    """The pinout (a key of PINOUTS) of a chip type, as the part number
+    `part` has it."""
+    return PART_PINOUTS.get(part, typ)
+
+
+def footprint_for(typ, style, part=None):
+    typ = pinout_of(typ, part)
+    pkg = PART_PACKAGES.get(part) or OVERRIDES.get(style, {}).get(typ) or DIP_PACKAGE[typ]
     return FP[style][pkg]
 
 
-def pad_map(typ, style):
+def pad_map(typ, style, part=None):
     """{pad number (str): logical name}, with VCC, GND, NC and =RAIL
-    entries, for a chip type in a style."""
+    entries, for a chip type (the part number `part`) in a style."""
+    typ = pinout_of(typ, part)
     if typ == "osc" and style in OSC_PADS:
         return {str(k): v for k, v in OSC_PADS[style].items()}
     return {str(i): name for i, name in enumerate(PINOUTS[typ], 1)}

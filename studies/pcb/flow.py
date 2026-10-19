@@ -12,7 +12,6 @@ Each step's results go into a dict, which `heron pcb build` prints and the
 sweep collects.
 """
 
-import importlib.util
 import json
 import os
 import shutil
@@ -21,7 +20,7 @@ import time
 
 from heron import BUILD
 from heron.infra.pcb import board as B
-from heron.infra.pcb import check, copper, dsn, fanout, place, render, router
+from heron.infra.pcb import check, copper, dsn, fanout, packages, place, render, router
 
 from . import cards
 
@@ -33,7 +32,7 @@ def kicad_cli():
 
 
 def pcbnew_available():
-    return importlib.util.find_spec("pcbnew") is not None
+    return copper.pcbnew_python() is not None
 
 
 def drc(path):
@@ -56,12 +55,17 @@ def drc(path):
 def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="F", halo=None,
           seed=1, moves=None, router_name="grid", route_params=None, out=None, checks=True,
           name=None, freeroute_timeout=3600, decaps=None, timing_driven=True,
-          arrangement="grid", pitch=None):
+          arrangement="grid", pitch=None, gaps=None, align=True):
     """Build one board and check it. Returns a dict of what happened.
     arrangement: "grid" (rows and columns of slots, every chip the same way
     round) or "free"; pitch: the slots' least size, default the card's
-    (cards.PITCH); moves: the annealing's (default 150,000 on a grid, whose
-    moves are cheap, and 30,000 free)."""
+    (cards.PITCH); align: a block of grid slots more than one long starts
+    on an even column or row; moves: the annealing's (default 150,000 on a
+    grid, whose moves are cheap, and 30,000 free); decaps: "under",
+    "beside" or "under-all" (under the through-hole chips too, as 0805s:
+    a board soldered by hand); gaps: the least gaps between courtyards,
+    (surface-mount to through-hole, through-hole to through-hole), default
+    RFC 0026's."""
     res = {"card": card, "style": style, "width": width, "height": height, "layers": layers,
            "sides": sides, "router": router_name, "arrangement": arrangement}
     name = name or f"{card}-{style}-{int(width)}x{int(height)}-{layers}L-{sides}"
@@ -69,7 +73,10 @@ def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="
     os.makedirs(out, exist_ok=True)
     res["name"] = name
     t0 = time.time()
-    b = cards.board(card, style, width, height, layers=layers)
+    decaps = decaps or ("under" if style == "smd" and sides == "F" else "beside")
+    under_all = decaps == "under-all"
+    b = cards.board(card, style, width, height, layers=layers,
+                    cap=packages.FP[style].get("CAP_UNDER") if under_all else None)
     nl = b.netlist
     chips = [p for p in b.parts.values() if p.kind == "chip"]
     res["chips"] = len(chips)
@@ -81,16 +88,17 @@ def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="
     if halo is None:
         # the room kept around each part, in mm: what the sweep found best
         halo = 1.0 if style == "dip" else 0.8 if sides == "F" else 1.2
-    decaps = decaps or ("under" if style == "smd" and sides == "F" else "beside")
     res["decaps"] = decaps
-    kw = dict(region=b.region, halo=halo, sides=sides, decaps=decaps,
+    if gaps:
+        res["gaps"] = list(gaps)
+    kw = dict(region=b.region, halo=halo, sides=sides, decaps=decaps, gaps=gaps,
               seed=seed, weights=cards.weights(nl) if timing_driven else None)
     if arrangement == "grid" and sides != "F":
         raise ValueError("a grid placement is one-sided: use arrangement='free' with sides='FB'")
     if arrangement == "free":
         pl = place.Placer(b, grid=0.635 if style == "smd" else 1.27, **kw)
     else:
-        pl = place.GridPlacer(b, pitch or cards.PITCH[(style, layers)], **kw)
+        pl = place.GridPlacer(b, pitch or cards.PITCH[(style, layers)], align=align, **kw)
         res["pitch"] = [round(pl.px, 2), round(pl.py, 2)]
     # largest first packs the surface-mount boards best, left to right the
     # DIP ones: try one, then the other; if the critical nets' weights
@@ -118,7 +126,8 @@ def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="
         return res
     w0, w1 = pl.refine(moves=moves or (30000 if arrangement == "free" else 150000))
     res["hpwl_m"] = round(w1 / 1000, 1)
-    place.place_decaps(b, side="B" if decaps == "under" else "F")
+    place.place_decaps(b, side="B" if decaps in ("under", "under-all") else "F",
+                       **({"tht_clear": 0, "under_tht": True} if under_all else {}))
     res["decaps_beside"] = len(getattr(b, "decaps_beside", []))
     res["fanout"] = fanout.fanout(b)
     b.add_planes()

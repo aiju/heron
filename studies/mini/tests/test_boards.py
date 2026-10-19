@@ -2,6 +2,7 @@
 limits, the connectors, a board's netlist and its export, the boards'
 delays on the timing analysis's netlist."""
 
+import json
 import os
 import tempfile
 import unittest
@@ -153,6 +154,31 @@ class Delays(unittest.TestCase):
                 ref, pin = f"W~{ref}~{pin}", "Y"
             c = chips[ref]
             self.assertEqual(c["pin_delays"][c["pins"].index(pin)], 1500)
+
+    def test_pcb_delays(self):
+        # the routed boards' delays, from the simulation's netlist onto the
+        # analysis's: MWIN and LATE come from the clock generator's
+        # stand-in there, and U_MEMW takes MWIN on another pin
+        nl = board.build(sim=False)
+        d = {"delays": [["U_MEMW", "I1", "MWIN", 700, "in"], ["U00_1", "2B", "LATE", 300, "in"],
+                        ["U_K2", "IO0", "MWIN", 1200, "out"]],
+             "net delays": {"MWIN": {"driver": 1200, "load": 700},
+                            "LATE": {"driver": 900, "load": 300},
+                            "CLK": {"driver": 5000, "load": 2000}},
+             "on": {"U_MEMW": ["MWIN"], "U00_1": ["LATE"], "U_K2": ["LATE", "MWIN"]}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "delays.json")
+            with open(path, "w") as f:
+                json.dump(d, f)
+            got = {(r, p): ps for r, p, ps in boards.pcb_delays(nl, path)}
+        mwin = [(i.ref, p) for i in nl.instances for p, n in i.conn.items()
+                if n == "MWIN" and i.kind(p) == "in"]
+        # the driver is a stand-in: each input has its own and the driver's
+        self.assertEqual({k: got[k] for k in mwin}, {k: 1900 for k in mwin})
+        self.assertEqual(got[("U00_1", "2B")], 1200)
+        self.assertNotIn("X_CLK", {r for r, _ in got})
+        # the clocks are the reference
+        self.assertFalse(any(nl.refs[r].conn[p] == "CLK" for r, p in got))
 
 
 if __name__ == "__main__":

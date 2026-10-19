@@ -298,10 +298,39 @@ def check(board):
     return errs
 
 
+_FILL = """import sys, pcbnew
+b = pcbnew.LoadBoard(sys.argv[1])
+pcbnew.ZONE_FILLER(b).Fill(b.Zones())
+pcbnew.SaveBoard(sys.argv[2], b)
+"""
+
+
+def pcbnew_python():
+    """The Python that can import KiCad's pcbnew module: this one, or
+    $KICAD_PYTHON, or one of the system's python3.x (KiCad's packages build
+    the module for the distribution's Python, which needn't be the one
+    running this); None if there is none."""
+    import importlib.util
+    import os
+    import shutil
+    import subprocess
+    import sys
+    if importlib.util.find_spec("pcbnew") is not None:
+        return sys.executable
+    names = [os.environ.get("KICAD_PYTHON")] + [f"python3.{m}" for m in range(14, 9, -1)]
+    for name in names:
+        exe = name and shutil.which(name)
+        if exe and subprocess.run([exe, "-c", "import pcbnew"], capture_output=True).returncode == 0:
+            return exe
+    return None
+
+
 def fill_zones(path, out=None):
     """Fill the zones of a board file with KiCad's own filler (pcbnew's
-    Python module, KiCad 9 or 10) and save it."""
-    import pcbnew
-    b = pcbnew.LoadBoard(path)
-    pcbnew.ZONE_FILLER(b).Fill(b.Zones())
-    pcbnew.SaveBoard(out or path, b)
+    Python module, KiCad 9 or 10) and save it, in whichever Python has
+    the module (pcbnew_python())."""
+    import subprocess
+    exe = pcbnew_python()
+    if exe is None:
+        raise RuntimeError("no Python with KiCad's pcbnew module (set KICAD_PYTHON)")
+    subprocess.run([exe, "-c", _FILL, path, out or path], check=True, capture_output=True)

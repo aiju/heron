@@ -19,7 +19,7 @@ from collections import defaultdict
 
 from heron.infra.hw import netlist as hwnl
 
-from . import kicadlib, packages
+from . import kicadlib, packages, physical
 
 
 # ---- 1. pinouts --------------------------------------------------------------------
@@ -55,7 +55,9 @@ def check_pinouts(types=None):
             units[unit].append((int(num), name, et))
         supply = {}
         for num, name, et, unit in pins:
-            if et == "power_in":
+            # a second supply pin may be drawn as passive (KiCad's
+            # IS61C5128AL has its centre VDD and GND so)
+            if et == "power_in" or (et == "passive" and name in ("VCC", "VDD", "GND", "VSS")):
                 supply.setdefault(name, []).append(int(num))
         if typ in hwnl.GATE_SECTIONS or typ == "125":
             if typ == "125":
@@ -112,7 +114,8 @@ def expected(nl, style, connectors=()):
     for inst in nl.instances:
         if inst.type.family == "fixture":
             continue
-        for pad, name in packages.pad_map(inst.type.name, style).items():
+        pn = physical.part_number(nl, inst) if inst.type.family != "osc" else None
+        for pad, name in packages.pad_map(inst.type.name, style, pn).items():
             if name in ("VCC", "GND", "=VCC", "=GND"):
                 out[(inst.ref, pad)] = name.lstrip("=")
             elif name.startswith("="):

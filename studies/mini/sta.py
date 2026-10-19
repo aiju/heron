@@ -480,7 +480,16 @@ def main(args):
         env = dict(os.environ, HERON_MINI_TICK=repr(timing.XGA_TICK))
         return subprocess.run([sys.executable, "-m", "heron"] + argv, env=env).returncode
     global BOARD_DELAYS
-    if getattr(args, "boards", False):
+    if getattr(args, "pcb", None) is not None:
+        if args.write:
+            import sys
+            print("--write takes the plain analysis: leave out --pcb", file=sys.stderr)
+            return 2
+        from . import boards
+        path = args.pcb or boards.PCB_DELAYS
+        BOARD_DELAYS = boards.pcb_delays(build(), path, clocks=args.board_clocks)
+        print(f"with the routed boards' delays ({path}): {len(BOARD_DELAYS)} pins\n")
+    elif getattr(args, "boards", False):
         if args.write:
             import sys
             print("--write takes the plain analysis: leave out --boards", file=sys.stderr)

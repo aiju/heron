@@ -198,8 +198,9 @@ class Board:
 
     def add_keepout(self, x0, y0, x1, y1, name, no=("tracks", "vias", "footprints"), allow=()):
         """A rectangle kept clear of what `no` names ("tracks", "vias",
-        "footprints") on every copper layer, but for parts of the kinds in
-        `allow` (connectors on the back edge, say). Written as a KiCad rule
+        "footprints", "copperpour": the planes) on every copper layer, but
+        for parts of the kinds in `allow` (connectors on the back edge,
+        say). Written as a KiCad rule
         area, which its DRC checks too (footprints only when nothing is
         allowed: KiCad's rule areas can't make exceptions)."""
         self.keepouts.append({"x0": x0, "y0": y0, "x1": x1, "y1": y1, "name": name,
@@ -318,7 +319,7 @@ class Board:
                         ["hatch", "edge", 0.5], ["connect_pads", ["clearance", 0]],
                         ["min_thickness", 0.25], ["filled_areas_thickness", "no"],
                         ["keepout", ["tracks", rule("tracks")], ["vias", rule("vias")],
-                         ["pads", "allowed"], ["copperpour", "allowed"],
+                         ["pads", "allowed"], ["copperpour", rule("copperpour")],
                          ["footprints", rule("footprints")]],
                         ["fill", ["thermal_gap", 0.5], ["thermal_bridge_width", 0.5]],
                         ["polygon", ["pts"] + [["xy", round(x, 4), round(y, 4)] for x, y in pts]]])
