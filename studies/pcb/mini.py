@@ -765,8 +765,8 @@ VARIANTS = {
                      dict(style="smd", layers=6, weights=False)),
     "smd-4": ("SOIC, PLCC and SOJ, 4 layers", ("cpu1", "cpu2"), dict(style="smd", layers=4)),
     "dip-6": ("DIP soldered by hand (1 mm between pads, the capacitors under the chips), "
-              "6 layers", ("cpu1",), dict(layers=6)),
-    "dip-4": ("DIP soldered by hand, 4 layers", ("cpu1",), dict(layers=4)),
+              "6 layers, placed for wire length", ("cpu1",), dict(layers=6, weights=False)),
+    "dip-4": ("the same on 4 layers", ("cpu1",), dict(layers=4, weights=False)),
 }
 MAIN = "smd-6"
 
