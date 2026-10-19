@@ -487,12 +487,17 @@ def assign(nl=None, target=TARGET, sections=None, overrides=None, chains=4, rest
 _DEFAULT = None
 
 
-def weights():
-    """tune()'s net weights (board-weights.json), or None."""
+def _weights_file():
     if not os.path.exists(WEIGHTS_PATH):
         return None
     with open(WEIGHTS_PATH) as f:
-        return json.load(f)["weights"]
+        return json.load(f)
+
+
+def weights():
+    """tune()'s net weights (board-weights.json), or None."""
+    w = _weights_file()
+    return w["weights"] if w else None
 
 
 def default():
@@ -983,11 +988,22 @@ def readme(a, header=HEADER, per_ground=PER_GROUND):
         "100 ohms, driven by an F or ABT output, steps most of the way at the near",
         "end). A bus driven from several boards is delayed at each driver with a",
         "reader elsewhere, so its near loads wait too. The clocks are left out",
-        "(`--board-clocks` puts them in): a clock sent to each board through a",
-        "buffer of matched delay arrives everywhere together. `heron mini boards",
-        "--sta` lists the microinstructions that need more ticks, `--slowed` the",
-        "crossings on their critical paths.",
+        f"({', '.join(CLOCKS)}; `--board-clocks` puts them in): a clock sent to each",
+        "board through a buffer of matched delay arrives everywhere together, and",
+        "each board needs such a buffer (not in the netlist yet). `heron mini",
+        "boards --sta` lists the microinstructions that need more ticks,",
+        "`--slowed` the crossings on their critical paths.",
         "",
+    ]
+    tw = _weights_file()
+    if tw:
+        lines += [
+            f"With the weighted cut (below) the suite and the C programs take "
+            f"{tw['suite ms']} ms by the timing analysis with the boards' delays, against",
+            f"{tw['plain ms']} ms on one board.",
+            "",
+        ]
+    lines += [
         "## The cut",
         "",
         "Every chip starts on its section's board (boards.SECTIONS), a gate package",
