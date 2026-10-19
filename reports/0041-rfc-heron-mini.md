@@ -62,7 +62,9 @@ into three boards.
   cables, the CPU on two: 107, 160 and 108 packages. With 1.5 ns for
   each crossing the cut costs the suite nothing measurable, the nets on
   the critical paths kept on one board; each board's netlist is
-  exported for the PCB study ([28](#28-the-boards)).
+  exported for the PCB study ([28](#28-the-boards)). As routed in the
+  CPU boards' first cut, the boards cost 5 to 8%
+  ([report 0044](0044-report-mini-cpu-boards.md)).
 - **A programmable clock chip** (the CY22393, tentatively) gives the
   master clock, the UARTs' clock, and 65 MHz for the XGA modes, the
   whole machine switching to it while one is shown
@@ -1017,7 +1019,12 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   (pessimistic). The clocks are left out: MCLK, CLK and the clock
   generator's phases (H0, H1, T1, T2), which come out of one 22V10
   together and would go to each board through a buffer of matched delay
-  (a CDC341 or a 74ABT541 a board, not in the netlist yet).
+  (a CDC341 or a 74ABT541 a board, not in the netlist yet). As routed
+  ([report 0044, 5](0044-report-mini-cpu-boards.md#5-the-delays)) a
+  crossing's flight is about 2 ns, and the heavy nets' loads (the B bus,
+  the data bus, the broadcast fields) cost more than their flights: with
+  the first cut's delays the suite and the C programs take 5% (the
+  flights alone) to 8% (with the loads) longer than on one board.
 - **Timing with the cut:** the plain min-cut costs the suite and the C
   programs 5.0%: 122 microinstruction states need a tick more, 74 of
   them for a single crossing, the register file's address from its
@@ -1059,7 +1066,11 @@ guess: a variant with 74HCT's delays and the length classes it gives.
 - **Density:** at RFC 0023's DIP CPU card's 630 mm² a chip (269 chips on
   490 × 345 mm, four layers) an A4 board holds about 100; 190 needs about
   330 mm² a chip, so PLCC and SOIC where there's a choice, and perhaps
-  more layers. The PCB study will tell ([31](#31-open-tasks)).
+  more layers. The CPU boards' first cut
+  ([report 0044, 3](0044-report-mini-cpu-boards.md#3-density-smd-or-dip-four-layers-or-six)):
+  both fit A4 in SMD and route on six layers, cpu1 on four as well; in
+  DIP cpu2 doesn't fit A4 at any spacing, and cpu1 does only soldered by
+  hand, 1 mm between pads (RFC 0026 wants 2.54).
 - **Updating the microcode** shouldn't mean taking the stack apart:
   1. **The control store on the top board, in sockets:** the sixteen
      flashes (PLCC-32 sockets) pulled, programmed and put back. No chips;
@@ -1214,10 +1225,13 @@ The video's questions are [RFC 0042, 14](0042-rfc-mini-video.md#14-open-question
   timing analysis (`heron mini hw sta --pcb`). Next: the clock buffers
   in the netlist; buffers on the heavy nets and more of the timing
   loop; the length classes worked out for the boards and the suite at
-  chip level with them; the io board.
+  chip level with them; the io board. The first cut also found a race
+  in the write window (MWIN against T2: a registered MWIN would remove
+  it, [report 0044, 6](0044-report-mini-cpu-boards.md#6-the-timing)).
 - **Contention:** a break-before-make look at the worst hand-overs
   ([29](#29-how-it-was-checked)), the A bus's first (tentatively
-  decided).
+  decided). The boards' delays lengthen the B bus's worst overlap from
+  6.4 to 9.4 ns ([report 0044, 6](0044-report-mini-cpu-boards.md#6-the-timing)).
 - **The clock chip:** the CPU's speed at other master clocks, VGA's at
   75.5 MHz among them ([20](#20-the-clock)).
 - **XGA in the fast simulator:** the Rust engine keeps the CPU at VGA's

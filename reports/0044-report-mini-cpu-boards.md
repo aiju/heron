@@ -1,7 +1,7 @@
 ---
 number: 44
 type: report
-title: "Heron Mini's CPU boards: a first cut"
+title: Heron Mini's CPU boards: a first cut
 status: draft
 date: 2026-10-19
 context:
@@ -40,13 +40,14 @@ delays in [delays.json](0044-report-mini-cpu-boards/delays.json).
   cpu1, 109 chips, in 53.2 m of track; cpu2, 160 chips, in 91.9 m.
   SOIC logic, the control store in PLCC-32, the SRAMs in SOJ as RFC 0041
   has them, the 74F181s in DIP ([3](#3-density-smd-or-dip-four-layers-or-six), [4](#4-the-boards)).
-- **In DIP, cpu2 doesn't fit A4** at any spacing tried: 1.8 times the
+- **In DIP, cpu2 doesn't fit A4** at any spacing tried: 1.5 times the
   slots at RFC 0026's spacing, 1.2 times soldered by hand with 1 mm
   between pads, and still too many with the courtyards touching. cpu1
   fits by hand and routes, on six layers and on four. So the CPU's two
   boards can't both be DIP on A4; one can.
 - **Layers:** cpu1 routes on four layers in SMD and in DIP; cpu2
-  LAYERS4SUMMARY.
+  needs six: on four, 25 of its nets are still in conflict after the
+  router's 60 rounds.
 - **The stack:** neighbours on facing vertical headers, the lower
   board's top side to the upper board's bottom, pin k over pin k, a
   55 mm ribbon (0.30 ns); cpu1's cables to io loop past cpu2 from
@@ -65,6 +66,11 @@ delays in [delays.json](0044-report-mini-cpu-boards/delays.json).
   1.5 ns. Placed for wire length alone it was 5 to 17%: one round of
   placing the nets on the slowed critical paths closer halved what the
   loads cost ([6](#6-the-timing)).
+- **At chip level** the suite runs with the routed delays as on the RTL
+  model, with no timing violation (at length classes two ticks longer).
+  Getting there found a race in the write window (MWIN against T2, a
+  registered MWIN would remove it), and the boards lengthen the B bus's
+  worst hand-over overlap from 6.4 to 9.4 ns ([6](#6-the-timing)).
 - **The clocks need a buffer tree on each board,** in the netlist: CLK is
   one 22V10 output reaching 60 inputs over 1.7 m of copper as routed.
   Also found: the AS7C4096A's pinout (36 pins, not 32), the clock chip's
@@ -193,10 +199,10 @@ where the numbers below come from; `heron pcb mini fit`):
 
 | Packing | cpu1 (109 chips) | cpu2 (160 chips) |
 |---|---|---|
-| SMD, RFC 0026's spacing | FIT1S | FIT2S |
-| DIP, RFC 0026's spacing (2.54 mm between through-hole pads) | FIT1D | FIT2D |
-| DIP soldered by hand: 1 mm between pads, the capacitors under the chips | FIT1T | FIT2T |
-| DIP with the courtyards touching (0.5 mm between pads) | FIT1C | FIT2C |
+| SMD, RFC 0026's spacing | 59% of the slots: fits | 89%: fits |
+| DIP, RFC 0026's spacing (2.54 mm between through-hole pads) | 101%: 20 chips without a place | 149%: 90 without a place |
+| DIP soldered by hand: 1 mm between pads, the capacitors under the chips | 79%: fits | 120%: 53 without a place |
+| DIP with the courtyards touching (0.5 mm between pads) | 68%: fits | 99%: 31 without a place |
 
 (The share is the slots the parts' blocks need over the slots the
 headers, holes and fiducials leave; past about 90% the blocks don't all
@@ -225,9 +231,11 @@ find a place.)
   quarter as much.
 
 **Layers:** both boards route on six (signal, ground, signal, signal,
-power, signal: R2), with no conflict, in about 10 and 20 seconds. cpu1
+power, signal: R2), with no conflict, in 11 and 39 of the router's rounds. cpu1
 routes on four as well, in SMD and in DIP; cpu2, at 90% of its slots,
-LAYERS4. RFC 0023's CPU card didn't route as a grid on four layers at
+doesn't: after the router's 60 rounds 25 nets are still in conflict, on
+100 m of track and 6,442 vias (92 m and 4,295 on six). Moving twenty or
+so chips to cpu1 (section 7) might let it. RFC 0023's CPU card didn't route as a grid on four layers at
 any size; cpu1 does because it is sparse.
 
 ## 4. The boards
@@ -259,6 +267,9 @@ flow has (results.md, *The boards built*):
 | signal track | 53.2 m | 91.9 m |
 | vias | 2,430 | 4,295 |
 | differences from the netlist, copper opens and shorts, KiCad DRC errors, fab test netlist differences | 0 | 0 |
+
+(cpu1's 109 chips are RFC 0041's 107 packages, a resistor network and
+the debug button, which the cut doesn't count.)
 
 The other variants are in results.md: the same boards placed for wire
 length alone (section 6), on four layers (section 3), and cpu1 as a DIP
@@ -307,11 +318,12 @@ load; and the back-annotation for the timing (section 6). Summarised
 - **The loads matter more than the flights.** The datasheets give their
   delays at 50 pF; a net's own capacitance over that adds about
   0.05 ns/pF (74F, 74ABT, and here also 22V10s and memories, whose
-  datasheets give no figure). The heaviest: RESET_n, 24 inputs on three
-  boards (235 pF, 9 ns more); FILL, 36 inputs (199 pF, 7.5 ns); DECGO,
-  the decode's go, 20 pins (161 pF, 5.6 ns); every bit of the B bus, 14
-  pins on both CPU boards (about 155 pF, 5.3 ns); the data bus, 14 pins
-  on three boards (150–156 pF). That model treats a net as a lumped
+  datasheets give no figure). The heaviest: RESET_n, 24 pins on three
+  boards (235 pF, 9 ns more); FILL, 36 pins (199 pF, 7.5 ns); DECGO,
+  the decode's go, 20 pins (161 pF, 5.6 ns); the B bus's low byte, 13
+  drivers and 14 pins on both CPU boards (about 155 pF, 5.3 ns; its
+  other bits 75–108 pF); the data bus, 14 pins on three boards (up to
+  156 pF). That model treats a net as a lumped
   load. A 74ABT driver on a long line switches it on the incident wave,
   so for it the flight alone is nearer the truth; a weak driver (a
   22V10's 4 mA high) may need the reflection, so the lumped model is
@@ -330,7 +342,17 @@ latest (`mini.delays()`). The clocks stay the reference, as if each
 board had its buffer. The length classes are worked out again for each
 set of delays, as RFC 0041's comparison does (results.md, *Timing*):
 
-TIMINGTABLE
+| Delays | Suite and C programs | | Length classes (ticks) | Slowest microinstruction | Needing more ticks |
+|---|---:|---:|---|---:|---:|
+| one board (RFC 0041's lengths) | 790.3 ms | | 5, 6, 7 | 117.9 ns | |
+| 1.5 ns a crossing (RFC 0041, 28) | 790.5 ms | +0.0% | 5, 6, 7 | 119.3 ns | 1 |
+| first cut: flights alone | 830.1 ms | +5.0% | 5, 6, 7 | 124.3 ns | 570 |
+| first cut: flights and loads | 855.7 ms | +8.3% | 5, 6, 7, 8 | 140.3 ns | 1,098 |
+| placed for wire length: flights alone | 830.1 ms | +5.0% | 5, 6, 7 | 126.4 ns | 570 |
+| placed for wire length: flights and loads | 921.8 ms | +16.6% | 6, 7, 8 | 147.0 ns | 10,255 |
+
+(Of the 10,845 microinstruction states the analysis times, in every
+queue and interrupt state.)
 
 - **On the first cut the mini runs 5 to 8% slower than on one board:**
   5% with the flights alone, 8% with each net's load as the datasheets
@@ -354,7 +376,39 @@ TIMINGTABLE
 - **The two bounds** are the load model's (section 5): for nets driven
   by 74ABT the flights alone are nearer, for the 22V10s' the lumped load.
   A signal-integrity look at the heaviest nets would settle each.
-- CHIPLEVEL
+- **At chip level** (`heron mini hw test --pcb`), each pin's routed
+  delay a wire element in the simulator's netlist, the suite's 19
+  programs run cycle for cycle as on the RTL model, with no timing
+  violation (flights and loads; arith with the flights alone too). That
+  is with every length class two ticks longer (7, 8, 9), since the
+  analysis can't yet work out the classes for board delays (section 9):
+  it checks the boards' delays for glitches, pulse widths, holds and
+  contention, not setup at speed.
+- **The first try failed, on the model:** 0.1 ns write pulses on bank
+  0's SRAMs (tWP) in every program. Taking nets' delays out until one
+  was left found MID, the write window's register in U_K2: the
+  simulator reads a 22V10's feedback from its pin, so MID's pin delay
+  (its load and flight, 0.135 ns) delayed U_K2's own feedback. A 22V10
+  feeds a registered output back from the register, inside the chip,
+  so such an output now has no pin delay, its load and flight all on
+  its inputs (`mini._fed_back()`; 132 of the netlist's 22V10 outputs).
+  The table above doesn't change: a driver's delay and the rest on its
+  inputs add up the same.
+- **But it shows a race in the netlist.** MWIN, bank 0's write window,
+  is MID & !T1 & !T2 in U_K2, and MID and T2 both fall at the same
+  clock edge, the end of the window. If T2 (from U_K1) falls at U_K2's
+  input before MID falls inside U_K2, MWIN pulses high and so does a
+  write enable. The simulator, at one corner and with the clocks
+  ideal, has them change together. On the boards T2 is the later of the
+  two by its wire (0.1–0.4 ns of flight, more with its load or a clock
+  buffer), so it works out, but only by the two 22V10s' clock-to-output
+  spread, for which the datasheet gives no minimum. A registered MWIN
+  would remove it (for RFC 0041, section 9).
+- **The B bus's hand-overs overlap longer:** with the routed delays the
+  worst overlap of two drivers on the B bus is 9.4 ns, against 6.4 ns
+  on one board, with ten times as many overlaps (arith). That is for
+  RFC 0041's break-before-make look at the worst hand-overs (RFC 0041,
+  31): the boards make it worse.
 
 ## 7. What else the first cut found
 
@@ -372,10 +426,10 @@ TIMINGTABLE
   boards' drivers fed the same way. On cpu2 that is seven or eight
   branches for CLK, four on cpu1. This belongs in the netlist, so that
   the simulator runs it (R29).
-- **Heavy nets:** RESET_n (24 inputs on three boards, 235 pF), FILL (36
-  inputs, 200 pF), DECGO (20, 160 pF), the B bus (14 pins on both CPU
-  boards, 150–190 pF a bit) and the data bus (14 pins on three boards).
-  With the loads, these are most of what the boards cost the timing
+- **Heavy nets:** RESET_n (24 pins on three boards, 235 pF), FILL (36
+  pins, 200 pF), DECGO (20, 160 pF), the B bus's low byte (14 pins on
+  both CPU boards, about 155 pF a bit) and the data bus (14 pins on
+  three boards). With the loads, these are most of what the boards cost the timing
   (section 6). A buffer per board on the broadcast ones (RESET_n, FILL,
   DECGO, the microinstruction's fields that fan out across both boards)
   would cut their load in half or better; the B bus would be shorter if
@@ -427,7 +481,9 @@ general but `studies/pcb/mini.py`:
   each driver late by its load and its flight to its nearest input (or
   its farthest bidirectional pin, which a wire element can't sit in
   front of), each input by the rest of its flight from the driver that
-  reaches it latest.
+  reaches it latest. A 22V10's registered output that its own equations
+  read has no delay on its pin, its load and flight all on the inputs:
+  the register feeds back inside the chip (section 6).
 - **Into the mini:** `studies/mini/boards.py`'s `pcb_delays()` puts the
   delays on the timing analysis's netlist, whose stand-ins for the clock
   generator and differently placed gate packages it maps by net;
@@ -452,10 +508,13 @@ For Emily (also in [RFC 0041, 30](0041-rfc-heron-mini.md#30-open-questions)):
 1. **SMD or DIP:** both CPU boards in SMD (the first cut), or cpu1 in
    DIP soldered by hand and cpu2 in SMD, or the CPU on three DIP boards?
    cpu2 doesn't fit A4 in DIP.
-2. **Six layers or four:** cpu1 routes on four; cpu2 LAYERS4SHORT.
+2. **Six layers or four:** cpu1 routes on four; cpu2 needs six as cut (25 nets
+   in conflict on four).
 3. **The cables:** neighbours on facing headers and the skip as a loop,
    as modelled, or something else (stacking headers, a backplane)?
 4. **Spacing for a board soldered by hand** (RFC 0026, question 8).
+5. **The write window's race** (section 6): MWIN registered, or left
+   to the 22V10s' clock-to-output spread and T2's wire.
 
 Next, in the order they'd help:
 
