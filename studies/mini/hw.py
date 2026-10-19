@@ -19,7 +19,7 @@ fixture in I/O region 7, on the data bus, in both.
   heron mini hw blocks              the block instructions against the model
   heron mini hw ps2                 the PS/2 ports: the keyboard's bytes, a byte
                                     sent to the mouse and its answer
-  heron mini hw debug               the debug button: the debug entry, interrupts off
+  heron mini hw debug               the debug button and ODT: a session on UART 0
   heron mini hw sta [--write]       static timing analysis (ticks.json)
   heron mini hw bom                 the parts list
 
@@ -156,8 +156,9 @@ def config(max_cycles, trace=None, fetch_trace=FETCH_TRACE, seed=1):
         "addr_nets": ["GND"] + [f"PC{i}" for i in range(1, 32)],
         "data_nets": [f"QH{i}" for i in range(16)],
         "fetch_trace": fetch_trace,
-        # HALT, nothing pending, interrupts off
-        "stop_when": [[("uSEQ0", 1), ("uSEQ1", 1), ("PEND", 0), ("IFLAG", 0)]],
+        # HALT (not ODT's single step leaving, which has LDPC), nothing
+        # pending, interrupts off
+        "stop_when": [[("uSEQ0", 1), ("uSEQ1", 1), ("uLDPC", 0), ("PEND", 0), ("IFLAG", 0)]],
         "dump": ["X_IO", "U_UART0", "U_UART1", "U_CF"]
         + [f"U_RAM{b}{k}" for b in range(2) for k in range(4)]
         + [f"U_RFA{k}" for k in range(4)],
@@ -380,9 +381,31 @@ def cmd_devices(args):
 PS2 = os.path.join(HERE, "sw", "hw", "ps2.s")
 PS2_KEYS = b"\x1c\xf0\x1c"               # 'A' pressed and released
 PS2_EXPECTED = b"1C F0 1C \nFA \n"
-DEBUG = os.path.join(HERE, "sw", "hw", "debug.s")
+DEBUG = os.path.join(HERE, "sw", "hw", "odt.s")
 DEBUG_PS = 300_000_000                     # the button pressed 0.3 ms after power-up
-DEBUG_EXPECTED = b"debug y0\n"
+DEBUG_EXPECTED = b"00005678\nCAFEF00D\n12345678\n"
+# ODT's session on UART 0 (sw/hw/odt.s): r2 read and changed, a word read,
+# the next changed, the PC read, a single step, r3 set, and go
+ODT_SESSION = b"R2/5678\r1000/\n12345678\rRP/\rSR3/1\rG"
+# what ODT answers, but for the PCs (where the press found the loop)
+ODT_ANSWERS = [b"\r\n@R2/00001234 5678\r\n@1000/CAFEF00D \r\n00001004/00C0FFEE 12345678"
+               b"\r\n@RP/", b" \r\n@S\r\n", b"\r\n@R3/00000000 1\r\n@G"]
+
+
+def odt_transcript_ok(out):
+    """ODT's transcript as ODT_SESSION should make it: the PC as it
+    started, ODT_ANSWERS with the PC shown and the PC after the step
+    between them, the step one instruction on. G's CR LF may still be in
+    the UART when the program halts."""
+    import re
+    m = re.fullmatch(re.escape(b"\r\n") + rb"([0-9A-F]{8})" + re.escape(ODT_ANSWERS[0])
+                     + rb"([0-9A-F]{8})" + re.escape(ODT_ANSWERS[1]) + rb"([0-9A-F]{8})"
+                     + re.escape(ODT_ANSWERS[2]) + rb"(?:\r\n?)?", out)
+    if not m:
+        return False
+    pc0, pc1, pc2 = (int(x, 16) for x in m.groups())
+    # the loop's three instructions: INC, TST, BEQ (taken)
+    return pc0 == pc1 and pc2 == {0x2A: 0x2C, 0x2C: 0x2E, 0x2E: 0x2A}.get(pc1)
 
 
 def run_hwprog(path, expected, max_cycles=2_000_000, debug_ps=0, **inputs):
@@ -415,7 +438,12 @@ def cmd_hwprog(args):
         if mouse != b"\xf4":
             diffs.append(f"the mouse received {mouse!r}, not F4")
     else:
-        hw, out, diffs = run_hwprog(DEBUG, DEBUG_EXPECTED, debug_ps=DEBUG_PS)
+        hw, out, diffs = run_hwprog(DEBUG, DEBUG_EXPECTED, debug_ps=DEBUG_PS,
+                                    uart_inp=ODT_SESSION)
+        odt = bytes(hw["dumps"]["U_UART0"])
+        sys.stdout.write(odt.decode("latin-1").replace("\r", ""))
+        if not odt_transcript_ok(odt):
+            diffs.append(f"ODT's transcript {odt!r}")
     print(summarize(hw))
     sys.stdout.write(out.decode("latin-1"))
     for d in diffs:
@@ -602,7 +630,7 @@ def main(argv=None):
                                                 "the video steal cycles: B1)")
     v.set_defaults(fn=cmd_video)
     for name, desc in (("ps2", "sw/ps2.s: the keyboard's bytes, a byte to the mouse"),
-                       ("debug", "sw/debug.s: the debug button")):
+                       ("debug", "sw/odt.s: the debug button and ODT, a session on UART 0")):
         x = sub.add_parser(name, help=desc)
         x.set_defaults(fn=cmd_hwprog)
     k = sub.add_parser("blocks", help="the block instructions (FILL, COPY, BLIT, EXPAND)")

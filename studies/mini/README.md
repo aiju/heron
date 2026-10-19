@@ -51,7 +51,7 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 | `reduce.py` | What could be left out: the chips each reduction removes, its time from the profile |
 | `report.py` | RFC 0041's tables (`reports/0041-rfc-heron-mini/performance.md`) |
 | `sw/video/` | `demo.s`: RFC 0042's options from a program (1024 x 768 x 2 from a frame base, the cursor, the beam) |
-| `sw/hw/` | Programs outside the suite: `devices.s` (the I/O devices), `ps2.s` (the keyboard and the mouse), `debug.s` (the debug button), `video.s` (the descriptors) and `modes.s` (every mode and the cursor), for the chip-level netlist; `addrerr.s` (the address error), also on the model |
+| `sw/hw/` | Programs outside the suite: `devices.s` (the I/O devices), `ps2.s` (the keyboard and the mouse), `odt.s` (the debug button and ODT), `video.s` (the descriptors) and `modes.s` (every mode and the cursor), for the chip-level netlist; `addrerr.s` (the address error), also on the model |
 
 ```sh
 heron mini check [--c]               # the RTL model against the ISA simulator: the suite, the C programs

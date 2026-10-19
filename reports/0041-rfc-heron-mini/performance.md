@@ -8,43 +8,43 @@ The program suite and the compiled C programs on the register-transfer model (wh
 
 | Program | Instructions | Cycles | CPI | Time | Per instruction | Reference | as MHz |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| arith | 16528 | 50593 | 3.06 | 5.81 ms | 351 ns | 85762 | 14.8 |
-| bignum | 5147 | 23179 | 4.50 | 2.68 ms | 520 ns | 32019 | 12.0 |
-| bst | 10398 | 21268 | 2.05 | 2.40 ms | 231 ns | 35197 | 14.6 |
-| crc | 61552 | 118105 | 1.92 | 12.87 ms | 209 ns | 193715 | 15.0 |
-| fib | 81574 | 182165 | 2.23 | 21.22 ms | 260 ns | 314179 | 14.8 |
-| hello | 53 | 160 | 3.02 | 0.02 ms | 356 ns | 140 | 7.4 |
-| interrupts | 10381 | 81202 | 7.82 | 8.64 ms | 832 ns | 56022 | 6.5 |
-| life | 164136 | 308638 | 1.88 | 35.65 ms | 217 ns | 700219 | 19.6 |
-| lines | 24031 | 46690 | 1.94 | 5.20 ms | 217 ns | 71715 | 13.8 |
-| mandel | 107711 | 933069 | 8.66 | 100.92 ms | 937 ns | 709266 | 7.0 |
-| matmul | 5849 | 32469 | 5.55 | 3.71 ms | 634 ns | 39229 | 10.6 |
-| monitor | 14597 | 29962 | 2.05 | 3.35 ms | 230 ns | 42009 | 12.5 |
-| queens | 60238 | 106756 | 1.77 | 12.29 ms | 204 ns | 207037 | 16.9 |
-| rpn | 10275 | 22149 | 2.16 | 2.52 ms | 245 ns | 29430 | 11.7 |
-| sha256 | 86727 | 135362 | 1.56 | 14.64 ms | 169 ns | 338753 | 23.1 |
-| sieve | 71514 | 119321 | 1.67 | 13.82 ms | 193 ns | 204564 | 14.8 |
-| sort | 34947 | 66179 | 1.89 | 7.47 ms | 214 ns | 106996 | 14.3 |
-| strings | 5710 | 12504 | 2.19 | 1.44 ms | 253 ns | 16622 | 11.5 |
-| vm | 592268 | 1984824 | 3.35 | 230.72 ms | 390 ns | 3017229 | 13.1 |
-| wordfreq | 65909 | 161942 | 2.46 | 18.53 ms | 281 ns | 199635 | 10.8 |
-| c/arith | 72013 | 193125 | 2.68 | 21.85 ms | 303 ns | 310696 | 14.2 |
-| c/bignum | 16444 | 67130 | 4.08 | 7.65 ms | 465 ns | 101530 | 13.3 |
-| c/bst | 15289 | 39008 | 2.55 | 4.46 ms | 292 ns | 63554 | 14.3 |
-| c/crc | 81475 | 148493 | 1.82 | 16.19 ms | 199 ns | 236394 | 14.6 |
-| c/fib | 96037 | 235445 | 2.45 | 26.76 ms | 279 ns | 376145 | 14.1 |
-| c/hello | 204 | 428 | 2.10 | 0.05 ms | 239 ns | 608 | 12.5 |
-| c/life | 182490 | 335685 | 1.84 | 38.49 ms | 211 ns | 766424 | 19.9 |
-| c/mandel | 200619 | 807856 | 4.03 | 89.22 ms | 445 ns | 761423 | 8.5 |
-| c/matmul | 11972 | 37921 | 3.17 | 4.25 ms | 355 ns | 59088 | 13.9 |
-| c/queens | 66471 | 112269 | 1.69 | 12.69 ms | 191 ns | 216503 | 17.1 |
-| c/sha256 | 111311 | 191266 | 1.72 | 20.93 ms | 188 ns | 478775 | 22.9 |
-| c/sieve | 92093 | 159654 | 1.73 | 18.34 ms | 199 ns | 252743 | 13.8 |
-| c/sort | 43558 | 86876 | 1.99 | 9.82 ms | 226 ns | 160716 | 16.4 |
-| c/strings | 17774 | 32583 | 1.83 | 3.67 ms | 206 ns | 49950 | 13.6 |
-| c/wordfreq | 85316 | 190932 | 2.24 | 21.58 ms | 253 ns | 276282 | 12.8 |
-| **hand-written, total** | 1419111 | 4355175 | 3.07 | 495.24 ms | 349 ns | 6343576 | 12.8 |
-| **compiled C, total** | 1093066 | 2638671 | 2.41 | 295.94 ms | 271 ns | 4110831 | 13.9 |
+| arith | 16528 | 50594 | 3.06 | 5.81 ms | 351 ns | 85762 | 14.8 |
+| bignum | 5147 | 23180 | 4.50 | 2.68 ms | 520 ns | 32019 | 12.0 |
+| bst | 10398 | 21269 | 2.05 | 2.40 ms | 231 ns | 35197 | 14.6 |
+| crc | 61552 | 118106 | 1.92 | 12.87 ms | 209 ns | 193715 | 15.0 |
+| fib | 81574 | 182166 | 2.23 | 21.22 ms | 260 ns | 314179 | 14.8 |
+| hello | 53 | 161 | 3.04 | 0.02 ms | 358 ns | 140 | 7.4 |
+| interrupts | 10381 | 81203 | 7.82 | 8.64 ms | 832 ns | 56022 | 6.5 |
+| life | 164136 | 308639 | 1.88 | 35.65 ms | 217 ns | 700219 | 19.6 |
+| lines | 24031 | 46691 | 1.94 | 5.20 ms | 217 ns | 71715 | 13.8 |
+| mandel | 107711 | 933070 | 8.66 | 100.92 ms | 937 ns | 709266 | 7.0 |
+| matmul | 5849 | 32470 | 5.55 | 3.71 ms | 634 ns | 39229 | 10.6 |
+| monitor | 14597 | 29963 | 2.05 | 3.35 ms | 230 ns | 42009 | 12.5 |
+| queens | 60238 | 106757 | 1.77 | 12.29 ms | 204 ns | 207037 | 16.9 |
+| rpn | 10275 | 22150 | 2.16 | 2.52 ms | 245 ns | 29430 | 11.7 |
+| sha256 | 86727 | 135363 | 1.56 | 14.64 ms | 169 ns | 338753 | 23.1 |
+| sieve | 71514 | 119322 | 1.67 | 13.82 ms | 193 ns | 204564 | 14.8 |
+| sort | 34947 | 66180 | 1.89 | 7.47 ms | 214 ns | 106996 | 14.3 |
+| strings | 5710 | 12505 | 2.19 | 1.44 ms | 253 ns | 16622 | 11.5 |
+| vm | 592268 | 1984825 | 3.35 | 230.72 ms | 390 ns | 3017229 | 13.1 |
+| wordfreq | 65909 | 161943 | 2.46 | 18.53 ms | 281 ns | 199635 | 10.8 |
+| c/arith | 72013 | 193126 | 2.68 | 21.85 ms | 303 ns | 310696 | 14.2 |
+| c/bignum | 16444 | 67131 | 4.08 | 7.65 ms | 465 ns | 101530 | 13.3 |
+| c/bst | 15289 | 39009 | 2.55 | 4.46 ms | 292 ns | 63554 | 14.3 |
+| c/crc | 81475 | 148494 | 1.82 | 16.19 ms | 199 ns | 236394 | 14.6 |
+| c/fib | 96037 | 235446 | 2.45 | 26.76 ms | 279 ns | 376145 | 14.1 |
+| c/hello | 204 | 429 | 2.10 | 0.05 ms | 240 ns | 608 | 12.4 |
+| c/life | 182490 | 335686 | 1.84 | 38.49 ms | 211 ns | 766424 | 19.9 |
+| c/mandel | 200619 | 807857 | 4.03 | 89.22 ms | 445 ns | 761423 | 8.5 |
+| c/matmul | 11972 | 37922 | 3.17 | 4.25 ms | 355 ns | 59088 | 13.9 |
+| c/queens | 66471 | 112270 | 1.69 | 12.69 ms | 191 ns | 216503 | 17.1 |
+| c/sha256 | 111311 | 191267 | 1.72 | 20.93 ms | 188 ns | 478775 | 22.9 |
+| c/sieve | 92093 | 159655 | 1.73 | 18.34 ms | 199 ns | 252743 | 13.8 |
+| c/sort | 43558 | 86877 | 1.99 | 9.82 ms | 226 ns | 160716 | 16.4 |
+| c/strings | 17774 | 32584 | 1.83 | 3.67 ms | 206 ns | 49950 | 13.6 |
+| c/wordfreq | 85316 | 190933 | 2.24 | 21.58 ms | 253 ns | 276282 | 12.8 |
+| **hand-written, total** | 1419111 | 4355193 | 3.07 | 495.25 ms | 349 ns | 6343576 | 12.8 |
+| **compiled C, total** | 1093066 | 2638686 | 2.41 | 295.94 ms | 271 ns | 4110831 | 13.9 |
 
 ## Cycles
 
@@ -52,7 +52,7 @@ The ticks each executed microinstruction needs (static timing analysis of the ne
 
 | Ticks needed | Cycles | Share |
 |---:|---:|---:|
-| 5 | 3255130 | 46.5% |
+| 5 | 3255164 | 46.5% |
 | 6 | 2700621 | 38.6% |
 | 7 | 1038255 | 14.8% |
 
@@ -135,7 +135,7 @@ The netlist cut into 3 boards (`heron mini boards`, `boards.py`): stacked top to
 | cpu1-io | 45 | 2 |
 | cpu2-io | 61 | 2 |
 
-With 1.5 ns on every crossing (at the inputs on the far board; the clocks and the clock generator's phases by matched buffers, not delayed), the static timing analysis's slowest microinstruction is 119.3 ns (117.9 ns on one board), 1 of 10845 microinstructions need more ticks, and the suite and the C programs take 790.5 ms against 790.3 ms (+0.0%). The cut weights the 35 nets on the critical paths (`heron mini boards --tune`, `board-weights.json`).
+With 1.5 ns on every crossing (at the inputs on the far board; the clocks and the clock generator's phases by matched buffers, not delayed), the static timing analysis's slowest microinstruction is 119.3 ns (117.9 ns on one board), 1 of 11289 microinstructions need more ticks, and the suite and the C programs take 790.5 ms against 790.3 ms (+0.0%). The cut weights the 35 nets on the critical paths (`heron mini boards --tune`, `board-weights.json`).
 
 ## What could be left out
 

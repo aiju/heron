@@ -467,9 +467,10 @@ a program can update its own boot image.
 **The debug button,** a push button on the board, breaks into the
 running program whatever it is doing: its press is taken at the next
 instruction boundary, or at a `HALT`, even with interrupts off, and
-enters the microcode's debug entry, which pushes the flags word and the
-PC as an interrupt does, turns interrupts off and jumps to vector 0x1C.
-What the routine there does is software's.
+enters ODT, a console in the microcode on UART 0, which can show and
+change memory and registers, single-step and go on
+([RFC 0045](0045-rfc-mini-bring-up.md)'s Part I). So does reset when the
+boot flash is erased.
 
 ### 11. Parts
 
@@ -676,7 +677,7 @@ are few:
   the suite would take +57% (21% of its cycles are multiply and divide
   steps, `mandel`'s most of all). **Keep.**
 - **Bytes and halves:** the lanes that move a loaded byte or half down
-  and replicate a stored one, 13 chips, +19–26% without them. **Keep.**
+  and replicate a stored one, 8 chips, +19–26% without them. **Keep.**
 - **Rotations by 8 and 16** in the result path, 8 chips: the byte and
   half work and the constants use them; +19–26% without. **Keep.**
 - **Reads at the A bus** (`[R]` loads in one cycle): 6 chips, +6.8% on
@@ -717,6 +718,54 @@ And for draft 2's ISA as a whole, which the mini only follows:
   block instructions gain (no fetches and decodes, a shift planned per
   instruction), but an ISA question first: which encodings, and whether
   the full Heron would follow.
+
+#### 17.1 Register banks
+
+Draft 2's system level has 256 banks of `r0`–`r15`, a thread's each,
+and supervisor mode in bank 0
+([RFC 0029, 5](0029-rfc-draft-2-system.md#5-register-banks)); the mini
+has none. Its register file is four 32K × 8 SRAMs addressed by five
+lines, so a bank is an address line or more, A5 up, and nothing else
+in the file changes. Estimated, not built:
+
+| Banks | What they're for | Chips | Control bits | Time |
+|---|---|---:|---:|---|
+| 2 | an interrupt bank: every interrupt and trap switches to bank 1, the flags word's bit 5 holds the bank, so `RTI` goes back | 1 | 2 | none |
+| 4–256 | a bank a thread, draft 2's: a `bank` register for the program, bank 0 for the handlers and the kernel | 3–4 | 2–3 | none |
+
+- **Every register banked,** the microcode's own sixteen too, so the
+  bank lines come straight from a register: steady through the cycle,
+  they settle long before the address lines the 22V10s make, and the
+  register file's read path, the machine's tightest, is untouched.
+  Keeping the microcode's registers out of the banks, as draft 2 does,
+  would put a gate on that path or need inputs the address 22V10s don't
+  have. The price is that reset writes the microcode's eight constants
+  into every bank (256 banks: about 0.2 ms).
+- **Two banks:** one 22V10 holds the bank, set by the entries' first
+  microinstruction (which all trap, interrupt and fault entries share)
+  and loaded from the flags word's bit 5 when the flags word is
+  (`RTI`), and drives A5 as the bank, or the other one for a
+  microinstruction that asks: so two instructions can move a register
+  between the banks, as draft 2's `MFUR` and `MTUR` do. The flags word's
+  bit 5 is a spare input of its 74ABT541 already. Two of the control
+  word's four spare bits: set the bank, use the other one.
+- **More banks:** the `bank` register (a 74ABT377, written by an
+  instruction from the result), the mode (bank 0 while in a handler,
+  `bank` otherwise, and the other for `MFUR` and `MTUR`) as a pair of
+  74F157 or the 22V10, A5–A12. The SRAMs would take up to 1024.
+- **The board:** beside the register file on cpu2, at 160 packages now
+  (161–164, within the 190); or on cpu1, its lines on the ribbon, where
+  their timing allows it.
+- **What they'd buy:** an interrupt handler with registers of its own
+  saves none, about 12 cycles (1.4 µs) an interrupt for five registers:
+  little at the mini's interrupt rates (the frame's 60 a second, a UART
+  byte at most 11,520). The case is a multitasking kernel: on draft 2,
+  Fen's call and reply costs 21% more in its IPC loop without banks,
+  and 1% with four; two banks don't help there, since the threads
+  share one ([RFC 0029's tables](0029-rfc-draft-2-system/register-banks-results.md)).
+- **The ISA:** which of draft 2's system level the mini would take
+  with it (`bank`, `MFUR`, `MTUR`, the mode, or just the interrupt bank)
+  is **open**.
 
 ### 18. The video
 
@@ -871,10 +920,12 @@ task may use all of it, and the rules are few and checkable: no jumps
 (the queue), the flags saved and restored if it touches them (the flags
 word to the B bus and back, two cycles), nothing of r0–r15 but what it
 owns by convention. Cost: the wakeup lines into the decode's glue, a
-page for the tasks' entries (one of the control store's eight pages is
-free: the forced entries use the refill's, the interrupt's and the
-address error's four; the tasks would share it, by a wakeup number on its
-low address bits), an acknowledge per task (a spare control-word bit or a
+page for the tasks' entries (the control store's eight pages are taken:
+the general one, the forced entries' (the refill's, the interrupt's and
+the address error's four) and ODT's single step's,
+[RFC 0045](0045-rfc-mini-bring-up.md#3-how-odt-is-built); the tasks
+would share the step's, by a wakeup number on its low address bits), an
+acknowledge per task (a spare control-word bit or a
 decoded strobe): **0–2 chips**. The catch is latency: a task waits for the instruction to
 end, a 256-word `COPY` for three lines, a 32-bit `MULU` for about 40
 cycles; the block
@@ -947,13 +998,14 @@ now): a push button to ground, through a Schmitt inverter and a
 flip-flop on CLK, sets DBGQ (`U_DBG`, a 22V10) on its press; DBGQ raises
 PEND whatever the I flag, so the next instruction boundary (or a HALT)
 takes the interrupt entry; the entry's first microinstruction branches on
-DBGQ (a free condition code, 10) to the debug entry: the flags word and
-the PC pushed as for an interrupt, interrupts off, and a jump to vector
-0x1C. DBGQ clears once the interrupt entry has run. So a program stuck
-in a loop with interrupts off can be broken into, and the microcode
-routine can be made to do anything later (a monitor in the boot flash,
-single steps). Two chips with the button (the 22V10 takes the place of
-PEND's gate; the Schmitt inverter is the PS/2 ports' spare).
+DBGQ (a free condition code, 10) to ODT, a console in the microcode on
+UART 0 (Emily: "like ODT", single steps through the UART): memory and
+registers shown and changed, a single step, go on
+([RFC 0045](0045-rfc-mini-bring-up.md)). DBGQ clears once the interrupt
+entry has run. So a program stuck in a loop with interrupts off can be
+broken into. Two chips with the button (the 22V10 takes the place of
+PEND's gate; the Schmitt inverter is the PS/2 ports' spare); the single
+step is two 22V10s' equations, and ODT about 450 microinstructions.
 
 ### 23. A fast link
 
@@ -1144,9 +1196,11 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   (open-collector clock and data, the protocol's timing): the keyboard's
   three bytes received and printed, 0xF4 sent to the mouse bit by bit
   and its 0xFA received (`heron mini hw ps2`).
-- **The debug button,** pressed while a program loops with interrupts
-  off: the debug entry taken, vector 0x1C, the flags word and the PC
-  pushed (`heron mini hw debug`).
+- **The debug button and ODT,** pressed while a program loops with
+  interrupts off: a session on UART 0 that reads and changes a register
+  and memory, reads the PC, single-steps and lets the program go on, on
+  the model and at chip level (`heron mini hw debug`); and reset with an
+  erased boot flash, on the model.
 - **The address error:** a program (`sw/hw/addrerr.s`) with 22 misaligned
   accesses (word and half loads and stores at every kind of address,
   arithmetic on memory, jumps and calls through memory, `LDM` and `STM`,
@@ -1222,12 +1276,15 @@ For Emily:
    ([23](#23-a-fast-link)).
 7. **Keyboard and mouse:** the two PS/2 ports as built, for now
    ([22](#22-keyboard-and-mouse)).
-8. **The debug button:** something more than a button, later
-   ([22.1](#221-the-debug-button)).
+8. **The debug button and ODT:** ODT's commands, and stepping
+   microinstructions ([RFC 0045](0045-rfc-mini-bring-up.md#8-open-questions)).
 9. **Microcode tasks:** whether, A or B, and for what ([21](#21-microcode-tasks)).
 10. **More RAM** ([25](#25-more-ram)) and **a 74HCT mini**
     ([26](#26-a-74hct-mini)).
-11. **The name:** Heron Mini or mini-heron.
+11. **Register banks:** none, an interrupt bank (1 chip) or draft 2's
+    bank a thread (3–4 chips), and the ISA that comes with them
+    ([17.1](#171-register-banks)).
+12. **The name:** Heron Mini or mini-heron.
 
 Tentatively decided, as built: the cursor's X register and rows read
 line by line, the frame's and the lines' interrupts sharing the video's

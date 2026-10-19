@@ -45,6 +45,31 @@ class Model(unittest.TestCase):
         m = rtl.RTL(s).run(100_000)
         self.assertEqual(m.out, b"Hello, world!\n")
 
+    def test_odt(self):
+        # the debug button and ODT: hw.py's session, its transcript exactly
+        # (the button found the loop's INC), the program going on as told
+        img = asmcore.assemble_file(isas.get("v2"), hw.DEBUG)
+        s = system.System(uart_inp=hw.ODT_SESSION)
+        s.load(img)
+        m = rtl.RTL(s)
+        m.debug_at = 20_000
+        m.run(5_000_000)
+        self.assertEqual(m.out, hw.DEBUG_EXPECTED)
+        out = bytes(s.uarts[0].out)
+        self.assertTrue(hw.odt_transcript_ok(out))
+        self.assertEqual(out, b"\r\n0000002A" + hw.ODT_ANSWERS[0] + b"0000002A" +
+                         hw.ODT_ANSWERS[1] + b"0000002C" + hw.ODT_ANSWERS[2] + b"\r\n")
+
+    def test_odt_at_reset(self):
+        # an erased boot flash: reset enters ODT at PC 0, and G starts the
+        # program in RAM
+        img, _ = assemble("hello")
+        s = system.System(uart_inp=b"G", boot=b"\xff" * 4)
+        s.load(img)
+        m = rtl.RTL(s).run(1_000_000)
+        self.assertEqual(bytes(s.uarts[0].out), b"\r\n00000000\r\n@G\r\n")
+        self.assertEqual(m.out, b"Hello, world!\n")
+
     def test_address_error(self):
         # a misaligned access traps at its instruction and changes nothing
         img, inp = assemble("addrerr")
@@ -122,9 +147,12 @@ class ChipLevel(unittest.TestCase):
         self.assertEqual(bytes(out["dumps"]["X_MOUSE"]), b"\xf4")
 
     def test_debug(self):
-        out, text, diffs = hw.run_hwprog(hw.DEBUG, hw.DEBUG_EXPECTED, debug_ps=hw.DEBUG_PS)
+        # the debug button, ODT's session on UART 0, the program going on
+        out, text, diffs = hw.run_hwprog(hw.DEBUG, hw.DEBUG_EXPECTED, debug_ps=hw.DEBUG_PS,
+                                         uart_inp=hw.ODT_SESSION)
         self.assertEqual(diffs, [])
         self.assertEqual(out["violation_total"], 0)
+        self.assertTrue(hw.odt_transcript_ok(bytes(out["dumps"]["U_UART0"])))
 
     def test_netlists(self):
         # both build and pass the netlist's checks

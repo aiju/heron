@@ -1188,8 +1188,13 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False, xlengths=Non
     decgo = gal.AND(goq, lit("FAULT", 0), lit("RESET", 0))
     uf0 = gal.AND(lit(DEC), lit("PEND", 0), gal.OR(nocan, lit(u["LDPC"])))
     firq = gal.AND(gal.OR(lit(DEC), gal.AND(lit(u["SEQ0"]), lit(u["SEQ1"]))), lit("PEND"))
-    ua = [gal.OR(gal.AND(lit("FAULT"), lit(u["LL0"])), gal.AND(lit("FAULT", 0), uf0)),
-          gal.OR(gal.AND(lit("FAULT"), lit(u["LL1"])), gal.AND(lit("FAULT", 0), firq)),
+    # ODT's single step leaves through page 011: a halt (SEQ 3) with LDPC,
+    # whose jump is never taken (PCCOND 3), without an interrupt pending
+    fstep = gal.AND(lit(u["SEQ0"]), lit(u["SEQ1"]), lit(u["LDPC"]), lit("PEND", 0))
+    ua = [gal.OR(gal.AND(lit("FAULT"), lit(u["LL0"])), gal.AND(lit("FAULT", 0), uf0),
+                 gal.AND(lit("FAULT", 0), fstep)),
+          gal.OR(gal.AND(lit("FAULT"), lit(u["LL1"])), gal.AND(lit("FAULT", 0), firq),
+                 gal.AND(lit("FAULT", 0), fstep)),
           lit("FAULT")]
     seq = {"DECGO": (decgo, False, False), "DECGO_n": (decgo, False, True),
            "DECGOP": (gal.AND(goq, lit("PC1F")), False, False),
@@ -1198,7 +1203,14 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False, xlengths=Non
         seq[f"YU{i}"] = (gal.AND(lit("RESET", 0), gal.OR(gal.AND(lit("DECGO"), lit(QH[13 + i])),
                                                          gal.AND(lit("DECGO", 0), ua[i]))),
                          False, False)
-    gal.add(nl, "U_SEQ", seq)
+    # its pins as the boards have them (an equation's terms move a net to
+    # another macrocell otherwise)
+    gal.add(nl, "U_SEQ", seq, pins={
+        "FAULT": "CLK", "PC1F": "I1", u["LL0"]: "I10", u["LL1"]: "I11", "PEND": "I2",
+        QH[13]: "I3", QH[14]: "I4", QH[15]: "I5", "RESET": "I6", "V0": "I7", DEC: "I8",
+        u["LDPC"]: "I9", u["REF"]: "IO0", "YU2": "IO1", "DECGOP": "IO2", "DECGO": "IO3",
+        "YU0": "IO4", "YU1": "IO5", "DECGO_n": "IO6", "YG": "IO7", u["SEQ0"]: "IO8",
+        u["SEQ1"]: "IO9"})
     # the branch condition (CONDT, the condition before cc's low bit
     # inverts it) and the jump: LDPC, always / on the branch condition / on
     # not CL; the PC's (PCJ_n) none in an address error (the queue's and
@@ -1226,8 +1238,11 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False, xlengths=Non
     # the debug button (a push button to ground, a Schmitt inverter: DBGBTN
     # high while it's pressed), synchronised to CLK. A press sets DBGQ,
     # which raises PEND: the interrupt entry's microcode sees DBGQ (COND
-    # 10) and takes the debug entry instead. DBGQ clears once the interrupt
-    # entry runs (ENT: the interrupt's page, 010, was the address). A 22V10
+    # 10) and enters ODT instead. DBGQ clears once the interrupt entry runs
+    # (ENT: the interrupt's page, 010, was the address). ODT's single step
+    # leaves through page 011, which arms STEPA; the decode that goes ahead
+    # next (DECGO: the stepped instruction's) sets DBGQ, and raises PEND at
+    # once, so that the instruction after it doesn't start. A 22V10
     if sim:
         nl.add("button", "U_DBGB", OUT="DBGB_n",
                params={"press_ps": debug_ps, "release_ps": debug_ps + 2_000_000_000}
@@ -1235,14 +1250,22 @@ def build(sim=False, lengths=None, por_ps=2_000_000, capture=False, xlengths=Non
     nl.add("74", "U_DBS", nocheck=True,
            **{"1D": "DBGBTN", "1CLK": "CLK", "1PRE": "VCC", "1CLR": "RESET_n", "1Q": "DBS1",
               "2D": "GND", "2CLK": "GND", "2PRE": "VCC", "2CLR": "VCC"})
+    stepped = gal.AND(lit("STEPA"), lit("DECGO"))
     gal.add(nl, "U_DBG", {
         "DBS2": (lit("DBS1"), True, False),
         "ENT": (gal.AND(lit("YU0", 0), lit("YU1"), lit("YU2", 0), lit("DECGO", 0)), True, False),
+        "STEPA": (gal.AND(lit("RESET_n"), gal.OR(
+            gal.AND(lit("YU0"), lit("YU1"), lit("YU2", 0), lit("DECGO", 0)),
+            gal.AND(lit("STEPA"), lit("DECGO", 0)))), True, False),
         "DBGQ": (gal.AND(lit("RESET_n"), gal.OR(gal.AND(lit("DBS1"), lit("DBS2", 0)),
-                                                gal.AND(lit("DBGQ"), lit("ENT", 0)))), True,
-                 False),
-        "PEND_D": (gal.OR(gal.AND(lit("IRQQ"), lit("IFLAG")), lit("DBGQ")), False, False)},
-        clock="CLK")
+                                                gal.AND(lit("DBGQ"), lit("ENT", 0)), stepped)),
+                 True, False),
+        "PEND_D": (gal.OR(gal.AND(lit("IRQQ"), lit("IFLAG")), lit("DBGQ"), stepped), False,
+                   False)},
+        clock="CLK", pins={"DBS1": "I1", "DECGO": "I2", "IFLAG": "I3", "IRQQ": "I4",
+                           "RESET_n": "I5", "YU0": "I6", "YU1": "I7", "YU2": "I8",
+                           "DBS2": "IO3", "DBGQ": "IO4", "PEND_D": "IO5", "ENT": "IO6",
+                           "STEPA": "IO7"})
 
     # ---- register file -----------------------------------------------------------
     # two copies of 32 x 32 bits (r0-r15, then the microcode's own), read

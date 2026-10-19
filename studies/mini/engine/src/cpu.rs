@@ -85,6 +85,8 @@ pub struct Rom {
 const SEQ_NEXT: u32 = 0;
 const SEQ_DISPATCH: u32 = 2;
 const SEQ_HALT: u32 = 3;
+/// ucode.STEP_ADDR: the page ODT's single step leaves through.
+const STEP_PAGE: u32 = 3 << 13;
 /// A parcel consumed with the queue empty comes from the word the cycle
 /// fetches: the cycle is two ticks longer for it.
 const DEMAND_HOLD: u64 = 2;
@@ -615,7 +617,8 @@ impl Cpu {
             jump = match w[f::PCCOND] {
                 0 => true,
                 1 => self.bcond(w[f::CCB]) != 0,
-                _ => self.cl == 0,
+                2 => self.cl == 0,
+                _ => false,
             };
         }
         let mut forced = Forced::None;
@@ -642,6 +645,10 @@ impl Cpu {
             if self.pend != 0 {
                 forced = Forced::Irq;
                 y = self.rom.irq;
+            } else if w[f::LDPC] != 0 && w[f::PCCOND] == 3 {
+                // ODT's single step leaving through page 3 (it needs the
+                // debug button, which this engine doesn't model)
+                y |= STEP_PAGE;
             }
         } else if self.pend != 0 {
             forced = Forced::Irq;
@@ -812,7 +819,11 @@ impl Cpu {
         self.pend = u32::from(self.irqq != 0 && i_now != 0);
         self.irqq = u32::from(sysm.irq());
 
-        if seq == SEQ_HALT && forced == Forced::None && (self.i == 0 || !sysm.can_interrupt()) {
+        if seq == SEQ_HALT
+            && forced == Forced::None
+            && !(w[f::LDPC] != 0 && w[f::PCCOND] == 3)
+            && (self.i == 0 || !sysm.can_interrupt())
+        {
             self.halted = true;
         }
         let k = self.rom.lengths[(w[f::LCL] & 3) as usize] + extra + hold;

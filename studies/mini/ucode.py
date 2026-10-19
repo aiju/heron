@@ -28,6 +28,8 @@ Control store address, 17 bits: {E, U[2:0], Y[12:0]}
                      cycle may jump
     E = 0, U = 010   interrupt entry (a decode or a halt with an interrupt
                      pending)
+    E = 0, U = 011   ODT's single step leaving: a halt with LDPC and
+                     PCCOND 3 (a jump never taken) goes to {011, NEXT}
     E = 0, U = 1LL   an address error: this cycle's data access is a half
                      at an odd address or a word at one that isn't a
                      multiple of 4. LL (the microinstruction's own field)
@@ -48,7 +50,8 @@ address's top bits (E and U), not Y.
            to the refill or the interrupt entry when it can't go ahead
     SEQ 2  dispatch: Y = {NEXT[12:4], QH[11:8]}, on the index parcel's
            scale and size
-    SEQ 3  halt: Y = NEXT (itself), unless an interrupt is pending
+    SEQ 3  halt: Y = NEXT (itself), unless an interrupt is pending; with
+           LDPC, U = 011 (ODT's single step)
 
 An instruction's first microinstruction knows its whole first parcel, so
 the parcel's constants (the quick constants, the 7-bit constants, a
@@ -202,13 +205,15 @@ ZERO, ONES, K0FFF, KE1, KE0, K80, K7F, KMULFX = (G + 3, G + 4, G + 5, G + 6, G +
 TMP4, TMP5, TMP6 = G + 11, G + 12, G + 13
 CONSTS = {ZERO: 0, ONES: 0xFFFFFFFF, K0FFF: 0x0FFF, KE1: 0xE1, KE0: 0xE0,
           K80: 0x80808080, K7F: 0x7F7F7F7F, KMULFX: 0xE0}
+# ODT's (the console, below): the program's PC and flags word while it runs
+OPC, OFL = G + 14, G + 15
 RF_NAMES = {SP: "sp", TMP1: "TMP1", TMP2: "TMP2", TMP3: "TMP3", ZERO: "ZERO", ONES: "ONES",
             K0FFF: "K0FFF", KE1: "KE1", KE0: "KE0", K80: "K80", K7F: "K7F", KMULFX: "KMULFX",
-            TMP4: "TMP4", TMP5: "TMP5", TMP6: "TMP6"}
+            TMP4: "TMP4", TMP5: "TMP5", TMP6: "TMP6", OPC: "OPC", OFL: "OFL"}
 
 # The plain machine's vectors: code addresses (studies/v2_isa's machine)
 VECTORS = {"reset": 0x00, "irq": 0x04, "illegal": 0x08, "swi": 0x0C, "divide": 0x10,
-           "address": 0x14, "tag": 0x18, "debug": 0x1C}
+           "address": 0x14, "tag": 0x18}
 
 # --------------------------------------------------------------------------
 # Building microinstructions
@@ -544,10 +549,10 @@ def illegal(pcfix=2):
 def interrupt_entry():
     """The interrupt entry (forced at a decode while an interrupt is
     pending): the frame, then the jump to vector 4; or, if the debug
-    button asked (COND dbg, whatever I), to vector 0x1C, the debug entry,
-    which a debugger can make whatever it likes."""
+    button asked (COND dbg, whatever I), ODT, the console (below), with
+    the flags word in R."""
     return Node(SAVE_FLAGS, ("branch", CONDS["dbg"], trap_tail(VECTORS["irq"], 0, "interrupt"),
-                             trap_tail(VECTORS["debug"], 0, "debug")), "interrupt")
+                             odt()["irq"]), "interrupt")
 
 
 def fault_entry(ll):
@@ -556,6 +561,227 @@ def fault_entry(ll):
     instruction's own address, then the jump to vector 0x14."""
     return Node(SAVE_FLAGS, ("next", trap_tail(VECTORS["address"], 2 * ll, "address error")),
                 "address error")
+
+
+# --------------------------------------------------------------------------
+# ODT: a console in microcode on UART 0 (RFC 0045)
+#
+# The debug button stops the program at an instruction boundary (the
+# interrupt entry, whatever I), and reset does when the boot flash is
+# erased; ODT then talks on UART 0, leaving the program's registers,
+# flags and memory as they were but for what it's told to change:
+#
+#   nnnnnnnn/      open the memory word at nnnnnnnn (rounded down to a
+#                  word) and show it
+#   Rn/  RP/  RS/  open register rn (n a hex digit), the PC, the flags word
+#   nnnnnnnn CR    put nnnnnnnn in the open location and close it (CR
+#                  alone: close it)
+#   nnnnnnnn LF    the same, then open the next word or register
+#   G  nnnnnnnnG   go on at the PC, or at nnnnnnnn
+#   S  nnnnnnnnS   one instruction, at the PC or at nnnnnnnn, then back
+#
+# Hex digits are either case, as are the letters. It shows the PC and the
+# prompt @ as it starts, echoes what's typed and answers anything else with
+# ? (CR and LF aren't echoed: it starts its own lines). It sets UART 0 to 115,200 baud, 8 bits, no parity, its FIFO and auto
+# RTS/CTS on. Its own state: the program's PC and flags word in OPC and
+# OFL, the rest in the TMPs, R, MAR, LC, SX and CL, all dead at an
+# instruction boundary. I is off while it runs.
+#
+# A single step leaves through STEP_ADDR (page 3), which only a halt
+# microinstruction with LDPC and PCCOND 3 (a jump that's never taken)
+# reaches: the debug request's 22V10 sees the page and raises the request
+# once the next instruction has started (board.py, U_DBG).
+
+O_ACC, O_HAVE, O_LOC, O_KIND, O_CH, O_PV = TMP1, TMP2, TMP3, TMP4, TMP5, TMP6
+K_MEM, K_REG, K_PC, K_FLAGS = 1, 2, 3, 4             # what's open (O_KIND; 0 nothing)
+STEP_ADDR = 3 << U_SHIFT
+UART_LSR, UART_LCR, UART_FCR, UART_MCR = 0x14, 0x0C, 0x08, 0x10
+_odt_cache = {}
+
+
+def _o(*items):
+    return chain("ODT", *items)
+
+
+def _base(dest="ldmar"):
+    """UART 0's base, 0xE000_0000 (KE0 rotated), into MAR or R."""
+    return mi(ra=KE0, alu="passa", rms="ror8", **{dest: 1})
+
+
+def _lsr_wait(mask, nxt):
+    """Until UART 0's line status has a bit of mask set, then nxt, with
+    MAR at the UART's base. Uses R and CL."""
+    head = Node(_base("ldr"), None, "ODT")
+    head.succ = ("next", _o(mi(a="r", kv=UART_LSR, alu="add", ldmar=1),
+                            mi(mem="read", size="byte"),
+                            mi(b="tbyte", alu="passb", ldr=1),
+                            mi(a="r", kv=mask, alu="and", ldcl="zero"),
+                            branch("ODT", _base(), "cl", nxt, head)))
+    return head
+
+
+def _putc(src, nxt):
+    """Register src's low byte to UART 0 once it has room, then nxt."""
+    return _lsr_wait(0x20, Node(mi(ra=src, mem="write", size="byte"), ("next", nxt), "ODT"))
+
+
+def _getc(nxt):
+    """A byte from UART 0 into O_CH, once there is one, then nxt."""
+    return _lsr_wait(0x01, _o(mi(mem="read", size="byte"), mi(b="tbyte", alu="passb", w=O_CH),
+                              nxt))
+
+
+def _puts(text, nxt):
+    for c in reversed(text):
+        nxt = _o(mi(kv=ord(c), alu="passb", w=O_CH), _putc(O_CH, nxt))
+    return nxt
+
+
+def _uart_set(off, val, nxt):
+    """UART 0's register at off <- val."""
+    return _o(_base("ldr"), mi(a="r", kv=off, alu="add", ldmar=1),
+              mi(kv=val, alu="passb", ldr=1), mi(a="r", mem="write", size="byte"), nxt)
+
+
+def _hexchar(nxt):
+    """O_CH, 0-15, into its hex digit's character."""
+    letter = Node(mi(ra=O_CH, kv=7, alu="add", w=O_CH), ("next", nxt), "ODT")
+    return _o(mi(ra=O_CH, kv=10, alu="sub", ldr=1),
+              branch("ODT", mi(ra=O_CH, kv=0x30, alu="add", w=O_CH), "r31", letter, nxt))
+
+
+def _print_hex(src, nxt):
+    """Register src as eight hex digits, each from the top nibble of
+    O_PV rotated left by four (LC counts them)."""
+    end_ = Node(mi(lcinc=1), None, "ODT")
+    rol = mi(ra=O_PV, alu="dbl", cin="a31", w=O_PV)
+    body = _o(rol, rol, rol, rol, mi(ra=O_PV, kv=15, alu="and", w=O_CH),
+              _hexchar(_putc(O_CH, end_)))
+    end_.succ = ("branch", CONDS["tc"], body, nxt)
+    return _o(mi(ra=src, alu="passa", w=O_PV), mi(kv=-8, alu="passb", ldlc=1), body)
+
+
+def _digit(yes, no):
+    """O_CH a hex digit's character (either case): its value into O_CH,
+    then yes; else no, O_CH as it was."""
+    as_digit = _o(mi(ra=O_CH, kv=0x30, alu="sub", w=O_CH), yes)
+    as_letter = _o(mi(ra=O_CH, kv=0x20, alu="or", w=O_CH), mi(ra=O_CH, kv=0x57, alu="sub", w=O_CH),
+                   yes)
+    l3 = branch("ODT", mi(), "r31", no, as_letter)                       # c | 0x20 < 'g'
+    l2 = branch("ODT", mi(a="r", kv=6, alu="sub", ldr=1), "r31", l3, no)  # c | 0x20 >= 'a'
+    letter = _o(mi(ra=O_CH, kv=0x20, alu="or", ldr=1), mi(a="r", kv=0x61, alu="sub", ldr=1), l2)
+    d2 = branch("ODT", mi(), "r31", letter, as_digit)                    # c < '0' + 10
+    d1 = branch("ODT", mi(a="r", kv=10, alu="sub", ldr=1), "r31", d2, no)  # c >= '0'
+    return _o(mi(ra=O_CH, kv=0x30, alu="sub", ldr=1), d1)
+
+
+def _cases(reg, cases, default):
+    """By register reg's value: [(value, node)], else default."""
+    nxt = default
+    for v, node in reversed(cases):
+        nxt = _o(mi(ra=reg, kv=v, alu="sub", ldcl="zero"), branch("ODT", mi(), "cl", nxt, node))
+    return nxt
+
+
+def _sx_to(src, nxt):
+    """SX <- register src (0-15): SX counts up through 15 to 0, then up
+    src times."""
+    count = Node(mi(ra=O_CH, alu="dec", w=O_CH, ldcl="zero", sxinc=1), None, "ODT")
+    test = branch("ODT", mi(), "cl", count, nxt)
+    count.succ = ("next", test)
+    return loop("ODT", mi(sxinc=1), "sx15", _o(mi(ra=src, alu="passa", w=O_CH, ldcl="zero"), test))
+
+
+def _if_have(yes, no):
+    """yes if a number was typed (O_HAVE), else no."""
+    return _o(mi(ra=O_HAVE, alu="passa", ldcl="zero"), branch("ODT", mi(), "cl", yes, no))
+
+
+def odt():
+    """ODT's graph: {"irq": its entry from the interrupt entry (the flags
+    word in R), "reset": from reset, "step": the single step's exit, at
+    STEP_ADDR}."""
+    if _odt_cache:
+        return _odt_cache
+    prompt = Node(mi(kv=0, alu="passb", w=O_KIND), None, "ODT")       # nothing open
+    cmd = Node(mi(kv=0, alu="passb", w=O_ACC), None, "ODT")           # no number yet
+    inp = Node(mi(kv=0, alu="passb", w=O_HAVE), None, "ODT")
+    more = Node(mi(), None, "ODT")                                    # the next character
+    bad = _puts("?", prompt)
+    prompt.succ = ("next", _puts("\r\n@", cmd))
+    cmd.succ = ("next", inp)
+    inp.succ = ("next", more)
+
+    # showing the open location: its value, a space, and a number to come
+    printv = _print_hex(O_PV, _puts(" ", cmd))
+    show = _cases(O_KIND, [
+        (K_MEM, _o(mi(mem="reada", size="word", ra=O_LOC), mi(b="t", alu="passb", w=O_PV),
+                   printv)),
+        (K_REG, _sx_to(O_LOC, _o(mi(ra="s", alu="passa", w=O_PV), printv))),
+        (K_PC, _o(mi(ra=OPC, alu="passa", w=O_PV), printv))],
+        _o(mi(ra=OFL, alu="passa", w=O_PV), printv))
+
+    def deposit(nxt):
+        """The number typed into the open location, if there is one."""
+        by_kind = _cases(O_KIND, [
+            (K_MEM, _o(mi(ra=O_LOC, alu="passa", ldmar=1), mi(ra=O_ACC, mem="write", size="word"),
+                       nxt)),
+            (K_REG, _sx_to(O_LOC, _o(mi(ra=O_ACC, alu="passa", w="s"), nxt))),
+            (K_PC, _o(mi(ra=O_ACC, alu="passa", w=OPC), nxt)),
+            (K_FLAGS, _o(mi(ra=O_ACC, alu="passa", w=OFL), nxt))], nxt)
+        return _if_have(by_kind, nxt)
+
+    slash_end = _puts("/", show)
+    advance = _cases(O_KIND, [
+        (K_MEM, _o(mi(ra=O_LOC, kv=4, alu="add", w=O_LOC),
+                   _puts("\r\n", _print_hex(O_LOC, slash_end)))),
+        (K_REG, _o(mi(ra=O_LOC, kv=1, alu="add", w=O_LOC), mi(ra=O_LOC, kv=15, alu="and", w=O_LOC),
+                   _puts("\r\nR", _o(mi(ra=O_LOC, alu="passa", w=O_CH),
+                                    _hexchar(_putc(O_CH, slash_end))))))],
+        prompt)
+
+    # R, then a register's digit, P or S, then /
+    expect_slash = _getc(_putc(O_CH, _cases(O_CH, [(ord("/"), show)], bad)))
+    reg_sel = _digit(_o(mi(ra=O_CH, alu="passa", w=O_LOC), mi(kv=K_REG, alu="passb", w=O_KIND),
+                        expect_slash),
+                     _cases(O_CH, [(ord(c), _o(mi(kv=k, alu="passb", w=O_KIND), expect_slash))
+                                   for c, k in (("P", K_PC), ("p", K_PC), ("S", K_FLAGS),
+                                                ("s", K_FLAGS))], bad))
+
+    def new_pc(nxt):
+        return _if_have(_o(mi(ra=O_ACC, alu="passa", w=OPC), nxt), nxt)
+
+    # leaving: the flags word (I with it) and the PC, in the last cycle
+    leave = dict(ra=OFL, loadf=1, b="r", alu="passb", ldpc=1)
+    go = new_pc(_puts("\r\n", _o(mi(ra=OPC, alu="passa", ldr=1), end("ODT", **leave))))
+    step_exit = end("ODT step", **leave)
+    step_exit.fixed = STEP_ADDR
+    step = new_pc(Node(mi(ra=OPC, alu="passa", ldr=1), ("step", step_exit), "ODT"))
+
+    accumulate = _o(*[mi(ra=O_ACC, alu="dbl", cin="0", w=O_ACC)] * 4,
+                    mi(ra=O_CH, alu="passa", ldr=1), mi(ra=O_ACC, b="r", alu="add", w=O_ACC),
+                    Node(mi(kv=1, alu="passb", w=O_HAVE), ("next", more), "ODT"))
+    dispatch = _cases(O_CH, [(ord("/"), _o(mi(kv=K_MEM, alu="passb", w=O_KIND),
+                                           mi(ra=O_ACC, kv=-4, alu="and", w=O_LOC), show)),
+                             (13, deposit(prompt)),
+                             (10, _cases(O_KIND, [(0, prompt)], deposit(advance))),
+                             (ord("R"), _getc(_putc(O_CH, reg_sel))),
+                             (ord("r"), _getc(_putc(O_CH, reg_sel))),
+                             (ord("G"), go), (ord("g"), go),
+                             (ord("S"), step), (ord("s"), step)], bad)
+    typed = _digit(accumulate, dispatch)
+    more.succ = ("next", _getc(_cases(O_CH, [(13, typed), (10, typed)],
+                                      _putc(O_CH, typed))))      # echoed, but CR and LF
+
+    # starting: UART 0 once it has sent what it had, then the PC
+    start = _lsr_wait(0x40, _uart_set(UART_LCR, 0x83, _uart_set(0, 1, _uart_set(4, 0, _uart_set(
+        UART_LCR, 0x03, _uart_set(UART_FCR, 0x01, _uart_set(UART_MCR, 0x22, _puts(
+            "\r\n", _print_hex(OPC, prompt)))))))))
+    _odt_cache.update(
+        irq=_o(mi(a="r", alu="passa", w=OFL), mi(a="pc", alu="passa", w=OPC), start),
+        reset=_o(mi(kv=0, alu="passb", w=OFL), mi(kv=0, alu="passb", w=OPC), start),
+        step=step_exit)
+    return _odt_cache
 
 
 # --------------------------------------------------------------------------
@@ -1640,12 +1866,13 @@ def block_routine(op, k=0):
 BOOT_FLASH = 0xD0000000          # region 5: a byte a word
 
 
-def boot_steps(exit_node):
+def boot_steps(exit_node, erased_node):
     """The boot: the boot flash's image copied to the RAM from 0, then
     exit_node. The flash holds the count of words, little-endian, then the
-    words; a count of 0, or one of 2^31 or more (an erased flash), copies
-    nothing. Ten microinstructions a word, eight of them a byte's: its read
-    at the A bus (stepping the address), then its rotation into R."""
+    words; a count of 0 copies nothing, and one of 2^31 or more (an erased
+    flash) goes to erased_node instead. Ten microinstructions a word,
+    eight of them a byte's: its read at the A bus (stepping the address),
+    then its rotation into R."""
     rd = mi(mem="reada", size="byte", ra=TMP1, kv=4, alu="add", w=TMP1)
     first = mi(b="tbyte", alu="passb", rms="ror8", ldr=1)          # R <- byte ror 8
     more = mi(a="r", b="tbyte", alu="or", rms="ror8", ldr=1)       # R <- (R | byte) ror 8
@@ -1656,14 +1883,14 @@ def boot_steps(exit_node):
     setup = [mi(kv=BOOT_FLASH >> 24, alu="passb", ldr=1),
              mi(a="r", alu="passa", rms="ror8", w=TMP1),
              mi(kv=0, alu="passb", ldmar=1)]
-    header = [rd, first, rd, more, rd, more, rd, merge(more, mi(w=TMP2))]
-    return setup + header, count
+    header = [rd, first, rd, more, rd, more, rd, merge(more, mi(w=TMP2))]     # the count, in R too
+    return setup + header, branch("reset", mi(), "r31", count, erased_node)
 
 
 def reset_routine():
     """Reset (control store address 0): the flags cleared, interrupts off,
     the register file's constants written; then the boot (boot_steps) and
-    the jump to the reset vector, 0."""
+    the jump to the reset vector, 0; or, with the boot flash erased, ODT."""
     steps = [mi(kv=0, alu="passb", ldr=1),
              mi(a="r", alu="passa", w=ZERO, loadf=1),               # N Z C V I 0
              mi(kv=-1, alu="passb", w=ONES)]
@@ -1684,7 +1911,8 @@ def reset_routine():
     for loc in sorted(CONSTS):
         if loc not in (ZERO, ONES):
             steps += const(loc, CONSTS[loc])
-    boot, loop = boot_steps(end("reset", kv=VECTORS["reset"], alu="passb", ldpc=1))
+    boot, loop = boot_steps(end("reset", kv=VECTORS["reset"], alu="passb", ldpc=1),
+                            odt()["reset"])
     return chain("reset", *steps, *boot, loop)
 
 
@@ -1705,6 +1933,8 @@ def _successors(n):
         return [s[2], s[3]]
     if s[0] == "dispatch":
         return list(s[1])
+    if s[0] == "step":
+        return [s[1]]
     return []
 
 
@@ -1839,11 +2069,13 @@ class Microcode:
 
     def __init__(self, lengths=None):
         _trap_cache.clear()
+        _odt_cache.clear()
         self.reset = reset_routine()
         self.reset.fixed = 0
         self.fixed = {REFILL_ADDR: end("refill", mem="fetch"),
                       IRQ_ADDR: interrupt_entry(),
-                      **{a: fault_entry(ll) for ll, a in enumerate(FAULT_ADDRS)}}
+                      **{a: fault_entry(ll) for ll, a in enumerate(FAULT_ADDRS)},
+                      STEP_ADDR: odt()["step"]}
         for a, n in self.fixed.items():
             n.fixed = a
         self.keys = {}
@@ -1953,6 +2185,10 @@ class Microcode:
             if addr is not None and addr >= ENTRY:
                 raise ValueError(f"{n.name}: a halt microinstruction at an entry")
             f["SEQ"], f["NEXT"] = SEQ_HALT, n.addr
+        elif s[0] == "step":
+            # to STEP_ADDR's page: a halt with a jump that's never taken
+            assert s[1].fixed == STEP_ADDR, n.name
+            f["SEQ"], f["NEXT"], f["LDPC"], f["PCCOND"] = SEQ_HALT, s[1].fixed & ((1 << Y_BITS) - 1), 1, 3
         return f
 
     def _check(self):

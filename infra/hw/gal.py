@@ -56,34 +56,49 @@ def mux(sel, cases):
     return _tidy(out)
 
 
-def add(nl, ref, outputs, clock=None, ar=None):
+def add(nl, ref, outputs, clock=None, ar=None, pins=None):
     """A 22V10: outputs {net: (sum of products, registered, inverted[,
     output enable])}, the output the sum or, inverted, its complement;
     registered outputs load at clock's rising edge (an output's own net in
-    a term is its pin, fed back); ar, the asynchronous reset."""
+    a term is its pin, fed back); ar, the asynchronous reset. pins {net:
+    pin} holds nets on the pins a board already has them on; the others
+    go where they fit."""
     oes = {net: o[3] for net, o in outputs.items() if len(o) > 3}
     outputs = {net: o[:3] for net, o in outputs.items()}
     outs = sorted(outputs.items(), key=lambda kv: -len(kv[1][0]))
     if any(reg for _, (_, reg, _) in outs) and clock is None:
         raise ValueError(f"{ref}: registered outputs need a clock")
-    cells = sorted(range(10), key=lambda i: -TERMS[i])
+    held = dict(pins or {})
+    cells = [i for i in sorted(range(10), key=lambda i: -TERMS[i])
+             if f"IO{i}" not in held.values()]
     pins = {}
-    for (net, (terms, _reg, _inv)), cell in zip(outs, cells):
-        if len(terms) > TERMS[cell]:
+    for net, (terms, _reg, _inv) in outs:
+        pin = held.get(net)
+        if pin is None:
+            if not cells:
+                raise ValueError(f"{ref}: {len(outs)} outputs")
+            pin = f"IO{cells.pop(0)}"
+        if len(terms) > TERMS[int(pin[2:])]:
             raise ValueError(f"{ref}: {net} needs {len(terms)} product terms, "
-                             f"its macrocell has {TERMS[cell]}")
-        pins[net] = f"IO{cell}"
+                             f"its macrocell has {TERMS[int(pin[2:])]}")
+        pins[net] = pin
     if len(outs) > 10:
         raise ValueError(f"{ref}: {len(outs)} outputs")
     extra = [t for f in list(oes.values()) + [ar or []] for t in f]
     ins = sorted(({n for _, (terms, _, _) in outs for t in terms for n in t}
                   | {n for t in extra for n in t}) - set(pins))
-    free = ([] if clock else ["CLK"]) + INPUTS[1:] + [f"IO{i}" for i in range(10)
-                                                       if f"IO{i}" not in pins.values()]
-    if len(ins) > len(free):
+    taken = set(pins.values()) | {held[n] for n in ins if n in held}
+    free = [p for p in ([] if clock else ["CLK"]) + INPUTS[1:] + [f"IO{i}" for i in range(10)]
+            if p not in taken]
+    loose = [n for n in ins if n not in held]
+    if len(loose) > len(free):
         raise ValueError(f"{ref}: {len(ins)} inputs and {len(outs)} outputs don't fit")
     conn = {pins[n]: n for n in pins}
-    for net, pin in zip(ins, free[:len(ins)] if clock is None else free):
+    for net in ins:
+        if net in held:
+            conn[held[net]] = net
+            pins[net] = held[net]
+    for net, pin in zip(loose, free):
         conn[pin] = net
         pins[net] = pin
     if clock:

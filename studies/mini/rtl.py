@@ -120,6 +120,11 @@ class RTL:
         self.LC = self.MQ = self.S33 = self.SGN = self.CL = 0
         self.n = self.z = self.c = self.v = self.i = 0
         self.IRQQ = self.PEND = 0
+        # the debug button (board.py's U_DBS and U_DBG): pressed from tick
+        # debug_at on (None: never); its synchroniser, the request (DBGQ),
+        # the interrupt entry running (ENT), a single step armed (STEPA)
+        self.debug_at = None
+        self.DBS1 = self.DBS2 = self.DBGQ = self.ENT = self.STEPA = 0
         self.uaddr = 0
         self.uir = self.rom[0]
         self.cycles = 0              # microcycles
@@ -409,7 +414,7 @@ class RTL:
                 jump = True
             elif pcc == 1:
                 jump = bool(self.bcond(f["CCB"]))
-            else:
+            elif pcc == 2:
                 jump = not self.CL
         forced = None
         decode_ok = False
@@ -430,6 +435,8 @@ class RTL:
             if self.PEND:
                 forced = "irq"
                 y = uc.IRQ_ADDR
+            elif f["LDPC"] and f["PCCOND"] == 3:
+                y |= uc.STEP_ADDR               # ODT's single step leaving
         else:
             if self.PEND:
                 forced, y = "irq", uc.IRQ_ADDR
@@ -549,11 +556,22 @@ class RTL:
         if forced == "refill":
             self.refills += 1
         # the interrupt: the line sampled at every edge (IRQQ), the decision
-        # (PEND) a cycle later from it and I as it is in this cycle
-        self.PEND = int(bool(self.IRQQ and i_now))
+        # (PEND) a cycle later from it and I as it is in this cycle; or the
+        # debug request, or a step's once its instruction has started (the
+        # decode that goes ahead, DECGO). The step is armed as ODT leaves
+        # through STEP_ADDR's page, the request set by a press
+        page = None if decode_ok else (y >> uc.U_SHIFT) & 7
+        stepped = self.STEPA and decode_ok
+        self.PEND = int(bool((self.IRQQ and i_now) or self.DBGQ or stepped))
         self.IRQQ = int(sysm.irq())
+        self.DBGQ = int(bool((self.DBS1 and not self.DBS2) or (self.DBGQ and not self.ENT)
+                             or stepped))
+        self.STEPA = int(page == uc.STEP_ADDR >> uc.U_SHIFT or (self.STEPA and not decode_ok))
+        self.ENT = int(page == uc.IRQ_ADDR >> uc.U_SHIFT)
+        self.DBS2 = self.DBS1
+        self.DBS1 = int(self.debug_at is not None and self.ticks >= self.debug_at)
 
-        if seq == uc.SEQ_HALT and forced is None:
+        if seq == uc.SEQ_HALT and forced is None and not (f["LDPC"] and f["PCCOND"] == 3):
             if not self.i or not sysm.can_interrupt():
                 self.halted = True
                 self.reason = "HALT"
@@ -649,7 +667,7 @@ class RTL:
         if cnd == 9:
             return int(self.SX == self.EX)
         if cnd == 10:
-            return 0                            # the debug button's request (not modelled)
+            return self.DBGQ                    # the debug button's request
         if cnd == 12:
             return int(self.SX == 15)
         if cnd == 13:
