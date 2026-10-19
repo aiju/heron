@@ -79,6 +79,11 @@ into three boards.
 - **So does the address error** (3 packages, no time): the Lisp's `car`,
   `cdr` and calls check their operand's type with it; without it its
   programs would take 17–19% longer ([17](#17-isa-features-and-what-they-cost)).
+- **Register banks,** tentatively: sixteen for each half of the
+  registers, `r0`–`r7` and `r8`–`r15`, their numbers in the status
+  register, so that a switch is an `RTI` and a message passes between
+  threads without a copy; about 4 chips and no time, not yet built
+  ([17.1](#171-register-banks)).
 - **The video costs the CPU nothing** as the length classes stand: it
   has the RAM's second bank to itself, takes its words in cycles' tails
   and in I/O waits, and steals only should the cycles grow long
@@ -182,7 +187,9 @@ runs without a supervisor:
 - **`ccr`** holds the flags word (V C Z N I in bits 0–4) for `MFSR` and
   `MTSR`. There are no other special registers.
 - **Left out:** RFC 0029's modes, register banks (`MFUR` and `MTUR` are
-  illegal), address translation and the other special registers.
+  illegal; sixteen banks for each half of the registers are tentatively
+  to come, [17.1](#171-register-banks)), address translation and the
+  other special registers.
 - **Kept:** everything else, the tentative instructions (`MULA`, `MULFX`,
   `ADD.B4`, the tagged operations) included: in microcode they cost no
   chips ([17](#17-isa-features-and-what-they-cost)).
@@ -724,23 +731,65 @@ And for draft 2's ISA as a whole, which the mini only follows:
 Draft 2's system level has 256 banks of `r0`–`r15`, a thread's each,
 and supervisor mode in bank 0
 ([RFC 0029, 5](0029-rfc-draft-2-system.md#5-register-banks)); the mini
-has none. Its register file is four 32K × 8 SRAMs addressed by five
-lines, so a bank is an address line or more, A5 up, and nothing else
-in the file changes. Estimated, not built:
+has none as built. Its register file is four 32K × 8 SRAMs addressed by
+five lines, so a bank is an address line or more, A5 up, and nothing
+else in the file changes.
+
+**Tentatively decided** (Emily): sixteen banks for each half of the
+registers, `r0`–`r7` and `r8`–`r15` banked separately, the two banks'
+numbers in the status register. Not yet built
+([31](#31-open-tasks)); as proposed:
+
+- **The status register** `sr` (special register 8) is the flags word,
+  V C Z N I in bits 0–4, with `r0`–`r7`'s bank in bits 8–11 and
+  `r8`–`r15`'s in bits 16–19, where draft 2's `sr` has bits 8–23
+  reserved; bits 12–15 and 20–23 read as 0, room for 256 banks each.
+  `ccr` (special register 0) is its byte 0, as on draft 2: writing it
+  leaves the banks alone.
+- **A trap or the interrupt** pushes `sr` as it was, then the PC, on
+  the handler's `sp`, and clears both banks: the handlers and the kernel
+  run in bank 0 of each half, with an `sp` of their own (bank 0's
+  `r15`). `RTI` pops `sr`, and with it the interrupted program's banks.
+  A program that never sets them runs in bank 0 of each, as now; reset
+  clears them.
+- **`MFUR` and `MTUR`** reach the registers of the banks in `bank`
+  (special register 14, in `sr`'s layout, bits 8–11 and 16–19), each
+  register in its half's: the kernel loads `bank` from a thread's saved
+  `sr`. Microcode only: they set the banks from `bank` around the access
+  and back.
+- **A switch** between threads is an `RTI` into the other's frame: its
+  banks come back with its flags and PC, and no register is saved.
+- **A message without a copy:** draft 2's kernels pass a message in
+  `r0`–`r7`, which full banks must copy from one thread's bank to the
+  other's (25 cycles on draft 2, [RFC 0029's tables](0029-rfc-draft-2-system/register-banks-results.md)).
+  Banked separately, the kernel swaps the two threads' `r0`–`r7` banks
+  in their saved `sr` words instead, while `r8`–`r15`, `sp` among them,
+  stay each thread's own; in a call the sender waits, and the reply
+  swaps them back. RFC 0029 has a call and reply at 347 cycles with full
+  banks against half banks' 293, and a preemption at 147 against 203
+  ([RFC 0029, 10](0029-rfc-draft-2-system.md#10-the-choices)):
+  split, the mini has the cheaper of each.
+- **Not only the kernel in bank 0:** with the banks in `sr` rather than
+  tied to a mode, a kernel thread, or an interrupt handler that sets them
+  as it starts, can have banks of its own.
+
+What banks would take, estimated, the tentative design last:
 
 | Banks | What they're for | Chips | Control bits | Time |
 |---|---|---:|---:|---|
 | 2 | an interrupt bank: every interrupt and trap switches to bank 1, the flags word's bit 5 holds the bank, so `RTI` goes back | 1 | 2 | none |
 | 4–256 | a bank a thread, draft 2's: a `bank` register for the program, bank 0 for the handlers and the kernel | 3–4 | 2–3 | none |
+| 16 + 16 | each half banked separately, the banks in `sr` (tentative) | 4 | 2 | none |
 
 - **Every register banked,** the microcode's own sixteen too, so the
-  bank lines come straight from a register: steady through the cycle,
-  they settle long before the address lines the 22V10s make, and the
+  bank lines come from a register steady through the cycle, and the
   register file's read path, the machine's tightest, is untouched.
   Keeping the microcode's registers out of the banks, as draft 2 does,
-  would put a gate on that path or need inputs the address 22V10s don't
-  have. The price is that reset writes the microcode's eight constants
-  into every bank (256 banks: about 0.2 ms).
+  would put a gate on that path or need inputs the 22V10s don't have.
+  The price is that reset writes the microcode's eight constants into
+  every bank (sixteen: about 15 µs; 256: about 0.2 ms), and that the
+  microcode keeps nothing else in its registers across a change of the
+  banks (an entry, `RTI`, `MTSR sr`).
 - **Two banks:** one 22V10 holds the bank, set by the entries' first
   microinstruction (which all trap, interrupt and fault entries share)
   and loaded from the flags word's bit 5 when the flags word is
@@ -749,13 +798,31 @@ in the file changes. Estimated, not built:
   between the banks, as draft 2's `MFUR` and `MTUR` do. The flags word's
   bit 5 is a spare input of its 74ABT541 already. Two of the control
   word's four spare bits: set the bank, use the other one.
-- **More banks:** the `bank` register (a 74ABT377, written by an
-  instruction from the result), the mode (bank 0 while in a handler,
-  `bank` otherwise, and the other for `MFUR` and `MTUR`) as a pair of
-  74F157 or the 22V10, A5–A12. The SRAMs would take up to 1024.
-- **The board:** beside the register file on cpu2, at 160 packages now
-  (161–164, within the 190); or on cpu1, its lines on the ribbon, where
-  their timing allows it.
+- **More banks, one for all sixteen registers:** the `bank` register (a
+  74ABT377, written by an instruction from the result), the mode (bank 0
+  while in a handler, `bank` otherwise, and the other for `MFUR` and
+  `MTUR`) as a pair of 74F157 or the 22V10, A5–A12. The SRAMs would take
+  up to 1024.
+- **The halves separately** (the tentative design): which half's bank a
+  register takes is its number's bit 3, which the address 22V10s make
+  late. A multiplexer after them (a 74F157, about 5 ns) would make the
+  slowest microinstruction 123 ns from 118 and some hundreds of 6-tick
+  ones 7 ticks: a few percent on the suite. So two more 22V10s make
+  A5–A8 from the 13 inputs the address 22V10s make bit 3 from, in
+  parallel, settling with it: each takes two lines, and each line two of
+  its outputs, one enabled while the A address is out (RLEA) and one
+  after, since a line's equation, 24 products, is more than an output's
+  16. A 22V10 holds both banks, loaded from the A bus and cleared by two
+  of the control word's four spare bits (the flags field's 32 codes are
+  all taken); a 74ABT541 reads them onto the B bus with the flags word.
+  An entry's first microinstruction takes the flags word into R as it
+  clears the banks, so that the frame it pushes is the old one, on the
+  new `sp`. 4 chips, no time.
+- **The board:** for the halves' banks, the three 22V10s beside the
+  register file on cpu2, at 160 packages now (163, within the 190), and
+  the 74ABT541 beside the flags word's on cpu1 (108), the banks' eight
+  lines on the ribbon to it. The boards' layout would take them as chips
+  added around the saved cut ([28](#28-the-boards)).
 - **What they'd buy:** an interrupt handler with registers of its own
   saves none, about 12 cycles (1.4 µs) an interrupt for five registers:
   little at the mini's interrupt rates (the frame's 60 a second, a UART
@@ -763,9 +830,13 @@ in the file changes. Estimated, not built:
   Fen's call and reply costs 21% more in its IPC loop without banks,
   and 1% with four; two banks don't help there, since the threads
   share one ([RFC 0029's tables](0029-rfc-draft-2-system/register-banks-results.md)).
-- **The ISA:** which of draft 2's system level the mini would take
-  with it (`bank`, `MFUR`, `MTUR`, the mode, or just the interrupt bank)
-  is **open**.
+  With sixteen, none of Fen's workloads ever lacks a bank; the halves
+  would save the messages' copies besides, two in a call and reply
+  (about 50 cycles on draft 2).
+- **The ISA:** the mini's is tentatively the design above. Whether
+  draft 2 would follow, with two fields in its `sr` and its `bank` and
+  without supervisor mode's fixed bank 0, is **open**
+  ([30](#30-open-questions)).
 
 ### 18. The video
 
@@ -1276,15 +1347,24 @@ For Emily:
    ([23](#23-a-fast-link)).
 7. **Keyboard and mouse:** the two PS/2 ports as built, for now
    ([22](#22-keyboard-and-mouse)).
-8. **The debug button and ODT:** ODT's commands, and stepping
+8. **The PS/2 ports' status bit:** bit 7 of the interrupt status is the
+   interrupt line itself, which a handler knows is set; the PS/2 ports'
+   request (KIRQ) in its place would give every source a bit of its own,
+   for no chips (a wire: `U_ISR`'s input from `U_KBD`, both on the I/O
+   board), saving a handler the PS/2 status's read and giving vectoring
+   in microcode ([31](#31-open-tasks)) a vector for the ports. Against
+   the tentative decision, as built, that the PS/2 status says which
+   ([7](#7-the-io-space), [22](#22-keyboard-and-mouse)).
+9. **The debug button and ODT:** ODT's commands, and stepping
    microinstructions ([RFC 0045](0045-rfc-mini-bring-up.md#8-open-questions)).
-9. **Microcode tasks:** whether, A or B, and for what ([21](#21-microcode-tasks)).
-10. **More RAM** ([25](#25-more-ram)) and **a 74HCT mini**
+10. **Microcode tasks:** whether, A or B, and for what ([21](#21-microcode-tasks)).
+11. **More RAM** ([25](#25-more-ram)) and **a 74HCT mini**
     ([26](#26-a-74hct-mini)).
-11. **Register banks:** none, an interrupt bank (1 chip) or draft 2's
-    bank a thread (3–4 chips), and the ISA that comes with them
-    ([17.1](#171-register-banks)).
-12. **The name:** Heron Mini or mini-heron.
+12. **Register banks:** sixteen for each half, the banks in `sr`, are
+    tentatively decided ([17.1](#171-register-banks)); whether draft 2
+    would follow, its `sr` and `bank` with two fields and no fixed bank
+    for supervisor mode.
+13. **The name:** Heron Mini or mini-heron.
 
 Tentatively decided, as built: the cursor's X register and rows read
 line by line, the frame's and the lines' interrupts sharing the video's
@@ -1310,6 +1390,42 @@ The video's questions are [RFC 0042, 14](0042-rfc-mini-video.md#14-open-question
   netlist runs the whole machine at 65 MHz.
 - **The video's options in the netlist** as RFC 0042's questions are
   decided (M7, T15, a RAMDAC in place of the palette's SRAMs).
+- **Register banks in the netlist** ([17.1](#171-register-banks)):
+  sixteen for each half, the banks in `sr`, as tentatively decided: the
+  22V10 that holds them, their 74ABT541 onto the B bus, the two 22V10s
+  that select by register bit 3, and the two control bits; the microcode
+  (the entries, `RTI`, `MFSR` and `MTSR` of `sr` and `bank`, `MFUR`,
+  `MTUR`, reset's constants in every bank); ODT, entered through the
+  interrupt entry, which clears the banks, to show and change the
+  registers of the banks the program was in; the model, the fast
+  simulator and draft 2's instruction-level simulator's plain machine;
+  the timing analysis, to confirm they cost nothing; the four chips
+  around the saved cut, three on cpu2 and one on cpu1.
+- **Vectoring in microcode:** the interrupt entry reads the interrupt
+  status itself (one access, in region 7) and jumps to a vector of each
+  source's own by a fixed priority: the video first, for its line
+  interrupts, then the timer, the UARTs, the PS/2 ports (with a bit of
+  their own, [30](#30-open-questions)), the CF card and the expansion
+  ports, at 0x40 + 4n as draft 2's levels' vectors
+  ([RFC 0040](0040-rfc-interrupts.md)); vector 4 when no bit is set. A
+  handler then reads, tests and branches on nothing to find its source:
+  about 15–25 cycles (2–3 µs) less an interrupt, and with banks for the
+  handlers, nothing to save either. Microcode only (a 74F148 would save
+  the microcode's search, a few cycles, for one chip); the suite's and
+  the software's handlers move with it.
+- **Interruptible block instructions:** an interrupt waits for the
+  instruction to end, and a 256-word `BLIT` takes about 14,000 ticks
+  (280 µs, nearly nine of VGA's 31.8 µs lines; a `COPY` three), so a
+  line interrupt can be lines late. Instead, `FILL`, `COPY`, `EXPAND`
+  and `BLIT` look at the pending interrupt after each word and, with one
+  waiting, stop with their registers where they have got to (`r1`, `r2`,
+  `r5`, and `r3` the words left, so that Part I's "`r3` doesn't change"
+  becomes "`r3` ends 0") and take it with the PC at the instruction, so
+  that `RTI` starts it again where it stopped, as the x86's `REP MOVS`
+  does ([2.1](#21-block-instructions)). The worst wait falls to a word's
+  step, about 55 ticks (1.1 µs), and the entry; the longest instructions
+  are then `SAVE`, `LDM` and `STM`, and a 32-bit `MULU`, about 40 cycles.
+  Microcode only.
 - **Microcode tasks, A, in the model** if wanted ([21](#21-microcode-tasks)).
 - **A 74HCT variant's timing** ([26](#26-a-74hct-mini)).
 - **Software:** the multitasking OS, Egret's desktop, Doom
