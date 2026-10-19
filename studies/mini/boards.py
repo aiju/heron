@@ -4,10 +4,11 @@ each board's netlist for the PCB study, and the boards' delays for the
 timing analysis.
 
 The boards are stacked on standoffs, bottom to top cpu1, cpu2, io (STACK
-lists them top to bottom), and joined by IDC ribbon cables. The CPU is on cpu1 and cpu2: cpu1 starts
-with the sequencer's side (the control store and what the microinstruction
-addresses, the clock and the flags), cpu2 with the datapath and the
-memory; the video, the video RAM and the I/O are on io.
+lists them top to bottom), and joined by IDC ribbon cables. The CPU is
+on cpu1 and cpu2: cpu1 starts with the sequencer's side (the control
+store and what the microinstruction addresses, the clock and the flags),
+cpu2 with the datapath and the memory; the video, the video RAM and the
+I/O are on io.
 
 The assignment (assign()):
   1. each chip starts on its section's board (SECTIONS), a gate package
@@ -1203,11 +1204,13 @@ def _profile():
     return perf.profile()
 
 
-def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25, delays=None, what=None):
+def sta_numbers(a=None, ps=DELAY_PS, clocks=False, delays=None):
     """The static timing analysis with the boards' delays against the
-    plain one (both cached in build/mini): the microinstructions that need
-    more ticks, and the suite's time, as text. delays: [(ref, pin, ps)]
-    in place of the flat ones (pcb_delays()), described as `what`."""
+    plain one (both cached in build/mini), as numbers: {"ms": (plain,
+    with), "lengths": (the length classes for each), "slowest": (ns,
+    ns), "rows": [(microinstruction, ns, ticks, ns, ticks)], "critical":
+    (ns, the check), "delays": how many}. delays: [(ref, pin, ps)] in
+    place of the flat ones (pcb_delays())."""
     from . import sta, ucode as uc
     plain = sta.analyse()
     delayed, delays = _delayed(a, ps, clocks, delays)
@@ -1218,17 +1221,31 @@ def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25, delays=None, what=No
         (T0, k0), (T1, k1) = t0[id(n)], t1[id(n)]
         label = f"{n.name} @{n.addr:04X}" if n.addr is not None else f"{n.name} (entry)"
         rows.append((label, T0, k0, T1, k1))
+    prof = _profile()
+    lens = tuple(sta.suite_ticks(r, prof)[1] for r in (plain, delayed))
+    worst = max(delayed, key=lambda r: r[0])
+    return {"ms": (sta.suite_ms(plain, prof), sta.suite_ms(delayed, prof)), "lengths": lens,
+            "slowest": (max(r[1] for r in rows), max(r[3] for r in rows)), "rows": rows,
+            "critical": (worst[0], f"{worst[3][0]}: {worst[5]}"), "delays": len(delays)}
+
+
+def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25, delays=None, what=None):
+    """sta_numbers() as text: the microinstructions that need more ticks,
+    and the suite's time. delays: [(ref, pin, ps)] in place of the flat
+    ones (pcb_delays()), described as `what`."""
+    d = sta_numbers(a, ps, clocks, delays)
+    rows = d["rows"]
     worse = [r for r in rows if r[4] != r[2]]
     by = Counter((r[2], r[4]) for r in rows)
-    prof = _profile()
-    ms0, ms1 = sta.suite_ms(plain, prof), sta.suite_ms(delayed, prof)
-    what = what or (f"{ps / 1000:.2f} ns between the boards ({len(delays)} inputs and bus "
+    ms0, ms1 = d["ms"]
+    what = what or (f"{ps / 1000:.2f} ns between the boards ({d['delays']} inputs and bus "
                     f"drivers; {'clocks too' if clocks else 'not the clocks'})")
     out = [f"static timing analysis with {what}, against the plain analysis:",
            f"  the suite and the C programs: {ms0:.1f} ms plain, {ms1:.1f} ms with the boards "
            f"({100 * (ms1 / ms0 - 1):+.1f}%)",
-           f"  the slowest microinstruction: {max(r[1] for r in rows):.1f} ns plain, "
-           f"{max(r[3] for r in rows):.1f} ns with the boards",
+           f"  the length classes: {d['lengths'][0]} plain, {d['lengths'][1]} with the boards",
+           f"  the slowest microinstruction: {d['slowest'][0]:.1f} ns plain, "
+           f"{d['slowest'][1]:.1f} ns with the boards",
            f"  {len(worse)} of {len(rows)} microinstructions need more ticks:"]
     for (k0, k1), c in sorted(by.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1]))):
         if k0 != k1:
@@ -1241,9 +1258,8 @@ def sta_compare(a=None, ps=DELAY_PS, clocks=False, show=25, delays=None, what=No
         out.append("  the most delayed:")
         for label, T0, k0, T1, k1 in sorted(worse, key=lambda r: (-(r[3] - r[1]), r[0]))[:show]:
             out.append(f"    {label:<34} {T0:6.1f} -> {T1:6.1f} ns, {k0} -> {k1} ticks")
-    worst = max(delayed, key=lambda r: r[0])
-    out.append(f"  the critical check with the boards: {worst[3][0]}: {worst[5]} "
-               f"({worst[0]:.1f} ns)")
+    out.append(f"  the critical check with the boards: {d['critical'][1]} "
+               f"({d['critical'][0]:.1f} ns)")
     return "\n".join(out)
 
 

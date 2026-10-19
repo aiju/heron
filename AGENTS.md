@@ -138,6 +138,13 @@ Change the generator and rerun it rather than editing the output by hand:
   `heron fen banks --write`;
 - `reports/0040-rfc-interrupts/fen-latency-results.md`:
   `heron fen irq --write`;
+- `reports/0044-report-mini-cpu-boards/results.md`, `delays.json` and
+  the boards' pictures: `heron pcb mini report --write`, after
+  `heron pcb mini build --all` (needs KiCad; about half an hour in all);
+- `studies/pcb/mini-weights.json`, the mini's boards' placement weights:
+  `heron pcb mini tune`, from the boards placed for wire length
+  (`heron pcb mini build --variant smd-6-length` and
+  `heron pcb mini delays --variant smd-6-length`);
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;

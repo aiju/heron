@@ -43,7 +43,7 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 | `board.py` | The chip-level netlist: CPU, the clock chip and its switch, clock generator and hold, the debug button, RAM and video RAM, I/O space and devices, PS/2 ports, video |
 | `hw.py` | The netlist on the chip-level simulator: the suite against the RTL model, the devices, PS/2, debug and video programs, the parts list |
 | `sta.py` | Static timing analysis of the netlist, per microinstruction |
-| `boards.py` | The netlist on three stacked boards (cpu1, cpu2, io): each chip's board (a min-cut refinement within the package limits, weighted for the timing's critical nets), the signals between them and their IDC ribbon cables' headers, each board's netlist for the PCB study (`build/mini/boards/`), the boards' delays for the timing |
+| `boards.py` | The netlist on three stacked boards (bottom to top cpu1, cpu2, io): each chip's board (a min-cut refinement within the package limits, weighted for the timing's critical nets), the signals between them and their IDC ribbon cables' headers, each board's netlist for the PCB study (`build/mini/boards/`), the boards' delays for the timing: a flat delay a crossing, or the routed boards' own (`pcb_delays()`, from studies/pcb's `mini.py`, report 0044) |
 | `board-weights.json` | The board cut's weights for the nets on critical paths (`heron mini boards --tune`) |
 | `perf.py` | Profiles the suite on the RTL model (cached in `build/mini/`) |
 | `check.py` | The RTL model against the instruction-level simulator |
@@ -81,6 +81,9 @@ heron mini boards --tune 2           # the cut weighted for the timing's critica
                                      # (board-weights.json; rerun after netlist changes)
 heron mini hw sta --boards [--board-delay NS]  # the analysis with the boards' delays (test, run,
                                      # devices, video and blocks take --boards too)
+heron mini hw sta --pcb [FILE]       # ... with the routed boards' delays (report 0044:
+                                     # `heron pcb mini delays` writes build/pcb/mini-delays.json;
+                                     # test, run, devices, video and blocks take --pcb too)
 heron test mini                      # the unit tests
 ```
 

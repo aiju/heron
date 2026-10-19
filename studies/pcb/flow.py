@@ -26,6 +26,11 @@ from . import cards
 
 OUT = os.path.join(BUILD, "pcb")
 
+# a DIP board soldered by hand: closer than RFC 0026's R16, which leaves
+# room for selective soldering, and the capacitors under the chips
+TIGHT = dict(style="dip", gaps=(1.0, 0.5), halo=0.5, decaps="under-all", pitch=(10.25, 8.8),
+             align=False)
+
 
 def kicad_cli():
     return shutil.which("kicad-cli")
@@ -55,7 +60,7 @@ def drc(path):
 def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="F", halo=None,
           seed=1, moves=None, router_name="grid", route_params=None, out=None, checks=True,
           name=None, freeroute_timeout=3600, decaps=None, timing_driven=True,
-          arrangement="grid", pitch=None, gaps=None, align=True):
+          arrangement="grid", pitch=None, gaps=None, align=True, weights=None):
     """Build one board and check it. Returns a dict of what happened.
     arrangement: "grid" (rows and columns of slots, every chip the same way
     round) or "free"; pitch: the slots' least size, default the card's
@@ -65,7 +70,8 @@ def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="
     "beside" or "under-all" (under the through-hole chips too, as 0805s:
     a board soldered by hand); gaps: the least gaps between courtyards,
     (surface-mount to through-hole, through-hole to through-hole), default
-    RFC 0026's."""
+    RFC 0026's; weights: {net: factor} for placement, in place of the
+    card's timing-critical sections' (cards.weights())."""
     res = {"card": card, "style": style, "width": width, "height": height, "layers": layers,
            "sides": sides, "router": router_name, "arrangement": arrangement}
     name = name or f"{card}-{style}-{int(width)}x{int(height)}-{layers}L-{sides}"
@@ -91,8 +97,7 @@ def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="
     res["decaps"] = decaps
     if gaps:
         res["gaps"] = list(gaps)
-    kw = dict(region=b.region, halo=halo, sides=sides, decaps=decaps, gaps=gaps,
-              seed=seed, weights=cards.weights(nl) if timing_driven else None)
+    kw = dict(region=b.region, halo=halo, sides=sides, decaps=decaps, gaps=gaps, seed=seed)
     if arrangement == "grid" and sides != "F":
         raise ValueError("a grid placement is one-sided: use arrangement='free' with sides='FB'")
     if arrangement == "free":
@@ -104,7 +109,8 @@ def build(card="cpu", style="smd", width=340.0, height=233.35, layers=6, sides="
     # DIP ones: try one, then the other; if the critical nets' weights
     # bunch the parts too much to fit, try again without them
     for weighted in ((True, False) if timing_driven else (False,)):
-        pl.weights = cards.weights(nl) if weighted else {}
+        pl.weights = ((weights if weights is not None else cards.weights(nl))
+                      if weighted else {})
         pl.global_place()
         targets = {p.ref: (p.x, p.y, p.side) for p in pl.movable}
         for order in (("size", "x") if style == "smd" else ("x", "size")):

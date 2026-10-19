@@ -498,6 +498,15 @@ For Emily:
    hole, at least? This applies to which parts: all THT parts, or only
    those likely to be soldered or reworked by hand? And with it, which
    footprints to use or draw (section 2.4).
+8. **Heron Mini's stacked boards** ([report 0044](0044-report-mini-cpu-boards.md)):
+   A4 boards on standoffs, not cards in a subrack, so R7–R13 (the
+   Eurocard's outline, guides, front and back edges) and R22's edge
+   strips don't apply to them; report 0044's first cut uses R14's holes
+   and keep-outs (planes kept out too), R21's fiducials, and an
+   assembly house's own rails. Rules of their own for such boards, and,
+   for a DIP board soldered by hand, closer spacing than R16's (1 mm
+   between through-hole pads) with the capacitors under the chips
+   against R17: report 0044, section 3, has what each buys.
 
 ## 4. Sources
 

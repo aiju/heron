@@ -26,16 +26,10 @@ import json
 import sys
 
 
-# a DIP board soldered by hand: closer than RFC 0026's R16, which leaves
-# room for selective soldering, and the capacitors under the chips
-TIGHT = dict(style="dip", gaps=(1.0, 0.5), halo=0.5, decaps="under-all", pitch=(10.25, 8.8),
-             align=False)
-
-
 def cmd_build(args):
     from . import flow
     w, h = (float(v) for v in args.size.lower().split("x"))
-    kw = dict(TIGHT) if args.tight else {"style": args.style}
+    kw = dict(flow.TIGHT) if args.tight else {"style": args.style}
     if args.pitch:
         kw["pitch"] = tuple(float(v) for v in args.pitch.lower().split("x"))
     if args.gaps:
@@ -126,12 +120,15 @@ def main(argv=None):
     v.add_argument("--out")
     v.set_defaults(fn=cmd_view)
     m = sub.add_parser("mini", help="Heron Mini's stacked boards: build, delays, timing")
-    m.add_argument("action", choices=("build", "sites", "fit", "delays", "sta"))
-    m.add_argument("--style", default="smd", choices=("smd", "dip"))
-    m.add_argument("--layers", type=int, default=6, choices=(4, 6))
+    m.add_argument("action", choices=("build", "sites", "fit", "delays", "sta", "tune", "report"))
+    m.add_argument("--variant", default="smd-6",
+                   help="build, delays, sta: which boards (mini.VARIANTS; default smd-6, the "
+                        "first cut)")
+    m.add_argument("--all", action="store_true", help="build: every variant")
     m.add_argument("--write", action="store_true",
-                   help="delays: into report 0044's folder too")
-    m.add_argument("--file", help="sta: the delays (default build/pcb/mini-delays.json)")
+                   help="report: results.md, delays.json and the pictures into report 0044's "
+                        "folder")
+    m.add_argument("--file", help="sta, tune: the delays to take")
     m.set_defaults(fn=cmd_mini)
     sub.add_parser("pinouts", help="the pinouts against KiCad's symbols").set_defaults(fn=cmd_pinouts)
     sub.add_parser("split", help="the cost of splitting the CPU card").set_defaults(fn=cmd_split)

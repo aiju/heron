@@ -991,10 +991,11 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   CPU on two** (Emily), **stacked on standoffs and joined by short IDC
   ribbon cables** (Emily's idea: the stack comes apart one cable at a
   time rather than by prying a few hundred pins of stacking connector
-  apart; tentatively the plan).
+  apart; tentatively the plan), **bottom to top cpu1, cpu2, io**, the
+  I/O board on top (Emily).
 - **The cut** (`boards.py`, `heron mini boards`; its numbers in
   [performance.md](0041-rfc-heron-mini/performance.md#the-boards)):
-  the boards top to bottom cpu1, cpu2, io. Each chip starts on its
+  the boards bottom to top cpu1, cpu2, io. Each chip starts on its
   section's board (cpu1 the sequencer's side, cpu2 the datapath and
   the memory, io the video, bank 1, the I/O devices and the PS/2
   ports), and a min-cut refinement (k-way Fiduccia–Mattheyses) moves
@@ -1038,10 +1039,12 @@ guess: a variant with 74HCT's delays and the length classes it gives.
 - **For the PCB study:** `heron mini boards --write` writes each board's
   netlist (its chips, footprints in an SMD and a DIP style, nets, and
   the IDC headers' pin maps, a ground after every signal) into
-  `build/mini/boards/`, with a README; `boards.netlist(board)` and
-  `pcb_board()` hand a board to the PCB flow. Still missing there: the
-  clock chip's pinout, the connectors that leave the stack (video, PS/2,
-  serial, expansion ports, power) and the clock buffers.
+  `build/mini/boards/`, with a README; `boards.netlist(board)` hands a
+  board to the PCB flow, and studies/pcb's `mini.py` makes the stack's
+  boards of them. [Report 0044](0044-report-mini-cpu-boards.md) is the
+  first cut of the two CPU boards (below). Still missing: the
+  connectors that leave the stack (video, PS/2, serial, expansion
+  ports) and the clock buffers.
 - **Ribbon cables, what they take:**
   - **Grounds in the ribbon.** The edges are fast (74F, 74ABT, 22V10s),
     so each signal has a ground beside it (`--per-ground 2` or 3 packs
@@ -1172,7 +1175,11 @@ For Emily:
    any; likely none unless a board is over.
 2. **The boards** ([28](#28-the-boards)): the cut as it stands (three
    boards, the CPU on two, tentatively); the clock buffers each board
-   would need; how the microcode is updated.
+   would need; how the microcode is updated. And from the first cut of
+   the CPU boards ([report 0044](0044-report-mini-cpu-boards.md#9-for-rfc-0041-and-whats-next)):
+   SMD for both, or cpu1 in DIP soldered by hand and cpu2 in SMD (cpu2
+   doesn't fit A4 in DIP), or the CPU on three DIP boards; six layers
+   or four; the cables on facing headers between neighbours.
 3. **The clock chip:** the CY22393 (or a CDCE913) tentatively, in TSSOP
    on an adapter; reprogramming it from the CPU, and the debugging
    speeds, later ([20](#20-the-clock)).
@@ -1202,11 +1209,12 @@ The video's questions are [RFC 0042, 14](0042-rfc-mini-video.md#14-open-question
 
 ### 31. Open tasks
 
-- **The boards' PCBs:** each board placed and routed from its netlist
-  (`heron mini boards --write`), and the real delays between the boards
-  fed back into the timing analysis in place of the flat 1.5 ns
-  ([28](#28-the-boards)); the clock buffers in the netlist; the clock
-  chip's pinout for the PCB flow.
+- **The boards' PCBs:** the CPU boards' first cut is
+  [report 0044](0044-report-mini-cpu-boards.md), their delays in the
+  timing analysis (`heron mini hw sta --pcb`). Next: the clock buffers
+  in the netlist; buffers on the heavy nets and more of the timing
+  loop; the length classes worked out for the boards and the suite at
+  chip level with them; the io board.
 - **Contention:** a break-before-make look at the worst hand-overs
   ([29](#29-how-it-was-checked)), the A bus's first (tentatively
   decided).
