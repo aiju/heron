@@ -83,7 +83,7 @@ chip-level simulator, [12](#12-the-simulator)):
 | **X0** | `FILL`, `COPY`, `EXPAND`, `BLIT k` | | built (microcode) |
 | **X1** | their variants for 8-, 2- and 1-bit pixels, and more | microcode only | whichever the software uses |
 
-All of it is 88 chips with bank 1's RAM and its buffers (the first
+All of it is 87 chips with bank 1's RAM and its buffers (the first
 netlist's one mode was 53); [13](#13-what-each-option-costs) has where
 they go.
 

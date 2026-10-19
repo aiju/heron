@@ -70,7 +70,7 @@ into three boards.
 - **The video** is RFC 0042's, built out: 640 × 480 at 1, 2, 4 and
   8 bits a pixel, 320 × 480 × 8, 1024 × 768 at 1 and 2 bits, line
   descriptors, a 32 × 32 cursor, the beam's position, cycle stealing
-  ([9](#9-video)). 88 packages with bank 1.
+  ([9](#9-video)). 87 chips with bank 1.
 - **Keyboard and mouse** on two PS/2 ports (7 chips), and a **debug
   button** that breaks into any program through the microcode
   ([22](#22-keyboard-and-mouse)).
@@ -566,8 +566,9 @@ memory operands' paths are the data's own now, not T's enable.
 ### 14. Chips
 
 Where the 375 go ([11](#11-parts)): the CPU is 238 with its clock, 268
-with its memory interface, and the video 88 with its RAM. Against draft 2's CPU (394 for its core with 16-bit
-parts, about 460 with its bus interface), the mini drops the system half
+with its memory interface, and the video 87 with its RAM. Against draft
+2's CPU (394 for its core with 16-bit parts, about 460 with its bus
+interface), the mini drops the system half
 (the page map, the window, the banks, the interrupt levels, the bus) and
 the second register-file copy, but keeps the datapath and the fetch,
 which are most of it. Against draft 1b's CPU (213 chips with its memory
@@ -577,8 +578,9 @@ generator: what makes draft 2's CPU 1.35 times as fast as 1b's fast
 system on the same programs ([RFC 0031](0031-rfc-draft-2-cpu.md#12-how-fast)),
 and the mini within 5% of draft 2's CPU.
 
-The buses' drivers and the multiplexers are now most of the CPU: 66
-74ABT541 and 41 74F153, the A and B buses' sources, the address
+The buses' drivers and the multiplexers are now most of the CPU: 72
+74ABT541 in all, most of them the CPU's, and 41 74F153, the A and B
+buses' sources, the address
 multiplexer, the result multiplexer. 16-bit parts (74ABT16541) would halve
 them, but only in fine-pitch packages; a 22V10 is no help with a 32-bit
 bus.
@@ -992,17 +994,21 @@ guess: a variant with 74HCT's delays and the length classes it gives.
   apart; tentatively the plan).
 - **The cut** (`boards.py`, `heron mini boards`; its numbers in
   [performance.md](0041-rfc-heron-mini/performance.md#the-boards)):
-  top to bottom, **cpu1** the control store, the sequencer, the clock,
-  the flags and conditions; **cpu2** the datapath, the register file,
-  the PC and queue, the memory and bank 0; **io** the video, bank 1, the
-  I/O devices and the PS/2 ports. Each chip starts on its section's
-  board, and a min-cut refinement (k-way Fiduccia–Mattheyses) moves
+  the boards top to bottom cpu1, cpu2, io. Each chip starts on its
+  section's board (cpu1 the sequencer's side, cpu2 the datapath and
+  the memory, io the video, bank 1, the I/O devices and the PS/2
+  ports), and a min-cut refinement (k-way Fiduccia–Mattheyses) moves
   chips between the CPU's two boards to cut the fewest wires, each
   board within 160 packages and each CPU board at 40% of the CPU or
-  more, the nets on the timing's critical paths weighted (below). 107
-  packages on cpu1, 160 on cpu2, 108 on io; 250 nets cross: 183 between
-  cpu1 and cpu2, 45 between cpu1 and io, 61 between cpu2 and io, six,
-  two and two 64-way cables with a ground beside each signal.
+  more, the nets on the timing's critical paths weighted (below). As it
+  stands **cpu1** has the clock, the sequencer, half the control store,
+  the prefetch queue and most of the B bus's sources; **cpu2** the
+  register file, the ALU and result multiplexer, the flags, the PC, the
+  memory with bank 0 and the control store's other half; **io** the
+  rest. 107 packages on cpu1, 160 on cpu2, 108 on io; 250 nets cross:
+  183 between cpu1 and cpu2, 45 between cpu1 and io, 61 between cpu2
+  and io, six, two and two 64-way cables with a ground beside each
+  signal.
 - **The boards' delays:** a crossing costs about 1.5 ns (header, a few
   centimetres of ribbon, header). The timing analysis carries it on
   every input on another board than its net's driver; a bus driven from
