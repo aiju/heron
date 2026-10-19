@@ -72,8 +72,26 @@ WINDOWS = {
 CLOSING = ("RLEA",)
 
 
+# the boards' delays (boards.py): [(ref, pin, ps)] on this netlist's
+# outputs that drive another board, or None (`heron mini hw sta --boards`)
+BOARD_DELAYS = None
+
+
 def build():
-    return board.build(sim=False)
+    nl = board.build(sim=False)
+    for ref, pin, ps in BOARD_DELAYS or ():
+        nl.refs[ref].add_pin_delay(pin, ps)
+    return nl
+
+
+def cache_path():
+    """The analysis's cache: one for the plain netlist, one for each set of
+    board delays."""
+    if not BOARD_DELAYS:
+        return os.path.join(hw.OUT, "sta.json")
+    import hashlib
+    tag = hashlib.sha1(repr(sorted(BOARD_DELAYS)).encode()).hexdigest()[:10]
+    return os.path.join(hw.OUT, f"sta-boards-{tag}.json")
 
 
 def control_nets():
@@ -243,10 +261,11 @@ def fixed_checks(N):
 _N = None
 
 
-def _init():
-    global _N
+def _init(delays=None):
+    global _N, BOARD_DELAYS
     import sys
     sys.setrecursionlimit(20000)
+    BOARD_DELAYS = delays
     _N = hsta.Netlist(build(), parts.VARIANT, CORNER)
 
 
@@ -264,13 +283,13 @@ def _one(item):
 def analyse(force=False, jobs=4):
     """[(period, control word, extra constants, labels, count, critical
     check, endpoint)], slowest first, cached in build/mini by the sources."""
-    path = os.path.join(hw.OUT, "sta.json")
+    path = cache_path()
     if not force and os.path.exists(path) and \
             os.path.getmtime(path) >= runner.newest(hw.sources()):
         with open(path) as f:
             return [tuple(r) for r in json.load(f)]
     items = list(sta_words().items())
-    with ProcessPoolExecutor(jobs, initializer=_init) as ex:
+    with ProcessPoolExecutor(jobs, initializer=_init, initargs=(BOARD_DELAYS,)) as ex:
         res = list(ex.map(_one, items, chunksize=16))
     res.sort(key=lambda r: -r[0])
     os.makedirs(hw.OUT, exist_ok=True)
@@ -388,6 +407,18 @@ def write_table(res):
 
 
 def main(args):
+    global BOARD_DELAYS
+    if getattr(args, "boards", False):
+        if args.write:
+            import sys
+            print("--write takes the plain analysis: leave out --boards", file=sys.stderr)
+            return 2
+        from . import boards
+        BOARD_DELAYS = boards.board_delays(build(), ps=round(args.board_delay * 1000),
+                                           clocks=args.board_clocks)
+        print(f"with the boards' delays (boards.py): {args.board_delay} ns on "
+              f"{len(BOARD_DELAYS)} outputs that drive another board"
+              f"{', the clocks too' if args.board_clocks else ''}\n")
     res = analyse(force=args.force)
     if args.write:
         write_table(res)

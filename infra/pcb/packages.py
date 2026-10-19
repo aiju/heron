@@ -60,6 +60,8 @@ PINOUTS = {
     "377": "EN Q1 D1 D2 Q2 Q3 D3 D4 Q4 GND CLK Q5 D5 D6 Q6 Q7 D7 D8 Q8 VCC",
     "540": OCT_FLOW, "541": OCT_FLOW,
     "574": REG574,
+    # SN74ABT573A (TI SCBS190F, DW and N): the 574's pins, LE for CLK
+    "573": "OE D1 D2 D3 D4 D5 D6 D7 D8 GND LE Q8 Q7 Q6 Q5 Q4 Q3 Q2 Q1 VCC",
     "534": REG374,                                    # 74ABT534: the 374's pins, inverting
     "688": CMP688, "521": CMP688,                     # SN74HCT688, 74F521
     # 74ABT823 (Nexperia/TI): 9-bit register, CLR and EN active low
@@ -85,6 +87,22 @@ PINOUTS = {
     # 82C54 (PDIP, SOIC)
     "82c54": ("D7 D6 D5 D4 D3 D2 D1 D0 CLK0 OUT0 GATE0 GND OUT1 GATE1 CLK1 GATE2 "
               "OUT2 CLK2 A0 A1 CS RD WR VCC"),
+    # 22V10 (Microchip/Atmel ATF22V10C, doc0735, figure 2-2, DIP and SOIC):
+    # CLK/IN, ten inputs, GND, an input, ten I/O pins. The macrocells'
+    # product terms (8, 10, ..., 16, 16, ..., 8, infra/hw/gal.py) are
+    # symmetric, so IO0-IO9 on pins 14-23 fit as gal.py fits them. The
+    # PLCC-28 has its own numbering, not here
+    "22v10": ("CLK I1 I2 I3 I4 I5 I6 I7 I8 I9 I10 GND I11 "
+              "IO0 IO1 IO2 IO3 IO4 IO5 IO6 IO7 IO8 IO9 VCC"),
+    # TL16C550C, N package (TI SLLS177I, table 4-1). RD and WR are RD1 and
+    # WR1 (active low), RD2 and WR2 tied to their inactive level, ADS low
+    # (the address and selects not latched). The serial side (SIN, SOUT,
+    # RCLK, which the board ties to BAUDOUT, the modem inputs) isn't in the
+    # netlist: those pads get no net until it is. The FN (PLCC-44) package
+    # has its own numbering, not here
+    "16c550": ("D0 D1 D2 D3 D4 D5 D6 D7 RCLK SIN SOUT CS0 CS1 CS2 BAUDOUT XIN XOUT "
+               "WR =GND GND RD =GND DDIS TXRDY =GND A2 A1 A0 RXRDY INTR OUT2 RTS DTR "
+               "OUT1 MR CTS DSR DCD RI VCC"),
 }
 
 PINOUTS = {k: v.split() for k, v in PINOUTS.items()}
@@ -221,9 +239,9 @@ DIP_PACKAGE = {
                             "30", "32", "74", "86", "125", "132")},
     **{t: "DIP16" for t in ("109", "138", "148", "151", "153", "157", "161", "163", "175",
                             "182")},
-    **{t: "DIP20" for t in ("245", "299", "377", "540", "541", "574", "534", "688", "521",
+    **{t: "DIP20" for t in ("245", "299", "377", "540", "541", "573", "574", "534", "688", "521",
                             "clkdrv")},
-    "823": "DIP24", "181": "DIP24W", "82c54": "DIP24W",
+    "823": "DIP24", "181": "DIP24W", "82c54": "DIP24W", "22v10": "DIP24", "16c550": "DIP40W",
     "sram": "DIP28", "flash": "DIP32W", "sram512": "DIP32W",
     "por": "DIP8", "osc": "OSC", "pullup": "SIP9",
 }
@@ -238,6 +256,7 @@ FP = {
         "DIP24W": "Package_DIP:DIP-24_W15.24mm",
         "DIP28": "Package_DIP:DIP-28_W7.62mm",
         "DIP32W": "Package_DIP:DIP-32_W15.24mm",
+        "DIP40W": "Package_DIP:DIP-40_W15.24mm",
         "OSC": "Oscillator:Oscillator_DIP-14",
         "SIP9": "Resistor_THT:R_Array_SIP9",
         "CAP": "Capacitor_THT:C_Disc_D3.0mm_W1.6mm_P2.50mm",
@@ -253,6 +272,8 @@ FP = {
         "DIP24W": "Package_DIP:DIP-24_W15.24mm",
         "DIP28": "Package_SO:SOJ-28_7.62x18.415mm_P1.27mm",
         "DIP32W": "Package_SO:SOP-32_11.305x20.495mm_P1.27mm",
+        # the 16C550's PLCC-44 numbers its pins differently: in DIP here too
+        "DIP40W": "Package_DIP:DIP-40_W15.24mm",
         "PLCC32": "Package_LCC:PLCC-32_11.4x14.0mm_P1.27mm",
         "OSC": "Oscillator:Oscillator_SMD_Abracon_ASE-4Pin_3.2x2.5mm",
         "SIP9": "Resistor_SMD:R_Array_Convex_4x0603",
@@ -270,6 +291,13 @@ FP["smd"]["DIP16THT"] = "Package_DIP:DIP-16_W7.62mm"
 
 # oscillator pads differ between the DIP-14 can and the SMD part
 OSC_PADS = {"dip": {1: "=VCC", 7: "GND", 8: "OUT", 14: "VCC"}}
+
+
+# Board-to-board IDC headers (boxed, 0.1"), by pins: two rows, pin 1 and
+# the odd pins in one, the even pins in the other, so that wire k of a
+# ribbon cable is on pin k. A header's pin map is its nets (the connectors
+# of physical.parts), not a pinout
+IDC_HEADERS = {n: f"Connector_IDC:IDC-Header_2x{n // 2}_P2.54mm_Vertical" for n in (40, 50, 64)}
 
 
 def footprint_for(typ, style):

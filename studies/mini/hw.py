@@ -18,6 +18,10 @@ fixture in I/O region 7, on the data bus, in both.
   heron mini hw blocks              the block instructions against the model
   heron mini hw sta [--write]       static timing analysis (ticks.json)
   heron mini hw bom                 the parts list
+
+--boards (with --board-delay NS, default 1.5) runs test, run, devices,
+video, blocks or sta on the netlist split into boards (boards.py): every
+output that drives a pin on another board is that much later.
 """
 
 import argparse
@@ -45,6 +49,8 @@ def sources():
 
 
 _LOADED = None
+# ps on every output that drives another board (boards.py; --boards), or None
+BOARD_DELAY = None
 
 
 def netlist(lengths=None, capture=False):
@@ -56,10 +62,15 @@ def netlist(lengths=None, capture=False):
         _LOADED = runner.newest(sources())
     lengths = tuple(lengths or uc.built().lengths)
     tag = "-capture" if capture else ""
+    if BOARD_DELAY:
+        tag += f"-boards{BOARD_DELAY}"
     path = os.path.join(OUT, f"netlist-{'-'.join(map(str, lengths))}{tag}.json")
     if not os.path.exists(path) or os.path.getmtime(path) < runner.newest(sources()):
         os.makedirs(OUT, exist_ok=True)
         nl = board.build(sim=True, lengths=lengths, capture=capture)
+        if BOARD_DELAY:
+            from . import boards
+            boards.add_board_delays(nl, ps=BOARD_DELAY)
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=parts.VARIANT, corner="max"), f)
@@ -487,6 +498,17 @@ def main(argv=None):
                    help="write ticks.json, the measured periods the microcode's classes come from")
     s.add_argument("--no-profile", action="store_true",
                    help="without the suite's counts (which take minutes the first time)")
+    s.add_argument("--board-clocks", action="store_true",
+                   help="with --boards, delay the clocks too")
     s.set_defaults(fn=cmd_sta)
+    # the boards' delays (boards.py), on the chip-level runs and the analysis
+    for sp in (t, r, d, v, k, s):
+        sp.add_argument("--boards", action="store_true",
+                        help="the netlist split into boards: a delay on every signal between them")
+        sp.add_argument("--board-delay", type=float, default=1.5, metavar="NS",
+                        help="with --boards, the delay (default %(default)s ns)")
     args = p.parse_args(argv)
+    global BOARD_DELAY
+    if getattr(args, "boards", False) and args.fn is not cmd_sta:
+        BOARD_DELAY = round(args.board_delay * 1000)
     return args.fn(args)

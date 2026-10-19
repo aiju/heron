@@ -41,6 +41,7 @@ CF card's test pattern; on `c_compiler` for the compiled programs; on
 | `board.py` | The chip-level netlist: CPU, clock generator and hold, RAM and video RAM, I/O space and devices, video |
 | `hw.py` | The netlist on the chip-level simulator: the suite against the RTL model, the devices and video programs, the parts list |
 | `sta.py` | Static timing analysis of the netlist, per microinstruction |
+| `boards.py` | The netlist on three stacked boards (cpu1, cpu2, io): each chip's board (a min-cut refinement within the package limits), the signals between them and their IDC ribbon cables' headers, each board's netlist for the PCB study (`build/mini/boards/`), the boards' delays for the timing |
 | `perf.py` | Profiles the suite on the RTL model (cached in `build/mini/`) |
 | `check.py` | The RTL model against the instruction-level simulator |
 | `bench.py` | Graphics kernels: draft 2 code against the block instructions, on the RTL model |
@@ -65,6 +66,11 @@ heron mini hw video [--png F]        # the video program at chip level, its fram
 heron mini hw blocks                 # the block instructions at chip level against the RTL model
 heron mini hw sta [--write]          # static timing analysis; --write rewrites ticks.json
 heron mini hw bom                    # the parts list
+heron mini boards [--list] [--write] # the boards: chips, crossing signals, IDC headers; --write the
+                                     # boards' netlists as JSON (build/mini/boards/)
+heron mini boards --sta              # the timing analysis with 1.5 ns a crossing against the plain one
+heron mini hw sta --boards [--board-delay NS]  # the analysis with the boards' delays (test, run,
+                                     # devices, video and blocks take --boards too)
 heron test mini                      # the unit tests
 ```
 

@@ -23,6 +23,11 @@
                                    chip-level simulator against the RTL
                                    model, the devices, the video, static
                                    timing analysis, the parts list
+  boards [--list] [--write] [--sta]
+                                   the netlist on three boards: the chips on
+                                   each, the signals between them, their
+                                   ribbon cables' connectors (--write: the
+                                   boards' netlists into build/mini/boards)
 """
 
 import argparse
@@ -95,6 +100,9 @@ def main(argv=None):
     if argv and argv[0] == "hw":
         from . import hw
         return hw.main(argv[1:])
+    if argv and argv[0] == "boards":
+        from . import boards
+        return boards.main(argv[1:])
     p = argparse.ArgumentParser(prog="heron mini")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
