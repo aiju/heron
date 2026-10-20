@@ -629,3 +629,214 @@ impl CompactFlash {
         self.update(cx, c);
     }
 }
+
+// ---------------------------------------------------------------- PS/2 device
+
+/// What a PS/2 device is doing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Ps2State {
+    Idle,
+    /// Sending bit `n` of the frame: data set, clock low, clock high.
+    Send(u8, u8),
+    /// Receiving the host's bit `n`: clock low, clock high (sampled).
+    Recv(u8, u8),
+    /// The acknowledge: data low, a clock, data released.
+    Ack(u8),
+}
+
+/// A PS/2 keyboard or mouse on the end of its cable: CLK and DATA are
+/// open-collector lines (the board pulls them up). It sends its preload's
+/// bytes, one frame each (a start bit, the byte low bit first, odd parity,
+/// a stop bit), the data changing while the clock is high and the host
+/// reading it as the clock falls, `start_ps` after power-up and `gap_ps`
+/// apart, a clock's half period `half_ps`. A host that holds the clock low
+/// inhibits it: a frame cut short is sent again. A host that pulls the
+/// data low with the clock released asks to send: the device clocks in a
+/// byte (sampled as the clock rises), acknowledges it, and answers 0xFA.
+/// Its dump is the bytes the host sent. WAKE is the simulator's, on a net
+/// of its own.
+pub struct Ps2Device {
+    clk: usize,
+    data: usize,
+    wake: usize,
+    half: Time,
+    gap: Time,
+    queue: std::collections::VecDeque<u8>,
+    pub received: Vec<u8>,
+    state: Ps2State,
+    frame: u16,
+    shift: u16,
+    next_send: Time,
+    wake_at: Option<Time>,
+}
+
+impl Ps2Device {
+    pub fn new(s: &Spec, preload: Option<&[u8]>) -> Result<Ps2Device, Error> {
+        Ok(Ps2Device {
+            clk: s.pin("CLK")?,
+            data: s.pin("DATA")?,
+            wake: s.pin("WAKE")?,
+            half: s.param_or("half_ps", 40_000_000),
+            gap: s.param_or("gap_ps", 500_000_000),
+            queue: preload.unwrap_or(&[]).iter().copied().collect(),
+            received: Vec::new(),
+            state: Ps2State::Idle,
+            frame: 0,
+            shift: 0,
+            next_send: s.param_or("start_ps", 1_000_000_000),
+            wake_at: None,
+        })
+    }
+
+    pub fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        cx.wake_done(c, self.wake);
+        cx.drive(c, self.clk, 1, false, 0);
+        cx.drive(c, self.data, 1, false, 0);
+        let t = self.next_send;
+        self.wake_in(cx, c, t);
+    }
+
+    fn wake_in(&mut self, cx: &mut Ctx, c: &ChipInfo, t: Time) {
+        if self.wake_at.is_none_or(|w| w > t || w <= cx.now()) {
+            self.wake_at = Some(t);
+            cx.wake(c, self.wake, t);
+        }
+    }
+
+    fn line(cx: &mut Ctx, c: &ChipInfo, pin: usize, v: u8) {
+        if v == 0 {
+            cx.drive(c, pin, 0, true, 0);
+        } else {
+            cx.drive(c, pin, 1, false, 0);
+        }
+    }
+
+    /// The host asks to send: the clock released, the data held low.
+    fn rts(&self, cx: &Ctx, c: &ChipInfo) -> bool {
+        cx.input(c, self.clk) == 1 && cx.input(c, self.data) == 0
+    }
+
+    fn step(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        let now = cx.now();
+        let (q, h) = (self.half / 2, self.half);
+        match self.state {
+            Ps2State::Idle => {
+                if self.rts(cx, c) {
+                    self.shift = 0;
+                    self.state = Ps2State::Recv(0, 0);
+                    self.wake_in(cx, c, now + q);
+                } else if let Some(&b) = self.queue.front() {
+                    if now < self.next_send {
+                        let t = self.next_send;
+                        self.wake_in(cx, c, t);
+                    } else if cx.input(c, self.clk) == 1 && cx.input(c, self.data) == 1 {
+                        let parity = 1 ^ (b.count_ones() as u16 & 1);
+                        self.frame = (u16::from(b) << 1) | (parity << 9) | (1 << 10);
+                        self.state = Ps2State::Send(0, 0);
+                        self.wake_in(cx, c, now + q);
+                    } else {
+                        self.wake_in(cx, c, now + h);
+                    }
+                }
+            }
+            Ps2State::Send(n, phase) => match phase {
+                0 => {
+                    Self::line(cx, c, self.data, ((self.frame >> n) & 1) as u8);
+                    self.state = Ps2State::Send(n, 1);
+                    self.wake_in(cx, c, now + q);
+                }
+                1 => {
+                    Self::line(cx, c, self.clk, 0);
+                    self.state = Ps2State::Send(n, 2);
+                    self.wake_in(cx, c, now + h);
+                }
+                2 => {
+                    Self::line(cx, c, self.clk, 1);
+                    self.state = Ps2State::Send(n, 3);
+                    self.wake_in(cx, c, now + q);
+                }
+                _ => {
+                    if cx.input(c, self.clk) == 0 {
+                        // inhibited: the frame again later
+                        Self::line(cx, c, self.data, 1);
+                        self.state = Ps2State::Idle;
+                        self.next_send = now + self.gap;
+                        let t = self.next_send;
+                        self.wake_in(cx, c, t);
+                    } else if n == 10 {
+                        Self::line(cx, c, self.data, 1);
+                        self.queue.pop_front();
+                        self.state = Ps2State::Idle;
+                        self.next_send = now + self.gap;
+                        let t = self.next_send;
+                        self.wake_in(cx, c, t);
+                    } else {
+                        self.state = Ps2State::Send(n + 1, 0);
+                        self.wake_in(cx, c, now + q);
+                    }
+                }
+            },
+            Ps2State::Recv(n, phase) => {
+                if phase == 0 {
+                    Self::line(cx, c, self.clk, 0);
+                    self.state = Ps2State::Recv(n, 1);
+                    self.wake_in(cx, c, now + h);
+                } else {
+                    Self::line(cx, c, self.clk, 1);
+                    // sampled as the clock rises: data bits 0-7, parity, stop
+                    self.shift |= u16::from(cx.input(c, self.data)) << n;
+                    if n == 9 {
+                        self.received.push((self.shift & 0xFF) as u8);
+                        self.state = Ps2State::Ack(0);
+                    } else {
+                        self.state = Ps2State::Recv(n + 1, 0);
+                    }
+                    self.wake_in(cx, c, now + h);
+                }
+            }
+            Ps2State::Ack(phase) => match phase {
+                0 => {
+                    Self::line(cx, c, self.data, 0);
+                    self.state = Ps2State::Ack(1);
+                    self.wake_in(cx, c, now + q);
+                }
+                1 => {
+                    Self::line(cx, c, self.clk, 0);
+                    self.state = Ps2State::Ack(2);
+                    self.wake_in(cx, c, now + h);
+                }
+                2 => {
+                    Self::line(cx, c, self.clk, 1);
+                    self.state = Ps2State::Ack(3);
+                    self.wake_in(cx, c, now + q);
+                }
+                _ => {
+                    Self::line(cx, c, self.data, 1);
+                    self.queue.push_front(0xFA);
+                    self.state = Ps2State::Idle;
+                    self.next_send = now + self.gap;
+                    let t = self.next_send;
+                    self.wake_in(cx, c, t);
+                }
+            },
+        }
+    }
+
+    pub fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin == self.wake {
+            if cx.input(c, pin) == 1 {
+                cx.wake_done(c, self.wake);
+                if self.wake_at.is_some_and(|w| w <= cx.now()) {
+                    self.wake_at = None;
+                    self.step(cx, c);
+                }
+            }
+            return;
+        }
+        // the host's request to send, seen while idle
+        if self.state == Ps2State::Idle && self.rts(cx, c) {
+            let t = cx.now() + self.half / 2;
+            self.wake_in(cx, c, t);
+        }
+    }
+}

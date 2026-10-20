@@ -1,7 +1,7 @@
 """heron pcb: the system's cards as printed circuit boards.
 
   build [CARD] [--style smd|dip] [--size WxH] [--layers N] [--free] [--double]
-        [--router grid|freerouting] [--seed N]
+        [--tight] [--pitch WxH] [--gaps A,B] [--router grid|freerouting] [--seed N]
                         place, route and check one board, into
                         build/pcb/<name>/ (board.kicad_pcb, board.png,
                         result.json)
@@ -29,10 +29,18 @@ import sys
 def cmd_build(args):
     from . import flow
     w, h = (float(v) for v in args.size.lower().split("x"))
-    res = flow.build(args.card, args.style, w, h, layers=args.layers,
+    kw = dict(flow.TIGHT) if args.tight else {"style": args.style}
+    if args.pitch:
+        kw["pitch"] = tuple(float(v) for v in args.pitch.lower().split("x"))
+    if args.gaps:
+        kw["gaps"] = tuple(float(v) for v in args.gaps.split(","))
+    name = None
+    if args.tight:
+        name = f"{args.card}-dip-tight-{int(w)}x{int(h)}-{args.layers}L-F"
+    res = flow.build(args.card, width=w, height=h, layers=args.layers,
                      sides="FB" if args.double else "F", seed=args.seed,
-                     router_name=args.router,
-                     arrangement="free" if args.free or args.double else "grid")
+                     router_name=args.router, name=name,
+                     arrangement="free" if args.free or args.double else "grid", **kw)
     print(json.dumps(res, indent=1))
     return 0 if res.get("routed") and not res.get("netlist_errors") else 1
 
@@ -53,6 +61,11 @@ def cmd_view(args):
     path = sweep.viewer(args.names or None, args.out)
     print(path)
     return 0
+
+
+def cmd_mini(args):
+    from . import mini
+    return mini.main(args)
 
 
 def cmd_pinouts(args):
@@ -89,6 +102,11 @@ def main(argv=None):
     b.add_argument("--double", action="store_true",
                    help="parts on both sides (implies --free; against RFC 0026's R17 "
                         "on a board with through-hole parts)")
+    b.add_argument("--tight", action="store_true",
+                   help="DIP soldered by hand: 1 mm between pads, 0805 capacitors under the "
+                        "chips (closer than RFC 0026's R16)")
+    b.add_argument("--pitch", help="the grid's least slot, WxH mm")
+    b.add_argument("--gaps", help="the least gaps between courtyards, SMD-THT,THT-THT mm")
     b.add_argument("--router", default="grid", choices=("grid", "freerouting"))
     b.add_argument("--seed", type=int, default=1)
     b.set_defaults(fn=cmd_build)
@@ -101,6 +119,17 @@ def main(argv=None):
     v.add_argument("names", nargs="*", help="board folders in build/pcb/")
     v.add_argument("--out")
     v.set_defaults(fn=cmd_view)
+    m = sub.add_parser("mini", help="Heron Mini's stacked boards: build, delays, timing")
+    m.add_argument("action", choices=("build", "sites", "fit", "delays", "sta", "tune", "report"))
+    m.add_argument("--variant", default="smd-6",
+                   help="build, delays, sta: which boards (mini.VARIANTS; default smd-6, the "
+                        "first cut)")
+    m.add_argument("--all", action="store_true", help="build: every variant")
+    m.add_argument("--write", action="store_true",
+                   help="report: results.md, delays.json and the pictures into report 0044's "
+                        "folder")
+    m.add_argument("--file", help="sta, tune: the delays to take")
+    m.set_defaults(fn=cmd_mini)
     sub.add_parser("pinouts", help="the pinouts against KiCad's symbols").set_defaults(fn=cmd_pinouts)
     sub.add_parser("split", help="the cost of splitting the CPU card").set_defaults(fn=cmd_split)
     s = sub.add_parser("sweep", help="the experiments")

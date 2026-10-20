@@ -9,7 +9,7 @@ import unittest
 
 from heron.infra.hw.netlist import Netlist
 from heron.infra.pcb import board as B
-from heron.infra.pcb import check, copper, kicadlib, physical, place, router, sexpr, wires
+from heron.infra.pcb import check, copper, kicadlib, packages, physical, place, router, sexpr, wires
 
 needs_kicad = unittest.skipUnless(kicadlib.available(), "needs KiCad's libraries")
 
@@ -201,6 +201,64 @@ class Grid(unittest.TestCase):
             cells = {(c + i, r + j) for i in range(nc) for j in range(nr)}
             self.assertFalse(cells & taken, p.ref)
             taken |= cells
+
+
+class Packages(unittest.TestCase):
+    def test_a_part_with_its_own_pinout(self):
+        # the AS7C4096A-12 is a 36-pin SOJ; the sram512 type's other parts
+        # (AS6C4008) keep the 32-pin JEDEC pins
+        own = packages.pad_map("sram512", "smd", "AS7C4096A-12")
+        self.assertEqual(len(own), 36)
+        self.assertEqual([k for k, v in own.items() if v == "VCC"], ["9", "27"])
+        self.assertIn("SOJ-36", packages.footprint_for("sram512", "dip", "AS7C4096A-12"))
+        self.assertEqual(len(packages.pad_map("sram512", "smd")), 32)
+        # the fast 32K x 8 SRAM is SOJ in every style
+        self.assertIn("SOJ-28", packages.footprint_for("sram", "dip", "AS7C256A-12"))
+        self.assertIn("DIP-28", packages.footprint_for("sram", "dip", "AS6C62256-55"))
+
+
+@needs_kicad
+class MiniStack(unittest.TestCase):
+    def test_headers_face_each_other(self):
+        from heron.studies.pcb import mini
+        self.assertEqual(mini.check_sites(), [])
+        # each cable's two ends: the same ref numbers, one on each board
+        for (lo, hi), edges in mini.SITES.items():
+            n = sum(c for _, c in edges)
+            for here, there in ((lo, hi), (hi, lo)):
+                self.assertLessEqual({f"J_{there}_{i + 1}" for i in range(n)},
+                                     {p.ref for p, _ in mini.site_parts(here)})
+        # a header on the bottom side only where the board below faces it
+        for b in mini.STACK:
+            for p, c in mini.site_parts(b):
+                lo, hi = c["pair"]
+                self.assertEqual(p.side, "B" if b == hi and mini.neighbours(lo, hi) else "F")
+
+    def test_cables(self):
+        from heron.studies.pcb import mini
+        near = mini.cable_mm("cpu1", "cpu2")
+        far = mini.cable_mm("cpu1", "io")
+        self.assertEqual(near, mini.STANDOFF + mini.FOLD_MM)
+        self.assertEqual(far, 2 * mini.STANDOFF + mini.LOOP_MM)
+        self.assertEqual(mini.cable_ps("cpu2", "io"), mini.cable_ps("cpu1", "cpu2"))
+
+
+class MiniFeedback(unittest.TestCase):
+    def test_a_registered_output_read_by_its_own_chip(self):
+        # a 22V10's register feeds back inside the chip: its output's pin
+        # delay would delay its own equations (the simulator reads the pin)
+        from heron.infra.hw import gal
+        from heron.studies.pcb import mini
+        nl = Netlist()
+        gal.add(nl, "U1", {"Q": (gal.OR(gal.AND(gal.lit("A"), gal.lit("Q", 0)),
+                                        gal.AND(gal.lit("B"), gal.lit("Q"))), True, False),
+                           "W": (gal.AND(gal.lit("Q"), gal.lit("A")), False, False),
+                           "R": (gal.lit("B"), True, False)}, clock="CLK")
+        u = nl.refs["U1"]
+        pin = {net: p for p, net in u.conn.items()}
+        self.assertTrue(mini._fed_back(u, pin["Q"]))
+        self.assertFalse(mini._fed_back(u, pin["W"]))   # combinatorial, not read
+        self.assertFalse(mini._fed_back(u, pin["R"]))   # registered, not read
 
 
 if __name__ == "__main__":

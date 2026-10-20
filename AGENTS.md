@@ -138,6 +138,13 @@ Change the generator and rerun it rather than editing the output by hand:
   `heron fen banks --write`;
 - `reports/0040-rfc-interrupts/fen-latency-results.md`:
   `heron fen irq --write`;
+- `reports/0044-report-mini-cpu-boards/results.md`, `delays.json` and
+  the boards' pictures: `heron pcb mini report --write`, after
+  `heron pcb mini build --all` (needs KiCad; about half an hour in all);
+- `studies/pcb/mini-weights.json`, the mini's boards' placement weights:
+  `heron pcb mini tune`, from the boards placed for wire length
+  (`heron pcb mini build --variant smd-6-length` and
+  `heron pcb mini delays --variant smd-6-length`);
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;
@@ -169,6 +176,15 @@ Change the generator and rerun it rather than editing the output by hand:
 - `studies/v2_hw/ticks.json`, the microcode's cycle lengths:
   `heron v2_hw hw sta --write`, after any change to draft 2's netlist or
   microcode (`heron test v2_hw` fails while it's stale);
+- `reports/0041-rfc-heron-mini/performance.md`: `heron mini report
+  --write` (a few minutes);
+- `studies/mini/ticks.json` and `ticks-xga.json`, Heron Mini's cycle
+  lengths at its two master clocks: `heron mini hw sta --write` and
+  `heron mini hw sta --xga --write`, after any change to its netlist or
+  microcode (`heron test mini` fails while they're stale);
+- `studies/mini/board-weights.json`, the weights the board cut gives the
+  nets on the timing's critical paths: `heron mini boards --tune 2`
+  (about ten minutes), after a change to the netlist;
 - the SVGs of the documents' figures: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 
@@ -180,7 +196,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
 - `heron test v1_isa v2_isa v2_hw c_compiler v1b_hw v1b_system
-  v1b_tradeoffs v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+  v1b_tradeoffs v0_hw graphics kernel bus_si mini`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
   `heron v2_isa test`: the programs against their expected output, in 1b,
@@ -190,6 +206,17 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   simulator, a few minutes in all. `heron v2_hw hw test`: its netlist on
   the chip-level simulator against the RTL model, about 10 minutes for the
   suite.
+- `heron mini check [--c]`: Heron Mini against the instruction-level
+  simulator (`--lisp`: the Lisp's short tests, about 10 minutes;
+  `addrerr`: the address error). `heron mini hw test [--c]`: its netlist
+  on the chip-level simulator against the RTL model, about 6 minutes for
+  the suite and 5 for the C programs; `hw devices`, `hw ps2`, `hw debug`,
+  `hw video` (`--modes`: every video mode, about 10 minutes) and
+  `hw blocks` the rest. `heron mini boards [--sta] [--write]`: the
+  netlist on three boards, the boards' delays' cost on the timing, each
+  board's netlist for the PCB study. `heron mini sim FILE.s`: a program on the fast
+  simulator (the Rust engine, cycle for cycle as the RTL model) with
+  RFC 0042's video options, its frames as PNGs.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and

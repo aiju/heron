@@ -35,16 +35,14 @@ def _family(part_number):
     return None
 
 
-def nets(board, nl):
-    """{net: {"length": mm, "pF": total, "driver": (ref, pin) or None,
-    "loads": {(ref, pin): ps from the driver}, "others": {(ref, pin): ps}}}
-    for every routed net (a connector's load by its pad: it isn't in the
-    netlist). A net with several drivers (a tri-state bus) is timed from
-    the first by reference; "others" has each other driver's flight time to
-    its nearest pad."""
+def copper(board):
+    """Each routed net's copper as a graph, the planes' nets left out:
+    (graphs {net: {node: [(node, ps)]}}, length {net: mm}, track pF {net:
+    pF}, pads {net: [Pad]}). Nodes are track ends and vias by layer, and
+    each pad, ("pad", ref, number), joined to the copper on it (a branch
+    may leave from any point of a pad); edges carry the flight time."""
     outer = {"F.Cu", "B.Cu"}
     planes = set(board.planes.values())
-    # copper of each net: nodes are points (rounded to a micron), edges carry ps
     graph = defaultdict(lambda: defaultdict(list))
     length = defaultdict(float)
     cap = defaultdict(float)
@@ -83,19 +81,6 @@ def nets(board, nl):
                 ps = VIA_MM / (len(layers) - 1) * PS_PER_MM["inner"]
                 graph[net][a].append((b, ps))
                 graph[net][b].append((a, ps))
-    # pads: joined to the track ends that touch them
-    kind_of = {}
-    for inst in nl.instances:
-        for pin, net in inst.conn.items():
-            kind_of[(inst.ref, pin)] = inst.type.kind(pin)
-    from . import packages
-    pin_of = {}
-    for inst in nl.instances:
-        if inst.type.family == "fixture":
-            continue
-        for pad, name in packages.pad_map(inst.type.name, getattr(board, "style", "smd")).items():
-            pin_of[(inst.ref, pad)] = name
-    out = {}
     pads_by_net = defaultdict(list)
     for pad in board.pads():
         if pad.net and pad.net not in planes:
@@ -104,6 +89,45 @@ def nets(board, nl):
         pads.sort(key=lambda p: (p.part.ref, p.number))
         g = graph[net]
         ends = list(g)
+        for pad in pads:
+            hx, hy = pad.extent()
+            key = pad_key(pad)
+            for e in ends:
+                if abs(e[0] - pad.x) <= hx + 1e-3 and abs(e[1] - pad.y) <= hy + 1e-3 \
+                        and (pad.layers == "*" or e[2] in pad.layers):
+                    g[key].append((e, 0.0))
+                    g[e].append((key, 0.0))
+    return graph, length, cap, pads_by_net
+
+
+def pad_key(pad):
+    """A pad's node in copper()'s graphs."""
+    return ("pad", pad.part.ref, pad.number)
+
+
+def flights(g, pad):
+    """{pad node: ps} from a pad over its net's copper graph (copper()),
+    to every pad the copper reaches."""
+    return {k: v for k, v in _flights(g, pad).items() if k[0] == "pad"}
+
+
+def nets(board, nl):
+    """{net: {"length": mm, "pF": total, "driver": (ref, pin) or None,
+    "loads": {(ref, pin): ps from the driver}, "others": {(ref, pin): ps}}}
+    for every routed net (a connector's load by its pad: it isn't in the
+    netlist). A net with several drivers (a tri-state bus) is timed from
+    the first by reference; "others" has each other driver's flight time to
+    its nearest pad."""
+    graph, length, cap, pads_by_net = copper(board)
+    # pads: joined to the track ends that touch them
+    kind_of = {}
+    for inst in nl.instances:
+        for pin, net in inst.conn.items():
+            kind_of[(inst.ref, pin)] = inst.type.kind(pin)
+    pin_of = pins(board, nl)
+    out = {}
+    for net, pads in pads_by_net.items():
+        g = graph[net]
         info = {"length": round(length[net], 1), "driver": None, "loads": {}, "others": {}}
         c = cap[net]
         driver = None
@@ -127,28 +151,17 @@ def nets(board, nl):
         info["pF"] = round(c, 1)
         if driver is not None:
             info["driver"] = (driver.part.ref, pin_of.get((driver.part.ref, driver.number)))
-            # the copper nodes on each pad, and the pad itself as a node
-            # joining them (a branch may leave from any point of a pad)
-            def touching(pad):
-                hx, hy = pad.extent()
-                return [e for e in ends if abs(e[0] - pad.x) <= hx + 1e-3
-                        and abs(e[1] - pad.y) <= hy + 1e-3 and (pad.layers == "*" or e[2] in pad.layers)]
-            for pad in pads:
-                key = ("pad", pad.part.ref, pad.number)
-                for e in touching(pad):
-                    g[key].append((e, 0.0))
-                    g[e].append((key, 0.0))
             dist = _flights(g, driver)
             for pad in pads:
                 if pad is driver:
                     continue
-                d = dist.get(("pad", pad.part.ref, pad.number))
+                d = dist.get(pad_key(pad))
                 if d is not None:
                     pin = pin_of.get((pad.part.ref, pad.number), pad.number)
                     info["loads"][(pad.part.ref, pin)] = round(d)
             for o in others:
                 dist = _flights(g, o)
-                near = min((dist[k] for k in (("pad", p.part.ref, p.number) for p in pads if p is not o)
+                near = min((dist[k] for k in (pad_key(p) for p in pads if p is not o)
                             if k in dist), default=None)
                 if near is not None:
                     info["others"][(o.part.ref, pin_of.get((o.part.ref, o.number)))] = round(near)
@@ -156,9 +169,23 @@ def nets(board, nl):
     return out
 
 
+def pins(board, nl):
+    """{(ref, pad number): logical pin} of the netlist's chips on a board."""
+    from . import packages, physical
+    pin_of = {}
+    for inst in nl.instances:
+        if inst.type.family == "fixture":
+            continue
+        pn = physical.part_number(nl, inst) if inst.type.family != "osc" else None
+        for pad, name in packages.pad_map(inst.type.name, getattr(board, "style", "smd"),
+                                          pn).items():
+            pin_of[(inst.ref, pad)] = name
+    return pin_of
+
+
 def _flights(g, pad):
     """Dijkstra over a net's copper graph from one pad: {node: ps}."""
-    start = ("pad", pad.part.ref, pad.number)
+    start = pad_key(pad)
     dist = {start: 0.0}
     heap = [(0.0, 0, start)]
     k = 0

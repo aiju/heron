@@ -11,7 +11,8 @@ doesn't model. parts() makes them, with these rules:
 - test fixtures are not parts; a `const` fixture's outputs are the rails,
   so its nets become VCC and GND;
 - a chip's tied pins that need a part (the supervisor's capacitors) get it;
-- every chip gets a decoupling capacitor, C<ref>, VCC to GND;
+- every chip with a supply pin gets a decoupling capacitor, C<ref>, VCC
+  to GND;
 - a card's connector pins (nets BUS.<signal>) are pads of the connector
   parts the caller gives, by a pin map.
 
@@ -36,10 +37,18 @@ def rails(nl):
     return out
 
 
-def parts(nl, style, connectors=(), decouple=True):
+def part_number(nl, inst):
+    """An instance's part number, in the netlist's parts variant
+    (`nl.variant`, if it has one)."""
+    v = getattr(nl, "variant", None)
+    return inst.part_number(v) if v else inst.part_number()
+
+
+def parts(nl, style, connectors=(), decouple=True, cap=None):
     """The board's parts for a netlist: [Part]. `connectors` are
     (Part with empty nets, {pad: bus signal}) pairs: pad gets the net
-    BUS.<signal> if the netlist has it, or the rail named."""
+    BUS.<signal> if the netlist has it, or the rail named. `cap`: the
+    decoupling capacitors' footprint, if not the style's."""
     alias = rails(nl)
     used = {n for i in nl.instances for n in i.conn.values()}
     out = []
@@ -47,10 +56,11 @@ def parts(nl, style, connectors=(), decouple=True):
         t = inst.type
         if t.family == "fixture":
             continue
-        fp = packages.footprint_for(t.name, style)
+        pn = part_number(nl, inst) if t.family != "osc" else None
+        fp = packages.footprint_for(t.name, style, pn)
         nets = {}
         extra = []
-        for pad, name in packages.pad_map(t.name, style).items():
+        for pad, name in packages.pad_map(t.name, style, pn).items():
             if name in ("VCC", "GND"):
                 nets[pad] = name
             elif name == "NC":
@@ -70,13 +80,13 @@ def parts(nl, style, connectors=(), decouple=True):
                 net = inst.conn.get(name)
                 if net is not None:
                     nets[pad] = alias.get(net, net)
-        value = inst.part_number() if t.family != "osc" else inst.part or "oscillator"
+        value = pn if t.family != "osc" else inst.part or "oscillator"
         part = Part(inst.ref, fp, nets, value=value, kind="chip", inst=inst.ref,
-                    section=inst.section, typ=t.name)
+                    section=inst.section, typ=packages.pinout_of(t.name, pn))
         out.append(part)
         out += extra
-        if decouple and t.family != "passive":
-            out.append(Part(f"C{inst.ref}", packages.FP[style]["CAP"], {"1": "VCC", "2": "GND"},
+        if decouple and t.family != "passive" and "VCC" in nets.values():
+            out.append(Part(f"C{inst.ref}", cap or packages.FP[style]["CAP"], {"1": "VCC", "2": "GND"},
                             value="100n", kind="decap", section=inst.section))
     for part, pins in connectors:
         for pad, sig in pins.items():

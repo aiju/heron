@@ -23,6 +23,7 @@ commands, and `heron test <study>` runs its unit tests.
 | [v1b_hw](v1b_hw/README.md) | A 213-chip implementation of draft 1b |
 | [v1b_system](v1b_system/README.md) | Draft 1b on the RFC 0014 bus: the backplane, the CPU card with variable-length cycles, a memory card and an I/O card, at chip level |
 | [v1b_tradeoffs](v1b_tradeoffs/README.md) | Faster and smaller: where the 1b system's time and chips go, faster parts and a clock generator for them at chip level, cycle floors and other microarchitectures |
+| [mini](mini/README.md) | Heron Mini: draft 2's user level on one board, with its RAM, devices and a 640 x 480 framebuffer, at chip level |
 | [pcb](pcb/README.md) | The cards as printed circuit boards: placed and routed by code, written as KiCad boards, checked against the simulated netlist |
 | [c_compiler](c_compiler/README.md) | A C compiler for drafts 1a, 1b and 2 |
 | [lisp](lisp/README.md) | A Lisp for drafts 1b and 2: interpreter, compiler and collector on the machine, and what it wants from the ISA |

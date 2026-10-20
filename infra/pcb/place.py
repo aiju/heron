@@ -46,13 +46,18 @@ THT_BOTTOM_CLEAR = 5.0    # no part on the bottom within this of a through-hole 
 
 class Placer:
     def __init__(self, board, region=None, halo=1.5, grid=0.635, skip_nets=("VCC", "GND"),
-                 seed=1, sides="F", decaps="under", weights=None):
+                 seed=1, sides="F", decaps="under", weights=None, gaps=None):
         """region: (x0, y0, x1, y1) the parts may use (default: the board
         less 3 mm), its corner moved onto the grid; halo: free space kept
         around each part's courtyard (mm); sides: "F" or "FB"; decaps:
-        "under" (on the other side) or "beside" (room kept for them);
-        weights: {net: factor} for nets whose length matters more (timing-
-        critical ones), in both the global placement and the annealing."""
+        "under" (on the other side, but beside a through-hole chip),
+        "under-all" (under the through-hole chips too: a board soldered by
+        hand) or "beside" (room kept for them); weights: {net: factor} for
+        nets whose length matters more (timing-critical ones), in both the
+        global placement and the annealing; gaps: the least gaps between
+        courtyards (surface-mount to through-hole, through-hole to
+        through-hole), default RFC 0026's (SMD_THT_GAP, THT_THT_GAP)."""
+        self.gaps = tuple(gaps or (SMD_THT_GAP, THT_THT_GAP))
         self.weights = dict(weights or {})
         self._too_small = {}
         self.b = board
@@ -69,6 +74,11 @@ class Placer:
         self.movable = [p for p in board.parts.values() if p.kind not in ("decap",) and not p.fixed]
         self.fixed = [p for p in board.parts.values() if p.fixed]
         self._smd = any(not p.tht for p in self.movable)
+        # the side with fewer parts keeps the room between through-hole
+        # and surface-mount parts: on a board of mostly through-hole parts
+        # the few surface-mount ones
+        tht = sum(1 for p in self.movable if p.tht)
+        self._smd_keeps = 2 * tht > len(self.movable)
         self.nets = defaultdict(list)            # net -> [(part, pad number)]
         for p in board.parts.values():
             if p.kind == "decap":
@@ -263,7 +273,7 @@ class Placer:
         """Whether a chip's capacitor will go beside it."""
         if p.kind != "chip":
             return False
-        if self.decaps == "beside" or p.tht:
+        if self.decaps == "beside" or (p.tht and self.decaps != "under-all"):
             return True            # nothing goes under a through-hole part
         cap = self.b.parts.get("C" + p.ref)
         if cap is None:
@@ -305,12 +315,17 @@ class Placer:
     def _margin(self, p):
         """The room kept on each side of a part's courtyard: half the halo,
         or around a through-hole part enough for the gaps assembly needs
-        (SMD_THT_GAP to a surface-mount part, THT_THT_GAP to another)."""
+        (SMD_THT_GAP to a surface-mount part, THT_THT_GAP to another); on a
+        board of mostly through-hole parts, the surface-mount ones keep
+        the room between the two."""
+        smd_tht, tht_tht = self.gaps
         if not p.tht:
+            if self._smd_keeps:
+                return max(self.halo / 2, smd_tht - tht_tht / 2)
             return self.halo / 2
-        if self._smd:
-            return max(SMD_THT_GAP - self.halo / 2, THT_THT_GAP / 2)
-        return max(self.halo / 2, THT_THT_GAP / 2)
+        if self._smd and not self._smd_keeps:
+            return max(smd_tht - self.halo / 2, tht_tht / 2)
+        return max(self.halo / 2, tht_tht / 2)
 
     def _keepouts(self):
         """The keep-out areas no chip may go in, as (x0, y0, x1, y1)."""
@@ -625,16 +640,18 @@ def under_spot(chip, cap, rules):
     return spots[0] if spots else None
 
 
-def place_decaps(board, side="B", tht_clear=THT_BOTTOM_CLEAR):
+def place_decaps(board, side="B", tht_clear=THT_BOTTOM_CLEAR, under_tht=False):
     """Each chip's decoupling capacitor C<ref>. With side "B": on the other
     side, under the chip's body (under_spots), as near its VCC pin as it
     can be while keeping tht_clear from every through-hole pad (selective
     soldering needs the room). A chip too small for that, a chip with no
     such spot, and every chip with side "F" has it beside its end nearest
     its VCC pin, on its own side; board.decaps_beside lists the chips whose
-    capacitor went there for want of a spot."""
+    capacitor went there for want of a spot. under_tht: under the
+    through-hole chips too, between their pin rows (a board soldered by
+    hand, tht_clear 0)."""
     r = board.rules
-    cell = 2 * tht_clear
+    cell = 2 * max(tht_clear, 1.0)
     tht = defaultdict(list)
     for p in board.parts.values():
         if p.kind == "decap":
@@ -645,6 +662,8 @@ def place_decaps(board, side="B", tht_clear=THT_BOTTOM_CLEAR):
                 tht[(int(d.x // cell), int(d.y // cell))].append((d.x, d.y, hx, hy))
 
     def near_tht(cap):
+        if tht_clear <= 0:
+            return False
         for d in cap.pads():
             ex, ey = d.extent()
             cx, cy = int(d.x // cell), int(d.y // cell)
@@ -672,7 +691,7 @@ def place_decaps(board, side="B", tht_clear=THT_BOTTOM_CLEAR):
         xs = [d.x for d in chip.fp.pads if d.number]
         ys = [d.y for d in chip.fp.pads if d.number]
         rows_along_y = (max(ys) - min(ys)) >= (max(xs) - min(xs))
-        spots = under_spots(chip, c, r) if side == "B" and not chip.tht else []
+        spots = under_spots(chip, c, r) if side == "B" and (under_tht or not chip.tht) else []
         placed = False
         for lx, ly, lrot in spots:
             if chip.side == "B":
