@@ -77,7 +77,7 @@ def rom_images(first=False):
     """The control store's nine flash images, one a byte of the word."""
     if first not in _ROMS:
         cs = routines.control_store() if first else routines2.control_store()
-        imgs = [bytearray(1 << 19) for _ in range(uc.ROMS)]
+        imgs = [bytearray(1 << (19 if first else 17)) for _ in range(uc.ROMS)]
         for a, w in enumerate(cs.words):
             for k in range(uc.ROMS):
                 imgs[k][a] = (w >> (8 * k)) & 0xFF

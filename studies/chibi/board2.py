@@ -102,10 +102,10 @@ def build(sim=True, halt_ps=0):
     # ---- control store and sequencer --------------------------------------
     nl.section("control store")
     upc = bus("UPC", uc.ADDR_BITS)
-    cs_addr = upc + ["GND"] * (19 - uc.ADDR_BITS)
+    cs_addr = upc + ["GND"] * (17 - uc.ADDR_BITS)          # SST39SF010As, 128K x 8
     for k in range(uc.ROMS):
-        nl.add("flash4", f"U_CS{k}", CE="GND", OE="GND", WE="VCC",
-               **{f"A{i}": cs_addr[i] for i in range(19)},
+        nl.add("flash", f"U_CS{k}", CE="GND", OE="GND", WE="VCC",
+               **{f"A{i}": cs_addr[i] for i in range(17)},
                **{f"D{i}": cw[8 * k + i] for i in range(8)})
     sequencer(nl, clk, upc)
 

@@ -27,8 +27,10 @@ class Placed(unittest.TestCase):
         nl = place.netlist()
         refs = {p.ref.split(".")[0] for p in b.parts.values()}
         for inst in nl.instances:
-            if inst.type.family != "fixture":
-                self.assertIn(inst.ref, refs)
+            if inst.type.family == "fixture" or inst.ref in place.SIM_ONLY or (
+                    inst.type.per_package == 2 and not inst.ref.endswith("0")):
+                continue            # (a 16-bit SRAM's second byte: placed with its first)
+            self.assertIn(inst.ref, refs)
         self.assertEqual(set(pl.pos), {p.ref for p in pl.chips})
         res = demo.check(b, pl)
         self.assertEqual(res["problems"], [])

@@ -160,7 +160,7 @@ has as many ticks as its paths need ([14](#14-timing)).
 
 ### 3. Control store and sequencer
 
-**The control store** is nine SST39SF040s (512K × 8, PLCC-32), of which
+**The control store** is nine SST39SF010As (128K × 8, PLCC-32), of which
 the low 8K words are used: a flat store, addressed by the 13-bit
 microprogram counter **µPC**. Every word gives its own next address. The
 72-bit word's fields:
@@ -536,8 +536,7 @@ instruction's end.
 | | Packages | |
 |---|---:|---|
 | ATF22V10C-5 (PLCC-28, socketed) | 61 | clock generator (2), sequencer and tasks (7), flags and system (2), register file (4), operand latch (4), ALU control and zero (2), result (4), immediate unit (3), bus and sources (2), PC and MAR (7), memory control, I/O decode, slow devices (2), interrupts, ODT, scanline (3), PS/2 (6), sound, video (8) |
-| SST39SF040-55 (PLCC-32, socketed) | 9 | the control store (8K words of each used) |
-| SST39SF010A-55 (PLCC-32, socketed) | 1 | the boot flash |
+| SST39SF010A-55 (PLCC-32, socketed) | 10 | the control store (9, 8K words of each used), the boot flash |
 | 74F181, 74F182 | 4, 1 | the ALU |
 | IS61C6416AL-12 (SOJ-44) | 2 | the register file |
 | AS7C4096A-12 (SOJ-36) | 4 | the RAM |

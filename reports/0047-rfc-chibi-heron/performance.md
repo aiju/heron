@@ -68,7 +68,7 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | Part | Packages |
 |---|---:|
 | ATF22V10C-5 | 61 |
-| SST39SF040-55 | 9 |
+| SST39SF010A-55 | 10 |
 | 74ABT541 | 7 |
 | 74ABT574 | 6 |
 | 74ABT245 | 5 |
@@ -86,7 +86,6 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | 82C54 | 1 |
 | CF | 1 |
 | IMS G171 | 1 |
-| SST39SF010A-55 | 1 |
 | TL7705A | 1 |
 | YM2149F | 1 |
 | **total** | 115 |
@@ -112,7 +111,7 @@ Static timing analysis of the netlist (`heron chibi hw sta`), worst-case datashe
 ```
 ticks of 19.86 ns; phase F ticks 0-2, the low half from tick 3
 low halves' ticks over 582 words:  2: 374, 3: 208
-high halves' ticks over 327 words: 2: 214, 3: 113
+high halves' ticks over 326 words: 2: 213, 3: 113
 fixed-tick requirements failing: 0
 halves over their field's most (or I/O's 5 ticks): 0
 phase F: 0 failing

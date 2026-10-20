@@ -3,8 +3,8 @@
 
   chibi  74F gates and 74ABT registers, buffers and transceivers in DIP;
          74F181/182; ATF22V10C-5 programmable logic and the flash (the
-         control store's SST39SF040-55, the boot flash's SST39SF010A-55)
-         in socketed PLCC; for the register file IS61C6416AL-12 (64K x 16,
+         control store's SST39SF010A-55, or the first cut's SST39SF040-55,
+         and the boot flash's SST39SF010A-55) in socketed PLCC; for the register file IS61C6416AL-12 (64K x 16,
          SOJ-44: the two-halves machine's) or CY7C199C-12 (32K x 8,
          DIP-28: the first cut's); AS7C4096A-12 (512K x 8, SOJ-36) for the
          RAM
