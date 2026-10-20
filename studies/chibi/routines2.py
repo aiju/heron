@@ -20,7 +20,7 @@ the high halves what its low half does to the low. Conventions:
 
 from . import odt
 from .ucode2 import (
-    AX_MARINC, AX_MARLO, AX_PCLO, DS_ADR, DS_FLW, DS_SWP, G, IMM_CODE, IRN_DECS, IRN_IDX,
+    AX_MARINC, AX_MARLO, AX_PCLO, DS_ADR, DS_FLW, G, IMM_CODE, IRN_DECS, IRN_IDX,
     IRN_INCD, IRN_NS, LDL, LINK, MOP_FETCH, MOP_LDIRM, MOP_PCS, RD, RM_SHR, RM_SXB, RM_ZXB,
     RSRC, SEQ_END, SEQ_NEXT, SI_C, SI_D15, SP, T_A, T_B, T_C, T_CNT, T_FW, T_Q, T_R, T_RET,
     T_VEC, W, alu, ax, end, fl, hx, imm, jump, label, mem, pcrb, rd, store, u, wr,
@@ -38,7 +38,6 @@ def irn(code):
 
 
 FLW = {"DS": DS_FLW, "IMMF": IMM_CODE["ZERO"]}      # the flags word on D (15-7: 0)
-SWP = {"DS": DS_SWP}
 
 # ---- helpers -------------------------------------------------------------
 
@@ -67,10 +66,17 @@ def finish(ops):
     return ops + [u(end())]
 
 
+VEC_SUMS = {"V_ADR": ("C16", "C4"), "V_TAG": ("C16", "C8")}     # 0x14, 0x18
+
+
 def trap(vec, unwind):
     """An exception: T_VEC <- the vector, T_RET <- PC less `unwind`
     parcels, then page 3's entry."""
-    ops = [u(imm(vec), alu("A"), wr(T_VEC), W)]
+    if vec in VEC_SUMS:         # (vectors the immediates haven't)
+        a, b = VEC_SUMS[vec]
+        ops = [u(imm(a), LDL, W), u(imm(b), alu("ADD"), wr(T_VEC), W)]
+    else:
+        ops = [u(imm(vec), alu("A"), wr(T_VEC), W)]
     if unwind:
         ops += [u(imm({1: "C2", 2: "C4", 3: "C6"}[unwind]), LDL, W),
                 u(pcrb(), alu("SUB"), wr(T_RET), jump("exc", page=3))]
@@ -218,7 +224,7 @@ def special_operand(s):
 TABLES = (0xD, 0xE)
 
 
-def table_first(s):
+def table_first(s, page=2):
     """Page 1's part of the special mode's tables (R = D, E: an index parcel
     with the address's bits 23-16, then bits 15-0): the address (for E, from
     the next instruction's) into T_A, 0 into T_B, then the index parcel read
@@ -230,7 +236,7 @@ def table_first(s):
     return ops + [u(imm("ZERO"), alu("A"), wr(T_B), W),
                   u(imm("C4"), LDL, W),
                   u(pcrb(), alu("SUB"), ax(AX_MARLO), W),
-                  u(mem("MAR", 2), alu("A"), irn(IRN_IDX), jump(0, page=2))]
+                  u(mem("MAR", 2), alu("A"), irn(IRN_IDX), jump(0, page=page))]
 
 
 def special_ea(s, dest):
@@ -353,11 +359,13 @@ def c_incdec(pre, size, parcels, dec):
     return with_stubs(finish(ops), opnd.stubs())
 
 
-def c_jump(opnd, link):
+def c_jump(opnd, link, read=1):
     """PC <- the operand (CALL: r7 <- the next instruction's address, after
-    the operand is read); an odd target traps (V_ADR) with PC at it."""
+    the operand is read); an odd target traps (V_ADR) with PC at it. A byte
+    or halfword operand is illegal, before its address is computed (`read`:
+    the parcels read by then)."""
     if opnd.memory and opnd.size != 4:
-        return with_stubs(opnd.pre + illegal(opnd.parcels), opnd.stubs())
+        return illegal(read)
     ops = list(opnd.pre)
     if link:
         ops.append(u(pcrb(), alu("A"), wr(T_B)))
@@ -440,7 +448,7 @@ def gen_mmode(op, page, n):
         if m == 5:
             return index_first()
         if name in ("JMP", "CALL"):
-            return c_jump(mode_operand(m), name == "CALL")
+            return c_jump(mode_operand(m), name == "CALL", 1)
         if m in (1, 0xD):
             return illegal()
         if m == 0:
@@ -451,20 +459,23 @@ def gen_mmode(op, page, n):
         pre, parcels = ea_pre(m)
         return mem_rmw(name, pre, SIZE[m], parcels)
     if page == 1:
+        if n in TABLES:
+            return table_first(n, page=4)
         o = special_operand(n)
         if o is None:
             return illegal(2)
         if name in ("JMP", "CALL"):
-            return c_jump(o, name == "CALL")
+            return c_jump(o, name == "CALL", 2)
         if not o.memory:
-            return illegal(o.parcels)
+            return illegal(2)
         return mem_rmw(name, o.pre, o.size, o.parcels)
+    parcels = 3 if page == 4 else 2         # page 4: the tables', page 2 the indexed mode's
     ea = index_ea(n)
     if ea is None:
-        return illegal(2)
+        return illegal(parcels)
     if name in ("JMP", "CALL"):
-        return c_jump(mem_operand(ea[0], ea[1], 2), name == "CALL")
-    return mem_rmw(name, ea[0], ea[1], 2)
+        return c_jump(mem_operand(ea[0], ea[1], parcels), name == "CALL", parcels)
+    return mem_rmw(name, ea[0], ea[1], parcels)
 
 
 def mem_rmw(name, pre, size, parcels):
@@ -632,12 +643,14 @@ def gen_unary(op, page, n):
             u(rd(T_CNT, 0), alu("A"), fl("NZ16"), wr(RD, 0), hx("ZERO"))])
     if f in (0xC, 0xD):
         return gen_ffs_popc(f)
-    if f == 0xE:    # REV: the bytes reversed, through the byte-swapped copy of a result
-        return finish([u(rd(RSRC, 0), alu("A")),                  # SWP <- rs.lo swapped
-                       u(SWP, alu("A"), wr(T_A, 0)),
-                       u(rd(RSRC, 1), alu("A")),
-                       u(SWP, alu("A"), wr(RD, 0)),                # rd.lo <- rs.hi swapped
-                       u(rd(T_A, 0), alu("A"), wr(RD, 1))] + nz32(RD))
+    if f == 0xE:    # REV: each half zero-extended and shifted up 8, its bytes then apart
+        return finish([u(rd(RSRC, 0), alu("A"), wr(T_A, 0), hx("ZERO")),
+                       u(rd(RSRC, 1), alu("A"), wr(T_B, 0), hx("ZERO"))]
+                      + [u(rd(t), alu("SHL"), wr(t), W) for _ in range(8) for t in (T_A, T_B)]
+                      + [u(rd(T_A, 1), LDL),
+                         u(rd(T_A, 0), alu("OR"), wr(RD, 1)),     # rd.hi: rs.lo's bytes swapped
+                         u(rd(T_B, 1), LDL),
+                         u(rd(T_B, 0), alu("OR"), wr(RD, 0))] + nz32(RD))
     if f == 0xF:    # SETcc rd: cc = s
         if page == 0:
             return [u(irn(IRN_NS), jump(0, page=1))]
@@ -1026,7 +1039,7 @@ def gen_swi(op, page, n):
 
 
 def page3():
-    """The interrupt entry (step 0, at an instruction's end: PC is past the
+    """The interrupt's entry and reset's (µPC 0x000-0x0FF; at an instruction's end PC is past the
     next instruction's first parcel), HALT's wait's end, an exception's
     entry (T_VEC and T_RET set), ODT's entry (from HALT's wait too, PC
     past it) and reset."""
@@ -1054,13 +1067,13 @@ def page3():
         u(imm("C2"), LDL, W),
         u(pcrb(), alu("SUB"), wr(T_RET)),
         label("odt2"),
-        # ODT's word at the controller's +4 loads the instruction register
-        # (OP 00, N 9): ODT's blocks (odt.py), from page 1
+        # ODT's word at the controller's +4 loads d and s (9 and 0, as
+        # odt.py wants them); then its routine
         u(imm("C2"), LDL, W),
         u(imm("IOIV"), alu("ADD"), ax(AX_MARLO), wr(odt.T_IO4), W),
-        u({"MOP": MOP_LDIRM}, jump(0, page=1)),
+        u({"MOP": MOP_LDIRM}, jump("entry", routine="odt")),
         label("reset"),
-        u(fl("SETINIT"), jump(0, page=2)),
+        u(fl("SETINIT"), jump(0, routine="uart_init")),
     ]
 
 
@@ -1068,11 +1081,11 @@ COPPTR = 0x60       # the copper's place in its list: a word in RAM
 
 
 def copper():
-    """The copper: a task (opcode 00's N 8 block, page 1) while the scanline
+    """The copper: a task (at ucode2.TASK_BASE) while the scanline
     is the copper's target line (COPREQ). Its list goes on from the word at
     COPPTR, which it moves on, of entries:
 
-        MOVE  an I/O address (bit 31 set), then the word whose low half is
+        MOVE  an I/O address (bit 31 set: 0xFFFF_xxxx), then the word whose low half is
               written there
         WAIT  bits 31 and 30 clear: its low half (CEN, bit 15, and the line)
               written at the controller's +6; the task ends
@@ -1111,13 +1124,11 @@ BOOT_MAGIC = 0x1F
 
 
 def uart_init():
-    """Reset's first part, in opcode 00's page-2 block: UART 0 to 115200
+    """Reset's first part: UART 0 to 115200
     baud (the divisor 1), 8N1, its FIFOs on, DTR and RTS: ODT's console
     until a program changes it."""
-    return [u(imm("IOIV"), alu("A"), wr(T_A), W),              # 0x8018_0002
-            u(imm("V_TAG"), LDL),
-            u(rd(T_A, 1), alu("BIC"), wr(T_A, 1)),             # 0x8000_0002: DLM's
-            u(rd(T_A), alu("A"), ax(AX_MARLO), W),
+    return [u(imm("C2"), LDL, W),
+            u(imm("IOU0"), alu("ADD"), wr(T_A), ax(AX_MARLO), W),  # 0xFFFF_E002: DLM's
             u(imm("C64"), LDL),
             u(imm("C64"), alu("ADD"), wr(T_C, 0)),             # DLAB
             u(imm("C4"), LDL, W),
@@ -1133,19 +1144,14 @@ def uart_init():
             u(rd(T_B), alu("ADD"), ax(AX_MARLO), W),
             u(imm("U7_3"), store(1)),                          # MCR: DTR and RTS
             u(rd(T_A), alu("ADD"), ax(AX_MARLO), W),
-            u(imm("U7_7"), store(1), jump(0, page=1))]         # FCR: the FIFOs, emptied
+            u(imm("U7_7"), store(1), jump(0, routine="boot"))]  # FCR: the FIFOs, emptied
 
 
 def boot():
-    """Reset's second part, in opcode 00's page-1 block (reset clears OP and
-    N): if the boot flash's byte 0 is BOOT_MAGIC, copy byte 1's count of
+    """Reset's second part: if the boot flash's byte 0 is BOOT_MAGIC, copy byte 1's count of
     256-byte pages from its byte 2 on into RAM at 0; then enter the program
-    at 0. The flash's byte n is at 0x8010_0000 + 2n."""
-    return [u(imm("IOIV"), alu("A"), wr(T_A), W),              # 0x8018_0002
-            u(imm("C8"), LDL),
-            u(rd(T_A, 1), alu("BIC"), wr(T_A, 1)),             # 0x8010_xxxx
-            u(imm("ZERO"), alu("A"), wr(T_A, 0)),
-            u(rd(T_A), alu("A"), ax(AX_MARLO), W),
+    at 0. The flash's byte n is at 0xFFE0_0000 + 2n."""
+    return [u(imm("IOFL"), alu("A"), wr(T_A), ax(AX_MARLO), W),
             u(imm("C31"), LDL),
             u(mem("MAR", 1), alu("XOR"), fl("STZ"), ax(AX_MARINC)),     # ST: the magic's there
             u(mem("MAR", 1), alu("A"), wr(T_CNT, 0), jump("enter", "ST", True)),
@@ -1166,29 +1172,6 @@ def boot():
             label("enter"),
             u(imm("ZERO"), alu("A"), ax(AX_PCLO), W),
             u(end())]
-
-
-def _entries():
-    out, i = {}, 0
-    for op in page3():
-        if "_label" in op:
-            out[op["_label"]] = i
-        if set(op) != {"_label"}:
-            i += 1
-    return out
-
-
-ENTRIES = _entries()
-
-
-def resolve_page3(ops):
-    """Jumps to page 3's entries by name."""
-    out = []
-    for op in ops:
-        if op.get("_page") == 3 and isinstance(op.get("_goto"), str):
-            op = dict(op, _goto=ENTRIES[op["_goto"]])
-        out.append(op)
-    return out
 
 
 # ---- the instructions the first cut hadn't ---------------------------------
@@ -1240,15 +1223,15 @@ def gen_ldm(op, page, n):
 
 def gen_addb4(op, page, n):
     """08 ADD.B4 rd, rs: the four bytes added apart: (rd & M) + (rs & M),
-    with (rd ^ rs) & ~M on top, M = 0x7F7F7F7F (built in T_C through the
-    byte-swapped result); N and Z."""
+    with (rd ^ rs) & ~M on top, M = 0x7F7F7F7F (built in T_C); N and Z."""
     return finish([
         u(imm("C64"), LDL),
         u(imm("C64"), alu("ADD"), wr(T_C, 0)),
         u(rd(T_C, 0), alu("DEC"), wr(T_C, 0)),          # 0x7F
-        u(rd(T_C, 0), alu("A")),                        # SWP <- 0x7F00
-        u(rd(T_C, 0), LDL),
-        u(SWP, alu("OR"), wr(T_C, 0)),                   # 0x7F7F
+        u(rd(T_C, 0), alu("A"), wr(T_B, 0))]
+        + [u(rd(T_B, 0), alu("SHL"), wr(T_B, 0))] * 8 + [    # 0x7F00
+        u(rd(T_B, 0), LDL),
+        u(rd(T_C, 0), alu("OR"), wr(T_C, 0)),           # 0x7F7F
         u(rd(T_C, 0), alu("A"), wr(T_C, 1)),
         u(rd(T_C), LDL, W),
         u(rd(RD), alu("AND"), wr(T_A), W),
@@ -1346,10 +1329,16 @@ def gen_mul_special(op, page, n):
     page 2, its N still R)."""
     if page == 0:
         return [special_first()]
-    if page == 1:
-        o = special_operand(n)
+    if page == 1 and n in TABLES:
+        return table_first(n, page=4)
+    if page in (1, 4):
+        if page == 4:
+            ea = index_ea(n)
+            o = None if ea is None else mem_operand(ea[0], ea[1], 3)
+        else:
+            o = special_operand(n)
         if o is None:
-            return illegal(2)
+            return illegal(3 if page == 4 else 2)
         pre = operand_into(o, T_B)
         if op == 0xEC:
             return with_stubs(mulu(T_B, pre), o.stubs())
@@ -1373,8 +1362,7 @@ def gen_merge(op, page, n):
 # ---- the decode ------------------------------------------------------------
 
 def routine(page, n, op):
-    if page == 3:
-        return page3()
+    """The block of (page, N, opcode) (flat.py's)."""
     row = op >> 4
     if op in MMODE:
         return gen_mmode(op, page, n)
@@ -1406,14 +1394,6 @@ def routine(page, n, op):
         return gen_mulfx(op, page, n)
     if op in (0x06, 0x07):
         return gen_flags_sr(op, page, n)
-    if op == 0x00 and page == 1 and n == 0:
-        return boot()
-    if op == 0x00 and page == 2 and n == 0:
-        return uart_init()
-    if op == 0x00 and n == 8 and page == 1:
-        return copper()
-    if op == 0x00 and n in odt.BLOCKS:
-        return odt.odt_page(page, n, illegal())
     if op in (0x01, 0x02):
         return gen_ldm(op, page, n)
     if op == 0x08:
@@ -1427,50 +1407,15 @@ def routine(page, n, op):
 
 # ---- the control store ---------------------------------------------------
 
-class ControlStore:
-    """Every block placed: `words` (packed, by address), `missing` (the
-    opcodes not yet written, whose blocks stop the machine). Each
-    microinstruction's LEN and HLEN come from `ticks` (the timing
-    analysis's table, by the word without its untimed fields), the longest
-    where the table hasn't it."""
-
-    def __init__(self, ticks=None):
-        from . import ucode2 as uc
-        if ticks is None:
-            ticks = load_ticks()
-        self.words = [0] * uc.CS_WORDS
-        self.missing = {}
-        self.untimed = set()
-        mask = uc.untimed_mask()
-        cache = {}
-        for page in range(uc.PAGES):
-            for n in range(16):
-                for op in range(256):
-                    try:
-                        ops = page3_ops() if page == 3 else routine(page, n, op)
-                    except Unimplemented as e:
-                        self.missing.setdefault(op, str(e))
-                        ops = []
-                    ops = resolve_page3(merge_label(ops))
-                    words = uc.place(ops, page, f"{page}/{n:X}/{op:02X}")
-                    base = uc.addr(page, n, op, 0)
-                    for i, f in enumerate(words):
-                        k = tuple(sorted(f.items()))
-                        w = cache.get(k)
-                        if w is None:
-                            two = bool(f.get("HLEN"))
-                            raw = uc.pack(f)
-                            t = ticks.get((raw & ~mask, two))
-                            if t is None:
-                                self.untimed.add((raw & ~mask, two))
-                                t = (4, 3 if two else 0)
-                            f = dict(f, LEN=t[0] - 1, HLEN=t[1])
-                            w = cache[k] = uc.pack(f)
-                        self.words[base + i] = w
-        self.distinct = len(cache)
+ROUTINES = {"p3": lambda: page3_ops(), "copper": lambda: copper(), "uart_init": lambda: uart_init(),
+            "boot": lambda: boot(), "odt": lambda: odt.routine()}
 
 
-TICKS_PATH = None
+def ControlStore(ticks=None):
+    """The flat store (flat.py), its lengths from the timing analysis's
+    table (`ticks`, ticks.json's by default)."""
+    from . import flat
+    return flat.ControlStore(routine, ROUTINES, load_ticks() if ticks is None else ticks)
 
 
 def load_ticks():

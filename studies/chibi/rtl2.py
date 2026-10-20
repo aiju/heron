@@ -12,7 +12,8 @@ FLAG_NAMES = ("N", "Z", "C", "V", "I", "IC", "ST", "B", "BI", "INIT", "IRQP")
 
 
 class Word:
-    __slots__ = [n for n, _ in uc.FIELDS] + ["aop", "flop", "flop_h", "cnd", "two", "nds"]
+    __slots__ = [n for n, _ in uc.FIELDS] + ["aop", "flop", "flop_h", "cnd", "two", "nds", "RS",
+                                            "KR", "WS", "KW", "WEN"]
 
     def __init__(self, w):
         f = uc.unpack(w)
@@ -21,16 +22,15 @@ class Word:
         self.aop = uc.AOP_NAME.get(self.AOP, "A")
         self.flop = uc.FL_NAME.get(self.FL, "NONE")
         self.flop_h = uc.FL_HIGH.get(self.flop, "NONE")
-        self.cnd = uc.CONDS[self.CND & 15]
+        self.cnd = uc.CONDS[self.CND]
         self.two = self.HLEN != 0
-
-
-def swap(v):
-    return (v >> 8 | v << 8) & 0xFFFF
+        self.RS, self.KR = uc.reg_sel(self.RK)
+        self.WEN = int(self.WK != uc.WK_NONE)
+        self.WS, self.KW = uc.reg_sel(self.WK) if self.WEN else (uc.SEL_K, 0)
 
 
 class RTL2:
-    IO_TICKS = 5            # a half that accesses the I/O space
+    IO_TICKS = 6            # a half that accesses the I/O space
 
     def __init__(self, sysm=None, cs=None):
         self.sys = sysm or System2()
@@ -39,18 +39,16 @@ class RTL2:
         self.rf = {}                 # (half, task, bank, n) -> 16 bits
         self.L = [0, 0]              # the low half's latch and the high half's
         self.Y = [0, 0]
-        self.YS = 0
         self.Dhold = 0
         self.wa = (0, 0, 0)          # (task, bank, n) of the result's write
         self.wenq = self.wenbq = self.hwq = 0
         self.pc = 0
         self.mar = 0
-        self.mar31 = 0
-        self.op = self.d = self.s = 0
-        self.N = 0
-        self.page, self.step = 3, 0
+        self.mar30 = 0
+        self.d = self.s = 0
+        self.upc = 0                 # reset: the interrupt's entry
         self.task = 0
-        self.tstep, self.tpage = 0, 0
+        self.tupc = 0
         self.f = {k: 0 for k in FLAG_NAMES}
         self.hc = 0
         self.cycles = 0
@@ -91,8 +89,8 @@ class RTL2:
 
     def address(self):
         if self.task:
-            return uc.addr(self.tpage, 8, 0, self.tstep)
-        return uc.addr(self.page, self.N, self.op, self.step)
+            return uc.TASK_BASE | self.tupc
+        return self.upc
 
     def cycle(self):
         a = self.address()
@@ -116,13 +114,13 @@ class RTL2:
             if h == last:
                 # the condition: the flags as the last half starts
                 ne = int(self.d != self.s)
-                ct = uc.cond_value(w.cnd, f, ne, odt=self.sys.odt_req()) ^ (w.CND >> 4)
+                ct = uc.cond_value(w.cnd, f, ne, odt=self.sys.odt_req())
             md, n_ticks = self.half(w, h, last)
             ticks += n_ticks
             if md is not None:
                 md_last = md
         if w.cnd == "A0":
-            ct = (self.bus_a & 1) ^ (w.CND >> 4)
+            ct = self.bus_a & 1
         self.ticks += ticks
         # ---- the cycle's end: the sequencer
         if w.flop in uc.SYS_FLOPS:
@@ -140,11 +138,13 @@ class RTL2:
         self.wenbq = w.WEN & w.two
         self.hwq = w.HW
         self.wa = self.regsel(w.WS, w.KW)
-        old_s = self.s
+        nib = (self.d, self.s, (md_last or 0) >> 8 & 15)[w.CND & 3] if w.SEQ == uc.HSEQ_MW \
+            else 0
+        op = None
         if w.MOP in (uc.MOP_FETCH, uc.MOP_LDIRM) and not self.task:
             md = md_last
-            self.op, self.d, self.s = md & 0xFF, md >> 12, md >> 8 & 15
-            self.N = self.d
+            self.d, self.s = md >> 12, md >> 8 & 15
+            op = md & 0xFF
             if w.MOP == uc.MOP_FETCH:
                 if self.decodes is not None:
                     self.decodes.append((self.cycles, self.fetch_pc, md))
@@ -152,42 +152,40 @@ class RTL2:
                 self.instructions += 1
         elif not self.task:
             irn = w.IRN
-            if irn == uc.IRN_INCD:
+            if irn == uc.HIRN_INCD:
                 self.d = (self.d + 1) & 15
-            elif irn == uc.IRN_DECS:
+            elif irn == uc.HIRN_DECS:
                 self.s = (self.s - 1) & 15
-            elif irn == uc.IRN_IDX:
+            elif irn == uc.HIRN_IDX:
                 self.s = md_last >> 12
-                self.N = md_last >> 8 & 15
-            if irn == uc.IRN_NS:
-                self.N = old_s
         # the next address
-        tp = w.SEQ in (uc.SEQ_END, uc.SEQ_JUMPT)
-        if self.task:
-            if w.SEQ == uc.SEQ_END:
-                self.task = 0
-            elif w.SEQ in (uc.SEQ_JUMP, uc.SEQ_JUMPT) and ct:
-                self.tstep, self.tpage = w.JT, w.PT
-            else:
-                self.tstep = (self.tstep + 1) & 31
+        a = self.address()
+        tp = w.SEQ in (uc.HSEQ_END, uc.HSEQ_JUMPT)
+        if w.SEQ == uc.HSEQ_END:
+            nxt = None
+        elif w.SEQ == uc.HSEQ_MW:
+            nxt = w.JT | nib
         else:
-            if w.SEQ == uc.SEQ_NEXT:
-                self.step = (self.step + 1) & 31
-            elif w.SEQ in (uc.SEQ_JUMP, uc.SEQ_JUMPT):
-                if ct:
-                    self.step, self.page = w.JT, w.PT
-                else:
-                    self.step = (self.step + 1) & 31
+            nxt = w.JT ^ int(bool(ct))
+        if self.task:
+            if nxt is None:
+                self.task = 0
             else:
-                self.step = 0
-                self.page = 3 if f["IRQP"] else 0
+                self.tupc = nxt & 31
+        else:
+            if nxt is None:
+                if op is None:
+                    raise ValueError(f"a decode without a fetch at {a:04X}")
+                chk = not w.JT & uc.NOCHK
+                nxt = op if (chk and f["IRQP"]) else uc.ENTRY_BASE | op
+            self.upc = nxt
             if tp and self.sys.copreq(self):
                 self.task = 1
-                self.tstep, self.tpage = 0, 1     # page 1: page 0 is 0x8000's
+                self.tupc = 0
         f["IRQP"] = irqp
         self.sys.tick(self, ticks)
         self.cycles += 1
-        if w.HALT:
+        if a in self.cs.halt:
             self.halted = True
 
     def half(self, w, h, last):
@@ -208,7 +206,7 @@ class RTL2:
             (w.MOP == uc.MOP_FETCH and h != last)
         A = self.pc if at_pc else self.mar
         self.bus_a = A
-        io = (not at_pc) and bool(self.mar31)
+        io = (not at_pc) and bool(self.mar30)
         if mop == uc.MOP_FETCH:
             self.fetch_pc = self.pc
         md = None
@@ -230,8 +228,6 @@ class RTL2:
             D = self.pc >> 16 & 0x1F
         elif ds == uc.DS_FLW:
             D = self.flags_word
-        elif ds == uc.DS_SWP:
-            D = self.YS
         else:
             D = self.Dhold
         self.Dhold = D
@@ -271,7 +267,6 @@ class RTL2:
         self.z_last = int(R == 0)
         if not h:
             self.hc = co
-        self.YS = swap(F)
         if w.LDL:
             self.L[h] = D
         self.Y[h] = res
@@ -292,7 +287,7 @@ class RTL2:
             self.mar = (self.mar & ~0xFFFF) | F
         elif axm == uc.AXM_HI:
             self.mar = (self.mar & 0xFFFF) | (F & 0x1F) << 16
-            self.mar31 = F >> 15
+            self.mar30 = F >> 14 & 1
         elif axm == uc.AXM_INC:
             self.mar = (self.mar & 1) | ((self.mar & 0x1FFFFE) + 2) & 0x1FFFFE
         return md, n_ticks

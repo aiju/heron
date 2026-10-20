@@ -1,12 +1,26 @@
 """The two-halves machine's microcode: the control word, the
 micro-assembler's helpers and the encodings (routines2.py has the
-routines, rtl2.py the model, board2.py the netlist).
+routines, flat.py lays them out, rtl2.py is the model, board2.py the
+netlist).
 
-The control store is addressed as the first cut's (ucode.py),
+The control store is flat: 8K words, addressed by the 13-bit microprogram
+counter µPC, its word 72 bits in nine flashes. Every word gives its next
+address:
 
-    {PAGE[1:0], N[3:0], OP[7:0], STEP[4:0]}           19 bits, 512K words
+- SEQ JUMP (and JUMPT, the same at a task point; SEQ's bits equal): JT, its bit 0 XORed with
+  the condition CND, so that a conditional jump goes to one of a pair
+  (JT, JT ^ 1) and an unconditional one (TRUE) to JT ^ 1;
+- SEQ MW: a 16-way branch, JT with its low 4 bits ORed with a nibble: d, s
+  or z (the index parcel's bits 11-8, as it's read), by CND's low bits;
+- SEQ END: the decode, µPC <- 0x100 + the opcode (MD7-0, the fetch's), or
+  the opcode alone if an interrupt or ODT is pending (IRQP; 0x000-0x0FF
+  are all the interrupt's entry, and reset clears µPC to 0); JT bit 12
+  set, IRQP isn't looked at (ODT's step).
 
-with the same pages, and its word is 72 bits in nine flashes.
+The routines are written as before, in blocks of a page, a dispatch nibble
+N and an opcode, with jumps within a block and to another page's step and
+N <- s and N <- z as dispatches (routines2.py); flat.py compiles them into
+the flat store, sharing what's the same.
 
 A microinstruction is a cycle of master-clock ticks (19.86 ns): phase F,
 three ticks while the control store's outputs settle and the cycle
@@ -36,11 +50,11 @@ D and no memory access; IMMH puts the immediate unit's high half on D
 the low half, sign-extended into L).
 
 Phase F writes the cycle before's results: the low half's at tick 1,
-the high half's at tick 2, each to its half of the register file (four
-SRAMs, a pair for each half); PC and MAR loaded from the ALU at the
-halves' ends, so they're there for the next cycle.
+the high half's at tick 2, each to its half of the register file; PC and
+MAR loaded from the ALU at the halves' ends, so they're there for the
+next cycle.
 
-An access to the I/O space (A31 set) takes a half of five ticks
+An access to the I/O space (MAR's bit 30 set) takes a half of five ticks
 whatever LEN says, and the slow devices hold it longer (board2.SLOW).
 """
 
@@ -50,34 +64,31 @@ from .ucode import (  # noqa: F401  (the encodings the two machines share)
     AOP_CODE, AOP_NAME, AOPS, MOP_FETCH, MOP_LDIRM, MOP_NONE, MOP_PCS, MOP_RDM, MOP_RDP,
     MOP_WRM, RM_PASS, RM_SHR, RM_SXB, RM_ZXB, SEL_D, SEL_K, SEL_S, SI_0, SI_C, SI_CO, SI_D15,
     Reg, G, T, RD, RSRC, SP, LINK, T_A, T_B, T_C, T_CNT, T_Q, T_R, T_RET, T_VEC, T_FW,
-    aop_resolve, ADDR_BITS, CS_WORDS, PAGES, STEPS, addr,
+    aop_resolve, PAGES, STEPS,
 )
 
+# the hardware's fields
 FIELDS = [
     ("DS", 3),      # the D bus's source
     ("SZ", 1),      # a memory access is a byte
     ("IMMF", 5),    # the immediate unit's format (IMMS: a 32-bit value)
-    ("RS", 2),      # register read: K, d or s
-    ("KR", 5),
+    ("RK", 6),      # register read: K 0-31, d (RK_D) or s (RK_S)
     ("HR", 1),      # ... the low half's half (the high half reads the other)
-    ("WS", 2),      # register write (of this result, in the next cycle's phase F)
-    ("KW", 5),
+    ("WK", 6),      # register write (of this result, in the next cycle's phase F); WK_NONE
     ("HW", 1),
-    ("WEN", 1),
     ("AOP", 5),     # ALU operation (A = D, B = L)
     ("SISEL", 2),   # the bit into bit 15 when the result shifts right
     ("RM", 2),      # the result: as is, shifted right, its low byte zero- or sign-extended
     ("FL", 5),      # flag operation
     ("LDL", 1),     # L's half <- D
-    ("MOP", 3),     # memory: none, read at MAR, write at MAR, read at PC, fetch, PC on the bus
+    ("MOP", 3),     # memory: none, read at MAR, write at MAR, read at PC, fetch, PC on the
+                    # bus, a read at MAR into d and s
     ("AXP", 2),     # PC's half <- the ALU, at the half's end
     ("AXM", 2),     # MAR's half <- the ALU, or MAR + 2
-    ("IRN", 3),     # the register byte and the dispatch nibble (IRN_*)
-    ("SEQ", 2),     # next, jump, end, jump at a task point
-    ("CND", 5),     # condition (bit 4: inverted)
-    ("JT", 5),      # jump target step
-    ("PT", 2),      # jump target page
-    ("HALT", 1),    # the machine has stopped (for the simulations)
+    ("IRN", 2),     # the register byte: d + 1, s - 1, s <- the index parcel's x
+    ("SEQ", 2),     # jump, 16-way branch, end (the decode), jump at a task point
+    ("CND", 4),     # the jump's condition; a branch's nibble
+    ("JT", 13),     # the jump's target
     ("LEN", 2),     # the low half's ticks, less 1
     ("HLEN", 2),    # the high half's ticks; 0: no high half
     ("HX", 2),      # the high half's variant (HX_*)
@@ -93,22 +104,34 @@ assert _b == WORD_BITS, _b
 USED_BITS = _b
 INVERTED = {"LDL"}
 # the fields static timing analysis doesn't read: the cycle's lengths
-# come from it, and the sequencer's jump target and HALT time nothing
-UNTIMED = ("JT", "PT", "HALT", "LEN", "HLEN")
+# come from it, and the jump's target times nothing
+UNTIMED = ("JT", "LEN", "HLEN")
 
-# D bus sources: FLW the flags word's bits (a 74HCT541), SWP the last
-# half's result with its bytes swapped (two 74HCT574s, loaded at every
-# half's end)
-DS_NONE, DS_RF, DS_MEM, DS_IMM, DS_ADR, DS_PCH, DS_FLW, DS_SWP = range(8)
+ADDR_BITS = 13
+CS_WORDS = 1 << ADDR_BITS
+ENTRY_BASE = 0x100              # the decode's: 0x100 + the opcode
+TASK_BASE = 0x1FE0              # the copper's 32 words (U_TASK has µPC's bits 4-0)
+NOCHK = 0x1000                  # JT's bit 12 in a SEQ END: no interrupt's check
+
+# D bus sources: FLW the flags word's bits (a 74HCT541)
+DS_NONE, DS_RF, DS_MEM, DS_IMM, DS_ADR, DS_PCH, DS_FLW = range(7)
 AXP_NONE, AXP_LO, AXP_HI = range(3)
 AXM_NONE, AXM_LO, AXM_HI, AXM_INC = range(4)
 AX_PCLO, AX_PCHI, AX_MARLO, AX_MARHI, AX_MARINC = ("P", 1), ("P", 2), ("M", 1), ("M", 2), ("M", 3)
-# the register byte and the dispatch nibble: N <- s; s <- the index
-# parcel's x and N <- its bits 11-8; d + 1; s - 1
-# (coded so that the dispatch nibble's register reads two of the bits)
+# the routines' register byte and dispatch nibble (as written, ucode.py's
+# encoding): N <- s; s <- the index parcel's x and N <- its bits 11-8;
+# d + 1; s - 1. flat.py makes N <- s and N <- z 16-way branches.
 IRN_NONE, IRN_INCD, IRN_DECS, IRN_NS, IRN_IDX = 0, 1, 2, 4, 6
+HIRN = {IRN_NONE: 0, IRN_INCD: 1, IRN_DECS: 2, IRN_NS: 0, IRN_IDX: 3}
+HIRN_NONE, HIRN_INCD, HIRN_DECS, HIRN_IDX = range(4)
+# the routines' sequencing (as written): next, jump, end, jump at a task point
 SEQ_NEXT, SEQ_JUMP, SEQ_END, SEQ_JUMPT = range(4)
+# the hardware's
+HSEQ_JUMP, HSEQ_MW, HSEQ_END, HSEQ_JUMPT = range(4)    # bit 1: a task point
+MW_D, MW_S, MW_Z = range(3)
 HX_NAT, HX_ZERO, HX_FILL, HX_IMMH = range(4)
+RK_D, RK_S = 32, 33
+WK_NONE = 63
 
 # flag operations, the low half's; FL_HIGH: what each does in a high half
 FLOPS = [
@@ -150,7 +173,7 @@ FL_NAME = {c: n for n, c in FL_CODE.items()}
 # the flags in U_SYS rather than U_FLG
 SYS_FLOPS = ("BNZ", "BINZ", "ENTRY", "SETINIT")
 
-# conditions for a jump (CND bit 4 inverts)
+# conditions for a jump (as written, bit 4 inverts; flat.py swaps the pair instead)
 CONDS = ["TRUE", "Z", "C", "N", "V", "HI", "LT", "LE", "IC", "ST", "INIT", "IRQP", "NE",
          "A0", "ODT", "I"]
 COND_CODE = {n: i for i, n in enumerate(CONDS)}
@@ -192,9 +215,9 @@ IMMS = OrderedDict([
     ("C6", (lambda d, s: 6, "0")),
     ("Z5", (None, "Z5")),
     ("V_SWI", (lambda d, s: 0x0C, "0")),
-    ("V_ADR", (lambda d, s: 0x14, "0")),
-    ("V_TAG", (lambda d, s: 0x18, "0")),
-    ("IOIV", (lambda d, s: 0x0002, 0x8018)),      # the interrupt controller's vector
+    ("IOU0", (lambda d, s: 0xE000, "1")),         # UART 0, 0xFFFF_E000
+    ("IOFL", (lambda d, s: 0, 0xFFE0)),           # the boot flash, 0xFFE0_0000
+    ("IOIV", (lambda d, s: 0xD002, "1")),         # the interrupt controller's vector, 0xFFFF_D002
     ("C64", (lambda d, s: 64, "0")),
     ("C31", (lambda d, s: 31, "0")),
     ("SXST", (lambda d, s: 0, "st")),
@@ -289,11 +312,15 @@ def end():
     return {"MOP": MOP_FETCH, "SEQ": SEQ_END}
 
 
-def jump(target, cond="TRUE", inv=False, page=None, task=False):
+def jump(target, cond="TRUE", inv=False, page=None, task=False, routine=None):
+    """A jump: to a label or step of this block (page: another page's
+    step), or with routine to a label of one of flat.py's routines."""
     d = {"SEQ": SEQ_JUMPT if task else SEQ_JUMP,
          "CND": COND_CODE[cond] | (16 if inv else 0), "_goto": target}
     if page is not None:
         d["_page"] = page
+    if routine is not None:
+        d["_routine"] = routine
     return d
 
 
@@ -301,9 +328,42 @@ def label(name):
     return {"_label": name}
 
 
+# the fields as the routines write them, beside the hardware's
+SRC_DEFAULTS = {"DS": 0, "SZ": 0, "IMMF": 0, "RS": 0, "KR": 0, "HR": 0, "WS": 0, "KW": 0,
+                "HW": 0, "WEN": 0, "AOP": AOP_CODE["A"], "SISEL": 0, "RM": 0, "FL": 0, "LDL": 0,
+                "MOP": 0, "AXP": 0, "AXM": 0, "IRN": 0, "SEQ": 0, "CND": 0, "HALT": 0, "LEN": 3,
+                "HLEN": 0, "HX": 0}
+SEQUENCING = ("SEQ", "CND", "HALT", "IRN", "JT", "PT")
+
+
+def reg_code(sel, k):
+    return k if sel == SEL_K else RK_D if sel == SEL_D else RK_S
+
+
+def reg_sel(code):
+    """(SEL_*, K) of an RK or WK."""
+    if code < 32:
+        return SEL_K, code
+    return (SEL_D if code == RK_D else SEL_S), 0
+
+
+def hw_fields(f):
+    """The hardware's fields of a microinstruction as written, but its
+    sequencing (SEQ, CND, JT, which flat.py gives it)."""
+    g = dict(SRC_DEFAULTS)
+    g.update({k: v for k, v in f.items() if not k.startswith("_")})
+    out = {k: g[k] for k in ("DS", "SZ", "IMMF", "HR", "HW", "AOP", "SISEL", "RM", "FL", "LDL",
+                             "MOP", "AXP", "AXM", "LEN", "HLEN", "HX")}
+    out["RK"] = reg_code(g["RS"], g["KR"])
+    out["WK"] = reg_code(g["WS"], g["KW"]) if g["WEN"] else WK_NONE
+    out["IRN"] = HIRN[g["IRN"]]
+    return out
+
+
 DEFAULTS = {name: 0 for name, _ in FIELDS}
 DEFAULTS["AOP"] = AOP_CODE["A"]
 DEFAULTS["LEN"] = 3                 # untimed: the longest
+DEFAULTS["WK"] = WK_NONE
 
 
 def pack(f):
@@ -354,35 +414,3 @@ def validate(f, where):
         assert f.get("DS", 0) != DS_MEM, f"{where}: a fetch and a read in a 32-bit operation"
     assert f.get("AXP", 0) != AXP_HI and f.get("AXM", 0) != AXM_HI, \
         f"{where}: a high half's AX in a 32-bit operation"
-
-
-def place(ops, page, name):
-    """32 control words for one block: labels resolved, jumps within the
-    page or to another page's step."""
-    if len(ops) > STEPS:
-        raise ValueError(f"{name}: {len(ops)} microinstructions (at most {STEPS})")
-    labels = {}
-    for i, op in enumerate(ops):
-        if "_label" in op:
-            labels[op["_label"]] = i
-    words = []
-    for i, op in enumerate(ops):
-        f = {k: v for k, v in op.items() if not k.startswith("_")}
-        if "_goto" in op:
-            tgt = op["_goto"]
-            if "_page" in op:
-                f["PT"] = op["_page"]
-                f["JT"] = tgt
-            else:
-                f["PT"] = page
-                f["JT"] = labels[tgt] if isinstance(tgt, str) else tgt
-        elif f.get("SEQ", 0) == SEQ_NEXT:
-            f["PT"] = page
-        validate(f, f"{name} step {i}")
-        words.append(f)
-    while len(words) < STEPS:
-        words.append(dict(HANG_FIELDS, JT=len(words), PT=page))
-    return words
-
-
-HANG_FIELDS = {"HALT": 1, "SEQ": SEQ_JUMP, "CND": COND_CODE["TRUE"], "JT": 0}

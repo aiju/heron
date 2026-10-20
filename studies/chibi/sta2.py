@@ -41,7 +41,7 @@ NEG = hsta.NEG
 K = 1e3 / 50.35                 # a tick, ns
 TCO = sta.TCO
 GAL = sta.GAL
-IO_TICKS = 5
+IO_TICKS = 6
 TICKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticks.json")
 CPU = {f"CLK{i}" for i in range(9)}
 HALF_END = {"L": {"HCK1", "HCK2", "HCK3", "HCK4", "HCKA1", "HCKA2"},
@@ -111,27 +111,33 @@ class Case3(hsta.Case):
 
     def strobe(self, inst, pin):
         """U_MEMC's strobes, from the half's second tick if this
-        microinstruction may make them active, else inactive (ADS from the
-        third)."""
+        microinstruction may make them active, else inactive (the I/O
+        strobes from the third, ADS from the fourth)."""
         if self.phase == "F":
             return (1, TCO, True, (inst.ref, "TC0", "tick 0"))
         start = 3 * K if self.phase == "L" else 0.0
         mop = sum(self.const.get(n, 0) << i for i, n in enumerate(board2.MOP))
         if self.phase == "H" and self.const.get("SUPH") == 1:
             return (1, NEG, True, None)
-        a31 = self.const.get("A31")
+        aio = self.const.get("AIO")
         net = inst.conn[pin]
         rd = mop in (uc.MOP_RDM, uc.MOP_LDIRM)
-        io = (mop == uc.MOP_WRM or rd) and a31 != 0
-        active = {"WEL_n": mop == uc.MOP_WRM and a31 != 1, "WEH_n": mop == uc.MOP_WRM and a31 != 1,
-                  "IOWR_n": mop == uc.MOP_WRM and a31 != 0,
-                  "IORD_n": rd and a31 != 0, "ADS": io}[net]
+        io = (mop == uc.MOP_WRM or rd) and aio != 0
+        active = {"WEL_n": mop == uc.MOP_WRM and aio != 1, "WEH_n": mop == uc.MOP_WRM and aio != 1,
+                  "IOWR_n": mop == uc.MOP_WRM and aio != 0,
+                  "IORD_n": rd and aio != 0, "ADS": io, "IOQ": io}[net]
+        if net == "IOQ":                # IOACC a tick late
+            if not io:
+                return (0, NEG, True, None)
+            return (None, start + K + TCO, True, (inst.ref, "TC0", "the half's second tick"))
         if net == "ADS":                # the I/O strobes a tick later
             if not active:
                 return (0, NEG, True, None)
-            return (None, start + 2 * K + TCO, True, (inst.ref, "TC0", "the half's third tick"))
+            return (None, start + 3 * K + TCO, True, (inst.ref, "TC0", "the half's fourth tick"))
         if not active:
             return (1, NEG, True, None)
+        if net in ("IORD_n", "IOWR_n"):     # from IOQ, a tick after the RAM's
+            return (None, start + 2 * K + TCO, True, (inst.ref, "TC0", "the half's third tick"))
         return (None, start + K + TCO, True, (inst.ref, "TC0", "the half's second tick"))
 
     def m_i8254(self, inst, pin, d): return (None, NEG, False, None)
@@ -210,6 +216,8 @@ def requirements(c):
             pins = set()
             for _p, _r, _i, terms in regs:
                 pins |= c._gal_sop(inst, terms)[1]
+            if inst.ref == "U_MEMC":        # IOQ, set at tick 1, gates the I/O strobes at tick 2
+                pins = {p for p in pins if inst.conn.get(p) != "IOQ"}
             for p in sorted(pins):
                 ta = c.pin(inst, p)[1]
                 if ta == NEG:
@@ -244,12 +252,13 @@ def requirements(c):
                             inst.conn["IO0"]))
         elif t.model == "uart16550" and ph != "F":
             mop = sum(c.const.get(n, 0) << i for i, n in enumerate(board2.MOP))
-            if mop not in (uc.MOP_RDM, uc.MOP_WRM) or c.const.get("A31") != 1:
+            if mop not in (uc.MOP_RDM, uc.MOP_WRM) or c.const.get("AIO") != 1:
                 continue
             dd = chips.load_timing()["TL16C550C"]["checks"]
+            # its address and select latched by ADS, a tick into the strobe
             a = max(c.pin(inst, p)[1] for p in ("A0", "A1", "A2", "CS2"))
-            if a + dd["tAS"] > strobe + 0.05:
-                bad.append((a + dd["tAS"] - strobe, f"{inst.ref} address before its strobe"))
+            if a + dd["tAS"] > strobe + K + 0.05:     # (its strobe a tick after the RAM's)
+                bad.append((a + dd["tAS"] - strobe - K, f"{inst.ref} address before its strobe"))
             if mop == uc.MOP_WRM:
                 dt = max(c.pin(inst, f"D{i}")[1] for i in range(8))
                 end.append((dt + dd["tDS"] - TCO, f"{inst.ref} data before its strobe ends",
@@ -286,13 +295,12 @@ def sta_words():
         f = uc.unpack(w)
         two = f["HLEN"] != 0
         key = w & ~mask
-        page, n, op, step = a >> 17, a >> 13 & 15, a >> 5 & 0xFF, a & 31
-        label = f"{op:02X} p{page} n{n:X} s{step}"
+        label = f"{a:04X} {cs.where[a]}"
         if f["MOP"] in (uc.MOP_RDM, uc.MOP_WRM, uc.MOP_LDIRM):
-            for a31 in (0, 1):
-                lst = out[(key, two, (("A31", a31),))]
+            for aio in (0, 1):
+                lst = out[(key, two, (("AIO", aio),))]
                 if len(lst) < 8:
-                    lst.append(label + (" I/O" if a31 else " RAM"))
+                    lst.append(label + (" I/O" if aio else " RAM"))
         else:
             lst = out[(key, two, ())]
             if len(lst) < 8:
@@ -340,7 +348,7 @@ def table(res):
     tab, over = {}, []
     for (w, two, extra), lo, hi in res:
         f = uc.unpack(w)
-        io = dict(extra).get("A31") == 1
+        io = dict(extra).get("AIO") == 1
         nl_ = max(ticks_for(lo[0], 3 * K), floors(f, 0))
         nh = max(ticks_for(hi[0], 0.0), floors(f, 1)) if hi else 0
         if io:
@@ -400,7 +408,7 @@ def report(res, fbad, paths=2):
                  (f", worst {fbad[0][1]} {fbad[0][0]:.1f} ns late" if fbad else ""))
     lines.append("")
     for ph, idx, start in (("low", 1, 3 * K), ("high", 2, 0.0)):
-        rs = sorted((r for r in res if r[idx] and dict(r[0][2]).get("A31") != 1),
+        rs = sorted((r for r in res if r[idx] and dict(r[0][2]).get("AIO") != 1),
                     key=lambda r: -r[idx][0])
         for r in rs[:paths]:
             (w, two, extra), x = r[0], r[idx]

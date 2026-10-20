@@ -4,7 +4,7 @@
 ; then read the byte at +0 and clear the receiver by writing there.
 ; Chibi Heron's own I/O space (RFC 0047); the suite's console at 0xFFFFFF00.
 
-PS2     = 0x80080000
+PS2     = 0xFFFFB000
 CONSOLE = 0xFFFFFF00
 COUNT   = 2                     ; the bytes the test sends
 

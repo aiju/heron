@@ -32,7 +32,7 @@ import sys
 from heron import BUILD, native
 from heron.infra.hw import runner
 
-from . import board, board2, check, parts, routines, routines2, ucode as uc
+from . import board, board2, check, parts, routines, routines2, ucode as uc, ucode2 as uc2
 
 OUT = os.path.join(BUILD, "chibi")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -77,7 +77,7 @@ def rom_images(first=False):
     """The control store's nine flash images, one a byte of the word."""
     if first not in _ROMS:
         cs = routines.control_store() if first else routines2.control_store()
-        imgs = [bytearray(uc.CS_WORDS) for _ in range(uc.ROMS)]
+        imgs = [bytearray(1 << 19) for _ in range(uc.ROMS)]
         for a, w in enumerate(cs.words):
             for k in range(uc.ROMS):
                 imgs[k][a] = (w >> (8 * k)) & 0xFF
@@ -95,7 +95,7 @@ def preloads(ram, inp=b"", kbd=b"", mouse=b"", first=False, uart=b""):
         for b in range(2):
             pre[f"U_RAM{r}{b}"] = bytes(ram[(r << 20) + b:(r + 1) << 20:2])
     for k in rf_chips(first):
-        pre[k] = bytes(1 << 15)
+        pre[k] = bytes(1 << (15 if first else 16))
     pre["U_BOOT"] = bytes([0xFF]) * 0x20000
     pre["X_IO"] = bytes(inp)
     pre["U_UART0"] = bytes(uart)
@@ -111,7 +111,7 @@ FLAGS = ("F_N", "F_Z", "F_C", "F_V", "F_I")
 def trace_buses():
     def b(name, n, start=0):
         return [f"{name}{i}" for i in range(start, start + n)]
-    return {"STEP": b("STEP", 5), "OP": b("OP", 8), "N": b("N", 4), "PAGE": b("PAGE", 2),
+    return {"UPC": b("UPC", uc2.ADDR_BITS), "IRD": b("IRD", 4), "IRS": b("IRS", 4),
             "D": b("D", 16), "MD": b("MD", 16), "A": b("A", 21), "F": b("F", 16), "L": b("L", 16),
             "RA": b("RA", 6), "FL": list(FLAGS) + ["F_IC", "F_ST"]}
 
@@ -125,7 +125,9 @@ def config(max_cycles, trace=None, fetch_trace=200_000, seed=1, first=False):
         "addr_nets": [f"A{i}" for i in range(21)],
         "data_nets": [f"MD{i}" for i in range(16)],
         "fetch_trace": fetch_trace,
-        "stop_when": [[("uHALT", 1)]],
+        "stop_when": [[("uHALT", 1)]] if first else
+        [[(f"UPC{i}", a >> i & 1) for i in range(uc2.ADDR_BITS)]
+         for a in sorted(routines2.control_store().halt)],
         "dump": ["X_IO"] + [f"U_RAM{r}{b}" for r in range(2) for b in range(2)]
         + rf_chips(first),
         "observe": list(FLAGS),
@@ -333,11 +335,11 @@ def cmd_test(args):
 def cmd_bom(args):
     nl = board.build(sim=True) if args.first else board2.build(sim=True)
     bom = nl.bom(parts.VARIANT, passives=False)
-    real = {p: refs for p, refs in bom.items()}
+    pk = nl.packages(parts.VARIANT, passives=False)
     total = 0
-    for p, refs in sorted(real.items(), key=lambda kv: -len(kv[1])):
-        total += len(refs)
-        print(f"  {len(refs):3d}  {p:22} {' '.join(sorted(refs))[:90]}")
+    for p, refs in sorted(bom.items(), key=lambda kv: -pk[kv[0]]):
+        total += pk[p]
+        print(f"  {pk[p]:3d}  {p:22} {' '.join(sorted(refs))[:90]}")
     print(f"  {total:3d}  packages")
     by = {}
     for inst in nl.instances:

@@ -10,7 +10,7 @@
         CMP  r2, #3
         BNE  .loop
         MOV  r3, [0x2000]
-        MOV  r4, #0x8000000A    ; UART 0's LSR: wait for ODT's last echo to go
+        MOV  r4, #0xFFFFE00A    ; UART 0's LSR: wait for ODT's last echo to go
 .tx:    MOV  r5, byte [r4]
         AND  r5, #0x40
         BEQ  .tx

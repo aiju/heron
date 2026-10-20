@@ -145,18 +145,21 @@ def parts_section():
     from . import board2, parts
     nl = board2.build(sim=True)
     bom = nl.bom(parts.VARIANT, passives=False)
+    per = {i.part_number(parts.VARIANT): i.type.per_package for i in nl.instances}
     rows = []
     total = 0
-    for p, refs in sorted(bom.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+    for p, refs in sorted(bom.items(), key=lambda kv: (-len(kv[1]) // per[kv[0]], kv[0])):
         refs = [r for r in refs if r not in SIM_ONLY]
         if refs:
-            total += len(refs)
-            rows.append([p, len(refs)])
+            n = -(-len(refs) // per[p])         # a 16-bit SRAM's two bytes: one package
+            total += n
+            rows.append([p, n])
     by = Counter()
     for inst in nl.instances:
         if inst.type.family in ("fixture", "passive") or inst.ref in SIM_ONLY:
             continue
-        by[inst.section] += 1
+        by[inst.section] += 1 / inst.type.per_package
+    by = Counter({k: round(v) for k, v in by.items()})
     secs = [[s, n] for s, n in by.items()]
     return ("## Parts\n\nThe board's packages (the simulation's netlist without its "
             "fixtures), not counting resistors, capacitors and connectors.\n\n"

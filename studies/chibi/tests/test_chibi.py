@@ -52,8 +52,15 @@ class Microcode2(unittest.TestCase):
         after changing the microcode or the netlist."""
         self.assertEqual(routines2.control_store().untimed, set())
 
-    def test_page3_entries(self):
-        self.assertEqual(routines2.ENTRIES["exc"], 9)
+    def test_flat_layout(self):
+        """The interrupt's entry at 0x000-0x0FF, every opcode's at 0x100 +
+        the opcode, the copper's words at TASK_BASE: within its 32."""
+        cs = routines2.control_store()
+        self.assertEqual(len({cs.words[a] for a in range(uc2.ENTRY_BASE)}), 1)
+        self.assertTrue(cs.where[uc2.TASK_BASE].startswith("l/copper"))
+        for a in range(uc2.CS_WORDS):
+            if cs.where[a].startswith("l/copper"):
+                self.assertGreaterEqual(a, uc2.TASK_BASE)
 
 
 class Programs(unittest.TestCase):
@@ -138,6 +145,30 @@ class Instructions(unittest.TestCase):
                     f" MOV r1, #{a}\n MOV r2, #{b}\n {op} r1, r2\n MFSR r4, ccr\n")
             self.assertEqual(self.run_snippet(body), [], (op, hex(a), hex(b)))
 
+    def test_tables(self):
+        """The special mode's tables (an index parcel, then the address's
+        low half) for the read-modify-writes, the jumps and MULU, MULS."""
+        r = random.Random(5)
+        for op in ("INC [0x2000 + r3 * 4]", "DEC half [0x2000 + r3 * 2]", "CLR byte [0x2000 + r3]",
+                   "MULU r0:r1, [0x2000 + r3 * 4]", "MULS r0:r1, [0x2000 + r3 * 4]"):
+            x = r.randrange(16)
+            body = (" MOV r1, #0x12345\n MOV r3, #{x}\n MOV r4, #{v}\n MOV [0x2000 + r3 * 4], r4\n"
+                    " {op}\n MOV r2, [0x2000 + r3 * 4]\n MFSR r4, ccr\n").format(
+                        x=x, v=r.getrandbits(32), op=op)
+            self.assertEqual(self.run_snippet(body), [], op)
+        body = (" MOV r3, #2\n MOV r4, #0x80\n MOV [0x2000 + r3 * 4], r4\n"
+                " CALL [0x2000 + r3 * 4]\n HALT\n.org 0x80\n MOV r6, #9\n")
+        self.assertEqual(self.run_snippet(body), [])
+
+    def test_precise_traps(self):
+        """A jump with a byte operand, and INC with an immediate's special
+        operand, are illegal before anything changes, the return address the
+        instruction's."""
+        for op in (".half 0xA1F0", ".half 0xF321, 0x5678, 0x1234"):   # JMP byte [r1]+; INC, R = 3
+            body = (" JMP 0x40\n.org 0x08\n MOV r5, [sp + 4]\n HALT\n.org 0x40\n"
+                    f" MOV r1, #0x3000\n MOV sp, #0x1000\n {op}\n")
+            self.assertEqual(self.run_snippet(body), [], op)
+
     def test_ldm_stm_tables(self):
         r = random.Random(3)
         for k in range(6):
@@ -165,9 +196,9 @@ class Odt(unittest.TestCase):
         self.assertEqual([m.reg(i) for i in (1, 2, 3)], [0x5678, 3, 0x11223344])
 
     def test_illegal(self):
-        """Opcode 00 with d 9, 14 or 15 decodes to the page 0 of ODT's
-        blocks: still the illegal instruction's trap."""
-        for d in (9, 14, 15):
+        """Opcode 00 is the illegal instruction's trap, whatever its d (ODT's
+        own in the paged store's 9, 14 and 15)."""
+        for d in (0, 9, 14, 15):
             body = f" JMP 0x40\n.org 0x08\n MOV r5, #7\n HALT\n.org 0x40\n .half {d << 12:#x}\n"
             self.assertEqual(Instructions.run_snippet(None, body), [], d)
 

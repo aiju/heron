@@ -1,19 +1,21 @@
 """The board behind the two-halves machine's model (rtl2.py): the RAM, the
 I/O space, the suite's console, as the CPU sees them.
 
-The I/O space (A31 set), by MAR's bits 20-18 (board2.py has the details):
+The I/O space (A30 set; A31 is ignored), by A20, A16 and A14-A12
+(board2.py has the details):
 
-    000  0x8000_0000  UART 0          100  0x8010_0000  the boot flash (byte n at +2n)
-    001  0x8004_0000  UART 1          101  0x8014_0000  the slow devices
-    010  0x8008_0000  PS/2            110  0x8018_0000  the interrupt controller
-    011  0x800C_0000  video control   111  0x801C_0000  the simulation's test fixture
-                                                         (the suite's console, 0xFFFF_FF00)
-
-The interrupt controller: +0 the sources pending (bit k: SOURCES[k]),
-+2 the vector, 0x40 + 4k for the first source pending, 0x04 if none is
-(an interrupt from outside: the test fixture's); +4 ODT's word (0x9000
-when ODT is asked for, else 0); +6 the scanline (a write: the copper's
-target line, and CEN in bit 15).
+    A20 0                0xFFE0_0000  the boot flash (byte n at +2n)
+    A20 1, A16 0         0xFFFE_0000  the expansion port (not built)
+    A20 1, A16 1, A14-A12:
+        111  0xFFFF_F000  the sound chip; the simulation's test fixture
+                          (the suite's console, 0xFFFF_FF00)
+        110  0xFFFF_E000  UART 0          010  0xFFFF_A000  the slow devices
+        101  0xFFFF_D000  the interrupt   001  0xFFFF_9000  UART 1
+                          controller
+        100  0xFFFF_C000  video control   000  0xFFFF_8000  (nothing)
+        011  0xFFFF_B000  PS/2
+    and again at 0xFFFF_0000-0xFFFF_7FFF and below (A19-A17 and A15 are
+    ignored)
 """
 
 from .system import Console, RAM_SIZE
@@ -49,6 +51,9 @@ class Uart:
 LINE_TICKS = 1600       # the video's line: 200 words of 8 ticks
 FRAME_LINES = 525
 
+FLASH, EXP = "flash", "exp"
+CON, UART0, IRQC, VIDEO, PS2, SLOWD, UART1 = 7, 6, 5, 4, 3, 2, 1
+
 SOURCES = ["TIRQ", "VIRQ", "U0INT", "U1INT", "KIRQ", "MIRQ", "CFIRQ", "BTNQ"]   # by priority
 
 
@@ -74,20 +79,25 @@ class System2:
 
     @staticmethod
     def region(a):
-        return a >> 18 & 7
+        """The device an I/O address selects: FLASH, EXP or a slot (0-7)."""
+        if not a >> 20 & 1:
+            return FLASH
+        if not a >> 16 & 1:
+            return EXP
+        return a >> 12 & 7
 
     def read16(self, a, io, cycle):
         if not io:
             a = (a % RAM_SIZE) & ~1
             return self.ram[a] | self.ram[a + 1] << 8
         r = self.region(a)
-        if r == 7:
+        if r == CON:
             return self.console.read(a, cycle)
-        if r == 0:
+        if r == UART0:
             return self.uart.read(a >> 1 & 7)
-        if r == 4:                              # the boot flash, a byte a halfword
+        if r == FLASH:                          # the boot flash, a byte a halfword
             return self.flash[(a >> 1) & 0x1FFFF] | 0xFF00
-        if r == 6:
+        if r == IRQC:
             k = a >> 1 & 3
             if k == 0:
                 return self.sources
@@ -102,9 +112,9 @@ class System2:
         return 0xFFFF                           # devices the model doesn't have
 
     def read_edge(self, a, io, cycle):
-        if io and self.region(a) == 7:
+        if io and self.region(a) == CON:
             self.console.read_edge(a, cycle)
-        elif io and self.region(a) == 0:
+        elif io and self.region(a) == UART0:
             self.uart.read_edge(a >> 1 & 7)
 
     def write(self, a, v, lanes, io):
@@ -116,20 +126,20 @@ class System2:
                 self.ram[a + 1] = v >> 8 & 0xFF
             return
         r = self.region(a)
-        if r == 7:
+        if r == CON:
             self.console.write(a, v, lanes)
-        elif r == 0:
+        elif r == UART0:
             if lanes & 1:
                 self.uart.write(a >> 1 & 7, v)
-        elif r == 3:
+        elif r == VIDEO:
             if a & 2:
                 self.palette_bank = v & 15
             else:
                 self.video_ctl = v
-        elif r == 5:
+        elif r == SLOWD:
             if a >> 4 & 7 == 3:
                 self.cffast = v & 1
-        elif r == 6:
+        elif r == IRQC:
             k = a >> 1 & 3
             if k == 2:
                 self.trace = v & 1
@@ -153,7 +163,7 @@ class System2:
     def io_ticks(self, a, mop, m):
         """A half's ticks for an access to the I/O space: five, or a slow
         device's (board2.SLOW: its end, plus one)."""
-        if self.region(a) == 5:
+        if self.region(a) == SLOWD:
             if a >> 6 & 1:
                 return 8 if self.cffast else 32
             return 10

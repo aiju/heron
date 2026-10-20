@@ -23,15 +23,12 @@ halfword's device sees an access too.
 
 How it works:
 
-- its blocks are opcode 00's, at N 9, 15 and 14: pages 1 and 2, and page
-  0 after the illegal instruction's trap (an instruction 0x9000 decodes
-  to page 0's step 0);
-- page 3's entry reads the interrupt controller's +4 into the
-  instruction register (MOP_LDIRM): 0x9000 while ODT is asked for, so
-  OP 00 and N 9; ODT keeps TRACE on while it runs, so that the same read
-  takes it back to block 9 from the others (it resets d to 9 and s to 0);
-- from block 9 it goes on to 15 and 14 by s: s - 1 then N <- s (s is 0 in
-  block 9, 15 in block 15);
+- it's one of flat.py's routines, in three parts as it was written for the
+  paged store's blocks (9, 15 and 14, whose N <- s are now plain jumps);
+- the interrupt's entry reads the interrupt controller's +4 into d and s
+  (MOP_LDIRM): 0x9000 while ODT is asked for, so d 9 and s 0, which
+  `regsel` counts from; ODT keeps TRACE on while it runs, so that the same
+  read sets them again;
 - its state is in the microcode's temporaries, dead between instructions;
   it changes the flags but puts V, C, Z and N back as it leaves; it
   leaves by fetching the next instruction itself, so that a step's TRACE
@@ -40,11 +37,10 @@ How it works:
 
 from .ucode2 import (
     AX_MARINC, AX_MARLO, AX_PCLO, DS_FLW, IMM_CODE, IRN_DECS, IRN_INCD, IRN_NS, LDL,
-    MOP_FETCH, MOP_LDIRM, RD, RM_ZXB, STEPS, T, T_A, T_B, T_C, T_CNT, T_FW, T_Q, T_R, T_RET,
+    MOP_FETCH, MOP_LDIRM, RD, RM_ZXB, SEQ_END, T, T_A, T_B, T_C, T_CNT, T_FW, T_Q, T_R, T_RET,
     T_VEC, W, alu, ax, fl, hx, imm, jump, label, mem, rd, store, u, wr,
 )
 
-BLOCKS = (9, 15, 14)
 T_MCR, T_V, T_IO4, T_FL, T_K, T_OPEN, T_W = T(6), T(7), T(11), T(12), T(13), T(14), T(15)
 FLW = {"DS": DS_FLW, "IMMF": IMM_CODE["ZERO"]}
 
@@ -95,15 +91,12 @@ def block9(new):
         label("entry"),
         u(imm("C1"), store(2)),                                   # +4: TRACE on, the halt latch off
         u(FLW, alu("A"), wr(T_FL), hx("ZERO")),
-        u(imm("IOIV"), alu("A"), wr(T_VEC), W),
-        u(imm("V_TAG"), LDL),
-        u(rd(T_VEC, 1), alu("BIC"), wr(T_VEC, 1)),                # 0x8000_xxxx
-        u(imm("ZERO"), alu("A"), wr(T_VEC, 0)),                   # UART 0: RBR and THR
-        u(imm("C8"), alu("A"), wr(T_MCR, 0), LDL),               # +8: MCR
-        u(imm("C2"), alu("ADD"), wr(T_FW, 0)),                    # +10: LSR
-        u(rd(T_VEC, 1), alu("A"), wr(T_FW, 1)),
-        u(rd(T_VEC, 1), alu("A"), wr(T_MCR, 1)),
+        u(imm("IOU0"), alu("A"), wr(T_VEC), W),                   # UART 0: RBR and THR
+        u(imm("C8"), LDL, W),
+        u(rd(T_VEC), alu("ADD"), wr(T_MCR), W),                   # +8: MCR
         u(imm("C2"), alu("ADD"), wr(T_K, 0)),                     # T_K: 10 (LF), and
+        u(imm("C2"), LDL, W),
+        u(rd(T_MCR), alu("ADD"), wr(T_FW), W),                    # +10: LSR
         u(imm("C32"), LDL, irn(IRN_DECS)),
         u(imm("C16"), alu("ADD"), wr(T_K, 1), irn(IRN_DECS)),     # '0' in its high half
         u(imm("ZERO"), alu("A"), wr(T_OPEN, 0), irn(IRN_NS), jump("o_entry")),
@@ -130,8 +123,10 @@ def block9(new):
         u(rd(T_C, 0), alu("SUB"), wr(T_C, 0), fl("NZ16")),        # LF
         u(imm("U7_3"), LDL, jump("c_lf", "Z")),
         u(rd(T_C, 0), alu("SUB"), wr(T_C, 0), fl("NZ16")),        # CR
-        u(imm("V_TAG"), LDL, jump("c_cr", "Z")),
-        u(rd(T_C, 0), alu("SUB"), wr(T_C, 0), fl("NZ16")),        # '%'
+        u(imm("C16"), LDL, jump("c_cr", "Z")),
+        u(rd(T_C, 0), alu("SUB"), wr(T_C, 0)),
+        u(imm("C8"), LDL),
+        u(rd(T_C, 0), alu("SUB"), wr(T_C, 0), fl("NZ16")),        # '%': 13 + 16 + 8
         u(rd(T_K, 0), LDL, jump("c_pct", "Z")),
         u(rd(T_C, 0), alu("SUB"), wr(T_C, 0), fl("NZ16")),        # '/' (N: below it)
         u(imm("C1"), LDL, jump("c_slash", "Z")),
@@ -184,7 +179,7 @@ def block9(new):
         u(rd(T_RET), alu("A"), ax(AX_PCLO), W),
         # the instruction's fetch and decode, but not the interrupt's
         # check: a step's TRACE is for its end
-        u({"MOP": MOP_FETCH}, jump(0, page=0)),
+        u({"MOP": MOP_FETCH, "SEQ": SEQ_END, "_nochk": 1}),
     ]
 
 
@@ -284,87 +279,7 @@ def block14(new):
     ]
 
 
-def _attach_labels(ops):
-    out, pending = [], []
-    for op in ops:
-        if set(op) == {"_label"}:
-            pending.append(op["_label"])
-            continue
-        op = dict(op)
-        names = pending + ([op.pop("_label")] if "_label" in op else [])
-        pending = []
-        op["_labels"] = names
-        out.append(op)
-    assert not pending, "a label at the end"
-    return out
-
-
-def _falls_through(op):
-    return "_goto" not in op and op.get("SEQ", 0) == 0
-
-
-def layout(first):
-    """{n: {page: [ops by step]}}, the jumps resolved (page 0's first
-    `first` steps are the illegal instruction's, left out)."""
+def routine():
+    """ODT as one of flat.py's routines: its three parts in a row."""
     new = _Labels()
-    chunks = [(1, 0), (2, 0), (0, first)]
-    where, placed = {}, {}
-    for n, gen in zip(BLOCKS, (block9, block15, block14)):
-        ops = _attach_labels(gen(new))
-        pages = {p: [] for p, _ in chunks}
-        i = 0
-        for ci, (page, start) in enumerate(chunks):
-            step = start
-            while i < len(ops) and step < STEPS:
-                op = ops[i]
-                if step == STEPS - 1 and i < len(ops) - 1:
-                    nxt = chunks[ci + 1]
-                    cont = {"_goto": nxt[1], "_page": nxt[0]}
-                    if _falls_through(op):
-                        op = dict(op, SEQ=1, CND=0, **cont)
-                        i += 1
-                    else:
-                        op = u(jump(nxt[1], page=nxt[0]))
-                        op["_labels"] = []
-                else:
-                    i += 1
-                for name in op["_labels"]:
-                    assert name not in where, name
-                    where[name] = (n, page, step)
-                pages[page].append(op)
-                step += 1
-        assert i == len(ops), f"ODT's block {n} is full"
-        placed[n] = pages
-    out = {}
-    for n, pages in placed.items():
-        out[n] = {}
-        for page, ops in pages.items():
-            res = []
-            for op in ops:
-                op = {k: v for k, v in op.items() if k != "_labels"}
-                g = op.get("_goto")
-                if isinstance(g, str):
-                    tn, tp, ts = where[g]
-                    if tn != n:
-                        assert (op.get("IRN") == IRN_NS) if tn != 9 else \
-                            (op.get("MOP") == MOP_LDIRM), f"{g}: block {n} to {tn}"
-                    op["_goto"], op["_page"] = ts, tp
-                elif g is not None and "_page" not in op:
-                    raise ValueError(f"block {n}: a jump to step {g} without its page")
-                res.append(op)
-            out[n][page] = res
-    assert where["entry"] == (9, 1, 0)
-    return out
-
-
-_LAYOUT = None
-
-
-def odt_page(page, n, illegal_ops):
-    """Opcode 00's block (page, N) for N in BLOCKS: page 0 is the illegal
-    instruction's trap, then ODT's."""
-    global _LAYOUT
-    if _LAYOUT is None:
-        _LAYOUT = layout(len(illegal_ops))
-    ops = _LAYOUT[n][page]
-    return (list(illegal_ops) if page == 0 else []) + ops
+    return block9(new) + block15(new) + block14(new)

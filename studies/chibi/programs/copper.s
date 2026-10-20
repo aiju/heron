@@ -4,7 +4,7 @@
 ; +6), then turns the copper off and prints Z: ABABZ. The list's place is
 ; the word at COPPTR; a WAIT's low half is written at +6 (bit 15: CEN).
 
-IRQC    = 0x80180000
+IRQC    = 0xFFFFD000
 CONSOLE = 0xFFFFFF00
 COPPTR  = 0x60
 
@@ -31,8 +31,8 @@ COPPTR  = 0x60
         HALT
 
         .align 4
-list:   .word 0x801C0000, 'A'           ; MOVE console, 'A'
+list:   .word 0xFFFFF000, 'A'           ; MOVE console, 'A'
         .word 0x8000 + 200              ; WAIT 200
-        .word 0x801C0000, 'B'
+        .word 0xFFFFF000, 'B'
         .word 0x8000 + 100              ; WAIT 100 (the next frame's)
         .word 0x40000000 + list         ; JUMP list

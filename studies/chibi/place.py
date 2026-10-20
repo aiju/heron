@@ -10,7 +10,8 @@ size is open, so `sweep()` tries a few.
 
 - **Packages,** as RFC 0047 has them: the ATF22V10C-5s in PLCC-28
   sockets (the 5 ns part isn't made in DIP), the flashes in PLCC-32
-  sockets, the RAM's AS7C4096As in SOJ-36, everything else in DIP from
+  sockets, the RAM's AS7C4096As in SOJ-36, the register file's
+  IS61C6416s in SOJ-44, everything else in DIP from
   its pin count (infra/pcb/packages.py where it knows the type), the
   resistor networks in DIP-16 (eight resistors) or SIP-9 (pull-ups).
   A type nobody has given a package gets a DIP of its pins plus two, its
@@ -46,6 +47,7 @@ DIP = "Package_DIP:DIP-{n}_W{w}mm"
 PLCC28 = "Package_LCC:PLCC-28_THT-Socket"
 PLCC32 = "Package_LCC:PLCC-32_THT-Socket"
 SOJ36 = "Package_SO:SOJ-36_10.16x23.495mm_P1.27mm"
+SOJ44 = "Package_SO:SOJ-44_10.16x28.575mm_P1.27mm"
 HDR = "Connector_PinHeader_2.54mm:PinHeader_{r}x{n:02d}_P2.54mm_Vertical"
 DB9 = ("Connector_Dsub:DSUB-9_Pins_Horizontal_P2.77x2.84mm_EdgePinOffset4.94mm_Housed_"
        "MountingHolesOffset4.94mm")
@@ -56,7 +58,7 @@ JACK = "Connector_BarrelJack:BarrelJack_CUI_PJ-063AH_Horizontal"
 BUTTON = "Button_Switch_THT:SW_PUSH_6mm"
 HOLE = "MountingHole:MountingHole_3.2mm_M3"
 CAP = "Capacitor_SMD:C_0805_2012Metric"
-EXTRA = [PLCC28, CF, DB9, VGA, JACK, BUTTON, HOLE] + \
+EXTRA = [PLCC28, SOJ44, CF, DB9, VGA, JACK, BUTTON, HOLE] + \
     [HDR.format(r=r, n=n) for r, n in ((1, 6), (2, 4), (2, 16))]
 
 EDGE_MARGIN = 3.0       # mm from the board's edge to the grid's region
@@ -80,6 +82,11 @@ PINOUTS = {
     "sram512": ("A0 A1 A2 A3 A4 CE IO0 IO1 VCC GND IO2 IO3 WE A5 A6 A7 A8 A9 A10 A11 A12 "
                 "A13 A14 IO4 IO5 GND VCC IO6 IO7 OE A15 A16 A17 A18 NC NC"),
     "16c550x": " ".join(packages.PINOUTS["16c550"]),
+    # 64K x 16 SRAMs in SOJ-44 (IS61C6416, CY7C1021): the netlist's two
+    # bytes (sram64k), byte 0's pins IOn, byte 1's IOn' (merged here)
+    "sram64k": ("A4 A3 A2 A1 A0 CE IO0 IO1 IO2 IO3 VCC GND IO4 IO5 IO6 IO7 WE A15 A14 A13 A12 "
+                "NC NC A11 A10 A9 A8 NC IO0' IO1' IO2' IO3' GND VCC IO4' IO5' IO6' IO7' =GND "
+                "=GND OE A7 A6 A5"),
 }
 PINOUTS = {k: v.split() for k, v in PINOUTS.items()}
 
@@ -97,6 +104,8 @@ def chip_package(inst, gals="plcc"):
         return PLCC32, packages.pad_map(name, "dip"), True
     if name == "sram512":
         return SOJ36, _numbered(PINOUTS[name]), False
+    if name == "sram64k":
+        return SOJ44, _numbered(PINOUTS[name]), False
     if name == "rser8":
         return DIP.format(n=16, w="7.62"), {**{str(i + 1): f"A{i}" for i in range(8)},
                                             **{str(16 - i): f"B{i}" for i in range(8)}}, False
@@ -133,10 +142,15 @@ def _pin_name(p):
     return p if isinstance(p, str) else p[0]
 
 
-def _nets(inst, padmap):
+def _nets(inst, padmap, other=None):
+    """The pads' nets; `other`: a 16-bit part's second byte (its pins primed)."""
     out = {}
     for pad, name in padmap.items():
         name = _pin_name(name)
+        if name.endswith("'"):
+            if other is not None and name[:-1] in other.conn:
+                out[pad] = other.conn[name[:-1]]
+            continue
         if name in ("VCC", "GND"):
             out[pad] = name
         elif name.startswith("=") and name[1:] in ("VCC", "GND"):
@@ -320,10 +334,15 @@ def build_board(size, params=Params(), name=None, gals="plcc"):
         if e is not None:
             edge += e
             continue
+        other = None
+        if inst.type.per_package == 2 and inst.type.name == "sram64k":
+            if not inst.ref.endswith("0"):
+                continue                    # the second byte: with the first
+            other = next(i for i in nl.instances if i.ref == inst.ref[:-1] + "1")
         fp, padmap, infra_pins = chip_package(inst, gals)
         if fp.startswith("Package_DIP:"):
             fp = dip_footprint(fp, params.pads)
-        part = B.Part(inst.ref, fp, _nets(inst, padmap), value=inst.part_number(P.VARIANT),
+        part = B.Part(inst.ref, fp, _nets(inst, padmap, other), value=inst.part_number(P.VARIANT),
                       kind="chip", inst=inst.ref, section=inst.section,
                       typ=inst.type.name if infra_pins else None)
         b.add(part)

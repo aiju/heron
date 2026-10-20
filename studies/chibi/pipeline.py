@@ -25,8 +25,11 @@ costs, in ticks:
   end, so each instruction pays a bubble of the floor's length, unless the
   parcel is prefetched;
 - restructuring: a two-half microinstruction whose jump is on its own low
-  half's flags, and an index dispatch (N from the parcel being read), each
-  take a microinstruction more (3 ticks).
+  half's flags, and an index dispatch (the branch on z, from the parcel
+  being read), each take a microinstruction more (3 ticks).
+
+(Written for the paged store, before the flat one; RFC 0047 has its
+figures as they were.)
 
 I/O halves, the slow devices and the video's stretches of phase F are left
 out of all of them alike (they're under 0.1% of the ticks).
@@ -69,8 +72,8 @@ def estimate(jobs=4):
             lo, hi = f["LEN"] + 1, f["HLEN"]
             two = hi > 0
             fetch = f["MOP"] == uc.MOP_FETCH
-            cond = f["SEQ"] in (uc.SEQ_JUMP, uc.SEQ_JUMPT) and f["CND"] & 15 != 0
-            extra = (two and cond and f["FL"] != 0) + (f["IRN"] == uc.IRN_IDX)
+            cond = f["SEQ"] in (uc.HSEQ_JUMP, uc.HSEQ_JUMPT) and f["CND"] != 0
+            extra = (two and cond and f["FL"] != 0) + (f["IRN"] == uc.HIRN_IDX)
             mix["microinstructions"] += n
             mix["one-half"] += n * (not two)
             mix["decodes"] += n * fetch

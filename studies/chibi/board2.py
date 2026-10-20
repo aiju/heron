@@ -2,7 +2,7 @@
 
     build(sim=True)    for the chip-level simulator: the oscillators, the
                        power-on reset, the suite's console (a fixture at the
-                       I/O space's 111, where the sound chip sits), a
+                       I/O space's 0xFFFF_F000, where the sound chip sits), a
                        keyboard and a mouse on the PS/2 ports
     build(sim=False)   for static timing analysis (sta2.py): the same, with
                        the clock generator's two GALs replaced by a fixture
@@ -101,13 +101,13 @@ def build(sim=True, halt_ps=0):
 
     # ---- control store and sequencer --------------------------------------
     nl.section("control store")
-    step, op, nib, page = bus("STEP", 5), bus("OP", 8), bus("N", 4), bus("PAGE", 2)
-    cs_addr = step + op + nib + page
+    upc = bus("UPC", uc.ADDR_BITS)
+    cs_addr = upc + ["GND"] * (19 - uc.ADDR_BITS)
     for k in range(uc.ROMS):
         nl.add("flash4", f"U_CS{k}", CE="GND", OE="GND", WE="VCC",
                **{f"A{i}": cs_addr[i] for i in range(19)},
                **{f"D{i}": cw[8 * k + i] for i in range(8)})
-    sequencer(nl, clk, step, op, nib, page)
+    sequencer(nl, clk, upc)
 
     nl.section("flags")
     flags_gal(nl)
@@ -162,10 +162,6 @@ def build(sim=True, halt_ps=0):
            **{f"A{i + 1}": n for i, n in enumerate(["F_V", "F_C", "F_Z", "F_N", "F_I", "B", "BI",
                                                     "GND"])},
            **{f"Y{i + 1}": f"D{i}" for i in range(8)})
-    for k in range(2):      # the byte-swapped copy of the last half's result
-        nl.add("574", f"U_YS{k}", CLK="HCK3", OE="SWOE_n",
-               **{f"D{i + 1}": f"F{8 * (1 - k) + i}" for i in range(8)},
-               **{f"Q{i + 1}": f"D{8 * k + i}" for i in range(8)})
 
     # ---- address registers ------------------------------------------------
     nl.section("address")
@@ -250,7 +246,7 @@ def clock_gen(nl):
             return t == n
         if hold:
             return False
-        return t >= 4 if ioacc else t == n
+        return t >= 5 if ioacc else t == n          # an I/O half: 6 ticks
     END = G.table(ph + tc + ["VEXTQ", "TCHG"] + LEN + HLEN + ["IOACC", "HOLD"], end_fn)
     hlz = AND(lit(HLEN[0], 0), lit(HLEN[1], 0))
     last = OR(ph_is("H"), AND(ph_is("L"), lit("HLZ")))
@@ -297,20 +293,17 @@ def clock_gen(nl):
     G.add(nl, "U_CGB", outs, clock="MCLK")
 
 
-def sequencer(nl, clk, step, op, nib, page):
-    seq, cnd, jt, pt = field("SEQ"), field("CND"), field("JT"), field("PT")
+def sequencer(nl, clk, upc):
+    """µPC (ucode2.py has its next addresses): U_UPCL its bits 3-0, U_UPCM
+    8-4, U_UPCH 12-9, loaded at CLK0 and held while a task runs; U_NG the
+    16-way branch's nibble, d, s or z (MD11-8) by CND's low bits; U_IRH the
+    register byte (d, s), from a fetch's parcel or LDIRM's read; U_COND the
+    condition: the flags, IRQP, d != s, A0, ODT and I."""
+    seq, cnd, jt = field("SEQ"), field("CND"), field("JT")
     irn = field("IRN")
     ldir, nld = lit("LDIR"), lit("LDIR", 0)
-    # break before make on OP and N: the IR's drivers let go as TASK sets
-    # and take them back once TASKD (TASK a stage later) has cleared too
-    # (TASKOR); the tasks' 541s drive only once both are set (TASK_n)
-    notask = lit("TASK", 0)
-    oe = lit("TASKOR", 0)
-    G.add(nl, "U_IRL", {op[i]: (OR(AND(ldir, lit(f"MD{i}")), AND(nld, lit(op[i]))), True, False,
-                                oe) for i in range(8)},
-          clock="CLK0", ar=RESET)
     d, s = bus("IRD", 4), bus("IRS", 4)
-    incd, decs, idx = eq(irn, uc.IRN_INCD), eq(irn, uc.IRN_DECS), eq(irn, uc.IRN_IDX)
+    incd, decs, idx = eq(irn, uc.HIRN_INCD), eq(irn, uc.HIRN_DECS), eq(irn, uc.HIRN_IDX)
     irh = {}
     for i in range(4):
         irh[d[i]] = (OR(AND(ldir, lit(f"MD{12 + i}")), AND(nld, toggle(d, i, incd)),
@@ -322,30 +315,38 @@ def sequencer(nl, clk, step, op, nib, page):
     irh["NE"] = (OR(*[OR(AND(lit(d[i], 1), lit(s[i], 0)), AND(lit(d[i], 0), lit(s[i], 1)))
                       for i in range(4)]), False, False)
     G.add(nl, "U_IRH", irh, clock=clk[0])
-    ns = AND(lit(irn[2]), lit(irn[1], 0))                        # IRN 4 (5 unused)
-    idx_n = AND(lit(irn[2]), lit(irn[1]))                         # IRN 6 (7 unused)
-    ng = {}
-    for i in range(4):
-        ng[nib[i]] = (OR(AND(ldir, lit(f"MD{12 + i}")), AND(nld, ns, lit(s[i])),
-                         AND(nld, idx_n, lit(f"MD{8 + i}")),
-                         AND(nld, lit(irn[2], 0), lit(nib[i]))), True, False, oe)
-    G.add(nl, "U_NG", ng, clock="CLK0", ar=RESET)
-    # STEP and PAGE: next, jump if CT, end (decode, or page 3 if IRQP); PAGE
-    # stored inverted, so that reset makes it 3; held while a task runs
-    nxt_ = eq(seq, uc.SEQ_NEXT)
-    jmp = lit(seq[0])
-    end = AND(lit(seq[1]), lit(seq[0], 0))
-    inc = OR(nxt_, AND(jmp, lit("CT", 0)))
-    take = AND(jmp, lit("CT", 1))
-    st = {}
-    for i in range(5):
-        st[step[i]] = (OR(toggle(step, i, inc), AND(take, lit(jt[i]))), True, False)
-    for i in range(2):
-        st[page[i]] = (OR(AND(inc, lit(page[i], 0)), AND(take, lit(pt[i], 0)),
-                          AND(end, lit("IRQP", 0))), True, True)
-    st = {k: (OR(AND(v[0], notask), AND(lit("TASK"), lit(k, 0 if v[2] else 1))), v[1], v[2],
-              notask) for k, v in st.items()}
-    G.add(nl, "U_STEP", st, clock="CLK0", ar=RESET)
+    nx = bus("NX", 4)
+    src = cnd[:2]
+    ng = {nx[i]: (OR(AND(eq(src, uc.MW_D), lit(d[i])), AND(eq(src, uc.MW_S), lit(s[i])),
+                     AND(eq(src, uc.MW_Z), lit(f"MD{8 + i}"))), False, False) for i in range(4)}
+    ng["RCE1_n"] = (lit("A20", 0), False, False)       # the RAM's row 1 (a spare macrocell)
+    G.add(nl, "U_NG", ng)
+    # the next address: a jump (SEQ's bits equal) JT ^ CT; a branch JT | NX;
+    # the decode 0x100 + MD7-0 (MD7-0 alone if IRQP, unless JT12)
+    jmp = OR(eq(seq, uc.HSEQ_JUMP), eq(seq, uc.HSEQ_JUMPT))
+    mw, end = eq(seq, uc.HSEQ_MW), eq(seq, uc.HSEQ_END)
+    notask = lit("TASK", 0)
+    outs = {}
+    for i in range(uc.ADDR_BITS):
+        if i == 0:
+            j = OR(AND(jmp, lit(jt[0]), lit("CT", 0)), AND(jmp, lit(jt[0], 0), lit("CT")),
+                   AND(mw, lit(jt[0])), AND(mw, lit(nx[0])))
+        elif i < 4:
+            j = OR(AND(negate(end), lit(jt[i])), AND(mw, lit(nx[i])))
+        else:
+            j = AND(negate(end), lit(jt[i]))
+        if i < 8:
+            dec = AND(end, lit(f"MD{i}"))
+        elif i == 8:
+            dec = AND(end, OR(lit("IRQP", 0), lit(jt[12])))
+        else:
+            dec = ZERO
+        # bits 4-0 give way to U_TASK's, 12-5 to U_TOP's (break before make)
+        oe = notask if i < 5 else lit("TASKOR", 0)
+        outs[upc[i]] = (OR(AND(OR(j, dec), notask), AND(lit("TASK"), lit(upc[i]))), True, False, oe)
+    for name, bits in (("U_UPCL", range(0, 4)), ("U_UPCM", range(4, 9)),
+                       ("U_UPCH", range(9, uc.ADDR_BITS))):
+        G.add(nl, name, {upc[i]: outs[upc[i]] for i in bits}, clock="CLK0", ar=RESET)
     f = {k: f"F_{k}" for k in ("N", "Z", "C", "V", "I", "IC", "ST")}
     conds = {
         "TRUE": ONE, "Z": lit(f["Z"]), "C": lit(f["C"]), "N": lit(f["N"]), "V": lit(f["V"]),
@@ -357,50 +358,34 @@ def sequencer(nl, clk, step, op, nib, page):
     }
     terms = []
     for name, sop in conds.items():
-        c = uc.COND_CODE[name]
-        terms.append(AND(eq(cnd, c), sop))
-        terms.append(AND(eq(cnd, c | 16), negate(sop)))
-    parts_ = [[], [], []]
+        terms.append(AND(eq(cnd, uc.COND_CODE[name]), sop))
+    parts_ = [[], []]
     for t in sorted(terms, key=len, reverse=True):
         min(parts_, key=len).extend(t)
     G.add(nl, "U_COND", {"CTA": (parts_[0], False, False), "CTB": (parts_[1], False, False),
-                         "CTC": (parts_[2], False, False),
-                         "CT": (OR(lit("CTA"), lit("CTB"), lit("CTC")), False, False)})
-    tasks(nl, seq, jt, pt, step, page)
+                         "CT": (OR(lit("CTA"), lit("CTB")), False, False)})
+    tasks(nl, seq, jt, upc)
 
 
-def tasks(nl, seq, jt, pt, step, page):
-    """Microcode tasks: at a task point (SEQ END or JUMPT) while COPREQ asks,
-    TASK sets; the sequencer's address registers hold with their outputs
-    off, and U_TASK's step and page with U_TOP's and U_TN's constants
-    (opcode 00, N 8: the tasks' blocks; from page 1) address the control
-    store. A task's SEQ END ends it. TCHG: TASK changed at the cycle's start (phase F a
-    tick longer, for the address drivers' enables)."""
+def tasks(nl, seq, jt, upc):
+    """Microcode tasks: at a task point (SEQ END or JUMPT: SEQ's bit 1)
+    while COPREQ asks, TASK sets; µPC holds with its outputs off, and
+    U_TASK's bits 4-0 with U_TOP's ones above them (TASK_BASE) address the
+    control store. A task's SEQ END ends it. TCHG: TASK changed at the
+    cycle's start (phase F a tick longer, for the address drivers' enables)."""
     task = lit("TASK")
-    nxt = eq(seq, uc.SEQ_NEXT)
-    jmp = lit(seq[0])
-    take = AND(jmp, lit("CT", 1))
-    inc = OR(nxt, AND(jmp, lit("CT", 0)))
+    end = eq(seq, uc.HSEQ_END)
     outs = {}
     for i in range(5):
-        outs[step[i]] = (AND(task, OR(AND(inc, draft._inc(step, i)), AND(take, lit(jt[i])))), True,
-                         False, task)
-    tend = AND(lit(seq[1]), lit(seq[0], 0))
+        nx_ = OR(AND(lit(jt[0]), lit("CT", 0)), AND(lit(jt[0], 0), lit("CT"))) if i == 0 \
+            else lit(jt[i])
+        outs[upc[i]] = (AND(task, nx_), True, False, task)
     start = AND(lit("TASK", 0), lit(seq[1]), lit("COPREQ"))
-    for i in range(2):
-        # a task starts at page 1's step 0 (page 0's is the illegal
-        # instruction 0x8000's)
-        outs[page[i]] = (OR(AND(task, OR(AND(inc, lit(page[i])), AND(take, lit(pt[i])))),
-                            start if i == 0 else ZERO), True, False, task)
-    outs["TASK"] = (OR(AND(task, negate(tend)), start), True, False)
-    outs["TCHG"] = (OR(AND(task, tend), start), True, False)
+    outs["TASK"] = (OR(AND(task, negate(end)), start), True, False)
+    outs["TCHG"] = (OR(AND(task, end), start), True, False)
     G.add(nl, "U_TASK", outs, clock="CLK0", ar=RESET)
     nl.add("541", "U_TOP", OE1="TASK_n", OE2="TASK_n", part="74ABT541",
-           **{f"A{i + 1}": "GND" for i in range(8)}, **{f"Y{i + 1}": f"OP{i}" for i in range(8)})
-    nl.add("541", "U_TN", OE1="TASK_n", OE2="TASK_n", part="74ABT541",
-           **{f"A{i + 1}": ("VCC" if i == 3 else "GND") for i in range(8)},
-           **{f"Y{i + 1}": f"N{i}" for i in range(4)},
-           **{f"Y{i + 1}": f"TN{i}" for i in range(4, 8)})
+           **{f"A{i + 1}": "VCC" for i in range(8)}, **{f"Y{i + 1}": upc[5 + i] for i in range(8)})
 
 
 def flags_gal(nl):
@@ -462,27 +447,28 @@ def flags_gal(nl):
 
 
 def register_file(nl, clk):
-    """Four SRAMs, a pair for the registers' low halves and a pair for the
-    high halves, on D. Phase F writes the low pair in tick 1 and the high
+    """Two 64K x 16 SRAMs, one for the registers' low halves and one for the
+    high halves (each modelled as its two bytes, a "pair"), on D. Phase F writes the low pair in tick 1 and the high
     pair in tick 2 (RFWL_n, RFWH_n from the clock generator), the result
     register for each pair on D then (YAOE, YBOE), the pairs a write
     doesn't take kept out by their chip enables. A read takes the half's
     pair (HR, inverted in the high half)."""
-    rs, ws, kr, kw = field("RS"), field("WS"), field("KR"), field("KW")
+    rk, wk = field("RK"), field("WK")
     d, s = bus("IRD", 4), bus("IRS", 4)
     ra, wa = bus("RA", 8), bus("WA", 8)
     phw, phr = lit("PHW"), lit("PHW", 0)
     for g, bits in ((0, (0, 1)), (1, (2, 3))):
         outs = {}
         for i in bits:
-            def mux(sel, k):
-                return OR(AND(eq(sel, uc.SEL_K), lit(k[i])), AND(eq(sel, uc.SEL_D), lit(d[i])),
-                          AND(eq(sel, uc.SEL_S), lit(s[i])))
-            outs[ra[i]] = (OR(AND(phw, lit(wa[i])), AND(phr, mux(rs, kr))), False, False)
-            outs[wa[i]] = (mux(ws, kw), True, False)
+            def mux(k):
+                # K (bit 5 clear): its bits; d (32) or s (33) by bit 0
+                return OR(AND(lit(k[5], 0), lit(k[i])), AND(lit(k[5]), lit(k[0], 0), lit(d[i])),
+                          AND(lit(k[5]), lit(k[0]), lit(s[i])))
+            outs[ra[i]] = (OR(AND(phw, lit(wa[i])), AND(phr, mux(rk))), False, False)
+            outs[wa[i]] = (mux(wk), True, False)
         G.add(nl, f"U_RFA{g}", outs, clock=clk[1])
-    rk4 = AND(eq(rs, uc.SEL_K), lit(kr[4]))
-    wk4 = AND(eq(ws, uc.SEL_K), lit(kw[4]))
+    rk4 = AND(lit(rk[5], 0), lit(rk[4]))
+    wk4 = AND(lit(wk[5], 0), lit(wk[4]))
     G.add(nl, "U_RFA2", {
         "RA4": (OR(AND(phw, lit("WA4")), AND(phr, rk4)), False, False),
         "WA4": (wk4, True, False),
@@ -491,20 +477,21 @@ def register_file(nl, clk):
         "RA7": (OR(AND(phw, lit("WA7")), AND(phr, lit("B"), negate(rk4))), False, False),
         "WA7": (AND(lit("B"), negate(wk4)), True, False),
     }, clock=clk[1])
-    wen = field("WEN")[0]
+    wen = negate(AND(lit(wk[5]), lit(wk[4])))         # WK_NONE: 63
     hw = lit("HWQ")
     G.add(nl, "U_RFW", {
-        "WENQ": (lit(wen), True, False),
-        "WENBQ": (AND(lit(wen), lit("HLZ", 0)), True, False),
+        "WENQ": (wen, True, False),
+        "WENBQ": (AND(wen, lit("HLZ", 0)), True, False),
         "CE_LO_n": (OR(phr, AND(lit("WENQ"), negate(hw)), AND(lit("WENBQ"), hw)), False, True),
         "CE_HI_n": (OR(phr, AND(lit("WENQ"), hw), AND(lit("WENBQ"), negate(hw))), False, True),
     }, clock=clk[1])
     addr = {f"A{i}": f"RA{i}" for i in range(5)}
-    addr.update(A5="RA6", A6="RA7", **{f"A{i}": "GND" for i in range(7, 15)})
+    addr.update(A5="RA6", A6="RA7", **{f"A{i}": "GND" for i in range(7, 16)})
+    # each pair one 64K x 16 part (its byte enables low): its bytes, U_RFx0 and U_RFx1
     for p, ce, oe, we in (("L", "CE_LO_n", "RFOE_LO_n", "RFWL_n"),
                           ("H", "CE_HI_n", "RFOE_HI_n", "RFWH_n")):
         for k in range(2):
-            nl.add("sram", f"U_RF{p}{k}", CE=ce, OE=oe, WE=we, **addr,
+            nl.add("sram64k", f"U_RF{p}{k}", CE=ce, OE=oe, WE=we, **addr,
                    **{f"IO{i}": f"D{8 * k + i}" for i in range(8)})
 
 
@@ -677,8 +664,8 @@ def merge_codes(terms, code_nets):
 
 def bus_gals(nl):
     """Who drives D: U_BUS the register file's pairs and the memory's
-    transceivers, U_SRC the immediate unit, the readbacks, the flags word
-    and the swapped result; and SUPH, a variant's high half (no memory
+    transceivers, U_SRC the immediate unit, the readbacks and the flags
+    word; and SUPH, a variant's high half (no memory
     access in it)."""
     phr = lit("PHW", 0)
     h, l_ = lit("HALF"), lit("HALF", 0)
@@ -717,12 +704,11 @@ def bus_gals(nl):
         "RBOE_n": (AND(phr, l_, adr), False, True),
         "RBC": (AND(phr, OR(dsx(uc.DS_PCH), AND(h, nat, adr))), False, False),
         "FWOE_n": (AND(phr, dsx(uc.DS_FLW)), False, True),
-        "SWOE_n": (AND(phr, dsx(uc.DS_SWP)), False, True),
     })
 
 
 def address_gals(nl):
-    """PC (bits 20-1) and MAR (20-0, 31): counters in 22V10s that load from
+    """PC (bits 20-1) and MAR (20-0, and 30 as AIO, the I/O space's select): counters in 22V10s that load from
     the ALU (F) at a half's end (HCK), the low halves' registers in the low
     half and the high halves' in the high; U_ADC decodes this half's
     operations. PC counts at a read there (a fetch: the cycle's last half's)."""
@@ -786,59 +772,67 @@ def address_gals(nl):
                    OR(vs, sel))
     outs["A19"] = (OR(vs, lit("MAR19")), False, False, OR(vs, sel))
     outs["A20"] = (OR(vs, lit("MAR20")), False, False, OR(vs, sel))
-    outs["A31"] = (OR(AND(lit("MARHI"), lit("F15")), AND(lit("MARHI", 0), lit("A31"))), True, False)
+    outs["AIO"] = (OR(AND(lit("MARHI"), lit("F14")), AND(lit("MARHI", 0), lit("AIO"))), True, False)
+
     G.add(nl, "U_MARC", outs, clock="HCK4")
 
 
 def memc_gal(nl):
     """The memory's and the devices' strobes, on the master clock: from a
-    half's second tick to its end (END), the RAM's write enables, IORD_n,
-    IOWR_n; the RAM's output enable (the video's read in phase F, the CPU's
-    in a half), row 1's chip enable (row 0's is A20); IOACC, an access to the I/O space
-    (a half of five ticks); ADS, the UARTs' address strobe."""
+    half's second tick to its end (END), the RAM's write enables; from its
+    third (IOQ), IORD_n and IOWR_n; the RAM's output enable (the video's
+    read in phase F, the CPU's in a half); IOACC, an access to the I/O
+    space (a half of five ticks); ADS, the UARTs' address strobe. Row 1's
+    chip enable is U_NG's, row 0's A20."""
     half = lit("PHW", 0)
     on = AND(half, lit("END", 0), lit("SUPH", 0))
     write = eq(MOP, uc.MOP_WRM)
     rdm = mop_in([uc.MOP_RDM, uc.MOP_LDIRM])
-    ram_w = AND(on, write, lit("A31", 0))
+    ram_w = AND(on, write, lit("AIO", 0))
     outs = {
         "WEL_n": (AND(ram_w, lit("A0", 0)), True, True),
         "WEH_n": (OR(AND(ram_w, lit(SZ, 0), lit("A0", 0)), AND(ram_w, lit(SZ), lit("A0"))), True,
                   True),
-        "IORD_n": (AND(on, rdm, lit("A31")), True, True),
-        "IOWR_n": (AND(on, write, lit("A31")), True, True),
+        "IORD_n": (AND(on, rdm, lit("AIO"), lit("IOQ")), True, True),
+        "IOWR_n": (AND(on, write, lit("AIO"), lit("IOQ")), True, True),
         "RAMOE_n": (OR(lit("VRD"),
                        AND(half, eq(MOP, uc.MOP_RDP), lit("SUPH", 0)),
                        AND(half, eq(MOP, uc.MOP_FETCH), lit("LASTH")),
-                       AND(half, rdm, lit("A31", 0), lit("SUPH", 0))), False, True),
-        "RCE1_n": (lit("A20", 0), False, False),
-        "IOACC": (AND(half, OR(rdm, write), lit("A31"), lit("SUPH", 0)), False, False),
+                       AND(half, rdm, lit("AIO", 0), lit("SUPH", 0))), False, True),
+        "IOACC": (AND(half, OR(rdm, write), lit("AIO"), lit("SUPH", 0)), False, False),
         # the UARTs' address strobe: the strobes a tick late, so that the
         # UARTs hold their address and chip select from a tick into the
         # strobe to a tick after it (the address bus changes as it ends)
         "ADS": (OR(lit("IORD_n", 0), lit("IOWR_n", 0)), True, False),
+        # IOACC a tick late: the I/O strobes and U_SLOW wait for it, so that
+        # the selects, decoded from the address bus, have settled
+        "IOQ": (lit("IOACC"), True, False),
     }
     G.add(nl, "U_MEMC", outs, clock="MCLK", ar=RESET)
 
 
 def io(nl, sim, halt_ps=0):
-    """The I/O space (system2.py has the map), draft.py's devices with the
+    """The I/O space (system2.py has the map: U_IODEC decodes AIO, MAR20,
+    A16 and A14-A12), draft.py's devices with the
     clock generator's timing: the UARTs, the boot flash, the slow devices
     (the timer, the CF card, the palette) behind U_SLOW's wait states, the
     interrupt controller, ODT's hooks, the scanline and the PS/2 ports; the
     sound chip, written through a posting latch; the logic analyser's
     headers."""
-    m = ["MAR18", "MAR19", "MAR20"]
-
-    def sel(v):
-        return AND(lit("A31"), eq(m, v))
+    def slot(v):
+        """A device's 4 KB in the top 64 KB (A20 and A16 set): by A14-A12,
+        from the address bus (settled a tick into the half, and the I/O
+        strobes start a tick later)."""
+        return AND(lit("AIO"), lit("RESET_n"), lit("MAR20"), lit("A16"),
+                   eq(["A12", "A13", "A14"], v))
     G.add(nl, "U_IODEC", {
-        "U0CS_n": (sel(0), False, True), "U1CS_n": (sel(1), False, True),
-        "PS2CS": (sel(2), False, False), "VCCS": (sel(3), False, False),
-        "FLCS_n": (sel(4), False, True), "SLOWCS": (sel(5), False, False),
-        "IRQCS": (sel(6), False, False), "CONSEL_n": (sel(7), False, True),
-        "PBWR_n": (AND(sel(3), lit("A1"), lit("IOWR_n", 0)), False, True),
-        "LSEL": (AND(sel(6), lit("A2"), lit("A1")), False, False),
+        "CONSEL_n": (slot(7), False, True), "U0CS_n": (slot(6), False, True),
+        "IRQCS": (slot(5), False, False), "VCCS": (slot(4), False, False),
+        "PS2CS": (slot(3), False, False), "SLOWCS": (slot(2), False, False),
+        "U1CS_n": (slot(1), False, True),
+        "FLCS_n": (AND(lit("AIO"), lit("RESET_n"), lit("MAR20", 0)), False, True),
+        "PBWR_n": (AND(slot(4), lit("A1"), lit("IOWR_n", 0)), False, True),
+        "LSEL": (AND(slot(5), lit("A2"), lit("A1")), False, False),
     })
     for k in range(2):
         nl.add("16c550x", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", ADS="ADS",
@@ -887,13 +881,14 @@ def io(nl, sim, halt_ps=0):
     debug(nl)
 
 
-# the slow devices' timing in ticks of a half: (the address before the
-# strobe, the write strobe, the access's end for a read, for a write). A read's
+# the slow devices' timing in ticks from a half's second (U_SLOW counts
+# from IOQ, once the select has settled): (the address before the strobe,
+# the write strobe, the access's end for a read, for a write). A read's
 # strobe lasts to the half's end, when the CPU takes the data; a write's
-# ends a tick before it, for the data's hold. The half lasts end + 1 ticks.
-SLOW = {"cf0": (4, 9, 31, 31),          # PIO mode 0, at boot (the display off): 600 ns
-        "cf4": (2, 4, 7, 7),            # PIO mode 4: 25, 70, 10 ns; 120 ns a cycle
-        "other": (2, 6, 9, 9)}          # the 82C54 and the RAMDAC
+# ends a tick before it, for the data's hold. The half lasts end + 2 ticks.
+SLOW = {"cf0": (3, 9, 30, 30),          # PIO mode 0, at boot (the display off): 600 ns
+        "cf4": (1, 4, 6, 6),            # PIO mode 4: 25, 70, 10 ns; 120 ns a cycle
+        "other": (1, 6, 8, 8)}          # the 82C54 and the RAMDAC
 
 
 def slow_devices(nl):
@@ -904,7 +899,7 @@ def slow_devices(nl):
     MD). By A6-A4: 000 the timer, 001 the palette, 011 CFFAST (bit 0); A6
     set, the CF card: A5 0 its command block, 1 its control block."""
     w = bus("W", 5)
-    acc = AND(lit("SLOWCS"), lit("IOACC"))
+    acc = AND(lit("SLOWCS"), lit("IOACC"), lit("IOQ"))
     cf = lit("A6")
 
     def kind(a6, a5, a4, fast):
@@ -1101,11 +1096,10 @@ def sound(nl):
 
 
 DEBUG = [
-    ["STEP0", "STEP1", "STEP2", "STEP3", "STEP4"] + [f"OP{i}" for i in range(8)]
-    + ["PAGE0", "PAGE1", "CLK0"],
-    [f"N{i}" for i in range(4)] + ["HALF", "PHW"] + [f"F_{f}" for f in ("N", "Z", "C", "V", "I",
-                                                                        "IC", "ST")]
-    + ["TASK", "LDIR", "HCK"],
+    [f"UPC{i}" for i in range(uc.ADDR_BITS)] + ["CLK0", "LDIR", "TASK"],
+    [f"IRD{i}" for i in range(4)] + ["HALF", "PHW"] + [f"F_{f}" for f in ("N", "Z", "C", "V", "I",
+                                                                           "IC", "ST")]
+    + ["IRQP", "AIO", "HCK"],
     [f"D{i}" for i in range(16)],
 ]
 
