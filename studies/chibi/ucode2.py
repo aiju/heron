@@ -41,7 +41,7 @@ SRAMs, a pair for each half); PC and MAR loaded from the ALU at the
 halves' ends, so they're there for the next cycle.
 
 An access to the I/O space (A31 set) takes a half of five ticks
-whatever LEN says, and the slow devices hold it longer (draft.SLOW).
+whatever LEN says, and the slow devices hold it longer (board2.SLOW).
 """
 
 from collections import OrderedDict

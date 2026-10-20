@@ -1,49 +1,14 @@
-"""The draft netlist's I/O (board.build(sim=False, halves=True)): what
-Emily's second round added, for the parts count and the timing netlist,
-not simulated.
-
-The I/O space (A31 set), by MAR's bits 20-18:
-
-    000  0x8000_0000  UART 0          100  0x8010_0000  the boot flash
-    001  0x8004_0000  UART 1          101  0x8014_0000  slow devices, by A5-A4:
-    010  0x8008_0000  PS/2                 00 the timer (82C54), 01 the CF card
-    011  0x800C_0000  video control        (A6: its control block), 10 the palette,
-                                           11 the CF card's timing (bit 0: PIO 4)
-    110  0x8018_0000  interrupts      111  0x801C_0000  free (the simulation's
-                                           test fixture)
-
-- The slow devices (the CF card, the 82C54, the RAMDAC) sit behind
-  U_SLOW, a wait-state machine on the master clock that holds the CPU's
-  cycle (HOLD) and times their strobes itself (SLOW): the CF card at PIO
-  mode 0 from reset, while the boot sets it up with the display off, then
-  at PIO mode 4 (7 ticks a write, under the video's one-word buffer); the
-  others 8-9 ticks. Their strobes never come from the CPU's.
-- The CF card has a bus of its own: 74HCT245s for its data, a 74HCT541
-  for its address, selects and strobes (slow edges), series resistors on
-  every line at the buffers, the buffers on only while it's accessed;
-  16-bit True IDE, the mode every card has.
-- The interrupt controller, U_IRQ: the sources' OR (IRQ), their status at
-  +0, at +2 a vector, 0x40 + 4 x the highest-priority source, for the
-  microcode's interrupt entry; the interrupt button's latch (cleared by a
-  write).
-- The palette: an IMS G171 (UM70C171) RAMDAC, 256 x 18 bits, the pixel's 4
-  bits on its P3-0.
-- Each UART: a MAX232 for RS-232 (TX, RX, RTS, CTS), a jumper block between
-  it and the UART, and on the UART's side a 6-pin TTL header (FTDI's
-  pinout), for a TTL cable with the jumpers off.
-- PS/2: the lines through a 74HCT14's Schmitt inputs; per port a third
-  22V10 counting the frame's parity and stop edges after the byte, then
-  holding the clock low until the byte is read.
-- Debugging: three 32-pin headers (16 signals over 16 grounds, 0.1 inch)
-  for a Saleae Logic Pro 16 or any analyser with flying leads, through
-  100-ohm resistors: the control store's address and the clock; the
-  sequencer's other state, the flags and the phase; the D bus.
+"""Device parts that the two-halves machine's netlist (board2.py) takes
+from here: the chip types (_types) and part names (PARTS) of the UARTs
+with their serial pins, the RAMDAC, the MAX232s, the headers, jumpers,
+resistor networks and connectors; the PS/2 ports (ps2); a counter's next
+bit (_inc). (The draft netlist that first had them, the first cut's
+two-halves variant, is gone: board2.py replaced it.)
 """
 
 from heron.infra.hw import chips, gal as G
 
-from . import ucode as uc
-from .board import AND, OR, ONE, ZERO, bus, eq, field, lit, negate
+from .board import AND, OR, ONE, ZERO, lit, negate
 
 T = chips.T
 
@@ -53,7 +18,7 @@ def _types():
         return
     T("16c550x", "uart16550",
       [(f"D{i}", "io") for i in range(8)] + [(f"A{i}", "in") for i in range(3)]
-      + [(p, "in") for p in ("CS0", "CS1", "CS2", "RD", "WR", "MR", "XIN", "SIN", "CTS")]
+      + [(p, "in") for p in ("CS0", "CS1", "CS2", "RD", "WR", "MR", "XIN", "SIN", "CTS", "ADS")]
       + [(p, "out") for p in ("INTR", "SOUT", "RTS", "DTR", "OUT1", "OUT2")],
       arcs=[(["RD"], [f"D{i}" for i in range(8)], "RD->D")], family="device",
       desc="TL16C550C with its serial pins (the draft netlist's)")
@@ -86,139 +51,6 @@ PARTS = {"16c550x": "TL16C550C", "g171": "IMS G171", "max232": "MAX232", "hdr32"
 chips.FIXED_PARTS.update(PARTS)
 
 
-def io(nl):
-    _types()
-    mop = field("MOP")
-    rdm, wrm = eq(mop, uc.MOP_RDM), eq(mop, uc.MOP_WRM)
-    m = ["MAR18", "MAR19", "MAR20"]
-
-    def sel(v):
-        return AND(lit("A31"), eq(m, v))
-    G.add(nl, "U_IODEC", {
-        "U0CS_n": (sel(0), False, True), "U1CS_n": (sel(1), False, True),
-        "PS2CS": (sel(2), False, False), "VCCS": (sel(3), False, False),
-        "FLCS_n": (sel(4), False, True), "SLOWCS": (sel(5), False, False),
-        "IRQCS": (sel(6), False, False), "CONSEL_n": (sel(7), False, True),
-        # the palette bank's register (at the video's +2) clocks on this
-        "PBWR_n": (AND(sel(3), lit("A1"), lit("IOWR_n", 0)), False, True),
-        "LSEL": (AND(sel(6), lit("A2"), lit("A1")), False, False),     # the line's port
-    })
-    # the UARTs, RS-232 and TTL
-    for k in range(2):
-        nl.add("16c550x", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", RD="IORD_n",
-               WR="IOWR_n", MR="RESET", XIN="UCLK", INTR=f"U{k}INT", SOUT=f"U{k}TX",
-               SIN=f"U{k}RX", RTS=f"U{k}RTS", CTS=f"U{k}CTS",
-               **{f"D{i}": f"MD{i}" for i in range(8)}, **{f"A{i}": f"A{i + 1}" for i in range(3)})
-        sig = ("TX", "RTS", "RX", "CTS")
-        nl.add("jmp4", f"J_SER{k}", **{f"A{i}": f"U{k}{s}" for i, s in enumerate(sig)},
-               **{f"B{i}": f"U{k}{s}J" for i, s in enumerate(sig)})
-        nl.add("ftdi6", f"J_TTL{k}", TXD=f"U{k}TX", RXD=f"U{k}RX", RTS=f"U{k}RTS", CTS=f"U{k}CTS")
-        nl.add("max232", f"U_RS{k}", T1IN=f"U{k}TXJ", T2IN=f"U{k}RTSJ", R1OUT=f"U{k}RXJ",
-               R2OUT=f"U{k}CTSJ", T1OUT=f"P{k}TXD", T2OUT=f"P{k}RTS", R1IN=f"P{k}RXD",
-               R2IN=f"P{k}CTS")
-        nl.add("conn", f"J_DB9{k}", P0=f"P{k}TXD", P1=f"P{k}RTS", P2=f"P{k}RXD", P3=f"P{k}CTS",
-               part="DE-9 male")
-    nl.add("flash", "U_BOOT", CE="FLCS_n", OE="IORD_n", WE="IOWR_n", part="SST39SF010A-55",
-           **{f"A{i}": f"A{i + 1}" for i in range(17)}, **{f"D{i}": f"MD{i}" for i in range(8)})
-    nl.add("const", "X_IOK", LO="CONIRQ", HI="UCLK")
-    slow_devices(nl, rdm, wrm)
-    interrupts(nl)
-    odt(nl)
-    scanline(nl)
-    tasks(nl)
-    ps2(nl)
-    debug(nl)
-
-
-# the slow devices' timing, in ticks of the master clock from the access's
-# start: (address before the strobe, the write strobe, the access's end for a
-# read, for a write). A read's strobe lasts to the cycle's end, when the CPU
-# takes the data; a write's ends a tick before the access, for the data's hold.
-SLOW = {"cf0": (4, 9, 31, 31),          # PIO mode 0, at boot (the display off): 600 ns
-        "cf4": (2, 4, 6, 7),            # PIO mode 4: 25, 70, 10 ns; 120 ns a cycle
-        "other": (2, 6, 8, 9)}          # the 82C54 and the RAMDAC
-
-
-def slow_devices(nl, rdm, wrm):
-    """U_SLOW: W4-W0 count the access's ticks from its start (SLOWCS and a
-    memory operation, out of phase F) until SDONE, at the device's length
-    (SLOW; the CF card's by CFFAST, U_SLOWD's register at A5-A4 = 11, which
-    reset clears: PIO 0 until the boot sets PIO 4); HOLD holds the CPU's cycle
-    until then; SRD_n and SWR_n are the strobes; CFOE_n enables the CF
-    buffers for a CF access. The 74HCT245s let go of MD slowly: the clock
-    generator stretches the next cycle's phase F by two ticks when CFOE_n is
-    still on in its tick 0, so that the video's read comes after. U_SLOWD:
-    the device selects and gated strobes, the CF buffers' direction, CFFAST."""
-    w = bus("W", 5)
-    acc = AND(lit("SLOWCS"), OR(rdm, wrm), lit("PHW", 0))
-    cf = AND(lit("A5", 0), lit("A4", 1))
-    kinds = {"cf0": AND(cf, lit("CFFAST", 0)), "cf4": AND(cf, lit("CFFAST")),
-             "other": negate(cf)}
-
-    def when(lo, hi):
-        return G.when(w, list(range(lo, hi)), range(32))
-    outs = {}
-    done = lit("SDONE")
-    for i in range(5):
-        outs[w[i]] = (OR(AND(acc, lit("SDONE", 0), _inc(w, i)), AND(acc, done, lit(w[i]))),
-                      True, False)
-    ends = [AND(acc, done)]
-    rd_on, wr_on = [], []
-    for k, (su, st, end_r, end_w) in SLOW.items():
-        ends += [AND(acc, kinds[k], rdm, eq(w, end_r)), AND(acc, kinds[k], wrm, eq(w, end_w))]
-        rd_on.append(AND(kinds[k], when(su, 32)))
-        wr_on.append(AND(kinds[k], when(su, su + st)))
-    outs["SDONE"] = (OR(*ends), True, False)
-    outs["HOLD"] = (AND(acc, lit("SDONE", 0)), False, False)
-    outs["SRD_n"] = (AND(acc, rdm, OR(*rd_on)), True, True)
-    outs["SWR_n"] = (AND(acc, wrm, OR(*wr_on)), True, True)
-    outs["CFOE_n"] = (AND(acc, cf, when(1, 32)), True, True)
-    G.add(nl, "U_SLOW", outs, clock="MCLK", ar=lit("RESET_n", 0))
-    dev = {"TMR": (0, 0), "CF": (0, 1), "DAC": (1, 0)}
-
-    def is_(name):
-        a5, a4 = dev[name]
-        return AND(lit("SLOWCS"), lit("A5", a5), lit("A4", a4))
-    G.add(nl, "U_SLOWD", {
-        "TMRCS_n": (is_("TMR"), False, True),
-        "CFCS0_n": (AND(is_("CF"), lit("A6", 0)), False, True),
-        "CFCS1_n": (AND(is_("CF"), lit("A6", 1)), False, True),
-        "CFRD_n": (AND(is_("CF"), lit("SRD_n", 0)), False, True),
-        "CFWR_n": (AND(is_("CF"), lit("SWR_n", 0)), False, True),
-        "CFDIR": (wrm, False, False),
-        "DACRD_n": (AND(is_("DAC"), lit("SRD_n", 0)), False, True),
-        "DACWR_n": (AND(is_("DAC"), lit("SWR_n", 0)), False, True),
-        # the CF card's timing (MD0 written at A5-A4 = 11): PIO 4 when set
-        "CFFAST": (OR(AND(lit("SLOWCS"), lit("A5"), lit("A4"), lit("MD0")),
-                      AND(negate(AND(lit("SLOWCS"), lit("A5"), lit("A4"))), lit("CFFAST"))),
-                   True, False),
-    }, clock="IOWR_n", ar=lit("RESET_n", 0))
-    nl.add("82c54", "U_TMR", CS="TMRCS_n", RD="SRD_n", WR="SWR_n", A0="A1", A1="A2",
-           CLK0="UCLK", CLK1="UCLK", CLK2="UCLK", GATE0="VCC", GATE1="VCC", GATE2="VCC",
-           OUT0="TIRQ", OUT1="TOUT1", OUT2="SPK", **{f"D{i}": f"MD{i}" for i in range(8)})
-    # the CF card's own bus
-    for k in range(2):
-        nl.add("245", f"U_CFD{k}", DIR="CFDIR", OE="CFOE_n", part="74HCT245",
-               **{f"A{i + 1}": f"MD{8 * k + i}" for i in range(8)},
-               **{f"B{i + 1}": f"CFB{8 * k + i}" for i in range(8)})
-        nl.add("rser8", f"R_CFD{k}", **{f"A{i}": f"CFB{8 * k + i}" for i in range(8)},
-               **{f"B{i}": f"CFD{8 * k + i}" for i in range(8)}, part="33 ohm x 8")
-    ctl = ["A1", "A2", "A3", "CFCS0_n", "CFCS1_n", "CFRD_n", "CFWR_n", "RESET_n"]
-    nl.add("541", "U_CFA", OE1="GND", OE2="GND", part="74HCT541",
-           **{f"A{i + 1}": n for i, n in enumerate(ctl)},
-           **{f"Y{i + 1}": f"CFX{i}" for i in range(8)})
-    nl.add("rser8", "R_CFA", **{f"A{i}": f"CFX{i}" for i in range(8)},
-           **{f"B{i}": f"CFY{i}" for i in range(8)}, part="33 ohm x 8")
-    nl.add("cf", "J_CF", A0="CFY0", A1="CFY1", A2="CFY2", CS0="CFY3", CS1="CFY4",
-           IORD="CFY5", IOWR="CFY6", RESET="CFY7", INTRQ="CFIRQ", WAKE="CFWAKE",
-           **{f"D{i}": f"CFD{i}" for i in range(16)})
-    nl.add("pullup", "R_CF", P1="CFIRQ")
-    # the palette
-    nl.add("g171", "U_DAC", RS0="A1", RS1="A2", RD="DACRD_n", WR="DACWR_n", PCLK="PIX",
-           BLANK="DEN", IOR="VGA_R", IOG="VGA_G", IOB="VGA_B",
-           **{f"P{i}": f"PX{i}" if i < 4 else f"PB{i - 4}" for i in range(8)},
-           **{f"D{i}": f"MD{i}" for i in range(8)})
-
 
 def _inc(w, i):
     """Bit i of W + 1."""
@@ -226,29 +58,6 @@ def _inc(w, i):
     return OR(AND(lit(w[i], 1), OR(*[lit(b, 0) for b in lower])) if lower else ZERO,
               AND(lit(w[i], 0), [{b: 1 for b in lower}] if lower else ONE))
 
-
-SOURCES = ["TIRQ", "VIRQ", "U0INT", "U1INT", "KIRQ", "MIRQ", "CFIRQ", "BTNQ"]   # by priority
-
-
-def interrupts(nl):
-    """U_IRQ: IRQ, the sources' status at +0 and the vector at +2 (0x40 +
-    4 x the first source pending), BTNQ the button's latch."""
-    rd = AND(lit("IRQCS"), lit("IORD_n", 0))
-    outs = {"IRQ": (OR(*[lit(s) for s in SOURCES[:-1]], lit("BTNQ")), False, False),
-            "BTNQ": (OR(lit("BTN_n", 0), AND(lit("BTNQ"), negate(AND(lit("IRQCS"),
-                                                                      lit("IOWR_n", 0))))),
-                     False, False)}
-    first = []
-    for k, s in enumerate(SOURCES):
-        first.append(AND(*[lit(x, 0) for x in SOURCES[:k]], lit(s)))
-    for i in range(8):
-        status = lit(SOURCES[i])
-        vec = ONE if i == 6 else (OR(*[first[k] for k in range(8) if (k >> (i - 2)) & 1])
-                                  if 2 <= i <= 4 else ZERO)
-        outs[f"MD{i}"] = (OR(AND(lit("A1", 0), status), AND(lit("A1"), vec)), False, False, rd)
-    G.add(nl, "U_IRQ", outs)
-    nl.add("por", "U_BTN", RST="BTN_n")                 # the interrupt button's debouncer
-    nl.add("conn", "S_BTN", P0="BTN_n", P1="RESET_n", part="push buttons: interrupt, reset")
 
 
 def ps2(nl, spare=None):
@@ -278,7 +87,6 @@ def ps2(nl, spare=None):
                                  True, AND(sel, lit("IORD_n", 0)))
         G.add(nl, f"U_{port}", outs, clock=ck, ar=clr)
         p, s = f"{port}_P", f"{port}_S"
-        rsel = AND(lit("PS2CS"), lit("A2"), lit("A1", a1), lit("IORD_n", 0))
         G.add(nl, f"U_{port}F", {
             p: (OR(lit(p), done), True, False),
             s: (OR(lit(s), AND(done, lit(p))), True, False),
@@ -287,128 +95,23 @@ def ps2(nl, spare=None):
             # (holding the device off at S would have it send the byte again:
             # it looks at the clock after the stop bit; software can hold it
             # through the control register)
-            "MD3": (lit(f"{port}_FERR"), False, False, rsel),
         }, clock=ck, ar=clr)
+        # the control and status register, on ADS (a tick into any access
+        # of the I/O space): the lines, the byte waiting and the framing
+        # error sampled there, so that a read sees them steady (they change
+        # with the device's clock); the pulls written from MD4-5
         wsel = AND(lit("PS2CS"), lit("A2"), lit("A1", a1))
+        wr = AND(wsel, lit("IOWR_n", 0))
+        rd = AND(wsel, lit("IORD_n", 0))
         outs = {}
-        for i, (ln, bit) in enumerate(((clk, "MD0"), (dat, "MD1"))):
+        for i, (ln, bit) in enumerate(((clk, "MD4"), (dat, "MD5"))):
             q = f"{ln}_PULL"
-            outs[q] = (OR(AND(wsel, lit(bit)), AND(negate(wsel), lit(q))), True, False)
+            outs[q] = (OR(AND(wr, lit(bit)), AND(negate(wr), lit(q))), True, False)
             line = clk if i == 0 else ("KDATA" if port == "KBD" else "MSDATA")
             outs[line] = (ZERO, False, False, lit(q))
-        outs["MD0"] = (lit(ck, 0), False, False, AND(wsel, lit("IORD_n", 0)))
-        outs["MD1"] = (lit(dat, 0), False, False, AND(wsel, lit("IORD_n", 0)))
-        outs["MD2"] = (lit(irq), False, False, AND(wsel, lit("IORD_n", 0)))
-        G.add(nl, f"U_{port}C", outs, clock="IOWR_n", ar=lit("RESET_n", 0))
+        outs["MD0"] = (lit(ck, 0), True, False, rd)
+        outs["MD1"] = (lit(dat, 0), True, False, rd)
+        outs["MD2"] = (lit(irq), True, False, rd)
+        outs["MD3"] = (lit(f"{port}_FERR"), True, False, rd)
+        G.add(nl, f"U_{port}C", outs, clock="ADS", ar=lit("RESET_n", 0)).nocheck = True
 
-
-DEBUG = [
-    ["STEP0", "STEP1", "STEP2", "STEP3", "STEP4"] + [f"OP{i}" for i in range(8)]
-    + ["PAGE0", "PAGE1", "CLK0"],
-    [f"N{i}" for i in range(4)] + ["HALF", "PHW"] + [f"F_{f}" for f in ("N", "Z", "C", "V", "I",
-                                                                        "IC", "ST")]
-    + ["IRQP", "LDIR", "HLTQ"],
-    [f"D{i}" for i in range(16)],
-]
-
-
-def debug(nl):
-    for h, sigs in enumerate(DEBUG):
-        for k in range(2):
-            nl.add("rser8", f"R_LA{h}{k}", **{f"A{i}": sigs[8 * k + i] for i in range(8)},
-                   **{f"B{i}": f"LA{h}_{8 * k + i}" for i in range(8)}, part="100 ohm x 8")
-        nl.add("hdr32", f"J_LA{h}", **{f"S{i}": f"LA{h}_{i}" for i in range(16)})
-    nl.add("conn", "S_RUN", P0="RUN_n", P1="STEP_n", part="run/step switch and step button")
-
-
-def odt(nl):
-    """ODT's hooks (the console monitor in microcode, on UART 0): U_ODT
-    latches the halt button (an SPDT's two contacts) and holds TRACE, both
-    requests the I flag doesn't mask (ODTREQ, to U_SYS's IRQP): the halt
-    button's until ODT clears it, TRACE's once the instruction after the
-    write that sets it has run (U_SYS ORs them into IRQP). At the interrupt controller's +4, MD15-8
-    read 0x90 when ODT is asked for (OP 00, N 9 once loaded with
-    MOP_LDIRM: ODT's blocks), 0 otherwise; a write there sets TRACE from MD0
-    and clears the halt button's latch."""
-    wr = AND(lit("IRQCS"), lit("A2"), lit("A1", 0), lit("IOWR_n", 0))
-    rd = AND(lit("IRQCS"), lit("A2"), lit("A1", 0), lit("IORD_n", 0))
-    outs = {
-        "HLTQ": (OR(lit("HLTA_n", 0), AND(lit("HLTQ"), lit("HLTB_n", 0), negate(wr))), False,
-                 False),
-        "TRACE": (OR(AND(wr, lit("MD0")), AND(negate(wr), lit("TRACE"))), False, False),
-    }
-    for i in range(8):
-        outs[f"MD{8 + i}"] = (OR(lit("HLTQ"), lit("TRACE")) if i in (4, 7) else ZERO, False,
-                              False, rd)
-    G.add(nl, "U_ODT", outs)
-    nl.add("conn", "S_HLT", P0="HLTA_n", P1="HLTB_n", part="push button (SPDT): halt to ODT")
-
-
-def scanline(nl):
-    """The scanline for the microcode and software: U_LINE counts the lines
-    as U_VV does (0-511, then 0-12 in the blank, VBL from U_VV), LN8-LN0; read
-    at the interrupt controller's +6 (LN7-LN0 through U_LRB, LN8 from U_LINE).
-    U_LCMP holds the target line (written at +6), and with the 74HCT688's
-    match raises COPREQ, the task request, for the whole of the target line:
-    the task moves the target on. The palette's bank: a 74HCT175 written at
-    the video's +2 (MD3-0), on the RAMDAC's P7-P4 (its use left open)."""
-    l = bus("LN", 9)
-    rd = AND(lit("IRQCS"), lit("A2"), lit("A1"), lit("IORD_n", 0))
-    outs = {l[k]: (_inc(l, k), True, False) for k in range(9)}
-    outs["MD8"] = (lit("LN8"), False, False, rd)
-    G.add(nl, "U_LINE", outs, clock="HS_n", ar=AND(lit("VBL"), eq(l, 13)))
-    nl.add("541", "U_LRB", OE1="LRB_n", OE2="LRB_n", part="74ABT541",
-           **{f"A{i + 1}": f"LN{i}" for i in range(8)}, **{f"Y{i + 1}": f"MD{i}" for i in range(8)})
-    t = bus("TL", 9)
-    wsel = lit("LSEL")
-    outs = {t[k]: (OR(AND(wsel, lit(f"MD{k}")), AND(negate(wsel), lit(t[k]))), True, False)
-            for k in range(9)}
-    G.add(nl, "U_LCMP", outs, clock="IOWR_n", ar=lit("RESET_n", 0))
-    nl.add("688", "U_LEQ", G="GND", **{f"P{i}": f"LN{i}" for i in range(8)},
-           **{f"Q{i}": f"TL{i}" for i in range(8)}, PEQ="LEQ_n", part="74HCT688")
-    G.add(nl, "U_LREQ", {"COPREQ": (AND(lit("LEQ_n", 0), OR(AND(lit("LN8"), lit("TL8")),
-                                                           AND(lit("LN8", 0), lit("TL8", 0)))),
-                                    False, False),
-                          "LRB_n": (rd, False, True),
-                          "TASK_n": (lit("TASK", 0), False, False)})       # for the tasks' 541s
-    nl.add("175", "U_PB", CLK="PBWR_n", CLR="RESET_n", part="74HCT175",
-           **{f"{i + 1}D": f"MD{i}" for i in range(4)}, **{f"{i + 1}Q": f"PB{i}" for i in range(4)})
-
-
-def tasks(nl):
-    """Microcode tasks: at the end of a microinstruction with TP (a task
-    point) while COPREQ asks, TASK sets; the sequencer's address registers
-    (U_STEP, U_IRL, U_NG) hold and turn their outputs off, and U_TASK's
-    step and page with U_TOP's and U_TN's constants (opcode 00, N 8: the
-    tasks' blocks) address the control store instead. A task's SEQ_END
-    ends it. A task may use no fetch, IROP or NOP, no flag but ST and IC,
-    and the private registers (PRIV) only; a task point must have no MAR,
-    flags or L live (a checker's job). The cycles where TASK changes want
-    phase F a tick longer (the outputs' enables after CLK): the clock
-    generator's."""
-    seq, jt, pt = field("SEQ"), field("JT"), field("PT")
-    tp = field("TP")[0]
-    task = lit("TASK")
-    nxt = eq(seq, uc.SEQ_NEXT)
-    jmp = eq(seq, uc.SEQ_JUMP)
-    take = AND(jmp, lit("CT", 1))
-    inc = OR(nxt, AND(jmp, lit("CT", 0)))
-    step, page = bus("STEP", 5), bus("PAGE", 2)
-    outs = {}
-    for i in range(5):
-        # the task's step, on STEP while TASK (its register's own): 0 outside
-        # a task, then next or the jump's
-        outs[step[i]] = (AND(task, OR(AND(inc, _inc(step, i)), AND(take, lit(jt[i])))), True,
-                         False, task)
-    for i in range(2):
-        outs[page[i]] = (AND(task, OR(AND(inc, lit(page[i])), AND(take, lit(pt[i])))), True,
-                         False, task)
-    outs["TASK"] = (OR(AND(task, lit(seq[1], 0)), AND(lit("TASK", 0), lit(tp), lit("COPREQ"))),
-                    True, False)
-    G.add(nl, "U_TASK", outs, clock="CLK0", ar=lit("RESET_n", 0))
-    nl.add("541", "U_TOP", OE1="TASK_n", OE2="TASK_n", part="74ABT541",
-           **{f"A{i + 1}": "GND" for i in range(8)}, **{f"Y{i + 1}": f"OP{i}" for i in range(8)})
-    nl.add("541", "U_TN", OE1="TASK_n", OE2="TASK_n", part="74ABT541",
-           **{f"A{i + 1}": ("VCC" if i == 3 else "GND") for i in range(4)},
-           **{f"A{i + 1}": "GND" for i in range(4, 8)},
-           **{f"Y{i + 1}": f"N{i}" for i in range(4)})

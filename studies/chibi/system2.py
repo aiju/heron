@@ -12,23 +12,57 @@ The I/O space (A31 set), by MAR's bits 20-18 (board2.py has the details):
 The interrupt controller: +0 the sources pending (bit k: SOURCES[k]),
 +2 the vector, 0x40 + 4k for the first source pending, 0x04 if none is
 (an interrupt from outside: the test fixture's); +4 ODT's word (0x9000
-when ODT is asked for, else 0); +6 the scanline (a write: the target
-line, the copper's).
+when ODT is asked for, else 0); +6 the scanline (a write: the copper's
+target line, and CEN in bit 15).
 """
 
 from .system import Console, RAM_SIZE
+
+class Uart:
+    """UART 0 as ODT uses it: the receiver's buffer and the line status
+    (data ready, the transmitter always empty), what's sent kept; the
+    divisor latch's accesses (LCR bit 7) go nowhere."""
+
+    def __init__(self, inp=b""):
+        self.inp = bytearray(inp)
+        self.out = bytearray()
+        self.lcr = 0
+
+    def read(self, reg):
+        if reg == 0 and not self.lcr & 0x80:
+            return self.inp[0] if self.inp else 0
+        if reg == 5:
+            return 0x60 | (1 if self.inp else 0)
+        return self.lcr if reg == 3 else 0
+
+    def read_edge(self, reg):
+        if reg == 0 and not self.lcr & 0x80 and self.inp:
+            del self.inp[0]
+
+    def write(self, reg, v):
+        if reg == 3:
+            self.lcr = v & 0xFF
+        elif reg == 0 and not self.lcr & 0x80:
+            self.out.append(v & 0xFF)
+
+
+LINE_TICKS = 1600       # the video's line: 200 words of 8 ticks
+FRAME_LINES = 525
 
 SOURCES = ["TIRQ", "VIRQ", "U0INT", "U1INT", "KIRQ", "MIRQ", "CFIRQ", "BTNQ"]   # by priority
 
 
 class System2:
-    def __init__(self, inp=b""):
+    def __init__(self, inp=b"", uart=b""):
         self.ram = bytearray(RAM_SIZE)
         self.console = Console(inp)
+        self.uart = Uart(uart)
         self.flash = bytes([0xFF]) * 0x20000
         self.video_ctl = 0
         self.palette_bank = 0
         self.target_line = 0
+        self.cen = 0                 # the copper's on
+        self.ticks = 0
         self.sources = 0             # the board's interrupt sources (none modelled yet)
         self.cffast = 0
         self.halt_req = 0
@@ -49,6 +83,8 @@ class System2:
         r = self.region(a)
         if r == 7:
             return self.console.read(a, cycle)
+        if r == 0:
+            return self.uart.read(a >> 1 & 7)
         if r == 4:                              # the boot flash, a byte a halfword
             return self.flash[(a >> 1) & 0x1FFFF] | 0xFF00
         if r == 6:
@@ -62,12 +98,14 @@ class System2:
                 return 0x04
             if k == 2:
                 return 0x9000 if self.odt_req() else 0
-            return 0
+            return self.line()
         return 0xFFFF                           # devices the model doesn't have
 
     def read_edge(self, a, io, cycle):
         if io and self.region(a) == 7:
             self.console.read_edge(a, cycle)
+        elif io and self.region(a) == 0:
+            self.uart.read_edge(a >> 1 & 7)
 
     def write(self, a, v, lanes, io):
         if not io:
@@ -80,6 +118,9 @@ class System2:
         r = self.region(a)
         if r == 7:
             self.console.write(a, v, lanes)
+        elif r == 0:
+            if lanes & 1:
+                self.uart.write(a >> 1 & 7, v)
         elif r == 3:
             if a & 2:
                 self.palette_bank = v & 15
@@ -95,6 +136,7 @@ class System2:
                 self.halt_req = 0
             elif k == 3:
                 self.target_line = v & 0x1FF
+                self.cen = v >> 15 & 1
 
     def irq(self):
         return int(bool(self.console.flag or self.sources))
@@ -117,9 +159,15 @@ class System2:
             return 10
         return m.IO_TICKS
 
+    def line(self):
+        """The scanline, as the model has it: from 0 at reset, a line a
+        LINE_TICKS (the netlist's counts from the vertical blank)."""
+        return self.ticks // LINE_TICKS % FRAME_LINES
+
     def copreq(self, m):
-        return False
+        return bool(self.cen) and self.line() == self.target_line
 
     def tick(self, m, ticks):
         """A cycle's end."""
+        self.ticks = m.ticks
         self.console.tick()

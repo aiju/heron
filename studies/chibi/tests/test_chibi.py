@@ -95,11 +95,11 @@ class Instructions(unittest.TestCase):
         m = check.run_rtl(img, b"", max_cycles=100_000)
         return check.compare(ref, m)
 
-    def cases(self, ops, n=12, seed=1):
+    def cases(self, ops, n=12, seed=1, bits=32):
         r = random.Random(seed)
         edges = [0, 1, 0xFFFFFFFF, 0x80000000, 0x7FFFFFFF, 0xFFFF, 0x10000, 0xFFFFFFF9]
         for k in range(n):
-            vals = [edges[(k + i) % len(edges)] if k < len(edges) else r.getrandbits(32)
+            vals = [edges[(k + i) % len(edges)] if k < len(edges) else r.getrandbits(bits)
                     for i in range(3)]
             op = ops[k % len(ops)]
             body = "".join(f" MOV r{i}, #{v}\n" for i, v in enumerate(vals))
@@ -111,6 +111,11 @@ class Instructions(unittest.TestCase):
 
     def test_muls_divs(self):
         self.cases(["MULS r0:r1, r2", "DIVS r0:r1, r2", "MULS r0:r2, r2", "DIVS r0:r1, r0"], 24)
+
+    def test_short(self):
+        """Multiplies by, and divides of, 16-bit values: their 16-step paths."""
+        self.cases(["MULU r0:r1, r2", "MULS r0:r1, r2", "DIVU r0:r1, r2", "DIVS r0:r1, r2",
+                    "MULA r0:r1, r1, r2", "MULFX r0:r1, r2, #8"], 24, seed=4, bits=16)
 
     def test_mula_mulfx(self):
         self.cases(["MULA r0:r1, r1, r2", "MULFX r0:r1, r2, #16", "MULFX r0:r2, r1, #0",
@@ -144,6 +149,27 @@ class Instructions(unittest.TestCase):
                     + f" LDM r15, r{a}-r{c}\n MOV r3, #{x}\n MOV [0x2000 + r3 * 4], r1\n"
                     " MOV r2, [0x2000 + r3 * 4]\n LEA r5, [0x2000 + r3 * 4]\n")
             self.assertEqual(self.run_snippet(body), [], (a, c, x))
+
+
+class Odt(unittest.TestCase):
+    def test_session(self):
+        """ODT's test session on the model: what it prints, the registers and
+        memory it leaves (hw odt runs it at chip level)."""
+        m = hw.odt_model(check.assemble(hw.ODT_PROGRAM), hw.ODT_KEYS)
+        out = bytes(m.sys.uart.out)
+        self.assertTrue(m.halted)
+        self.assertTrue(out.startswith(b"\n\r00000000\r\n@X?\r\n@2000/CAFEF00D \r\n@"), out)
+        self.assertIn(b"@2000/CAFEF00D 11223344\n\r00002004/00000000 \r\n@", out)
+        self.assertIn(b"@%2/00000002 \r\n@4G", out)
+        self.assertEqual(out.count(b"S\n\r"), 7)
+        self.assertEqual([m.reg(i) for i in (1, 2, 3)], [0x5678, 3, 0x11223344])
+
+    def test_illegal(self):
+        """Opcode 00 with d 9, 14 or 15 decodes to the page 0 of ODT's
+        blocks: still the illegal instruction's trap."""
+        for d in (9, 14, 15):
+            body = f" JMP 0x40\n.org 0x08\n MOV r5, #7\n HALT\n.org 0x40\n .half {d << 12:#x}\n"
+            self.assertEqual(Instructions.run_snippet(None, body), [], d)
 
 
 class Netlist(unittest.TestCase):

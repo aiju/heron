@@ -2008,6 +2008,11 @@ pub struct IoDev {
     last_empty: bool,
     cycle_hi: u16,
     d_acc: Time,
+    /// Param `read_at_strobe`: a read's side effects at the end of its
+    /// strobe (at the address it started with), not at the clock edge, for
+    /// a CPU that reads more than once a cycle.
+    read_at_strobe: bool,
+    read_addr: Option<usize>,
 }
 
 impl IoDev {
@@ -2037,6 +2042,8 @@ impl IoDev {
             last_empty: false,
             cycle_hi: 0,
             d_acc: 20000,
+            read_at_strobe: s.param_or("read_at_strobe", 0) != 0,
+            read_addr: None,
         })
     }
 
@@ -2169,7 +2176,7 @@ impl IoDev {
         if pin == self.clk {
             let v = cx.input(c, self.clk);
             if v == 1 && self.prev == 0 {
-                if sel && cx.input(c, self.rd) == 0 {
+                if sel && cx.input(c, self.rd) == 0 && !self.read_at_strobe {
                     let a = self.addr(cx, c);
                     self.read_edge(cycle, a);
                 }
@@ -2183,6 +2190,14 @@ impl IoDev {
                 cx.drive(c, self.irq, self.timer_flag, true, 5000);
             }
             self.prev = v;
+        }
+        if self.read_at_strobe {
+            let reading = sel && cx.input(c, self.rd) == 0;
+            if reading && self.read_addr.is_none() {
+                self.read_addr = Some(self.addr(cx, c));
+            } else if !reading && let Some(a) = self.read_addr.take() {
+                self.read_edge(cycle, a);
+            }
         }
         let (wl, wh) = (cx.input(c, self.wel) == 0, cx.input(c, self.weh) == 0);
         let wr = sel && (wl || wh);

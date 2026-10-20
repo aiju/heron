@@ -111,7 +111,8 @@ class Case3(hsta.Case):
 
     def strobe(self, inst, pin):
         """U_MEMC's strobes, from the half's second tick if this
-        microinstruction may make them active, else inactive."""
+        microinstruction may make them active, else inactive (ADS from the
+        third)."""
         if self.phase == "F":
             return (1, TCO, True, (inst.ref, "TC0", "tick 0"))
         start = 3 * K if self.phase == "L" else 0.0
@@ -121,9 +122,14 @@ class Case3(hsta.Case):
         a31 = self.const.get("A31")
         net = inst.conn[pin]
         rd = mop in (uc.MOP_RDM, uc.MOP_LDIRM)
+        io = (mop == uc.MOP_WRM or rd) and a31 != 0
         active = {"WEL_n": mop == uc.MOP_WRM and a31 != 1, "WEH_n": mop == uc.MOP_WRM and a31 != 1,
                   "IOWR_n": mop == uc.MOP_WRM and a31 != 0,
-                  "IORD_n": rd and a31 != 0}[net]
+                  "IORD_n": rd and a31 != 0, "ADS": io}[net]
+        if net == "ADS":                # the I/O strobes a tick later
+            if not active:
+                return (0, NEG, True, None)
+            return (None, start + 2 * K + TCO, True, (inst.ref, "TC0", "the half's third tick"))
         if not active:
             return (1, NEG, True, None)
         return (None, start + K + TCO, True, (inst.ref, "TC0", "the half's second tick"))
@@ -191,6 +197,9 @@ def requirements(c):
             if not regs or ph == "F" or inst.ref in DEVICE_GALS:
                 continue
             if inst.ref == "U_MEMC":
+                # the strobes start at the half's tick 1; ADS is them a tick
+                # later (its inputs are theirs)
+                regs = [o for o in regs if inst.conn.get(o[0]) != "ADS"]
                 fixed = strobe - TCO
             elif ck in capture:
                 fixed = None
@@ -275,8 +284,6 @@ def sta_words():
     out = defaultdict(list)
     for a, w in enumerate(cs.words):
         f = uc.unpack(w)
-        if f["HALT"]:
-            continue
         two = f["HLEN"] != 0
         key = w & ~mask
         page, n, op, step = a >> 17, a >> 13 & 15, a >> 5 & 0xFF, a & 31

@@ -59,6 +59,7 @@ class RTL2:
         self.halted = False
         self.ucount = None
         self.decodes = None
+        self.decode_ticks = []          # with decodes: the ticks at each
 
     def word(self, a):
         w = self.words.get(a)
@@ -147,6 +148,7 @@ class RTL2:
             if w.MOP == uc.MOP_FETCH:
                 if self.decodes is not None:
                     self.decodes.append((self.cycles, self.fetch_pc, md))
+                    self.decode_ticks.append(self.ticks)
                 self.instructions += 1
         elif not self.task:
             irn = w.IRN
@@ -181,7 +183,7 @@ class RTL2:
                 self.page = 3 if f["IRQP"] else 0
             if tp and self.sys.copreq(self):
                 self.task = 1
-                self.tstep, self.tpage = 0, 0
+                self.tstep, self.tpage = 0, 1     # page 1: page 0 is 0x8000's
         f["IRQP"] = irqp
         self.sys.tick(self, ticks)
         self.cycles += 1

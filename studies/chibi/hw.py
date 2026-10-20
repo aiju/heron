@@ -1,18 +1,26 @@
-"""Chibi Heron at chip level: board.build(sim=True) on the chip-level
-simulator's system run (infra/hwsim), checked against the register-transfer
-model.
+"""Chibi Heron at chip level: the two-halves machine's netlist,
+board2.build(sim=True), on the chip-level simulator's system run
+(infra/hwsim), checked against its register-transfer model (rtl2.py);
+--first takes the first cut's instead (board.py, rtl.py).
 
 Both start from reset (the reset routine, then the program at 0, its image
 in the RAM); the suite's I/O page is a test fixture at 0xFFFF_FF00.
 
-  heron chibi hw test [NAMES]       programs at chip level against the RTL
+  heron chibi hw test [NAMES] [--first]
+                                    programs at chip level against the RTL
                                     model: output, registers, flags, RAM, and
                                     every instruction fetch with its cycle
-  heron chibi hw run PROG.s [--trace A:B]
-  heron chibi hw sta [--paths N]    static timing analysis (sta.py)
-  heron chibi hw sta2 [--suite]     the two-halves variant's (sta2.py)
-  heron chibi hw halves             its time on the suite, folded (halves.py)
-  heron chibi hw bom                the parts list
+  heron chibi hw run PROG.s [--trace A:B] [--first]
+  heron chibi hw sta [--paths N] [--write] [--first]
+                                    static timing analysis (sta2.py; --write:
+                                    the ticks table, ticks.json; --first:
+                                    the first cut's, sta.py)
+  heron chibi hw odt [--cycles N]   ODT's session at chip level, against the
+                                    model
+  heron chibi hw copper [--cycles N]
+                                    the copper's test at chip level, against
+                                    the model
+  heron chibi hw bom [--first]      the parts list
 """
 
 import argparse
@@ -24,7 +32,7 @@ import sys
 from heron import BUILD, native
 from heron.infra.hw import runner
 
-from . import board, board2, check, parts, routines, routines2, ucode as uc, ucode2 as uc2
+from . import board, board2, check, parts, routines, routines2, ucode as uc
 
 OUT = os.path.join(BUILD, "chibi")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,16 +45,22 @@ def sources():
 _LOADED = None
 
 
-def netlist(first=False):
+HALT_PS = 60_000_000             # ODT's session: the halt button held to 60 us
+
+
+def netlist(first=False, halt=False):
     """The simulation netlist, exported (cached in build/chibi): the
-    two-halves machine's (board2), or the first cut's."""
+    two-halves machine's (board2), or the first cut's; with the halt
+    button held through reset."""
     global _LOADED
     if _LOADED is None:
         _LOADED = runner.newest(sources())
-    path = os.path.join(OUT, "netlist-first.json" if first else "netlist.json")
+    name = "netlist-first.json" if first else "netlist-halt.json" if halt else "netlist.json"
+    path = os.path.join(OUT, name)
     if not os.path.exists(path) or os.path.getmtime(path) < _LOADED:
         os.makedirs(OUT, exist_ok=True)
-        nl = board.build(sim=True) if first else board2.build(sim=True)
+        nl = board.build(sim=True) if first else \
+            board2.build(sim=True, halt_ps=HALT_PS if halt else 0)
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=parts.VARIANT, corner="max"), f)
@@ -75,7 +89,7 @@ def rf_chips(first=False):
     return ["U_RF0", "U_RF1"] if first else ["U_RFL0", "U_RFL1", "U_RFH0", "U_RFH1"]
 
 
-def preloads(ram, inp=b"", kbd=b"", mouse=b"", first=False):
+def preloads(ram, inp=b"", kbd=b"", mouse=b"", first=False, uart=b""):
     pre = {f"U_CS{k}": img for k, img in enumerate(rom_images(first))}
     for r in range(2):
         for b in range(2):
@@ -84,7 +98,7 @@ def preloads(ram, inp=b"", kbd=b"", mouse=b"", first=False):
         pre[k] = bytes(1 << 15)
     pre["U_BOOT"] = bytes([0xFF]) * 0x20000
     pre["X_IO"] = bytes(inp)
-    pre["U_UART0"] = b""
+    pre["U_UART0"] = bytes(uart)
     pre["U_UART1"] = b""
     pre["X_KBD"] = bytes(kbd)
     pre["X_MOUSE"] = bytes(mouse)
@@ -122,14 +136,19 @@ def config(max_cycles, trace=None, fetch_trace=200_000, seed=1, first=False):
 
 
 def run(ram, inp=b"", max_cycles=20_000_000, trace=None, seed=1, kbd=b"", mouse=b"",
-        first=False):
+        first=False, uart=None):
     """A RAM image at chip level: the outcome, decoded. kbd and mouse: the
-    bytes the PS/2 devices send."""
-    nl = netlist(first)
-    hw = native.hwsim.run_system(nl, config(max_cycles, trace, seed=seed, first=first),
-                                 preloads(ram, inp, kbd, mouse, first))
+    bytes the PS/2 devices send; uart, what's typed at UART 0, with the
+    halt button held through reset (ODT's session)."""
+    nl = netlist(first, halt=uart is not None)
+    cfg = config(max_cycles, trace, seed=seed, first=first)
+    if uart is not None:
+        cfg["dump"].append("U_UART0")
+    hw = native.hwsim.run_system(nl, cfg, preloads(ram, inp, kbd, mouse, first, uart or b""))
     d = hw["dumps"]
     hw["output"] = bytes(d["X_IO"])
+    if uart is not None:
+        hw["uart"] = bytes(d["U_UART0"])
     out = bytearray(len(ram))
     for r in range(2):
         for b in range(2):
@@ -198,6 +217,75 @@ def run_program(path, trace=None, verbose=True, first=False):
     hw = run(ram, inp, max_cycles=m.cycles + 2000, trace=trace, first=first)
     diffs = compare(m, hw)
     return m, hw, diffs
+
+
+ODT_PROGRAM = os.path.join(HERE, "programs", "odt.s")
+# ODT's test session: what's typed (as fast as the line goes)
+ODT_KEYS = b"x2000/\r%1/\rs%1/5678\r2000/11223344\n\r%2/\nssssss%2/\r4g"
+
+
+def odt_model(img, keys, max_cycles=1_000_000):
+    """The model's run of an ODT session, from reset with the halt button
+    held."""
+    from .rtl2 import RTL2
+    from .system2 import System2
+    s = System2(uart=keys)
+    s.load(img)
+    s.halt_req = 1
+    m = RTL2(s)
+    m.run(max_cycles)
+    return m
+
+
+COPPER_PROGRAM = os.path.join(HERE, "programs", "copper.s")
+
+
+def outcome_diffs(m, hw, uart=False):
+    """What a run left, at chip level against the model, without the
+    fetches' timing (a terminal's or the scanline's isn't the model's)."""
+    diffs = []
+    pairs = [("printed", hw["output"], bytes(m.sys.console.out))]
+    if uart:
+        pairs.append(("sent", hw["uart"], bytes(m.sys.uart.out)))
+    for what, h, mm in pairs:
+        if h != mm:
+            diffs.append(f"{what} {h!r}, the model {mm!r}")
+    diffs += [f"r{i} = {hw['regs'][i]:08X}, the model {m.reg(i):08X}"
+              for i in range(16) if hw["regs"][i] != m.reg(i)]
+    bad = [a for a in range(len(hw["ram"])) if hw["ram"][a] != m.sys.ram[a]]
+    if bad:
+        diffs.append(f"{len(bad)} RAM bytes differ, the first at {bad[0]:06X}")
+    if hw["violation_total"]:
+        diffs.append(f"{hw['violation_total']} timing violations")
+    return diffs
+
+
+def report(name, hw, diffs, shown):
+    print(f"{name}:")
+    print(summary(hw))
+    for d in diffs:
+        print("  " + d)
+    print(f"  {shown!r}")
+    print("  matches the model" if not diffs else f"  {len(diffs)} differences")
+    return 1 if diffs else 0
+
+
+def cmd_odt(args):
+    """ODT's session at chip level against the model's: what it sends, the
+    registers and RAM it leaves."""
+    img = check.assemble(ODT_PROGRAM)
+    m = odt_model(img, ODT_KEYS)
+    hw = run(bytes(m_ram(img)), max_cycles=args.cycles, uart=ODT_KEYS)
+    return report("odt", hw, outcome_diffs(m, hw, uart=True),
+                  bytes(m.sys.uart.out).decode("latin1"))
+
+
+def cmd_copper(args):
+    """The copper's test (programs/copper.s) at chip level against the model."""
+    img = check.assemble(COPPER_PROGRAM)
+    m = check.run_rtl(img)
+    hw = run(bytes(m_ram(img)), max_cycles=args.cycles)
+    return report("copper", hw, outcome_diffs(m, hw), hw["output"])
 
 
 def m_ram(img):
@@ -276,6 +364,10 @@ def main(argv):
     s.add_argument("--paths", type=int, default=2)
     s.add_argument("--write", action="store_true", help="the ticks table (ticks.json)")
     s.add_argument("--first", action="store_true", help="the first cut's analysis")
+    o = sub.add_parser("odt", help="ODT's session at chip level, against the model")
+    o.add_argument("--cycles", type=int, default=600_000)
+    c = sub.add_parser("copper", help="the copper's test at chip level, against the model")
+    c.add_argument("--cycles", type=int, default=600_000)
     b = sub.add_parser("bom")
     b.add_argument("--first", action="store_true")
     args = p.parse_args(argv)
@@ -285,6 +377,10 @@ def main(argv):
         return cmd_run(args)
     if args.cmd == "bom":
         return cmd_bom(args)
+    if args.cmd == "odt":
+        return cmd_odt(args)
+    if args.cmd == "copper":
+        return cmd_copper(args)
     if args.cmd == "sta":
         if args.first:
             from . import sta

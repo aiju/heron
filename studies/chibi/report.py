@@ -1,8 +1,9 @@
 """Chibi Heron's measurements, as RFC 0047's performance.md has them: the
-program suite on the register-transfer model at the machine's one cycle
-length (158.9 ns, four of VGA's pixels) against the full Heron's times
-(RFC 0031's performance.md), where the cycles go by instruction, the parts
-and static timing analysis of the netlist.
+program suite on the two-halves machine's model (rtl2.py), each
+microinstruction as long as static timing analysis's ticks table says
+(ticks.json), against the full Heron's times (RFC 0031's performance.md)
+and the first cut's (one cycle of 158.9 ns); where the time goes by
+instruction; the parts; and static timing analysis of the netlist.
 
   heron chibi report [--write]
 """
@@ -21,11 +22,8 @@ FULL = os.path.join(ROOT, "reports", "0031-rfc-draft-2-cpu", "performance.md")
 # not compared, as RFC 0031 has it: hello does no work, and interrupts'
 # timer counts cycles
 SKIP = ("hello", "interrupts")
-
-
-def period():
-    from .sta import VGA_PERIOD
-    return VGA_PERIOD
+TICK_NS = 1e3 / 50.35
+FIRST_NS = 158.9                # the first cut's cycle, four of VGA's pixels
 
 
 def mnemonic(parcels):
@@ -35,8 +33,9 @@ def mnemonic(parcels):
 
 
 def run_one(path):
-    """(name, instructions, cycles, {mnemonic: (count, cycles)}, the
-    model's differences from the simulator)."""
+    """(name, instructions, ticks, microinstructions, {mnemonic: (count,
+    ticks)}, the first cut's cycles, the model's differences from the
+    simulator)."""
     import heron.studies.v2_isa  # noqa: F401
     from heron.infra.programs import metadata
     name = os.path.basename(path)[:-2]
@@ -45,15 +44,16 @@ def run_one(path):
     ref = check.run_isa(img, meta["input"])
     m = check.run_rtl(img, meta["input"], max_cycles=40 * ref.cycles + 100_000, log=True)
     diffs = check.compare(ref, m) if name not in check.TIMED else []
+    first = check.run_rtl(img, meta["input"], max_cycles=40 * ref.cycles + 100_000, first=True)
     by = {}
     ram = m.sys.ram
-    ds = m.decodes + [(m.cycles, None, None)]
-    for (c0, pc, md), (c1, *_r) in zip(ds, ds[1:]):
+    ds = list(zip(m.decodes, m.decode_ticks)) + [((None, None, None), m.ticks)]
+    for ((_c, pc, md), t0), (_d, t1) in zip(ds, ds[1:]):
         ext = [ram[(pc + k) % len(ram)] | ram[(pc + k + 1) % len(ram)] << 8 for k in (2, 4)]
         k = mnemonic([md] + ext)
-        n, c = by.get(k, (0, 0))
-        by[k] = (n + 1, c + c1 - c0)
-    return name, m.instructions, m.cycles, by, diffs
+        n, t = by.get(k, (0, 0))
+        by[k] = (n + 1, t + t1 - t0)
+    return name, m.instructions, m.ticks, m.cycles, by, first.cycles, diffs
 
 
 def full_heron():
@@ -78,86 +78,100 @@ def table(header, rows, right=()):
     return "\n".join(out)
 
 
-def suite_section(runs, T):
+def suite_section(runs):
     full = full_heron()
-    rows, tot = [], [0, 0, 0.0, 0.0]
-    for name, ins, cyc, _by, diffs in runs:
-        ms = cyc * T / 1e6
+    rows, tot = [], [0, 0, 0, 0.0, 0.0, 0.0]
+    for name, ins, ticks, uops, _by, first, diffs in runs:
+        ms = ticks * TICK_NS / 1e6
+        fms = first * FIRST_NS / 1e6
         f = full.get(name)
         slower = f"{ms / f:.1f}x" if f and name not in SKIP else ""
         note = " (fails)" if diffs else ""
-        rows.append([name + note, ins, cyc, f"{cyc / max(ins, 1):.2f}", f"{ms:.2f} ms",
-                     f"{1e6 * ms / max(ins, 1):.0f} ns", f"{f:.2f} ms" if f else "", slower])
+        rows.append([name + note, ins, uops, f"{ticks / max(uops, 1):.2f}", f"{ms:.2f} ms",
+                     f"{1e6 * ms / max(ins, 1):.0f} ns", f"{f:.2f} ms" if f else "", slower,
+                     f"{fms / ms:.2f}x"])
         if f and name not in SKIP and not diffs:
             tot[0] += ins
-            tot[1] += cyc
-            tot[2] += ms
-            tot[3] += f
+            tot[1] += uops
+            tot[2] += ticks
+            tot[3] += ms
+            tot[4] += f
+            tot[5] += fms
     rows.append(["**total, against the full Heron**", tot[0], tot[1],
-                 f"{tot[1] / max(tot[0], 1):.2f}", f"{tot[2]:.2f} ms",
-                 f"{1e6 * tot[2] / max(tot[0], 1):.0f} ns", f"{tot[3]:.2f} ms",
-                 f"{tot[2] / tot[3]:.1f}x" if tot[3] else ""])
-    head = (f"The program suite on the register-transfer model, which the netlist "
-            f"matches cycle for cycle (`heron chibi hw test`), every cycle {T:.1f} ns. "
-            f"*Full Heron*: [RFC 0031's](../0031-rfc-draft-2-cpu/performance.md) time for the "
-            f"same program; *slower* is this one's time over it. The total leaves out hello "
-            f"and interrupts, as RFC 0031's does. Cycles count from reset.")
+                 f"{tot[2] / max(tot[1], 1):.2f}", f"{tot[3]:.2f} ms",
+                 f"{1e6 * tot[3] / max(tot[0], 1):.0f} ns", f"{tot[4]:.2f} ms",
+                 f"{tot[3] / tot[4]:.1f}x" if tot[4] else "",
+                 f"{tot[5] / tot[3]:.2f}x" if tot[3] else ""])
+    head = ("The program suite on the two-halves machine's register-transfer model, "
+            "which the netlist matches cycle for cycle (`heron chibi hw test`); each "
+            f"microinstruction as many ticks of {TICK_NS:.2f} ns as the timing analysis's "
+            "table gives it. *Microinstructions*: the cycles; *ticks each*: their average "
+            "length. *Full Heron*: [RFC 0031's](../0031-rfc-draft-2-cpu/performance.md) time "
+            "for the same program; *slower* is this one's time over it. *Over the first "
+            f"cut*: the first cut's time (one cycle of {FIRST_NS} ns) over this one's. The "
+            "total leaves out hello and interrupts, as RFC 0031's does. Times count from "
+            "reset.")
     return "## The suite\n\n" + head + "\n\n" + table(
-        ["Program", "Instructions", "Cycles", "CPI", "Time", "Per instruction", "Full Heron",
-         "Slower"], rows, right=range(1, 8))
+        ["Program", "Instructions", "Microinstructions", "Ticks each", "Time",
+         "Per instruction", "Full Heron", "Slower", "Over the first cut"], rows,
+        right=range(1, 9))
 
 
 def by_instruction(runs, top=24):
     total = Counter()
     count = Counter()
-    for _n, _i, _c, by, _d in runs:
-        for k, (n, c) in by.items():
-            total[k] += c
+    for _n, _i, _t, _u, by, _f, _d in runs:
+        for k, (n, t) in by.items():
+            total[k] += t
             count[k] += n
-    allc = sum(total.values())
+    allt = sum(total.values())
     rows, acc = [], 0
-    for k, c in total.most_common(top):
-        acc += c
-        rows.append([k, count[k], c, f"{c / count[k]:.1f}", f"{100 * c / allc:.1f}%",
-                     f"{100 * acc / allc:.1f}%"])
-    head = ("The suite's cycles by instruction, all programs together: each instruction's "
-            "cycles from its decode to the next one's (an interrupt's entry counts to the "
+    for k, t in total.most_common(top):
+        acc += t
+        rows.append([k, count[k], t, f"{t / count[k]:.1f}", f"{100 * t / allt:.1f}%",
+                     f"{100 * acc / allt:.1f}%"])
+    head = ("The suite's ticks by instruction, all programs together: each instruction's "
+            "ticks from its decode to the next one's (an interrupt's entry counts to the "
             "instruction it interrupted).")
-    return "## Where the cycles go\n\n" + head + "\n\n" + table(
-        ["Instruction", "Executed", "Cycles", "Cycles each", "Share", "Cumulative"], rows,
+    return "## Where the time goes\n\n" + head + "\n\n" + table(
+        ["Instruction", "Executed", "Ticks", "Ticks each", "Share", "Cumulative"], rows,
         right=range(1, 6))
 
 
+SIM_ONLY = ("S_BTNX",)          # the simulation's interrupt button (a connector on the board)
+
+
 def parts_section():
-    from . import board, parts
-    nl = board.build(sim=True)
+    from . import board2, parts
+    nl = board2.build(sim=True)
     bom = nl.bom(parts.VARIANT, passives=False)
     rows = []
     total = 0
     for p, refs in sorted(bom.items(), key=lambda kv: (-len(kv[1]), kv[0])):
-        total += len(refs)
-        rows.append([p, len(refs)])
+        refs = [r for r in refs if r not in SIM_ONLY]
+        if refs:
+            total += len(refs)
+            rows.append([p, len(refs)])
     by = Counter()
     for inst in nl.instances:
-        if inst.type.family in ("fixture", "passive"):
+        if inst.type.family in ("fixture", "passive") or inst.ref in SIM_ONLY:
             continue
         by[inst.section] += 1
     secs = [[s, n] for s, n in by.items()]
-    return ("## Parts\n\nThe netlist's packages, not counting resistors, capacitors and "
-            "connectors.\n\n" + table(["Part", "Packages"], rows + [["**total**", total]],
-                                     right=(1,))
+    return ("## Parts\n\nThe board's packages (the simulation's netlist without its "
+            "fixtures), not counting resistors, capacitors and connectors.\n\n"
+            + table(["Part", "Packages"], rows + [["**total**", total]], right=(1,))
             + "\n\n" + table(["Section", "Packages"], secs, right=(1,)))
 
 
 def sta_section():
-    from . import sta
-    res, w = sta.analyse()
-    T = max(res[0][0], w[0])
-    head = (f"Static timing analysis of the netlist (`heron chibi hw sta`), worst-case "
-            f"datasheet delays: every distinct microinstruction's phase R, and phase W. "
-            f"The machine needs {T:.1f} ns; it runs at {sta.VGA_PERIOD:.1f} ns, four of "
-            f"VGA's pixels, so that the video's timing comes from the CPU's clock.")
-    return "## Timing\n\n" + head + "\n\n```\n" + sta.report(res, w, paths=2) + "\n```"
+    from . import sta2
+    res, fbad = sta2.analyse()
+    head = ("Static timing analysis of the netlist (`heron chibi hw sta`), worst-case "
+            "datasheet delays: every distinct microinstruction's low and high halves, in "
+            "whole ticks, and phase F. The ticks table it writes (ticks.json) is what the "
+            "control store's length fields are filled from.")
+    return "## Timing\n\n" + head + "\n\n```\n" + sta2.report(res, fbad, paths=2) + "\n```"
 
 
 def build(jobs=4):
@@ -165,18 +179,17 @@ def build(jobs=4):
     paths = testing.program_paths()
     with ProcessPoolExecutor(jobs) as ex:
         runs = list(ex.map(run_one, paths))
-    T = period()
     out = ["# Performance for RFC 0047", "",
            "Generated by `heron chibi report --write`; don't edit by hand. The study is "
            "[studies/chibi](../../studies/chibi/README.md).", "",
-           suite_section(runs, T), "", by_instruction(runs), "", parts_section(), "",
+           suite_section(runs), "", by_instruction(runs), "", parts_section(), "",
            sta_section(), ""]
     return "\n".join(out), runs
 
 
 def cmd_report(args):
     text, runs = build()
-    bad = [r[0] for r in runs if r[4]]
+    bad = [r[0] for r in runs if r[6]]
     if args.write:
         os.makedirs(DOC, exist_ok=True)
         with open(os.path.join(DOC, "performance.md"), "w") as f:

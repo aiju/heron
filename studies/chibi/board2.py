@@ -73,7 +73,7 @@ def ph_is(p):
 RESET = lit("RESET_n", 0)
 
 
-def build(sim=True):
+def build(sim=True, halt_ps=0):
     nl = Netlist()
     cw = control_nets()
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
@@ -121,7 +121,7 @@ def build(sim=True):
         "BI": (OR(AND(flc["BINZ"], lit("Z16", 0)), AND(negate(flc["BINZ"]), lit("BI"))), True,
                False),
         "ODTQ": (OR(lit("HLTQ"), lit("TRACE")), False, False),
-        "TASK_n": (lit("TASK", 0), False, False),          # for the tasks' address drivers
+        "TASK_n": (AND(lit("TASK"), lit("TASKD")), False, True),   # the tasks' address drivers
         # the video's slot on the address bus: phase F through a 22V10, as
         # PCSEL and MARSEL come, so that the drivers change over together
         "VSEL": (lit("PHW"), False, False),
@@ -187,14 +187,14 @@ def build(sim=True):
     memc_gal(nl)
     for r in range(2):
         for b in range(2):
-            nl.add("sram512", f"U_RAM{r}{b}", role="fastram", CE=f"RCE{r}_n", OE="RAMOE_n",
-                   WE=f"WE{'LH'[b]}_n",
+            nl.add("sram512", f"U_RAM{r}{b}", role="fastram", CE="A20" if r == 0 else "RCE1_n",
+                   OE="RAMOE_n", WE=f"WE{'LH'[b]}_n",
                    **{f"A{i}": f"A{i + 1}" for i in range(19)},
                    **{f"IO{i}": f"MD{8 * b + i}" for i in range(8)})
 
     # ---- I/O ---------------------------------------------------------------
     nl.section("I/O")
-    io(nl, sim)
+    io(nl, sim, halt_ps)
 
     # ---- video -------------------------------------------------------------
     nl.section("video")
@@ -301,9 +301,13 @@ def sequencer(nl, clk, step, op, nib, page):
     seq, cnd, jt, pt = field("SEQ"), field("CND"), field("JT"), field("PT")
     irn = field("IRN")
     ldir, nld = lit("LDIR"), lit("LDIR", 0)
+    # break before make on OP and N: the IR's drivers let go as TASK sets
+    # and take them back once TASKD (TASK a stage later) has cleared too
+    # (TASKOR); the tasks' 541s drive only once both are set (TASK_n)
     notask = lit("TASK", 0)
+    oe = lit("TASKOR", 0)
     G.add(nl, "U_IRL", {op[i]: (OR(AND(ldir, lit(f"MD{i}")), AND(nld, lit(op[i]))), True, False,
-                                notask) for i in range(8)},
+                                oe) for i in range(8)},
           clock="CLK0", ar=RESET)
     d, s = bus("IRD", 4), bus("IRS", 4)
     incd, decs, idx = eq(irn, uc.IRN_INCD), eq(irn, uc.IRN_DECS), eq(irn, uc.IRN_IDX)
@@ -324,7 +328,7 @@ def sequencer(nl, clk, step, op, nib, page):
     for i in range(4):
         ng[nib[i]] = (OR(AND(ldir, lit(f"MD{12 + i}")), AND(nld, ns, lit(s[i])),
                          AND(nld, idx_n, lit(f"MD{8 + i}")),
-                         AND(nld, lit(irn[2], 0), lit(nib[i]))), True, False, notask)
+                         AND(nld, lit(irn[2], 0), lit(nib[i]))), True, False, oe)
     G.add(nl, "U_NG", ng, clock="CLK0", ar=RESET)
     # STEP and PAGE: next, jump if CT, end (decode, or page 3 if IRQP); PAGE
     # stored inverted, so that reset makes it 3; held while a task runs
@@ -369,8 +373,8 @@ def tasks(nl, seq, jt, pt, step, page):
     """Microcode tasks: at a task point (SEQ END or JUMPT) while COPREQ asks,
     TASK sets; the sequencer's address registers hold with their outputs
     off, and U_TASK's step and page with U_TOP's and U_TN's constants
-    (opcode 00, N 8: the tasks' blocks) address the control store. A task's
-    SEQ END ends it. TCHG: TASK changed at the cycle's start (phase F a
+    (opcode 00, N 8: the tasks' blocks; from page 1) address the control
+    store. A task's SEQ END ends it. TCHG: TASK changed at the cycle's start (phase F a
     tick longer, for the address drivers' enables)."""
     task = lit("TASK")
     nxt = eq(seq, uc.SEQ_NEXT)
@@ -381,11 +385,13 @@ def tasks(nl, seq, jt, pt, step, page):
     for i in range(5):
         outs[step[i]] = (AND(task, OR(AND(inc, draft._inc(step, i)), AND(take, lit(jt[i])))), True,
                          False, task)
-    for i in range(2):
-        outs[page[i]] = (AND(task, OR(AND(inc, lit(page[i])), AND(take, lit(pt[i])))), True,
-                         False, task)
     tend = AND(lit(seq[1]), lit(seq[0], 0))
     start = AND(lit("TASK", 0), lit(seq[1]), lit("COPREQ"))
+    for i in range(2):
+        # a task starts at page 1's step 0 (page 0's is the illegal
+        # instruction 0x8000's)
+        outs[page[i]] = (OR(AND(task, OR(AND(inc, lit(page[i])), AND(take, lit(pt[i])))),
+                            start if i == 0 else ZERO), True, False, task)
     outs["TASK"] = (OR(AND(task, negate(tend)), start), True, False)
     outs["TCHG"] = (OR(AND(task, tend), start), True, False)
     G.add(nl, "U_TASK", outs, clock="CLK0", ar=RESET)
@@ -788,8 +794,8 @@ def memc_gal(nl):
     """The memory's and the devices' strobes, on the master clock: from a
     half's second tick to its end (END), the RAM's write enables, IORD_n,
     IOWR_n; the RAM's output enable (the video's read in phase F, the CPU's
-    in a half), its rows' chip enables; IOACC, an access to the I/O space
-    (a half of five ticks)."""
+    in a half), row 1's chip enable (row 0's is A20); IOACC, an access to the I/O space
+    (a half of five ticks); ADS, the UARTs' address strobe."""
     half = lit("PHW", 0)
     on = AND(half, lit("END", 0), lit("SUPH", 0))
     write = eq(MOP, uc.MOP_WRM)
@@ -805,14 +811,17 @@ def memc_gal(nl):
                        AND(half, eq(MOP, uc.MOP_RDP), lit("SUPH", 0)),
                        AND(half, eq(MOP, uc.MOP_FETCH), lit("LASTH")),
                        AND(half, rdm, lit("A31", 0), lit("SUPH", 0))), False, True),
-        "RCE0_n": (lit("A20"), False, False),
         "RCE1_n": (lit("A20", 0), False, False),
         "IOACC": (AND(half, OR(rdm, write), lit("A31"), lit("SUPH", 0)), False, False),
+        # the UARTs' address strobe: the strobes a tick late, so that the
+        # UARTs hold their address and chip select from a tick into the
+        # strobe to a tick after it (the address bus changes as it ends)
+        "ADS": (OR(lit("IORD_n", 0), lit("IOWR_n", 0)), True, False),
     }
     G.add(nl, "U_MEMC", outs, clock="MCLK", ar=RESET)
 
 
-def io(nl, sim):
+def io(nl, sim, halt_ps=0):
     """The I/O space (system2.py has the map), draft.py's devices with the
     clock generator's timing: the UARTs, the boot flash, the slow devices
     (the timer, the CF card, the palette) behind U_SLOW's wait states, the
@@ -832,7 +841,8 @@ def io(nl, sim):
         "LSEL": (AND(sel(6), lit("A2"), lit("A1")), False, False),
     })
     for k in range(2):
-        nl.add("16c550x", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", RD="IORD_n",
+        nl.add("16c550x", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", ADS="ADS",
+               RD="IORD_n",
                WR="IOWR_n", MR="RESET", XIN="UCLK", INTR=f"U{k}INT", SOUT=f"U{k}TX",
                SIN=f"U{k}RX", RTS=f"U{k}RTS", CTS=f"U{k}CTS",
                **{f"D{i}": f"MD{i}" for i in range(8)}, **{f"A{i}": f"A{i + 1}" for i in range(3)})
@@ -852,14 +862,19 @@ def io(nl, sim):
         nl.add("osc", "X_UCLK", OUT="UCLK", params={"period_ps": UCLK_PS, "phase_ps": 1000})
         w = nl.add("wire", "X_IORDW", A="IORD_n", Y="IORD_X")
         w.add_pin_delay("Y", 10000)
+        # (a read takes its byte as its strobe ends: two reads a cycle)
         nl.add("iodev32", "X_IO", CLK="CLK3", IOSEL="CONSEL_n", RD="IORD_X", WEL="IOWR_n",
-               WEH="VCC", IRQ="CONIRQ",
+               WEH="VCC", IRQ="CONIRQ", params={"read_at_strobe": 1},
                **{f"A{i}": f"A{i}" for i in range(8)}, **{f"D{i}": f"MD{i}" for i in range(16)})
         nl.add("ps2dev", "X_KBD", CLK="KCLK", DATA="KDATA", WAKE="KWAKE",
                params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 50_000_000})
         nl.add("ps2dev", "X_MOUSE", CLK="MSCLK", DATA="MSDATA", WAKE="MWAKE",
                params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 70_000_000})
         nl.add("button", "S_BTNX", OUT="BTN_n")
+        if halt_ps:
+            # the halt button, held through reset to halt_ps: ODT from the start
+            nl.add("button", "S_HLTXA", OUT="HLTA_n", params={"press_ps": 1, "release_ps": halt_ps})
+            nl.add("button", "S_HLTXB", OUT="HLTB_n", params={"press_ps": halt_ps + 1000})
     else:
         nl.add("const", "X_IOK", LO="CONIRQ", HI="UCLK")
         nl.add("const", "X_BTN", LO="BTNLO", HI="BTN_n")
@@ -889,10 +904,8 @@ def slow_devices(nl):
     MD). By A6-A4: 000 the timer, 001 the palette, 011 CFFAST (bit 0); A6
     set, the CF card: A5 0 its command block, 1 its control block."""
     w = bus("W", 5)
-    rdm, wrm = lit("XDIR", 0), lit("XDIR")
     acc = AND(lit("SLOWCS"), lit("IOACC"))
     cf = lit("A6")
-    kinds = {"cf0": AND(cf, lit("CFFAST", 0)), "cf4": AND(cf, lit("CFFAST")), "other": negate(cf)}
 
     def kind(a6, a5, a4, fast):
         if a6:
@@ -1042,6 +1055,9 @@ def scanline(nl):
                    False, False),
         "LRB_n": (rd, False, True),
         "CEN": (OR(AND(wsel, lit("MD15")), AND(negate(wsel), lit("CEN"))), True, False),
+        # the sequencer's: TASK a stage later, and either
+        "TASKD": (lit("TASK"), False, False),
+        "TASKOR": (OR(lit("TASK"), lit("TASKD")), False, False),
     }, clock="IOWR_n", ar=RESET)
     nl.add("175", "U_PB", CLK="PBWR_n", CLR="RESET_n", part="74HCT175",
            **{f"{i + 1}D": f"MD{i}" for i in range(4)}, **{f"{i + 1}Q": f"PB{i}" for i in range(4)})

@@ -1,6 +1,7 @@
 """Chibi Heron's board placed on RFC 0046's column grid (studies/pcb_columns).
 
-The draft netlist (board.build(sim=False, halves=True)) becomes a board's
+The two-halves machine's netlist (board2.build(sim=True), without the
+simulation's fixtures and its own interrupt button) becomes a board's
 parts, each in its package; the chips, the resistor networks and the
 jumper blocks go on the grid, the connectors, switches and the logic
 analyser's headers along the edges as exceptions (C11), and the grid's
@@ -18,11 +19,12 @@ size is open, so `sweep()` tries a few.
   serial ports, the TTL serial headers, the CF card) along the top edge,
   facing out, and on along the right edge when the top is full; the
   logic analyser's headers and the switches along the bottom, then the
-  left. VGA, PS/2 and the power jack aren't in the netlist yet: they are
-  added here on its nets. The cells under them are blocked.
+  left. PS/2 and the power jack aren't in the netlist yet, and its VGA
+  connector is a four-pin stand-in: they are added here on its nets. The
+  cells under them are blocked.
 - **Not modelled:** the MAX232s' pump capacitors, the TL7705A's two
-  capacitors, the bulk capacitors, the clock's oscillator (the timing
-  netlist has a fixture for it).
+  capacitors, the bulk capacitors. The oscillators and the TL7705A are
+  DIP-8s.
 """
 
 import json
@@ -119,7 +121,8 @@ def chip_package(inst, gals="plcc"):
 
 # the packages of types without a pinout here where the pin count doesn't
 # say: (pins, row spacing in mm)
-WIDTHS = {"g171": (28, "15.24")}           # IMS G171 (UM70C171): a 0.6 inch DIP-28
+WIDTHS = {"g171": (28, "15.24"),           # IMS G171 (UM70C171): a 0.6 inch DIP-28
+          "ym2149": (40, "15.24")}         # YM2149F: a 0.6 inch DIP-40
 
 
 def _numbered(pins):
@@ -190,6 +193,8 @@ def edge_parts(inst):
         return [("front", part(ref, HDR.format(r=2, n=16), pins))]
     if t == "conn" and val.startswith("DE-9"):
         return [("back", part(ref, DB9, DE9))]
+    if t == "conn" and val.startswith("DE-15"):
+        return []              # a four-pin stand-in: extra_connectors' J_VGA, on its nets
     if t == "conn":            # switches and buttons: a 6 mm button for each contact
         return [("front", part(f"{ref}.{i}", BUTTON, {1: p, 2: "GND"}, value="button"))
                 for i, p in enumerate(sorted(c))]
@@ -197,8 +202,9 @@ def edge_parts(inst):
 
 
 def extra_connectors(nets):
-    """The connectors the netlist doesn't have yet, on its nets: VGA, the
-    two PS/2 sockets, the power jack. [(group, Part)]."""
+    """The connectors the netlist doesn't have yet, on its nets: VGA (the
+    netlist's J_VGA is a four-pin stand-in, without VSYNC), the two PS/2
+    sockets, the power jack. [(group, Part)]."""
     out = []
     if "VGA_R" in nets:
         pins = {1: "VGA_R", 2: "VGA_G", 3: "VGA_B", 13: "HS_n", 14: "VS_n",
@@ -288,10 +294,13 @@ def place_edges(b, items):
 _NL = {}
 
 
+SIM_ONLY = ("S_BTNX",)          # the simulation's interrupt button (S_BTN on the board)
+
+
 def netlist():
     if "nl" not in _NL:
-        from . import board
-        _NL["nl"] = board.build(sim=False, halves=True)
+        from . import board2
+        _NL["nl"] = board2.build(sim=True)
     return _NL["nl"]
 
 
@@ -305,7 +314,7 @@ def build_board(size, params=Params(), name=None, gals="plcc"):
     b = B.Board(name or f"chibi-{W:g}x{H:g}" + ("-dip" if gals == "dip" else ""), W, H, layers=4)
     edge = []
     for inst in nl.instances:
-        if inst.type.family == "fixture":
+        if inst.type.family == "fixture" or inst.ref in SIM_ONLY:
             continue
         e = edge_parts(inst)
         if e is not None:
@@ -448,7 +457,7 @@ def best(rows):
 def markdown(rows, pick):
     from collections import Counter
     nl = netlist()
-    n = sum(1 for i in nl.instances if i.type.family != "fixture")
+    n = sum(1 for i in nl.instances if i.type.family != "fixture" and i.ref not in SIM_ONLY)
     lines = [
         "# Chibi Heron placed on the column grid",
         "",
@@ -458,11 +467,13 @@ def markdown(rows, pick):
         "half-columns of 0.5 inch, a gap of 2 rows, module 1, round pads, 60,000 moves of the "
         "stacks' annealing. Nothing is routed.",
         "",
-        f"The draft netlist's {n} parts: the chips, resistor networks and jumper blocks on the "
+        f"The two-halves machine's netlist's {n} parts: the chips, resistor networks and jumper "
+        "blocks on the "
         "grid in RFC 0047's packages (the 22V10s and the flashes in PLCC sockets, the RAM in "
         "SOJ-36, the rest in DIP), the connectors, switches and the logic analyser's headers "
-        "along the edges as exceptions, the cells under them blocked. VGA, the PS/2 sockets and "
-        "the power jack aren't in the netlist yet; they are added on its nets. The board's size "
+        "along the edges as exceptions, the cells under them blocked. The PS/2 sockets and the "
+        "power jack aren't in the netlist yet, and its VGA connector is a four-pin stand-in; "
+        "they are added on its nets. The board's size "
         f"is open: the standard sizes, then for each shape the least board, in steps of 5 mm, "
         f"whose boxes take at most {USE:.0%} of the grid's free cells.",
         "",

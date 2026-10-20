@@ -110,11 +110,7 @@ def negate(sop):
     return out
 
 
-def build(sim=True, halves=False):
-    """halves: the variant that does both halves of a 32-bit operation in
-    one microinstruction (phase F, then the low half and the high half,
-    ticks of fixed length), for static timing analysis only (sta2.py)."""
-    assert not (halves and sim), "the two-halves variant is a timing netlist only"
+def build(sim=True):
     nl = Netlist()
     cw = control_nets()
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
@@ -143,12 +139,7 @@ def build(sim=True, halves=False):
             "YOE": (nxt(lambda k: k in (1, 2)), True, False),
         }, clock="MCLK")
     else:
-        if halves:
-            nl.add("chibiclk2", "X_CLK", CLK="CLK0", HCK="HCK", HCKA="HCKA", HCKB="HCKB",
-                   HALF="HALF", PHW="PHW", YOE="YOE", YBOE="YBOE", RWS="RWS", PIX="PIX",
-                   VLD="VLD", MCLK="MCLK", T0="T0", T1="T1", T2="T2", RESET="RESET_n")
-        else:
-          nl.add("chibiclk", "X_CLK", CLK="CLK0", PHW="PHW", CLKW="CLKW", RWS="RWS", PIX="PIX",
+        nl.add("chibiclk", "X_CLK", CLK="CLK0", PHW="PHW", CLKW="CLKW", RWS="RWS", PIX="PIX",
                VLD="VLD", YOE="YOE", MCLK="MCLK", T0="T0", T1="T1", T2="T2", RESET="RESET_n")
     # the CPU clock to its loads
     clk = [f"CLK{i}" for i in range(1, 9)]
@@ -170,7 +161,7 @@ def build(sim=True, halves=False):
     # to the control store), the register byte; the control store's address
     # registers on the clock before its buffer
     G.add(nl, "U_IRL", {op[i]: (OR(AND(lit("LDIR"), lit(f"MD{i}")), AND(lit("LDIR", 0), lit(op[i]))),
-                                True, False, *([lit("TASK", 0)] if halves else [])) for i in range(8)},
+                                True, False) for i in range(8)},
           clock="CLK0", ar=lit("RESET_n", 0))       # reset: opcode 00, for the boot (routines.boot)
     d, s = bus("IRD", 4), bus("IRS", 4)
     irop = field("IROP")
@@ -199,8 +190,6 @@ def build(sim=True, halves=False):
                          AND(nld, eq(nop, uc.N_S), lit(s[i])),
                          AND(nld, eq(nop, uc.N_MDZ), lit(f"MD{8 + i}")),
                          AND(nld, eq(nop, uc.N_HOLD), lit(nib[i]))), True, False)
-    if halves:
-        ng = {k: v + (lit("TASK", 0),) for k, v in ng.items()}
     G.add(nl, "U_NG", ng, clock="CLK0", ar=lit("RESET_n", 0))
 
     # STEP and PAGE: next, jump if CT, end (decode, or page 3 if IRQP);
@@ -216,10 +205,6 @@ def build(sim=True, halves=False):
     for i in range(2):
         nextpage = OR(AND(inc, lit(page[i])), AND(take, lit(pt[i])), AND(end, lit("IRQP")))
         st[page[i]] = (negate_sop_pg(nextpage, inc, take, end, page[i], pt[i]), True, True)
-    if halves:
-        # held while a task runs, its outputs off (draft.tasks drives the address)
-        st = {k: (OR(AND(v[0], lit("TASK", 0)), AND(lit("TASK"), lit(k, 0 if v[2] else 1))),
-                  v[1], v[2], lit("TASK", 0)) for k, v in st.items()}
     G.add(nl, "U_STEP", st, clock="CLK0", ar=lit("RESET_n", 0))
 
     # the condition: three partial sums, then CT
@@ -246,13 +231,12 @@ def build(sim=True, halves=False):
 
     # ---- flags ------------------------------------------------------------
     nl.section("flags")
-    flags_gal(nl, f, "HCK" if halves else clk[1], halves)
+    flags_gal(nl, f, clk[1])
     # IRQP, INIT, and the reset for the devices
     fl_ = field("FL")
-    irqs = ["IRQ"] if halves else ["U0INT", "U1INT", "KIRQ", "MIRQ", "VIRQ", "CONIRQ"]
+    irqs = ["U0INT", "U1INT", "KIRQ", "MIRQ", "VIRQ", "CONIRQ"]
     G.add(nl, "U_SYS", {
-        "IRQP": (OR(AND(lit(f["I"]), OR(*[lit(n) for n in irqs])),
-                    *([lit("HLTQ"), lit("TRACE")] if halves else [])), True, False),
+        "IRQP": (AND(lit(f["I"]), OR(*[lit(n) for n in irqs])), True, False),
         "INIT": (OR(lit("INIT"), eq(fl_, uc.FL_CODE["SETINIT"])), True, False),
         "RESET": (lit("RESET_n", 0), False, False),
         # the video's slot on the address bus: phase W through a 22V10, as
@@ -278,38 +262,24 @@ def build(sim=True, halves=False):
     hr, hw, wen = field("HR")[0], field("HW")[0], field("WEN")[0]
     G.add(nl, "U_RFA2", {
         ra[4]: (OR(AND(phw, lit(wa[4])), AND(phr, eq(rs, uc.SEL_K), lit(kr[4]))), False, False),
-        ra[5]: (OR(AND(phw, lit("YBOE")), AND(phr, lit("HALF"))) if halves else
-                OR(AND(phw, lit(wa[5])), AND(phr, lit(hr))), False, False),
+        ra[5]: (OR(AND(phw, lit(wa[5])), AND(phr, lit(hr))), False, False),
         wa[4]: (AND(eq(ws, uc.SEL_K), lit(kw[4])), True, False),
-        **({"RA6": (OR(AND(phw, lit("WA6")), AND(phr, lit(field("PRIV")[0]))), False, False),
-            "WA6": (lit(field("PRIV")[0]), True, False)} if halves else
-           {wa[5]: (lit(hw), True, False)}),
+        wa[5]: (lit(hw), True, False),
         "WENQ": (lit(wen), True, False),
         "RFWE_n": (AND(lit("RWS"), lit("WENQ")), False, True),
     }, clock=clk[1])
     for k in range(2):
         nl.add("sram", f"U_RF{k}", CE="GND", OE="RFOE_n", WE="RFWE_n",
-               **{f"A{i}": ra[i] for i in range(6)}, A6="RA6" if halves else "GND",
+               **{f"A{i}": ra[i] for i in range(6)}, A6="GND",
                **{f"A{i}": "GND" for i in range(7, 15)},
                **{f"IO{i}": f"D{8 * k + i}" for i in range(8)})
 
     # ---- ALU -------------------------------------------------------------
     nl.section("ALU")
-    if halves:
-        # L's low half loads at the low half's end, its high at the high
-        # half's; each drives L15-0 in its half
-        ldl_n = field("LDL")[0]
-        for nm, ck, h in (("U_LA", "HCKA", 0), ("U_LB", "HCKB", 1)):
-            for k in range(2):
-                outs = {f"L{8 * k + i}": (OR(AND(lit(ldl_n, 0), lit(f"D{8 * k + i}")),
-                                             AND(lit(ldl_n, 1), lit(f"L{8 * k + i}"))),
-                                          True, False, lit("HALF", h)) for i in range(8)}
-                G.add(nl, f"{nm}{k}", outs, clock=ck)
-    else:
-        for k in range(2):
-            nl.add("377", f"U_L{k}", CLK=clk[1], EN=field("LDL")[0],
-                   **{f"D{i + 1}": f"D{8 * k + i}" for i in range(8)},
-                   **{f"Q{i + 1}": f"L{8 * k + i}" for i in range(8)})
+    for k in range(2):
+        nl.add("377", f"U_L{k}", CLK=clk[1], EN=field("LDL")[0],
+               **{f"D{i + 1}": f"D{8 * k + i}" for i in range(8)},
+               **{f"Q{i + 1}": f"L{8 * k + i}" for i in range(8)})
     cn = ["CN0_n", "CNX", "CNY", "CNZ"]
     for k in range(4):
         nl.add("181", f"U_ALU{k}", M="AM", CN=cn[k], P=f"ALUP{k}", G=f"ALUG{k}",
@@ -329,18 +299,14 @@ def build(sim=True, halves=False):
     for i in range(8):
         y[f"D{i}"] = (OR(AND(eq(rm, uc.RM_SHR), lit(f"F{i + 1}")),
                          AND(negate(eq(rm, uc.RM_SHR)), lit(f"F{i}"))), True, False, yoe)
-    G.add(nl, "U_YLO", y, clock="HCKA" if halves else clk[2])
-    if halves:
-        G.add(nl, "U_YBLO", {k: v[:3] + (lit("YBOE"),) for k, v in y.items()}, clock="HCKB")
+    G.add(nl, "U_YLO", y, clock=clk[2])
     y = {}
     for i in range(8, 16):
         nxt_bit = "SI" if i == 15 else f"F{i + 1}"
         y[f"D{i}"] = (OR(AND(eq(rm, uc.RM_PASS), lit(f"F{i}")),
                          AND(eq(rm, uc.RM_SHR), lit(nxt_bit)),
                          AND(eq(rm, uc.RM_SXB), lit("F7"))), True, False, yoe)
-    G.add(nl, "U_YHI", y, clock="HCKA" if halves else clk[2])
-    if halves:
-        G.add(nl, "U_YBHI", {k: v[:3] + (lit("YBOE"),) for k, v in y.items()}, clock="HCKB")
+    G.add(nl, "U_YHI", y, clock=clk[2])
     allz = {f"F{i}": 0 for i in range(16)}
     G.add(nl, "U_ZERO", {
         "Z16": (OR([dict(allz, **{rm[0]: 0, rm[1]: 0})],
@@ -359,7 +325,7 @@ def build(sim=True, halves=False):
 
     # ---- address registers ------------------------------------------------
     nl.section("address")
-    address_gals(nl, sim, halves)
+    address_gals(nl)
 
     # ---- memory ------------------------------------------------------------
     nl.section("memory")
@@ -384,35 +350,31 @@ def build(sim=True, halves=False):
 
     # ---- I/O ---------------------------------------------------------------
     nl.section("I/O")
-    if halves:
-        from . import draft
-        draft.io(nl)
+    io_gals(nl)
+    for k in range(2):
+        nl.add("16c550", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", RD="IORD_n",
+               WR="IOWR_n", MR="RESET", XIN="UCLK", INTR=f"U{k}INT",
+               **{f"D{i}": f"MD{i}" for i in range(8)},
+               **{f"A{i}": f"A{i + 1}" for i in range(3)})
+    nl.add("flash", "U_BOOT", CE="FLCS_n", OE="IORD_n", WE="IOWR_n", part="SST39SF010A-55",
+           **{f"A{i}": f"A{i + 1}" for i in range(17)}, **{f"D{i}": f"MD{i}" for i in range(8)})
+    if sim:
+        nl.add("osc", "X_UCLK", OUT="UCLK", params={"period_ps": 542535, "phase_ps": 1000})
+        # the fixture takes a read at its clock's edge, which IORD_n's end
+        # races: its read strobe a wire's 10 ns later
+        w = nl.add("wire", "X_IORDW", A="IORD_n", Y="IORD_X")
+        w.add_pin_delay("Y", 10000)
+        nl.add("iodev32", "X_IO", CLK=clk[3], IOSEL="CONSEL_n", RD="IORD_X", WEL="IOWR_n",
+               WEH="VCC", IRQ="CONIRQ",
+               **{f"A{i}": f"A{i}" for i in range(8)}, **{f"D{i}": f"MD{i}" for i in range(16)})
+        nl.add("ps2dev", "X_KBD", CLK="KCLK", DATA="KDATA", WAKE="KWAKE",
+               params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 50_000_000})
+        nl.add("ps2dev", "X_MOUSE", CLK="MSCLK", DATA="MSDATA", WAKE="MWAKE",
+               params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 70_000_000})
     else:
-        io_gals(nl)
-        for k in range(2):
-            nl.add("16c550", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", RD="IORD_n",
-                   WR="IOWR_n", MR="RESET", XIN="UCLK", INTR=f"U{k}INT",
-                   **{f"D{i}": f"MD{i}" for i in range(8)},
-                   **{f"A{i}": f"A{i + 1}" for i in range(3)})
-        nl.add("flash", "U_BOOT", CE="FLCS_n", OE="IORD_n", WE="IOWR_n", part="SST39SF010A-55",
-               **{f"A{i}": f"A{i + 1}" for i in range(17)}, **{f"D{i}": f"MD{i}" for i in range(8)})
-        if sim:
-            nl.add("osc", "X_UCLK", OUT="UCLK", params={"period_ps": 542535, "phase_ps": 1000})
-            # the fixture takes a read at its clock's edge, which IORD_n's end
-            # races: its read strobe a wire's 10 ns later
-            w = nl.add("wire", "X_IORDW", A="IORD_n", Y="IORD_X")
-            w.add_pin_delay("Y", 10000)
-            nl.add("iodev32", "X_IO", CLK=clk[3], IOSEL="CONSEL_n", RD="IORD_X", WEL="IOWR_n",
-                   WEH="VCC", IRQ="CONIRQ",
-                   **{f"A{i}": f"A{i}" for i in range(8)}, **{f"D{i}": f"MD{i}" for i in range(16)})
-            nl.add("ps2dev", "X_KBD", CLK="KCLK", DATA="KDATA", WAKE="KWAKE",
-                   params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 50_000_000})
-            nl.add("ps2dev", "X_MOUSE", CLK="MSCLK", DATA="MSDATA", WAKE="MWAKE",
-                   params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 70_000_000})
-        else:
-            nl.add("const", "X_IOK", LO="CONIRQ", HI="UCLK")
-        nl.add("pullup", "R_PS2", P1="KCLK", P2="KDATA", P3="MSCLK", P4="MSDATA")
-        ps2_gals(nl)
+        nl.add("const", "X_IOK", LO="CONIRQ", HI="UCLK")
+    nl.add("pullup", "R_PS2", P1="KCLK", P2="KDATA", P3="MSCLK", P4="MSDATA")
+    ps2_gals(nl)
 
     # ---- video -------------------------------------------------------------
     nl.section("video")
@@ -428,12 +390,7 @@ def negate_sop_pg(nextpage, inc, take, end, p, ptb):
     return OR(AND(inc, lit(p, 0)), AND(take, lit(ptb, 0)), AND(end, lit("IRQP", 0)))
 
 
-# the two-halves variant: these operations are their low half's in the low
-# half and their high half's in the high
-HALF_PAIRS = {"ADDLO": "ADDHI", "ADCLO": "ADDHI", "LOGLO": "LOGHI", "ICLOZ": "LOGHI", "ICLO": "NONE"}
-
-
-def flags_gal(nl, f, clk, halves=False):
+def flags_gal(nl, f, clk):
     """N, Z, C, V, I, IC, ST from the flag operation (FL) and the cycle's
     result: Z16, N15, N7 (its bits), CO_n (the ALU's carry out), F0 (the
     bit a right shift moves out), D15 and L15 (the operands' signs)."""
@@ -477,18 +434,13 @@ def flags_gal(nl, f, clk, halves=False):
     for flag in ("N", "Z", "C", "V", "I", "IC", "ST"):
         dn = deps[flag]
         on = [o for o in others[flag] if o != flag]
-        nets = fl_ + [ins[k] for k in dn] + [f[flag]] + [f[o] for o in on] + \
-            (["HALF"] if halves else [])
+        nets = fl_ + [ins[k] for k in dn] + [f[flag]] + [f[o] for o in on]
 
         def fn(*bits, flag=flag, dn=dn, on=on):
             code = sum(b << i for i, b in enumerate(bits[:5]))
             if code not in uc.FL_NAME:
                 return None
             name = uc.FL_NAME[code]
-            if halves and bits[-1]:
-                name = HALF_PAIRS.get(name, name)
-                if name == "NONE":
-                    return bits[5 + len(dn)]
             v = {k: bits[5 + i] for i, k in enumerate(dn)}
             for k in ins:
                 v.setdefault(k, 0)
@@ -624,31 +576,21 @@ def bus_gal(nl):
     })
 
 
-def address_gals(nl, sim, halves=False):
+def address_gals(nl):
     """PC (bits 20-1) and MAR (20-0, 31): counters in 22V10s that load from
     D (Y, in phase W) at CLKW, and drive the address bus in phase R when
     selected (PCSEL, MARSEL); their operations, deferred from the cycle
-    before, from U_ADC. halves: they load from the ALU's output (F) at each
-    half's end (HCK), the low half's registers in the low half and the high
-    half's in the high, and U_ADC decodes the operations for this cycle."""
-    reg = not halves
-    src, ck = ("F", "HCK") if halves else ("D", "CLKW")
-
-    def ld(name, h):
-        return lit(name)
-
-    def inhalf(sop, h):
-        return AND(sop, lit("HALF", h)) if halves else sop
+    before, from U_ADC."""
     axp, axm = field("AXP"), field("AXM")
     atpc = mop_in([uc.MOP_RDP, uc.MOP_FETCH, uc.MOP_PCS])
     notpc = mop_in([m for m in range(8) if m not in (uc.MOP_RDP, uc.MOP_FETCH, uc.MOP_PCS)])
     G.add(nl, "U_ADC", {
-        "PCLO": (inhalf(eq(axp, uc.AXP_LO), 0), reg, False),
-        "PCHI": (inhalf(eq(axp, uc.AXP_HI), 1), reg, False),
-        "PCINC": (mop_in([uc.MOP_RDP, uc.MOP_FETCH]), reg, False),
-        "MARLO": (inhalf(eq(axm, uc.AXM_LO), 0), reg, False),
-        "MARHI": (inhalf(eq(axm, uc.AXM_HI), 1), reg, False),
-        "MARINC": (eq(axm, uc.AXM_INC), reg, False),
+        "PCLO": (eq(axp, uc.AXP_LO), True, False),
+        "PCHI": (eq(axp, uc.AXP_HI), True, False),
+        "PCINC": (mop_in([uc.MOP_RDP, uc.MOP_FETCH]), True, False),
+        "MARLO": (eq(axm, uc.AXM_LO), True, False),
+        "MARHI": (eq(axm, uc.AXM_HI), True, False),
+        "MARINC": (eq(axm, uc.AXM_INC), True, False),
         "PCSEL": (AND(lit("PHW", 0), atpc), False, False),
         "MARSEL": (AND(lit("PHW", 0), notpc), False, False),
         "LDIR": (mop_in([uc.MOP_FETCH, uc.MOP_LDIRM]), False, False),
@@ -659,54 +601,53 @@ def address_gals(nl, sim, halves=False):
     bits = [f"A{i}" for i in range(1, 9)]
     outs = {}
     for k, b in enumerate(bits):
-        outs[b] = (counter_bit(bits, k, lit("PCINC"), ld("PCLO", 0), f"{src}{k + 1}"), True, False, sel)
+        outs[b] = (counter_bit(bits, k, lit("PCINC"), lit("PCLO"), f"D{k + 1}"), True, False, sel)
     outs["A0"] = (ZERO, False, False, sel)
     outs["PCCO"] = (AND(lit("PCINC"), [{b: 1 for b in bits}]), False, False)
-    G.add(nl, "U_PCA", outs, clock=ck)
+    G.add(nl, "U_PCA", outs, clock="CLKW")
     bits = [f"A{i}" for i in range(9, 16)]
-    outs = {b: (counter_bit(bits, k, lit("PCCO"), ld("PCLO", 0), f"{src}{9 + k}"), True, False, sel)
+    outs = {b: (counter_bit(bits, k, lit("PCCO"), lit("PCLO"), f"D{9 + k}"), True, False, sel)
             for k, b in enumerate(bits)}
     outs["PCBCO"] = (AND(lit("PCCO"), [{b: 1 for b in bits}]), False, False)
-    G.add(nl, "U_PCB", outs, clock=ck)
+    G.add(nl, "U_PCB", outs, clock="CLKW")
     bits = [f"A{i}" for i in range(16, 21)]
-    outs = {b: (counter_bit(bits, k, lit("PCBCO"), ld("PCHI", 1), f"{src}{k}"), True, False, sel)
+    outs = {b: (counter_bit(bits, k, lit("PCBCO"), lit("PCHI"), f"D{k}"), True, False, sel)
             for k, b in enumerate(bits)}
     for k, b in enumerate(bits):
         outs[f"D{k}"] = (lit(b), False, False, lit("RBC"))
-    G.add(nl, "U_PCC", outs, clock=ck)
+    G.add(nl, "U_PCC", outs, clock="CLKW")
     del pc
     # MAR bits 0-7 (bit 0 doesn't count: MAR + 2)
     sel = lit("MARSEL")
     bits = [f"A{i}" for i in range(0, 8)]
-    outs = {"A0": (OR(AND(ld("MARLO", 0), lit(f"{src}0")), AND(negate(ld("MARLO", 0)), lit("A0"))),
+    outs = {"A0": (OR(AND(lit("MARLO"), lit("D0")), AND(negate(lit("MARLO")), lit("A0"))),
                    True, False, sel)}
     cbits = bits[1:]
     for k, b in enumerate(cbits):
-        outs[b] = (counter_bit(cbits, k, lit("MARINC"), ld("MARLO", 0), f"{src}{k + 1}"), True, False,
+        outs[b] = (counter_bit(cbits, k, lit("MARINC"), lit("MARLO"), f"D{k + 1}"), True, False,
                    sel)
     outs["MARACO"] = (AND(lit("MARINC"), [{b: 1 for b in cbits}]), False, False)
-    G.add(nl, "U_MARA", outs, clock=ck)
+    G.add(nl, "U_MARA", outs, clock="CLKW")
     bits = [f"A{i}" for i in range(8, 16)]
-    outs = {b: (counter_bit(bits, k, lit("MARACO"), ld("MARLO", 0), f"{src}{8 + k}"), True, False, sel)
+    outs = {b: (counter_bit(bits, k, lit("MARACO"), lit("MARLO"), f"D{8 + k}"), True, False, sel)
             for k, b in enumerate(bits)}
     outs["MARBCO"] = (AND(lit("MARACO"), [{b: 1 for b in bits}]), False, False)
-    G.add(nl, "U_MARB", outs, clock=ck)
+    G.add(nl, "U_MARB", outs, clock="CLKW")
     # bits 16-20: 16 and 17 on the bus; 18-20 buried, the bus's A18-A20 the
     # video's in phase W (A20 = A19 = 1, A18 = FB: the frame buffers at
     # 0x18_0000 and 0x1C_0000); 31 always out
     regs = ["A16", "A17", "MAR18", "MAR19", "MAR20"]
     outs = {}
     for k, b in enumerate(regs):
-        outs[b] = (counter_bit(regs, k, lit("MARBCO"), ld("MARHI", 1), f"{src}{k}"), True, False,
+        outs[b] = (counter_bit(regs, k, lit("MARBCO"), lit("MARHI"), f"D{k}"), True, False,
                    *([sel] if k < 2 else []))
     outs["A18"] = (OR(AND(vsel(), lit("FB")), AND(vsel(0), lit("MAR18"))), False, False,
                    OR(vsel(), sel))
     outs["A19"] = (OR(vsel(), lit("MAR19")), False, False, OR(vsel(), sel))
     outs["A20"] = (OR(vsel(), lit("MAR20")), False, False, OR(vsel(), sel))
-    outs["A31"] = (OR(AND(ld("MARHI", 1), lit(f"{src}15")), AND(negate(ld("MARHI", 1)), lit("A31"))), True,
+    outs["A31"] = (OR(AND(lit("MARHI"), lit("D15")), AND(negate(lit("MARHI")), lit("A31"))), True,
                    False)
-    G.add(nl, "U_MARC", outs, clock=ck)
-    del sim
+    G.add(nl, "U_MARC", outs, clock="CLKW")
 
 
 def vsel(v=1):
@@ -876,13 +817,6 @@ def video_gals(nl, clk):
 
 # the clock generator as static timing analysis sees it (sta.py)
 from heron.infra.hw import chips as _chips  # noqa: E402
-
-if "chibiclk2" not in _chips.TYPES:
-    _chips.T("chibiclk2", "chibiclk2",
-             [(p, "out") for p in ("CLK", "HCK", "HCKA", "HCKB", "HALF", "PHW", "YOE", "YBOE", "RWS",
-                                   "PIX", "VLD", "MCLK", "T0", "T1", "T2", "RESET")], family="fixture",
-             desc="for static timing analysis: the two-halves variant's clock generator, its "
-                  "phases at fixed ticks (studies/chibi/sta2.py)")
 
 if "chibiclk" not in _chips.TYPES:
     _chips.T("chibiclk", "chibiclk",

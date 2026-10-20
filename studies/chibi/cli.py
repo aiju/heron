@@ -6,7 +6,7 @@
   report [--write]               RFC 0047's performance.md (report.py)
   hw ...                         the chip-level netlist (hw.py)
   place [--write] [--seed N] [--moves N]
-                                 the draft netlist placed on RFC 0046's
+                                 the netlist placed on RFC 0046's
                                  column grid at a few board sizes (place.py;
                                  --write: RFC 0047's placement.md and .svg)
 """

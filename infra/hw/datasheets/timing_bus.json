@@ -1872,10 +1872,12 @@
       "xin max MHz": 16,
       "tAH WR": 10,
       "recovery": 40,
-      "tw XIN": 25
+      "tw XIN": 25,
+      "tAS ADS": 8,
+      "tAH ADS": 8
     },
-    "estimated": [],
-    "notes": "For a non-multiplexed bus with ADS tied low. tAS = tAR/tAW (td8/td5, address valid before RD/WR active) 7 ns; with ADS used instead, address setup to ADS rising (tsu1) is 8 ns. tCS = tCSR/tCSW (td7/td4) 7 ns (8 ns to ADS). tAH = tRA (th7, address hold after RD) 20 ns; after WR (tWA, th4) only 10 ns, given as 'tAH WR'. tCH = tRCS/tWCS (th6/th3) 10 ns. tRD (tw7) and tWR (tw6) 40 ns. tDS (tsu3) 15 ns before WR inactive, tDH (th5) 5 ns. tRC = cycle time tcR = tcW = 87 ns (strobe 40 + address setup 7 + recovery 40); 'recovery' = td9/td6, RD or WR inactive to the next cycle, 40 ns. RD->D = td10 (tRVD) 45 ns, RD->D dis = td11 (tHZ) 20 ns, both at CL 75 pF. 'xin max MHz': oscillator/clock 16 MHz at 5 V (14.9 MHz at 3.3 V); XIN high and low 25 ns each. Strobes: /RD1 and /WR1 active low, RD2 and WR2 active high (use one, tie the other inactive). The 5 V supply range is 4.75-5.25 V.",
+    "estimated": ["tAH ADS"],
+    "notes": "For a non-multiplexed bus with ADS tied low. With ADS latching the address and chip selects, 'tAS ADS' is their setup to ADS rising (tsu1, 8 ns) and 'tAH ADS' their hold after it: the hold isn't in the notes taken from the datasheet, so 8 ns, the setup's figure, is an estimate. tAS = tAR/tAW (td8/td5, address valid before RD/WR active) 7 ns; with ADS used instead, address setup to ADS rising (tsu1) is 8 ns. tCS = tCSR/tCSW (td7/td4) 7 ns (8 ns to ADS). tAH = tRA (th7, address hold after RD) 20 ns; after WR (tWA, th4) only 10 ns, given as 'tAH WR'. tCH = tRCS/tWCS (th6/th3) 10 ns. tRD (tw7) and tWR (tw6) 40 ns. tDS (tsu3) 15 ns before WR inactive, tDH (th5) 5 ns. tRC = cycle time tcR = tcW = 87 ns (strobe 40 + address setup 7 + recovery 40); 'recovery' = td9/td6, RD or WR inactive to the next cycle, 40 ns. RD->D = td10 (tRVD) 45 ns, RD->D dis = td11 (tHZ) 20 ns, both at CL 75 pF. 'xin max MHz': oscillator/clock 16 MHz at 5 V (14.9 MHz at 3.3 V); XIN high and low 25 ns each. Strobes: /RD1 and /WR1 active low, RD2 and WR2 active high (use one, tie the other inactive). The 5 V supply range is 4.75-5.25 V.",
     "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
   },
   "82C54": {

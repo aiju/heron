@@ -3166,8 +3166,10 @@
   "checks": {
    "recovery": 40,
    "tAH": 20,
+   "tAH ADS": 8,
    "tAH WR": 10,
    "tAS": 7,
+   "tAS ADS": 8,
    "tCH": 10,
    "tCS": 7,
    "tDH": 5,
@@ -3188,7 +3190,9 @@
     "typ": 20
    }
   },
-  "estimated": [],
+  "estimated": [
+   "tAH ADS"
+  ],
   "part_number": "TL16C550C",
   "source": "https://www.ti.com/lit/ds/symlink/tl16c550c.pdf"
  },

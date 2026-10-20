@@ -18,11 +18,12 @@ the high halves what its low half does to the low. Conventions:
   IC are dead (a task uses them), L is kept (no task touches it).
 """
 
+from . import odt
 from .ucode2 import (
     AX_MARINC, AX_MARLO, AX_PCLO, DS_ADR, DS_FLW, DS_SWP, G, IMM_CODE, IRN_DECS, IRN_IDX,
     IRN_INCD, IRN_NS, LDL, LINK, MOP_FETCH, MOP_LDIRM, MOP_PCS, RD, RM_SHR, RM_SXB, RM_ZXB,
-    RSRC, SEQ_NEXT, SI_C, SI_D15, SP, T_A, T_B, T_C, T_CNT, T_FW, T_Q, T_R, T_RET, T_VEC, W,
-    alu, ax, end, fl, hx, imm, jump, label, mem, pcrb, rd, store, u, wr,
+    RSRC, SEQ_END, SEQ_NEXT, SI_C, SI_D15, SP, T_A, T_B, T_C, T_CNT, T_FW, T_Q, T_R, T_RET,
+    T_VEC, W, alu, ax, end, fl, hx, imm, jump, label, mem, pcrb, rd, store, u, wr,
 )
 
 P3_IRQ = 0
@@ -690,13 +691,25 @@ def gen_rowe(op, page, n):
 
 # ---- multiply and divide ---------------------------------------------------
 
+def short_count(x, then, shift=False):
+    """T_CNT <- 31, or 15 if x's high half is 0 (16 steps do); with shift,
+    T_Q (x) moved up a half then, so that 16 steps of a divide see it all.
+    `then`: the label that follows."""
+    return [u(rd(x, 1), alu("A"), fl("STZ")),
+            u(imm("C31"), alu("A"), wr(T_CNT, 0), jump(then, "ST", True)),
+            u(imm("C16"), alu("DEC"), wr(T_CNT, 0))] + (
+        [u(rd(T_Q, 0), alu("A"), wr(T_Q, 1)), u(imm("ZERO"), alu("A"), wr(T_Q, 0))]
+        if shift else [])
+
+
 def mul_loop(src, a=RD):
-    """T_R:T_Q <- a * src, unsigned: shift and add, 32 steps (the count in
-    T_CNT, its end in IC; src in L). Only C and V change, and IC."""
+    """T_R:T_Q <- a * src, unsigned: shift and add, 32 steps, or 16 if a is
+    under 2^16 (the count in T_CNT, its end in IC; src in L; a read again
+    after the loop, since a task may change ST). Only C and V change, and
+    IC."""
     return [u(rd(a), alu("A"), wr(T_Q), W),
             u(imm("ZERO"), alu("A"), wr(T_R), W),
-            u(rd(src), LDL, W),
-            u(imm("C31"), alu("A"), wr(T_CNT, 0)),
+            u(rd(src), LDL, W)] + short_count(a, "loop") + [
             label("loop"),
             u(rd(T_Q, 0), alu("A", rm=RM_SHR), fl("SHR")),                    # C <- the bit
             u(rd(T_CNT, 0), alu("DEC"), fl("ICLO"), wr(T_CNT, 0), jump("shift", "C", True)),
@@ -706,7 +719,15 @@ def mul_loop(src, a=RD):
             u(rd(T_R, 0), alu("A", rm=RM_SHR, si=SI_C), fl("SHR"), wr(T_R, 0)),
             u(rd(T_Q, 1), alu("A", rm=RM_SHR, si=SI_C), fl("SHR"), wr(T_Q, 1)),
             u(rd(T_Q, 0), alu("A", rm=RM_SHR, si=SI_C), fl("SHR"), wr(T_Q, 0),
-              jump("loop", "IC", task=True))]
+              jump("loop", "IC", task=True)),
+            # 16 steps: the product is T_R:T_Q's bits 63-16
+            u(rd(a, 1), alu("A"), fl("STZ")),
+            u(jump("full", "ST", True)),
+            u(rd(T_Q, 1), alu("A"), wr(T_Q, 0)),
+            u(rd(T_R, 0), alu("A"), wr(T_Q, 1)),
+            u(rd(T_R, 1), alu("A"), wr(T_R, 0)),
+            u(imm("ZERO"), alu("A"), wr(T_R, 1)),
+            label("full")]
 
 
 def mul_result():
@@ -830,7 +851,8 @@ def muls(page, b=RSRC):
 
 
 def div_loop(src, rem):
-    """rem:T_Q / src, restoring, 32 steps (src in L, the count's end in IC):
+    """rem:T_Q / src, restoring, T_CNT + 1 steps (src in L, the count's end
+    in IC; 16 with T_Q moved up, for a dividend under 2^16):
     T_Q the quotient, rem the remainder (T_A a scratch)."""
     return [label("loop"),
             u(rd(T_CNT, 0), alu("DEC"), fl("ICLO"), wr(T_CNT, 0)),
@@ -862,8 +884,9 @@ def divs(page):
         ops += neg_into(T_Q, RD) + [
             label("apos"),
             u(imm("ZERO"), alu("A"), wr(T_R), W),
-            u(rd(T_B), LDL, W),
-            u(imm("C31"), alu("A"), wr(T_CNT, 0), jump(0, page=1))]
+            u(rd(T_B), LDL, W)] + short_count(T_Q, "go", shift=True) + [
+            label("go"),
+            u(jump(0, page=1))]
         return ops + [label("_trap")] + trap("V_DIV", 1)
     if page == 1:
         return div_loop(T_B, T_R) + [u(jump(0, page=2))]
@@ -900,8 +923,7 @@ def divu(src, long):
                 u(imm("C31"), alu("A"), wr(T_CNT, 0), jump("ovf", "IC"))]
     else:
         ops += [u(rd(src), LDL, W),
-                u(imm("ZERO"), alu("A"), wr(T_R), W),
-                u(imm("C31"), alu("A"), wr(T_CNT, 0))]
+                u(imm("ZERO"), alu("A"), wr(T_R), W)] + short_count(T_Q, "loop", shift=True)
     ops += div_loop(src, rem)
     if not long:
         ops += [u(rd(T_R), alu("A"), wr(G(0)), W)]
@@ -964,8 +986,9 @@ def gen_system(op, page, n):
                 label("wait"),
                 u(jump("wait", "IRQP", True)),
                 u(jump("halt", page=3)),
-                label("stop"),
-                u({"HALT": 1}, jump("stop"))]
+                label("stop"),                  # stopped; the halt button takes it to ODT
+                u({"HALT": 1}, jump("stop", "ODT", True)),
+                u(jump("halt", page=3))]
     return illegal()
 
 
@@ -1005,7 +1028,8 @@ def gen_swi(op, page, n):
 def page3():
     """The interrupt entry (step 0, at an instruction's end: PC is past the
     next instruction's first parcel), HALT's wait's end, an exception's
-    entry (T_VEC and T_RET set), ODT's entry and reset."""
+    entry (T_VEC and T_RET set), ODT's entry (from HALT's wait too, PC
+    past it) and reset."""
     return [
         u(jump("reset", "INIT", True)),                                  # 0
         u(jump("odt", "ODT")),
@@ -1014,9 +1038,9 @@ def page3():
         u(imm("C2"), LDL, W),
         u(pcrb(), alu("SUB"), wr(T_RET), jump("exc")),
         label("halt"),
+        u(pcrb(), alu("A"), wr(T_RET), jump("odt2", "ODT")),           # (ODT asked for)
         u(imm("IOIV"), alu("A"), ax(AX_MARLO), W),
         u(mem("MAR", 1), alu("A", rm=RM_ZXB), wr(T_VEC), hx("ZERO")),    # MD7-0
-        u(pcrb(), alu("A"), wr(T_RET)),
         label("exc"),
         u(FLW, alu("A"), wr(T_FW), hx("ZERO")),                         # before the entry's I and B
         u(fl("ENTRY")),
@@ -1027,19 +1051,89 @@ def page3():
         u(rd(T_VEC), alu("A"), ax(AX_PCLO), W),
         u(end()),
         label("odt"),
-        # ODT's word at the controller's +4 loads the instruction register
-        # (OP 00, N 9): ODT's blocks
-        u(imm("C2"), LDL, W),
-        u(imm("IOIV"), alu("ADD"), ax(AX_MARLO), W),
         u(imm("C2"), LDL, W),
         u(pcrb(), alu("SUB"), wr(T_RET)),
-        u({"MOP": MOP_LDIRM}, jump(0, page=0)),
+        label("odt2"),
+        # ODT's word at the controller's +4 loads the instruction register
+        # (OP 00, N 9): ODT's blocks (odt.py), from page 1
+        u(imm("C2"), LDL, W),
+        u(imm("IOIV"), alu("ADD"), ax(AX_MARLO), wr(odt.T_IO4), W),
+        u({"MOP": MOP_LDIRM}, jump(0, page=1)),
         label("reset"),
-        u(fl("SETINIT"), jump(0, page=1)),
+        u(fl("SETINIT"), jump(0, page=2)),
     ]
 
 
+COPPTR = 0x60       # the copper's place in its list: a word in RAM
+
+
+def copper():
+    """The copper: a task (opcode 00's N 8 block, page 1) while the scanline
+    is the copper's target line (COPREQ). Its list goes on from the word at
+    COPPTR, which it moves on, of entries:
+
+        MOVE  an I/O address (bit 31 set), then the word whose low half is
+              written there
+        WAIT  bits 31 and 30 clear: its low half (CEN, bit 15, and the line)
+              written at the controller's +6; the task ends
+        JUMP  bit 31 clear, 30 set: the list goes on at the word's address
+
+    A task's registers are its own bank's; it uses ST, and L, put back."""
+    TL, TP, TX, TV = T_A, T_B, T_C, T_Q
+    return [u(alu("B"), wr(TL), W),                                 # L
+            u(imm("C64"), LDL, W),
+            u(imm("C32"), alu("ADD"), ax(AX_MARLO), W),               # COPPTR
+            u(mem("MAR", 4), alu("A"), wr(TP), ax(AX_MARINC), W),
+            u(imm("C4"), LDL, W),
+            label("loop"),
+            u(rd(TP), alu("A"), ax(AX_MARLO), W),
+            u(mem("MAR", 4), alu("A"), wr(TX), ax(AX_MARINC), W),
+            u(rd(TP), alu("ADD"), wr(TP), W),
+            u(rd(TX, 1), alu("A"), fl("STN")),                        # ST: a MOVE
+            u(rd(TX, 1), alu("SHL"), fl("STN"), jump("move", "ST")),  # ST: a JUMP
+            u(jump("jmp", "ST")),
+            u(imm("IOIV"), alu("ADD"), ax(AX_MARLO), W),              # +6
+            u(rd(TX, 0), store(2)),
+            u(imm("C64"), LDL, W),
+            u(imm("C32"), alu("ADD"), ax(AX_MARLO), W),
+            u(rd(TP), store(4), ax(AX_MARINC), W),
+            u(rd(TL), LDL, W, {"SEQ": SEQ_END}),
+            label("move"),
+            u(mem("MAR", 4), alu("A"), wr(TV), ax(AX_MARINC), W),
+            u(rd(TP), alu("ADD"), wr(TP), W),
+            u(rd(TX), alu("A"), ax(AX_MARLO), W),
+            u(rd(TV, 0), store(2), jump("loop")),
+            label("jmp"),
+            u(rd(TX), alu("A"), wr(TP), W, jump("loop"))]
+
+
 BOOT_MAGIC = 0x1F
+
+
+def uart_init():
+    """Reset's first part, in opcode 00's page-2 block: UART 0 to 115200
+    baud (the divisor 1), 8N1, its FIFOs on, DTR and RTS: ODT's console
+    until a program changes it."""
+    return [u(imm("IOIV"), alu("A"), wr(T_A), W),              # 0x8018_0002
+            u(imm("V_TAG"), LDL),
+            u(rd(T_A, 1), alu("BIC"), wr(T_A, 1)),             # 0x8000_0002: DLM's
+            u(rd(T_A), alu("A"), ax(AX_MARLO), W),
+            u(imm("C64"), LDL),
+            u(imm("C64"), alu("ADD"), wr(T_C, 0)),             # DLAB
+            u(imm("C4"), LDL, W),
+            u(rd(T_A), alu("ADD"), wr(T_B), ax(AX_MARLO), W),  # +6: LCR
+            u(rd(T_C, 0), store(1)),
+            u(rd(T_A), alu("A"), ax(AX_MARLO), W),
+            u(imm("ZERO"), store(1)),                          # DLM
+            u(imm("C2"), LDL, W),
+            u(rd(T_A), alu("SUB"), ax(AX_MARLO), W),
+            u(imm("C1"), store(1)),                            # DLL
+            u(rd(T_B), alu("A"), ax(AX_MARLO), W),
+            u(imm("U7_3"), store(1)),                          # LCR: 8N1
+            u(rd(T_B), alu("ADD"), ax(AX_MARLO), W),
+            u(imm("U7_3"), store(1)),                          # MCR: DTR and RTS
+            u(rd(T_A), alu("ADD"), ax(AX_MARLO), W),
+            u(imm("U7_7"), store(1), jump(0, page=1))]         # FCR: the FIFOs, emptied
 
 
 def boot():
@@ -1314,6 +1408,12 @@ def routine(page, n, op):
         return gen_flags_sr(op, page, n)
     if op == 0x00 and page == 1 and n == 0:
         return boot()
+    if op == 0x00 and page == 2 and n == 0:
+        return uart_init()
+    if op == 0x00 and n == 8 and page == 1:
+        return copper()
+    if op == 0x00 and n in odt.BLOCKS:
+        return odt.odt_page(page, n, illegal())
     if op in (0x01, 0x02):
         return gen_ldm(op, page, n)
     if op == 0x08:
