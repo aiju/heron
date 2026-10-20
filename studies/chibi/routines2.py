@@ -214,6 +214,24 @@ def special_operand(s):
     return None
 
 
+TABLES = (0xD, 0xE)
+
+
+def table_first(s):
+    """Page 1's part of the special mode's tables (R = D, E: an index parcel
+    with the address's bits 23-16, then bits 15-0): the address (for E, from
+    the next instruction's) into T_A, 0 into T_B, then the index parcel read
+    again with IRN_IDX for page 2's indexed address, as the indexed mode's."""
+    ops = [u(rd(T_A, 0), alu("A", rm=RM_SXB), wr(T_A, 1)),
+           u(mem("PC"), alu("A"), wr(T_A, 0))]
+    if s == 0xE:
+        ops += [u(rd(T_A), LDL, W), u(pcrb(), alu("ADD"), wr(T_A))]
+    return ops + [u(imm("ZERO"), alu("A"), wr(T_B), W),
+                  u(imm("C4"), LDL, W),
+                  u(pcrb(), alu("SUB"), ax(AX_MARLO), W),
+                  u(mem("MAR", 2), alu("A"), irn(IRN_IDX), jump(0, page=2))]
+
+
 def special_ea(s, dest):
     if 4 <= s <= 6:
         return [u(alu("B"), wr(dest), W)]
@@ -376,14 +394,17 @@ def gen_row(op, page, n):
             pre, parcels = ea_pre(mode)
             return c_store(pre, SIZE[mode], parcels)
         if page == 1:
+            if n in TABLES:
+                return table_first(n)
             o = special_operand(n)
             if o is None or not o.memory:
                 return illegal(2)
             return c_store(o.pre, o.size, o.parcels)
         ea = index_ea(n)
+        parcels = 3 if mode == 0xF else 2
         if ea is None:
-            return illegal(2)
-        return c_store(ea[0], ea[1], 2)
+            return illegal(parcels)
+        return c_store(ea[0], ea[1], parcels)
     if name == "MOVS" and mode in (1, 0xD):
         return illegal()                    # MFUR, MTUR
     if page == 0:
@@ -393,14 +414,17 @@ def gen_row(op, page, n):
             return index_first()
         return row_op(name, mode_operand(mode))
     if page == 1:
+        if n in TABLES:
+            return table_first(n)
         o = special_operand(n)
         if o is None:
             return illegal(2)
         return row_op(name, o)
     ea = index_ea(n)
+    parcels = 3 if mode == 0xF else 2
     if ea is None:
-        return illegal(2)
-    return row_op(name, mem_operand(ea[0], ea[1], 2))
+        return illegal(parcels)
+    return row_op(name, mem_operand(ea[0], ea[1], parcels))
 
 
 MMODE = {0x20: "CLR", 0x21: "INC", 0x2D: "DEC", 0xF0: "JMP", 0xF1: "CALL"}
@@ -458,10 +482,12 @@ def gen_lea(op, page, n):
         pre, _ = ea_pre(mode, dest=RD)
         return finish(pre)
     if page == 1:
+        if n in TABLES:
+            return table_first(n)
         e = special_ea(n, RD)
         return illegal(2) if e is None else finish(e)
     ea = index_ea(n, dest=RD)
-    return illegal(2) if ea is None else finish(ea[0])
+    return illegal(3 if mode == 0xF else 2) if ea is None else finish(ea[0])
 
 
 def gen_u7(op, page, n):
@@ -603,6 +629,8 @@ def gen_unary(op, page, n):
             u(imm("C32"), alu("A"), wr(T_CNT, 0)),
             label("done"),
             u(rd(T_CNT, 0), alu("A"), fl("NZ16"), wr(RD, 0), hx("ZERO"))])
+    if f in (0xC, 0xD):
+        return gen_ffs_popc(f)
     if f == 0xE:    # REV: the bytes reversed, through the byte-swapped copy of a result
         return finish([u(rd(RSRC, 0), alu("A")),                  # SWP <- rs.lo swapped
                        u(SWP, alu("A"), wr(T_A, 0)),
@@ -631,6 +659,12 @@ def gen_rowe(op, page, n):
     if f in (0xA, 0xB):
         if page == 0:
             return [special_first()]
+        if page == 2:
+            ea = index_ea(n)
+            return illegal(3) if ea is None else c_alu(mem_operand(ea[0], ea[1], 3),
+                                                        ["BIC", "TST"][f - 0xA])
+        if n in TABLES:
+            return table_first(n)
         o = special_operand(n)
         return illegal(2) if o is None else c_alu(o, ["BIC", "TST"][f - 0xA])
     if f == 4:
@@ -645,6 +679,10 @@ def gen_rowe(op, page, n):
         return divs(page)
     if f == 9:
         return divu(RSRC, long=True)
+    if f in (0xC, 0xD):
+        return gen_mul_special(op, page, n)
+    if f == 0xE:
+        return gen_merge(op, page, n)
     if f == 0xF:
         return illegal()
     raise Unimplemented(f"row E {op:02X}")
@@ -681,9 +719,9 @@ def r0_nonzero_cv():
     return [u(rd(T_R, 1), alu("OR"), fl("CNZ")), u(rd(T_R, 1), alu("OR"), fl("VNZ"))]
 
 
-def mulu(src):
+def mulu(src, pre=()):
     """r0:rd <- rd * src, unsigned. N and Z from rd, C = V = r0 isn't 0."""
-    ops = mul_loop(src) + [u(rd(T_R), alu("A"), wr(G(0)), W),
+    ops = list(pre) + mul_loop(src) + [u(rd(T_R), alu("A"), wr(G(0)), W),
                            u(rd(T_R, 0), LDL)] + r0_nonzero_cv() + mul_result()
     return finish(ops)
 
@@ -769,7 +807,7 @@ def gen_mulfx(op, page, n):
     return ops + [label("_trap")] + illegal(2)
 
 
-def muls(page):
+def muls(page, b=RSRC):
     """MULS r0:rd, rs: signed_product, then the flags (C = V = r0 isn't rd's
     sign extension)."""
     if page == 0:
@@ -1059,6 +1097,185 @@ def resolve_page3(ops):
     return out
 
 
+# ---- the instructions the first cut hadn't ---------------------------------
+
+SMALL = {0: "ZERO", 1: "C1", 2: "C2", 4: "C4", 6: "C6", 8: "C8", 12: "V_SWI", 16: "C16"}
+
+
+def const_into(reg, v):
+    """reg's low half <- v (0-15), from the immediates' constants."""
+    if v in SMALL:
+        return [u(imm(SMALL[v]), alu("A"), wr(reg, 0))]
+    for x in SMALL:
+        for y in SMALL:
+            if x and y and x + y == v:
+                return [u(imm(SMALL[y]), LDL), u(imm(SMALL[x]), alu("ADD"), wr(reg, 0))]
+            if x and y and x - y == v:
+                return [u(imm(SMALL[y]), LDL), u(imm(SMALL[x]), alu("SUB"), wr(reg, 0))]
+    raise ValueError(v)
+
+
+def gen_ldm(op, page, n):
+    """01 LDM rb, ra-rc and 02 STM: ra in d, rb in s, rc the extension
+    parcel's top nibble (its other bits 0, rc >= ra). Page 0 (N = ra) puts
+    ra in T_C and the base in T_A and reads the extension (s <- rc, N <- its
+    bits 11-8: page 2's block); page 2 checks it and the base's alignment,
+    then a microinstruction a register."""
+    if page == 0:
+        return const_into(T_C, n) + [
+            u(rd(RSRC), alu("A"), wr(T_A), W),
+            u(mem("PC"), alu("A", rm=RM_ZXB), fl("STZ"), irn(IRN_IDX), jump(0, page=2))]
+    if page != 2:
+        return []
+    if n != 0:
+        return illegal(2)
+    if op == 0x01:
+        step = u(mem("MAR", 4), alu("A"), wr(RD), ax(AX_MARINC), W, irn(IRN_INCD),
+                 jump("loop", "NE"))
+    else:
+        step = u(rd(RD), store(4), ax(AX_MARINC), W, irn(IRN_INCD), jump("loop", "NE"))
+    return [u(jump("bad", "ST", True)),                     # bits 7-0 aren't 0
+            u(rd(T_C, 0), LDL),
+            u(imm("Q4"), alu("SUB"), fl("STN")),            # ST: rc < ra
+            u(jump("bad", "ST")),
+            u(rd(T_A), alu("A"), ax(AX_MARLO), W, chk(4)),
+            u(step, label("loop")),
+            u(end()),
+            label("bad")] + illegal(2) + [label("_trap")] + trap("V_ADR", 2)
+
+
+def gen_addb4(op, page, n):
+    """08 ADD.B4 rd, rs: the four bytes added apart: (rd & M) + (rs & M),
+    with (rd ^ rs) & ~M on top, M = 0x7F7F7F7F (built in T_C through the
+    byte-swapped result); N and Z."""
+    return finish([
+        u(imm("C64"), LDL),
+        u(imm("C64"), alu("ADD"), wr(T_C, 0)),
+        u(rd(T_C, 0), alu("DEC"), wr(T_C, 0)),          # 0x7F
+        u(rd(T_C, 0), alu("A")),                        # SWP <- 0x7F00
+        u(rd(T_C, 0), LDL),
+        u(SWP, alu("OR"), wr(T_C, 0)),                   # 0x7F7F
+        u(rd(T_C, 0), alu("A"), wr(T_C, 1)),
+        u(rd(T_C), LDL, W),
+        u(rd(RD), alu("AND"), wr(T_A), W),
+        u(rd(RSRC), alu("AND"), wr(T_B), W),
+        u(rd(T_B), LDL, W),
+        u(rd(T_A), alu("ADD"), wr(T_A), W),
+        u(rd(RSRC), LDL, W),
+        u(rd(RD), alu("XOR"), wr(T_B), W),
+        u(rd(T_C), LDL, W),
+        u(rd(T_B), alu("BIC"), wr(T_B), W),
+        u(rd(T_B), LDL, W),
+        u(rd(T_A), alu("XOR"), fl("LOGLO"), wr(RD), W)])
+
+
+TAGGED = {9: "MOV", 0xA: "TST", 0xB: "ADD", 0xC: "SUB", 0xD: "CMP"}
+
+
+def gen_tagged(op, page, n):
+    """09-0D TMOV TTST TADD TSUB TCMP rd, rs: a tag check (bit 0 of rs, or of
+    rd | rs) and, for TADD and TSUB, an overflow check first; either traps
+    (V_TAG, the instruction unwound) with nothing changed."""
+    name = TAGGED[op]
+    if name == "MOV":
+        ops = [u(rd(RSRC), alu("A"), fl("STF0"), W, jump("_tag", "ST")),
+               u(rd(RSRC), alu("A"), wr(RD), W)]
+        return finish(ops) + [label("_tag")] + trap("V_TAG", 1)
+    ops = [u(rd(RSRC), LDL, W),
+           u(rd(RD), alu("OR"), fl("STF0"), W, jump("_tag", "ST"))]
+    if name in ("ADD", "SUB"):
+        a = "ADD" if name == "ADD" else "SUB"
+        ops += [u(rd(RD), alu(a), wr(T_A), W),               # r, flags unchanged
+                u(rd(T_A), LDL, W),
+                u(rd(RD), alu("XOR"), wr(T_B), W)]          # a ^ r
+        if name == "ADD":
+            ops.append(u(rd(RSRC), alu("XOR"), wr(T_C), W))  # b ^ r
+        else:
+            ops += [u(rd(RSRC), LDL, W), u(rd(RD), alu("XOR"), wr(T_C), W)]     # a ^ b
+        ops += [u(rd(T_C, 1), LDL),
+                u(rd(T_B, 1), alu("AND"), fl("STN")),         # ST: the overflow
+                u(rd(RSRC), LDL, W, jump("_tag", "ST"))]
+    a, f, writes = ALU_OPS[name]
+    ops.append(u(rd(RD), alu(a), fl(f), wr(RD) if writes else {}, W))
+    return finish(ops) + [label("_tag")] + trap("V_TAG", 1)
+
+
+def keep_cv(ops):
+    """ops with C and V as they were: saved in T_FW first, put back after."""
+    return [u(FLW, alu("A"), wr(T_FW), hx("ZERO"))] + ops + \
+        flags_bits([u(rd(T_FW, 0), LDL)], ("V", "C"))
+
+
+def shr32(reg):
+    return [u(rd(reg, 1), alu("A", rm=RM_SHR), fl("SHR"), wr(reg, 1)),
+            u(rd(reg, 0), alu("A", rm=RM_SHR, si=SI_C), fl("SHR"), wr(reg, 0))]
+
+
+def gen_ffs_popc(f):
+    """DC FFS rd, rs (the trailing zeros, 32 for 0), DD POPC (the ones): N
+    and Z from the count."""
+    if f == 0xC:
+        body = [u(rd(RSRC), alu("A"), fl("STZ"), wr(T_A), W),
+                u(imm("C32"), alu("A"), wr(T_CNT, 0), jump("done", "ST")),
+                u(imm("ZERO"), alu("A"), wr(T_CNT, 0)),
+                u(rd(T_A, 0), alu("A"), fl("STF0"), label("loop")),
+                u(jump("done", "ST"))] + shr32(T_A) + [
+                u(rd(T_CNT, 0), alu("INC"), wr(T_CNT, 0), jump("loop"))]
+    else:
+        body = [u(rd(RSRC), alu("A"), fl("STZ"), wr(T_A), W),
+                u(imm("ZERO"), alu("A"), wr(T_CNT, 0), jump("done", "ST"))]
+        body += [u(shr32(T_A)[0], label("loop")), shr32(T_A)[1],
+                 u(rd(T_CNT, 0), alu("INCC"), wr(T_CNT, 0)),
+                 u(rd(T_A), alu("A"), fl("STZ"), W),
+                 u(jump("loop", "ST", True))]
+    ops = keep_cv(body + [u(rd(T_CNT, 0), alu("A"), wr(T_CNT, 0), label("done"))])
+    return finish(merge_label(ops + [u(rd(T_CNT, 0), alu("A"), fl("NZ16"), wr(RD, 0),
+                                       hx("ZERO"))]))
+
+
+def operand_into(o, reg):
+    """The special mode's operand into reg, 32 bits."""
+    ops = list(o.pre)
+    if o.memory and o.size < 4:
+        ops.append(u(mem("MAR", o.size), alu("A", rm=RM_ZXB if o.size == 1 else 0), wr(reg),
+                     hx("ZERO")))
+    elif o.in_l:
+        ops.append(u(alu("B"), wr(reg), W))
+    else:
+        ops.append(u(o.val, alu("A"), wr(reg), W))
+    return ops
+
+
+def gen_mul_special(op, page, n):
+    """EC MULU r0:rd, (the special mode's operand), ED MULS: the operand into
+    T_B on page 1, then MULU's or MULS's routine on it (MULS's second part on
+    page 2, its N still R)."""
+    if page == 0:
+        return [special_first()]
+    if page == 1:
+        o = special_operand(n)
+        if o is None:
+            return illegal(2)
+        pre = operand_into(o, T_B)
+        if op == 0xEC:
+            return with_stubs(mulu(T_B, pre), o.stubs())
+        ops = signed_product(RD, T_B)
+        ops[-1] = u({k: v for k, v in ops[-1].items() if k not in ("_page",)}, _page=2)
+        return with_stubs(pre + ops, o.stubs())
+    if op == 0xED:
+        return muls(1, b=T_B)
+    return []
+
+
+def gen_merge(op, page, n):
+    """EE MERGE rd, rs: rd <- (rd & ~r0) | (rs & r0); N and Z."""
+    return finish([u(rd(G(0)), LDL, W),
+                   u(rd(RSRC), alu("AND"), wr(T_A), W),
+                   u(rd(RD), alu("BIC"), wr(T_B), W),
+                   u(rd(T_A), LDL, W),
+                   u(rd(T_B), alu("OR"), fl("LOGLO"), wr(RD), W)])
+
+
 # ---- the decode ------------------------------------------------------------
 
 def routine(page, n, op):
@@ -1097,6 +1314,12 @@ def routine(page, n, op):
         return gen_flags_sr(op, page, n)
     if op == 0x00 and page == 1 and n == 0:
         return boot()
+    if op in (0x01, 0x02):
+        return gen_ldm(op, page, n)
+    if op == 0x08:
+        return gen_addb4(op, page, n)
+    if 0x09 <= op <= 0x0D:
+        return gen_tagged(op, page, n)
     if op in (0x00, 0xFF, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB):
         return illegal()
     raise Unimplemented(f"{op:02X}")

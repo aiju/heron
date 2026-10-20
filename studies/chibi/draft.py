@@ -253,8 +253,8 @@ def interrupts(nl):
 
 def ps2(nl, spare=None):
     """Schmitt inputs, the receivers on the clock's falling edge (its inverse
-    rising), and the frame GALs: P after the parity bit's edge, S (the hold)
-    after the stop bit's, FERR if the stop bit was 0. spare: the 74HCT14's
+    rising), and the frame GALs: P after the parity bit's edge, S after the
+    stop bit's, FERR if the stop bit was 0. spare: the 74HCT14's
     other two inverters' pins."""
     nl.add("14", "U_PSS", part="74HCT14", **{"1A": "KCLK", "1Y": "KCLKS", "2A": "KDATA",
                                              "2Y": "KDATS", "3A": "MSCLK", "3Y": "MSCLKS",
@@ -284,7 +284,9 @@ def ps2(nl, spare=None):
             s: (OR(lit(s), AND(done, lit(p))), True, False),
             f"{port}_FERR": (OR(lit(f"{port}_FERR"), AND(done, lit(p), lit(s, 0), lit(dat))),
                              True, False),
-            clk: (ZERO, False, False, lit(s)),              # holds the device off
+            # (holding the device off at S would have it send the byte again:
+            # it looks at the clock after the stop bit; software can hold it
+            # through the control register)
             "MD3": (lit(f"{port}_FERR"), False, False, rsel),
         }, clock=ck, ar=clr)
         wsel = AND(lit("PS2CS"), lit("A2"), lit("A1", a1))

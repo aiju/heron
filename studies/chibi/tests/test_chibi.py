@@ -1,12 +1,14 @@
-"""Chibi Heron: the microcode and its model against draft 2's simulator,
-the netlist's 22V10s, and a program at chip level."""
+"""Chibi Heron: the two-halves machine's microcode and model against draft
+2's simulator, its netlist's 22V10s and timing table, programs at chip
+level; and the first cut's."""
 
 import random
 import unittest
 
 import heron.studies.v2_isa  # noqa: F401  (registers the ISA)
 from heron.infra.hw import gal
-from heron.studies.chibi import board, check, hw, routines, rtl, ucode as uc
+from heron.studies.chibi import (board, board2, check, hw, routines, routines2, rtl, sta2,
+                                 ucode as uc, ucode2 as uc2)
 from heron.studies.v2_isa import testing
 
 
@@ -33,6 +35,27 @@ class Microcode(unittest.TestCase):
             self.assertEqual(rtl.alu181(a, b, 0b0110, 0, c), (d & 0xFFFF, d >> 16))
 
 
+class Microcode2(unittest.TestCase):
+    """The two-halves machine's control store."""
+
+    def test_fields_fit(self):
+        self.assertEqual(uc2.USED_BITS, uc2.WORD_BITS)
+        self.assertEqual(len(set(uc2.FL_CODE.values())), len(uc2.FLOPS))
+        self.assertLessEqual(len(uc2.IMMS), 32)
+
+    def test_every_opcode(self):
+        cs = routines2.control_store()
+        self.assertEqual(cs.missing, {})
+
+    def test_ticks_table(self):
+        """Every microinstruction timed: rerun heron chibi hw sta --write
+        after changing the microcode or the netlist."""
+        self.assertEqual(routines2.control_store().untimed, set())
+
+    def test_page3_entries(self):
+        self.assertEqual(routines2.ENTRIES["exc"], 9)
+
+
 class Programs(unittest.TestCase):
     """Programs on the register-transfer model, as the simulator runs them."""
 
@@ -49,6 +72,11 @@ class Programs(unittest.TestCase):
 
     def test_bignum(self):
         self.check("bignum")
+
+    def test_first_cut(self):
+        p = testing.program_paths(["hello"])[0]
+        _, m, diffs = check.check_program(p, first=True)
+        self.assertEqual(diffs, [])
 
 
 class Instructions(unittest.TestCase):
@@ -91,6 +119,32 @@ class Instructions(unittest.TestCase):
     def test_clz_rev(self):
         self.cases(["CLZ r1, r2", "REV r1, r2", "CLZ r2, r2", "REV r1, r1"], 16)
 
+    def test_new(self):
+        """The instructions the first cut hadn't."""
+        self.cases(["ADD.B4 r1, r2", "MERGE r1, r2, r0", "FFS r1, r2", "POPC r1, r2",
+                    "MULU r0:r1, #1234", "MULS r0:r1, #-1234"], 16)
+
+    def test_tagged(self):
+        r = random.Random(2)
+        for k in range(10):
+            op = ["TMOV", "TADD", "TSUB", "TCMP", "TTST"][k % 5]
+            a, b = r.getrandbits(32) & ~(k % 3 != 0), r.getrandbits(32) & ~1
+            body = (" JMP 0x40\n.org 0x18\n HALT\n.org 0x40\n"
+                    f" MOV r1, #{a}\n MOV r2, #{b}\n {op} r1, r2\n MFSR r4, ccr\n")
+            self.assertEqual(self.run_snippet(body), [], (op, hex(a), hex(b)))
+
+    def test_ldm_stm_tables(self):
+        r = random.Random(3)
+        for k in range(6):
+            a, c = sorted((r.randrange(1, 14), r.randrange(1, 14)))
+            x = r.randrange(64)
+            body = (" MOV r15, #0x3000\n"
+                    + "".join(f" MOV r{i}, #{r.getrandbits(32)}\n" for i in range(1, 15))
+                    + f" STM r15, r{a}-r{c}\n" + "".join(f" MOV r{i}, #0\n" for i in range(1, 15))
+                    + f" LDM r15, r{a}-r{c}\n MOV r3, #{x}\n MOV [0x2000 + r3 * 4], r1\n"
+                    " MOV r2, [0x2000 + r3 * 4]\n LEA r5, [0x2000 + r3 * 4]\n")
+            self.assertEqual(self.run_snippet(body), [], (a, c, x))
+
 
 class Netlist(unittest.TestCase):
     @classmethod
@@ -109,6 +163,30 @@ class Netlist(unittest.TestCase):
 
     def test_sta_netlist(self):
         board.build(sim=False)
+
+
+class Netlist2(unittest.TestCase):
+    """The two-halves machine's netlist."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.nl = board2.build(sim=True)
+
+    def test_gals_fit(self):
+        for inst in self.nl.instances:
+            if inst.type.name == "22v10":
+                for pin, _reg, _inv, terms in inst.gal:
+                    self.assertLessEqual(len(terms), gal.TERMS[int(pin[2:])], inst.ref)
+
+    def test_chips(self):
+        """The budget: 120 packages, the simulation's own button aside."""
+        n = sum(1 for i in self.nl.instances if i.type.family not in ("fixture", "passive")
+                and i.ref != "S_BTNX")
+        self.assertLessEqual(n, 120)
+
+    def test_sta_netlist(self):
+        board2.build(sim=False)
+        self.assertGreater(len(sta2.sta_words()), 400)
 
     def test_ps2_at_chip_level(self):
         import os
