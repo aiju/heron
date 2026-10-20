@@ -13,6 +13,10 @@ which pins.
 Both take the delay values per part number from infra/hw/timing.json, via
 delays_for().
 
+The static timing engine (infra/sta, RFC 0048) reads a type's timing as
+data instead: outputs, regs, timing (its checks), sensitive, asynchronous
+and joins, in cells.py's vocabulary. A type without them is untimed there.
+
 Pin kinds: 'in', 'out', 'tri' (three-state output), 'io' (bidirectional),
 'pull' (a pull-up resistor to VCC: a weak driver of 1).
 
@@ -25,10 +29,14 @@ networks), 'fixture' (test equipment, not on any board).
 import json
 import os
 
+from . import cells
+from .cells import Arc, Out, Period, Reg, Setup, Strobe, Width
+
 
 class ChipType:
     def __init__(self, name, model, pins, arcs=(), checks=(), family="logic", desc="",
-                 per_package=1, tied=()):
+                 per_package=1, tied=(), outputs=None, regs=None, timing=(), sensitive=(),
+                 asynchronous=(), joins=()):
         self.name = name
         self.model = model
         self.pins = pins            # list of (name, kind)
@@ -43,6 +51,17 @@ class ChipType:
         for frm, to, _ in self.arcs:
             for p in list(frm) + list(to):
                 assert p in self.pin_index, (name, p)
+        # the static timing engine's description (cells.py)
+        self.outputs = dict(outputs or {})
+        self.regs = dict(regs or {})
+        self.timing = list(timing)
+        self.sensitive = list(sensitive)
+        self.asynchronous = list(asynchronous)
+        self.joins = list(joins)
+        try:
+            cells.check(self)
+        except ValueError as e:
+            raise ValueError(f"chip type {name}: {e}") from None
 
     def kind(self, pin):
         return self.pins[self.pin_index[pin]][1]
@@ -58,7 +77,7 @@ def T(*a, **kw):
 
 
 def gate_type(name, model, n_sections, n_inputs, desc, out_kind="out"):
-    pins, arcs = [], []
+    pins, arcs, outputs = [], [], {}
     letters = "ABCDEFGH"
     for s in range(1, n_sections + 1):
         ins = [f"{s}{letters[i]}" for i in range(n_inputs)] if n_sections > 1 else \
@@ -66,7 +85,67 @@ def gate_type(name, model, n_sections, n_inputs, desc, out_kind="out"):
         out = f"{s}Y" if n_sections > 1 else "Y"
         pins += [(p, "in") for p in ins] + [(out, out_kind)]
         arcs.append((ins, [out], "A->Y"))
-    return T(name, model, pins, arcs, desc=desc)
+        outputs[out] = _gate_out(model, ins)
+    return T(name, model, pins, arcs, desc=desc, outputs=outputs)
+
+
+def _gate_out(model, ins):
+    """A gate's output as the static timing engine sees it (cells.Out)."""
+    arcs = {" ".join(ins): "A->Y"}
+    if model == "nand":
+        return Out(" + ".join(f"/{p}" for p in ins), arcs)
+    if model == "nor":
+        return Out("·".join(f"/{p}" for p in ins), arcs)
+    if model == "and":
+        return Out("·".join(ins), arcs)
+    if model == "or":
+        return Out(" + ".join(ins), arcs)
+    if model == "xor":
+        a, b = ins
+        return Out(f"{a}·/{b} + /{a}·{b}", arcs)
+    if model == "nand_oc":
+        # open collector: low while A is high, else off
+        return Out("0", {}, enable=ins[0], on=arcs, off=arcs)
+    raise ValueError(f"no gate model {model}")
+
+
+_MUX151 = "/G·(" + " + ".join(
+    "·".join(("" if s >> k & 1 else "/") + "ABC"[k] for k in (2, 1, 0)) + f"·D{s}"
+    for s in range(8)) + ")"
+
+
+def _sram_out(addr):
+    """A static RAM's data pin: valid tAA after the address (changing from
+    tOH); on while CE and OE are low and WE high, valid tACE and tOE after
+    CE and OE fall, off tCHZ, tOHZ and tWHZ after they change."""
+    return Out(None, {addr: Arc("tAA", min="tOH")},
+               enable="/CE·/OE·WE",
+               on={"CE": Arc("tACE", min=0), "OE": Arc("tOE", min=0), "WE": Arc("tOE", min=0)},
+               off={"CE": "tCHZ", "OE": "tOHZ", "WE": "tWHZ"})
+
+
+def _sram_write(addr):
+    """A static RAM's write: CE and WE low, the address stable tAS before
+    it, tAW before its end and tAH after, the data set up tDW before the
+    end and held tDH, at least tWP long."""
+    return Strobe("/CE·/WE", stable={addr: ("tAS", "tAW", "tAH")},
+                  data={"IO0-IO7": ("tDW", "tDH")}, width="tWP")
+
+
+def _rom_out(addr):
+    """A flash's data pin: valid tACC after the address (changing from
+    tOH); on while CE and OE are low, valid tCE and tOE after they fall,
+    off tDF after either rises."""
+    return Out(None, {addr: Arc("tACC", min="tOH")},
+               enable="/CE·/OE", on={"CE": Arc("tCE", min=0), "OE": Arc("tOE", min=0)},
+               off={"CE OE": Arc("tDF", min=0)})
+
+
+def _uart_out():
+    """A 16C550's data pin: driven while RD and CS2 are low, valid RD->D
+    after them (and after the address); off RD->D dis after."""
+    return Out(None, {"A0 A1 A2": "RD->D"}, enable="/CS2·/RD",
+               on={"RD CS2": Arc("RD->D", min=0)}, off={"RD CS2": "RD->D dis"})
 
 
 gate_type("00", "nand", 4, 2, "quad 2-input NAND")
@@ -91,13 +170,23 @@ T("74", "dff74",
   arcs=[([f"{s}CLK"], [f"{s}Q", f"{s}QN"], "CLK->Q") for s in (1, 2)]
   + [([f"{s}PRE", f"{s}CLR"], [f"{s}Q", f"{s}QN"], "PRE/CLR->Q") for s in (1, 2)],
   checks=[([f"{s}D"], f"{s}CLK", "rise", "setup D", "hold D") for s in (1, 2)],
-  desc="dual D flip-flop with preset and clear")
+  desc="dual D flip-flop with preset and clear",
+  regs={**{f"{s}Q": Reg(f"{s}CLK", f"{s}D", "CLK->Q", clear=f"/{s}CLR",
+                           clear_arcs={f"{s}CLR": "PRE/CLR->Q"}, preset=f"/{s}PRE",
+                           preset_arcs={f"{s}PRE": "PRE/CLR->Q"}) for s in (1, 2)},
+        **{f"{s}QN": Reg(f"{s}CLK", f"/{s}D", "CLK->Q", clear=f"/{s}PRE",
+                            clear_arcs={f"{s}PRE": "PRE/CLR->Q"}, preset=f"/{s}CLR",
+                            preset_arcs={f"{s}CLR": "PRE/CLR->Q"}) for s in (1, 2)}},
+  timing=[Setup(f"{s}D", f"{s}CLK", "setup D", "hold D") for s in (1, 2)],)
 
 T("138", "dec138",
   [(p, "in") for p in ("A", "B", "C", "G1", "G2A", "G2B")] + [(f"Y{i}", "out") for i in range(8)],
   arcs=[(["A", "B", "C"], [f"Y{i}" for i in range(8)], "A->Y"),
         (["G1", "G2A", "G2B"], [f"Y{i}" for i in range(8)], "G->Y")],
-  desc="3-to-8 decoder")
+  desc="3-to-8 decoder",
+  outputs={f"Y{i}": Out(" + ".join(["/G1", "G2A", "G2B"]
+                                   + [("/" if i >> k & 1 else "") + "ABC"[k] for k in range(3)]),
+                         {"A B C": "A->Y", "G1 G2A G2B": "G->Y"}) for i in range(8)},)
 
 T("151", "mux151",
   [(f"D{i}", "in") for i in range(8)] + [(p, "in") for p in ("A", "B", "C", "G")]
@@ -107,7 +196,9 @@ T("151", "mux151",
         (["A", "B", "C"], ["Y"], "S->Y"),
         (["A", "B", "C"], ["W"], "S->W"),
         (["G"], ["Y", "W"], "G->Y")],
-  desc="8-to-1 multiplexer")
+  desc="8-to-1 multiplexer",
+  outputs={"Y": Out(_MUX151, {"D0-D7": "D->Y", "A B C": "S->Y", "G": "G->Y"}),
+           "W": Out(f"/({_MUX151})", {"D0-D7": "D->W", "A B C": "S->W", "G": "G->Y"})},)
 
 T("153", "mux153",
   [(f"{s}C{i}", "in") for s in (1, 2) for i in range(4)] + [(p, "in") for p in ("1G", "2G", "A", "B")]
@@ -117,7 +208,10 @@ T("153", "mux153",
         (["A", "B"], ["1Y", "2Y"], "S->Y"),
         (["1G"], ["1Y"], "G->Y"),
         (["2G"], ["2Y"], "G->Y")],
-  desc="dual 4-to-1 multiplexer")
+  desc="dual 4-to-1 multiplexer",
+  outputs={f"{s}Y": Out(f"/{s}G·(/B·/A·{s}C0 + /B·A·{s}C1 + B·/A·{s}C2 + B·A·{s}C3)",
+                          {f"{s}C0-{s}C3": "C->Y", "A B": "S->Y", f"{s}G": "G->Y"})
+           for s in (1, 2)},)
 
 T("157", "mux157",
   [("S", "in"), ("G", "in")] + [(f"{i}{x}", "in") for i in range(1, 5) for x in "AB"]
@@ -125,7 +219,9 @@ T("157", "mux157",
   arcs=[([f"{i}A", f"{i}B"], [f"{i}Y"], "A->Y") for i in range(1, 5)]
   + [(["S"], [f"{i}Y" for i in range(1, 5)], "S->Y"),
      (["G"], [f"{i}Y" for i in range(1, 5)], "G->Y")],
-  desc="quad 2-to-1 multiplexer")
+  desc="quad 2-to-1 multiplexer",
+  outputs={f"{i}Y": Out(f"/G·(/S·{i}A + S·{i}B)",
+                          {f"{i}A {i}B": "A->Y", "S": "S->Y", "G": "G->Y"}) for i in range(1, 5)},)
 
 for _n, _model in (("161", "cnt161"), ("163", "cnt163")):
     _arcs = [(["CLK"], ["QA", "QB", "QC", "QD"], "CLK->Q"),
@@ -166,7 +262,12 @@ T("175", "dff175",
   arcs=[(["CLK"], [f"{i}{q}" for i in range(1, 5) for q in ("Q", "QN")], "CLK->Q"),
         (["CLR"], [f"{i}{q}" for i in range(1, 5) for q in ("Q", "QN")], "CLR->Q")],
   checks=[([f"{i}D" for i in range(1, 5)], "CLK", "rise", "setup D", "hold D")],
-  desc="quad D flip-flop with clear")
+  desc="quad D flip-flop with clear",
+  regs={**{f"{i}Q": Reg("CLK", f"{i}D", "CLK->Q", clear="/CLR", clear_arcs={"CLR": "CLR->Q"})
+           for i in range(1, 5)},
+        **{f"{i}QN": Reg("CLK", f"/{i}D", "CLK->Q", preset="/CLR", preset_arcs={"CLR": "CLR->Q"})
+           for i in range(1, 5)}},
+  timing=[Setup("1D 2D 3D 4D", "CLK", "setup D", "hold D")],)
 
 T("377", "reg377",
   [("CLK", "in"), ("EN", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -174,33 +275,45 @@ T("377", "reg377",
   arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q")],
   checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D"),
           (["EN"], "CLK", "rise", "setup EN", "hold EN")],
-  desc="octal D flip-flop with enable")
+  desc="octal D flip-flop with enable",
+  regs={f"Q{i}": Reg("CLK", f"EN·Q{i} + /EN·D{i}", "CLK->Q") for i in range(1, 9)},
+  timing=[Setup("D1-D8", "CLK", "setup D", "hold D"), Setup("EN", "CLK", "setup EN", "hold EN")],)
 
 T("541", "buf541",
   [("OE1", "in"), ("OE2", "in")] + [(f"A{i}", "in") for i in range(1, 9)]
   + [(f"Y{i}", "tri") for i in range(1, 9)],
   arcs=[([f"A{i}"], [f"Y{i}"], "A->Y") for i in range(1, 9)]
   + [(["OE1", "OE2"], [f"Y{i}" for i in range(1, 9)], "OE->Y en")],
-  desc="octal three-state buffer")
+  desc="octal three-state buffer",
+  outputs={f"Y{i}": Out(f"A{i}", {f"A{i}": "A->Y"}, enable="/OE1·/OE2",
+                         on={"OE1 OE2": "OE->Y en"}, off={"OE1 OE2": "OE->Y dis"})
+           for i in range(1, 9)},)
 
 T("540", "buf540",
   [("OE1", "in"), ("OE2", "in")] + [(f"A{i}", "in") for i in range(1, 9)]
   + [(f"Y{i}", "tri") for i in range(1, 9)],
   arcs=[([f"A{i}"], [f"Y{i}"], "A->Y") for i in range(1, 9)]
   + [(["OE1", "OE2"], [f"Y{i}" for i in range(1, 9)], "OE->Y en")],
-  desc="octal three-state inverting buffer")
+  desc="octal three-state inverting buffer",
+  outputs={f"Y{i}": Out(f"/A{i}", {f"A{i}": "A->Y"}, enable="/OE1·/OE2",
+                         on={"OE1 OE2": "OE->Y en"}, off={"OE1 OE2": "OE->Y dis"})
+           for i in range(1, 9)},)
 
 T("688", "cmp688",
   [(f"P{i}", "in") for i in range(8)] + [(f"Q{i}", "in") for i in range(8)] + [("G", "in"), ("PEQ", "out")],
   arcs=[([f"P{i}" for i in range(8)] + [f"Q{i}" for i in range(8)], ["PEQ"], "P->PEQ"),
         (["G"], ["PEQ"], "G->PEQ")],
-  desc="8-bit identity comparator")
+  desc="8-bit identity comparator",
+  outputs={"PEQ": Out("G + " + " + ".join(f"P{i}·/Q{i} + /P{i}·Q{i}" for i in range(8)),
+                      {"P0-P7 Q0-Q7": "P->PEQ", "G": "G->PEQ"})},)
 
 T("521", "cmp688",
   [(f"P{i}", "in") for i in range(8)] + [(f"Q{i}", "in") for i in range(8)] + [("G", "in"), ("PEQ", "out")],
   arcs=[([f"P{i}" for i in range(8)] + [f"Q{i}" for i in range(8)], ["PEQ"], "P->PEQ"),
         (["G"], ["PEQ"], "G->PEQ")],
-  desc="8-bit identity comparator (the 688's function, in 74F)")
+  desc="8-bit identity comparator (the 688's function, in 74F)",
+  outputs={"PEQ": Out("G + " + " + ".join(f"P{i}·/Q{i} + /P{i}·Q{i}" for i in range(8)),
+                      {"P0-P7 Q0-Q7": "P->PEQ", "G": "G->PEQ"})},)
 
 T("181", "alu181",
   [(f"A{i}", "in") for i in range(4)] + [(f"B{i}", "in") for i in range(4)]
@@ -215,7 +328,16 @@ T("181", "alu181",
         (["CN"], ["CN4"], "CN->CN4"),
         ([f"S{i}" for i in range(4)], [f"F{i}" for i in range(4)] + ["P", "G", "CN4", "AEQB"], "S->F"),
         (["M"], [f"F{i}" for i in range(4)] + ["AEQB"], "M->F")],
-  family="alu", desc="4-bit ALU")
+  family="alu", desc="4-bit ALU",
+  outputs={**{f"F{i}": Out(None, {"A0-A3 B0-B3": [Arc("AB->F", when="/M"),
+                                                      Arc("AB->F logic", when="M")],
+                                      "CN": Arc("CN->F", when="/M"), "S0-S3": "S->F", "M": "M->F"})
+              for i in range(4)},
+           "AEQB": Out(None, {"A0-A3 B0-B3": "AB->AEQB", "CN": Arc("CN->F", when="/M"),
+                              "S0-S3": "S->F", "M": "M->F"}),
+           "P": Out(None, {"A0-A3 B0-B3": "AB->P", "S0-S3": "S->F"}),
+           "G": Out(None, {"A0-A3 B0-B3": "AB->G", "S0-S3": "S->F"}),
+           "CN4": Out(None, {"A0-A3 B0-B3": "AB->CN4", "CN": "CN->CN4", "S0-S3": "S->F"})},)
 
 T("182", "cla182",
   [("CN", "in")] + [(f"P{i}", "in") for i in range(4)] + [(f"G{i}", "in") for i in range(4)]
@@ -224,7 +346,10 @@ T("182", "cla182",
         (["CN"], ["CNX", "CNY", "CNZ"], "CN->CN"),
         ([f"P{i}" for i in range(4)], ["P"], "P->P"),
         ([f"P{i}" for i in range(4)] + [f"G{i}" for i in range(4)], ["G"], "PG->G")],
-  family="alu", desc="carry lookahead generator")
+  family="alu", desc="carry lookahead generator",
+  outputs={**{p: Out(None, {"P0-P3 G0-G3": "PG->CN", "CN": "CN->CN"}) for p in ("CNX", "CNY", "CNZ")},
+           "P": Out(None, {"P0-P3": "P->P"}),
+           "G": Out(None, {"P0-P3 G0-G3": "PG->G"})},)
 
 T("sram", "sram",
   [(f"A{i}", "in") for i in range(15)] + [(f"IO{i}", "io") for i in range(8)]
@@ -232,7 +357,9 @@ T("sram", "sram",
   arcs=[([f"A{i}" for i in range(15)], [f"IO{i}" for i in range(8)], "tAA"),
         (["CE"], [f"IO{i}" for i in range(8)], "tACE"),
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
-  family="mem", desc="32K x 8 static RAM")
+  family="mem", desc="32K x 8 static RAM",
+  outputs={f"IO{i}": _sram_out("A0-A14") for i in range(8)},
+  timing=[_sram_write("A0-A14")],)
 
 T("299", "sr299",
   [(p, "in") for p in ("S0", "S1", "OE1", "OE2", "MR", "CP", "DS0", "DS7")]
@@ -254,7 +381,9 @@ T("sram64k", "sram",
         (["CE"], [f"IO{i}" for i in range(8)], "tACE"),
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
   family="mem", desc="64K x 8 static RAM: one byte of a 64K x 16 part (IS61C6416), "
-                     "whose two bytes the netlist places as two of these", per_package=2)
+                     "whose two bytes the netlist places as two of these", per_package=2,
+  outputs={f"IO{i}": _sram_out("A0-A15") for i in range(8)},
+  timing=[_sram_write("A0-A15")],)
 
 T("sram512", "sram",
   [(f"A{i}", "in") for i in range(19)] + [(f"IO{i}", "io") for i in range(8)]
@@ -262,7 +391,9 @@ T("sram512", "sram",
   arcs=[([f"A{i}" for i in range(19)], [f"IO{i}" for i in range(8)], "tAA"),
         (["CE"], [f"IO{i}" for i in range(8)], "tACE"),
         (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
-  family="mem", desc="512K x 8 static RAM")
+  family="mem", desc="512K x 8 static RAM",
+  outputs={f"IO{i}": _sram_out("A0-A18") for i in range(8)},
+  timing=[_sram_write("A0-A18")],)
 
 # a 22V10 (GAL): ten outputs, each a sum of products of the pins
 # (infra/hw/gal.py); every pin may be an input, and CLK clocks the
@@ -273,7 +404,8 @@ T("flash4", "rom",
   arcs=[([f"A{i}" for i in range(19)], [f"D{i}" for i in range(8)], "tACC"),
         (["CE"], [f"D{i}" for i in range(8)], "tCE"),
         (["OE"], [f"D{i}" for i in range(8)], "tOE")],
-  family="mem", desc="512K x 8 parallel flash")
+  family="mem", desc="512K x 8 parallel flash",
+  outputs={f"D{i}": _rom_out("A0-A18") for i in range(8)},)
 
 T("22v10", "gal", [("CLK", "io")] + [(f"I{i}", "io") for i in range(1, 12)]
   + [(f"IO{i}", "io") for i in range(10)], desc="22V10 programmable logic")
@@ -284,7 +416,8 @@ T("flash", "rom",
   arcs=[([f"A{i}" for i in range(17)], [f"D{i}" for i in range(8)], "tACC"),
         (["CE"], [f"D{i}" for i in range(8)], "tCE"),
         (["OE"], [f"D{i}" for i in range(8)], "tOE")],
-  family="mem", desc="128K x 8 parallel flash (microcode)")
+  family="mem", desc="128K x 8 parallel flash (microcode)",
+  outputs={f"D{i}": _rom_out("A0-A16") for i in range(8)},)
 
 # ---- bus interface, clock generator and backplane parts ----
 
@@ -295,7 +428,14 @@ T("109", "jk109",
   arcs=[([f"{s}CLK"], [f"{s}Q", f"{s}QN"], "CLK->Q") for s in (1, 2)]
   + [([f"{s}PRE", f"{s}CLR"], [f"{s}Q", f"{s}QN"], "PRE/CLR->Q") for s in (1, 2)],
   checks=[([f"{s}J", f"{s}K"], f"{s}CLK", "rise", "setup JK", "hold JK") for s in (1, 2)],
-  desc="dual J-K̄ flip-flop with preset and clear (K is active low)")
+  desc="dual J-K̄ flip-flop with preset and clear (K is active low)",
+  regs={**{f"{s}Q": Reg(f"{s}CLK", f"{s}J·/{s}Q + {s}K·{s}Q", "CLK->Q", clear=f"/{s}CLR",
+                           clear_arcs={f"{s}CLR": "PRE/CLR->Q"}, preset=f"/{s}PRE",
+                           preset_arcs={f"{s}PRE": "PRE/CLR->Q"}) for s in (1, 2)},
+        **{f"{s}QN": Reg(f"{s}CLK", f"/({s}J·/{s}Q + {s}K·{s}Q)", "CLK->Q", clear=f"/{s}PRE",
+                            clear_arcs={f"{s}PRE": "PRE/CLR->Q"}, preset=f"/{s}CLR",
+                            preset_arcs={f"{s}CLR": "PRE/CLR->Q"}) for s in (1, 2)}},
+  timing=[Setup(f"{s}J {s}K", f"{s}CLK", "setup JK", "hold JK") for s in (1, 2)],)
 
 T("574", "dreg",
   [("OE", "in"), ("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -303,7 +443,11 @@ T("574", "dreg",
   arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q"),
         (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
   checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
-  desc="octal D flip-flop, three-state outputs")
+  desc="octal D flip-flop, three-state outputs",
+  regs={f"Q{i}": Reg("CLK", f"D{i}", "CLK->Q", enable="/OE", on={"OE": "OE->Y en"},
+                         off={"OE": "OE->Y dis"}) for i in range(1, 9)},
+  timing=[Setup("D1-D8", "CLK", "setup D", "hold D"), Width("CLK", 1, "tw CLK"),
+          Width("CLK", 0, "tw CLK"), Period("CLK", "fmax MHz")],)
 
 T("534", "dreg_inv",
   [("OE", "in"), ("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -311,7 +455,11 @@ T("534", "dreg_inv",
   arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q"),
         (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
   checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
-  desc="octal D flip-flop, inverting three-state outputs")
+  desc="octal D flip-flop, inverting three-state outputs",
+  regs={f"Q{i}": Reg("CLK", f"/D{i}", "CLK->Q", enable="/OE", on={"OE": "OE->Y en"},
+                         off={"OE": "OE->Y dis"}) for i in range(1, 9)},
+  timing=[Setup("D1-D8", "CLK", "setup D", "hold D"), Width("CLK", 1, "tw CLK"),
+          Width("CLK", 0, "tw CLK"), Period("CLK", "fmax MHz")],)
 
 T("823", "dreg",
   [("OE", "in"), ("CLK", "in"), ("EN", "in"), ("CLR", "in")]
@@ -321,7 +469,11 @@ T("823", "dreg",
         (["OE"], [f"Q{i}" for i in range(1, 10)], "OE->Y en")],
   checks=[([f"D{i}" for i in range(1, 10)], "CLK", "rise", "setup D", "hold D"),
           (["EN"], "CLK", "rise", "setup EN", "hold EN")],
-  desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE active low)")
+  desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE active low)",
+  regs={f"Q{i}": Reg("CLK", f"EN·Q{i} + /EN·D{i}", "CLK->Q", clear="/CLR",
+                         clear_arcs={"CLR": "CLR->Q"}, enable="/OE", on={"OE": "OE->Y en"},
+                         off={"OE": "OE->Y dis"}) for i in range(1, 10)},
+  timing=[Setup("D1-D9", "CLK", "setup D", "hold D"), Setup("EN", "CLK", "setup EN", "hold EN")],)
 
 T("573", "latch573",
   [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -342,7 +494,11 @@ T("16374h", "dreg",
         (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
   checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
   desc="octal D flip-flop, three-state outputs: one half of a 16-bit 74ABT16374",
-  per_package=2)
+  per_package=2,
+  regs={f"Q{i}": Reg("CLK", f"D{i}", "CLK->Q", enable="/OE", on={"OE": "OE->Y en"},
+                         off={"OE": "OE->Y dis"}) for i in range(1, 9)},
+  timing=[Setup("D1-D8", "CLK", "setup D", "hold D"), Width("CLK", 1, "tw CLK"),
+          Width("CLK", 0, "tw CLK"), Period("CLK", "fmax MHz")],)
 
 T("16823h", "dreg",
   [("OE", "in"), ("CLK", "in"), ("EN", "in"), ("CLR", "in")]
@@ -353,7 +509,11 @@ T("16823h", "dreg",
   checks=[([f"D{i}" for i in range(1, 10)], "CLK", "rise", "setup D", "hold D"),
           (["EN"], "CLK", "rise", "setup EN", "hold EN")],
   desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE "
-       "active low): one half of an 18-bit 74ABT16823", per_package=2)
+       "active low): one half of an 18-bit 74ABT16823", per_package=2,
+  regs={f"Q{i}": Reg("CLK", f"EN·Q{i} + /EN·D{i}", "CLK->Q", clear="/CLR",
+                         clear_arcs={"CLR": "CLR->Q"}, enable="/OE", on={"OE": "OE->Y en"},
+                         off={"OE": "OE->Y dis"}) for i in range(1, 10)},
+  timing=[Setup("D1-D9", "CLK", "setup D", "hold D"), Setup("EN", "CLK", "setup EN", "hold EN")],)
 
 T("16373h", "latch573",
   [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -372,7 +532,10 @@ T("16244h", "buf541",
   + [(["OE1", "OE2"], [f"Y{i}" for i in range(1, 9)], "OE->Y en")],
   desc="octal three-state buffer: one half of a 16-bit 74ABT16244, whose OE1 and OE2 enable "
        "bits 1-4 and 5-8 (the 541's model, which needs both: so they must be tied together)",
-  per_package=2, tied=[("OE1", "OE2")])
+  per_package=2, tied=[("OE1", "OE2")],
+  outputs={f"Y{i}": Out(f"A{i}", {f"A{i}": "A->Y"}, enable="/OE1·/OE2",
+                         on={"OE1 OE2": "OE->Y en"}, off={"OE1 OE2": "OE->Y dis"})
+           for i in range(1, 9)},)
 
 T("245", "xcvr245",
   [("DIR", "in"), ("OE", "in")] + [(f"A{i}", "io") for i in range(1, 9)]
@@ -381,13 +544,22 @@ T("245", "xcvr245",
   + [([f"B{i}"], [f"A{i}"], "B->A") for i in range(1, 9)]
   + [(["OE", "DIR"], [f"A{i}" for i in range(1, 9)], "OE->A en"),
      (["OE", "DIR"], [f"B{i}" for i in range(1, 9)], "OE->B en")],
-  desc="octal transceiver (DIR high: A to B; OE active low)")
+  desc="octal transceiver (DIR high: A to B; OE active low)",
+  outputs={**{f"A{i}": Out(f"B{i}", {f"B{i}": "B->A"}, enable="/OE·/DIR",
+                            on={"OE DIR": "OE->Y en"}, off={"OE DIR": "OE->Y dis"})
+              for i in range(1, 9)},
+           **{f"B{i}": Out(f"A{i}", {f"A{i}": "A->B"}, enable="/OE·DIR",
+                            on={"OE DIR": "OE->Y en"}, off={"OE DIR": "OE->Y dis"})
+              for i in range(1, 9)}},)
 
 T("125", "tribuf",
   [(f"{s}{p}", k) for s in range(1, 5) for p, k in (("OE", "in"), ("A", "in"), ("Y", "tri"))],
   arcs=[([f"{s}A"], [f"{s}Y"], "A->Y") for s in range(1, 5)]
   + [([f"{s}OE"], [f"{s}Y"], "OE->Y en") for s in range(1, 5)],
-  desc="quad three-state buffer (OE active low)")
+  desc="quad three-state buffer (OE active low)",
+  outputs={f"{s}Y": Out(f"{s}A", {f"{s}A": "A->Y"}, enable=f"/{s}OE",
+                          on={f"{s}OE": "OE->Y en"}, off={f"{s}OE": "OE->Y dis"})
+           for s in range(1, 5)},)
 
 T("148", "enc148",
   [(f"I{i}", "in") for i in range(8)] + [("EI", "in")] + [(f"A{i}", "out") for i in range(3)]
@@ -398,7 +570,8 @@ T("148", "enc148",
 
 T("clkdrv", "fanbuf", [("A", "in")] + [(f"Y{i}", "out") for i in range(1, 9)],
   arcs=[(["A"], [f"Y{i}" for i in range(1, 9)], "A->Y")],
-  desc="1-to-8 clock driver")
+  desc="1-to-8 clock driver",
+  outputs={f"Y{i}": Out("A", {"A": "A->Y"}) for i in range(1, 9)},)
 
 T("osc", "osc", [("OUT", "io")], family="osc",
   desc="crystal oscillator (params period_ps, phase_ps: the first rising edge)")
@@ -413,15 +586,18 @@ T("cy22393", "clocksynth",
        "modelled. A 3.3 V part: VDD and AVDD on a 3.3 V rail, and its inputs no higher")
 
 T("button", "button", [("OUT", "tri")], family="misc",
-  desc="push button to ground (params press_ps, release_ps: when the simulation presses it)")
+  desc="push button to ground (params press_ps, release_ps: when the simulation presses it)",
+  asynchronous=["OUT"],)
 
 T("ps2dev", "ps2dev", [("CLK", "io"), ("DATA", "io"), ("WAKE", "io")], family="fixture",
   desc="a PS/2 keyboard or mouse on its cable (open-collector CLK and DATA): sends its preload, "
        "answers the host's bytes with 0xFA, dumps what the host sent (params half_ps, gap_ps, "
-       "start_ps); WAKE is the simulator's, on a net of its own")
+       "start_ps); WAKE is the simulator's, on a net of its own",
+  asynchronous=["CLK DATA WAKE"],)
 
 T("por", "por", [("RST", "tri")], family="misc",
-  desc="supply supervisor as power-on reset: open-collector RST low until params release_ps")
+  desc="supply supervisor as power-on reset: open-collector RST low until params release_ps",
+  asynchronous=["RST"],)
 
 T("pullup", "pullup", [(f"P{i}", "pull") for i in range(1, 9)], family="passive",
   desc="eight pull-up resistors to VCC (a resistor network)")
@@ -447,7 +623,12 @@ T("16c550", "uart16550",
   + [(p, "out") for p in ("INTR", "RTS", "DTR", "OUT1", "OUT2")],
   arcs=[(["RD"], [f"D{i}" for i in range(8)], "RD->D")], family="device",
   desc="UART with 16-byte FIFOs (CS2, RD, WR, RTS, DTR, OUT1, OUT2 active low; MR active high); "
-       "the terminal on its serial line is inside the model")
+       "the terminal on its serial line is inside the model",
+  outputs={f"D{i}": _uart_out() for i in range(8)},
+  asynchronous=["INTR RTS DTR OUT1 OUT2"],
+  timing=[Strobe("/CS2·/WR", stable={"A0 A1 A2": ("tAS", None, "tAH WR")},
+                 data={"D0-D7": ("tDS", "tDH")}, width="tWR"),
+          Strobe("/CS2·/RD", stable={"A0 A1 A2": ("tAS", None, "tAH")}, width="tRD")],)
 
 T("82c54", "i8254",
   [(f"D{i}", "io") for i in range(8)] + [("A0", "in"), ("A1", "in")]
@@ -456,7 +637,14 @@ T("82c54", "i8254",
   + [(f"OUT{i}", "out") for i in range(3)],
   arcs=[(["RD"], [f"D{i}" for i in range(8)], "RD->D")]
   + [([f"CLK{i}"], [f"OUT{i}"], "CLK->OUT") for i in range(3)], family="device",
-  desc="programmable interval timer: three 16-bit counters (CS, RD, WR active low)")
+  desc="programmable interval timer: three 16-bit counters (CS, RD, WR active low)",
+  outputs={f"D{i}": Out(None, {"A0 A1": "A->D"}, enable="/CS·/RD",
+                         on={"RD CS": Arc("RD->D", min=0)}, off={"RD CS": "RD->D dis"})
+           for i in range(8)},
+  asynchronous=["OUT0 OUT1 OUT2"],
+  timing=[Strobe("/CS·/WR", stable={"A0 A1": ("tAW", None, "tWA")}, data={"D0-D7": ("tDW", "tWD")},
+                 width="tWW"),
+          Strobe("/CS·/RD", stable={"A0 A1": ("tAR", None, "tRA")}, width="tRR")],)
 
 T("cf", "cf",
   [(f"D{i}", "io") for i in range(16)] + [(f"A{i}", "in") for i in range(3)]
@@ -464,15 +652,25 @@ T("cf", "cf",
   + [("INTRQ", "out"), ("WAKE", "io")],
   arcs=[(["IORD"], [f"D{i}" for i in range(16)], "RD->D")], family="device",
   desc="CompactFlash card in True IDE mode (CS0, CS1, IORD, IOWR, RESET active low); "
-       "WAKE is the simulator's, on a net of its own")
+       "WAKE is the simulator's, on a net of its own",
+  outputs={f"D{i}": Out(None, {"A0-A2": "RD->D"}, enable="/IORD·/CS0 + /IORD·/CS1",
+                         on={"IORD CS0 CS1": Arc("RD->D", min=0)},
+                         off={"IORD CS0 CS1": "RD->D dis"}) for i in range(16)},
+  asynchronous=["INTRQ WAKE"],
+  timing=[Strobe("/IOWR·/CS0 + /IOWR·/CS1", stable={"A0 A1 A2 CS0 CS1": ("t1", None, "t9")},
+                 data={"D0-D15": ("t3", "t4")}, width="t2"),
+          Strobe("/IORD·/CS0 + /IORD·/CS1", stable={"A0 A1 A2 CS0 CS1": ("t1", None, "t9")},
+                 width="t2")],)
 
 # ---- test fixtures (not chips on the board) ----
 
-T("const", "const", [("LO", "out"), ("HI", "out")], family="fixture", desc="GND and VCC")
+T("const", "const", [("LO", "out"), ("HI", "out")], family="fixture", desc="GND and VCC",
+  outputs={"LO": Out("0", {}), "HI": Out("1", {})},)
 
 T("wire", "wire", [("A", "in"), ("Y", "out")], family="fixture",
   desc="the far end of a wire: Y is A, later by Y's pin delay (a routed board's flight "
-       "time to one load, infra/pcb/wires.py)")
+       "time to one load, infra/pcb/wires.py)",
+  outputs={"Y": Out("A", {"A": 0})},)
 
 T("vector", "vector", [("CLK", "in")] + [(f"O{i}", "tri") for i in range(64)]
   + [(f"I{i}", "in") for i in range(48)], family="fixture",

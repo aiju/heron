@@ -7,6 +7,7 @@ two-halves variant, is gone: board2.py replaced it.)
 """
 
 from heron.infra.hw import chips, gal as G
+from heron.infra.hw.cells import Arc, Out, Setup, Strobe
 
 from .board import AND, OR, ONE, ZERO, lit, negate
 
@@ -21,7 +22,14 @@ def _types():
       + [(p, "in") for p in ("CS0", "CS1", "CS2", "RD", "WR", "MR", "XIN", "SIN", "CTS", "ADS")]
       + [(p, "out") for p in ("INTR", "SOUT", "RTS", "DTR", "OUT1", "OUT2")],
       arcs=[(["RD"], [f"D{i}" for i in range(8)], "RD->D")], family="device",
-      desc="TL16C550C with its serial pins (the draft netlist's)")
+      desc="TL16C550C with its serial pins (the draft netlist's)",
+  outputs={f"D{i}": Out(None, {"A0 A1 A2": "RD->D"}, enable="/CS2·/RD",
+                         on={"RD CS2": Arc("RD->D", min=0)}, off={"RD CS2": "RD->D dis"})
+           for i in range(8)},
+  asynchronous=["INTR SOUT RTS DTR OUT1 OUT2"],
+  timing=[Setup("A0 A1 A2 CS2", "ADS", "tAS ADS", "tAH ADS"),
+          Strobe("/CS2·/WR", data={"D0-D7": ("tDS", "tDH")}, width="tWR"),
+          Strobe("/CS2·/RD", width="tRD")],)
     T("g171", "passive",
       [(f"P{i}", "in") for i in range(8)] + [(f"D{i}", "io") for i in range(8)]
       + [(p, "in") for p in ("RS0", "RS1", "RD", "WR", "PCLK", "BLANK")]
@@ -29,7 +37,8 @@ def _types():
       desc="IMS G171 RAMDAC: 256 x 18-bit palette, three 6-bit DACs (RD, WR, BLANK active low)")
     T("max232", "passive", [(p, "in") for p in ("T1IN", "T2IN", "R1IN", "R2IN")]
       + [(p, "out") for p in ("T1OUT", "T2OUT", "R1OUT", "R2OUT")], family="device",
-      desc="RS-232 driver and receiver, two of each, its charge pump's capacitors on board")
+      desc="RS-232 driver and receiver, two of each, its charge pump's capacitors on board",
+  asynchronous=["T1OUT T2OUT R1OUT R2OUT"],)
     T("hdr32", "passive", [(f"S{i}", "pull") for i in range(16)], family="passive",
       desc="32-pin 0.1-inch header: 16 signals, a ground beside each")
     T("ftdi6", "passive", [(p, "pull") for p in ("CTS", "TXD", "RXD", "RTS")], family="passive",
@@ -37,7 +46,8 @@ def _types():
     T("jmp4", "passive", [(f"A{i}", "pull") for i in range(4)] + [(f"B{i}", "pull") for i in range(4)],
       family="passive", desc="four jumpers, Ai to Bi")
     T("rser8", "passive", [(f"A{i}", "pull") for i in range(8)] + [(f"B{i}", "pull") for i in range(8)],
-      family="passive", desc="eight series resistors, Ai to Bi (a network)")
+      family="passive", desc="eight series resistors, Ai to Bi (a network)",
+  joins=[(f"A{i}", f"B{i}") for i in range(8)],)
     T("conn", "passive", [(f"P{i}", "pull") for i in range(4)], family="passive",
       desc="a connector, socket or switch (its part names it)")
 

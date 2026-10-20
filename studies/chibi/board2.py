@@ -26,6 +26,7 @@ control store's outputs.
 """
 
 from heron.infra.hw import gal as G
+from heron.infra.hw.cells import Reg, Setup, Width
 from heron.infra.hw.netlist import Netlist
 
 from . import draft, parts, ucode2 as uc  # noqa: F401  (parts registers the variant)
@@ -227,7 +228,9 @@ def _types():
             desc="DAC0832 with its input latch open (CS and WR1 low, ILE high), its DAC latch "
                  "on WR2 (XFER low), taken as a register on WR2's rise; the converter in "
                  "voltage mode (the reference in at IOUT1, the output at VREF); Q the code "
-                 "converted")
+                 "converted",
+  regs={f"Q{i}": Reg("CLK", f"D{i}", "CLK->Q") for i in range(1, 9)},
+  timing=[Setup("D1-D8", "CLK", "setup D", "hold D"), Width("CLK", 0, "tW")],)
     chips.T("mcp6002", "passive", [(p, "pull") for p in ("REF", "DIV", "IN", "OUT")],
             family="device", desc="dual op-amp: a follower giving the DAC its reference from "
                                   "a divider (DIV), a follower buffering its output")
