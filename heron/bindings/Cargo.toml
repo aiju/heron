@@ -16,6 +16,7 @@ test = false
 doctest = false
 
 [dependencies]
+chibi-sim = { path = "../../studies/chibi/sim" }
 fen-board = { path = "../../studies/fen/board" }
 hwsim = { path = "../../infra/hwsim" }
 pcbroute = { path = "../../infra/pcbroute" }
