@@ -561,4 +561,7 @@ For Emily:
   video's frame.
 - **The parts:** the CY7C199C and the 74F181 in DIP at these speeds
   are to be checked for availability.
-- **A board:** placing and routing it (RFC 0023's flow).
+- **A board:** placing and routing it. A first placement of the draft
+  netlist on [RFC 0046](0046-rfc-column-grid.md)'s column grid, at a few
+  board sizes, is in [placement.md](0047-rfc-chibi-heron/placement.md)
+  (`heron chibi place --write`); the board's size is open.

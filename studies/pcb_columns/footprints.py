@@ -49,9 +49,10 @@ def _installed():
     return os.path.isdir(kicadlib._dir("FOOTPRINT"))
 
 
-def fetch(quiet=False):
-    """Download the footprints not yet in build/kicad/footprints/."""
-    for full in names():
+def fetch(quiet=False, extra=()):
+    """Download the footprints not yet in build/kicad/footprints/, and
+    `extra` (another study's) too."""
+    for full in names() + list(extra):
         lib, name = full.split(":", 1)
         path = os.path.join(DIR, f"{lib}.pretty", f"{name}.kicad_mod")
         if os.path.exists(path):
@@ -67,17 +68,19 @@ def fetch(quiet=False):
         os.replace(path + ".tmp", path)
 
 
-def use():
+def use(extra=()):
     """Make kicadlib read footprints from KiCad's installation if there is
-    one, else from build/kicad/footprints/, fetching them first."""
+    one, else from build/kicad/footprints/, fetching them (and `extra`)
+    first."""
     if _installed():
         return
-    fetch(quiet=True)
+    fetch(quiet=True, extra=extra)
     os.environ["KICAD9_FOOTPRINT_DIR"] = DIR
 
 
-def available():
-    """Whether the footprints can be read without fetching anything."""
+def available(extra=()):
+    """Whether the footprints (and `extra`) can be read without fetching
+    anything."""
     return _installed() or all(
         os.path.exists(os.path.join(DIR, f"{n.split(':')[0]}.pretty", f"{n.split(':')[1]}.kicad_mod"))
-        for n in names())
+        for n in names() + list(extra))

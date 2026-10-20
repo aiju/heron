@@ -5,6 +5,10 @@
   run FILE.s [--profile]         one program on the model
   report [--write]               RFC 0047's performance.md (report.py)
   hw ...                         the chip-level netlist (hw.py)
+  place [--write] [--seed N] [--moves N]
+                                 the draft netlist placed on RFC 0046's
+                                 column grid at a few board sizes (place.py;
+                                 --write: RFC 0047's placement.md and .svg)
 """
 
 import argparse
@@ -42,7 +46,14 @@ def main(argv=None):
     w.add_argument("--write", action="store_true")
     h = sub.add_parser("hw")
     h.add_argument("rest", nargs=argparse.REMAINDER)
+    pl = sub.add_parser("place")
+    pl.add_argument("--write", action="store_true")
+    pl.add_argument("--seed", type=int, default=1)
+    pl.add_argument("--moves", type=int, default=60000)
     args = p.parse_args(argv)
+    if args.cmd == "place":
+        from . import place
+        return place.cmd_place(args)
     if args.cmd == "check":
         from . import check
         return check.cmd_check(args)

@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v2_isa]
+depends-on: [v2_isa, pcb_columns]
 reports: [47]
 ---
 
@@ -22,7 +22,8 @@ whole board that runs the program suite on the chip-level simulator
 exactly as the model does, cycle for cycle, with no timing violation.
 Static timing analysis of the netlist says the period it needs.
 
-It depends on `v2_isa` for the ISA, its simulator and the program suite.
+It depends on `v2_isa` for the ISA, its simulator and the program suite,
+and on `pcb_columns` for placing the board on RFC 0046's column grid.
 
 | File | What's in it |
 |---|---|
@@ -36,6 +37,7 @@ It depends on `v2_isa` for the ISA, its simulator and the program suite.
 | `hw.py` | The netlist on the chip-level simulator against the model |
 | `sta.py` | Static timing analysis of the netlist: every distinct microinstruction's period |
 | `report.py` | RFC 0047's performance.md |
+| `place.py` | The draft netlist placed on [RFC 0046](../../reports/0046-rfc-column-grid.md)'s column grid: each part's package, the connectors on the edges, a few board sizes; RFC 0047's placement.md and placement.svg |
 | `programs/` | Test programs for the board's own devices |
 | `tests/` | The unit tests (`heron test chibi`) |
 
@@ -49,6 +51,8 @@ heron chibi hw run FILE.s [--trace A:B]
 heron chibi hw sta [--paths N]      # static timing analysis: the period it needs
 heron chibi hw bom                  # the parts list
 heron chibi report [--write]        # RFC 0047's performance.md
+heron chibi place [--write]         # placed on the column grid at a few sizes (about 5 minutes):
+                                    # build/chibi/place/, RFC 0047's placement.md and .svg
 heron test chibi                    # the unit tests
 ```
 
