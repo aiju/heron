@@ -141,6 +141,9 @@ Change the generator and rerun it rather than editing the output by hand:
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;
+- `reports/0038-rfc-formal-verification/results.md`:
+  `heron formal report --write`, from the results of `heron formal prove`
+  and `heron formal mutate` (hours each);
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
 - `studies/v1_isa/programs/expected/` and
@@ -180,8 +183,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
 - `heron test v1_isa v2_isa v2_hw c_compiler v1b_hw v1b_system
-  v1b_tradeoffs v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
-  `--active` for every active one.
+  v1b_tradeoffs v0_hw graphics kernel bus_si formal`: a study's unit tests
+  (`formal`'s need `pip install z3-solver`). Run the ones for the studies
+  you touched, or `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
   `heron v2_isa test`: the programs against their expected output, in 1b,
   1a and draft 2.
