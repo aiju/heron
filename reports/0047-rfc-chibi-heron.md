@@ -652,10 +652,10 @@ than two smaller DIPs, and need programming?
 
 **Placement** on RFC 0046's column grid, no routing
 ([placement.md](0047-rfc-chibi-heron/placement.md), `heron chibi place
---write`). The least square board is 315 × 315 mm (77% of its grid,
-62.5 m of wire); it doesn't fit ATX (305 × 244). In 4:3 it is
-365 × 275 mm with the 22V10s in PLCC sockets, and 340 × 255 with them in
-DIP-24, 14% less area. The board's size is open.
+--write`). The least board is 365 × 275 mm (4:3, 79% of its grid,
+69.4 m of wire), the least square one 320 × 320; it doesn't fit ATX
+(305 × 244). With the 22V10s in DIP-24 the 4:3 board is 345 × 260, 11%
+less area. The board's size is open.
 
 ### 19. Proposals
 
