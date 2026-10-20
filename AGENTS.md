@@ -162,6 +162,9 @@ Change the generator and rerun it rather than editing the output by hand:
   the figures next to it: `heron bus_si traces`;
 - `reports/0023-rfc-pcb-flow/results.md`: `heron pcb sweep --write` (needs
   KiCad; about an hour and a half);
+- `reports/0046-rfc-column-grid/results.md` and the SVGs next to it:
+  `heron pcb_columns report --write` (a few minutes; fetches KiCad's
+  footprints into `build/` if KiCad isn't installed);
 - `reports/0024-rfc-faster-smaller/results.md`:
   `heron v1b_tradeoffs report --write` (`--hw` reruns the chip-level
   suites, about 30 minutes);
