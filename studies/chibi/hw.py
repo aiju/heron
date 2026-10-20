@@ -23,9 +23,10 @@ in the RAM); the suite's I/O page is a test fixture at 0xFFFF_FF00.
   heron chibi hw devices [--cycles N]
                                     the device task's tests (programs/pcm.s,
                                     ps2.s) at chip level, against the model
-  heron chibi hw grades             each 22V10's slowest grade that leaves the
-                                    timing as it is (board2.GAL_GRADES), a
-                                    quarter of an hour
+  heron chibi hw grades [--no-sim]  each 22V10's slowest grade that leaves the
+                                    timing as it is (board2.GAL_GRADES): the
+                                    analysis's (2 minutes), then checked at
+                                    chip level (a few minutes a round)
   heron chibi hw bom [--first]      the parts list
 """
 
@@ -324,6 +325,78 @@ def cmd_devices(args):
     return bad
 
 
+def grade_checks():
+    """The quick chip-level runs that check the grades: hello, the device
+    task's tests, ODT's session and the copper's test. [(name, the run's
+    outcome, its differences from the model)]."""
+    from heron.studies.v2_isa import testing
+    out = []
+    _m, hw, diffs = run_program(testing.program_paths(["hello"])[0])
+    out.append(("hello", hw, diffs))
+    for name, kw in DEVICE_TESTS.items():
+        img = check.assemble(os.path.join(HERE, "programs", f"{name}.s"))
+        m = device_model(img, **kw)
+        hw = run(bytes(m_ram(img)), max_cycles=40_000, **kw)
+        out.append((name, hw, outcome_diffs(m, hw)))
+    img = check.assemble(ODT_PROGRAM)
+    m = odt_model(img, ODT_KEYS)
+    hw = run(bytes(m_ram(img)), max_cycles=600_000, uart=ODT_KEYS)
+    out.append(("odt", hw, outcome_diffs(m, hw, uart=True)))
+    img = check.assemble(COPPER_PROGRAM)
+    m = check.run_rtl(img)
+    hw = run(bytes(m_ram(img)), max_cycles=600_000)
+    out.append(("copper", hw, outcome_diffs(m, hw)))
+    return out
+
+
+def sim_grades(pick, log=print):
+    """The grades checked at chip level: while a run has a violation, the
+    GAL it names (or that drives the pin it names) a grade faster."""
+    from . import sta2
+    order = sta2.GRADES + ["ATF22V10C-5"]
+    while True:
+        board2.GAL_GRADES = dict(pick)
+        for name in ("netlist.json", "netlist-halt.json"):
+            if os.path.exists(os.path.join(OUT, name)):
+                os.remove(os.path.join(OUT, name))
+        runs = grade_checks()
+        nl = board2.build(sim=True)
+        by = {i.ref: i for i in nl.instances}
+        drivers = {}
+        for i in nl.instances:
+            for pin, net in i.conn.items():
+                if i.kind(pin) in ("out", "tri", "io") and i.type.name == "22v10":
+                    drivers.setdefault(net, set()).add(i.ref)
+        blame, other = set(), []
+        for name, hw, diffs in runs:
+            for v in hw["violation_summary"]:
+                ref, _, rest = v["what"].partition(".")
+                pin = rest.split(" ")[0]
+                if ref in pick:
+                    blame.add(ref)
+                elif ref in by and pin in by[ref].conn:
+                    found = drivers.get(by[ref].conn[pin], set()) & set(pick)
+                    blame |= found
+                    if not found:
+                        other.append(f"{name}: {v['what']}")
+                else:
+                    other.append(f"{name}: {v['what']}")
+            if diffs and not hw["violation_summary"]:
+                other.append(f"{name}: {diffs[0]}")
+        log("chip level: " + ", ".join(f"{n} {hw['violation_total']}" for n, hw, _ in runs)
+            + (f"; {', '.join(sorted(blame))} a grade faster" if blame else ""))
+        if not blame:
+            for o in other:
+                log("  not a grade's: " + o)
+            return pick
+        for ref in blame:
+            g = order[order.index(pick[ref]) + 1]
+            if g == "ATF22V10C-5":
+                del pick[ref]
+            else:
+                pick[ref] = g
+
+
 def m_ram(img):
     from .system import System
     s = System()
@@ -404,7 +477,8 @@ def main(argv):
     o.add_argument("--cycles", type=int, default=600_000)
     c = sub.add_parser("copper", help="the copper's test at chip level, against the model")
     c.add_argument("--cycles", type=int, default=600_000)
-    sub.add_parser("grades", help="each 22V10's slowest grade that keeps the timing")
+    gr = sub.add_parser("grades", help="each 22V10's slowest grade that keeps the timing")
+    gr.add_argument("--no-sim", action="store_true", help="the timing analysis's alone")
     v = sub.add_parser("devices", help="the device task's tests at chip level, against the model")
     v.add_argument("--cycles", type=int, default=40_000)
     b = sub.add_parser("bom")
@@ -429,7 +503,10 @@ def main(argv):
         return cmd_devices(args)
     if args.cmd == "grades":
         from . import sta2
-        return sta2.cmd_grades(args)
+        pick = sta2.grades()
+        if not args.no_sim:
+            pick = sim_grades(pick)
+        return sta2.cmd_grades(pick)
     if args.cmd == "sta":
         if args.first:
             from . import sta

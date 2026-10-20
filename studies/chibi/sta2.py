@@ -191,7 +191,12 @@ def case_for(word, extra, phase, two):
     return c
 
 
-def requirements(c):
+def _latest(c, inst, pins):
+    """(the latest arrival among these pins, its net)."""
+    return max((c.pin(inst, p)[1], inst.conn.get(p)) for p in pins)
+
+
+def requirements(c, fixed_all=None):
     """[(time, description, net)]: when the half must end for each
     requirement, relative to the case's 0; and [(late by, description)] for
     the fixed-tick requirements that fail."""
@@ -232,8 +237,12 @@ def requirements(c):
                 need = ta + d["setup"]
                 if fixed is None:
                     end.append((need, f"{inst.ref}.{p} setup", inst.conn[p]))
-                elif need > fixed + 0.05:
-                    bad.append((need - fixed, f"{inst.ref}.{p} setup"))
+                else:
+                    if fixed_all is not None:
+                        fixed_all.append((fixed + 0.05 - need, f"{inst.ref}.{p} setup",
+                                          inst.conn[p]))
+                    if need > fixed + 0.05:
+                        bad.append((need - fixed, f"{inst.ref}.{p} setup"))
         elif t.model == "dreg" and inst.conn.get("CLK") in capture and ph != "F":
             for i in range(1, 9):
                 ta = c.pin(inst, f"D{i}")[1]
@@ -244,15 +253,21 @@ def requirements(c):
                 if ph != "F":
                     continue
                 k = 1 if inst.ref.startswith("U_RFL") else 2
-                addr = max(c.pin(inst, p)[1] for p in hsta.address_pins(inst))
-                data = max(c.pin(inst, f"IO{i}")[1] for i in range(8))
-                for late, desc in ((addr + d["tAS"] - (k * K + TCO), "address (tAS)"),
-                                   (data + d["tDW"] - ((k + 1) * K + TCO), "data (tDW)")):
+                addr, an = _latest(c, inst, hsta.address_pins(inst))
+                data, dn_ = _latest(c, inst, [f"IO{i}" for i in range(8)])
+                for late, desc, net in ((addr + d["tAS"] - (k * K + TCO), "address (tAS)", an),
+                                        (data + d["tDW"] - ((k + 1) * K + TCO), "data (tDW)",
+                                         dn_)):
+                    if fixed_all is not None and late != NEG:
+                        fixed_all.append((0.05 - late, f"{inst.ref} {desc}", net))
                     if late > 0.05:
                         bad.append((late, f"{inst.ref} {desc}"))
             elif ph != "F" and c.net(inst.conn["WE"])[0] != 1:
-                addr = max(c.pin(inst, p)[1] for p in hsta.address_pins(inst))
+                addr, an = _latest(c, inst, hsta.address_pins(inst))
                 data = max(c.pin(inst, f"IO{i}")[1] for i in range(8))
+                if fixed_all is not None and addr != NEG:
+                    fixed_all.append((strobe + 0.05 - addr - d["tAS"],
+                                      f"{inst.ref} address before its write", an))
                 if addr + d["tAS"] > strobe + 0.05:
                     bad.append((addr + d["tAS"] - strobe, f"{inst.ref} address before its write"))
                 end.append((data + d["tDW"] - TCO, f"{inst.ref} data before its write ends",
@@ -263,7 +278,10 @@ def requirements(c):
                 continue
             dd = chips.load_timing()["TL16C550C"]["checks"]
             # its address and select latched by ADS, a tick into the strobe
-            a = max(c.pin(inst, p)[1] for p in ("A0", "A1", "A2", "CS2"))
+            a, an = _latest(c, inst, ("A0", "A1", "A2", "CS2"))
+            if fixed_all is not None and a != NEG:
+                fixed_all.append((strobe + K + 0.05 - a - dd["tAS"],
+                                  f"{inst.ref} address before its strobe", an))
             if a + dd["tAS"] > strobe + K + 0.05:     # (its strobe a tick after the RAM's)
                 bad.append((a + dd["tAS"] - strobe - K, f"{inst.ref} address before its strobe"))
             if mop == uc.MOP_WRM:
@@ -436,7 +454,10 @@ GRADE_FIXED = {"U_CGA", "U_CGB", "U_MEMC", "U_LCK"}
 # at least the -7: µPC's address in a task (U_TASK's) and the handover
 # (U_LREQ's TASKD and TASKOR), which the analysis's cases (no task) don't
 # time; the chip-level runs of the copper and the device task do
-GRADE_FLOOR = {"U_TASK": "ATF22V10C-7", "U_LREQ": "ATF22V10C-7"}
+GRADE_FLOOR = {"U_TASK": "ATF22V10C-7", "U_LREQ": "ATF22V10C-7",
+               # its strobes are the CF card's and the palette's, which
+               # neither the analysis nor the simulation times
+               "U_SLOWD": "ATF22V10C-7"}
 
 
 def outcome(grades):
@@ -456,50 +477,170 @@ def outcome(grades):
     return tab, (len(over), bad, len(fbad))
 
 
-def grades(log=print):
-    """{GAL: grade}: for each 22V10, the slowest grade that, alone, leaves
-    every microinstruction's ticks and every requirement as with the -5s
-    (one with registers on the master clock at least the -15: the CQZ-20's
-    tCF + tS is 22 ns); then, together, the GALs stepped up a grade until
-    the table is the -5s' again."""
-    base = outcome({})
-    nl = board2.build(sim=True)
-    pick = {}
-    for inst in nl.instances:
-        if inst.type.name != "22v10" or inst.ref in GRADE_FIXED:
-            continue
-        fast = inst.conn.get("CLK") == "MCLK" and any(o[1] for o in inst.gal)
-        floor = GRADES.index(GRADE_FLOOR.get(inst.ref, GRADES[1 if fast else 0]))
-        for g in GRADES[floor:]:
-            if outcome({inst.ref: g}) == base:
-                pick[inst.ref] = g
-                break
-        log(f"{inst.ref:8} {pick.get(inst.ref, 'ATF22V10C-5')}")
-    while True:
-        got = outcome(pick)
-        if got == base:
-            return pick
-        worse = sum(1 for k in base[0] if got[0].get(k) != base[0][k]) + sum(got[1])
-        best = None
-        for ref, g in pick.items():
-            up = dict(pick)
-            i = GRADES.index(g)
-            if i + 1 < len(GRADES):
-                up[ref] = GRADES[i + 1]
+def _delta(grade):
+    """A grade's delays over the -5's, ns: (tPD, tCO, setup)."""
+    t = chips.load_timing()
+
+    def get(part):
+        d = chips.delays_for(t, part, sta.CORNER)
+        return d["tPD"] / 1000, d["CLK->Q"] / 1000, d["setup"] / 1000
+    g, f = get(grade), get("ATF22V10C-5")
+    return tuple(x - y for x, y in zip(g, f))
+
+
+def cones(c):
+    """A case's fan-in counter: for a net, {GAL: (combinational passes,
+    clocked passes)} at most on any path that times it, as the case has
+    it (the inputs constants don't rule out; drivers that are on)."""
+    memo = {}
+
+    def merge(into, k):
+        for g, (p, q) in k.items():
+            a, b = into.get(g, (0, 0))
+            into[g] = (max(a, p), max(b, q))
+
+    def net(n):
+        if n in memo:
+            return memo[n]
+        memo[n] = {}
+        out = {}
+        for inst, pin in c.N.drivers.get(n, []):
+            _v, t, en, _cause = c.output(inst, pin)
+            if en is False or t == NEG:
+                continue
+            k = {}
+            if inst.type.model == "gal":
+                o = next((o for o in inst.gal if o[0] == pin), None)
+                if o is None:
+                    continue
+                if o[1]:
+                    merge(k, net(inst.conn["CLK"]))
+                    p_, q_ = k.get(inst.ref, (0, 0))
+                    k[inst.ref] = (p_, q_ + 1)
+                else:
+                    for ip in c._gal_sop(inst, o[3])[1]:
+                        merge(k, net(inst.conn[ip]))
+                    p_, q_ = k.get(inst.ref, (0, 0))
+                    k[inst.ref] = (p_ + 1, q_)
+                oe = getattr(inst, "gal_oe", {}).get(pin)
+                if oe is not None:
+                    ko = {}
+                    for ip in c._gal_sop(inst, oe)[1]:
+                        merge(ko, net(inst.conn[ip]))
+                    p_, q_ = ko.get(inst.ref, (0, 0))
+                    ko[inst.ref] = (p_ + 1, q_)
+                    merge(k, ko)
+            elif inst.type.family != "fixture":
+                for frm, to, _dn in inst.type.arcs:
+                    if pin in to:
+                        for ip in frm:
+                            if ip in inst.conn:
+                                merge(k, net(inst.conn[ip]))
+            merge(out, k)
+        memo[n] = out
+        return out
+    return net
+
+
+def constraints_for(item):
+    """A case's requirements as constraints on the GALs' grades: [(phase,
+    "end" and the need, or "fixed" and the slack, the instance it ends at,
+    {GAL: passes})]; an end requirement's slack is to its half's end, at
+    the ticks the table gives."""
+    (w, two, extra), _labels = item
+    out = []
+    for ph in ("L", "H") if two else ("L",):
+        c = case_for(w, extra, ph, two)
+        fixed = []
+        end, _bad = requirements(c, fixed)
+        cone = cones(c)
+        for need, desc, n in end:
+            out.append((ph, "end", need, desc.split(".")[0].split(" ")[0], cone(n)))
+        for slack, desc, n in fixed:
+            out.append((ph, "fixed", slack, desc.split(".")[0].split(" ")[0], cone(n)))
+    return (w, two, extra), out
+
+
+def grades(log=print, jobs=4):
+    """{GAL: grade}, from one analysis: each requirement's slack (to its
+    half's end at the ticks the table gives, or to its fixed tick) against
+    the GALs that can time it, each its grade's extra delay as many times
+    as a path passes it, and the setup's for the GAL it ends at. The
+    22V10s go to DIP-24 first (the -7, the most of them), then to the
+    -15 and the CQZ-20 for power, each step kept if every requirement
+    still meets its slack: a bound, so the table stays the -5s'."""
+    global _N
+    _N = None
+    items = list(sta_words().items())
+    with ProcessPoolExecutor(jobs) as ex:
+        res = list(ex.map(time_case, items, chunksize=8))
+        cons = list(ex.map(constraints_for, items, chunksize=8))
+    tab, _over = table(res)
+    fixed_f = []
+    requirements(case_for(0, (), "F", True), fixed_f)
+    cf = cones(case_for(0, (), "F", True))
+    rows = [(s_, ref, cf(n)) for s_, desc, n in fixed_f
+            for ref in [desc.split(".")[0].split(" ")[0]]]
+    for (w, two, extra), lst in cons:
+        f = uc.unpack(w)
+        io = dict(extra).get("AIO") == 1
+        for ph, kind, v, sink, k in lst:
+            if kind == "fixed":
+                rows.append((v, sink, k))
+                continue
+            lo, hi = tab[(w, two)]
+            if ph == "L":
+                n, start = (IO_TICKS if io else lo), 3 * K
             else:
-                del up[ref]
-            r = outcome(up)
-            n = sum(1 for k in base[0] if r[0].get(k) != base[0][k]) + sum(r[1])
-            if best is None or n < best[0]:
-                best = (n, up, ref)
-        log(f"together: {worse} differ; {best[2]} up a grade: {best[0]}")
-        pick = best[1]
+                n = IO_TICKS if io and floors(f, 1) == 3 else hi
+                start = 0.0
+            rows.append((start + n * K + TCO - v, sink, k))
+    rows = [r for r in rows if r[2] or r[1]]
+    log(f"{len(rows)} requirements")
+    nl = board2.build(sim=True)
+    gals = [i for i in nl.instances if i.type.name == "22v10" and i.ref not in GRADE_FIXED]
+    delta = {g: _delta(g) for g in GRADES}
+    delta["ATF22V10C-5"] = (0.0, 0.0, 0.0)
+    by = {}
+    for i, (_s, sink, k) in enumerate(rows):
+        for g in set(k) | {sink}:
+            by.setdefault(g, []).append(i)
+    used = [0.0] * len(rows)
+    pick = {}
+
+    def cost(i, ref, grade):
+        _s, sink, k = rows[i]
+        dp, dc, ds = delta[grade]
+        p, q = k.get(ref, (0, 0))
+        return p * dp + q * dc + (ds if sink == ref else 0.0)
+
+    for grade in reversed(GRADES):                  # the -7, the -15, the CQZ-20
+        for inst in gals:
+            ref = inst.ref
+            fast = inst.conn.get("CLK") == "MCLK" and any(o[1] for o in inst.gal)
+            floor = GRADE_FLOOR.get(ref, GRADES[1] if fast else GRADES[0])
+            if GRADES.index(grade) < GRADES.index(floor):
+                continue
+            cur = pick.get(ref, "ATF22V10C-5")
+            extra = [(i, cost(i, ref, grade) - cost(i, ref, cur)) for i in by.get(ref, [])]
+            if all(used[i] + e <= rows[i][0] + 1e-9 for i, e in extra):
+                for i, e in extra:
+                    used[i] += e
+                pick[ref] = grade
+    log(f"from the bound: {len(pick)} out of the -5")
+    # the bound adds up every path's worst at once: try each -5 left as
+    # the -7, the analysis run for it
+    base = outcome({})
+    for inst in gals:
+        if inst.ref not in pick and outcome(dict(pick, **{inst.ref: GRADES[-1]})) == base:
+            pick[inst.ref] = GRADES[-1]
+            log(f"{inst.ref}: the -7 too")
+    return pick
 
 
-def cmd_grades(args):
-    pick = grades()
+def cmd_grades(pick):
     print("GAL_GRADES = {")
-    for ref, g in sorted(pick.items(), key=lambda kv: (GRADES.index(kv[1]), kv[0])):
+    for ref, g in sorted(pick.items(), key=lambda kv: (GRADES[::-1].index(kv[1]), kv[0])):
         print(f'    "{ref}": "{g}",')
     print("}")
     return 0
