@@ -10,6 +10,7 @@ in the RAM); the suite's I/O page is a test fixture at 0xFFFF_FF00.
                                     every instruction fetch with its cycle
   heron chibi hw run PROG.s [--trace A:B]
   heron chibi hw sta [--paths N]    static timing analysis (sta.py)
+  heron chibi hw sta2 [--suite]     the two-halves variant's (sta2.py)
   heron chibi hw bom                the parts list
 """
 
@@ -262,6 +263,9 @@ def main(argv):
     s = sub.add_parser("sta")
     s.add_argument("--paths", type=int, default=3)
     s.add_argument("--write", action="store_true")
+    s2 = sub.add_parser("sta2")
+    s2.add_argument("--paths", type=int, default=2)
+    s2.add_argument("--suite", action="store_true")
     sub.add_parser("bom")
     args = p.parse_args(argv)
     if args.cmd == "test":
@@ -273,6 +277,9 @@ def main(argv):
     if args.cmd == "sta":
         from . import sta
         return sta.cmd_sta(args)
+    if args.cmd == "sta2":
+        from . import sta2
+        return sta2.cmd_sta2(args)
     return 2
 
 
