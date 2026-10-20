@@ -220,8 +220,8 @@ unary op. So a 1b-based draft 2 can make `r0` a 15th general register.
     RFC 0028's map gives it a cell. `MOV [x], #0` can assemble to it.
   - `ADC`/`SBC`, `MTSR` and `MTUR` still need a zero from a register, or
     new forms: `ADC`, `SBC` and the tagged `CMP` with a quick constant,
-    say. Which is **open**
-    ([RFC 0028, 12](0028-rfc-draft-2-isa.md#12-open-questions)).
+    say. No new forms: a `CLR rX` first (Emily, 2026-10-20;
+    [RFC 0028, 12](0028-rfc-draft-2-isa.md#12-open-questions)).
   - The hardware's zero becomes a hidden register-file entry.
 - **Against, as weighed before the decision:**
   - It's about 1% either way, so performance doesn't decide it.
@@ -338,9 +338,10 @@ set N and Z (C and V unchanged); stores don't.
   - the rule reads "ALU operations and `MOVS` set the flags; moves
     don't".
   - `MOVS rs`, a register copy that sets N and Z, is in the map too, and
-    open ([RFC 0028, 12](0028-rfc-draft-2-isa.md#12-open-questions)). By
-    the traces above its flags would hardly ever be read, and
-    `CMP r, #0` already tests a register.
+    stays (Emily, 2026-10-20;
+    [RFC 0028, 12](0028-rfc-draft-2-isa.md#12-open-questions)). By the
+    traces above its flags would hardly ever be read, and `CMP r, #0`
+    already tests a register.
 
 Measured at `b6ffcfd` (the loads by mode at `0987e76`) with scripts that
 aren't committed.

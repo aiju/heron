@@ -35,14 +35,22 @@ class RoundTrip(unittest.TestCase):
         """Every first parcel, with a few patterns of extension parcels:
         what the disassembler prints assembles to no more parcels and
         disassembles the same. The one difference allowed is LEA rd, [rs],
-        which is MOV rd, rs."""
+        which is MOV rd, rs; the undefined instructions (RFC 0028, 2) are
+        refused."""
         pc = 0x2000
+        undefined = ("can't be the register its mode steps", "the register [sp]+ steps",
+                     "range can't hold its base register")
         for ext in ([0xFF00, 0x0001], [0x2A12, 0x8000], [0x3502, 0x0010], [0x7000, 0x1234]):
             for w in range(0x10000):
                 text, n = V2.disassemble([w] + ext, pc)
                 if text.startswith(".half"):
                     continue
-                img = asm.assemble_text(V2, f"        .org {pc}\n        {text}\n")
+                try:
+                    img = asm.assemble_text(V2, f"        .org {pc}\n        {text}\n")
+                except asm.AsmError as e:
+                    if any(u in e.msg for u in undefined):
+                        continue
+                    raise
                 st = [s for s in img.stmts if s.kind == "insn"][0]
                 text2, _ = V2.disassemble(st.words + [0, 0], pc)
                 m = re.fullmatch(r"LEA (\w+), \[(\w+)\]", text)

@@ -13,8 +13,8 @@ depends-on: [6]
 # RFC 0028: Draft 2's instruction set
 
 Draft 2's instructions, their encoding and their assembler syntax. Part I
-is the specification, with what isn't decided marked **open**; Part II is
-where it comes from, the measurements behind it and the open questions.
+is the specification; Part II is where it comes from, the measurements
+behind it and the questions it answered.
 What the CPU gives an operating system (modes, register banks, address
 translation, exceptions) is [RFC 0029](0029-rfc-draft-2-system.md).
 
@@ -50,7 +50,7 @@ website's Apps page has with this map built in.
   The status register's other bits, the special registers other than `ccr`, the
   modes, register banks, address translation, exceptions and reset are
   [RFC 0029](0029-rfc-draft-2-system.md)'s. The calling convention beyond
-  `r7` and `sp` is **open**.
+  `r7` and `sp` is the software's, not the instruction set's.
 
 ### 2. Instruction format
 
@@ -85,6 +85,10 @@ word 8 "byte 1" beside
   illegal instruction: the free cells of the map and of the extension
   grids, reserved bits that aren't 0, modes an instruction doesn't take,
   the index parcel's size 3 and the special mode's `R` = F.
+- **Two kinds of instruction are undefined:** an instruction whose `rd`
+  is the register its mode steps ([3](#3-addressing-modes)), and an `LDM`
+  whose range holds its base ([5.8](#58-multiple-registers)). They don't
+  trap, and what they do isn't specified, so programs mustn't use them.
 
 | Instruction | In memory |
 |---|---|
@@ -126,8 +130,9 @@ and 8–A of the map and in `LEA`'s cells in row 0, and as the mode nibble
 
 - **Displacements** (d16, d8) are signed.
 - **Auto-increment and auto-decrement** change `R` only once the access
-  has succeeded. A load whose `rd` is the mode's own `R` (`MOV r1, [r1]+`)
-  is **open**.
+  has succeeded. An instruction whose `rd` is that same `R` is undefined
+  ([2](#2-instruction-format)): `MOV r1, [r1]+`, `ADD r1, -[r1]`,
+  `CMP r1, byte [r1]+`.
 
 #### The index parcel
 
@@ -157,10 +162,10 @@ high nibble and `R` in its low one, so one cell takes every mode.
 |---|---|
 | `MOV rd, src`, `ADD`, `SUB`, `CMP`, `AND`, `OR`, `XOR` | all |
 | `MOV dst, rs`, a store | the memory modes: all but 0, 1, D and the special mode's constants |
-| `MOVS rd, src` | all but 1 and D; the special mode's constants are **open** |
+| `MOVS rd, src` | all but 1 and D |
 | `CLR`, `INC`, `DEC` | all but 1, D and the special mode's constants |
 | `LEA rd, ea` | 3, 4, 5, E and the special mode's memory operands |
-| `JMP`, `CALL` | all; a byte or half memory operand traps (**open**) |
+| `JMP`, `CALL` | all; a byte or half memory operand traps |
 | `BIC`, `TST`, `MULU`, `MULS` | a register, or any of the special mode's operands |
 
 #### 3.1 The special mode
@@ -221,7 +226,7 @@ the instructions are written `MOV` and `CMP` ([6](#6-assembler-syntax)).
 | C_ | LSL #n ×2 | ↳ | LSL rs |  | LSR #n ×2 | ↳ | LSR rs |  | ASR #n ×2 | ↳ | ASR rs |  | ROR #n ×2 | ↳ | ROR rs |  |
 | D_ | NOT | NEG | INC | DEC | RLC | RRC | SWAP | SXB | SXH | ZXB | ZXH | CLZ | FFS | POPC | REV | SETcc |
 | E_ | ADC rs | SBC rs | BIC rs | TST rs | MULU rs | MULS rs | MULA | DIVU rs | DIVS rs | DIVUL rs | BIC spec +1–2 | TST spec +1–2 | MULU spec +1–2 | MULS spec +1–2 | MERGE |  |
-| F_ | JMP ea +0–2 | CALL ea +0–2 | Jcc rel16 +1 | Jcc abs32 +2 | SAVE ra-rb | RESTORE ra-rb | DBNZ r,back4 | CAS | FPU ea +1–3 |  |  |  | SWI #n | ext: misc | ext: system | ILLEGAL |
+| F_ | JMP ea +0–2 | CALL ea +0–2 | Jcc rel16 +1 | Jcc abs32 +2 | SAVE ra-rb | RESTORE ra-rb | DBNZ r,back4 | CAS (future) | FPU (future) |  |  |  | SWI #n | ext: misc | ext: system | ILLEGAL |
 -->
 ![The opcode map](0028-rfc-draft-2-isa/opcode-map.svg)
 
@@ -236,9 +241,11 @@ The extension grids, by their second byte:
 | | | `FE 10`–`FE 18` | `SPL #n` |
 
 Free, and so trapping: the root cells `C3`, `C7`, `CB`, `CF`, `EF` and
-`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE 0F` and `FE 19`–`FE FF`. `CAS`
-(`F7`) and the floating-point escape (`F8`) are **open** and trap until
-they're designed. What becomes of `FD` is **open**.
+`F9`–`FB`; `FD 01`–`FD FF`; `FE 04`–`FE 0F` and `FE 19`–`FE FF`.
+
+Reserved for future extensions, and trapping until they're designed:
+`F7` for `CAS`, a compare-and-swap, and `F8` for the floating-point
+escape.
 
 ### 5. Instructions
 
@@ -290,7 +297,7 @@ mode's `R`) in its low one.
 
 - **For a byte or half operand,** `MOVS` takes N from the operand's bit 7
   or 15, and Z from the operand (**decided**, Emily, 2026-10-15). So do
-  `INC` and `DEC`, from the value they store (**open**).
+  `INC` and `DEC`, from the value they store.
 - **`LEA`'s cells** are its modes' columns: `03`–`05` are modes 3–5,
   `0E` mode E and `0F` the special mode (**decided**, Emily, 2026-10-16).
 - **`LEA`'s byte, half and word forms** give the same address.
@@ -339,8 +346,7 @@ mode's `R`) in its low one.
   may be `r0`.
 - **With `rd` = `r0`,** `rd`'s result is written last and stays: `MULU
   r0:r0, src` gives the low 32 bits of the product, and `DIVU r0:r0, rs`
-  the quotient (**open**, tentative). The alternative is that such
-  encodings are illegal. No other register can meet `r0`'s write: the
+  the quotient. No other register can meet `r0`'s write: the
   multiplies take a register or the special mode, which changes no
   register, and the rest take registers.
 
@@ -365,7 +371,7 @@ mode's `R`) in its low one.
 | `DC`–`DE` | `FFS`, `POPC`, `REV` | tentative ([5.10](#510-tentative-instructions)) | |
 
 **`SETcc rd`** (`DF`): `rd` ← 1 if condition cc holds, else 0. The
-register byte holds `rd` and cc; cc = F traps (**open**). Flags: –.
+register byte holds `rd` and cc; cc = F traps. Flags: –.
 
 #### 5.5 Shifts
 
@@ -379,7 +385,7 @@ In place, in row C:
 | `ROR rd, #n`, `ROR rd, rs` | `CC`–`CD`, `CE` | rotate right |
 
 - **The count** is n, 0…31, or `rs` & 31. n's bit 0 is the opcode's
-  bit 0, and its bits 4–1 the register byte's low nibble (**open**).
+  bit 0, and its bits 4–1 the register byte's low nibble.
 - **Flags:** NZ; C is the last bit shifted out, or for `ROR` the new
   bit 31, and unchanged for a count of 0; V ← 0.
 
@@ -397,10 +403,10 @@ In place, in row C:
   byte. cc = E is `BRA`, and cc = F is `BSR`, a call
   ([5.7](#57-jumps-and-calls)).
 - **`Jcc`** holds cc in the register byte's high nibble and its low
-  nibble must be 0, and cc = E is `JMP`, cc = F `CALL` (**open**). s16 is
+  nibble must be 0, and cc = E is `JMP`, cc = F `CALL`. s16 is
   the extension parcel.
 - **`DBNZ`** holds `r` in the register byte's high nibble and k − 1 in its
-  low nibble: it branches k = 1…16 parcels back (**open**).
+  low nibble: it branches k = 1…16 parcels back.
 
 #### 5.7 Jumps and calls
 
@@ -429,11 +435,11 @@ In place, in row C:
 | `STM rb, ra-rc` | `02` +1 | `ra`…`rc` to `[rb]`, `[rb + 4]`, … |
 
 - **`SAVE` and `RESTORE`** hold `ra` and `rb` in the register byte, any
-  range with `ra` ≤ `rb` ≤ 14; any other traps (**open**).
+  range with `ra` ≤ `rb` ≤ 14; any other traps.
 - **`LDM` and `STM`** hold `ra` and `rb` in the register byte, and `rc`
-  in bits 15–12 of the extension parcel, whose other bits must be 0
-  (**open**). `rc` < `ra` traps. `rb` doesn't change. An `LDM` whose
-  range includes `rb` is **open**.
+  in bits 15–12 of the extension parcel, whose other bits must be 0.
+  `rc` < `ra` traps. `rb` doesn't change. An `LDM` whose range includes
+  `rb` is undefined ([2](#2-instruction-format)).
 - n is the number of registers. No flags change.
 
 #### 5.9 System instructions
@@ -473,7 +479,7 @@ change or go (Emily, 2026-10-15).
 in 4–0; bits 7–5 must be 0.
 
 **The tagged operations** check that their operands are integers, tagged
-with bit 0 clear (**open**). A failed check is a tag trap
+with bit 0 clear. A failed check is a tag trap
 ([RFC 0029, 6](0029-rfc-draft-2-system.md#6-exceptions)), taken before
 anything changes.
 
@@ -488,8 +494,8 @@ anything changes.
 ### 6. Assembler syntax
 
 The assembler's directives, expressions and labels are those of infra's
-assembler ([infra](../infra/README.md)). Whether mnemonics and register
-names may be written in either case is **open**.
+assembler ([infra](../infra/README.md)). Case doesn't matter in
+mnemonics and the names of registers and special registers.
 
 - **Registers:** `r0`–`r15`, and `sp` for `r15`.
 - **Operands:**
@@ -526,10 +532,12 @@ names may be written in either case is **open**.
   | `NOP` | `MOV r0, r0` |
 
 - **Not accepted:** `ST`, `MVI` and `CMPI` (**decided**, Emily,
-  2026-10-15), and `LI`, `MFF` and `MTF` (**open**). The assembler says
-  what to write instead.
+  2026-10-15), and `LI`, `MFF` and `MTF`. The assembler says what to
+  write instead.
+- **Undefined instructions** ([2](#2-instruction-format)) are refused:
+  `MOV r1, [r1]+`, `POP sp`, `LDM r5, r4-r7`.
 - **One spelling per instruction:** the assembler takes what the
-  disassembler prints (**open**).
+  disassembler prints.
 - **Special registers** are written by name (`ccr` and RFC 0029's, such as
   `sr`) or by number.
 - **Branches and calls:** `Bcc label`, `BRA`, `BSR`; `JMP label` and
@@ -539,18 +547,16 @@ names may be written in either case is **open**.
 - **The encoding** is the shortest that holds the operand:
   - **Constants:** the quick constant for 0…15 and −1…−16, the 7-bit form
     for 16…127 (`MOV` and `CMP`), then the special mode's 16-bit forms and
-    its 32-bit one. The quick constant takes 0…15 (**open**). A label's
+    its 32-bit one. The quick constant takes 0…15. A label's
     value isn't known when it's assembled, so `#label` takes a 16- or
     32-bit form.
   - **`[R + d]`:** `[R]` for d = 0, then mode 4 or E for a word at
     `sp` or `r14` + 0…60, then `[R + d16]`, then the special mode's D with
-    `R` as its index where d needs 17–24 bits (**open**).
+    `R` as its index where d needs 17–24 bits.
   - **An absolute address:** abs16, then `PC` + d16, then abs32.
-  - **`LEA rd, [R]`** is `MOV rd, R`, since `LEA` has no mode 2
-    (**open**).
+  - **`LEA rd, [R]`** is `MOV rd, R`, since `LEA` has no mode 2.
   - **`BIC`, `TST`, `MULU` and `MULS` with a memory operand** have only
-    the special mode, so `[R + d]` becomes D with `R` as its index
-    (**open**).
+    the special mode, so `[R + d]` becomes D with `R` as its index.
   - **`INC r5` and `DEC r5`** are row D's forms; `MOV [x], #0` is
     `CLR [x]`.
 - **`.align`** pads code with `NOP`.
@@ -720,8 +726,8 @@ What changed from 1b, beyond the encoding:
     that `DEC` and `BNE` take now.
   - A loop buffer would make it worth much more
     ([RFC 0007](0007-rfc-ideas-microarchitecture.md#1-datapath-and-fetch)).
-- **`Jcc`'s spare nibble** must be 0 for now, so it could later widen the
-  offset ([12](#12-open-questions)).
+- **`Jcc`'s spare nibble** must be 0, so it could later widen the
+  offset.
 
 #### 9.4 Shifts and unary operations
 
@@ -755,11 +761,13 @@ What changed from 1b, beyond the encoding:
   microcode routine per range, 1,476 of its 3,507 microinstructions; a
   loop with a counting register number would free them
   ([RFC 0007](0007-rfc-ideas-microarchitecture.md#1-datapath-and-fetch)).
-- **`LDM` with its base in the range.** The tools read every word before
-  writing any register, which is easy in a simulator and would need a
-  buffer of up to 15 words in hardware. Loading the base register's word
-  last, held in one temporary, restarts as cleanly
-  ([12](#12-open-questions)).
+- **`LDM` with its base in the range is undefined** (Emily, 2026-10-20).
+  Nothing uses it. Reading every word before writing any register would
+  need a buffer of up to 15 words in hardware; loading the base's word
+  last, or trapping, needs each register number compared with the base.
+  The netlist loads it in its turn, which is right unless a fault
+  restarts the instruction from the overwritten base. The assembler
+  refuses it and the simulator stops on it.
 - **`LEA`** keeps `[R + d16]`, `[sp + 4R]`, indexed and the special
   mode, and has mode E (Emily, 2026-10-16).
   - Its cells sit in its modes' columns, as in rows 1–A, so throughout
@@ -785,7 +793,9 @@ What changed from 1b, beyond the encoding:
   arguments and results ([RFC 0029](0029-rfc-draft-2-system.md)).
 - **The extension grids** hold instructions without operands, which are
   still one parcel there. With `RET` now `JMP r7` and `NOP` a `MOV`, `FD`
-  holds only the tentative `MULFX`, and may go.
+  holds only the tentative `MULFX`. It stays (Emily, 2026-10-20): with 8
+  root cells free, freeing it buys nothing, and an instruction whose
+  operands fill an extension parcel goes there without a root cell.
 - **`00` and `FF` are `ILLEGAL`,** so a jump into zeroed or erased memory
   traps. Draft 1 made the zero parcel `HALT`; a trap gives the kernel the
   `PC`.
@@ -828,7 +838,7 @@ What changed from 1b, beyond the encoding:
 - **What still needs a zero** ([RFC 0006, 3.3](0006-rfc-ideas-isa.md#33-r0-as-a-general-register)):
   `ADC r5, r0` in bignum, `SBC r6, r0` in sort, and the kernel's
   `MTUR r1, r0` and `MTSR mapd, r0`. These take a
-  `CLR rX` first, or new forms ([12](#12-open-questions)). The Lisp's
+  `CLR rX` first; there are no new forms (Emily, 2026-10-20). The Lisp's
   `CMP.T r1, r0` becomes `TTST r1, r1`.
 - **In the hardware:** `NEG` and the multiply and divide routines read
   `r0` as zero. A hidden register-file entry that the reset routine zeroes
@@ -858,8 +868,11 @@ where they fit, so that their use can be measured (Emily, 2026-10-15).
   - `TTST r1, r1` checks `r1` and sets Z if it's zero and N if it's
     negative: the Lisp's `zero?` and its check of one operand, which v1bx
     wrote as `CMP.T r1, r0` and `MOV.T r9, r1`.
-  - The Lisp tags integers with bit 0 clear and Egret as 2n + 1; the
-    tools take the Lisp's until it's settled.
+  - The Lisp tags integers with bit 0 clear and Egret as 2n + 1. The
+    tagged operations check bit 0 clear (Emily, 2026-10-20): with an
+    integer n held as 2n, `TADD` and `TSUB` are a plain addition and
+    subtraction, where 2n + 1 would need a correction of 1. Egret would
+    change its tag to use them.
 
 #### 9.9 `HI` and `LO` are `r0` and `r1`
 
@@ -889,8 +902,8 @@ added were special registers 1 and 2.
   What happens when a multiply or divide has `rd` = `r0`, and so writes
   it twice, is a new one. The proposal writes `rd` last, so it wins and
   a register allocator may still pick `r0` for it
-  ([5.3](#53-multiply-and-divide)). It's sound, and stays
-  tentative (Emily, 2026-10-16). The alternative is to make the
+  ([5.3](#53-multiply-and-divide)). It's sound (Emily, 2026-10-16), and
+  decided (Emily, 2026-10-20). The alternative was to make the
   conflicting encodings illegal, so a mistake traps; Emily finds the
   proposal more useful.
 - **Written out in the syntax** (**decided**, Emily, 2026-10-16):
@@ -1000,8 +1013,8 @@ after it:
   ([RFC 0006, 2](0006-rfc-ideas-isa.md#2-1a-against-1b-and-the-base-for-draft-2)).
 - **A load and `SXB`** cost a parcel and 2 cycles more than a signed load
   would. A signed load takes a cell per mode: `MOV rd, sbyte [R]+`, say.
-- **Proposed:** none. A C ABI with a signed `char` would change this, and
-  there's no reason for one.
+- **Decided:** none (Emily, 2026-10-20). A C ABI with a signed `char`
+  would change this, and there's no reason for one.
 
 ### 11. How it was measured
 
@@ -1019,57 +1032,61 @@ programs and the 15 C programs compiled for 1b, with their C library.
 
 ### 12. Open questions
 
-Part I marks each of these **open**; the proposal is what it states.
+Answered by Emily on 2026-10-20; Part I states each answer. Most take
+what the tools and the netlist already did.
 
-1. **`CAS`** (`F7`). One cell holds two registers, so one operand is
-   implicit. For example `CAS rs, [R]` with the expected value in `r1`, as
-   x86's `CMPXCHG` has it: Z on success, the current value into `r1` on
-   failure. Its locked read is checked as a store
+1. **`CAS`** (`F7`): reserved for a future extension. One CPU doesn't
+   need it: turning interrupts off or a restartable sequence is enough,
+   and the I/O processor talks to the CPU through doorbells. It's
+   designed when a second bus master shares data structures with the
+   CPU. Until then none of the CPU's instructions drives the system bus's
+   LOCK. The proposal so far: one cell holds two registers, so one
+   operand is implicit, as in `CAS rs, [R]` with the expected value in
+   `r1`, as x86's `CMPXCHG` has it: Z on success, the current value into
+   `r1` on failure. Its locked read is checked as a store
    ([RFC 0029, 6](0029-rfc-draft-2-system.md#6-exceptions)); LOCK is
    released on a fault; a locked read-modify-write of the CPU's own RAM
    holds off its slave port
    ([RFC 0014](0014-rfc-system-bus.md#73-locked-sequences)). `XCHG` as
    well? `TAS` isn't needed beside the bus's semaphores.
-2. **The floating-point escape** (`F8`). A command word plus a mode with
-   32-bit data makes four parcels, one over the limit. Either its mode
-   table leaves out the 32-bit forms, or escapes may be four parcels.
-3. **`LEA` with the special mode,** or a dedicated `LEA rd, [pc + d]`.
-4. **What `r0`'s change needs:** `ADC` and `SBC` with a constant, or a
-   `CLR rX` first ([9.7](#97-r0-is-a-general-register)).
-5. **The tag that marks an integer:** the Lisp's bit 0 clear, as now, or
-   Egret's 2n + 1. A register holding the expected tag bit could serve
-   both.
-6. **`LDM` and `STM`:** what the extension parcel's 12 spare bits do
-   (direction, writeback), and an `LDM` whose range includes its base:
-   load the base's word last, as proposed in
-   [9.5](#95-calls-multiple-registers-and-rows-0-and-f), or trap.
-7. **The opcode byte first in memory,** as in the map, or second.
-8. **`MOVS rs`,** in the map. Register copies' flags were read 21 times in
-   86,000. And whether `MOVS` takes the special mode's constants.
-9. **`Jcc`:** cc = E and F as `JMP` and `CALL`, and its spare nibble, 0
-   for now: a 20-bit relative offset later?
-10. **Sign-extending loads.** Proposed: none ([10.3](#103-sign-extending-loads)).
-11. **How the assembler picks an encoding** ([6](#6-assembler-syntax)):
-    - the quick constant for 0…15, to keep the output reproducible;
-    - the order of the `[R + d]` forms, and D with `R` as its index for
-      the 17–24-bit displacements;
-    - a qualifier that forces a long form, for patching code in place or
-      instructions of a fixed length (`MOV.L r1, #5`, say, like ARM's
-      `.W`), only if something needs it.
-12. **The details the tools chose:** the shift count's split, `SETcc`
-    with cc = F, `SAVE` and `RESTORE` within `r0`–`r14`, `DBNZ`'s offset,
-    `INC` and `DEC` on a byte taking N from bit 7, `JMP` and `CALL`
-    refusing byte and half memory operands, a load into its own
-    auto-incremented register, and which result stays when a multiply
-    or divide has `rd` = `r0` ([5.3](#53-multiply-and-divide); or those
-    encodings are illegal).
-13. **Syntax:** `LI`, `MFF` and `MTF` refused; one spelling per
-    instruction; case.
-14. **The calling convention** beyond `r7` and `sp`.
-15. **`FD`:** kept as room for rare instructions, or freed, with `MULFX`
-    moving elsewhere.
+2. **The floating-point escape** (`F8`): reserved for a future
+   extension, designed with an FPU. A command word and an operand with
+   32-bit data would make four parcels, one over the limit: either its
+   operands leave out the 32-bit forms, or escapes may be four parcels.
+3. **`LEA` with the special mode:** in `0F`, decided earlier (Emily,
+   2026-10-16); it has `PC` + d16.
+4. **What `r0`'s change needs:** no new forms. A `CLR rX` first, where
+   anything needs a zero ([9.7](#97-r0-is-a-general-register)).
+5. **The integer tag:** bit 0 clear, the Lisp's
+   ([9.8](#98-tentative-instructions)).
+6. **`LDM` and `STM`:** the extension parcel's 12 spare bits must be 0,
+   which keeps them for later: a direction, or writeback. An
+   `LDM` whose range includes its base is undefined: checking for it
+   would cost hardware ([9.5](#95-calls-multiple-registers-and-rows-0-and-f)).
+7. **The opcode byte first in memory,** as in the map.
+8. **`MOVS rs`** stays, and `MOVS` takes the special mode's constants.
+9. **`Jcc`:** cc = E and F are `JMP` and `CALL`, and the spare nibble
+   must be 0.
+10. **Sign-extending loads:** none ([10.3](#103-sign-extending-loads)).
+11. **How the assembler picks an encoding:** as the tools do it, in
+    [6](#6-assembler-syntax). No qualifier forces a long form until
+    something needs one.
+12. **The details the tools chose** stand: the shift count's split,
+    `SETcc` with cc = F trapping, `SAVE` and `RESTORE` within `r0`–`r14`,
+    `DBNZ`'s offset, `INC` and `DEC` on a byte taking N from bit 7,
+    `JMP` and `CALL` refusing byte and half memory operands, and `rd`'s
+    result staying when a multiply or divide has `rd` = `r0`. An
+    instruction whose `rd` is the register its mode steps is undefined:
+    trapping it would cost hardware too.
+13. **Syntax:** `LI`, `MFF` and `MTF` are refused; one spelling per
+    instruction; case doesn't matter.
+14. **The calling convention** is the software's, not the instruction
+    set's. The C compiler's is the one in use
+    ([compiler.md](../studies/c_compiler/compiler.md#calling-convention)).
+15. **`FD`** stays an extension grid ([9.5](#95-calls-multiple-registers-and-rows-0-and-f)).
 16. **Room to grow:** 8 free cells, and `AND`, `OR` and `XOR`'s memory
-    columns ([9.2](#92-alu-operations-and-constants)).
+    columns ([9.2](#92-alu-operations-and-constants)). New cells wait for
+    a measurement that asks for one.
 
 ### 13. Next steps
 
