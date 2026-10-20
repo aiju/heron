@@ -1,0 +1,13 @@
+# The static timing engine (RFC 0048): waveforms over a cycle. Python uses
+# it through heron/bindings as heron.native.sta.
+[package]
+name = "sta"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true
