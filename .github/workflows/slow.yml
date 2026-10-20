@@ -18,8 +18,9 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
       - run: python3 -m heron build
-      # the signal-integrity study's tests (not its sweeps) need numpy
-      - run: pip install numpy
+      # the signal-integrity study's tests (not its sweeps) need numpy, the
+      # formal study's z3
+      - run: pip install numpy z3-solver
       - run: python3 -m heron test --active
       - run: python3 -m heron v1_isa test
       - run: python3 -m heron v1_isa --isa v1a test

@@ -45,7 +45,7 @@ How the repository is organised, and why: [RFC 0000](reports/0000-rfc-repository
 |---|---|
 | [docs/](docs/README.md) | The current design: what has been decided, as reference |
 | [reports/](reports/README.md) | Numbered reports (what was done and found) and RFCs (proposals that need decisions) |
-| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, draft 2, the 1b system on the bus, the C compiler, a Lisp, the bus signal integrity, graphics, operating systems |
+| [studies/](studies/README.md) | Experiments, one folder each: draft 0, draft 1, the 1b hardware, draft 2, the 1b system on the bus, the C compiler, a Lisp, the bus signal integrity, graphics, operating systems, formal verification |
 | [infra/](infra/README.md) | Reusable code: assembler and linker core, netlist language, static timing analysis, the chip-level simulator |
 | `heron/` | The `heron` command, the glue that makes the folders importable as `heron.*`, and `bindings/`, the crate that makes the Rust engines a Python module (`heron.native`) |
 | `tests/` | Tests of the repository itself |

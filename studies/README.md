@@ -33,4 +33,5 @@ commands, and `heron test <study>` runs its unit tests.
 | [kernel](kernel/README.md) | An operating system for Heron: system extensions to 1b, a benchmark nucleus that measures an OS's hot paths, and page statistics for the MMU |
 | [fen](fen/README.md) | Fen, an operating system for draft 2 in system mode: a message-passing kernel, servers for files, the console and windows, a shell and a desktop, on a board of its own |
 | [chibi](chibi/README.md) | Chibi Heron: draft 2 on one board of about seventy chips, a 16-bit datapath, unpipelined horizontal microcode, VGA, at chip level |
+| [formal](formal/README.md) | Formal verification, explored: the 1b netlist run symbolically and proved against a specification of 1b, instruction by instruction, with an SMT solver |
 | [websim](websim/README.md) | The simulator on the website: the Lisp, Egret and Fen in a browser, on the studies' simulators built for WebAssembly |
