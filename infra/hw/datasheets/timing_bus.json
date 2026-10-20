@@ -124,14 +124,32 @@
         "min": 1,
         "typ": 3,
         "max": 4
+      },
+      "tEA": {
+        "min": 2,
+        "max": 6
+      },
+      "tER": {
+        "min": 2,
+        "max": 5
+      },
+      "tAP": {
+        "min": 3,
+        "max": 7
+      },
+      "tCF": {
+        "max": 2.5
       }
     },
     "checks": {
       "setup": 3,
-      "hold": 0
+      "hold": 0,
+      "tW": 3,
+      "tAW": 5.5,
+      "tAR": 4
     },
     "estimated": ["typ"],
-    "notes": "tPD: an input or a feedback to a combinatorial output; CLK->Q is tCO. The datasheet gives no typical delays. ICC 85 mA typical, 130 maximum."
+    "notes": "tPD: an input or a feedback to a combinatorial output; CLK->Q is tCO. The datasheet gives no typical delays. ICC 85 mA typical, 130 maximum. tEA and tER (an output's enable and disable from its product term), tAP (AR to a registered output) and tCF (clock to feedback, into the array; no minimum given) are the datasheet's; tW is the clock's least high and low time, tAW AR's least width, tAR its recovery to the clock."
   },
   "ATF22V10C-7": {
     "family": "PLD",
@@ -153,16 +171,34 @@
         "min": 2,
         "typ": 4.1,
         "max": 5.5
+      },
+      "tEA": {
+        "min": 3,
+        "max": 7.5
+      },
+      "tER": {
+        "min": 3,
+        "max": 7.5
+      },
+      "tAP": {
+        "min": 3,
+        "max": 10
+      },
+      "tCF": {
+        "max": 2.5
       }
     },
     "checks": {
       "setup": 3.5,
-      "hold": 0
+      "hold": 0,
+      "tW": 3,
+      "tAW": 7,
+      "tAR": 5
     },
     "estimated": [
       "typ"
     ],
-    "notes": "The fastest grade in DIP-24. tPD: an input or a feedback to a combinatorial output (tEA and tER, an output's enable and disable, are 7.5 too); CLK->Q is tCO, 5.5 in DIP packages (4.5 in the others; the datasheet's note 2), and so fMAX with external feedback is 111 MHz in DIP (125 in the others). ICC 85 mA typical, 130 maximum (150 clocked at 15 MHz), as the -5's. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+    "notes": "The fastest grade in DIP-24. tPD: an input or a feedback to a combinatorial output (tEA and tER, an output's enable and disable, are 7.5 too); CLK->Q is tCO, 5.5 in DIP packages (4.5 in the others; the datasheet's note 2), and so fMAX with external feedback is 111 MHz in DIP (125 in the others). ICC 85 mA typical, 130 maximum (150 clocked at 15 MHz), as the -5's. The datasheet gives no typical delays: typ is the -5's ratio of typ to max. tEA and tER (an output's enable and disable from its product term), tAP (AR to a registered output) and tCF (clock to feedback, into the array; no minimum given) are the datasheet's; tW is the clock's least high and low time, tAW AR's least width, tAR its recovery to the clock."
   },
   "ATF22V10C-15": {
     "family": "PLD",
@@ -184,16 +220,34 @@
         "min": 2,
         "typ": 6.0,
         "max": 8
+      },
+      "tEA": {
+        "min": 3,
+        "max": 15
+      },
+      "tER": {
+        "min": 3,
+        "max": 15
+      },
+      "tAP": {
+        "min": 3,
+        "max": 20
+      },
+      "tCF": {
+        "max": 2.5
       }
     },
     "checks": {
       "setup": 10,
-      "hold": 0
+      "hold": 0,
+      "tW": 6,
+      "tAW": 15,
+      "tAR": 10
     },
     "estimated": [
       "typ"
     ],
-    "notes": "tPD: an input or a feedback to a combinatorial output (tEA and tER 15 too); CLK->Q is tCO; tCF (clock to feedback) 2.5. ICC 65 mA typical, 115 maximum (clocked at 15 MHz: 70, 125). Industrial grade, its limits over -40..85 C. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+    "notes": "tPD: an input or a feedback to a combinatorial output (tEA and tER 15 too); CLK->Q is tCO; tCF (clock to feedback) 2.5. ICC 65 mA typical, 115 maximum (clocked at 15 MHz: 70, 125). Industrial grade, its limits over -40..85 C. The datasheet gives no typical delays: typ is the -5's ratio of typ to max. tEA and tER (an output's enable and disable from its product term), tAP (AR to a registered output) and tCF (clock to feedback, into the array; no minimum given) are the datasheet's; tW is the clock's least high and low time, tAW AR's least width, tAR its recovery to the clock."
   },
   "ATF22V10CQZ-20": {
     "family": "PLD",
@@ -215,16 +269,34 @@
         "min": 2,
         "typ": 9.0,
         "max": 12
+      },
+      "tEA": {
+        "min": 3,
+        "max": 20
+      },
+      "tER": {
+        "min": 3,
+        "max": 20
+      },
+      "tAP": {
+        "min": 3,
+        "max": 22
+      },
+      "tCF": {
+        "max": 8
       }
     },
     "checks": {
       "setup": 14,
-      "hold": 0
+      "hold": 0,
+      "tW": 10,
+      "tAW": 20,
+      "tAR": 20
     },
     "estimated": [
       "typ"
     ],
-    "notes": "'Zero power': its input transition detection powers it down while its inputs are still, 5 uA typical, 100-120 maximum; clocked at 15 MHz, ICC 40 mA typical, 80 maximum (industrial). tPD: an input or a feedback to a non-registered output (tEA, tER 20 too); CLK->Q is tCO; tCF (clock to feedback) 8, so fMAX with internal feedback 45.5 MHz: not on the 50.35 MHz master clock. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+    "notes": "'Zero power': its input transition detection powers it down while its inputs are still, 5 uA typical, 100-120 maximum; clocked at 15 MHz, ICC 40 mA typical, 80 maximum (industrial). tPD: an input or a feedback to a non-registered output (tEA, tER 20 too); CLK->Q is tCO; tCF (clock to feedback) 8, so fMAX with internal feedback 45.5 MHz: not on the 50.35 MHz master clock. The datasheet gives no typical delays: typ is the -5's ratio of typ to max. tEA and tER (an output's enable and disable from its product term), tAP (AR to a registered output) and tCF (clock to feedback, into the array; no minimum given) are the datasheet's; tW is the clock's least high and low time, tAW AR's least width, tAR its recovery to the clock."
   },
   "74F10": {
     "family": "F",

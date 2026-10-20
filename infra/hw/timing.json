@@ -2560,13 +2560,35 @@
  "ATF22V10C-15": {
   "checks": {
    "hold": 0,
-   "setup": 10
+   "setup": 10,
+   "tAR": 10,
+   "tAW": 15,
+   "tW": 6
   },
   "delays": {
    "CLK->Q": {
     "max": 8,
     "min": 2,
     "typ": 6.0
+   },
+   "tAP": {
+    "max": 20,
+    "min": 3,
+    "typ": 12.0
+   },
+   "tCF": {
+    "max": 2.5,
+    "typ": 1.5
+   },
+   "tEA": {
+    "max": 15,
+    "min": 3,
+    "typ": 9.0
+   },
+   "tER": {
+    "max": 15,
+    "min": 3,
+    "typ": 9.0
    },
    "tPD": {
     "max": 15,
@@ -2575,7 +2597,11 @@
    }
   },
   "estimated": [
-   "typ"
+   "typ",
+   "tEA typ",
+   "tER typ",
+   "tAP typ",
+   "tCF typ"
   ],
   "part_number": "ATF22V10C-15PU",
   "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf"
@@ -2583,13 +2609,35 @@
  "ATF22V10C-5": {
   "checks": {
    "hold": 0,
-   "setup": 3
+   "setup": 3,
+   "tAR": 4,
+   "tAW": 5.5,
+   "tW": 3
   },
   "delays": {
    "CLK->Q": {
     "max": 4,
     "min": 1,
     "typ": 3
+   },
+   "tAP": {
+    "max": 7,
+    "min": 3,
+    "typ": 4.2
+   },
+   "tCF": {
+    "max": 2.5,
+    "typ": 1.5
+   },
+   "tEA": {
+    "max": 6,
+    "min": 2,
+    "typ": 3.6
+   },
+   "tER": {
+    "max": 5,
+    "min": 2,
+    "typ": 3.0
    },
    "tPD": {
     "max": 5,
@@ -2598,7 +2646,11 @@
    }
   },
   "estimated": [
-   "typ"
+   "typ",
+   "tEA typ",
+   "tER typ",
+   "tAP typ",
+   "tCF typ"
   ],
   "part_number": "ATF22V10C-5JX",
   "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf"
@@ -2606,13 +2658,35 @@
  "ATF22V10C-7": {
   "checks": {
    "hold": 0,
-   "setup": 3.5
+   "setup": 3.5,
+   "tAR": 5,
+   "tAW": 7,
+   "tW": 3
   },
   "delays": {
    "CLK->Q": {
     "max": 5.5,
     "min": 2,
     "typ": 4.1
+   },
+   "tAP": {
+    "max": 10,
+    "min": 3,
+    "typ": 6.0
+   },
+   "tCF": {
+    "max": 2.5,
+    "typ": 1.5
+   },
+   "tEA": {
+    "max": 7.5,
+    "min": 3,
+    "typ": 4.5
+   },
+   "tER": {
+    "max": 7.5,
+    "min": 3,
+    "typ": 4.5
    },
    "tPD": {
     "max": 7.5,
@@ -2621,7 +2695,11 @@
    }
   },
   "estimated": [
-   "typ"
+   "typ",
+   "tEA typ",
+   "tER typ",
+   "tAP typ",
+   "tCF typ"
   ],
   "part_number": "ATF22V10C-7PX",
   "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf"
@@ -2629,13 +2707,35 @@
  "ATF22V10CQZ-20": {
   "checks": {
    "hold": 0,
-   "setup": 14
+   "setup": 14,
+   "tAR": 20,
+   "tAW": 20,
+   "tW": 10
   },
   "delays": {
    "CLK->Q": {
     "max": 12,
     "min": 2,
     "typ": 9.0
+   },
+   "tAP": {
+    "max": 22,
+    "min": 3,
+    "typ": 13.2
+   },
+   "tCF": {
+    "max": 8,
+    "typ": 4.8
+   },
+   "tEA": {
+    "max": 20,
+    "min": 3,
+    "typ": 12.0
+   },
+   "tER": {
+    "max": 20,
+    "min": 3,
+    "typ": 12.0
    },
    "tPD": {
     "max": 20,
@@ -2644,7 +2744,11 @@
    }
   },
   "estimated": [
-   "typ"
+   "typ",
+   "tEA typ",
+   "tER typ",
+   "tAP typ",
+   "tCF typ"
   ],
   "part_number": "ATF22V10CQZ-20PU",
   "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0778.pdf"
