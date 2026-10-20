@@ -7,13 +7,14 @@ reports: [47]
 # Chibi Heron
 
 Draft 2's instruction set ([RFC 0028](../../reports/0028-rfc-draft-2-isa.md))
-on one board of 119 packages, with 2 MB of RAM, 640 x 480 x 4 VGA
+on one board of 115 packages, with 2 MB of RAM, 640 x 480 x 4 VGA
 through a palette, a microcoded copper, two serial ports, PS/2 ports, a
 timer, a sound chip, a CompactFlash slot, a boot flash and a debugger in
 microcode (ODT). The **two-halves machine**: a 16-bit datapath that does a
 32-bit operation in one microinstruction as two halves, on variable
-cycles in ticks of 19.86 ns, with horizontal unpipelined microcode and
-ATF22V10s for nearly all the logic. The design and its measurements are
+cycles in ticks of 19.86 ns, with horizontal unpipelined microcode in a
+flat store (every word names the next) and ATF22V10s for nearly all the
+logic. The design and its measurements are
 [RFC 0047](../../reports/0047-rfc-chibi-heron.md), with the tables in
 [performance.md](../../reports/0047-rfc-chibi-heron/performance.md) and
 [placement.md](../../reports/0047-rfc-chibi-heron/placement.md).
@@ -32,11 +33,12 @@ and on `pcb_columns` for placing the board on RFC 0046's column grid.
 
 | File | What's in it |
 |---|---|
-| `ucode2.py` | The control word (72 bits in nine flashes), its fields and encodings, the immediates, the flag operations; placing a routine in its block |
-| `routines2.py` | The microcode: the decode, the addressing modes, the instructions, the interrupt and exception entries, reset and the boot, the copper; the control store, its lengths from `ticks.json` |
+| `ucode2.py` | The control word (72 bits in nine flashes), its fields and encodings, the immediates, the flag operations, the sequencer's next addresses |
+| `routines2.py` | The microcode, as blocks of (page, N, opcode) and named routines: the decode, the addressing modes, the instructions, the interrupt and exception entries, reset and the boot, the copper; the control store, its lengths from `ticks.json` |
+| `flat.py` | The routines compiled into the flat store: their states followed, the alike merged, the dispatches made 16-way branches, the words laid out |
 | `odt.py` | ODT, the console monitor in microcode |
 | `rtl2.py` | The register-transfer model: phase F and the two halves as the netlist has them, tasks |
-| `system2.py` | The board behind the model: RAM, the I/O space, UART 0, the scanline, the suite's console |
+| `system2.py` | The board behind the model: RAM, the I/O space and its map, UART 0, the scanline, the suite's console |
 | `board2.py` | The chip-level netlist: every chip on the board |
 | `draft.py` | Device parts that board2.py uses: chip types, part names, the PS/2 ports |
 | `sta2.py` | Static timing analysis of the netlist: each distinct microinstruction's halves in ticks; writes `ticks.json` |
@@ -76,8 +78,10 @@ minutes.
 
 ## Not done yet
 
-- **Shifts by 8 through SWP:** the byte-swapped result registers are in
-  the netlist, but the shift and rotate routines still go a bit a step.
+- **The chip-level suite** on this revision of the netlist: hello, fib,
+  interrupts, monitor, queens, rpn and strings pass, with ODT's session
+  and the copper's test; the rest hasn't been run yet.
+- **The expansion port** at 0xFFFE_0000: its decode and buffers.
 - **A checker for tasks:** that the copper keeps to a task's rules, and
   every task point to its own.
 - **JEDEC files** for the 22V10s.

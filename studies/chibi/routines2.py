@@ -1090,6 +1090,7 @@ def copper():
         WAIT  bits 31 and 30 clear: its low half (CEN, bit 15, and the line)
               written at the controller's +6; the task ends
         JUMP  bit 31 clear, 30 set: the list goes on at the word's address
+              (its bits 20-0)
 
     A task's registers are its own bank's; it uses ST, and L, put back."""
     TL, TP, TX, TV = T_A, T_B, T_C, T_Q
@@ -1116,8 +1117,11 @@ def copper():
             u(rd(TP), alu("ADD"), wr(TP), W),
             u(rd(TX), alu("A"), ax(AX_MARLO), W),
             u(rd(TV, 0), store(2), jump("loop")),
-            label("jmp"),
-            u(rd(TX), alu("A"), wr(TP), W, jump("loop"))]
+            label("jmp"),                                             # bit 30 off: RAM
+            u(imm("C31"), LDL),
+            u(rd(TX, 1), alu("AND"), wr(TP, 1)),
+            u(rd(TX, 0), alu("A"), wr(TP, 0)),
+            u(imm("C4"), LDL, W, jump("loop"))]
 
 
 BOOT_MAGIC = 0x1F

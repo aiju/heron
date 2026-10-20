@@ -8,27 +8,27 @@ The program suite on the two-halves machine's register-transfer model, which the
 
 | Program | Instructions | Microinstructions | Ticks each | Time | Per instruction | Full Heron | Slower | Over the first cut |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| arith | 16528 | 200733 | 6.22 | 24.79 ms | 1500 ns | 6.80 ms | 3.6x | 2.14x |
-| bignum | 5147 | 92906 | 6.38 | 11.78 ms | 2289 ns | 2.68 ms | 4.4x | 2.16x |
-| bst | 10398 | 40457 | 7.04 | 5.66 ms | 544 ns | 2.26 ms | 2.5x | 1.97x |
-| crc | 61552 | 336556 | 6.91 | 46.16 ms | 750 ns | 11.86 ms | 3.9x | 1.63x |
-| fib | 81574 | 315545 | 7.38 | 46.23 ms | 567 ns | 20.37 ms | 2.3x | 1.80x |
-| hello | 53 | 206 | 6.97 | 0.03 ms | 538 ns | 0.02 ms |  | 1.40x |
-| interrupts | 10931 | 196185 | 5.78 | 22.53 ms | 2061 ns | 9.30 ms |  | 2.54x |
-| life | 164136 | 559039 | 7.83 | 86.99 ms | 530 ns | 39.58 ms | 2.2x | 1.57x |
-| lines | 24031 | 87494 | 7.21 | 12.52 ms | 521 ns | 5.88 ms | 2.1x | 1.69x |
-| mandel | 107711 | 5133380 | 5.60 | 570.96 ms | 5301 ns | 91.69 ms | 6.2x | 2.23x |
-| matmul | 5849 | 123333 | 5.95 | 14.58 ms | 2493 ns | 3.62 ms | 4.0x | 2.39x |
-| monitor | 14597 | 78199 | 6.25 | 9.71 ms | 665 ns | 3.98 ms | 2.4x | 1.60x |
-| queens | 60238 | 183392 | 7.38 | 26.89 ms | 446 ns | 10.10 ms | 2.7x | 1.77x |
-| rpn | 10275 | 37825 | 7.03 | 5.28 ms | 514 ns | 2.88 ms | 1.8x | 2.08x |
-| sha256 | 86727 | 986338 | 5.60 | 109.62 ms | 1264 ns | 12.99 ms | 8.4x | 1.64x |
-| sieve | 71514 | 201104 | 7.32 | 29.24 ms | 409 ns | 13.33 ms | 2.2x | 1.81x |
-| sort | 34947 | 128903 | 7.19 | 18.40 ms | 527 ns | 6.81 ms | 2.7x | 1.73x |
-| strings | 5710 | 20753 | 6.96 | 2.87 ms | 502 ns | 1.66 ms | 1.7x | 1.90x |
-| vm | 592268 | 4667632 | 7.20 | 667.86 ms | 1128 ns | 210.65 ms | 3.2x | 2.16x |
-| wordfreq | 65909 | 378585 | 6.38 | 48.00 ms | 728 ns | 18.16 ms | 2.6x | 2.03x |
-| **total, against the full Heron** | 1419111 | 13572174 | 6.45 | 1737.54 ms | 1224 ns | 465.30 ms | 3.7x | 2.07x |
+| arith | 16528 | 201857 | 6.22 | 24.95 ms | 1510 ns | 6.80 ms | 3.7x | 2.13x |
+| bignum | 5147 | 93034 | 6.38 | 11.80 ms | 2292 ns | 2.68 ms | 4.4x | 2.16x |
+| bst | 10398 | 41041 | 7.01 | 5.72 ms | 550 ns | 2.26 ms | 2.5x | 1.95x |
+| crc | 61552 | 337613 | 6.90 | 46.27 ms | 752 ns | 11.86 ms | 3.9x | 1.63x |
+| fib | 81574 | 332505 | 7.26 | 47.93 ms | 588 ns | 20.37 ms | 2.4x | 1.73x |
+| hello | 53 | 204 | 7.09 | 0.03 ms | 542 ns | 0.02 ms |  | 1.39x |
+| interrupts | 10931 | 196221 | 5.79 | 22.55 ms | 2063 ns | 9.30 ms |  | 2.54x |
+| life | 164136 | 559774 | 7.83 | 87.08 ms | 531 ns | 39.58 ms | 2.2x | 1.57x |
+| lines | 24031 | 88101 | 7.21 | 12.62 ms | 525 ns | 5.88 ms | 2.1x | 1.67x |
+| mandel | 107711 | 5155708 | 5.60 | 573.20 ms | 5322 ns | 91.69 ms | 6.3x | 2.23x |
+| matmul | 5849 | 123745 | 5.95 | 14.63 ms | 2501 ns | 3.62 ms | 4.0x | 2.38x |
+| monitor | 14597 | 79586 | 6.25 | 9.88 ms | 677 ns | 3.98 ms | 2.5x | 1.57x |
+| queens | 60238 | 185598 | 7.36 | 27.11 ms | 450 ns | 10.10 ms | 2.7x | 1.76x |
+| rpn | 10275 | 38253 | 7.04 | 5.35 ms | 520 ns | 2.88 ms | 1.9x | 2.06x |
+| sha256 | 86727 | 992329 | 5.62 | 110.68 ms | 1276 ns | 12.99 ms | 8.5x | 1.63x |
+| sieve | 71514 | 214864 | 7.17 | 30.61 ms | 428 ns | 13.33 ms | 2.3x | 1.73x |
+| sort | 34947 | 129837 | 7.17 | 18.50 ms | 529 ns | 6.81 ms | 2.7x | 1.72x |
+| strings | 5710 | 21160 | 6.96 | 2.92 ms | 512 ns | 1.66 ms | 1.8x | 1.87x |
+| vm | 592268 | 4789174 | 7.15 | 679.93 ms | 1148 ns | 210.65 ms | 3.2x | 2.12x |
+| wordfreq | 65909 | 382167 | 6.38 | 48.42 ms | 735 ns | 18.16 ms | 2.7x | 2.01x |
+| **total, against the full Heron** | 1419111 | 13766346 | 6.43 | 1757.58 ms | 1239 ns | 465.30 ms | 3.8x | 2.05x |
 
 ## Where the time goes
 
@@ -36,30 +36,30 @@ The suite's ticks by instruction, all programs together: each instruction's tick
 
 | Instruction | Executed | Ticks | Ticks each | Share | Cumulative |
 |---|---:|---:|---:|---:|---:|
-| MULFX | 21350 | 26851183 | 1257.7 | 30.3% | 30.3% |
-| MOV | 399975 | 10375331 | 25.9 | 11.7% | 42.0% |
-| JMP | 126147 | 9739057 | 77.2 | 11.0% | 53.0% |
-| DIVS | 7376 | 6880787 | 932.9 | 7.8% | 60.8% |
-| ROR | 13659 | 4838149 | 354.2 | 5.5% | 66.2% |
-| ADD | 153166 | 4162754 | 27.2 | 4.7% | 70.9% |
+| MULFX | 21350 | 26957933 | 1262.7 | 30.1% | 30.1% |
+| MOV | 399978 | 10386684 | 26.0 | 11.6% | 41.7% |
+| JMP | 126147 | 10369792 | 82.2 | 11.6% | 53.2% |
+| DIVS | 7376 | 6880787 | 932.9 | 7.7% | 60.9% |
+| ROR | 13659 | 4838149 | 354.2 | 5.4% | 66.3% |
+| ADD | 153168 | 4163079 | 27.2 | 4.6% | 71.0% |
 | LSL | 35297 | 3461137 | 98.1 | 3.9% | 74.8% |
-| PUSH | 62835 | 2450689 | 39.0 | 2.8% | 77.6% |
+| PUSH | 62835 | 2450691 | 39.0 | 2.7% | 77.6% |
 | MULS | 3334 | 2159227 | 647.6 | 2.4% | 80.0% |
-| MULU | 2443 | 1828100 | 748.3 | 2.1% | 82.1% |
-| CMP | 92607 | 1732655 | 18.7 | 2.0% | 84.0% |
-| LEA | 42365 | 1412900 | 33.4 | 1.6% | 85.6% |
-| DIVU | 1369 | 1368155 | 999.4 | 1.5% | 87.2% |
-| POP | 33363 | 1000890 | 30.0 | 1.1% | 88.3% |
-| BNE | 47704 | 891803 | 18.7 | 1.0% | 89.3% |
-| DBNZ | 23080 | 839592 | 36.4 | 0.9% | 90.3% |
-| OR | 33370 | 824369 | 24.7 | 0.9% | 91.2% |
-| BCC | 44984 | 811500 | 18.0 | 0.9% | 92.1% |
-| LSR | 7489 | 697005 | 93.1 | 0.8% | 92.9% |
-| INC | 16669 | 553007 | 33.2 | 0.6% | 93.5% |
-| MULA | 512 | 498064 | 972.8 | 0.6% | 94.1% |
-| BEQ | 29852 | 412080 | 13.8 | 0.5% | 94.6% |
-| XOR | 23652 | 408074 | 17.3 | 0.5% | 95.0% |
-| MOVS | 13797 | 404638 | 29.3 | 0.5% | 95.5% |
+| MULU | 2441 | 1827898 | 748.8 | 2.0% | 82.0% |
+| CMP | 92607 | 1732655 | 18.7 | 1.9% | 83.9% |
+| LEA | 42365 | 1412900 | 33.4 | 1.6% | 85.5% |
+| DIVU | 1369 | 1368155 | 999.4 | 1.5% | 87.0% |
+| POP | 33363 | 1000890 | 30.0 | 1.1% | 88.2% |
+| BNE | 47703 | 891702 | 18.7 | 1.0% | 89.1% |
+| DBNZ | 23078 | 839391 | 36.4 | 0.9% | 90.1% |
+| OR | 33370 | 824369 | 24.7 | 0.9% | 91.0% |
+| BCC | 44984 | 811500 | 18.0 | 0.9% | 91.9% |
+| LSR | 7489 | 697005 | 93.1 | 0.8% | 92.7% |
+| INC | 16669 | 596577 | 35.8 | 0.7% | 93.4% |
+| MULA | 512 | 498064 | 972.8 | 0.6% | 93.9% |
+| BEQ | 29852 | 412080 | 13.8 | 0.5% | 94.4% |
+| MOVS | 13797 | 409062 | 29.6 | 0.5% | 94.8% |
+| XOR | 23652 | 408074 | 17.3 | 0.5% | 95.3% |
 
 ## Parts
 
@@ -67,14 +67,14 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 
 | Part | Packages |
 |---|---:|
-| ATF22V10C-5 | 60 |
+| ATF22V10C-5 | 61 |
 | SST39SF040-55 | 9 |
-| 74ABT541 | 8 |
-| 74ABT574 | 8 |
+| 74ABT541 | 7 |
+| 74ABT574 | 6 |
 | 74ABT245 | 5 |
 | 74F181 | 4 |
 | AS7C4096A-12 | 4 |
-| CY7C199C-12 | 4 |
+| IS61C6416AL-12 | 2 |
 | MAX232 | 2 |
 | TL16C550C | 2 |
 | oscillator | 2 |
@@ -89,17 +89,17 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | SST39SF010A-55 | 1 |
 | TL7705A | 1 |
 | YM2149F | 1 |
-| **total** | 119 |
+| **total** | 115 |
 
 | Section | Packages |
 |---|---:|
 | clock | 6 |
 | control store | 17 |
 | flags | 2 |
-| register file | 8 |
+| register file | 6 |
 | ALU | 10 |
 | result | 5 |
-| immediate unit | 8 |
+| immediate unit | 6 |
 | address | 7 |
 | memory | 10 |
 | I/O | 34 |
@@ -111,13 +111,13 @@ Static timing analysis of the netlist (`heron chibi hw sta`), worst-case datashe
 
 ```
 ticks of 19.86 ns; phase F ticks 0-2, the low half from tick 3
-low halves' ticks over 623 words:  2: 405, 3: 218
-high halves' ticks over 345 words: 2: 230, 3: 115
+low halves' ticks over 582 words:  2: 374, 3: 208
+high halves' ticks over 327 words: 2: 214, 3: 113
 fixed-tick requirements failing: 0
 halves over their field's most (or I/O's 5 ticks): 0
 phase F: 0 failing
 
-slowest low half: 58.5 ns from its start (3 ticks), DS=1 RS=1 WS=1 WEN=1 AOP=ADD FL=ADDLO MOP=4 SEQ=2 {}: U_FLG.I9 setup
+slowest low half: 58.5 ns from its start (3 ticks), DS=1 RK=33 WK=32 AOP=INC FL=ICLOZ MOP=4 SEQ=2 {}: U_FLG.I9 setup
        63.6 ns  PHW            X_CLK      PHW at 3 ticks
        68.6 ns  RA0            U_RFA0     tPD
        80.6 ns  D0             U_RFL0     tAA
@@ -126,7 +126,7 @@ slowest low half: 58.5 ns from its start (3 ticks), DS=1 RS=1 WS=1 WEN=1 AOP=ADD
       110.1 ns  F4             U_ALU1     CN->F
       115.1 ns  Z16            U_ZERO     tPD
 
-slowest low half: 58.5 ns from its start (3 ticks), DS=1 RS=1 WS=1 WEN=1 AOP=SUB FL=SUBLO MOP=4 SEQ=2 {}: U_FLG.I9 setup
+slowest low half: 58.5 ns from its start (3 ticks), DS=1 RK=33 WK=32 AOP=DEC FL=ICLOZ MOP=4 SEQ=2 {}: U_FLG.I9 setup
        63.6 ns  PHW            X_CLK      PHW at 3 ticks
        68.6 ns  RA0            U_RFA0     tPD
        80.6 ns  D0             U_RFL0     tAA
@@ -135,23 +135,23 @@ slowest low half: 58.5 ns from its start (3 ticks), DS=1 RS=1 WS=1 WEN=1 AOP=SUB
       110.1 ns  F4             U_ALU1     CN->F
       115.1 ns  Z16            U_ZERO     tPD
 
-slowest high half: 56.8 ns from its start (3 ticks), DS=2 WS=1 WEN=1 AOP=A FL=LOGLO MOP=1 AXM=3 {'A31': 0}: U_FLG.I7 setup
+slowest high half: 56.8 ns from its start (3 ticks), DS=2 WK=32 AOP=A FL=LOGLO MOP=1 AXM=3 {'AIO': 0}: U_FLG.I7 setup
         0.0 ns  CLK                       
        11.9 ns  MAR20          U_MARC     CLK->Q
        16.9 ns  A20            U_MARC     tPD
-       21.9 ns  RCE1_n         U_MEMC     tPD
+       21.9 ns  RCE1_n         U_NG       tPD
        33.9 ns  MD12           U_RAM11    tACE
        37.8 ns  D12            U_X1       B->A
        48.8 ns  F15            U_ALU3     AB->F logic
        53.8 ns  N15            U_ZERO     tPD
 
-slowest high half: 51.8 ns from its start (3 ticks), DS=2 WS=1 WEN=1 AOP=A MOP=1 AXM=3 {'A31': 0}: U_YBLO.I1 setup
-        0.0 ns  CLK                       
-       11.9 ns  MAR20          U_MARC     CLK->Q
-       16.9 ns  A20            U_MARC     tPD
-       21.9 ns  RCE1_n         U_MEMC     tPD
-       33.9 ns  MD0            U_RAM10    tACE
-       37.8 ns  D0             U_X0       B->A
-       48.8 ns  F0             U_ALU0     AB->F logic
+slowest high half: 52.5 ns from its start (3 ticks), DS=1 RK=33 WK=32 AOP=INC FL=ICLOZ MOP=4 SEQ=2 {}: U_FLG.I7 setup
+        4.0 ns  HALF           X_CLK      HALF at 0 ticks
+        9.0 ns  RFOE_HI_n      U_BUS      tPD
+       15.0 ns  D0             U_RFH0     tOE
+       25.5 ns  ALUG0          U_ALU0     AB->G
+       35.0 ns  CNZ            U_CLA      PG->CN
+       44.5 ns  F15            U_ALU3     CN->F
+       49.5 ns  N15            U_ZERO     tPD
 
 ```

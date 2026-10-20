@@ -1,7 +1,7 @@
 ---
 number: 47
 type: rfc
-title: "Chibi Heron: draft 2 on one board of 120 chips"
+title: "Chibi Heron: draft 2 on one board of 115 chips"
 status: draft
 date: 2026-10-20
 context:
@@ -10,7 +10,7 @@ context:
 depends-on: [28]
 ---
 
-# RFC 0047: Chibi Heron: draft 2 on one board of 120 chips
+# RFC 0047: Chibi Heron: draft 2 on one board of 115 chips
 
 The smallest Heron so far: draft 2's user instruction set
 ([RFC 0028](0028-rfc-draft-2-isa.md)) on one board, with 2 MB of RAM,
@@ -43,23 +43,32 @@ tables are in [performance.md](0047-rfc-chibi-heron/performance.md) and
 
 ## Summary
 
-- **119 packages:** 118 chips and the CompactFlash socket. 60 of them
-  are ATF22V10Cs. The budget's last place is free.
-- **It works, at chip level.** The netlist runs the whole program suite
-  on the chip-level simulator exactly as the model does: the output,
-  the registers, the flags, the RAM, and every instruction fetch at the
-  same cycle, with no timing violation. The model in turn runs the
-  suite as draft 2's simulator does. ODT, the copper and the PS/2
-  keyboard are tested at chip level too.
+- **115 packages:** 114 chips and the CompactFlash socket. 61 of them
+  are ATF22V10Cs.
+- **This revision** (Emily's decisions of the latest round):
+  - a flat control store, entered at 0x100 + the opcode, every word
+    naming the next ([3](#3-control-store-and-sequencer));
+  - every instruction and mode of RFC 0028, the special mode's tables
+    for CLR, INC, DEC, JMP, CALL, MULU and MULS included;
+  - the I/O space at A30, its devices in the top 64 KB
+    ([7](#7-the-io-space));
+  - no SWP, and the register file in two 64K × 16 SRAMs: 4 packages
+    fewer.
+- **It works, at chip level,** as far as this draft has run it: seven
+  programs of the suite, ODT's session and the copper's test run on the
+  chip-level simulator exactly as the model does (the output, the
+  registers, the flags, the RAM, and every instruction fetch at the same
+  cycle), with no timing violation. The model runs the whole suite as draft 2's
+  simulator does.
 - **Timing:** static timing analysis with worst-case datasheet delays
   gives every distinct microinstruction its length in ticks. A half
-  takes 2 or 3 ticks (an I/O access 5), and phase F 3. The control
+  takes 2 or 3 ticks (an I/O access 6), and phase F 3. The control
   store's length fields are filled from that table.
-- **Speed:** the suite takes 3.7 times as long as on the full Heron
-  ([RFC 0031](0031-rfc-draft-2-cpu.md)), against 7.7 for the first cut.
-  That's 2.07 times faster than the first cut. Ordinary code runs at
-  400–570 ns an instruction, about 2 MIPS. A microinstruction averages
-  6.45 ticks, 128 ns ([13](#13-how-fast)).
+- **Speed:** the suite takes 3.8 times as long as on the full Heron
+  ([RFC 0031](0031-rfc-draft-2-cpu.md)), against 7.7 for the first cut:
+  2.05 times faster than the first cut, and 1.2% slower than the paged
+  store. Ordinary code runs at 430–590 ns an instruction, about 2 MIPS.
+  A microinstruction averages 6.43 ticks, 128 ns ([13](#13-how-fast)).
 
 ## Contents
 
@@ -94,8 +103,8 @@ tables are in [performance.md](0047-rfc-chibi-heron/performance.md) and
 A microcoded CPU with a 16-bit datapath around one internal bus, D, that
 does a 32-bit operation as two halves:
 
-- the **register file**: four SRAMs, a pair for the low halves of the
-  registers and a pair for the high halves. It holds draft 2's 16
+- the **register file**: two 64K × 16 SRAMs, one for the low halves of
+  the registers and one for the high halves. It holds draft 2's 16
   registers in two banks, 16 microcode temporaries, and a task's private
   bank. It drives D and is written from the result registers;
 - the **ALU**: four 74F181s and a 74F182. It takes D as A and the
@@ -103,8 +112,7 @@ does a 32-bit operation as two halves:
   loaded from D;
 - the **result registers**: four 22V10s, one pair for the low half's
   result and one for the high half's. They can shift the result right a
-  bit or extend a byte. Two 74ABT574s keep the last half's result with
-  its bytes swapped (SWP), for shifts by 8;
+  bit or extend a byte;
 - the **immediate unit**: three 22V10s. It puts 32 constants (and the
   instruction's fields shaped into them) on D, a half at a time;
 - **PC** and **MAR**: counters in 22V10s, loaded from the ALU, driving
@@ -113,8 +121,9 @@ does a 32-bit operation as two halves:
   that crosses the bytes. It holds the RAM, the devices and the video's
   buffer.
 
-The control store is horizontal: nine flashes give the 72 bits of a
-microinstruction straight to the datapath, without a pipeline register.
+The control store is horizontal and flat: nine flashes give the 72 bits
+of a microinstruction straight to the datapath, without a pipeline
+register, and each word names the next.
 
 ### 2. Clock and cycle
 
@@ -125,7 +134,7 @@ instead, for debugging. The clock generator is two 22V10s on MCLK:
 strobes). A microinstruction's **cycle** has up to three phases:
 
 - **Phase F**, 3 ticks. The control store's outputs settle for the new
-  step. The last cycle's results are written: the low half's to the
+  address. The last cycle's results are written: the low half's to the
   register file in tick 1, the high half's in tick 2. The video reads
   the RAM in ticks 1–2. It is 2 ticks longer when the video's buffer is
   empty (a second read, ticks 3–4), and 1 longer when a task starts or
@@ -138,7 +147,7 @@ strobes). A microinstruction's **cycle** has up to three phases:
   carry out, the immediate is the constant's high half, and MAR and PC
   load their high bits.
 
-A half that accesses the I/O space takes 5 ticks, whatever its field
+A half that accesses the I/O space takes 6 ticks, whatever its field
 says. The slow devices hold it longer: the timer and the palette 10
 ticks, the CF card 8 at PIO mode 4 and 32 at PIO mode 0. The clock
 generator ends a half at its count, or once the slow devices let go
@@ -151,65 +160,95 @@ has as many ticks as its paths need ([14](#14-timing)).
 
 ### 3. Control store and sequencer
 
-**The control store** is nine SST39SF040s (512K × 8, PLCC-32), addressed
-by
-
-$$\{\text{PAGE}_{1:0},\ N_{3:0},\ \text{OP}_{7:0},\ \text{STEP}_{4:0}\}$$
-
-19 bits: a **block** of 32 steps for each opcode, dispatch nibble and
-page. The 72-bit word's fields:
+**The control store** is nine SST39SF040s (512K × 8, PLCC-32), of which
+the low 8K words are used: a flat store, addressed by the 13-bit
+microprogram counter **µPC**. Every word gives its own next address. The
+72-bit word's fields:
 
 | Field | Bits | |
 |---|---:|---|
-| DS | 3 | D's source: none, register file, memory, immediate, the address bus (PC read back), PC's high bits, the flags word, SWP |
+| DS | 3 | D's source: none, register file, memory, immediate, the address bus (PC read back), PC's high bits, the flags word |
 | SZ | 1 | the access is a byte |
 | IMMF | 5 | the immediate's format |
-| RS, KR, HR | 2, 5, 1 | the register read: K, d or s; the K number; the half |
-| WS, KW, HW, WEN | 2, 5, 1, 1 | the register write, the same way |
+| RK, HR | 6, 1 | the register read: K 0–31, d (32) or s (33); the half |
+| WK, HW | 6, 1 | the register write, the same way (63: none) |
 | AOP | 5 | the ALU's operation (A = D, B = L) |
 | SISEL, RM | 2, 2 | the result: as is, shifted right (bit 15 in: 0, C, D15 or the carry out), a byte zero- or sign-extended |
 | FL | 5 | the flag operation |
 | LDL | 1 | L's half ← D |
-| MOP | 3 | memory: none, read at MAR, write at MAR, read at PC, fetch, PC on the bus, load the instruction register from a read at MAR |
+| MOP | 3 | memory: none, read at MAR, write at MAR, read at PC, fetch, PC on the bus, a read at MAR into d and s (LDIRM) |
 | AXP, AXM | 2, 2 | PC's and MAR's halves ← the ALU; MAR + 2 |
-| IRN | 3 | the register byte: N ← s, d + 1, s − 1, the index parcel's fields |
-| SEQ, CND, JT, PT | 2, 5, 5, 2 | next, jump, end, jump at a task point; the condition; the target step and page |
-| HALT | 1 | stopped (an LED, and the simulations' end) |
+| IRN | 2 | the register byte: d + 1, s − 1, s ← the index parcel's x |
+| SEQ, CND, JT | 2, 4, 13 | the next address (below): its kind, the condition or the branch's nibble, the target |
 | LEN, HLEN, HX | 2, 2, 2 | the halves' ticks; the high half's variant: zero-, sign- or immediate-extended, with no access |
 
-**The sequencer.** `U_IRL` and `U_IRH` hold the opcode and the
-register byte (d, s). `U_NG` holds the dispatch nibble N, `U_STEP` the
-step and page. `U_COND` gives the condition: the flags, IRQP, d ≠ s, A0,
-ODT and I. A fetch loads the instruction register and enters page 0's
-step 0 of the new block, or page 3's when an interrupt is pending
-(IRQP). Pages 1 and 2 of a block are reached only by jumps. Page 3 is
-the same in every block: the interrupt entry, HALT's wait, the
-exception entry, ODT's entry and reset.
+**The next address**, by SEQ:
+- **JUMP** (and **JUMPT**, the same at a task point): JT with its bit 0
+  XORed with the condition CND (the flags, IRQP, d ≠ s, ODT, I, INIT and
+  the rest). So a conditional jump goes to one of a pair, JT or JT ⊕ 1,
+  and an unconditional one (CND TRUE) to JT ⊕ 1. There's no incrementer:
+  a word that just goes on names its successor.
+- **MW**, a 16-way branch: JT with its low 4 bits ORed with a nibble: d,
+  s or z (the index parcel's bits 11–8, as it's read), as CND's low bits
+  say.
+- **END**, the decode: µPC ← 0x100 + the opcode, MD7–0 of the fetch's
+  parcel. If an interrupt or ODT is pending (IRQP) it's the opcode
+  alone, and 0x000–0x0FF all hold the interrupt's entry. With JT's bit
+  12 set, IRQP isn't looked at (ODT's step).
+
+**The sequencer.** `U_UPCL`, `U_UPCM` and `U_UPCH` hold µPC's bits 3–0,
+8–4 and 12–9, loaded at CLK0. Reset clears them: µPC 0 is the
+interrupt's entry, which goes to the reset routine while INIT is clear.
+`U_NG` gives the branch's nibble, `U_IRH` the register byte (d, s, from
+the fetch's parcel or LDIRM's read; d + 1, s − 1, s ← x) and `U_COND` the
+condition. The opcode isn't kept: once it has given the entry's address,
+nothing needs it.
+
+**The layout** is a compiler's (`flat.py`). The routines are written as
+for a paged store, in blocks of (page, N, opcode) with N ← s and N ← z as
+dispatches, and as named lists with labels (the interrupt's entry,
+reset's, the boot, ODT, the copper). The compiler:
+- follows each block's control flow from its entries;
+- merges the states that do the same with the same successors, so that
+  what's alike in every N's block, or every opcode's, is one word;
+- makes each dispatch a 16-way branch;
+- lays the words out: each opcode's entry at 0x100 + the opcode, a
+  condition's two targets as a pair, a branch's sixteen at a multiple of
+  16, the copper's words within its 32 at 0x1FE0, a word wanted in two
+  places copied.
+
+The store has 4,775 words in use (of 8,192), 566 of them distinct.
+
+**Entries that depend on d.** The decode enters at the opcode alone, so
+an instruction whose first step depends on d (its mode or condition)
+branches on d first: JMP, CALL, CLR, INC, DEC, Jcc, LDM, STM, MFSR,
+MULFX and the system group. Where every d's first word is the same, the
+branch rides in it; otherwise (all of these, as written) it's a
+microinstruction of its own ([13](#13-how-fast)).
 
 **Tasks.** A task is microcode that runs between two microinstructions
 of an instruction, without its help. One task exists: the copper
-([9](#9-video-and-the-copper)). At a **task point** (SEQ end, or a jump
-marked so: the long loops of multiply, divide, shifts, SAVE and
-RESTORE), if COPREQ asks, TASK sets. The sequencer's registers then hold
-and let go of the control store's address. `U_TASK`'s step and page,
-and two 74ABT541s putting opcode 00 and N 8 on it, take over, from page
-1's step 0 (page 0's is the illegal instruction 0x8000's). The task's SEQ
-end clears TASK and the instruction goes on where it was. A task uses
-its own register bank (RA6 = TASK), ST and the internal carry IC, and
-MAR; it puts L back. At a task point MAR and the flags but ST and IC
-are dead; L is live. The handover is break before make: the instruction
-register's GALs let go as TASK sets and take the address back only once
-TASKD (TASK a stage later) has cleared too, and the 541s drive only
+([9](#9-video-and-the-copper)). At a **task point** (SEQ END or JUMPT:
+the long loops of multiply, divide, shifts, SAVE and RESTORE), if COPREQ
+asks, TASK sets. µPC then holds with its outputs off, and `U_TASK`'s
+bits 4–0 with `U_TOP`'s ones above them (a 74ABT541) address the store,
+from 0x1FE0. The task's SEQ END clears TASK and the instruction goes on
+where it was. A task uses its own register bank (RA6 = TASK), ST and the
+internal carry IC, and MAR; it puts L back. At a task point MAR and the
+flags but ST and IC are dead; L is live. The handover is break before
+make: µPC's bits 12–5 let go as TASK sets and take the address back only
+once TASKD (TASK a stage later) has cleared too, and U_TOP drives only
 once both are set.
 
 ### 4. Datapath
 
-**The register file:** four CY7C199C-12 (32K × 8), addressed by
-`U_RFA0-2`: the register's number from K, d or s, and its bank. RA6 is TASK (a task's bank), RA7 the
+**The register file:** two IS61C6416AL-12 (64K × 16, SOJ-44, their byte
+enables low), addressed by `U_RFA0-2`: the register's number from K, d
+or s (RK, WK), and its bank. RA6 is TASK (a task's bank), RA7 the
 bank bit B for draft 2's 16 registers (not for the temporaries). Phase F
 writes the low half's result in tick 1 and the high half's in tick 2
 (`RFWL_n`, `RFWH_n` from the clock generator). `U_RFW`'s chip enables
-keep out the pair a write doesn't take.
+keep out the SRAM a write doesn't take.
 
 **The ALU** computes D op L, 16 bits, through the 74F182's carry
 lookahead. `U_ALUC` decodes its operation, the carry in (0, 1, C, IC, or
@@ -222,15 +261,14 @@ sign-dependent EXT and SEXT that the multiply and divide routines use.
 **The result registers:** `U_YLO`/`U_YHI` take the low half's result at
 HCKA, `U_YBLO`/`U_YBHI` the high half's at HCKB. Each drives D in its
 tick of the next phase F for the register file, swapped by the cycle's
-HW so that a result can go to either pair. `U_YS0-1` (74ABT574) take
-every half's result with its bytes swapped, for the next
-microinstruction (DS = SWP).
+HW so that a result can go to either half.
 
 **The immediate unit** (`U_IMML`, `U_IMMH`, `U_IMMX`): 32 formats, each
 a 32-bit value, low half then high half. They are small constants (1, 2,
 4, 6, 8, 16, 31, 32, 64, −1), the instruction's 4-bit fields scaled and
-signed (Q4, NQ, SC4, B8, DB, SH0, SH1, U7), the vectors, the interrupt
-controller's address, and SXST, the high half's sign from ST.
+signed (Q4, NQ, SC4, B8, DB, SH0, SH1, U7), two vectors, three device
+addresses (the interrupt controller's vector, UART 0, the boot flash),
+and SXST, the high half's sign from ST.
 
 ### 5. Flags and system state
 
@@ -254,8 +292,9 @@ comes back with the rest.
 
 ### 6. Addresses and memory
 
-The address bus has A20–A0 and A31. **PC** (bits 20–1) is three 22V10s
-(`U_PCA-C`), **MAR** (bits 20–0 and 31) three more (`U_MARA-C`):
+The address bus has A20–A0, and MAR's bit 30 is AIO. **PC** (bits 20–1)
+is three 22V10s (`U_PCA-C`), **MAR** (bits 20–0 and 30) three more
+(`U_MARA-C`):
 counters that load a half from the ALU at the half's end, PC counting by
 2 on a fetch or a read at PC, MAR by 2 when asked. `U_ADC` decodes their
 operations and which of them drives the address bus (PC for fetches and
@@ -263,17 +302,18 @@ reads at PC, MAR otherwise). In phase F the video drives A20–A1. PC
 reads back onto D through two 74ABT541s (bits 15–0) and `U_PCC`'s pins
 (bits 20–16).
 
-Draft 2's addresses are 32 bits; the board decodes A20–A0 and A31.
-**A31 = 0 is RAM**, 2 MB repeated through the low 2 GB; **A31 = 1 is
-the I/O space**.
+Draft 2's addresses are 32 bits; the board decodes A20–A0 and A30.
+**A30 = 0 is RAM**, 2 MB repeated through the space (at 0x0000_0000, or
+0x8000_0000 if bit 31 is ever forced); **A30 = 1 is the I/O space**. A31
+is ignored.
 
 **The RAM** is four AS7C4096A-12 (512K × 8, SOJ-36), two rows of two
 byte lanes, 1M × 16. A20 picks the row: it is row 0's chip enable
-directly, and `U_MEMC` inverts it for row 1. A word is two halfword
+directly, and a spare macrocell of `U_NG` inverts it for row 1. A word is two halfword
 accesses, at MAR and MAR + 2, one a half. A byte access steers the odd
 byte across (`U_XS`) and zero-extends it. `U_MEMC`, on the master
-clock, gives the RAM's write enables and the I/O strobes, from a half's
-second tick to its end.
+clock, gives the RAM's write enables from a half's second tick to its
+end, and the I/O strobes from its third.
 
 **Alignment** is checked where an address is computed, in the
 microinstruction that loads MAR: misaligned words and halfwords trap
@@ -281,34 +321,44 @@ microinstruction that loads MAR: misaligned words and halfwords trap
 
 ### 7. The I/O space
 
-I/O devices are 8 or 16 bits on MD, at even addresses, selected by
-`U_IODEC` from A31 and MAR's bits 20–18. `IORD_n` and `IOWR_n` run from
-the half's second tick to its end. ADS, the same strobes a tick later,
-latches the UARTs' address and chip select (the TL16C550C's ADS input):
-they hold for the strobe's end while the address bus changes.
+**A30 = 1 is the I/O space** (MAR's bit 30, AIO; A31 is ignored, so that
+bit 31 can be forced later). `U_IODEC` decodes it with A20, A16 and
+A14–A12:
 
-| Address | Device |
+| Address | |
 |---|---|
-| 0x0000_0000–0x001F_FFFF | RAM, 2 MB (and its repeats to 0x7FFF_FFFF) |
-| 0x8000_0000 + 2n | UART 0's register n (TL16C550C, on MD7–0) |
-| 0x8004_0000 + 2n | UART 1's |
-| 0x8008_0000 | PS/2: the keyboard's byte (read; a write clears the receiver) |
-| 0x8008_0002 | PS/2: the mouse's byte |
-| 0x8008_0004 | PS/2: the keyboard port's control and status. Read: bit 0 the clock line, 1 the data line, 2 a byte waiting, 3 a framing error; write: bit 4 pulls the clock low, bit 5 the data |
-| 0x8008_0006 | PS/2: the mouse port's |
-| 0x800C_0000 | the video's control (write, a halfword): bit 0 the frame buffer shown, 1 the display on, 2 the frame interrupt enabled; any write acknowledges the frame interrupt |
-| 0x800C_0002 | the palette bank (write: bits 3–0, the palette's P7–4) |
-| 0x8010_0000 + 2n | the boot flash's byte n (SST39SF010A, 128K × 8; writable with its command sequences) |
-| 0x8014_0000 + 2n | the timer, an 82C54's register n (OUT0 the timer interrupt, OUT2 the speaker) |
-| 0x8014_0010 + 2n | the palette, an IMS G171's register n (write address, colour, mask, read address) |
-| 0x8014_0030 | the CF card's timing (write: bit 0, PIO mode 4) |
-| 0x8014_0040 + 2n | the CF card's command block register n (16-bit True IDE) |
-| 0x8014_0060 + 2n | its control block's |
-| 0x8018_0000 | the interrupt controller: the sources pending (read); a write clears the button's latch |
-| 0x8018_0002 | the vector (read, a byte): 0x40 + 4k for the first source pending, 0x04 if none |
-| 0x8018_0004 | ODT's word (read: 0x9000 while ODT is asked for, else 0); TRACE (write, bit 0); a write clears the halt button's latch |
-| 0x8018_0006 | the scanline (read, 9 bits); the copper's target (write: bits 8–0 the line, bit 15 CEN) |
-| 0x801C_0000 | the sound chip (write: its register in bits 15–8, the value in 7–0); anywhere in 0x801C_xxxx, but the simulation's console is at its start, so software uses +0x80 |
+| 0xFFE0_0000 + 2n | the boot flash's byte n (A20 = 0; SST39SF010A, 128K × 8, writable with its command sequences) |
+| 0xFFFE_0000 | the expansion port's 64 KB (A16 = 0): reserved, not decoded yet |
+| 0xFFFF_8000–0xFFFF_FFFF | the devices, a 4 KB slot each by A14–A12; they repeat at 0xFFFF_0000 (A15 is ignored), and wherever A20 and A16 are set |
+
+| Slot | Address | Device |
+|---|---|---|
+| 7 | 0xFFFF_F000 | the sound chip (write: its register in bits 15–8, the value in 7–0); in the simulation the suite's test fixture, whose console is at 0xFFFF_FF00 |
+| 6 | 0xFFFF_E000 + 2n | UART 0's register n (TL16C550C, on MD7–0) |
+| 5 | 0xFFFF_D000 | the interrupt controller: +0 the sources pending (read; a write clears the interrupt button's latch); +2 the vector, 0x40 + 4k for the first source pending, 0x04 if none; +4 ODT's word (read: 0x9000 while ODT is asked for, else 0; write: TRACE in bit 0, the halt button's latch cleared); +6 the scanline (read, 9 bits) and the copper's target (write: bits 8–0 the line, bit 15 CEN) |
+| 4 | 0xFFFF_C000 | the video's control (+0, a halfword: bit 0 the frame buffer shown, 1 the display on, 2 the frame interrupt enabled; any write acknowledges the frame interrupt) and the palette bank (+2: bits 3–0, the palette's P7–4) |
+| 3 | 0xFFFF_B000 | PS/2: +0 the keyboard's byte (read; a write clears the receiver), +2 the mouse's; +4 the keyboard port's control and status (read: bit 0 the clock line, 1 the data line, 2 a byte waiting, 3 a framing error; write: bit 4 pulls the clock low, bit 5 the data), +6 the mouse port's |
+| 2 | 0xFFFF_A000 | the slow devices: +2n the timer's register n (an 82C54: OUT0 the timer interrupt, OUT2 the speaker); +0x10 + 2n the palette's (an IMS G171: write address, colour, mask, read address); +0x30 the CF card's timing (write: bit 0, PIO mode 4); +0x40 + 2n the CF card's command block register n (16-bit True IDE), +0x60 + 2n its control block's |
+| 1 | 0xFFFF_9000 + 2n | UART 1's register n |
+| 0 | 0xFFFF_8000 | nothing |
+
+**The rules for software:**
+- devices are 8 or 16 bits at even addresses, the 8-bit ones on MD7–0;
+- access them as halfwords and keep the low byte of an 8-bit device's (a
+  byte access at an even address works too);
+- a word access is two halfword accesses, at +0 and +2;
+- code runs only from RAM (PC has bits 20–1).
+
+The devices are within reach of a 16-bit absolute address,
+sign-extended (0xFFFF_8000–0xFFFF_FFFF).
+
+**The strobes.** The slot is decoded from the address bus, which settles
+about a tick into the half (MAR's drivers take the bus from the video's
+as the half starts). So `IORD_n` and `IOWR_n` run from the half's third
+tick to its end (`U_MEMC`'s IOQ, IOACC a tick late, starts them), and an
+I/O half is 6 ticks. ADS, the strobes a tick later, latches the UARTs'
+address and chip select (the TL16C550C's ADS input): they hold for the
+strobe's end while the address bus changes.
 
 **The UARTs** have a 1.8432 MHz oscillator. Each has a MAX232 for
 RS-232 (TX, RX, RTS, CTS), a jumper block between it and the MAX232,
@@ -317,7 +367,7 @@ cable with the jumpers off.
 
 **The slow devices** (the timer, the palette, the CF card) sit behind
 `U_SLOW`, a counter on the master clock that holds the half (HOLD) and
-times their strobes. The CF card runs at PIO mode 0 from reset, then at
+times their strobes, counting from IOQ, once the select has settled. The CF card runs at PIO mode 0 from reset, then at
 PIO mode 4 once software sets it; at mode 0 the display must be off. It
 has a bus of its own: two 74ABT245s for the data, a 74HCT541 for the
 address, selects and strobes, series resistors on every line, the
@@ -372,10 +422,11 @@ takes it to ODT.
 - one interrupt level with vectors per source, not eight levels
   ([RFC 0040](0040-rfc-interrupts.md));
 - the register bank bit B;
-- the table forms of the special mode's operands for MULU and MULS
-  (EC, ED), and the memory modes of the 0x2x memory group, are illegal
-  instructions;
-- the video's control register must be written as a halfword.
+- the I/O space's rules ([7](#7-the-io-space)): halfword accesses, and
+  the video's control register written as a halfword.
+
+Every instruction and mode of RFC 0028 is in the microcode, the special
+mode's tables included.
 
 ### 9. Video and the copper
 
@@ -409,9 +460,9 @@ list's entries:
 
 | Entry | |
 |---|---|
-| MOVE | an I/O address (bit 31 set), then a word whose low half is written there |
+| MOVE | an I/O address (bit 31 set: 0xFFFF_xxxx), then a word whose low half is written there |
 | WAIT | bits 31 and 30 clear: its low half (CEN in bit 15, the line in bits 8–0) is written at +6, and the task ends |
-| JUMP | bit 31 clear, bit 30 set: the list goes on at the word's address |
+| JUMP | bit 31 clear, bit 30 set: the list goes on at the word's address (its bits 20–0) |
 
 A WAIT for a line already passed waits for the next frame's. A list for
 every frame ends with a WAIT and a JUMP to its start. A MOVE takes about
@@ -423,14 +474,14 @@ their loops.
 ### 10. Reset and boot
 
 A TL7705A holds RESET_n low at power-up, or while the reset button is
-pressed. Reset clears the sequencer to page 3, step 0, the flags, the
-devices' registers and the video's control, and resets the UARTs; the
-clock generator keeps running. The reset routine:
+pressed. Reset clears µPC to 0 (the interrupt's entry, which sees INIT
+clear), the flags, the devices' registers and the video's control, and
+resets the UARTs; the clock generator keeps running. The reset routine:
 
 1. sets INIT;
 2. sets UART 0 to 115,200 baud, 8N1, its FIFOs on, DTR and RTS;
-3. reads the boot flash: if byte 0 is 0x1F, copies byte 1's count of
-   256-byte pages from byte 2 on into RAM at 0;
+3. reads the boot flash (at 0xFFE0_0000 + 2n): if byte 0 is 0x1F,
+   copies byte 1's count of 256-byte pages from byte 2 on into RAM at 0;
 4. enters the program at 0.
 
 This boot format is tentative. In the simulations the flash is blank
@@ -461,20 +512,21 @@ RTS only while it waits for a character, so a terminal that keeps to
 RTS can't overrun it. A word is read and written as two halfwords
 (A0 ignored), so devices can be poked.
 
-ODT's microcode is opcode 00's blocks at N 9, 15 and 14 (about 200
-microinstructions). Page 3's entry loads the instruction register from
-the controller's +4, which reads 0x9000 (opcode 00, N 9) while ODT is
-asked for. ODT keeps TRACE on while it runs, so the same read takes it
-back to block 9 from the others. It keeps its state in the microcode's
-temporaries and puts V, C, Z and N back as it leaves. It leaves by
-fetching the next instruction itself, so a step's TRACE is seen only at
-that instruction's end.
+ODT's microcode is one of the compiler's named routines (about 195
+microinstructions). The interrupt's entry loads d and s from the
+controller's +4 (LDIRM), which reads 0x9000 while ODT is asked for: d 9
+and s 0, which ODT counts from to pick a register for `%n/`. ODT keeps
+TRACE on while it runs, so that the same read sets them again later. It
+keeps its state in the microcode's temporaries and puts V, C, Z and N
+back as it leaves. It leaves with a fetch and a decode that skips the
+interrupt's check (JT's bit 12), so a step's TRACE is seen only at that
+instruction's end.
 
 **Debugging hooks:**
 - three 32-pin headers for a Saleae Logic Pro 16 or any analyser with
-  flying leads (16 signals, each beside a ground, through 100 Ω): the
-  control store's address and the clock; N, the half, phase F, the
-  flags, TASK, LDIR and HCK; and D;
+  flying leads (16 signals, each beside a ground, through 100 Ω): µPC,
+  the clock, LDIR and TASK; d, the half, phase F, the flags, IRQP, AIO
+  and HCK; and D;
 - the halt button (an SPDT, latched);
 - the reset and interrupt buttons;
 - the clock jumper for an external clock.
@@ -483,14 +535,14 @@ that instruction's end.
 
 | | Packages | |
 |---|---:|---|
-| ATF22V10C-5 (PLCC-28, socketed) | 60 | clock generator (2), sequencer and tasks (6), flags and system (2), register file (4), operand latch (4), ALU control and zero (2), result (4), immediate unit (3), bus and sources (2), PC and MAR (7), memory control, I/O decode, slow devices (2), interrupts, ODT, scanline (3), PS/2 (6), sound, video (8) |
-| SST39SF040-55 (PLCC-32, socketed) | 9 | the control store |
+| ATF22V10C-5 (PLCC-28, socketed) | 61 | clock generator (2), sequencer and tasks (7), flags and system (2), register file (4), operand latch (4), ALU control and zero (2), result (4), immediate unit (3), bus and sources (2), PC and MAR (7), memory control, I/O decode, slow devices (2), interrupts, ODT, scanline (3), PS/2 (6), sound, video (8) |
+| SST39SF040-55 (PLCC-32, socketed) | 9 | the control store (8K words of each used) |
 | SST39SF010A-55 (PLCC-32, socketed) | 1 | the boot flash |
 | 74F181, 74F182 | 4, 1 | the ALU |
-| CY7C199C-12 | 4 | the register file |
+| IS61C6416AL-12 (SOJ-44) | 2 | the register file |
 | AS7C4096A-12 (SOJ-36) | 4 | the RAM |
-| 74ABT541 | 8 | the clock buffers (2), PC's read-back (2), the flags word, the scanline's read-back, the task's opcode and N |
-| 74ABT574 | 8 | the video's buffer (4), SWP (2), the sound chip's latch (2) |
+| 74ABT541 | 7 | the clock buffers (2), PC's read-back (2), the flags word, the scanline's read-back, the task's address |
+| 74ABT574 | 6 | the video's buffer (4), the sound chip's latch (2) |
 | 74ABT245 | 5 | D to MD (2), the byte crossing, the CF card's data (2) |
 | 74HCT541, 74HCT688, 74HCT175, 74HCT14 | 1 each | the CF card's control, the scanline compare, the palette bank, the PS/2 inputs |
 | TL16C550C, MAX232 | 2, 2 | the serial ports |
@@ -498,12 +550,12 @@ that instruction's end.
 | TL7705A | 1 | reset |
 | oscillators | 2 | 50.35 MHz, 1.8432 MHz |
 | CompactFlash socket | 1 | |
-| **total** | **119** | |
+| **total** | **115** | |
 
 Not counted: resistor networks, decoupling, the connectors (VGA, two
 DE-9s, two PS/2 sockets, the sound jack, power), the buttons, jumpers
 and headers. The sections: clock 6, control store 17, flags 2, register
-file 8, ALU 10, result 5, immediate unit 8, address 7, memory 10, I/O
+file 6, ALU 10, result 5, immediate unit 6, address 7, memory 10, I/O
 34, video 12 ([performance.md](0047-rfc-chibi-heron/performance.md#parts)).
 
 ## Part II: Discussion
@@ -515,12 +567,12 @@ The suite on the model, which the netlist matches cycle for cycle
 
 | | Chibi Heron | The full Heron (RFC 0031) | The first cut |
 |---|---:|---:|---:|
-| the suite (18 programs, not hello or interrupts) | 1738 ms | 465 ms (3.7× faster) | 3599 ms (2.07× slower) |
-| per instruction, on average | 1224 ns | | |
-| per microinstruction | 6.45 ticks, 128 ns | | 158.9 ns |
+| the suite (18 programs, not hello or interrupts) | 1758 ms | 465 ms (3.8× faster) | 3599 ms (2.05× slower) |
+| per instruction, on average | 1239 ns | | |
+| per microinstruction | 6.43 ticks, 128 ns | | 158.9 ns |
 
 Ordinary code (fib, life, sieve, queens, sort, strings, rpn) runs at
-400–570 ns an instruction, 1.7–2.7 times the full Heron's time. Where
+430–590 ns an instruction, 1.8–2.7 times the full Heron's time. Where
 the time goes:
 
 - **Multiplies and divides** still go a bit a step: MULFX (mandel's
@@ -528,41 +580,51 @@ the time goes:
   (25 µs) a time. The divides are about 900–1000 ticks. A multiply by a
   number under $2^{16}$, or a divide of one, takes 16 steps instead of
   32; mandel's signed fixed-point operands mostly don't qualify. mandel
-  is 6.2× the full Heron, matmul 4.0, bignum 4.4.
+  is 6.3× the full Heron, matmul 4.0, bignum 4.4.
 - **Shifts and rotates** go a bit a step: sha256's rotates take it to
-  8.4×. The hardware for shifts by 8 through SWP is in; the microcode
-  doesn't use it yet ([21](#21-open-tasks)).
+  8.5×.
 - **Memory and calls:** `MOV` averages 26 ticks, a `JMP` through a
-  table (vm's dispatch) 77, `PUSH` 39.
+  table (vm's dispatch) 82, `PUSH` 39.
+- **The flat store's price:** 1.2% on the suite against the paged
+  store, 1.4% more microinstructions. It's the 16-way branch on d at
+  the entry of JMP, CALL, CLR, INC, DEC, Jcc and a few rarer ones (a
+  microinstruction of 4 ticks; the paged store's decode took d into the
+  address), and I/O halves of 6 ticks, not 5. fib and sieve, with many
+  calls and conditional jumps, are 4–5% slower; mandel, sha256 and life
+  under 1%. The condition from d ([19](#19-proposals)) would take back
+  most of Jcc's share.
 
 ### 14. Timing
 
 Static timing analysis of the netlist (`heron chibi hw sta`) takes
-every distinct microinstruction (623 of them) as a case. Its control
+every distinct microinstruction (582 cases, an access at MAR twice: to
+the RAM and to the I/O space) as a case. Its control
 bits are held at their values from the time the flashes give them. The
 analysis finds the ticks each half needs to meet every setup: the
-registers' at the half's end, `U_MEMC`'s before the half's second tick,
+registers' at the half's end, `U_MEMC`'s before the half's second tick
+(the UARTs' address and select before their strobe, a tick later),
 the register file's address and data around its write strobes, and the
 RAM's. Phase F is a case of its own, the control bits unknown.
 Worst-case delays throughout. It writes the table (`ticks.json`) that
 the control store's LEN and HLEN are filled from, and a unit test fails
 if a microinstruction isn't in it.
 
-- **Low halves:** 405 of 2 ticks, 218 of 3. **High halves:** 230 of 2,
-  115 of 3. **Phase F:** 3 ticks, all its requirements met. No half
-  needs more than its field can say, and no I/O half more than 5.
+- **Low halves:** 374 of 2 ticks, 208 of 3. **High halves:** 214 of 2,
+  113 of 3. **Phase F:** 3 ticks, all its requirements met. No half
+  needs more than its field can say, and no I/O half more than 6.
 - **The slowest low half** is an ADD that sets the flags: 58.5 ns of
   its 59.6 (3 ticks), from the register file's address at the half's
   start, through its 12 ns access, the ALU, the carry lookahead, to Z.
   The slowest high half (56.8 ns) reads the RAM: MAR, the row's chip
-  enable, the RAM's 12 ns, the transceiver, the ALU, N.
+  enable, the RAM's 12 ns, the transceiver, the ALU, N. The flat
+  sequencer and the 16-bit register file SRAMs left both as they were.
 - High halves have a floor of 2 ticks (HCK must fall between the
   halves' edges), and an access at MAR one of 3.
 
 The chip-level simulator checks the same, and more: every device's
 setup, hold and widths, with the real ticks and the video's reads. Its
-runs of the suite report no violation, and no bus driven twice for
-longer than the 0.9 ns of a handover.
+runs report no violation, and no bus driven twice for longer than the
+1.0 ns of a handover.
 
 ### 15. Why it's built so
 
@@ -573,7 +635,7 @@ longer than the 0.9 ns of a handover.
   needs. Emily chose this, with variable ticks, over the first cut's
   fixed cycle and over a "system half".
 - **Ticks from the timing analysis.** Each microinstruction is as long
-  as its paths, not as the slowest: 6.45 ticks on average, against a
+  as its paths, not as the slowest: 6.43 ticks on average, against a
   fixed cycle that would need about 9.
 - **The video decoupled.** The first cut counted the video in CPU
   cycles, which pinned the cycle to four pixels. Here the video has its
@@ -585,9 +647,35 @@ longer than the 0.9 ns of a handover.
 - **Horizontal and unpipelined.** The flashes drive the datapath
   directly. Phase F covers their settling while the last results are
   written: no microinstruction register, no hazards, no delayed
-  branches.
+  branches. Emily decided against pipelining for now
+  ([pipelining.md](0047-rfc-chibi-heron/pipelining.md) has the
+  estimate).
+- **A flat store** (Emily's choice). The paged store's address was the
+  opcode, the dispatch nibble, a page and a step: the microcode was
+  bound to the instruction's encoding and to 32-step blocks, and some
+  modes didn't fit (the tables of CLR, INC, DEC, MULU and MULS). Now the
+  only tie is that the opcode is the first parcel's low byte; the
+  routines are shared where alike, ODT and the copper live anywhere, and
+  every word's next address is its own (no incrementer, a jump costs
+  nothing). Its price: a few more microinstructions where the first step
+  depends on d ([13](#13-how-fast)). The sequencer costs what the paged
+  one did: three 22V10s for µPC and one for the nibble, against the
+  opcode's, the nibble's and the step's three and a 541. The 13-bit
+  jump target fits the 72 bits because the register selects are coded
+  together (K, d or s in 6 bits, and "no write" one of them), and PT and
+  HALT went.
 - **22V10s for everything small** ([18](#18-the-board)).
 - **2 MB, not 4** ([20](#20-open-questions)).
+- **I/O at A30, decoded from the address bus.** Emily wanted the devices
+  in the top 64 KB, the busiest in the top 32 KB, and all of RAM kept;
+  A31 is left for forcing ([19](#19-proposals)). The low address bits
+  exist only on the bus, which settles a tick into the half, so the
+  I/O strobes start a tick later and an I/O half is 6 ticks, not 5. A
+  registered copy of A14–A12 would avoid that, but MAR's 22V10s have
+  no room for it.
+- **No SWP.** The byte-swapped result (two 574s) served only REV and
+  ADD.B4, which now shift: REV takes about 22 microinstructions, ADD.B4
+  eight more. Emily's call: they don't deserve chips.
 
 ### 16. How it was checked
 
@@ -597,20 +685,25 @@ longer than the 0.9 ns of a handover.
   routines on chosen and random operands, with aliased registers and
   16-bit operands for the short paths: multiply, divide, MULA, MULFX,
   CLZ, REV, the tagged operations, LDM and STM with their table modes,
-  ADD.B4, MERGE, FFS, POPC.
+  ADD.B4, MERGE, FFS, POPC, the special mode's tables for INC, DEC, CLR,
+  CALL, MULU and MULS, and the illegal operands that must trap before
+  anything changes (a jump's byte operand, INC of an immediate).
 - **The netlist against the model** (`heron chibi hw test`): the
   chip-level simulator runs the netlist with worst-case delays. Its
   22V10s run from their equations, the flashes from the microcode's
   images, and the RAM is preloaded with the program. The output, the
   registers, the flags, the RAM and every instruction fetch (address,
-  parcel and cycle) are the model's, for all twenty programs.
+  parcel and cycle) are the model's. On this revision (the flat store,
+  the new I/O map) that's been run for hello, fib, interrupts, monitor,
+  queens, rpn and strings; the paged store's netlist ran all twenty.
 - **The board's own devices at chip level:**
   - ODT: a session that opens memory and registers, writes, steps
     through a loop (the flags must survive) and goes on, on the UART
     model with its timing;
   - the copper: its list writing to the console at two lines a frame;
   - the PS/2 receiver: two bytes from the keyboard model.
-  Each matches the model's outcome, with no violation.
+  Each matched the model's outcome, with no violation, on the paged
+  store's netlist; on this one, ODT's session and the copper's do.
 - **Not checked:** the picture, the palette, the sound chip, the CF
   card, the mouse, UART 1.
 
@@ -622,11 +715,10 @@ of 158.9 ns (four VGA pixels, the video counted in CPU cycles), 36
 22V10s, a 67-bit control word, and none of the devices but the UARTs,
 the PS/2 ports and the video's fixed colours. It ran the suite at 7.7
 times the full Heron's time. Its static timing needed 147.1 ns. The
-two-halves machine spends 49 more packages: on the devices Emily's
+two-halves machine spends 45 more packages: on the devices Emily's
 decisions added (palette, timer, sound, CF, serial levels, interrupt
-controller, ODT, scanline and copper), on the second half of
-the register file, latch and results, and on the decoupled video, the
-clock generator and SWP.
+controller, ODT, scanline and copper), on the second half of the
+latch and results, and on the decoupled video and the clock generator.
 
 ### 18. The board
 
@@ -639,11 +731,11 @@ than two smaller DIPs, and need programming?
   each, which is what makes them costly.
 - **Logic.** Each 22V10 here does what 3–6 74-series chips would: up to
   10 registered or combinational outputs of up to 22 inputs, with output
-  enables. The 60 would be some 200–300 chips of 74 logic.
+  enables. The 61 would be some 200–300 chips of 74 logic.
 - **Programming** is one cheap universal programmer (an XGecu T48 or
   similar) and a JEDEC file each. The flow doesn't write JEDEC files yet
   ([21](#21-open-tasks)).
-- **Speed.** About 20 of the 60 are in the critical paths and need the
+- **Speed.** About 20 of the 61 are in the critical paths and need the
   -5 grade, which comes only in PLCC. The rest could be -7 or -10 in
   DIP-24, which would shrink the board
   ([placement.md](0047-rfc-chibi-heron/placement.md)).
@@ -652,10 +744,11 @@ than two smaller DIPs, and need programming?
 
 **Placement** on RFC 0046's column grid, no routing
 ([placement.md](0047-rfc-chibi-heron/placement.md), `heron chibi place
---write`). The least board is 365 × 275 mm (4:3, 79% of its grid,
-69.4 m of wire), the least square one 320 × 320; it doesn't fit ATX
-(305 × 244). With the 22V10s in DIP-24 the 4:3 board is 345 × 260, 11%
-less area. The board's size is open.
+--write`). The least board is now 315 × 315 mm (79% of its grid, 64.8 m
+of wire); the least 4:3 one is 365 × 275, as before (78%). It doesn't fit
+ATX (305 × 244). With the 22V10s in DIP-24 the 4:3 board is 340 × 255,
+14% less area. The board's size is open: E-ATX (305 × 330) fits with
+the non-critical 22V10s in DIP.
 
 ### 19. Proposals
 
@@ -665,10 +758,9 @@ These are written up for Emily's decision; none is built.
 had to have bit 31 set, a null pointer, and any value tagged as a
 non-pointer by bit 31 clear, would trap on dereference, for free. What
 it would take:
-- **The map:** RAM at 0x8000_0000 (A31 = 1, A30 = 0) and the I/O space
-  at 0xC000_0000 (A30 = 1), keeping MAR's bit 30 in `U_MARC`'s one
-  spare output. `U_IODEC` would then select on A30. Today's map stays
-  while the option is off.
+- **The map** is ready for it: A30 selects the I/O space and A31 is
+  ignored, so RAM at 0x8000_0000 is the same RAM, and the devices'
+  addresses (0xFFFF_xxxx) have bit 31 set already.
 - **The check:** in the high half of the microinstruction that loads
   MAR, which already checks alignment. A high-half form of STA4 and
   STF0 that also sets ST when the address's bit 31 is clear sends a bad
@@ -695,28 +787,26 @@ multiplies and divides about 45%.
   of 3–4 ticks, as a D source (one of DS's codes would have to be
   shared). A 32 × 32 multiply is then 16 partial
   products and their adds, about 50 microinstructions against 200: about
-  4× faster multiplies, mandel 2–3× faster, the suite about 1.3×. It
-  takes the budget's last place and one more, so something else would
-  have to go (the sound chip's latch, say). No help for divides.
+  4× faster multiplies, mandel 2–3× faster, the suite about 1.3×. At
+  115 packages it fits the budget. No help for divides.
 - **A multiplier chip:** the 16 × 16 parallel multipliers (IDT7216,
   ADSP-1016) are long out of production, and there are none in DIP.
 - **Divides:** a reciprocal table in flash and a Newton step, or SRT
   steps; neither is cheap in microcode on this datapath. I'd leave them.
 
-**Pipelining the control store** ([pipelining.md](0047-rfc-chibi-heron/pipelining.md)).
-Phase F is nearly half the machine's time: the flashes settling, and the
-register file's writes and the video's read meanwhile. A register for the
-executing word (6–8 × 574) alone gains under 10%, since the writes still
-need their ticks. With the writes moved into the halves (the four-SRAM
-file allows it) and 45 ns flashes (which the flat layout's smaller store
-allows), the estimate is about 1.38×, for about 10 packages.
+**Pipelining the control store** ([pipelining.md](0047-rfc-chibi-heron/pipelining.md)):
+not now, Emily decided. The estimate, for the record: a register for the
+executing word (6–8 × 574) alone gains under 10%; with the register
+file's writes moved into the halves and 45 ns flashes (which the flat
+store's 8K words allow), about 1.38× for about 10 packages.
 
 **PCM in microcode instead of the sound chip.** A second task, like the
 copper, plays samples from RAM:
 - **The hardware.** The 82C54's spare counter (OUT1) gives the sample
   rate (divisor 84: 21.9 kHz; 42: 43.9 kHz). Its pulse sets a request,
-  a latch in a GAL with room, which the DAC's write clears. U_TN's constant
-  N 8 becomes N 10 for this task, so `U_TASK` doesn't change. A
+  a latch in a GAL with room, which the DAC's write clears. A second
+  task needs a second 32 words: `U_TASK` would give µPC's bit 5 for it
+  (one macrocell), the copper's region beside it. A
   double-buffered DAC (the task loads its input, the timer's pulse moves
   it to the output) makes the samples jitter-free, whatever the task's
   latency. That's a DAC0832 and an op-amp for mono (2 chips), or a dual
@@ -734,6 +824,31 @@ copper, plays samples from RAM:
   MOVEs) would make it repeat a sample.
 - **My lean:** PCM in microcode. It's 2–3 packages fewer and plays
   anything; the sound chip wins only for chip music with no CPU at all.
+
+**Savings that aren't free**, for Emily to weigh. The free ones are
+built: SWP's two 574s and the register file in two 16-bit SRAMs, 119
+packages to 115 (the flat sequencer costs what the paged one did).
+- **PCM instead of the sound chip:** −2 or −3 packages (above).
+- **PS/2 in microcode:** a task at each falling edge of a port's clock
+  takes one bit (11 a byte, under 1% of the CPU with the mouse
+  streaming; a device holds each bit at least 30 µs, far longer than the
+  wait for a task point). The six receiver, frame and control 22V10s
+  become one, for the edges' synchronisation and the pull-downs: −5
+  packages, about 90 of the grid's cells. Like PCM, it stops while ODT
+  runs.
+- **The condition from d:** the CND code A0 is unused. As "draft 2's
+  condition in d", it would let every Jcc share its first word, which
+  saves the 16-way branch's microinstruction at Jcc's entry. It needs N,
+  Z, C, V and d in one 22V10 with a spare output (no chip if one has
+  room; to check).
+- **5-tick I/O halves again:** a registered copy of A14–A12, loaded with
+  MAR, so that the select is steady from the half's start: one 22V10
+  more (MAR's three are full).
+
+**The expansion port** (0xFFFE_0000, 64 KB, reserved): its select in a
+22V10, two 74ABT245s for MD (or one for an 8-bit port) and a 541 for
+the address and strobes, a wait line into HOLD, an interrupt line:
+about 3 packages and a connector.
 
 **Small features within the budget** (0 or 1 chip):
 - a speaker on the timer's OUT2 (wired, a transistor);
@@ -753,22 +868,27 @@ For Emily:
 1. **2 vs 3 bits for the half's length field** (LEN is 2 bits now, as
    built; a 3-bit field was worth 1.78× against 1.68× on the suite in
    the exploration).
-2. **4 MB?** Four more SRAMs and A21 in PC and MAR: about 5 packages,
-   over the budget.
+2. **4 MB?** Four more SRAMs and A21 in PC and MAR: about 5 packages.
 3. **The sound:** the YM2149 (tentative) or PCM in microcode
    ([19](#19-proposals)).
 4. **The boot format** (tentative).
 5. **The deviations from RFC 0028** in [8](#8-interrupts-and-exceptions).
 6. **The proposals** in [19](#19-proposals): forcing bit 31, the
-   multiplier in flash, pipelining the control store, the small features.
-7. **The 22V10s' packages** ([18](#18-the-board)).
-8. **Parts availability**, to review (the CY7C199C, the 74F181 and
+   multiplier in flash, PS/2 in microcode, the condition from d, 5-tick
+   I/O halves, the small features.
+7. **The expansion port:** 64 KB reserved; whether to build its buffers
+   now (about 3 packages), and how wide.
+8. **The 22V10s' packages** ([18](#18-the-board)).
+9. **Parts availability**, to review (the IS61C6416AL, the 74F181 and
    74F182, the IMS G171, the YM2149F, the TL7705A).
 
 ### 21. Open tasks
 
-- **Shifts by 8 through SWP:** the hardware is there; the shift and
-  rotate routines still go a bit a step.
+- **The chip-level suite on this revision**, all of it, and the PS/2
+  receiver's test again (this draft ran seven programs, ODT's session
+  and the copper's test).
+- **Configurability** (Emily's note): ODT on or off, boot options; a
+  jumper read through a spare input would do, the microcode choosing.
 - **The task-constraint checker:** a test that the copper's microcode
   keeps to a task's rules and every task point to its (MAR, flags,
   L).
