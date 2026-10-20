@@ -229,23 +229,17 @@ class Case:
 
     def m_dff74(self, inst, pin, d): return self._seq(inst, pin, "CLK->Q")
 
-    def m_gal(self, inst, pin, d):
-        """A 22V10 (infra/hw/gal.py): a registered output changes at CLK; a
-        combinatorial one with the inputs of the terms constants don't
-        rule out (and those constants), tPD later. A pin that isn't an
-        output drives nothing."""
-        out = next((o for o in inst.gal if o[0] == pin), None)
-        if out is None:
-            return (None, NEG, False, None)
-        _pin, reg, inv, terms = out
-        if reg:
-            _, tc, _ = self.pin(inst, "CLK")
-            return (None, max(tc, 0) + d["CLK->Q"], True, (inst.ref, "CLK", "CLK->Q"))
+    def _gal_sop(self, inst, terms):
+        """A 22V10 sum of products as the case has its inputs: (value, the
+        pins that time it): the inputs of the terms constants don't rule
+        out, and the constants that rule the others out."""
         pins, val, live = set(), 0, []
         for t in terms:
             vals = [self.pin(inst, p)[0] for p, _ in t]
-            if any(x is not None and x != v for x, (_, v) in zip(vals, t)):
-                pins.update(p for (p, _), x in zip(t, vals) if x is not None)
+            against = [p for (p, v), x in zip(t, vals) if x is not None and x != v]
+            if against:
+                # ruled out once the first input against it arrives
+                pins.add(min(against, key=lambda p: self.pin(inst, p)[1]))
                 continue
             rest = frozenset(lit for lit, x in zip(t, vals) if x is None)
             live.append((rest, [p for p, _ in t]))
@@ -260,9 +254,39 @@ class Case:
             if not any(k <= rest for k in kept):
                 kept.append(rest)
                 pins.update(ps)
-        v = 1 if val else (None if live else 0)
-        t, cause = self.latest(inst, [(p, "tPD", d["tPD"]) for p in sorted(pins)])
-        return (None if v is None else v ^ int(inv), t, True, cause)
+        return (1 if val else (None if live else 0)), pins
+
+    def m_gal(self, inst, pin, d):
+        """A 22V10 (infra/hw/gal.py): a registered output changes at CLK; a
+        combinatorial one with the inputs of the terms constants don't
+        rule out (and those constants), tPD later. An output with an output
+        enable (gal_oe) drives only while it's true, and is on tPD after
+        its inputs. A pin that isn't an output drives nothing."""
+        out = next((o for o in inst.gal if o[0] == pin), None)
+        if out is None:
+            return (None, NEG, False, None)
+        _pin, reg, inv, terms = out
+        oe = getattr(inst, "gal_oe", {}).get(pin)
+        en, toe, coe = True, NEG, None
+        if oe is not None:
+            ov, opins = self._gal_sop(inst, oe)
+            toe, coe = self.latest(inst, [(p, "tPD", d["tPD"]) for p in sorted(opins)])
+            if ov == 0:
+                if not self.turnoff:
+                    return (None, NEG, False, None)
+                return (None, toe, False, coe)
+            en = True if ov == 1 else None
+        if reg:
+            _, tc, _ = self.pin(inst, "CLK")
+            t, cause = max(tc, 0) + d["CLK->Q"], (inst.ref, "CLK", "CLK->Q")
+            v = self.const.get(inst.conn.get(pin))
+        else:
+            v, pins = self._gal_sop(inst, terms)
+            t, cause = self.latest(inst, [(p, "tPD", d["tPD"]) for p in sorted(pins)])
+            v = None if v is None else v ^ int(inv)
+        if toe > t:
+            t, cause = toe, coe
+        return (v, t, en, cause)
 
     def m_jk109(self, inst, pin, d):
         """A J-K-bar flip-flop: its outputs launch at its clock's edge, as a
@@ -491,9 +515,46 @@ class Case:
                                + [("CE", "tACE", d["tACE"]), ("OE", "tOE", d["tOE"])])
         return (None, t, en, cause)
 
+    def earliest(self, inst, terms):
+        """terms: (pin, delay name, delay). (arrival, cause) of the first:
+        an output is off once any of its enables is."""
+        t, cause = math.inf, None
+        for p, dn, dval in terms:
+            _, ta, _ = self.pin(inst, p)
+            if ta + dval < t:
+                t, cause = ta + dval, (inst.ref, inst.conn[p], dn)
+        return (t, cause) if cause else (NEG, None)
+
     def m_rom(self, inst, pin, d):
-        t, cause = self.latest(inst, [(f"A{i}", "tACC", d["tACC"]) for i in range(17)])
-        return (self.const.get(inst.conn.get(pin)), t, True, cause)
+        """A ROM or flash: its address pins (17 or 19), CE and OE."""
+        ce, oe = (self.pin(inst, p)[0] for p in ("CE", "OE"))
+        if ce == 1 or oe == 1:
+            if not self.turnoff:
+                return (None, NEG, False, None)
+            t, cause = self.earliest(inst, [(p, "tDF", d["tDF"]) for p in ("CE", "OE")
+                                            if self.pin(inst, p)[0] == 1])
+            return (None, t, False, cause)
+        en = True if (ce == 0 and oe == 0) else None
+        t, cause = self.latest(inst, [(p, "tACC", d["tACC"]) for p in address_pins(inst)]
+                               + [("CE", "tCE", d["tCE"]), ("OE", "tOE", d["tOE"])])
+        return (self.const.get(inst.conn.get(pin)), t, en, cause)
+
+    def m_uart16550(self, inst, pin, d):
+        """A 16C550's data outputs, RD->D after its read strobe while it's
+        selected (CS2 low); its other outputs aren't timed."""
+        if pin[0] != "D":
+            return (None, NEG, True, None)
+        rd, cs = self.pin(inst, "RD")[0], self.pin(inst, "CS2")[0]
+        if rd == 1 or cs == 1:
+            if not self.turnoff:
+                return (None, NEG, False, None)
+            t, cause = self.earliest(inst, [(p, "RD->D dis", d["RD->D dis"])
+                                            for p in ("RD", "CS2") if self.pin(inst, p)[0] == 1])
+            return (None, t, False, cause)
+        en = True if (rd == 0 and cs == 0) else None
+        t, cause = self.latest(inst, [("RD", "RD->D", d["RD->D"]), ("CS2", "RD->D", d["RD->D"])]
+                               + [(f"A{i}", "RD->D", d["RD->D"]) for i in range(3)])
+        return (None, t, en, cause)
 
     def m_sr299(self, inst, pin, d):
         if pin in ("Q0S", "Q7S"):

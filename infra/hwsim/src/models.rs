@@ -205,8 +205,8 @@ impl Model {
                 Model::Const
             }
             "clockgen" => Model::ClockGen,
-            "iodev" => Model::IoDev(IoDev::new(s, false)?),
-            "iodev32" => Model::IoDev(IoDev::new(s, true)?),
+            "iodev" => Model::IoDev(IoDev::new(s, false, preload)?),
+            "iodev32" => Model::IoDev(IoDev::new(s, true, preload)?),
             "sr299" => Model::Sr299(Sr299::new(s, rng)?),
             "jk109" => Model::Jk109(Jk109::new(s, rng)?),
             "dreg" => Model::DReg(DReg::new(s, rng, false)?),
@@ -2011,7 +2011,9 @@ pub struct IoDev {
 }
 
 impl IoDev {
-    fn new(s: &Spec, wide: bool) -> Result<IoDev, Error> {
+    /// `preload`: the console's input (a system run's; a machine run sets
+    /// `input` itself).
+    fn new(s: &Spec, wide: bool, preload: Option<&[u8]>) -> Result<IoDev, Error> {
         Ok(IoDev {
             wide,
             clk: s.pin("CLK")?,
@@ -2026,7 +2028,7 @@ impl IoDev {
             writing: false,
             driving: false,
             lanes: 0,
-            input: Vec::new(),
+            input: preload.map(|p| p.to_vec()).unwrap_or_default(),
             input_pos: 0,
             output: Vec::new(),
             timer_period: 0,
