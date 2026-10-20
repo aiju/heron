@@ -33,6 +33,15 @@ from .board import AND, OR, ONE, ZERO, TICK_PS, bus, counter_bit, eq, lit, negat
 
 UCLK_PS = 542535                # 1.8432 MHz: the UARTs' and the timer's
 
+# the 22V10s' grades (infra/hw/datasheets/timing_bus.json), where not the
+# -5 in PLCC-28: the slowest in DIP-24 that leaves every microinstruction's
+# ticks as they are (heron chibi hw grades), on the master clock at least
+# the -15. The -7 for speed, the -15 and the zero-power CQZ-20 for power.
+# Empty for now: the search's mix (RFC 0047, 18) fails at chip level
+# (U_IRH's setup at -15, UART 0's select with U_IODEC a CQZ-20), so the
+# analysis misses some paths (open).
+GAL_GRADES = {}
+
 
 def field(name):
     b, w, _ = uc._pos[name]
@@ -198,6 +207,9 @@ def build(sim=True, halt_ps=0):
     nl.section("video")
     video(nl, clk)
 
+    for inst in nl.instances:
+        if inst.type.name == "22v10" and inst.ref in GAL_GRADES:
+            inst.part = GAL_GRADES[inst.ref]
     nl.finish()
     nl.check()
     return nl
@@ -205,23 +217,17 @@ def build(sim=True, halt_ps=0):
 
 def _types():
     from heron.infra.hw import chips
-    if "dac0832in" in chips.TYPES:
+    if "dac0832" in chips.TYPES:
         return
-    d8 = [(f"D{i}", "in") for i in range(1, 9)]
-    chips.T("dac0832in", "dreg", [("CLK", "in"), ("EN", "in")] + d8
-            + [(f"Q{i}", "out") for i in range(1, 9)],
-            arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q")],
-            checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D"),
-                    (["EN"], "CLK", "rise", "setup EN", "hold EN")], family="device",
-            per_package=2, desc="DAC0832's input latch (CS as EN, WR1 as CLK; ILE high), "
-                                "taken as a register; its other half dac0832out")
-    chips.T("dac0832out", "dreg", [("CLK", "in")] + d8 + [(f"Q{i}", "out") for i in range(1, 9)]
-            + [("VREFIN", "pull"), ("VOUT", "pull")],
+    chips.T("dac0832", "dreg", [("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+            + [(f"Q{i}", "out") for i in range(1, 9)] + [("VREFIN", "pull"), ("VOUT", "pull")],
             arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q")],
             checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
-            family="device", per_package=2,
-            desc="DAC0832's DAC latch (WR2 as CLK, XFER low) and its converter in voltage "
-                 "mode (the reference in at IOUT1, the output at VREF); Q the code converted")
+            family="device",
+            desc="DAC0832 with its input latch open (CS and WR1 low, ILE high), its DAC latch "
+                 "on WR2 (XFER low), taken as a register on WR2's rise; the converter in "
+                 "voltage mode (the reference in at IOUT1, the output at VREF); Q the code "
+                 "converted")
     chips.T("mcp6002", "passive", [(p, "pull") for p in ("REF", "DIV", "IN", "OUT")],
             family="device", desc="dual op-amp: a follower giving the DAC its reference from "
                                   "a divider (DIV), a follower buffering its output")
@@ -559,9 +565,9 @@ def lck_gal(nl):
     clocks (HCKA and HCKB when the word loads L: LDL); LBOE_n, the high
     half's latch's enable (HALF's complement, registered from the same
     next state as U_CGB's HALF); SREQ, the PCM's request, set as the
-    timer's OUT1 pulse ends (TS, synchronised, rising, SARM its last
-    value's complement: the DAC's latch has taken the sample) and cleared
-    by the DAC's write (SDACW), which so always comes between pulses; DREQ, the device task's request: SREQ
+    timer's OUT1 rises (TS, synchronised, rising, SARM its last value's
+    complement: the DAC's latch has taken the sample) and cleared by the
+    sample's write (SDACW), which so comes while OUT1 is high; DREQ, the device task's request: SREQ
     or a PS/2 port's edge (KBD_E, MOUSE_E); TCHG, TASK changed at the
     cycle's start (phase F a tick longer, for the address drivers'
     enables), against TASKP, TASK as the last phase F ended."""
@@ -938,7 +944,6 @@ def io(nl, sim, halt_ps=0):
 # ends a tick before it, for the data's hold. The half lasts end + 2 ticks.
 SLOW = {"cf0": (3, 9, 30, 30),          # PIO mode 0, at boot (the display off): 600 ns
         "cf4": (1, 4, 6, 6),            # PIO mode 4: 25, 70, 10 ns; 120 ns a cycle
-        "sdac": (1, 20, 22, 22),        # the DAC0832's input latch: a write of 397 ns
         "other": (2, 6, 9, 9)}          # the 82C54 (its tAR, 25 ns) and the RAMDAC
 
 
@@ -947,8 +952,8 @@ def slow_devices(nl):
     device's length (the CF card's by CFFAST: PIO 0 until the boot sets
     PIO 4); HOLD holds the half until then; SRD_n and SWR_n are the
     strobes, CFOE_n the CF card's buffers (74ABT245s, quick to let go of
-    MD). By A6-A4: 000 the timer, 001 the palette, 010 the PCM's DAC
-    (its input latch), 011 CFFAST (bit 0); A6 set, the CF card: A5 0 its
+    MD). By A6-A4: 000 the timer, 001 the palette, 010 the PCM's sample
+    latch (U_PCM), 011 CFFAST (bit 0); A6 set, the CF card: A5 0 its
     command block, 1 its control block."""
     w = bus("W", 5)
     acc = AND(lit("SLOWCS"), lit("IOACC"), lit("IOQ"))
@@ -957,7 +962,7 @@ def slow_devices(nl):
     def kind(a6, a5, a4, fast):
         if a6:
             return "cf4" if fast else "cf0"
-        return "sdac" if (a5, a4) == (1, 0) else "other"
+        return "other"
     knets = ["A6", "A5", "A4", "CFFAST"]
     wn = w + knets + ["XDIR", "SDONE"]
 
@@ -1111,19 +1116,21 @@ def scanline(nl):
 
 def sound(nl):
     """PCM through a DAC0832 (an 8-bit DAC with two latches) and an op-amp.
-    The device task (routines2.device) writes each sample to the input
-    latch (U_SDAC0) at the slow devices' 0x20 (SDACWR_n, its WR1, a long
-    write; CS low); the timer's OUT1 (counter 1 at the sample rate, a pulse each
-    period) moves it to the DAC's latch (U_SDAC1), so that the samples
-    come out at the timer's steady rate whenever the task wrote them, and
-    asks for the next (SREQ, U_LCK's). The DAC in voltage mode (the
-    reference on IOUT1, the output at VREF), one of the MCP6002's op-amps
-    giving it the reference and the other buffering its output; the
-    analog side is a sketch (open)."""
-    nl.add("dac0832in", "U_SDAC0", CLK="SDACWR_n", EN="GND",
+    The device task (routines2.device) writes each sample to U_PCM, a
+    574, at the slow devices' 0x20 (SDACWR_n); the DAC's input latch is
+    open, and its DAC latch takes U_PCM's sample on the timer's OUT1
+    (counter 1 in mode 3, a square wave at the sample rate): open while
+    OUT1 is low, held while it's high. The task writes in the high half
+    (SREQ, U_LCK's, rises with OUT1), so the sample comes out as OUT1
+    falls, at the timer's steady rate however late the task wrote it, and
+    WR2's low half is far longer than the DAC's 900 ns. The DAC in voltage
+    mode (the reference on IOUT1, the output at VREF), one of the
+    MCP6002's op-amps giving it the reference and the other buffering its
+    output; the analog side is a sketch (open)."""
+    nl.add("574", "U_PCM", CLK="SDACWR_n", OE="GND",
            **{f"D{i + 1}": f"MD{i}" for i in range(8)},
            **{f"Q{i + 1}": f"SDQ{i}" for i in range(8)})
-    nl.add("dac0832out", "U_SDAC1", CLK="TOUT1", VREFIN="SREF", VOUT="SDACV",
+    nl.add("dac0832", "U_SDAC", CLK="TOUT1", VREFIN="SREF", VOUT="SDACV",
            **{f"D{i + 1}": f"SDQ{i}" for i in range(8)},
            **{f"Q{i + 1}": f"SND{i}" for i in range(8)})
     nl.add("mcp6002", "U_SAMP", REF="SREF", DIV="SDIV", IN="SDACV", OUT="SND")

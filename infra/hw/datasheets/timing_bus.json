@@ -133,6 +133,99 @@
     "estimated": ["typ"],
     "notes": "tPD: an input or a feedback to a combinatorial output; CLK->Q is tCO. The datasheet gives no typical delays. ICC 85 mA typical, 130 maximum."
   },
+  "ATF22V10C-7": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10C-7PX",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf",
+    "datasheet": "Atmel 0735U-PLD-7/10",
+    "availability": "ATF22V10C-7PX (DIP-24, commercial) and -7SX (SOIC-24); in PLCC-28 only the industrial -7JU.",
+    "max_cond": "max/min: commercial, 0..70 C, VCC 4.75-5.25 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 3,
+        "typ": 5.2,
+        "max": 7.5
+      },
+      "CLK->Q": {
+        "min": 2,
+        "typ": 3.4,
+        "max": 4.5
+      }
+    },
+    "checks": {
+      "setup": 3.5,
+      "hold": 0
+    },
+    "estimated": [
+      "typ"
+    ],
+    "notes": "The fastest grade in DIP-24. tPD: an input or a feedback to a combinatorial output (tEA and tER, an output's enable and disable, are 7.5 too); CLK->Q is tCO. ICC 85 mA typical, 130 maximum (150 clocked at 15 MHz), as the -5's. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+  },
+  "ATF22V10C-15": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10C-15PU",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf",
+    "datasheet": "Atmel 0735U-PLD-7/10",
+    "availability": "ATF22V10C-15PU (DIP-24, industrial), -15JU (PLCC-28).",
+    "max_cond": "max/min: industrial, -40..85 C, VCC 4.5-5.5 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 3,
+        "typ": 10.5,
+        "max": 15
+      },
+      "CLK->Q": {
+        "min": 2,
+        "typ": 6.0,
+        "max": 8
+      }
+    },
+    "checks": {
+      "setup": 10,
+      "hold": 0
+    },
+    "estimated": [
+      "typ"
+    ],
+    "notes": "tPD: an input or a feedback to a combinatorial output (tEA and tER 15 too); CLK->Q is tCO; tCF (clock to feedback) 2.5. ICC 65 mA typical, 115 maximum (clocked at 15 MHz: 70, 125). Industrial grade, its limits over -40..85 C. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+  },
+  "ATF22V10CQZ-20": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10CQZ-20PU",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0778.pdf",
+    "datasheet": "Atmel 0778L-PLD-8/10 (ATF22V10CZ/CQZ)",
+    "availability": "ATF22V10CQZ-20PU (DIP-24, industrial), -20JU (PLCC-28), -20SU, -20XU. The CZ parts are not recommended for new designs.",
+    "max_cond": "max/min: industrial, -40..85 C, VCC 4.5-5.5 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 3,
+        "typ": 14.0,
+        "max": 20
+      },
+      "CLK->Q": {
+        "min": 2,
+        "typ": 9.0,
+        "max": 12
+      }
+    },
+    "checks": {
+      "setup": 14,
+      "hold": 0
+    },
+    "estimated": [
+      "typ"
+    ],
+    "notes": "'Zero power': its input transition detection powers it down while its inputs are still, 5 uA typical, 100-120 maximum; clocked at 15 MHz, ICC 40 mA typical, 80 maximum (industrial). tPD: an input or a feedback to a non-registered output (tEA, tER 20 too); CLK->Q is tCO; tCF (clock to feedback) 8, so fMAX with internal feedback 45.5 MHz: not on the 50.35 MHz master clock. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+  },
   "74F10": {
     "family": "F",
     "function": "triple 3-input NAND",

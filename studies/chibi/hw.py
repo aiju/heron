@@ -23,6 +23,9 @@ in the RAM); the suite's I/O page is a test fixture at 0xFFFF_FF00.
   heron chibi hw devices [--cycles N]
                                     the device task's tests (programs/pcm.s,
                                     ps2.s) at chip level, against the model
+  heron chibi hw grades             each 22V10's slowest grade that leaves the
+                                    timing as it is (board2.GAL_GRADES), a
+                                    quarter of an hour
   heron chibi hw bom [--first]      the parts list
 """
 
@@ -401,6 +404,7 @@ def main(argv):
     o.add_argument("--cycles", type=int, default=600_000)
     c = sub.add_parser("copper", help="the copper's test at chip level, against the model")
     c.add_argument("--cycles", type=int, default=600_000)
+    sub.add_parser("grades", help="each 22V10's slowest grade that keeps the timing")
     v = sub.add_parser("devices", help="the device task's tests at chip level, against the model")
     v.add_argument("--cycles", type=int, default=40_000)
     b = sub.add_parser("bom")
@@ -423,6 +427,9 @@ def main(argv):
         return cmd_copper(args)
     if args.cmd == "devices":
         return cmd_devices(args)
+    if args.cmd == "grades":
+        from . import sta2
+        return sta2.cmd_grades(args)
     if args.cmd == "sta":
         if args.first:
             from . import sta

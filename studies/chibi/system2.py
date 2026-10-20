@@ -247,7 +247,7 @@ class System2:
         if self.region(a) == SLOWD:
             if a >> 6 & 1:
                 return 8 if self.cffast else 32
-            return 24 if a >> 4 & 7 == 2 else 11
+            return 11
         return m.IO_TICKS
 
     def line(self):

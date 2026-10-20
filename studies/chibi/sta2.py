@@ -40,7 +40,6 @@ from . import board2, routines2, sta, ucode2 as uc
 NEG = hsta.NEG
 K = 1e3 / 50.35                 # a tick, ns
 TCO = sta.TCO
-GAL = sta.GAL
 IO_TICKS = 6
 TICKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticks.json")
 CPU = {f"CLK{i}" for i in range(9)}
@@ -99,7 +98,7 @@ class Case3(hsta.Case):
             # capture); the rest is the devices'
             net = inst.conn.get(pin)
             if net == "LBOE_n" and self.phase == "H":
-                return (0, TCO, True, (inst.ref, pin, "LBOE_n at 0"))
+                return (0, d["CLK->Q"], True, (inst.ref, pin, "LBOE_n at 0"))
             return ({"LBOE_n": 1, "LCKA": 0, "LCKB": 0}.get(net, self.const.get(net)), NEG, True,
                     None)
         out = next((o for o in inst.gal if o[0] == pin), None)
@@ -230,7 +229,7 @@ def requirements(c):
                 ta = c.pin(inst, p)[1]
                 if ta == NEG:
                     continue
-                need = ta + GAL["setup"]
+                need = ta + d["setup"]
                 if fixed is None:
                     end.append((need, f"{inst.ref}.{p} setup", inst.conn[p]))
                 elif need > fixed + 0.05:
@@ -426,6 +425,84 @@ def report(res, fbad, paths=2):
             lines += path(w, extra, "L" if idx == 1 else "H", two, x[1])
             lines.append("")
     return "\n".join(lines)
+
+
+# the 22V10s' grades, slowest first (timing_bus.json): the zero-power
+# CQZ-20, the -15, the -7 in DIP-24; the -5 in PLCC-28
+GRADES = ["ATF22V10CQZ-20", "ATF22V10C-15", "ATF22V10C-7"]
+# kept at the -5: the clock generator (its outputs are the analysis's
+# fixture), the memory's strobes (fixed ticks) and the latch's clocks
+GRADE_FIXED = {"U_CGA", "U_CGB", "U_MEMC", "U_LCK"}
+# at least the -7: µPC's address in a task (U_TASK's) and the handover
+# (U_LREQ's TASKD and TASKOR), which the analysis's cases (no task) don't
+# time; the chip-level runs of the copper and the device task do
+GRADE_FLOOR = {"U_TASK": "ATF22V10C-7", "U_LREQ": "ATF22V10C-7"}
+
+
+def outcome(grades):
+    """The analysis with these grades: (the ticks table, the halves over
+    their fields, the fixed requirements failing, phase F's failing)."""
+    global _N
+    saved = board2.GAL_GRADES
+    board2.GAL_GRADES = dict(grades)
+    _N = None
+    try:
+        res, fbad = analyse()
+    finally:
+        board2.GAL_GRADES = saved
+        _N = None
+    tab, over = table(res)
+    bad = sum(len(x[2]) for r in res for x in (r[1], r[2]) if x)
+    return tab, (len(over), bad, len(fbad))
+
+
+def grades(log=print):
+    """{GAL: grade}: for each 22V10, the slowest grade that, alone, leaves
+    every microinstruction's ticks and every requirement as with the -5s
+    (one with registers on the master clock at least the -15: the CQZ-20's
+    tCF + tS is 22 ns); then, together, the GALs stepped up a grade until
+    the table is the -5s' again."""
+    base = outcome({})
+    nl = board2.build(sim=True)
+    pick = {}
+    for inst in nl.instances:
+        if inst.type.name != "22v10" or inst.ref in GRADE_FIXED:
+            continue
+        fast = inst.conn.get("CLK") == "MCLK" and any(o[1] for o in inst.gal)
+        floor = GRADES.index(GRADE_FLOOR.get(inst.ref, GRADES[1 if fast else 0]))
+        for g in GRADES[floor:]:
+            if outcome({inst.ref: g}) == base:
+                pick[inst.ref] = g
+                break
+        log(f"{inst.ref:8} {pick.get(inst.ref, 'ATF22V10C-5')}")
+    while True:
+        got = outcome(pick)
+        if got == base:
+            return pick
+        worse = sum(1 for k in base[0] if got[0].get(k) != base[0][k]) + sum(got[1])
+        best = None
+        for ref, g in pick.items():
+            up = dict(pick)
+            i = GRADES.index(g)
+            if i + 1 < len(GRADES):
+                up[ref] = GRADES[i + 1]
+            else:
+                del up[ref]
+            r = outcome(up)
+            n = sum(1 for k in base[0] if r[0].get(k) != base[0][k]) + sum(r[1])
+            if best is None or n < best[0]:
+                best = (n, up, ref)
+        log(f"together: {worse} differ; {best[2]} up a grade: {best[0]}")
+        pick = best[1]
+
+
+def cmd_grades(args):
+    pick = grades()
+    print("GAL_GRADES = {")
+    for ref, g in sorted(pick.items(), key=lambda kv: (GRADES.index(kv[1]), kv[0])):
+        print(f'    "{ref}": "{g}",')
+    print("}")
+    return 0
 
 
 def cmd_sta(args):

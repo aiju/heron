@@ -9,7 +9,8 @@ placer anneals the rest. It places only: nothing is routed. The board's
 size is open, so `sweep()` tries a few.
 
 - **Packages,** as RFC 0047 has them: the ATF22V10C-5s in PLCC-28
-  sockets (the 5 ns part isn't made in DIP), the flashes in PLCC-32
+  sockets (the 5 ns part isn't made in DIP), the slower grades in DIP-24
+  (board2.GAL_GRADES), the flashes in PLCC-32
   sockets, the RAM's AS7C4096As in SOJ-36, the register file's
   IS61C6416s in SOJ-44, everything else in DIP from
   its pin count (infra/pcb/packages.py where it knows the type), the
@@ -87,23 +88,28 @@ PINOUTS = {
     "sram64k": ("A4 A3 A2 A1 A0 CE IO0 IO1 IO2 IO3 VCC GND IO4 IO5 IO6 IO7 WE A15 A14 A13 A12 "
                 "NC NC A11 A10 A9 A8 NC IO0' IO1' IO2' IO3' GND VCC IO4' IO5' IO6' IO7' =GND "
                 "=GND OE A7 A6 A5"),
-    # DAC0832 (DIP-20): the netlist's two latches, the input latch's pins
-    # and the DAC latch's primed; in voltage mode, the output at VREF
-    # (VOUT), the reference in at IOUT1 (VREFIN)
-    "dac0832in": ("EN CLK GND D4 D3 D2 D1 VOUT' NC GND VREFIN' =GND D8 D7 D6 D5 =GND CLK' "
-                  "=VCC VCC"),
+    # DAC0832 (DIP-20), its input latch open (CS, WR1 low; ILE high) and
+    # XFER low, WR2 its CLK; in voltage mode, the output at VREF (VOUT),
+    # the reference in at IOUT1 (VREFIN)
+    "dac0832": ("=GND =GND GND D4 D3 D2 D1 VOUT NC GND VREFIN =GND D8 D7 D6 D5 =GND CLK =VCC "
+                "VCC"),
     "mcp6002": "REF REF DIV GND IN OUT OUT VCC",
 }
 PINOUTS = {k: v.split() for k, v in PINOUTS.items()}
 
 
-def chip_package(inst, gals="plcc"):
+def in_plcc(inst):
+    """A 22V10 of the -5 grade, made only in PLCC."""
+    return inst.part in (None, "ATF22V10C-5")
+
+
+def chip_package(inst, gals="grades"):
     """(footprint, {pad: logical pin or VCC/GND/NC}, whether the infra
-    pinout's numbers hold) for a part on the grid. gals="dip": the 22V10s
-    in DIP-24 (the -7 part), for comparison."""
+    pinout's numbers hold) for a part on the grid. gals="plcc": every 22V10
+    in a PLCC-28 socket, for comparison; else as its grade comes."""
     t = inst.type
     name = t.name
-    if name == "22v10" and gals == "plcc":
+    if name == "22v10" and (gals == "plcc" or in_plcc(inst)):
         dip = packages.pad_map("22v10", "dip")
         return PLCC28, {str(_PLCC28[int(k) - 1]): v for k, v in dip.items()}, False
     if name in ("flash", "flash4"):
@@ -314,7 +320,7 @@ _NL = {}
 
 
 # parts the netlist has as two halves (per_package 2), placed as one
-MERGED = ("sram64k", "dac0832in", "dac0832out")
+MERGED = ("sram64k",)
 SIM_ONLY = ("S_BTNX",)          # the simulation's interrupt button (S_BTN on the board)
 
 
@@ -325,14 +331,15 @@ def netlist():
     return _NL["nl"]
 
 
-def build_board(size, params=Params(), name=None, gals="plcc"):
+def build_board(size, params=Params(), name=None, gals="grades"):
     """The board, size = (width, height) mm, with its parts: the edge parts
     and the mounting holes placed, the grid's parts not yet. Raises NoRoom
     where the edges can't hold the edge parts."""
     footprints.use(EXTRA)
     nl = netlist()
     W, H = size
-    b = B.Board(name or f"chibi-{W:g}x{H:g}" + ("-dip" if gals == "dip" else ""), W, H, layers=4)
+    b = B.Board(name or f"chibi-{W:g}x{H:g}" + ("-plcc" if gals == "plcc" else ""), W, H,
+                layers=4)
     edge = []
     for inst in nl.instances:
         if inst.type.family == "fixture" or inst.ref in SIM_ONLY:
@@ -367,7 +374,7 @@ def build_board(size, params=Params(), name=None, gals="plcc"):
     return b
 
 
-def place(size, params=Params(), seed=1, moves=60000, name=None, gals="plcc"):
+def place(size, params=Params(), seed=1, moves=60000, name=None, gals="grades"):
     """Place the board: (board, placer, chips left over)."""
     b = build_board(size, params, name, gals)
     pl = GridPlacer(b, b.region, params, seed=seed)
@@ -378,7 +385,7 @@ def place(size, params=Params(), seed=1, moves=60000, name=None, gals="plcc"):
     return b, pl, left
 
 
-def fits(size, params=Params(), gals="plcc"):
+def fits(size, params=Params(), gals="grades"):
     """(whether every box finds a place, without annealing; the share of
     the grid's free cells the boxes need, None where the edges can't hold
     the connectors)."""
@@ -392,7 +399,7 @@ def fits(size, params=Params(), gals="plcc"):
     return (not pl.legalize(pl.targets()) or not pl.pack()), pl.demand()
 
 
-def least(ratio, use=0.8, params=Params(), gals="plcc", step=5.0, lo=150.0, hi=600.0):
+def least(ratio, use=0.8, params=Params(), gals="grades", step=5.0, lo=150.0, hi=600.0):
     """The least board of width / height `ratio`, its width in steps of
     `step` mm, whose boxes take at most `use` of the grid's free cells and
     all find a place: (width, height) or None."""
@@ -463,19 +470,19 @@ def sweep(moves=60000, seed=1, quiet=False):
         except NoRoom:
             rows.append(_row(label, size, "plcc"))
         say(rows[-1])
-    for gals, shapes in (("plcc", RATIOS), ("dip", RATIOS[1:2])):
+    for gals, shapes in (("grades", RATIOS), ("plcc", RATIOS[1:2])):
         for name, ratio in shapes:
             size = least(ratio, USE, gals=gals)
             if size is not None:
-                run(f"least {name}{', 22V10s in DIP' if gals == 'dip' else ''}, "
+                run(f"least {name}{', every 22V10 in PLCC' if gals == 'plcc' else ''}, "
                     f"{size[0]:g} × {size[1]:g}", size, gals)
     return rows, placed
 
 
 def best(rows):
     """The recommended size: the least area among those placed without a
-    problem, at USE of the grid or less, with the 22V10s in PLCC."""
-    ok = [r for r in rows if r["fits"] and r["gals"] == "plcc" and not r["problems"]
+    problem, at USE of the grid or less, with the 22V10s as their grades come."""
+    ok = [r for r in rows if r["fits"] and r["gals"] == "grades" and not r["problems"]
           and r["used"] <= USE + 1e-9]
     return min(ok, key=lambda r: (r["size"][0] * r["size"][1], r["wire_mm"])) if ok else None
 
@@ -484,6 +491,9 @@ def markdown(rows, pick):
     from collections import Counter
     nl = netlist()
     n = sum(1 for i in nl.instances if i.type.family != "fixture" and i.ref not in SIM_ONLY)
+    gals = [i for i in nl.instances if i.type.name == "22v10"]
+    plcc = sum(1 for i in gals if in_plcc(i))
+    dips = len(gals) - plcc
     lines = [
         "# Chibi Heron placed on the column grid",
         "",
@@ -495,7 +505,8 @@ def markdown(rows, pick):
         "",
         f"The two-halves machine's netlist's {n} parts: the chips, resistor networks and jumper "
         "blocks on the "
-        "grid in RFC 0047's packages (the 22V10s and the flashes in PLCC sockets, the RAM in "
+        f"grid in RFC 0047's packages (the {plcc} -5 22V10s and the flashes in PLCC sockets, "
+        f"the {dips} slower 22V10s in DIP-24, the RAM in "
         "SOJ-36, the register file in SOJ-44, the rest in DIP), the connectors, switches and "
         "the logic analyser's headers "
         "along the edges as exceptions, the cells under them blocked. The PS/2 sockets and the "
@@ -529,15 +540,15 @@ def markdown(rows, pick):
     if std:
         lines += ["Of the standard sizes, " + ", ".join(
             f"{r['label']} holds it at {r['used']:.0%} of its grid" for r in std) + "."]
-    dip = next((r for r in rows if r["fits"] and r["gals"] == "dip"), None)
-    same = next((r for r in rows if r["fits"] and r["gals"] == "plcc" and dip
-                 and r["label"].startswith(dip["label"].split(",")[0] + ",")), None)
-    if dip and same:
-        a, b = (r["size"][0] * r["size"][1] for r in (dip, same))
-        lines += [f"With the 22V10s in DIP-24 (0.3 inch, as the -7 part comes; RFC 0047 has "
-                  f"the -5 in PLCC) the least board of the same shape is {dip['size'][0]:g} × "
-                  f"{dip['size'][1]:g} mm, against {same['size'][0]:g} × {same['size'][1]:g} in "
-                  f"PLCC-28 sockets: {1 - a / b:.0%} less area."]
+    allp = next((r for r in rows if r["fits"] and r["gals"] == "plcc"), None)
+    same = next((r for r in rows if r["fits"] and r["gals"] == "grades" and allp
+                 and r["label"].startswith(allp["label"].split(",")[0] + ",")), None)
+    if allp and same:
+        a, b = (r["size"][0] * r["size"][1] for r in (same, allp))
+        lines += [f"With every 22V10 in a PLCC-28 socket, as the board had them before, the "
+                  f"least board of the same shape is {allp['size'][0]:g} × {allp['size'][1]:g} "
+                  f"mm, against {same['size'][0]:g} × {same['size'][1]:g} with the slower "
+                  f"grades in DIP-24 (0.3 inch): {1 - a / b:.0%} less area."]
     lines += [""]
     if not pick:
         return "\n".join(lines)

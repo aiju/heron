@@ -32,6 +32,12 @@ def _pin_key(p):
         else (2, int(p[2:]))
 
 
+def grade(inst):
+    """The part and its package: the -5 in PLCC-28, the rest in DIP-24."""
+    part = inst.part or "ATF22V10C-5"
+    return f"{part} ({'PLCC-28' if part == 'ATF22V10C-5' else 'DIP-24'})"
+
+
 def describe(inst):
     """(summary row, the GAL's section of the document)."""
     outs = {pin for pin, *_ in inst.gal}
@@ -41,11 +47,12 @@ def describe(inst):
     fpin = fullest[0]
     terms = f"{len(fullest[3])} of {G.TERMS[int(fpin[2:])]} ({inst.conn[fpin]})"
     clock = inst.conn.get("CLK") if any(reg for _, reg, _, _ in inst.gal) else None
-    row = [f"[`{inst.ref}`](#{inst.ref.lower()})", inst.section or "", clock or "",
+    row = [f"[`{inst.ref}`](#{inst.ref.lower()})", inst.section or "",
+           grade(inst).replace("ATF22V10", ""), clock or "",
            str(len(ins) + (1 if "CLK" in inst.conn and not clock else 0)), str(len(outs)),
            str(PINS - used), terms]
     lines = [f"### {inst.ref}", ""]
-    facts = [f"Section: {inst.section}." if inst.section else ""]
+    facts = [f"Section: {inst.section}." if inst.section else "", f"{grade(inst)}."]
     if clock:
         facts.append(f"Registers on {clock}.")
     elif "CLK" in inst.conn:
@@ -92,9 +99,11 @@ def markdown():
             "(ucode2.py's fields; `_n` where the field is stored inverted). Terms are an "
             "output's product terms against its macrocell's (8 to 16); a 22V10 has 22 "
             "pins for its signals (CLK, I1-I11, IO0-IO9).", "",
-            f"{len(gals)} GALs.", "",
-            "| GAL | Section | Clock | Inputs | Outputs | Pins free | Fullest macrocell |",
-            "|---|---|---|---:|---:|---:|---|"]
+            f"{len(gals)} GALs, of the grades in `board2.GAL_GRADES`: the -5 in PLCC-28 "
+            "where a path needs it, else the slowest DIP-24 part that leaves the timing as it "
+            "is (`heron chibi hw grades`).", "",
+            "| GAL | Section | Grade | Clock | Inputs | Outputs | Pins free | Fullest macrocell |",
+            "|---|---|---|---|---:|---:|---:|---|"]
     head += ["| " + " | ".join(r) + " |" for r in rows] + [""]
     return "\n".join(head + body)
 

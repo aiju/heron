@@ -1,6 +1,6 @@
 ; pcm: eight samples played by the device task (RFC 0047). The buffer's
 ; bounds go to PCMPTR and PCMEND, then the timer's counter 1 is set to
-; the sample rate (mode 2, a count of 20: 10.9 us a sample); once the task
+; the sample rate (mode 3, a square wave; a count of 20: 10.9 us a sample); once the task
 ; has played them all (PCMPTR at PCMEND) the program prints P. The task
 ; goes on writing 0x80, the middle, at each request. The code is above
 ; the words the tasks keep at 0x60-0x73.
@@ -20,7 +20,7 @@ start:  MOV  sp, #0x100000
         MOV  [PCMPTR], r1
         ADD  r1, #8
         MOV  [PCMEND], r1
-        MOV  r1, #0x74          ; counter 1: LSB then MSB, mode 2
+        MOV  r1, #0x76          ; counter 1: LSB then MSB, mode 3
         MOV  byte [r5 + 6], r1
         MOV  r1, #20
         MOV  byte [r5 + 2], r1

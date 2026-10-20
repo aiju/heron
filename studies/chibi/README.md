@@ -7,7 +7,7 @@ reports: [47]
 # Chibi Heron
 
 Draft 2's instruction set ([RFC 0028](../../reports/0028-rfc-draft-2-isa.md))
-on one board of 110 packages, with 2 MB of RAM, 640 x 480 x 4 VGA
+on one board of 111 packages, with 2 MB of RAM, 640 x 480 x 4 VGA
 through a palette, a microcoded copper, two serial ports, PS/2 ports and
 PCM sound received and played by a microcode task, a timer, a
 CompactFlash slot, a boot flash and a debugger in microcode (ODT). The **two-halves machine**: a 16-bit datapath that does a

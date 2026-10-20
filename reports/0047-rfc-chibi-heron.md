@@ -1,7 +1,7 @@
 ---
 number: 47
 type: rfc
-title: "Chibi Heron: draft 2 on one board of 110 chips"
+title: "Chibi Heron: draft 2 on one board of 111 chips"
 status: draft
 date: 2026-10-20
 context:
@@ -10,7 +10,7 @@ context:
 depends-on: [28]
 ---
 
-# RFC 0047: Chibi Heron: draft 2 on one board of 110 chips
+# RFC 0047: Chibi Heron: draft 2 on one board of 111 chips
 
 The smallest Heron so far: draft 2's user instruction set
 ([RFC 0028](0028-rfc-draft-2-isa.md)) on one board, with 2 MB of RAM,
@@ -42,7 +42,7 @@ tables are in [performance.md](0047-rfc-chibi-heron/performance.md) and
 
 ## Summary
 
-- **110 packages:** 109 chips and the CompactFlash socket. 52 of them
+- **111 packages:** 110 chips and the CompactFlash socket. 52 of them
   are ATF22V10Cs.
 - **This revision** (Emily's decisions of the latest round):
   - a rough rule for what's a GAL: decode and state machines; registers,
@@ -51,11 +51,15 @@ tables are in [performance.md](0047-rfc-chibi-heron/performance.md) and
     74ABT574s. The rest it would change is costed in
     [19](#19-proposals);
   - PCM and the PS/2 receivers in microcode, a second task, the device
-    task ([7](#7-the-io-space)): a DAC0832 and an op-amp instead of the
-    YM2149 and its latch's three chips, a 22V10 a PS/2 port instead of
-    three;
-  - together 9 22V10s and 5 packages fewer (the latch's 574s and the
-    GAL that clocks them cost one).
+    task ([7](#7-the-io-space)): a 574, a DAC0832 and an op-amp instead
+    of the YM2149 and its latch's three chips, a 22V10 a PS/2 port
+    instead of three;
+  - together 9 22V10s and 4 packages fewer (the latch's 574s and the
+    GAL that clocks them cost one);
+  - the 22V10s' grades: the -7, the -15 and the zero-power CQZ-20 in
+    DIP-24, and a search for each GAL's slowest grade
+    (`heron chibi hw grades`). Its mix fails at chip level, so every
+    22V10 is still the -5 ([18](#18-the-board), **open**).
 
   The round before:
   - a flat control store, entered at 0x100 + the opcode, every word
@@ -164,7 +168,7 @@ strobes). A microinstruction's **cycle** has up to three phases:
 
 A half that accesses the I/O space takes 6 ticks, whatever its field
 says. The slow devices hold it longer: the timer and the palette 11
-ticks, the PCM's DAC 24, the CF card 8 at PIO mode 4 and 32 at PIO mode 0. The clock
+ticks, the CF card 8 at PIO mode 4 and 32 at PIO mode 0. The clock
 generator ends a half at its count, or once the slow devices let go
 (HOLD). CLK0 rises as phase F starts and clocks the sequencer; HCKA ends
 the low half, HCKB the high half, HCK either. `U_LCK` gives the operand
@@ -288,7 +292,7 @@ HW so that a result can go to either half.
 a 32-bit value, low half then high half. They are small constants (1, 2,
 4, 6, 8, 16, 31, 32, 64, −1), the instruction's 4-bit fields scaled and
 signed (Q4, NQ, SC4, B8, DB, SH0, SH1, U7), four device addresses (the
-interrupt controller's vector, UART 0, the PS/2 ports, the PCM's DAC),
+interrupt controller's vector, UART 0, the PS/2 ports, the PCM's sample),
 and SXST, the high half's sign from ST. The exceptions' vectors and the
 boot flash's address are made from them.
 
@@ -360,7 +364,7 @@ A14–A12:
 | 5 | 0xFFFF_D000 | the interrupt controller: +0 the sources pending (read; a write clears the interrupt button's latch); +2 the vector, 0x40 + 4k for the first source pending, 0x04 if none; +4 ODT's word (read: 0x9000 while ODT is asked for, else 0; write: TRACE in bit 0, the halt button's latch cleared); +6 the scanline (read, 9 bits) and the copper's target (write: bits 8–0 the line, bit 15 CEN) |
 | 4 | 0xFFFF_C000 | the video's control (+0, a halfword: bit 0 the frame buffer shown, 1 the display on, 2 the frame interrupt enabled; any write acknowledges the frame interrupt) and the palette bank (+2: bits 3–0, the palette's P7–4) |
 | 3 | 0xFFFF_B000 | PS/2, for the device task: +0 the keyboard's port (read: bit 0 the data line, 1 an edge of the clock not yet taken; a write takes it), +2 the mouse's (read: bit 2 too, the PCM's request SREQ); +4 the keyboard port's control (write: bit 3 its interrupt, bit 4 pulls the clock low, bit 5 the data), +6 the mouse port's |
-| 2 | 0xFFFF_A000 | the slow devices: +2n the timer's register n (an 82C54: OUT0 the timer interrupt, OUT1 the PCM's sample rate, OUT2 the speaker); +0x10 + 2n the palette's (an IMS G171: write address, colour, mask, read address); +0x20 the PCM's DAC (write, bits 7–0; the device task's); +0x30 the CF card's timing (write: bit 0, PIO mode 4); +0x40 + 2n the CF card's command block register n (16-bit True IDE), +0x60 + 2n its control block's |
+| 2 | 0xFFFF_A000 | the slow devices: +2n the timer's register n (an 82C54: OUT0 the timer interrupt, OUT1 the PCM's sample rate, OUT2 the speaker); +0x10 + 2n the palette's (an IMS G171: write address, colour, mask, read address); +0x20 the PCM's sample (write, bits 7–0; the device task's); +0x30 the CF card's timing (write: bit 0, PIO mode 4); +0x40 + 2n the CF card's command block register n (16-bit True IDE), +0x60 + 2n its control block's |
 | 1 | 0xFFFF_9000 + 2n | UART 1's register n |
 | 0 | 0xFFFF_8000 | nothing |
 
@@ -387,7 +391,7 @@ RS-232 (TX, RX, RTS, CTS), a jumper block between it and the MAX232,
 and a 6-pin TTL header on the UART's side (FTDI's pinout), for a TTL
 cable with the jumpers off.
 
-**The slow devices** (the timer, the palette, the PCM's DAC, the CF card) sit behind
+**The slow devices** (the timer, the palette, the PCM's sample, the CF card) sit behind
 `U_SLOW`, a counter on the master clock that holds the half (HOLD) and
 times their strobes, counting from IOQ, once the select has settled. The CF card runs at PIO mode 0 from reset, then at
 PIO mode 4 once software sets it; at mode 0 the display must be off. It
@@ -400,7 +404,7 @@ that does what a PS/2 receiver and a sound chip's bus would: it runs
 while DREQ asks, at a task point, ahead of the copper. DREQ is a PS/2
 port's clock edge not yet taken, or SREQ, the PCM's request. The task
 reads both ports, plays a sample if SREQ asks, takes each port's edge,
-and ends: 29 microinstructions, 4.4 µs, for a sample, and about 3 µs for
+and ends: 29 microinstructions, 4.1 µs, for a sample, and about 3 µs for
 an edge alone.
 Its state is in its own register bank (the task bank's temporaries) and
 in RAM:
@@ -427,18 +431,25 @@ Sending to a device (the mouse's "enable data reporting") is software's,
 through the pull-downs, as before; the task doesn't send (**open**: it
 could, with a state of its own).
 
-**PCM.** A DAC0832 (an 8-bit DAC with two latches) and an MCP6002 op-amp.
-The timer's counter 1, in mode 2, gives the sample rate: its OUT1 pulses
-once a period, which moves the DAC's input latch into its DAC latch, so
-that the samples come out at the timer's steady rate however late the
-task wrote them. As the pulse ends, `U_LCK` sets SREQ; the task's write
-of the next sample to the input latch (+0x20, a slow device's write of
-397 ns) clears it, so the write always falls between pulses. The DAC
-works in voltage mode (the reference on IOUT1, the output at VREF), one
-op-amp buffering the reference from a divider and the other the output;
-the analog side is a sketch (**open**). At 22 kHz the task takes 10% of
-the machine (4.4 µs of each 45 µs), at 8 kHz 3.5%. OUT2 still drives
-the speaker.
+**PCM.** A 74ABT574 (`U_PCM`), a DAC0832 (an 8-bit DAC with two
+latches) and an MCP6002 op-amp. The task writes each sample to the 574
+(+0x20, an ordinary slow device's write). The DAC's input latch is open
+(CS and WR1 low), and its DAC latch's strobe WR2 is the timer's OUT1:
+counter 1 in mode 3, a square wave at the sample rate. The DAC latch
+follows the 574 while OUT1 is low and holds while it's high. As OUT1
+rises, `U_LCK` sets SREQ, and the task's write clears it, so the write
+comes while OUT1 is high and the sample comes out as OUT1 falls: at the
+timer's steady rate, however late the task wrote it within the half
+period. The DAC needs its strobe low for at least 900 ns and its data
+held 50 ns after (its datasheet), which OUT1's half period gives at any
+rate up to 500 kHz. The DAC works in voltage mode (the reference on
+IOUT1, the output at VREF), one op-amp buffering the reference from a
+divider and the other the output. The analog side is a sketch
+(**open**): the datasheet wants VCC at least 9 V above the reference in
+this mode for its stated linearity, and at 5 V it's worse by an amount
+to measure; a 12 V supply for the DAC alone would meet it. At 22 kHz the
+task takes 9% of the machine (4.1 µs of each 45 µs), at 8 kHz 3.3%. OUT2
+still drives the speaker.
 
 ### 8. Interrupts and exceptions
 
@@ -593,22 +604,22 @@ instruction's end.
 | IS61C6416AL-12 (SOJ-44) | 2 | the register file |
 | AS7C4096A-12 (SOJ-36) | 4 | the RAM |
 | 74ABT541 | 7 | the clock buffers (2), PC's read-back (2), the flags word, the scanline's read-back, the task's address |
-| 74ABT574 | 9 | the operand latch (4), the video's buffer (4), the copper's target line |
+| 74ABT574 | 10 | the operand latch (4), the video's buffer (4), the copper's target line, the PCM's sample |
 | 74ABT245 | 5 | D to MD (2), the byte crossing, the CF card's data (2) |
 | 74HCT541, 74HCT688, 74HCT175, 74HCT14 | 1 each | the CF card's control, the scanline compare, the palette bank, the PS/2 inputs |
 | TL16C550C, MAX232 | 2, 2 | the serial ports |
 | 82C54, IMS G171 | 1 each | timer, palette |
-| DAC0832, MCP6002 | 1 each | PCM: the DAC, the op-amp |
+| DAC0832, MCP6002 | 1 each | PCM: the DAC, the op-amp (the sample's latch is a 574) |
 | TL7705A | 1 | reset |
 | oscillators | 2 | 50.35 MHz, 1.8432 MHz |
 | CompactFlash socket | 1 | |
-| **total** | **110** | |
+| **total** | **111** | |
 
 Not counted: resistor networks, decoupling, the connectors (VGA, two
 DE-9s, two PS/2 sockets, the sound jack, power), the buttons, jumpers
 and headers. The sections: clock 6, control store 17, flags 2, register
 file 6, ALU 11, result 5, immediate unit 6, address 7, memory 10, I/O
-28, video 12 ([performance.md](0047-rfc-chibi-heron/performance.md#parts)).
+29, video 12 ([performance.md](0047-rfc-chibi-heron/performance.md#parts)).
 
 ## Part II: Discussion
 
@@ -813,12 +824,41 @@ than two smaller DIPs, and need programming?
 - **Programming** is one cheap universal programmer (an XGecu T48 or
   similar) and a JEDEC file each. The flow doesn't write JEDEC files yet
   ([21](#21-open-tasks)).
-- **Speed.** About 20 of the 52 are in the critical paths and need the
-  -5 grade, which comes only in PLCC. The rest could be -7 or -10 in
-  DIP-24, which would shrink the board
-  ([placement.md](0047-rfc-chibi-heron/placement.md)).
-- **Recommendation:** keep the 22V10s; make the non-critical ones DIP-24
-  (a timing rerun with their delays decides which).
+- **Grades** (Emily's choice of this round: DIP-24 where the speed
+  allows, and slower parts where they're enough, for power). The search
+  (`heron chibi hw grades`) gives each 22V10 the slowest grade that
+  leaves every microinstruction's ticks as with the -5s, alone and all
+  together; the GALs column is its mix:
+
+  | Grade | Package | tPD, tCO, tS (ns) | ICC typical, max (mA) | GALs |
+  |---|---|---|---|---:|
+  | ATF22V10C-5 | PLCC-28 only | 5, 4, 3 | 85, 130 | 10 |
+  | ATF22V10C-7 | DIP-24 | 7.5, 4.5, 3.5 | 85, 130 | 22 |
+  | ATF22V10C-15 | DIP-24 | 15, 8, 10 | 65, 115 | 9 |
+  | ATF22V10CQZ-20 | DIP-24 | 20, 12, 14 | 40, 80 clocked; µA while its inputs are still | 11 |
+
+  The search keeps the clock generator, the memory's strobes and the
+  latch's clocks at -5 (the analysis takes their timing as given), and
+  the master clock's GALs at -15 or faster (the CQZ-20's tCO + tS, 26
+  ns, is over a tick). It has no case with a task running, so `U_TASK`
+  and `U_LREQ`, which give µPC's address and its handover then, are
+  -7 at least; the chip-level runs of the copper and the device task
+  time them. `U_SLOWD` is -7, not the CQZ-20 the search allows: its
+  strobes are the CF card's and the palette's, which nothing times yet.
+
+  **That mix fails at chip level** (**open**): `U_IRH` at -15 misses its
+  setup by 3.4 ns on the fetch's parcel, UART 0's select is 7 ns late
+  with `U_IODEC` a CQZ-20, and ODT's session goes wrong. The analysis
+  misses those paths; until it's found why, every 22V10 is the -5.
+- **Power.** The grade alone saves little on these parts: the -5, -7
+  and -10 draw the same. The -15 draws a quarter less, and the
+  zero-power CQZ-20 half. The search's mix would draw 3.7 A typical,
+  6.1 A at most, against 4.4 A and 6.8 A all at -5: 15% less. The
+  22V10s are most of the board's current (the rest isn't counted yet).
+- **The aim:** the -5s in PLCC-28 sockets, the rest in DIP-24, soldered
+  or socketed where an equation may still change; the flashes in PLCC-32
+  sockets, as the parts that get reprogrammed. As built, all 52 are the
+  -5 in PLCC-28.
 
 **Placement** on RFC 0046's column grid, no routing
 ([placement.md](0047-rfc-chibi-heron/placement.md), `heron chibi place
@@ -867,7 +907,7 @@ multiplies and divides about 45%.
   shared). A 32 × 32 multiply is then 16 partial
   products and their adds, about 50 microinstructions against 200: about
   4× faster multiplies, mandel 2–3× faster, the suite about 1.3×. At
-  110 packages it fits the budget. No help for divides.
+  111 packages it fits the budget. No help for divides.
 - **A multiplier chip:** the 16 × 16 parallel multipliers (IDT7216,
   ADSP-1016) are long out of production, and there are none in DIP.
 - **Divides:** a reciprocal table in flash and a Newton step, or SRT
@@ -949,7 +989,9 @@ For Emily:
    from d), 5-tick I/O halves, the small features.
 7. **The expansion port:** 64 KB reserved; whether to build its buffers
    now (about 3 packages), and how wide.
-8. **The 22V10s' packages** ([18](#18-the-board)).
+8. **The supply:** the 22V10s alone draw 4.4 A typical, 6.8 A at most,
+   all at -5 ([18](#18-the-board)); the rest of the board isn't counted
+   yet.
 9. **Parts availability**, to review (the IS61C6416AL, the 74F181 and
    74F182, the IMS G171, the DAC0832, the TL7705A).
 10. **The device task's open parts** ([7](#7-the-io-space)): sending to

@@ -68,8 +68,8 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | Part | Packages |
 |---|---:|
 | ATF22V10C-5 | 52 |
+| 74ABT574 | 10 |
 | SST39SF010A-55 | 10 |
-| 74ABT574 | 9 |
 | 74ABT541 | 7 |
 | 74ABT245 | 5 |
 | 74F181 | 4 |
@@ -89,7 +89,7 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | IMS G171 | 1 |
 | MCP6002 | 1 |
 | TL7705A | 1 |
-| **total** | 110 |
+| **total** | 111 |
 
 | Section | Packages |
 |---|---:|
@@ -102,7 +102,7 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | immediate unit | 6 |
 | address | 7 |
 | memory | 10 |
-| I/O | 28 |
+| I/O | 29 |
 | video | 12 |
 
 ## Timing
