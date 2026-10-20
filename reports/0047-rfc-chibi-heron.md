@@ -585,14 +585,14 @@ the time goes:
   8.5×.
 - **Memory and calls:** `MOV` averages 26 ticks, a `JMP` through a
   table (vm's dispatch) 82, `PUSH` 39.
-- **The flat store's price:** 1.2% on the suite against the paged
-  store, 1.4% more microinstructions. It's the 16-way branch on d at
-  the entry of JMP, CALL, CLR, INC, DEC, Jcc and a few rarer ones (a
-  microinstruction of 4 ticks; the paged store's decode took d into the
-  address), and I/O halves of 6 ticks, not 5. fib and sieve, with many
-  calls and conditional jumps, are 4–5% slower; mandel, sha256 and life
-  under 1%. The condition from d ([19](#19-proposals)) would take back
-  most of Jcc's share.
+- **The flat store's price:** a microinstruction (4 ticks, about 80 ns)
+  on every instruction whose first step depends on d: JMP, CALL, CLR,
+  INC, DEC (d is the mode), Jcc (the condition), LDM, STM and MTSR (a
+  register), MULFX and the system group (a field checked). The paged
+  store's decode took d into the address. And an I/O access is a tick
+  longer. On the suite that's 1.2%, nearly all of it JMP's; code with
+  more calls, returns and indirect jumps pays more. Entering at opcode ×
+  16 + d would take it all back ([19](#19-proposals)).
 
 ### 14. Timing
 
@@ -836,11 +836,18 @@ packages to 115 (the flat sequencer costs what the paged one did).
   become one, for the edges' synchronisation and the pull-downs: −5
   packages, about 90 of the grid's cells. Like PCM, it stops while ODT
   runs.
-- **The condition from d:** the CND code A0 is unused. As "draft 2's
-  condition in d", it would let every Jcc share its first word, which
-  saves the 16-way branch's microinstruction at Jcc's entry. It needs N,
-  Z, C, V and d in one 22V10 with a spare output (no chip if one has
-  room; to check).
+- **Entering at 0x1000 + opcode × 16 + d:** the decode does the
+  branch on d, so none of the twelve instructions above pays for it
+  ([13](#13-how-fast)). Still a fixed decoding; the microcode then also
+  relies on d being the first parcel's top nibble. µPC's low 22V10 takes
+  MD15–12 instead of MD3–0 (no pins more). The entries are 4K words,
+  mostly copies, and the rest of the store about 4.1K: at the edge of 8K.
+  A 14-bit µPC is the safe way, its jump target's extra bit found in
+  the word or a tenth flash (0 or 1 package).
+- **The condition from d**, the smaller fix for Jcc alone: the CND code
+  A0 is unused. As "draft 2's condition in d", it would let every Jcc
+  share its first word. It needs N, Z, C, V and d in one 22V10 with a
+  spare output (no chip if one has room; to check).
 - **5-tick I/O halves again:** a registered copy of A14–A12, loaded with
   MAR, so that the select is steady from the half's start: one 22V10
   more (MAR's three are full).
@@ -874,8 +881,8 @@ For Emily:
 4. **The boot format** (tentative).
 5. **The deviations from RFC 0028** in [8](#8-interrupts-and-exceptions).
 6. **The proposals** in [19](#19-proposals): forcing bit 31, the
-   multiplier in flash, PS/2 in microcode, the condition from d, 5-tick
-   I/O halves, the small features.
+   multiplier in flash, PS/2 in microcode, entering at opcode × 16 + d
+   (or the condition from d), 5-tick I/O halves, the small features.
 7. **The expansion port:** 64 KB reserved; whether to build its buffers
    now (about 3 packages), and how wide.
 8. **The 22V10s' packages** ([18](#18-the-board)).
