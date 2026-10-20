@@ -239,7 +239,7 @@ def build(sim=True, halves=False):
 
     # ---- flags ------------------------------------------------------------
     nl.section("flags")
-    flags_gal(nl, f, "HCK" if halves else clk[1])
+    flags_gal(nl, f, "HCK" if halves else clk[1], halves)
     # IRQP, INIT, and the reset for the devices
     fl_ = field("FL")
     irqs = ["U0INT", "U1INT", "KIRQ", "MIRQ", "VIRQ", "CONIRQ"]
@@ -413,7 +413,12 @@ def negate_sop_pg(nextpage, inc, take, end, p, ptb):
     return OR(AND(inc, lit(p, 0)), AND(take, lit(ptb, 0)), AND(end, lit("IRQP", 0)))
 
 
-def flags_gal(nl, f, clk):
+# the two-halves variant: these operations are their low half's in the low
+# half and their high half's in the high
+HALF_PAIRS = {"ADDLO": "ADDHI", "ADCLO": "ADDHI", "LOGLO": "LOGHI", "ICLOZ": "LOGHI", "ICLO": "NONE"}
+
+
+def flags_gal(nl, f, clk, halves=False):
     """N, Z, C, V, I, IC, ST from the flag operation (FL) and the cycle's
     result: Z16, N15, N7 (its bits), CO_n (the ALU's carry out), F0 (the
     bit a right shift moves out), D15 and L15 (the operands' signs)."""
@@ -457,12 +462,18 @@ def flags_gal(nl, f, clk):
     for flag in ("N", "Z", "C", "V", "I", "IC", "ST"):
         dn = deps[flag]
         on = [o for o in others[flag] if o != flag]
-        nets = fl_ + [ins[k] for k in dn] + [f[flag]] + [f[o] for o in on]
+        nets = fl_ + [ins[k] for k in dn] + [f[flag]] + [f[o] for o in on] + \
+            (["HALF"] if halves else [])
 
         def fn(*bits, flag=flag, dn=dn, on=on):
             code = sum(b << i for i, b in enumerate(bits[:5]))
             if code not in uc.FL_NAME:
                 return None
+            name = uc.FL_NAME[code]
+            if halves and bits[-1]:
+                name = HALF_PAIRS.get(name, name)
+                if name == "NONE":
+                    return bits[5 + len(dn)]
             v = {k: bits[5 + i] for i, k in enumerate(dn)}
             for k in ins:
                 v.setdefault(k, 0)
@@ -472,7 +483,7 @@ def flags_gal(nl, f, clk):
             for i, o in enumerate(on):
                 fl[o] = bits[6 + len(dn) + i]
             v["flags"] = fl
-            return nextf(flag, uc.FL_NAME[code], v)
+            return nextf(flag, name, v)
         outs[f[flag]] = (G.table(nets, fn), True, False)
     G.add(nl, "U_FLG", outs, clock=clk, ar=lit("RESET_n", 0))
 
