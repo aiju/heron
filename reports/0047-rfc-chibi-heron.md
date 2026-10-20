@@ -711,6 +711,30 @@ need their ticks. With the writes moved into the halves (the four-SRAM
 file allows it) and 45 ns flashes (which the flat layout's smaller store
 allows), the estimate is about 1.38×, for about 10 packages.
 
+**PCM in microcode instead of the sound chip.** A second task, like the
+copper, plays samples from RAM:
+- **The hardware.** The 82C54's spare counter (OUT1) gives the sample
+  rate (divisor 84: 21.9 kHz; 42: 43.9 kHz). Its pulse sets a request,
+  a latch in a GAL with room, which the DAC's write clears. U_TN's constant
+  N 8 becomes N 10 for this task, so `U_TASK` doesn't change. A
+  double-buffered DAC (the task loads its input, the timer's pulse moves
+  it to the output) makes the samples jitter-free, whatever the task's
+  latency. That's a DAC0832 and an op-amp for mono (2 chips), or a dual
+  voltage-output DAC such as the AD7302 for stereo (1 chip; its
+  availability is to check). The YM2149 and its posting latch are 4.
+- **The microcode.** A sample is about 7 microinstructions, the copper's
+  pattern: about 1 µs. That's 2.2% of the CPU at 22 kHz mono, about 5% at
+  44 kHz stereo. A 4-voice mixer (a pointer and fixed-point step for each
+  voice, volume by shift or table, the sum) is about 30, 4 µs a sample:
+  about 9% at 22 kHz, 3% at 8 kHz. A mixer in software would take most of
+  the machine.
+- **Against it:** music is samples or the mixer, not the sound chip's
+  free square waves. Sound stops while ODT runs (it has no task points).
+  A copper burst longer than a sample period (45 µs at 22 kHz, about 40
+  MOVEs) would make it repeat a sample.
+- **My lean:** PCM in microcode. It's 2–3 packages fewer and plays
+  anything; the sound chip wins only for chip music with no CPU at all.
+
 **Small features within the budget** (0 or 1 chip):
 - a speaker on the timer's OUT2 (wired, a transistor);
 - LEDs for HALT, ODT and the copper (resistors);
@@ -731,7 +755,8 @@ For Emily:
    the exploration).
 2. **4 MB?** Four more SRAMs and A21 in PC and MAR: about 5 packages,
    over the budget.
-3. **The sound chip** (the YM2149 is tentative).
+3. **The sound:** the YM2149 (tentative) or PCM in microcode
+   ([19](#19-proposals)).
 4. **The boot format** (tentative).
 5. **The deviations from RFC 0028** in [8](#8-interrupts-and-exceptions).
 6. **The proposals** in [19](#19-proposals): forcing bit 31, the
