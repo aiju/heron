@@ -151,8 +151,8 @@
       },
       "CLK->Q": {
         "min": 2,
-        "typ": 3.4,
-        "max": 4.5
+        "typ": 4.1,
+        "max": 5.5
       }
     },
     "checks": {
@@ -162,7 +162,7 @@
     "estimated": [
       "typ"
     ],
-    "notes": "The fastest grade in DIP-24. tPD: an input or a feedback to a combinatorial output (tEA and tER, an output's enable and disable, are 7.5 too); CLK->Q is tCO. ICC 85 mA typical, 130 maximum (150 clocked at 15 MHz), as the -5's. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+    "notes": "The fastest grade in DIP-24. tPD: an input or a feedback to a combinatorial output (tEA and tER, an output's enable and disable, are 7.5 too); CLK->Q is tCO, 5.5 in DIP packages (4.5 in the others; the datasheet's note 2), and so fMAX with external feedback is 111 MHz in DIP (125 in the others). ICC 85 mA typical, 130 maximum (150 clocked at 15 MHz), as the -5's. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
   },
   "ATF22V10C-15": {
     "family": "PLD",

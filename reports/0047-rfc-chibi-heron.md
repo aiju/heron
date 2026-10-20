@@ -833,7 +833,7 @@ than two smaller DIPs, and need programming?
   | Grade | Package | tPD, tCO, tS (ns) | ICC typical, max (mA) | GALs |
   |---|---|---|---|---:|
   | ATF22V10C-5 | PLCC-28 only | 5, 4, 3 | 85, 130 | 10 |
-  | ATF22V10C-7 | DIP-24 | 7.5, 4.5, 3.5 | 85, 130 | 22 |
+  | ATF22V10C-7 | DIP-24 | 7.5, 5.5, 3.5 | 85, 130 | 22 |
   | ATF22V10C-15 | DIP-24 | 15, 8, 10 | 65, 115 | 9 |
   | ATF22V10CQZ-20 | DIP-24 | 20, 12, 14 | 40, 80 clocked; µA while its inputs are still | 11 |
 
