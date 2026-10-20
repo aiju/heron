@@ -129,6 +129,7 @@ pub enum Model {
     Mux153(Mux153),
     Mux157(Mux157),
     Counter(Counter),
+    Cnt193(Cnt193),
     Dff175(Dff175),
     Reg377(Reg377),
     Buf541(Buf541),
@@ -141,9 +142,11 @@ pub enum Model {
     /// The clock generator's outputs are driven by the main loop.
     ClockGen,
     IoDev(IoDev),
+    IoDevW(IoDevW),
     Sr299(Sr299),
     Jk109(Jk109),
     DReg(DReg),
+    Latch573(Latch573),
     Xcvr245(Xcvr245),
     TriBuf(TriBuf),
     Enc148(Enc148),
@@ -181,6 +184,7 @@ impl Model {
             "mux157" => Model::Mux157(Mux157::new(s)?),
             "cnt161" => Model::Counter(Counter::new(s, rng, false)?),
             "cnt163" => Model::Counter(Counter::new(s, rng, true)?),
+            "cnt193" => Model::Cnt193(Cnt193::new(s, rng)?),
             "dff175" => Model::Dff175(Dff175::new(s, rng)?),
             "reg377" => Model::Reg377(Reg377::new(s, rng)?),
             "buf541" => Model::Buf541(Buf541::new(s, false)?),
@@ -202,6 +206,8 @@ impl Model {
             "jk109" => Model::Jk109(Jk109::new(s, rng)?),
             "dreg" => Model::DReg(DReg::new(s, rng, false)?),
             "dreg_inv" => Model::DReg(DReg::new(s, rng, true)?),
+            "latch573" => Model::Latch573(Latch573::new(s, rng)?),
+            "iodev_w32" => Model::IoDevW(IoDevW::new(s, preload)?),
             "xcvr245" => Model::Xcvr245(Xcvr245::new(s)?),
             "tribuf" => Model::TriBuf(TriBuf::new(s)?),
             "enc148" => Model::Enc148(Enc148::new(s)?),
@@ -233,6 +239,7 @@ impl Model {
             Model::Mux153(m) => m.init(cx, c),
             Model::Mux157(m) => m.init(cx, c),
             Model::Counter(m) => m.out(cx, c, 0, 0),
+            Model::Cnt193(m) => m.init(cx, c),
             Model::Dff175(m) => m.out(cx, c, 0),
             Model::Reg377(m) => m.init(cx, c),
             Model::Buf541(m) => m.init(cx, c),
@@ -254,6 +261,13 @@ impl Model {
             Model::Sr299(m) => m.outputs(cx, c, 0, 0),
             Model::Jk109(m) => m.init(cx, c),
             Model::DReg(m) => m.init(cx, c),
+            Model::Latch573(m) => m.init(cx, c),
+            Model::IoDevW(m) => {
+                cx.drive(c, m.irq, 0, true, 0);
+                if let Some(card) = m.card.as_ref() {
+                    card.outputs(cx, c);
+                }
+            }
             Model::Xcvr245(m) => m.init(cx, c),
             Model::TriBuf(m) => m.init(cx, c),
             Model::Enc148(m) => m.eval_all(cx, c, 0),
@@ -283,6 +297,7 @@ impl Model {
         match self {
             Model::Sram(m) => Some(m.mem.clone()),
             Model::IoDev(m) => Some(m.output.clone()),
+            Model::IoDevW(m) => Some(m.output.clone()),
             Model::Uart(m) => Some(m.core.tx_out.clone()),
             Model::Cf(m) => Some(m.core.image().to_vec()),
             Model::Vector(m) => Some(m.log.clone()),
@@ -300,6 +315,7 @@ impl Model {
             Model::Mux153(m) => m.eval(cx, c, pin),
             Model::Mux157(m) => m.eval(cx, c, pin),
             Model::Counter(m) => m.eval(cx, c, pin),
+            Model::Cnt193(m) => m.eval(cx, c, pin),
             Model::Dff175(m) => m.eval(cx, c, pin),
             Model::Reg377(m) => m.eval(cx, c, pin),
             Model::Buf541(m) => m.eval(cx, c, pin),
@@ -313,6 +329,8 @@ impl Model {
             Model::Sr299(m) => m.eval(cx, c, pin),
             Model::Jk109(m) => m.eval(cx, c, pin),
             Model::DReg(m) => m.eval(cx, c, pin),
+            Model::Latch573(m) => m.eval(cx, c, pin),
+            Model::IoDevW(m) => m.eval(cx, c, pin),
             Model::Xcvr245(m) => m.eval(cx, c, pin),
             Model::TriBuf(m) => m.eval(cx, c, pin),
             Model::Enc148(m) => m.eval(cx, c, pin),
@@ -878,6 +896,261 @@ impl Counter {
             cx.check_hold(c, pin, self.last_edge, self.h_load, "LOAD");
         } else if self.load_at_edge {
             cx.check_hold(c, pin, self.last_edge, self.h_data, "data");
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 193 up/down counter
+
+/// A 74x193: a 4-bit counter with an up clock and a down clock, each
+/// counting on its rising edge while the other is high; an asynchronous
+/// reset (MR high) and load (PL low: Q follows P) that override both; and
+/// terminal-count outputs that repeat a clock's low phase at 15 (TCU) or
+/// 0 (TCD), to clock the next counter.
+pub struct Cnt193 {
+    cpu: usize,
+    cpd: usize,
+    mr: usize,
+    pl: usize,
+    tcu: usize,
+    tcd: usize,
+    p: [usize; 4],
+    q: [usize; 4],
+    p_idx: Vec<Option<usize>>,
+    state: u8,
+    prev_cpu: u8,
+    prev_cpd: u8,
+    cpu_fall: Option<Time>,
+    cpd_fall: Option<Time>,
+    cpu_rise: Option<Time>,
+    cpd_rise: Option<Time>,
+    pl_fall: Option<Time>,
+    pl_rise: Option<Time>,
+    mr_rise: Option<Time>,
+    mr_fall: Option<Time>,
+    /// the direction of the last count: true up
+    last_up: Option<bool>,
+    d_cp_q: Time,
+    d_cp_tc: Time,
+    d_p_q: Time,
+    d_p_tc: Time,
+    d_pl_q: Time,
+    d_pl_tc: Time,
+    d_mr_q: Time,
+    d_mr_tc: Time,
+    su_p: Time,
+    h_p: Time,
+    tw_cp: Time,
+    /// the low width after a change of direction, the high width, and
+    /// the time from one clock's rise to the other's fall: each 0 where
+    /// the datasheet gives none
+    tw_cp_dir: Time,
+    tw_cp_high: Time,
+    h_cp_dir: Time,
+    tw_pl: Time,
+    tw_mr: Time,
+    rec_pl: Time,
+    rec_mr: Time,
+}
+
+impl Cnt193 {
+    fn new(s: &Spec, rng: &mut Rng) -> Result<Cnt193, Error> {
+        let p = s.pins(|i| format!("P{i}"))?;
+        let mut state = 0;
+        for i in 0..4 {
+            state |= rng.bit() << i;
+        }
+        Ok(Cnt193 {
+            cpu: s.pin("CPU")?,
+            cpd: s.pin("CPD")?,
+            mr: s.pin("MR")?,
+            pl: s.pin("PL")?,
+            tcu: s.pin("TCU")?,
+            tcd: s.pin("TCD")?,
+            p_idx: s.index(&p),
+            p,
+            q: s.pins(|i| format!("Q{i}"))?,
+            state,
+            prev_cpu: 0,
+            prev_cpd: 0,
+            cpu_fall: None,
+            cpd_fall: None,
+            cpu_rise: None,
+            cpd_rise: None,
+            pl_fall: None,
+            pl_rise: None,
+            mr_rise: None,
+            mr_fall: None,
+            last_up: None,
+            d_cp_q: s.d("CP->Q")?,
+            d_cp_tc: s.d("CP->TC")?,
+            d_p_q: s.d("P->Q")?,
+            d_p_tc: s.d("P->TC")?,
+            d_pl_q: s.d("PL->Q")?,
+            d_pl_tc: s.d("PL->TC")?,
+            d_mr_q: s.d("MR->Q")?,
+            d_mr_tc: s.d("MR->TC")?,
+            su_p: s.d("setup P")?,
+            h_p: s.d("hold P")?,
+            tw_cp: s.d("tw CP")?,
+            tw_cp_dir: s.d_or("tw CP dir", 0),
+            tw_cp_high: s.d_or("tw CP high", 0),
+            h_cp_dir: s.d_or("hold CP dir", 0),
+            tw_pl: s.d("tw PL")?,
+            tw_mr: s.d("tw MR")?,
+            rec_pl: s.d("recovery PL")?,
+            rec_mr: s.d("recovery MR")?,
+        })
+    }
+
+    /// What MR or PL holds the count to: 0 in reset, P while loading.
+    fn forced(&self, cx: &Ctx, c: &ChipInfo) -> Option<u8> {
+        if cx.input(c, self.mr) == 1 {
+            Some(0)
+        } else if cx.input(c, self.pl) == 0 {
+            Some(bus_value(cx, c, &self.p) as u8)
+        } else {
+            None
+        }
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        self.prev_cpu = cx.input(c, self.cpu);
+        self.prev_cpd = cx.input(c, self.cpd);
+        if let Some(v) = self.forced(cx, c) {
+            self.state = v;
+        }
+        self.out(cx, c, 0, 0);
+    }
+
+    fn tc(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        let tcu = b2u(!(self.state == 15 && cx.input(c, self.cpu) == 0));
+        let tcd = b2u(!(self.state == 0 && cx.input(c, self.cpd) == 0));
+        cx.drive(c, self.tcu, tcu, true, d);
+        cx.drive(c, self.tcd, tcd, true, d);
+    }
+
+    fn out(&self, cx: &mut Ctx, c: &ChipInfo, dq: Time, dtc: Time) {
+        for i in 0..4 {
+            cx.drive(c, self.q[i], (self.state >> i) & 1, true, dq);
+        }
+        self.tc(cx, c, dtc);
+    }
+
+    /// At least `min` must have passed since `since`: a pulse width or a
+    /// recovery time.
+    fn since(cx: &mut Ctx, c: &ChipInfo, pin: usize, since: Option<Time>, min: Time, what: &str) {
+        if let Some(t) = since {
+            let slack = cx.now() - t - min;
+            if slack < 0 {
+                cx.violate(c, pin, what, slack);
+            }
+        }
+    }
+
+    fn clock(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize, up: bool) {
+        let v = cx.input(c, pin);
+        let prev = if up {
+            &mut self.prev_cpu
+        } else {
+            &mut self.prev_cpd
+        };
+        if v == *prev {
+            return;
+        }
+        *prev = v;
+        let now = cx.now();
+        let (fall, rise, other_rise, other) = if up {
+            (self.cpu_fall, self.cpu_rise, self.cpd_rise, self.cpd)
+        } else {
+            (self.cpd_fall, self.cpd_rise, self.cpu_rise, self.cpu)
+        };
+        if v == 0 {
+            Self::since(cx, c, pin, rise, self.tw_cp_high, "tw CP high");
+            Self::since(cx, c, pin, other_rise, self.h_cp_dir, "hold CP dir");
+            if up {
+                self.cpu_fall = Some(now);
+            } else {
+                self.cpd_fall = Some(now);
+            }
+            self.tc(cx, c, self.d_cp_tc);
+            return;
+        }
+        if up {
+            self.cpu_rise = Some(now);
+        } else {
+            self.cpd_rise = Some(now);
+        }
+        if self.last_up == Some(!up) {
+            Self::since(cx, c, pin, fall, self.tw_cp_dir, "tw CP dir");
+        } else {
+            Self::since(cx, c, pin, fall, self.tw_cp, "tw CP");
+        }
+        if self.forced(cx, c).is_none() {
+            Self::since(cx, c, pin, self.pl_rise, self.rec_pl, "recovery PL");
+            Self::since(cx, c, pin, self.mr_fall, self.rec_mr, "recovery MR");
+            if cx.input(c, other) == 0 {
+                cx.violate(c, pin, "count with the other clock low", 0);
+            }
+            self.state = if up {
+                self.state + 1
+            } else {
+                self.state.wrapping_sub(1)
+            } & 15;
+            self.last_up = Some(up);
+            for i in 0..4 {
+                cx.drive(c, self.q[i], (self.state >> i) & 1, true, self.d_cp_q);
+            }
+        }
+        self.tc(cx, c, self.d_cp_tc);
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        let now = cx.now();
+        if pin == self.cpu || pin == self.cpd {
+            self.clock(cx, c, pin, pin == self.cpu);
+        } else if pin == self.mr {
+            if cx.input(c, pin) == 1 {
+                self.mr_rise = Some(now);
+                self.state = 0;
+                self.out(cx, c, self.d_mr_q, self.d_mr_tc);
+            } else {
+                Self::since(cx, c, pin, self.mr_rise, self.tw_mr, "tw MR");
+                self.mr_fall = Some(now);
+                if let Some(v) = self.forced(cx, c) {
+                    self.state = v;
+                    self.out(cx, c, self.d_pl_q, self.d_pl_tc);
+                }
+            }
+        } else if pin == self.pl {
+            let reset = cx.input(c, self.mr) == 1;
+            if cx.input(c, pin) == 0 {
+                self.pl_fall = Some(now);
+                if !reset {
+                    self.state = bus_value(cx, c, &self.p) as u8;
+                    self.out(cx, c, self.d_pl_q, self.d_pl_tc);
+                }
+            } else {
+                Self::since(cx, c, pin, self.pl_fall, self.tw_pl, "tw PL");
+                self.pl_rise = Some(now);
+                if !reset {
+                    for i in 0..4 {
+                        cx.check_setup(c, self.p[i], self.su_p, "P");
+                    }
+                }
+            }
+        } else if let Some(i) = self.p_idx[pin] {
+            if cx.input(c, self.mr) == 1 {
+                return;
+            }
+            if cx.input(c, self.pl) == 0 {
+                let b = cx.input(c, pin);
+                self.state = (self.state & !(1 << i)) | (b << i);
+                cx.drive(c, self.q[i], b, true, self.d_p_q);
+                self.tc(cx, c, self.d_p_tc);
+            } else {
+                cx.check_hold(c, pin, self.pl_rise, self.h_p, "P");
+            }
         }
     }
 }
@@ -2137,6 +2410,567 @@ impl DReg {
             cx.check_hold(c, pin, self.last_edge, self.h_e, "EN");
         } else if self.is_d[pin] && self.loaded {
             cx.check_hold(c, pin, self.last_edge, self.h_d, "D");
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 573 transparent latch
+
+/// The 74xx573 octal transparent latch with three-state outputs: Q follows
+/// D while LE is high and keeps what D was when LE fell; OE (active low)
+/// turns the outputs on. D must be steady `setup D` before LE falls and
+/// `hold D` after.
+pub struct Latch573 {
+    le: usize,
+    oe: usize,
+    d: [usize; 8],
+    q: [usize; 8],
+    d_idx: Vec<Option<usize>>,
+    state: [u8; 8],
+    enabled: bool,
+    last_fall: Option<Time>,
+    d_dq: Time,
+    d_leq: Time,
+    d_en: Time,
+    d_dis: Time,
+    su_d: Time,
+    h_d: Time,
+}
+
+impl Latch573 {
+    fn new(s: &Spec, rng: &mut Rng) -> Result<Latch573, Error> {
+        let d = s.pins(|i| format!("D{}", i + 1))?;
+        let mut state = [0; 8];
+        for b in state.iter_mut() {
+            *b = rng.bit();
+        }
+        Ok(Latch573 {
+            le: s.pin("LE")?,
+            oe: s.pin("OE")?,
+            d_idx: s.index(&d),
+            d,
+            q: s.pins(|i| format!("Q{}", i + 1))?,
+            state,
+            enabled: false,
+            last_fall: None,
+            d_dq: s.d("D->Q")?,
+            d_leq: s.d("LE->Q")?,
+            d_en: s.d("OE->Y en")?,
+            d_dis: s.d("OE->Y dis")?,
+            su_d: s.d("setup D")?,
+            h_d: s.d("hold D")?,
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        self.enabled = cx.input(c, self.oe) == 0;
+        if cx.input(c, self.le) == 1 {
+            for i in 0..8 {
+                self.state[i] = cx.input(c, self.d[i]);
+            }
+        }
+        self.out(cx, c, 0);
+    }
+
+    fn out(&self, cx: &mut Ctx, c: &ChipInfo, d: Time) {
+        for i in 0..8 {
+            cx.drive(c, self.q[i], self.state[i], self.enabled, d);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if pin == self.le {
+            if cx.input(c, self.le) == 1 {
+                for i in 0..8 {
+                    self.state[i] = cx.input(c, self.d[i]);
+                }
+                self.out(cx, c, self.d_leq);
+            } else {
+                for i in 0..8 {
+                    cx.check_setup(c, self.d[i], self.su_d, "D");
+                }
+                self.last_fall = Some(cx.now());
+            }
+        } else if pin == self.oe {
+            let en = cx.input(c, pin) == 0;
+            if en != self.enabled {
+                self.enabled = en;
+                self.out(cx, c, if en { self.d_en } else { self.d_dis });
+            }
+        } else if let Some(i) = self.d_idx[pin] {
+            if cx.input(c, self.le) == 1 {
+                self.state[i] = cx.input(c, pin);
+                cx.drive(c, self.q[i], self.state[i], self.enabled, self.d_dq);
+            } else {
+                cx.check_hold(c, pin, self.last_fall, self.h_d, "D");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------- 32-bit I/O page
+
+/// Draft 1's I/O page (console, timer, cycle counter) as a test fixture
+/// on a 32-bit data bus: what draft 2's register-transfer model reaches
+/// through its 16-bit console card, one 16-bit register access per half
+/// whose byte enables are on, low half first. A read of one half drives
+/// it on both halves; a word read of the console register gives the
+/// input character, or 0xFFFF, and above it the end-of-input flag that
+/// read leaves behind. Pins: A2-A7 (the word), BE0-BE3 (the byte lanes),
+/// IOSEL, RD and WR active low; a write happens when WR rises. The input
+/// is the chip's preload.
+///
+/// With pins LV1-LV8 it is also a CPU card's registers (RFC 0040, 3), and
+/// the I/O page is only where A27-A24 are 0xF; where they are 0, the
+/// registers: control (NMI in bit 3), the request register (bit L - 1
+/// for level L: set, clear, read), the message register (claim, write,
+/// release, read; on B0-B31 while MSGOE is low, as {message, source},
+/// released at that cycle's CLK edge) and the timer, which counts every third MCLK edge from the
+/// last CLK edge with RESET_n low and ticks on counter bit `tick_bit`
+/// (a parameter, -1 none); the count and the tick change only at CLK
+/// edges, as a register clocked by CLK would see them. LV1-LV8 are the levels (active low), MSGF the
+/// message register full, NMI the NMI, cleared at a CLK edge with NMIACK
+/// high. Its outputs change 12 ns after the edge that changes them, so a
+/// CLK edge in the same master-clock tick doesn't see them; a register
+/// reads onto D 10 ns after RD falls (the I/O page, 20 ns).
+pub struct IoDevW {
+    clk: usize,
+    iosel: usize,
+    rd: usize,
+    wr: usize,
+    irq: usize,
+    a: [usize; 6],
+    be: [usize; 4],
+    d: [usize; 32],
+    prev: u8,
+    writing: bool,
+    driving: bool,
+    input: Vec<u8>,
+    input_pos: usize,
+    pub output: Vec<u8>,
+    timer_period: i64,
+    timer_count: i64,
+    timer_flag: u8,
+    last_empty: bool,
+    cycle_hi: u16,
+    d_acc: Time,
+    card: Option<Box<Card>>,
+    wr_off: Option<usize>,
+}
+
+/// The CPU card's registers, in an IoDevW.
+struct Card {
+    mclk: usize,
+    rstn: usize,
+    a_mid: [usize; 8],
+    a_top: [usize; 4],
+    lv: [usize; 8],
+    msgf: usize,
+    nmi: usize,
+    msgoe: usize,
+    nmiack: usize,
+    b: [usize; 32],
+    req: u16,
+    msg_state: u8,
+    msg: u32,
+    nmi_latch: u8,
+    count: u64,
+    ticks: u64,
+    started: bool,
+    tick: u8,
+    tick_bit: i64,
+    prev_mclk: u8,
+    b_driving: bool,
+}
+
+const MSG_FREE: u8 = 0;
+const MSG_CLAIMED: u8 = 1;
+const MSG_FULL: u8 = 2;
+const CARD_DELAY: Time = 12000;
+/// The registers' read access from RD: a buffer's enable onto the data bus.
+const CARD_READ: Time = 10000;
+
+impl Card {
+    fn levels(&self) -> u16 {
+        let lv =
+            self.req << 1 | (self.tick as u16) << 6 | ((self.msg_state == MSG_FULL) as u16) << 7;
+        lv & 0x1FE
+    }
+
+    fn outputs(&self, cx: &mut Ctx, c: &ChipInfo) {
+        let lv = self.levels();
+        for k in 0..8 {
+            cx.drive(c, self.lv[k], b2u(lv >> (k + 1) & 1 == 0), true, CARD_DELAY);
+        }
+        cx.drive(
+            c,
+            self.msgf,
+            b2u(self.msg_state == MSG_FULL),
+            true,
+            CARD_DELAY,
+        );
+        cx.drive(c, self.nmi, self.nmi_latch, true, CARD_DELAY);
+    }
+
+    /// RESET: the registers clear, the message register free, the timer
+    /// at 0.
+    fn reset(&mut self) {
+        self.req = 0;
+        self.msg_state = MSG_FREE;
+        self.nmi_latch = 0;
+        self.count = 0;
+        self.ticks = 0;
+        self.tick = 0;
+        self.started = false;
+    }
+
+    /// A CPU clock edge: the count from the master-clock ticks, and the tick
+    /// if counter bit `tick_bit` has gone from 0 to 1 since the last.
+    fn clock(&mut self) {
+        let new = self.ticks / 3;
+        if self.tick_bit >= 0 {
+            let (n, half) = (self.tick_bit as u32, 1u64 << self.tick_bit);
+            if (new + half) >> (n + 1) != (self.count + half) >> (n + 1) {
+                self.tick = 1;
+            }
+        }
+        self.count = new;
+    }
+
+    /// A read's value; at the edge that ends it (`edge`), its side effects.
+    fn read(&mut self, off: usize, edge: bool) -> u32 {
+        match off {
+            0x0000 => 1 | 4 | (self.nmi_latch as u32) << 3,
+            0x1000 => 0x3C10,
+            0x2008 => self.req as u32,
+            0x3000 => {
+                if self.msg_state == MSG_FREE {
+                    if edge {
+                        self.msg_state = MSG_CLAIMED;
+                    }
+                    0
+                } else {
+                    1
+                }
+            }
+            0x300C => self.msg,
+            0x4000 => self.count as u32,
+            _ => 0,
+        }
+    }
+
+    fn write(&mut self, off: usize, v: u32) {
+        match off {
+            0x0000 if v & 8 != 0 => self.nmi_latch = 1,
+            0x2000 => self.req |= (v & 0xFF) as u16,
+            0x2004 => self.req &= !(v & 0xFF) as u16,
+            0x3004 if self.msg_state == MSG_CLAIMED => {
+                self.msg = v;
+                self.msg_state = MSG_FULL;
+            }
+            0x3008 => self.msg_state = MSG_FREE,
+            0x4004 if v & 1 != 0 => self.tick = 0,
+            _ => {}
+        }
+    }
+}
+
+impl IoDevW {
+    fn new(s: &Spec, preload: Option<&[u8]>) -> Result<IoDevW, Error> {
+        Ok(IoDevW {
+            clk: s.pin("CLK")?,
+            iosel: s.pin("IOSEL")?,
+            rd: s.pin("RD")?,
+            wr: s.pin("WR")?,
+            irq: s.pin("IRQ")?,
+            a: s.pins(|i| format!("A{}", i + 2))?,
+            be: s.pins(|i| format!("BE{i}"))?,
+            d: s.pins(|i| format!("D{i}"))?,
+            prev: 0,
+            writing: false,
+            driving: false,
+            input: preload.map(|p| p.to_vec()).unwrap_or_default(),
+            input_pos: 0,
+            output: Vec::new(),
+            timer_period: 0,
+            timer_count: 0,
+            timer_flag: 0,
+            last_empty: false,
+            cycle_hi: 0,
+            d_acc: 20000,
+            card: if s.has("LV1") {
+                Some(Box::new(Card {
+                    mclk: s.pin("MCLK")?,
+                    rstn: s.pin("RESET_n")?,
+                    a_mid: s.pins(|i| format!("A{}", i + 8))?,
+                    a_top: s.pins(|i| format!("A{}", i + 24))?,
+                    lv: s.pins(|i| format!("LV{}", i + 1))?,
+                    msgf: s.pin("MSGF")?,
+                    nmi: s.pin("NMI")?,
+                    msgoe: s.pin("MSGOE")?,
+                    nmiack: s.pin("NMIACK")?,
+                    b: s.pins(|i| format!("B{i}"))?,
+                    req: 0,
+                    msg_state: MSG_FREE,
+                    msg: 0,
+                    nmi_latch: 0,
+                    count: 0,
+                    ticks: 0,
+                    started: false,
+                    tick: 0,
+                    tick_bit: s.param_or("tick_bit", -1),
+                    prev_mclk: 0,
+                    b_driving: false,
+                }))
+            } else {
+                None
+            },
+            wr_off: None,
+        })
+    }
+
+    /// With a card: the register offset an access is at, or None for the
+    /// I/O page.
+    fn card_off(&self, cx: &Ctx, c: &ChipInfo) -> Option<usize> {
+        let card = self.card.as_ref()?;
+        if bus_value(cx, c, &card.a_top) != 0 {
+            return None;
+        }
+        let mid = bus_value(cx, c, &card.a_mid);
+        Some((mid & 0xF0) << 8 | (bus_value(cx, c, &self.a) << 2) & 0x0C)
+    }
+
+    fn word(&self, cx: &Ctx, c: &ChipInfo) -> usize {
+        (bus_value(cx, c, &self.a) << 2) & 0xFC
+    }
+
+    /// The halves an access covers (bit 0 low, bit 1 high), from its byte
+    /// enables.
+    fn halves(&self, cx: &Ctx, c: &ChipInfo) -> u8 {
+        let on = |i: usize| cx.input(c, self.be[i]) == 0;
+        b2u(on(0) || on(1)) | b2u(on(2) || on(3)) << 1
+    }
+
+    fn pending(&self) -> bool {
+        self.input_pos < self.input.len()
+    }
+
+    /// The value a read of the 16-bit register at `a` gives, and whether
+    /// the end-of-input flag is set after it (`empty`: before it).
+    fn read16(&self, cycle: i64, a: usize, empty: bool) -> (u16, bool) {
+        match a {
+            0x00 => {
+                if self.pending() {
+                    (self.input[self.input_pos] as u16, false)
+                } else {
+                    (0xFFFF, true)
+                }
+            }
+            0x02 => (if empty { 0xFFFF } else { 0 }, empty),
+            0x04 => (if self.pending() { 1 } else { 2 }, empty),
+            0x08 => (self.timer_period as u16, empty),
+            0x0A => ((self.timer_period >> 16) as u16, empty),
+            0x0C => (self.timer_flag as u16, empty),
+            0x10 => (cycle as u16, empty),
+            0x12 => (self.cycle_hi, empty),
+            _ => (0, empty),
+        }
+    }
+
+    /// The data a read drives: each half it covers, low first; one half
+    /// alone on both.
+    fn value(&self, cycle: i64, w: usize, halves: u8) -> u32 {
+        let mut empty = self.last_empty;
+        let mut v = [0u16; 2];
+        for (h, x) in v.iter_mut().enumerate() {
+            if halves >> h & 1 != 0 {
+                let a = w + 2 * h;
+                // the cycle counter's high half is what reading the low half latched
+                let (r, e) = if a == 0x12 && halves == 3 {
+                    ((cycle >> 16) as u16, empty)
+                } else {
+                    self.read16(cycle, a, empty)
+                };
+                *x = r;
+                empty = e;
+            }
+        }
+        match halves {
+            1 => v[0] as u32 * 0x10001,
+            2 => v[1] as u32 * 0x10001,
+            _ => v[0] as u32 | (v[1] as u32) << 16,
+        }
+    }
+
+    /// A read's side effects, at the clock edge that ends it.
+    fn read_edge(&mut self, cycle: i64, w: usize, halves: u8) {
+        for h in 0..2 {
+            if halves >> h & 1 == 0 {
+                continue;
+            }
+            match w + 2 * h {
+                0x00 => {
+                    if self.pending() {
+                        self.input_pos += 1;
+                        self.last_empty = false;
+                    } else {
+                        self.last_empty = true;
+                    }
+                }
+                0x10 => self.cycle_hi = (cycle >> 16) as u16,
+                _ => {}
+            }
+        }
+    }
+
+    fn write16(&mut self, a: usize, v: u16, lanes: u8) {
+        match a {
+            0x00 => {
+                if lanes & 1 != 0 {
+                    self.output.push(v as u8);
+                }
+            }
+            0x08 => {
+                self.timer_period = (self.timer_period & !0xFFFF) | v as i64;
+                self.timer_count = 0;
+                if self.timer_period == 0 {
+                    self.timer_flag = 0;
+                }
+            }
+            0x0A => {
+                self.timer_period = (self.timer_period & 0xFFFF) | (v as i64) << 16;
+                self.timer_count = 0;
+                if self.timer_period == 0 {
+                    self.timer_flag = 0;
+                }
+            }
+            0x0C | 0x0E => self.timer_flag = 0,
+            _ => {}
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if let Some(card) = self.card.as_mut() {
+            // the timer's master-clock ticks, from the last CPU clock edge
+            // in reset (where the CPU's first cycle starts, the control
+            // store's word 0 in its register); its count and tick change at
+            // CPU clock edges
+            if pin == card.mclk {
+                let v = cx.input(c, card.mclk);
+                if v == 1 && card.prev_mclk == 0 && card.started {
+                    card.ticks += 1;
+                }
+                card.prev_mclk = v;
+                return;
+            }
+            if pin == self.clk && cx.input(c, self.clk) == 1 {
+                if cx.input(c, card.rstn) == 0 {
+                    card.reset();
+                    card.started = true;
+                } else {
+                    card.clock();
+                }
+            }
+        }
+        if !cx.state.check_on {
+            if let Some(card) = self.card.as_ref() {
+                card.outputs(cx, c);
+            }
+            return; // power-up and reset: the bus isn't meaningful yet
+        }
+        let cycle = cx.state.cycle;
+        let sel = cx.input(c, self.iosel) == 0;
+        let coff = if sel { self.card_off(cx, c) } else { None };
+        if pin == self.clk {
+            let v = cx.input(c, self.clk);
+            if v == 1 && self.prev == 0 {
+                if let Some(card) = self.card.as_mut() {
+                    if cx.input(c, card.msgoe) == 0 {
+                        card.msg_state = MSG_FREE;
+                    }
+                    if cx.input(c, card.nmiack) == 1 {
+                        card.nmi_latch = 0;
+                    }
+                }
+                if sel && cx.input(c, self.rd) == 0 {
+                    if let Some(off) = coff {
+                        self.card.as_mut().unwrap().read(off, true);
+                    } else {
+                        let (w, h) = (self.word(cx, c), self.halves(cx, c));
+                        self.read_edge(cycle, w, h);
+                    }
+                }
+                if let Some(card) = self.card.as_ref() {
+                    card.outputs(cx, c);
+                }
+                if self.timer_period > 0 && cycle >= 0 {
+                    self.timer_count += 1;
+                    if self.timer_count >= self.timer_period {
+                        self.timer_flag = 1;
+                        self.timer_count = 0;
+                    }
+                }
+                cx.drive(c, self.irq, self.timer_flag, true, 5000);
+            }
+            self.prev = v;
+        }
+        let wr = sel && cx.input(c, self.wr) == 0;
+        if self.writing && !wr {
+            let v: u32 = (0..32).map(|i| (cx.input(c, self.d[i]) as u32) << i).sum();
+            if let Some(off) = self.wr_off {
+                let card = self.card.as_mut().unwrap();
+                card.write(off, v);
+                card.outputs(cx, c);
+            } else {
+                let w = self.word(cx, c);
+                let on: Vec<bool> = (0..4).map(|i| cx.input(c, self.be[i]) == 0).collect();
+                for h in 0..2 {
+                    let lanes = b2u(on[2 * h]) | b2u(on[2 * h + 1]) << 1;
+                    if lanes != 0 {
+                        self.write16(w + 2 * h, (v >> (16 * h)) as u16, lanes);
+                    }
+                }
+            }
+            cx.drive(c, self.irq, self.timer_flag, true, 5000);
+        }
+        if wr {
+            self.wr_off = coff;
+        }
+        self.writing = wr;
+        if let Some(card) = self.card.as_mut() {
+            // the message register onto the CPU's B bus
+            if cx.input(c, card.msgoe) == 0 {
+                let w = (card.msg & 0xFFFFFF) << 8 | card.msg >> 24;
+                for i in 0..32 {
+                    cx.drive(c, card.b[i], ((w >> i) & 1) as u8, true, 8000);
+                }
+                card.b_driving = true;
+            } else if card.b_driving {
+                for i in 0..32 {
+                    let v = cx.driven(c, card.b[i]);
+                    cx.drive(c, card.b[i], v, false, 8000);
+                }
+                card.b_driving = false;
+            }
+        }
+        if sel && cx.input(c, self.rd) == 0 {
+            let (v, acc) = match coff {
+                Some(off) => (self.card.as_mut().unwrap().read(off, false), CARD_READ),
+                None => (
+                    self.value(cycle, self.word(cx, c), self.halves(cx, c)),
+                    self.d_acc,
+                ),
+            };
+            for i in 0..32 {
+                cx.drive(c, self.d[i], ((v >> i) & 1) as u8, true, acc);
+            }
+            self.driving = true;
+        } else if self.driving {
+            for i in 0..32 {
+                let v = cx.driven(c, self.d[i]);
+                cx.drive(c, self.d[i], v, false, 10000);
+            }
+            self.driving = false;
         }
     }
 }

@@ -31,5 +31,7 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      # the website's test (tests/test_site.py) renders the documents
+      - run: pip install markdown-it-py mdit-py-plugins
       # Builds the engines' Python module, and tests it (tests/test_native.py).
       - run: python3 -m heron test

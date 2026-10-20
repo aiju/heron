@@ -19,7 +19,9 @@ What the CPU gives an operating system (modes, register banks, address
 translation, exceptions) is [RFC 0029](0029-rfc-draft-2-system.md).
 
 The opcode map is also in [map.json](0028-rfc-draft-2-isa/map.json), in
-the format of the opcode explorer it was laid out with.
+the format of the opcode explorer it was laid out with
+([studies/opcode_map](../studies/opcode_map/README.md)), which the
+website's Apps page has with this map built in.
 
 ## Part I: Specification
 
@@ -52,12 +54,15 @@ the format of the opcode explorer it was laid out with.
 
 ### 2. Instruction format
 
-```
-in memory:  byte 0     byte 1
-            opcode     register byte
-                       7      4 3      0
-                       d        s
-```
+<!-- bits
+word 8 "byte 0"
+  7-0  opcode
+word 8 "byte 1" beside
+  7-4  d
+  3-0  s
+  over 7-0 "register byte"
+-->
+![The first parcel in memory: the opcode byte, then the register byte](0028-rfc-draft-2-isa/parcel.svg)
 
 - **An instruction** is a first parcel of 16 bits and 0–2 extension
   parcels. The first parcel is an opcode byte and a register byte, the
@@ -128,10 +133,14 @@ and 8–A of the map and in `LEA`'s cells in row 0, and as the mode nibble
 
 Mode 5's extension parcel, and the first of the special mode's tables:
 
-```
-15    12 11  10 9    8 7         0
-   x        s      z       d8
-```
+<!-- bits
+word 16
+  15-12 x
+  11-10 s
+  9-8   z
+  7-0   d8
+-->
+![The index parcel](0028-rfc-draft-2-isa/index-parcel.svg)
 
 `x` is the index register, `s` the scale (×1, ×2, ×4, ×8), and `z` the
 size: byte, half, word, or 3, which traps.
@@ -175,12 +184,16 @@ high nibble and `R` in its low one, so one cell takes every mode.
 - **D and E** take an index parcel whose low byte holds bits 23–16 of
   their address or displacement, then a parcel with bits 15–0:
 
-  ```
-  parcel 1   15    12 11  10 9    8 7         0
-                x        s      z     a23–16
-  parcel 2   15                             0
-                           a15–0
-  ```
+  <!-- bits
+  word 16 "parcel 1"
+    15-12 x
+    11-10 s
+    9-8   z
+    7-0   a23–16
+  word 16 "parcel 2"
+    15-0  a15–0
+  -->
+  ![The parcels of D and E](0028-rfc-draft-2-isa/special-parcels.svg)
 
 ### 4. The opcode map
 
@@ -190,6 +203,7 @@ the special mode; `+1`, `+1–2` are extension parcels, and `×n` an
 instruction that fills n cells. `ST`, `MVI` and `CMPI` are only labels:
 the instructions are written `MOV` and `CMP` ([6](#6-assembler-syntax)).
 
+<!-- grid
 | | _0 | _1 | _2 | _3 | _4 | _5 | _6 | _7 | _8 | _9 | _A | _B | _C | _D | _E | _F |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 0_ | ILLEGAL | LDM rb,ra-rc +1 | STM rb,ra-rc +1 | LEA [R+d16] +1 | LEA [sp+4R] | LEA [R+X·s] +1 | MFSR rd,n | MTSR n,rs | ADD.B4 | TMOV | TTST | TADD | TSUB | TCMP | LEA [r14+4R] | LEA spec +1–2 |
@@ -208,6 +222,8 @@ the instructions are written `MOV` and `CMP` ([6](#6-assembler-syntax)).
 | D_ | NOT | NEG | INC | DEC | RLC | RRC | SWAP | SXB | SXH | ZXB | ZXH | CLZ | FFS | POPC | REV | SETcc |
 | E_ | ADC rs | SBC rs | BIC rs | TST rs | MULU rs | MULS rs | MULA | DIVU rs | DIVS rs | DIVUL rs | BIC spec +1–2 | TST spec +1–2 | MULU spec +1–2 | MULS spec +1–2 | MERGE |  |
 | F_ | JMP ea +0–2 | CALL ea +0–2 | Jcc rel16 +1 | Jcc abs32 +2 | SAVE ra-rb | RESTORE ra-rb | DBNZ r,back4 | CAS | FPU ea +1–3 |  |  |  | SWI #n | ext: misc | ext: system | ILLEGAL |
+-->
+![The opcode map](0028-rfc-draft-2-isa/opcode-map.svg)
 
 The extension grids, by their second byte:
 
@@ -259,7 +275,19 @@ mode's `R`) in its low one.
 | `LEA rd, ea` | `03`–`05`, `0E`, `0F` | `rd` ← the operand's address | – |
 
 - **`MOV rd, #u7`** holds the constant's bits 6–3 in the register byte's
-  low nibble and its bits 2–0 in the opcode's.
+  low nibble and its bits 2–0 in the opcode's:
+
+  <!-- bits
+  word 16
+    15-12 rd
+    11-8  "u7 6–3"
+    7-3   = 01110
+    2-0   "u7 2–0"
+    over 15-8 "register byte"
+    over 7-0  "opcode byte"
+  -->
+  ![MOV rd, #u7 as a little-endian parcel](0028-rfc-draft-2-isa/mov-u7.svg)
+
 - **For a byte or half operand,** `MOVS` takes N from the operand's bit 7
   or 15, and Z from the operand (**decided**, Emily, 2026-10-15). So do
   `INC` and `DEC`, from the value they store (**open**).

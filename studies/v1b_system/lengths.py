@@ -49,7 +49,7 @@ def write_slack(w, t_open, t_close):
     """The worst slack of an SRAM write in a window: its strobe's pulse
     width, address setup and hold to its end, data setup, and its controls
     settling before the window opens."""
-    ctrl_t, dW, gd, addr_t, data_t, tWP, tAS, tAW, tDW = w
+    ctrl_t, dW, gd, addr_t, data_t, tWP, tAS, tAW, tDW = w[:9]
     t_fall = max(ctrl_t, t_open + dW) + gd
     t_rise = t_close + dW + gd
     return min(t_rise - t_fall - tWP, t_fall - addr_t - tAS, t_rise - addr_t - tAW,

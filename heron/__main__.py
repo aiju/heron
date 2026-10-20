@@ -11,6 +11,13 @@
                               push its stub and the index to main
   heron build                 build the Rust engines' Python module, which is
                               otherwise built when first used (heron/native.py)
+  heron site [--apps] [--serve]
+                              build the website into build/site (--apps: with
+                              the browser tools; --serve: then serve it)
+  heron figures write|check|list|draw ...
+                              draw the documents' figures into their SVGs
+                              (check: only check them; RFC 0000's
+                              figures-*.md document the languages)
   heron <study> ...           a study's own command line, for example
                               heron v1_isa run studies/v1_isa/programs/v1b/hello.s
 """
@@ -124,6 +131,12 @@ def main(argv=None):
         return cmd_reports("--check" in rest)
     if cmd == "build":
         return cmd_build()
+    if cmd == "site":
+        from . import site
+        return site.main(rest)
+    if cmd == "figures":
+        from . import figures
+        return figures.main(rest)
     if os.path.isdir(os.path.join(ROOT, "studies", cmd)):
         return importlib.import_module(f"heron.studies.{cmd}.cli").main(rest) or 0
     print(f"heron: no command or study {cmd!r}; heron --help lists them", file=sys.stderr)

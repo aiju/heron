@@ -11,6 +11,7 @@ mod py_sisim;
 mod py_toolchain;
 mod py_v1;
 mod py_v2;
+mod py_websim;
 
 #[pymodule(name = "_native")]
 mod native {
@@ -30,6 +31,8 @@ mod native {
     use crate::py_v1::v1;
     #[pymodule_export]
     use crate::py_v2::v2;
+    #[pymodule_export]
+    use crate::py_websim::websim;
 
     /// The bindings crate's version.
     #[pyfunction]

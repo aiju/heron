@@ -44,16 +44,20 @@ I/O page.
 
 ### 3. Encoding
 
-```
- 15  12 11   8 7    4 3    0
-+------+------+------+------+
-|  op  |  a   |  b   |  c   |
-+------+------+------+------+
-  a = rd (destination) or cc (condition)
-  b = rs (source or base register)
-  c = fn (function) or o (4-bit offset)
-  ii = bits 7..0, a signed 8-bit immediate
-```
+<!-- bits
+word 16
+  15-12 op
+  11-8  a
+  7-4   b
+  3-0   c
+  under 7-0 ii
+-->
+![An instruction's first word](0001-rfc-draft-0/encoding.svg)
+
+- a = rd (destination) or cc (condition)
+- b = rs (source or base register)
+- c = fn (function) or o (4-bit offset)
+- ii = bits 7..0, a signed 8-bit immediate
 
 | op | Words | Layout | Instructions |
 |---|---|---|---|
@@ -271,27 +275,51 @@ in [Part III](#18-performance).
 
 ### 10. Block diagram
 
-```
-                 +-----------+     ROM address: step, IR[15:12], IR[3:0],
-  STEP (163) --->| microcode |<--  irq pending, link, mode bits
-                 | 6 x flash |
-                 +-----------+---> 48 control lines
-                                   (bus enables, register loads, ALU function ...)
+<!-- blocks
+# the control
+text step "STEP (163)" at 0,3.5
+box rom "microcode" "6 × flash" right of step gap 4 height=7
+text addr "ROM address: step, IR[15:12], IR[3:0]," "irq pending, link, mode bits" right of rom gap 4 align=top
+text ctl "48 control lines" "(bus enables, register loads, ALU function …)" right of rom gap 4 align=bottom
+step -> rom
+addr -> rom
+rom -> ctl
 
-  +------------+  A bus   +-----------------+   F    +--------------+  RES
-  | RF copy A  |--------->|                 |------->| result mux   |------+--> R (377) --> A bus, B bus
-  | 2 x SRAM   |   PC --->|  4 x 74LS181    |        | lanes, swap, |      +--> MAR (via mux) --> address mux
-  +------------+   R  --->|  + 74S182       |        | shift right, |      +--> PC (161 x 4, load)
-                          |                 |        | sign/zero ext|      +--> flags (N Z C V)
-  +------------+  B bus   |                 |        | 8 x 74HCT153 |      +--> D bus (541 x 2)
-  | RF copy B  |--------->|                 |        +--------------+
-  | 2 x SRAM   |  IMM --->+-----------------+
-  +------------+  MEM (D bus) ---^  T, R, flags also drive the B bus
+# the datapath
+box rfa "RF copy A" "2 × SRAM" at 0,13
+box rfb "RF copy B" "2 × SRAM" below rfa gap 5
+box alu "ALU" "4 × 74LS181" "+ 74S182" right of rfa gap 9 align=top height=15
+box mux "result mux" "lanes, swap, shift right," "sign/zero ext" "8 × 74HCT153" right of alu gap 5 align=top
+bus res "RES" from 51,12 to 51,25
+text r "R (377) → A bus, B bus" at 53,13
+text mar "MAR (via mux) → address mux" at 53,16
+text pc "PC (161 × 4, load)" at 53,19
+text flags "flags (N Z C V)" at 53,22
+text db "D bus (541 × 2)" at 53,25
+text a1 "PC" left of alu gap 2 dy=-2.5
+text a2 "R" left of alu gap 2 dy=-1
+text b1 "IMM" left of alu gap 2 dy=2
+text mem "MEM (D bus)" below alu gap 2
+text "T, R, flags also drive the B bus" right of mem gap 2
+rfa -> alu "A bus"
+rfb -> alu "B bus"
+a1 -> alu
+a2 -> alu
+b1 -> alu
+mem -> alu
+alu -> mux "F"
+mux -> res
+res -> r
+res -> mar
+res -> pc
+res -> flags
+res -> db
+-->
+![The control and the datapath](0001-rfc-draft-0/block-diagram.svg)
 
-  address mux (PC or MAR) --> RAM (2 x 32K x 8), I/O page FF00-FFFF
-  D bus <--> RAM, I/O; D bus --> IR (377 x 2), T (377 x 2), B bus (541 x 2)
-  PC --> D bus (for pushing return addresses), PC --> A bus (for branches)
-```
+- address mux (PC or MAR) → RAM (2 × 32K × 8), I/O page FF00–FFFF
+- D bus ↔ RAM, I/O; D bus → IR (377 × 2), T (377 × 2), B bus (541 × 2)
+- PC → D bus (for pushing return addresses), PC → A bus (for branches)
 
 ### 11. Datapath
 

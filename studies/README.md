@@ -19,6 +19,7 @@ commands, and `heron test <study>` runs its unit tests.
 | [v0_hw](v0_hw/README.md) | Draft 0: a 16-bit ISA and its 98-chip implementation (frozen) |
 | [v1_isa](v1_isa/README.md) | Draft 1: a 32-bit ISA in two encodings, 1a and 1b, and the program suite |
 | [v2_isa](v2_isa/README.md) | Draft 2, RFC 0028's instruction set: assembler, simulator and the program suite ported to it |
+| [opcode_map](opcode_map/README.md) | The browser tool draft 2's opcode map was laid out in, with RFC 0028's map built in, on the website's Apps page |
 | [v1b_hw](v1b_hw/README.md) | A 213-chip implementation of draft 1b |
 | [v1b_system](v1b_system/README.md) | Draft 1b on the RFC 0014 bus: the backplane, the CPU card with variable-length cycles, a memory card and an I/O card, at chip level |
 | [v1b_tradeoffs](v1b_tradeoffs/README.md) | Faster and smaller: where the 1b system's time and chips go, faster parts and a clock generator for them at chip level, cycle floors and other microarchitectures |
@@ -31,3 +32,4 @@ commands, and `heron test <study>` runs its unit tests.
 | [kernel](kernel/README.md) | An operating system for Heron: system extensions to 1b, a benchmark nucleus that measures an OS's hot paths, and page statistics for the MMU |
 | [fen](fen/README.md) | Fen, an operating system for draft 2 in system mode: a message-passing kernel, servers for files, the console and windows, a shell and a desktop, on a board of its own |
 | [formal](formal/README.md) | Formal verification, explored: the 1b netlist run symbolically and proved against a specification of 1b, instruction by instruction, with an SMT solver |
+| [websim](websim/README.md) | The simulator on the website: the Lisp, Egret and Fen in a browser, on the studies' simulators built for WebAssembly |

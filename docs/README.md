@@ -25,6 +25,8 @@ hardware), with their code in [studies](../studies/README.md).
   instruction ([RFC 0004, Part II](../reports/0004-rfc-draft-1-isa.md#part-ii-draft-1b)).
 - In draft 2, `r0` is a general register; it no longer reads as zero
   ([RFC 0006](../reports/0006-rfc-ideas-isa.md#33-r0-as-a-general-register)).
+- Eight interrupt levels, and a vector base register
+  ([RFC 0040](../reports/0040-rfc-interrupts.md); Emily, 2026-10-16).
 
 **Construction**
 
@@ -57,4 +59,6 @@ hardware), with their code in [studies](../studies/README.md).
 - A console on serial terminals, and video too (the first build might
   leave video out).
 - No microcontrollers inside peripherals.
+- An I/O processor in every Heron, and it is the system's DMA engine
+  ([RFC 0027](../reports/0027-rfc-io-coprocessor.md); Emily, 2026-10-16).
 - Ethernet, preferably with a MAC built from TTL.

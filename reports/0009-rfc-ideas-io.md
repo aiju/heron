@@ -73,6 +73,10 @@ the rest as fast cards.
   polling. ~4–6 chips. **recommended**
   ([report 0020](0020-report-operating-system.md#the-rest)). The timer and
   the cycle counter count real time ([docs/clocking.md](../docs/clocking.md)).
+  [RFC 0040](0040-rfc-interrupts.md#33-the-timer) has one on each CPU card
+  (tentative): a free-running 32-bit count of half the bus clock, the
+  same on every CPU, and a 16-bit one-shot in place of the compare
+  register.
 - **Clean strobes and wait states** for devices: on the bus, SEL is a
   registered strobe that never glitches, and the backplane times each card
   from its class straps ([RFC 0014](0014-rfc-system-bus.md#133-sel-as-the-strobe)).
@@ -84,6 +88,69 @@ the rest as fast cards.
     LOAD ADDRESS / DEPOSIT / EXAMINE sequences. Single-stepping instructions
     or micro-cycles falls out. **recommended.**
   - **As a bus master,** or as a simple card. **open.**
+- **Reset levels,** nested, with the I/O processor of
+  [RFC 0027](0027-rfc-io-coprocessor.md) as the system controller. At
+  least a cold and a warm reset (Emily, 2026-10-15).
+  - **Cold:** everything, the I/O processor included, as at power-up, but
+    the power stays on and so do the RAMs' contents. From power-up, the
+    reset button, or a watchdog on the I/O processor. **recommended.**
+  - **System (bus) reset:** every card but the I/O processor: the
+    peripherals, the CPU cards (held again, as at power-up) and the
+    backplane's arbiter and monitor. The I/O processor, its console and
+    the control stores' contents carry on. From the I/O processor, at the
+    operating system's request or from its monitor. It's the PDP-11's
+    `RESET`, which reset every device on the Unibus but not the CPU. It
+    gives a reboot with no device left as the old system had it: a video
+    card mid-blit, a network card receiving into a ring that's gone, an
+    interrupt still asserted. **open**; recommended here.
+  - **Warm:** one CPU runs its reset routine, through its card's control
+    register (RFC 0027, 4.1); RAM, the control store and every device
+    stay. From the I/O processor: its monitor, the CPU's own request, its
+    watchdog on the CPU. **recommended.**
+  - **Device:** one device, by a reset bit of its own where it has
+    registers (the CF card's SRST, a network or video card), or by an
+    output port bit on the I/O processor's card wired to a device's reset
+    pin. **recommended** where it's free.
+- **What the levels need:**
+  - **A second reset line.** If the I/O processor took the bused RESET, a
+    system reset would reset the card that asserts it. So COLD, an
+    open-collector line driven by the backplane's power-on reset, the
+    button and the I/O processor's watchdog, goes to the I/O processor;
+    the backplane asserts RESET with it, and the I/O processor asserts
+    RESET alone for a system reset. Every other card listens to RESET
+    only. COLD could be on P2, which the I/O processor's card has for its
+    32-bit path, rather than take a reserved P1 pin. **recommended.**
+  - **RESET's drivers:** [RFC 0014, 8.1](0014-rfc-system-bus.md#81-reset)
+    has the main CPU drive it. With an I/O processor, the CPU asks it
+    instead, so a reset never cuts across one of its transfers. Without
+    one, the CPU drives it as now. **open.**
+  - **Never in the middle of a transfer:** a master reset mid-transfer
+    lets go of the address while the backplane still times the data
+    phase, and the card can be written with garbage. A CPU card takes a
+    warm reset when its current transfer ends (a flip-flop); the I/O
+    processor asserts RESET only between its transfers. **recommended.**
+  - **The end of reset synchronised to BCLK** on every card, one
+    flip-flop: RESET's edges are slow on purpose, so cards could leave it
+    in different clocks. **recommended.**
+  - **A watchdog on the I/O processor itself,** a retriggerable timer
+    its firmware must keep restarting, pulling COLD: the I/O processor
+    watches the CPU, and nothing else watches it. ~1 chip.
+    **recommended.**
+  - **A cold reset keeps RAM,** so a crash log or the I/O processor's
+    flight recorder survives for the next boot to read. Its firmware can
+    tell a cold reset from power-up by a signature it leaves in its SRAM,
+    and keeps destructive memory tests for power-up.
+- **Not resets, but beside them** in a CPU card's control register:
+  halt (RUN off, state kept), single steps, and NMI, into a monitor
+  without losing state (RFC 0027, 4.1).
+- **A reset line to each slot** from the backplane, for a simple card
+  that has no register to reset it by: a pin per slot, and a register on
+  the backplane, which has no address of its own
+  ([RFC 0014, open question 8](0014-rfc-system-bus.md#14-open-questions)).
+  **not recommended** unless a card turns out to need it.
+- **A power-fail warning** (the Unibus's AC LO, which gave the CPU
+  milliseconds to save its state): **not recommended**. With static RAM
+  and no battery, there's nowhere to save it.
 - **Storage:** a CompactFlash card in 8-bit IDE mode (~300 KB/s by polled
   I/O). **open.**
   - On the bus, a CF card in PIO mode 0 wants 290 ns strobes: N = 5 for
@@ -125,6 +192,7 @@ so devices should interrupt per buffer, not per byte.
 | DMA in its own memory time slot | memory-timing redesign | 0 | **open**; the recommended tick-level RAM sharing ([RFC 0008](0008-rfc-ideas-memory-and-buses.md#1-memory)) gets most of the way: DMA into the CPU's RAM at near bus speed, rarely delaying the CPU |
 | Intelligent terminal multiplexer: 4–8 lines with buffers, one interrupt per line or buffer | a lot in TTL | turns ~1000 interrupts/s per terminal into ~10 | **open**, but hardly needed for up to 4 lines with FIFO UARTs. With a microcontroller, as 1980s minis did: **rejected** (Emily, 2026-10-15: no microcontrollers in peripherals) |
 | CDC 6600-style peripheral processor "barrel": one shared datapath, 8 virtual I/O processors with registers in SRAM | ~60–100 chips | – | **open**, a project of its own. Register banks with their own PC, switched by interrupts, would be the same idea inside the CPU ([report 0020](0020-report-operating-system.md#further-ideas)) |
+| **An I/O processor** on a card of its own: a microcoded 16-bit bus master that boots the CPU (a writable control store included), runs the console, disk and terminal lines in Forth, and is every device's DMA engine at 5–6 MB/s | ~46 for its core, ~95 for its card with RAM the CPUs share | a request, ~200–700 cycles | **decided** (Emily, 2026-10-16): in every Heron, and the DMA engine; the design is **open** in [RFC 0027](0027-rfc-io-coprocessor.md) |
 | 82C37 off-the-shelf DMA chip | 1 chip | – | **rejected**: 8-bit, 8085-style timing |
 
 **Software side:**

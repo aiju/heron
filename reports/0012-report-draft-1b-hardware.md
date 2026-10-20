@@ -54,29 +54,52 @@ microcode takes the ROM access out of almost every path.
 
 ### 3. Block diagram
 
-```
-          +-- decode ROM (2 x flash) <-- data bus (the opcode being fetched)
-          |
-          v
-   next address Y (153 x 6) <-- NEXT, condition, dispatch, reset/fault
-          |
-          v
-   microcode ROMs (15 x flash) --> uIR (15 x 377) --> 120 control lines
+<!-- blocks
+# the control
+box dec "decode ROM" "2 × flash" at 0,0
+text op "data bus (the opcode being fetched)" right of dec gap 4
+box next "next address Y" "153 × 6" below dec gap 3
+text cond "NEXT, condition, dispatch, reset/fault" right of next gap 4
+box rom "microcode ROMs" "15 × flash" below next gap 3
+box uir "µIR" "15 × 377" right of rom gap 4
+text ctl "120 control lines" right of uir gap 4
+op -> dec
+cond -> next
+dec -> next -> rom -> uir -> ctl
 
-  +-----------+  A bus  +--------------+   F   +------------------+  RES
-  | RF copy A |-------->|              |------>| result mux       |----+--> R (377 x 4) --> A, A x 2, B
-  | 4 x SRAM  | PC ---->| 8 x 74LS181  |       | F, F >> 1, ror 8,|    +--> MAR (377 x 3, via 157s)
-  +-----------+ R, 2R ->| 3 x 74S182   |       | ror 16, per-byte |    +--> PC (161 x 8, load)
-                B->A -->|              |       | clear (153 x 16) |    +--> LC (161 x 2)
-  +-----------+  B bus  |              |       +------------------+    +--> data bus (541 x 5)
-  | RF copy B |-------->|              |
-  | 4 x SRAM  |         +--------------+
-  +-----------+  B bus also from: R, T (by byte lane, x 2), immediate unit, MQ (299 x 4), flags
+# the datapath
+box rfa "RF copy A" "4 × SRAM" at 0,25
+box rfb "RF copy B" "4 × SRAM" below rfa gap 4
+box alu "ALU" "8 × 74LS181" "3 × 74S182" right of rfa gap 9 align=top height=14
+box mux "result mux" "F, F >> 1, ror 8, ror 16," "per-byte clear" "153 × 16" right of alu gap 5 align=top
+bus res "RES" from 54,26 to 54,39
+text r "R (377 × 4) → A, A × 2, B" at 56,27
+text mar "MAR (377 × 3, via 157s)" at 56,30
+text pc "PC (161 × 8, load)" at 56,33
+text lc "LC (161 × 2)" at 56,36
+text db "data bus (541 × 5)" at 56,39
+rfa -> alu "A bus"
+rfb -> alu "B bus"
+text a1 "PC" left of alu gap 2 dy=-1.5
+text a2 "R, 2R" left of alu gap 2
+text a3 "B → A" left of alu gap 2 dy=1.5
+a1 -> alu
+a2 -> alu
+a3 -> alu
+alu -> mux "F"
+mux -> res
+res -> r
+res -> mar
+res -> pc
+res -> lc
+res -> db
+text "B bus also from: R, T (by byte lane, × 2), immediate unit, MQ (299 × 4), flags" below rfb gap 1 align=left
+-->
+![The control and the datapath](0012-report-draft-1b-hardware/block-diagram.svg)
 
-  address mux (PC or MAR, 157 x 5) --> RAM (2 x 512K x 8); I/O page when MAR bit 31 is set
-  data bus <--> RAM, I/O; data bus --> IR (377 x 2), T (377 x 4), decode ROM, SX
-  B bus --> flags (zero detect: 688 x 4), and through the bridge (541 x 4) onto the A bus
-```
+- address mux (PC or MAR, 157 × 5) → RAM (2 × 512K × 8); I/O page when MAR bit 31 is set
+- data bus ↔ RAM, I/O; data bus → IR (377 × 2), T (377 × 4), decode ROM, SX
+- B bus → flags (zero detect: 688 × 4), and through the bridge (541 × 4) onto the A bus
 
 ### 4. Datapath
 

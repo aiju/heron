@@ -69,7 +69,8 @@ and what the measurements point to), the other
 Needs Python 3.10+ and Rust (stable, from [rustup](https://rustup.rs)). No
 other dependencies; the signal-integrity tools also need numpy, and
 [ngspice](https://ngspice.sourceforge.io/) only to cross-check their own
-engine ([studies/bus_si](studies/bus_si/README.md)).
+engine ([studies/bus_si](studies/bus_si/README.md)), and the website needs
+markdown-it-py and mdit-py-plugins (`pip install -e '.[site]'`).
 
 The Rust engines' Python module is built into `build/` the first time it's
 used, and again whenever the Rust sources change; `heron build` builds it
@@ -86,6 +87,8 @@ heron test v1_isa c_compiler              # a study's unit tests (--active: ever
 heron reports                             # rewrite reports/README.md from the front matter
 heron reports reserve rfc slug "Title"    # reserve the next number: push a stub to main
 heron build                               # build the Rust engines' Python module
+heron site --serve                        # the website, into build/site, served on localhost:8000
+heron figures write                       # draw the documents' figures into their SVGs
 cargo test                                # the Rust crates' tests
 
 heron v1_isa run studies/v1_isa/programs/v1b/life.s --stats   # draft 1b: cycles for six configurations, mix, profile

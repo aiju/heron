@@ -1,0 +1,63 @@
+# The website (heron site): every report, RFC, study and design page, the
+# index, the search and the browser tools, published to GitHub Pages from
+# main. Drafts show their text from the branch their stub names, and pages
+# other branches change link to those branches' versions, so branches.yml
+# runs this again when a branch changes a page.
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # all of history: other branches' versions are found by where they left main
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # the simulator's engine (studies/websim) is built for WebAssembly
+      - id: rust
+        name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown
+          rustup default stable
+          echo "rustc=$(rustc -V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            build/cargo/
+          key: cargo-${{ runner.os }}-${{ steps.rust.outputs.rustc }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ steps.rust.outputs.rustc }}-
+      - run: pip install markdown-it-py mdit-py-plugins
+      # The PDFs and screenshots use Chrome: the runner's /usr/bin/chromium
+      # has no sandbox it can use, and aborts.
+      - run: python3 -m heron site --apps
+        env:
+          CHROME: google-chrome
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/site
+  # Only main is published; run by hand on a branch, this only checks the build.
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -27,7 +27,8 @@ import os
 
 
 class ChipType:
-    def __init__(self, name, model, pins, arcs=(), checks=(), family="logic", desc=""):
+    def __init__(self, name, model, pins, arcs=(), checks=(), family="logic", desc="",
+                 per_package=1, tied=()):
         self.name = name
         self.model = model
         self.pins = pins            # list of (name, kind)
@@ -36,6 +37,9 @@ class ChipType:
         self.checks = list(checks)  # (data list, clock pin, edge 'rise'/'fall', setup, hold)
         self.family = family        # 'logic' (74HCT/ACT), 'alu' (74LS/F/S), 'mem', 'fixture'
         self.desc = desc
+        self.per_package = per_package  # a part of a package: two halves of a 16-bit part
+        # pin groups the model treats as one: the netlist must put each on one net
+        self.tied = list(tied)
         for frm, to, _ in self.arcs:
             for p in list(frm) + list(to):
                 assert p in self.pin_index, (name, p)
@@ -140,6 +144,22 @@ for _n, _model in (("161", "cnt161"), ("163", "cnt163")):
       arcs=_arcs, checks=_checks,
       desc="4-bit binary counter, " + ("async clear" if _n == "161" else "sync clear"))
 
+T("193", "cnt193",
+  [(p, "in") for p in ("CPU", "CPD", "MR", "PL", "P0", "P1", "P2", "P3")]
+  + [(p, "out") for p in ("Q0", "Q1", "Q2", "Q3", "TCU", "TCD")],
+  arcs=[(["CPU", "CPD"], ["Q0", "Q1", "Q2", "Q3"], "CP->Q"),
+        (["CPU", "CPD"], ["TCU", "TCD"], "CP->TC"),
+        ([f"P{i}" for i in range(4)], ["Q0", "Q1", "Q2", "Q3"], "P->Q"),
+        ([f"P{i}" for i in range(4)], ["TCU", "TCD"], "P->TC"),
+        (["PL"], ["Q0", "Q1", "Q2", "Q3"], "PL->Q"),
+        (["PL"], ["TCU", "TCD"], "PL->TC"),
+        (["MR"], ["Q0", "Q1", "Q2", "Q3"], "MR->Q"),
+        (["MR"], ["TCU", "TCD"], "MR->TC")],
+  checks=[([f"P{i}" for i in range(4)], "PL", "rise", "setup P", "hold P")],
+  desc="4-bit up/down binary counter with separate up and down clocks (PL, TCU, TCD active "
+       "low; MR active high): CPU or CPD rising counts while the other is high; MR resets and "
+       "PL loads P, asynchronously; TCU is CPU at 15, TCD is CPD at 0, to clock the next counter")
+
 T("175", "dff175",
   [("CLK", "in"), ("CLR", "in")] + [(f"{i}D", "in") for i in range(1, 5)]
   + [(f"{i}{q}", "out") for i in range(1, 5) for q in ("Q", "QN")],
@@ -227,6 +247,15 @@ T("299", "sr299",
   desc="8-bit universal shift/storage register, 3-state I/O (S1 S0: 00 hold, "
        "01 shift toward Q7 (DS0 in), 10 toward Q0 (DS7 in), 11 load from I/O)")
 
+T("sram64k", "sram",
+  [(f"A{i}", "in") for i in range(16)] + [(f"IO{i}", "io") for i in range(8)]
+  + [("CE", "in"), ("OE", "in"), ("WE", "in")],
+  arcs=[([f"A{i}" for i in range(16)], [f"IO{i}" for i in range(8)], "tAA"),
+        (["CE"], [f"IO{i}" for i in range(8)], "tACE"),
+        (["OE"], [f"IO{i}" for i in range(8)], "tOE")],
+  family="mem", desc="64K x 8 static RAM: one byte of a 64K x 16 part (IS61C6416), "
+                     "whose two bytes the netlist places as two of these", per_package=2)
+
 T("sram512", "sram",
   [(f"A{i}", "in") for i in range(19)] + [(f"IO{i}", "io") for i in range(8)]
   + [("CE", "in"), ("OE", "in"), ("WE", "in")],
@@ -279,6 +308,57 @@ T("823", "dreg",
   checks=[([f"D{i}" for i in range(1, 10)], "CLK", "rise", "setup D", "hold D"),
           (["EN"], "CLK", "rise", "setup EN", "hold EN")],
   desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE active low)")
+
+T("573", "latch573",
+  [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[([f"D{i}"], [f"Q{i}"], "D->Q") for i in range(1, 9)]
+  + [(["LE"], [f"Q{i}" for i in range(1, 9)], "LE->Q"),
+     (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "LE", "fall", "setup D", "hold D")],
+  desc="octal transparent latch, three-state outputs (Q follows D while LE is high; OE active low)")
+
+# Halves of 16-bit parts (74ABT16374, 16823, 16373, 16244): each half has
+# its own clock and enables, so the netlist places them as two of these,
+# with the 8-bit part's pins and model.
+T("16374h", "dreg",
+  [("OE", "in"), ("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q"),
+        (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
+  desc="octal D flip-flop, three-state outputs: one half of a 16-bit 74ABT16374",
+  per_package=2)
+
+T("16823h", "dreg",
+  [("OE", "in"), ("CLK", "in"), ("EN", "in"), ("CLR", "in")]
+  + [(f"D{i}", "in") for i in range(1, 10)] + [(f"Q{i}", "tri") for i in range(1, 10)],
+  arcs=[(["CLK"], [f"Q{i}" for i in range(1, 10)], "CLK->Q"),
+        (["CLR"], [f"Q{i}" for i in range(1, 10)], "CLR->Q"),
+        (["OE"], [f"Q{i}" for i in range(1, 10)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 10)], "CLK", "rise", "setup D", "hold D"),
+          (["EN"], "CLK", "rise", "setup EN", "hold EN")],
+  desc="9-bit D flip-flop with clock enable, clear and three-state outputs (EN, CLR, OE "
+       "active low): one half of an 18-bit 74ABT16823", per_package=2)
+
+T("16373h", "latch573",
+  [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
+  + [(f"Q{i}", "tri") for i in range(1, 9)],
+  arcs=[([f"D{i}"], [f"Q{i}"], "D->Q") for i in range(1, 9)]
+  + [(["LE"], [f"Q{i}" for i in range(1, 9)], "LE->Q"),
+     (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
+  checks=[([f"D{i}" for i in range(1, 9)], "LE", "fall", "setup D", "hold D")],
+  desc="octal transparent latch, three-state outputs: one half of a 16-bit 74ABT16373",
+  per_package=2)
+
+T("16244h", "buf541",
+  [("OE1", "in"), ("OE2", "in")] + [(f"A{i}", "in") for i in range(1, 9)]
+  + [(f"Y{i}", "tri") for i in range(1, 9)],
+  arcs=[([f"A{i}"], [f"Y{i}"], "A->Y") for i in range(1, 9)]
+  + [(["OE1", "OE2"], [f"Y{i}" for i in range(1, 9)], "OE->Y en")],
+  desc="octal three-state buffer: one half of a 16-bit 74ABT16244, whose OE1 and OE2 enable "
+       "bits 1-4 and 5-8 (the 541's model, which needs both: so they must be tied together)",
+  per_package=2, tied=[("OE1", "OE2")])
 
 T("245", "xcvr245",
   [("DIR", "in"), ("OE", "in")] + [(f"A{i}", "io") for i in range(1, 9)]
@@ -376,6 +456,34 @@ def load_timing():
         return json.load(f)
 
 
+T("iodev_w32", "iodev_w32",
+  [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WR", "in")]
+  + [(f"A{i}", "in") for i in range(2, 8)] + [(f"BE{i}", "in") for i in range(4)]
+  + [(f"D{i}", "io") for i in range(32)] + [("IRQ", "out")],
+  arcs=[([f"A{i}" for i in range(2, 8)] + ["IOSEL", "RD"], [f"D{i}" for i in range(32)], "tACC")],
+  family="fixture", desc="draft 1 I/O page on a 32-bit data bus, one register access per "
+                         "16-bit half (byte enables, IOSEL, RD, WR active low; input preloaded)")
+
+T("cpucard_w32", "iodev_w32",
+  [("CLK", "in"), ("MCLK", "in"), ("RESET_n", "in"), ("IOSEL", "in"), ("RD", "in"), ("WR", "in")]
+  + [(f"A{i}", "in") for i in list(range(2, 16)) + list(range(24, 28))]
+  + [(f"BE{i}", "in") for i in range(4)] + [(f"D{i}", "io") for i in range(32)]
+  + [("IRQ", "out")] + [(f"LV{i}", "out") for i in range(1, 9)]
+  + [("MSGF", "out"), ("NMI", "out"), ("MSGOE", "in"), ("NMIACK", "in")]
+  + [(f"B{i}", "io") for i in range(32)],
+  arcs=[([f"A{i}" for i in range(2, 8)] + ["IOSEL", "RD"], [f"D{i}" for i in range(32)], "tACC")],
+  family="fixture", desc="a CPU card's registers (RFC 0040, 3: control, the request register, "
+                         "the message register onto the CPU's B bus, the timer from the master "
+                         "clock) and draft 1's I/O page, on a 32-bit data bus")
+
+T("tickclk", "tickclk",
+  [("CLK", "out"), ("MWIN", "out"), ("LATE", "out"), ("RW", "out"), ("RSTB", "out"),
+   ("RESET", "out")],
+  family="fixture", desc="for static timing analysis: a tick clock generator's outputs as "
+                         "functions of the cycle (CLK's edge at 0; the memory write window, "
+                         "a phase from a later tick, the register file's write phase and its "
+                         "write strobe)")
+
 T("iodev32", "iodev32",
   [("CLK", "in"), ("IOSEL", "in"), ("RD", "in"), ("WEL", "in"), ("WEH", "in")]
   + [(f"A{i}", "in") for i in range(8)] + [(f"D{i}", "io") for i in range(16)] + [("IRQ", "out")],
@@ -391,12 +499,12 @@ VARIANTS = {
     # Faster ALU: 74F181 + 74F182 (also new-old-stock only).
     "hct-f181": {"logic": "74HCT", "alu": "74F181", "cla": "74F182",
                  "rf": "AS7C256A-15", "ram": "AS6C62256-55", "rom": "SST39SF010A-55"},
-    # Everything fast: 74ACT logic where it exists (no ACT30/ACT688: HCT used).
+    # Everything fast: 74ACT logic where it exists (no ACT30/ACT688/ACT193: HCT used).
     "act-f181": {"logic": "74ACT", "alu": "74F181", "cla": "74F182",
                  "rf": "AS7C256A-12", "ram": "AS6C62256-55", "rom": "SST39SF010A-55"},
 }
 DEFAULT_VARIANT = "hct-ls181"
-ACT_MISSING = {"30", "688"}
+ACT_MISSING = {"30", "688", "193"}
 
 
 # Parts outside the variants: families that only the card designs use,

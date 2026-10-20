@@ -1004,6 +1004,104 @@
       }
     }
   },
+  "74ABT573": {
+    "family": "ABT",
+    "function": "octal transparent D-type latch, 3-state",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT573A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt573a.pdf",
+    "datasheet": "TI SCBS190F (Jan 1991, rev Sep 2003)",
+    "availability": "TI SN74ABT573AN (DIP) active, also DW, DB, NS, PW, RGY, GQN, ZQN.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "D->Q": {
+        "min": 1.9,
+        "typ": 4.2,
+        "max": 6.2
+      },
+      "LE->Q": {
+        "min": 2.2,
+        "typ": 5.2,
+        "max": 7.2
+      },
+      "OE->Y en": {
+        "min": 1.2,
+        "typ": 4.7,
+        "max": 6.7
+      },
+      "OE->Y dis": {
+        "min": 2,
+        "typ": 4.9,
+        "max": 7.1
+      }
+    },
+    "checks": {
+      "setup D": 1.9,
+      "hold D": 1.8,
+      "tw LE": 3.3
+    },
+    "estimated": [],
+    "notes": "Setup is data before LE falling: 1.9 ns (data high) / 1.5 ns (data low). Hold 1.8 ns, the tPZL min 2.5 and the tPHZ max 7.1 are marked 'may vary among suppliers'.",
+    "detail": {
+      "D->Q": {
+        "tPLH": [
+          1.9,
+          3.2,
+          5.4,
+          5.9
+        ],
+        "tPHL": [
+          2.2,
+          4.2,
+          5.7,
+          6.2
+        ]
+      },
+      "LE->Q": {
+        "tPLH": [
+          2.2,
+          4,
+          6.1,
+          6.6
+        ],
+        "tPHL": [
+          3.2,
+          5.2,
+          6.7,
+          7.2
+        ]
+      },
+      "/OE->Q enable": {
+        "tPZH": [
+          1.2,
+          3.2,
+          4.7,
+          5.2
+        ],
+        "tPZL": [
+          2.5,
+          4.7,
+          6.2,
+          6.7
+        ]
+      },
+      "/OE->Q disable": {
+        "tPHZ": [
+          2.5,
+          4.9,
+          6.4,
+          7.1
+        ],
+        "tPLZ": [
+          2,
+          4.2,
+          6,
+          6.5
+        ]
+      }
+    }
+  },
   "74ABT534": {
     "family": "ABT",
     "function": "octal D flip-flop with inverting 3-state outputs",
@@ -1931,6 +2029,194 @@
     "notes": "The SN74F163A's switching characteristics, with an asynchronous clear (/CLR->Q 13 ns, /CLR->RCO 11.5 ns). CLK->Q is 9.5 ns when loading, 11 when counting. Setup of /LOAD 11.5 ns high, 9.5 low; of ENP/ENT 11.5 high, 5 low (the larger is given). Hold of /LOAD 2 ns high, 0 low."
   },
 
+  "74F193": {
+    "family": "F",
+    "function": "4-bit synchronous binary up/down counter with separate up and down clocks, asynchronous load and reset",
+    "manufacturer": "National Semiconductor",
+    "part_number": "74F193",
+    "source": "https://www.thierry-lequeu.fr/data/54F193.pdf",
+    "datasheet": "National 54F/74F193, TL/F/9497 (Nov 1994, (c) 1995)",
+    "availability": "Probably not buyable: TI's SN74F193AN is obsolete (a parametric listing, Oct 2026), Nexperia makes no 74F193, and no current maker was found. The 74HCT193 is the same counter in production.",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CP->Q": {
+        "min": 4,
+        "typ": 9.5,
+        "max": 13.5
+      },
+      "CP->TC": {
+        "min": 3.5,
+        "typ": 7,
+        "max": 10
+      },
+      "P->Q": {
+        "min": 3,
+        "typ": 11,
+        "max": 15.5
+      },
+      "P->TC": {
+        "min": 6.5,
+        "typ": 11.5,
+        "max": 15.5
+      },
+      "PL->Q": {
+        "min": 5,
+        "typ": 10,
+        "max": 14
+      },
+      "PL->TC": {
+        "min": 7,
+        "typ": 12,
+        "max": 16.5
+      },
+      "MR->Q": {
+        "min": 5.5,
+        "typ": 11,
+        "max": 15.5
+      },
+      "MR->TC": {
+        "min": 6,
+        "typ": 11.5,
+        "max": 15.5
+      }
+    },
+    "checks": {
+      "setup P": 5,
+      "hold P": 2,
+      "tw CP": 5,
+      "tw CP dir": 10,
+      "tw PL": 6,
+      "tw MR": 6,
+      "recovery PL": 6,
+      "recovery MR": 4,
+      "fmax MHz": 90
+    },
+    "estimated": [],
+    "notes": "CP is CPU or CPD, TC is TCU or TCD. Setup and hold of P are to PL's rise, the end of a load. tw CP is a clock's low width, tw CP dir the low width of the first pulse after a change of direction; no high width is given. Recovery: PL or MR inactive to a clock's rise. MR->TC is MR->TCU (tPLH) 14.5 ns and MR->TCD (tPHL) 15.5.",
+    "detail": {
+      "CPU,CPD->TCU,TCD": {
+        "tPLH": [4, 7, 9, 10],
+        "tPHL": [3.5, 6, 8, 9]
+      },
+      "CPU,CPD->Qn": {
+        "tPLH": [4, 6.5, 8.5, 9.5],
+        "tPHL": [5.5, 9.5, 12.5, 13.5]
+      },
+      "Pn->Qn": {
+        "tPLH": [3, 4.5, 7, 8],
+        "tPHL": [6, 11, 14.5, 15.5]
+      },
+      "/PL->Qn": {
+        "tPLH": [5, 8.5, 11, 12],
+        "tPHL": [5.5, 10, 13, 14]
+      },
+      "MR->Qn": {
+        "tPHL": [5.5, 11, 14.5, 15.5]
+      },
+      "MR->/TCU": {
+        "tPLH": [6, 10.5, 13.5, 14.5]
+      },
+      "MR->/TCD": {
+        "tPHL": [6, 11.5, 14.5, 15.5]
+      },
+      "/PL->/TCU,/TCD": {
+        "tPLH": [7, 12, 15.5, 16.5],
+        "tPHL": [7, 11.5, 14.5, 15.5]
+      },
+      "Pn->/TCU,/TCD": {
+        "tPLH": [7, 11.5, 14.5, 15.5],
+        "tPHL": [6.5, 11, 14, 15]
+      }
+    }
+  },
+
+  "74HCT193": {
+    "family": "HCT",
+    "function": "4-bit synchronous binary up/down counter with separate up and down clocks, asynchronous load and reset",
+    "manufacturer": "Nexperia",
+    "part_number": "74HCT193",
+    "source": "https://cdn.components.ru/media/PDF/1305593.pdf",
+    "datasheet": "Nexperia 74HC193-Q100; 74HCT193-Q100, Rev. 3 (8 Sep 2021)",
+    "availability": "TI CD74HCT193 (DIP) active (ti.com, Oct 2026); Nexperia's 74HCT193 in SO16 and TSSOP16 (status not checked).",
+    "max_cond": "max: -40..85 C, VCC 4.5 V, CL 50 pF",
+    "typ_cond": "typ: 25 C, VCC 4.5 V, CL 50 pF",
+    "delays": {
+      "CP->Q": {
+        "typ": 23,
+        "max": 54
+      },
+      "CP->TC": {
+        "typ": 15,
+        "max": 34
+      },
+      "P->Q": {
+        "typ": 27,
+        "max": 58
+      },
+      "P->TC": {
+        "typ": 32,
+        "max": 73
+      },
+      "PL->Q": {
+        "typ": 26,
+        "max": 58
+      },
+      "PL->TC": {
+        "typ": 31,
+        "max": 69
+      },
+      "MR->Q": {
+        "typ": 22,
+        "max": 50
+      },
+      "MR->TC": {
+        "typ": 29,
+        "max": 69
+      }
+    },
+    "checks": {
+      "setup P": 20,
+      "hold P": 0,
+      "tw CP": 31,
+      "tw CP high": 31,
+      "hold CP dir": 20,
+      "tw PL": 25,
+      "tw MR": 25,
+      "recovery PL": 13,
+      "recovery MR": 13,
+      "fmax MHz": 16
+    },
+    "estimated": [],
+    "notes": "The automotive grade's sheet: nexperia.com refuses downloads from here, so the commercial 74HC_HCT193 sheet was not read. CP is CPU or CPD, TC is TCU or TCD; tpd is both tPLH and tPHL. Setup and hold of P are to PL's rise. tw CP is a clock's width high or low; hold CP dir is from one clock's rise to the other's fall (a change of direction). TI's CD74HCT193 (SCHS163F, Oct 2003) agrees where it gives a value (CP->TC 34, PL->Q 58, recovery MR 5 ns, setup P 19, recovery PL 19, tw CP 29), except CP->Q 50 and MR->Q 54; it gives no P->Q, nor TC from PL, P or MR.",
+    "detail": {
+      "CPU,CPD->Qn": {
+        "tpd": [null, 23, 43, 54]
+      },
+      "CPU->/TCU, CPD->/TCD": {
+        "tpd": [null, 15, 27, 34]
+      },
+      "/PL->Qn": {
+        "tpd": [null, 26, 46, 58]
+      },
+      "MR->Qn": {
+        "tpd": [null, 22, 40, 50]
+      },
+      "Dn->Qn": {
+        "tpd": [null, 27, 46, 58]
+      },
+      "/PL->/TCU,/TCD": {
+        "tpd": [null, 31, 55, 69]
+      },
+      "MR->/TCU,/TCD": {
+        "tpd": [null, 29, 55, 69]
+      },
+      "Dn->/TCU,/TCD": {
+        "tpd": [null, 32, 58, 73]
+      }
+    }
+  },
+
   "74F299": {
     "family": "F",
     "function": "8-bit universal shift/storage register, three-state I/O",
@@ -2045,5 +2331,220 @@
     },
     "estimated": [],
     "notes": "tACC, tCE and tDF repeat tAA, tACE and tHZOE under the ROM model's names, for the part used as a control store: loaded at power-up, then only read. tWP is tPWE (9 ns with /OE high or low); tAW and tCW are tAW and tSCE (9 ns); tDW is tSD (6 ns). Byte enables: tBA 6 ns."
+  },
+  "74ABT16374A": {
+    "family": "ABT",
+    "function": "16-bit D flip-flop, 3-state (two 8-bit halves, each with its own CLK and /OE)",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT16374A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt16374a.pdf",
+    "datasheet": "TI SCBS205C (Mar 1993, rev May 1997)",
+    "availability": "TI SN74ABT16374ADL (SSOP-48) and DGG (TSSOP-48) active (ti.com product page, Oct 2026); no DIP.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CLK->Q": {
+        "min": 1.8,
+        "typ": 4.7,
+        "max": 6.2
+      },
+      "OE->Y en": {
+        "min": 1.2,
+        "typ": 3.5,
+        "max": 5.6
+      },
+      "OE->Y dis": {
+        "min": 2.2,
+        "typ": 5.5,
+        "max": 8.2
+      }
+    },
+    "checks": {
+      "setup D": 1.1,
+      "hold D": 1.3,
+      "tw CLK": 3.3,
+      "fmax MHz": 150
+    },
+    "estimated": [],
+    "notes": "SN74 column of the switching tables (the SN54 limits are wider). Setup and hold are the SN74ABT16374A's (25 C and -40..85 C both 1.1 / 1.3 ns).",
+    "detail": {
+      "CLK->Q": {
+        "tPLH": [1.8, 4.3, 5.4, 6.2],
+        "tPHL": [2.7, 4.7, 5.6, 5.9]
+      },
+      "OE->Q enable": {
+        "tPZH": [1.2, 3.4, 4.8, 5.6],
+        "tPZL": [1.6, 3.5, 4.7, 5.3]
+      },
+      "OE->Q disable": {
+        "tPHZ": [2.2, 5.5, 7.1, 8.2],
+        "tPLZ": [2.2, 4.3, 5.8, 6.6]
+      }
+    }
+  },
+  "74ABT16823": {
+    "family": "ABT",
+    "function": "18-bit D flip-flop with clock enable, clear, 3-state (two 9-bit halves, each with its own CLK, /CLKEN, /CLR and /OE)",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT16823",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt16823.pdf",
+    "datasheet": "TI SCBS217C (Jun 1992, rev Jan 1997)",
+    "availability": "TI SN74ABT16823DL (SSOP-56), DGG (TSSOP-56) and DGV (TVSOP) active (ti.com product page, Oct 2026); no DIP.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "CLK->Q": {
+        "min": 1.6,
+        "typ": 3.9,
+        "max": 6.8
+      },
+      "CLR->Q": {
+        "min": 1.9,
+        "typ": 4.1,
+        "max": 6.1
+      },
+      "OE->Y en": {
+        "min": 1,
+        "typ": 3.5,
+        "max": 5.5
+      },
+      "OE->Y dis": {
+        "min": 1.6,
+        "typ": 4.3,
+        "max": 8.7
+      }
+    },
+    "checks": {
+      "setup D": 1.7,
+      "hold D": 1.2,
+      "setup EN": 2.8,
+      "hold EN": 0.6,
+      "tw CLK": 3.3,
+      "tw CLR": 3.3,
+      "recovery CLR": 1.6,
+      "fmax MHz": 150
+    },
+    "estimated": [],
+    "notes": "SN74 column. Setup and hold of /CLKEN are given for /CLKEN low (2.8 / 0.6 ns). Recovery is /CLR inactive before CLK. The tPLZ max over -40..85 C (8.7 ns) is well above its 25 C max (6.4).",
+    "detail": {
+      "CLK->Q": {
+        "tPLH": [1.6, 3.9, 5.5, 6.8],
+        "tPHL": [2.1, 3.9, 5.4, 6]
+      },
+      "/CLR->Q": {
+        "tPHL": [1.9, 4.1, 5.3, 6.1]
+      },
+      "/OE->Q enable": {
+        "tPZH": [1, 3.1, 4.2, 4.9],
+        "tPZL": [1.5, 3.5, 4.6, 5.5]
+      },
+      "/OE->Q disable": {
+        "tPHZ": [2.2, 4.3, 5.6, 6.1],
+        "tPLZ": [1.6, 4.3, 6.4, 8.7]
+      }
+    }
+  },
+  "74ABT16373A": {
+    "family": "ABT",
+    "function": "16-bit transparent D-type latch, 3-state (two 8-bit halves, each with its own LE and /OE)",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT16373A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt16373a.pdf",
+    "datasheet": "TI SCBS160C (Dec 1992, rev May 1997)",
+    "availability": "TI SN74ABT16373ADL (SSOP-48) and DGG (TSSOP-48) active (ti.com product page, Oct 2026); no DIP.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "D->Q": {
+        "min": 1.4,
+        "typ": 4,
+        "max": 6.3
+      },
+      "LE->Q": {
+        "min": 1.7,
+        "typ": 4.3,
+        "max": 6.7
+      },
+      "OE->Y en": {
+        "min": 1.1,
+        "typ": 3.5,
+        "max": 6.1
+      },
+      "OE->Y dis": {
+        "min": 1.6,
+        "typ": 5.1,
+        "max": 8.1
+      }
+    },
+    "checks": {
+      "setup D": 1.5,
+      "hold D": 1,
+      "tw LE": 3.3
+    },
+    "estimated": [],
+    "notes": "SN74 column. Setup is data before LE falling: 1.5 ns, hold 1 ns (the SN74ABT16373A's).",
+    "detail": {
+      "D->Q": {
+        "tPLH": [1.4, 3.7, 5.3, 6.3],
+        "tPHL": [2, 4, 5.4, 6.2]
+      },
+      "LE->Q": {
+        "tPLH": [1.7, 4.1, 5.7, 6.7],
+        "tPHL": [2.3, 4.3, 5.6, 6.1]
+      },
+      "OE->Q enable": {
+        "tPZH": [1.1, 3.4, 5, 6.1],
+        "tPZL": [1.5, 3.5, 4.9, 5.6]
+      },
+      "OE->Q disable": {
+        "tPHZ": [2.4, 5.1, 7.1, 8.1],
+        "tPLZ": [1.6, 4.4, 5.8, 6.5]
+      }
+    }
+  },
+  "74ABT16244A": {
+    "family": "ABT",
+    "function": "16-bit buffer/driver, 3-state (four 4-bit groups, each with its own /OE)",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74ABT16244A",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74abt16244a.pdf",
+    "datasheet": "TI SCBS073H (Sep 1991, rev Aug 2005)",
+    "availability": "TI SN74ABT16244ADL (SSOP-48), DGG (TSSOP-48) and DGV (TVSOP) active (ti.com product page, Oct 2026); no DIP.",
+    "max_cond": "max/min: -40..85 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 2.6,
+        "max": 4.1
+      },
+      "OE->Y en": {
+        "min": 1,
+        "typ": 3.2,
+        "max": 4.8
+      },
+      "OE->Y dis": {
+        "min": 1,
+        "typ": 3.6,
+        "max": 4.8
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "notes": "SN74ABT16244A column (the SN54ABT16244 is slower). No 16-bit ABT equivalent of the 541's two ANDed enables: each 4-bit group has one /OE.",
+    "detail": {
+      "A->Y": {
+        "tPLH": [1, 2.3, 3.2, 3.5],
+        "tPHL": [1, 2.6, 3.7, 4.1]
+      },
+      "OE->Y enable": {
+        "tPZH": [1, 3, 3.8, 4.8],
+        "tPZL": [1, 3.2, 4, 4.8]
+      },
+      "OE->Y disable": {
+        "tPHZ": [1, 3.6, 4.4, 4.8],
+        "tPLZ": [1, 2.9, 3.7, 4.1]
+      }
+    }
   }
 }

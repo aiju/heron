@@ -104,6 +104,8 @@ The engines are Rust, everything else is Python
   deviate, or add parts, where that suits the document. Where your code
   needs something its RFC leaves open, add it to the RFC for Emily
   rather than deciding it in the study.
+- **Figures:** to put a picture in a document, read
+  [RFC 0000's figures](reports/0000-rfc-repository-layout.md#figures).
 - **Mentioning one to Emily:** in chat, a PR description or a comment,
   link a report, an RFC or any other file on GitHub, at the branch that
   has the version you mean: your PR's branch if you changed it there,
@@ -134,6 +136,8 @@ Change the generator and rerun it rather than editing the output by hand:
   `heron fen bench --write`;
 - `reports/0029-rfc-draft-2-system/register-banks-results.md`:
   `heron fen banks --write`;
+- `reports/0040-rfc-interrupts/fen-latency-results.md`:
+  `heron fen irq --write`;
 - `reports/0032-report-lisp-egret-draft-2/lisp.md` and `egret.md`:
   `heron lisp report --isa v2 --write` and
   `heron egret bench --isa v2 --write`;
@@ -162,6 +166,13 @@ Change the generator and rerun it rather than editing the output by hand:
 - `reports/0024-rfc-faster-smaller/results.md`:
   `heron v1b_tradeoffs report --write` (`--hw` reruns the chip-level
   suites, about 30 minutes);
+- `reports/0031-rfc-draft-2-cpu/performance.md`:
+  `heron v2_hw report --write` (its profiles take a few minutes each and
+  are cached in `build/v2_hw/`);
+- `studies/v2_hw/ticks.json`, the microcode's cycle lengths:
+  `heron v2_hw hw sta --write`, after any change to draft 2's netlist or
+  microcode (`heron test v2_hw` fails while it's stale);
+- the SVGs of the documents' figures: `heron figures write`;
 - `reports/README.md`: `heron reports`.
 
 ## Checking changes
@@ -171,13 +182,18 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
-- `heron test v1_isa v2_isa c_compiler v1b_hw v1b_system v1b_tradeoffs
-  v0_hw graphics kernel bus_si formal`: a study's unit tests (`formal`'s
-  need `pip install z3-solver`). Run the ones for the studies you touched, or
-  `--active` for every active one.
+- `heron test v1_isa v2_isa v2_hw c_compiler v1b_hw v1b_system
+  v1b_tradeoffs v0_hw graphics kernel bus_si formal`: a study's unit tests
+  (`formal`'s need `pip install z3-solver`). Run the ones for the studies
+  you touched, or `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
   `heron v2_isa test`: the programs against their expected output, in 1b,
   1a and draft 2.
+- `heron v2_hw check`, `heron v2_hw check --c` and `heron v2_hw check
+  exercise systest`: draft 2's CPU against the instruction-level
+  simulator, a few minutes in all. `heron v2_hw hw test`: its netlist on
+  the chip-level simulator against the RTL model, about 10 minutes for the
+  suite.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
@@ -191,6 +207,13 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
   `cargo test`: the Rust workspace. CI runs all three, then `heron test`,
   which builds the engines' Python module and tests it.
+- `heron site --serve`: the website as GitHub Pages publishes it from
+  `main` (`.github/workflows/pages.yml`), served on localhost:8000;
+  `--apps` adds the browser tools. A draft shows the text on the branch
+  its stub names, and a page other branches change links to their
+  versions, with revision bars where they differ from main
+  (`--no-branches` skips both). `heron test` checks the site's links; its
+  code is in `heron/site/`.
 - **Slow runs:** the chip-level runs take minutes: `heron v1b_hw hw test`
   about 5 for every program, `heron v1b_system test --jobs 4` (the whole
   system on the bus) about 8, and `heron v1b_hw report --hw` longer.
@@ -208,8 +231,9 @@ it's been deleted.
 - Never commit build output or downloads. `build/` holds ROM images,
   netlists, cargo's output and the engines' Python module, simulation
   scratch and the IBIS models from ti.com.
-- Don't commit anything that can be regenerated quickly from the code. The
-  signal-integrity results in report 0013 are the exception, since they
-  take hours to produce.
+- Don't commit anything that can be regenerated quickly from the code.
+  The exceptions: the signal-integrity results in report 0013, since they
+  take hours to produce, and the documents' figures, since GitHub can
+  only show a committed SVG.
 - Keep every file under 10 MB, and check `git diff --cached --stat` before
   committing.

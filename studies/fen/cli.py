@@ -14,6 +14,8 @@
   bench [--write]               the kernel's hot paths, measured in the machine
   banks [--write]               what fewer register banks would cost (RFC 0029's
                                 register-banks.md)
+  irq [--write]                 how long interrupts are held off, and how often they
+                                come (RFC 0040's fen-latency.md)
 """
 
 import argparse
@@ -130,6 +132,11 @@ def cmd_banks(args):
     return banks.main(args.write)
 
 
+def cmd_irq(args):
+    from heron.studies.fen import irq
+    return irq.main(args.write)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="heron fen", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -158,5 +165,8 @@ def main(argv=None):
     k = sub.add_parser("banks")
     k.add_argument("--write", action="store_true", help="write RFC 0029's register-banks-results.md")
     k.set_defaults(fn=cmd_banks)
+    q = sub.add_parser("irq")
+    q.add_argument("--write", action="store_true", help="write RFC 0040's fen-latency-results.md")
+    q.set_defaults(fn=cmd_irq)
     args = p.parse_args(argv)
     return args.fn(args)
