@@ -134,6 +134,8 @@ Change the generator and rerun it rather than editing the output by hand:
   - `heron kernel report --write`
 - `reports/0036-report-fen/performance.md` and `desktop.png`:
   `heron fen bench --write`;
+- `reports/0047-rfc-chibi-heron/performance.md`: `heron chibi report --write`
+  (a few minutes);
 - `reports/0029-rfc-draft-2-system/register-banks-results.md`:
   `heron fen banks --write`;
 - `reports/0040-rfc-interrupts/fen-latency-results.md`:
@@ -180,7 +182,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
 - `heron test v1_isa v2_isa v2_hw c_compiler v1b_hw v1b_system
-  v1b_tradeoffs v0_hw graphics kernel bus_si`: a study's unit tests. Run the ones for the studies you touched, or
+  v1b_tradeoffs v0_hw graphics kernel bus_si chibi`: a study's unit tests. Run the ones for the studies you touched, or
   `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
   `heron v2_isa test`: the programs against their expected output, in 1b,
@@ -190,6 +192,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   simulator, a few minutes in all. `heron v2_hw hw test`: its netlist on
   the chip-level simulator against the RTL model, about 10 minutes for the
   suite.
+- `heron chibi check` and `heron chibi hw test`: Chibi Heron's model
+  against the instruction-level simulator, and its netlist against the
+  model (about half an hour); `heron chibi hw sta`: the period it needs.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and
