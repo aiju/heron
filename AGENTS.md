@@ -200,6 +200,8 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron chibi check` and `heron chibi hw test`: Chibi Heron's model
   against the instruction-level simulator, and its netlist against the
   model (about half an hour); `heron chibi hw sta`: the period it needs.
+  `heron chibi sim check`: its whole-machine simulator against the suite
+  and the device tests, in seconds.
 - `heron c_compiler bench`: the C versions of the programs on both
   encodings.
 - `heron lisp test` and `heron lisp test -c`: the Lisp's programs and

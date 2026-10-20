@@ -420,6 +420,34 @@ impl Counter {
         }
     }
 
+    /// The pulses until OUT may next change: OUT stays as it is for the
+    /// first n - 1, so clocking fewer changes nothing outside the chip.
+    /// None if it never will, as the counter is.
+    fn next_change(&self) -> Option<u64> {
+        let mut c = self.clone();
+        let out = c.out;
+        let mut n = 0u64;
+        // OUT changes only on a stepped pulse, and within a few of them
+        // after a quiet run if at all; past those, n is a time to look
+        // again.
+        for _ in 0..8 {
+            let (q, by) = c.quiet();
+            if q == FOREVER {
+                return None;
+            }
+            if q > 0 {
+                c.ce = c.dec(c.ce, (q % c.modulus()) * by);
+                n += q;
+            }
+            c.pulse();
+            n += 1;
+            if c.out != out {
+                break;
+            }
+        }
+        Some(n)
+    }
+
     fn pulses(&mut self, n: u64) -> u64 {
         let mut left = n;
         let mut rises = 0;
@@ -525,6 +553,13 @@ impl Timer {
     /// on `n`. Returns how many times OUT went high during them.
     pub fn clock_n(&mut self, counter: usize, n: u64) -> u64 {
         self.counters[counter].pulses(n)
+    }
+
+    /// The pulses until a counter's OUT may next change (OUT stays as it
+    /// is for the first n - 1), or None if it never will as the counter
+    /// is programmed.
+    pub fn next_change(&self, counter: usize) -> Option<u64> {
+        self.counters[counter].next_change()
     }
 
     /// A counter's OUT output.

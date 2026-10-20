@@ -1,0 +1,16 @@
+# Chibi Heron's whole-machine simulator (RFC 0047): the two-halves
+# machine's microcode, a microinstruction at a time as rtl2.py has it, on a
+# board with every device of the netlist (board2.py) behind it. The control
+# store comes from Python (studies/chibi/sim.py builds its image). Python
+# uses it as heron.native.chibi.
+[package]
+name = "chibi-sim"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+devices = { path = "../../../infra/devices" }
+
+[lints]
+workspace = true

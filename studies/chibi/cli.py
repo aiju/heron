@@ -5,6 +5,7 @@
   run FILE.s [--profile]         one program on the model
   report [--write]               RFC 0047's performance.md (report.py)
   hw ...                         the chip-level netlist (hw.py)
+  sim ...                        the whole-machine simulator (sim.py)
   pipeline                       what a pipelined control store would buy
                                  (pipeline.py)
   place [--write] [--seed N] [--moves N]
@@ -49,6 +50,8 @@ def main(argv=None):
     w.add_argument("--write", action="store_true")
     h = sub.add_parser("hw")
     h.add_argument("rest", nargs=argparse.REMAINDER)
+    sm = sub.add_parser("sim", add_help=False)
+    sm.add_argument("rest", nargs=argparse.REMAINDER)
     sub.add_parser("pipeline")
     pl = sub.add_parser("place")
     pl.add_argument("--write", action="store_true")
@@ -69,6 +72,9 @@ def main(argv=None):
     if args.cmd == "pipeline":
         from . import pipeline
         return pipeline.cmd_pipeline(args)
+    if args.cmd == "sim":
+        from . import sim
+        return sim.main(args.rest)
     if args.cmd == "hw":
         from . import hw
         return hw.main(args.rest)

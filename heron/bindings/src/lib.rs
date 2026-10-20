@@ -4,6 +4,7 @@
 
 use pyo3::prelude::*;
 
+mod py_chibi;
 mod py_fen;
 mod py_hwsim;
 mod py_pcbroute;
@@ -17,6 +18,8 @@ mod py_websim;
 mod native {
     use super::*;
 
+    #[pymodule_export]
+    use crate::py_chibi::chibi;
     #[pymodule_export]
     use crate::py_fen::fen;
     #[pymodule_export]
