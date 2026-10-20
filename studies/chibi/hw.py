@@ -349,16 +349,30 @@ def grade_checks():
     return out
 
 
+def _drop_netlists():
+    """The cached netlists, which don't know the grades they were built with."""
+    for name in ("netlist.json", "netlist-halt.json"):
+        if os.path.exists(os.path.join(OUT, name)):
+            os.remove(os.path.join(OUT, name))
+
+
 def sim_grades(pick, log=print):
     """The grades checked at chip level: while a run has a violation, the
     GAL it names (or that drives the pin it names) a grade faster."""
+    saved = board2.GAL_GRADES
+    try:
+        return _sim_grades(dict(pick), log)
+    finally:
+        board2.GAL_GRADES = saved
+        _drop_netlists()
+
+
+def _sim_grades(pick, log):
     from . import sta2
     order = sta2.GRADES + ["ATF22V10C-5"]
     while True:
         board2.GAL_GRADES = dict(pick)
-        for name in ("netlist.json", "netlist-halt.json"):
-            if os.path.exists(os.path.join(OUT, name)):
-                os.remove(os.path.join(OUT, name))
+        _drop_netlists()
         runs = grade_checks()
         nl = board2.build(sim=True)
         by = {i.ref: i for i in nl.instances}
