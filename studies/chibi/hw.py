@@ -24,7 +24,7 @@ import sys
 from heron import BUILD, native
 from heron.infra.hw import runner
 
-from . import board, check, parts, routines, ucode as uc
+from . import board, board2, check, parts, routines, routines2, ucode as uc, ucode2 as uc2
 
 OUT = os.path.join(BUILD, "chibi")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,15 +37,16 @@ def sources():
 _LOADED = None
 
 
-def netlist():
-    """The simulation netlist, exported (cached in build/chibi)."""
+def netlist(first=False):
+    """The simulation netlist, exported (cached in build/chibi): the
+    two-halves machine's (board2), or the first cut's."""
     global _LOADED
     if _LOADED is None:
         _LOADED = runner.newest(sources())
-    path = os.path.join(OUT, "netlist.json")
+    path = os.path.join(OUT, "netlist-first.json" if first else "netlist.json")
     if not os.path.exists(path) or os.path.getmtime(path) < _LOADED:
         os.makedirs(OUT, exist_ok=True)
-        nl = board.build(sim=True)
+        nl = board.build(sim=True) if first else board2.build(sim=True)
         tmp = f"{path}.{os.getpid()}"
         with open(tmp, "w") as f:
             json.dump(nl.export(variant=parts.VARIANT, corner="max"), f)
@@ -55,29 +56,32 @@ def netlist():
         return json.load(f)
 
 
-_ROMS = None
+_ROMS = {}
 
 
-def rom_images():
+def rom_images(first=False):
     """The control store's nine flash images, one a byte of the word."""
-    global _ROMS
-    if _ROMS is None:
-        words = routines.control_store().words
+    if first not in _ROMS:
+        cs = routines.control_store() if first else routines2.control_store()
         imgs = [bytearray(uc.CS_WORDS) for _ in range(uc.ROMS)]
-        for a, w in enumerate(words):
+        for a, w in enumerate(cs.words):
             for k in range(uc.ROMS):
                 imgs[k][a] = (w >> (8 * k)) & 0xFF
-        _ROMS = [bytes(i) for i in imgs]
-    return _ROMS
+        _ROMS[first] = [bytes(i) for i in imgs]
+    return _ROMS[first]
 
 
-def preloads(ram, inp=b"", kbd=b"", mouse=b""):
-    pre = {f"U_CS{k}": img for k, img in enumerate(rom_images())}
+def rf_chips(first=False):
+    return ["U_RF0", "U_RF1"] if first else ["U_RFL0", "U_RFL1", "U_RFH0", "U_RFH1"]
+
+
+def preloads(ram, inp=b"", kbd=b"", mouse=b"", first=False):
+    pre = {f"U_CS{k}": img for k, img in enumerate(rom_images(first))}
     for r in range(2):
         for b in range(2):
             pre[f"U_RAM{r}{b}"] = bytes(ram[(r << 20) + b:(r + 1) << 20:2])
-    for k in range(2):
-        pre[f"U_RF{k}"] = bytes(1 << 15)
+    for k in rf_chips(first):
+        pre[k] = bytes(1 << 15)
     pre["U_BOOT"] = bytes([0xFF]) * 0x20000
     pre["X_IO"] = bytes(inp)
     pre["U_UART0"] = b""
@@ -98,10 +102,10 @@ def trace_buses():
             "RA": b("RA", 6), "FL": list(FLAGS) + ["F_IC", "F_ST"]}
 
 
-def config(max_cycles, trace=None, fetch_trace=200_000, seed=1):
+def config(max_cycles, trace=None, fetch_trace=200_000, seed=1, first=False):
     cfg = {
         "seed": seed, "max_cycles": max_cycles,
-        "max_ps": int(max_cycles * 200_000) + 10_000_000,
+        "max_ps": int(max_cycles * (200_000 if first else 700_000)) + 10_000_000,
         "clock_net": "CLK0", "reset_net": "RESET_n",
         "fetch_net": "LDIR", "fetch_level": 1,
         "addr_nets": [f"A{i}" for i in range(21)],
@@ -109,7 +113,7 @@ def config(max_cycles, trace=None, fetch_trace=200_000, seed=1):
         "fetch_trace": fetch_trace,
         "stop_when": [[("uHALT", 1)]],
         "dump": ["X_IO"] + [f"U_RAM{r}{b}" for r in range(2) for b in range(2)]
-        + ["U_RF0", "U_RF1"],
+        + rf_chips(first),
         "observe": list(FLAGS),
     }
     if trace:
@@ -117,12 +121,13 @@ def config(max_cycles, trace=None, fetch_trace=200_000, seed=1):
     return cfg
 
 
-def run(ram, inp=b"", max_cycles=20_000_000, trace=None, seed=1, kbd=b"", mouse=b""):
+def run(ram, inp=b"", max_cycles=20_000_000, trace=None, seed=1, kbd=b"", mouse=b"",
+        first=False):
     """A RAM image at chip level: the outcome, decoded. kbd and mouse: the
     bytes the PS/2 devices send."""
-    nl = netlist()
-    hw = native.hwsim.run_system(nl, config(max_cycles, trace, seed=seed),
-                                 preloads(ram, inp, kbd, mouse))
+    nl = netlist(first)
+    hw = native.hwsim.run_system(nl, config(max_cycles, trace, seed=seed, first=first),
+                                 preloads(ram, inp, kbd, mouse, first))
     d = hw["dumps"]
     hw["output"] = bytes(d["X_IO"])
     out = bytearray(len(ram))
@@ -130,8 +135,12 @@ def run(ram, inp=b"", max_cycles=20_000_000, trace=None, seed=1, kbd=b"", mouse=
         for b in range(2):
             out[(r << 20) + b:(r + 1) << 20:2] = d[f"U_RAM{r}{b}"]
     hw["ram"] = bytes(out)
-    rf = [d["U_RF0"][a] | d["U_RF1"][a] << 8 for a in range(64)]
-    hw["regs"] = [rf[i] | rf[32 + i] << 16 for i in range(16)]
+    if first:
+        rf = [d["U_RF0"][a] | d["U_RF1"][a] << 8 for a in range(64)]
+        hw["regs"] = [rf[i] | rf[32 + i] << 16 for i in range(16)]
+    else:
+        hw["regs"] = [d["U_RFL0"][i] | d["U_RFL1"][i] << 8 | d["U_RFH0"][i] << 16
+                      | d["U_RFH1"][i] << 24 for i in range(16)]
     hw["flags"] = {k[2:]: hw["nets"][k] for k in FLAGS}
     return hw
 
@@ -180,13 +189,13 @@ def summary(hw):
     return "\n".join(lines)
 
 
-def run_program(path, trace=None, verbose=True):
+def run_program(path, trace=None, verbose=True, first=False):
     from heron.infra.programs import metadata
     img = check.assemble(path)
     inp = metadata(path)["input"]
-    m = check.run_rtl(img, inp, log=True)
+    m = check.run_rtl(img, inp, log=True, first=first)
     ram = bytes(m_ram(img))
-    hw = run(ram, inp, max_cycles=m.cycles + 2000, trace=trace)
+    hw = run(ram, inp, max_cycles=m.cycles + 2000, trace=trace, first=first)
     diffs = compare(m, hw)
     return m, hw, diffs
 
@@ -200,7 +209,7 @@ def m_ram(img):
 
 def cmd_run(args):
     trace = tuple(int(x) for x in args.trace.split(":")) if args.trace else None
-    m, hw, diffs = run_program(args.file, trace)
+    m, hw, diffs = run_program(args.file, trace, first=args.first)
     print(f"{os.path.basename(args.file)}:")
     print(summary(hw))
     print(f"  output: {hw['output'][:200]!r}")
@@ -217,11 +226,11 @@ def cmd_test(args):
     bad = 0
     for p in testing.program_paths(args.names or None):
         name = os.path.basename(p)[:-2]
-        _, ref, rdiffs = check.check_program(p)
+        _, ref, rdiffs = check.check_program(p, first=args.first)
         if rdiffs:
             print(f"{name:12} skipped: the model doesn't run it yet ({rdiffs[0]})")
             continue
-        m, hw, diffs = run_program(p)
+        m, hw, diffs = run_program(p, first=args.first)
         v = hw["violation_total"]
         if diffs or v:
             bad += 1
@@ -234,7 +243,7 @@ def cmd_test(args):
 
 
 def cmd_bom(args):
-    nl = board.build(sim=True)
+    nl = board.build(sim=True) if args.first else board2.build(sim=True)
     bom = nl.bom(parts.VARIANT, passives=False)
     real = {p: refs for p, refs in bom.items()}
     total = 0
@@ -258,9 +267,11 @@ def main(argv):
     sub = p.add_subparsers(dest="cmd", required=True)
     t = sub.add_parser("test")
     t.add_argument("names", nargs="*")
+    t.add_argument("--first", action="store_true", help="the first cut's netlist")
     r = sub.add_parser("run")
     r.add_argument("file")
     r.add_argument("--trace")
+    r.add_argument("--first", action="store_true")
     s = sub.add_parser("sta")
     s.add_argument("--paths", type=int, default=3)
     s.add_argument("--write", action="store_true")
@@ -268,7 +279,8 @@ def main(argv):
     s2.add_argument("--paths", type=int, default=2)
     s2.add_argument("--suite", action="store_true")
     sub.add_parser("halves")
-    sub.add_parser("bom")
+    b = sub.add_parser("bom")
+    b.add_argument("--first", action="store_true")
     args = p.parse_args(argv)
     if args.cmd == "test":
         return cmd_test(args)

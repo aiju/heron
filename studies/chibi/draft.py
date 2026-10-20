@@ -57,7 +57,7 @@ def _types():
       + [(p, "out") for p in ("INTR", "SOUT", "RTS", "DTR", "OUT1", "OUT2")],
       arcs=[(["RD"], [f"D{i}" for i in range(8)], "RD->D")], family="device",
       desc="TL16C550C with its serial pins (the draft netlist's)")
-    T("g171", "ramdac",
+    T("g171", "passive",
       [(f"P{i}", "in") for i in range(8)] + [(f"D{i}", "io") for i in range(8)]
       + [(p, "in") for p in ("RS0", "RS1", "RD", "WR", "PCLK", "BLANK")]
       + [(p, "out") for p in ("IOR", "IOG", "IOB")], family="device",
@@ -251,14 +251,15 @@ def interrupts(nl):
     nl.add("conn", "S_BTN", P0="BTN_n", P1="RESET_n", part="push buttons: interrupt, reset")
 
 
-def ps2(nl):
+def ps2(nl, spare=None):
     """Schmitt inputs, the receivers on the clock's falling edge (its inverse
     rising), and the frame GALs: P after the parity bit's edge, S (the hold)
-    after the stop bit's, FERR if the stop bit was 0."""
+    after the stop bit's, FERR if the stop bit was 0. spare: the 74HCT14's
+    other two inverters' pins."""
     nl.add("14", "U_PSS", part="74HCT14", **{"1A": "KCLK", "1Y": "KCLKS", "2A": "KDATA",
                                              "2Y": "KDATS", "3A": "MSCLK", "3Y": "MSCLKS",
-                                             "4A": "MSDATA", "4Y": "MSDATS", "5A": "GND",
-                                             "6A": "GND"})
+                                             "4A": "MSDATA", "4Y": "MSDATS",
+                                             **(spare or {"5A": "GND", "6A": "GND"})})
     nl.add("pullup", "R_PS2", P1="KCLK", P2="KDATA", P3="MSCLK", P4="MSDATA")
     for port, clk, ck, dat, irq, a1 in (("KBD", "KCLK", "KCLKS", "KDATS", "KIRQ", 0),
                                         ("MOUSE", "MSCLK", "MSCLKS", "MSDATS", "MIRQ", 1)):

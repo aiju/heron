@@ -1,114 +1,139 @@
-"""Static timing analysis of the two-halves variant (board.build(halves=True)),
-an exploration: a microinstruction does both halves of a 32-bit operation,
-phase F (ticks 0-2, the control store settling, the last cycle's results
-written back), then the low half and the high half, with ticks of fixed
-length (19.86 ns) and each half as long as it needs. The variant's netlist
-is for timing only: nothing simulates it, and its microcode is the first
-cut's, each distinct microinstruction timed as a low half and as a high
-half.
+"""Static timing analysis of the two-halves machine (board2.build(sim=False),
+whose clock generator is a fixture, chibiclk3, giving U_CGA's and U_CGB's
+outputs at their ticks): how many ticks each distinct microinstruction's
+halves need, and whether phase F's fixed ticks are met.
 
-  L case   phase F's signals at their ticks, the control store's outputs when
-           it gives them, the low half from tick 3: what the low half's
-           registers (Y's first, L's low half, the flags, MAR and PC, and
-           the sequencer for a one-half cycle) need at the half's end
-  H case   the same microinstruction as the high half, from the low half's
-           end at L_END: HALF and the registers the low half loaded change
-           a 22V10's clock-to-output after it
-  F case   the cycle's start: the register file's two writes (Y's first half
-           at tick 1, its second at tick 2), the video's read
+  L case   the cycle from phase F's start (the master clock's edge at 0):
+           the sequencer's registers load at CLK0, the control store gives
+           its word, PHW falls at tick 3, the low half runs; what loads at
+           the low half's end (HCK, HCKA, and for a microinstruction without
+           a high half the sequencer at CLK0) must be there its setup before
+           the edge that ends it, 3 + n ticks
+  H case   the high half, from the low half's end at 0: HALF rises, the
+           registers the low half loaded change, the control store's word
+           steady; what loads at its end (HCK, HCKB, CLK0) likewise, n ticks
+  F case   phase F's register file writes (the low pair in tick 1, the high
+           pair in tick 2) against their strobes
 
-  heron chibi hw sta2 [--paths N] [--suite]
+A half's capture edge is taken as the clock generator's output (a 22V10's
+clock-to-output after the master clock's edge), without the clock buffer's
+delay that the launching registers see: a little pessimistic. The table of
+ticks it finds (ticks.json) gives the control store its LEN and HLEN
+(routines2.ControlStore), with the floors the clock generator wants: a
+half with an access at MAR at least 3 ticks (it looks at IOACC from its
+third); an access to the I/O space has 5 ticks whatever, and is checked
+against them.
+
+  heron chibi hw sta [--paths N] [--write]
 """
 
+import json
 import math
 import os
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor
 
-from heron.infra.hw import sta as hsta
+from heron.infra.hw import chips, sta as hsta
 
-from . import board, sta, ucode as uc
+from . import board2, routines2, sta, ucode2 as uc
 
 NEG = hsta.NEG
 K = 1e3 / 50.35                 # a tick, ns
-L_START = 3 * K
-L_END = 6 * K                   # the low half's end as the H case takes it
 TCO = sta.TCO
 GAL = sta.GAL
-CPU_CLOCKS = sta.CPU_CLOCKS
+IO_TICKS = 5
+TICKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticks.json")
+CPU = {f"CLK{i}" for i in range(9)}
+HALF_END = {"L": {"HCK1", "HCK2", "HCK3", "HCK4", "HCKA1", "HCKA2"},
+            "H": {"HCK1", "HCK2", "HCK3", "HCK4", "HCKB1", "HCKB2"}}
+# the devices' own GALs, on their own clocks: only their outputs onto the
+# CPU's buses are timed
+DEVICE_GALS = {"U_SLOW", "U_PSGC", "U_VQ", "U_VC", "U_SLOWD", "U_ODT", "U_VS", "U_LREQ",
+               "U_LCMP", "U_LINE", "U_VH", "U_VV", "U_VF", "U_SHA", "U_SHB", "U_KBD", "U_MOUSE",
+               "U_KBDF", "U_MOUSEF", "U_KBDC", "U_MOUSEC"}
 
 
-class Case2(sta.Case):
+class Case3(hsta.Case):
     phase = "L"
+    two = False
 
-    def m_chibiclk2(self, inst, pin, d):
-        if pin in ("MCLK", "PIX"):
+    def m_chibiclk3(self, inst, pin, d):
+        ph = self.phase
+        if pin == "MCLK":
             return (None, NEG, True, None)
         if pin == "RESET":
             return (1, NEG, True, None)
-        h = self.phase == "H"
-        if pin in ("CLK", "HCKB"):
-            return (None, 0.0, True, None)
-        if pin in ("HCK", "HCKA"):
-            return (None, L_END if h else 0.0, True, None)
-        if self.phase == "F":
-            fixed = {"PHW": (1, 0.0), "YOE": (1, K), "YBOE": (0, NEG), "RWS": (None, K),
-                     "VLD": (None, K), "HALF": (0, NEG), "T0": (None, 0.0), "T1": (None, 0.0),
-                     "T2": (None, 0.0)}
+        if pin in ("HLZ", "LASTH"):
+            last = ph == "H" or not self.two
+            return ({"HLZ": int(not self.two), "LASTH": int(last)}[pin], NEG, True, None)
+        if pin in ("TC0", "TC1", "TC2", "PH0", "PH1", "END", "VEXTQ"):
+            if ph != "F":
+                v = {"PH0": int(ph == "L"), "PH1": int(ph == "H")}.get(pin)
+                return (v, NEG, True, None)
+            return (None, TCO, True, (inst.ref, pin, f"{pin} at tick 0"))
+        if ph == "F":
+            fixed = {"CLK0": (None, 0.0), "PHW": (1, 0.0), "HALF": (0, NEG),
+                     "HCK": (None, NEG), "HCKA": (None, NEG), "HCKB": (None, NEG),
+                     "RFWL_n": (None, K), "RFWH_n": (None, 2 * K), "YAOE": (None, K),
+                     "YBOE": (None, K), "HWQ": (None, 0.0)}
+        elif ph == "L":
+            fixed = {"CLK0": (None, 0.0), "PHW": (0, 3 * K), "HALF": (0, NEG),
+                     "HCK": (None, 0.0), "HCKA": (None, 0.0), "HCKB": (None, 0.0),
+                     "RFWL_n": (1, NEG), "RFWH_n": (1, NEG), "YAOE": (0, 3 * K),
+                     "YBOE": (0, 3 * K), "HWQ": (None, NEG)}
         else:
-            fixed = {"PHW": (0, L_START), "YOE": (0, L_START), "YBOE": (0, L_START),
-                     "RWS": (0, L_START), "VLD": (0, L_START),
-                     "HALF": (1, L_END) if h else (0, NEG),
-                     "T0": (None, NEG), "T1": (None, NEG), "T2": (None, NEG)}
+            fixed = {"CLK0": (None, NEG), "PHW": (0, NEG), "HALF": (1, 0.0),
+                     "HCK": (None, 0.0), "HCKA": (None, 0.0), "HCKB": (None, NEG),
+                     "RFWL_n": (1, NEG), "RFWH_n": (1, NEG), "YAOE": (0, NEG),
+                     "YBOE": (0, NEG), "HWQ": (None, NEG)}
         v, t = fixed[pin]
         if t == NEG:
             return (v, NEG, True, None)
         return (v, t + TCO, True, (inst.ref, pin, f"{pin} at {t / K:.0f} ticks"))
 
     def m_gal(self, inst, pin, d):
-        if inst.conn.get(pin) in ("BTNQ", "HLTQ", "TRACE") or \
-                inst.ref in ("U_KBDF", "U_MOUSEF") and inst.conn.get(pin) in ("KCLK", "MSCLK"):
-            return (None, NEG, True, None)      # latches and the PS/2 hold: asynchronous, untimed
-        if inst.conn.get(pin) in ("TASK", "TASK_n"):
-            # steady in the emulator's cycles (a switch's cycle has phase F a
-            # tick longer, the clock generator's): the tasks' own address
-            # drivers off
-            return (int(inst.conn[pin] == "TASK_n"), NEG, True, None)
-        if inst.ref == "U_SLOW" and inst.conn.get(pin) == "CFOE_n":
-            mop = sum(self.const.get(n, 0) << i for i, n in enumerate(board.MOP))
-            if self.phase == "F" or self.const.get("A31") != 1 or \
-                    mop not in (uc.MOP_RDM, uc.MOP_WRM):
-                return (1, NEG, True, None)     # off but in a slow access (registered)
-        out = super().m_gal(inst, pin, d)
-        # the immediate unit's high half: HALF selects it (a 22V10's tPD), as a
-        # built variant would have it
-        if self.phase == "H" and inst.ref in ("U_IMML", "U_IMMH") and out[1] != NEG:
-            t = max(out[1], L_END + TCO + GAL["tPD"])
-            return (out[0], t, out[2], out[3] if t == out[1] else ("X_CLK", "HALF", "the high half"))
-        return out
-
-    # the draft's slow devices (timed by U_SLOW's wait states, not here),
-    # its passives and the button's debouncer: nothing they drive is timed
-    def m_i8254(self, inst, pin, d): return (None, NEG, False, None)
-    def m_cf(self, inst, pin, d): return (None, NEG, False, None)
-    def m_ramdac(self, inst, pin, d): return (None, NEG, False, None)
-    def m_passive(self, inst, pin, d): return (None, NEG, True, None)
-    def m_por(self, inst, pin, d): return (None, NEG, True, None)
+        if inst.ref == "U_MEMC" and any(o[0] == pin and o[1] for o in inst.gal):
+            return self.strobe(inst, pin)
+        if inst.ref in DEVICE_GALS:
+            net = inst.conn.get(pin, "")
+            if not (net.startswith("MD") or net in ("HOLD", "VRD")):
+                return (self.const.get(net), NEG, True, None)
+        return super().m_gal(inst, pin, d)
 
     def strobe(self, inst, pin):
-        """The strobes: from the half's second tick."""
-        start = L_END if self.phase == "H" else L_START
+        """U_MEMC's strobes, from the half's second tick if this
+        microinstruction may make them active, else inactive."""
         if self.phase == "F":
-            return (1, TCO, True, (inst.ref, "T0", "tick 0"))
-        mop = sum(self.const.get(n, 0) << i for i, n in enumerate(board.MOP))
+            return (1, TCO, True, (inst.ref, "TC0", "tick 0"))
+        start = 3 * K if self.phase == "L" else 0.0
+        mop = sum(self.const.get(n, 0) << i for i, n in enumerate(board2.MOP))
+        if self.phase == "H" and self.const.get("SUPH") == 1:
+            return (1, NEG, True, None)
         a31 = self.const.get("A31")
         net = inst.conn[pin]
+        rd = mop in (uc.MOP_RDM, uc.MOP_LDIRM)
         active = {"WEL_n": mop == uc.MOP_WRM and a31 != 1, "WEH_n": mop == uc.MOP_WRM and a31 != 1,
                   "IOWR_n": mop == uc.MOP_WRM and a31 != 0,
-                  "IORD_n": mop == uc.MOP_RDM and a31 != 0}[net]
+                  "IORD_n": rd and a31 != 0}[net]
         if not active:
             return (1, NEG, True, None)
-        return (None, start + K + TCO, True, (inst.ref, "T0", "the half's second tick"))
+        return (None, start + K + TCO, True, (inst.ref, "TC0", "the half's second tick"))
+
+    def m_i8254(self, inst, pin, d): return (None, NEG, False, None)
+    def m_cf(self, inst, pin, d): return (None, NEG, False, None)
+    def m_passive(self, inst, pin, d): return (None, NEG, True, None)
+    def m_por(self, inst, pin, d): return (None, NEG, True, None)
+    def m_osc(self, inst, pin, d): return (None, NEG, True, None)
+    def m_button(self, inst, pin, d): return (1, NEG, True, None)
+
+
+def control_nets():
+    return board2.control_nets()
+
+
+def sys_module():
+    import sys
+    return sys.modules[__name__]
 
 
 _N = None
@@ -117,45 +142,50 @@ _N = None
 def netlist():
     global _N
     if _N is None:
-        _N = hsta.Netlist(board.build(sim=False, halves=True), sta.VARIANT, sta.CORNER)
+        _N = hsta.Netlist(board2.build(sim=False), sta.VARIANT, sta.CORNER)
     return _N
 
 
-def case_for(word, extra, phase):
-    const = hsta.constants_for(sta.sys_module(), word, dict(extra)) if phase != "F" else {}
-    c = Case2(netlist(), const, 400.0, 0.5, None, sta.TURNOFF, sta.SHARP)
-    c.phase = phase
+def constants(word, extra, phase, two):
+    c = hsta.constants_for(sys_module(), word, dict(extra)) if phase != "F" else {}
+    # the registers whose values steer a case: no task; HALFD as the half
+    c.update(TASK=0, TCHG=0, HALFD=int(phase == "H"))
+    if phase != "F":
+        nat = c.get(board2.HXF[0], 0) == 0 and c.get(board2.HXF[1], 0) == 0
+        c["SUPH"] = int(phase == "H" and not nat)
+    return c
+
+
+def case_for(word, extra, phase, two):
+    c = Case3(netlist(), constants(word, extra, phase, two), 400.0, 0.5, None, sta.TURNOFF,
+              sta.SHARP)
+    c.phase, c.two = phase, two
     return c
 
 
 def requirements(c):
-    """[(time, description, net)]: when the half (or for F, the phase) must
-    end for each requirement to be met; and the fixed-tick requirements that
-    fail [(late by, description)]."""
+    """[(time, description, net)]: when the half must end for each
+    requirement, relative to the case's 0; and [(late by, description)] for
+    the fixed-tick requirements that fail."""
     N = netlist()
-    h = c.phase == "H"
-    start = L_END if h else L_START
+    ph = c.phase
+    start = 3 * K if ph == "L" else 0.0
     strobe = start + K + TCO
+    last = ph == "H" or not c.two
+    capture = HALF_END.get(ph, set()) | (CPU if last else set())
     end, bad = [], []
     for inst in N.insts:
         t, d = inst.type, N.delay[inst.ref]
         if t.model == "gal":
-            ck = sta.clock_of(inst)
+            ck = inst.conn.get("CLK")
             regs = [o for o in inst.gal if o[1]]
-            if not regs:
+            if not regs or ph == "F" or inst.ref in DEVICE_GALS:
                 continue
-            fixed = None
-            if c.phase == "F":
-                if inst.ref not in ("U_SHA", "U_SHB"):
-                    continue
-                fixed = 2 * K + TCO
-            elif inst.ref == "U_MEMC":
+            if inst.ref == "U_MEMC":
                 fixed = strobe - TCO
-            elif ck == "HCKA" and h or ck == "HCKB" and not h:
-                continue
-            elif ck not in CPU_CLOCKS | {"HCK", "HCKA", "HCKB"}:
-                continue
-            if inst.ref.startswith(("U_YLO", "U_YHI", "U_YB")) and not sta.result_used(c):
+            elif ck in capture:
+                fixed = None
+            else:
                 continue
             pins = set()
             for _p, _r, _i, terms in regs:
@@ -169,28 +199,33 @@ def requirements(c):
                     end.append((need, f"{inst.ref}.{p} setup", inst.conn[p]))
                 elif need > fixed + 0.05:
                     bad.append((need - fixed, f"{inst.ref}.{p} setup"))
+        elif t.model == "dreg" and inst.conn.get("CLK") in capture and ph != "F":
+            for i in range(1, 9):
+                ta = c.pin(inst, f"D{i}")[1]
+                if ta != NEG:
+                    end.append((ta + d["setup D"], f"{inst.ref}.D{i} setup", inst.conn[f"D{i}"]))
         elif t.model == "sram":
-            if c.net(inst.conn["WE"])[0] == 1:
-                continue
-            addr = max(c.pin(inst, p)[1] for p in hsta.address_pins(inst))
-            data = max(c.pin(inst, f"IO{i}")[1] for i in range(8))
             if inst.ref.startswith("U_RF"):
-                if c.phase != "F":
+                if ph != "F":
                     continue
-                for late, desc in ((addr + d["tAS"] - (K + TCO + GAL["tPD"]), "address (tAS)"),
-                                   (data + d["tDW"] - (2 * K + TCO + GAL["tPD"]), "data (tDW)")):
+                k = 1 if inst.ref.startswith("U_RFL") else 2
+                addr = max(c.pin(inst, p)[1] for p in hsta.address_pins(inst))
+                data = max(c.pin(inst, f"IO{i}")[1] for i in range(8))
+                for late, desc in ((addr + d["tAS"] - (k * K + TCO), "address (tAS)"),
+                                   (data + d["tDW"] - ((k + 1) * K + TCO), "data (tDW)")):
                     if late > 0.05:
                         bad.append((late, f"{inst.ref} {desc}"))
-            elif c.phase != "F":
+            elif ph != "F" and c.net(inst.conn["WE"])[0] != 1:
+                addr = max(c.pin(inst, p)[1] for p in hsta.address_pins(inst))
+                data = max(c.pin(inst, f"IO{i}")[1] for i in range(8))
                 if addr + d["tAS"] > strobe + 0.05:
                     bad.append((addr + d["tAS"] - strobe, f"{inst.ref} address before its write"))
                 end.append((data + d["tDW"] - TCO, f"{inst.ref} data before its write ends",
                             inst.conn["IO0"]))
-        elif t.model == "uart16550" and c.phase == "L":
-            mop = sum(c.const.get(n, 0) << i for i, n in enumerate(board.MOP))
+        elif t.model == "uart16550" and ph != "F":
+            mop = sum(c.const.get(n, 0) << i for i, n in enumerate(board2.MOP))
             if mop not in (uc.MOP_RDM, uc.MOP_WRM) or c.const.get("A31") != 1:
                 continue
-            from heron.infra.hw import chips
             dd = chips.load_timing()["TL16C550C"]["checks"]
             a = max(c.pin(inst, p)[1] for p in ("A0", "A1", "A2", "CS2"))
             if a + dd["tAS"] > strobe + 0.05:
@@ -202,109 +237,155 @@ def requirements(c):
     return end, bad
 
 
+def ticks_for(need, start):
+    """A half's ticks: it ends at an edge n ticks after its start, captured
+    a clock-to-output later."""
+    return max(1, math.ceil((need - TCO - start) / K - 1e-6))
+
+
+def sta_words():
+    """{(word, two halves, extra constants): [labels]}: the distinct
+    microinstructions, the untimed fields cleared; one at MAR twice, for the
+    RAM and the I/O space."""
+    cs = routines2.ControlStore(ticks={})
+    mask = uc.untimed_mask()
+    out = defaultdict(list)
+    for a, w in enumerate(cs.words):
+        f = uc.unpack(w)
+        if f["HALT"]:
+            continue
+        two = f["HLEN"] != 0
+        key = w & ~mask
+        page, n, op, step = a >> 17, a >> 13 & 15, a >> 5 & 0xFF, a & 31
+        label = f"{op:02X} p{page} n{n:X} s{step}"
+        if f["MOP"] in (uc.MOP_RDM, uc.MOP_WRM, uc.MOP_LDIRM):
+            for a31 in (0, 1):
+                lst = out[(key, two, (("A31", a31),))]
+                if len(lst) < 8:
+                    lst.append(label + (" I/O" if a31 else " RAM"))
+        else:
+            lst = out[(key, two, ())]
+            if len(lst) < 8:
+                lst.append(label)
+    return dict(out)
+
+
+def floors(f, h):
+    """The clock generator's least ticks for a half (h: the high half)."""
+    mop = f["MOP"]
+    if h and f["HX"] != uc.HX_NAT and mop in (uc.MOP_RDM, uc.MOP_WRM, uc.MOP_RDP):
+        mop = uc.MOP_NONE
+    if mop in (uc.MOP_RDM, uc.MOP_WRM, uc.MOP_LDIRM):
+        return 3
+    return 1
+
+
 def time_case(item):
-    """(key, L: (need, worst, bad), H: (need, worst, bad))."""
-    (w, extra), _labels = item
+    """(key, the low half's (need, worst, bad), the high half's or None)."""
+    (w, two, extra), _labels = item
     out = []
     for ph in ("L", "H"):
-        if ph == "H" and dict(extra).get("A31") == 1:
-            out.append(None)            # an I/O access is one long half
+        if ph == "H" and not two:
+            out.append(None)
             continue
-        end, bad = requirements(case_for(w, extra, ph))
+        end, bad = requirements(case_for(w, extra, ph, two))
         worst = max(end, key=lambda r: r[0]) if end else None
         out.append((worst[0] if worst else 0.0, worst, sorted(bad, reverse=True)))
-    return (w, extra), out[0], out[1]
-
-
-def ticks(t, start):
-    return max(1, math.ceil((t - start) / K - 1e-6))
+    return (w, two, extra), out[0], out[1]
 
 
 def analyse(jobs=4):
-    items = list(sta.sta_words().items())
+    items = list(sta_words().items())
     with ProcessPoolExecutor(jobs) as ex:
         res = list(ex.map(time_case, items, chunksize=8))
-    end, bad = requirements(case_for(0, (), "F"))
-    return res, (max(end, key=lambda r: r[0]) if end else None, bad)
+    _fend, fbad = requirements(case_for(0, (), "F", True))
+    return res, sorted(fbad, reverse=True)
 
 
-def path(word, extra, phase, worst):
-    c = case_for(word, extra, phase)
+def table(res):
+    """{(word, two): (low ticks, high ticks)}, and the halves that don't fit
+    (over the field's most, or an I/O half over 5 ticks)."""
+    tab, over = {}, []
+    for (w, two, extra), lo, hi in res:
+        f = uc.unpack(w)
+        io = dict(extra).get("A31") == 1
+        nl_ = max(ticks_for(lo[0], 3 * K), floors(f, 0))
+        nh = max(ticks_for(hi[0], 0.0), floors(f, 1)) if hi else 0
+        if io:
+            if nl_ > IO_TICKS or (hi and floors(f, 1) == 3 and nh > IO_TICKS):
+                over.append((max(nl_, nh), "I/O", w, extra))
+            continue
+        if nl_ > 4 or nh > 3:
+            over.append((max(nl_, nh), "low" if nl_ > 4 else "high", w, extra))
+        prev = tab.get((w, two), (0, 0))
+        tab[(w, two)] = (min(4, max(prev[0], nl_)), min(3, max(prev[1], nh)) if two else 0)
+    return tab, over
+
+
+def write_ticks(tab):
+    rows = [[f"{w:018X}", int(two), lo, hi] for (w, two), (lo, hi) in sorted(tab.items())]
+    with open(TICKS_PATH, "w") as f:
+        f.write("[\n" + ",\n".join(json.dumps(r) for r in rows) + "\n]\n")
+
+
+def path(word, extra, phase, two, worst):
+    c = case_for(word, extra, phase, two)
     return [f"    {t:7.1f} ns  {net:<14} {ref:<10} {dn}" for net, t, ref, dn in c.path(worst[2])]
 
 
-def suite_estimate(res):
-    """The suite's time: each microinstruction a low half (phase F and its
-    ticks), but a first cut's microinstruction that is a 32-bit operation's
-    high half (studies of the first cut's profile: it reads or writes a high
-    half, or loads PC's or MAR's) a high half of the one before it."""
-    from heron.studies.v2_isa import testing
-    from . import check, routines
-    from heron.infra.programs import metadata
-    cs = routines.control_store()
-    mask = 0
-    for name in sta.UNTIMED:
-        b, wd, _ = uc._pos[name]
-        mask |= ((1 << wd) - 1) << b
-    need = {key: (lo, hi) for key, lo, hi in res}
-    total = Counter()
-    for p in testing.program_paths():
-        img = check.assemble(p)
-        m = check.run_rtl(img, metadata(p)["input"], profile=True)
-        for a, n in m.ucount.items():
-            f = uc.unpack(cs.words[a])
-            mem = f["MOP"] in (uc.MOP_RDM, uc.MOP_WRM)
-            key = (cs.words[a] & ~mask, (("A31", 0),) if mem else ())
-            if key not in need:
-                continue
-            lo, hi = need[key]
-            high = ((f["DS"] == uc.DS_RF and f["HR"]) or (f["WEN"] and f["HW"])
-                    or f["AXM"] == 2 or f["AXP"] == 2)
-            total["cycles now"] += n
-            total["ticks"] += n * (ticks(hi[0], L_END) if high and hi else
-                                   3 + max(3, ticks(lo[0], L_START)))
-            total["microinstructions"] += 0 if high else n
-    return total
+def sta_describe(word):
+    f = uc.unpack(word)
+    out = []
+    for name in uc._pos:
+        v = f[name]
+        if not v or name in uc.UNTIMED:
+            continue
+        if name == "AOP":
+            out.append(f"AOP={uc.AOP_NAME.get(v, v)}")
+        elif name == "FL":
+            out.append(f"FL={uc.FL_NAME.get(v, v)}")
+        else:
+            out.append(f"{name}={v}")
+    return " ".join(out)
 
 
-def report(res, fw, paths=2, suite=False):
-    lines = []
-    lo = Counter(ticks(r[1][0], L_START) for r in res)
-    hi = Counter(ticks(r[2][0], L_END) for r in res if r[2])
-    bad = [(r[0], ph, b) for r in res for ph, x in (("L", r[1]), ("H", r[2])) if x for b in x[2]]
-    lines.append(f"ticks of {K:.2f} ns; phase F ticks 0-2, the low half from tick 3")
-    lines.append(f"low half's ticks over {len(res)} cases:  " +
+def report(res, fbad, paths=2):
+    tab, over = table(res)
+    lines = [f"ticks of {K:.2f} ns; phase F ticks 0-2, the low half from tick 3"]
+    lo = Counter(v[0] for v in tab.values())
+    hi = Counter(v[1] for v in tab.values() if v[1])
+    lines.append(f"low halves' ticks over {len(tab)} words:  " +
                  ", ".join(f"{k}: {v}" for k, v in sorted(lo.items())))
-    lines.append(f"high half's ticks over {sum(hi.values())} cases: " +
+    lines.append(f"high halves' ticks over {sum(hi.values())} words: " +
                  ", ".join(f"{k}: {v}" for k, v in sorted(hi.items())))
+    bad = [(b, ph) for r in res for ph, x in (("L", r[1]), ("H", r[2])) if x for b in x[2]]
     lines.append(f"fixed-tick requirements failing: {len(bad)}" +
-                 (f" (worst {max(b[2][0] for b in bad):.1f} ns late: {max(bad, key=lambda b: b[2][0])[2][1]})"
-                  if bad else ""))
-    fe, fb = fw
-    lines.append(f"phase F: {len(fb)} failing" + (f", e.g. {fb[0][1]} {fb[0][0]:.1f} ns late" if fb else ""))
+                 (f" (worst {max(bad)[0][0]:.1f} ns late: {max(bad)[0][1]})" if bad else ""))
+    lines.append(f"halves over their field's most (or I/O's 5 ticks): {len(over)}" +
+                 (f", e.g. a {over[0][1]} half of {over[0][0]} ticks: {sta_describe(over[0][2])}"
+                  if over else ""))
+    lines.append(f"phase F: {len(fbad)} failing" +
+                 (f", worst {fbad[0][1]} {fbad[0][0]:.1f} ns late" if fbad else ""))
     lines.append("")
-    for ph, idx, start in (("low", 1, L_START), ("high", 2, L_END)):
-        rs = sorted((r for r in res if r[idx]), key=lambda r: -r[idx][0])
+    for ph, idx, start in (("low", 1, 3 * K), ("high", 2, 0.0)):
+        rs = sorted((r for r in res if r[idx] and dict(r[0][2]).get("A31") != 1),
+                    key=lambda r: -r[idx][0])
         for r in rs[:paths]:
-            (w, extra), x = r[0], r[idx]
+            (w, two, extra), x = r[0], r[idx]
             lines.append(f"slowest {ph} half: {x[0] - start:.1f} ns from its start "
-                         f"({ticks(x[0], start)} ticks), {sta.describe(w)} {dict(extra)}: {x[1][1]}")
-            lines += path(w, extra, "L" if idx == 1 else "H", x[1])
+                         f"({ticks_for(x[0], start)} ticks), {sta_describe(w)} {dict(extra)}: "
+                         f"{x[1][1]}")
+            lines += path(w, extra, "L" if idx == 1 else "H", two, x[1])
             lines.append("")
-    if suite:
-        t = suite_estimate(res)
-        now = t["cycles now"] * sta.VGA_PERIOD
-        new = t["ticks"] * K
-        lines.append(f"the suite: {t['cycles now']} cycles of {sta.VGA_PERIOD:.1f} ns now, "
-                     f"{now / 1e6:.0f} ms; {t['microinstructions']} microinstructions here, "
-                     f"{new / 1e6:.0f} ms: x{now / new:.2f}")
     return "\n".join(lines)
 
 
-def cmd_sta2(args):
-    res, fw = analyse()
-    print(report(res, fw, args.paths, args.suite))
+def cmd_sta(args):
+    res, fbad = analyse()
+    print(f"static timing analysis (the two-halves machine): {sta.VARIANT}, {sta.CORNER} delays")
+    print(report(res, fbad, args.paths))
+    if args.write:
+        tab, _ = table(res)
+        write_ticks(tab)
+        print(f"wrote {os.path.relpath(TICKS_PATH)} ({len(tab)} words)")
     return 0
-
-
-del defaultdict, os

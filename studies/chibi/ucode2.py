@@ -105,7 +105,8 @@ AXM_NONE, AXM_LO, AXM_HI, AXM_INC = range(4)
 AX_PCLO, AX_PCHI, AX_MARLO, AX_MARHI, AX_MARINC = ("P", 1), ("P", 2), ("M", 1), ("M", 2), ("M", 3)
 # the register byte and the dispatch nibble: N <- s; s <- the index
 # parcel's x and N <- its bits 11-8; d + 1; s - 1
-IRN_NONE, IRN_NS, IRN_IDX, IRN_INCD, IRN_DECS = range(5)
+# (coded so that the dispatch nibble's register reads two of the bits)
+IRN_NONE, IRN_INCD, IRN_DECS, IRN_NS, IRN_IDX = 0, 1, 2, 4, 6
 SEQ_NEXT, SEQ_JUMP, SEQ_END, SEQ_JUMPT = range(4)
 HX_NAT, HX_ZERO, HX_FILL, HX_IMMH = range(4)
 
@@ -120,7 +121,6 @@ FLOPS = [
     "ICLOZ",    # IC <- co, Z <- z               (LOGHI)
     "LOGLO",    # Z <- z                         (LOGHI)
     "NZ16",     # N <- n15, Z <- z
-    "NZ8",      # N <- n7, Z <- z
     "SHR",      # C <- f0, V <- 0
     "SHL",      # C <- co, V <- 0                (SHL)
     "STN",      # ST <- n15
@@ -137,8 +137,15 @@ FLOPS = [
 ]
 FL_HIGH = {"ADDLO": "ADDHI", "SUBLO": "SUBHI", "ADCLO": "ADDHI", "SBCLO": "SUBHI",
            "ICLOZ": "LOGHI", "LOGLO": "LOGHI", "SHL": "SHL", "STZ": "STZ32", "ICSTZ": "STZ32"}
-FL_CODE = {n: i for i, n in enumerate(FLOPS)}
-assert len(FLOPS) <= 32
+# the codes, chosen by annealing so that each flag's equations in U_FLG
+# fit its macrocell
+FL_CODE = {
+    "NONE": 0, "ADDLO": 6, "SUBLO": 12, "ADCLO": 4, "SBCLO": 14, "ICLO": 5, "ICLOZ": 9,
+    "LOGLO": 1, "NZ16": 29, "SHR": 21, "SHL": 20, "STN": 11, "STZ": 16, "ICSTZ": 7, "STF0":
+    24, "STA4": 10, "CNZ": 15, "VNZ": 3, "ZNZ": 25, "NNZ": 27, "INZ": 2, "BNZ": 8, "BINZ":
+    31, "SETI": 19, "CLRI": 23, "ENTRY": 22, "SETINIT": 17, "STC": 30
+}
+assert sorted(FL_CODE) == sorted(FLOPS) and len(set(FL_CODE.values())) == len(FLOPS)
 FL_NAME = {c: n for n, c in FL_CODE.items()}
 # the flags in U_SYS rather than U_FLG
 SYS_FLOPS = ("BNZ", "BINZ", "ENTRY", "SETINIT")

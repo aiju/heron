@@ -30,6 +30,7 @@ class System2:
         self.palette_bank = 0
         self.target_line = 0
         self.sources = 0             # the board's interrupt sources (none modelled yet)
+        self.cffast = 0
         self.halt_req = 0
         self.trace = 0
 
@@ -84,6 +85,9 @@ class System2:
                 self.palette_bank = v & 15
             else:
                 self.video_ctl = v
+        elif r == 5:
+            if a >> 4 & 7 == 3:
+                self.cffast = v & 1
         elif r == 6:
             k = a >> 1 & 3
             if k == 2:
@@ -105,6 +109,12 @@ class System2:
         return 0
 
     def io_ticks(self, a, mop, m):
+        """A half's ticks for an access to the I/O space: five, or a slow
+        device's (board2.SLOW: its end, plus one)."""
+        if self.region(a) == 5:
+            if a >> 6 & 1:
+                return 8 if self.cffast else 32
+            return 10
         return m.IO_TICKS
 
     def copreq(self, m):

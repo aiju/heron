@@ -262,8 +262,12 @@ ALU_OPS = {     # name: (ALU operation, flags, writes rd)
 
 def c_mov(opnd, flags=False, dest=RD):
     ops = list(opnd.pre)
-    if opnd.memory and opnd.size < 4:
-        f = fl({2: "NZ16", 1: "NZ8"}[opnd.size]) if flags else {}
+    if opnd.memory and opnd.size == 1 and flags:
+        # N and Z from the byte sign-extended, the value zero-extended
+        ops += [u(mem("MAR", 1), alu("A", rm=RM_SXB), fl("NZ16"), LDL),
+                u(alu("B"), wr(dest), hx("ZERO"))]
+    elif opnd.memory and opnd.size < 4:
+        f = fl("NZ16") if flags else {}
         ops.append(u(mem("MAR", opnd.size), alu("A", rm=RM_ZXB if opnd.size == 1 else 0),
                      wr(dest), hx("ZERO"), f))
     else:
@@ -326,7 +330,7 @@ def c_incdec(pre, size, parcels, dec):
     else:
         ops = list(pre) + [u(mem("MAR", 1), LDL),
                            u(imm(k), alu("ADD"), wr(T_A, 0)),
-                           u(rd(T_A, 0), store(1), alu("A", rm=RM_ZXB), fl("NZ8"))]
+                           u(rd(T_A, 0), store(1), alu("A", rm=RM_SXB), fl("NZ16"))]
     return with_stubs(finish(ops), opnd.stubs())
 
 

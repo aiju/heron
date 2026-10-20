@@ -328,8 +328,6 @@ class RTL2:
             f["Z"], f["N"] = f["Z"] & z, n15
         elif op == "NZ16":
             f["N"], f["Z"] = n15, z
-        elif op == "NZ8":
-            f["N"], f["Z"] = n7, z
         elif op == "SHR":
             f["C"], f["V"] = f0, 0
         elif op == "SHL":
