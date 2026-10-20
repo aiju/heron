@@ -5,6 +5,8 @@
   run FILE.s [--profile]         one program on the model
   report [--write]               RFC 0047's performance.md (report.py)
   hw ...                         the chip-level netlist (hw.py)
+  pipeline                       what a pipelined control store would buy
+                                 (pipeline.py)
   place [--write] [--seed N] [--moves N]
                                  the netlist placed on RFC 0046's
                                  column grid at a few board sizes (place.py;
@@ -47,6 +49,7 @@ def main(argv=None):
     w.add_argument("--write", action="store_true")
     h = sub.add_parser("hw")
     h.add_argument("rest", nargs=argparse.REMAINDER)
+    sub.add_parser("pipeline")
     pl = sub.add_parser("place")
     pl.add_argument("--write", action="store_true")
     pl.add_argument("--seed", type=int, default=1)
@@ -63,6 +66,9 @@ def main(argv=None):
         return report.cmd_report(args)
     if args.cmd == "run":
         return cmd_run(args)
+    if args.cmd == "pipeline":
+        from . import pipeline
+        return pipeline.cmd_pipeline(args)
     if args.cmd == "hw":
         from . import hw
         return hw.main(args.rest)

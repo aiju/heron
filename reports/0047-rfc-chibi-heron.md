@@ -703,6 +703,14 @@ multiplies and divides about 45%.
 - **Divides:** a reciprocal table in flash and a Newton step, or SRT
   steps; neither is cheap in microcode on this datapath. I'd leave them.
 
+**Pipelining the control store** ([pipelining.md](0047-rfc-chibi-heron/pipelining.md)).
+Phase F is nearly half the machine's time: the flashes settling, and the
+register file's writes and the video's read meanwhile. A register for the
+executing word (6–8 × 574) alone gains under 10%, since the writes still
+need their ticks. With the writes moved into the halves (the four-SRAM
+file allows it) and 45 ns flashes (which the flat layout's smaller store
+allows), the estimate is about 1.38×, for about 10 packages.
+
 **Small features within the budget** (0 or 1 chip):
 - a speaker on the timer's OUT2 (wired, a transistor);
 - LEDs for HALT, ODT and the copper (resistors);
@@ -727,7 +735,7 @@ For Emily:
 4. **The boot format** (tentative).
 5. **The deviations from RFC 0028** in [8](#8-interrupts-and-exceptions).
 6. **The proposals** in [19](#19-proposals): forcing bit 31, the
-   multiplier in flash, the small features.
+   multiplier in flash, pipelining the control store, the small features.
 7. **The 22V10s' packages** ([18](#18-the-board)).
 8. **Parts availability**, to review (the CY7C199C, the 74F181 and
    74F182, the IMS G171, the YM2149F, the TL7705A).

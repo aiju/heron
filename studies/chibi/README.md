@@ -43,6 +43,7 @@ and on `pcb_columns` for placing the board on RFC 0046's column grid.
 | `check.py` | The model against the instruction-level simulator: the suite |
 | `hw.py` | The netlist on the chip-level simulator against the model; ODT's session and the copper's test |
 | `report.py` | RFC 0047's performance.md |
+| `pipeline.py` | What a pipelined control store would buy: an estimate from the suite's microinstructions (RFC 0047's pipelining.md) |
 | `place.py` | The netlist placed on [RFC 0046](../../reports/0046-rfc-column-grid.md)'s column grid at a few board sizes; RFC 0047's placement.md and placement.svg |
 | `parts.py` | The parts, as a variant of the chip library |
 | `ucode.py`, `routines.py`, `rtl.py`, `system.py`, `board.py`, `sta.py` | The first cut |
@@ -61,6 +62,7 @@ heron chibi hw copper               # the copper's test at chip level
 heron chibi hw sta [--write]        # static timing analysis; --write: ticks.json
 heron chibi hw bom                  # the parts list
 heron chibi report [--write]        # RFC 0047's performance.md (a few minutes)
+heron chibi pipeline                # a pipelined control store's estimate (a few minutes)
 heron chibi place [--write]         # placed on the column grid (about 5 minutes):
                                     # build/chibi/place/, RFC 0047's placement.md and .svg
 heron test chibi                    # the unit tests
