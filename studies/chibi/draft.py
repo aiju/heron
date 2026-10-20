@@ -7,15 +7,17 @@ The I/O space (A31 set), by MAR's bits 20-18:
     000  0x8000_0000  UART 0          100  0x8010_0000  the boot flash
     001  0x8004_0000  UART 1          101  0x8014_0000  slow devices, by A5-A4:
     010  0x8008_0000  PS/2                 00 the timer (82C54), 01 the CF card
-    011  0x800C_0000  video control        (A6: its control block), 10 the palette
+    011  0x800C_0000  video control        (A6: its control block), 10 the palette,
+                                           11 the CF card's timing (bit 0: PIO 4)
     110  0x8018_0000  interrupts      111  0x801C_0000  free (the simulation's
                                            test fixture)
 
 - The slow devices (the CF card, the 82C54, the RAMDAC) sit behind
   U_SLOW, a wait-state machine on the master clock that holds the CPU's
-  cycle (HOLD) and times their strobes itself: the CF card at PIO mode 0's
-  timing (address 4 ticks before its strobe, the strobe 9 ticks, 3 ticks'
-  hold: 18 ticks), the others 12. Their strobes never come from the CPU's.
+  cycle (HOLD) and times their strobes itself (SLOW): the CF card at PIO
+  mode 0 from reset, while the boot sets it up with the display off, then
+  at PIO mode 4 (7 ticks a write, under the video's one-word buffer); the
+  others 8-9 ticks. Their strobes never come from the CPU's.
 - The CF card has a bus of its own: 74HCT245s for its data, a 74HCT541
   for its address, selects and strobes (slow edges), series resistors on
   every line at the buffers, the buffers on only while it's accessed;
@@ -123,33 +125,49 @@ def io(nl):
     debug(nl)
 
 
+# the slow devices' timing, in ticks of the master clock from the access's
+# start: (address before the strobe, the write strobe, the access's end for a
+# read, for a write). A read's strobe lasts to the cycle's end, when the CPU
+# takes the data; a write's ends a tick before the access, for the data's hold.
+SLOW = {"cf0": (4, 9, 31, 31),          # PIO mode 0, at boot (the display off): 600 ns
+        "cf4": (2, 4, 6, 7),            # PIO mode 4: 25, 70, 10 ns; 120 ns a cycle
+        "other": (2, 6, 8, 9)}          # the 82C54 and the RAMDAC
+
+
 def slow_devices(nl, rdm, wrm):
     """U_SLOW: W4-W0 count the access's ticks from its start (SLOWCS and a
-    memory operation, out of phase F) until SDONE, at the device's length;
-    HOLD holds the CPU's cycle until then; SRD_n and SWR_n are the strobe. U_SLOWD:
-    the device selects and gated strobes, the CF buffers' enable and direction."""
+    memory operation, out of phase F) until SDONE, at the device's length
+    (SLOW; the CF card's by CFFAST, U_SLOWD's register at A5-A4 = 11, which
+    reset clears: PIO 0 until the boot sets PIO 4); HOLD holds the CPU's cycle
+    until then; SRD_n and SWR_n are the strobes; CFOE_n enables the CF
+    buffers for a CF access. The 74HCT245s let go of MD slowly: the clock
+    generator stretches the next cycle's phase F by two ticks when CFOE_n is
+    still on in its tick 0, so that the video's read comes after. U_SLOWD:
+    the device selects and gated strobes, the CF buffers' direction, CFFAST."""
     w = bus("W", 5)
     acc = AND(lit("SLOWCS"), OR(rdm, wrm), lit("PHW", 0))
     cf = AND(lit("A5", 0), lit("A4", 1))
+    kinds = {"cf0": AND(cf, lit("CFFAST", 0)), "cf4": AND(cf, lit("CFFAST")),
+             "other": negate(cf)}
 
-    def at(lo, hi):
-        """W in [lo, hi), for this device's lengths (the CF's, else the others')"""
-        return OR(AND(cf, G.when(w, list(range(lo[0], hi[0])), range(32))),
-                  AND(negate(cf), G.when(w, list(range(lo[1], hi[1])), range(32))))
+    def when(lo, hi):
+        return G.when(w, list(range(lo, hi)), range(32))
     outs = {}
     done = lit("SDONE")
     for i in range(5):
         outs[w[i]] = (OR(AND(acc, lit("SDONE", 0), _inc(w, i)), AND(acc, done, lit(w[i]))),
                       True, False)
-    outs["SDONE"] = (OR(AND(acc, done), AND(acc, cf, eq(w, 18)), AND(acc, negate(cf), eq(w, 12))),
-                     True, False)
+    ends = [AND(acc, done)]
+    rd_on, wr_on = [], []
+    for k, (su, st, end_r, end_w) in SLOW.items():
+        ends += [AND(acc, kinds[k], rdm, eq(w, end_r)), AND(acc, kinds[k], wrm, eq(w, end_w))]
+        rd_on.append(AND(kinds[k], when(su, 32)))
+        wr_on.append(AND(kinds[k], when(su, su + st)))
+    outs["SDONE"] = (OR(*ends), True, False)
     outs["HOLD"] = (AND(acc, lit("SDONE", 0)), False, False)
-    outs["SRD_n"] = (AND(acc, rdm, at((4, 2), (13, 8))), True, True)
-    outs["SWR_n"] = (AND(acc, wrm, at((4, 2), (13, 8))), True, True)
-    # the CF buffers' enable: registered, on from the access's second tick to
-    # two before its end, so that the buffers' slow turn-off stays off the
-    # CPU's paths
-    outs["CFOE_n"] = (AND(acc, cf, G.when(w, list(range(1, 16)), range(32))), True, True)
+    outs["SRD_n"] = (AND(acc, rdm, OR(*rd_on)), True, True)
+    outs["SWR_n"] = (AND(acc, wrm, OR(*wr_on)), True, True)
+    outs["CFOE_n"] = (AND(acc, cf, when(1, 32)), True, True)
     G.add(nl, "U_SLOW", outs, clock="MCLK", ar=lit("RESET_n", 0))
     dev = {"TMR": (0, 0), "CF": (0, 1), "DAC": (1, 0)}
 
@@ -165,7 +183,11 @@ def slow_devices(nl, rdm, wrm):
         "CFDIR": (wrm, False, False),
         "DACRD_n": (AND(is_("DAC"), lit("SRD_n", 0)), False, True),
         "DACWR_n": (AND(is_("DAC"), lit("SWR_n", 0)), False, True),
-    })
+        # the CF card's timing (MD0 written at A5-A4 = 11): PIO 4 when set
+        "CFFAST": (OR(AND(lit("SLOWCS"), lit("A5"), lit("A4"), lit("MD0")),
+                      AND(negate(AND(lit("SLOWCS"), lit("A5"), lit("A4"))), lit("CFFAST"))),
+                   True, False),
+    }, clock="IOWR_n", ar=lit("RESET_n", 0))
     nl.add("82c54", "U_TMR", CS="TMRCS_n", RD="SRD_n", WR="SWR_n", A0="A1", A1="A2",
            CLK0="UCLK", CLK1="UCLK", CLK2="UCLK", GATE0="VCC", GATE1="VCC", GATE2="VCC",
            OUT0="TIRQ", OUT1="TOUT1", OUT2="SPK", **{f"D{i}": f"MD{i}" for i in range(8)})
