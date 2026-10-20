@@ -20,9 +20,9 @@ clock-to-output after the master clock's edge), without the clock buffer's
 delay that the launching registers see: a little pessimistic. The table of
 ticks it finds (ticks.json) gives the control store its LEN and HLEN
 (routines2.ControlStore), with the floors the clock generator wants: a
-half with an access at MAR at least 3 ticks (it looks at IOACC from its
-third); an access to the I/O space has 5 ticks whatever, and is checked
-against them.
+high half at least 2 ticks (HCK's pulse), a half with an access at MAR at
+least 3 (it looks at IOACC from its third); an access to the I/O space has
+5 ticks whatever, and is checked against them.
 
   heron chibi hw sta [--paths N] [--write]
 """
@@ -94,6 +94,15 @@ class Case3(hsta.Case):
     def m_gal(self, inst, pin, d):
         if inst.ref == "U_MEMC" and any(o[0] == pin and o[1] for o in inst.gal):
             return self.strobe(inst, pin)
+        out = next((o for o in inst.gal if o[0] == pin), None)
+        if out is not None and out[1]:
+            ck = inst.conn.get("CLK")
+            net = inst.conn.get(pin)
+            # registers that don't change in this case: steady (no task
+            # starts or ends: TCHG's cycles have phase F a tick longer); in
+            # the high half, those not loaded at the low half's end
+            if net in ("TASK", "TCHG") or (self.phase == "H" and ck not in HALF_END["L"]):
+                return (self.const.get(net), NEG, True, None)
         if inst.ref in DEVICE_GALS:
             net = inst.conn.get(pin, "")
             if not (net.startswith("MD") or net in ("HOLD", "VRD")):
@@ -187,6 +196,8 @@ def requirements(c):
                 fixed = None
             else:
                 continue
+            if inst.ref == "U_ALUC" and not carry_used(c):
+                continue            # HC, for the high half's carry
             pins = set()
             for _p, _r, _i, terms in regs:
                 pins |= c._gal_sop(inst, terms)[1]
@@ -237,6 +248,18 @@ def requirements(c):
     return end, bad
 
 
+def carry_used(c):
+    """Whether the high half takes the low half's carry (HC): a 32-bit
+    arithmetic operation's."""
+    if c.phase != "L" or not c.two:
+        return False
+    f = {name: sum(c.const.get(n, 0) << i for i, n in enumerate(board2.field(name)))
+         for name in ("AOP", "HX")}
+    if f["HX"] != uc.HX_NAT or f["AOP"] not in uc.AOP_NAME:
+        return False
+    return any(uc.aop_resolve(uc.AOP_NAME[f["AOP"]], st)[1] == 0 for st in (0, 1))
+
+
 def ticks_for(need, start):
     """A half's ticks: it ends at an edge n ticks after its start, captured
     a clock-to-output later."""
@@ -271,13 +294,15 @@ def sta_words():
 
 
 def floors(f, h):
-    """The clock generator's least ticks for a half (h: the high half)."""
+    """The clock generator's least ticks for a half (h: the high half): a
+    high half 2, so that HCK, high for the tick after the low half's end,
+    falls before the high half's; a half with an access at MAR 3."""
     mop = f["MOP"]
     if h and f["HX"] != uc.HX_NAT and mop in (uc.MOP_RDM, uc.MOP_WRM, uc.MOP_RDP):
         mop = uc.MOP_NONE
     if mop in (uc.MOP_RDM, uc.MOP_WRM, uc.MOP_LDIRM):
         return 3
-    return 1
+    return 2 if h else 1
 
 
 def time_case(item):

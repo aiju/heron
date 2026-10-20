@@ -273,12 +273,9 @@ def main(argv):
     r.add_argument("--trace")
     r.add_argument("--first", action="store_true")
     s = sub.add_parser("sta")
-    s.add_argument("--paths", type=int, default=3)
-    s.add_argument("--write", action="store_true")
-    s2 = sub.add_parser("sta2")
-    s2.add_argument("--paths", type=int, default=2)
-    s2.add_argument("--suite", action="store_true")
-    sub.add_parser("halves")
+    s.add_argument("--paths", type=int, default=2)
+    s.add_argument("--write", action="store_true", help="the ticks table (ticks.json)")
+    s.add_argument("--first", action="store_true", help="the first cut's analysis")
     b = sub.add_parser("bom")
     b.add_argument("--first", action="store_true")
     args = p.parse_args(argv)
@@ -289,14 +286,11 @@ def main(argv):
     if args.cmd == "bom":
         return cmd_bom(args)
     if args.cmd == "sta":
-        from . import sta
-        return sta.cmd_sta(args)
-    if args.cmd == "halves":
-        from . import halves
-        return halves.cmd_halves(args)
-    if args.cmd == "sta2":
+        if args.first:
+            from . import sta
+            return sta.cmd_sta(args)
         from . import sta2
-        return sta2.cmd_sta2(args)
+        return sta2.cmd_sta(args)
     return 2
 
 

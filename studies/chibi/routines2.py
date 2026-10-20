@@ -972,12 +972,12 @@ def page3():
         u(jump("reset", "INIT", True)),                                  # 0
         u(jump("odt", "ODT")),
         u(imm("IOIV"), alu("A"), ax(AX_MARLO), W),                       # the controller's vector
-        u(mem("MAR", 2), alu("A"), wr(T_VEC), hx("ZERO")),
+        u(mem("MAR", 1), alu("A", rm=RM_ZXB), wr(T_VEC), hx("ZERO")),    # MD7-0
         u(imm("C2"), LDL, W),
         u(pcrb(), alu("SUB"), wr(T_RET), jump("exc")),
         label("halt"),
         u(imm("IOIV"), alu("A"), ax(AX_MARLO), W),
-        u(mem("MAR", 2), alu("A"), wr(T_VEC), hx("ZERO")),
+        u(mem("MAR", 1), alu("A", rm=RM_ZXB), wr(T_VEC), hx("ZERO")),    # MD7-0
         u(pcrb(), alu("A"), wr(T_RET)),
         label("exc"),
         u(FLW, alu("A"), wr(T_FW), hx("ZERO")),                         # before the entry's I and B

@@ -121,6 +121,7 @@ def build(sim=True):
         "BI": (OR(AND(flc["BINZ"], lit("Z16", 0)), AND(negate(flc["BINZ"]), lit("BI"))), True,
                False),
         "ODTQ": (OR(lit("HLTQ"), lit("TRACE")), False, False),
+        "TASK_n": (lit("TASK", 0), False, False),          # for the tasks' address drivers
         # the video's slot on the address bus: phase F through a 22V10, as
         # PCSEL and MARSEL come, so that the drivers change over together
         "VSEL": (lit("PHW"), False, False),
@@ -157,7 +158,7 @@ def build(sim=True):
     nl.section("immediate unit")
     imm_gals(nl)
     bus_gals(nl)
-    nl.add("541", "U_FWB", OE1="FWOE_n", OE2="FWOE_n", part="74HCT541",
+    nl.add("541", "U_FWB", OE1="FWOE_n", OE2="FWOE_n",
            **{f"A{i + 1}": n for i, n in enumerate(["F_V", "F_C", "F_Z", "F_N", "F_I", "B", "BI",
                                                     "GND"])},
            **{f"Y{i + 1}": f"D{i}" for i in range(8)})
@@ -213,13 +214,18 @@ def _types():
             + [(p, "out") for p in ("CHA", "CHB", "CHC")], family="device",
             desc="Yamaha YM2149 programmable sound generator: three tone channels, noise, "
                  "envelopes (not simulated)")
-    chips.FIXED_PARTS.update({"ym2149": "YM2149F"})
+    chips.FIXED_PARTS.update({"ym2149": "YM2149F", **{f"_b2_{i}": n for i, n in enumerate(CONNS)}})
     chips.T("chibiclk3", "chibiclk3",
             [(p, "out") for p in ("MCLK", "RESET")]
             + [(p, "out") for p in CG_OUTS], family="fixture",
             desc="for static timing analysis: the two-halves machine's clock generator, its "
                  "outputs at the ticks the case gives (studies/chibi/sta2.py)")
 
+
+# the connectors' and switches' part names (no timing)
+CONNS = ["clock jumper: the oscillator or an external clock", "DE-15 (VGA) with its sync resistors",
+         "3.5 mm jack, its mixing resistors (the timer's OUT2 as a beeper too)",
+         "push button (SPDT): halt to ODT", "push buttons: interrupt, reset", "DE-9 male"]
 
 # the clock generator's outputs (U_CGA's and U_CGB's)
 CG_OUTS = ("TC0", "TC1", "TC2", "PH0", "PH1", "VEXTQ", "HWQ", "END", "HLZ", "LASTH",
@@ -527,7 +533,11 @@ def aluc_gal(nl):
     outs["SI"] = (OR(AND(eq(sisel, uc.SI_C), lit("F_C")), AND(eq(sisel, uc.SI_D15), lit("D15")),
                      AND(eq(sisel, uc.SI_CO), lit("CO_n", 0))), False, False)
     outs["HC"] = (lit("CO_n", 0), True, False)
-    G.add(nl, "U_ALUC", outs, clock="HCKA2")
+    alu = G.add(nl, "U_ALUC", outs, clock="HCKA2")
+    # HC's setup matters only to a high half that takes the carry, and the
+    # timing analysis gives those low halves their ticks (sta2.carry_used);
+    # elsewhere CO_n may still be settling at HCKA, harmlessly
+    alu.nocheck = True
 
 
 def result_gals(nl):
@@ -857,7 +867,7 @@ def io(nl, sim):
     interrupts(nl)
     odt(nl)
     scanline(nl)
-    draft.ps2(nl, spare={"5A": "RESET_n", "5Y": "RESET", "6A": "TASK", "6Y": "TASK_n"})
+    draft.ps2(nl, spare={"5A": "RESET_n", "5Y": "RESET", "6A": "GND"})
     sound(nl)
     debug(nl)
 
@@ -994,9 +1004,9 @@ def odt(nl):
     rd = AND(lit("IRQCS"), lit("A2"), lit("A1", 0), lit("IORD_n", 0))
     wr0 = AND(lit("IRQCS"), lit("A2", 0), lit("IOWR_n", 0))
     outs = {
-        "HLTQ": (OR(lit("HLTA_n", 0), AND(lit("HLTQ"), lit("HLTB_n", 0), negate(wr))), False,
-                 False),
-        "BTNQ": (OR(lit("BTN_n", 0), AND(lit("BTNQ"), negate(wr0))), False, False),
+        "HLTQ": (OR(lit("HLTA_n", 0), AND(lit("HLTQ"), lit("HLTB_n", 0), negate(wr),
+                                         lit("RESET_n"))), False, False),
+        "BTNQ": (OR(lit("BTN_n", 0), AND(lit("BTNQ"), negate(wr0), lit("RESET_n"))), False, False),
     }
     for i in range(8):
         outs[f"MD{8 + i}"] = (OR(lit("HLTQ"), lit("TRACE")) if i in (4, 7) else ZERO, False,
@@ -1017,7 +1027,7 @@ def scanline(nl):
     outs = {l[k]: (draft._inc(l, k), True, False) for k in range(9)}
     outs["MD8"] = (lit("LN8"), False, False, rd)
     G.add(nl, "U_LINE", outs, clock="HS_n", ar=AND(lit("VBL"), eq(l, 13)))
-    nl.add("541", "U_LRB", OE1="LRB_n", OE2="LRB_n", part="74HCT541",
+    nl.add("541", "U_LRB", OE1="LRB_n", OE2="LRB_n",
            **{f"A{i + 1}": f"LN{i}" for i in range(8)}, **{f"Y{i + 1}": f"MD{i}" for i in range(8)})
     t = bus("TL", 9)
     wsel = lit("LSEL")
