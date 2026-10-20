@@ -40,6 +40,7 @@ and on `pcb_columns` for placing the board on RFC 0046's column grid.
 | `rtl2.py` | The register-transfer model: phase F and the two halves as the netlist has them, tasks |
 | `system2.py` | The board behind the model: RAM, the I/O space and its map, UART 0, the scanline, the suite's console |
 | `board2.py` | The chip-level netlist: every chip on the board |
+| `gals.py`, `gals.md` | Every 22V10's pins and equations, as the netlist has them (generated) |
 | `draft.py` | Device parts that board2.py uses: chip types, part names, the PS/2 ports |
 | `sta2.py` | Static timing analysis of the netlist: each distinct microinstruction's halves in ticks; writes `ticks.json` |
 | `check.py` | The model against the instruction-level simulator: the suite |
@@ -63,6 +64,7 @@ heron chibi hw odt                  # ODT's session at chip level, against the m
 heron chibi hw copper               # the copper's test at chip level
 heron chibi hw sta [--write]        # static timing analysis; --write: ticks.json
 heron chibi hw bom                  # the parts list
+heron chibi hw gals [--write]       # every 22V10's equations; --write: gals.md
 heron chibi report [--write]        # RFC 0047's performance.md (a few minutes)
 heron chibi pipeline                # a pipelined control store's estimate (a few minutes)
 heron chibi place [--write]         # placed on the column grid (about 5 minutes):

@@ -229,6 +229,12 @@ class Netlist2(unittest.TestCase):
     def setUpClass(cls):
         cls.nl = board2.build(sim=True)
 
+    def test_gals_doc(self):
+        """gals.md as the netlist has it: rerun heron chibi hw gals --write."""
+        from heron.studies.chibi import gals
+        with open(gals.PATH) as f:
+            self.assertEqual(f.read(), gals.markdown())
+
     def test_gals_fit(self):
         for inst in self.nl.instances:
             if inst.type.name == "22v10":

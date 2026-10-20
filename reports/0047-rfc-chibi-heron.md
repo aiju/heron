@@ -730,7 +730,9 @@ than two smaller DIPs, and need programming?
   each, which is what makes them costly.
 - **Logic.** Each 22V10 here does what 3–6 74-series chips would: up to
   10 registered or combinational outputs of up to 22 inputs, with output
-  enables. The 61 would be some 200–300 chips of 74 logic.
+  enables. The 61 would be some 200–300 chips of 74 logic. Every one's
+  pins and equations are in [gals.md](../studies/chibi/gals.md),
+  generated from the netlist.
 - **Programming** is one cheap universal programmer (an XGecu T48 or
   similar) and a JEDEC file each. The flow doesn't write JEDEC files yet
   ([21](#21-open-tasks)).

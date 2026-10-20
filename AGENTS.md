@@ -145,6 +145,8 @@ Change the generator and rerun it rather than editing the output by hand:
   `heron egret bench --isa v2 --write`;
 - `studies/v0_hw/microcode.md` and `studies/v1b_hw/microcode.md`:
   `heron v0_hw ucode --doc` and `heron v1b_hw ucode --doc`;
+- `studies/chibi/gals.md`: `heron chibi hw gals --write`, after any change
+  to Chibi Heron's netlist (`heron test chibi` fails while it's stale);
 - `studies/v1_isa/programs/expected/` and
   `studies/v1_isa/programs/common/vm_code.s`:
   `python3 studies/v1_isa/programs/reference.py`;

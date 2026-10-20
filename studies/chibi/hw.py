@@ -372,6 +372,8 @@ def main(argv):
     c.add_argument("--cycles", type=int, default=600_000)
     b = sub.add_parser("bom")
     b.add_argument("--first", action="store_true")
+    g = sub.add_parser("gals", help="every 22V10's pins and equations")
+    g.add_argument("--write", action="store_true", help="studies/chibi/gals.md")
     args = p.parse_args(argv)
     if args.cmd == "test":
         return cmd_test(args)
@@ -379,6 +381,9 @@ def main(argv):
         return cmd_run(args)
     if args.cmd == "bom":
         return cmd_bom(args)
+    if args.cmd == "gals":
+        from . import gals
+        return gals.cmd_gals(args)
     if args.cmd == "odt":
         return cmd_odt(args)
     if args.cmd == "copper":
