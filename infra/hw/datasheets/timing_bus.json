@@ -104,6 +104,154 @@
       }
     }
   },
+  "ATF22V10C-5": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10C-5JX",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf",
+    "datasheet": "Atmel 0735U-PLD-7/10",
+    "availability": "ATF22V10C-5JX (PLCC-28, commercial); the fastest in DIP is the ATF22V10C-7PX (7.5 ns).",
+    "max_cond": "max/min: commercial, 0..70 C, VCC 4.75-5.25 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 1,
+        "typ": 3.5,
+        "max": 5
+      },
+      "CLK->Q": {
+        "min": 1,
+        "typ": 3,
+        "max": 4
+      }
+    },
+    "checks": {
+      "setup": 3,
+      "hold": 0
+    },
+    "estimated": ["typ"],
+    "notes": "tPD: an input or a feedback to a combinatorial output; CLK->Q is tCO. The datasheet gives no typical delays. ICC 85 mA typical, 130 maximum."
+  },
+  "ATF22V10C-7": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10C-7PX",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf",
+    "datasheet": "Atmel 0735U-PLD-7/10",
+    "availability": "ATF22V10C-7PX (DIP-24, commercial) and -7SX (SOIC-24); in PLCC-28 only the industrial -7JU.",
+    "max_cond": "max/min: commercial, 0..70 C, VCC 4.75-5.25 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 3,
+        "typ": 5.2,
+        "max": 7.5
+      },
+      "CLK->Q": {
+        "min": 2,
+        "typ": 3.4,
+        "max": 4.5
+      }
+    },
+    "checks": {
+      "setup": 3.5,
+      "hold": 0
+    },
+    "estimated": [
+      "typ"
+    ],
+    "notes": "The fastest grade in DIP-24. tPD: an input or a feedback to a combinatorial output (tEA and tER, an output's enable and disable, are 7.5 too); CLK->Q is tCO. ICC 85 mA typical, 130 maximum (150 clocked at 15 MHz), as the -5's. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+  },
+  "ATF22V10C-15": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10C-15PU",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0735.pdf",
+    "datasheet": "Atmel 0735U-PLD-7/10",
+    "availability": "ATF22V10C-15PU (DIP-24, industrial), -15JU (PLCC-28).",
+    "max_cond": "max/min: industrial, -40..85 C, VCC 4.5-5.5 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 3,
+        "typ": 10.5,
+        "max": 15
+      },
+      "CLK->Q": {
+        "min": 2,
+        "typ": 6.0,
+        "max": 8
+      }
+    },
+    "checks": {
+      "setup": 10,
+      "hold": 0
+    },
+    "estimated": [
+      "typ"
+    ],
+    "notes": "tPD: an input or a feedback to a combinatorial output (tEA and tER 15 too); CLK->Q is tCO; tCF (clock to feedback) 2.5. ICC 65 mA typical, 115 maximum (clocked at 15 MHz: 70, 125). Industrial grade, its limits over -40..85 C. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+  },
+  "ATF22V10CQZ-20": {
+    "family": "PLD",
+    "function": "22V10 programmable logic: ten outputs, each a sum of products, registered or not",
+    "manufacturer": "Microchip (Atmel)",
+    "part_number": "ATF22V10CQZ-20PU",
+    "source": "https://ww1.microchip.com/downloads/en/DeviceDoc/doc0778.pdf",
+    "datasheet": "Atmel 0778L-PLD-8/10 (ATF22V10CZ/CQZ)",
+    "availability": "ATF22V10CQZ-20PU (DIP-24, industrial), -20JU (PLCC-28), -20SU, -20XU. The CZ parts are not recommended for new designs.",
+    "max_cond": "max/min: industrial, -40..85 C, VCC 4.5-5.5 V",
+    "typ_cond": "",
+    "delays": {
+      "tPD": {
+        "min": 3,
+        "typ": 14.0,
+        "max": 20
+      },
+      "CLK->Q": {
+        "min": 2,
+        "typ": 9.0,
+        "max": 12
+      }
+    },
+    "checks": {
+      "setup": 14,
+      "hold": 0
+    },
+    "estimated": [
+      "typ"
+    ],
+    "notes": "'Zero power': its input transition detection powers it down while its inputs are still, 5 uA typical, 100-120 maximum; clocked at 15 MHz, ICC 40 mA typical, 80 maximum (industrial). tPD: an input or a feedback to a non-registered output (tEA, tER 20 too); CLK->Q is tCO; tCF (clock to feedback) 8, so fMAX with internal feedback 45.5 MHz: not on the 50.35 MHz master clock. The datasheet gives no typical delays: typ is the -5's ratio of typ to max."
+  },
+  "74F10": {
+    "family": "F",
+    "function": "triple 3-input NAND",
+    "manufacturer": "Texas Instruments",
+    "part_number": "SN74F10",
+    "source": "https://www.ti.com/lit/ds/symlink/sn74f10.pdf",
+    "datasheet": "TI SDFS039A (Mar 1987, rev Oct 1993)",
+    "availability": "TI SN74F10N (DIP) active, also DR (SOIC) and NSR (SOP); the plain tube SN74F10D is obsolete (package addendum, Sep 2026).",
+    "max_cond": "max/min: 0..70 C, VCC 4.5-5.5 V, CL 50 pF, RL 500 Ohm",
+    "typ_cond": "typ: 25 C, VCC 5 V, CL 50 pF, RL 500 Ohm",
+    "delays": {
+      "A->Y": {
+        "min": 1,
+        "typ": 3.3,
+        "max": 6
+      }
+    },
+    "checks": {},
+    "estimated": [],
+    "detail": {
+      "A->Y": {
+        "tPLH": [1.6, 3.3, 5, 6],
+        "tPHL": [1, 2.8, 4.3, 5.3]
+      }
+    }
+  },
   "74F11": {
     "family": "F",
     "function": "triple 3-input AND",
@@ -1817,10 +1965,12 @@
       "xin max MHz": 16,
       "tAH WR": 10,
       "recovery": 40,
-      "tw XIN": 25
+      "tw XIN": 25,
+      "tAS ADS": 8,
+      "tAH ADS": 8
     },
-    "estimated": [],
-    "notes": "For a non-multiplexed bus with ADS tied low. tAS = tAR/tAW (td8/td5, address valid before RD/WR active) 7 ns; with ADS used instead, address setup to ADS rising (tsu1) is 8 ns. tCS = tCSR/tCSW (td7/td4) 7 ns (8 ns to ADS). tAH = tRA (th7, address hold after RD) 20 ns; after WR (tWA, th4) only 10 ns, given as 'tAH WR'. tCH = tRCS/tWCS (th6/th3) 10 ns. tRD (tw7) and tWR (tw6) 40 ns. tDS (tsu3) 15 ns before WR inactive, tDH (th5) 5 ns. tRC = cycle time tcR = tcW = 87 ns (strobe 40 + address setup 7 + recovery 40); 'recovery' = td9/td6, RD or WR inactive to the next cycle, 40 ns. RD->D = td10 (tRVD) 45 ns, RD->D dis = td11 (tHZ) 20 ns, both at CL 75 pF. 'xin max MHz': oscillator/clock 16 MHz at 5 V (14.9 MHz at 3.3 V); XIN high and low 25 ns each. Strobes: /RD1 and /WR1 active low, RD2 and WR2 active high (use one, tie the other inactive). The 5 V supply range is 4.75-5.25 V.",
+    "estimated": ["tAH ADS"],
+    "notes": "For a non-multiplexed bus with ADS tied low. With ADS latching the address and chip selects, 'tAS ADS' is their setup to ADS rising (tsu1, 8 ns) and 'tAH ADS' their hold after it: the hold isn't in the notes taken from the datasheet, so 8 ns, the setup's figure, is an estimate. tAS = tAR/tAW (td8/td5, address valid before RD/WR active) 7 ns; with ADS used instead, address setup to ADS rising (tsu1) is 8 ns. tCS = tCSR/tCSW (td7/td4) 7 ns (8 ns to ADS). tAH = tRA (th7, address hold after RD) 20 ns; after WR (tWA, th4) only 10 ns, given as 'tAH WR'. tCH = tRCS/tWCS (th6/th3) 10 ns. tRD (tw7) and tWR (tw6) 40 ns. tDS (tsu3) 15 ns before WR inactive, tDH (th5) 5 ns. tRC = cycle time tcR = tcW = 87 ns (strobe 40 + address setup 7 + recovery 40); 'recovery' = td9/td6, RD or WR inactive to the next cycle, 40 ns. RD->D = td10 (tRVD) 45 ns, RD->D dis = td11 (tHZ) 20 ns, both at CL 75 pF. 'xin max MHz': oscillator/clock 16 MHz at 5 V (14.9 MHz at 3.3 V); XIN high and low 25 ns each. Strobes: /RD1 and /WR1 active low, RD2 and WR2 active high (use one, tie the other inactive). The 5 V supply range is 4.75-5.25 V.",
     "typ_cond": "typ = max: the datasheet gives guaranteed limits only"
   },
   "82C54": {
@@ -2546,5 +2696,37 @@
         "tPLZ": [1, 2.9, 3.7, 4.1]
       }
     }
+  },
+  "DAC0832LCN": {
+    "family": "device",
+    "function": "8-bit multiplying DAC, double-buffered (an input latch and a DAC latch), current output",
+    "manufacturer": "Texas Instruments (ex-National Semiconductor)",
+    "part_number": "DAC0832LCN",
+    "source": "https://www.ti.com/product/DAC0832",
+    "datasheet": "not transcribed: TI's PDF wasn't reachable when this entry was made",
+    "availability": "to check: TI lists the DAC0832 in DIP-20 (DAC0832LCN)",
+    "max_cond": "VCC 5 V",
+    "delays": {
+      "CLK->Q": {
+        "typ": 100,
+        "max": 100
+      }
+    },
+    "checks": {
+      "tW": 320,
+      "setup D": 320,
+      "hold D": 10,
+      "setup EN": 320,
+      "hold EN": 0
+    },
+    "estimated": [
+      "CLK->Q",
+      "tW",
+      "setup D",
+      "hold D",
+      "setup EN",
+      "hold EN"
+    ],
+    "notes": "Every figure here is an estimate, to replace from the datasheet. The latches are as a register to the simulator: the input latch closing as WR1 rises ('CLK', CS as 'EN'), the DAC latch as XFER and WR2 rise. tW and tDS (data setup) at VCC 5 V are a few hundred ns: 320 ns as remembered, about 375 ns in a forum's reading; the long write class in Chibi Heron's U_SLOW allows 397 ns."
   }
 }

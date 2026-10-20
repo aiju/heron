@@ -14,6 +14,7 @@ pub struct Spec<'a> {
     pub info: &'a ChipInfo,
     pub delays: &'a HashMap<String, Time>,
     pub params: &'a HashMap<String, i64>,
+    pub program: &'a [i64],
 }
 
 impl Spec<'_> {
@@ -152,11 +153,15 @@ pub enum Model {
     Enc148(Enc148),
     FanBuf(FanBuf),
     Osc(Osc),
+    ClockSynth(ClockSynth),
     Por(Por),
+    Button(Button),
+    Ps2(Box<crate::devices::Ps2Device>),
     Uart(Box<Uart16550>),
     Timer(Box<I8254>),
     Cf(Box<CompactFlash>),
     Vector(Vector),
+    Gal(Gal),
 }
 
 impl Model {
@@ -200,8 +205,8 @@ impl Model {
                 Model::Const
             }
             "clockgen" => Model::ClockGen,
-            "iodev" => Model::IoDev(IoDev::new(s, false)?),
-            "iodev32" => Model::IoDev(IoDev::new(s, true)?),
+            "iodev" => Model::IoDev(IoDev::new(s, false, preload)?),
+            "iodev32" => Model::IoDev(IoDev::new(s, true, preload)?),
             "sr299" => Model::Sr299(Sr299::new(s, rng)?),
             "jk109" => Model::Jk109(Jk109::new(s, rng)?),
             "dreg" => Model::DReg(DReg::new(s, rng, false)?),
@@ -213,13 +218,19 @@ impl Model {
             "enc148" => Model::Enc148(Enc148::new(s)?),
             "fanbuf" => Model::FanBuf(FanBuf::new(s)?),
             "osc" => Model::Osc(Osc::new(s)?),
-            // pull-up resistors are weak drivers in the engine (sim.rs)
-            "pullup" => Model::Const,
+            "clocksynth" => Model::ClockSynth(ClockSynth::new(s)?),
+            "button" => Model::Button(Button::new(s)?),
+            "ps2dev" => Model::Ps2(Box::new(crate::devices::Ps2Device::new(s, preload)?)),
+            // pull-up resistors are weak drivers in the engine (sim.rs); the
+            // other passive parts (capacitors, crystals, regulators) are only
+            // their pins' kinds
+            "pullup" | "passive" => Model::Const,
             "por" => Model::Por(Por::new(s)?),
             "uart16550" => Model::Uart(Box::new(Uart16550::new(s, preload)?)),
             "i8254" => Model::Timer(Box::new(I8254::new(s)?)),
             "cf" => Model::Cf(Box::new(CompactFlash::new(s, preload)?)),
             "vector" => Model::Vector(Vector::new(s, preload)?),
+            "gal" => Model::Gal(Gal::new(s)?),
             _ => {
                 return Err(Error(format!(
                     "{}: unknown model {:?}",
@@ -273,11 +284,15 @@ impl Model {
             Model::Enc148(m) => m.eval_all(cx, c, 0),
             Model::FanBuf(m) => m.eval_all(cx, c, 0),
             Model::Osc(m) => m.init(cx, c),
+            Model::ClockSynth(m) => m.init(cx, c),
             Model::Por(m) => m.init(cx, c),
+            Model::Button(m) => m.init(cx, c),
+            Model::Ps2(m) => m.init(cx, c),
             Model::Uart(m) => m.init(cx, c),
             Model::Timer(m) => m.init(cx, c),
             Model::Cf(m) => m.init(cx, c),
             Model::Vector(m) => m.init(cx, c),
+            Model::Gal(m) => m.init(cx, c),
         }
     }
 
@@ -300,6 +315,7 @@ impl Model {
             Model::IoDevW(m) => Some(m.output.clone()),
             Model::Uart(m) => Some(m.core.tx_out.clone()),
             Model::Cf(m) => Some(m.core.image().to_vec()),
+            Model::Ps2(m) => Some(m.received.clone()),
             Model::Vector(m) => Some(m.log.clone()),
             _ => None,
         }
@@ -336,11 +352,14 @@ impl Model {
             Model::Enc148(m) => m.eval(cx, c, pin),
             Model::FanBuf(m) => m.eval(cx, c, pin),
             Model::Osc(m) => m.eval(cx, c, pin),
-            Model::Por(_) => {}
+            Model::ClockSynth(m) => m.eval(cx, c, pin),
+            Model::Por(_) | Model::Button(_) => {}
+            Model::Ps2(m) => m.eval(cx, c, pin),
             Model::Uart(m) => m.eval(cx, c, pin),
             Model::Timer(m) => m.eval(cx, c, pin),
             Model::Cf(m) => m.eval(cx, c, pin),
             Model::Vector(m) => m.eval(cx, c, pin),
+            Model::Gal(m) => m.eval(cx, c, pin),
         }
     }
 }
@@ -1872,7 +1891,7 @@ impl Sram {
 // ---------------------------------------------------------------- flash ROM (read only)
 
 pub struct Rom {
-    a: [usize; 17],
+    a: Vec<usize>,
     dq: [usize; 8],
     ce: usize,
     oe: usize,
@@ -1889,12 +1908,16 @@ pub struct Rom {
 
 impl Rom {
     fn new(s: &Spec, preload: Option<&[u8]>) -> Result<Rom, Error> {
-        let a: [usize; 17] = s.pins(|i| format!("A{i}"))?;
+        // A0 up: 17 of them (128K) or 19 (512K)
+        let n = (0..).take_while(|i| s.has(&format!("A{i}"))).count();
+        let a = (0..n)
+            .map(|i| s.pin(&format!("A{i}")))
+            .collect::<Result<Vec<_>, _>>()?;
         let mut is_a = vec![false; s.info.pin_names.len()];
         for &p in &a {
             is_a[p] = true;
         }
-        let mut mem = vec![0; 1 << 17];
+        let mut mem = vec![0; 1 << n];
         if let Some(img) = preload {
             let n = img.len().min(mem.len());
             mem[..n].copy_from_slice(&img[..n]);
@@ -1985,10 +2008,17 @@ pub struct IoDev {
     last_empty: bool,
     cycle_hi: u16,
     d_acc: Time,
+    /// Param `read_at_strobe`: a read's side effects at the end of its
+    /// strobe (at the address it started with), not at the clock edge, for
+    /// a CPU that reads more than once a cycle.
+    read_at_strobe: bool,
+    read_addr: Option<usize>,
 }
 
 impl IoDev {
-    fn new(s: &Spec, wide: bool) -> Result<IoDev, Error> {
+    /// `preload`: the console's input (a system run's; a machine run sets
+    /// `input` itself).
+    fn new(s: &Spec, wide: bool, preload: Option<&[u8]>) -> Result<IoDev, Error> {
         Ok(IoDev {
             wide,
             clk: s.pin("CLK")?,
@@ -2003,7 +2033,7 @@ impl IoDev {
             writing: false,
             driving: false,
             lanes: 0,
-            input: Vec::new(),
+            input: preload.map(|p| p.to_vec()).unwrap_or_default(),
             input_pos: 0,
             output: Vec::new(),
             timer_period: 0,
@@ -2012,6 +2042,8 @@ impl IoDev {
             last_empty: false,
             cycle_hi: 0,
             d_acc: 20000,
+            read_at_strobe: s.param_or("read_at_strobe", 0) != 0,
+            read_addr: None,
         })
     }
 
@@ -2144,7 +2176,7 @@ impl IoDev {
         if pin == self.clk {
             let v = cx.input(c, self.clk);
             if v == 1 && self.prev == 0 {
-                if sel && cx.input(c, self.rd) == 0 {
+                if sel && cx.input(c, self.rd) == 0 && !self.read_at_strobe {
                     let a = self.addr(cx, c);
                     self.read_edge(cycle, a);
                 }
@@ -2158,6 +2190,14 @@ impl IoDev {
                 cx.drive(c, self.irq, self.timer_flag, true, 5000);
             }
             self.prev = v;
+        }
+        if self.read_at_strobe {
+            let reading = sel && cx.input(c, self.rd) == 0;
+            if reading && self.read_addr.is_none() {
+                self.read_addr = Some(self.addr(cx, c));
+            } else if !reading && let Some(a) = self.read_addr.take() {
+                self.read_edge(cycle, a);
+            }
         }
         let (wl, wh) = (cx.input(c, self.wel) == 0, cx.input(c, self.weh) == 0);
         let wr = sel && (wl || wh);
@@ -3282,6 +3322,87 @@ impl Osc {
     }
 }
 
+/// A programmable clock chip (a CY22393's outputs as its stored
+/// configuration sets them): CLKA-CLKE and XBUF, each a clock of period
+/// `<pin>_ps` (params a_ps, b_ps, ..., x_ps; 0 or absent: held low), its
+/// first rising edge at `<pin>_phase` (default half the period). Each
+/// output pin is its own input, as an oscillator's is. The serial port
+/// (SCLK, SDAT) that would reprogram it isn't modelled.
+pub struct ClockSynth {
+    outs: Vec<(usize, Time, Time, Time)>,
+}
+
+impl ClockSynth {
+    fn new(s: &Spec) -> Result<ClockSynth, Error> {
+        let mut outs = Vec::new();
+        for (pin, key) in [
+            ("CLKA", "a"),
+            ("CLKB", "b"),
+            ("CLKC", "c"),
+            ("CLKD", "d"),
+            ("CLKE", "e"),
+            ("XBUF", "x"),
+        ] {
+            let period = s.param_or(&format!("{key}_ps"), 0);
+            if period == 0 || !s.has(pin) {
+                continue;
+            }
+            if period < 2 {
+                return Err(Error(format!(
+                    "{}: {key}_ps must be at least 2",
+                    s.info.reference
+                )));
+            }
+            let phase = s.param_or(&format!("{key}_phase"), period / 2);
+            outs.push((s.pin(pin)?, period / 2, period - period / 2, phase));
+        }
+        Ok(ClockSynth { outs })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        for &(pin, _, _, phase) in &self.outs {
+            cx.drive(c, pin, 0, true, 0);
+            cx.drive_at(c, pin, 1, true, phase.max(1));
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if let Some(&(_, high, low, _)) = self.outs.iter().find(|o| o.0 == pin) {
+            let v = cx.input(c, pin);
+            let d = if v == 1 { high } else { low };
+            cx.drive(c, pin, v ^ 1, true, d);
+        }
+    }
+}
+
+/// A push button to ground: an open-collector output, low from `press_ps`
+/// until `release_ps` (0: never pressed; release 0: held).
+pub struct Button {
+    out: usize,
+    press: Time,
+    release: Time,
+}
+
+impl Button {
+    fn new(s: &Spec) -> Result<Button, Error> {
+        Ok(Button {
+            out: s.pin("OUT")?,
+            press: s.param_or("press_ps", 0),
+            release: s.param_or("release_ps", 0),
+        })
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        cx.drive(c, self.out, 1, false, 0);
+        if self.press > 0 {
+            cx.drive_at(c, self.out, 0, true, self.press);
+            if self.release > self.press {
+                cx.drive_at(c, self.out, 1, false, self.release);
+            }
+        }
+    }
+}
+
 /// The power-on reset: an open-collector output that holds RST low from
 /// power-up until `release_ps`.
 pub struct Por {
@@ -3562,5 +3683,243 @@ impl Vector {
             }
         }
         self.prev = v;
+    }
+}
+
+// ---------------------------------------------------------------- 22V10
+
+/// A 22V10 (GAL) programmed with sums of products (the netlist's
+/// `program`, infra/hw/gal.py): each output the sum of its terms, or the
+/// complement; a registered output loads at CLK's rising edge, the others
+/// follow their inputs. A term reads an output's pin, which feeds back.
+pub struct Gal {
+    clk: usize,
+    prev: u8,
+    outs: Vec<GalOut>,
+    /// The combinatorial outputs (and output enables) each pin reaches.
+    fanout: Vec<Vec<usize>>,
+    /// The asynchronous reset: its terms, and whether a pin is in them.
+    ar: Vec<Vec<(usize, u8)>>,
+    ar_in: Vec<bool>,
+    ar_on: bool,
+    /// The registered outputs with an output enable, by pin: their
+    /// feedback is the register's, as the pin may be another's bus.
+    fed: Vec<Option<usize>>,
+    tpd: Time,
+    tco: Time,
+    setup: Time,
+}
+
+struct GalOut {
+    pin: usize,
+    reg: bool,
+    inv: bool,
+    /// Each term: (pin, the value it must have).
+    terms: Vec<Vec<(usize, u8)>>,
+    /// The output enable's terms (None: always on).
+    oe: Option<Vec<Vec<(usize, u8)>>>,
+    inputs: Vec<usize>,
+    state: u8,
+}
+
+impl Gal {
+    fn new(s: &Spec) -> Result<Gal, Error> {
+        let bad = || Error(format!("{}: a malformed 22V10 program", s.info.reference));
+        let mut words = s
+            .program
+            .iter()
+            .map(|&w| usize::try_from(w).map_err(|_| bad()));
+        let n = s.info.pin_names.len();
+        let sop = |words: &mut dyn Iterator<Item = Result<usize, Error>>|
+         -> Result<Vec<Vec<(usize, u8)>>, Error> {
+            let mut next = || words.next().unwrap_or_else(|| Err(bad()));
+            let mut terms = Vec::new();
+            for _ in 0..next()? {
+                let mut t = Vec::new();
+                for _ in 0..next()? {
+                    let l = next()?;
+                    if l / 2 >= n {
+                        return Err(bad());
+                    }
+                    t.push((l / 2, (1 - l % 2) as u8));
+                }
+                terms.push(t);
+            }
+            Ok(terms)
+        };
+        let mut outs = Vec::new();
+        let count = words.next().unwrap_or_else(|| Err(bad()))?;
+        for _ in 0..count {
+            let pin = words.next().unwrap_or_else(|| Err(bad()))?;
+            let flags = words.next().unwrap_or_else(|| Err(bad()))?;
+            let terms = sop(&mut words)?;
+            let oe = if flags & 4 != 0 {
+                Some(sop(&mut words)?)
+            } else {
+                None
+            };
+            let mut inputs: Vec<usize> = terms.iter().flatten().map(|&(p, _)| p).collect();
+            inputs.sort_unstable();
+            inputs.dedup();
+            if pin >= n {
+                return Err(bad());
+            }
+            outs.push(GalOut {
+                pin,
+                reg: flags & 1 != 0,
+                inv: flags & 2 != 0,
+                terms,
+                oe,
+                inputs,
+                state: 0,
+            });
+        }
+        let mut rest = words.peekable();
+        let ar = if rest.peek().is_some() {
+            sop(&mut rest)?
+        } else {
+            Vec::new()
+        };
+        let mut fanout = vec![Vec::new(); n];
+        for (i, o) in outs.iter().enumerate() {
+            let mut ins: Vec<usize> = if o.reg { Vec::new() } else { o.inputs.clone() };
+            if let Some(oe) = &o.oe {
+                ins.extend(oe.iter().flatten().map(|&(p, _)| p));
+            }
+            ins.sort_unstable();
+            ins.dedup();
+            for p in ins {
+                fanout[p].push(i);
+            }
+        }
+        let mut ar_in = vec![false; n];
+        for &(p, _) in ar.iter().flatten() {
+            ar_in[p] = true;
+        }
+        let mut fed = vec![None; n];
+        for (i, o) in outs.iter().enumerate() {
+            if o.reg && o.oe.is_some() {
+                fed[o.pin] = Some(i);
+            }
+        }
+        Ok(Gal {
+            clk: s.pin("CLK")?,
+            prev: 0,
+            outs,
+            fanout,
+            ar,
+            ar_in,
+            ar_on: false,
+            fed,
+            tpd: s.d("tPD")?,
+            tco: s.d("CLK->Q")?,
+            setup: s.d("setup")?,
+        })
+    }
+
+    /// A term's pin: the input, or a registered output's register.
+    fn pin_value(&self, cx: &Ctx, c: &ChipInfo, p: usize) -> u8 {
+        match self.fed[p] {
+            Some(j) => self.outs[j].state,
+            None => cx.input(c, p),
+        }
+    }
+
+    fn terms_on(
+        &self,
+        cx: &Ctx,
+        c: &ChipInfo,
+        terms: &[Vec<(usize, u8)>],
+        flip: Option<usize>,
+    ) -> bool {
+        terms.iter().any(|t| {
+            t.iter()
+                .all(|&(p, v)| self.pin_value(cx, c, p) ^ u8::from(flip == Some(p)) == v)
+        })
+    }
+
+    /// The output as the inputs are, or with one of them (`flip`) the
+    /// other way.
+    fn sum(&self, cx: &Ctx, c: &ChipInfo, i: usize, flip: Option<usize>) -> u8 {
+        let o = &self.outs[i];
+        u8::from(self.terms_on(cx, c, &o.terms, flip)) ^ u8::from(o.inv)
+    }
+
+    fn enabled(&self, cx: &Ctx, c: &ChipInfo, i: usize) -> bool {
+        self.outs[i]
+            .oe
+            .as_ref()
+            .is_none_or(|t| self.terms_on(cx, c, t, None))
+    }
+
+    fn init(&mut self, cx: &mut Ctx, c: &ChipInfo) {
+        for i in 0..self.outs.len() {
+            let v = if self.outs[i].reg {
+                self.outs[i].state
+            } else {
+                self.sum(cx, c, i, None)
+            };
+            let en = self.enabled(cx, c, i);
+            cx.drive(c, self.outs[i].pin, v, en, 0);
+        }
+    }
+
+    fn eval(&mut self, cx: &mut Ctx, c: &ChipInfo, pin: usize) {
+        if self.ar_in[pin] {
+            let on = self.terms_on(cx, c, &self.ar, None);
+            if on && !self.ar_on {
+                for i in 0..self.outs.len() {
+                    if !self.outs[i].reg {
+                        continue;
+                    }
+                    // the register cleared: the pin shows it as its polarity does
+                    self.outs[i].state = u8::from(self.outs[i].inv);
+                    let en = self.enabled(cx, c, i);
+                    cx.drive(c, self.outs[i].pin, self.outs[i].state, en, self.tpd);
+                }
+            }
+            self.ar_on = on;
+        }
+        if pin == self.clk {
+            let v = cx.input(c, self.clk);
+            if v == 1 && self.prev == 0 && !self.ar_on {
+                // every register's next state from the present ones
+                let mut next = Vec::with_capacity(self.outs.len());
+                for i in 0..self.outs.len() {
+                    if !self.outs[i].reg {
+                        next.push(0);
+                        continue;
+                    }
+                    let state = self.sum(cx, c, i, None);
+                    // an input the output doesn't depend on, as the others
+                    // are, needn't be set up (nor a register fed back)
+                    for k in 0..self.outs[i].inputs.len() {
+                        let p = self.outs[i].inputs[k];
+                        if self.fed[p].is_none() && self.sum(cx, c, i, Some(p)) != state {
+                            cx.check_setup(c, p, self.setup, "input");
+                        }
+                    }
+                    next.push(state);
+                }
+                for (i, &state) in next.iter().enumerate() {
+                    if self.outs[i].reg {
+                        self.outs[i].state = state;
+                        let en = self.enabled(cx, c, i);
+                        cx.drive(c, self.outs[i].pin, state, en, self.tco);
+                    }
+                }
+            }
+            self.prev = v;
+        }
+        for k in 0..self.fanout[pin].len() {
+            let i = self.fanout[pin][k];
+            let v = if self.outs[i].reg {
+                self.outs[i].state
+            } else {
+                self.sum(cx, c, i, None)
+            };
+            let en = self.enabled(cx, c, i);
+            cx.drive(c, self.outs[i].pin, v, en, self.tpd);
+        }
     }
 }
