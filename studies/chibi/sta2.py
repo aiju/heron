@@ -66,6 +66,14 @@ class Case2(sta.Case):
         return (v, t + TCO, True, (inst.ref, pin, f"{pin} at {t / K:.0f} ticks"))
 
     def m_gal(self, inst, pin, d):
+        if inst.conn.get(pin) in ("BTNQ", "HLTQ", "TRACE") or \
+                inst.ref in ("U_KBDF", "U_MOUSEF") and inst.conn.get(pin) in ("KCLK", "MSCLK"):
+            return (None, NEG, True, None)      # latches and the PS/2 hold: asynchronous, untimed
+        if inst.ref == "U_SLOW" and inst.conn.get(pin) == "CFOE_n":
+            mop = sum(self.const.get(n, 0) << i for i, n in enumerate(board.MOP))
+            if self.phase == "F" or self.const.get("A31") != 1 or \
+                    mop not in (uc.MOP_RDM, uc.MOP_WRM):
+                return (1, NEG, True, None)     # off but in a slow access (registered)
         out = super().m_gal(inst, pin, d)
         # the immediate unit's high half: HALF selects it (a 22V10's tPD), as a
         # built variant would have it
@@ -73,6 +81,14 @@ class Case2(sta.Case):
             t = max(out[1], L_END + TCO + GAL["tPD"])
             return (out[0], t, out[2], out[3] if t == out[1] else ("X_CLK", "HALF", "the high half"))
         return out
+
+    # the draft's slow devices (timed by U_SLOW's wait states, not here),
+    # its passives and the button's debouncer: nothing they drive is timed
+    def m_i8254(self, inst, pin, d): return (None, NEG, False, None)
+    def m_cf(self, inst, pin, d): return (None, NEG, False, None)
+    def m_ramdac(self, inst, pin, d): return (None, NEG, False, None)
+    def m_passive(self, inst, pin, d): return (None, NEG, True, None)
+    def m_por(self, inst, pin, d): return (None, NEG, True, None)
 
     def strobe(self, inst, pin):
         """The strobes: from the half's second tick."""

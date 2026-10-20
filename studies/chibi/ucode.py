@@ -93,7 +93,9 @@ SI_0, SI_C, SI_D15, SI_CO = range(4)
 # result multiplexer
 RM_PASS, RM_SHR, RM_ZXB, RM_SXB = range(4)
 # memory operations
-MOP_NONE, MOP_RDM, MOP_WRM, MOP_RDP, MOP_FETCH, MOP_PCS = range(6)
+MOP_NONE, MOP_RDM, MOP_WRM, MOP_RDP, MOP_FETCH, MOP_PCS, MOP_LDIRM = range(7)
+# MOP_LDIRM: a read at MAR that loads the instruction register, as a fetch
+# does: the microcode's way to another opcode's blocks (ODT's entry)
 # address register operations (deferred: at the next cycle's phase W)
 AXP_NONE, AXP_LO, AXP_HI = range(3)
 AXM_NONE, AXM_LO, AXM_HI, AXM_INC = range(4)

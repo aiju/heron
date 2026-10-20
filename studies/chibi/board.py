@@ -170,7 +170,8 @@ def build(sim=True, halves=False):
     # to the control store), the register byte; the control store's address
     # registers on the clock before its buffer
     G.add(nl, "U_IRL", {op[i]: (OR(AND(lit("LDIR"), lit(f"MD{i}")), AND(lit("LDIR", 0), lit(op[i]))),
-                                True, False) for i in range(8)}, clock="CLK0")
+                                True, False) for i in range(8)}, clock="CLK0",
+          ar=lit("RESET_n", 0))                     # reset: opcode 00, for the boot (routines.boot)
     d, s = bus("IRD", 4), bus("IRS", 4)
     irop = field("IROP")
     incd, decs, ldx = eq(irop, uc.IR_INCD), eq(irop, uc.IR_DECS), eq(irop, uc.IR_LDX)
@@ -198,7 +199,7 @@ def build(sim=True, halves=False):
                          AND(nld, eq(nop, uc.N_S), lit(s[i])),
                          AND(nld, eq(nop, uc.N_MDZ), lit(f"MD{8 + i}")),
                          AND(nld, eq(nop, uc.N_HOLD), lit(nib[i]))), True, False)
-    G.add(nl, "U_NG", ng, clock="CLK0")
+    G.add(nl, "U_NG", ng, clock="CLK0", ar=lit("RESET_n", 0))
 
     # STEP and PAGE: next, jump if CT, end (decode, or page 3 if IRQP);
     # PAGE stored inverted, so that reset makes it 3
@@ -242,9 +243,10 @@ def build(sim=True, halves=False):
     flags_gal(nl, f, "HCK" if halves else clk[1], halves)
     # IRQP, INIT, and the reset for the devices
     fl_ = field("FL")
-    irqs = ["U0INT", "U1INT", "KIRQ", "MIRQ", "VIRQ", "CONIRQ"]
+    irqs = ["IRQ"] if halves else ["U0INT", "U1INT", "KIRQ", "MIRQ", "VIRQ", "CONIRQ"]
     G.add(nl, "U_SYS", {
-        "IRQP": (AND(lit(f["I"]), OR(*[lit(n) for n in irqs])), True, False),
+        "IRQP": (OR(AND(lit(f["I"]), OR(*[lit(n) for n in irqs])),
+                    *([lit("HLTQ"), lit("TRACE")] if halves else [])), True, False),
         "INIT": (OR(lit("INIT"), eq(fl_, uc.FL_CODE["SETINIT"])), True, False),
         "RESET": (lit("RESET_n", 0), False, False),
         # the video's slot on the address bus: phase W through a 22V10, as
@@ -373,31 +375,35 @@ def build(sim=True, halves=False):
 
     # ---- I/O ---------------------------------------------------------------
     nl.section("I/O")
-    io_gals(nl)
-    for k in range(2):
-        nl.add("16c550", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", RD="IORD_n",
-               WR="IOWR_n", MR="RESET", XIN="UCLK", INTR=f"U{k}INT",
-               **{f"D{i}": f"MD{i}" for i in range(8)},
-               **{f"A{i}": f"A{i + 1}" for i in range(3)})
-    nl.add("flash", "U_BOOT", CE="FLCS_n", OE="IORD_n", WE="IOWR_n", part="SST39SF010A-55",
-           **{f"A{i}": f"A{i + 1}" for i in range(17)}, **{f"D{i}": f"MD{i}" for i in range(8)})
-    if sim:
-        nl.add("osc", "X_UCLK", OUT="UCLK", params={"period_ps": 542535, "phase_ps": 1000})
-        # the fixture takes a read at its clock's edge, which IORD_n's end
-        # races: its read strobe a wire's 10 ns later
-        w = nl.add("wire", "X_IORDW", A="IORD_n", Y="IORD_X")
-        w.add_pin_delay("Y", 10000)
-        nl.add("iodev32", "X_IO", CLK=clk[3], IOSEL="CONSEL_n", RD="IORD_X", WEL="IOWR_n",
-               WEH="VCC", IRQ="CONIRQ",
-               **{f"A{i}": f"A{i}" for i in range(8)}, **{f"D{i}": f"MD{i}" for i in range(16)})
-        nl.add("ps2dev", "X_KBD", CLK="KCLK", DATA="KDATA", WAKE="KWAKE",
-               params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 50_000_000})
-        nl.add("ps2dev", "X_MOUSE", CLK="MSCLK", DATA="MSDATA", WAKE="MWAKE",
-               params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 70_000_000})
+    if halves:
+        from . import draft
+        draft.io(nl)
     else:
-        nl.add("const", "X_IOK", LO="CONIRQ", HI="UCLK")
-    nl.add("pullup", "R_PS2", P1="KCLK", P2="KDATA", P3="MSCLK", P4="MSDATA")
-    ps2_gals(nl)
+        io_gals(nl)
+        for k in range(2):
+            nl.add("16c550", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", RD="IORD_n",
+                   WR="IOWR_n", MR="RESET", XIN="UCLK", INTR=f"U{k}INT",
+                   **{f"D{i}": f"MD{i}" for i in range(8)},
+                   **{f"A{i}": f"A{i + 1}" for i in range(3)})
+        nl.add("flash", "U_BOOT", CE="FLCS_n", OE="IORD_n", WE="IOWR_n", part="SST39SF010A-55",
+               **{f"A{i}": f"A{i + 1}" for i in range(17)}, **{f"D{i}": f"MD{i}" for i in range(8)})
+        if sim:
+            nl.add("osc", "X_UCLK", OUT="UCLK", params={"period_ps": 542535, "phase_ps": 1000})
+            # the fixture takes a read at its clock's edge, which IORD_n's end
+            # races: its read strobe a wire's 10 ns later
+            w = nl.add("wire", "X_IORDW", A="IORD_n", Y="IORD_X")
+            w.add_pin_delay("Y", 10000)
+            nl.add("iodev32", "X_IO", CLK=clk[3], IOSEL="CONSEL_n", RD="IORD_X", WEL="IOWR_n",
+                   WEH="VCC", IRQ="CONIRQ",
+                   **{f"A{i}": f"A{i}" for i in range(8)}, **{f"D{i}": f"MD{i}" for i in range(16)})
+            nl.add("ps2dev", "X_KBD", CLK="KCLK", DATA="KDATA", WAKE="KWAKE",
+                   params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 50_000_000})
+            nl.add("ps2dev", "X_MOUSE", CLK="MSCLK", DATA="MSDATA", WAKE="MWAKE",
+                   params={"half_ps": 40_000_000, "gap_ps": 200_000_000, "start_ps": 70_000_000})
+        else:
+            nl.add("const", "X_IOK", LO="CONIRQ", HI="UCLK")
+        nl.add("pullup", "R_PS2", P1="KCLK", P2="KDATA", P3="MSCLK", P4="MSDATA")
+        ps2_gals(nl)
 
     # ---- video -------------------------------------------------------------
     nl.section("video")
@@ -636,7 +642,7 @@ def address_gals(nl, sim, halves=False):
         "MARINC": (eq(axm, uc.AXM_INC), reg, False),
         "PCSEL": (AND(lit("PHW", 0), atpc), False, False),
         "MARSEL": (AND(lit("PHW", 0), notpc), False, False),
-        "LDIR": (eq(MOP, uc.MOP_FETCH), False, False),
+        "LDIR": (mop_in([uc.MOP_FETCH, uc.MOP_LDIRM]), False, False),
     }, clock="CLK8")
     pc = bus("PC", 21)              # the registers' own nets (PC1-PC20 on A1-A20)
     sel = lit("PCSEL")
@@ -706,7 +712,7 @@ def memc_gal(nl):
     T = ["T0", "T1", "T2"]
     sz = field("SZ")[0]
     write = eq(MOP, uc.MOP_WRM)
-    rdm = eq(MOP, uc.MOP_RDM)
+    rdm = mop_in([uc.MOP_RDM, uc.MOP_LDIRM])
 
     def at(ticks):
         return G.table(T, lambda a, b, c: ((a | b << 1 | c << 2) + 1 & 7) in ticks)

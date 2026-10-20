@@ -1105,10 +1105,45 @@ def page3():
             u(rd(T_VEC, 0), alu("A"), ax(AX_PCLO)),
             u(alu("ZERO"), ax(AX_PCHI)),
             u(end()),
-            u(alu("ZERO"), ax(AX_PCLO), fl("SETINIT"), label("reset")),
+            u(fl("SETINIT"), jump(0, page=1), label("reset"))]
+    return ops
+
+
+BOOT_MAGIC = 0x1F               # the boot flash's byte 0 when it holds an image
+
+
+def boot():
+    """Reset's second part, in opcode 00's page-1 block (reset clears OP and
+    N): if the boot flash's byte 0 is BOOT_MAGIC, copy byte 1's count of
+    256-byte pages from its byte 2 on into RAM at 0, a byte at a time;
+    then enter the program at 0. The flash's byte n is at 0x8010_0000 + 2n."""
+    return [u(imm("ZERO"), alu("A"), ax(AX_MARLO)),
+            u(imm("C8010"), alu("A"), ax(AX_MARHI)),
+            u(imm("C31"), LDL),
+            u(mem("MAR", 1), alu("XOR"), fl("STZ"), ax(AX_MARINC)),     # ST: the magic's there
+            u(mem("MAR", 1), alu("A"), wr(T_CNT, 0), jump("enter", "ST", True)),
+            u(imm("C4"), alu("A"), wr(T_A, 0)),                         # T_A: the flash's address
+            u(imm("C8010"), alu("A"), wr(T_A, 1)),
+            u(alu("ZERO"), wr(T_B, 0)), u(alu("ZERO"), wr(T_B, 1)),     # T_B: RAM's
+            u(imm("C2"), LDL),
+            label("loop"),
+            u(rd(T_A, 0), alu("A"), ax(AX_MARLO)),
+            u(rd(T_A, 1), alu("A"), ax(AX_MARHI)),
+            u(mem("MAR", 1), alu("A"), wr(T_C, 0)),
+            u(rd(T_B, 0), alu("A"), ax(AX_MARLO)),
+            u(rd(T_B, 1), alu("A"), ax(AX_MARHI)),
+            u(rd(T_C, 0), store(1)),
+            u(rd(T_B, 0), alu("INC"), fl("ICLO"), wr(T_B, 0)),
+            u(rd(T_B, 0), alu("A", rm=RM_ZXB), fl("STZ")),              # ST: a page's end
+            u(rd(T_B, 1), alu("INCI"), wr(T_B, 1)),
+            u(rd(T_A, 0), alu("ADD"), fl("ICLO"), wr(T_A, 0)),
+            u(rd(T_A, 1), alu("INCI"), wr(T_A, 1), jump("loop", "ST", True)),
+            u(rd(T_CNT, 0), alu("DEC"), fl("STZ"), wr(T_CNT, 0)),
+            u(jump("loop", "ST", True)),
+            label("enter"),
+            u(alu("ZERO"), ax(AX_PCLO)),
             u(alu("ZERO"), ax(AX_PCHI)),
             u(end())]
-    return ops
 
 
 def _entries():
@@ -1162,6 +1197,8 @@ def routine(page, n, op):
         return gen_mulfx(op, page, n)
     if op in (0x06, 0x07):
         return gen_flags_sr(op, page, n)
+    if op == 0x00 and page == 1 and n == 0:
+        return boot()
     if op in (0x00, 0xFF, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xF9, 0xFA, 0xFB):
         return illegal()
     raise Unimplemented(f"{op:02X}")
