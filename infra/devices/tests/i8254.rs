@@ -330,6 +330,56 @@ fn clock_n_matches_clock() {
     }
 }
 
+/// next_change: OUT holds for the pulses before it, and changes at it
+/// whenever single pulses find a change soon after; None only where they
+/// find none.
+#[test]
+fn next_change_matches_clock() {
+    let mut rng = Rng(77);
+    for round in 0..400 {
+        let mode = rng.below(6) as u8;
+        let mut t = Timer::new();
+        t.set_gate(0, rng.below(5) != 0);
+        let count = match rng.below(6) {
+            0 => 0,
+            1 => 1,
+            _ => rng.below(300) as u16,
+        };
+        setup(&mut t, 0, mode, false, count);
+        for _ in 0..6 {
+            let next = t.next_change(0);
+            let mut b = t.clone();
+            let out = b.out(0);
+            let horizon = 70_000u64;
+            let mut first = None;
+            for i in 1..=horizon {
+                b.clock(0);
+                if b.out(0) != out {
+                    first = Some(i);
+                    break;
+                }
+            }
+            match next {
+                None => assert_eq!(first, None, "round {round} mode {mode} count {count}"),
+                Some(n) => {
+                    assert!(
+                        first.is_none_or(|f| f >= n),
+                        "round {round} mode {mode}: {first:?} < {n}"
+                    );
+                    if let Some(f) = first {
+                        assert_eq!(f, n, "round {round} mode {mode} count {count}");
+                    }
+                }
+            }
+            let n = rng.below(500);
+            t.clock_n(0, n);
+            if rng.below(4) == 0 {
+                t.set_gate(0, rng.below(2) == 1);
+            }
+        }
+    }
+}
+
 /// clock_n takes no longer for a year of pulses than for a few.
 #[test]
 fn clock_n_is_fast() {
