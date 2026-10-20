@@ -41,6 +41,11 @@ described as data in `chips.py`.
 - where a datasheet gives no minimum delay, the minimum is a fraction
   of the typical, set per run; its value is **open**.
 
+And later the same day:
+
+- glitches by Atmel's rule ([4](#4-evaluating-chips));
+- the bus handover's tolerance a parameter of the run, 1 ns by default.
+
 This RFC changes [RFC 0015](0015-rfc-languages.md#what-doesnt-change)
 in one place: that RFC kept infra's static timing analysis in Python.
 
@@ -440,8 +445,9 @@ waveform gives when it may be on (from its earliest turn-on to its latest
 turn-off), and when it surely is (from its latest turn-on to its
 earliest turn-off).
 
-- Two drivers that may be on at once overlap by no more than a tolerance
-  (**open**: 1 ns, as the chip-level simulator's runs allow).
+- Two drivers that may be on at once overlap by no more than a tolerance,
+  a parameter of the run: 1 ns by default, as the chip-level simulator's
+  runs allow.
 - Nothing samples or strobes a net while no driver is surely on, unless
   a pull-up holds it.
 - At the window's start, the previous cycle's drivers come from the
@@ -716,16 +722,11 @@ of this RFC.
 
 1. **The minimum delay's fraction** of the typical, where the data has no
    minimum: configurable, its value to be reconsidered (Emily).
-2. **The glitch rule:** Atmel's, as in [4](#4-evaluating-chips), is
-   proposed. The extension in [14](#14-the-datasheets-and-atmels-guidelines)
-   is left out.
-3. **The handover tolerance:** 1 ns, as the chip-level simulator's runs
-   allow?
-4. **Wire delays per receiver and load derating:** where their data comes
+2. **Wire delays per receiver and load derating:** where their data comes
    from.
-5. **The oscillators' duty cycle and jitter.**
-6. **Pull-up rise times** (RESET_n).
-7. **Grades, once the engine is done:**
+3. **The oscillators' duty cycle and jitter.**
+4. **Pull-up rise times** (RESET_n).
+5. **Grades, once the engine is done:**
    - the objective (the -5s first, being PLCC-only; then current?);
    - the candidates (the -10);
    - whether a faster part in any socket must stay safe, which means
