@@ -39,6 +39,7 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check")
     c.add_argument("names", nargs="*")
+    c.add_argument("--first", action="store_true", help="the first cut's model")
     r = sub.add_parser("run")
     r.add_argument("file")
     r.add_argument("--profile", action="store_true")

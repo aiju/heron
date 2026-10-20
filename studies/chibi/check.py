@@ -15,7 +15,9 @@ from heron.studies.v2_isa import testing
 from heron.studies.v2_isa.sim import Machine
 
 from .rtl import RTL
+from .rtl2 import RTL2
 from .system import System
+from .system2 import System2
 
 # programs whose output depends on the machine's timing (the timer's
 # interrupts), compared on their run alone
@@ -32,10 +34,11 @@ def run_isa(img, inp, max_cycles=200_000_000):
     return m
 
 
-def run_rtl(img, inp=b"", max_cycles=100_000_000, profile=False, log=False):
-    s = System(inp)
+def run_rtl(img, inp=b"", max_cycles=100_000_000, profile=False, log=False, first=False):
+    """The model: the two-halves machine's (rtl2), or the first cut's."""
+    s = System(inp) if first else System2(inp)
     s.load(img)
-    m = RTL(s)
+    m = RTL(s) if first else RTL2(s)
     if profile:
         m.ucount = {}
     if log:
@@ -66,13 +69,13 @@ def compare(ref, m, mem=True):
     return out
 
 
-def check_program(path, verbose=False):
+def check_program(path, verbose=False, first=False):
     name = os.path.basename(path)[:-2]
     meta = metadata(path)
     img = assemble(path)
     ref = run_isa(img, meta["input"])
     try:
-        m = run_rtl(img, meta["input"], max_cycles=40 * ref.cycles + 100_000)
+        m = run_rtl(img, meta["input"], max_cycles=40 * ref.cycles + 100_000, first=first)
     except Exception as e:      # noqa: BLE001  (a model error is the check's result)
         return name, None, [f"{type(e).__name__}: {e}"]
     diffs = compare(ref, m) if name not in TIMED else []
@@ -80,20 +83,24 @@ def check_program(path, verbose=False):
 
 
 def cmd_check(args):
-    from .routines import control_store
+    if args.first:
+        from .routines import control_store
+    else:
+        from .routines2 import control_store
     cs = control_store()
     if cs.missing:
         print(f"not in the microcode yet: {' '.join(f'{op:02X}' for op in sorted(cs.missing))}")
     paths = testing.program_paths(args.names or None)
     bad = 0
     for p in paths:
-        name, m, diffs = check_program(p)
+        name, m, diffs = check_program(p, first=args.first)
         if diffs:
             bad += 1
             print(f"{name:12} FAIL  {diffs[0]}")
             for d in diffs[1:6]:
                 print(f"{'':18}{d}")
         else:
-            print(f"{name:12} ok    {m.instructions:9d} instructions {m.cycles:10d} cycles "
+            t = "" if args.first else f" {m.ticks:11d} ticks"
+            print(f"{name:12} ok    {m.instructions:9d} instructions {m.cycles:10d} cycles{t} "
                   f"(CPI {m.cycles / max(m.instructions, 1):.2f})")
     return 1 if bad else 0
