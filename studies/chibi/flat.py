@@ -17,8 +17,8 @@ ODT), with labels of their own. compile():
   and the decode's N = d on d, in the entry's word, after that word's work
   when it's the same for every d);
 - lays the words out: the interrupt's entry at 0x000-0x0FF, each opcode's
-  at 0x100 + the opcode, the copper's at TASK_BASE (its jumps within its 32
-  words), a conditional jump's two targets as a pair (JT, JT ^ 1), a
+  at 0x100 + the opcode, the tasks' (the copper's and the device task's)
+  within their 128 words at TASK_BASE, a conditional jump's two targets as a pair (JT, JT ^ 1), a
   branch's 16 at a multiple of 16; a word wanted in two places is copied,
   as every word gives its next address.
 """
@@ -45,7 +45,7 @@ class Graph:
     """The states, from the routines' generators: {state: (word fields,
     kind, cond, task, src, successors, halt, nochk)}."""
 
-    def __init__(self, block, routines, task_routines=("copper",)):
+    def __init__(self, block, routines, task_routines=("copper", "device")):
         self.block = block              # (page, n, op) -> [ops]
         self.routines = routines        # name -> [ops]
         self.task_routines = set(task_routines)
@@ -224,7 +224,8 @@ def compile_store(block, routines, ops_range=range(256)):
     """(the words' nodes by address, {node: (SEQ, CND, JT)}, the entries)."""
     g = Graph(block, routines)
     entries = {op: [("b", 0, d, op, 0) for d in range(16)] for op in ops_range}
-    roots = [("l", "p3", 0), ("l", "copper", 0)] + [s for v in entries.values() for s in v]
+    roots = [("l", "p3", 0), ("l", "copper", 0), ("l", "device", 0)] + \
+        [s for v in entries.values() for s in v]
     g.explore(roots)
 
     def region(st):
@@ -258,7 +259,8 @@ def compile_store(block, routines, ops_range=range(256)):
         lay.put(irq, a)
     for op, nd in entry.items():
         lay.put(nd, uc.ENTRY_BASE + op)
-    lay.put(nodes[cls[("l", "copper", 0)]], uc.TASK_BASE)
+    lay.put(nodes[cls[("l", "copper", 0)]], uc.COPPER_BASE)
+    lay.put(nodes[cls[("l", "device", 0)]], uc.DEVICE_BASE)
     seqenc = {}
     while lay.queue:
         nd = lay.queue.pop(0)

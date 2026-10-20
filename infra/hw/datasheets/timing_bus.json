@@ -2603,5 +2603,37 @@
         "tPLZ": [1, 2.9, 3.7, 4.1]
       }
     }
+  },
+  "DAC0832LCN": {
+    "family": "device",
+    "function": "8-bit multiplying DAC, double-buffered (an input latch and a DAC latch), current output",
+    "manufacturer": "Texas Instruments (ex-National Semiconductor)",
+    "part_number": "DAC0832LCN",
+    "source": "https://www.ti.com/product/DAC0832",
+    "datasheet": "not transcribed: TI's PDF wasn't reachable when this entry was made",
+    "availability": "to check: TI lists the DAC0832 in DIP-20 (DAC0832LCN)",
+    "max_cond": "VCC 5 V",
+    "delays": {
+      "CLK->Q": {
+        "typ": 100,
+        "max": 100
+      }
+    },
+    "checks": {
+      "tW": 320,
+      "setup D": 320,
+      "hold D": 10,
+      "setup EN": 320,
+      "hold EN": 0
+    },
+    "estimated": [
+      "CLK->Q",
+      "tW",
+      "setup D",
+      "hold D",
+      "setup EN",
+      "hold EN"
+    ],
+    "notes": "Every figure here is an estimate, to replace from the datasheet. The latches are as a register to the simulator: the input latch closing as WR1 rises ('CLK', CS as 'EN'), the DAC latch as XFER and WR2 rise. tW and tDS (data setup) at VCC 5 V are a few hundred ns: 320 ns as remembered, about 375 ns in a forum's reading; the long write class in Chibi Heron's U_SLOW allows 397 ns."
   }
 }

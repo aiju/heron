@@ -54,13 +54,36 @@ class Microcode2(unittest.TestCase):
 
     def test_flat_layout(self):
         """The interrupt's entry at 0x000-0x0FF, every opcode's at 0x100 +
-        the opcode, the copper's words at TASK_BASE: within its 32."""
+        the opcode, the tasks' entries at DEVICE_BASE and COPPER_BASE and
+        their words within TASK_BASE's 128."""
         cs = routines2.control_store()
         self.assertEqual(len({cs.words[a] for a in range(uc2.ENTRY_BASE)}), 1)
-        self.assertTrue(cs.where[uc2.TASK_BASE].startswith("l/copper"))
+        self.assertTrue(cs.where[uc2.COPPER_BASE].startswith("l/copper"))
+        self.assertTrue(cs.where[uc2.DEVICE_BASE].startswith("l/device"))
         for a in range(uc2.CS_WORDS):
-            if cs.where[a].startswith("l/copper"):
+            if cs.where[a].startswith(("l/copper", "l/device")):
                 self.assertGreaterEqual(a, uc2.TASK_BASE)
+
+
+class DeviceTask(unittest.TestCase):
+    """The device task on the model: PCM and both PS/2 ports."""
+
+    def test_pcm(self):
+        import os
+        img = check.assemble(os.path.join(hw.HERE, "programs", "pcm.s"))
+        m = hw.device_model(img)
+        self.assertEqual(bytes(m.sys.console.out), b"P")
+        self.assertEqual(m.sys.dac, [0x80, 0xC0, 0xFF, 0xC0, 0x80, 0x40, 0x00, 0x40])
+
+    def test_ps2(self):
+        """The keyboard's bytes printed, the mouse's frame left at 0x72."""
+        import os
+        img = check.assemble(os.path.join(hw.HERE, "programs", "ps2.s"))
+        m = hw.device_model(img, kbd=b"\x1c\xf0", mouse=b"\xa5")
+        self.assertEqual(bytes(m.sys.console.out), b"\x1c\xf0")
+        frame = int.from_bytes(m.sys.ram[0x72:0x74], "little")
+        self.assertEqual(frame >> 6 & 0xFF, 0xA5)
+        self.assertEqual(m.sys.ps2[1].irq, 1)
 
 
 class Programs(unittest.TestCase):
@@ -257,6 +280,15 @@ class Netlist2(unittest.TestCase):
         out = hw.run(bytes(hw.m_ram(img)), max_cycles=40_000, kbd=b"\x1c\xf0")
         self.assertEqual(out["output"], b"\x1c\xf0")
         self.assertEqual(out["violation_total"], 0)
+
+    def test_pcm_at_chip_level(self):
+        """The device task plays the buffer at the timer's requests."""
+        import os
+        img = check.assemble(os.path.join(hw.HERE, "programs", "pcm.s"))
+        m = hw.device_model(img)
+        out = hw.run(bytes(hw.m_ram(img)), max_cycles=3000)
+        self.assertEqual(out["output"], b"P")
+        self.assertEqual(hw.outcome_diffs(m, out), [])
 
     def test_hello_at_chip_level(self):
         p = testing.program_paths(["hello"])[0]

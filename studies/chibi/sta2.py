@@ -22,7 +22,7 @@ ticks it finds (ticks.json) gives the control store its LEN and HLEN
 (routines2.ControlStore), with the floors the clock generator wants: a
 high half at least 2 ticks (HCK's pulse), a half with an access at MAR at
 least 3 (it looks at IOACC from its third); an access to the I/O space has
-5 ticks whatever, and is checked against them.
+6 ticks whatever, and is checked against them.
 
   heron chibi hw sta [--paths N] [--write]
 """
@@ -44,13 +44,12 @@ GAL = sta.GAL
 IO_TICKS = 6
 TICKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticks.json")
 CPU = {f"CLK{i}" for i in range(9)}
-HALF_END = {"L": {"HCK1", "HCK2", "HCK3", "HCK4", "HCKA1", "HCKA2"},
-            "H": {"HCK1", "HCK2", "HCK3", "HCK4", "HCKB1", "HCKB2"}}
+HALF_END = {"L": {"HCK1", "HCK2", "HCK3", "HCK4", "HCKA1", "HCKA2", "LCKA"},
+            "H": {"HCK1", "HCK2", "HCK3", "HCK4", "HCKB1", "HCKB2", "LCKB"}}
 # the devices' own GALs, on their own clocks: only their outputs onto the
 # CPU's buses are timed
-DEVICE_GALS = {"U_SLOW", "U_PSGC", "U_VQ", "U_VC", "U_SLOWD", "U_ODT", "U_VS", "U_LREQ",
-               "U_LCMP", "U_LINE", "U_VH", "U_VV", "U_VF", "U_SHA", "U_SHB", "U_KBD", "U_MOUSE",
-               "U_KBDF", "U_MOUSEF", "U_KBDC", "U_MOUSEC"}
+DEVICE_GALS = {"U_SLOW", "U_VQ", "U_VC", "U_SLOWD", "U_ODT", "U_VS", "U_LREQ", "U_LINE",
+               "U_VH", "U_VV", "U_VF", "U_SHA", "U_SHB", "U_KBD", "U_MOUSE"}
 
 
 class Case3(hsta.Case):
@@ -94,6 +93,15 @@ class Case3(hsta.Case):
     def m_gal(self, inst, pin, d):
         if inst.ref == "U_MEMC" and any(o[0] == pin and o[1] for o in inst.gal):
             return self.strobe(inst, pin)
+        if inst.ref == "U_LCK":
+            # LBOE_n: HALF's complement, from the clock generator's state as
+            # U_CGB's HALF; the latch's clocks rise at the half's end (the
+            # capture); the rest is the devices'
+            net = inst.conn.get(pin)
+            if net == "LBOE_n" and self.phase == "H":
+                return (0, TCO, True, (inst.ref, pin, "LBOE_n at 0"))
+            return ({"LBOE_n": 1, "LCKA": 0, "LCKB": 0}.get(net, self.const.get(net)), NEG, True,
+                    None)
         out = next((o for o in inst.gal if o[0] == pin), None)
         if out is not None and out[1]:
             ck = inst.conn.get("CLK")
@@ -170,7 +178,7 @@ def netlist():
 def constants(word, extra, phase, two):
     c = hsta.constants_for(sys_module(), word, dict(extra)) if phase != "F" else {}
     # the registers whose values steer a case: no task; HALFD as the half
-    c.update(TASK=0, TCHG=0, HALFD=int(phase == "H"))
+    c.update(TASK=0, TCHG=0, TASKP=0, DREQ=0, HALFD=int(phase == "H"))
     if phase != "F":
         nat = c.get(board2.HXF[0], 0) == 0 and c.get(board2.HXF[1], 0) == 0
         c["SUPH"] = int(phase == "H" and not nat)
@@ -401,7 +409,7 @@ def report(res, fbad, paths=2):
     bad = [(b, ph) for r in res for ph, x in (("L", r[1]), ("H", r[2])) if x for b in x[2]]
     lines.append(f"fixed-tick requirements failing: {len(bad)}" +
                  (f" (worst {max(bad)[0][0]:.1f} ns late: {max(bad)[0][1]})" if bad else ""))
-    lines.append(f"halves over their field's most (or I/O's 5 ticks): {len(over)}" +
+    lines.append(f"halves over their field's most (or I/O's 6 ticks): {len(over)}" +
                  (f", e.g. a {over[0][1]} half of {over[0][0]} ticks: {sta_describe(over[0][2])}"
                   if over else ""))
     lines.append(f"phase F: {len(fbad)} failing" +

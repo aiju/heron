@@ -8,27 +8,27 @@ The program suite on the two-halves machine's register-transfer model, which the
 
 | Program | Instructions | Microinstructions | Ticks each | Time | Per instruction | Full Heron | Slower | Over the first cut |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| arith | 16528 | 201857 | 6.22 | 24.95 ms | 1510 ns | 6.80 ms | 3.7x | 2.13x |
-| bignum | 5147 | 93034 | 6.38 | 11.80 ms | 2292 ns | 2.68 ms | 4.4x | 2.16x |
-| bst | 10398 | 41041 | 7.01 | 5.72 ms | 550 ns | 2.26 ms | 2.5x | 1.95x |
-| crc | 61552 | 337613 | 6.90 | 46.27 ms | 752 ns | 11.86 ms | 3.9x | 1.63x |
-| fib | 81574 | 332505 | 7.26 | 47.93 ms | 588 ns | 20.37 ms | 2.4x | 1.73x |
-| hello | 53 | 204 | 7.09 | 0.03 ms | 542 ns | 0.02 ms |  | 1.39x |
-| interrupts | 10931 | 196221 | 5.79 | 22.55 ms | 2063 ns | 9.30 ms |  | 2.54x |
-| life | 164136 | 559774 | 7.83 | 87.08 ms | 531 ns | 39.58 ms | 2.2x | 1.57x |
-| lines | 24031 | 88101 | 7.21 | 12.62 ms | 525 ns | 5.88 ms | 2.1x | 1.67x |
-| mandel | 107711 | 5155708 | 5.60 | 573.20 ms | 5322 ns | 91.69 ms | 6.3x | 2.23x |
-| matmul | 5849 | 123745 | 5.95 | 14.63 ms | 2501 ns | 3.62 ms | 4.0x | 2.38x |
-| monitor | 14597 | 79586 | 6.25 | 9.88 ms | 677 ns | 3.98 ms | 2.5x | 1.57x |
-| queens | 60238 | 185598 | 7.36 | 27.11 ms | 450 ns | 10.10 ms | 2.7x | 1.76x |
-| rpn | 10275 | 38253 | 7.04 | 5.35 ms | 520 ns | 2.88 ms | 1.9x | 2.06x |
-| sha256 | 86727 | 992329 | 5.62 | 110.68 ms | 1276 ns | 12.99 ms | 8.5x | 1.63x |
-| sieve | 71514 | 214864 | 7.17 | 30.61 ms | 428 ns | 13.33 ms | 2.3x | 1.73x |
-| sort | 34947 | 129837 | 7.17 | 18.50 ms | 529 ns | 6.81 ms | 2.7x | 1.72x |
-| strings | 5710 | 21160 | 6.96 | 2.92 ms | 512 ns | 1.66 ms | 1.8x | 1.87x |
-| vm | 592268 | 4789174 | 7.15 | 679.93 ms | 1148 ns | 210.65 ms | 3.2x | 2.12x |
-| wordfreq | 65909 | 382167 | 6.38 | 48.42 ms | 735 ns | 18.16 ms | 2.7x | 2.01x |
-| **total, against the full Heron** | 1419111 | 13766346 | 6.43 | 1757.58 ms | 1239 ns | 465.30 ms | 3.8x | 2.05x |
+| arith | 16528 | 201861 | 6.22 | 24.95 ms | 1510 ns | 6.80 ms | 3.7x | 2.13x |
+| bignum | 5147 | 93038 | 6.38 | 11.80 ms | 2292 ns | 2.68 ms | 4.4x | 2.16x |
+| bst | 10398 | 41045 | 7.01 | 5.72 ms | 550 ns | 2.26 ms | 2.5x | 1.95x |
+| crc | 61552 | 337617 | 6.90 | 46.27 ms | 752 ns | 11.86 ms | 3.9x | 1.63x |
+| fib | 81574 | 332509 | 7.26 | 47.93 ms | 588 ns | 20.37 ms | 2.4x | 1.73x |
+| hello | 53 | 208 | 7.06 | 0.03 ms | 550 ns | 0.02 ms |  | 1.37x |
+| interrupts | 10931 | 196227 | 5.79 | 22.55 ms | 2063 ns | 9.30 ms |  | 2.54x |
+| life | 164136 | 559778 | 7.83 | 87.08 ms | 531 ns | 39.58 ms | 2.2x | 1.57x |
+| lines | 24031 | 88105 | 7.21 | 12.62 ms | 525 ns | 5.88 ms | 2.1x | 1.67x |
+| mandel | 107711 | 5155712 | 5.60 | 573.20 ms | 5322 ns | 91.69 ms | 6.3x | 2.23x |
+| matmul | 5849 | 123749 | 5.95 | 14.63 ms | 2501 ns | 3.62 ms | 4.0x | 2.38x |
+| monitor | 14597 | 79590 | 6.25 | 9.88 ms | 677 ns | 3.98 ms | 2.5x | 1.57x |
+| queens | 60238 | 185602 | 7.36 | 27.11 ms | 450 ns | 10.10 ms | 2.7x | 1.76x |
+| rpn | 10275 | 38257 | 7.04 | 5.35 ms | 520 ns | 2.88 ms | 1.9x | 2.06x |
+| sha256 | 86727 | 992333 | 5.62 | 110.68 ms | 1276 ns | 12.99 ms | 8.5x | 1.63x |
+| sieve | 71514 | 214868 | 7.17 | 30.61 ms | 428 ns | 13.33 ms | 2.3x | 1.73x |
+| sort | 34947 | 129841 | 7.17 | 18.50 ms | 529 ns | 6.81 ms | 2.7x | 1.72x |
+| strings | 5710 | 21164 | 6.96 | 2.92 ms | 512 ns | 1.66 ms | 1.8x | 1.87x |
+| vm | 592268 | 4789178 | 7.15 | 679.93 ms | 1148 ns | 210.65 ms | 3.2x | 2.12x |
+| wordfreq | 65909 | 382171 | 6.38 | 48.42 ms | 735 ns | 18.16 ms | 2.7x | 2.01x |
+| **total, against the full Heron** | 1419111 | 13766418 | 6.43 | 1757.59 ms | 1239 ns | 465.30 ms | 3.8x | 2.05x |
 
 ## Where the time goes
 
@@ -67,10 +67,10 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 
 | Part | Packages |
 |---|---:|
-| ATF22V10C-5 | 61 |
+| ATF22V10C-5 | 52 |
 | SST39SF010A-55 | 10 |
+| 74ABT574 | 9 |
 | 74ABT541 | 7 |
-| 74ABT574 | 6 |
 | 74ABT245 | 5 |
 | 74F181 | 4 |
 | AS7C4096A-12 | 4 |
@@ -85,10 +85,11 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | 74HCT688 | 1 |
 | 82C54 | 1 |
 | CF | 1 |
+| DAC0832LCN | 1 |
 | IMS G171 | 1 |
+| MCP6002 | 1 |
 | TL7705A | 1 |
-| YM2149F | 1 |
-| **total** | 115 |
+| **total** | 110 |
 
 | Section | Packages |
 |---|---:|
@@ -96,12 +97,12 @@ The board's packages (the simulation's netlist without its fixtures), not counti
 | control store | 17 |
 | flags | 2 |
 | register file | 6 |
-| ALU | 10 |
+| ALU | 11 |
 | result | 5 |
 | immediate unit | 6 |
 | address | 7 |
 | memory | 10 |
-| I/O | 34 |
+| I/O | 28 |
 | video | 12 |
 
 ## Timing
@@ -110,10 +111,10 @@ Static timing analysis of the netlist (`heron chibi hw sta`), worst-case datashe
 
 ```
 ticks of 19.86 ns; phase F ticks 0-2, the low half from tick 3
-low halves' ticks over 582 words:  2: 374, 3: 208
-high halves' ticks over 326 words: 2: 213, 3: 113
+low halves' ticks over 626 words:  2: 391, 3: 235
+high halves' ticks over 341 words: 2: 218, 3: 123
 fixed-tick requirements failing: 0
-halves over their field's most (or I/O's 5 ticks): 0
+halves over their field's most (or I/O's 6 ticks): 0
 phase F: 0 failing
 
 slowest low half: 58.5 ns from its start (3 ticks), DS=1 RK=33 WK=32 AOP=INC FL=ICLOZ MOP=4 SEQ=2 {}: U_FLG.I9 setup

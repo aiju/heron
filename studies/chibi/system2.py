@@ -18,7 +18,10 @@ The I/O space (A30 set; A31 is ignored), by A20, A16 and A14-A12
     ignored)
 """
 
+from .board import TICK_PS
 from .system import Console, RAM_SIZE
+
+UCLK_PS = 542535                # the timer's clock (board2.UCLK_PS)
 
 class Uart:
     """UART 0 as ODT uses it: the receiver's buffer and the line status
@@ -48,6 +51,40 @@ class Uart:
             self.out.append(v & 0xFF)
 
 
+class Ps2Model:
+    """A PS/2 device sending bytes as the chip-level simulator's ps2dev does:
+    each bit's data a quarter of half_ps before its clock falls, the clock
+    low for half_ps and high for half_ps; gap_ps between frames, the first
+    at start_ps. What the port's GAL makes of it: E set at each falling
+    edge, cleared by the device task's write; IRQ the port's interrupt."""
+
+    def __init__(self, data=b"", half_ps=40_000_000, gap_ps=200_000_000, start_ps=50_000_000):
+        self.bits = []                  # (the data's time, the clock's fall, the bit)
+        t, q = start_ps, half_ps // 2
+        for b in data:
+            frame = b << 1 | (1 ^ bin(b).count("1") & 1) << 9 | 1 << 10
+            for n in range(11):
+                self.bits.append((t, t + q, frame >> n & 1))
+                t += 2 * half_ps
+            t += gap_ps
+        self.i = 0
+        self.e = self.irq = 0
+
+    def advance(self, now):
+        while self.i < len(self.bits) and self.bits[self.i][1] <= now:
+            self.e = 1
+            self.i += 1
+
+    def data(self, now):
+        bit = 1
+        for t, _, b in self.bits[max(0, self.i - 1):self.i + 1]:
+            if t <= now:
+                bit = b
+        if self.i == len(self.bits) and (not self.bits or now >= self.bits[-1][1] + 40_000_000):
+            return 1
+        return bit
+
+
 LINE_TICKS = 1600       # the video's line: 200 words of 8 ticks
 FRAME_LINES = 525
 
@@ -58,7 +95,7 @@ SOURCES = ["TIRQ", "VIRQ", "U0INT", "U1INT", "KIRQ", "MIRQ", "CFIRQ", "BTNQ"]   
 
 
 class System2:
-    def __init__(self, inp=b"", uart=b""):
+    def __init__(self, inp=b"", uart=b"", kbd=b"", mouse=b""):
         self.ram = bytearray(RAM_SIZE)
         self.console = Console(inp)
         self.uart = Uart(uart)
@@ -72,6 +109,12 @@ class System2:
         self.cffast = 0
         self.halt_req = 0
         self.trace = 0
+        self.ps2 = [Ps2Model(kbd), Ps2Model(mouse, start_ps=70_000_000)]
+        self.t1 = None               # the timer's counter 1: (its period in ps, the next pulse)
+        self.t1_rw = self.t1_lsb = None
+        self.t1_set = False
+        self.sreq = 0
+        self.dac = []                # the samples written
 
     def load(self, image):
         for a, b in image.mem.items():
@@ -95,15 +138,20 @@ class System2:
             return self.console.read(a, cycle)
         if r == UART0:
             return self.uart.read(a >> 1 & 7)
+        if r == PS2:
+            p = self.ps2[a >> 1 & 1]
+            now = self.ticks * TICK_PS
+            return p.data(now) | p.e << 1 | (self.sreq << 2 if a & 2 else 0)
         if r == FLASH:                          # the boot flash, a byte a halfword
             return self.flash[(a >> 1) & 0x1FFFF] | 0xFF00
         if r == IRQC:
             k = a >> 1 & 3
             if k == 0:
-                return self.sources
+                return self.sources | self.ps2[0].irq << 4 | self.ps2[1].irq << 5
             if k == 1:
+                sources = self.sources | self.ps2[0].irq << 4 | self.ps2[1].irq << 5
                 for i in range(8):
-                    if self.sources >> i & 1:
+                    if sources >> i & 1:
                         return 0x40 + 4 * i
                 return 0x04
             if k == 2:
@@ -136,9 +184,20 @@ class System2:
                 self.palette_bank = v & 15
             else:
                 self.video_ctl = v
+        elif r == PS2:
+            p = self.ps2[a >> 1 & 1]
+            if a & 4:
+                p.irq = v >> 3 & 1
+            else:
+                p.e = 0
         elif r == SLOWD:
             if a >> 4 & 7 == 3:
                 self.cffast = v & 1
+            elif a >> 4 & 7 == 2:                   # the PCM's DAC
+                self.dac.append(v & 0xFF)
+                self.sreq = 0
+            elif a >> 4 & 7 == 0:
+                self.timer_write(a >> 1 & 3, v & 0xFF)
         elif r == IRQC:
             k = a >> 1 & 3
             if k == 2:
@@ -148,8 +207,30 @@ class System2:
                 self.target_line = v & 0x1FF
                 self.cen = v >> 15 & 1
 
+    def timer_write(self, reg, v):
+        """The 82C54 as far as counter 1 goes: a control word for it, then
+        its count's low and high bytes; OUT1 then pulses once a count. As
+        the chip-level simulator's, OUT1 is low from reset to the first
+        control word, which makes it rise: SREQ, as each pulse's end does."""
+        if reg == 3 and v >> 6 == 1:
+            self.t1_rw, self.t1_lsb = v >> 4 & 3, None
+            if not self.t1_set:             # OUT1 rises from reset's low: a request
+                self.t1_set, self.sreq = True, 1
+        elif reg == 1 and self.t1_rw == 3:
+            if self.t1_lsb is None:
+                self.t1_lsb = v
+            else:
+                n = (self.t1_lsb | v << 8) or 0x10000
+                self.t1_lsb = None
+                self.t1 = (n * UCLK_PS, self.ticks * TICK_PS + n * UCLK_PS)
+
+    def dreq(self):
+        """The device task's request: SREQ, or a PS/2 port's edge not acked."""
+        return bool(self.sreq or any(p.e for p in self.ps2))
+
     def irq(self):
-        return int(bool(self.console.flag or self.sources))
+        sources = self.sources | self.ps2[0].irq << 4 | self.ps2[1].irq << 5
+        return int(bool(self.console.flag or sources))
 
     def odt_req(self):
         return int(bool(self.halt_req or self.trace))
@@ -166,7 +247,7 @@ class System2:
         if self.region(a) == SLOWD:
             if a >> 6 & 1:
                 return 8 if self.cffast else 32
-            return 10
+            return 24 if a >> 4 & 7 == 2 else 11
         return m.IO_TICKS
 
     def line(self):
@@ -181,3 +262,12 @@ class System2:
         """A cycle's end."""
         self.ticks = m.ticks
         self.console.tick()
+        now = self.ticks * TICK_PS
+        for p in self.ps2:
+            p.advance(now)
+        if self.t1 and now >= self.t1[1]:
+            period, t = self.t1
+            while t <= now:
+                t += period
+            self.t1 = (period, t)
+            self.sreq = 1

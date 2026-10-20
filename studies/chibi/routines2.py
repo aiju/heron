@@ -22,7 +22,7 @@ from . import odt
 from .ucode2 import (
     AX_MARINC, AX_MARLO, AX_PCLO, DS_ADR, DS_FLW, G, IMM_CODE, IRN_DECS, IRN_IDX,
     IRN_INCD, IRN_NS, LDL, LINK, MOP_FETCH, MOP_LDIRM, MOP_PCS, RD, RM_SHR, RM_SXB, RM_ZXB,
-    RSRC, SEQ_END, SEQ_NEXT, SI_C, SI_D15, SP, T_A, T_B, T_C, T_CNT, T_FW, T_Q, T_R, T_RET,
+    RSRC, SEQ_END, SEQ_NEXT, SI_C, SI_D15, SP, T, T_A, T_B, T_C, T_CNT, T_FW, T_Q, T_R, T_RET,
     T_VEC, W, alu, ax, end, fl, hx, imm, jump, label, mem, pcrb, rd, store, u, wr,
 )
 
@@ -66,7 +66,7 @@ def finish(ops):
     return ops + [u(end())]
 
 
-VEC_SUMS = {"V_ADR": ("C16", "C4"), "V_TAG": ("C16", "C8")}     # 0x14, 0x18
+VEC_SUMS = {"V_ADR": ("C16", "C4"), "V_TAG": ("C16", "C8"), "V_SWI": ("C8", "C4")}
 
 
 def trap(vec, unwind):
@@ -1081,7 +1081,7 @@ COPPTR = 0x60       # the copper's place in its list: a word in RAM
 
 
 def copper():
-    """The copper: a task (at ucode2.TASK_BASE) while the scanline
+    """The copper: a task (at ucode2.COPPER_BASE) while the scanline
     is the copper's target line (COPREQ). Its list goes on from the word at
     COPPTR, which it moves on, of entries:
 
@@ -1124,6 +1124,91 @@ def copper():
             u(imm("C4"), LDL, W, jump("loop"))]
 
 
+PCMPTR, PCMEND = 0x64, 0x68     # the PCM's next sample's address, and its end (words)
+PS2FRAME = (0x70, 0x72)         # each PS/2 port's last frame (halfwords)
+TD_L, TD_K, TD_M, TD_X, TD_Y, TD_P, TD_A = T(5), T(12), T(13), T(0), T(1), T(2), T(3)
+TD_STATE = {0: TD_K, 1: TD_M}
+
+
+def ps2_port(k, tr):
+    """A PS/2 port's part of the device task, its read in tr's low half
+    (bit 0 the data line, bit 1 an edge of its clock to take; a write to
+    the port takes it). The port's state in the task
+    bank's TD_K or TD_M: the high half the bits still to come in the frame
+    (0 between frames), the low half the frame so far, each bit shifted in
+    at the top. A start bit (0) between frames starts one; after its ten
+    bits (data LSB first, parity, stop) the frame is written at
+    PS2FRAME[k], the data in its bits 13-6, and the port's interrupt set."""
+    st, done, idle = TD_STATE[k], f"ps2_{k}_done", f"ps2_{k}_idle"
+    port = [u(imm("C2"), LDL, W), u(imm("IOPS"), alu("ADD"), ax(AX_MARLO), W)] if k else \
+        [u(imm("IOPS"), alu("A"), ax(AX_MARLO), W)]
+    return [
+        u(imm("C2"), LDL),
+        u(rd(tr, 0), alu("AND"), fl("STZ")),                      # ST: no edge
+        u(rd(tr, 0), alu("A", rm=RM_SHR), fl("SHR"), jump(done, "ST")),   # C: the bit
+    ] + port + [
+        u(rd(tr, 0), store(2)),                                   # the edge taken
+        u(rd(st, 1), alu("A"), fl("STZ")),                        # ST: between frames
+        u(jump(idle, "ST")),
+        u(rd(st, 0), alu("A", rm=RM_SHR, si=SI_C), wr(st, 0)),   # the bit in at the top
+        u(rd(st, 1), alu("DEC"), fl("STZ"), wr(st, 1)),          # ST: the frame's end
+        u(jump(done, "ST", True)),
+        u(imm("C64"), LDL, W),
+        u(imm("C32"), alu("ADD"), wr(TD_P), W),                   # 0x60
+        u(imm("C16"), LDL, W),
+        u(rd(TD_P), alu("ADD"), wr(TD_P), ax(AX_MARLO) if k == 0 else {}, W),   # 0x70
+    ] + ([u(imm("C2"), LDL, W), u(rd(TD_P), alu("ADD"), ax(AX_MARLO), W)] if k else []) + [
+        u(rd(st, 0), store(2)),                                   # the frame
+        u(imm("C6" if k else "C4"), LDL, W),
+        u(imm("IOPS"), alu("ADD"), ax(AX_MARLO), W),              # the port's control (+4, +6)
+        u(imm("C8"), store(2), jump(done)),                      # its interrupt; the pulls off
+        label(idle),
+        u(jump(done, "C")),                                       # not a start bit
+        u(imm("C8"), LDL),
+        u(imm("C2"), alu("ADD"), wr(st, 1)),                      # ten bits to come
+        u(imm("ZERO"), alu("A"), wr(st, 0)),
+        label(done),
+    ]
+
+
+def device():
+    """The device task (at ucode2.DEVICE_BASE), while DREQ asks: the PCM's
+    sample request (SREQ, once a period of the timer's OUT1) or an edge of
+    a PS/2 port's clock. It reads both ports (the mouse's has SREQ in bit
+    2), plays the next sample if SREQ (from PCMPTR to PCMEND, a byte each;
+    0x80 once they meet), then takes each port's edge (ps2_port). A task's
+    registers are its own bank's; it uses ST, C and V, and L, put back."""
+    return [u(alu("B"), wr(TD_L), W),                             # L
+            u(imm("IOPS"), alu("A"), ax(AX_MARLO), W),
+            u(mem("MAR", 2), alu("A"), wr(TD_X, 0), ax(AX_MARINC)),  # the keyboard's port
+            u(mem("MAR", 2), alu("A"), wr(TD_X, 1)),                # the mouse's
+            u(imm("C4"), LDL),
+            u(rd(TD_X, 1), alu("AND"), fl("STZ")),                   # ST: no sample asked for
+            u(jump("ps2", "ST")),
+            u(imm("C64"), LDL, W),
+            u(imm("C32"), alu("ADD"), wr(TD_A), W),                  # 0x60
+            u(imm("C4"), LDL, W),
+            u(rd(TD_A), alu("ADD"), wr(TD_A), ax(AX_MARLO), W),      # PCMPTR
+            u(mem("MAR", 4), alu("A"), wr(TD_P), ax(AX_MARINC), W),
+            u(mem("MAR", 4), ax(AX_MARINC), LDL, W),                 # PCMEND
+            u(rd(TD_P), alu("SUB"), fl("STZ"), W),                   # ST: at the end
+            u(rd(TD_P), alu("A"), ax(AX_MARLO), W, jump("pcm_end", "ST")),
+            u(mem("MAR", 1), alu("A", rm=RM_ZXB), wr(TD_Y, 0)),     # the sample
+            u(rd(TD_P), alu("INC"), wr(TD_P), W),
+            u(rd(TD_A), alu("A"), ax(AX_MARLO), W),
+            u(rd(TD_P), store(4), ax(AX_MARINC), W),
+            label("dac"),
+            u(imm("IODAC"), alu("A"), ax(AX_MARLO), W),
+            u(rd(TD_Y, 0), store(2), jump("ps2")),                   # (a slow device's write)
+            label("pcm_end"),
+            u(imm("C64"), LDL),
+            u(imm("C64"), alu("ADD"), wr(TD_Y, 0), jump("dac")),     # 0x80, the middle
+            label("ps2"),
+            u(rd(TD_X, 1), alu("A"), wr(TD_A, 0)),                   # the mouse's read
+            ] + ps2_port(0, TD_X) + ps2_port(1, TD_A) + [
+            u(rd(TD_L), LDL, W, {"SEQ": SEQ_END})]
+
+
 BOOT_MAGIC = 0x1F
 
 
@@ -1155,7 +1240,11 @@ def boot():
     """Reset's second part: if the boot flash's byte 0 is BOOT_MAGIC, copy byte 1's count of
     256-byte pages from its byte 2 on into RAM at 0; then enter the program
     at 0. The flash's byte n is at 0xFFE0_0000 + 2n."""
-    return [u(imm("IOFL"), alu("A"), wr(T_A), ax(AX_MARLO), W),
+    return [u(imm("IOIV"), alu("A"), wr(T_A), W),              # 0xFFFF_D002
+            u(imm("C31"), LDL),
+            u(rd(T_A, 1), alu("BIC"), wr(T_A, 1)),             # 0xFFE0_xxxx
+            u(imm("ZERO"), alu("A"), wr(T_A, 0)),
+            u(rd(T_A), alu("A"), ax(AX_MARLO), W),
             u(imm("C31"), LDL),
             u(mem("MAR", 1), alu("XOR"), fl("STZ"), ax(AX_MARINC)),     # ST: the magic's there
             u(mem("MAR", 1), alu("A"), wr(T_CNT, 0), jump("enter", "ST", True)),
@@ -1180,7 +1269,7 @@ def boot():
 
 # ---- the instructions the first cut hadn't ---------------------------------
 
-SMALL = {0: "ZERO", 1: "C1", 2: "C2", 4: "C4", 6: "C6", 8: "C8", 12: "V_SWI", 16: "C16"}
+SMALL = {0: "ZERO", 1: "C1", 2: "C2", 4: "C4", 6: "C6", 8: "C8", 16: "C16"}
 
 
 def const_into(reg, v):
@@ -1193,6 +1282,8 @@ def const_into(reg, v):
                 return [u(imm(SMALL[y]), LDL), u(imm(SMALL[x]), alu("ADD"), wr(reg, 0))]
             if x and y and x - y == v:
                 return [u(imm(SMALL[y]), LDL), u(imm(SMALL[x]), alu("SUB"), wr(reg, 0))]
+            if x and y and x + y + 1 == v:
+                return [u(imm(SMALL[y]), LDL), u(imm(SMALL[x]), alu("ADDB1"), wr(reg, 0))]
     raise ValueError(v)
 
 
@@ -1411,8 +1502,8 @@ def routine(page, n, op):
 
 # ---- the control store ---------------------------------------------------
 
-ROUTINES = {"p3": lambda: page3_ops(), "copper": lambda: copper(), "uart_init": lambda: uart_init(),
-            "boot": lambda: boot(), "odt": lambda: odt.routine()}
+ROUTINES = {"p3": lambda: page3_ops(), "copper": lambda: copper(), "device": lambda: device(),
+            "uart_init": lambda: uart_init(), "boot": lambda: boot(), "odt": lambda: odt.routine()}
 
 
 def ControlStore(ticks=None):

@@ -171,7 +171,7 @@ class RTL2:
             if nxt is None:
                 self.task = 0
             else:
-                self.tupc = nxt & 31
+                self.tupc = nxt & 0x7F
         else:
             if nxt is None:
                 if op is None:
@@ -179,9 +179,11 @@ class RTL2:
                 chk = not w.JT & uc.NOCHK
                 nxt = op if (chk and f["IRQP"]) else uc.ENTRY_BASE | op
             self.upc = nxt
-            if tp and self.sys.copreq(self):
-                self.task = 1
-                self.tupc = 0
+            if tp:
+                dreq = self.sys.dreq()
+                if dreq or self.sys.copreq(self):        # the device task first
+                    self.task = 1
+                    self.tupc = (uc.DEVICE_BASE if dreq else uc.COPPER_BASE) & 0x7F
         f["IRQP"] = irqp
         self.sys.tick(self, ticks)
         self.cycles += 1

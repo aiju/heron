@@ -87,6 +87,12 @@ PINOUTS = {
     "sram64k": ("A4 A3 A2 A1 A0 CE IO0 IO1 IO2 IO3 VCC GND IO4 IO5 IO6 IO7 WE A15 A14 A13 A12 "
                 "NC NC A11 A10 A9 A8 NC IO0' IO1' IO2' IO3' GND VCC IO4' IO5' IO6' IO7' =GND "
                 "=GND OE A7 A6 A5"),
+    # DAC0832 (DIP-20): the netlist's two latches, the input latch's pins
+    # and the DAC latch's primed; in voltage mode, the output at VREF
+    # (VOUT), the reference in at IOUT1 (VREFIN)
+    "dac0832in": ("EN CLK GND D4 D3 D2 D1 VOUT' NC GND VREFIN' =GND D8 D7 D6 D5 =GND CLK' "
+                  "=VCC VCC"),
+    "mcp6002": "REF REF DIV GND IN OUT OUT VCC",
 }
 PINOUTS = {k: v.split() for k, v in PINOUTS.items()}
 
@@ -130,8 +136,7 @@ def chip_package(inst, gals="plcc"):
 
 # the packages of types without a pinout here where the pin count doesn't
 # say: (pins, row spacing in mm)
-WIDTHS = {"g171": (28, "15.24"),           # IMS G171 (UM70C171): a 0.6 inch DIP-28
-          "ym2149": (40, "15.24")}         # YM2149F: a 0.6 inch DIP-40
+WIDTHS = {"g171": (28, "15.24")}          # IMS G171 (UM70C171): a 0.6 inch DIP-28
 
 
 def _numbered(pins):
@@ -308,6 +313,8 @@ def place_edges(b, items):
 _NL = {}
 
 
+# parts the netlist has as two halves (per_package 2), placed as one
+MERGED = ("sram64k", "dac0832in", "dac0832out")
 SIM_ONLY = ("S_BTNX",)          # the simulation's interrupt button (S_BTN on the board)
 
 
@@ -335,9 +342,9 @@ def build_board(size, params=Params(), name=None, gals="plcc"):
             edge += e
             continue
         other = None
-        if inst.type.per_package == 2 and inst.type.name == "sram64k":
+        if inst.type.per_package == 2 and inst.type.name in MERGED:
             if not inst.ref.endswith("0"):
-                continue                    # the second byte: with the first
+                continue                    # the second half: with the first
             other = next(i for i in nl.instances if i.ref == inst.ref[:-1] + "1")
         fp, padmap, infra_pins = chip_package(inst, gals)
         if fp.startswith("Package_DIP:"):

@@ -1,7 +1,7 @@
 """Device parts that the two-halves machine's netlist (board2.py) takes
 from here: the chip types (_types) and part names (PARTS) of the UARTs
 with their serial pins, the RAMDAC, the MAX232s, the headers, jumpers,
-resistor networks and connectors; the PS/2 ports (ps2); a counter's next
+resistor networks and connectors; the PS/2 ports' (ps2); a counter's next
 bit (_inc). (The draft netlist that first had them, the first cut's
 two-halves variant, is gone: board2.py replaced it.)
 """
@@ -61,57 +61,40 @@ def _inc(w, i):
 
 
 def ps2(nl, spare=None):
-    """Schmitt inputs, the receivers on the clock's falling edge (its inverse
-    rising), and the frame GALs: P after the parity bit's edge, S after the
-    stop bit's, FERR if the stop bit was 0. spare: the 74HCT14's
-    other two inverters' pins."""
+    """The PS/2 ports: Schmitt inputs (a 74HCT14, inverting) and a GAL a
+    port on the master clock, for the device task (routines2.device) to
+    receive the frames in microcode: S1 and S2 the clock synchronised, E an
+    edge (the clock's fall) the task hasn't taken, cleared by a write at
+    the port's +0 (the keyboard) or +2 (the mouse); the port's interrupt
+    (KIRQ, MIRQ), written at +4 or +6 from MD3, and the lines' pulls from
+    MD4 (the clock) and MD5 (the data), each a register driving its line
+    low. A read at +0 or +2: MD0 the data line, MD1 E; the mouse's MD2 is
+    SREQ, the PCM's request. The keyboard's GAL synchronises the timer's
+    OUT1 for U_LCK too (TS). spare: the 74HCT14's other two inverters' pins."""
     nl.add("14", "U_PSS", part="74HCT14", **{"1A": "KCLK", "1Y": "KCLKS", "2A": "KDATA",
                                              "2Y": "KDATS", "3A": "MSCLK", "3Y": "MSCLKS",
                                              "4A": "MSDATA", "4Y": "MSDATS",
                                              **(spare or {"5A": "GND", "6A": "GND"})})
     nl.add("pullup", "R_PS2", P1="KCLK", P2="KDATA", P3="MSCLK", P4="MSDATA")
-    for port, clk, ck, dat, irq, a1 in (("KBD", "KCLK", "KCLKS", "KDATS", "KIRQ", 0),
-                                        ("MOUSE", "MSCLK", "MSCLKS", "MSDATS", "MIRQ", 1)):
-        sel = AND(lit("PS2CS"), lit("A1", a1), lit("A2", 0))
-        clr = OR(AND(sel, lit("IOWR_n", 0)), lit("RESET_n", 0))
-        done = lit(irq)
-        held = [irq] + [f"MD{i}" for i in range(8)]
-        outs = {}
-        for i in range(9):
-            above = lit(dat) if i == 8 else lit(held[i + 1], 0)
-            if i == 0:
-                outs[irq] = (OR(AND(done, lit(irq)), AND(lit(irq, 0), lit(held[1], 0))), True,
-                             False)
-            else:
-                outs[held[i]] = (OR(AND(done, lit(held[i], 0)), AND(lit(irq, 0), above)), True,
-                                 True, AND(sel, lit("IORD_n", 0)))
-        G.add(nl, f"U_{port}", outs, clock=ck, ar=clr)
-        p, s = f"{port}_P", f"{port}_S"
-        G.add(nl, f"U_{port}F", {
-            p: (OR(lit(p), done), True, False),
-            s: (OR(lit(s), AND(done, lit(p))), True, False),
-            f"{port}_FERR": (OR(lit(f"{port}_FERR"), AND(done, lit(p), lit(s, 0), lit(dat))),
-                             True, False),
-            # (holding the device off at S would have it send the byte again:
-            # it looks at the clock after the stop bit; software can hold it
-            # through the control register)
-        }, clock=ck, ar=clr)
-        # the control and status register, on ADS (a tick into any access
-        # of the I/O space): the lines, the byte waiting and the framing
-        # error sampled there, so that a read sees them steady (they change
-        # with the device's clock); the pulls written from MD4-5
-        wsel = AND(lit("PS2CS"), lit("A2"), lit("A1", a1))
-        wr = AND(wsel, lit("IOWR_n", 0))
-        rd = AND(wsel, lit("IORD_n", 0))
-        outs = {}
-        for i, (ln, bit) in enumerate(((clk, "MD4"), (dat, "MD5"))):
-            q = f"{ln}_PULL"
-            outs[q] = (OR(AND(wr, lit(bit)), AND(negate(wr), lit(q))), True, False)
-            line = clk if i == 0 else ("KDATA" if port == "KBD" else "MSDATA")
-            outs[line] = (ZERO, False, False, lit(q))
-        outs["MD0"] = (lit(ck, 0), True, False, rd)
-        outs["MD1"] = (lit(dat, 0), True, False, rd)
-        outs["MD2"] = (lit(irq), True, False, rd)
-        outs["MD3"] = (lit(f"{port}_FERR"), True, False, rd)
-        G.add(nl, f"U_{port}C", outs, clock="ADS", ar=lit("RESET_n", 0)).nocheck = True
-
+    for port, clk, data, ck, dat, irq, a1 in (
+            ("KBD", "KCLK", "KDATA", "KCLKS", "KDATS", "KIRQ", 0),
+            ("MOUSE", "MSCLK", "MSDATA", "MSCLKS", "MSDATS", "MIRQ", 1)):
+        s1, s2, e = f"{port}_S1", f"{port}_S2", f"{port}_E"
+        dsel = AND(lit("PS2CS"), lit("A2", 0), lit("A1", a1))
+        csel = AND(lit("PS2CS"), lit("A2"), lit("A1", a1))
+        wr_d, wr_c = AND(dsel, lit("IOWR_n", 0)), AND(csel, lit("IOWR_n", 0))
+        rd = AND(dsel, lit("IORD_n", 0))
+        outs = {s1: (lit(ck), True, False), s2: (lit(s1), True, False),
+                e: (OR(AND(lit(s1), lit(s2, 0)), AND(lit(e), negate(wr_d))), True, False),
+                irq: (OR(AND(wr_c, lit("MD3")), AND(negate(wr_c), lit(irq))), True, False),
+                "MD0": (lit(dat, 0), False, False, rd),
+                "MD1": (lit(e), False, False, rd)}
+        # a pull: its register's state is the pin's (low while it pulls)
+        for line, bit in ((clk, "MD4"), (data, "MD5")):
+            outs[line] = (OR(AND(wr_c, lit(bit)), AND(negate(wr_c), lit(line, 0))), True, True,
+                          lit(line, 0))
+        if a1:
+            outs["MD2"] = (lit("SREQ"), False, False, rd)
+        else:
+            outs["TS"] = (lit("TOUT1"), True, False)
+        G.add(nl, f"U_{port}", outs, clock="MCLK", ar=lit("RESET_n", 0)).nocheck = True

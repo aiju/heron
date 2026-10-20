@@ -2,7 +2,7 @@
 
     build(sim=True)    for the chip-level simulator: the oscillators, the
                        power-on reset, the suite's console (a fixture at the
-                       I/O space's 0xFFFF_F000, where the sound chip sits), a
+                       I/O space's 0xFFFF_F000, a slot the board leaves free), a
                        keyboard and a mouse on the PS/2 ports
     build(sim=False)   for static timing analysis (sta2.py): the same, with
                        the clock generator's two GALs replaced by a fixture
@@ -31,7 +31,7 @@ from heron.infra.hw.netlist import Netlist
 from . import draft, parts, ucode2 as uc  # noqa: F401  (parts registers the variant)
 from .board import AND, OR, ONE, ZERO, TICK_PS, bus, counter_bit, eq, lit, negate, toggle
 
-UCLK_PS = 542535                # 1.8432 MHz: the UARTs', the timer's and the sound chip's
+UCLK_PS = 542535                # 1.8432 MHz: the UARTs' and the timer's
 
 
 def field(name):
@@ -133,13 +133,15 @@ def build(sim=True, halt_ps=0):
 
     # ---- ALU and result ------------------------------------------------------
     nl.section("ALU")
-    ldl_n = field("LDL")[0]
-    for nm, ck, h in (("U_LA", "HCKA1", 0), ("U_LB", "HCKB1", 1)):
+    # the operand latch: the low half's register (U_LA) and the high half's
+    # (U_LB), 574s on L, each on in its half, clocked by U_LCK's LCKA and
+    # LCKB at their half's end when the word loads L (LDL)
+    for nm, ck, oe in (("U_LA", "LCKA", "HALF"), ("U_LB", "LCKB", "LBOE_n")):
         for k in range(2):
-            outs = {f"L{8 * k + i}": (OR(AND(lit(ldl_n, 0), lit(f"D{8 * k + i}")),
-                                         AND(lit(ldl_n, 1), lit(f"L{8 * k + i}"))),
-                                      True, False, lit("HALF", h)) for i in range(8)}
-            G.add(nl, f"{nm}{k}", outs, clock=ck)
+            nl.add("574", f"{nm}{k}", CLK=ck, OE=oe,
+                   **{f"D{i + 1}": f"D{8 * k + i}" for i in range(8)},
+                   **{f"Q{i + 1}": f"L{8 * k + i}" for i in range(8)})
+    lck_gal(nl)
     cn = ["CN0_n", "CNX", "CNY", "CNZ"]
     for k in range(4):
         nl.add("181", f"U_ALU{k}", M="AM", CN=cn[k], P=f"ALUP{k}", G=f"ALUG{k}",
@@ -203,14 +205,27 @@ def build(sim=True, halt_ps=0):
 
 def _types():
     from heron.infra.hw import chips
-    if "ym2149" in chips.TYPES:
+    if "dac0832in" in chips.TYPES:
         return
-    chips.T("ym2149", "passive", [(f"DA{i}", "pull") for i in range(8)]
-            + [(p, "in") for p in ("BDIR", "BC1", "BC2", "A8", "A9_n", "RESET_n", "CLOCK", "SEL_n")]
-            + [(p, "out") for p in ("CHA", "CHB", "CHC")], family="device",
-            desc="Yamaha YM2149 programmable sound generator: three tone channels, noise, "
-                 "envelopes (not simulated)")
-    chips.FIXED_PARTS.update({"ym2149": "YM2149F", **{f"_b2_{i}": n for i, n in enumerate(CONNS)}})
+    d8 = [(f"D{i}", "in") for i in range(1, 9)]
+    chips.T("dac0832in", "dreg", [("CLK", "in"), ("EN", "in")] + d8
+            + [(f"Q{i}", "out") for i in range(1, 9)],
+            arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q")],
+            checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D"),
+                    (["EN"], "CLK", "rise", "setup EN", "hold EN")], family="device",
+            per_package=2, desc="DAC0832's input latch (CS as EN, WR1 as CLK; ILE high), "
+                                "taken as a register; its other half dac0832out")
+    chips.T("dac0832out", "dreg", [("CLK", "in")] + d8 + [(f"Q{i}", "out") for i in range(1, 9)]
+            + [("VREFIN", "pull"), ("VOUT", "pull")],
+            arcs=[(["CLK"], [f"Q{i}" for i in range(1, 9)], "CLK->Q")],
+            checks=[([f"D{i}" for i in range(1, 9)], "CLK", "rise", "setup D", "hold D")],
+            family="device", per_package=2,
+            desc="DAC0832's DAC latch (WR2 as CLK, XFER low) and its converter in voltage "
+                 "mode (the reference in at IOUT1, the output at VREF); Q the code converted")
+    chips.T("mcp6002", "passive", [(p, "pull") for p in ("REF", "DIV", "IN", "OUT")],
+            family="device", desc="dual op-amp: a follower giving the DAC its reference from "
+                                  "a divider (DIV), a follower buffering its output")
+    chips.FIXED_PARTS.update({"mcp6002": "MCP6002", **{f"_b2_{i}": n for i, n in enumerate(CONNS)}})
     chips.T("chibiclk3", "chibiclk3",
             [(p, "out") for p in ("MCLK", "RESET")]
             + [(p, "out") for p in CG_OUTS], family="fixture",
@@ -220,7 +235,8 @@ def _types():
 
 # the connectors' and switches' part names (no timing)
 CONNS = ["clock jumper: the oscillator or an external clock", "DE-15 (VGA) with its sync resistors",
-         "3.5 mm jack, its mixing resistors (the timer's OUT2 as a beeper too)",
+         "3.5 mm jack, the reference's divider, the mixing resistors (the timer's OUT2 as a "
+         "beeper too)",
          "push button (SPDT): halt to ODT", "push buttons: interrupt, reset", "DE-9 male"]
 
 # the clock generator's outputs (U_CGA's and U_CGB's)
@@ -341,8 +357,8 @@ def sequencer(nl, clk, upc):
             dec = AND(end, OR(lit("IRQP", 0), lit(jt[12])))
         else:
             dec = ZERO
-        # bits 4-0 give way to U_TASK's, 12-5 to U_TOP's (break before make)
-        oe = notask if i < 5 else lit("TASKOR", 0)
+        # bits 6-0 give way to U_TASK's, 12-7 to U_TOP's (break before make)
+        oe = notask if i < 7 else lit("TASKOR", 0)
         outs[upc[i]] = (OR(AND(OR(j, dec), notask), AND(lit("TASK"), lit(upc[i]))), True, False, oe)
     for name, bits in (("U_UPCL", range(0, 4)), ("U_UPCM", range(4, 9)),
                        ("U_UPCH", range(9, uc.ADDR_BITS))):
@@ -369,23 +385,28 @@ def sequencer(nl, clk, upc):
 
 def tasks(nl, seq, jt, upc):
     """Microcode tasks: at a task point (SEQ END or JUMPT: SEQ's bit 1)
-    while COPREQ asks, TASK sets; µPC holds with its outputs off, and
-    U_TASK's bits 4-0 with U_TOP's ones above them (TASK_BASE) address the
-    control store. A task's SEQ END ends it. TCHG: TASK changed at the
-    cycle's start (phase F a tick longer, for the address drivers' enables)."""
+    while DREQ (the device task's) or COPREQ (the copper's) asks, TASK
+    sets; µPC holds with its outputs off, and U_TASK's bits 6-0 with
+    U_TOP's ones above them (TASK_BASE) address the control store, from
+    DEVICE_BASE if DREQ asked (it goes first), else COPPER_BASE. A task's
+    SEQ END ends it. (TCHG, TASK changed at the cycle's start, is U_LCK's.)"""
     task = lit("TASK")
     end = eq(seq, uc.HSEQ_END)
+    start = AND(lit("TASK", 0), lit(seq[1]), OR(lit("COPREQ"), lit("DREQ")))
     outs = {}
-    for i in range(5):
+    for i in range(7):
         nx_ = OR(AND(lit(jt[0]), lit("CT", 0)), AND(lit(jt[0], 0), lit("CT"))) if i == 0 \
             else lit(jt[i])
-        outs[upc[i]] = (AND(task, nx_), True, False, task)
-    start = AND(lit("TASK", 0), lit(seq[1]), lit("COPREQ"))
+        first = (uc.COPPER_BASE >> i & 1, uc.DEVICE_BASE >> i & 1)
+        assert first[1] == 0 and (i == 6 or first[0] == 0)
+        go = AND(start, lit("DREQ", 0)) if first[0] else ZERO
+        outs[upc[i]] = (OR(AND(task, nx_), go), True, False, task)
     outs["TASK"] = (OR(AND(task, negate(end)), start), True, False)
-    outs["TCHG"] = (OR(AND(task, end), start), True, False)
     G.add(nl, "U_TASK", outs, clock="CLK0", ar=RESET)
+    assert uc.TASK_BASE >> 7 == (1 << uc.ADDR_BITS - 7) - 1
     nl.add("541", "U_TOP", OE1="TASK_n", OE2="TASK_n", part="74ABT541",
-           **{f"A{i + 1}": "VCC" for i in range(8)}, **{f"Y{i + 1}": upc[5 + i] for i in range(8)})
+           **{f"A{i + 1}": "VCC" if i < 6 else "GND" for i in range(8)},
+           **{f"Y{i + 1}": upc[7 + i] for i in range(6)})
 
 
 def flags_gal(nl):
@@ -531,6 +552,35 @@ def aluc_gal(nl):
     # timing analysis gives those low halves their ticks (sta2.carry_used);
     # elsewhere CO_n may still be settling at HCKA, harmlessly
     alu.nocheck = True
+
+
+def lck_gal(nl):
+    """U_LCK, on the master clock: LCKA and LCKB, the operand latch's
+    clocks (HCKA and HCKB when the word loads L: LDL); LBOE_n, the high
+    half's latch's enable (HALF's complement, registered from the same
+    next state as U_CGB's HALF); SREQ, the PCM's request, set as the
+    timer's OUT1 pulse ends (TS, synchronised, rising, SARM its last
+    value's complement: the DAC's latch has taken the sample) and cleared
+    by the DAC's write (SDACW), which so always comes between pulses; DREQ, the device task's request: SREQ
+    or a PS/2 port's edge (KBD_E, MOUSE_E); TCHG, TASK changed at the
+    cycle's start (phase F a tick longer, for the address drivers'
+    enables), against TASKP, TASK as the last phase F ended."""
+    e, ldl = lit("END"), lit(field("LDL")[0], 0)
+    half = OR(AND(ph_is("H"), lit("END", 0)), AND(e, ph_is("L"), lit("HLZ", 0)))
+    sdacw = lit("SDACWR_n", 0)
+    fend = AND(ph_is("F"), e)
+    G.add(nl, "U_LCK", {
+        "LCKA": (AND(e, ph_is("L"), ldl), True, False),
+        "LCKB": (AND(e, ph_is("H"), ldl), True, False),
+        "LBOE_n": (half, True, True),
+        "SARM": (AND(lit("RESET_n"), lit("TS", 0)), True, False),
+        "SREQ": (AND(lit("RESET_n"), OR(AND(lit("TS"), lit("SARM")),
+                                        AND(lit("SREQ"), negate(sdacw)))), True, False),
+        "DREQ": (OR(lit("SREQ"), lit("KBD_E"), lit("MOUSE_E")), False, False),
+        "TASKP": (OR(AND(fend, lit("TASK")), AND(negate(fend), lit("TASKP"))), True, False),
+        "TCHG": (OR(AND(lit("TASK"), lit("TASKP", 0)), AND(lit("TASK", 0), lit("TASKP"))),
+                 False, False),
+    }, clock="MCLK")
 
 
 def result_gals(nl):
@@ -817,8 +867,7 @@ def io(nl, sim, halt_ps=0):
     clock generator's timing: the UARTs, the boot flash, the slow devices
     (the timer, the CF card, the palette) behind U_SLOW's wait states, the
     interrupt controller, ODT's hooks, the scanline and the PS/2 ports; the
-    sound chip, written through a posting latch; the logic analyser's
-    headers."""
+    PCM's DAC; the logic analyser's headers."""
     def slot(v):
         """A device's 4 KB in the top 64 KB (A20 and A16 set): by A14-A12,
         from the address bus (settled a tick into the half, and the I/O
@@ -832,7 +881,8 @@ def io(nl, sim, halt_ps=0):
         "U1CS_n": (slot(1), False, True),
         "FLCS_n": (AND(lit("AIO"), lit("RESET_n"), lit("MAR20", 0)), False, True),
         "PBWR_n": (AND(slot(4), lit("A1"), lit("IOWR_n", 0)), False, True),
-        "LSEL": (AND(slot(5), lit("A2"), lit("A1")), False, False),
+        # the copper's target line's register (U_LCMP), written at +6
+        "LSWR_n": (AND(slot(5), lit("A2"), lit("A1"), lit("IOWR_n", 0)), False, True),
     })
     for k in range(2):
         nl.add("16c550x", f"U_UART{k}", CS0="VCC", CS1="VCC", CS2=f"U{k}CS_n", ADS="ADS",
@@ -888,7 +938,8 @@ def io(nl, sim, halt_ps=0):
 # ends a tick before it, for the data's hold. The half lasts end + 2 ticks.
 SLOW = {"cf0": (3, 9, 30, 30),          # PIO mode 0, at boot (the display off): 600 ns
         "cf4": (1, 4, 6, 6),            # PIO mode 4: 25, 70, 10 ns; 120 ns a cycle
-        "other": (1, 6, 8, 8)}          # the 82C54 and the RAMDAC
+        "sdac": (1, 20, 22, 22),        # the DAC0832's input latch: a write of 397 ns
+        "other": (2, 6, 9, 9)}          # the 82C54 (its tAR, 25 ns) and the RAMDAC
 
 
 def slow_devices(nl):
@@ -896,8 +947,9 @@ def slow_devices(nl):
     device's length (the CF card's by CFFAST: PIO 0 until the boot sets
     PIO 4); HOLD holds the half until then; SRD_n and SWR_n are the
     strobes, CFOE_n the CF card's buffers (74ABT245s, quick to let go of
-    MD). By A6-A4: 000 the timer, 001 the palette, 011 CFFAST (bit 0); A6
-    set, the CF card: A5 0 its command block, 1 its control block."""
+    MD). By A6-A4: 000 the timer, 001 the palette, 010 the PCM's DAC
+    (its input latch), 011 CFFAST (bit 0); A6 set, the CF card: A5 0 its
+    command block, 1 its control block."""
     w = bus("W", 5)
     acc = AND(lit("SLOWCS"), lit("IOACC"), lit("IOQ"))
     cf = lit("A6")
@@ -905,7 +957,7 @@ def slow_devices(nl):
     def kind(a6, a5, a4, fast):
         if a6:
             return "cf4" if fast else "cf0"
-        return "other"
+        return "sdac" if (a5, a4) == (1, 0) else "other"
     knets = ["A6", "A5", "A4", "CFFAST"]
     wn = w + knets + ["XDIR", "SDONE"]
 
@@ -927,7 +979,8 @@ def slow_devices(nl):
                          wr and not done and su - 1 <= ww < su + st - 1), True, True)
     outs["CFOE_n"] = (AND(acc, cf, lit("SDONE", 0)), True, True)
     G.add(nl, "U_SLOW", outs, clock="MCLK", ar=RESET)
-    dev = {"TMR": (0, 0, 0), "DAC": (0, 0, 1), "CF0": (1, 0, None), "CF1": (1, 1, None)}
+    dev = {"TMR": (0, 0, 0), "DAC": (0, 0, 1), "SDAC": (0, 1, 0), "CF0": (1, 0, None),
+           "CF1": (1, 1, None)}
 
     def is_(name):
         a6, a5, a4 = dev[name]
@@ -942,10 +995,8 @@ def slow_devices(nl):
         "CFWR_n": (AND(cf, lit("SLOWCS"), lit("SWR_n", 0)), False, True),
         "DACRD_n": (AND(is_("DAC"), lit("SRD_n", 0)), False, True),
         "DACWR_n": (AND(is_("DAC"), lit("SWR_n", 0)), False, True),
+        "SDACWR_n": (AND(is_("SDAC"), lit("SWR_n", 0)), False, True),
         "CFFAST": (OR(AND(ff, lit("MD0")), AND(negate(ff), lit("CFFAST"))), True, False),
-        # the sound chip's write, posted: toggled by each write to 111
-        "PTOG": (OR(AND(lit("CONSEL_n", 0), lit("PTOG", 0)), AND(lit("CONSEL_n"), lit("PTOG"))),
-                 True, False),
     }, clock="IOWR_n", ar=RESET)
     nl.add("82c54", "U_TMR", CS="TMRCS_n", RD="SRD_n", WR="SWR_n", A0="A1", A1="A2",
            CLK0="UCLK", CLK1="UCLK", CLK2="UCLK", GATE0="VCC", GATE1="VCC", GATE2="VCC",
@@ -1027,9 +1078,10 @@ def odt(nl):
 def scanline(nl):
     """The scanline: U_LINE counts the lines as U_VV does, LN8-LN0, read at
     the controller's +6 (LN7-LN0 through U_LRB, LN8 from U_LINE). U_LCMP
-    holds the copper's target line (written at +6, MD8-0) and, with the
-    74HCT688's match, U_LREQ asks for the task (COPREQ) for the whole
-    target line if the copper is on (CEN, MD15 of that write)."""
+    (a 574, on LSWR_n) holds the copper's target line's bits 7-0 (written
+    at +6, MD7-0), U_LREQ its bit 8 (TL8, MD8) and, with the 74HCT688's
+    match, asks for the task (COPREQ) for the whole target line if the
+    copper is on (CEN, MD15 of that write)."""
     l = bus("LN", 9)
     rd = AND(lit("IRQCS"), lit("A2"), lit("A1"), lit("IORD_n", 0))
     outs = {l[k]: (draft._inc(l, k), True, False) for k in range(9)}
@@ -1037,11 +1089,9 @@ def scanline(nl):
     G.add(nl, "U_LINE", outs, clock="HS_n", ar=AND(lit("VBL"), eq(l, 13)))
     nl.add("541", "U_LRB", OE1="LRB_n", OE2="LRB_n",
            **{f"A{i + 1}": f"LN{i}" for i in range(8)}, **{f"Y{i + 1}": f"MD{i}" for i in range(8)})
-    t = bus("TL", 9)
-    wsel = lit("LSEL")
-    outs = {t[k]: (OR(AND(wsel, lit(f"MD{k}")), AND(negate(wsel), lit(t[k]))), True, False)
-            for k in range(9)}
-    G.add(nl, "U_LCMP", outs, clock="IOWR_n")
+    nl.add("574", "U_LCMP", CLK="LSWR_n", OE="GND",
+           **{f"D{i + 1}": f"MD{i}" for i in range(8)}, **{f"Q{i + 1}": f"TL{i}" for i in range(8)})
+    wsel = AND(lit("IRQCS"), lit("A2"), lit("A1"))
     nl.add("688", "U_LEQ", G="GND", **{f"P{i}": f"LN{i}" for i in range(8)},
            **{f"Q{i}": f"TL{i}" for i in range(8)}, PEQ="LEQ_n", part="74HCT688")
     G.add(nl, "U_LREQ", {
@@ -1050,6 +1100,7 @@ def scanline(nl):
                    False, False),
         "LRB_n": (rd, False, True),
         "CEN": (OR(AND(wsel, lit("MD15")), AND(negate(wsel), lit("CEN"))), True, False),
+        "TL8": (OR(AND(wsel, lit("MD8")), AND(negate(wsel), lit("TL8"))), True, False),
         # the sequencer's: TASK a stage later, and either
         "TASKD": (lit("TASK"), False, False),
         "TASKOR": (OR(lit("TASK"), lit("TASKD")), False, False),
@@ -1059,40 +1110,26 @@ def scanline(nl):
 
 
 def sound(nl):
-    """The sound chip, a YM2149 (tentative), written through a posting latch
-    so that its slow bus cycle doesn't hold the CPU: a 16-bit write to the
-    I/O space's 111 (its register in MD15-8, the value in MD7-0) loads
-    U_PSGR and U_PSGV and toggles PTOG; U_PSGC, on the sound chip's clock,
-    sees PTOG differ from PACK and runs an address cycle (BDIR, BC1) with
-    U_PSGR on the chip's bus, a pause, then a write cycle with U_PSGV, a
-    clock period each (543 ns), and takes PACK. Software leaves 2.2 us
-    between writes; the chip isn't read."""
-    for k, base in (("R", 8), ("V", 0)):
-        nl.add("574", f"U_PSG{k}", CLK="PSGWR_n", OE=f"PS{k}OE_n",
-               **{f"D{i + 1}": f"MD{base + i}" for i in range(8)},
-               **{f"Q{i + 1}": f"PDA{i}" for i in range(8)})
-    # PSYNC: PTOG synchronised (U_PSGC's timing checks are off: PTOG is
-    # asynchronous to its clock)
-    pend = OR(AND(lit("PSYNC"), lit("PACK", 0)), AND(lit("PSYNC", 0), lit("PACK")))
-    st = {0: AND(lit("PS0", 0), lit("PS1", 0)), 1: AND(lit("PS0"), lit("PS1", 0)),
-          2: AND(lit("PS0", 0), lit("PS1")), 3: AND(lit("PS0"), lit("PS1"))}
-    sync = G.add(nl, "U_PSGC", {
-        "PSYNC": (lit("PTOG"), True, False),
-        "PS0": (OR(AND(st[0], pend), st[2]), True, False),          # 0 -> 1 -> 2 -> 3 -> 0
-        "PS1": (OR(st[1], st[2]), True, False),
-        "PACK": (OR(AND(st[3], lit("PSYNC")), AND(negate(st[3]), lit("PACK"))), True, False),
-        "BDIR": (OR(st[1], st[3]), False, False),
-        "BC1": (st[1], False, False),
-        "PSROE_n": (OR(st[1], st[2]), False, True),
-        "PSVOE_n": (st[3], False, True),
-        "PSGWR_n": (AND(lit("CONSEL_n", 0), lit("IOWR_n", 0)), False, True),
-    }, clock="UCLK", ar=RESET)
-    sync.nocheck = True
-    nl.add("ym2149", "U_PSG", BDIR="BDIR", BC1="BC1", BC2="VCC", A8="VCC", A9_n="GND",
-           RESET_n="RESET_n", CLOCK="UCLK", SEL_n="VCC", CHA="SND_A", CHB="SND_B", CHC="SND_C",
-           **{f"DA{i}": f"PDA{i}" for i in range(8)})
-    nl.add("conn", "J_SND", P0="SND_A", P1="SND_B", P2="SND_C", P3="SPK",
-           part="3.5 mm jack, its mixing resistors (the timer's OUT2 as a beeper too)")
+    """PCM through a DAC0832 (an 8-bit DAC with two latches) and an op-amp.
+    The device task (routines2.device) writes each sample to the input
+    latch (U_SDAC0) at the slow devices' 0x20 (SDACWR_n, its WR1, a long
+    write; CS low); the timer's OUT1 (counter 1 at the sample rate, a pulse each
+    period) moves it to the DAC's latch (U_SDAC1), so that the samples
+    come out at the timer's steady rate whenever the task wrote them, and
+    asks for the next (SREQ, U_LCK's). The DAC in voltage mode (the
+    reference on IOUT1, the output at VREF), one of the MCP6002's op-amps
+    giving it the reference and the other buffering its output; the
+    analog side is a sketch (open)."""
+    nl.add("dac0832in", "U_SDAC0", CLK="SDACWR_n", EN="GND",
+           **{f"D{i + 1}": f"MD{i}" for i in range(8)},
+           **{f"Q{i + 1}": f"SDQ{i}" for i in range(8)})
+    nl.add("dac0832out", "U_SDAC1", CLK="TOUT1", VREFIN="SREF", VOUT="SDACV",
+           **{f"D{i + 1}": f"SDQ{i}" for i in range(8)},
+           **{f"Q{i + 1}": f"SND{i}" for i in range(8)})
+    nl.add("mcp6002", "U_SAMP", REF="SREF", DIV="SDIV", IN="SDACV", OUT="SND")
+    nl.add("conn", "J_SND", P0="SND", P1="SDIV", P2="SPK",
+           part="3.5 mm jack, the reference's divider, the mixing resistors (the timer's "
+                "OUT2 as a beeper too)")
 
 
 DEBUG = [

@@ -110,7 +110,9 @@ UNTIMED = ("JT", "LEN", "HLEN")
 ADDR_BITS = 13
 CS_WORDS = 1 << ADDR_BITS
 ENTRY_BASE = 0x100              # the decode's: 0x100 + the opcode
-TASK_BASE = 0x1FE0              # the copper's 32 words (U_TASK has µPC's bits 4-0)
+TASK_BASE = 0x1F80              # the tasks' 128 words (U_TASK has µPC's bits 6-0)
+DEVICE_BASE = 0x1F80            # the device task's entry (PCM and PS/2)
+COPPER_BASE = 0x1FC0            # the copper's
 NOCHK = 0x1000                  # JT's bit 12 in a SEQ END: no interrupt's check
 
 # D bus sources: FLW the flags word's bits (a 74HCT541)
@@ -214,9 +216,9 @@ IMMS = OrderedDict([
     ("CM1", (lambda d, s: 0xFFFF, "1")),
     ("C6", (lambda d, s: 6, "0")),
     ("Z5", (None, "Z5")),
-    ("V_SWI", (lambda d, s: 0x0C, "0")),
+    ("IOPS", (lambda d, s: 0xB000, "1")),         # the PS/2 ports, 0xFFFF_B000
     ("IOU0", (lambda d, s: 0xE000, "1")),         # UART 0, 0xFFFF_E000
-    ("IOFL", (lambda d, s: 0, 0xFFE0)),           # the boot flash, 0xFFE0_0000
+    ("IODAC", (lambda d, s: 0xA020, "1")),        # the PCM's DAC, 0xFFFF_A020
     ("IOIV", (lambda d, s: 0xD002, "1")),         # the interrupt controller's vector, 0xFFFF_D002
     ("C64", (lambda d, s: 64, "0")),
     ("C31", (lambda d, s: 31, "0")),

@@ -2797,6 +2797,31 @@
   "estimated": [],
   "source": "https://cdn.components.ru/media/PDF/8018143.pdf (Cypress/Infineon CY7C199D datasheet 38-05471 Rev *N, Mar 2019, p.7)"
  },
+ "DAC0832LCN": {
+  "checks": {
+   "hold D": 10,
+   "hold EN": 0,
+   "setup D": 320,
+   "setup EN": 320,
+   "tW": 320
+  },
+  "delays": {
+   "CLK->Q": {
+    "max": 100,
+    "typ": 100
+   }
+  },
+  "estimated": [
+   "CLK->Q",
+   "tW",
+   "setup D",
+   "hold D",
+   "setup EN",
+   "hold EN"
+  ],
+  "part_number": "DAC0832LCN",
+  "source": "https://www.ti.com/product/DAC0832"
+ },
  "IDT71256SA12": {
   "checks": {
    "tAS": 0,

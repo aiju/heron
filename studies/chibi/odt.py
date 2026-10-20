@@ -140,7 +140,9 @@ def block9(new):
         u(imm("C16"), LDL, jump("c_err", "N")),
         u(rd(T_C, 0), alu("SUB"), wr(T_CNT, 0), fl("NZ16")),      # N: 'A'-'F'; Z: 'G'
         u(rd(T_CNT, 0), LDL, jump("c_dig", "N")),
-        u(imm("V_SWI"), alu("SUB"), fl("NZ16"), jump("c_go", "Z")),     # Z: 'S'
+        u(imm("C8"), alu("SUB"), wr(T_C, 0), jump("c_go", "Z")),
+        u(imm("C4"), LDL),
+        u(rd(T_C, 0), alu("ADD"), fl("NZ16")),                    # Z: 'S' (12 after 'G')
         u(jump("c_step", "Z")),
         label("c_err"),
         u(irn(IRN_DECS)),
@@ -236,7 +238,8 @@ def block14(new):
         u(imm("C2"), alu("A"), wr(T_R, 0)),
     ] + putc(new, rd(T_K, 0)) + [
         label("o_crhex"),
-        u(imm("V_SWI"), alu("INC"), wr(T_C, 0)),                  # CR
+        u(imm("C4"), LDL),
+        u(imm("C8"), alu("ADDB1"), wr(T_C, 0)),                   # CR
     ] + putc(new, rd(T_C, 0)) + [
         label("o_hex"),                                           # T_V's 8 digits; then by T_R
         u(imm("C8"), alu("A"), wr(T_CNT, 0)),
@@ -268,7 +271,8 @@ def block14(new):
         u(imm("C64"), alu("DEC"), wr(T_C, 0)),                    # '?'
     ] + putc(new, rd(T_C, 0)) + [
         label("o_crlf"),
-        u(imm("V_SWI"), alu("INC"), wr(T_C, 0)),                  # CR
+        u(imm("C4"), LDL),
+        u(imm("C8"), alu("ADDB1"), wr(T_C, 0)),                   # CR
     ] + putc(new, rd(T_C, 0)) + [
         label("o_prompt"),
     ] + putc(new, rd(T_K, 0)) + putc(new, imm("C64")) + to9("in0") + [

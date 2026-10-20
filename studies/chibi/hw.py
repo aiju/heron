@@ -20,6 +20,9 @@ in the RAM); the suite's I/O page is a test fixture at 0xFFFF_FF00.
   heron chibi hw copper [--cycles N]
                                     the copper's test at chip level, against
                                     the model
+  heron chibi hw devices [--cycles N]
+                                    the device task's tests (programs/pcm.s,
+                                    ps2.s) at chip level, against the model
   heron chibi hw bom [--first]      the parts list
 """
 
@@ -290,6 +293,34 @@ def cmd_copper(args):
     return report("copper", hw, outcome_diffs(m, hw), hw["output"])
 
 
+DEVICE_TESTS = {"pcm": {}, "ps2": {"kbd": b"\x1c\xf0"}}
+
+
+def device_model(img, kbd=b"", mouse=b"", max_cycles=1_000_000):
+    from .rtl2 import RTL2
+    from .system2 import System2
+    s = System2(kbd=kbd, mouse=mouse)
+    s.load(img)
+    m = RTL2(s)
+    m.run(max_cycles)
+    return m
+
+
+def cmd_devices(args):
+    """The device task's tests at chip level against the model: what they
+    print, the registers and RAM they leave (the timer's and the PS/2
+    devices' timing isn't the model's, so not the fetches')."""
+    bad = 0
+    for name, kw in DEVICE_TESTS.items():
+        img = check.assemble(os.path.join(HERE, "programs", f"{name}.s"))
+        m = device_model(img, **kw)
+        hw = run(bytes(m_ram(img)), max_cycles=args.cycles, **kw)
+        bad |= report(name, hw, outcome_diffs(m, hw), hw["output"])
+        if name == "pcm":
+            print(f"  the model's samples: {' '.join(f'{v:02X}' for v in m.sys.dac)}")
+    return bad
+
+
 def m_ram(img):
     from .system import System
     s = System()
@@ -370,6 +401,8 @@ def main(argv):
     o.add_argument("--cycles", type=int, default=600_000)
     c = sub.add_parser("copper", help="the copper's test at chip level, against the model")
     c.add_argument("--cycles", type=int, default=600_000)
+    v = sub.add_parser("devices", help="the device task's tests at chip level, against the model")
+    v.add_argument("--cycles", type=int, default=40_000)
     b = sub.add_parser("bom")
     b.add_argument("--first", action="store_true")
     g = sub.add_parser("gals", help="every 22V10's pins and equations")
@@ -388,6 +421,8 @@ def main(argv):
         return cmd_odt(args)
     if args.cmd == "copper":
         return cmd_copper(args)
+    if args.cmd == "devices":
+        return cmd_devices(args)
     if args.cmd == "sta":
         if args.first:
             from . import sta
