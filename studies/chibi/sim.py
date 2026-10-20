@@ -219,6 +219,7 @@ USAGE = """heron chibi sim: Chibi Heron's whole-machine simulator (sim/, Rust)
       --input TEXT              the suite's console input (the fixture)
       --uart TEXT               typed at UART 0's terminal
       --type TEXT               typed on the PS/2 keyboard, a key each 20 ms
+      --type-at S               from S seconds on (0.5)
       --screenshot FILE.png     the last frame drawn
       --wav FILE.wav            the sound (44.1 kHz)
       --profile                 where the time went, by instruction
@@ -264,7 +265,7 @@ def cmd_run(args):
         m.record_audio(True)
     keys = keystrokes(args.type.encode("latin-1").decode("unicode_escape")) if args.type else []
     key_every = native.chibi.ticks_of(0.020)
-    next_key = key_every
+    next_key = native.chibi.ticks_of(args.type_at)
     t0 = time.time()
     # until it stops, or for the time asked (at most a minute of its own)
     end = native.chibi.ticks_of(args.seconds if args.seconds else 60.0)
@@ -506,6 +507,7 @@ def main(argv):
     r.add_argument("--input")
     r.add_argument("--uart")
     r.add_argument("--type")
+    r.add_argument("--type-at", type=float, default=0.5)
     r.add_argument("--screenshot")
     r.add_argument("--wav")
     r.add_argument("--profile", action="store_true")

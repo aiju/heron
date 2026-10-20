@@ -26,6 +26,13 @@ board runs the program suite on the chip-level simulator exactly as the
 model does, cycle for cycle, with no timing violation. Static timing
 analysis of the netlist gives every microinstruction its length.
 
+The **whole-machine simulator** (`sim/`, a Rust crate; `sim.py`) runs
+the microcode a microinstruction at a time exactly as the model does, on
+a board with every device of the netlist, about 33 million
+microinstructions a second, 4 times the board. It's for software:
+programs for the board itself, its screen, sound, serial ports and
+keyboard ([below](#the-simulator)).
+
 The **first cut**, one fixed cycle of 158.9 ns on 70 packages, is kept
 beside it (the files without a 2; `--first`).
 
@@ -46,12 +53,14 @@ and on `pcb_columns` for placing the board on RFC 0046's column grid.
 | `sta2.py` | Static timing analysis of the netlist: each distinct microinstruction's halves in ticks; writes `ticks.json` |
 | `check.py` | The model against the instruction-level simulator: the suite |
 | `hw.py` | The netlist on the chip-level simulator against the model; ODT's session, the copper's test and the device task's |
+| `sim/` | The whole-machine simulator, in Rust (heron.native.chibi): the CPU as rtl2.py has it (`cpu.rs`), from the control store's image (`store.rs`); the board (`board.rs`): RAM, the I/O space, the interrupt controller and the buttons, the video and its palette (`video.rs`), the PS/2 ports at the lines (`ps2.rs`), the boot flash (`flash.rs`), the sound (`audio.rs`), the suite's fixture (`fixture.rs`); the UARTs, the 82C54 and the CF card from infra's devices |
+| `sim.py` | The control store's image for it, the machine as Python drives it, and `heron chibi sim` |
 | `report.py` | RFC 0047's performance.md |
 | `pipeline.py` | What a pipelined control store would buy: an estimate from the suite's microinstructions (RFC 0047's pipelining.md) |
 | `place.py` | The netlist placed on [RFC 0046](../../reports/0046-rfc-column-grid.md)'s column grid at a few board sizes; RFC 0047's placement.md and placement.svg |
 | `parts.py` | The parts, as a variant of the chip library |
 | `ucode.py`, `routines.py`, `rtl.py`, `system.py`, `board.py`, `sta.py` | The first cut |
-| `programs/` | Test programs for the board's own devices: the keyboard, PCM, ODT, the copper |
+| `programs/` | Test programs for the board's own devices: the keyboard, PCM, ODT, the copper; `testcard.s`, the first program for the board itself; `lib/`, the board's addresses (`board.s`) and a 5 × 7 font |
 | `tests/` | The unit tests (`heron test chibi`) |
 
 ## Commands
@@ -71,6 +80,10 @@ heron chibi report [--write]        # RFC 0047's performance.md (a few minutes)
 heron chibi pipeline                # a pipelined control store's estimate (a few minutes)
 heron chibi place [--write]         # placed on the column grid (about 5 minutes):
                                     # build/chibi/place/, RFC 0047's placement.md and .svg
+heron chibi sim run FILE.s [...]    # a program on the whole-machine simulator (below)
+heron chibi sim check [--model]     # the simulator against the suite and the device tests
+heron chibi sim term [FILE.s]       # UART 0 in this terminal
+heron chibi sim bench               # the simulator's speed
 heron test chibi                    # the unit tests
 ```
 
@@ -79,6 +92,45 @@ After changing the netlist or the microcode, run `heron chibi hw sta
 `ticks.json`. The chip-level suite takes about forty minutes, most of it
 vm and mandel (5–6 million cycles each); the timing analysis a few
 minutes.
+
+## The simulator
+
+`heron chibi sim` runs a program on the whole machine, from power-on:
+the reset routine, then the program at 0, its image in RAM (or with
+`--flash` in the boot flash, for the reset routine to copy). The CPU is
+the microcode itself, from the control store routines2 builds, so the
+copper, the device task, ODT, reset and the boot run as on the board, and
+a change to the microcode needs nothing in the simulator; sim.py writes
+the store's image naming what each field does, so a change of encoding
+doesn't either. Time is the master clock's ticks, phase F's stretches
+included (a tick when a task starts or ends, two when the video's buffer
+is empty).
+
+```sh
+heron chibi sim run studies/chibi/programs/testcard.s --no-fixture --seconds 1.5 \
+    --uart 'hi\r' --type 'abc' --screenshot card.png --wav card.wav
+heron chibi sim run studies/v2_isa/programs/fib.s --profile
+heron chibi sim term studies/chibi/programs/testcard.s   # Ctrl-B: the halt button (ODT)
+```
+
+- **Checked:** the suite's output, registers, flags and RAM as draft 2's
+  simulator has them; its cycles and ticks as rtl2.py counts them (with
+  phase F's stretches off), and with `--model` every decode at the same
+  cycle and the register file; the device tests' outcomes as the model's.
+- **The devices** are the netlist's, more than system2.py has: the
+  UARTs with their timing and RTS flow control (the terminal sends while
+  RTS is asserted), the 82C54 stepped to each change of its outputs (the
+  timer's interrupt, the PCM's sample clock, the speaker), the palette,
+  the scanline as U_LINE counts it (0-12 again in the blank's last lines),
+  the frame interrupt at line 481, the PS/2 devices clocking frames both
+  ways at the lines, the boot flash's command sequences, the CF card.
+- **The picture** is drawn line by line as RFC 0047 specifies it, through
+  the palette as it is when each pixel is shown, so the copper's changes
+  land where they would; drawing costs the host time, so it's on only
+  when asked (`--screenshot`, `render`).
+- **Speed:** a waiting HALT or a stopped machine skips ahead to the next
+  thing a device does. `sim/examples/run.rs` runs a RAM image without
+  Python, for profiling.
 
 ## Not done yet
 
