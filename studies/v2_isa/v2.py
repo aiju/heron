@@ -41,7 +41,7 @@ SHIFTS = ["LSL", "LSR", "ASR", "ROR"]
 # and r1 now
 SR_NAMES = {0: "ccr", 8: "sr", 9: "far", 10: "fsr", 11: "ctx",
             12: "mapa", 13: "mapd", 14: "bank", 15: "bkpt"}
-# the free cells, ILLEGAL, and CAS and the FPU escape, which aren't designed
+# the free cells, ILLEGAL, and the future CAS and floating-point escape
 FREE = {0x00, 0xC3, 0xC7, 0xCB, 0xCF, 0xEF, 0xF7, 0xF8, 0xFA, 0xFB, 0xFF}
 # BCOPY rd, rs: the tentative bank-to-bank copy of r0-r7 (RFC 0029's open
 # question 3), in a free cell of row F

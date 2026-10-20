@@ -704,6 +704,10 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             };
             let b = reg_operand(base, "register")?;
             let (a, c) = reg_range(range, 15)?;
+            // undefined (RFC 0028, 5.8)
+            if u == "LDM" && (a..=c).contains(&b) {
+                return err("LDM's range can't hold its base register");
+            }
             let op = if u == "LDM" { 0x01 } else { 0x02 };
             return Ok(vec![p(op, a, b), (c << 12) as u16]);
         }
@@ -728,6 +732,9 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
                 return err(format!("{u} needs one register"));
             };
             let r = reg_operand(r, "register")?;
+            if u == "POP" && r == 15 {
+                return err("POP's rd can't be sp, the register [sp]+ steps");
+            }
             return one(if u == "PUSH" {
                 p(0x27, r, 15)
             } else {
@@ -947,6 +954,10 @@ fn assemble(name: &str, ops: &[Operand], ctx: &mut Ctx) -> Result<Vec<u16>, AsmE
             return one(p(cell | (v & 7), rd, v >> 3));
         }
         let (m, r, ext) = ea(ctx, &ops[1], 1, row != 3)?;
+        // undefined (RFC 0028, 3)
+        if matches!(m, 6 | 7 | 0xA) && r == rd {
+            return err(format!("{u}'s rd can't be the register its mode steps"));
+        }
         return Ok(with_ext(p(row << 4 | m, rd, r), ext));
     }
     if let Some(cell) = rr_op(u) {

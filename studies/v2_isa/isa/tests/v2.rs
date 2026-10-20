@@ -243,6 +243,21 @@ fn errors() {
             "LEA needs a memory operand without auto-increment",
         ),
         ("JMP byte [r1]", "JMP through memory needs a word"),
+        // undefined, so refused
+        (
+            "MOV r1, [r1]+",
+            "MOV's rd can't be the register its mode steps",
+        ),
+        (
+            "CMP r2, byte [r2]+",
+            "CMP's rd can't be the register its mode steps",
+        ),
+        (
+            "ADD r3, -[r3]",
+            "ADD's rd can't be the register its mode steps",
+        ),
+        ("POP sp", "POP's rd can't be sp, the register [sp]+ steps"),
+        ("LDM r5, r4-r7", "LDM's range can't hold its base register"),
         ("SPL #9", "SPL's level must be 0-8"),
         ("SPL r1", "SPL needs '#n', 0-8"),
         ("BCOPY r1", "BCOPY needs 'rd, rs'"),
@@ -308,6 +323,13 @@ fn relocations() {
 /// Assemble `body` after a reset vector and a trap handler (which halts with
 /// r14 = 0x7E), run it, and return the machine.
 fn run(body: &str) -> Machine {
+    let mut m = machine(body);
+    m.run(100_000).unwrap();
+    m
+}
+
+/// The machine `run` runs, before it starts.
+fn machine(body: &str) -> Machine {
     let src = format!(
         "        .org 0\n        JMP  start\n        .org 0x08\n        JMP  trap\n\
          \x20       .org 0x10\n        JMP  trap\n        .org 0x14\n        JMP  trap\n\
@@ -322,9 +344,7 @@ fn run(body: &str) -> Machine {
     for (&addr, &v) in &img.mem {
         mem[addr as usize] = v;
     }
-    let mut m = Machine::new(&mem, b"", Config::named("D16-overlap").unwrap());
-    m.run(100_000).unwrap();
-    m
+    Machine::new(&mem, b"", Config::named("D16-overlap").unwrap())
 }
 
 fn flags(m: &Machine) -> String {
@@ -539,6 +559,21 @@ fn illegal_cells_trap() {
         let m = run(&format!("        .half {cell}"));
         assert_eq!(m.r[14], 0x7E, "{cell}");
         assert_eq!(m.traps[0].1, "illegal instruction", "{cell}");
+    }
+}
+
+#[test]
+fn undefined_instructions_stop() {
+    // the assembler refuses them, so they're written as parcels:
+    // MOV r1, [r1]+; ADD r2, -[r2]; LDM r5, r4-r7
+    for (parcels, why) in [
+        ("0x1116", "rd is the register its mode steps"),
+        ("0x2247", "rd is the register its mode steps"),
+        ("0x4501, 0x7000", "LDM's range holds its base register"),
+    ] {
+        let mut m = machine(&format!("        MOV r1, #0x100\n        .half {parcels}"));
+        let e = m.run(100_000).unwrap_err();
+        assert!(e.contains(why), "{parcels}: {e}");
     }
 }
 

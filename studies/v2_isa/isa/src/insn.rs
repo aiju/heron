@@ -52,6 +52,14 @@ pub fn trap<T>(vector: u32, fault: bool, why: &str) -> Res<T> {
     }))
 }
 
+/// An instruction RFC 0028 leaves undefined: the hardware does whatever
+/// it does, so the simulator stops rather than pick an answer.
+pub fn undefined<T>(pc: u32, what: &str) -> Res<T> {
+    Err(Stop::Error(format!(
+        "undefined instruction at {pc:08X}: {what}"
+    )))
+}
+
 pub fn misaligned<T>(what: &str, a: u32) -> Res<T> {
     Err(Stop::Trap(Trap {
         vector: ADDR_VECTOR,
@@ -798,6 +806,12 @@ impl Machine {
         }
     }
 
+    /// Whether `d` is the register an auto-increment or -decrement steps,
+    /// which RFC 0028 leaves undefined for an instruction with an `rd`.
+    fn steps(m: &MemOp, d: u8) -> bool {
+        matches!(m.ea, Ea::Pi | Ea::Pd) && m.base == d
+    }
+
     /// The base register update after an auto-increment or -decrement.
     fn post(&mut self, m: &MemOp, a: u32) {
         match m.ea {
@@ -1019,6 +1033,9 @@ impl Machine {
                 key(alu_timing(f, v))
             }
             Insn::AluMem { f, d, m } => {
+                if Self::steps(&m, d) {
+                    return undefined(pc, "rd is the register its mode steps");
+                }
                 let (a, x) = self.address(&m, nxt);
                 let v = self.read(m.size, a)?;
                 self.post(&m, a);
@@ -1039,6 +1056,9 @@ impl Machine {
                 })
             }
             Insn::Load { d, m, nz } => {
+                if Self::steps(&m, d) {
+                    return undefined(pc, "rd is the register its mode steps");
+                }
                 let (a, x) = self.address(&m, nxt);
                 let v = self.read(m.size, a)?;
                 self.post(&m, a);
@@ -1193,6 +1213,9 @@ impl Machine {
                 })
             }
             Insn::Ldm { b, a, cnt } => {
+                if (a..a + cnt).contains(&b) {
+                    return undefined(pc, "LDM's range holds its base register");
+                }
                 let base = r(self, b);
                 let mut vals = [0u32; 16];
                 for i in 0..cnt {
