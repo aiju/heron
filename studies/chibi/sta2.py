@@ -69,6 +69,11 @@ class Case2(sta.Case):
         if inst.conn.get(pin) in ("BTNQ", "HLTQ", "TRACE") or \
                 inst.ref in ("U_KBDF", "U_MOUSEF") and inst.conn.get(pin) in ("KCLK", "MSCLK"):
             return (None, NEG, True, None)      # latches and the PS/2 hold: asynchronous, untimed
+        if inst.conn.get(pin) in ("TASK", "TASK_n"):
+            # steady in the emulator's cycles (a switch's cycle has phase F a
+            # tick longer, the clock generator's): the tasks' own address
+            # drivers off
+            return (int(inst.conn[pin] == "TASK_n"), NEG, True, None)
         if inst.ref == "U_SLOW" and inst.conn.get(pin) == "CFOE_n":
             mop = sum(self.const.get(n, 0) << i for i, n in enumerate(board.MOP))
             if self.phase == "F" or self.const.get("A31") != 1 or \

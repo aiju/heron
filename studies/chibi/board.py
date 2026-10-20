@@ -170,8 +170,8 @@ def build(sim=True, halves=False):
     # to the control store), the register byte; the control store's address
     # registers on the clock before its buffer
     G.add(nl, "U_IRL", {op[i]: (OR(AND(lit("LDIR"), lit(f"MD{i}")), AND(lit("LDIR", 0), lit(op[i]))),
-                                True, False) for i in range(8)}, clock="CLK0",
-          ar=lit("RESET_n", 0))                     # reset: opcode 00, for the boot (routines.boot)
+                                True, False, *([lit("TASK", 0)] if halves else [])) for i in range(8)},
+          clock="CLK0", ar=lit("RESET_n", 0))       # reset: opcode 00, for the boot (routines.boot)
     d, s = bus("IRD", 4), bus("IRS", 4)
     irop = field("IROP")
     incd, decs, ldx = eq(irop, uc.IR_INCD), eq(irop, uc.IR_DECS), eq(irop, uc.IR_LDX)
@@ -199,6 +199,8 @@ def build(sim=True, halves=False):
                          AND(nld, eq(nop, uc.N_S), lit(s[i])),
                          AND(nld, eq(nop, uc.N_MDZ), lit(f"MD{8 + i}")),
                          AND(nld, eq(nop, uc.N_HOLD), lit(nib[i]))), True, False)
+    if halves:
+        ng = {k: v + (lit("TASK", 0),) for k, v in ng.items()}
     G.add(nl, "U_NG", ng, clock="CLK0", ar=lit("RESET_n", 0))
 
     # STEP and PAGE: next, jump if CT, end (decode, or page 3 if IRQP);
@@ -214,6 +216,10 @@ def build(sim=True, halves=False):
     for i in range(2):
         nextpage = OR(AND(inc, lit(page[i])), AND(take, lit(pt[i])), AND(end, lit("IRQP")))
         st[page[i]] = (negate_sop_pg(nextpage, inc, take, end, page[i], pt[i]), True, True)
+    if halves:
+        # held while a task runs, its outputs off (draft.tasks drives the address)
+        st = {k: (OR(AND(v[0], lit("TASK", 0)), AND(lit("TASK"), lit(k, 0 if v[2] else 1))),
+                  v[1], v[2], lit("TASK", 0)) for k, v in st.items()}
     G.add(nl, "U_STEP", st, clock="CLK0", ar=lit("RESET_n", 0))
 
     # the condition: three partial sums, then CT
@@ -275,13 +281,16 @@ def build(sim=True, halves=False):
         ra[5]: (OR(AND(phw, lit("YBOE")), AND(phr, lit("HALF"))) if halves else
                 OR(AND(phw, lit(wa[5])), AND(phr, lit(hr))), False, False),
         wa[4]: (AND(eq(ws, uc.SEL_K), lit(kw[4])), True, False),
-        wa[5]: (lit(hw), True, False),
+        **({"RA6": (OR(AND(phw, lit("WA6")), AND(phr, lit(field("PRIV")[0]))), False, False),
+            "WA6": (lit(field("PRIV")[0]), True, False)} if halves else
+           {wa[5]: (lit(hw), True, False)}),
         "WENQ": (lit(wen), True, False),
         "RFWE_n": (AND(lit("RWS"), lit("WENQ")), False, True),
     }, clock=clk[1])
     for k in range(2):
         nl.add("sram", f"U_RF{k}", CE="GND", OE="RFOE_n", WE="RFWE_n",
-               **{f"A{i}": ra[i] for i in range(6)}, **{f"A{i}": "GND" for i in range(6, 15)},
+               **{f"A{i}": ra[i] for i in range(6)}, A6="RA6" if halves else "GND",
+               **{f"A{i}": "GND" for i in range(7, 15)},
                **{f"IO{i}": f"D{8 * k + i}" for i in range(8)})
 
     # ---- ALU -------------------------------------------------------------

@@ -59,6 +59,8 @@ FIELDS = [
     ("JT", 5),      # jump target step
     ("PT", 2),      # jump target page
     ("HALT", 1),    # the machine has stopped (for the simulations)
+    ("TP", 1),      # the draft's task point: a task may run after this one (sta2, draft)
+    ("PRIV", 1),    # the draft's private register bank (the tasks')
 ]
 WORD_BITS = 72                  # nine 8-bit flash chips
 ROMS = WORD_BITS // 8

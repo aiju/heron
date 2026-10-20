@@ -99,6 +99,9 @@ def io(nl):
         "PS2CS": (sel(2), False, False), "VCCS": (sel(3), False, False),
         "FLCS_n": (sel(4), False, True), "SLOWCS": (sel(5), False, False),
         "IRQCS": (sel(6), False, False), "CONSEL_n": (sel(7), False, True),
+        # the palette bank's register (at the video's +2) clocks on this
+        "PBWR_n": (AND(sel(3), lit("A1"), lit("IOWR_n", 0)), False, True),
+        "LSEL": (AND(sel(6), lit("A2"), lit("A1")), False, False),     # the line's port
     })
     # the UARTs, RS-232 and TTL
     for k in range(2):
@@ -121,6 +124,8 @@ def io(nl):
     slow_devices(nl, rdm, wrm)
     interrupts(nl)
     odt(nl)
+    scanline(nl)
+    tasks(nl)
     ps2(nl)
     debug(nl)
 
@@ -211,7 +216,7 @@ def slow_devices(nl, rdm, wrm):
     # the palette
     nl.add("g171", "U_DAC", RS0="A1", RS1="A2", RD="DACRD_n", WR="DACWR_n", PCLK="PIX",
            BLANK="DEN", IOR="VGA_R", IOG="VGA_G", IOB="VGA_B",
-           **{f"P{i}": f"PX{i}" if i < 4 else "GND" for i in range(8)},
+           **{f"P{i}": f"PX{i}" if i < 4 else f"PB{i - 4}" for i in range(8)},
            **{f"D{i}": f"MD{i}" for i in range(8)})
 
 
@@ -322,8 +327,8 @@ def odt(nl):
     read 0x90 when ODT is asked for (OP 00, N 9 once loaded with
     MOP_LDIRM: ODT's blocks), 0 otherwise; a write there sets TRACE from MD0
     and clears the halt button's latch."""
-    wr = AND(lit("IRQCS"), lit("A2"), lit("IOWR_n", 0))
-    rd = AND(lit("IRQCS"), lit("A2"), lit("IORD_n", 0))
+    wr = AND(lit("IRQCS"), lit("A2"), lit("A1", 0), lit("IOWR_n", 0))
+    rd = AND(lit("IRQCS"), lit("A2"), lit("A1", 0), lit("IORD_n", 0))
     outs = {
         "HLTQ": (OR(lit("HLTA_n", 0), AND(lit("HLTQ"), lit("HLTB_n", 0), negate(wr))), False,
                  False),
@@ -334,3 +339,73 @@ def odt(nl):
                               False, rd)
     G.add(nl, "U_ODT", outs)
     nl.add("conn", "S_HLT", P0="HLTA_n", P1="HLTB_n", part="push button (SPDT): halt to ODT")
+
+
+def scanline(nl):
+    """The scanline for the microcode and software: U_LINE counts the lines
+    as U_VV does (0-511, then 0-12 in the blank, VBL from U_VV), LN8-LN0; read
+    at the interrupt controller's +6 (LN7-LN0 through U_LRB, LN8 from U_LINE).
+    U_LCMP holds the target line (written at +6), and with the 74HCT688's
+    match raises COPREQ, the task request, for the whole of the target line:
+    the task moves the target on. The palette's bank: a 74HCT175 written at
+    the video's +2 (MD3-0), on the RAMDAC's P7-P4 (its use left open)."""
+    l = bus("LN", 9)
+    rd = AND(lit("IRQCS"), lit("A2"), lit("A1"), lit("IORD_n", 0))
+    outs = {l[k]: (_inc(l, k), True, False) for k in range(9)}
+    outs["MD8"] = (lit("LN8"), False, False, rd)
+    G.add(nl, "U_LINE", outs, clock="HS_n", ar=AND(lit("VBL"), eq(l, 13)))
+    nl.add("541", "U_LRB", OE1="LRB_n", OE2="LRB_n", part="74ABT541",
+           **{f"A{i + 1}": f"LN{i}" for i in range(8)}, **{f"Y{i + 1}": f"MD{i}" for i in range(8)})
+    t = bus("TL", 9)
+    wsel = lit("LSEL")
+    outs = {t[k]: (OR(AND(wsel, lit(f"MD{k}")), AND(negate(wsel), lit(t[k]))), True, False)
+            for k in range(9)}
+    G.add(nl, "U_LCMP", outs, clock="IOWR_n", ar=lit("RESET_n", 0))
+    nl.add("688", "U_LEQ", G="GND", **{f"P{i}": f"LN{i}" for i in range(8)},
+           **{f"Q{i}": f"TL{i}" for i in range(8)}, PEQ="LEQ_n", part="74HCT688")
+    G.add(nl, "U_LREQ", {"COPREQ": (AND(lit("LEQ_n", 0), OR(AND(lit("LN8"), lit("TL8")),
+                                                           AND(lit("LN8", 0), lit("TL8", 0)))),
+                                    False, False),
+                          "LRB_n": (rd, False, True),
+                          "TASK_n": (lit("TASK", 0), False, False)})       # for the tasks' 541s
+    nl.add("175", "U_PB", CLK="PBWR_n", CLR="RESET_n", part="74HCT175",
+           **{f"{i + 1}D": f"MD{i}" for i in range(4)}, **{f"{i + 1}Q": f"PB{i}" for i in range(4)})
+
+
+def tasks(nl):
+    """Microcode tasks: at the end of a microinstruction with TP (a task
+    point) while COPREQ asks, TASK sets; the sequencer's address registers
+    (U_STEP, U_IRL, U_NG) hold and turn their outputs off, and U_TASK's
+    step and page with U_TOP's and U_TN's constants (opcode 00, N 8: the
+    tasks' blocks) address the control store instead. A task's SEQ_END
+    ends it. A task may use no fetch, IROP or NOP, no flag but ST and IC,
+    and the private registers (PRIV) only; a task point must have no MAR,
+    flags or L live (a checker's job). The cycles where TASK changes want
+    phase F a tick longer (the outputs' enables after CLK): the clock
+    generator's."""
+    seq, jt, pt = field("SEQ"), field("JT"), field("PT")
+    tp = field("TP")[0]
+    task = lit("TASK")
+    nxt = eq(seq, uc.SEQ_NEXT)
+    jmp = eq(seq, uc.SEQ_JUMP)
+    take = AND(jmp, lit("CT", 1))
+    inc = OR(nxt, AND(jmp, lit("CT", 0)))
+    step, page = bus("STEP", 5), bus("PAGE", 2)
+    outs = {}
+    for i in range(5):
+        # the task's step, on STEP while TASK (its register's own): 0 outside
+        # a task, then next or the jump's
+        outs[step[i]] = (AND(task, OR(AND(inc, _inc(step, i)), AND(take, lit(jt[i])))), True,
+                         False, task)
+    for i in range(2):
+        outs[page[i]] = (AND(task, OR(AND(inc, lit(page[i])), AND(take, lit(pt[i])))), True,
+                         False, task)
+    outs["TASK"] = (OR(AND(task, lit(seq[1], 0)), AND(lit("TASK", 0), lit(tp), lit("COPREQ"))),
+                    True, False)
+    G.add(nl, "U_TASK", outs, clock="CLK0", ar=lit("RESET_n", 0))
+    nl.add("541", "U_TOP", OE1="TASK_n", OE2="TASK_n", part="74ABT541",
+           **{f"A{i + 1}": "GND" for i in range(8)}, **{f"Y{i + 1}": f"OP{i}" for i in range(8)})
+    nl.add("541", "U_TN", OE1="TASK_n", OE2="TASK_n", part="74ABT541",
+           **{f"A{i + 1}": ("VCC" if i == 3 else "GND") for i in range(4)},
+           **{f"A{i + 1}": "GND" for i in range(4, 8)},
+           **{f"Y{i + 1}": f"N{i}" for i in range(4)})
