@@ -274,6 +274,21 @@ class Netlist2(unittest.TestCase):
         board2.build(sim=False)
         self.assertGreater(len(sta2.sta_words()), 400)
 
+    def test_sta_engine(self):
+        """The static timing engine on a word: its branches reach the
+        cycle's end, and at the longest lengths every setup is met."""
+        from heron.studies.chibi import sta3
+        ex, skip = sta3.netlist()
+        w, two, extra = next(k for k in sorted(sta2.sta_words())
+                             if dict(k[2]).get("AIO") != 1 and k[1])
+        item = (w, two, extra, sta3.MAX_LO, sta3.MAX_HI)
+        branches = sta3.run(ex, skip, [item], 1, 0)[item]
+        self.assertGreater(len(branches), 1)
+        for b in branches:
+            self.assertGreater(b["end"], 0)
+            self.assertFalse([c for c in b["worst"] if c["check"] == "setup" and c["slack"] < 0
+                              and c["event"] > 6], b["label"])
+
     def test_ps2_at_chip_level(self):
         import os
         img = check.assemble(os.path.join(hw.HERE, "programs", "ps2.s"))

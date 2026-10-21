@@ -11,9 +11,10 @@ in the RAM); the suite's I/O page is a test fixture at 0xFFFF_FF00.
                                     model: output, registers, flags, RAM, and
                                     every instruction fetch with its cycle
   heron chibi hw run PROG.s [--trace A:B] [--first]
-  heron chibi hw sta [--paths N] [--write] [--first]
-                                    static timing analysis (sta2.py; --write:
-                                    the ticks table, ticks.json; --first:
+  heron chibi hw sta [--paths N] [--write] [--old] [--first]
+                                    static timing analysis on infra/sta
+                                    (sta3.py; --write: the ticks table,
+                                    ticks.json; --old: sta2.py's; --first:
                                     the first cut's, sta.py)
   heron chibi hw odt [--cycles N]   ODT's session at chip level, against the
                                     model
@@ -487,6 +488,7 @@ def main(argv):
     s.add_argument("--paths", type=int, default=2)
     s.add_argument("--write", action="store_true", help="the ticks table (ticks.json)")
     s.add_argument("--first", action="store_true", help="the first cut's analysis")
+    s.add_argument("--old", action="store_true", help="sta2.py's analysis, not infra/sta's")
     o = sub.add_parser("odt", help="ODT's session at chip level, against the model")
     o.add_argument("--cycles", type=int, default=600_000)
     c = sub.add_parser("copper", help="the copper's test at chip level, against the model")
@@ -525,8 +527,11 @@ def main(argv):
         if args.first:
             from . import sta
             return sta.cmd_sta(args)
-        from . import sta2
-        return sta2.cmd_sta(args)
+        if args.old:
+            from . import sta2
+            return sta2.cmd_sta(args)
+        from . import sta3
+        return sta3.cmd_sta(args)
     return 2
 
 
