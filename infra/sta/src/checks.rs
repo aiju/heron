@@ -90,8 +90,9 @@ pub struct BranchOut {
     /// The captures of asynchronous nets at synchronisers (RFC 0048 9.7).
     pub crossings: Vec<Crossing>,
     /// The changes launched in the window still in flight past its end:
-    /// (net, earliest, latest), ps from the end, for the next cycle's
-    /// tails (RFC 0048 8).
+    /// (net, earliest, latest), ps from the end (earliest 0 where the net
+    /// may be changing at the end already), for the next cycle's tails
+    /// (RFC 0048 8).
     pub tails: Vec<(String, i64, i64)>,
     /// Where the branch came back to a state it had at this earlier rising
     /// edge, ending there.
@@ -1210,7 +1211,8 @@ pub fn run(d: &Design, t: &Trace, w: &mut Waves, o: &Options, case: &Case) -> Br
 }
 
 /// Each net's changes launched before the window's end and still in
-/// flight past it: their earliest and latest, from the end.
+/// flight past it: from the end, when they may first change past it (0
+/// where they may be changing at the end already) and their latest.
 fn tails(d: &Design, t: &Trace, w: &Waves) -> Vec<(String, i64, i64)> {
     let end = crate::waves::event_time(t.end, t.period);
     let mut out = Vec::new();
@@ -1222,9 +1224,10 @@ fn tails(d: &Design, t: &Trace, w: &Waves) -> Vec<(String, i64, i64)> {
             }
             for p in w.parts_of(tr).iter() {
                 if p.event >= 0 && (p.event as u32) < t.end && p.l > end {
+                    let e = p.e.max(end);
                     span = Some(match span {
-                        None => (p.e, p.l),
-                        Some((a, b)) => (a.min(p.e), b.max(p.l)),
+                        None => (e, p.l),
+                        Some((a, b)) => (a.min(e), b.max(p.l)),
                     });
                 }
             }

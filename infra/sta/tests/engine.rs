@@ -606,14 +606,20 @@ fn latch() {
 #[test]
 fn tails_and_pairs() {
     // the toggle through a 25 ns inverter: launched at the edge at 20 ns,
-    // D may still change until 49 ns, 9 past the window's end at 40
+    // D may still change until 49 ns, 9 past the window's end at 40, and
+    // may be changing at the end already
     let mut b = Build::new();
     b.osc("MCLK", 20_000);
     b.reg("R1", "Q", "D", "MCLK", [1000, 4000, 3000, 0]);
     b.gate("U1", "D", &["Q"], not(1), 1000, 25_000);
     let r = analyse(&b.design(), &case(&[("Q", 0, 1)], "Q"), &Options::default()).unwrap();
     let tail = r[0].tails.iter().find(|t| t.0 == "D").cloned();
-    assert_eq!(tail.map(|t| t.2), Some(9000), "{:?}", r[0].tails);
+    assert_eq!(
+        tail.map(|t| (t.1, t.2)),
+        Some((0, 9000)),
+        "{:?}",
+        r[0].tails
+    );
     // carried into the start, D is changing there; before 0 it was the
     // pair's 1
     let o = Options {
@@ -627,6 +633,31 @@ fn tails_and_pairs() {
     let (_, init, tr) = &r[0].traces[0];
     assert_eq!(*init, 2, "a tail leaves the start unknown");
     assert_eq!(tr[0].0, -15_000);
+}
+
+#[test]
+fn pinned_register() {
+    // R1 loads an unknown value at every edge, pinned to 1: it changes
+    // once, to 1, and then never, so the clock it drives is clean
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.net("DX");
+    b.reg("R1", "Q", "DX", "MCLK", [1000, 4000, 3000, 0]);
+    b.reg("R2", "Q2", "DX", "Q", [1000, 4000, 3000, 0]);
+    let mut c = case(&[], "MCLK");
+    c.pins.insert("Q".into(), 1);
+    let o = Options {
+        trace: vec!["Q".into()],
+        ..Options::default()
+    };
+    let r = analyse(&b.design(), &c, &o).unwrap();
+    let (_, _, tr) = &r[0].traces[0];
+    assert_eq!(tr.len(), 1, "{tr:?}");
+    assert!(
+        !r[0].worst.iter().any(|c| c.check == "glitch"),
+        "{:?}",
+        r[0].worst
+    );
 }
 
 #[test]

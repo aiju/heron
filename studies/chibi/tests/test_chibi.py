@@ -289,6 +289,22 @@ class Netlist2(unittest.TestCase):
             self.assertFalse([c for c in b["worst"] if c["check"] == "setup" and c["slack"] < 0
                               and c["event"] > 6], b["label"])
 
+    def test_sta_variants(self):
+        """A slow device's access holds its half (HOLD); a task's end makes
+        phase F a tick longer (TCHG)."""
+        from heron.studies.chibi import sta3
+        ex, skip = sta3.netlist()
+        words = sorted(sta2.sta_words())
+        io = next(k for k in words if dict(k[2]).get("AIO") == 1)
+        ram = next(k for k in words if dict(k[2]).get("AIO") == 0)
+        items = [(w, two, extra + v, sta3.MAX_LO, sta3.MAX_HI if two else 0)
+                 for (w, two, extra), v in ((io, (("DEV", "uart0"),)), (io, (("DEV", "timer"),)),
+                                            (ram, ()), (ram, (("TASK", "end"),)))]
+        out = sta3.run(ex, skip, items, 1, 0)
+        end = [max(b["end"] for b in out[it]) for it in items]
+        self.assertGreater(end[1], end[0])
+        self.assertEqual(end[3], end[2] + 2)
+
     def test_ps2_at_chip_level(self):
         import os
         img = check.assemble(os.path.join(hw.HERE, "programs", "ps2.s"))

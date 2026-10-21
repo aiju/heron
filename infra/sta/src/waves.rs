@@ -860,17 +860,16 @@ impl<'a> Waves<'a> {
             self.bus(ni)
         };
         if let Some(p) = self.t.pinned[ni] {
-            for tr in w.tr.iter_mut() {
-                tr.after = p;
-            }
+            // a rise, fall or change happens once at most: pinned to the
+            // same value before and after, it doesn't happen; a glitch may
+            // still pulse
             let mut prev = w.init;
-            for tr in w.tr.iter_mut() {
+            w.tr.retain_mut(|tr| {
                 tr.before = prev;
-                if tr.before == tr.after {
-                    tr.clean = false;
-                }
-                prev = tr.after;
-            }
+                tr.after = p;
+                prev = p;
+                !(tr.clean && tr.before == tr.after)
+            });
         }
         // the cycle before's change still in flight: the net may change
         // until its latest, from wherever it was

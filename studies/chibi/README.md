@@ -43,7 +43,7 @@ and on `pcb_columns` for placing the board on RFC 0046's column grid.
 | `board2.py` | The chip-level netlist: every chip on the board |
 | `gals.py`, `gals.md` | Every 22V10's pins and equations, as the netlist has them (generated) |
 | `draft.py` | Device parts that board2.py uses: chip types, part names, the PS/2 ports |
-| `sta3.py` | Static timing analysis of the netlist on the timing engine ([RFC 0048](../../reports/0048-rfc-sta-engine.md), `infra/sta`): each distinct microinstruction's halves in ticks, and every setup, hold, strobe and glitch check; writes `ticks.json` |
+| `sta3.py` | Static timing analysis of the netlist on the timing engine ([RFC 0048](../../reports/0048-rfc-sta-engine.md), `infra/sta`): each distinct microinstruction's halves in ticks, and every setup, hold, strobe, glitch, handover and crossing check, with an access at each device and a task running, starting or ending; writes `ticks.json` |
 | `sta2.py` | The analysis before the engine (`hw sta --old`): the halves' ticks from paths through the clock generator as a fixture |
 | `check.py` | The model against the instruction-level simulator: the suite |
 | `hw.py` | The netlist on the chip-level simulator against the model; ODT's session, the copper's test and the device task's |
@@ -65,7 +65,7 @@ heron chibi hw run FILE.s [--trace A:B]
 heron chibi hw odt                  # ODT's session at chip level, against the model
 heron chibi hw copper               # the copper's test at chip level
 heron chibi hw devices              # the device task's (PCM, the keyboard) at chip level
-heron chibi hw sta [--write]        # static timing analysis (about 2 minutes); --write: ticks.json
+heron chibi hw sta [--write]        # static timing analysis (about 4 minutes); --write: ticks.json
 heron chibi hw bom                  # the parts list
 heron chibi hw gals [--write]       # every 22V10's equations; --write: gals.md
 heron chibi report [--write]        # RFC 0047's performance.md (a few minutes)

@@ -103,9 +103,11 @@ own tables (Chibi Heron's `ticks.json`).
 - **Times** are integer picoseconds; the reports print nanoseconds.
 - **Reference clocks** are the netlist's oscillators (`osc`): a period
   and a first rising edge (its parameters `period_ps` and `phase_ps`),
-  and, from its part's data, the range of its duty cycle and its jitter
-  (**open**: the data; 50% and none until it's transcribed). Their
-  edges are where all time comes from.
+  the range of its duty cycle (`duty_min_permille`, `duty_max_permille`:
+  a falling edge anywhere in it) and its jitter (`jitter_ps`: every edge
+  anywhere in that much either side). Their edges are where all time
+  comes from. **Open:** the parts' figures; 50% and none until they're
+  transcribed.
 - **Every other clock is a net.** Chibi Heron's CLK0 and HCK are a
   22V10's registered outputs, timed like any other output, so the
   engine needs no clock definitions.
@@ -229,18 +231,28 @@ a check naming its nets.
   - a delay, minimum and maximum, per driving pin and receiving pin;
   - today's `pin_extra` (one value per driving pin, the same at every
     receiver) is taken as both;
-  - values per receiver, from the placement or the routing (`infra/pcb`),
-    are **open**.
+  - per receiving pin, the export's `wires` (`{(ref, pin): (min, max)}`)
+    adds a stage of its own between the net and the pin: the net's
+    waveform is its drivers', and that receiver sees it later;
+  - their values, from the placement or the routing (`infra/pcb`), are
+    **open**.
 - **Load:**
   - datasheet delays are at a test load: 50 pF for most logic;
-  - derating by a net's capacitance (its trace, and every pin on it,
-    three-state outputs that are off included) is **open**;
-  - it needs pin capacitances and a slope per family in the data: the
-    22V10's datasheet has curves, and many HC/HCT sheets give figures at
-    both 50 and 150 pF.
+  - the export's `load` derates each driving pin by its net's
+    capacitance: every pin on the net counts its part's `pin_pf`
+    (three-state outputs that are off included), and the driver's part
+    gives a slope from its test load (`load: {test_pf, ps_per_pf}`). The
+    engine adds the result, as a minimum and a maximum per output pin,
+    to its arcs, its clock-to-output and its turn-on;
+  - **open:** the data, which no part has yet (the 22V10's datasheet has
+    curves, and many HC/HCT sheets give figures at both 50 and 150 pF),
+    and the trace's own capacitance.
 - **Rise and fall:** each delay has one value for both, the larger of
   tPLH and tPHL, as the data has it now. Separate values (the
   transcriptions' detail rows have them) are **open**.
+- **Estimated values:** a delay or a limit the timing data marks
+  `estimated` is named in every result that rests on it
+  ([10](#10-results)).
 - **Operating conditions:** a part's maximum holds over its rated
   range. The report gives where all the board's parts' ranges overlap.
   For Chibi Heron that's 0–70 °C at 4.75–5.25 V, set by the -5 22V10s.
@@ -267,12 +279,17 @@ timing as data that the export carries to the engine.
     for the present state;
   - its clock-to-output delay;
   - an optional clear and preset, each an equation with its arcs.
-- **`latches`:** `Latch(enable, d, arcs)`.
+- **`latches`:** `Latch(enable, d, arcs, oe=, on=, off=)`: an output
+  whose function is `LE·D + /LE·Q + D·Q`, its own pin fed back
+  ([4](#4-evaluating-chips)'s rule for feedback; the last term holds it
+  as LE falls), with a setup and hold at the enable's fall, a capture
+  ([9.1](#91-setup-and-hold)).
 - **`timing`:** its checks, from a small set ([9](#9-checks)):
   - `Setup(pins, clock, setup, hold)`;
   - `Width(pin, level, name)`;
   - `Period(pin, name)`;
-  - `Recovery(pin, clock, recovery, removal)`;
+  - `Recovery(clock, recovery, removal, width, edge)`: for every
+    register on the clock pin that has a clear or a preset;
   - `Strobe(active, stable=, data=, width=)`.
 
   A setup check needs no condition: the next state's equation says when
@@ -344,62 +361,88 @@ the chip-level simulator reads them.
   - tW, the clock's high and low times;
   - the clock's period: tWH + tWL with no feedback, and tS + tCF for a
     register that feeds the array;
-  - for AR, its width (tAW) and its recovery to CLK (tAR).
+  - for AR, its width (tAW) and its recovery to CLK (tAR);
+  - every value the data marks estimated, marked as such.
 - **The synchronous preset** isn't described until `gal.py` uses it.
 - **The glitch rule** ([4](#4-evaluating-chips)) applies to the
   combinatorial outputs.
 - **The CQZ-20's input transition detection:** its datasheet (0778L)
   gives no extra delay for waking, so the engine assumes none.
-- **Data to add:** tEA, tER, tAP, tCF, tW, tAW and tAR for every grade in
-  the timing data, and the -10 grade
-  ([14](#14-the-datasheets-and-atmels-guidelines)).
+- **The data:** tEA, tER, tAP, tCF, tW, tAW and tAR are in the timing
+  data for every grade (their typicals estimated); the -10 grade isn't
+  yet ([14](#14-the-datasheets-and-atmels-guidelines)).
 
 ### 8. Cases
 
 A case is what a study fixes; everything else is X.
 
-- **Pinned values:** a net's value, with its timing still computed:
-  "the control store's outputs read word W once they settle". Today's
-  analysis does the same with its constants.
-- **The start state:** the values registers on the reference clock take
-  at the edge at 0, and the values they had before it. In Chibi Heron:
+- **Pinned values** (`pins`): a net's value once it first changes, with
+  its timing still computed: "the control store's outputs read word W
+  once they settle". Today's analysis does the same with its constants.
+  After its first change, a rise, fall or change of a pinned net (each
+  happens once at most) starts and ends at the pinned value, so it is no
+  change; only a glitch may still pulse.
+- **Constants** (`constant`): a net's value throughout (a reset that
+  isn't asserted).
+- **The start state** (`start`): the values registers on the reference
+  clock take at the edge at 0, and the values they had before it. In
+  Chibi Heron:
   - the clock generator at phase F, tick 0, with CLK0 and HCK rising;
-  - TASK as the case says, or X.
+  - TASK and TASKP as the case says.
 - **The end:** the edge the window ends at ([2](#2-time-and-the-window)).
+- **Skipped chips** (`skip`): chips whose checks the case doesn't count,
+  because a case of their own times them (Chibi Heron's video, on its
+  own phase). Their outputs are evaluated all the same.
 - **Branches:**
   - A register on a reference clock that would load X, and that the
     case names as a branch, splits the case: one branch per value, each
-    reported on its own. In Chibi Heron: the clock generator's phase and
-    END, HOLD, VEXTQ and TCHG.
-  - A branch that comes back to a state it was in, with nothing in
-    flight, stops there, since the rest repeats.
+    reported on its own (`forced` reruns one). In Chibi Heron: HWQ and
+    VEXTQ.
+  - A branch whose registers come back, at a rising reference edge, to
+    the states they had at an earlier one stops there, since the rest
+    repeats; the result says where (`repeats`).
   - A study sets a limit on branches.
 - **Tails:**
-  - The engine runs every case once, and finds every net's latest
-    transition past its window's end, the worst over all cases.
-  - It carries those into every case's start as changes in flight, and
-    runs again, until nothing changes (usually two rounds).
+  - Every branch reports the changes launched in its window and still
+    in flight past its end: per net, from the end, when it may first
+    change past it (0 where it may be changing at the end already) and
+    its latest.
+  - The study takes the worst over the cases it pairs (any word may
+    follow any, for Chibi Heron) and gives them back as the run's
+    `tails`: each a change from X in that window, at every case's
+    start. It runs again until the tails don't change (two rounds for
+    Chibi Heron).
   - So the previous cycle's slow paths are seen, without pairing cases.
-- **Pairs:** where X before the start is too pessimistic (a bus driver
-  the previous word may have left on), a study can give the previous
-  word too, as pinned values before 0. The study chooses the pairs; in
-  Chibi Heron they would come from the microcode's successors.
-- **Exceptions:** each named and with a reason, and each listed in the
-  report:
-  - a false path: from, to, and under which values;
-  - a check the study turns off (for example, a result register that
-    loads every cycle but matters only when the result is used).
+- **Pairs** (`before`): where X before the start is too pessimistic (a
+  bus driver the previous word may have left on), a study can give the
+  previous word too, as nets' values before 0, until they first change.
+  The study chooses the pairs; in Chibi Heron they would come from the
+  microcode's successors.
+- **Exceptions:** each with its reason, and each counted in the results.
+  An exception matches a check by any of its chip, its kind (setup,
+  hold, ...), its pin, and the values of nets at its edge (`when`):
+  - with `through`, a false path: only the changes whose path goes
+    through that net are left out, and the check counts the others;
+  - without, a check the study turns off (for example, a result register
+    that loads every cycle but matters only when the result is used).
 
 For Chibi Heron:
 
 - one case per distinct microinstruction, with the fields that don't
   time it X, not 0;
-- an access at MAR twice: the RAM and the I/O space;
+- an access at MAR twice: the RAM and the I/O space, the I/O space once
+  per device, its address pinned (the slow devices too; the CF card at
+  PIO mode 0 only, the mode its data has);
+- each word with a task running if a task runs it, starting if it's a
+  task's entry, and ending (TCHG) if it isn't a task's;
 - LEN and HLEN set to each value in turn; the shortest that passes
   gives `ticks.json`. A length passes if no check a length can fix
-  (setup, strobe, width, period) fails worse than at the longest
+  (setup, strobe, width, period, float) fails worse than at the longest
   lengths: what fails there too (a path inside phase F, an access to the
-  I/O space, whose 6 ticks are fixed) is reported, not lengthened.
+  I/O space, whose 6 ticks are fixed) is reported, not lengthened. The
+  variants are checked at their word's lengths;
+- one exception: U_ALUC's HC where the high half doesn't take the low
+  half's carry.
 
 ### 9. Checks
 
@@ -423,11 +466,21 @@ arrival. Without it, a register launching on an HCK edge into another
 capturing on the same edge sees U_CGB's clock-to-output spread, 1–4 ns,
 as skew that can't exist.
 
+Paths that share a pin but start at different reference edges get no
+credit: the same pin's delay at two edges needn't be the same. (The
+run's `cppr_across_edges` credits them the spread of the shared part's
+delay, each measured from its own edge, for comparison.) Each output's enable is a point of its own,
+so two drivers on one bus share only what their enables really share.
+
 A change that may overlap the edge's window is late data (a setup) if
 it goes back to an earlier reference edge and may start before the
 edge's earliest time; else it's early data (a hold), a race with the
 edge. Each pin's worst setup and worst hold at an edge are checks of
 their own: a failing hold doesn't hide a failing setup.
+
+A register the netlist marks as a synchroniser (`nocheck`) has no setup
+and hold checks on its asynchronous pins: its crossings are reported
+instead ([9.7](#97-crossings)). Its other pins are checked as usual.
 
 #### 9.2 Widths and periods
 
@@ -438,8 +491,18 @@ their own: a failing hold doesn't hide a failing setup.
 
 #### 9.3 Recovery and removal
 
-An asynchronous clear's or preset's release, against the next clock
-edge.
+For every register with a clear or a preset, the force's waveform (its
+equation's) against the register's clock edges:
+
+- a release (the force going inactive) may come no later than the
+  recovery before an edge's earliest time, nor earlier than the removal
+  after its latest; a release near an edge is checked on the side it's
+  nearer, as a setup or a hold is ([9.1](#91-setup-and-hold)), with the
+  same credit;
+- the force's pulses last at least its width.
+
+Registers on one clock pin that share a force share one check. A
+removal, like a hold, is something no length fixes.
 
 #### 9.4 Clean clocks and strobes
 
@@ -478,43 +541,78 @@ waveform gives when it may be on (from its earliest turn-on to its latest
 turn-off), and when it surely is (from its latest turn-on to its
 earliest turn-off).
 
+Each stretch between two enables' transitions has each driver's enable
+off, surely on, maybe on (stable, but its value not known) or changing.
+
 - Two drivers that may be on at once overlap by no more than a tolerance,
   a parameter of the run: 1 ns by default, as the chip-level simulator's
-  runs allow.
+  runs allow. A run of stretches in which neither is off is an overlap:
+  its slack is the tolerance less its length, with the credit for what
+  the latest turn-off and the earliest turn-on share.
+- A run with a stretch where one driver is maybe on and neither is
+  changing can't be timed: the values the case lacks decide it. The
+  results list it as unresolved, not as a failure.
 - Nothing samples or strobes a net while no driver is surely on, unless
-  a pull-up holds it.
+  a pull-up holds it. Before the edge's earliest time that's late data,
+  which a length fixes (`float`); from it, a hold. Where a driver that
+  is maybe on is involved, it's unresolved.
 - At the window's start, the previous cycle's drivers come from the
-  tails or the pairs ([8](#8-cases)).
+  tails or the pairs ([8](#8-cases)); without them, an overlap there is
+  unresolved.
 
 #### 9.7 Crossings
 
 - **What counts as one:** a capture of a net that depends on an
   asynchronous source. That's another reference clock's domain, a
-  connector's input, a button, or a device on its own clock.
+  connector's input, a button, or a device on its own clock (an output
+  the description marks `asynchronous`), and a register clocked by any
+  of those.
+- **How it's found:** each waveform carries the window in which an
+  asynchronous source may change it. It spreads through the inputs a
+  function can answer ([4](#4-evaluating-chips)), later by the arc's
+  delay, and through a bus's drivers that may be on. A capture is a
+  crossing if that window meets its setup and hold window.
 - **What it needs:** to be at a register the netlist marks as a
-  synchroniser (`nocheck` today).
-- **What the report gives:** every crossing, its synchroniser, and the
-  time the synchroniser's output has to settle before the next
-  register's setup.
+  synchroniser (`nocheck` today). Elsewhere it fails, as a `crossing`.
+- **What the report gives:** every crossing at a synchroniser, and the
+  time the synchroniser's output has to settle: the tightest setup check
+  whose path starts there.
 - **No MTBF:** the data has no metastability figures.
-- RESET_n's release is a crossing, into every register it clears.
+- **RESET_n's release** is a crossing into every register it clears.
+  The cases hold RESET_n high, so it's found by structure: the coverage
+  ([9.8](#98-coverage)) lists every clear and preset an asynchronous
+  source reaches through combinatorial logic.
 
 #### 9.8 Coverage
 
-The report lists:
+`heron.native.sta.coverage(netlist)` gives, before any case:
 
-- every check no case evaluated (a register never clocked, a strobe
-  never active);
-- every chip with no description, or with outputs left untimed;
-- every exception.
+- every check, by the index each branch's results name in the checks it
+  evaluated, so a study can list those no case evaluated (a register
+  never clocked, a strobe never active);
+- every chip that drives a net with no description, and every driving
+  pin no output times;
+- the checks a description has but the part's data hasn't the figures
+  for;
+- the clears and presets an asynchronous source reaches
+  ([9.7](#97-crossings)).
 
-A study's tests can hold that list.
+With the exceptions each branch counts, a study's report has the lot,
+and its tests can hold that list.
 
 ### 10. Results
 
-- **Per check and case:** the slack, and the path that sets it. The path
-  is the chain of transitions back to a reference edge, with each step's
-  chip, pins, delay name, minimum and maximum.
+- **Per check and case:** the slack, and the path that sets it, and the
+  one it's checked against (the clock's, the strobe's, the other
+  driver's). A path is the chain of transitions back to a reference
+  edge, with each step's chip, pins, delay name, minimum and maximum,
+  and whether that delay is a minimum from the fraction (`assumed`) or
+  estimated in the data. A check whose early path rests on such
+  minimums gives the smallest fraction it passes with, by that path's
+  typical delays beyond what it shares with the other.
+- **Per branch:** its choices, its end, the checks it evaluated, what
+  each exception took, what it couldn't check (`unresolved`), the
+  crossings at synchronisers, its tails, and where it repeats.
 - **A study's summary:**
   - the failing checks;
   - the marginal ones: slack under a band the run sets, 2 ns by default,
@@ -534,7 +632,8 @@ A study's tests can hold that list.
   the workspace. Its own Rust tests: each check, the waveform rules,
   small netlists.
 - **The bindings:** `heron/bindings/src/py_sta.rs` makes it
-  `heron.native.sta.analyse(netlist, cases, options)`. The netlist is
+  `heron.native.sta.analyse(netlist, cases, options)` and
+  `heron.native.sta.coverage(netlist)`. The netlist is
   `Netlist.export()`'s; the cases and options are plain dicts, as the
   chip-level simulator takes its netlist.
 - **`chips.py`** gets the descriptions ([6](#6-chip-descriptions)).
@@ -617,6 +716,16 @@ requirement, U_MEMC's setup of IOACC, misses by 0.04 ns.
 The chip-level runs don't flag it, so one of the two is wrong. Settling
 that is the new engine's job.
 
+**What the engine finds** ([chibi.md](0048-rfc-sta-engine/chibi.md)):
+
+- U_IRH's failure at -15: 0.3 ns, on the chip-level run's path.
+- UART 0's, very likely, as a mix of grades: the video's address driver
+  (`U_VV`, a CQZ-20 in today's mix) lets go of the address bus at phase
+  F's end, and then `U_IODEC` decodes the select. With `U_SYS` a -15 as
+  well, the select misses ADS by 6.4 ns.
+- The IOACC path is still open: the engine's I/O cases pin the access's
+  address from phase F on, so they don't see MAR's load in the cycle.
+
 ### 14. The datasheets and Atmel's guidelines
 
 From the ATF22V10C's datasheet (Atmel 0735U) and the CZ/CQZ's (0778L):
@@ -657,7 +766,9 @@ Atmel's *PLD Design Guidelines* (0790C) is the source of
     macrocell's 8 to 16 terms.
   - An extension was considered and left out: several inputs all
     pushing the output the same way. It's sound for an AND-OR array in
-    theory, but the guidelines don't cover it.
+    theory, but the guidelines don't cover it. The engine has it as an
+    option of the run (`monotone`), off; Chibi Heron's ticks are the
+    same either way.
 - **Minimum delays.** Where the datasheet gives none, take zero; and
   assume "a skew between all signals".
 - **Clocks.** Not more than one level of logic. Registered outputs are
@@ -725,8 +836,9 @@ of this RFC.
 
 - **Today:** `sta2.py` takes 6.4 s on four cores for its 626 cases, and
   the grade search runs the analysis again for each 22V10 it tries. The
-  engine takes 84 s for the 2888 cases of its ticks search (every
-  length it tries, and their branches).
+  engine takes 210 s for Chibi Heron's 7402 cases (every length the
+  ticks search tries, the variants at each device and with a task, and
+  the tails' two rounds), at 4.8 GB.
 - **The aim:** the whole of Chibi Heron's analysis in under a second on
   four cores.
 - **Re-timing:** a case's values don't depend on the delays. So the
@@ -747,13 +859,17 @@ of this RFC.
    - `ticks.json` the same as `sta2.py`'s, or every difference explained;
    - RFC 0047's two failures found.
 
-   Its first results are in [chibi.md](0048-rfc-sta-engine/chibi.md):
-   the same `ticks.json`, U_IRH's failure found but not UART 0's, and
-   the holds and races no length fixes.
+   The results are in [chibi.md](0048-rfc-sta-engine/chibi.md): the
+   same `ticks.json`; U_IRH's failure found, and UART 0's very likely,
+   as a mix of grades; and the holds, races and handovers no length
+   fixes.
 4. **The other checks:** strobes, glitches, handovers, crossings, reset,
-   coverage.
-5. **The other data:** wire delays per receiver, load derating, rise and
-   fall, as the data comes.
+   coverage. Done, with the exceptions, the tails and pairs, and Chibi
+   Heron's cases with a task and at each device
+   ([chibi.md](0048-rfc-sta-engine/chibi.md)).
+5. **The other data:** wire delays per receiver, load derating, the
+   oscillators' duty and jitter: the engine takes them; their figures
+   come as the data does. Rise and fall: open.
 6. **Then:** the grade search, and the other studies.
 
 ### 19. Open questions
@@ -761,8 +877,9 @@ of this RFC.
 1. **The minimum delay's fraction** of the typical, where the data has no
    minimum: configurable, its value to be reconsidered (Emily).
 2. **Wire delays per receiver and load derating:** where their data comes
-   from.
-3. **The oscillators' duty cycle and jitter.**
+   from (the engine and the export take it: [5](#5-delays)).
+3. **The oscillators' duty cycle and jitter:** their figures (the engine
+   takes them: [2](#2-time-and-the-window)).
 4. **Pull-up rise times** (RESET_n).
 5. **Grades, once the engine is done:**
    - the objective (the -5s first, being PLCC-only; then current?);

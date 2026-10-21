@@ -9,18 +9,33 @@ the static timing engine (infra/sta), and the calls into it.
     analyse(exported, cases, ...)  heron.native.sta.analyse: each case's
                                    branches, their checks and slacks
 
-A case is a dict:
+A case is a dict (infra/sta/src/input.rs, Case):
 
-    label     a name for the reports
-    clock     the reference clock's net (an oscillator's): time 0 is one of
-              its rising edges, and an event is each of its edges
-    pins      {net: 0 or 1}: values the net settles to (its timing still
-              computed), as a control store's outputs read a word
-    start     {net: (before, after)}: a register's output just before the
-              edge at 0 and what it takes there (2 for X)
-    branch    [net]: registers that split the case where they'd load X
-    end       {"net": net, "events": n}: the window ends at the first edge
-              after 0 at which net rises; at most n events
+    label       a name for the reports
+    clock       the reference clock's net (an oscillator's): time 0 is one
+                of its rising edges, and an event is each of its edges
+    pins        {net: 0 or 1}: values the net settles to once it first
+                changes (its timing still computed), as a control store's
+                outputs read a word
+    constant    {net: 0 or 1}: values the net has throughout (a reset that
+                isn't asserted)
+    start       {net: (before, after)}: a register's output just before
+                the edge at 0 and what it takes there (2 for X)
+    before      {net: 0 or 1}: values before the edge at 0, until the net
+                first changes (a pair's previous word)
+    branch      [net]: registers that split the case where they'd load X
+    forced      [(net, event, value)]: a branch's choices, to rerun it
+    skip        [ref]: chips whose checks the case doesn't count
+    exceptions  [{"reason", "chip", "check", "pin", "when", "through"}]:
+                checks turned off, or with "through" a false path
+    end         {"net": net, "events": n}: the window ends at the first
+                edge after 0 at which net rises; at most n events
+
+and the options (Options): fraction, tolerance, marginal, paths as
+analyse()'s arguments; branches, the most a case splits into; trace, the
+nets whose waves the results carry; tails, the cycle before's changes in
+flight ([(net, earliest, latest)], ps from 0); cppr_across_edges and
+monotone (RFC 0048 9.1, 14).
 """
 
 from heron import native
@@ -118,7 +133,7 @@ def analyse(exported, cases, fraction=0.3, tolerance=1000, marginal=2000, paths=
             **options):
     """Every case's branches, as dicts: the engine's results
     (infra/sta/src/checks.rs, BranchOut). options: the engine's others
-    (cppr_across_edges, monotone, trace, branches)."""
+    (branches, trace, tails, cppr_across_edges, monotone)."""
     opts = {"fraction": fraction, "tolerance": tolerance, "marginal": marginal, "paths": paths,
             **options}
     return native.sta.analyse(exported, list(cases), opts, jobs or 0)
