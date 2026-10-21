@@ -133,7 +133,7 @@ pub struct Chip {
     pub nets: Vec<Option<u32>>,
     pub outs: Vec<u32>,
     /// A register's output by its pin.
-    pub reg_of_pin: HashMap<u32, u32>,
+    pub reg_of_pin: Vec<Option<u32>>,
     pub nocheck: bool,
     pub described: bool,
     pub unchecked: Vec<String>,
@@ -142,7 +142,7 @@ pub struct Chip {
 
 impl Chip {
     pub fn source(&self, pin: u32) -> Source {
-        if let Some(&r) = self.reg_of_pin.get(&pin) {
+        if let Some(&Some(r)) = self.reg_of_pin.get(pin as usize) {
             return Source::State(r);
         }
         match self.nets.get(pin as usize).copied().flatten() {
@@ -207,6 +207,11 @@ pub struct Design {
     /// The pins each output reads (Design::reads), and those of its enable.
     pub reads_of: Vec<Vec<u32>>,
     pub en_reads: Vec<Vec<u32>>,
+    /// The outputs that read each net, and each register's state (the
+    /// register's own output among them); each output's group in order.
+    pub net_readers: Vec<Vec<u32>>,
+    pub state_readers: Vec<Vec<u32>>,
+    pub group_of: Vec<u32>,
 }
 
 impl Design {
@@ -238,6 +243,9 @@ impl Design {
             labels: vec!["wire".into()],
             reads_of: Vec::new(),
             en_reads: Vec::new(),
+            net_readers: Vec::new(),
+            state_readers: Vec::new(),
+            group_of: Vec::new(),
         };
         for &p in &n.pulled {
             if let Some(x) = d.pulled.get_mut(p as usize) {
@@ -258,7 +266,28 @@ impl Design {
             .iter()
             .map(|o| o.enable.as_ref().map(|e| support(&e.f)).unwrap_or_default())
             .collect();
+        d.net_readers = vec![Vec::new(); d.nets.len()];
+        d.state_readers = (0..d.outs.len() as u32).map(|o| vec![o]).collect();
+        for (oi, o) in d.outs.iter().enumerate() {
+            let chip = &d.chips[o.chip as usize];
+            for &p in &d.reads_of[oi] {
+                let list = match chip.source(p) {
+                    Source::Net(n) => &mut d.net_readers[n as usize],
+                    Source::State(r) => &mut d.state_readers[r as usize],
+                    Source::Open => continue,
+                };
+                if list.last() != Some(&(oi as u32)) {
+                    list.push(oi as u32);
+                }
+            }
+        }
         d.order = d.groups();
+        d.group_of = vec![0; d.outs.len()];
+        for (gi, g) in d.order.iter().enumerate() {
+            for &o in g {
+                d.group_of[o as usize] = gi as u32;
+            }
+        }
         d.looped = d
             .order
             .iter()
@@ -297,7 +326,7 @@ impl Design {
             pins: c.pins.clone(),
             nets: nets.clone(),
             outs: Vec::new(),
-            reg_of_pin: HashMap::new(),
+            reg_of_pin: vec![None; c.pins.len()],
             nocheck: c.nocheck,
             described: c.desc.is_some(),
             unchecked: Vec::new(),
@@ -306,8 +335,10 @@ impl Design {
         let r = c.reference.clone();
         let add = |d: &mut Design, chip: &mut Chip, o: Output| {
             chip.outs.push(d.outs.len() as u32);
-            if o.is_reg() {
-                chip.reg_of_pin.insert(o.pin, d.outs.len() as u32);
+            if o.is_reg()
+                && let Some(x) = chip.reg_of_pin.get_mut(o.pin as usize)
+            {
+                *x = Some(d.outs.len() as u32);
             }
             d.outs.push(o);
         };

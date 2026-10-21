@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::design::{Arc, CheckKind, Delay, Design, Kind, Source};
 use crate::input::{Case, Options};
-use crate::logic::{V0, V1, X, depends, live};
+use crate::logic::{V0, V1, X, depends_exact, matters};
 use crate::values::Trace;
 use crate::waves::{NONE, STATE, Tr, Wave, Waves};
 
@@ -31,9 +31,14 @@ pub struct CheckOut {
     /// When: the clock edge's or the strobe's end's earliest time.
     pub at: i64,
     pub event: i32,
+    /// The data's path (or the change's), and the clock's or the strobe's
+    /// it's checked against.
     pub path: Vec<Step>,
+    pub against: Vec<Step>,
     #[serde(skip)]
     pub node: u32,
+    #[serde(skip)]
+    pub other: u32,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -54,11 +59,14 @@ pub struct BranchOut {
     pub worst: Vec<CheckOut>,
     pub notes: Vec<String>,
     /// The waves of the nets the options name: (net, value before the
-    /// window, [(earliest, latest, before, after, clean)]).
+    /// window, its transitions).
     pub traces: Vec<NetTrace>,
 }
 
-pub type NetTrace = (String, u8, Vec<(i64, i64, u8, u8, bool)>);
+pub type NetTrace = (String, u8, Vec<TrTrace>);
+/// A transition: earliest, latest, before, after, clean, and its parts by
+/// reference edge (event, earliest, latest).
+pub type TrTrace = (i64, i64, u8, u8, bool, Vec<(i32, i64, i64)>);
 
 struct Ctx<'a, 'b> {
     d: &'a Design,
@@ -120,7 +128,7 @@ impl Ctx<'_, '_> {
         slack: i64,
         at: i64,
         event: i32,
-        node: u32,
+        (node, other): (u32, u32),
     ) {
         self.out.push(CheckOut {
             chip: self.d.chips[chip as usize].reference.clone(),
@@ -130,7 +138,9 @@ impl Ctx<'_, '_> {
             at,
             event,
             path: Vec::new(),
+            against: Vec::new(),
             node,
+            other,
         });
     }
 
@@ -192,50 +202,52 @@ impl Ctx<'_, '_> {
                 let reads = regs
                     .iter()
                     .any(|f| f.iter().flatten().any(|&(q, _)| q == p));
+                // (a pin no live term needs can't matter: the quick test first)
+                let none = |_| false;
                 if reads
                     && !regs
                         .iter()
-                        .any(|f| live(f, p, &get, &|_| false) && depends(f, p, &get))
+                        .any(|f| matters(f, p, &get, &none) && depends_exact(f, p, &get, &none))
                 {
                     continue;
                 }
                 let dw = self.w.pin_wave(chip, p);
-                let mut worst: Option<(i64, &str, u32)> = None;
+                // the worst change on each side, each its own check (a
+                // failing hold mustn't hide a failing setup)
+                let mut worst: [Option<(i64, (u32, u32))>; 2] = [None, None];
                 // a change before the edge is set up, one after it held;
                 // one that overlaps the edge's window is late data if it
-                // goes back to an earlier edge, early data if to this one
-                // or a later
+                // goes back to an earlier edge and may start before the
+                // edge's earliest, else early data (it can't come before
+                // the edge: a race with it)
                 for dt in &dw.tr {
-                    for part in self.w.parts_of(dt) {
+                    for part in self.w.parts_of(dt).iter() {
                         let s = tr.e - setup - part.l + self.credit(part.cl, tr.ce);
                         let h = part.e - (tr.l + hold) + self.credit(tr.cl, part.ce);
                         let setup_side = if s >= 0 || h >= 0 {
                             s >= h
                         } else {
-                            part.event < ev
+                            part.event < ev && part.e < tr.e
                         };
-                        let (slack, kind, node) = if setup_side {
-                            (s, "setup", part.cl)
+                        let (side, slack, node) = if setup_side {
+                            (0, s, (part.cl, tr.ce))
                         } else {
-                            (h, "hold", part.ce)
+                            (1, h, (part.ce, tr.cl))
                         };
-                        if worst.is_none_or(|w| slack < w.0) {
-                            worst = Some((slack, kind, node));
+                        if worst[side].is_none_or(|w| slack < w.0) {
+                            worst[side] = Some((slack, node));
                         }
                     }
                 }
-                if let Some((slack, kind, node)) = worst {
-                    let name = if kind == "setup" {
-                        &names.first()
-                    } else {
-                        &names.get(1)
-                    };
-                    let what = format!(
-                        "{} ({})",
-                        self.pin_name(chip, p),
-                        name.map(|s| s.as_str()).unwrap_or(kind)
-                    );
-                    self.push(chip, kind, what, slack, tr.e, ev, node);
+                for (side, kind) in [(0, "setup"), (1, "hold")] {
+                    if let Some((slack, node)) = worst[side] {
+                        let what = format!(
+                            "{} ({})",
+                            self.pin_name(chip, p),
+                            names.get(side).map(|s| s.as_str()).unwrap_or(kind)
+                        );
+                        self.push(chip, kind, what, slack, tr.e, ev, node);
+                    }
                 }
             }
         }
@@ -259,7 +271,7 @@ impl Ctx<'_, '_> {
                 if level == V1 { "high" } else { "low" },
                 names.first().map(|s| s.as_str()).unwrap_or("width")
             );
-            self.push(chip, "width", what, slack, a.l, ev, b.ce);
+            self.push(chip, "width", what, slack, a.l, ev, (b.ce, a.cl));
         }
     }
 
@@ -282,7 +294,7 @@ impl Ctx<'_, '_> {
                 self.pin_name(chip, pin),
                 names.first().map(|s| s.as_str()).unwrap_or("period")
             );
-            self.push(chip, "period", what, slack, a.l, ev, b.ce);
+            self.push(chip, "period", what, slack, a.l, ev, (b.ce, a.cl));
         }
     }
 
@@ -322,7 +334,7 @@ impl Ctx<'_, '_> {
                     -1,
                     a.e,
                     ev,
-                    a.cl,
+                    (a.cl, NONE),
                 );
             }
             if let Some(wd) = width {
@@ -333,29 +345,30 @@ impl Ctx<'_, '_> {
                     b.e - a.l - wd,
                     b.e,
                     ev,
-                    b.ce,
+                    (b.ce, a.cl),
                 );
             }
             for s in stable {
                 for &p in &s.pins {
                     let pw = self.w.pin_wave(chip, p);
-                    let mut worst: Option<(i64, u32)> = None;
+                    let mut worst: Option<(i64, &str, (u32, u32))> = None;
                     for t in &pw.tr {
                         let mut before = a.e - s.start.unwrap_or(0) - t.l;
                         if let Some(end) = s.end {
                             before = before.min(b.e - end - t.l);
                         }
                         let after = t.e - (b.l + s.after.unwrap_or(0));
-                        let (slack, node) = if before >= after {
-                            (before, t.cl)
+                        // the side after the strobe's end is a hold
+                        let w = if before >= after {
+                            (before, "strobe", (t.cl, a.ce))
                         } else {
-                            (after, t.ce)
+                            (after, "hold", (t.ce, b.cl))
                         };
-                        if worst.is_none_or(|w| slack < w.0) {
-                            worst = Some((slack, node));
+                        if worst.is_none_or(|x| w.0 < x.0) {
+                            worst = Some(w);
                         }
                     }
-                    if let Some((slack, node)) = worst {
+                    if let Some((slack, kind, node)) = worst {
                         let what = format!(
                             "{eq}: {} stable ({})",
                             self.pin_name(chip, p),
@@ -366,29 +379,33 @@ impl Ctx<'_, '_> {
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         );
-                        self.push(chip, "strobe", what, slack, b.e, ev, node);
+                        self.push(chip, kind, what, slack, b.e, ev, node);
                     }
                 }
             }
             for s in data {
                 for &p in &s.pins {
                     let pw = self.w.pin_wave(chip, p);
-                    let mut worst: Option<(i64, u32)> = None;
+                    let mut worst: Option<(i64, &str, (u32, u32))> = None;
                     for t in &pw.tr {
                         let su = b.e - s.setup.unwrap_or(0) - t.l;
                         let h = t.e - (b.l + s.hold.unwrap_or(0));
-                        let (slack, node) = if su >= h { (su, t.cl) } else { (h, t.ce) };
-                        if worst.is_none_or(|w| slack < w.0) {
-                            worst = Some((slack, node));
+                        let w = if su >= h {
+                            (su, "strobe", (t.cl, b.ce))
+                        } else {
+                            (h, "hold", (t.ce, b.cl))
+                        };
+                        if worst.is_none_or(|x| w.0 < x.0) {
+                            worst = Some(w);
                         }
                     }
-                    if let Some((slack, node)) = worst {
+                    if let Some((slack, kind, node)) = worst {
                         let what = format!(
                             "{eq}: {} data ({})",
                             self.pin_name(chip, p),
                             s.names.join(", ")
                         );
-                        self.push(chip, "strobe", what, slack, b.e, ev, node);
+                        self.push(chip, kind, what, slack, b.e, ev, node);
                     }
                 }
             }
@@ -432,7 +449,7 @@ impl Ctx<'_, '_> {
                         .collect();
                 for (at, ev, node) in bad {
                     let what = format!("{} ({why}) may glitch", self.pin_name(ci as u32, p));
-                    self.push(ci as u32, "glitch", what, -1, at, ev, node);
+                    self.push(ci as u32, "glitch", what, -1, at, ev, (node, NONE));
                 }
             }
         }
@@ -535,7 +552,9 @@ pub fn run(d: &Design, t: &Trace, w: &mut Waves, o: &Options, case: &Case) -> Br
             at: 0,
             event: -1,
             path: Vec::new(),
+            against: Vec::new(),
             node: NONE,
+            other: NONE,
         });
     }
     let mut all = std::mem::take(&mut cx.out);
@@ -556,6 +575,9 @@ pub fn run(d: &Design, t: &Trace, w: &mut Waves, o: &Options, case: &Case) -> Br
     for (i, c) in worst.iter_mut().enumerate() {
         if i < o.paths && c.path.is_empty() && c.node != NONE {
             c.path = cx.path(c.node);
+            if c.other != NONE {
+                c.against = cx.path(c.other);
+            }
         }
     }
     BranchOut {
@@ -581,7 +603,10 @@ fn traces(d: &Design, w: &Waves, names: &[String]) -> Vec<NetTrace> {
         let tr = wv
             .tr
             .iter()
-            .map(|t| (t.e, t.l, t.before, t.after, t.clean))
+            .map(|t| {
+                let parts = w.parts_of(t).iter().map(|p| (p.event, p.e, p.l)).collect();
+                (t.e, t.l, t.before, t.after, t.clean, parts)
+            })
             .collect();
         (n.to_string(), wv.init, tr)
     };

@@ -286,3 +286,24 @@ fn branches() {
     choices.dedup();
     assert_eq!(choices.len(), 8);
 }
+
+#[test]
+fn setup_and_hold() {
+    // Q toggles through an inverter as slow as 25 ns and as quick as 1 ns:
+    // at the edge at 20 ns, D is late from the edge at 0 (setup: 20 - 3 -
+    // 29 = -12 ns) and early from this one (hold: 22 - 20 - 3 = -1 ns);
+    // each is a check of its own
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("R1", "Q", "D", "MCLK", [1000, 4000, 3000, 3000]);
+    b.gate("U1", "D", &["Q"], not(1), 1000, 25_000);
+    let r = analyse(&b.design(), &case(&[("Q", 0, 1)], "Q"), &Options::default()).unwrap();
+    let at = |kind: &str| {
+        r[0].worst
+            .iter()
+            .find(|c| c.chip == "R1" && c.check == kind && c.event == 2)
+            .map(|c| c.slack)
+    };
+    assert_eq!(at("setup"), Some(-12_000), "{:?}", r[0].worst);
+    assert_eq!(at("hold"), Some(-1000), "{:?}", r[0].worst);
+}

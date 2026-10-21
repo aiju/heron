@@ -13,7 +13,9 @@
 
 use crate::Error;
 use crate::design::{Arc, Delay, Design, Kind, Source};
-use crate::logic::{V0, V1, X, Z, held0, held1, known, live, merge, not, sop, support};
+use crate::logic::{
+    V0, V1, X, Z, held0, held1, known, matters, merge, monotone, not, sop, support,
+};
 use crate::values::{Trace, resolve};
 
 pub const NONE: u32 = u32::MAX;
@@ -54,6 +56,22 @@ pub struct Part {
     pub l: i64,
     pub ce: u32,
     pub cl: u32,
+}
+
+/// A transition's parts: itself, or several by reference edge.
+pub enum Parts<'a> {
+    One([Part; 1]),
+    Many(&'a [Part]),
+}
+
+impl std::ops::Deref for Parts<'_> {
+    type Target = [Part];
+    fn deref(&self) -> &[Part] {
+        match self {
+            Parts::One(p) => p,
+            Parts::Many(s) => s,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -98,6 +116,41 @@ impl Wave {
     }
 }
 
+/// A change's window at an output: its earliest and latest times, the
+/// arcs that set them, and the input's times they come from.
+#[derive(Clone, Copy, Debug)]
+struct Win {
+    e: i64,
+    l: i64,
+    le: u32,
+    ll: u32,
+    ie: i64,
+    il: i64,
+}
+
+impl Win {
+    fn widen(self, o: Win) -> Win {
+        let (e, le, ie) = if o.e < self.e {
+            (o.e, o.le, o.ie)
+        } else {
+            (self.e, self.le, self.ie)
+        };
+        let (l, ll, il) = if o.l > self.l {
+            (o.l, o.ll, o.il)
+        } else {
+            (self.l, self.ll, self.il)
+        };
+        Win {
+            e,
+            l,
+            le,
+            ll,
+            ie,
+            il,
+        }
+    }
+}
+
 /// One input transition's effect at an output, through the arcs that
 /// apply: a window per set of arcs (an enable's turn-on and turn-off).
 #[derive(Clone, Debug)]
@@ -109,8 +162,8 @@ struct Effect {
     event: i32,
     /// Its window at the output per set of arcs, and over them all, with
     /// the nodes it comes from.
-    win: Vec<Option<(i64, i64, u32, u32)>>,
-    union: (i64, i64, u32, u32),
+    win: [Option<Win>; 2],
+    union: Win,
     from: (u32, u32),
 }
 
@@ -170,159 +223,34 @@ impl<'a> Waves<'a> {
         sets: &[&[Arc]],
         key: u32,
     ) -> Wave {
-        let mut pins: Vec<u32> = func.map(support).unwrap_or_default();
-        for s in sets {
-            for a in s.iter() {
-                pins.extend(&a.from);
-                if let Some(w) = &a.when {
-                    pins.extend(support(w));
-                }
-            }
-        }
-        pins.sort_unstable();
-        pins.dedup();
-        let waves: Vec<Wave> = pins
-            .iter()
-            .map(|&p| self.pin_wave(chip, p).clone())
-            .collect();
-        let idx = |p: u32| pins.binary_search(&p).ok();
-        let f = self.fraction;
-        let own_net = if key & STATE == 0 { Some(key) } else { None };
-        let own: Vec<bool> = pins
-            .iter()
-            .map(|&p| {
-                own_net.is_some_and(|n| self.d.chips[chip as usize].source(p) == Source::Net(n))
-            })
-            .collect();
-        let mut effects = Vec::new();
-        for (pi, &p) in pins.iter().enumerate() {
-            // an output's own net, fed back (a latch's): its value counts,
-            // its changes are the output's own
-            if own[pi] {
-                continue;
-            }
-            for (k, tr) in waves[pi].tr.iter().enumerate() {
-                // the stretches of a change in which the function can
-                // answer it, with the other inputs as they are then: the
-                // rest doesn't reach the output; between stretches the
-                // input may or may not have changed yet
-                let mut spans: Vec<(i64, i64)> = Vec::new();
-                if let Some(fun) = func {
-                    let mut bp: Vec<i64> = vec![tr.e, tr.l + 1];
-                    for (q, w) in waves.iter().enumerate() {
-                        if q == pi {
-                            continue;
-                        }
-                        for t in &w.tr {
-                            for x in [t.e, t.l + 1] {
-                                if x > tr.e && x <= tr.l {
-                                    bp.push(x);
-                                }
-                            }
-                        }
-                    }
-                    bp.sort_unstable();
-                    bp.dedup();
-                    for win in bp.windows(2) {
-                        let (a, b) = (win[0], win[1]);
-                        let busy =
-                            |q: usize| q == pi || waves[q].tr.iter().any(|t| t.e < b && t.l >= a);
-                        let get = |q: u32| idx(q).map(|i| waves[i].at(a)).unwrap_or(X);
-                        let mv = |q: u32| idx(q).is_some_and(busy);
-                        if !held1(fun, &get, &mv) && live(fun, p, &get, &mv) {
-                            match spans.last_mut() {
-                                Some(last) if last.1 + 1 == a => last.1 = b - 1,
-                                _ => spans.push((a, b - 1)),
-                            }
-                        }
-                    }
-                } else {
-                    spans.push((tr.e, tr.l));
-                }
-                let n_spans = spans.len();
-                for (si, &(ne, nl)) in spans.iter().enumerate() {
-                    let mut tr = *tr;
-                    if si > 0 {
-                        tr.before = X;
-                    }
-                    if si + 1 < n_spans {
-                        tr.after = X;
-                    }
-                    for part in self.parts_of(&tr) {
-                        let (pe, pl) = (part.e.max(ne), part.l.min(nl));
-                        if pe > pl {
-                            continue;
-                        }
-                        let mut win = Vec::with_capacity(sets.len());
-                        let mut any: Option<(i64, i64, u32, u32)> = None;
-                        for s in sets {
-                            let mut w: Option<(i64, i64, u32, u32)> = None;
-                            for a in s.iter().filter(|a| a.from.contains(&p)) {
-                                if let Some(cond) = &a.when {
-                                    let at = |q: u32| idx(q).map(|i| waves[i].at(pe)).unwrap_or(X);
-                                    if sop(cond, &at) == V0 {
-                                        continue;
-                                    }
-                                }
-                                let (lo, hi) = (pe + a.d.lo(f), pl + a.d.hi());
-                                w = Some(match w {
-                                    None => (lo, hi, a.label, a.label),
-                                    Some((e, l, le, ll)) => {
-                                        let (e, le) = if lo < e { (lo, a.label) } else { (e, le) };
-                                        let (l, ll) = if hi > l { (hi, a.label) } else { (l, ll) };
-                                        (e, l, le, ll)
-                                    }
-                                });
-                            }
-                            if let Some(x) = w {
-                                any = Some(match any {
-                                    None => x,
-                                    Some(u) => (
-                                        u.0.min(x.0),
-                                        u.1.max(x.1),
-                                        if x.0 < u.0 { x.2 } else { u.2 },
-                                        if x.1 > u.1 { x.3 } else { u.3 },
-                                    ),
-                                });
-                            }
-                            win.push(w);
-                        }
-                        if let Some(union) = any {
-                            effects.push(Effect {
-                                pin: pi,
-                                k,
-                                tr,
-                                event: part.event,
-                                win,
-                                union,
-                                from: (part.ce, part.cl),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        effects.sort_by_key(|x| (x.union.0, x.union.1));
-        let mut cur: Vec<u8> = waves.iter().map(|w| w.init).collect();
+        let (effects, mut cur, own, func) = self.effects(chip, func, sets, key);
+        let func = func.as_ref();
         let value = |f: Option<&crate::input::Sop>, vals: &[u8]| -> u8 {
             match f {
-                Some(f) => sop(f, &|q| idx(q).map(|i| vals[i]).unwrap_or(X)),
+                Some(f) => sop(f, &|q| vals[q as usize]),
                 None => X,
             }
         };
         let flip = |v: u8| if inv { not(v) } else { v };
         let init = flip(value(func, &cur));
         let mut out = Vec::new();
+        let mut before = Vec::with_capacity(cur.len());
+        let mut moving = vec![false; cur.len()];
+        let mut distinct: Vec<(usize, usize)> = Vec::new();
+        let mut moves: Vec<(u32, u8, u8)> = Vec::new();
+        let mut by: Vec<(i32, Win, u32, u32)> = Vec::new();
         let mut i = 0;
         while i < effects.len() {
             let mut j = i + 1;
-            let mut end = effects[i].union.1;
-            while j < effects.len() && effects[j].union.0 <= end {
-                end = end.max(effects[j].union.1);
+            let mut end = effects[i].union.l;
+            while j < effects.len() && effects[j].union.e <= end {
+                end = end.max(effects[j].union.l);
                 j += 1;
             }
             let cluster = &effects[i..j];
-            let before = cur.clone();
+            i = j;
+            before.clear();
+            before.extend_from_slice(&cur);
             for x in cluster {
                 cur[x.pin] = x.tr.after;
             }
@@ -334,8 +262,8 @@ impl<'a> Waves<'a> {
                     }
                 }
             }
-            let mut moving = vec![false; pins.len()];
-            let mut distinct: Vec<(usize, usize)> = Vec::new();
+            moving.fill(false);
+            distinct.clear();
             for x in cluster {
                 moving[x.pin] = true;
                 if !distinct.contains(&(x.pin, x.k)) {
@@ -347,22 +275,30 @@ impl<'a> Waves<'a> {
             let (rb, ra) = (value(func, &before), value(func, &cur));
             let clean = match func {
                 Some(fun) => {
-                    let get = |q: u32| idx(q).map(|i| before[i]).unwrap_or(X);
-                    let mv = |q: u32| idx(q).map(|i| moving[i]).unwrap_or(false);
+                    let get = |q: u32| before[q as usize];
+                    let mv = |q: u32| moving[q as usize];
                     if held1(fun, &get, &mv) || held0(fun, &get, &mv) {
-                        i = j;
                         continue;
                     }
                     if one && all_clean {
                         if known(rb) && known(ra) && rb != ra {
                             true
                         } else if rb == V0 && ra == V0 {
-                            i = j;
                             continue;
                         } else if rb == V1 && ra == V1 {
                             false
                         } else {
                             rb == V0 || ra == V0
+                        }
+                    } else if all_clean && distinct.len() == moves_of(cluster, &mut moves) {
+                        // several inputs, each changing once, all one way
+                        // through the function: one change at most
+                        if !monotone(fun, &moves) {
+                            false
+                        } else if known(rb) && rb == ra {
+                            continue;
+                        } else {
+                            true
                         }
                     } else {
                         false
@@ -371,37 +307,47 @@ impl<'a> Waves<'a> {
                 None => one && all_clean,
             };
             // an enable's turn-on or turn-off times, else either
-            let set = if sets.len() == 2 && rb == V0 && ra == V1 {
+            let set = if sets.len() == 2 && ra == V1 && rb != V1 {
                 Some(0)
-            } else if sets.len() == 2 && rb == V1 && ra == V0 {
+            } else if sets.len() == 2 && ra == V0 && rb != V0 {
                 Some(1)
             } else {
                 None
             };
-            // by reference edge: each edge's earliest and latest
-            let mut by: Vec<(i32, i64, i64, u32, u32, u32, u32)> = Vec::new();
+            // by reference edge: each edge's earliest and latest, a part
+            // for each stretch its effects cover (between two, nothing it
+            // launched changes the output)
+            by.clear();
             for x in cluster {
-                let (e, l, le, ll) = set.and_then(|s| x.win[s]).unwrap_or(x.union);
-                match by.iter_mut().find(|b| b.0 == x.event) {
-                    Some(b) => {
-                        if e < b.1 {
-                            (b.1, b.3, b.5) = (e, le, x.from.0);
-                        }
-                        if l > b.2 {
-                            (b.2, b.4, b.6) = (l, ll, x.from.1);
-                        }
+                let w = set.and_then(|s| x.win[s]).unwrap_or(x.union);
+                by.push((x.event, w, x.from.0, x.from.1));
+            }
+            by.sort_by_key(|b| (b.0, b.1.e));
+            let mut m = 0;
+            for k in 1..by.len() {
+                let (event, w, _, fl) = by[k];
+                let b = &mut by[m];
+                if event == b.0 && w.e <= b.1.l {
+                    if w.l > b.1.l {
+                        (b.1.l, b.1.ll, b.1.il, b.3) = (w.l, w.ll, w.il, fl);
                     }
-                    None => by.push((x.event, e, l, le, ll, x.from.0, x.from.1)),
+                } else {
+                    m += 1;
+                    by[m] = by[k];
                 }
             }
+            by.truncate(m + 1);
             let mut parts = Vec::with_capacity(by.len());
-            for &(event, e, l, le, ll, fe, fl) in &by {
-                let ce = self.node(e, fe, key, le);
-                let cl = self.node(l, fl, key, ll);
+            for &(event, w, fe, fl) in &by {
+                // the input's times as far as they reach the output
+                let fe = clip(&mut self.nodes, fe, w.ie);
+                let fl = clip(&mut self.nodes, fl, w.il);
+                let ce = self.node(w.e, fe, key, w.le);
+                let cl = self.node(w.l, fl, key, w.ll);
                 parts.push(Part {
                     event,
-                    e,
-                    l,
+                    e: w.e,
+                    l: w.l,
                     ce,
                     cl,
                 });
@@ -424,28 +370,200 @@ impl<'a> Waves<'a> {
                 cl: last.cl,
                 parts: pi,
             });
-            i = j;
         }
         Wave { init, tr: out }
     }
 
+    /// The effects at an output of its inputs' changes, in time order;
+    /// the inputs' values before the window; which inputs are the output's
+    /// own net; and the function over the inputs' indices.
+    #[allow(clippy::type_complexity)] // eval's working set
+    fn effects(
+        &self,
+        chip: u32,
+        func: Option<&crate::input::Sop>,
+        sets: &[&[Arc]],
+        key: u32,
+    ) -> (Vec<Effect>, Vec<u8>, Vec<bool>, Option<crate::input::Sop>) {
+        debug_assert!(sets.len() <= 2);
+        let mut pins: Vec<u32> = func.map(support).unwrap_or_default();
+        for s in sets {
+            for a in s.iter() {
+                pins.extend(&a.from);
+                if let Some(w) = &a.when {
+                    pins.extend(support(w));
+                }
+            }
+        }
+        pins.sort_unstable();
+        pins.dedup();
+        let waves: Vec<&Wave> = pins.iter().map(|&p| self.pin_wave(chip, p)).collect();
+        let idx = |p: u32| pins.binary_search(&p).ok();
+        // the function over the pins' indices
+        let lfunc: Option<crate::input::Sop> = func.map(|f| {
+            f.iter()
+                .map(|t| {
+                    t.iter()
+                        .map(|&(q, v)| (idx(q).unwrap_or(0) as u32, v))
+                        .collect()
+                })
+                .collect()
+        });
+        let init = waves.iter().map(|w| w.init).collect();
+        // inputs that don't change: no effects
+        if waves.iter().all(|w| w.tr.is_empty()) {
+            return (Vec::new(), init, Vec::new(), lfunc);
+        }
+        let f = self.fraction;
+        let own_net = if key & STATE == 0 { Some(key) } else { None };
+        let own: Vec<bool> = pins
+            .iter()
+            .map(|&p| {
+                own_net.is_some_and(|n| self.d.chips[chip as usize].source(p) == Source::Net(n))
+            })
+            .collect();
+        let func = lfunc.as_ref();
+        // the stretches between the pins' transitions, and in each every
+        // pin's value and whether it's changing
+        let mut cuts: Vec<i64> = waves
+            .iter()
+            .flat_map(|w| w.tr.iter().flat_map(|t| [t.e, t.l + 1]))
+            .collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        let np = pins.len();
+        let ns = cuts.len().saturating_sub(1);
+        let mut sval = vec![X; ns * np];
+        let mut sbusy = vec![false; ns * np];
+        if func.is_some() {
+            for (i, w) in waves.iter().enumerate() {
+                let (mut k, mut v) = (0, w.init);
+                for si in 0..ns {
+                    let (a, b) = (cuts[si], cuts[si + 1]);
+                    while k < w.tr.len() && w.tr[k].l < a {
+                        v = w.tr[k].after;
+                        k += 1;
+                    }
+                    let open = k < w.tr.len();
+                    sbusy[si * np + i] = open && w.tr[k].e < b;
+                    sval[si * np + i] = if open && w.tr[k].e < a { X } else { v };
+                }
+            }
+        }
+        let mut effects = Vec::with_capacity(cuts.len());
+        let mut spans: Vec<(i64, i64)> = Vec::new();
+        for (pi, &p) in pins.iter().enumerate() {
+            // an output's own net, fed back (a latch's): its value counts,
+            // its changes are the output's own
+            if own[pi] {
+                continue;
+            }
+            for (k, tr) in waves[pi].tr.iter().enumerate() {
+                // the stretches of a change in which the function can
+                // answer it, with the other inputs as they are then: the
+                // rest doesn't reach the output; between stretches the
+                // input may or may not have changed yet
+                spans.clear();
+                if let Some(fun) = func {
+                    let first = cuts.binary_search(&tr.e).unwrap_or(0);
+                    for si in first..ns {
+                        let (a, b) = (cuts[si], cuts[si + 1]);
+                        if a > tr.l {
+                            break;
+                        }
+                        let row = si * np;
+                        let get = |q: u32| sval[row + q as usize];
+                        let mv = |q: u32| q as usize == pi || sbusy[row + q as usize];
+                        if !held1(fun, &get, &mv) && matters(fun, pi as u32, &get, &mv) {
+                            match spans.last_mut() {
+                                Some(last) if last.1 + 1 == a => last.1 = b - 1,
+                                _ => spans.push((a, b - 1)),
+                            }
+                        }
+                    }
+                } else {
+                    spans.push((tr.e, tr.l));
+                }
+                let n_spans = spans.len();
+                for (si, &(ne, nl)) in spans.iter().enumerate() {
+                    let mut tr = *tr;
+                    if si > 0 {
+                        tr.before = X;
+                    }
+                    if si + 1 < n_spans {
+                        tr.after = X;
+                    }
+                    for part in self.parts_of(&tr).iter() {
+                        let (pe, pl) = (part.e.max(ne), part.l.min(nl));
+                        if pe > pl {
+                            continue;
+                        }
+                        let mut win = [None; 2];
+                        let mut any: Option<Win> = None;
+                        for (s, slot) in sets.iter().zip(win.iter_mut()) {
+                            let mut w: Option<Win> = None;
+                            for a in s.iter().filter(|a| a.from.contains(&p)) {
+                                let (mut pe, mut pl) = (pe, pl);
+                                if let Some(cond) = &a.when {
+                                    match cond_hull(&waves, &pins, cond, pe, pl) {
+                                        Some((e, l)) => {
+                                            pe = e;
+                                            pl = l;
+                                        }
+                                        None => continue,
+                                    }
+                                }
+                                let x = Win {
+                                    e: pe + a.d.lo(f),
+                                    l: pl + a.d.hi(),
+                                    le: a.label,
+                                    ll: a.label,
+                                    ie: pe,
+                                    il: pl,
+                                };
+                                w = Some(w.map_or(x, |w| w.widen(x)));
+                            }
+                            if let Some(x) = w {
+                                any = Some(any.map_or(x, |u| u.widen(x)));
+                            }
+                            *slot = w;
+                        }
+                        if let Some(union) = any {
+                            effects.push(Effect {
+                                pin: pi,
+                                k,
+                                tr,
+                                event: part.event,
+                                win,
+                                union,
+                                from: (part.ce, part.cl),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        effects.sort_by_key(|x| (x.union.e, x.union.l));
+        (effects, init, own, lfunc)
+    }
+
     /// A transition's parts by reference edge: one, unless it has several.
-    pub fn parts_of(&self, tr: &Tr) -> Vec<Part> {
+    pub fn parts_of(&self, tr: &Tr) -> Parts<'_> {
         if tr.parts != NONE {
-            return self.parts[tr.parts as usize].clone();
+            return Parts::Many(&self.parts[tr.parts as usize]);
         }
         let event = if tr.cl == NONE {
             -1
         } else {
             self.nodes[tr.cl as usize].event
         };
-        vec![Part {
+        Parts::One([Part {
             event,
             e: tr.e,
             l: tr.l,
             ce: tr.ce,
             cl: tr.cl,
-        }]
+        }])
     }
 
     /// A register's wave: its output's (fb false) or its state as its chip
@@ -496,6 +614,9 @@ impl<'a> Waves<'a> {
             }
             let Some(&(_, old, new)) = self.t.loads[oi as usize].iter().find(|l| l.0 == ev as u32)
             else {
+                if self.t.held[oi as usize].contains(&(ev as u32)) {
+                    continue;
+                }
                 if tr.clean && tr.before == from && tr.after == to && !fb {
                     self.notes.push(format!(
                         "{}: an edge at event {ev} that phase A didn't load at",
@@ -658,7 +779,7 @@ impl Waves<'_> {
         let d = self.d;
         let drv = &d.drivers[ni];
         let mut parts = std::mem::take(&mut self.parts);
-        let nodes = &self.nodes;
+        let nodes = &mut self.nodes;
         let vals: Vec<&Wave> = drv.iter().map(|&o| &self.val[o as usize]).collect();
         let ens: Vec<&Wave> = drv.iter().map(|&o| &self.en[o as usize]).collect();
         let mut bp: Vec<i64> = Vec::new();
@@ -720,7 +841,7 @@ impl Waves<'_> {
                     // a driver letting go: the net keeps its value
                     Some(k) if ens[i].tr[k].after == V0 => offs.push(ens[i].tr[k]),
                     Some(k) => contrib.push(ens[i].tr[k]),
-                    None if e != V0 => steady_on += 1,
+                    None if e == V1 => steady_on += 1,
                     None => {}
                 }
                 if let Some(k) = vc
@@ -729,8 +850,10 @@ impl Waves<'_> {
                     contrib.push(vals[i].tr[k]);
                 }
             }
-            // the net changes as one lets go only if another is on all the
-            // while; else when the other turns on
+            // the net changes as one lets go only if another is surely on
+            // all the while; else when the other turns on (one that may be
+            // on and took over would overlap the one letting go: a
+            // handover's to check)
             if steady_on > 0 {
                 contrib.extend(offs);
             }
@@ -775,7 +898,7 @@ impl Waves<'_> {
     #[allow(clippy::too_many_arguments)] // the segment's fields
     fn joined(
         parts: &mut Vec<Vec<Part>>,
-        nodes: &[Node],
+        nodes: &mut Vec<Node>,
         e: i64,
         l: i64,
         before: u8,
@@ -803,26 +926,48 @@ impl Waves<'_> {
             };
             for p in ps {
                 let (pe, pl) = (p.e.max(e), p.l.min(l));
-                match by.iter_mut().find(|b| b.event == p.event) {
-                    Some(b) => {
-                        if pe < b.e {
-                            b.e = pe;
-                            b.ce = p.ce;
-                        }
-                        if pl > b.l {
-                            b.l = pl;
-                            b.cl = p.cl;
-                        }
-                    }
-                    None => by.push(Part {
-                        event: p.event,
-                        e: pe,
-                        l: pl,
-                        ce: p.ce,
-                        cl: p.cl,
-                    }),
+                if pe <= pl {
+                    by.push(Part { e: pe, l: pl, ..p });
                 }
             }
+        }
+        // a stretch between a driver's parts: the driver's change, as a whole
+        if by.is_empty() {
+            let t = c[0];
+            let event = if t.cl == NONE {
+                -1
+            } else {
+                nodes[t.cl as usize].event
+            };
+            by.push(Part {
+                event,
+                e,
+                l,
+                ce: t.ce,
+                cl: t.cl,
+            });
+        }
+        // by reference edge, a part per stretch
+        by.sort_by_key(|b| (b.event, b.e));
+        let mut m = 0;
+        for k in 1..by.len() {
+            let p = by[k];
+            let b = &mut by[m];
+            if p.event == b.event && p.e <= b.l {
+                if p.l > b.l {
+                    b.l = p.l;
+                    b.cl = p.cl;
+                }
+            } else {
+                m += 1;
+                by[m] = p;
+            }
+        }
+        by.truncate(m + 1);
+        // the drivers' times as far as they reach the bus
+        for b in by.iter_mut() {
+            b.ce = clip(nodes, b.ce, b.e);
+            b.cl = clip(nodes, b.cl, b.l);
         }
         let first = *by.iter().min_by_key(|p| p.e).unwrap();
         let last = *by.iter().max_by_key(|p| p.l).unwrap();
@@ -843,6 +988,73 @@ impl Waves<'_> {
             parts: pi,
         }
     }
+}
+
+/// The inputs a cluster of effects moves, one entry per pin: how many.
+fn moves_of(cluster: &[Effect], moves: &mut Vec<(u32, u8, u8)>) -> usize {
+    moves.clear();
+    for x in cluster {
+        if !moves.iter().any(|m| m.0 == x.pin as u32) {
+            moves.push((x.pin as u32, x.tr.before, x.tr.after));
+        }
+    }
+    moves.len()
+}
+
+/// A node at time t, standing for n where a change's window is cut to the
+/// part of it that reaches somewhere: n if that's its time.
+fn clip(nodes: &mut Vec<Node>, n: u32, t: i64) -> u32 {
+    if n == NONE || nodes[n as usize].t == t {
+        return n;
+    }
+    let c = Node {
+        t,
+        ..nodes[n as usize]
+    };
+    nodes.push(c);
+    (nodes.len() - 1) as u32
+}
+
+/// The earliest and latest times in [e, l] at which a condition over the
+/// pins may be true (a pin changing then counted unknown), or None.
+fn cond_hull(
+    waves: &[&Wave],
+    pins: &[u32],
+    cond: &crate::input::Sop,
+    e: i64,
+    l: i64,
+) -> Option<(i64, i64)> {
+    let idx = |p: u32| pins.binary_search(&p).ok();
+    let mut bp = vec![e, l + 1];
+    for p in support(cond) {
+        if let Some(i) = idx(p) {
+            for t in &waves[i].tr {
+                for x in [t.e, t.l + 1] {
+                    if x > e && x <= l {
+                        bp.push(x);
+                    }
+                }
+            }
+        }
+    }
+    bp.sort_unstable();
+    bp.dedup();
+    let mut hull: Option<(i64, i64)> = None;
+    for w in bp.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let get = |q: u32| match idx(q) {
+            Some(i) if waves[i].tr.iter().any(|t| t.e < b && t.l >= a) => X,
+            Some(i) => waves[i].at(a),
+            None => X,
+        };
+        if sop(cond, &get) != V0 {
+            hull = Some(match hull {
+                None => (a, b - 1),
+                Some((s, _)) => (s, b - 1),
+            });
+        }
+    }
+    hull
 }
 
 /// Transitions in time order, those whose windows overlap made one that

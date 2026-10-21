@@ -10,7 +10,7 @@
 use crate::Error;
 use crate::design::{Design, Kind, Source};
 use crate::input::Case;
-use crate::logic::{X, Z, known, merge, read, sop};
+use crate::logic::{X, Z, holds, known, merge, read, sop};
 
 /// What phase A found for one branch of a case.
 pub struct Trace {
@@ -28,6 +28,9 @@ pub struct Trace {
     pub pre_state: Vec<Vec<u8>>,
     /// Per output: (event, old, new) at each of its loads.
     pub loads: Vec<Vec<(u32, u8, u8)>>,
+    /// Per output: the events at which it was clocked but surely held a
+    /// state that isn't known (its next state its state, whatever that is).
+    pub held: Vec<Vec<u32>>,
     /// The reference clock's net and its period.
     pub clock: u32,
     pub period: i64,
@@ -37,7 +40,7 @@ pub struct Trace {
 }
 
 pub enum Outcome {
-    Done(Trace),
+    Done(Box<Trace>),
     /// A branch register would load X at this event: split the case.
     Fork {
         net: u32,
@@ -57,9 +60,31 @@ struct Sim<'a> {
     constant: Vec<Option<u8>>,
     clock: u32,
     clock_val: u8,
+    /// The outputs whose inputs changed since they were evaluated, and
+    /// the groups that have one.
+    dirty: Vec<bool>,
+    gdirty: Vec<bool>,
+    /// Outputs a load touched: their nets resolve even if their values
+    /// stay.
+    force: Vec<bool>,
+    /// The first settling resolves every driven net.
+    first: bool,
 }
 
 impl Sim<'_> {
+    fn mark(&mut self, o: u32) {
+        self.dirty[o as usize] = true;
+        self.gdirty[self.d.group_of[o as usize] as usize] = true;
+    }
+
+    /// A register's state changed (or was touched): what reads it.
+    fn mark_state(&mut self, o: u32) {
+        let d = self.d;
+        for &r in &d.state_readers[o as usize] {
+            self.mark(r);
+        }
+    }
+
     fn pin(&self, chip: u32, p: u32) -> u8 {
         match self.d.chips[chip as usize].source(p) {
             Source::Net(n) => self.net[n as usize],
@@ -119,11 +144,13 @@ impl Sim<'_> {
                 Kind::Osc { .. } | Kind::Async => (X, e, None),
             }
         };
+        let was_touched = self.touched[oi as usize];
         if let Some(st) = state
             && st != self.state[oi as usize]
         {
             self.state[oi as usize] = st;
             self.touched[oi as usize] = true;
+            self.mark_state(oi);
         }
         let touched = match &o.kind {
             Kind::Comb { .. } => d.reads_of[oi as usize]
@@ -136,7 +163,9 @@ impl Sim<'_> {
         if touched {
             self.touched[oi as usize] = true;
         }
-        let changed = self.val[oi as usize] != v || self.en[oi as usize] != e;
+        let changed = self.val[oi as usize] != v
+            || self.en[oi as usize] != e
+            || self.touched[oi as usize] != was_touched;
         self.val[oi as usize] = v;
         self.en[oi as usize] = e;
         changed
@@ -146,6 +175,7 @@ impl Sim<'_> {
     fn resolve(&mut self, n: u32) -> bool {
         let d = self.d;
         let ni = n as usize;
+        let was_touched = self.touched_net[ni];
         let v = if let Some(r) = d.rail[ni].or(self.constant[ni]) {
             r
         } else {
@@ -169,23 +199,38 @@ impl Sim<'_> {
                 _ => v,
             }
         };
-        let changed = self.net[ni] != v;
+        let changed = self.net[ni] != v || self.touched_net[ni] != was_touched;
         self.net[ni] = v;
         changed
     }
 
+    /// Evaluates what changed, group by group in order, a loop's group
+    /// until nothing in it changes.
     fn settle(&mut self) -> Result<(), Error> {
         let d = self.d;
+        let first = std::mem::take(&mut self.first);
         for (gi, g) in d.order.iter().enumerate() {
+            if !self.gdirty[gi] {
+                continue;
+            }
             for round in 0.. {
-                let mut changed = false;
+                self.gdirty[gi] = false;
                 for &o in g {
-                    changed |= self.eval(o);
-                    if let Some(n) = d.outs[o as usize].net {
-                        changed |= self.resolve(n);
+                    if !std::mem::take(&mut self.dirty[o as usize]) {
+                        continue;
+                    }
+                    let changed = self.eval(o);
+                    let force = std::mem::take(&mut self.force[o as usize]);
+                    if let Some(n) = d.outs[o as usize].net
+                        && (changed || first || force)
+                        && self.resolve(n)
+                    {
+                        for &r in &d.net_readers[n as usize] {
+                            self.mark(r);
+                        }
                     }
                 }
-                if !d.looped[gi] || !changed {
+                if !self.gdirty[gi] {
                     break;
                 }
                 if round > 64 {
@@ -257,9 +302,10 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
     for (n, &(before, after)) in &case.start {
         start[reg_of(n)? as usize] = Some((before, after));
     }
-    let mut forced = std::collections::HashMap::new();
+    // a branch's few choices: a list is quicker than a map
+    let mut forced: Vec<((u32, u32), u8)> = Vec::new();
     for (n, e, v) in &case.forced {
-        forced.insert((reg_of(n)?, *e), *v);
+        forced.push(((reg_of(n)?, *e), *v));
     }
     let mut branch = vec![false; d.outs.len()];
     for n in &case.branch {
@@ -280,6 +326,10 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         constant: constant.clone(),
         clock,
         clock_val: 0,
+        dirty: vec![true; no],
+        gdirty: vec![true; d.order.len()],
+        force: vec![false; no],
+        first: true,
     };
     for (n, v) in s.net.iter_mut().enumerate() {
         *v = match d.rail[n].or(constant[n]) {
@@ -312,6 +362,7 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         last[o as usize] = clock_pin(&s, o);
     }
     let mut loads = vec![Vec::new(); no];
+    let mut held = vec![Vec::new(); no];
     let mut pre = Vec::new();
     let mut pre_state = Vec::new();
     let mut end = None;
@@ -321,6 +372,9 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         let before = s.net.clone();
         let before_state = s.state.clone();
         s.clock_val = if e % 2 == 0 { 1 } else { 0 };
+        for &o in &d.drivers[clock as usize] {
+            s.mark(o);
+        }
         s.settle()?;
         for _cascade in 0..32 {
             let mut loading = Vec::new();
@@ -350,6 +404,11 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
                 let Kind::Reg { next, .. } = &out.kind else {
                     continue;
                 };
+                let own = |p: u32| match d.chips[out.chip as usize].source(p) {
+                    Source::State(r) => r == o,
+                    Source::Net(n) => Some(n) == out.net,
+                    Source::Open => false,
+                };
                 let chip = &d.chips[out.chip as usize];
                 let get = |p: u32| match chip.source(p) {
                     Source::Net(n) => before[n as usize],
@@ -369,7 +428,8 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
                 {
                     v = after;
                 }
-                if let Some(&f) = forced.get(&(o, e)) {
+                let force = forced.iter().find(|x| x.0 == (o, e)).map(|x| x.1);
+                if let Some(f) = force {
                     v = f;
                 } else if v == X
                     && definite
@@ -382,15 +442,26 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
                         event: e,
                     });
                 }
+                if v == X
+                    && old == X
+                    && force.is_none()
+                    && !(e == 0 && start[o as usize].is_some())
+                    && holds(next, out.inv, &own, &get)
+                {
+                    held[o as usize].push(e);
+                    continue;
+                }
                 loads[o as usize].push((e, old, v));
                 new.push((o, v));
             }
             for (o, v) in new {
                 let old = s.state[o as usize];
-                if !(old == v && known(v)) {
+                if !(old == v && known(v)) && !s.touched[o as usize] {
                     s.touched[o as usize] = true;
+                    s.force[o as usize] = true;
                 }
                 s.state[o as usize] = v;
+                s.mark_state(o);
             }
             s.settle()?;
         }
@@ -421,7 +492,7 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
             )));
         }
     }
-    Ok(Outcome::Done(Trace {
+    Ok(Outcome::Done(Box::new(Trace {
         events: e,
         end: end.unwrap_or(0),
         init,
@@ -429,9 +500,10 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         pre,
         pre_state,
         loads,
+        held,
         clock,
         period,
         pinned,
         constant,
-    }))
+    })))
 }
