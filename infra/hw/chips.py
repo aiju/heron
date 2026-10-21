@@ -30,13 +30,13 @@ import json
 import os
 
 from . import cells
-from .cells import Arc, Out, Period, Reg, Setup, Strobe, Width
+from .cells import Arc, Latch, Out, Period, Recovery, Reg, Setup, Strobe, Width
 
 
 class ChipType:
     def __init__(self, name, model, pins, arcs=(), checks=(), family="logic", desc="",
                  per_package=1, tied=(), outputs=None, regs=None, timing=(), sensitive=(),
-                 asynchronous=(), joins=()):
+                 asynchronous=(), joins=(), latches=None):
         self.name = name
         self.model = model
         self.pins = pins            # list of (name, kind)
@@ -53,6 +53,7 @@ class ChipType:
                 assert p in self.pin_index, (name, p)
         # the static timing engine's description (cells.py)
         self.outputs = dict(outputs or {})
+        self.outputs.update({pin: latch.out(pin) for pin, latch in (latches or {}).items()})
         self.regs = dict(regs or {})
         self.timing = list(timing)
         self.sensitive = list(sensitive)
@@ -177,7 +178,8 @@ T("74", "dff74",
         **{f"{s}QN": Reg(f"{s}CLK", f"/{s}D", "CLK->Q", clear=f"/{s}PRE",
                             clear_arcs={f"{s}PRE": "PRE/CLR->Q"}, preset=f"/{s}CLR",
                             preset_arcs={f"{s}CLR": "PRE/CLR->Q"}) for s in (1, 2)}},
-  timing=[Setup(f"{s}D", f"{s}CLK", "setup D", "hold D") for s in (1, 2)],)
+  timing=[Setup(f"{s}D", f"{s}CLK", "setup D", "hold D") for s in (1, 2)]
+  + [Recovery(f"{s}CLK", "recovery PRE/CLR", width="tw PRE/CLR") for s in (1, 2)],)
 
 T("138", "dec138",
   [(p, "in") for p in ("A", "B", "C", "G1", "G2A", "G2B")] + [(f"Y{i}", "out") for i in range(8)],
@@ -267,7 +269,8 @@ T("175", "dff175",
            for i in range(1, 5)},
         **{f"{i}QN": Reg("CLK", f"/{i}D", "CLK->Q", preset="/CLR", preset_arcs={"CLR": "CLR->Q"})
            for i in range(1, 5)}},
-  timing=[Setup("1D 2D 3D 4D", "CLK", "setup D", "hold D")],)
+  timing=[Setup("1D 2D 3D 4D", "CLK", "setup D", "hold D"),
+          Recovery("CLK", "recovery CLR", width="tw CLR")],)
 
 T("377", "reg377",
   [("CLK", "in"), ("EN", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -435,7 +438,8 @@ T("109", "jk109",
         **{f"{s}QN": Reg(f"{s}CLK", f"/({s}J·/{s}Q + {s}K·{s}Q)", "CLK->Q", clear=f"/{s}PRE",
                             clear_arcs={f"{s}PRE": "PRE/CLR->Q"}, preset=f"/{s}CLR",
                             preset_arcs={f"{s}CLR": "PRE/CLR->Q"}) for s in (1, 2)}},
-  timing=[Setup(f"{s}J {s}K", f"{s}CLK", "setup JK", "hold JK") for s in (1, 2)],)
+  timing=[Setup(f"{s}J {s}K", f"{s}CLK", "setup JK", "hold JK") for s in (1, 2)]
+  + [Recovery(f"{s}CLK", "recovery PRE/CLR", width="tw PRE/CLR") for s in (1, 2)],)
 
 T("574", "dreg",
   [("OE", "in"), ("CLK", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -473,7 +477,8 @@ T("823", "dreg",
   regs={f"Q{i}": Reg("CLK", f"EN·Q{i} + /EN·D{i}", "CLK->Q", clear="/CLR",
                          clear_arcs={"CLR": "CLR->Q"}, enable="/OE", on={"OE": "OE->Y en"},
                          off={"OE": "OE->Y dis"}) for i in range(1, 10)},
-  timing=[Setup("D1-D9", "CLK", "setup D", "hold D"), Setup("EN", "CLK", "setup EN", "hold EN")],)
+  timing=[Setup("D1-D9", "CLK", "setup D", "hold D"), Setup("EN", "CLK", "setup EN", "hold EN"),
+          Recovery("CLK", "recovery CLR", width="tw CLR")],)
 
 T("573", "latch573",
   [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -482,7 +487,10 @@ T("573", "latch573",
   + [(["LE"], [f"Q{i}" for i in range(1, 9)], "LE->Q"),
      (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
   checks=[([f"D{i}" for i in range(1, 9)], "LE", "fall", "setup D", "hold D")],
-  desc="octal transparent latch, three-state outputs (Q follows D while LE is high; OE active low)")
+  desc="octal transparent latch, three-state outputs (Q follows D while LE is high; OE active low)",
+  latches={f"Q{i}": Latch("LE", f"D{i}", {f"D{i}": "D->Q", "LE": "LE->Q"}, oe="/OE",
+                           on={"OE": "OE->Y en"}, off={"OE": "OE->Y dis"}) for i in range(1, 9)},
+  timing=[Setup("D1-D8", "LE", "setup D", "hold D", edge="fall"), Width("LE", 1, "tw LE")],)
 
 # Halves of 16-bit parts (74ABT16374, 16823, 16373, 16244): each half has
 # its own clock and enables, so the netlist places them as two of these,
@@ -513,7 +521,8 @@ T("16823h", "dreg",
   regs={f"Q{i}": Reg("CLK", f"EN·Q{i} + /EN·D{i}", "CLK->Q", clear="/CLR",
                          clear_arcs={"CLR": "CLR->Q"}, enable="/OE", on={"OE": "OE->Y en"},
                          off={"OE": "OE->Y dis"}) for i in range(1, 10)},
-  timing=[Setup("D1-D9", "CLK", "setup D", "hold D"), Setup("EN", "CLK", "setup EN", "hold EN")],)
+  timing=[Setup("D1-D9", "CLK", "setup D", "hold D"), Setup("EN", "CLK", "setup EN", "hold EN"),
+          Recovery("CLK", "recovery CLR", width="tw CLR")],)
 
 T("16373h", "latch573",
   [("OE", "in"), ("LE", "in")] + [(f"D{i}", "in") for i in range(1, 9)]
@@ -523,7 +532,10 @@ T("16373h", "latch573",
      (["OE"], [f"Q{i}" for i in range(1, 9)], "OE->Y en")],
   checks=[([f"D{i}" for i in range(1, 9)], "LE", "fall", "setup D", "hold D")],
   desc="octal transparent latch, three-state outputs: one half of a 16-bit 74ABT16373",
-  per_package=2)
+  per_package=2,
+  latches={f"Q{i}": Latch("LE", f"D{i}", {f"D{i}": "D->Q", "LE": "LE->Q"}, oe="/OE",
+                           on={"OE": "OE->Y en"}, off={"OE": "OE->Y dis"}) for i in range(1, 9)},
+  timing=[Setup("D1-D8", "LE", "setup D", "hold D", edge="fall"), Width("LE", 1, "tw LE")],)
 
 T("16244h", "buf541",
   [("OE1", "in"), ("OE2", "in")] + [(f"A{i}", "in") for i in range(1, 9)]

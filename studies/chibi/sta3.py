@@ -57,7 +57,7 @@ BRANCH = ["HWQ", "VEXTQ"]
 # the video's clocks: chips on them run on the video's own phase
 VIDEO_CLOCKS = {"VCK", "WCLK", "PIX", "HS_n"}
 # what a length can fix
-LENGTH = {"setup", "strobe", "width", "period"}
+LENGTH = {"setup", "strobe", "width", "period", "float"}
 MAX_LO, MAX_HI = 4, 3
 
 
@@ -73,7 +73,21 @@ def netlist():
             clocks = {inst.conn.get(r.clock) for r in inst.type.regs.values()}
             if clocks & VIDEO_CLOCKS:
                 skip.add(inst.ref)
-    return waves.export(nl, parts.VARIANT, drop=FIXTURES), sorted(skip)
+    ex = waves.export(nl, parts.VARIANT, drop=FIXTURES)
+    # U_ALUC's nocheck is the chip-level simulator's exception for HC, not
+    # a synchroniser: the cases name it (carry_used)
+    for c in ex["chips"]:
+        if c["ref"] == "U_ALUC":
+            c["nocheck"] = False
+    return ex, sorted(skip)
+
+
+def carry_used(f, two):
+    """Whether the high half takes the low half's carry (HC): a 32-bit
+    arithmetic operation's (sta2.carry_used)."""
+    if not two or f["HX"] != uc.HX_NAT or f["AOP"] not in uc.AOP_NAME:
+        return False
+    return any(uc.aop_resolve(uc.AOP_NAME[f["AOP"]], st)[1] == 0 for st in (0, 1))
 
 
 def case(word, extra, lo, hi, skip):
@@ -87,9 +101,14 @@ def case(word, extra, lo, hi, skip):
         pins[n] = v
         if n == "AIO" and v:
             pins["SLOWCS"] = 0
+    exceptions = []
+    if not carry_used(f, hi > 0):
+        exceptions.append({"reason": "HC, the low half's carry, matters only to a high half "
+                                     "that takes it", "chip": "U_ALUC"})
     return {"label": f"{word:018X} {lo}/{hi}" + "".join(f" {n}={v}" for n, v in extra),
             "clock": "MCLK", "pins": pins, "constant": {"RESET_n": 1}, "start": START,
-            "branch": BRANCH, "skip": skip, "end": {"net": "CLK0", "events": 80}}
+            "branch": BRANCH, "skip": skip, "exceptions": exceptions,
+            "end": {"net": "CLK0", "events": 80}}
 
 
 def key(c):

@@ -13,6 +13,7 @@
 //! described in infra/hw/cells.py's terms, compiled in [`design`].
 
 pub mod checks;
+pub mod coverage;
 pub mod design;
 pub mod input;
 pub mod logic;
@@ -20,6 +21,7 @@ pub mod values;
 pub mod waves;
 
 pub use checks::{BranchOut, CheckOut, Step};
+pub use coverage::{Coverage, coverage};
 pub use design::Design;
 pub use input::{Case, Netlist, Options};
 
@@ -76,7 +78,7 @@ pub fn analyse(d: &Design, case: &Case, o: &Options) -> Result<Vec<BranchOut>, E
                 }
             }
             values::Outcome::Done(t) => {
-                let mut w = waves::run(d, &t, o.fraction)?;
+                let mut w = waves::run(d, &t, o)?;
                 out.push(checks::run(d, &t, &mut w, o, &c));
             }
         }

@@ -4,33 +4,57 @@
 use std::collections::HashMap;
 
 use crate::Error;
-use crate::input::{ArcIn, CheckIn, ChipIn, DataIn, DelaySpec, Netlist, Sop, StableIn};
+use crate::input::{
+    ArcIn, CheckKindIn, ChipIn, DataIn, DelaySpec, EST_TYP, EST_VALUE, Netlist, Sop, StableIn,
+};
 use crate::logic::support;
 
-/// A delay: its minimum (None: a fraction of typical), typical, maximum.
+/// A delay: its minimum (None: a fraction of typical), typical, maximum,
+/// and whether the data marks its value or its typical as estimated.
 #[derive(Clone, Copy, Debug)]
 pub struct Delay {
     pub min: Option<i64>,
     pub typ: i64,
     pub max: i64,
+    pub est: bool,
+    pub est_typ: bool,
 }
 
 impl Delay {
+    /// Lengthened (or shortened) by a load's change: [to min, to max].
+    fn loaded(self, l: [i64; 2]) -> Delay {
+        Delay {
+            min: self.min.map(|m| (m + l[0]).max(0)),
+            typ: self.typ + l[1],
+            max: self.max + l[1],
+            ..self
+        }
+    }
+
     pub fn zero() -> Delay {
         Delay {
             min: Some(0),
             typ: 0,
             max: 0,
+            est: false,
+            est_typ: false,
         }
     }
 
-    fn of(d: &DelaySpec) -> Delay {
+    pub fn of(d: &DelaySpec, est: u8) -> Delay {
         let max = d[2].or(d[1]).unwrap_or(0);
         Delay {
             min: d[0],
             typ: d[1].unwrap_or(max),
             max,
+            est: est & EST_VALUE != 0,
+            est_typ: est & EST_TYP != 0,
         }
+    }
+
+    /// Whether its minimum rests on an estimate.
+    pub fn lo_estimated(&self) -> bool {
+        self.est || self.min.is_none() && self.est_typ
     }
 
     /// The shortest it can be, with `fraction` of typical where the data
@@ -91,8 +115,15 @@ pub enum Kind {
         /// Index into Design::labels for the feedback's arc.
         fb_label: u32,
     },
-    /// An oscillator.
-    Osc { period: i64, phase: i64 },
+    /// An oscillator: its period, first rising edge, the range of its high
+    /// time (per mille of the period) and its jitter (each edge within
+    /// that of its time).
+    Osc {
+        period: i64,
+        phase: i64,
+        duty: (i64, i64),
+        jitter: i64,
+    },
     /// An output on a clock of its chip's own.
     Async,
 }
@@ -138,6 +169,9 @@ pub struct Chip {
     pub described: bool,
     pub unchecked: Vec<String>,
     pub sensitive: Vec<u32>,
+    pub family: String,
+    /// Its pins that drive.
+    pub out_pins: Vec<u32>,
 }
 
 impl Chip {
@@ -170,6 +204,13 @@ pub enum CheckKind {
         pin: u32,
         min: i64,
     },
+    Recovery {
+        clock: u32,
+        rise: bool,
+        recovery: Option<i64>,
+        removal: Option<i64>,
+        width: Option<i64>,
+    },
     Strobe {
         active: Sop,
         stable: Vec<StableIn>,
@@ -184,6 +225,8 @@ pub struct Check {
     pub chip: u32,
     pub kind: CheckKind,
     pub names: Vec<String>,
+    /// Its limits the data marks as estimated.
+    pub estimated: Vec<String>,
 }
 
 pub struct Design {
@@ -202,8 +245,10 @@ pub struct Design {
     /// output, or one that reads its own net).
     pub order: Vec<Vec<u32>>,
     pub looped: Vec<bool>,
-    /// The arcs' names, for paths: "U_X: A->Y"; 0 is a wire's.
+    /// The arcs' names, for paths: "U_X: A->Y"; 0 is a wire's, TAIL a tail
+    /// of the cycle before's. Each one's delay, where it has one.
     pub labels: Vec<String>,
+    pub label_delays: Vec<Option<Delay>>,
     /// The pins each output reads (Design::reads), and those of its enable.
     pub reads_of: Vec<Vec<u32>>,
     pub en_reads: Vec<Vec<u32>>,
@@ -213,6 +258,9 @@ pub struct Design {
     pub state_readers: Vec<Vec<u32>>,
     pub group_of: Vec<u32>,
 }
+
+/// Design::labels's index for a tail of the cycle before.
+pub const TAIL: u32 = 1;
 
 impl Design {
     pub fn new(n: &Netlist) -> Result<Design, Error> {
@@ -240,7 +288,8 @@ impl Design {
             checks: Vec::new(),
             order: Vec::new(),
             looped: Vec::new(),
-            labels: vec!["wire".into()],
+            labels: vec!["wire".into(), "the cycle before (a tail)".into()],
+            label_delays: vec![None, None],
             reads_of: Vec::new(),
             en_reads: Vec::new(),
             net_readers: Vec::new(),
@@ -254,6 +303,13 @@ impl Design {
         }
         for (ci, c) in n.chips.iter().enumerate() {
             d.add_chip(ci as u32, c)?;
+        }
+        for (ci, c) in n.chips.iter().enumerate() {
+            for (p, w) in c.in_delays.iter().enumerate() {
+                if w[1] > 0 || w[0] > 0 {
+                    d.add_wire(ci, p as u32, *w);
+                }
+            }
         }
         for (oi, o) in d.outs.iter().enumerate() {
             if let Some(net) = o.net {
@@ -296,18 +352,83 @@ impl Design {
         Ok(d)
     }
 
-    fn label(&mut self, chip: &str, name: &str) -> u32 {
+    /// A receiving pin's wire: a stage from its net to a net of its own,
+    /// [min, max] long. A pin its chip drives keeps its net.
+    fn add_wire(&mut self, ci: usize, p: u32, w: [i64; 2]) {
+        let chip = &self.chips[ci];
+        let Some(Some(net)) = chip.nets.get(p as usize).copied() else {
+            return;
+        };
+        if chip.outs.iter().any(|&o| self.outs[o as usize].pin == p) {
+            return;
+        }
+        let name = format!("{}.{}", chip.reference, chip.pins[p as usize]);
+        let new = self.nets.len() as u32;
+        self.nets.push(format!("{name}~"));
+        self.net_index.insert(format!("{name}~"), new);
+        self.rail.push(None);
+        self.pulled.push(false);
+        self.drivers.push(Vec::new());
+        let dl = Delay {
+            min: Some(w[0]),
+            typ: w[1],
+            max: w[1],
+            est: false,
+            est_typ: false,
+        };
+        let label = self.label(&name, "wire", Some(dl));
+        let wc = self.chips.len() as u32;
+        self.outs.push(Output {
+            chip: wc,
+            pin: 1,
+            net: Some(new),
+            inv: false,
+            kind: Kind::Comb {
+                func: Some(vec![vec![(0, 1)]]),
+                arcs: vec![Arc {
+                    from: vec![0],
+                    d: dl,
+                    label,
+                    when: None,
+                }],
+            },
+            enable: None,
+            wire: 0,
+        });
+        self.chips.push(Chip {
+            reference: format!("~{name}"),
+            part: "wire".into(),
+            model: "wire".into(),
+            pins: vec!["IN".into(), "OUT".into()],
+            nets: vec![Some(net), Some(new)],
+            outs: vec![(self.outs.len() - 1) as u32],
+            reg_of_pin: vec![None, None],
+            nocheck: false,
+            described: true,
+            unchecked: Vec::new(),
+            sensitive: Vec::new(),
+            family: "wire".into(),
+            out_pins: vec![1],
+        });
+        self.chips[ci].nets[p as usize] = Some(new);
+    }
+
+    pub fn label(&mut self, chip: &str, name: &str, d: Option<Delay>) -> u32 {
         self.labels.push(format!("{chip}: {name}"));
+        self.label_delays.push(d);
         (self.labels.len() - 1) as u32
     }
 
     fn arcs(&mut self, chip: &str, a: &[ArcIn]) -> Vec<Arc> {
         a.iter()
-            .map(|x| Arc {
-                from: x.from.clone(),
-                d: Delay::of(&x.d),
-                label: self.label(chip, &x.name),
-                when: x.when.clone(),
+            .map(|x| {
+                let d = Delay::of(&x.d, x.est);
+                Arc {
+                    from: x.from.clone(),
+                    d,
+                    label: self.label(chip, &x.name, Some(d)),
+                    when: x.when.clone(),
+                }
             })
             .collect()
     }
@@ -331,6 +452,8 @@ impl Design {
             described: c.desc.is_some(),
             unchecked: Vec::new(),
             sensitive: Vec::new(),
+            family: c.family.clone(),
+            out_pins: c.outputs.clone(),
         };
         let r = c.reference.clone();
         let add = |d: &mut Design, chip: &mut Chip, o: Output| {
@@ -356,20 +479,35 @@ impl Design {
                 kind: Kind::Osc {
                     period,
                     phase: c.params.get("phase_ps").copied().unwrap_or(0),
+                    duty: (
+                        c.params.get("duty_min_permille").copied().unwrap_or(500),
+                        c.params.get("duty_max_permille").copied().unwrap_or(500),
+                    ),
+                    jitter: c.params.get("jitter_ps").copied().unwrap_or(0),
                 },
                 enable: None,
                 wire: wire(pin),
             };
             add(self, &mut chip, o);
         }
+        // a pin's load lengthens what drives it
+        let load = |pin: u32| c.load.get(pin as usize).copied().unwrap_or([0, 0]);
+        let loaded = |a: Vec<Arc>, pin: u32| -> Vec<Arc> {
+            a.into_iter()
+                .map(|x| Arc {
+                    d: x.d.loaded(load(pin)),
+                    ..x
+                })
+                .collect()
+        };
         if let Some(desc) = &c.desc {
             chip.unchecked = desc.unchecked.clone();
             chip.sensitive = desc.sensitive.clone();
             for o in &desc.outputs {
-                let arcs = self.arcs(&r, &o.arcs);
+                let arcs = loaded(self.arcs(&r, &o.arcs), o.pin);
                 let enable = o.enable.as_ref().map(|f| Enable {
                     f: f.clone(),
-                    on: self.arcs(&r, &o.on),
+                    on: loaded(self.arcs(&r, &o.on), o.pin),
                     off: self.arcs(&r, &o.off),
                 });
                 let out = Output {
@@ -387,8 +525,10 @@ impl Design {
                 add(self, &mut chip, out);
             }
             for g in &desc.regs {
-                let label = self.label(&r, &g.name);
-                let fb_label = self.label(&r, "feedback");
+                let dl = Delay::of(&g.d, g.est).loaded(load(g.pin));
+                let fb = g.feedback.as_ref().map(|f| Delay::of(f, g.fb_est));
+                let label = self.label(&r, &g.name, Some(dl));
+                let fb_label = self.label(&r, "feedback", fb);
                 let clear = g.clear.as_ref().map(|f| Force {
                     f: f.clone(),
                     arcs: self.arcs(&r, &g.clear_arcs),
@@ -399,7 +539,7 @@ impl Design {
                 });
                 let enable = g.enable.as_ref().map(|f| Enable {
                     f: f.clone(),
-                    on: self.arcs(&r, &g.on),
+                    on: loaded(self.arcs(&r, &g.on), g.pin),
                     off: self.arcs(&r, &g.off),
                 });
                 let out = Output {
@@ -411,12 +551,12 @@ impl Design {
                         clock: g.clock,
                         rise: g.edge == 1,
                         next: g.next.clone(),
-                        d: Delay::of(&g.d),
+                        d: dl,
                         label,
                         clear,
                         clear_value: g.clear_value,
                         preset,
-                        feedback: g.feedback.as_ref().map(Delay::of),
+                        feedback: fb,
                         fb_label,
                     },
                     enable,
@@ -437,8 +577,8 @@ impl Design {
                 add(self, &mut chip, out);
             }
             for k in &desc.checks {
-                let (kind, names) = match k {
-                    CheckIn::Setup {
+                let (kind, names) = match &k.kind {
+                    CheckKindIn::Setup {
                         pins,
                         clock,
                         edge,
@@ -455,7 +595,7 @@ impl Design {
                         },
                         names.clone(),
                     ),
-                    CheckIn::Width {
+                    CheckKindIn::Width {
                         pin,
                         level,
                         min,
@@ -468,14 +608,31 @@ impl Design {
                         },
                         names.clone(),
                     ),
-                    CheckIn::Period { pin, min, names } => (
+                    CheckKindIn::Period { pin, min, names } => (
                         CheckKind::Period {
                             pin: *pin,
                             min: *min,
                         },
                         names.clone(),
                     ),
-                    CheckIn::Strobe {
+                    CheckKindIn::Recovery {
+                        clock,
+                        edge,
+                        recovery,
+                        removal,
+                        width,
+                        names,
+                    } => (
+                        CheckKind::Recovery {
+                            clock: *clock,
+                            rise: *edge == 1,
+                            recovery: *recovery,
+                            removal: *removal,
+                            width: *width,
+                        },
+                        names.clone(),
+                    ),
+                    CheckKindIn::Strobe {
                         active,
                         stable,
                         data,
@@ -496,6 +653,7 @@ impl Design {
                     chip: ci,
                     kind,
                     names,
+                    estimated: k.estimated.clone(),
                 });
             }
         }

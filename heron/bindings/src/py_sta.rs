@@ -32,4 +32,13 @@ pub mod sta {
             .collect();
         Ok(pythonize::pythonize(py, &out)?)
     }
+
+    /// What `netlist` leaves untimed, and its checks by the index each
+    /// branch's `evaluated` names (infra/sta/src/coverage.rs).
+    #[pyfunction]
+    fn coverage<'py>(py: Python<'py>, netlist: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let netlist: ::sta::Netlist = pythonize::depythonize(netlist)?;
+        let design = ::sta::Design::new(&netlist).map_err(|e| PyValueError::new_err(e.0))?;
+        Ok(pythonize::pythonize(py, &::sta::coverage(&design))?)
+    }
 }

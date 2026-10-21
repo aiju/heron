@@ -5,6 +5,7 @@ the static timing engine (infra/sta), and the calls into it.
                                    resistor joins merged), every chip with
                                    its description (cells.describe) and its
                                    pins' wiring delays, the pulled-up nets
+    coverage(exported)             what it leaves untimed, and its checks
     analyse(exported, cases, ...)  heron.native.sta.analyse: each case's
                                    branches, their checks and slacks
 
@@ -29,9 +30,13 @@ from . import cells, chips
 X = 2
 
 
-def export(nl, variant=chips.DEFAULT_VARIANT, drop=()):
+def export(nl, variant=chips.DEFAULT_VARIANT, drop=(), wires=None, load=False):
     """The engine's netlist for nl, without the chips whose references
-    are in drop (a simulation's fixtures)."""
+    are in drop (a simulation's fixtures). wires: {(ref, pin): (min, max)}
+    ps, a receiving pin's wire from its net's drivers (RFC 0048 5: from the
+    placement or the routing, open). load: derate the drivers' delays by
+    their nets' capacitance, where the parts' data gives it (pin_pf, and
+    load: {test_pf, ps_per_pf}; none does yet)."""
     timing = chips.load_timing()
     insts = [i for i in nl.instances if i.ref not in drop]
     root = {}
@@ -57,6 +62,7 @@ def export(nl, variant=chips.DEFAULT_VARIANT, drop=()):
                 ids[r] = len(names)
                 names.append(r)
     out, pulled = [], set()
+    caps = _net_pf(insts, timing, variant, lambda n: ids[find(n)]) if load else {}
     for inst in insts:
         t = inst.type
         nets = [ids[find(inst.conn[p])] if p in inst.conn else -1 for p, _ in t.pins]
@@ -68,13 +74,51 @@ def export(nl, variant=chips.DEFAULT_VARIANT, drop=()):
             "params": {k: int(v) for k, v in inst.params.items()}, "nocheck": inst.nocheck,
             "desc": cells.describe(inst, timing, variant),
             "pin_delays": [int(inst.pin_extra.get(p, 0)) for p, _ in t.pins],
+            "outputs": sorted(t.pin_index[pin] for pin, *_ in inst.gal) if inst.gal is not None
+            else [i for i, (_, k) in enumerate(t.pins) if k in ("out", "tri", "io")],
+            "in_delays": [list(wires[(inst.ref, p)]) if wires and (inst.ref, p) in wires
+                          else [0, 0] for p, _ in t.pins] if wires else [],
+            "load": [_load(timing, inst.part_number(variant), caps.get(n)) for n in nets]
+            if load else [],
         })
     return {"nets": names, "chips": out, "pulled": sorted(pulled), "variant": variant,
             "aliases": {n: find(n) for n in root}}
 
 
-def analyse(exported, cases, fraction=0.3, tolerance=1000, marginal=2000, paths=1, jobs=None):
+def _net_pf(insts, timing, variant, net_id):
+    """Each net's capacitance, pF: its pins' (pin_pf in their parts' data);
+    None where a part on it has none."""
+    out = {}
+    for inst in insts:
+        pf = (timing.get(inst.part_number(variant)) or {}).get("pin_pf")
+        for p, net in inst.conn.items():
+            n = net_id(net)
+            out[n] = None if pf is None or out.get(n, 0) is None else out.get(n, 0) + pf
+    return out
+
+
+def _load(timing, part, pf):
+    """[to the minimum, to the maximum] ps for a pin driving pf: the part's
+    slope from its test load."""
+    spec = (timing.get(part) or {}).get("load")
+    if pf is None or not spec:
+        return [0, 0]
+    d = (pf - spec["test_pf"]) * spec["ps_per_pf"] * 1000
+    return [int(min(d, 0)), int(max(d, 0))]
+
+
+def coverage(exported):
+    """The engine's coverage of a netlist: its checks by index, chips with
+    no description, outputs nothing times, checks without data, and the
+    clears an asynchronous source reaches (infra/sta/src/coverage.rs)."""
+    return native.sta.coverage(exported)
+
+
+def analyse(exported, cases, fraction=0.3, tolerance=1000, marginal=2000, paths=1, jobs=None,
+            **options):
     """Every case's branches, as dicts: the engine's results
-    (infra/sta/src/result.rs)."""
-    opts = {"fraction": fraction, "tolerance": tolerance, "marginal": marginal, "paths": paths}
+    (infra/sta/src/checks.rs, BranchOut). options: the engine's others
+    (cppr_across_edges, monotone, trace, branches)."""
+    opts = {"fraction": fraction, "tolerance": tolerance, "marginal": marginal, "paths": paths,
+            **options}
     return native.sta.analyse(exported, list(cases), opts, jobs or 0)

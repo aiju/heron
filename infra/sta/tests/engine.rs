@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use sta::input::{ArcIn, CheckIn, ChipIn, Desc, End, OutIn, RegIn, Sop};
+use sta::input::{ArcIn, CheckIn, CheckKindIn, ChipIn, Desc, End, OutIn, RegIn, Sop};
 use sta::{Case, Design, Netlist, Options, analyse};
 
 struct Build {
@@ -20,6 +20,7 @@ fn arc(from: &[u32], lo: i64, hi: i64) -> ArcIn {
         d: d(lo, hi),
         name: "A->Y".into(),
         when: None,
+        est: 0,
     }
 }
 
@@ -53,6 +54,9 @@ impl Build {
             nocheck: false,
             desc,
             pin_delays: Vec::new(),
+            outputs: vec![0],
+            in_delays: Vec::new(),
+            load: Vec::new(),
         });
     }
 
@@ -101,6 +105,7 @@ impl Build {
                 inv: false,
                 d: d(tco.0, tco.1),
                 name: "CLK->Q".into(),
+                est: 0,
                 clear: None,
                 clear_value: 0,
                 clear_arcs: vec![],
@@ -110,14 +115,18 @@ impl Build {
                 on: vec![],
                 off: vec![],
                 feedback: None,
+                fb_est: 0,
             }],
-            checks: vec![CheckIn::Setup {
-                pins: vec![1],
-                clock: 2,
-                edge: 1,
-                setup: su,
-                hold: h,
-                names: vec!["setup".into(), "hold".into()],
+            checks: vec![CheckIn {
+                kind: CheckKindIn::Setup {
+                    pins: vec![1],
+                    clock: 2,
+                    edge: 1,
+                    setup: su,
+                    hold: h,
+                    names: vec!["setup".into(), "hold".into()],
+                },
+                estimated: vec![],
             }],
             ..Desc::default()
         };
@@ -148,9 +157,11 @@ fn case(start: &[(&str, u8, u8)], end: &str) -> Case {
             .iter()
             .map(|(n, a, b)| (n.to_string(), (*a, *b)))
             .collect(),
+        before: HashMap::new(),
         branch: vec![],
         forced: vec![],
         skip: vec![],
+        exceptions: vec![],
         end: End {
             net: end.into(),
             events: 40,
@@ -306,4 +317,333 @@ fn setup_and_hold() {
     };
     assert_eq!(at("setup"), Some(-12_000), "{:?}", r[0].worst);
     assert_eq!(at("hold"), Some(-1000), "{:?}", r[0].worst);
+}
+
+fn arc_d(from: &[u32], lo: i64, hi: i64, name: &str) -> ArcIn {
+    ArcIn {
+        name: name.into(),
+        ..arc(from, lo, hi)
+    }
+}
+
+impl Build {
+    /// A three-state buffer: Y (pin 0) = A (pin 1) while E (pin 2) is high,
+    /// on and off in [lo, hi].
+    fn buf_en(&mut self, r: &str, y: &str, a: &str, e: &str, on: (i64, i64), off: (i64, i64)) {
+        let desc = Desc {
+            outputs: vec![OutIn {
+                pin: 0,
+                func: Some(vec![vec![(1, 1)]]),
+                inv: false,
+                arcs: vec![arc(&[1], 1000, 2000)],
+                enable: Some(vec![vec![(2, 1)]]),
+                on: vec![arc_d(&[2], on.0, on.1, "on")],
+                off: vec![arc_d(&[2], off.0, off.1, "off")],
+            }],
+            ..Desc::default()
+        };
+        self.chip(r, "buf", &[("Y", y), ("A", a), ("E", e)], Some(desc));
+    }
+
+    /// An output on a clock of its chip's own.
+    fn async_src(&mut self, r: &str, y: &str) {
+        let desc = Desc {
+            asynchronous: vec![0],
+            ..Desc::default()
+        };
+        self.chip(r, "async", &[("Y", y)], Some(desc));
+    }
+
+    fn last_desc(&mut self) -> &mut Desc {
+        self.chips.last_mut().unwrap().desc.as_mut().unwrap()
+    }
+}
+
+#[test]
+fn wire_per_receiver() {
+    // the toggle with a wire of 1 to 2 ns into R1's D: setup 8 - 2, hold
+    // 2 + 1
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("R1", "Q", "D", "MCLK", [1000, 4000, 3000, 0]);
+    b.gate("U1", "D", &["Q"], not(1), 1000, 5000);
+    b.chips[1].in_delays = vec![[0, 0], [1000, 2000], [0, 0]];
+    let r = analyse(&b.design(), &case(&[("Q", 0, 1)], "Q"), &Options::default()).unwrap();
+    let at = |kind: &str| {
+        r[0].worst
+            .iter()
+            .filter(|c| c.chip == "R1" && c.check == kind)
+            .map(|c| c.slack)
+            .min()
+    };
+    assert_eq!(at("hold"), Some(3000), "{:?}", r[0].worst);
+    assert!(r[0].min_slack.unwrap() >= 3000);
+}
+
+#[test]
+fn jitter() {
+    // the toggle, MCLK's edges within 0.5 ns: a setup across edges loses
+    // 1 ns; a hold at one edge doesn't
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.chips[0].params.insert("jitter_ps".into(), 500);
+    b.reg("R1", "Q", "D", "MCLK", [1000, 4000, 3000, 0]);
+    b.gate("U1", "D", &["Q"], not(1), 1000, 5000);
+    let o = Options {
+        paths: 50,
+        marginal: 100_000,
+        ..Options::default()
+    };
+    let r = analyse(&b.design(), &case(&[("Q", 0, 1)], "Q"), &o).unwrap();
+    let at = |kind: &str| {
+        r[0].worst
+            .iter()
+            .filter(|c| c.chip == "R1" && c.check == kind && c.event == 2)
+            .map(|c| c.slack)
+            .min()
+    };
+    assert_eq!(at("setup"), Some(7000), "{:?}", r[0].worst);
+    assert_eq!(at("hold"), Some(2000), "{:?}", r[0].worst);
+}
+
+#[test]
+fn handover() {
+    // A toggles; two buffers drive BUS, B1 while A is high, B2 while AN
+    // (A through an inverter, 1 to 2 ns) is: at A's rise B1 turns on in
+    // [2, 5] ns and B2 off in [3, 9]: 7 ns both may be on, less A's own
+    // spread (1 ns), against a tolerance of 1 ns
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RA", "A", "AN", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("UA", "AN", &["A"], not(1), 1000, 2000);
+    b.buf_en("B1", "BUS", "VCC", "A", (1000, 3000), (1000, 5000));
+    b.buf_en("B2", "BUS", "GND", "AN", (1000, 3000), (1000, 5000));
+    let o = Options {
+        marginal: 100_000,
+        ..Options::default()
+    };
+    let r = analyse(&b.design(), &case(&[("A", 0, 1)], "A"), &o).unwrap();
+    let h: Vec<&sta::CheckOut> = r[0]
+        .worst
+        .iter()
+        .filter(|c| c.check == "handover" && c.event == 0)
+        .collect();
+    assert_eq!(
+        h.iter().map(|c| c.slack).min(),
+        Some(1000 - 7001 + 1000),
+        "{:?}",
+        r[0].worst
+    );
+}
+
+#[test]
+fn crossings() {
+    // an asynchronous net captured: a failing crossing, unless the
+    // register is a synchroniser
+    for sync in [false, true] {
+        let mut b = Build::new();
+        b.osc("MCLK", 20_000);
+        b.reg("RT", "T", "TN", "MCLK", [1000, 2000, 1000, 0]);
+        b.gate("UT", "TN", &["T"], not(1), 1000, 2000);
+        b.async_src("XA", "ASYNC");
+        b.reg("RS", "S", "ASYNC", "MCLK", [1000, 2000, 1000, 0]);
+        b.chips.last_mut().unwrap().nocheck = sync;
+        let r = analyse(&b.design(), &case(&[("T", 0, 1)], "T"), &Options::default()).unwrap();
+        let failing = r[0].worst.iter().any(|c| c.check == "crossing");
+        assert_eq!(failing, !sync, "{:?}", r[0].worst);
+        assert_eq!(!r[0].crossings.is_empty(), sync, "{:?}", r[0].crossings);
+    }
+}
+
+#[test]
+fn recovery_and_removal() {
+    // T toggles and clears R (while high) through 2 to 4 ns: released in
+    // [22, 24] ns, it's 1 ns after the edge at 20 (removal 1 ns: 22 - 21)
+    // and 13 ns before the one at 40 (recovery 3 ns: 40 - 3 - 24)
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RT", "T", "TN", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("UT", "TN", &["T"], not(1), 1000, 2000);
+    b.reg("R", "Q", "GND", "MCLK", [1000, 2000, 1000, 0]);
+    b.chips.last_mut().unwrap().pins.push("CLR".into());
+    let t = b.net("T");
+    b.chips.last_mut().unwrap().nets.push(t);
+    let d = b.last_desc();
+    d.regs[0].clear = Some(vec![vec![(3, 1)]]);
+    d.regs[0].clear_arcs = vec![arc(&[3], 1000, 2000)];
+    d.checks.push(CheckIn {
+        kind: CheckKindIn::Recovery {
+            clock: 2,
+            edge: 1,
+            recovery: Some(3000),
+            removal: Some(1000),
+            width: None,
+            names: vec![],
+        },
+        estimated: vec![],
+    });
+    let o = Options {
+        marginal: 100_000,
+        ..Options::default()
+    };
+    let r = analyse(&b.design(), &case(&[("T", 0, 1)], "T"), &o).unwrap();
+    let at = |kind: &str, ev: i32| {
+        r[0].worst
+            .iter()
+            .filter(|c| c.chip == "R" && c.check == kind && c.event == ev)
+            .map(|c| c.slack)
+            .min()
+    };
+    assert_eq!(at("removal", 2), Some(1000), "{:?}", r[0].worst);
+    assert_eq!(at("recovery", 4), Some(13000), "{:?}", r[0].worst);
+}
+
+#[test]
+fn exceptions() {
+    // the toggle's hold turned off, and its setup's path through Q taken
+    // as a false path
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("R1", "Q", "D", "MCLK", [1000, 4000, 3000, 0]);
+    b.gate("U1", "D", &["Q"], not(1), 1000, 5000);
+    let mut c = case(&[("Q", 0, 1)], "Q");
+    c.exceptions = vec![
+        sta::input::Exception {
+            reason: "a test".into(),
+            chip: Some("R1".into()),
+            check: Some("hold".into()),
+            ..Default::default()
+        },
+        sta::input::Exception {
+            reason: "a false path".into(),
+            chip: Some("R1".into()),
+            check: Some("setup".into()),
+            through: Some("Q".into()),
+            ..Default::default()
+        },
+    ];
+    let r = analyse(&b.design(), &c, &Options::default()).unwrap();
+    assert!(
+        !r[0].worst.iter().any(|c| c.chip == "R1"),
+        "{:?}",
+        r[0].worst
+    );
+    assert!(
+        r[0].excepted[0] > 0 && r[0].excepted[1] > 0,
+        "{:?}",
+        r[0].excepted
+    );
+}
+
+#[test]
+fn coverage() {
+    // a chip that drives a net with no description
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.chip("U9", "mystery", &[("Y", "Z9")], None);
+    let cov = sta::coverage(&b.design());
+    assert_eq!(cov.undescribed, vec!["U9".to_string()]);
+}
+
+#[test]
+fn latch() {
+    // a transparent latch, Q = LE·D + /LE·Q + D·Q (pins Q, LE, D), its D
+    // checked against LE's fall: it holds as LE falls, and D's setup to
+    // that fall is evaluated
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RL", "LE", "LEN", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("UL", "LEN", &["LE"], not(1), 1000, 2000);
+    b.reg("RD", "D", "DN", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("UD", "DN", &["D"], not(1), 1000, 2000);
+    let desc = Desc {
+        outputs: vec![OutIn {
+            pin: 0,
+            func: Some(vec![
+                vec![(1, 1), (2, 1)],
+                vec![(1, 0), (0, 1)],
+                vec![(2, 1), (0, 1)],
+            ]),
+            inv: false,
+            arcs: vec![arc(&[2], 1000, 3000), arc(&[1], 1000, 4000)],
+            enable: None,
+            on: vec![],
+            off: vec![],
+        }],
+        checks: vec![CheckIn {
+            kind: CheckKindIn::Setup {
+                pins: vec![2],
+                clock: 1,
+                edge: 0,
+                setup: 1000,
+                hold: 0,
+                names: vec![],
+            },
+            estimated: vec![],
+        }],
+        ..Desc::default()
+    };
+    b.chip(
+        "UQ",
+        "latch",
+        &[("Q", "Q"), ("LE", "LE"), ("D", "D")],
+        Some(desc),
+    );
+    let r = analyse(
+        &b.design(),
+        &case(&[("LE", 0, 1), ("D", 0, 1)], "LE"),
+        &Options::default(),
+    )
+    .unwrap();
+    assert!(!r[0].evaluated.is_empty(), "{:?}", r[0]);
+    assert!(
+        !r[0].worst.iter().any(|c| c.check == "loop"),
+        "{:?}",
+        r[0].worst
+    );
+}
+
+#[test]
+fn tails_and_pairs() {
+    // the toggle through a 25 ns inverter: launched at the edge at 20 ns,
+    // D may still change until 49 ns, 9 past the window's end at 40
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("R1", "Q", "D", "MCLK", [1000, 4000, 3000, 0]);
+    b.gate("U1", "D", &["Q"], not(1), 1000, 25_000);
+    let r = analyse(&b.design(), &case(&[("Q", 0, 1)], "Q"), &Options::default()).unwrap();
+    let tail = r[0].tails.iter().find(|t| t.0 == "D").cloned();
+    assert_eq!(tail.map(|t| t.2), Some(9000), "{:?}", r[0].tails);
+    // carried into the start, D is changing there; before 0 it was the
+    // pair's 1
+    let o = Options {
+        tails: vec![("D".into(), -15_000, 9000)],
+        trace: vec!["D".into()],
+        ..Options::default()
+    };
+    let mut c = case(&[("Q", 0, 1)], "Q");
+    c.before.insert("D".into(), 1);
+    let r = analyse(&b.design(), &c, &o).unwrap();
+    let (_, init, tr) = &r[0].traces[0];
+    assert_eq!(*init, 2, "a tail leaves the start unknown");
+    assert_eq!(tr[0].0, -15_000);
+}
+
+#[test]
+fn repeats() {
+    // T toggles and nothing ends the window: the state at 60 ns is the one
+    // at 20, so the branch ends there
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RT", "T", "TN", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("UT", "TN", &["T"], not(1), 1000, 2000);
+    b.net("GND");
+    let r = analyse(
+        &b.design(),
+        &case(&[("T", 0, 1)], "GND"),
+        &Options::default(),
+    )
+    .unwrap();
+    assert_eq!(r[0].repeats, Some(2));
+    assert_eq!(r[0].end, 6);
 }

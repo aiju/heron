@@ -4,7 +4,8 @@ A chip type (chips.T) describes its timing with these:
 
     outputs={pin: Out(function, arcs, enable=, on=, off=)}
     regs={pin: Reg(clock, next, delay, clear=, preset=, enable=, ...)}
-    timing=[Setup(...), Width(...), Period(...), Strobe(...)]
+    timing=[Setup(...), Width(...), Period(...), Recovery(...), Strobe(...)]
+    latches={pin: Latch(enable, d, arcs, oe=)}   transparent latches (outputs)
     sensitive=[pins]        glitch-sensitive inputs besides clocks and strobes
     asynchronous=[pins]     outputs on a clock of the chip's own (a timer's OUT)
     joins=[(pin, pin)]      pins that are one net to timing (series resistors)
@@ -79,6 +80,32 @@ class Period:
 
     def __init__(self, pin, name):
         self.pin, self.name = pin, name
+
+
+class Recovery:
+    """The clears' and presets' release, for every register on the clock
+    pin that has one: `recovery` before the clock's edge, `removal` after
+    it; the force's pulses at least `width` long."""
+
+    def __init__(self, clock, recovery=None, removal=None, width=None, edge="rise"):
+        self.clock, self.recovery, self.removal, self.width, self.edge = \
+            clock, recovery, removal, width, edge
+
+
+class Latch:
+    """A transparent latch's output: it follows `d` while `enable` (a pin,
+    active high) is high, and holds from its fall. A chip type makes it an
+    Out: Q = LE·D + /LE·Q + D·Q (the last term holds it as LE falls), its
+    own pin fed back; oe, on and off as an Out's enable."""
+
+    def __init__(self, enable, d, arcs, oe=None, on=None, off=None):
+        self.enable, self.d, self.arcs = enable, d, dict(arcs)
+        self.oe, self.on, self.off = oe, on, off
+
+    def out(self, pin):
+        e, d = self.enable, self.d
+        return Out(f"{e}·{d} + /{e}·{pin} + {d}·{pin}", self.arcs, enable=self.oe, on=self.on,
+                   off=self.off)
 
 
 class Strobe:
@@ -235,6 +262,8 @@ def check(ctype):
             pin_list(c.clock, names)
         elif isinstance(c, (Width, Period)):
             pin_list(c.pin, names)
+        elif isinstance(c, Recovery):
+            pin_list(c.clock, names)
         elif isinstance(c, Strobe):
             parse(c.active, names)
             for spec in list(c.stable) + list(c.data):
@@ -290,6 +319,22 @@ class _Data:
                 raise KeyError(f"{self.part} has no value {arc.min!r} for a minimum")
         return d
 
+    def est(self, spec):
+        """What of an arc's delay the data marks as estimated: 1 its value
+        (minimum and maximum), 2 its typical (a minimum from the fraction
+        rests on it); the engine's EST_VALUE and EST_TYP."""
+        arc = spec if isinstance(spec, Arc) else Arc(spec)
+        if isinstance(arc.name, (int, float)):
+            return 0
+        out = 1 if arc.name in self.estimated or (
+            isinstance(arc.min, str) and arc.min in self.estimated) else 0
+        if "typ" in self.estimated or f"{arc.name} typ" in self.estimated:
+            out |= 2
+        return out
+
+    def estimated_limits(self, *names):
+        return [str(n) for n in names if n is not None and str(n) in self.estimated]
+
     def limit(self, name):
         """A check's limit in ps, or None if the part's data hasn't it: a
         frequency in MHz is a period."""
@@ -314,7 +359,8 @@ def _arcs(arcs, data, index, names):
             when = d.when if isinstance(d, Arc) else None
             out.append({"from": [index[p] for p in pin_list(spec, names)], "d": data.delay(d),
                         "name": str(d.name if isinstance(d, Arc) else d),
-                        "when": _sop(parse(when, names), index) if when else None})
+                        "when": _sop(parse(when, names), index) if when else None,
+                        "est": data.est(d)})
     return out
 
 
@@ -349,14 +395,15 @@ def describe(inst, timing, variant):
 def _reg(pin, r, data, index, names):
     return {"pin": pin, "clock": index[r.clock], "edge": 1 if r.edge == "rise" else 0,
             "next": _sop(parse(r.next, names), index), "inv": False,
-            "d": data.delay(r.delay), "name": str(r.delay),
+            "d": data.delay(r.delay), "name": str(r.delay), "est": data.est(r.delay),
             "clear": _sop(parse(r.clear, names), index) if r.clear else None, "clear_value": 0,
             "clear_arcs": _arcs(r.clear_arcs, data, index, names),
             "preset": _sop(parse(r.preset, names), index) if r.preset else None,
             "preset_arcs": _arcs(r.preset_arcs, data, index, names),
             "enable": _sop(parse(r.enable, names), index) if r.enable else None,
             "on": _arcs(r.on, data, index, names), "off": _arcs(r.off, data, index, names),
-            "feedback": data.delay(r.feedback) if r.feedback is not None else None}
+            "feedback": data.delay(r.feedback) if r.feedback is not None else None,
+            "fb_est": data.est(r.feedback) if r.feedback is not None else 0}
 
 
 def _check(c, data, index, names, out):
@@ -371,15 +418,28 @@ def _check(c, data, index, names, out):
         out["checks"].append({"kind": "setup", "pins": [index[p] for p in pin_list(c.pins, names)],
                               "clock": index[c.clock], "edge": 1 if c.edge == "rise" else 0,
                               "setup": data.limit(c.setup), "hold": data.limit(c.hold),
-                              "names": [str(c.setup), str(c.hold)]})
+                              "names": [str(c.setup), str(c.hold)],
+                              "estimated": data.estimated_limits(c.setup, c.hold)})
     elif isinstance(c, Width):
         if not missing(c.name):
             out["checks"].append({"kind": "width", "pin": index[c.pin], "level": c.level,
-                                  "min": data.limit(c.name), "names": [str(c.name)]})
+                                  "min": data.limit(c.name), "names": [str(c.name)],
+                                  "estimated": data.estimated_limits(c.name)})
     elif isinstance(c, Period):
         if not missing(c.name):
             out["checks"].append({"kind": "period", "pin": index[c.pin],
-                                  "min": data.limit(c.name), "names": [str(c.name)]})
+                                  "min": data.limit(c.name), "names": [str(c.name)],
+                                  "estimated": data.estimated_limits(c.name)})
+    elif isinstance(c, Recovery):
+        if missing(c.recovery, c.removal, c.width):
+            return
+        out["checks"].append({"kind": "recovery", "clock": index[c.clock],
+                              "edge": 1 if c.edge == "rise" else 0,
+                              "recovery": data.limit(c.recovery), "removal": data.limit(c.removal),
+                              "width": data.limit(c.width),
+                              "names": [str(c.recovery), str(c.removal), str(c.width)],
+                              "estimated": data.estimated_limits(c.recovery, c.removal,
+                                                                 c.width)})
     elif isinstance(c, Strobe):
         stable = []
         for spec, (a, b, z) in c.stable.items():
@@ -396,9 +456,11 @@ def _check(c, data, index, names, out):
                         "setup": data.limit(s), "hold": data.limit(h),
                         "names": [str(s), str(h)]})
         width = None if c.width is None or missing(c.width) else data.limit(c.width)
+        lims = [n for a in c.stable.values() for n in a] + [n for a in c.data.values() for n in a]
         out["checks"].append({"kind": "strobe", "active": _sop(parse(c.active, names), index),
                               "stable": stable, "data": dat, "width": width,
-                              "names": [str(c.width)], "eq": c.active})
+                              "names": [str(c.width)], "eq": c.active,
+                              "estimated": data.estimated_limits(c.width, *lims)})
 
 
 def _describe_gal(inst, timing, variant):
@@ -426,7 +488,8 @@ def _describe_gal(inst, timing, variant):
 
     def arcs_of(terms, d, name):
         pins = sorted({p for t in terms for p, _ in t})
-        return [{"from": [index[p]], "d": d, "name": name, "when": None} for p in pins]
+        return [{"from": [index[p]], "d": d, "name": name, "when": None, "est": data.est(name)}
+                for p in pins]
     for pin, reg, inv, terms in inst.gal:
         oe = oes.get(pin)
         en = {"enable": sop(oe) if oe is not None else None,
@@ -436,24 +499,48 @@ def _describe_gal(inst, timing, variant):
             out["regs"].append({
                 "pin": index[pin], "clock": index["CLK"], "edge": 1, "next": sop(terms),
                 "inv": bool(inv), "d": data.delay("CLK->Q"), "name": "CLK->Q",
-                "clear": ar, "clear_value": int(bool(inv)),
-                "clear_arcs": [{"from": [index[p]], "d": tap, "name": "tAP", "when": None}
-                               for p in ar_pins],
-                "preset": None, "preset_arcs": [], "feedback": tcf, **en})
+                "est": data.est("CLK->Q"), "clear": ar, "clear_value": int(bool(inv)),
+                "clear_arcs": [{"from": [index[p]], "d": tap, "name": "tAP", "when": None,
+                                "est": data.est("tAP")} for p in ar_pins],
+                "preset": None, "preset_arcs": [], "feedback": tcf,
+                "fb_est": data.est("tCF" if "tCF" in data.delays else "CLK->Q"), **en})
             setup_pins |= {p for t in terms for p, _ in t}
         else:
             out["outputs"].append({"pin": index[pin], "fn": sop(terms), "inv": bool(inv),
                                    "arcs": arcs_of(terms, tpd, "tPD"), **en})
     setup_pins.discard("CLK")
+    feeds_back = bool(setup_pins & reg_pins)
     if setup_pins and data.limit("setup") is not None:
         out["checks"].append({"kind": "setup", "pins": sorted(index[p] for p in setup_pins),
                               "clock": index["CLK"], "edge": 1, "setup": data.limit("setup"),
-                              "hold": data.limit("hold") or 0, "names": ["setup", "hold"]})
+                              "hold": data.limit("hold") or 0, "names": ["setup", "hold"],
+                              "estimated": data.estimated_limits("setup", "hold")})
     if reg_pins:
+        tw = data.limit("tW")
         for level in (1, 0):
-            if data.limit("tW") is not None:
+            if tw is not None:
                 out["checks"].append({"kind": "width", "pin": index["CLK"], "level": level,
-                                      "min": data.limit("tW"), "names": ["tW"]})
+                                      "min": tw, "names": ["tW"],
+                                      "estimated": data.estimated_limits("tW")})
             else:
                 out["unchecked"].append("width: no tW")
+        # the clock's period: tWH + tWL, or tS + tCF where a register feeds
+        # the array (RFC 0048 7)
+        su, cf = data.limit("setup"), (data.delays.get("tCF") or [None] * 3)[2]
+        period = max(x for x in (2 * tw if tw else None, su + cf if feeds_back and su is not None
+                                 and cf is not None else None, 0) if x is not None)
+        if period:
+            name = "tS + tCF" if feeds_back and su is not None and cf and su + cf >= 2 * (tw or 0) \
+                else "tWH + tWL"
+            out["checks"].append({"kind": "period", "pin": index["CLK"], "min": period,
+                                  "names": [name], "estimated": data.estimated_limits("tW")})
+        if ar:
+            if data.limit("tAR") is None and data.limit("tAW") is None:
+                out["unchecked"].append("recovery: no tAR, tAW")
+            else:
+                out["checks"].append({"kind": "recovery", "clock": index["CLK"], "edge": 1,
+                                      "recovery": data.limit("tAR"), "removal": None,
+                                      "width": data.limit("tAW"),
+                                      "names": ["tAR", "None", "tAW"],
+                                      "estimated": data.estimated_limits("tAR", "tAW")})
     return out

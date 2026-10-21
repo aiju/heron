@@ -37,6 +37,9 @@ pub struct Trace {
     /// Pinned nets' values, and those held throughout.
     pub pinned: Vec<Option<u8>>,
     pub constant: Vec<Option<u8>>,
+    /// Where the branch came back to the state it had at this earlier
+    /// rising edge: it ends there (`end`), the rest repeating.
+    pub repeat: Option<u32>,
 }
 
 pub enum Outcome {
@@ -58,6 +61,8 @@ struct Sim<'a> {
     touched: Vec<bool>,
     pinned: Vec<Option<u8>>,
     constant: Vec<Option<u8>>,
+    /// Values before the first change (a pair's previous word).
+    before: Vec<Option<u8>>,
     clock: u32,
     clock_val: u8,
     /// The outputs whose inputs changed since they were evaluated, and
@@ -194,8 +199,9 @@ impl Sim<'_> {
                 self.touched_net[ni] = true;
             }
             let v = resolve(&on, &maybe, d.pulled[ni]);
-            match self.pinned[ni] {
-                Some(p) if self.touched_net[ni] => p,
+            match (self.pinned[ni], self.before[ni]) {
+                (Some(p), _) if self.touched_net[ni] => p,
+                (_, Some(b)) if !self.touched_net[ni] => b,
                 _ => v,
             }
         };
@@ -289,6 +295,10 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
     for (n, &v) in &case.constant {
         constant[d.net(n)? as usize] = Some(v);
     }
+    let mut before = vec![None; d.nets.len()];
+    for (n, &v) in &case.before {
+        before[d.net(n)? as usize] = Some(v);
+    }
     // registers by net, for the start state, the forced loads and branches
     let reg_of = |name: &str| -> Result<u32, Error> {
         let n = d.net(name)?;
@@ -324,6 +334,7 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         touched: vec![false; no],
         pinned: pinned.clone(),
         constant: constant.clone(),
+        before,
         clock,
         clock_val: 0,
         dirty: vec![true; no],
@@ -366,6 +377,8 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
     let mut pre = Vec::new();
     let mut pre_state = Vec::new();
     let mut end = None;
+    let mut repeat = None;
+    let mut seen: Vec<(u64, u32)> = Vec::new();
     let max = case.end.events.max(2);
     let mut e = 0;
     loop {
@@ -480,6 +493,20 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         if e > 0 && end.is_none() && before[end_net as usize] == 0 && s.net[end_net as usize] == 1 {
             end = Some(e);
         }
+        // a state it was in at a rising edge: the rest repeats
+        if end.is_none() && e >= 2 && e % 2 == 0 {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (&s.state, &s.touched, &s.touched_net).hash(&mut h);
+            let sig = h.finish();
+            match seen.iter().find(|x| x.0 == sig) {
+                Some(&(_, at)) => {
+                    end = Some(e);
+                    repeat = Some(at);
+                }
+                None => seen.push((sig, e)),
+            }
+        }
         e += 1;
         if let Some(x) = end {
             if e > x + 2 {
@@ -505,5 +532,6 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         period,
         pinned,
         constant,
+        repeat,
     })))
 }

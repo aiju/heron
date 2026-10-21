@@ -21,6 +21,10 @@ use crate::values::{Trace, resolve};
 pub const NONE: u32 = u32::MAX;
 /// A node's key for a register's state inside its chip, not on a net.
 pub const STATE: u32 = 1 << 31;
+/// With STATE: a strobe's active function (STROBE | check), an output's
+/// enable (ENABLE | output): each a path of its own.
+pub const STROBE: u32 = 1 << 30;
+pub const ENABLE: u32 = 1 << 29;
 
 /// A point on a path: a time at a net (or a register's state), the node it
 /// came from, the arc between, and the reference edge it goes back to.
@@ -78,6 +82,41 @@ impl std::ops::Deref for Parts<'_> {
 pub struct Wave {
     pub init: u8,
     pub tr: Vec<Tr>,
+    /// The asynchronous source it depends on, given the case's values, and
+    /// when; None if none.
+    pub asynch: Option<Taint>,
+}
+
+/// A wave's dependence on an asynchronous source: the source (an output's
+/// index: an output on a clock of its chip's own, another oscillator, a
+/// register on such a clock), and the stretch of time in which the wave
+/// may follow it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Taint {
+    pub src: u32,
+    pub from: i64,
+    pub to: i64,
+}
+
+/// All of time, for a source itself.
+pub const ALWAYS: (i64, i64) = (i64::MIN / 4, i64::MAX / 4);
+
+impl Taint {
+    fn hull(a: Option<Taint>, b: Taint) -> Taint {
+        match a {
+            None => b,
+            Some(a) => Taint {
+                src: a.src,
+                from: a.from.min(b.from),
+                to: a.to.max(b.to),
+            },
+        }
+    }
+
+    /// Whether it may follow its source somewhere in [a, b].
+    pub fn meets(&self, a: i64, b: i64) -> bool {
+        self.from <= b && a <= self.to
+    }
 }
 
 impl Wave {
@@ -85,6 +124,7 @@ impl Wave {
         Wave {
             init: v,
             tr: Vec::new(),
+            asynch: None,
         }
     }
 
@@ -105,6 +145,7 @@ impl Wave {
 
     fn same(&self, o: &Wave) -> bool {
         self.init == o.init
+            && self.asynch == o.asynch
             && self.tr.len() == o.tr.len()
             && self.tr.iter().zip(&o.tr).all(|(a, b)| {
                 a.e == b.e
@@ -171,16 +212,24 @@ pub struct Waves<'a> {
     pub d: &'a Design,
     pub t: &'a Trace,
     pub fraction: f64,
+    /// Options::monotone.
+    pub monotone: bool,
     pub net: Vec<Wave>,
     pub val: Vec<Wave>,
     pub en: Vec<Wave>,
     /// Registers' states as their chips' own functions see them.
     pub fb: Vec<Wave>,
+    /// Registers' clears' and presets' waves, as their chips see them
+    /// (true while they force the state).
+    pub forces: Vec<Vec<Wave>>,
     pub nodes: Vec<Node>,
     pub parts: Vec<Vec<Part>>,
     pub notes: Vec<String>,
     /// The nets of loops whose waves didn't settle.
     pub unsettled: Vec<u32>,
+    /// The cycle before's changes in flight at 0, by net: (earliest,
+    /// latest).
+    tails: Vec<Option<(i64, i64)>>,
     xw: Wave,
 }
 
@@ -223,7 +272,7 @@ impl<'a> Waves<'a> {
         sets: &[&[Arc]],
         key: u32,
     ) -> Wave {
-        let (effects, mut cur, own, func) = self.effects(chip, func, sets, key);
+        let (effects, mut cur, own, func, asynch) = self.effects(chip, func, sets, key);
         let func = func.as_ref();
         let value = |f: Option<&crate::input::Sop>, vals: &[u8]| -> u8 {
             match f {
@@ -290,7 +339,10 @@ impl<'a> Waves<'a> {
                         } else {
                             rb == V0 || ra == V0
                         }
-                    } else if all_clean && distinct.len() == moves_of(cluster, &mut moves) {
+                    } else if self.monotone
+                        && all_clean
+                        && distinct.len() == moves_of(cluster, &mut moves)
+                    {
                         // several inputs, each changing once, all one way
                         // through the function: one change at most
                         if !monotone(fun, &moves) {
@@ -371,12 +423,17 @@ impl<'a> Waves<'a> {
                 parts: pi,
             });
         }
-        Wave { init, tr: out }
+        Wave {
+            init,
+            tr: out,
+            asynch,
+        }
     }
 
     /// The effects at an output of its inputs' changes, in time order;
     /// the inputs' values before the window; which inputs are the output's
-    /// own net; and the function over the inputs' indices.
+    /// own net; the function over the inputs' indices; and the
+    /// asynchronous source it depends on, if any.
     #[allow(clippy::type_complexity)] // eval's working set
     fn effects(
         &self,
@@ -384,7 +441,13 @@ impl<'a> Waves<'a> {
         func: Option<&crate::input::Sop>,
         sets: &[&[Arc]],
         key: u32,
-    ) -> (Vec<Effect>, Vec<u8>, Vec<bool>, Option<crate::input::Sop>) {
+    ) -> (
+        Vec<Effect>,
+        Vec<u8>,
+        Vec<bool>,
+        Option<crate::input::Sop>,
+        Option<Taint>,
+    ) {
         debug_assert!(sets.len() <= 2);
         let mut pins: Vec<u32> = func.map(support).unwrap_or_default();
         for s in sets {
@@ -409,10 +472,11 @@ impl<'a> Waves<'a> {
                 })
                 .collect()
         });
-        let init = waves.iter().map(|w| w.init).collect();
+        let init: Vec<u8> = waves.iter().map(|w| w.init).collect();
         // inputs that don't change: no effects
         if waves.iter().all(|w| w.tr.is_empty()) {
-            return (Vec::new(), init, Vec::new(), lfunc);
+            let asynch = taint_of(&waves, &pins, lfunc.as_ref(), sets, &[], &[], &[], &[]);
+            return (Vec::new(), init, Vec::new(), lfunc, asynch);
         }
         let f = self.fraction;
         let own_net = if key & STATE == 0 { Some(key) } else { None };
@@ -544,7 +608,8 @@ impl<'a> Waves<'a> {
             }
         }
         effects.sort_by_key(|x| (x.union.e, x.union.l));
-        (effects, init, own, lfunc)
+        let asynch = taint_of(&waves, &pins, func, sets, &own, &cuts, &sval, &sbusy);
+        (effects, init, own, lfunc, asynch)
     }
 
     /// A transition's parts by reference edge: one, unless it has several.
@@ -646,9 +711,10 @@ impl<'a> Waves<'a> {
                 .into_iter()
                 .filter_map(|(f, v)| f.clone().map(|f| (f, v)))
                 .collect();
+        let mut fw = Vec::new();
         for (force, value) in forces {
             let w = self.eval(o.chip, Some(&force.f), false, &[&force.arcs], key);
-            for tr in w.tr {
+            for &tr in &w.tr {
                 if tr.after == V0 && tr.before == V0 {
                     continue;
                 }
@@ -660,11 +726,20 @@ impl<'a> Waves<'a> {
                     ..tr
                 });
             }
+            fw.push(w);
+        }
+        if !fb {
+            self.forces[oi as usize] = fw;
         }
         let init = self.t.init_state[oi as usize];
         Wave {
             init,
             tr: normalize(out),
+            // a register on an asynchronous clock is in its domain
+            asynch: cw.asynch.map(|t| Taint {
+                to: t.to.saturating_add(dl.hi()),
+                ..t
+            }),
         }
     }
 
@@ -678,40 +753,72 @@ impl<'a> Waves<'a> {
                 self.fb[oi as usize] = self.reg(oi, true);
                 self.reg(oi, false)
             }
-            Kind::Osc { .. } if o.net == Some(self.t.clock) => {
+            Kind::Osc { duty, jitter, .. } if o.net == Some(self.t.clock) => {
+                // each edge within its jitter; a falling one where the
+                // duty cycle's range puts it
+                let (duty, jitter) = (*duty, *jitter);
+                let p = self.t.period;
                 let mut w = Wave::constant(V0);
                 for e in 0..self.t.events {
-                    let t = event_time(e, self.t.period);
-                    self.nodes.push(Node {
-                        t,
-                        parent: NONE,
-                        key,
-                        label: NONE,
-                        event: e as i32,
-                    });
-                    let n = (self.nodes.len() - 1) as u32;
                     let rise = e % 2 == 0;
+                    let base = (e / 2) as i64 * p;
+                    let (te, tl) = if rise {
+                        (base - jitter, base + jitter)
+                    } else {
+                        (
+                            base + p * duty.0 / 1000 - jitter,
+                            base + p * duty.1 / 1000 + jitter,
+                        )
+                    };
+                    let mut root = |t: i64| {
+                        self.nodes.push(Node {
+                            t,
+                            parent: NONE,
+                            key,
+                            label: NONE,
+                            event: e as i32,
+                        });
+                        (self.nodes.len() - 1) as u32
+                    };
+                    let ce = root(te);
+                    let cl = if tl == te { ce } else { root(tl) };
                     w.tr.push(Tr {
-                        e: t,
-                        l: t,
+                        e: te,
+                        l: tl,
                         before: if rise { V0 } else { V1 },
                         after: if rise { V1 } else { V0 },
                         clean: true,
-                        ce: n,
-                        cl: n,
+                        ce,
+                        cl,
                         parts: NONE,
                     });
                 }
                 w
             }
-            Kind::Osc { .. } | Kind::Async => Wave::constant(X),
+            Kind::Osc { .. } | Kind::Async => Wave {
+                asynch: Some(Taint {
+                    src: oi,
+                    from: ALWAYS.0,
+                    to: ALWAYS.1,
+                }),
+                ..Wave::constant(X)
+            },
         };
         let mut en = match &o.enable {
-            Some(e) => self.eval(o.chip, Some(&e.f), false, &[&e.on, &e.off], key),
+            Some(e) => self.eval(
+                o.chip,
+                Some(&e.f),
+                false,
+                &[&e.on, &e.off],
+                STATE | ENABLE | oi,
+            ),
             None => Wave::constant(V1),
         };
         if o.wire > 0 {
-            for w in [&mut val, &mut en] {
+            for (w, key) in [(&mut val, key), (&mut en, STATE | ENABLE | oi)] {
+                if let Some(t) = w.asynch.as_mut() {
+                    t.to = t.to.saturating_add(o.wire);
+                }
                 for tr in w.tr.iter_mut() {
                     tr.e += o.wire;
                     tr.l += o.wire;
@@ -764,6 +871,37 @@ impl<'a> Waves<'a> {
                 }
                 prev = tr.after;
             }
+        }
+        // the cycle before's change still in flight: the net may change
+        // until its latest, from wherever it was
+        if let Some((e, l)) = self.tails[ni] {
+            let mut root = |t: i64| {
+                self.nodes.push(Node {
+                    t,
+                    parent: NONE,
+                    key: n,
+                    label: crate::design::TAIL,
+                    event: -1,
+                });
+                (self.nodes.len() - 1) as u32
+            };
+            let (ce, cl) = (root(e), root(l));
+            let init = w.init;
+            w.tr.insert(
+                0,
+                Tr {
+                    e,
+                    l,
+                    before: X,
+                    after: init,
+                    clean: false,
+                    ce,
+                    cl,
+                    parts: NONE,
+                },
+            );
+            w.init = X;
+            w.tr = normalize(std::mem::take(&mut w.tr));
         }
         w
     }
@@ -890,7 +1028,34 @@ impl Waves<'_> {
             out.push(Self::joined(&mut parts, nodes, s0, s1, before, X, &c));
         }
         self.parts = parts;
-        Wave { init, tr: out }
+        // asynchronous while a driver that may be on is, or an enable is
+        let mut asynch = None;
+        for i in 0..n {
+            if let Some(t) = ens[i].asynch {
+                asynch = Some(Taint::hull(asynch, t));
+            }
+            let Some(t) = vals[i].asynch else {
+                continue;
+            };
+            for (a, b) in maybe_on(ens[i]) {
+                let (a, b) = (a.max(t.from), b.min(t.to));
+                if a <= b {
+                    asynch = Some(Taint::hull(
+                        asynch,
+                        Taint {
+                            src: t.src,
+                            from: a,
+                            to: b,
+                        },
+                    ));
+                }
+            }
+        }
+        Wave {
+            init,
+            tr: out,
+            asynch,
+        }
     }
 
     /// One transition of a bus from the drivers' transitions in it, with
@@ -990,6 +1155,98 @@ impl Waves<'_> {
     }
 }
 
+/// The stretches in which an enable's wave may be on: all but where it's
+/// surely off.
+fn maybe_on(w: &Wave) -> Vec<(i64, i64)> {
+    let mut out = Vec::new();
+    let mut from = if w.init != V0 { Some(ALWAYS.0) } else { None };
+    for t in &w.tr {
+        if let Some(f) = from.take() {
+            out.push((f, t.e - 1));
+        }
+        out.push((t.e, t.l));
+        if t.after != V0 {
+            from = Some(t.l + 1);
+        }
+    }
+    if let Some(f) = from {
+        out.push((f, ALWAYS.1));
+    }
+    out
+}
+
+/// When a function's output may follow an asynchronous input: the hull of
+/// the stretches in which a tainted input can matter (before the inputs'
+/// first changes, between them, after the last), within its own window,
+/// later by its arcs' longest delay.
+#[allow(clippy::too_many_arguments)] // effects' working set
+fn taint_of(
+    waves: &[&Wave],
+    pins: &[u32],
+    func: Option<&crate::input::Sop>,
+    sets: &[&[Arc]],
+    own: &[bool],
+    cuts: &[i64],
+    sval: &[u8],
+    sbusy: &[bool],
+) -> Option<Taint> {
+    let np = pins.len();
+    let ns = cuts.len().saturating_sub(1);
+    let mut out: Option<Taint> = None;
+    for (pi, w) in waves.iter().enumerate() {
+        let Some(tw) = w.asynch else {
+            continue;
+        };
+        if own.get(pi).copied().unwrap_or(false) {
+            continue;
+        }
+        let dmax = sets
+            .iter()
+            .flat_map(|s| s.iter())
+            .filter(|a| a.from.contains(&pins[pi]))
+            .map(|a| a.d.hi())
+            .max()
+            .unwrap_or(0);
+        let mut add = |a: i64, b: i64| {
+            let (a, b) = (a.max(tw.from), b.min(tw.to));
+            if a <= b {
+                let t = Taint {
+                    src: tw.src,
+                    from: a,
+                    to: b.saturating_add(dmax),
+                };
+                out = Some(Taint::hull(out, t));
+            }
+        };
+        let Some(fun) = func else {
+            add(tw.from, tw.to);
+            continue;
+        };
+        let me = |q: u32| q as usize == pi;
+        let first = cuts.first().copied().unwrap_or(ALWAYS.1);
+        if matters(fun, pi as u32, &|q| waves[q as usize].init, &me) {
+            add(ALWAYS.0, first - 1);
+        }
+        for si in 0..ns {
+            let row = si * np;
+            let get = |q: u32| sval[row + q as usize];
+            if matters(fun, pi as u32, &get, &|q| me(q) || sbusy[row + q as usize]) {
+                add(cuts[si], cuts[si + 1] - 1);
+            }
+        }
+        if let Some(&last) = cuts.last() {
+            let fin = |q: u32| {
+                let w = waves[q as usize];
+                w.tr.last().map_or(w.init, |t| t.after)
+            };
+            if matters(fun, pi as u32, &fin, &me) {
+                add(last, ALWAYS.1);
+            }
+        }
+    }
+    out
+}
+
 /// The inputs a cluster of effects moves, one entry per pin: how many.
 fn moves_of(cluster: &[Effect], moves: &mut Vec<(u32, u8, u8)>) -> usize {
     moves.clear();
@@ -1080,20 +1337,31 @@ fn normalize(mut tr: Vec<Tr>) -> Vec<Tr> {
 }
 
 /// Phase B for one branch: every net's and output's wave.
-pub fn run<'a>(d: &'a Design, t: &'a Trace, fraction: f64) -> Result<Waves<'a>, Error> {
+pub fn run<'a>(d: &'a Design, t: &'a Trace, o: &crate::input::Options) -> Result<Waves<'a>, Error> {
     let no = d.outs.len();
     let mut w = Waves {
         d,
         t,
-        fraction,
+        fraction: o.fraction,
+        monotone: o.monotone,
         net: t.init.iter().map(|&v| Wave::constant(v)).collect(),
         val: vec![Wave::constant(X); no],
         en: vec![Wave::constant(V1); no],
         fb: (0..no).map(|o| Wave::constant(t.init_state[o])).collect(),
+        forces: vec![Vec::new(); no],
         nodes: Vec::new(),
         parts: Vec::new(),
         notes: Vec::new(),
         unsettled: Vec::new(),
+        tails: {
+            let mut v = vec![None; d.nets.len()];
+            for (n, e, l) in &o.tails {
+                if let Some(&i) = d.net_index.get(n) {
+                    v[i as usize] = Some((*e, *l));
+                }
+            }
+            v
+        },
         xw: Wave::constant(X),
     };
     for (gi, g) in d.order.iter().enumerate() {

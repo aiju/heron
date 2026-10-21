@@ -38,7 +38,8 @@ pub struct ChipIn {
     pub nets: Vec<i64>,
     #[serde(default)]
     pub params: HashMap<String, i64>,
-    /// A synchroniser: its own setup and hold aren't reported.
+    /// A synchroniser: its captures of asynchronous nets are crossings it
+    /// takes (RFC 0048 9.7); its other inputs are checked as any chip's.
     #[serde(default)]
     pub nocheck: bool,
     /// The chip's timing (infra/hw/cells.py), None for an untimed chip.
@@ -47,6 +48,19 @@ pub struct ChipIn {
     /// The wiring's delay on each pin, in pin order (empty: none).
     #[serde(default)]
     pub pin_delays: Vec<i64>,
+    /// The pins that drive (outputs, three-state, bidirectional), for the
+    /// coverage of what isn't timed.
+    #[serde(default)]
+    pub outputs: Vec<u32>,
+    /// Each pin's wire from its net's drivers, as it receives: [min, max]
+    /// ps (empty: none), RFC 0048 5. A pin the chip also drives keeps its
+    /// net.
+    #[serde(default)]
+    pub in_delays: Vec<[i64; 2]>,
+    /// Each output pin's change to its delays for its net's load: [to the
+    /// minimum, to the maximum] ps (empty: none).
+    #[serde(default)]
+    pub load: Vec<[i64; 2]>,
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
@@ -74,7 +88,15 @@ pub struct ArcIn {
     pub name: String,
     #[serde(default)]
     pub when: Option<Sop>,
+    /// What of the delay the data marks as estimated: EST_VALUE (its
+    /// minimum and maximum), EST_TYP (its typical, which a minimum from the
+    /// fraction rests on).
+    #[serde(default)]
+    pub est: u8,
 }
+
+pub const EST_VALUE: u8 = 1;
+pub const EST_TYP: u8 = 2;
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct OutIn {
@@ -106,6 +128,8 @@ pub struct RegIn {
     pub d: DelaySpec,
     pub name: String,
     #[serde(default)]
+    pub est: u8,
+    #[serde(default)]
     pub clear: Option<Sop>,
     #[serde(default)]
     pub clear_value: u8,
@@ -124,6 +148,8 @@ pub struct RegIn {
     /// The state's delay into the chip's own functions; None: at once.
     #[serde(default)]
     pub feedback: Option<DelaySpec>,
+    #[serde(default)]
+    pub fb_est: u8,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -145,9 +171,19 @@ pub struct DataIn {
     pub names: Vec<String>,
 }
 
+/// A check of a chip's, and which of its limits the data marks as
+/// estimated.
+#[derive(Deserialize, Clone, Debug)]
+pub struct CheckIn {
+    #[serde(flatten)]
+    pub kind: CheckKindIn,
+    #[serde(default)]
+    pub estimated: Vec<String>,
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-pub enum CheckIn {
+pub enum CheckKindIn {
     Setup {
         pins: Vec<u32>,
         clock: u32,
@@ -167,6 +203,18 @@ pub enum CheckIn {
     Period {
         pin: u32,
         min: i64,
+        #[serde(default)]
+        names: Vec<String>,
+    },
+    /// A clear's or preset's release (each register of the chip's on the
+    /// clock pin), against the clock's edges: recovery before the edge,
+    /// removal after; the force's pulses at least `width` long.
+    Recovery {
+        clock: u32,
+        edge: u8,
+        recovery: Option<i64>,
+        removal: Option<i64>,
+        width: Option<i64>,
         #[serde(default)]
         names: Vec<String>,
     },
@@ -205,6 +253,10 @@ pub struct Case {
     /// Registers' outputs before the edge at 0 and after it.
     #[serde(default)]
     pub start: HashMap<String, (u8, u8)>,
+    /// Nets' values before the edge at 0, until they first change: the
+    /// previous word's, for a pair (RFC 0048 8).
+    #[serde(default)]
+    pub before: HashMap<String, u8>,
     /// Registers that split the case where they would load X.
     #[serde(default)]
     pub branch: Vec<String>,
@@ -215,7 +267,31 @@ pub struct Case {
     /// them), by reference.
     #[serde(default)]
     pub skip: Vec<String>,
+    /// Checks the study turns off and false paths, each with its reason.
+    #[serde(default)]
+    pub exceptions: Vec<Exception>,
     pub end: End,
+}
+
+/// An exception (RFC 0048 8): the checks it matches don't count, and the
+/// results count how many it took. A check matches if each field given
+/// does: its chip, its kind (setup, hold, ...), its pin (the start of its
+/// `what`), the values of nets at its edge (phase A's, before it); and,
+/// for a false path, only a change whose path goes through `through` (a
+/// net) is left out, the check counting the others.
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct Exception {
+    pub reason: String,
+    #[serde(default)]
+    pub chip: Option<String>,
+    #[serde(default)]
+    pub check: Option<String>,
+    #[serde(default)]
+    pub pin: Option<String>,
+    #[serde(default)]
+    pub when: HashMap<String, u8>,
+    #[serde(default)]
+    pub through: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -238,6 +314,19 @@ pub struct Options {
     /// Nets whose waves the results carry.
     #[serde(default)]
     pub trace: Vec<String>,
+    /// Common path pessimism's credit also between different reference
+    /// edges (a shared path's spread, the edges' jitter aside); RFC 0048
+    /// 9.1 takes it only at one edge.
+    #[serde(default)]
+    pub cppr_across_edges: bool,
+    /// Inputs that all move their literals one way change a sum of
+    /// products once at most; RFC 0048 14 leaves this out of Atmel's rule.
+    #[serde(default)]
+    pub monotone: bool,
+    /// The cycle before's changes still in flight at the window's start:
+    /// (net, earliest, latest), ps from the edge at 0 (RFC 0048 8).
+    #[serde(default)]
+    pub tails: Vec<(String, i64, i64)>,
 }
 
 fn default_fraction() -> f64 {
@@ -265,6 +354,9 @@ impl Default for Options {
             paths: default_paths(),
             branches: default_branches(),
             trace: Vec::new(),
+            cppr_across_edges: false,
+            monotone: false,
+            tails: Vec::new(),
         }
     }
 }
