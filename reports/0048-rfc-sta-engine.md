@@ -160,9 +160,14 @@ Two refinements apply to every combinatorial output:
 - **An opaque function** (an ALU's F, a memory's data) changes when an
   input changes: a change for one input, a glitch for more.
 - **An input the function doesn't depend on**, given the other inputs'
-  values, doesn't time the output. An arc with a condition counts only
-  while its condition can be true. Known values cut false paths, as in
-  today's analysis.
+  values, doesn't time the output. Of an input's change, only the
+  stretches in which the function can answer it count: those in which no
+  term holds the output and no other term covers the input's. An arc
+  with a condition counts only while its condition can be true. Known
+  values cut false paths, as in today's analysis.
+- **An output fed back to its own inputs** (a latch made of gates): its
+  value counts, but its changes are the output's own and don't time it
+  again.
 
 **Registers.**
 
@@ -172,7 +177,10 @@ Two refinements apply to every combinatorial output:
 - The output then changes in [edge's earliest + the clock-to-output
   minimum, edge's latest + its maximum]. That's a rise or fall, a change
   if the new value isn't known, or nothing if it is known and equal to
-  the old.
+  the old. Nothing, too, where the register surely holds a state that
+  isn't known: its next state is its present state for every value of
+  the inputs that aren't known (a 22V10's hold term while its enable is
+  off).
 - A clock pin whose transition is a change or a glitch leaves the state
   X, and fails its check ([9.4](#94-clean-clocks-and-strobes)). An input
   changing inside its setup and hold window leaves its bit X, and fails
@@ -188,13 +196,20 @@ the enable's closing edge, which is checked as a capture
 
 - An output drives while its enable function is true. Its enable and
   disable times are arcs like any other.
-- A net with no driver on is Z. A pull-up makes Z read as 1 (its rise
-  time **open**); otherwise Z reads as X.
+- A net that no driver has driven is Z. A pull-up makes Z read as 1
+  (its rise time **open**); otherwise Z reads as X. A net whose drivers
+  let go keeps the value it had (its capacitance, a 22V10's pin
+  keeper).
+- A driver's changes count only while it may be on. Its turn-off changes
+  the net only if another driver is surely on all the while; else the
+  net changes when the next driver turns on. One that may be on and
+  takes over overlaps the one letting go, which is the handover check's.
 - Several drivers on at once: X wherever they may disagree, and a
   handover check ([9.6](#96-bus-handover)) fails.
 
-**Loops.** A combinatorial loop the case's values don't cut is an
-error naming its nets, as it is today.
+**Loops.** A combinatorial loop the case's values don't cut is
+evaluated again until its waves settle. One that doesn't settle fails
+a check naming its nets.
 
 ### 5. Delays
 
@@ -253,7 +268,7 @@ timing as data that the export carries to the engine.
   - its clock-to-output delay;
   - an optional clear and preset, each an equation with its arcs.
 - **`latches`:** `Latch(enable, d, arcs)`.
-- **`checks`:** from a small set ([9](#9-checks)):
+- **`timing`:** its checks, from a small set ([9](#9-checks)):
   - `Setup(pins, clock, setup, hold)`;
   - `Width(pin, level, name)`;
   - `Period(pin, name)`;
@@ -281,17 +296,23 @@ T("157", "mux157", pins,
 
 T("377", "reg377", pins,
   regs={f"Q{i}": Reg("CLK", f"EN·Q{i} + /EN·D{i}", "CLK->Q") for i in range(1, 9)},
-  checks=[Setup("D1-D8", "CLK", "setup D", "hold D"),
+  timing=[Setup("D1-D8", "CLK", "setup D", "hold D"),
           Setup("EN", "CLK", "setup EN", "hold EN")])
 
 T("sram", "sram", pins,
-  outputs={f"IO{i}": Out(None, arcs={"A0-A14": Arc("tAA", min="tOH"),
-                                     "CE": "tACE", "OE": "tOE"},
-                         enable="/CE·/OE·WE", off={"CE": "tCHZ", "OE": "tOHZ", "WE": "tWHZ"})
+  outputs={f"IO{i}": Out(None, arcs={"A0-A14": Arc("tAA", min="tOH")},
+                         enable="/CE·/OE·WE",
+                         on={"CE": Arc("tACE", min=0), "OE": Arc("tOE", min=0),
+                             "WE": Arc("tOE", min=0)},
+                         off={"CE": "tCHZ", "OE": "tOHZ", "WE": "tWHZ"})
            for i in range(8)},
-  checks=[Strobe("/CE·/WE", stable={"A0-A14": ("tAS", "tAW", "tAH")},
+  timing=[Strobe("/CE·/WE", stable={"A0-A14": ("tAS", "tAW", "tAH")},
                  data={"IO0-IO7": ("tDW", "tDH")}, width="tWP")])
 ```
+
+(`timing=`, as `checks=` is the old analyses'.) The memory's data is
+timed from the address alone; the enables time when it drives, by their
+turn-on and turn-off arcs.
 
 The 377's next state says D matters only while EN is low, so D's setup
 is checked only then. The chip-level simulator does the same for the
@@ -375,7 +396,10 @@ For Chibi Heron:
   time it X, not 0;
 - an access at MAR twice: the RAM and the I/O space;
 - LEN and HLEN set to each value in turn; the shortest that passes
-  gives `ticks.json`.
+  gives `ticks.json`. A length passes if no check a length can fix
+  (setup, strobe, width, period) fails worse than at the longest
+  lengths: what fails there too (a path inside phase F, an access to the
+  I/O space, whose 6 ticks are fixed) is reported, not lengthened.
 
 ### 9. Checks
 
@@ -398,6 +422,12 @@ reference edge, $c$ is the spread (maximum less minimum) of that pin's
 arrival. Without it, a register launching on an HCK edge into another
 capturing on the same edge sees U_CGB's clock-to-output spread, 1–4 ns,
 as skew that can't exist.
+
+A change that may overlap the edge's window is late data (a setup) if
+it goes back to an earlier reference edge and may start before the
+edge's earliest time; else it's early data (a hold), a race with the
+edge. Each pin's worst setup and worst hold at an edge are checks of
+their own: a failing hold doesn't hide a failing setup.
 
 #### 9.2 Widths and periods
 
@@ -431,6 +461,9 @@ its deactivating one's latest):
   the end, and until tAH after the end;
 - its data is set up tDW before the end, and held tDH after it;
 - the strobe lasts at least its width.
+
+What must hold after the end (tAH, tDH) is reported as a hold: like a
+register's, no length changes it.
 
 This covers the RAMs' and the register file's writes, the UARTs', the
 DAC0832's, the 82C54's and the CF card's, each by its own description.
@@ -690,9 +723,10 @@ of this RFC.
 
 ### 17. Performance
 
-- **Today:** `heron chibi hw sta` takes 6.4 s on four cores for its 626
-  cases, and the grade search runs the analysis again for each 22V10 it
-  tries.
+- **Today:** `sta2.py` takes 6.4 s on four cores for its 626 cases, and
+  the grade search runs the analysis again for each 22V10 it tries. The
+  engine takes 84 s for the 2888 cases of its ticks search (every
+  length it tries, and their branches).
 - **The aim:** the whole of Chibi Heron's analysis in under a second on
   four cores.
 - **Re-timing:** a case's values don't depend on the delays. So the
@@ -712,6 +746,10 @@ of this RFC.
    - the cases, branches and tails;
    - `ticks.json` the same as `sta2.py`'s, or every difference explained;
    - RFC 0047's two failures found.
+
+   Its first results are in [chibi.md](0048-rfc-sta-engine/chibi.md):
+   the same `ticks.json`, U_IRH's failure found but not UART 0's, and
+   the holds and races no length fixes.
 4. **The other checks:** strobes, glitches, handovers, crossings, reset,
    coverage.
 5. **The other data:** wire delays per receiver, load derating, rise and
