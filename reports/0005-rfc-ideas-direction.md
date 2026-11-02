@@ -153,6 +153,37 @@ the same as not wanted: the link register is open. Batching
 system calls through rings doesn't pay on this machine at all
 ([RFC 0010](0010-rfc-ideas-os.md#1-the-operating-system)).
 
+**A better yardstick than the suite** (**open**; from Chibi Heron,
+[RFC 0047](0047-rfc-chibi-heron.md)). The program suite began as a
+correctness suite and became the benchmark by default. Its total is
+mostly two programs (vm and mandel, about 75% of the first cut's
+cycles; MULFX alone a third, through mandel). It's hand-written
+assembly, not what the compiler, the Lisp or Egret emit. Its console is
+free, with no operating system. And every ratio is against the full
+Heron, which keeps changing. Ideas:
+
+- **Tasks the machine is for**, with targets, as
+  [RFC 0041](0041-rfc-heron-mini.md) did for Mini: type a character,
+  redraw a window, compile a Lisp function, boot Fen.
+- **Tests apart from benchmarks**, benchmarks chosen and reported by
+  category (integer, memory, calls, multiplying, dispatch, graphics),
+  and a geometric mean where one number is wanted.
+- **A workload profile times a cost table:** each workload's dynamic
+  instruction mix once, on the instruction-level simulator, with the
+  operand facts that make costs vary (multiplier sizes, shift counts,
+  branches taken); each implementation a cost per instruction. A
+  design question ("what would a 32-bit datapath buy?") is then answered
+  in seconds.
+- **Compiled code first:** the C compiler's, the Lisp's and Egret's
+  output weighed above hand-written assembly.
+- **Latency as well as throughput:** interrupt latency (a long
+  instruction can't be interrupted), the video work a frame, keeping up
+  with a UART at 115,200 baud.
+- **An absolute anchor:** Dhrystone or CoreMark through our compiler,
+  against published figures for the 68000 or 80286.
+- **Performance a chip:** every design and variant on one chart of
+  chips against speed.
+
 ## 3. Big ideas
 
 From "what would you like in an ISA". All **open**.

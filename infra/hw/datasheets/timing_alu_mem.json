@@ -828,6 +828,96 @@
     },
     "notes": "tCLZ/tOLZ/tCHZ/tOHZ/tOH are 'measured only for initial qualification'. 55 ns spec is at the lighter 30 pF load. PLCC-32 fits a through-hole PLCC socket, which is the practical hobby option."
   },
+  "SST39SF040-55": {
+    "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)",
+    "conditions": "VDD = 4.5-5.5 V, 0..70 C (C) or -40..85 C (I); CL = 30 pF for the 55 ns grade; inputs 0/3.0 V, 5 ns rise/fall, 1.5 V reference.",
+    "availability": "Active (Microchip, Oct 2026): SST39SF040-55-4C-NHE / -4I-NHE (32-PLCC); the 512K x 8 member of the same datasheet, with the same read timing (Tables 7-1, 7-2).",
+    "params": {
+      "tRC": {
+        "min": 55
+      },
+      "tACC": {
+        "max": 55
+      },
+      "tCE": {
+        "max": 55
+      },
+      "tOE": {
+        "max": 35
+      },
+      "tCLZ": {
+        "min": 0
+      },
+      "tOLZ": {
+        "min": 0
+      },
+      "tCHZ": {
+        "max": 20
+      },
+      "tOHZ": {
+        "max": 20
+      },
+      "tOH": {
+        "min": 0
+      },
+      "tDF": {
+        "max": 20
+      }
+    },
+    "program_erase": {
+      "TBP_byte_program_us": {
+        "max": 10
+      },
+      "TAS": {
+        "min": 0
+      },
+      "TAH": {
+        "min": 30
+      },
+      "TCS": {
+        "min": 0
+      },
+      "TCH": {
+        "min": 0
+      },
+      "TOES": {
+        "min": 0
+      },
+      "TOEH": {
+        "min": 10
+      },
+      "TCP": {
+        "min": 40
+      },
+      "TWP": {
+        "min": 40
+      },
+      "TWPH": {
+        "min": 30
+      },
+      "TCPH": {
+        "min": 30
+      },
+      "TDS": {
+        "min": 40
+      },
+      "TDH": {
+        "min": 0
+      },
+      "TSE_sector_erase_ms": {
+        "max": 25
+      },
+      "TSCE_chip_erase_ms": {
+        "max": 100
+      }
+    },
+    "symbol_map": {
+      "tACC": "TAA (address access)",
+      "tCE": "TCE",
+      "tDF": "TCHZ/TOHZ (CE#/OE# high to high-Z); no separate tDF symbol"
+    },
+    "notes": "tCLZ/tOLZ/tCHZ/tOHZ/tOH are 'measured only for initial qualification'. 55 ns spec is at the lighter 30 pF load. PLCC-32 fits a through-hole PLCC socket, which is the practical hobby option."
+  },
   "SST39SF010A-70": {
     "source": "https://ww1.microchip.com/downloads/aemDocuments/documents/MPD/ProductDocuments/DataSheets/SST39SF010A-SST39SF020A-SST39SF040-Data-Sheet-DS20005022.pdf (Microchip DS20005022F, May 2025, Table 7-1, 7-2, 5-2)",
     "conditions": "VDD = 4.5-5.5 V; CL = 100 pF for the 70 ns grade; inputs 0/3.0 V, 5 ns rise/fall, 1.5 V reference.",

@@ -8,6 +8,7 @@ mod py_fen;
 mod py_hwsim;
 mod py_pcbroute;
 mod py_sisim;
+mod py_sta;
 mod py_toolchain;
 mod py_v1;
 mod py_v2;
@@ -25,6 +26,8 @@ mod native {
     use crate::py_pcbroute::pcbroute;
     #[pymodule_export]
     use crate::py_sisim::sisim;
+    #[pymodule_export]
+    use crate::py_sta::sta;
     #[pymodule_export]
     use crate::py_toolchain::toolchain;
     #[pymodule_export]

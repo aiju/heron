@@ -22,6 +22,7 @@ fn chip(
         delays: HashMap::new(),
         params: params.iter().map(|&(k, v)| (k.to_string(), v)).collect(),
         nocheck: false,
+        program: Vec::new(),
         pin_delays: vec![],
     }
 }
