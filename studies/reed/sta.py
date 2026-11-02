@@ -20,12 +20,11 @@ to memory); the VIDEO board runs on its own phase and the
 IO board's devices on their accesses, so neither's checks count here.
 
 The wires (wires()): the napkin's 1-12 ns from board to board over the
-backplane, 0-1 ns on a board; the clocks as a matched trace to each slot
-(--clocks tree, which the netlist doesn't have yet) or today's one net
-(--clocks shared, under which the engine times nothing: run() says so). No load derating: the parts' data has no pin
-capacitances yet.
+backplane, 0-1 ns on a board; the clocks the backplane's tree's (bus.tree),
+1-2.5 ns on each slot's trace, 0-2 ns from CTRL's sources to the tree. No
+load derating: the parts' data has no pin capacitances yet.
 
-  heron reed sta [--word NAME] [--paths N] [--clocks tree|shared] [--no-wires]
+  heron reed sta [--word NAME] [--paths N] [--no-wires]
 """
 
 import time
@@ -73,8 +72,8 @@ WORDS = {
 }
 # the case's state as it starts: the queue's (a slot free, for a fetch)
 START = {
-    "CTRL.TC0": (X, 0), "CTRL.TC1": (X, 0), "CTRL.TC2": (X, 0), "CTRL.CYC0": (0, 1),
-    "CTRL.WPH0": (1, 0), "CTRL.WRS0": (1, 1),
+    "CTRL.TC0": (X, 0), "CTRL.TC1": (X, 0), "CTRL.TC2": (X, 0), "CYC_S": (0, 1),
+    "WPH_S": (1, 0), "WRS_S": (1, 1),
 }
 STROBES = {}
 # named exceptions (RFC 0048 8), each counted in the results: none but
@@ -131,7 +130,7 @@ def word_values(word):
     return pins, before
 
 
-def case(name, word, ticks, after_mar=False, ex_key=("tree", True)):
+def case(name, word, ticks, after_mar=False, wired=True):
     pins, before = word_values(word)
     before.update(STROBES)
     pins["CTRL.uLEN0"], pins["CTRL.uLEN1"] = (ticks - F.LEN_BASE) & 1, (ticks - F.LEN_BASE) >> 1
@@ -145,10 +144,10 @@ def case(name, word, ticks, after_mar=False, ex_key=("tree", True)):
     # the queue: both slots free (so a fetch is wanted), DP at 0
     for i in range(4):
         start[f"CTRL.PV{i}"] = (0, 0)
-    skip = [c["ref"] for c in _ex(*ex_key)["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
-    return {"label": f"{name} @{ticks}", "clock": "CTRL.MCLK0", "pins": pins, "before": before,
+    skip = [c["ref"] for c in _ex(wired)["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
+    return {"label": f"{name} @{ticks}", "clock": "MCLK_S", "pins": pins, "before": before,
             "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1}, "start": start, "skip": skip,
-            "branch": [], "exceptions": EXCEPTIONS + lew_exceptions(_ex(*ex_key)), "end": {"net": "CTRL.CYC0", "events": 40}}
+            "branch": [], "exceptions": EXCEPTIONS + lew_exceptions(_ex(wired)), "end": {"net": "CYC_S", "events": 40}}
 
 
 # the wires (min, max ps), from a net's drivers to a receiving pin: the
@@ -156,16 +155,18 @@ def case(name, word, ticks, after_mar=False, ex_key=("tree", True)):
 # board), the minimum 0 where the receiving board drives the net too
 BACKPLANE = (1000, 12000)
 ON_BOARD = (0, 1000)
-# the clocks: a trace of its own to each slot, matched ("tree": the
-# netlist doesn't have one yet, RFC 0049 14.3), or today's one net that
-# every board takes ("shared", as the other backplane lines)
-CLOCK_WIRES = {"tree": (1000, 2500), "shared": BACKPLANE}
+# the clocks: the tree's trace to each slot, matched; a source's, from
+# CTRL to the tree's buffer beside its slot
+SLOT_CLOCK = (1000, 2500)
+SOURCE = (0, 2000)
 DRIVES = ("out", "tri", "io")
 
 
-def wires(nl, clocks="tree"):
+def wires(nl):
     """{(ref, pin): (min, max)} for every receiving pin in the machine."""
     bp = system.backplane_nets()
+    slots = {BP.slot_clock(c, b) for c in BP.CLOCKS for b in BP.BOARDS}
+    sources = set(BP.SOURCES.values())
     out = {}
     for net, conns in nl.nets().items():
         if net in ("GND", "VCC"):
@@ -175,8 +176,10 @@ def wires(nl, clocks="tree"):
         for i, p, k in conns:
             if k == "out":
                 continue
-            if net in BP.CLOCKS:
-                w = CLOCK_WIRES[clocks]
+            if net in slots:
+                w = SLOT_CLOCK
+            elif net in sources:
+                w = SOURCE
             elif net in bp:
                 w = (0 if i.ref.split(".")[0] in drivers else BACKPLANE[0], BACKPLANE[1])
             else:
@@ -188,14 +191,12 @@ def wires(nl, clocks="tree"):
 _EX = {}
 
 
-def _ex(clocks="tree", wired=True):
-    """The machine's export: with the wires (clocks: "tree" or "shared"),
-    or (wired False) none."""
-    key = (clocks, wired)
-    if key not in _EX:
+def _ex(wired=True):
+    """The machine's export: with the wires, or (wired False) none."""
+    if wired not in _EX:
         nl = system.machine(sim=True)
-        _EX[key] = waves.export(nl, parts.VARIANT, wires=wires(nl, clocks) if wired else None)
-    return _EX[key]
+        _EX[wired] = waves.export(nl, parts.VARIANT, wires=wires(nl) if wired else None)
+    return _EX[wired]
 
 
 def failing(branches, kinds=None):
@@ -203,13 +204,13 @@ def failing(branches, kinds=None):
             and (kinds is None or c["check"] in kinds)]
 
 
-def run(names=None, lengths=(5, 6, 7, 8), paths=1, jobs=None, clocks="tree", wired=True):
+def run(names=None, lengths=(5, 6, 7, 8), paths=1, jobs=None, wired=True):
     """{word: (ticks, results at them)}: the shortest length at which
     nothing a length can fix fails worse than at the longest."""
-    ex = _ex(clocks, wired)
+    ex = _ex(wired)
     names = names or list(WORDS)
     items = [(n, t) for n in names for t in lengths]
-    cases = [case(n, WORDS[n], t, after_mar=n.startswith(("load", "store")), ex_key=(clocks, wired))
+    cases = [case(n, WORDS[n], t, after_mar=n.startswith(("load", "store")), wired=wired)
              for n, t in items]
     res = waves.analyse(ex, cases, paths=paths, jobs=jobs)
     by = {}
@@ -218,8 +219,8 @@ def run(names=None, lengths=(5, 6, 7, 8), paths=1, jobs=None, clocks="tree", wir
             raise RuntimeError(f"{n} @{t}: {r['error']}")
         if not any(b["checks"] for b in r):
             # the engine times nothing when the clocks' edges can't be told
-            # apart (clocks="shared": a tick's edges over a 1-12 ns wire)
-            raise RuntimeError(f"{n} @{t}: the engine timed no checks (clocks={clocks})")
+            # apart (as with the clocks on one shared net over a 1-12 ns wire)
+            raise RuntimeError(f"{n} @{t}: the engine timed no checks")
         by[(n, t)] = r
     out = {}
     for n in names:
@@ -252,8 +253,8 @@ def report(out, paths=2):
     return "\n".join(lines)
 
 
-def main(word=None, paths=2, clocks="tree", wired=True):
+def main(word=None, paths=2, wired=True):
     t0 = time.time()
-    out = run([word] if word else None, clocks=clocks, wired=wired)
+    out = run([word] if word else None, wired=wired)
     print(report(out, paths))
     print(f"({time.time() - t0:.0f} s)")

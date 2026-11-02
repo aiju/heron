@@ -29,15 +29,27 @@ def board(name, sim=True):
 
 
 def backplane_nets():
-    return set(BP.A) | set(BP.B) | set(BP.CONTROL) | {"GND", "VCC"}
+    """The machine's nets on the backplane: the buses, the control lines,
+    the clocks' sources and each slot's clocks."""
+    slots = {BP.slot_clock(c, b) for c in BP.CLOCKS for b in BP.BOARDS}
+    return set(BP.A) | set(BP.B) | set(BP.CONTROL) | slots | {"GND", "VCC"}
 
 
 def machine(sim=True):
+    """The boards, each under its name, and the backplane's clock tree
+    (BP.U_TMCLK, ...): a board's clocks on its slot's nets, the sources
+    on the backplane from CTRL's slot alone."""
     nl = Netlist()
-    joined = {n: n for n in backplane_nets()}
+    shared = {n: n for n in set(BP.A) | set(BP.B) | set(BP.CONTROL)}
     for name in BUILDERS:
-        b = board(name, sim)
-        nl.include(b, name, {n: n for n in joined if n not in ("GND", "VCC")})
+        conn = dict(shared)
+        conn.update({c: BP.slot_clock(c, name) for c in BP.CLOCKS})
+        if name != "CTRL":
+            conn.update({s: f"NC_{name}_{s}" for s in BP.SOURCES.values()})
+        nl.include(board(name, sim), name, conn)
+    t = Netlist()
+    BP.tree(t)
+    nl.include(t, "BP", {n: n for n in backplane_nets() if n not in ("GND", "VCC")})
     return nl
 
 
@@ -48,7 +60,9 @@ def check(nl):
     gal.check(nl)
     nets = nl.nets()
     errors = []
-    for line, (owner, _) in BP.CONTROL.items():
+    lines = dict(BP.CONTROL)
+    lines.update({BP.slot_clock(c, b): ("BP", "") for c in BP.CLOCKS for b in BP.BOARDS})
+    for line, (owner, _) in lines.items():
         drivers = [(i, p) for i, p, k in nets.get(line, []) if k in ("out", "tri", "io")
                    and i.type.family not in ("passive",)]
         boards = {i.ref.split(".")[0] for i, p in drivers}

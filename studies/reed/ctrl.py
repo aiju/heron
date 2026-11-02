@@ -2,16 +2,17 @@
 store, the decode table, the instruction queue, the instruction
 registers, the immediate unit, PC.
 
-The clocks. The master clock (50.35 MHz, a tick 19.86 ns) and its inverse
-go onto the backplane (MCLK, MCLKN), each from a CDC341. U_CGA, on MCLK as
-it comes back from the backplane, counts the cycle's ticks: a cycle is
-5 + LEN ticks, held at its fourth-last tick while a WAIT line is up. CYC
-rises as a cycle starts and is high for two ticks; WPH is high for the
-cycle's last three ticks (the write phase: the register file and the RAM
-switch to the write address, then are written), and WRS is low for its
-middle tick: the write strobe every board takes, a tick after the address
-has switched and a tick before it switches back. Every board, CTRL too, takes CYC from the backplane through
-a CDC341 of its own, so that every register sees the same edge.
+The clocks. The master clock (50.35 MHz, a tick 19.86 ns) goes onto the
+backplane as MCLK_S, into the backplane's clock tree (bus.tree: a CDC341,
+a trace to each slot). U_CGA, on this slot's MCLK, counts the cycle's
+ticks and gives the sources of CYC, WPH and WRS, each into a tree of its
+own. A cycle is 5 + LEN ticks, held at its fourth-last tick while a WAIT
+line is up. CYC rises as a cycle starts and is high for two ticks; WPH
+is high for the cycle's last three ticks (the write phase: the register
+file and the RAM switch to the write address, then are written), and
+WRS is low for its middle tick: the write strobe every board takes, a
+tick after the address has switched and a tick before it switches back.
+Every board, CTRL too, takes its slot's CYC through a CDC341 of its own.
 
 The sequencer. The next-address GALs (U_NA0-2) drive the backplane's
 UPCN lines, the next microinstruction's address: every board, CTRL too,
@@ -87,10 +88,9 @@ def build(sim=True):
 def clocks(nl, sim):
     nl.section("clocks")
     if sim:
-        nl.add("osc", "X_OSC", OUT="MCLK0", params={"period_ps": TICK_PS, "phase_ps": 5000})
-    nl.add("clkdrv", "U_CKM", A="MCLK0", Y1="MCLK", **{f"Y{i}": f"MCLK_x{i}" for i in range(2, 9)})
-    nl.add("clkdrv", "U_CKC", A="CYC0", Y1="CYC", **{f"Y{i}": f"CYC_x{i}" for i in range(2, 9)})
-    # U_CGA: the tick TC, CYC0 for ticks 0-1, WPH0 for the last three
+        nl.add("osc", "X_OSC", OUT="MCLK_S", params={"period_ps": TICK_PS, "phase_ps": 5000})
+    # U_CGA, on this slot's MCLK: the tick TC, and the sources of CYC
+    # (ticks 0-1), WPH (the last three) and WRS (the middle of those)
     tc = ["TC0", "TC1", "TC2"]
     ins = tc + f("LEN") + ["WAIT_IO", "WAIT_V"]
 
@@ -110,9 +110,9 @@ def clocks(nl, sim):
     outs = {}
     for i in range(3):
         outs[f"TC{i}"] = (table(ins, lambda *b, i=i: (nxt(*b) >> i) & 1), True, False)
-    outs["CYC0"] = (table(ins, lambda *b: nxt(*b) in (0, 1)), True, False)
-    outs["WPH0"] = (table(ins, lambda *b: nxt(*b) >= cyc_len(*b) - 3), True, False)
-    outs["WRS0"] = (table(ins, lambda *b: nxt(*b) == cyc_len(*b) - 2), True, True)
+    outs["CYC_S"] = (table(ins, lambda *b: nxt(*b) in (0, 1)), True, False)
+    outs["WPH_S"] = (table(ins, lambda *b: nxt(*b) >= cyc_len(*b) - 3), True, False)
+    outs["WRS_S"] = (table(ins, lambda *b: nxt(*b) == cyc_len(*b) - 2), True, True)
     G.add(nl, "U_CGA", outs, clock="MCLK")
 
 
@@ -203,8 +203,8 @@ def queue(nl, ck):
            **{f"D{i + 1}": nrb[i] for i in range(8)}, **{f"Q{i + 1}": rb[i] for i in range(8)})
     # x: the index parcel's bits 15-12 as PE has them; and WPH onto the backplane
     nl.add("541", "U_XL", OE1="GND", OE2="GND",
-           **{f"A{i + 1}": pe[12 + i] for i in range(4)}, A5="WPH0", A6="WRS0", A7="GND", A8="GND",
-           **{f"Y{i + 1}": BP.RX[i] for i in range(4)}, Y5="WPH", Y6="WRS", Y7="XL_NC7",
+           **{f"A{i + 1}": pe[12 + i] for i in range(4)}, A5="GND", A6="GND", A7="GND", A8="GND",
+           **{f"Y{i + 1}": BP.RX[i] for i in range(4)}, Y5="XL_NC5", Y6="XL_NC6", Y7="XL_NC7",
            Y8="XL_NC8")
 
     dp, ep, xp, nxp = ["DP0", "DP1"], ["EP0", "EP1"], ["XP0", "XP1"], ["NXP0", "NXP1"]

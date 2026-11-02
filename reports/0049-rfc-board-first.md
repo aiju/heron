@@ -56,17 +56,17 @@ control store in 45 ns parts; and design for test by the backplane
 netlist, [studies/reed](../studies/reed/README.md): what it found is
 in section 14, and the napkin's sections below are as they were.
 
-- **Reed's first netlist:** five boards (CTRL 70 packages, ALU 69, MEM 65,
-  IO 30, VIDEO 49: 283, 46 of them 22V10s), each within a double
+- **Reed's first netlist:** five boards (CTRL 66 packages, ALU 70, MEM 65,
+  IO 30, VIDEO 49: 280, 46 of them 22V10s, and the backplane's clock
+  tree), each within a double
   Eurocard, joined on the backplane by name. It passes the netlist's
   checks, and every control line has one driver. The static timing
   engine (RFC 0048) finds that a microcycle that reads and writes the
   register file needs **5 ticks** without wire delays, not the
-  napkin's 4 (Emily: 5 is fine), but **7** with the napkin's 1–12 ns
-  over the backplane: the clock's distribution and the register
-  numbers' trip over the backplane come before the read, and both can
-  go (14.3). MAR's hold and two strobes' widths still fail, besides
-  holds the engine can't credit. At 5 ticks the 55 ns flash costs nothing. A taken branch
+  napkin's 4 (Emily: 5 is fine), but **6** with the napkin's 1–12 ns
+  over the backplane and the clocks through a tree on it (14.3).
+  Strobes' widths still fail, besides holds the engine can't credit,
+  and the backplane has no spare line left. At 5 ticks the 55 ns flash costs nothing. A taken branch
   takes about five microcycles. The SST39SF010A's 45 ns grade was
   end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
 
@@ -762,12 +762,13 @@ chip-level simulation.
 
 | Board | Packages | Area | 22V10s | What's on it |
 |---|---:|---:|---:|---|
-| **CTRL** | 70 | 60 | 14 | the clock generator (U_CGA: CYC, WPH, WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
-| **ALU** | 69 | 67 | 14 | its slice (4 parts, the µPC and 4 × 574); the register file (two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP; its address muxes and U_BYP in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
+| **CTRL** | 66 | 57 | 14 | the clock generator (U_CGA: the sources of CYC, WPH and WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
+| **ALU** | 70 | 68 | 14 | its slice (4 parts, the µPC and 4 × 574); the register file (its own U_RB, two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP; its address muxes and U_BYP in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
 | **MEM** | 65 | 51 | 5 | its slice (1 part, the µPC and 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR, FPC; MQ |
 | **IO** | 30 | 29 | 7 | two UARTs, the timer, the boot flash, the CF card, two PS/2 ports (a 299 each, received in hardware), the interrupt controller, sound, reset |
 | **VIDEO** | 49 | 40 | 6 | a 2 MB frame buffer, 640 × 480 × 8 through a palette in SRAM and an ADV7125, posted writes and latched reads |
-| **total** | **283** | | **46** | |
+| **total** | **280** | | **46** | |
+| *backplane* | 4 | | | the clock tree: a CDC341 for each of MCLK, CYC, WPH, WRS |
 
 Area is in the napkin's units (a DIP-20's slot, 70 to a board), with SOIC
 at three quarters of one. Where building it changed the napkin:
@@ -818,16 +819,17 @@ datasheet gives none (RFC 0048's default, its value open), which makes
 every two paths from one edge race. The wires are the napkin's (2.2):
 1–12 ns from board to board over the backplane (0 at the least where
 the receiving board drives the net too), 0–1 ns on a board. The clocks
-are taken as a matched trace to each slot, 1–2.5 ns, which the netlist
-doesn't have yet: today's one net that every board takes, timed as the
-other backplane lines, leaves the engine unable to time anything
-(`--clocks shared`). No load derating: the parts' data has no pin
+come through a tree on the backplane (`bus.tree`: a CDC341 for each of
+MCLK, CYC, WPH and WRS, a trace from it to each slot, 1–2.5 ns), which
+CTRL feeds from four source pins (0–2 ns). One net that every board
+takes, timed as the other backplane lines, left the engine unable to
+time anything. No load derating: the parts' data has no pin
 capacitances yet.
 
 | Microcycle | Ticks | Without the wires |
 |---|---:|---:|
-| `ADD r, r`, `ADD r, #q`, shift right | 7 | 5 |
-| r + d16 into MAR, r into MAR | 7 | 5 |
+| `ADD r, r`, `ADD r, #q`, shift right | 6 | 5 |
+| r + d16 into MAR, r into MAR | 6 | 5 |
 | load, load byte | 6 | 5 |
 | load and add | 7 | 6 |
 | store | 6 | 5 |
@@ -835,22 +837,21 @@ capacitances yet.
 
 What sets the lengths:
 
-- **A register op needs 7 ticks with the wires.** A cycle reads the
+- **A register op needs 6 ticks with the wires.** A cycle reads the
   copies, then writes them in a write phase of three ticks (the write
-  address, the strobe, the read address back). The read starts late:
-  CYC reaches CTRL's registers 27 ns after the master clock's edge
-  (CTRL's clock generator, the backplane, the board's CDC341), the
-  register numbers leave U_RB at 35.5 ns, cross the backplane (up to
-  12 ns), the address muxes and the copies (12 ns): the data is at the
-  latches at about 67 ns, 0.7 ns after they close in a 6-tick cycle.
-  Without the wires it fits 5 ticks with 0.4 ns to spare. The two
-  biggest terms are the clock's distribution and the register numbers'
-  trip over the backplane, and both can go:
-  - the register numbers registered on the ALU board, from the next
-    instruction's (CTRL's U_NRB, on the backplane a cycle early, as UPCN
-    is), takes the backplane out of the read;
-  - the phases made on each board from the master clock (14.6) take
-    about half of the 27 ns.
+  address, the strobe, the read address back). It needed 7 while the
+  register numbers came over the backplane from CTRL's U_RB; the ALU
+  board now has a U_RB of its own, loaded from the decoded instruction's
+  numbers (U_NRB's, NRD and NRS on the backplane a cycle early, with
+  DEC1_n). In 5 ticks the read misses by 9.6 ns: the board's CYC comes
+  27 ns after the master clock's edge (the master clock's tree, the clock
+  generator, CYC's tree, the board's CDC341), then U_RB, the address
+  mux, the bypass's enable, while the latches can close at 48.8 ns. The
+  parts' grades and WPH's route don't give that much back; the read
+  address registered on the ALU board's master clock (about 20 ns
+  earlier than its CYC) would, but the board can't sample CTRL's phases
+  a tick after they change: their spread and the clocks' skew leave
+  no room for a setup and a hold in 19.86 ns.
 - **Loads and stores need 6,** a load and add 7: the RAM's read, the
   crossbar, B and the ALU's add in one cycle.
 
@@ -863,6 +864,14 @@ What changed in the netlist to get here, and what fails:
   addresses and the copies' and Y's enables take LEW, LE's copy, so
   they change only while the latches are closed: at least 2 ns after
   they close (a GAL and an output enable) against their 1.8 ns hold.
+- **The register numbers on the ALU board** (above).
+- **The clock tree** on the backplane (above), and no MCLKN, which
+  nothing took. CTRL loses its MCLK and CYC buffers to the backplane's.
+- **Gated clocks clear two ticks into the cycle** (`gated_clock`'s
+  ARMD), so ARM can't clear before the board's clock, which comes about
+  a tick after the edge, rises: MAR's hold passes at the lengths the
+  words take. VIDEO's two still clear a tick in (its GAL has no room;
+  the board isn't timed yet).
 - **Every board has its own µPC:** CTRL drives the next address
   (UPCN) on the backplane, and each board loads it on the clock its
   slice's 574s take. A µPC on CTRL alone changed the word under the
@@ -876,18 +885,22 @@ What changed in the netlist to get here, and what fails:
 - **The cases pin IORD_n and IOWR_n high** (memory loads and stores),
   as they do the WAIT lines: a 26 ns setup on the flags at every length
   was the VIDEO board's read latch possibly on B.
-- **Holds still failing:**
-  - MAR (−23 ns), real: MARCK is the board's clock through a GAL,
-    gated by ARM, which clears a tick into the cycle. The clock reaches
-    MEM about a tick after the edge, so ARM can clear as MARCK should
-    rise, and even a clean MARCK is a GAL later than the clocks that
-    change A. Ways out: ARM clearing a tick later, and MAR taking A on
-    the board's own clock with an enable.
-  - Y, the flags, PC and FPC (−7 to −8 ns): the engine's (below).
-- **Strobes:** the register file's write strobe is 7.3 ns short of the
-  SRAM's 9 (WRS over the backplane, then a GAL), the RAM's short too;
-  made on each board from the master clock (14.6), they'd be a tick
-  less one GAL's spread.
+- **Holds still failing:** Y, the flags, PC and FPC (−6 to −8 ns), the
+  engine's (below).
+- **Strobes:** the register file's write strobe comes down a chain
+  with about 18 ns of spread on each edge (the master clock's tree, the
+  clock generator, WRS's tree, U_RFT), and the engine's width check
+  doesn't credit what the two edges share (below): 8.2 ns short of the
+  SRAM's 9, though by hand the pulse is near a tick. The copies'
+  addresses against it (−5.2 ns) are partly real: they switch through
+  two GALs after WPH, the strobe through one after WRS, down two trees.
+  Made on each board from its master clock, a strobe would be a tick
+  less one GAL's spread, but that needs the board to sample WRS a tick
+  after it changes (above).
+- **The backplane's spare lines:** none. The tree takes four source
+  pins on top of the four clocks; the decoded register numbers' DEC1_n
+  took one; MCLKN's two came back. DIN 41612's 160-pin form (rows z–d,
+  as VME64x uses, 2.54 mm) would give each connector 64 more.
 - **A false path, named and counted:** every check but the register
   file's own leaves out what goes through LEW.
 
@@ -904,10 +917,14 @@ What changed in the netlist to get here, and what fails:
    even when they are caused by the closing. Hence the false path.
 3. **False paths and strobes:** a false path leaves out a register's
    setup and hold, but not a RAM's strobe checks: the store's data
-   against MEM's write strobe (−27 ns) is the same path the false
+   against MEM's write strobe (−28 ns) is the same path the false
    path removes elsewhere.
 4. **No checks, silently:** with clock edges that can't be told apart
    it times nothing and says nothing (`sta.run` now refuses that).
+5. **Widths and the shared path:** a width is from one edge's latest to
+   the next's earliest, with no credit for the chips both edges go
+   through, and `cppr_across_edges` doesn't reach it. A one-tick pulse
+   down a chain with more than about 10 ns of spread can't pass.
 
 ### 14.4 Branches
 
@@ -945,11 +962,12 @@ such a test against a board's netlist; that harness isn't built yet.
 ### 14.6 Next
 
 1. **The register file's timing:** 5 ticks (Emily, 2026-11-02), which
-   with the wires needs 2 below (14.3).
-2. **The clocks:** the phases made on each board from the master
-   clock, which goes to each slot on a trace of its own (or a clock
-   tree on the backplane); the register numbers registered on the ALU
-   board. Then MAR's clock (14.3), and the engine's gaps (14.3).
+   with the wires is 6 for now and needs 2 below (14.3).
+2. **Back to 5 ticks:** the read address on the master clock, which
+   needs CTRL's phases sampled on each board a tick after they change,
+   or phases each board makes for itself in lockstep; and the engine's
+   gaps (14.3), which hide what's real among the holds and the strobes.
+   And the backplane's spare lines (14.3).
 3. **The branch hardware**, if CTRL can give room.
 4. **The control store's part:** the 55 ns flash for now (14.2).
 5. **The minimum delays' fraction** (RFC 0048, open): 30% makes every

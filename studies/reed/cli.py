@@ -7,7 +7,7 @@
   sta [--word W]     static timing of each kind of microcycle (sta.WORDS):
                      the shortest length at which nothing a length can fix
                      fails worse than at the longest, and what still fails
-                     (--clocks tree|shared, --no-wires: sta.py)
+                     (--no-wires: sta.py)
 """
 
 import argparse
@@ -24,7 +24,6 @@ def main(argv=None):
     q = sub.add_parser("sta")
     q.add_argument("--word")
     q.add_argument("--paths", type=int, default=2)
-    q.add_argument("--clocks", choices=("tree", "shared"), default="tree")
     q.add_argument("--no-wires", action="store_true")
     a = p.parse_args(argv)
     if a.cmd == "boards":
@@ -35,5 +34,5 @@ def main(argv=None):
         print(f"ok: {len(nl.instances)} instances, every control line driven by its board alone")
     elif a.cmd == "sta":
         from . import sta
-        sta.main(a.word, a.paths, a.clocks, not a.no_wires)
+        sta.main(a.word, a.paths, not a.no_wires)
     return 0
