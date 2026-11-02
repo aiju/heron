@@ -19,7 +19,13 @@ IORD_n and IOWR_n high (no I/O access is timed yet: a load or store is
 to memory); the VIDEO board runs on its own phase and the
 IO board's devices on their accesses, so neither's checks count here.
 
-  heron reed sta [--word NAME] [--paths N]
+The wires (wires()): the napkin's 1-12 ns from board to board over the
+backplane, 0-1 ns on a board; the clocks as a matched trace to each slot
+(--clocks tree, which the netlist doesn't have yet) or today's one net
+(--clocks shared, under which the engine times nothing: run() says so). No load derating: the parts' data has no pin
+capacitances yet.
+
+  heron reed sta [--word NAME] [--paths N] [--clocks tree|shared] [--no-wires]
 """
 
 import time
@@ -27,7 +33,7 @@ from collections import Counter
 
 from heron.infra.hw import waves
 
-from . import fields as F, parts, system
+from . import bus as BP, fields as F, parts, system
 
 X = waves.X
 LENGTH_CHECKS = {"setup", "strobe", "width", "period", "float"}
@@ -71,13 +77,23 @@ START = {
     "CTRL.WPH0": (1, 0), "CTRL.WRS0": (1, 1),
 }
 STROBES = {}
-# named exceptions (RFC 0048 8), each counted in the results
-EXCEPTIONS = [
-    {"reason": "the read latches' inputs change only after LE closes them (the copies' addresses "
-               "and the copies' and Y's enables take LE): at least 2 ns, a GAL and an output "
-               "enable, against the latch's 1.8 ns hold; the engine can't order a change after "
-               "the enable it follows",
-     "chip": f"ALU.U_L{c}{k}", "check": "hold"} for c in "AB" for k in range(4)]
+# named exceptions (RFC 0048 8), each counted in the results: none but
+# the false path below
+EXCEPTIONS = []
+# and a false path: LEW (LE's copy) switches the copies' addresses and
+# the copies' and Y's enables, only while the latches are closed, so what
+# it changes reaches them after they close (or as they open); every check
+# but the register file's own (its writes go through LEW) leaves it out
+LEW_REASON = ("LEW changes the read latches' inputs only while they are closed: at least 2 ns "
+              "after they close (a GAL and an output enable, against their 1.8 ns hold), and as "
+              "they open; the engine can't order a change after the enable it follows")
+
+
+def lew_exceptions(ex):
+    return [{"reason": LEW_REASON, "chip": c["ref"], "through": "ALU.LEW"} for c in ex["chips"]
+            if not c["ref"].startswith(("ALU.U_RFA", "ALU.U_RFB"))]
+
+
 ARMS = ["CTRL.ARM_QCK0", "CTRL.ARM_QCK1", "CTRL.ARM_HCK", "MEM.ARM_MARCK", "IO.ARM_ALEK",
         "VIDEO.ARM_VALEK", "VIDEO.ARM_VWK", "VIDEO.ARM_PXCK"]
 
@@ -113,7 +129,7 @@ def word_values(word):
     return pins, before
 
 
-def case(name, word, ticks, after_mar=False):
+def case(name, word, ticks, after_mar=False, ex_key=("tree", True)):
     pins, before = word_values(word)
     before.update(STROBES)
     pins["CTRL.uLEN0"], pins["CTRL.uLEN1"] = (ticks - F.LEN_BASE) & 1, (ticks - F.LEN_BASE) >> 1
@@ -125,20 +141,57 @@ def case(name, word, ticks, after_mar=False):
     # the queue: both slots free (so a fetch is wanted), DP at 0
     for i in range(4):
         start[f"CTRL.PV{i}"] = (0, 0)
-    skip = [c["ref"] for c in _ex()["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
+    skip = [c["ref"] for c in _ex(*ex_key)["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
     return {"label": f"{name} @{ticks}", "clock": "CTRL.MCLK0", "pins": pins, "before": before,
             "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1}, "start": start, "skip": skip,
-            "branch": [], "exceptions": EXCEPTIONS, "end": {"net": "CTRL.CYC0", "events": 40}}
+            "branch": [], "exceptions": EXCEPTIONS + lew_exceptions(_ex(*ex_key)), "end": {"net": "CTRL.CYC0", "events": 40}}
+
+
+# the wires (min, max ps), from a net's drivers to a receiving pin: the
+# napkin's (RFC 0049 2.2: 10 ns for the backplane, 2 ns on the receiving
+# board), the minimum 0 where the receiving board drives the net too
+BACKPLANE = (1000, 12000)
+ON_BOARD = (0, 1000)
+# the clocks: a trace of its own to each slot, matched ("tree": the
+# netlist doesn't have one yet, RFC 0049 14.3), or today's one net that
+# every board takes ("shared", as the other backplane lines)
+CLOCK_WIRES = {"tree": (1000, 2500), "shared": BACKPLANE}
+DRIVES = ("out", "tri", "io")
+
+
+def wires(nl, clocks="tree"):
+    """{(ref, pin): (min, max)} for every receiving pin in the machine."""
+    bp = system.backplane_nets()
+    out = {}
+    for net, conns in nl.nets().items():
+        if net in ("GND", "VCC"):
+            continue
+        conns = [(i, p, k) for i, p, k in conns if i.type.family != "passive"]
+        drivers = {i.ref.split(".")[0] for i, p, k in conns if k in DRIVES}
+        for i, p, k in conns:
+            if k == "out":
+                continue
+            if net in BP.CLOCKS:
+                w = CLOCK_WIRES[clocks]
+            elif net in bp:
+                w = (0 if i.ref.split(".")[0] in drivers else BACKPLANE[0], BACKPLANE[1])
+            else:
+                w = ON_BOARD
+            out[(i.ref, p)] = w
+    return out
 
 
 _EX = {}
 
 
-def _ex():
-    if "ex" not in _EX:
+def _ex(clocks="tree", wired=True):
+    """The machine's export: with the wires (clocks: "tree" or "shared"),
+    or (wired False) none."""
+    key = (clocks, wired)
+    if key not in _EX:
         nl = system.machine(sim=True)
-        _EX["ex"] = waves.export(nl, parts.VARIANT)
-    return _EX["ex"]
+        _EX[key] = waves.export(nl, parts.VARIANT, wires=wires(nl, clocks) if wired else None)
+    return _EX[key]
 
 
 def failing(branches, kinds=None):
@@ -146,18 +199,23 @@ def failing(branches, kinds=None):
             and (kinds is None or c["check"] in kinds)]
 
 
-def run(names=None, lengths=(5, 6, 7, 8), paths=1, jobs=None):
+def run(names=None, lengths=(5, 6, 7, 8), paths=1, jobs=None, clocks="tree", wired=True):
     """{word: (ticks, results at them)}: the shortest length at which
     nothing a length can fix fails worse than at the longest."""
-    ex = _ex()
+    ex = _ex(clocks, wired)
     names = names or list(WORDS)
     items = [(n, t) for n in names for t in lengths]
-    cases = [case(n, WORDS[n], t, after_mar=n.startswith(("load", "store"))) for n, t in items]
+    cases = [case(n, WORDS[n], t, after_mar=n.startswith(("load", "store")), ex_key=(clocks, wired))
+             for n, t in items]
     res = waves.analyse(ex, cases, paths=paths, jobs=jobs)
     by = {}
     for (n, t), r in zip(items, res):
         if isinstance(r, dict):
             raise RuntimeError(f"{n} @{t}: {r['error']}")
+        if not any(b["checks"] for b in r):
+            # the engine times nothing when the clocks' edges can't be told
+            # apart (clocks="shared": a tick's edges over a 1-12 ns wire)
+            raise RuntimeError(f"{n} @{t}: the engine timed no checks (clocks={clocks})")
         by[(n, t)] = r
     out = {}
     for n in names:
@@ -190,8 +248,8 @@ def report(out, paths=2):
     return "\n".join(lines)
 
 
-def main(word=None, paths=2):
+def main(word=None, paths=2, clocks="tree", wired=True):
     t0 = time.time()
-    out = run([word] if word else None)
+    out = run([word] if word else None, clocks=clocks, wired=wired)
     print(report(out, paths))
     print(f"({time.time() - t0:.0f} s)")

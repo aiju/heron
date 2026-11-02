@@ -7,10 +7,11 @@ simulator and the static timing analysis read the same equations.
 A sum of products is a list of terms, each a dict {net: the value it
 must have}; [] is 0 and [{}] is 1.
 
-An output may have an output enable (a sum of products: the pin drives
-while it's true, else it's off), and the GAL an asynchronous reset (AR,
-a sum of products clearing every register while it's true), as the
-22V10's macrocells and its AR term have. Static timing analysis reads
+An output may have an output enable (the pin drives while it's true,
+else it's off), and the GAL an asynchronous reset (AR, clearing every
+register while it's true), as the 22V10's macrocells and its AR term
+have. The part gives each of them one product term: add() records a
+GAL that asks for more (problems), and check() refuses it. Static timing analysis reads
 neither (the GALs that use them are outside its netlists).
 """
 
@@ -109,6 +110,13 @@ def add(nl, ref, outputs, clock=None, ar=None, pins=None):
     inst.gal_oe = {pins[net]: [[(pins[n], v) for n, v in t.items()] for t in f]
                    for net, f in oes.items()}
     inst.gal_ar = [[(pins[n], v) for n, v in t.items()] for t in ar] if ar else None
+    # what the part can't do (check): an output enable or the asynchronous
+    # reset is one product term
+    inst.gal_problems = [f"{ref}: {net}'s output enable has {len(f)} product terms, the part one"
+                         for net, f in oes.items() if len(f) > 1]
+    if ar and len(ar) > 1:
+        inst.gal_problems.append(f"{ref}: the asynchronous reset has {len(ar)} product terms, "
+                                 "the part one")
     index = inst.type.pin_index
 
     def sop(terms):
@@ -222,3 +230,17 @@ def when(nets, codes, used):
     n = len(nets)
     dc = set(range(1 << n)) - set(used)
     return [{nets[i]: v for i, v in t.items()} for t in minimise(codes, dc, n)]
+
+
+def problems(nl):
+    """What a netlist's 22V10s ask of the part that it can't do: an output
+    enable or the asynchronous reset of more than one product term. add()
+    records them rather than refusing, so a study that has some still
+    builds; a study calls check() to refuse them."""
+    return [p for inst in nl.instances for p in getattr(inst, "gal_problems", [])]
+
+
+def check(nl):
+    errors = problems(nl)
+    if errors:
+        raise ValueError("22V10s the part can't implement:\n  " + "\n  ".join(errors))

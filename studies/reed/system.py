@@ -4,14 +4,15 @@ names, and what the boards are made of.
     machine(sim)       the netlist of every board, each under its name
                        (CTRL.U_UPC0, ALU.U_ALU3, ...), the backplane's
                        nets (bus.py) joined
-    check(nl)          the netlist's own checks, and the backplane's: each
-                       control line driven by its board alone
+    check(nl)          the netlist's own checks, the 22V10s' (gal.check), and
+                       the backplane's: each control line driven by its
+                       board alone
     stats()            per board: packages, area, 22V10s, parts
 """
 
 from collections import Counter, defaultdict
 
-from heron.infra.hw import chips
+from heron.infra.hw import chips, gal
 from heron.infra.hw.netlist import Netlist
 
 from . import alu, bus as BP, ctrl, io, mem, parts, video
@@ -44,6 +45,7 @@ def check(nl):
     """The netlist's checks; then each control line: its drivers all on
     the board bus.py names, and something drives it."""
     nl.check()
+    gal.check(nl)
     nets = nl.nets()
     errors = []
     for line, (owner, _) in BP.CONTROL.items():

@@ -329,9 +329,9 @@ def immediates(nl):
     rd, rs, op = BP.RD, BP.RS, BP.OP
     gal_forms = [I[n] for n in ("Q", "NQ", "U7", "S8X2", "R4", "ZERO", "ONE", "FOUR", "VEC", "PE_HI")]
 
+    # the enables (one product term each, as a 22V10 has): U_IMMO's decodes
     outs = {}
-    oe = anyof(imm, gal_forms)
-    oe_no_s8 = anyof(imm, [c for c in gal_forms if c != I["S8X2"]])
+    oe, oe_no_s8 = [{"OEF9_n": 0}], [{"OEG_n": 0}]
     for b in range(9):
         terms = []
         if b < 4:
@@ -352,7 +352,7 @@ def immediates(nl):
         outs[BP.B[b]] = (OR(*terms), False, False, oe if b == 0 else oe_no_s8)
     G.add(nl, "U_IMMG", outs)
     # FILL (B's bits above a form's) and the drivers' enables (U_IMMO),
-    # PC's onto A among them
+    # U_IMMG's and PC's onto A among them
     outs = {}
     fill_ins = imm + rd[3:] + [pe[15]]
 
@@ -370,6 +370,7 @@ def immediates(nl):
     outs.update({
         "OES8_n": (eq(imm, I["S8X2"]), False, True),
         "OEF9_n": (anyof(imm, gal_forms), False, True),
+        "OEG_n": (anyof(imm, [c for c in gal_forms if c != I["S8X2"]]), False, True),
         "OEFH_n": (anyof(imm, [c for c in gal_forms if c != I["PE_HI"]] + [I["PE_SX"], I["PE_ZX"]]),
                    False, True),
         "OEPL_n": (anyof(imm, [I["PE_SX"], I["PE_ZX"]]), False, True),
