@@ -71,7 +71,7 @@ def gated_clock(outs, name, enable, clk="CK1", wph="WPH"):
     """A clock that rises with the cycle's start (clk) only at the end of a
     cycle whose `enable` (a sum of products, steady through the cycle) is
     true: ARM, registered on the master clock, is set through the write
-    phase (the cycle's last two ticks) and clears a tick into the next
+    phase (the cycle's last three ticks) and clears a tick into the next
     cycle, so it is steady around clk's rise. Adds both outputs to a GAL's
     output dict, whose clock must be MCLK. wph=None: ARM is the enable
     itself, registered (a clock at the master clock's next edge)."""

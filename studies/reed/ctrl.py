@@ -90,7 +90,7 @@ def clocks(nl, sim):
     nl.add("clkdrv", "U_CKM", A="MCLK0", Y1="MCLK", **{f"Y{i}": f"MCLK_x{i}" for i in range(2, 9)})
     nl.add("clkdrv", "U_CKN", A="MCLKN0", Y1="MCLKN", **{f"Y{i}": f"MCLKN_x{i}" for i in range(2, 9)})
     nl.add("clkdrv", "U_CKC", A="CYC0", Y1="CYC", **{f"Y{i}": f"CYC_x{i}" for i in range(2, 9)})
-    # U_CGA: the tick TC, CYC0 for ticks 0-1, WPH0 for the last two
+    # U_CGA: the tick TC, CYC0 for ticks 0-1, WPH0 for the last three
     tc = ["TC0", "TC1", "TC2"]
     ins = tc + f("LEN") + ["WAIT_IO", "WAIT_V"]
 

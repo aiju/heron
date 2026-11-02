@@ -82,8 +82,9 @@ def stats():
                 unknown.add(part)
         pk = Counter({p: -(-n // parts.HALVES.get(p, 1)) for p, n in per.items()})
         area = sum(n * parts.PACKAGES.get(p, ("?", 1.0))[1] for p, n in pk.items())
-        out[name] = {"packages": sum(pk.values()), "area": area, "gals": pk.get("ATF22V10C-7", 0),
-                     "parts": pk, "unknown": unknown}
+        gals = sum(n for p, n in pk.items() if p.startswith("ATF22V10"))
+        out[name] = {"packages": sum(pk.values()), "area": area, "gals": gals, "parts": pk,
+                     "unknown": unknown}
     return out
 
 

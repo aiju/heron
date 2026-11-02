@@ -56,13 +56,14 @@ control store in 45 ns parts; and design for test by the backplane
 netlist, [studies/reed](../studies/reed/README.md): what it found is
 in section 14, and the napkin's sections below are as they were.
 
-- **Reed's first netlist:** five boards (CTRL 70 packages, ALU 68, MEM 63,
-  IO 30, VIDEO 49: 280, 45 of them 22V10s), each within a double
+- **Reed's first netlist:** five boards (CTRL 70 packages, ALU 67, MEM 63,
+  IO 30, VIDEO 49: 279, 46 of them 22V10s), each within a double
   Eurocard, joined on the backplane by name. It passes the netlist's
   checks, and every control line has one driver. The static timing
   engine (RFC 0048) finds that a microcycle that reads and writes the
-  register file needs **6 ticks**, not the napkin's 4, and that holds,
-  a strobe's width and the RAM's write timing still fail. A taken branch
+  register file needs **5 ticks**, not the napkin's 4 (Emily: 5 is
+  fine), and that holds, a strobe's width and the RAM's write timing
+  still fail. At 5 ticks the 55 ns flash costs nothing. A taken branch
   takes about five microcycles. The SST39SF010A's 45 ns grade was
   end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
 
@@ -759,11 +760,11 @@ chip-level simulation.
 | Board | Packages | Area | 22V10s | What's on it |
 |---|---:|---:|---:|---|
 | **CTRL** | 70 | 60 | 14 | the clock generator (U_CGA: CYC, WPH, WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
-| **ALU** | 68 | 67 | 13 | its slice (4 parts, 4 × 574); the register file (two copies, read latches, Y_A and Y_B, the write address in U_WG, bypass comparators); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
+| **ALU** | 67 | 66 | 14 | its slice (4 parts, 4 × 574); the register file (two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP; its address muxes and U_BYP in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
 | **MEM** | 63 | 50 | 5 | its slice (1 part, 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR, FPC; MQ |
 | **IO** | 30 | 29 | 7 | two UARTs, the timer, the boot flash, the CF card, two PS/2 ports (a 299 each, received in hardware), the interrupt controller, sound, reset |
 | **VIDEO** | 49 | 40 | 6 | a 2 MB frame buffer, 640 × 480 × 8 through a palette in SRAM and an ADV7125, posted writes and latched reads |
-| **total** | **280** | | **45** | |
+| **total** | **279** | | **46** | |
 
 Area is in the napkin's units (a DIP-20's slot, 70 to a board), with SOIC
 at three quarters of one. Where building it changed the napkin:
@@ -782,8 +783,12 @@ at three quarters of one. Where building it changed the napkin:
 - **A decode table** (two parts) gives each instruction's first
   microinstruction and its length, rather than opcode × 16 + d.
 - **The register file** reads into 573 latches, then switches to the
-  write address for the write phase; a 74F521 per port compares the read
-  address with the one about to be written, and Y bypasses the copy.
+  write address for the write phase. Where a port reads the register
+  about to be written, Y bypasses the copy: one GAL (U_BYP) compares both
+  ports' addresses with W and drives the copies', Y's and the latches'
+  enables. The address muxes and U_BYP are ATF22V10C-5s (PLCC-28, the
+  only package of the 5 ns grade): with a 74F521 per port and the 7 ns
+  grade, the bypass missed a 5-tick cycle by 13.6 ns.
 - **One write strobe for every board:** WRS, from the clock generator.
 - **SEQ BRDEC:** a branch's last word goes to JT if the condition holds,
   else decodes.
@@ -795,8 +800,10 @@ SST39SF010A's 45 ns grade was end-of-lifed in 2013: today's grades are
 55 and 70 ns. RFC 0047's pipelining note assumed the 45 ns grade. The
 netlist stands in the AT27C010-45, a 45 ns OTP EPROM in PLCC-32, its
 figures estimated and its availability to check. As 14.3 shows, the
-register file, not the control store, sets the shortest cycle for now,
-so the 55 ns flash (reprogrammable) costs nothing at the moment.
+register file, not the control store, sets the shortest cycle for now:
+with the SST39SF010A-55 in every slice and the decode table, every
+microcycle still fits 5 ticks, so the 55 ns flash (reprogrammable)
+costs nothing at the moment.
 
 ### 14.3 What the timing analysis finds
 
@@ -809,26 +816,33 @@ every two paths from one edge race.
 
 | Microcycle | Ticks | Still failing there |
 |---|---:|---|
-| `ADD r, r`, `ADD r, #q`, shift right | 6 | holds (Y, the flags), the register file's strobe width, glitches |
-| r + d16 into MAR, r into MAR | 6 | as above |
-| load | 6 | as above; the microinstruction registers' hold; the asynchronous inputs' crossings |
-| load and add | 6 | as above; a setup on the flags, 26 ns, at every length |
-| store | 6 | holds; the RAM's write strobes against the data on A |
-| fetch, jump, a branch's target | 6 | holds; PC's and FPC's loads from A |
+| `ADD r, r`, `ADD r, #q`, shift right | 5 | holds (Y, the flags), the register file's strobe width, glitches |
+| r + d16 into MAR, r into MAR | 5 | as above |
+| load | 5 | as above; the microinstruction registers' hold; the asynchronous inputs' crossings |
+| load and add | 5 | as above; a setup on the flags, 26 ns, at every length |
+| store | 5 | holds; the RAM's write strobes against the data on A |
+| fetch, jump, a branch's target | 5 | holds; PC's and FPC's loads from A |
 
 What sets the lengths, and what fails:
 
-- **The register file needs 6 ticks.** CYC reaches each board through
-  CTRL's clock generator, the backplane and the board's CDC341: about a
-  tick after the master clock's edge. The register file's data is then
-  valid about 29 ns later, so the latches can't close before the third
-  tick, and a write phase whose events are a tick apart (the write
-  address, then the strobe, then the read address back) takes three
-  more. The napkin had the register op in 4 ticks: under worst-case and
-  minimum delays it doesn't hold. Ways back: registering the next
-  cycle's read addresses a cycle ahead (the next instruction's register
-  numbers on 8 more control lines, which the backplane hasn't got), a
-  register file written in a slot of its own, or a faster part.
+- **The register file needs 5 ticks.** A cycle reads the copies, then
+  writes them in a write phase whose events are a tick apart (the write
+  address, then the strobe, then the read address back): its last three
+  ticks. CYC reaches each board through CTRL's clock generator, the
+  backplane and the board's CDC341, about a tick after the master
+  clock's edge; the register numbers leave CTRL's U_RB at 27.5 ns, the
+  copies' addresses are valid at 32.5 ns and their data at 44.5, and the
+  bypass has Y on or off by 44.5. The latches close as the write phase
+  starts, at 46.8 ns at the earliest in a 5-tick cycle: 0.4 ns to
+  spare, under the minimum delays' 30% (below). At 4 ticks they would close at about 29 ns, and the clock
+  generator would need LEN at the edge after the cycle's first, before
+  CTRL's microinstruction register has it. The napkin had the register
+  op in 4 ticks: under worst-case and minimum delays it doesn't hold.
+  Ways back to 4, all needed: the read addresses registered a cycle
+  ahead on the ALU board (the next instruction's register numbers on
+  the backplane, and several more GALs), a write phase on half ticks
+  (MCLKN; its strobe made on the ALU board, since a tick's is already
+  short), and LEN straight from the control store's parts.
 - **Holds:** Y and the flags (the bypass from Y through the latches into
   the ALU is short at minimum delays); every board's microinstruction
   register against the µPC, which changes on the same edge while the
@@ -838,7 +852,7 @@ What sets the lengths, and what fails:
   spread, is 1.8 ns short of the SRAM's 9; a store's data on A against
   MEM's write strobes (80 checks).
 - **One named exception:** the read latches' hold as the copies stop
-  driving (both from WPH).
+  driving (both from WPH, through U_BYP).
 
 ### 14.4 Branches
 
@@ -875,8 +889,8 @@ such a test against a board's netlist; that harness isn't built yet.
 
 ### 14.6 Next
 
-1. **The register file's timing:** choose among 14.3's ways back to
-   fewer ticks, or accept 6.
+1. **The register file's timing:** 5 ticks (Emily, 2026-11-02); the
+   ways back to 4 (14.3) wait until the register file is open again.
 2. **The holds:** a later clock for the µPC; Y's and the flags' paths.
 3. **The branch hardware**, if CTRL can give room.
 4. **The control store's part:** the 55 ns flash for now (14.2).

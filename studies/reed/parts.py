@@ -3,7 +3,9 @@ chip types it adds (devices with their serial and analog pins, connectors).
 
   reed  74ABT registers, latches, buffers and transceivers and 74F logic,
         in SOIC (1.27 mm pitch, nothing finer: Emily, 2026-11-02); 74F181 in
-        DIP-24 (0.6"); ATF22V10C-7 in DIP-24; the control store and decode
+        DIP-24 (0.6"); ATF22V10C-7 in DIP-24, but the register
+        file's address muxes and bypass in the ATF22V10C-5 (PLCC-28, the
+        only package of its 5 ns grade); the control store and decode
         table in a 45 ns 128K x 8 part in socketed PLCC-32 (CS_PART: the
         SST39SF010A's 45 ns grade is gone, so the AT27C010-45 OTP EPROM
         stands in, its figures estimated; "SST39SF010A-55" sets a 5-tick
@@ -17,6 +19,8 @@ from heron.infra.hw.cells import Arc, Out, Setup, Strobe
 
 VARIANT = "reed"
 CS_PART = "AT27C010-45"
+# the register file's address muxes and bypass: the 22V10's 5 ns grade (PLCC only)
+FAST_GAL = "ATF22V10C-5"
 
 chips.VARIANTS[VARIANT] = {
     "logic": "74F", "alu": "74F181", "cla": "74F182", "rf": "IS61C256AL-12",
@@ -34,7 +38,8 @@ PACKAGES = {
     "74ABT573": ("SOIC-20", 0.75), "74ABT377": ("SOIC-20", 0.75), "74F153": ("SOIC-16", 0.6),
     "74F163": ("SOIC-16", 0.6), "74F299": ("SOIC-20", 0.75), "74F521": ("SOIC-20", 0.75),
     "74F04": ("SOIC-14", 0.55), "74HCT14": ("SOIC-14", 0.55), "74F181": ("DIP-24W", 1.7),
-    "ATF22V10C-7": ("DIP-24", 1.1), "AT27C010-45": ("PLCC-32 socket", 1.2),
+    "ATF22V10C-7": ("DIP-24", 1.1), "ATF22V10C-5": ("PLCC-28", 1.0),
+    "AT27C010-45": ("PLCC-32 socket", 1.2),
     "SST39SF010A-55": ("PLCC-32 socket", 1.2), "IS61C6416AL-12": ("SOJ-44", 1.2),
     "AS7C4096A-12": ("SOJ-36", 1.2), "IS61C256AL-12": ("SOJ-28", 1.0), "CDC341": ("SOIC-20", 0.75),
     "oscillator": ("DIP-14 can", 0.8), "TL16C550C": ("PLCC-44", 1.6), "MAX232": ("SOIC-16", 0.6),

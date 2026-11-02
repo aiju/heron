@@ -13,8 +13,10 @@ read and write share each cycle, through latches:
     took the last cycle's result) write it, RFWE_n low while WRS is (the
     write phase's middle tick);
   - a read of the register the write phase is about to write takes Y
-    instead of the copy (a 74F521 per port compares the read address with
-    W: U_BYA, U_BYB), so a result is readable in the next cycle.
+    instead of the copy (U_BYP compares both ports' addresses with W and
+    drives the copies', Y's and the latches' enables), so a result is
+    readable in the next cycle. The address muxes and U_BYP are the
+    22V10's 5 ns grade: the read and the bypass then fit a 5-tick cycle.
 
 The ALU is eight 74F181s with their carry lookahead in U_CLA; U_ALUF gives
 their function and carry from the microinstruction's AOP and CI, or, for
@@ -34,6 +36,7 @@ from heron.infra.hw import gal as G
 from heron.infra.hw.netlist import Netlist
 
 from . import bus as BP, fields as F
+from .parts import FAST_GAL
 from .common import AND, OR, ONE, ZERO, anyof, bus, clock_buffer, control_slice, eq, lit, negate, table
 
 
@@ -102,25 +105,28 @@ def register_file(nl, ck):
         for part, bits in enumerate((range(0, 3), range(3, 5))):
             outs = {addr[i]: (OR(AND(lit("WPH"), lit(w[i])), AND(lit("WPH", 0), fn[i])), False, False)
                     for i in bits}
-            G.add(nl, f"{name}{part}", outs)
+            G.add(nl, f"{name}{part}", outs).part = FAST_GAL
     # W: this cycle's destination, for the next cycle's write phase
     wsel = sel(f("WS"), {F.WS["d"]: rd, F.WS["s"]: rs, F.WS["K"]: "K"})
     outs = {W[i]: (wsel[i], True, False) for i in range(5)}
     outs["WEN"] = (negate(eq(f("WS"), F.WS["NONE"])), True, False)
     G.add(nl, "U_WG", outs, clock=ck[1])
-    for copy, addr in (("A", RFA), ("B", RFB)):
-        # the bypass: the read address is W, and W is to be written
-        nl.add("521", f"U_BY{copy}", G="GND", PEQ=f"BYP{copy}_n",
-               **{f"P{i}": W[i] for i in range(5)}, P5="WEN", P6="GND", P7="GND",
-               **{f"Q{i}": addr[i] for i in range(5)}, Q5="VCC", Q6="GND", Q7="GND")
-    # U_RFT: the write strobe (WRS, while W is to be written), the latches'
-    # enable; the copies' outputs, off in the write phase and when Y
-    # bypasses them, and Y's
-    outs = {"RFWE_n": (OR(lit("WRS"), lit("WEN", 0)), False, False),
-            "LE": (lit("WPH", 0), False, False)}
-    for c in "AB":
-        outs[f"RFOE{c}_n"] = (OR(lit("WPH"), lit(f"BYP{c}_n", 0)), False, False)
-        outs[f"Y{c}OE_n"] = (OR(lit("WPH"), lit(f"BYP{c}_n", 0)), False, True)
+    # U_BYP: the bypass (the port's address is W, and W is to be written),
+    # straight from the addresses: each copy's outputs, off in the write
+    # phase and when Y bypasses it, and Y's; the latches' enable, from the
+    # same part as the copies' (their race: sta.EXCEPTIONS)
+    outs = {"LE": (lit("WPH", 0), False, False)}
+    for c, addr in (("A", RFA), ("B", RFB)):
+        # reading, and not W's: the copy drives, Y doesn't
+        own = [AND(lit("WPH", 0), lit("WEN", 0))]
+        for i in range(5):
+            own += [AND(lit("WPH", 0), lit(addr[i]), lit(W[i], 0)),
+                    AND(lit("WPH", 0), lit(addr[i], 0), lit(W[i]))]
+        outs[f"RFOE{c}_n"] = (OR(*own), False, True)
+        outs[f"Y{c}OE_n"] = (OR(*own), False, False)
+    G.add(nl, "U_BYP", outs).part = FAST_GAL
+    # U_RFT: the write strobe (WRS, while W is to be written)
+    outs = {"RFWE_n": (OR(lit("WRS"), lit("WEN", 0)), False, False)}
     G.add(nl, "U_RFT", outs)
 
 

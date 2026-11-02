@@ -73,7 +73,8 @@ STROBES = {}
 # named exceptions (RFC 0048 8), each counted in the results
 EXCEPTIONS = [
     {"reason": "open: the register file's copies stop driving as the read latches close (both from "
-               "WPH); their hold rests on the net keeping its value for the latch's 1.8 ns",
+               "WPH, through U_BYP); their hold rests on the net keeping its value for the "
+               "latch's 1.8 ns",
      "chip": f"ALU.U_L{c}{k}", "check": "hold"} for c in "AB" for k in range(4)]
 ARMS = ["CTRL.ARM_QCK0", "CTRL.ARM_QCK1", "CTRL.ARM_HCK", "MEM.ARM_MARCK", "IO.ARM_ALEK",
         "VIDEO.ARM_VALEK", "VIDEO.ARM_VWK", "VIDEO.ARM_PXCK"]
