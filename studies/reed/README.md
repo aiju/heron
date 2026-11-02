@@ -18,6 +18,7 @@ its board alone), and its static timing on infra/sta (RFC 0048).
 heron reed boards      # each board's packages, area and parts
 heron reed check       # build the whole machine and check it
 heron reed sta         # static timing of each kind of microcycle (about a minute)
+heron reed mockup      # the boards in 3D, in a browser: build/reed/mockup.html
 heron test reed        # the unit tests
 ```
 
@@ -29,6 +30,7 @@ heron test reed        # the unit tests
 | `common.py` | helpers: sums of products, a board's control slice, clock buffers, gated clocks |
 | `ctrl.py`, `alu.py`, `mem.py`, `io.py`, `video.py` | the boards (each module's docstring describes its board) |
 | `system.py` | the boards joined; the checks; the boards' statistics |
+| `mockup.py`, `mockup.html` | a 3D mockup of the boards (WebGL): every package placed by hand in rows, the silkscreen, front panels, the backplane; no routing |
 | `sta.py` | the static timing cases: each kind of microcycle at each length, and what fails |
 
 There is no microcode yet and no chip-level simulation: what the timing

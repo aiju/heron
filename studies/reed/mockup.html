@@ -1,0 +1,1254 @@
+<title>Reed Card Cage</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one screen. The card cage fills it; a slim instrument strip
+   (title, views, boards) floats at the top left, the inspector at the
+   right (a sheet at the bottom on phones), the bench controls at the
+   bottom left. One committed dark look: a lab bench under task light. */
+:root {
+  --bench: #12161b;          /* page ground, behind the scene */
+  --plate: #1b2128ee;        /* floating panels */
+  --plate-edge: #2c343d;
+  --ink: #e4e8ec;
+  --ink-dim: #93a0ad;
+  --ink-faint: #5f6b77;
+  --amber: #f2b33d;          /* indicator-LED amber: the one accent */
+  --amber-ink: #1a1306;
+  --f-display: "Barlow Condensed", "DIN Alternate", "Arial Narrow", sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bench); color: var(--ink); font-family: var(--f-body);
+  overflow: hidden; -webkit-font-smoothing: antialiased;
+}
+#stage { position: fixed; inset: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+
+.hud {
+  position: fixed; inset: 0; pointer-events: none;
+  padding-top: max(14px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto;
+  gap: 12px;
+}
+.hud > * { pointer-events: auto; }
+.plate {
+  background: var(--plate); border: 1px solid var(--plate-edge); border-radius: 6px;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+}
+
+/* title + navigation */
+.strip { grid-column: 1; grid-row: 1; justify-self: start; max-width: 100%; min-width: 0;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.eyebrow { font: 600 11px/1 var(--f-display); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-dim); }
+h1 { margin: 0; font: 700 26px/1 var(--f-display); letter-spacing: .02em; text-wrap: balance; }
+h1 span { color: var(--ink-dim); font-weight: 500; }
+.lede { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-dim); max-width: 46ch; }
+.views { display: flex; flex-wrap: wrap; gap: 4px; }
+.views button, .bench button {
+  font: 600 13px/1 var(--f-display); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink); background: transparent; border: 1px solid var(--plate-edge);
+  border-radius: 4px; padding: 7px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+}
+.views button:hover, .bench button:hover { border-color: var(--ink-faint); }
+.views button[aria-pressed="true"] { background: var(--amber); color: var(--amber-ink); border-color: var(--amber); }
+.views .sep { width: 1px; background: var(--plate-edge); margin: 2px 4px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; box-shadow: 0 0 0 1.5px rgba(0,0,0,.35); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* inspector */
+.inspector { grid-column: 2; grid-row: 1 / 3; align-self: start; width: 290px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.inspector h2 { margin: 0; font: 700 22px/1 var(--f-display); letter-spacing: .03em; display: flex; align-items: center; gap: 8px; }
+.inspector p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-dim); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat b { display: block; font: 600 20px/1.1 var(--f-data); font-variant-numeric: tabular-nums; }
+.stat span { font: 500 10.5px/1.2 var(--f-display); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-faint); }
+.meter { display: flex; flex-direction: column; gap: 5px; }
+.meter .bar { height: 6px; border-radius: 3px; background: var(--plate-edge); overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: var(--amber); border-radius: 3px; transition: width .5s; }
+.meter small { font: 400 11px/1.3 var(--f-data); color: var(--ink-faint); }
+.part { border-top: 1px solid var(--plate-edge); padding-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font: 400 12px/1.4 var(--f-data); }
+.part dt { color: var(--ink-faint); }
+.part dd { margin: 0; color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
+.part .ref { grid-column: 1 / -1; font: 600 17px/1.2 var(--f-data); color: var(--amber); }
+.hint { font: 400 11.5px/1.4 var(--f-body); color: var(--ink-faint); }
+
+/* bench controls */
+.bench { grid-column: 1; grid-row: 3; align-self: end; justify-self: start; padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; max-width: 100%; }
+.bench label { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--f-body); color: var(--ink-dim); cursor: pointer; }
+.bench input[type=checkbox] { accent-color: var(--amber); width: 14px; height: 14px; margin: 0; }
+.swatches { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--f-body); color: var(--ink-dim); }
+.swatches button { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid var(--plate-edge); }
+.swatches button[aria-pressed="true"] { border-color: var(--amber); }
+#loading { position: fixed; inset: 0; display: grid; place-items: center; font: 600 13px/1 var(--f-display); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-dim); pointer-events: none; }
+
+@media (max-width: 760px) {
+  .hud { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr auto auto; gap: 8px; }
+  .strip { padding: 10px 12px; gap: 8px; }
+  h1 { font-size: 21px; }
+  .lede { display: none; }
+  .views button { padding: 6px 8px; font-size: 12px; }
+  .inspector { grid-column: 1; grid-row: 3; width: auto; padding: 10px 12px; gap: 8px; max-height: 34vh; overflow: auto; }
+  .inspector p.desc, .meter small { display: none; }
+  .bench { grid-row: 4; padding: 8px 10px; }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .meter .bar i { transition: none; } }
+</style>
+
+<div id="stage"></div>
+<div id="loading">Placing 283 packages…</div>
+
+<div class="hud">
+  <header class="strip plate">
+    <div class="eyebrow">Heron · RFC 0049 design A</div>
+    <h1>Reed <span>on double Eurocards</span></h1>
+    <p class="lede">Five 233.35 × 160 mm boards on a backplane of two DIN 41612 connectors a slot: the A and B buses on P1, the 64 control lines on P2. Placement only, no routing.</p>
+    <nav class="views" id="views" aria-label="Views">
+      <button id="v-cage" data-view="cage" aria-pressed="true">Cage</button>
+      <button id="v-exploded" data-view="exploded" aria-pressed="false">Exploded</button>
+      <span class="sep" aria-hidden="true"></span>
+    </nav>
+  </header>
+
+  <aside class="inspector plate" id="inspector" aria-live="polite"></aside>
+
+  <footer class="bench plate">
+    <label><input type="checkbox" id="t-panels" checked> Front panels</label>
+    <label><input type="checkbox" id="t-cage" checked> Rails</label>
+    <span class="swatches" id="masks">Mask</span>
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
+<script>
+"use strict";
+const DATA = /*LAYOUT*/null;
+const BW = DATA.board.w, BH = DATA.board.h;
+const PITCH = 20.32, SLOTS = 8;
+const ORDER = ["CTRL", "ALU", "MEM", "IO", "VIDEO"];
+const IDCOLOR = { CTRL: "#f2b33d", ALU: "#e5534b", MEM: "#4c9be8", IO: "#4fbf73", VIDEO: "#a77de0" };
+const MASKS = [
+  { id: "green", name: "Green", mask: "#1d5e36", silk: "#f1f1ea" },
+  { id: "blue", name: "Blue", mask: "#17457a", silk: "#f1f1ea" },
+  { id: "black", name: "Black", mask: "#16181a", silk: "#ecece6" },
+  { id: "purple", name: "Purple", mask: "#46276f", silk: "#f1f1ea" },
+  { id: "white", name: "White", mask: "#e9e9e4", silk: "#1b1b1b" },
+];
+// the female DIN 41612 on each board, and its centre along the board's edge
+const CONN = { P1: 183.35, P2: 50.0 };
+const CONN_LEN = 85.0, PANEL_LO = -14.35, PANEL_HI = BW + 14.35, PANEL_Z0 = -4.4, PANEL_Z1 = 15.6;
+const PXMM = Math.min(window.innerWidth, window.innerHeight) < 600 ? 6 : 9;
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage blocked */ } },
+};
+
+// ---------------------------------------------------------------- scene
+const stage = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x12161b, 1);
+stage.appendChild(renderer.domElement);
+renderer.domElement.tabIndex = 0;
+renderer.domElement.setAttribute("aria-label", "3D view of the card cage: drag to orbit, scroll to zoom");
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(32, 1, 5, 6000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.09;
+controls.screenSpacePanning = true;
+controls.minDistance = 60;
+controls.maxDistance = 2200;
+
+scene.add(new THREE.HemisphereLight(0xdfe8f2, 0x2a2622, 0.45));
+const sun = new THREE.DirectionalLight(0xfff4e6, 1.25);
+sun.position.set(520, 760, 640);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -420, right: 420, top: 420, bottom: -420, near: 100, far: 2400 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.6;
+scene.add(sun);
+sun.target.position.set(80, 110, 80);
+scene.add(sun.target);
+const fill = new THREE.DirectionalLight(0xbcd2ff, 0.35);
+fill.position.set(-600, 200, 300);
+scene.add(fill);
+
+// a bench under the cage, for the shadows to land on
+const bench = new THREE.Mesh(new THREE.CircleGeometry(1400, 64),
+  new THREE.ShadowMaterial({ opacity: 0.45 }));
+bench.rotation.x = -Math.PI / 2;
+bench.position.set(80, -30, 60);
+bench.receiveShadow = true;
+scene.add(bench);
+
+// ---------------------------------------------------------------- materials
+const M = {
+  body: new THREE.MeshStandardMaterial({ color: 0x1d1e20, roughness: 0.62, metalness: 0.0 }),
+  lead: new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.4, metalness: 0.85 }),
+  gold: new THREE.MeshStandardMaterial({ color: 0xd8b25c, roughness: 0.3, metalness: 1.0 }),
+  socket: new THREE.MeshStandardMaterial({ color: 0x232427, roughness: 0.6 }),
+  can: new THREE.MeshStandardMaterial({ color: 0xd4d7da, roughness: 0.28, metalness: 1.0 }),
+  din: new THREE.MeshStandardMaterial({ color: 0x9c998f, roughness: 0.65 }),
+  dinDark: new THREE.MeshStandardMaterial({ color: 0x26272a, roughness: 0.7 }),
+  panel: new THREE.MeshStandardMaterial({ color: 0xa7adb3, roughness: 0.5, metalness: 0.6 }),
+  rail: new THREE.MeshStandardMaterial({ color: 0x9ba1a8, roughness: 0.42, metalness: 0.8 }),
+  guide: new THREE.MeshStandardMaterial({ color: 0xb9b6ac, roughness: 0.6 }),
+  handle: new THREE.MeshStandardMaterial({ color: 0x151617, roughness: 0.6 }),
+  black: new THREE.MeshStandardMaterial({ color: 0x18191b, roughness: 0.5 }),
+  vga: new THREE.MeshStandardMaterial({ color: 0x2a55b8, roughness: 0.5 }),
+  shell: new THREE.MeshStandardMaterial({ color: 0xd2d5d8, roughness: 0.25, metalness: 1.0 }),
+  cap: new THREE.MeshStandardMaterial({ color: 0xb59a72, roughness: 0.5 }),
+  elyt: new THREE.MeshStandardMaterial({ color: 0x1d2f5e, roughness: 0.4, metalness: 0.2 }),
+  elytTop: new THREE.MeshStandardMaterial({ color: 0xc9ccd0, roughness: 0.3, metalness: 0.9 }),
+  sip: new THREE.MeshStandardMaterial({ color: 0xd9c35a, roughness: 0.5 }),
+  term: new THREE.MeshStandardMaterial({ color: 0x2f8a4a, roughness: 0.5 }),
+  ledG: new THREE.MeshStandardMaterial({ color: 0x48ff7a, emissive: 0x23d95a, emissiveIntensity: 1.4, roughness: 0.2 }),
+  btn: new THREE.MeshStandardMaterial({ color: 0xc8322c, roughness: 0.45 }),
+  ps2k: new THREE.MeshStandardMaterial({ color: 0x7b4ab8, roughness: 0.5 }),
+  ps2m: new THREE.MeshStandardMaterial({ color: 0x3e9a4f, roughness: 0.5 }),
+  jack: new THREE.MeshStandardMaterial({ color: 0x9bd23c, roughness: 0.5 }),
+  cf: new THREE.MeshStandardMaterial({ color: 0x2d3136, roughness: 0.5, metalness: 0.3 }),
+};
+const UNIT = new THREE.BoxGeometry(1, 1, 1);
+
+function canvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = Math.max(2, Math.round(w)); c.height = Math.max(2, Math.round(h));
+  return c;
+}
+function tex(c) {
+  const t = new THREE.CanvasTexture(c);
+  t.encoding = THREE.sRGBEncoding;
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+
+// ---------------------------------------------------------------- packages
+// body sizes: [length, width, height, standoff] by kind (and pin count)
+function bodyOf(c) {
+  const len = c.rot ? c.W : c.L, wid = c.rot ? c.L : c.W;
+  switch (c.kind) {
+    case "soic": return { len, wid, bl: len, bw: c.pins === 20 ? 7.5 : 3.9, h: c.pins === 20 ? 2.35 : 1.5, z0: 0.12 };
+    case "dip": return { len, wid, bl: 31.75, bw: 6.35, h: 3.4, z0: 0.7, row: 7.62 };
+    case "dipw": return { len, wid, bl: 31.75, bw: 13.6, h: 3.6, z0: 0.7, row: 15.24 };
+    case "plcc": return { len, wid, bl: len - 1.0, bw: wid - 1.0, h: 3.6, z0: 0.5 };
+    case "plccs": return { len, wid, bl: 13.97, bw: 11.43, h: 3.1, z0: 2.6 };
+    case "soj": return { len, wid, bl: len, bw: wid - 1.0, h: 2.9, z0: 0.6 };
+    case "lqfp": return { len, wid, bl: 7.0, bw: 7.0, h: 1.3, z0: 0.12 };
+    case "can": return { len, wid, bl: len, bw: wid, h: 5.1, z0: 0.3 };
+  }
+  return { len, wid, bl: len, bw: wid, h: 2, z0: 0 };
+}
+
+// local chip coordinates (x along the body, y across, pin 1 at -x,-y) to the board
+function toBoard(c, lx, ly) {
+  return c.rot ? [c.x - ly, c.y + lx] : [c.x + lx, c.y + ly];
+}
+
+// the marking on a package's top
+const markCache = new Map();
+const GAL = /^ATF22V10/, ROM = /^(AT27C010|SST39SF)/;
+function markTexture(board, c, b) {
+  const sticker = GAL.test(c.part) || ROM.test(c.part);
+  const key = sticker || c.kind === "can" ? board + "." + c.ref : c.part + "|" + c.kind + "|" + c.pins;
+  if (markCache.has(key)) return markCache.get(key);
+  const s = 16, cv = canvas(b.bl * s, b.bw * s), g = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  g.fillStyle = c.kind === "can" ? "#cfd2d5" : "#1d1e20";
+  g.fillRect(0, 0, W, H);
+  // pin 1: a notch on DIPs, a dimple elsewhere
+  g.fillStyle = c.kind === "can" ? "#a9adb1" : "#0f1011";
+  if (c.kind === "dip" || c.kind === "dipw") {
+    g.beginPath(); g.arc(0, H / 2, 1.0 * s, -Math.PI / 2, Math.PI / 2); g.fill();
+    g.beginPath(); g.arc(2.0 * s, H - 1.6 * s, 0.55 * s, 0, 7); g.fill();
+  } else if (c.kind !== "can") {
+    g.beginPath(); g.arc(1.3 * s, H - 1.3 * s, 0.5 * s, 0, 7); g.fill();
+  }
+  g.textAlign = "center"; g.textBaseline = "middle";
+  if (sticker) {
+    // a hand-written label over the window or the GAL: what's burnt into it
+    const lw = Math.min(W * 0.62, 20 * s), lh = Math.min(H * 0.7, 7.5 * s);
+    g.fillStyle = "#f3efe2";
+    g.fillRect((W - lw) / 2, (H - lh) / 2, lw, lh);
+    g.fillStyle = "#1c2a55";
+    const big = Math.min(lh * 0.46, 2.6 * s);
+    g.font = `600 ${big}px "IBM Plex Mono", monospace`;
+    g.fillText(c.ref, W / 2, H / 2 - lh * 0.13);
+    g.font = `500 ${big * 0.55}px "IBM Plex Mono", monospace`;
+    g.fillStyle = "#6b6450";
+    g.fillText(`${board} · ${ROM.test(c.part) ? "µcode r0" : "jed r0"}`, W / 2, H / 2 + lh * 0.27);
+  } else {
+    const fg = c.kind === "can" ? "rgba(40,44,48,0.85)" : "rgba(196,200,204,0.82)";
+    g.fillStyle = fg;
+    let label = c.part;
+    if (c.ref === "OSC") label = "50.350 MHz";
+    if (c.ref === "UCLK") label = "1.8432 MHz";
+    let size = Math.min(H * 0.26, 1.7 * s);
+    g.font = `500 ${size}px "IBM Plex Mono", monospace`;
+    while (g.measureText(label).width > W * 0.84 && size > 4) { size *= 0.92; g.font = `500 ${size}px "IBM Plex Mono", monospace`; }
+    g.fillText(label, W / 2, H / 2 - size * 0.45);
+    g.font = `400 ${size * 0.72}px "IBM Plex Mono", monospace`;
+    g.fillStyle = c.kind === "can" ? "rgba(40,44,48,0.6)" : "rgba(196,200,204,0.55)";
+    g.fillText(c.kind === "can" ? "HCMOS 5V" : "2643  " + (c.pins > 16 ? "MLY" : "PH"), W / 2, H / 2 + size * 0.75);
+  }
+  const m = new THREE.MeshStandardMaterial({ map: tex(cv), roughness: c.kind === "can" ? 0.3 : 0.6,
+    metalness: c.kind === "can" ? 1.0 : 0.0 });
+  markCache.set(key, m);
+  return m;
+}
+
+// a box from its min corner and size, in a chip's local frame, pushed as an instance
+function pushBox(list, c, x, y, z, sx, sy, sz) {
+  const [bx, by] = toBoard(c, x + sx / 2, y + sy / 2);
+  const m = new THREE.Matrix4();
+  m.makeTranslation(bx, by, z + sz / 2);
+  m.scale(c.rot ? new THREE.Vector3(sy, sx, sz) : new THREE.Vector3(sx, sy, sz));
+  list.push(m);
+}
+
+function pinsAlong(n, pitch) {
+  const out = [];
+  for (let k = 0; k < n; k++) out.push((k - (n - 1) / 2) * pitch);
+  return out;
+}
+
+function buildChip(boardName, c, ctx) {
+  const b = bodyOf(c);
+  const top = markTexture(boardName, c, b);
+  const sideMat = c.kind === "can" ? M.can : M.body;
+  const mats = [sideMat, sideMat, sideMat, sideMat, top, sideMat];
+  const body = new THREE.Mesh(UNIT, mats);
+  body.scale.set(b.bl, b.bw, b.h);
+  body.position.set(c.x, c.y, b.z0 + b.h / 2);
+  if (c.rot) body.rotation.z = Math.PI / 2;
+  body.castShadow = true;
+  body.receiveShadow = true;
+  body.userData = { kind: "chip", board: boardName, ref: c.ref, part: c.part, pkg: c.pkg, group: c.g };
+  ctx.group.add(body);
+  ctx.pick.push(body);
+
+  const L = ctx.leads;
+  if (c.kind === "soic") {
+    const n = c.pins / 2, out = (b.wid - b.bw) / 2;
+    for (const x of pinsAlong(n, 1.27)) {
+      pushBox(L, c, x - 0.21, b.bw / 2, 0.0, 0.42, out, 0.22);
+      pushBox(L, c, x - 0.21, -b.bw / 2 - out, 0.0, 0.42, out, 0.22);
+      pushBox(L, c, x - 0.21, b.bw / 2, 0.0, 0.42, 0.25, b.z0 + b.h * 0.5);
+      pushBox(L, c, x - 0.21, -b.bw / 2 - 0.25, 0.0, 0.42, 0.25, b.z0 + b.h * 0.5);
+    }
+  } else if (c.kind === "dip" || c.kind === "dipw") {
+    for (const x of pinsAlong(12, 2.54)) {
+      for (const sgn of [1, -1]) {
+        const y = sgn * b.row / 2;
+        pushBox(L, c, x - 0.3, y - 0.15, 0, 0.6, 0.3, b.z0 + 0.9);
+        const ya = sgn * b.bw / 2, yb = y + sgn * 0.15;
+        pushBox(L, c, x - 0.6, Math.min(ya, yb), b.z0 + 0.6, 1.2, Math.abs(yb - ya), 0.25);
+      }
+    }
+  } else if (c.kind === "plcc") {
+    const n = c.pins / 4;
+    for (const t of pinsAlong(n, 1.27)) {
+      pushBox(L, c, t - 0.22, b.bw / 2, 0, 0.44, 0.3, b.z0 + 1.4);
+      pushBox(L, c, t - 0.22, -b.bw / 2 - 0.3, 0, 0.44, 0.3, b.z0 + 1.4);
+      pushBox(L, c, b.bl / 2, t - 0.22, 0, 0.3, 0.44, b.z0 + 1.4);
+      pushBox(L, c, -b.bl / 2 - 0.3, t - 0.22, 0, 0.3, 0.44, b.z0 + 1.4);
+    }
+  } else if (c.kind === "soj") {
+    for (const x of pinsAlong(c.pins / 2, 1.27)) {
+      pushBox(L, c, x - 0.22, b.bw / 2, 0, 0.44, 0.35, b.z0 + 1.6);
+      pushBox(L, c, x - 0.22, -b.bw / 2 - 0.35, 0, 0.44, 0.35, b.z0 + 1.6);
+    }
+  } else if (c.kind === "lqfp") {
+    for (const t of pinsAlong(12, 0.5)) {
+      pushBox(L, c, t - 0.11, 3.5, 0, 0.22, 1.0, 0.15);
+      pushBox(L, c, t - 0.11, -4.5, 0, 0.22, 1.0, 0.15);
+      pushBox(L, c, 3.5, t - 0.11, 0, 1.0, 0.22, 0.15);
+      pushBox(L, c, -4.5, t - 0.11, 0, 1.0, 0.22, 0.15);
+    }
+  } else if (c.kind === "plccs") {
+    // the socket under the chip
+    const s = new THREE.Mesh(UNIT, M.socket);
+    s.scale.set(c.rot ? c.W : c.L, c.rot ? c.L : c.W, 2.7);
+    s.position.set(c.x, c.y, 1.35 + 0.15);
+    if (c.rot) s.rotation.z = Math.PI / 2;
+    s.castShadow = s.receiveShadow = true;
+    s.userData = body.userData;
+    ctx.group.add(s);
+    ctx.pick.push(s);
+  }
+  // its decoupling capacitor, at the chip's far end, above it
+  if (c.kind !== "can") {
+    const [cx, cy] = [c.x + c.L / 2 - 1.6, c.y + c.W / 2 + 1.25];
+    const m = new THREE.Matrix4().makeTranslation(cx, cy, 0.45).scale(new THREE.Vector3(2.0, 1.25, 0.8));
+    ctx.caps.push(m);
+    ctx.capPads.push([cx, cy]);
+  }
+}
+
+// ---------------------------------------------------------------- silkscreen and copper
+function drawBoardTop(name, bd, mask) {
+  const cv = canvas(BW * PXMM, BH * PXMM), g = cv.getContext("2d");
+  const P = PXMM, X = (x) => x * P, Y = (y) => (BH - y) * P;
+  const silk = mask.silk;
+  const tint = (hex, amt) => {
+    const n = parseInt(hex.slice(1), 16);
+    const f = (v) => Math.max(0, Math.min(255, Math.round(v + amt)));
+    return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+  };
+  const light = mask.id === "white";
+  g.fillStyle = tint(mask.mask, light ? -10 : -6);
+  g.fillRect(0, 0, cv.width, cv.height);
+  // the ground pour under the mask: a shade lighter, kept 1.5 mm off the edges
+  g.fillStyle = tint(mask.mask, light ? 0 : 9);
+  g.fillRect(X(1.5), Y(BH - 1.5), X(BW - 3), (BH - 3) * P);
+  // stitching vias along the card guides
+  g.fillStyle = tint(mask.mask, light ? -22 : 22);
+  for (let x = 4; x < BW - 3; x += 5) for (const y of [2.6, BH - 2.6]) {
+    if (y < 10 && ((x > 5 && x < 95) || (x > 138 && x < 228))) continue;
+    g.beginPath(); g.arc(X(x), Y(y), 0.45 * P, 0, 7); g.fill();
+  }
+  for (let y = 12; y < BH - 4; y += 5) for (const x of [2.6, BW - 2.6]) {
+    g.beginPath(); g.arc(X(x), Y(y), 0.45 * P, 0, 7); g.fill();
+  }
+
+  const HASL = "#cfd3d7", DRILL = "#202124";
+  const pad = (x, y, w, h) => { g.fillStyle = HASL; g.fillRect(X(x - w / 2), Y(y + h / 2), w * P, h * P); };
+  const ring = (x, y, r, d) => {
+    g.fillStyle = HASL; g.beginPath(); g.arc(X(x), Y(y), r * P, 0, 7); g.fill();
+    g.fillStyle = DRILL; g.beginPath(); g.arc(X(x), Y(y), d * P, 0, 7); g.fill();
+  };
+  const cpad = (c, lx, ly, w, h) => {
+    const [x, y] = toBoard(c, lx, ly);
+    if (c.rot) pad(x, y, h, w); else pad(x, y, w, h);
+  };
+  const cring = (c, lx, ly, r, d) => { const [x, y] = toBoard(c, lx, ly); ring(x, y, r, d); };
+
+  g.lineWidth = Math.max(1.4, 0.16 * P);
+  g.strokeStyle = silk; g.fillStyle = silk;
+  const rect = (x0, y0, x1, y1) => { g.strokeRect(X(x0), Y(y1), (x1 - x0) * P, (y1 - y0) * P); };
+
+  for (const c of bd.chips) {
+    const b = bodyOf(c);
+    // pads
+    if (c.kind === "soic") {
+      for (const x of pinsAlong(c.pins / 2, 1.27)) for (const s of [1, -1]) cpad(c, x, s * (b.wid / 2 - 0.95), 0.6, 1.9);
+    } else if (c.kind === "dip" || c.kind === "dipw") {
+      for (const x of pinsAlong(12, 2.54)) for (const s of [1, -1]) cring(c, x, s * b.row / 2, 0.8, 0.42);
+    } else if (c.kind === "plcc") {
+      for (const t of pinsAlong(c.pins / 4, 1.27)) {
+        cpad(c, t, b.bw / 2 + 0.2, 0.6, 1.8); cpad(c, t, -b.bw / 2 - 0.2, 0.6, 1.8);
+        cpad(c, b.bl / 2 + 0.2, t, 1.8, 0.6); cpad(c, -b.bl / 2 - 0.2, t, 1.8, 0.6);
+      }
+    } else if (c.kind === "plccs") {
+      for (const t of pinsAlong(9, 1.27)) for (const s of [1, -1]) cring(c, t, s * (b.wid / 2 - 1.0), 0.5, 0.3);
+      for (const t of pinsAlong(7, 1.27)) for (const s of [1, -1]) cring(c, s * (b.len / 2 - 1.0), t, 0.5, 0.3);
+    } else if (c.kind === "soj") {
+      for (const x of pinsAlong(c.pins / 2, 1.27)) for (const s of [1, -1]) cpad(c, x, s * (b.bw / 2 + 0.1), 0.7, 1.9);
+    } else if (c.kind === "lqfp") {
+      for (const t of pinsAlong(12, 0.5)) {
+        cpad(c, t, 4.0, 0.28, 1.4); cpad(c, t, -4.0, 0.28, 1.4); cpad(c, 4.0, t, 1.4, 0.28); cpad(c, -4.0, t, 1.4, 0.28);
+      }
+    } else if (c.kind === "can") {
+      for (const [lx, ly] of [[-7.62, -3.81], [7.62, -3.81], [7.62, 3.81], [-7.62, 3.81]]) cring(c, lx, ly, 0.85, 0.45);
+    }
+    // outline, with pin 1 marked
+    const ox = (c.rot ? b.bw : b.bl) / 2 + 0.3, oy = (c.rot ? b.bl : b.bw) / 2 + 0.3;
+    if (c.kind === "soic" || c.kind === "soj") {
+      // ends only, between the pad rows
+      const hx = c.rot ? ox : b.bl / 2 + 0.3, hy = c.rot ? b.bl / 2 + 0.3 : oy;
+      if (c.rot) { g.beginPath(); g.moveTo(X(c.x - hx), Y(c.y - hy)); g.lineTo(X(c.x + hx), Y(c.y - hy)); g.moveTo(X(c.x - hx), Y(c.y + hy)); g.lineTo(X(c.x + hx), Y(c.y + hy)); g.stroke(); }
+      else { g.beginPath(); g.moveTo(X(c.x - hx), Y(c.y - b.bw / 2 + 0.6)); g.lineTo(X(c.x - hx), Y(c.y + b.bw / 2 - 0.6)); g.moveTo(X(c.x + hx), Y(c.y - b.bw / 2 + 0.6)); g.lineTo(X(c.x + hx), Y(c.y + b.bw / 2 - 0.6)); g.stroke(); }
+    } else {
+      const ex = c.kind === "plccs" ? (c.rot ? c.W : c.L) / 2 + 0.3 : ox, ey = c.kind === "plccs" ? (c.rot ? c.L : c.W) / 2 + 0.3 : oy;
+      rect(c.x - ex, c.y - ey, c.x + ex, c.y + ey);
+      if (c.kind === "dip" || c.kind === "dipw") {
+        const [nx, ny] = toBoard(c, -b.bl / 2 - 0.3, 0);
+        g.beginPath();
+        if (c.rot) g.arc(X(nx), Y(ny), 1.0 * P, Math.PI, 0, false); else g.arc(X(nx), Y(ny), 1.0 * P, -Math.PI / 2, Math.PI / 2, false);
+        g.stroke();
+      }
+    }
+    const [p1x, p1y] = toBoard(c, -b.bl / 2 - 1.0, -(c.kind === "dip" || c.kind === "dipw" ? b.row / 2 : b.wid / 2) + 0.2);
+    if (c.kind !== "can" && c.kind !== "plccs") { g.beginPath(); g.arc(X(p1x), Y(p1y), 0.32 * P, 0, 7); g.fill(); }
+    // reference designator, above the chip's left end
+    g.font = `500 ${1.35 * P}px "IBM Plex Mono", monospace`;
+    g.textBaseline = "alphabetic"; g.textAlign = "left";
+    g.fillText(c.ref, X(c.x - c.L / 2), Y(c.y + c.W / 2 + 0.45));
+    // its decoupling capacitor's footprint
+    if (c.kind !== "can") {
+      const cx = c.x + c.L / 2 - 1.6, cy = c.y + c.W / 2 + 1.25;
+      pad(cx - 0.95, cy, 0.9, 1.3); pad(cx + 0.95, cy, 0.9, 1.3);
+    }
+  }
+  // groups: a bracket under each, its name below
+  g.font = `600 ${1.65 * P}px "Barlow Condensed", "Arial Narrow", sans-serif`;
+  g.textBaseline = "top";
+  for (const gr of bd.groups) {
+    const y = gr.y0;
+    g.beginPath();
+    g.moveTo(X(gr.x0), Y(y + 0.7)); g.lineTo(X(gr.x0), Y(y)); g.lineTo(X(gr.x1), Y(y)); g.lineTo(X(gr.x1), Y(y + 0.7));
+    g.stroke();
+    g.fillText(gr.label, X(gr.x0 + 0.4), Y(y - 0.35));
+  }
+  // the connectors' pads (press-fit pins: three rows of 32)
+  for (const [nm, xc] of Object.entries(CONN)) {
+    for (let k = 0; k < 32; k++) for (let r = 0; r < 3; r++) ring(xc - 39.37 + k * 2.54, 3.0 + r * 2.54, 0.55, 0.33);
+    g.font = `600 ${2.2 * P}px "Barlow Condensed", sans-serif`;
+    g.textBaseline = "alphabetic"; g.textAlign = "left";
+    rect(xc - CONN_LEN / 2, -1.5, xc + CONN_LEN / 2, 9.3);
+    g.fillText(nm === "P1" ? "P1  A · B" : "P2  CONTROL", X(xc - CONN_LEN / 2), Y(10.2));
+  }
+  // title block between the connectors
+  g.textAlign = "left"; g.textBaseline = "alphabetic";
+  g.font = `700 ${5.2 * P}px "Barlow Condensed", sans-serif`;
+  g.fillText(name, X(97.5), Y(6.6));
+  g.font = `500 ${1.45 * P}px "IBM Plex Mono", monospace`;
+  g.fillText("HERON REED  REV 0", X(97.6), Y(3.9));
+  g.fillText("RFC 0049 · DESIGN A", X(97.6), Y(1.9));
+  // bulk capacitors' footprints
+  for (const x of [128.5, 135.5]) { g.beginPath(); g.arc(X(x), Y(6.0), 3.35 * P, 0, 7); g.stroke(); ring(x - 1.25, 6.0, 0.7, 0.4); ring(x + 1.25, 6.0, 0.7, 0.4); g.font = `600 ${1.4 * P}px "IBM Plex Mono", monospace`; g.fillText("+", X(x - 2.9), Y(9.2)); }
+  // front: the panel's bracket screws, the PWR LED
+  for (const x of [5.0, BW - 5.0]) ring(x, BH - 4.5, 2.6, 1.4);
+  if (bd.front.length === 0) {
+    g.font = `500 ${1.45 * P}px "IBM Plex Mono", monospace`;
+    g.fillText(`${name} · ${bd.stats.packages} PACKAGES · ${bd.stats.area} UNITS`, X(10), Y(151.6));
+  }
+  g.font = `600 ${1.5 * P}px "Barlow Condensed", sans-serif`;
+  g.textAlign = "right";
+  g.fillText("PWR", X(BW - 13), Y(151.4));
+  return cv;
+}
+
+// ---------------------------------------------------------------- boards
+const boards = {};   // name -> {group, slot, textures, ...}
+const pickables = [];
+
+function boardMats(name, mask) {
+  const cv = drawBoardTop(name, DATA.boards[name], mask);
+  const t = tex(cv);
+  const n = parseInt(mask.mask.slice(1), 16);
+  const base = new THREE.Color(n);
+  const edge = base.clone().lerp(new THREE.Color(0xd9cf9d), mask.id === "white" ? 0.2 : 0.55);
+  const top = new THREE.MeshStandardMaterial({ map: t, roughness: 0.48, metalness: 0.0 });
+  const bottom = new THREE.MeshStandardMaterial({ color: base, roughness: 0.5 });
+  const side = new THREE.MeshStandardMaterial({ color: edge, roughness: 0.7 });
+  return [side, side, side, side, top, bottom];
+}
+
+function femaleDIN(group, xc, boardName, slotName) {
+  // right-angle female DIN 41612 on the board's back edge
+  const body = new THREE.Mesh(UNIT, M.din);
+  body.scale.set(CONN_LEN, 10.4, 9.6);
+  body.position.set(xc, 3.2, 4.8);
+  body.castShadow = body.receiveShadow = true;
+  body.userData = { kind: "conn", board: boardName, ref: slotName, part: "DIN 41612 type C, 96 pins, female right-angle",
+    pkg: "press-fit", group: slotName === "P1" ? "the A and B buses, a ground between each pair" : "the 64 control lines, the clocks between grounds, 5 V" };
+  group.add(body);
+  pickables.push(body);
+  for (const dx of [-1, 1]) {
+    const ear = new THREE.Mesh(UNIT, M.din);
+    ear.scale.set(5.5, 8, 2.2);
+    ear.position.set(xc + dx * (CONN_LEN / 2 + 2.6), 4.2, 1.1);
+    group.add(ear);
+  }
+  return body;
+}
+
+function frontPart(group, f, boardName, leads, holes) {
+  const add = (mat, sx, sy, sz, x, y, z, info) => {
+    const m = new THREE.Mesh(UNIT, mat);
+    m.scale.set(sx, sy, sz); m.position.set(x, y, z);
+    m.castShadow = m.receiveShadow = true;
+    if (info) { m.userData = Object.assign({ kind: "front", board: boardName }, info); pickables.push(m); }
+    group.add(m);
+    return m;
+  };
+  const cyl = (mat, r, len, x, y, z, info) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 28), mat);
+    m.position.set(x, y, z);  // axis along Y, out through the panel
+    m.castShadow = true;
+    if (info) { m.userData = Object.assign({ kind: "front", board: boardName }, info); pickables.push(m); }
+    group.add(m);
+    return m;
+  };
+  const x = f.x;
+  if (f.kind === "de9" || f.kind === "de15") {
+    const vga = f.kind === "de15";
+    const info = vga ? { ref: "J_VGA", part: "DE-15 female, right-angle", pkg: "through-hole", group: "VGA out from the ADV7125" }
+      : { ref: "J_" + f.ref, part: "DE-9 male, right-angle", pkg: "through-hole", group: "RS-232 from " + f.ref.replace("SER", "UART ") + " via its MAX232" };
+    add(vga ? M.vga : M.black, 25, 11, 10, x, BH - 6.5, 5.6, info);
+    add(M.shell, 31, 0.8, 12.6, x, BH + 0.4, 6.3);
+    // the D: a trapezoid shell through the panel
+    const sh = new THREE.Shape();
+    const tw = vga ? 8.3 : 8.3, bw = 6.9, hh = 3.9;
+    sh.moveTo(-tw, hh); sh.lineTo(tw, hh); sh.lineTo(bw, -hh); sh.lineTo(-bw, -hh); sh.lineTo(-tw, hh);
+    const inner = new THREE.Path();
+    inner.moveTo(-tw + 0.6, hh - 0.6); inner.lineTo(-bw + 0.5, -hh + 0.6); inner.lineTo(bw - 0.5, -hh + 0.6); inner.lineTo(tw - 0.6, hh - 0.6); inner.lineTo(-tw + 0.6, hh - 0.6);
+    sh.holes.push(inner);
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 6.2, bevelEnabled: false });
+    const d = new THREE.Mesh(geo, M.shell);
+    // shape x -> board X, shape y -> board Z, extrusion -> board +Y
+    d.matrixAutoUpdate = false;
+    d.matrix.makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, -1, 0));
+    d.matrix.premultiply(new THREE.Matrix4().makeTranslation(x, BH + 6.6, 6.3));
+    d.castShadow = true;
+    group.add(d);
+    const insert = add(vga ? M.vga : M.black, 13.8, 5.5, 6.2, x, BH + 3.4, 6.3);
+    insert.scale.set(12.6, 5.6, 6.0);
+    for (const dx of [-12.5, 12.5]) cyl(M.shell, 2.2, 5.2, x + dx, BH + 3.2, 6.3);
+    holes.push({ type: "rrect", x, z: 6.3, w: 19.2, h: 10.4, r: 1.6 });
+    holes.push({ type: "circle", x: x - 12.5, z: 6.3, r: 1.7 });
+    holes.push({ type: "circle", x: x + 12.5, z: 6.3, r: 1.7 });
+  } else if (f.kind === "ps2k" || f.kind === "ps2m") {
+    const kbd = f.kind === "ps2k";
+    const info = { ref: "J_PS2", part: "mini-DIN 6, right-angle", pkg: "through-hole",
+      group: kbd ? "PS/2 keyboard (U_KBD, its 74F299)" : "PS/2 mouse (U_MSE, its 74F299)" };
+    add(M.shell, 14, 13, 13, x, BH - 6.5, 6.8, info);
+    cyl(kbd ? M.ps2k : M.ps2m, 4.5, 4.2, x, BH + 1.6, 6.8).rotation.x = 0;
+    holes.push({ type: "circle", x, z: 6.8, r: 5.2 });
+  } else if (f.kind === "jack") {
+    add(M.black, 6.2, 12, 5.2, x, BH - 6.0, 2.6, { ref: "J_AUDIO", part: "3.5 mm jack", pkg: "through-hole", group: "audio: DAC0832 and its MCP6002 buffer" });
+    cyl(M.jack, 2.9, 5.0, x, BH + 1.8, 2.6);
+    holes.push({ type: "circle", x, z: 2.6, r: 3.3 });
+  } else if (f.kind === "button") {
+    add(M.black, 6.2, 6.2, 4.0, x, BH - 3.2, 2.0, { ref: "SW_RESET", part: "tactile switch, right-angle", pkg: "through-hole", group: "reset, into the TL7705A" });
+    cyl(M.btn, 1.7, 7.0, x, BH + 2.4, 2.0);
+    holes.push({ type: "circle", x, z: 2.0, r: 2.2 });
+  } else if (f.kind === "cf") {
+    const info = { ref: "U_CF", part: "CompactFlash socket, Type I", pkg: "through-hole header", group: "CF card in 16-bit True IDE" };
+    add(M.black, 43, 5, 4.6, x, BH - 36.5, 2.3, info);
+    add(M.black, 2.4, 33, 4.6, x - 21.3, BH - 17.5, 2.3, info);
+    add(M.black, 2.4, 33, 4.6, x + 21.3, BH - 17.5, 2.3, info);
+    const card = add(M.cf, 40.6, 38.0, 3.3, x, BH - 15.2, 2.8, info);
+    // the card's label
+    const cv = canvas(406, 300), g = cv.getContext("2d");
+    g.fillStyle = "#2d3136"; g.fillRect(0, 0, 406, 300);
+    g.fillStyle = "#d9dde2"; g.fillRect(20, 40, 366, 170);
+    g.fillStyle = "#1e2226"; g.font = '700 64px "Barlow Condensed", sans-serif'; g.textAlign = "center";
+    g.fillText("CompactFlash", 203, 120);
+    g.font = '500 40px "IBM Plex Mono", monospace'; g.fillText("128 MB · ROOT", 203, 180);
+    const lab = new THREE.Mesh(new THREE.PlaneGeometry(36, 26), new THREE.MeshStandardMaterial({ map: tex(cv), roughness: 0.6 }));
+    lab.position.set(x, BH - 20, 4.47);
+    group.add(lab);
+    holes.push({ type: "rrect", x, z: 2.8, w: 43.4, h: 4.6, r: 0.6 });
+  }
+}
+
+function frontPanel(name, bd, holes, populated) {
+  const g = new THREE.Group();
+  // the plate: shape x = board X, shape y = -board Z
+  const s = new THREE.Shape();
+  const x0 = PANEL_LO, x1 = PANEL_HI, y0 = -PANEL_Z1, y1 = -PANEL_Z0;
+  s.moveTo(x0, y0); s.lineTo(x1, y0); s.lineTo(x1, y1); s.lineTo(x0, y1); s.lineTo(x0, y0);
+  const hole = (h) => {
+    const p = new THREE.Path();
+    if (h.type === "circle") { p.absarc(h.x, -h.z, h.r, 0, Math.PI * 2, true); }
+    else {
+      const a = h.x - h.w / 2, b = h.x + h.w / 2, c = -h.z - h.h / 2, d = -h.z + h.h / 2, r = h.r;
+      p.moveTo(a + r, c); p.lineTo(b - r, c); p.quadraticCurveTo(b, c, b, c + r); p.lineTo(b, d - r);
+      p.quadraticCurveTo(b, d, b - r, d); p.lineTo(a + r, d); p.quadraticCurveTo(a, d, a, d - r); p.lineTo(a, c + r); p.quadraticCurveTo(a, c, a + r, c);
+    }
+    s.holes.push(p);
+  };
+  holes.forEach(hole);
+  // the LED, the screws
+  if (populated) hole({ type: "circle", x: BW - 11, z: 6.0, r: 1.6 });
+  for (const x of [PANEL_LO + 3.5, PANEL_HI - 3.5]) hole({ type: "circle", x, z: 5.6, r: 1.4 });
+  const geo = new THREE.ExtrudeGeometry(s, { depth: 2.0, bevelEnabled: false, curveSegments: 18 });
+  const plate = new THREE.Mesh(geo, M.panel);
+  plate.matrixAutoUpdate = false;
+  plate.matrix.makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0));
+  plate.matrix.premultiply(new THREE.Matrix4().makeTranslation(0, BH + 0.3, 0));
+  plate.castShadow = plate.receiveShadow = true;
+  g.add(plate);
+  // screws
+  for (const x of [PANEL_LO + 3.5, PANEL_HI - 3.5]) {
+    const sc = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 2.4, 20), M.rail);
+    sc.position.set(x, BH + 3.4, 5.6);
+    g.add(sc);
+  }
+  if (!populated) return g;
+  // handles: black grips at both ends, the board's colour on the top one
+  for (const [x, top] of [[PANEL_LO + 11.5, false], [PANEL_HI - 11.5, true]]) {
+    const h = new THREE.Mesh(UNIT, M.handle);
+    h.scale.set(9, 16, 16); h.position.set(x, BH + 10.3, 5.6);
+    h.castShadow = true;
+    g.add(h);
+    const lip = new THREE.Mesh(UNIT, M.handle);
+    lip.scale.set(4, 6, 16); lip.position.set(top ? x - 6.5 : x + 6.5, BH + 15.3, 5.6);
+    g.add(lip);
+    if (top) {
+      const id = new THREE.Mesh(UNIT, new THREE.MeshStandardMaterial({ color: IDCOLOR[name], roughness: 0.45 }));
+      id.scale.set(6, 0.4, 12); id.position.set(x, BH + 18.4, 5.6);
+      g.add(id);
+    }
+  }
+  // the print: plane x = board Z (across the panel), plane y = board X (up it)
+  const P = 12, cv = canvas(20 * P, (PANEL_HI - PANEL_LO) * P), c = cv.getContext("2d");
+  const py = (bx) => (PANEL_HI - bx) * P, px = (bz) => (bz - PANEL_Z0) * P;
+  c.fillStyle = "#1c2c4a"; c.textAlign = "center";
+  c.font = `700 ${5.4 * P}px "Barlow Condensed", sans-serif`;
+  c.fillText(name, px(5.6), py(BW - 27));
+  c.font = `500 ${1.9 * P}px "Barlow Condensed", sans-serif`;
+  c.fillText("HERON · REED", px(5.6), py(BW - 31.5));
+  c.font = `600 ${1.8 * P}px "Barlow Condensed", sans-serif`;
+  c.fillText("PWR", px(5.6), py(BW - 15.5));
+  const labels = { SER0: "SERIAL 0", SER1: "SERIAL 1", PS2K: "KBD", PS2M: "MOUSE", AUDIO: "AUDIO", RESET: "RESET", CF: "CF", VGA: "VGA" };
+  for (const f of bd.front) {
+    const off = { de9: 17.5, de15: 17.5, ps2k: 8.6, ps2m: 8.6, jack: 5.0, button: 4.0, cf: 23.5 }[f.kind];
+    c.save();
+    c.translate(px(f.kind === "cf" ? 10.5 : 13.2), py(f.x));
+    c.rotate(-Math.PI / 2);
+    c.font = `600 ${1.75 * P}px "Barlow Condensed", sans-serif`;
+    c.textAlign = "center"; c.textBaseline = "middle";
+    if (f.kind === "cf" || f.kind === "de9" || f.kind === "de15") c.fillText(labels[f.ref], 0, 0);
+    c.restore();
+    if (!(f.kind === "cf" || f.kind === "de9" || f.kind === "de15")) {
+      c.save(); c.translate(px(13.2), py(f.x)); c.rotate(-Math.PI / 2);
+      c.font = `600 ${1.6 * P}px "Barlow Condensed", sans-serif`; c.textAlign = "center"; c.textBaseline = "middle";
+      c.fillText(labels[f.ref], 0, 0); c.restore();
+    }
+  }
+  const print = new THREE.Mesh(new THREE.PlaneGeometry(20, PANEL_HI - PANEL_LO),
+    new THREE.MeshStandardMaterial({ map: tex(cv), transparent: true, roughness: 0.5, metalness: 0.0, depthWrite: false }));
+  print.matrixAutoUpdate = false;
+  print.matrix.makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0));
+  print.matrix.premultiply(new THREE.Matrix4().makeTranslation((PANEL_LO + PANEL_HI) / 2, BH + 2.33, (PANEL_Z0 + PANEL_Z1) / 2));
+  g.add(print);
+  // the LED's lens
+  const led = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 3.5, 18), M.ledG);
+  led.position.set(BW - 11, BH + 1.2, 6.0);
+  g.add(led);
+  const holder = new THREE.Mesh(UNIT, M.black);
+  holder.scale.set(5, 6, 9); holder.position.set(BW - 11, BH - 3, 4.5);
+  g.add(holder);
+  return g;
+}
+
+function buildBoard(name, slot, mask) {
+  const bd = DATA.boards[name];
+  const group = new THREE.Group();
+  const mats = boardMats(name, mask);
+  const pcb = new THREE.Mesh(UNIT, mats);
+  pcb.scale.set(BW, BH, 1.6);
+  pcb.position.set(BW / 2, BH / 2, -0.8);
+  pcb.receiveShadow = true; pcb.castShadow = true;
+  pcb.userData = { kind: "board", board: name };
+  group.add(pcb);
+  pickables.push(pcb);
+  const ctx = { group, pick: pickables, leads: [], caps: [], capPads: [] };
+  for (const c of bd.chips) buildChip(name, c, ctx);
+  femaleDIN(group, CONN.P1, name, "P1");
+  femaleDIN(group, CONN.P2, name, "P2");
+  // bulk capacitors
+  for (const x of [128.5, 135.5]) {
+    const e = new THREE.Mesh(new THREE.CylinderGeometry(3.15, 3.15, 11, 24), [M.elyt, M.elytTop, M.elyt]);
+    e.rotation.x = Math.PI / 2; e.position.set(x, 6.0, 5.5);
+    e.castShadow = true;
+    group.add(e);
+  }
+  // leads and capacitors, instanced
+  const leads = new THREE.InstancedMesh(UNIT, M.lead, ctx.leads.length);
+  ctx.leads.forEach((m, i) => leads.setMatrixAt(i, m));
+  group.add(leads);
+  const caps = new THREE.InstancedMesh(UNIT, M.cap, ctx.caps.length);
+  ctx.caps.forEach((m, i) => caps.setMatrixAt(i, m));
+  caps.castShadow = true;
+  group.add(caps);
+  const ends = new THREE.InstancedMesh(UNIT, M.lead, ctx.capPads.length * 2);
+  ctx.capPads.forEach(([x, y], i) => {
+    for (const s of [0, 1]) ends.setMatrixAt(i * 2 + s, new THREE.Matrix4().makeTranslation(x + (s ? 0.85 : -0.85), y, 0.46).scale(new THREE.Vector3(0.32, 1.27, 0.84)));
+  });
+  group.add(ends);
+  // the front
+  const holes = [];
+  for (const f of bd.front) frontPart(group, f, name, ctx.leads, holes);
+  const panel = frontPanel(name, bd, holes, true);
+  group.add(panel);
+  // panel bracket
+  for (const x of [5.0, BW - 5.0]) {
+    const br = new THREE.Mesh(UNIT, M.rail);
+    br.scale.set(8, 6, 9); br.position.set(x, BH - 2.7, 4.5);
+    group.add(br);
+  }
+  scene.add(group);
+  boards[name] = { group, slot, pcb, panel, name };
+}
+
+// ---------------------------------------------------------------- the cage
+// world: x across the slots, y up (the boards' long edge), z toward the front
+const Q_CAGE = new THREE.Quaternion().setFromRotationMatrix(
+  new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 0, 0)));
+const slotX = (i) => i * PITCH;
+const BP_Z = -10.0, BP_T = 2.4;
+const BP_X0 = -18, BP_X1 = slotX(SLOTS - 1) + 28;
+const cage = new THREE.Group();
+scene.add(cage);
+const blanks = new THREE.Group();
+scene.add(blanks);
+let backplaneMesh = null;
+
+function drawBackplane(mask) {
+  const P = 7, w = BP_X1 - BP_X0, h = PANEL_HI - PANEL_LO;
+  const cv = canvas(w * P, h * P), g = cv.getContext("2d");
+  const X = (x) => (x - BP_X0) * P, Y = (y) => (PANEL_HI - y) * P;
+  g.fillStyle = mask.mask; g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = mask.id === "white" ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.045)";
+  g.fillRect(X(BP_X0 + 1.5), Y(PANEL_HI - 1.5), (w - 3) * P, (h - 3) * P);
+  g.strokeStyle = mask.silk; g.fillStyle = mask.silk; g.lineWidth = 0.18 * P;
+  const HASL = "#cfd3d7";
+  // connector pads and outlines, per slot and connector
+  for (let i = 0; i < SLOTS; i++) {
+    const cx = slotX(i) + 4.8;
+    for (const [nm, yc] of Object.entries(CONN)) {
+      g.strokeRect(X(cx - 5.2), Y(yc + CONN_LEN / 2 + 1.5), 10.4 * P, (CONN_LEN + 3) * P);
+      g.fillStyle = HASL;
+      for (let k = 0; k < 32; k++) for (let r = -1; r <= 1; r++) { g.beginPath(); g.arc(X(cx + r * 2.54), Y(yc - 39.37 + k * 2.54), 0.5 * P, 0, 7); g.fill(); }
+      g.fillStyle = mask.silk;
+      g.font = `600 ${2.0 * P}px "Barlow Condensed", sans-serif`; g.textAlign = "center";
+      g.fillText(`J${i + 1}${nm === "P1" ? "A" : "B"}`, X(cx), Y(yc - CONN_LEN / 2 - 4.5));
+    }
+    const occupant = ORDER[i];
+    g.font = `700 ${3.4 * P}px "Barlow Condensed", sans-serif`; g.textAlign = "center";
+    g.fillText(String(i + 1), X(slotX(i) + 4.8), Y(PANEL_HI - 7));
+    g.font = `600 ${1.8 * P}px "Barlow Condensed", sans-serif`;
+    g.fillText(occupant || "spare", X(slotX(i) + 4.8), Y(PANEL_HI - 10.5));
+    // decoupling between connectors
+    g.fillStyle = HASL;
+    for (const y of [116, 136, 30, 236]) { g.fillRect(X(slotX(i) + 12.5), Y(y + 1), 1.1 * P, 0.8 * P); g.fillRect(X(slotX(i) + 12.5), Y(y - 0.2), 1.1 * P, 0.8 * P); }
+    g.fillStyle = mask.silk;
+  }
+  // bus termination, both ends of P1's rows: open (RFC 0049, question 5)
+  g.font = `600 ${1.8 * P}px "Barlow Condensed", sans-serif`;
+  g.save(); g.translate(X(BP_X0 + 3.4), Y(CONN.P1)); g.rotate(-Math.PI / 2); g.textAlign = "center";
+  g.fillText("A/B TERMINATION · OPEN", 0, 0); g.restore();
+  g.save(); g.translate(X(BP_X1 - 2.2), Y(CONN.P1)); g.rotate(-Math.PI / 2); g.textAlign = "center";
+  g.fillText("A/B TERMINATION · OPEN", 0, 0); g.restore();
+  // title
+  g.textAlign = "left";
+  g.font = `700 ${4.6 * P}px "Barlow Condensed", sans-serif`;
+  g.fillText("REED BACKPLANE", X(BP_X0 + 6), Y(108.5));
+  g.font = `500 ${1.7 * P}px "IBM Plex Mono", monospace`;
+  g.fillText("8 SLOTS · 20.32 mm · 2 × DIN 41612 C", X(BP_X0 + 6), Y(103.2));
+  g.fillText("HERON · RFC 0049 DESIGN A · REV 0", X(BP_X0 + 6), Y(99.6));
+  g.font = `600 ${2.2 * P}px "Barlow Condensed", sans-serif`;
+  g.fillText("+5V   GND   GND   +5V", X(BP_X0 + 6), Y(-6.0));
+  return cv;
+}
+
+function buildCage(mask) {
+  // the backplane
+  const w = BP_X1 - BP_X0, h = PANEL_HI - PANEL_LO;
+  const t = tex(drawBackplane(mask));
+  const base = new THREE.Color(parseInt(mask.mask.slice(1), 16));
+  const edge = base.clone().lerp(new THREE.Color(0xd9cf9d), 0.5);
+  const bp = new THREE.Mesh(UNIT, [new THREE.MeshStandardMaterial({ color: edge, roughness: 0.7 }), new THREE.MeshStandardMaterial({ color: edge, roughness: 0.7 }),
+    new THREE.MeshStandardMaterial({ color: edge, roughness: 0.7 }), new THREE.MeshStandardMaterial({ color: edge, roughness: 0.7 }),
+    new THREE.MeshStandardMaterial({ map: t, roughness: 0.48 }), new THREE.MeshStandardMaterial({ color: base, roughness: 0.5 })]);
+  bp.scale.set(w, h, BP_T);
+  bp.position.set((BP_X0 + BP_X1) / 2, (PANEL_LO + PANEL_HI) / 2, BP_Z - BP_T / 2);
+  bp.receiveShadow = true;
+  bp.userData = { kind: "backplane" };
+  backplaneMesh = bp;
+  scene.add(bp);
+  pickables.push(bp);
+  // male connectors: a shroud with 96 pins in it
+  const pinTex = (() => {
+    const P = 8, cv = canvas(9.6 * P, 88 * P), g = cv.getContext("2d");
+    g.fillStyle = "#c8c6bd"; g.fillRect(0, 0, cv.width, cv.height);
+    g.fillStyle = "#3b3c3f"; g.fillRect(1.0 * P, 1.6 * P, 7.6 * P, 84.8 * P);
+    g.fillStyle = "#d8b25c";
+    for (let k = 0; k < 32; k++) for (let r = -1; r <= 1; r++) { g.beginPath(); g.arc(4.8 * P + r * 2.54 * P, (44 - 39.37 + k * 2.54) * P, 0.42 * P, 0, 7); g.fill(); }
+    return tex(cv);
+  })();
+  const shroudMats = [M.din, M.din, M.din, M.din, new THREE.MeshStandardMaterial({ map: pinTex, roughness: 0.5, metalness: 0.2 }), M.din];
+  for (let i = 0; i < SLOTS; i++) {
+    for (const [nm, yc] of Object.entries(CONN)) {
+      const m = new THREE.Mesh(UNIT, shroudMats);
+      m.scale.set(9.6, 88, 8.0);
+      m.position.set(slotX(i) + 4.8, yc, BP_Z + 4.0);
+      m.castShadow = m.receiveShadow = true;
+      m.userData = { kind: "bpconn", slot: i + 1, ref: `J${i + 1}${nm === "P1" ? "A" : "B"}`, nm };
+      scene.add(m);
+      pickables.push(m);
+    }
+  }
+  // termination networks (SIPs), terminal block, bulk capacitors
+  for (const x of [BP_X0 + 7.5, BP_X1 - 7.0]) {
+    for (let k = 0; k < 3; k++) {
+      const s = new THREE.Mesh(UNIT, M.sip);
+      s.scale.set(2.5, 25.4, 5.0);
+      s.position.set(x + (k % 2 ? 0 : 0), CONN.P1 - 28 + k * 28, BP_Z + 2.5);
+      s.castShadow = true;
+      s.userData = { kind: "bpterm" };
+      scene.add(s);
+      pickables.push(s);
+    }
+  }
+  const tb = new THREE.Mesh(UNIT, M.term);
+  tb.scale.set(4 * 5.08 + 2, 8, 10); tb.position.set(BP_X0 + 18, -1.5, BP_Z + 5);
+  tb.castShadow = true;
+  tb.userData = { kind: "bppower" };
+  scene.add(tb);
+  pickables.push(tb);
+  for (const x of [BP_X0 + 46, BP_X0 + 60]) {
+    const e = new THREE.Mesh(new THREE.CylinderGeometry(5, 5, 16, 28), [M.elyt, M.elytTop, M.elyt]);
+    e.rotation.x = Math.PI / 2; e.position.set(x, -1.5, BP_Z + 8);
+    e.castShadow = true;
+    scene.add(e);
+  }
+
+  // rails, guides
+  const railY = [-9.5, BW + 9.5];
+  for (const y of railY) for (const z of [6, 150]) {
+    const r = new THREE.Mesh(UNIT, M.rail);
+    r.scale.set(BP_X1 - BP_X0 + 10, 9, 9); r.position.set((BP_X0 + BP_X1) / 2, y, z);
+    r.castShadow = r.receiveShadow = true;
+    cage.add(r);
+  }
+  for (let i = 0; i < SLOTS; i++) for (const y of [-3.0, BW + 3.0]) {
+    const gd = new THREE.Mesh(UNIT, M.guide);
+    gd.scale.set(5.0, 4.5, 158); gd.position.set(slotX(i) - 0.8, y, 80);
+    gd.castShadow = gd.receiveShadow = true;
+    cage.add(gd);
+  }
+  // side plates, cut away: an outline frame each end
+  for (const x of [BP_X0 - 4, BP_X1 + 4]) {
+    for (const [sy, sz, py, pz] of [[PANEL_HI - PANEL_LO, 8, (PANEL_LO + PANEL_HI) / 2, 4], [PANEL_HI - PANEL_LO, 8, (PANEL_LO + PANEL_HI) / 2, 152],
+      [10, 156, -9.5, 78], [10, 156, BW + 9.5, 78]]) {
+      const p = new THREE.Mesh(UNIT, M.rail);
+      p.scale.set(2, sy, sz); p.position.set(x, py, pz);
+      p.castShadow = p.receiveShadow = true;
+      cage.add(p);
+    }
+  }
+  // blank panels in the spare slots
+  for (let i = ORDER.length; i < SLOTS; i++) {
+    const pg = frontPanel("", { front: [] }, [], false);
+    pg.position.set(slotX(i), 0, 0);
+    pg.quaternion.copy(Q_CAGE);
+    blanks.add(pg);
+  }
+}
+
+// ---------------------------------------------------------------- views and motion
+const centre = new THREE.Vector3(slotX(3.5), BW / 2, 70);
+const VIEWS = {
+  cage: { cam: new THREE.Vector3(470, 330, 600), target: centre.clone().add(new THREE.Vector3(-10, -6, 0)) },
+  exploded: { cam: new THREE.Vector3(900, 520, 1040), target: new THREE.Vector3(150, 110, 210) },
+};
+const DISPLAY_Z = 320, DISPLAY_Y = 84;
+
+function poseCage(i) { return { pos: new THREE.Vector3(slotX(i), 0, 0), quat: Q_CAGE.clone() }; }
+function poseSlid(i, dz) { return { pos: new THREE.Vector3(slotX(i), 0, dz), quat: Q_CAGE.clone() }; }
+function poseExploded(i) {
+  return { pos: new THREE.Vector3(slotX(i) + i * 64, 0, 190 + (ORDER.length - 1 - i) * 46), quat: Q_CAGE.clone() };
+}
+function poseDisplay() {
+  // upright, facing the viewer: board X across, front panel at the top
+  return { pos: new THREE.Vector3(centre.x - BW / 2, DISPLAY_Y, DISPLAY_Z), quat: new THREE.Quaternion() };
+}
+
+let view = "cage";
+let anims = [];
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function currentPose(b) { return { pos: b.group.position.clone(), quat: b.group.quaternion.clone() }; }
+function animateBoard(b, keys, dur) {
+  anims = anims.filter((a) => a.b !== b);
+  anims.push({ b, keys: [currentPose(b), ...keys], t0: performance.now(), dur: reduced ? 1 : dur });
+}
+let camAnim = null;
+function animateCamera(pos, target, dur) {
+  camAnim = { p0: camera.position.clone(), t0v: controls.target.clone(), p1: pos, t1: target, t0: performance.now(), dur: reduced ? 1 : dur };
+}
+
+function setView(v, instant) {
+  const prev = view;
+  view = v;
+  const dur = instant ? 1 : 1500;
+  ORDER.forEach((name, i) => {
+    const b = boards[name];
+    const atHome = b.group.position.distanceTo(poseCage(i).pos) < 0.5;
+    const inFront = b.group.position.z > 100;
+    let keys;
+    if (v === "cage") {
+      keys = atHome ? [poseCage(i)] : [poseSlid(i, 185), poseCage(i)];
+    } else if (v === "exploded") {
+      keys = atHome ? [poseSlid(i, 185), poseExploded(i)] : [poseSlid(i, 185 + i * 0), poseExploded(i)];
+      if (inFront && !atHome) keys = [poseExploded(i)];
+    } else if (v === name) {
+      keys = atHome ? [poseSlid(i, 185), poseDisplay()] : [poseSlid(i, 185), poseDisplay()];
+      if (prev === "exploded") keys = [poseSlid(i, 220), poseDisplay()];
+    } else {
+      keys = atHome ? [poseCage(i)] : [poseSlid(i, 185), poseCage(i)];
+    }
+    if (instant) { const k = keys[keys.length - 1]; b.group.position.copy(k.pos); b.group.quaternion.copy(k.quat); }
+    else animateBoard(b, keys, dur);
+  });
+  let cam, target;
+  if (VIEWS[v]) { cam = VIEWS[v].cam.clone(); target = VIEWS[v].target.clone(); }
+  else {
+    const t = new THREE.Vector3(centre.x, DISPLAY_Y + BH / 2 + 4, DISPLAY_Z);
+    const aspect = camera.aspect;
+    const narrow = window.innerWidth < 760;
+    const span = Math.max(BW * 1.15 / aspect, (BH + 30) * 1.15) * (narrow ? 1.2 : 1.32);
+    const dist = span / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    // shift so the board sits clear of the inspector on wide screens
+    if (!narrow) t.x += BW * 0.2;
+    target = t.clone();
+    cam = new THREE.Vector3(t.x + dist * 0.1, t.y + dist * 0.12, t.z + dist * 0.99);
+  }
+  if (instant) { camera.position.copy(cam); controls.target.copy(target); controls.update(); }
+  else animateCamera(cam, target, dur);
+  document.querySelectorAll("#views button").forEach((bt) => bt.setAttribute("aria-pressed", String(bt.dataset.view === v)));
+  if (location.hash.slice(1) !== v.toLowerCase()) history.replaceState(null, "", "#" + v.toLowerCase());
+  renderInspector();
+  dirty = true;
+}
+
+function stepAnims(now) {
+  let active = false;
+  for (const a of anims) {
+    const t = Math.max(0, Math.min(1, (now - a.t0) / a.dur)), e = ease(t);
+    const n = a.keys.length - 1, f = e * n, k = Math.min(n - 1, Math.floor(f)), u = f - k;
+    const A = a.keys[k], B = a.keys[k + 1];
+    a.b.group.position.lerpVectors(A.pos, B.pos, u);
+    a.b.group.quaternion.copy(A.quat).slerp(B.quat, u);
+    if (t < 1) active = true; else a.done = true;
+  }
+  anims = anims.filter((a) => !a.done);
+  if (camAnim) {
+    const t = Math.max(0, Math.min(1, (now - camAnim.t0) / camAnim.dur)), e = ease(t);
+    camera.position.lerpVectors(camAnim.p0, camAnim.p1, e);
+    controls.target.lerpVectors(camAnim.t0v, camAnim.t1, e);
+    if (t >= 1) camAnim = null; else active = true;
+  }
+  return active;
+}
+
+// ---------------------------------------------------------------- picking and the inspector
+const ray = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let hover = null, pinned = null;
+const outline = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)),
+  new THREE.LineBasicMaterial({ color: 0xf2b33d, depthTest: false, transparent: true }));
+outline.renderOrder = 10;
+outline.visible = false;
+scene.add(outline);
+
+function pick(ev) {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  const hits = ray.intersectObjects(pickables.filter((o) => o.visible !== false && (o.parent ? o.parent.visible !== false : true)), false);
+  return hits.length ? hits[0].object : null;
+}
+function showOutline(o) {
+  if (!o || !["chip", "conn", "front", "bpconn"].includes(o.userData.kind)) { outline.visible = false; return; }
+  o.updateWorldMatrix(true, false);
+  outline.matrixAutoUpdate = false;
+  outline.matrix.copy(o.matrixWorld).multiply(new THREE.Matrix4().makeScale(1.08, 1.08, 1.15));
+  outline.visible = true;
+}
+
+const inspector = document.getElementById("inspector");
+const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+function boardOfView() { return ORDER.includes(view) ? view : null; }
+function partHTML(u) {
+  if (!u) return "";
+  if (u.kind === "chip" || u.kind === "conn" || u.kind === "front") {
+    return `<dl class="part"><dd class="ref">${esc(u.board)} · ${esc(u.ref)}</dd>
+      <dt>part</dt><dd>${esc(u.part)}</dd><dt>package</dt><dd>${esc(u.pkg)}</dd>
+      <dt>${u.kind === "chip" ? "group" : "carries"}</dt><dd>${esc(u.group || "—")}</dd></dl>`;
+  }
+  if (u.kind === "bpconn") {
+    const who = ORDER[u.slot - 1] || "spare";
+    return `<dl class="part"><dd class="ref">Backplane · ${esc(u.ref)}</dd>
+      <dt>slot</dt><dd>${u.slot} (${esc(who)})</dd><dt>part</dt><dd>DIN 41612 type C, 96 pins, male</dd>
+      <dt>carries</dt><dd>${u.nm === "P1" ? "A0–A31 in row a, B0–B31 in row c, grounds in row b" : "the control lines in rows a and c, grounds and 5 V in row b"}</dd></dl>`;
+  }
+  if (u.kind === "bpterm") return `<dl class="part"><dd class="ref">Backplane · termination</dd><dt>status</dt><dd>open: RFC 0049 leaves the buses' termination undecided</dd></dl>`;
+  if (u.kind === "bppower") return `<dl class="part"><dd class="ref">Backplane · power</dd><dt>part</dt><dd>4-pole terminal block, 5.08 mm</dd><dt>carries</dt><dd>+5 V and ground to every slot's P2 row b</dd></dl>`;
+  return "";
+}
+function renderInspector() {
+  const name = boardOfView();
+  const u = (pinned || hover) ? (pinned || hover).userData : null;
+  let html;
+  if (name) {
+    const bd = DATA.boards[name], s = bd.stats;
+    html = `<h2><span class="dot" style="background:${IDCOLOR[name]}"></span>${name}</h2>
+      <p class="desc">${esc(bd.desc)}.</p>
+      <div class="stats"><div class="stat"><b>${s.packages}</b><span>packages</span></div>
+      <div class="stat"><b>${s.area}</b><span>area units</span></div>
+      <div class="stat"><b>${s.gals}</b><span>22V10s</span></div></div>
+      <div class="meter"><div class="bar"><i style="width:${Math.min(100, (s.area / 70) * 100).toFixed(1)}%"></i></div>
+      <small>${s.area} of the 70 units a double Eurocard holds (RFC 0049, B1)</small></div>`;
+  } else {
+    const tot = ORDER.reduce((a, n) => a + DATA.boards[n].stats.packages, 0);
+    html = `<h2>${view === "exploded" ? "Exploded" : "The cage"}</h2>
+      <p class="desc">Slots 1–5 hold CTRL, ALU, MEM, IO and VIDEO; 6–8 are spare. Each board meets the backplane at P1 (the A and B buses) and P2 (the control lines).</p>
+      <div class="stats"><div class="stat"><b>5</b><span>boards</span></div><div class="stat"><b>${tot}</b><span>packages</span></div><div class="stat"><b>128</b><span>bus lines</span></div></div>`;
+  }
+  html += partHTML(u) || `<p class="hint">${name ? "Point at a package to see its part and what it's for." : "Click a board to take it out of the cage. Drag to orbit, scroll to zoom."}</p>`;
+  inspector.innerHTML = html;
+}
+
+let downAt = null;
+renderer.domElement.addEventListener("pointerdown", (ev) => { downAt = [ev.clientX, ev.clientY]; });
+renderer.domElement.addEventListener("pointermove", (ev) => {
+  if (ev.buttons) return;
+  const o = pick(ev);
+  if (o !== hover) {
+    hover = o;
+    if (!pinned) showOutline(hover);
+    renderer.domElement.style.cursor = o && o.userData.board ? "pointer" : "";
+    renderInspector();
+    dirty = true;
+  }
+});
+renderer.domElement.addEventListener("pointerup", (ev) => {
+  if (!downAt || Math.hypot(ev.clientX - downAt[0], ev.clientY - downAt[1]) > 5) return;
+  const o = pick(ev);
+  const u = o ? o.userData : null;
+  if (u && u.board && boardOfView() !== u.board) { pinned = null; showOutline(null); setView(u.board); return; }
+  if (u && u.kind === "bpconn" && ORDER[u.slot - 1] && boardOfView() !== ORDER[u.slot - 1]) { pinned = null; setView(ORDER[u.slot - 1]); return; }
+  pinned = o && ["chip", "conn", "front", "bpconn", "bpterm", "bppower"].includes(u.kind) ? o : null;
+  showOutline(pinned || hover);
+  renderInspector();
+  dirty = true;
+});
+renderer.domElement.addEventListener("pointerleave", () => { hover = null; if (!pinned) showOutline(null); renderInspector(); dirty = true; });
+
+// ---------------------------------------------------------------- controls in the page
+const viewsNav = document.getElementById("views");
+for (const name of ORDER) {
+  const b = document.createElement("button");
+  b.id = "v-" + name.toLowerCase();
+  b.dataset.view = name;
+  b.setAttribute("aria-pressed", "false");
+  b.innerHTML = `<span class="dot" style="background:${IDCOLOR[name]}"></span>${name}`;
+  viewsNav.appendChild(b);
+}
+viewsNav.addEventListener("click", (ev) => {
+  const b = ev.target.closest("button");
+  if (!b) return;
+  pinned = null; showOutline(null);
+  setView(b.dataset.view);
+});
+document.getElementById("t-panels").addEventListener("change", (ev) => {
+  for (const n of ORDER) boards[n].panel.visible = ev.target.checked;
+  blanks.visible = ev.target.checked;
+  dirty = true;
+});
+document.getElementById("t-cage").addEventListener("change", (ev) => { cage.visible = ev.target.checked; dirty = true; });
+
+let maskId = store.get("reed-mask") || "green";
+if (!MASKS.find((m) => m.id === maskId)) maskId = "green";
+const swatches = document.getElementById("masks");
+for (const m of MASKS) {
+  const b = document.createElement("button");
+  b.id = "mask-" + m.id;
+  b.style.background = m.mask;
+  b.title = m.name + " solder mask";
+  b.setAttribute("aria-label", m.name + " solder mask");
+  b.setAttribute("aria-pressed", String(m.id === maskId));
+  b.addEventListener("click", () => setMask(m.id));
+  swatches.appendChild(b);
+}
+function setMask(id) {
+  maskId = id;
+  store.set("reed-mask", id);
+  const mask = MASKS.find((m) => m.id === id);
+  for (const n of ORDER) {
+    const pcb = boards[n].pcb;
+    pcb.material.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
+    pcb.material = boardMats(n, mask);
+  }
+  backplaneMesh.material.forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
+  const t = tex(drawBackplane(mask));
+  const base = new THREE.Color(parseInt(mask.mask.slice(1), 16));
+  const edge = base.clone().lerp(new THREE.Color(0xd9cf9d), 0.5);
+  const em = new THREE.MeshStandardMaterial({ color: edge, roughness: 0.7 });
+  backplaneMesh.material = [em, em, em, em, new THREE.MeshStandardMaterial({ map: t, roughness: 0.48 }), new THREE.MeshStandardMaterial({ color: base, roughness: 0.5 })];
+  swatches.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.id === "mask-" + id)));
+  dirty = true;
+}
+
+// ---------------------------------------------------------------- loop
+let dirty = true;
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  dirty = true;
+}
+window.addEventListener("resize", resize);
+controls.addEventListener("change", () => { dirty = true; });
+function frame(now) {
+  const moving = stepAnims(now);
+  const changed = controls.update();
+  if (moving || changed || dirty) {
+    if (outline.visible && (pinned || hover)) showOutline(pinned || hover);
+    renderer.render(scene, camera);
+    dirty = false;
+  }
+  requestAnimationFrame(frame);
+}
+
+function routeFromHash() {
+  const h = location.hash.slice(1).toUpperCase();
+  if (ORDER.includes(h)) return h;
+  if (h === "EXPLODED") return "exploded";
+  return "cage";
+}
+window.addEventListener("hashchange", () => { const v = routeFromHash(); if (v !== view) setView(v); });
+
+async function start() {
+  try {
+    await Promise.all([
+      document.fonts.load('600 20px "Barlow Condensed"'), document.fonts.load('700 20px "Barlow Condensed"'),
+      document.fonts.load('500 20px "IBM Plex Mono"'), document.fonts.load('600 20px "IBM Plex Mono"'),
+    ]);
+  } catch (e) { /* fall back to the stacks' fonts */ }
+  const mask = MASKS.find((m) => m.id === maskId);
+  ORDER.forEach((n, i) => buildBoard(n, i, mask));
+  buildCage(mask);
+  resize();
+  setView(routeFromHash(), true);
+  // the room's light, toned down: a bench, not a showroom
+  scene.traverse((o) => {
+    const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    for (const m of ms) if (m.isMeshStandardMaterial) m.envMapIntensity = m.metalness > 0.5 ? 0.6 : 0.18;
+  });
+  document.getElementById("loading").hidden = true;
+  requestAnimationFrame(frame);
+}
+start();
+</script>

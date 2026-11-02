@@ -4,6 +4,8 @@
   check              build the whole machine and check it: the netlist's
                      own checks, and each control line driven by its board
                      alone
+  mockup [--out F]   the boards in 3D (WebGL), placed in rows, with their
+                     silkscreen and the backplane: build/reed/mockup.html
   sta [--word W]     static timing of each kind of microcycle (sta.WORDS):
                      the shortest length at which nothing a length can fix
                      fails worse than at the longest, and what still fails
@@ -20,6 +22,8 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("boards")
     sub.add_parser("check")
+    m = sub.add_parser("mockup")
+    m.add_argument("--out", default="build/reed/mockup.html")
     q = sub.add_parser("sta")
     q.add_argument("--word")
     q.add_argument("--paths", type=int, default=2)
@@ -30,6 +34,9 @@ def main(argv=None):
         nl = system.machine(sim=True)
         system.check(nl)
         print(f"ok: {len(nl.instances)} instances, every control line driven by its board alone")
+    elif a.cmd == "mockup":
+        from . import mockup
+        print(f"wrote {mockup.write(a.out)}")
     elif a.cmd == "sta":
         from . import sta
         sta.main(a.word, a.paths)
