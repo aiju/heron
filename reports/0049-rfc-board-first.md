@@ -5,9 +5,9 @@ title: "The next Heron, board first: sketches on double Eurocards"
 status: draft
 date: 2026-11-02
 context:
-  studies: [cards, v2_isa, c_compiler]
+  studies: [cards, reed, v2_isa, c_compiler]
   commit: c9a6678
-depends-on: [22, 26, 28]
+depends-on: [22, 26, 28, 48]
 ---
 
 # RFC 0049: The next Heron, board first: sketches on double Eurocards
@@ -47,6 +47,26 @@ tables, every board's parts and every microcycle's path, are in
 [napkin.md](0049-rfc-board-first/napkin.md).
 
 ## Summary
+
+**Decided** (Emily, 2026-11-02): design A, under the codename **Reed**;
+no part with a pitch finer than 1 mm (SOIC's 1.27 mm is fine); IO and
+VIDEO on boards of their own, so that the video has room to grow; the
+control store in 45 ns parts; and design for test by the backplane
+([14](#14-reed-design-a-at-chip-level)). Reed has a first chip-level
+netlist, [studies/reed](../studies/reed/README.md): what it found is
+in section 14, and the napkin's sections below are as they were.
+
+- **Reed's first netlist:** five boards (CTRL 70 packages, ALU 68, MEM 63,
+  IO 30, VIDEO 49: 280, 45 of them 22V10s), each within a double
+  Eurocard, joined on the backplane by name. It passes the netlist's
+  checks, and every control line has one driver. The static timing
+  engine (RFC 0048) finds that a microcycle that reads and writes the
+  register file needs **6 ticks**, not the napkin's 4, and that holds,
+  a strobe's width and the RAM's write timing still fail. A taken branch
+  takes about five microcycles. The SST39SF010A's 45 ns grade was
+  end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
+
+The napkin's summary:
 
 - **A backplane transfer is about two ticks.** Register to register
   between boards is 31 ns at worst (ABT parts, 10 ns for the backplane,
@@ -108,6 +128,7 @@ tables, every board's parts and every microcycle's path, are in
 11. [Variants and other ideas](#11-variants-and-other-ideas)
 12. [What being boards costs](#12-what-being-boards-costs)
 13. [What I would do, and open questions](#13-what-i-would-do-and-open-questions)
+14. [Reed: design A at chip level](#14-reed-design-a-at-chip-level)
 
 ## 1. The brief, as rules
 
@@ -718,3 +739,151 @@ For Emily:
 its microcode, checked against draft 2's instruction-level simulator,
 to replace these napkin timings with counted ones; then the ALU board's
 netlist and static timing, the board everything else waits on.
+
+## 14. Reed: design A at chip level
+
+Emily's decisions of 2026-11-02 (design A, the codename Reed, nothing
+finer than 1.27 mm, IO and VIDEO apart, 45 ns parts for the control
+store, design for test by the backplane) and a first netlist of all of
+Reed: [studies/reed](../studies/reed/README.md). Each board is a netlist
+of its own in infra's language, its backplane nets named as
+[`bus.py`](../studies/reed/bus.py) has them, and `heron reed check` joins
+them and checks the whole: the netlist's own checks (every input
+connected, no net driven twice) and the backplane's (each control line
+driven by its own board alone). `heron reed boards` counts them,
+`heron reed sta` times them. There is no microcode yet, and no
+chip-level simulation.
+
+### 14.1 What's built
+
+| Board | Packages | Area | 22V10s | What's on it |
+|---|---:|---:|---:|---|
+| **CTRL** | 70 | 60 | 14 | the clock generator (U_CGA: CYC, WPH, WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
+| **ALU** | 68 | 67 | 13 | its slice (4 parts, 4 × 574); the register file (two copies, read latches, Y_A and Y_B, the write address in U_WG, bypass comparators); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
+| **MEM** | 63 | 50 | 5 | its slice (1 part, 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR, FPC; MQ |
+| **IO** | 30 | 29 | 7 | two UARTs, the timer, the boot flash, the CF card, two PS/2 ports (a 299 each, received in hardware), the interrupt controller, sound, reset |
+| **VIDEO** | 49 | 40 | 6 | a 2 MB frame buffer, 640 × 480 × 8 through a palette in SRAM and an ADV7125, posted writes and latched reads |
+| **total** | **280** | | **45** | |
+
+Area is in the napkin's units (a DIP-20's slot, 70 to a board), with SOIC
+at three quarters of one. Where building it changed the napkin:
+
+- **A store's data goes out on A**, the address having gone into MAR the
+  cycle before: the register file's port B lost d (its address GALs ran
+  out of pins), and MEM loses its B receivers. Loads still come back on
+  B.
+- **MQ moved to MEM:** CTRL was full.
+- **No branch adder:** CTRL was full (and the library has no 74x283).
+- **Decoding a cycle ahead** needs the decoded instruction and the
+  executing one at once: a two-stage instruction register (U_NOP, U_NRB,
+  then U_OP, U_RB), and the queue's parcels held twice (onto PD at the
+  decode pointer, onto PE at the executing instruction's). Its control
+  is five GALs.
+- **A decode table** (two parts) gives each instruction's first
+  microinstruction and its length, rather than opcode × 16 + d.
+- **The register file** reads into 573 latches, then switches to the
+  write address for the write phase; a 74F521 per port compares the read
+  address with the one about to be written, and Y bypasses the copy.
+- **One write strobe for every board:** WRS, from the clock generator.
+- **SEQ BRDEC:** a branch's last word goes to JT if the condition holds,
+  else decodes.
+
+### 14.2 The 45 ns part
+
+The datasheet notes in `infra/hw/datasheets` record that the
+SST39SF010A's 45 ns grade was end-of-lifed in 2013: today's grades are
+55 and 70 ns. RFC 0047's pipelining note assumed the 45 ns grade. The
+netlist stands in the AT27C010-45, a 45 ns OTP EPROM in PLCC-32, its
+figures estimated and its availability to check. As 14.3 shows, the
+register file, not the control store, sets the shortest cycle for now,
+so the 55 ns flash (reprogrammable) costs nothing at the moment.
+
+### 14.3 What the timing analysis finds
+
+`heron reed sta` times each kind of microcycle (`sta.WORDS`): every
+board's fields pinned to the word, the clock generator running its
+equations on the master clock, the cycle from the edge it starts at to
+the one the next starts at. Minimum delays are 30% of typical where a
+datasheet gives none (RFC 0048's default, its value open), which makes
+every two paths from one edge race.
+
+| Microcycle | Ticks | Still failing there |
+|---|---:|---|
+| `ADD r, r`, `ADD r, #q`, shift right | 6 | holds (Y, the flags), the register file's strobe width, glitches |
+| r + d16 into MAR, r into MAR | 6 | as above |
+| load | 6 | as above; the microinstruction registers' hold; the asynchronous inputs' crossings |
+| load and add | 6 | as above; a setup on the flags, 26 ns, at every length |
+| store | 6 | holds; the RAM's write strobes against the data on A |
+| fetch, jump, a branch's target | 6 | holds; PC's and FPC's loads from A |
+
+What sets the lengths, and what fails:
+
+- **The register file needs 6 ticks.** CYC reaches each board through
+  CTRL's clock generator, the backplane and the board's CDC341: about a
+  tick after the master clock's edge. The register file's data is then
+  valid about 29 ns later, so the latches can't close before the third
+  tick, and a write phase whose events are a tick apart (the write
+  address, then the strobe, then the read address back) takes three
+  more. The napkin had the register op in 4 ticks: under worst-case and
+  minimum delays it doesn't hold. Ways back: registering the next
+  cycle's read addresses a cycle ahead (the next instruction's register
+  numbers on 8 more control lines, which the backplane hasn't got), a
+  register file written in a slot of its own, or a faster part.
+- **Holds:** Y and the flags (the bypass from Y through the latches into
+  the ALU is short at minimum delays); every board's microinstruction
+  register against the µPC, which changes on the same edge while the
+  parts' output hold is 0 (a µPC clocked a little later is the usual
+  fix); PC and FPC loading from A.
+- **Strobes:** the register file's write strobe, a tick less the
+  spread, is 1.8 ns short of the SRAM's 9; a store's data on A against
+  MEM's write strobes (80 checks).
+- **One named exception:** the read latches' hold as the copies stop
+  driving (both from WPH).
+
+### 14.4 Branches
+
+A `Bcc` tests the flags in its second word, since the flags of the
+instruction before reach CTRL only in the cycle after: not taken it's two
+microcycles. Taken, the target is computed in the ALU (PC on A, the
+displacement on B), sent back out on A to FPC and PC, fetched, decoded
+from the queue, and its first word fetched from the control store:
+about five microcycles, against the napkin's 9 ticks. The napkin assumed
+a branch adder on CTRL and the fetched parcel bypassed into the decode;
+both would need CTRL to give up something (PC could move to MEM, with
+two control lines for its advance).
+
+### 14.5 Design for test
+
+Everything between boards is on the backplane: A, B and the 64 control
+lines. A board can be tested alone by a tester on the 128 lines
+(a microcontroller or an FPGA board with a few hundred I/O), playing a
+cycle at a time:
+
+- **ALU:** drive the clocks, the µPC (its slice holds a test
+  microprogram as well as the real one), OP and d, s and x, and A and B;
+  read the flags, QIN, and A and B.
+- **MEM:** drive the clocks, the µPC, A, B and FETCH; read B, MQ0, AERR,
+  ALE and the I/O strobes.
+- **CTRL:** drive the clocks' sources, the flags, MQ0, AERR, IRQ and the
+  WAIT lines; read the µPC, OP, the register numbers, FETCH, and A and B.
+- **IO and VIDEO:** drive ALE, IORD_n, IOWR_n and SZ with A and B, as
+  MEM would.
+
+Because every control line has one driver, a board's outputs and inputs
+are known from bus.py alone. The simulator's `vector` fixture can play
+such a test against a board's netlist; that harness isn't built yet.
+
+### 14.6 Next
+
+1. **The register file's timing:** choose among 14.3's ways back to
+   fewer ticks, or accept 6.
+2. **The holds:** a later clock for the µPC; Y's and the flags' paths.
+3. **The branch hardware**, if CTRL can give room.
+4. **The control store's part:** the 55 ns flash for now (14.2).
+5. **The minimum delays' fraction** (RFC 0048, open): 30% makes every
+   same-edge ordering fail; real minima for the 22V10s would help most.
+6. **A smoke test at chip level** (a few hand-written microinstructions
+   on the simulator), then the microcode and a register-transfer model
+   checked against draft 2's simulator.
+7. **The board tester** of 14.5, in the simulator first.
+

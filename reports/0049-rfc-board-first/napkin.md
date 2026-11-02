@@ -13,7 +13,8 @@ A double Eurocard takes about 70 area units: a unit is a DIP-20's slot on a boar
 | CTRL | 56 | 56 | 0 | 10 |
 | ALU | 60 | 68 | 23 | 9 |
 | MEM | 67 | 67 | 19 | 3 |
-| IO+VIDEO | 65 | 70 | 5 | 8 |
+| IO | 24 | 29 | 4 | 4 |
+| VIDEO | 41 | 41 | 1 | 4 |
 | **total** | **248** | **261** | **47** | **30** |
 | *ARITH (optional)* | *58* | *65* | *9* | *2* |
 
@@ -96,7 +97,7 @@ A double Eurocard takes about 70 area units: a unit is a DIP-20's slot on a boar
 
 </details>
 
-<details><summary>Design A, IO+VIDEO</summary>
+<details><summary>Design A, IO</summary>
 
 | Block | Parts | Packages |
 |---|---|---:|
@@ -109,6 +110,13 @@ A double Eurocard takes about 70 area units: a unit is a DIP-20's slot on a boar
 | the devices' data bus from B, address latch from A (tax) | 2 × 74ABT245, 2 × 74ABT574 | 4 |
 | sound: sample latch, DAC, op-amp | 1 × 74ABT574, 1 × DAC0832, 1 × MCP6002 | 3 |
 | reset | 1 × TL7705A | 1 |
+
+</details>
+
+<details><summary>Design A, VIDEO</summary>
+
+| Block | Parts | Packages |
+|---|---|---:|
 | frame buffer: 2 MB, 32 bits wide | 4 × AS7C4096A | 4 |
 | CPU side: address latch from A, posted write data, read back onto B | 3 × 74ABT574, 4 × 74ABT574, 4 × 74ABT245 | 11 |
 | scan address: 20-bit counter onto the frame buffer | 5 × 74F163, 3 × 74ABT541 | 8 |

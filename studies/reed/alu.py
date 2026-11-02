@@ -4,14 +4,14 @@ The register file is two copies of 64K x 32 (four IS61C6416s, each as two
 8-bit halves), one per read port, both written with every result. Its
 read and write share each cycle, through latches:
 
-  - from the cycle's start the copies read (their addresses from U_RAG and
-    U_RBG: d, s, x or the microinstruction's K), and the 74ABT573 latches
-    pass their data to the ALU's inputs, OA and OB;
-  - in the write phase (WPH, the cycle's last two ticks) the latches hold,
+  - from the cycle's start the copies read (their addresses from U_RAG0-1
+    and U_RBG0-1: d, s, x or the microinstruction's K), and the 74ABT573
+    latches pass their data to the ALU's inputs, OA and OB;
+  - in the write phase (WPH, the cycle's last three ticks) the latches hold,
     the copies' addresses switch to W (the last cycle's destination, held
-    in U_WG, onto them through U_WA and U_WB), and Y_A and Y_B (574s that
-    took the last cycle's result) write it, RFWE_n low for one master
-    clock period from U_RFT, on MCLKN;
+    in U_WG), and Y_A and Y_B (574s that
+    took the last cycle's result) write it, RFWE_n low while WRS is (the
+    write phase's middle tick);
   - a read of the register the write phase is about to write takes Y
     instead of the copy (a 74F521 per port compares the read address with
     W: U_BYA, U_BYB), so a result is readable in the next cycle.
@@ -93,38 +93,35 @@ def register_file(nl, ck):
                     terms.append(AND(eq(field, code), lit(src[i])))
             out.append(OR(*terms))
         return out
-    wph_n = lit("WPH", 0)
-    # port A: d, s or K; drives the copy's address outside the write phase
+    # the copies' addresses: the port's register outside the write phase, W
+    # in it (U_RAG0-1 for copy A, U_RBG0-1 for copy B, bits 0-2 and 3-4)
+    w = W
     ra = sel(f("RAS"), {F.RAS["d"]: rd, F.RAS["s"]: rs, F.RAS["K"]: "K"})
-    outs = {RFA[i]: (ra[i], False, False, wph_n) for i in range(5)}
-    G.add(nl, "U_RAG", outs)
-    # port B: s, x or K (d, a store's data, is read on port A and goes out on A)
     rb = sel(f("RBS"), {F.RBS["s"]: rs, F.RBS["x"]: rx, F.RBS["K"]: "K"})
-    outs = {RFB[i]: (rb[i], False, False, wph_n) for i in range(5)}
-    G.add(nl, "U_RBG", outs)
+    for name, addr, fn in (("U_RAG", RFA, ra), ("U_RBG", RFB, rb)):
+        for part, bits in enumerate((range(0, 3), range(3, 5))):
+            outs = {addr[i]: (OR(AND(lit("WPH"), lit(w[i])), AND(lit("WPH", 0), fn[i])), False, False)
+                    for i in bits}
+            G.add(nl, f"{name}{part}", outs)
     # W: this cycle's destination, for the next cycle's write phase
     wsel = sel(f("WS"), {F.WS["d"]: rd, F.WS["s"]: rs, F.WS["K"]: "K"})
     outs = {W[i]: (wsel[i], True, False) for i in range(5)}
     outs["WEN"] = (negate(eq(f("WS"), F.WS["NONE"])), True, False)
     G.add(nl, "U_WG", outs, clock=ck[1])
     for copy, addr in (("A", RFA), ("B", RFB)):
-        nl.add("541", f"U_W{copy}", OE1="WPH_n", OE2="GND",
-               **{f"A{i + 1}": W[i] for i in range(5)}, A6="GND", A7="GND", A8="GND",
-               **{f"Y{i + 1}": addr[i] for i in range(5)},
-               Y6=f"W{copy}_NC6", Y7=f"W{copy}_NC7", Y8=f"W{copy}_NC8")
         # the bypass: the read address is W, and W is to be written
         nl.add("521", f"U_BY{copy}", G="GND", PEQ=f"BYP{copy}_n",
                **{f"P{i}": W[i] for i in range(5)}, P5="WEN", P6="GND", P7="GND",
                **{f"Q{i}": addr[i] for i in range(5)}, Q5="VCC", Q6="GND", Q7="GND")
-    # U_RFT, on MCLKN: the write strobe, the latches' enable, WPH_n; the
-    # copies' outputs, off in the write phase and when Y bypasses them, and Y's
-    outs = {"RFWE_n": (AND(lit("WPH"), lit("WEN"), lit("RFWE_n")), True, True),
-            "LE": (lit("WPH", 0), False, False),
-            "WPH_n": (lit("WPH"), False, True)}
+    # U_RFT: the write strobe (WRS, while W is to be written), the latches'
+    # enable; the copies' outputs, off in the write phase and when Y
+    # bypasses them, and Y's
+    outs = {"RFWE_n": (OR(lit("WRS"), lit("WEN", 0)), False, False),
+            "LE": (lit("WPH", 0), False, False)}
     for c in "AB":
         outs[f"RFOE{c}_n"] = (OR(lit("WPH"), lit(f"BYP{c}_n", 0)), False, False)
         outs[f"Y{c}OE_n"] = (OR(lit("WPH"), lit(f"BYP{c}_n", 0)), False, True)
-    G.add(nl, "U_RFT", outs, clock="MCLKN")
+    G.add(nl, "U_RFT", outs)
 
 
 def alu(nl, ck):

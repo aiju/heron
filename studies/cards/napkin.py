@@ -149,7 +149,7 @@ DESIGNS = {
                   [(3, "74ABT541"), (3, "74ABT541")], tax=True),
             block("address decode, alignment (decode)", [(1, "22V10")]),
         ]),
-        ("IO+VIDEO", IO + VIDEO),
+        ("IO", IO), ("VIDEO", VIDEO),
     ]),
     "B": ("Address board", [
         ("CTRL+IO", CTRL_CORE + IO),

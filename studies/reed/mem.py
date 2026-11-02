@@ -16,8 +16,8 @@ row) from MAR or from FPC, and its data net MD.
   - Stores: the data comes on A (the address has gone into MAR the cycle
     before): through the A receivers onto the lanes, a byte or a half
     replicated so that the lane the address chooses has it (U_ST*, enabled
-    by U_ST in the write phase); U_WE, on MCLKN, gives the lanes' write
-    strobes, low for one master clock period in the write phase.
+    by U_ST in the write phase); U_WE gives the lanes' write strobes, while
+    WRS is.
   - An access with A30 set is the I/O space's: MEM leaves the RAM alone and
     gives IORD_n or IOWR_n to the I/O boards, which latched the address as
     MAR did (ALE).
@@ -179,8 +179,9 @@ def control(nl, ck):
           (3, 3): word, (3, 1): half, (3, 0): byte}
     outs = {f"ST{l}{s}_n": (AND(st, e), False, True) for (l, s), e in en.items()}
     G.add(nl, "U_ST", outs)
-    # U_WE, on MCLKN: each row's lanes' write strobes, low one period in
-    # the write phase of a store to RAM, for the lanes the size and address choose
+    # U_WE: each row's lanes' write strobes, while WRS is, in a store to RAM,
+    # for the lanes the size and address choose
+    st_w = AND(store, ram_, lit("WRS", 0))
     outs = {}
     for row in range(2):
         rsel = lit("RA21", row)
@@ -189,8 +190,8 @@ def control(nl, ck):
                 (s0 | s1 << 1) == S["WORD"] or ((s0 | s1 << 1) == S["HALF"] and lane // 2 == a1)
                 or ((s0 | s1 << 1) == S["BYTE"] and lane == 2 * a1 + a0)))
             n = f"WE{row}{lane}_n"
-            outs[n] = (AND(st, rsel, sel, lit(n)), True, True)
-    G.add(nl, "U_WE", outs, clock="MCLKN")
+            outs[n] = (AND(st_w, rsel, sel), False, True)
+    G.add(nl, "U_WE", outs)
     # U_MC, on MCLK: MAR's gated clock; the enables; the I/O space's strobes; MQ's mode
     outs = {}
     gated_clock(outs, "MARCK", lit("ALE"), clk=ck[2])

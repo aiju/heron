@@ -236,11 +236,31 @@ for _n, _model in (("161", "cnt161"), ("163", "cnt163")):
                (["ENP", "ENT"], "CLK", "rise", "setup EN", "hold EN")]
     if _n == "163":
         _checks.append((["CLR"], "CLK", "rise", "setup CLR", "hold CLR"))
+    _desc = {}
+    if _n == "163":
+        # the static timing engine's description: a synchronous clear and load,
+        # each bit toggling when ENP, ENT and the bits below are high; RCO from
+        # ENT and the bits, CLK->RCO after the clock (as CLK->RCO less CLK->Q)
+        _q = ["QA", "QB", "QC", "QD"]
+
+        def _next(i):
+            below = _q[:i]
+            hold = " + ".join(f"CLR·LOAD·/{n}·{_q[i]}" for n in ["ENP", "ENT"] + below)
+            tog = "·".join(["CLR", "LOAD", "ENP", "ENT"] + below + [f"/{_q[i]}"])
+            return f"CLR·/LOAD·{'ABCD'[i]} + {hold} + {tog}"
+        _desc = dict(
+            regs={_q[i]: Reg("CLK", _next(i), "CLK->Q") for i in range(4)},
+            outputs={"RCO": Out("ENT·QA·QB·QC·QD", {"ENT": "ENT->RCO", "QA QB QC QD": 4000})},
+            timing=[Setup("A B C D", "CLK", "setup data", "hold data"),
+                    Setup("LOAD", "CLK", "setup LOAD", "hold LOAD"),
+                    Setup("ENP ENT", "CLK", "setup EN", "hold EN"),
+                    Setup("CLR", "CLK", "setup CLR", "hold CLR"),
+                    Width("CLK", 1, "tw CLK"), Width("CLK", 0, "tw CLK")])
     T(_n, _model,
       [(p, "in") for p in ("CLK", "CLR", "LOAD", "ENP", "ENT", "A", "B", "C", "D")]
       + [(p, "out") for p in ("QA", "QB", "QC", "QD", "RCO")],
       arcs=_arcs, checks=_checks,
-      desc="4-bit binary counter, " + ("async clear" if _n == "161" else "sync clear"))
+      desc="4-bit binary counter, " + ("async clear" if _n == "161" else "sync clear"), **_desc)
 
 T("193", "cnt193",
   [(p, "in") for p in ("CPU", "CPD", "MR", "PL", "P0", "P1", "P2", "P3")]
@@ -375,7 +395,22 @@ T("299", "sr299",
           (["DS0", "DS7"], "CP", "rise", "setup DS", "hold DS"),
           ([f"IO{i}" for i in range(8)], "CP", "rise", "setup IO", "hold IO")],
   desc="8-bit universal shift/storage register, 3-state I/O (S1 S0: 00 hold, "
-       "01 shift toward Q7 (DS0 in), 10 toward Q0 (DS7 in), 11 load from I/O)")
+       "01 shift toward Q7 (DS0 in), 10 toward Q0 (DS7 in), 11 load from I/O)",
+  # for the static timing engine: each bit a register, Q0S and Q7S copies of
+  # bits 0 and 7. A load (11) reads an I/O pin, which the engine takes as the
+  # bit's own state: a load's setup from the bus isn't timed
+  regs={**{f"IO{i}": Reg("CP", f"/S1·/S0·IO{i} + /S1·S0·{'DS0' if i == 0 else f'IO{i - 1}'} + "
+                               f"S1·/S0·{'DS7' if i == 7 else f'IO{i + 1}'} + S1·S0·IO{i}", "CLK->Q",
+                         clear="/MR", clear_arcs={"MR": "CLR->Q"},
+                         enable="/OE1·/OE2·/S0 + /OE1·/OE2·/S1",
+                         on={"OE1 OE2 S0 S1": "OE->Y en"}, off={"OE1 OE2 S0 S1": "OE->Y dis"})
+        for i in range(8)},
+        "Q0S": Reg("CP", "/S1·/S0·Q0S + /S1·S0·DS0 + S1·/S0·IO1 + S1·S0·IO0", "CLK->QS",
+                   clear="/MR", clear_arcs={"MR": "CLR->Q"}),
+        "Q7S": Reg("CP", "/S1·/S0·Q7S + /S1·S0·IO6 + S1·/S0·DS7 + S1·S0·IO7", "CLK->QS",
+                   clear="/MR", clear_arcs={"MR": "CLR->Q"})},
+  timing=[Setup("S0 S1", "CP", "setup S", "hold S"), Setup("DS0 DS7", "CP", "setup DS", "hold DS"),
+          Width("CP", 1, "tw CLK"), Width("CP", 0, "tw CLK")])
 
 T("sram64k", "sram",
   [(f"A{i}", "in") for i in range(16)] + [(f"IO{i}", "io") for i in range(8)]

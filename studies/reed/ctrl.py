@@ -5,10 +5,12 @@ registers, the immediate unit, PC.
 The clocks. The master clock (50.35 MHz, a tick 19.86 ns) and its inverse
 go onto the backplane (MCLK, MCLKN), each from a CDC341. U_CGA, on MCLK as
 it comes back from the backplane, counts the cycle's ticks: a cycle is
-4 + LEN ticks, held at its third-last tick while a WAIT line is up. CYC
+5 + LEN ticks, held at its fourth-last tick while a WAIT line is up. CYC
 rises as a cycle starts and is high for two ticks; WPH is high for the
-cycle's last two ticks (the write phase: the register file and the RAM
-write then). Every board, CTRL too, takes CYC from the backplane through
+cycle's last three ticks (the write phase: the register file and the RAM
+switch to the write address, then are written), and WRS is low for its
+middle tick: the write strobe every board takes, a tick after the address
+has switched and a tick before it switches back. Every board, CTRL too, takes CYC from the backplane through
 a CDC341 of its own, so that every register sees the same edge.
 
 The sequencer. The µPC (two 574s) drives the backplane's UPC lines, which
@@ -17,6 +19,7 @@ JT, SEQ and CND straight to the next-address GALs (U_NA0-2), which work
 from the word being fetched while the one before executes:
 
   SEQ JUMP     JT, its bit 0 XORed with the condition CND chooses
+  SEQ BRDEC    JT if the condition holds, else as DECODE
   SEQ DECODE   the decode table's entry for the parcel at the queue's
                decode pointer; or the interrupt's entry (IVEC) when an
                interrupt is pending and enabled; or, while the
@@ -92,23 +95,24 @@ def clocks(nl, sim):
     ins = tc + f("LEN") + ["WAIT_IO", "WAIT_V"]
 
     def nxt(t0, t1, t2, l0, l1, w0, w1):
-        t, n = t0 | t1 << 1 | t2 << 2, 4 + (l0 | l1 << 1)
+        t, n = t0 | t1 << 1 | t2 << 2, F.LEN_BASE + (l0 | l1 << 1)
         if t >= n:
             return 0
         if t == n - 1:
             return 0
-        if (w0 or w1) and t == n - 3:
+        if (w0 or w1) and t == n - 4:
             return t
         return t + 1
 
     def cyc_len(t0, t1, t2, l0, l1, w0, w1):
-        return 4 + (l0 | l1 << 1)
+        return F.LEN_BASE + (l0 | l1 << 1)
 
     outs = {}
     for i in range(3):
         outs[f"TC{i}"] = (table(ins, lambda *b, i=i: (nxt(*b) >> i) & 1), True, False)
     outs["CYC0"] = (table(ins, lambda *b: nxt(*b) in (0, 1)), True, False)
-    outs["WPH0"] = (table(ins, lambda *b: nxt(*b) >= cyc_len(*b) - 2), True, False)
+    outs["WPH0"] = (table(ins, lambda *b: nxt(*b) >= cyc_len(*b) - 3), True, False)
+    outs["WRS0"] = (table(ins, lambda *b: nxt(*b) == cyc_len(*b) - 2), True, True)
     G.add(nl, "U_CGA", outs, clock="MCLK")
 
 
@@ -129,14 +133,19 @@ def sequencer(nl, ck):
                **{f"D{i}": dt[8 * k + i] for i in range(8)})
     jt, seq = f("JT"), f("SEQ")
     jump = eq(seq, F.SEQ_JUMP)
+    brdec = eq(seq, F.SEQ_BRDEC)
+    # JT (bit 0 XORed with the condition) for JUMP; JT for BRDEC whose
+    # condition holds; else a decode
+    to_jt = OR(jump, AND(brdec, lit("COND")))
+    dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(brdec, lit("COND", 0)))
     for k, bits in enumerate((range(0, 5), range(5, 10), range(10, 14))):
         outs = {}
         for i in bits:
-            take_jt = AND(jump, lit(jt[i], 1))
+            take_jt = AND(to_jt, lit(jt[i], 1))
             if i == 0:
                 take_jt = OR(AND(jump, lit(jt[0], 1), lit("COND", 0)),
-                             AND(jump, lit(jt[0], 0), lit("COND", 1)))
-            dec = negate(jump)
+                             AND(jump, lit(jt[0], 0), lit("COND", 1)),
+                             AND(brdec, lit("COND"), lit(jt[0])))
             irq = AND(dec, lit("IRQT")) if (IVEC >> i) & 1 else ZERO
             wait = AND(dec, lit("IRQT", 0), lit("READY", 0)) if (WAITD >> i) & 1 else ZERO
             entry = AND(dec, lit("IRQT", 0), lit("READY"), lit(f"DT{i}"))
@@ -198,8 +207,8 @@ def queue(nl, ck):
            **{f"D{i + 1}": nrb[i] for i in range(8)}, **{f"Q{i + 1}": rb[i] for i in range(8)})
     # x: the index parcel's bits 15-12 as PE has them; and WPH onto the backplane
     nl.add("541", "U_XL", OE1="GND", OE2="GND",
-           **{f"A{i + 1}": pe[12 + i] for i in range(4)}, A5="WPH0", A6="GND", A7="GND", A8="GND",
-           **{f"Y{i + 1}": BP.RX[i] for i in range(4)}, Y5="WPH", Y6="XL_NC6", Y7="XL_NC7",
+           **{f"A{i + 1}": pe[12 + i] for i in range(4)}, A5="WPH0", A6="WRS0", A7="GND", A8="GND",
+           **{f"Y{i + 1}": BP.RX[i] for i in range(4)}, Y5="WPH", Y6="WRS", Y7="XL_NC7",
            Y8="XL_NC8")
 
     dp, ep, xp, nxp = ["DP0", "DP1"], ["EP0", "EP1"], ["XP0", "XP1"], ["NXP0", "NXP1"]
@@ -296,8 +305,8 @@ def queue(nl, ck):
                      False, False)
     G.add(nl, "U_IQV", outs, clock=ck[2])
     seq = f("SEQ")
-    dec = anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ])
-    irqt = AND(eq(seq, F.SEQ_DECODE), lit("IRQ"), lit("IFLAG"))
+    dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(eq(seq, F.SEQ_BRDEC), lit("COND", 0)))
+    irqt = AND(OR(eq(seq, F.SEQ_DECODE), AND(eq(seq, F.SEQ_BRDEC), lit("COND", 0))), lit("IRQ"), lit("IFLAG"))
     decoding = AND(dec, negate(irqt), lit("READY"), lit("RESET_n"))
     outs = {"IRQT": (irqt, False, False), "DECODING": (decoding, False, False),
             "DECODING_n": (decoding, False, True)}

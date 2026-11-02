@@ -29,12 +29,15 @@ CTRL_REG_BASE = 24
 
 # ---- codes ------------------------------------------------------------------
 
-SEQ_JUMP, SEQ_DECODE, SEQ_DECODE_NOIRQ = 0, 1, 2
+# BRDEC: JT if the condition holds, else decode (a branch's last word)
+SEQ_JUMP, SEQ_DECODE, SEQ_DECODE_NOIRQ, SEQ_BRDEC = 0, 1, 2, 3
 # CND: the condition a JUMP XORs into JT's bit 0 (0: none, so JT itself)
 # (interrupts are taken at a decode, not tested)
 CND = {"NONE": 0, "Z": 1, "N": 2, "C": 3, "V": 4, "ST": 5, "MQ0": 6, "AERR": 7,
        "CC_OP": 8, "CC_D": 9}
-# LEN: the cycle's ticks, 4 + LEN
+# LEN: the cycle's ticks, 5 + LEN (a cycle that reads and writes the register
+# file needs 5: its read, then a write phase of three ticks)
+LEN_BASE = 5
 # IQC: the queue: none, consume the extension parcel, latch it into H and consume it
 IQC_NONE, IQC_NEXT, IQC_H = 0, 1, 2
 # IMM: what CTRL drives onto B

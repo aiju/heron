@@ -28,7 +28,7 @@ SZ = bus("SZ", 2)
 
 # {line: (driver board, what it is)}
 CONTROL = {
-    **{n: ("CTRL", "clock") for n in ("MCLK", "MCLKN", "CYC", "WPH")},
+    **{n: ("CTRL", "clock") for n in ("MCLK", "MCLKN", "CYC", "WPH", "WRS")},
     **{n: ("CTRL", "the microprogram address") for n in UPC},
     **{n: ("CTRL", "the executing instruction's opcode") for n in OP},
     **{n: ("CTRL", "its register numbers d, s and x") for n in RD + RS + RX},
@@ -47,7 +47,7 @@ CONTROL = {
     "WAIT_V": ("VIDEO", "hold the cycle: the frame buffer is busy"),
     "VIRQ": ("VIDEO", "the frame's interrupt, to the interrupt controller"),
 }
-CLOCKS = ("MCLK", "MCLKN", "CYC", "WPH")
+CLOCKS = ("MCLK", "MCLKN", "CYC", "WPH", "WRS")
 BOARDS = ("CTRL", "ALU", "MEM", "IO", "VIDEO")
 
 
@@ -63,7 +63,7 @@ def pin_map():
         p1[f"c{i + 1}"] = B[i]
     p2 = {f"b{i + 1}": ("VCC" if i % 4 == 3 else "GND") for i in range(32)}
     lines = [n for n in CONTROL if n not in CLOCKS]
-    # the clocks in row a at 1, 3, 5, 7, a ground between each and the next
+    # the clocks in row a at 1, 3, 5, 7, 9, a ground between each and the next
     # (and row b's beside each)
     slots = [f"a{i}" for i in range(1, 33)] + [f"c{i}" for i in range(1, 33)]
     for k, clk in enumerate(CLOCKS):
