@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="diagram" viewBox="-8 -23.6 656 265" width="656" height="265"><style>.diagram{--paper:#FBFAF6;--ink:#171615;--ink-2:#56524B;--ink-3:#8C877D;--rule:#E4E0D8;--spot:#A3195B}
+@media (prefers-color-scheme:dark){.diagram{--paper:#141312;--ink:#ECE7DE;--ink-2:#ADA79C;--ink-3:#7E786E;--rule:#2C2926;--spot:#E8609F}}
+.diagram text{fill:var(--ink);font-family:'Libre Franklin','Franklin Gothic Medium','Helvetica Neue',Arial,sans-serif;font-size:12px}
+.diagram .ink{fill:none;stroke:var(--ink);stroke-width:1.25;stroke-linejoin:round;stroke-linecap:round}
+.diagram .thin{fill:none;stroke:var(--ink-2);stroke-width:.9}
+.diagram .faint{fill:none;stroke:var(--ink-3);stroke-width:.7}
+.diagram .dotted{fill:none;stroke:var(--ink-3);stroke-width:.7;stroke-dasharray:1.5 2}
+.diagram .dashed{stroke-dasharray:4 3}
+.diagram .bus{stroke-width:3.2;stroke-linecap:butt}
+.diagram .grid{stroke:var(--rule);stroke-width:1}
+.diagram .spot{fill:none;stroke:var(--spot);stroke-width:1.1}
+.diagram .paper{fill:var(--paper)}.diagram .hatch{fill:url(#diagram-hatch)}.diagram #diagram-hatch line{stroke:var(--ink-3);stroke-width:.8}
+.diagram .solid{fill:var(--ink)}.diagram .solid-2{fill:var(--ink-2)}.diagram .solid-spot{fill:var(--spot)}
+.diagram .b{font-weight:600}.diagram .m{font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px}
+.diagram .s{font-size:11px;fill:var(--ink-2)}.diagram .xs{font-size:10px;fill:var(--ink-3)}.diagram .sp{fill:var(--spot)}
+.diagram .halo{paint-order:stroke;stroke:var(--paper);stroke-width:4px;stroke-linejoin:round}</style><defs><pattern id="diagram-hatch" patternUnits="userSpaceOnUse" width="4" height="4" patternTransform="rotate(45)"><line x1="2" y1="0" x2="2" y2="4"/></pattern></defs>
+<rect class="paper" x="-8" y="-23.6" width="656" height="265"/>
+<line class="ink bus" x1="0" y1="0" x2="640" y2="0"/>
+<text class="b" style="font-size:11px" x="0" y="-5">A (32)</text>
+<line class="ink bus" x1="0" y1="50" x2="640" y2="50"/>
+<text class="b" style="font-size:11px" x="0" y="45">B (32)</text>
+<line class="ink bus" x1="0" y1="230" x2="640" y2="230"/>
+<text class="b" style="font-size:11px" x="0" y="225">control (64)</text>
+<rect class="ink paper" x="60" y="100" width="130" height="70"/>
+<text class="b" x="125" y="124.3" text-anchor="middle">CTRL</text>
+<text class="s" x="125" y="139" text-anchor="middle">sequencer, queue</text>
+<text class="s" x="125" y="154" text-anchor="middle">PC, FPC</text>
+<rect class="ink paper" x="210" y="100" width="130" height="70"/>
+<text class="b" x="275" y="124.3" text-anchor="middle">SLICE</text>
+<text class="s" x="275" y="139" text-anchor="middle">bits 15–0</text>
+<text class="s" x="275" y="154" text-anchor="middle">lanes 0–1, 2 MB</text>
+<rect class="ink paper" x="360" y="100" width="130" height="70"/>
+<text class="b" x="425" y="124.3" text-anchor="middle">SLICE</text>
+<text class="s" x="425" y="139" text-anchor="middle">bits 31–16</text>
+<text class="s" x="425" y="154" text-anchor="middle">lanes 2–3, 2 MB</text>
+<rect class="ink paper" x="510" y="100" width="130" height="70"/>
+<text class="b" x="575" y="124.3" text-anchor="middle">IO + VIDEO</text>
+<text class="s" x="575" y="139" text-anchor="middle">devices</text>
+<text class="s" x="575" y="154" text-anchor="middle">frame buffer</text>
+<path class="ink wire" d="M305 170 L305 190 L395 190 L395 170"/>
+<path class="solid" d="M395 170 L397.6 176 L392.4 176Z"/>
+<path class="solid" d="M305 170 L307.6 176 L302.4 176Z"/>
+<path class="ink wire" d="M95 100 L95 0"/>
+<circle class="solid" cx="95" cy="0" r="2.6"/>
+<path class="ink wire" d="M155 100 L155 50"/>
+<circle class="solid" cx="155" cy="50" r="2.6"/>
+<path class="ink wire" d="M245 100 L245 0"/>
+<circle class="solid" cx="245" cy="0" r="2.6"/>
+<path class="ink wire" d="M305 100 L305 50"/>
+<circle class="solid" cx="305" cy="50" r="2.6"/>
+<path class="ink wire" d="M395 100 L395 0"/>
+<circle class="solid" cx="395" cy="0" r="2.6"/>
+<path class="ink wire" d="M455 100 L455 50"/>
+<circle class="solid" cx="455" cy="50" r="2.6"/>
+<path class="ink wire" d="M545 100 L545 0"/>
+<circle class="solid" cx="545" cy="0" r="2.6"/>
+<path class="ink wire" d="M605 100 L605 50"/>
+<circle class="solid" cx="605" cy="50" r="2.6"/>
+<path class="ink wire" d="M125 170 L125 230"/>
+<circle class="solid" cx="125" cy="230" r="2.6"/>
+<path class="ink wire" d="M245 170 L245 230"/>
+<circle class="solid" cx="245" cy="230" r="2.6"/>
+<path class="ink wire" d="M455 170 L455 230"/>
+<circle class="solid" cx="455" cy="230" r="2.6"/>
+<path class="ink wire" d="M575 170 L575 230"/>
+<circle class="solid" cx="575" cy="230" r="2.6"/>
+<text class="s halo" x="350" y="186" text-anchor="middle">C16, Z, shift</text>
+</svg>
