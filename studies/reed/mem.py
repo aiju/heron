@@ -178,6 +178,10 @@ def control(nl, ck):
     en = {(0, 0): ONE, (1, 1): OR(word, half), (1, 0): byte, (2, 2): word, (2, 0): OR(half, byte),
           (3, 3): word, (3, 1): half, (3, 0): byte}
     outs = {f"ST{l}{s}_n": (AND(st, e), False, True) for (l, s), e in en.items()}
+    # and two of MQ's (U_MC is full)
+    mq = f("MQ")
+    outs["MQS0"] = (eq(mq, F.MQ["LOAD"]), False, False)
+    outs["MQOE_n"] = (eq(mq, F.MQ["DRIVE"]), False, True)
     G.add(nl, "U_ST", outs)
     # U_WE: each row's lanes' write strobes, while WRS is, in a store to RAM,
     # for the lanes the size and address choose
@@ -192,7 +196,7 @@ def control(nl, ck):
             n = f"WE{row}{lane}_n"
             outs[n] = (AND(st_w, rsel, sel), False, True)
     G.add(nl, "U_WE", outs)
-    # U_MC, on MCLK: MAR's gated clock; the enables; the I/O space's strobes; MQ's mode
+    # U_MC, on MCLK: MAR's gated clock; the enables; the I/O space's strobes; MQ's S1
     outs = {}
     gated_clock(outs, "MARCK", lit("ALE"), clk=ck[2])
     mq = f("MQ")
@@ -202,10 +206,9 @@ def control(nl, ck):
         "MXOE_n": (OR(AND(load, ram_), lit("FETCH")), False, True),
         "IORD_n": (AND(load, io), False, True),
         "IOWR_n": (AND(store, io), False, True),
-        # 299 modes: hold 0, shift toward IO0 2, load 3; drive: hold with the outputs on
-        "MQS0": (eq(mq, F.MQ["LOAD"]), False, False),
+        # 299 modes: hold 0, shift toward IO0 2, load 3 (S0 in U_ST); drive:
+        # hold with the outputs on (MQOE_n, in U_ST)
         "MQS1": (anyof(mq, [F.MQ["LOAD"], F.MQ["SHIFT"]]), False, False),
-        "MQOE_n": (eq(mq, F.MQ["DRIVE"]), False, True),
     })
     G.add(nl, "U_MC", outs, clock="MCLK")
 

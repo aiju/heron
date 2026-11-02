@@ -86,6 +86,11 @@ def register_file(nl, ck):
             nl.add("574", f"U_Y{copy}{k}", OE=f"Y{copy}OE_n", CLK=ck[1 + k // 2],
                    **{f"D{i + 1}": FN[8 * k + i] for i in range(8)},
                    **{f"Q{i + 1}": data[8 * k + i] for i in range(8)})
+    # the executing instruction's d and s: CTRL's U_RB's copy, from the
+    # decoded ones on the backplane, a cycle before they're needed
+    nl.add("377", "U_RB", CLK=ck[1], EN="DEC1_n",
+           **{f"D{i + 1}": (BP.NRS + BP.NRD)[i] for i in range(8)},
+           **{f"Q{i + 1}": (BP.RS + BP.RD)[i] for i in range(8)})
     rd, rs, rx, k = BP.RD, BP.RS, BP.RX, f("K")
 
     def sel(field, choices):

@@ -88,10 +88,7 @@ def clocks(nl, sim):
     nl.section("clocks")
     if sim:
         nl.add("osc", "X_OSC", OUT="MCLK0", params={"period_ps": TICK_PS, "phase_ps": 5000})
-    nl.add("04", "U_INV", part="74F04", **{"1A": "MCLK0", "1Y": "MCLKN0",
-                                         **{f"{i}A": "GND" for i in range(2, 7)}})
     nl.add("clkdrv", "U_CKM", A="MCLK0", Y1="MCLK", **{f"Y{i}": f"MCLK_x{i}" for i in range(2, 9)})
-    nl.add("clkdrv", "U_CKN", A="MCLKN0", Y1="MCLKN", **{f"Y{i}": f"MCLKN_x{i}" for i in range(2, 9)})
     nl.add("clkdrv", "U_CKC", A="CYC0", Y1="CYC", **{f"Y{i}": f"CYC_x{i}" for i in range(2, 9)})
     # U_CGA: the tick TC, CYC0 for ticks 0-1, WPH0 for the last three
     tc = ["TC0", "TC1", "TC2"]
@@ -192,12 +189,14 @@ def queue(nl, ck):
                    **{f"D{i + 1}": d[i] for i in range(8)},
                    **{f"Q{i + 1}": pe[8 * half + i] for i in range(8)})
     # the instruction registers: decoded (at the decode), executing (as it starts)
-    nop, nrb = bus("NOP", 8), bus("NRB", 8)
+    # the register byte (s in its low nibble, d high): the decoded one on
+    # the backplane, which the ALU board's U_RB takes as this one does
+    nop, nrb = bus("NOP", 8), BP.NRS + BP.NRD
     nl.add("377", "U_NOP", CLK=ck[1], EN="DECODING_n",
            **{f"D{i + 1}": pd[i] for i in range(8)}, **{f"Q{i + 1}": nop[i] for i in range(8)})
     nl.add("377", "U_NRB", CLK=ck[1], EN="DECODING_n",
            **{f"D{i + 1}": pd[8 + i] for i in range(8)}, **{f"Q{i + 1}": nrb[i] for i in range(8)})
-    rb = BP.RS + BP.RD                       # the register byte: s in its low nibble, d high
+    rb = BP.RS + BP.RD
     nl.add("377", "U_OP", CLK=ck[1], EN="DEC1_n",
            **{f"D{i + 1}": nop[i] for i in range(8)}, **{f"Q{i + 1}": BP.OP[i] for i in range(8)})
     nl.add("377", "U_RB", CLK=ck[1], EN="DEC1_n",

@@ -114,8 +114,10 @@ def frame_buffer(nl, vk):
     rd = AND(lit("IORD_n", 0), lit("VSELFB"))
     wr = AND(lit("IOWR_n", 0), OR(lit("VSELFB"), lit("VSELPAL")))
     outs = {}
-    gated_clock(outs, "VALEK", lit("ALE"), clk="CYC")
-    gated_clock(outs, "VWK", wr, clk="CYC")
+    # (clearing a tick in, which races CYC's rise: open, as the board
+    # isn't timed yet and U_VAR2 has no room for the later clear)
+    gated_clock(outs, "VALEK", lit("ALE"), clk="CYC", late=False)
+    gated_clock(outs, "VWK", wr, clk="CYC", late=False)
     outs.update({
         # pending from the edge VD took the data at (VWK), until written
         "PW": (AND(lit("RESET_n"), OR(AND(lit("ARM_VWK"), lit("CYC")), AND(lit("PW"), lit("WDONE", 0)))),

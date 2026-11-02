@@ -94,6 +94,8 @@ def lew_exceptions(ex):
             if not c["ref"].startswith(("ALU.U_RFA", "ALU.U_RFB"))]
 
 
+# the gated clocks that clear two ticks in (common.gated_clock)
+ARMDS = {"CTRL.ARMD_QCK0", "CTRL.ARMD_QCK1", "CTRL.ARMD_HCK", "MEM.ARMD_MARCK", "IO.ARMD_ALEK"}
 ARMS = ["CTRL.ARM_QCK0", "CTRL.ARM_QCK1", "CTRL.ARM_HCK", "MEM.ARM_MARCK", "IO.ARM_ALEK",
         "VIDEO.ARM_VALEK", "VIDEO.ARM_VWK", "VIDEO.ARM_PXCK"]
 
@@ -136,6 +138,8 @@ def case(name, word, ticks, after_mar=False, ex_key=("tree", True)):
     start = dict(START)
     for a in ARMS:
         start[a] = (0, 0)
+        if a.replace("ARM_", "ARMD_") in ARMDS:
+            start[a.replace("ARM_", "ARMD_")] = (0, 0)
     if after_mar:
         start["MEM.ARM_MARCK"] = (1, 1)
     # the queue: both slots free (so a fetch is wanted), DP at 0

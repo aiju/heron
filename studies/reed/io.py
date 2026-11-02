@@ -72,9 +72,8 @@ def address(nl, ck):
     outs["CLS0"] = (OR(slot(0), slot(1), slot(3), slot(4)), True, False)
     outs["CLS1"] = (OR(slot(2), slot(3), slot(4)), True, False)
     G.add(nl, "U_IOD", outs, clock="ALEK")
-    # U_IOT, on MCLK: ALEK; the strobes; WAIT_IO from a count of ticks
+    # U_IOT, on MCLK: the strobes; WAIT_IO from a count of ticks (ALEK: U_IOB)
     outs = {}
-    gated_clock(outs, "ALEK", lit("ALE"), clk=ck[1])
     rd = AND(lit("IORD_n", 0), lit("SELIO"))
     wr = AND(lit("IOWR_n", 0), lit("SELIO"))
     acc = OR(rd, wr)
@@ -99,10 +98,13 @@ def data(nl):
     """Reads onto B (B16-B31 0) while the access lasts, but for the cycle's
     first two ticks (so that the driver is off as the next cycle starts);
     writes from A."""
-    G.add(nl, "U_IOB", {
+    # U_IOB, on MCLK: the data drivers' enables; ALEK, A's latch clock
+    outs = {
         "IOBOE_n": (AND(lit("IORD_n", 0), lit("SELIO"), lit("CK1", 0)), False, True),
         "IOWOE_n": (AND(lit("IOWR_n", 0), lit("SELIO")), False, True),
-    })
+    }
+    gated_clock(outs, "ALEK", lit("ALE"), clk="CK2")
+    G.add(nl, "U_IOB", outs, clock="MCLK")
     for k in range(2):
         nl.add("541", f"U_DR{k}", OE1="IOBOE_n", OE2="GND",
                **{f"A{i + 1}": IOD[8 * k + i] for i in range(8)},

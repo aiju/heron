@@ -76,15 +76,25 @@ def _span(board, name):
     return (b, b + w)
 
 
-def gated_clock(outs, name, enable, clk="CK1", wph="WPH"):
+def gated_clock(outs, name, enable, clk="CK1", wph="WPH", late=True):
     """A clock that rises with the cycle's start (clk) only at the end of a
     cycle whose `enable` (a sum of products, steady through the cycle) is
     true: ARM, registered on the master clock, is set through the write
-    phase (the cycle's last three ticks) and clears a tick into the next
-    cycle, so it is steady around clk's rise. Adds both outputs to a GAL's
-    output dict, whose clock must be MCLK. wph=None: ARM is the enable
-    itself, registered (a clock at the master clock's next edge)."""
+    phase (the cycle's last three ticks) and clears two ticks into the next
+    cycle (ARMD, a tick after the write phase, ends it), so it is steady
+    around clk's rise, which comes about a tick after the edge. Adds the
+    outputs to a GAL's output dict, whose clock must be MCLK. late=False:
+    ARM clears a tick in, racing clk's rise (open: VIDEO's, whose GAL has
+    no room for ARMD). wph=None: ARM is the enable itself, registered (a
+    clock at the master clock's next edge)."""
     arm = f"ARM_{name}"
-    outs[arm] = (AND(lit(wph), enable) if wph else enable, True, False)
+    if wph and not late:
+        outs[arm] = (AND(lit(wph), enable), True, False)
+    elif wph:
+        armd = f"ARMD_{name}"
+        outs[arm] = (OR(AND(lit(wph), enable), AND(lit(arm), lit(wph, 0), lit(armd, 0))), True, False)
+        outs[armd] = (AND(lit(arm), lit(wph, 0)), True, False)
+    else:
+        outs[arm] = (enable, True, False)
     outs[name] = (AND(lit(clk), lit(arm)), False, False)
     return name

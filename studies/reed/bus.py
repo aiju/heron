@@ -23,16 +23,20 @@ def bus(name, n, start=0):
 
 UPCN = bus("UPCN", 14)
 OP = bus("OP", 8)
-RD, RS, RX = bus("RD", 4), bus("RS", 4), bus("RX", 4)
+RD, RS, RX = bus("RD", 4), bus("RS", 4), bus("RX", 4)    # RD, RS: each board's own
+NRD, NRS = bus("NRD", 4), bus("NRS", 4)
 SZ = bus("SZ", 2)
 
 # {line: (driver board, what it is)}
 CONTROL = {
-    **{n: ("CTRL", "clock") for n in ("MCLK", "MCLKN", "CYC", "WPH", "WRS")},
+    **{n: ("CTRL", "clock") for n in ("MCLK", "CYC", "WPH", "WRS")},
     **{n: ("CTRL", "the next microprogram address: every board's µPC loads it as the cycle starts")
        for n in UPCN},
     **{n: ("CTRL", "the executing instruction's opcode") for n in OP},
-    **{n: ("CTRL", "its register numbers d, s and x") for n in RD + RS + RX},
+    **{n: ("CTRL", "the decoded instruction's register numbers d and s, a cycle before it "
+                   "executes: the ALU board takes them as CTRL's U_RB does") for n in NRD + NRS},
+    "DEC1_n": ("CTRL", "the decoded instruction starts at this cycle's end (U_RB loads)"),
+    **{n: ("CTRL", "the executing instruction's index register x") for n in RX},
     "FETCH": ("CTRL", "the queue wants a word, and B is free this cycle"),
     **{n: ("ALU", "flags") for n in ("FN", "FZ", "FC", "FV", "FST")},
     "QIN": ("ALU", "the bit MQ shifts in (the last result's bit 0)"),
@@ -48,7 +52,7 @@ CONTROL = {
     "WAIT_V": ("VIDEO", "hold the cycle: the frame buffer is busy"),
     "VIRQ": ("VIDEO", "the frame's interrupt, to the interrupt controller"),
 }
-CLOCKS = ("MCLK", "MCLKN", "CYC", "WPH", "WRS")
+CLOCKS = ("MCLK", "CYC", "WPH", "WRS")
 BOARDS = ("CTRL", "ALU", "MEM", "IO", "VIDEO")
 
 
