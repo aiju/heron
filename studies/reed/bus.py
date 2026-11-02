@@ -21,7 +21,7 @@ def bus(name, n, start=0):
     return [f"{name}{i}" for i in range(start, start + n)]
 
 
-UPC = bus("UPC", 14)
+UPCN = bus("UPCN", 14)
 OP = bus("OP", 8)
 RD, RS, RX = bus("RD", 4), bus("RS", 4), bus("RX", 4)
 SZ = bus("SZ", 2)
@@ -29,7 +29,8 @@ SZ = bus("SZ", 2)
 # {line: (driver board, what it is)}
 CONTROL = {
     **{n: ("CTRL", "clock") for n in ("MCLK", "MCLKN", "CYC", "WPH", "WRS")},
-    **{n: ("CTRL", "the microprogram address") for n in UPC},
+    **{n: ("CTRL", "the next microprogram address: every board's µPC loads it as the cycle starts")
+       for n in UPCN},
     **{n: ("CTRL", "the executing instruction's opcode") for n in OP},
     **{n: ("CTRL", "its register numbers d, s and x") for n in RD + RS + RX},
     "FETCH": ("CTRL", "the queue wants a word, and B is free this cycle"),

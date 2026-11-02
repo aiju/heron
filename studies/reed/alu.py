@@ -4,10 +4,14 @@ The register file is two copies of 64K x 32 (four IS61C6416s, each as two
 8-bit halves), one per read port, both written with every result. Its
 read and write share each cycle, through latches:
 
-  - from the cycle's start the copies read (their addresses from U_RAG0-1
-    and U_RBG0-1: d, s, x or the microinstruction's K), and the 74ABT573
-    latches pass their data to the ALU's inputs, OA and OB;
-  - in the write phase (WPH, the cycle's last three ticks) the latches hold,
+  - from the board's clock (CK2, Y's) until the write phase, LE is high:
+    the copies read (their addresses from U_RAG0-1 and U_RBG0-1: d, s, x
+    or the microinstruction's K), and the 74ABT573 latches pass their
+    data to the ALU's inputs, OA and OB. Opening on CK2, the latches
+    can't pass the next read before the board has taken the result;
+  - otherwise (from the write phase, WPH, the cycle's last three ticks,
+    until the board's clock) the latches hold, and since the addresses
+    and enables take LE, they change only after the latches have closed:
     the copies' addresses switch to W (the last cycle's destination, held
     in U_WG), and Y_A and Y_B (574s that
     took the last cycle's result) write it, RFWE_n low while WRS is (the
@@ -103,7 +107,7 @@ def register_file(nl, ck):
     rb = sel(f("RBS"), {F.RBS["s"]: rs, F.RBS["x"]: rx, F.RBS["K"]: "K"})
     for name, addr, fn in (("U_RAG", RFA, ra), ("U_RBG", RFB, rb)):
         for part, bits in enumerate((range(0, 3), range(3, 5))):
-            outs = {addr[i]: (OR(AND(lit("WPH"), lit(w[i])), AND(lit("WPH", 0), fn[i])), False, False)
+            outs = {addr[i]: (OR(AND(lit("LE", 0), lit(w[i])), AND(lit("LE"), fn[i])), False, False)
                     for i in bits}
             G.add(nl, f"{name}{part}", outs).part = FAST_GAL
     # W: this cycle's destination, for the next cycle's write phase
@@ -113,21 +117,24 @@ def register_file(nl, ck):
     G.add(nl, "U_WG", outs, clock=ck[1])
     # U_BYP: the bypass (the port's address is W, and W is to be written),
     # straight from the addresses: each copy's outputs, off in the write
-    # phase and when Y bypasses it, and Y's; the latches' enable, from the
-    # same part as the copies' (their race: sta.EXCEPTIONS)
-    outs = {"LE": (lit("WPH", 0), False, False)}
+    # phase and when Y bypasses it, and Y's
+    outs = {}
     for c, addr in (("A", RFA), ("B", RFB)):
         # reading, and not W's: the copy drives, Y doesn't
-        own = [AND(lit("WPH", 0), lit("WEN", 0))]
+        own = [AND(lit("LE"), lit("WEN", 0))]
         for i in range(5):
-            own += [AND(lit("WPH", 0), lit(addr[i]), lit(W[i], 0)),
-                    AND(lit("WPH", 0), lit(addr[i], 0), lit(W[i]))]
+            own += [AND(lit("LE"), lit(addr[i]), lit(W[i], 0)),
+                    AND(lit("LE"), lit(addr[i], 0), lit(W[i]))]
         outs[f"RFOE{c}_n"] = (OR(*own), False, True)
         outs[f"Y{c}OE_n"] = (OR(*own), False, False)
     G.add(nl, "U_BYP", outs).part = FAST_GAL
-    # U_RFT: the write strobe (WRS, while W is to be written)
-    outs = {"RFWE_n": (OR(lit("WRS"), lit("WEN", 0)), False, False)}
-    G.add(nl, "U_RFT", outs)
+    # U_RFT: the write strobe (WRS, while W is to be written); the latches'
+    # enable, open from this board's clock (Y's) until the write phase, so
+    # that the next read can't reach the ALU before every board has taken
+    # the result (their close against the copies': sta.EXCEPTIONS)
+    outs = {"RFWE_n": (OR(lit("WRS"), lit("WEN", 0)), False, False),
+            "LE": (AND(lit("WPH", 0), lit(ck[1])), False, False)}
+    G.add(nl, "U_RFT", outs).part = FAST_GAL
 
 
 def alu(nl, ck):

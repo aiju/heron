@@ -13,10 +13,13 @@ middle tick: the write strobe every board takes, a tick after the address
 has switched and a tick before it switches back. Every board, CTRL too, takes CYC from the backplane through
 a CDC341 of its own, so that every register sees the same edge.
 
-The sequencer. The µPC (two 574s) drives the backplane's UPC lines, which
-every board's slice of the control store reads. CTRL's own slice gives
-JT, SEQ and CND straight to the next-address GALs (U_NA0-2), which work
-from the word being fetched while the one before executes:
+The sequencer. The next-address GALs (U_NA0-2) drive the backplane's
+UPCN lines, the next microinstruction's address: every board, CTRL too,
+loads it into a µPC of its own (two 574s) at the cycle's start, on the
+clock its slice's 574s take, and reads its slice of the control store
+from it. CTRL's own slice gives JT, SEQ and CND straight to the
+next-address GALs, which work from the word being fetched while the one
+before executes:
 
   SEQ JUMP     JT, its bit 0 XORed with the condition CND chooses
   SEQ BRDEC    JT if the condition holds, else as DECODE
@@ -118,13 +121,7 @@ def clocks(nl, sim):
 
 def sequencer(nl, ck):
     nl.section("sequencer")
-    upcd = bus("UPCD", F.ADDR_BITS)
-    for k in range(2):
-        lo = 8 * k
-        n = min(8, F.ADDR_BITS - lo)
-        nl.add("574", f"U_UPC{k}", OE="GND", CLK=ck[0],
-               **{f"D{i + 1}": upcd[lo + i] if i < n else "GND" for i in range(8)},
-               **{f"Q{i + 1}": BP.UPC[lo + i] if i < n else f"UPC_NC{lo + i}" for i in range(8)})
+    upcd = BP.UPCN
     # the decode table: the parcel at the decode pointer -> entry, length
     dt = bus("DT", 14) + ["DLEN0", "DLEN1"]
     for k in range(2):

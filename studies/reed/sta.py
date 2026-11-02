@@ -14,8 +14,9 @@ straight from its parts, read the next word, a plain jump.
 The boards' clocks all come from the backplane (CYC through each board's
 CDC341), so the skew between boards is the backplane's and the CDC341s'.
 
-Left out, and so reported: RESET_n is high and the WAIT lines low (no
-I/O access is timed yet); the VIDEO board runs on its own phase and the
+Left out, and so reported: RESET_n is high, and the WAIT lines low and
+IORD_n and IOWR_n high (no I/O access is timed yet: a load or store is
+to memory); the VIDEO board runs on its own phase and the
 IO board's devices on their accesses, so neither's checks count here.
 
   heron reed sta [--word NAME] [--paths N]
@@ -72,9 +73,10 @@ START = {
 STROBES = {}
 # named exceptions (RFC 0048 8), each counted in the results
 EXCEPTIONS = [
-    {"reason": "open: the register file's copies stop driving as the read latches close (both from "
-               "WPH, through U_BYP); their hold rests on the net keeping its value for the "
-               "latch's 1.8 ns",
+    {"reason": "the read latches' inputs change only after LE closes them (the copies' addresses "
+               "and the copies' and Y's enables take LE): at least 2 ns, a GAL and an output "
+               "enable, against the latch's 1.8 ns hold; the engine can't order a change after "
+               "the enable it follows",
      "chip": f"ALU.U_L{c}{k}", "check": "hold"} for c in "AB" for k in range(4)]
 ARMS = ["CTRL.ARM_QCK0", "CTRL.ARM_QCK1", "CTRL.ARM_HCK", "MEM.ARM_MARCK", "IO.ARM_ALEK",
         "VIDEO.ARM_VALEK", "VIDEO.ARM_VWK", "VIDEO.ARM_PXCK"]
@@ -125,7 +127,7 @@ def case(name, word, ticks, after_mar=False):
         start[f"CTRL.PV{i}"] = (0, 0)
     skip = [c["ref"] for c in _ex()["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
     return {"label": f"{name} @{ticks}", "clock": "CTRL.MCLK0", "pins": pins, "before": before,
-            "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0}, "start": start, "skip": skip,
+            "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1}, "start": start, "skip": skip,
             "branch": [], "exceptions": EXCEPTIONS, "end": {"net": "CTRL.CYC0", "events": 40}}
 
 

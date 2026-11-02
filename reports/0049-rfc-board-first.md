@@ -56,14 +56,15 @@ control store in 45 ns parts; and design for test by the backplane
 netlist, [studies/reed](../studies/reed/README.md): what it found is
 in section 14, and the napkin's sections below are as they were.
 
-- **Reed's first netlist:** five boards (CTRL 70 packages, ALU 67, MEM 63,
-  IO 30, VIDEO 49: 279, 46 of them 22V10s), each within a double
+- **Reed's first netlist:** five boards (CTRL 70 packages, ALU 69, MEM 65,
+  IO 30, VIDEO 49: 283, 46 of them 22V10s), each within a double
   Eurocard, joined on the backplane by name. It passes the netlist's
   checks, and every control line has one driver. The static timing
   engine (RFC 0048) finds that a microcycle that reads and writes the
   register file needs **5 ticks**, not the napkin's 4 (Emily: 5 is
-  fine), and that holds, a strobe's width and the RAM's write timing
-  still fail. At 5 ticks the 55 ns flash costs nothing. A taken branch
+  fine; a load and add and a store need 6), and that MAR's hold and
+  two strobes' widths still fail, besides holds the engine can't
+  credit. At 5 ticks the 55 ns flash costs nothing. A taken branch
   takes about five microcycles. The SST39SF010A's 45 ns grade was
   end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
 
@@ -760,11 +761,11 @@ chip-level simulation.
 | Board | Packages | Area | 22V10s | What's on it |
 |---|---:|---:|---:|---|
 | **CTRL** | 70 | 60 | 14 | the clock generator (U_CGA: CYC, WPH, WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
-| **ALU** | 67 | 66 | 14 | its slice (4 parts, 4 × 574); the register file (two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP; its address muxes and U_BYP in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
-| **MEM** | 63 | 50 | 5 | its slice (1 part, 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR, FPC; MQ |
+| **ALU** | 69 | 67 | 14 | its slice (4 parts, the µPC and 4 × 574); the register file (two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP; its address muxes and U_BYP in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
+| **MEM** | 65 | 51 | 5 | its slice (1 part, the µPC and 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR, FPC; MQ |
 | **IO** | 30 | 29 | 7 | two UARTs, the timer, the boot flash, the CF card, two PS/2 ports (a 299 each, received in hardware), the interrupt controller, sound, reset |
 | **VIDEO** | 49 | 40 | 6 | a 2 MB frame buffer, 640 × 480 × 8 through a palette in SRAM and an ADV7125, posted writes and latched reads |
-| **total** | **279** | | **46** | |
+| **total** | **283** | | **46** | |
 
 Area is in the napkin's units (a DIP-20's slot, 70 to a board), with SOIC
 at three quarters of one. Where building it changed the napkin:
@@ -816,12 +817,12 @@ every two paths from one edge race.
 
 | Microcycle | Ticks | Still failing there |
 |---|---:|---|
-| `ADD r, r`, `ADD r, #q`, shift right | 5 | holds (Y, the flags), the register file's strobe width, glitches |
+| `ADD r, r`, `ADD r, #q`, shift right | 5 | holds (Y, the flags: the engine's, below), the register file's strobe width, glitches |
 | r + d16 into MAR, r into MAR | 5 | as above |
-| load | 5 | as above; the microinstruction registers' hold; the asynchronous inputs' crossings |
-| load and add | 5 | as above; a setup on the flags, 26 ns, at every length |
-| store | 5 | holds; the RAM's write strobes against the data on A |
-| fetch, jump, a branch's target | 5 | holds; PC's and FPC's loads from A |
+| load | 5 | as above; MAR's hold |
+| load and add | 6 | as above |
+| store | 6 | as above; the RAM's strobe width |
+| fetch, jump, a branch's target | 5 | as above; PC's and FPC's loads from A |
 
 What sets the lengths, and what fails:
 
@@ -834,7 +835,8 @@ What sets the lengths, and what fails:
   copies' addresses are valid at 32.5 ns and their data at 44.5, and the
   bypass has Y on or off by 44.5. The latches close as the write phase
   starts, at 46.8 ns at the earliest in a 5-tick cycle: 0.4 ns to
-  spare, under the minimum delays' 30% (below). At 4 ticks they would close at about 29 ns, and the clock
+  spare, under the minimum delays' 30% (below). At 4 ticks they would
+  close at about 29 ns, and the clock
   generator would need LEN at the edge after the cycle's first, before
   CTRL's microinstruction register has it. The napkin had the register
   op in 4 ticks: under worst-case and minimum delays it doesn't hold.
@@ -843,16 +845,49 @@ What sets the lengths, and what fails:
   the backplane, and several more GALs), a write phase on half ticks
   (MCLKN; its strobe made on the ALU board, since a tick's is already
   short), and LEN straight from the control store's parts.
-- **Holds:** Y and the flags (the bypass from Y through the latches into
-  the ALU is short at minimum delays); every board's microinstruction
-  register against the µPC, which changes on the same edge while the
-  parts' output hold is 0 (a µPC clocked a little later is the usual
-  fix); PC and FPC loading from A.
+- **A load and add needs 6 ticks:** the RAM's read, the crossbar, B
+  and the ALU's add in one cycle. A store needs 6 too: its data leaves
+  the read latches for A and MEM's lanes while the write phase starts.
+  (A 26 ns setup on the flags that failed at every length was the VIDEO
+  board's read latch, possibly on B while the I/O strobes were unknown:
+  the cases now pin them, as they do the WAIT lines.)
+- **The read latches open on the ALU board's clock** (CK2, Y's), not
+  when the write phase ends, and the copies' addresses and the copies'
+  and Y's enables follow the latches' enable (LE) rather than WPH. So
+  the next read can't reach the ALU before the board has taken the
+  result, the hand-over from Y to the copy happens behind a closed
+  latch, and the latch's inputs change only after it closes: at least
+  2 ns (a GAL and an output enable) against its 1.8 ns hold. The
+  engine can't order a change after the enable it follows, so that
+  hold stays a named exception.
+- **Every board has its own µPC:** CTRL drives the next address
+  (UPCN) on the backplane, and each board loads it on the clock its
+  slice's 574s take. A µPC on CTRL alone changed the word under the
+  other boards' 574s before they had loaded it (the parts' output hold
+  is 0, and the boards' clocks differ by their CDC341s); a µPC clocked
+  later on CTRL would race the flags into the next-address logic
+  instead. Four more 574s, on ALU and MEM.
+- **Holds still failing:**
+  - Y, the flags, PC and FPC (−2 to −5 ns): the engine's. Their data
+    goes back to the latches' opening, which is CK2 through U_RFT;
+    the engine traces it through WPH, the other input, so it credits
+    none of CK2's own spread (9 ns) against the capturing clock. By
+    hand, the ALU's result moves at least 5 ns after CK2 against Y's
+    1.8 ns hold, and A moves at least 2 ns after CTRL's and MEM's
+    clocks. An engine fix (RFC 0048): trace an output's earliest
+    change through the input that sets it.
+  - MAR (−21 ns), real: MARCK is the board's clock through a GAL,
+    gated by ARM, which clears a tick into the cycle. The clock reaches
+    MEM about a tick after the edge, so ARM can clear as MARCK should
+    rise, and even a clean MARCK is a GAL later than the clocks that
+    change A. Ways out: ARM clearing a tick later, and MAR taking A
+    on the board's own clock with an enable (a 377 behind the 574s, or
+    a part with both).
 - **Strobes:** the register file's write strobe, a tick less the
-  spread, is 1.8 ns short of the SRAM's 9; a store's data on A against
-  MEM's write strobes (80 checks).
-- **One named exception:** the read latches' hold as the copies stop
-  driving (both from WPH, through U_BYP).
+  spread, is 1.3 ns short of the SRAM's 9; the RAM's, 4.8 ns short of
+  its 12.
+- **One named exception:** the read latches' hold as their inputs
+  change after LE closes them (above).
 
 ### 14.4 Branches
 
@@ -873,13 +908,13 @@ lines. A board can be tested alone by a tester on the 128 lines
 (a microcontroller or an FPGA board with a few hundred I/O), playing a
 cycle at a time:
 
-- **ALU:** drive the clocks, the µPC (its slice holds a test
+- **ALU:** drive the clocks, the next µPC, UPCN (its slice holds a test
   microprogram as well as the real one), OP and d, s and x, and A and B;
   read the flags, QIN, and A and B.
-- **MEM:** drive the clocks, the µPC, A, B and FETCH; read B, MQ0, AERR,
+- **MEM:** drive the clocks, UPCN, A, B and FETCH; read B, MQ0, AERR,
   ALE and the I/O strobes.
 - **CTRL:** drive the clocks' sources, the flags, MQ0, AERR, IRQ and the
-  WAIT lines; read the µPC, OP, the register numbers, FETCH, and A and B.
+  WAIT lines; read UPCN, OP, the register numbers, FETCH, and A and B.
 - **IO and VIDEO:** drive ALE, IORD_n, IOWR_n and SZ with A and B, as
   MEM would.
 
@@ -891,7 +926,8 @@ such a test against a board's netlist; that harness isn't built yet.
 
 1. **The register file's timing:** 5 ticks (Emily, 2026-11-02); the
    ways back to 4 (14.3) wait until the register file is open again.
-2. **The holds:** a later clock for the µPC; Y's and the flags' paths.
+2. **The holds:** MAR's clock (14.3); the engine's tracing through a
+   latch's enable, for Y's, the flags' and PC's.
 3. **The branch hardware**, if CTRL can give room.
 4. **The control store's part:** the 55 ns flash for now (14.2).
 5. **The minimum delays' fraction** (RFC 0048, open): 30% makes every
