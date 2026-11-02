@@ -1,0 +1,30 @@
+---
+status: active
+depends-on: []
+reports: [49]
+---
+
+# Reed: design A at chip level
+
+Reed (a codename, Emily 2026-11-02) is design A of
+[RFC 0049](../../reports/0049-rfc-board-first.md), the Spine: five double
+Eurocards on a backplane, CTRL, ALU, MEM, IO and VIDEO, joined by two
+32-bit buses (A and B) and 64 control lines with one driver each. This
+study is its chip-level netlist, board by board, with the checks the
+netlist language has, the backplane's own (each control line driven by
+its board alone), and its static timing on infra/sta (RFC 0048).
+
+```sh
+heron reed boards      # each board's packages, area and parts
+heron reed check       # build the whole machine and check it
+heron test reed        # the unit tests
+```
+
+| File | |
+|---|---|
+| `bus.py` | the backplane: A, B, the control lines and their drivers, the connectors' pins |
+| `fields.py` | the microinstruction: each board's slice of it, the fields' codes |
+| `parts.py` | the parts variant (SOIC logic, 45 ns control store), packages and their area, extra chip types |
+| `common.py` | helpers: sums of products, a board's control slice, clock buffers, gated clocks |
+| `ctrl.py`, `alu.py`, `mem.py`, `io.py`, `video.py` | the boards (each module's docstring describes its board) |
+| `system.py` | the boards joined; the checks; the boards' statistics |

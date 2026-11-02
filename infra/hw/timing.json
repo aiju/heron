@@ -2528,6 +2528,41 @@
   "part_number": "AS7C4096A-12",
   "source": "https://www.alliancememory.com/wp-content/uploads/as7c4096a_v1.3.pdf"
  },
+ "AT27C010-45": {
+  "checks": {
+   "tOH": 0
+  },
+  "delays": {
+   "tACC": {
+    "max": 45,
+    "typ": 27.0
+   },
+   "tCE": {
+    "max": 45,
+    "typ": 27.0
+   },
+   "tDF": {
+    "max": 20,
+    "typ": 12.0
+   },
+   "tOE": {
+    "max": 20,
+    "typ": 12.0
+   }
+  },
+  "estimated": [
+   "tACC",
+   "tCE",
+   "tOE",
+   "tDF",
+   "tACC typ",
+   "tCE typ",
+   "tOE typ",
+   "tDF typ"
+  ],
+  "part_number": "AT27C010-45JU",
+  "source": "Microchip/Atmel AT27C010 datasheet, AC characteristics of the -45 grade; the figures aren't yet checked against the PDF, so all are marked estimated"
+ },
  "AT28C256-15": {
   "checks": {
    "tAH": 50,

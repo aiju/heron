@@ -2800,5 +2800,19 @@
       "hold EN"
     ],
     "notes": "Every figure here is an estimate, to replace from the datasheet. The latches are as a register to the simulator: the input latch closing as WR1 rises ('CLK', CS as 'EN'), the DAC latch as XFER and WR2 rise. tW and tDS (data setup) at VCC 5 V are a few hundred ns: 320 ns as remembered, about 375 ns in a forum's reading; the long write class in Chibi Heron's U_SLOW allows 397 ns."
+  },
+  "AT27C010-45": {
+    "part_number": "AT27C010-45JU",
+    "family": "EPROM",
+    "availability": "For RFC 0049's control store at a 4-tick floor: 128K x 8 OTP EPROM in PLCC-32, 45 ns, Microchip; availability to check. The SST39SF010A's 45 ns grade it stands in for was end-of-lifed in 2013.",
+    "source": "Microchip/Atmel AT27C010 datasheet, AC characteristics of the -45 grade; the figures aren't yet checked against the PDF, so all are marked estimated",
+    "delays": {
+      "tACC": {"max": 45},
+      "tCE": {"max": 45},
+      "tOE": {"max": 20},
+      "tDF": {"max": 20}
+    },
+    "checks": {"tOH": 0},
+    "estimated": ["tACC", "tCE", "tOE", "tDF"]
   }
 }
