@@ -157,7 +157,7 @@ multiplexers.
 3. **Two or more inputs change** in windows that overlap, and the output
    isn't held: a glitch (a race between the inputs).
 
-Two refinements apply to every combinatorial output:
+These refinements apply to every combinatorial output:
 
 - **An opaque function** (an ALU's F, a memory's data) changes when an
   input changes: a change for one input, a glitch for more.
@@ -167,9 +167,29 @@ Two refinements apply to every combinatorial output:
   term holds the output and no other term covers the input's. An arc
   with a condition counts only while its condition can be true. Known
   values cut false paths, as in today's analysis.
+- **A change that doesn't reach the output still happens:** once it's
+  over, the input has its new value, for whatever the output does
+  later. (`A·C`, with A rising while C is 0: when C rises, the output
+  rises.)
+- **A change that reaches the output only once another input starts to
+  change** (the function can answer it only from then) is timed from
+  that other input's change: its earliest time at the output goes back
+  through that input, so the paths' shared part is credited
+  ([9.1](#91-setup-and-hold)). In `LE = /W·(C + LE)`, with W falling
+  first, LE's earliest rise goes back through C.
 - **An output fed back to its own inputs** (a latch made of gates): its
   value counts, but its changes are the output's own and don't time it
   again.
+- **An input that holds such an output when it closes** (a latch's
+  enable at 0: the function is then the output's own value whatever the
+  others are): a change of another input that goes back through that
+  closing, at the same net (behind the pin's wires), and comes no
+  earlier than the closing's latest at the pin plus the hold that the
+  chip's check on that edge asks, the paths' shared part credited,
+  finds it closed. It doesn't reach the output; its hold is still
+  checked. (A latch whose enable's fall switches its own D: D's change
+  doesn't pass to Q.) An enable on another net, even an identical copy,
+  isn't recognised: the change then passes.
 
 **Registers.**
 
@@ -422,7 +442,9 @@ A case is what a study fixes; everything else is X.
   An exception matches a check by any of its chip, its kind (setup,
   hold, ...), its pin, and the values of nets at its edge (`when`):
   - with `through`, a false path: only the changes whose path goes
-    through that net are left out, and the check counts the others;
+    through that net are left out, and the check counts the others. That
+    holds for setups and holds, a strobe's address and data, and
+    handovers (where either driver's change goes through it);
   - without, a check the study turns off (for example, a result register
     that loads every cycle but matters only when the result is used).
 
@@ -489,6 +511,16 @@ instead ([9.7](#97-crossings)). Its other pins are checked as usual.
 - **Period:** from a transition's latest time to the next one in the same
   direction's earliest.
 
+Both edges are one signal's, so the part of their paths they share is
+credited even when they start at different reference edges: its spread,
+each edge's delay along it measured from its own edge. They're one path
+a tick apart, not two chips. The same goes for a strobe's width
+([9.5](#95-strobes)) and a clear's or preset's pulse
+([9.3](#93-recovery-and-removal)). **Open:** the data has one delay for
+a rise and a fall ([5](#5-delays)), so the credit takes a stage's rise
+and fall to track; separate values would bound how much a pulse shrinks
+on the way.
+
 #### 9.3 Recovery and removal
 
 For every register with a clear or a preset, the force's waveform (its
@@ -513,7 +545,11 @@ A glitch-sensitive pin sees only rises and falls, by
 - for a strobe's pins, while its other inputs let it act (WE while CE is
   active).
 
-A change or a glitch there fails.
+A change or a glitch there fails. A glitch counts if a change in it is
+the window's, even where it runs on past the window's end; where it
+merges changes from several edges (their windows wider than the time
+between them, as with a clock over a long wire), the results say so,
+since nothing that pin times can be checked.
 
 #### 9.5 Strobes
 
@@ -526,7 +562,9 @@ its deactivating one's latest):
 - the strobe lasts at least its width.
 
 What must hold after the end (tAH, tDH) is reported as a hold: like a
-register's, no length changes it.
+register's, no length changes it. Each of these is a capture against
+one of the strobe's edges, so the part of the two paths they share is
+credited as [9.1](#91-setup-and-hold) does.
 
 This covers the RAMs' and the register file's writes, the UARTs', the
 DAC0832's, the 82C54's and the CF card's, each by its own description.
@@ -612,7 +650,8 @@ and its tests can hold that list.
   typical delays beyond what it shares with the other.
 - **Per branch:** its choices, its end, the checks it evaluated, what
   each exception took, what it couldn't check (`unresolved`), the
-  crossings at synchronisers, its tails, and where it repeats.
+  crossings at synchronisers, its tails, and where it repeats. Its notes
+  say when it evaluated no check at all, and why where it can.
 - **A study's summary:**
   - the failing checks;
   - the marginal ones: slack under a band the run sets, 2 ns by default,
@@ -836,7 +875,7 @@ of this RFC.
 
 - **Today:** `sta2.py` takes 6.4 s on four cores for its 626 cases, and
   the grade search runs the analysis again for each 22V10 it tries. The
-  engine takes 210 s for Chibi Heron's 7402 cases (every length the
+  engine takes 340 s for Chibi Heron's 7402 cases (every length the
   ticks search tries, the variants at each device and with a task, and
   the tails' two rounds), at 4.8 GB.
 - **The aim:** the whole of Chibi Heron's analysis in under a second on

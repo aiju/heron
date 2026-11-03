@@ -169,6 +169,8 @@ struct Ctx<'a, 'b> {
     through: Vec<(usize, u32)>,
     excepted: Vec<usize>,
     unresolved: Vec<(String, String, Vec<String>)>,
+    /// What the checks found worth saying that isn't a check.
+    notes: Vec<String>,
     /// Captures at synchronisers: (chip, pin, source, event).
     crossings: Vec<(u32, u32, u32, i32)>,
     /// Options::cppr_across_edges.
@@ -185,57 +187,28 @@ impl Ctx<'_, '_> {
     }
 
     /// The path to a node from its reference edge, nodes first to last.
-    fn chain(&self, mut n: u32) -> Vec<u32> {
-        let mut out = Vec::new();
-        while n != NONE {
-            out.push(n);
-            n = self.w.nodes[n as usize].parent;
-        }
-        out.reverse();
-        out
+    fn chain(&self, n: u32) -> Vec<u32> {
+        crate::waves::chain(&self.w.nodes, n)
     }
 
-    /// How far two paths share their nets from their reference edges: 0
-    /// if they don't start at reference edges.
+    /// How far two paths share their nets from their reference edges.
     fn shared(&self, a: &[u32], b: &[u32]) -> usize {
-        let nodes = &self.w.nodes;
-        let (Some(&a0), Some(&b0)) = (a.first(), b.first()) else {
-            return 0;
-        };
-        let (ra, rb) = (nodes[a0 as usize], nodes[b0 as usize]);
-        if ra.parent != NONE || rb.parent != NONE || ra.event < 0 || rb.event < 0 {
-            return 0;
-        }
-        let mut k = 0;
-        while k < a.len() && k < b.len() && nodes[a[k] as usize].key == nodes[b[k] as usize].key {
-            k += 1;
-        }
-        k
+        crate::waves::shared(&self.w.nodes, a, b)
     }
 
     /// Common path pessimism's credit between a late time (at node `late`)
     /// and an early one (`early`): where both paths go through the same
     /// nets from their reference edges, the last shared net's spread.
     fn credit(&self, late: u32, early: u32) -> i64 {
-        if late == NONE || early == NONE {
-            return 0;
-        }
-        let (a, b) = (self.chain(late), self.chain(early));
-        let k = self.shared(&a, &b);
-        if k == 0 {
-            return 0;
-        }
-        let nodes = &self.w.nodes;
-        let (ra, rb) = (nodes[a[0] as usize], nodes[b[0] as usize]);
-        let (x, y) = (nodes[a[k - 1] as usize], nodes[b[k - 1] as usize]);
-        if ra.event == rb.event {
-            // one edge: its own jitter is common too
-            (x.t - y.t).max(0)
-        } else if self.across {
-            ((x.t - ra.t) - (y.t - rb.t)).max(0)
-        } else {
-            0
-        }
+        crate::waves::credit(&self.w.nodes, late, early, self.across)
+    }
+
+    /// The credit between one signal's own edges (a pulse's two, or a
+    /// period's): their shared path's spread even from different reference
+    /// edges, each edge's delay along it measured from its own edge, since
+    /// it's one path a tick apart (RFC 0048 9.2).
+    fn credit_edges(&self, late: u32, early: u32) -> i64 {
+        crate::waves::credit(&self.w.nodes, late, early, true)
     }
 
     /// The smallest fraction a check passes with: its slack moves with the
@@ -467,7 +440,7 @@ impl Ctx<'_, '_> {
             if !self.counts_start(ev) {
                 continue;
             }
-            let slack = b.e - a.l + self.credit(a.cl, b.ce) - min;
+            let slack = b.e - a.l + self.credit_edges(a.cl, b.ce) - min;
             let what = format!(
                 "{} {} ({})",
                 self.pin_name(chip, pin),
@@ -491,7 +464,7 @@ impl Ctx<'_, '_> {
             if !self.counts_start(ev) {
                 continue;
             }
-            let slack = b.e - a.l + self.credit(a.cl, b.ce) - min;
+            let slack = b.e - a.l + self.credit_edges(a.cl, b.ce) - min;
             let what = format!(
                 "{} ({})",
                 self.pin_name(chip, pin),
@@ -539,7 +512,7 @@ impl Ctx<'_, '_> {
                         let ev = self.event(a.cl);
                         if a.after == V1 && b.before == V1 && b.after != V1 && self.counts_start(ev)
                         {
-                            let slack = b.e - a.l + self.credit(a.cl, b.ce) - min;
+                            let slack = b.e - a.l + self.credit_edges(a.cl, b.ce) - min;
                             let w = what(format!("force width ({})", name(2, "width")));
                             self.push(chip, "width", w, slack, a.l, ev, (b.ce, a.cl), b.ce);
                         }
@@ -625,7 +598,7 @@ impl Ctx<'_, '_> {
                     chip,
                     "strobe",
                     format!("{eq} width"),
-                    b.e - a.l - wd,
+                    b.e - a.l + self.credit_edges(a.cl, b.ce) - wd,
                     b.e,
                     ev,
                     (b.ce, a.cl),
@@ -634,22 +607,32 @@ impl Ctx<'_, '_> {
             }
             for s in stable {
                 for &p in &s.pins {
-                    let pw = self.w.pin_wave(chip, p);
+                    let pw = self.w.pin_wave(chip, p).clone();
+                    let pname = self.pin_name(chip, p);
                     let mut worst: Option<(i64, &str, (u32, u32), u32)> = None;
                     for t in &pw.tr {
-                        let mut before = a.e - s.start.unwrap_or(0) - t.l;
-                        if let Some(end) = s.end {
-                            before = before.min(b.e - end - t.l);
-                        }
-                        let after = t.e - (b.l + s.after.unwrap_or(0));
-                        // the side after the strobe's end is a hold
-                        let w = if before >= after {
-                            (before, "strobe", (t.cl, a.ce), a.ce)
-                        } else {
-                            (after, "hold", (t.ce, b.cl), t.ce)
-                        };
-                        if worst.is_none_or(|x| w.0 < x.0) {
-                            worst = Some(w);
+                        for part in self.w.parts_of(t).iter() {
+                            let mut before =
+                                a.e - s.start.unwrap_or(0) - part.l + self.credit(part.cl, a.ce);
+                            if let Some(end) = s.end {
+                                before =
+                                    before.min(b.e - end - part.l + self.credit(part.cl, b.ce));
+                            }
+                            let after =
+                                part.e - (b.l + s.after.unwrap_or(0)) + self.credit(b.cl, part.ce);
+                            // the side after the strobe's end is a hold
+                            let w = if before >= after {
+                                (before, "strobe", (part.cl, a.ce), a.ce)
+                            } else {
+                                (after, "hold", (part.ce, b.cl), part.ce)
+                            };
+                            if let Some(x) = self.false_path(chip, w.1, &pname, ev, w.2.0) {
+                                self.excepted[x] += 1;
+                                continue;
+                            }
+                            if worst.is_none_or(|x| w.0 < x.0) {
+                                worst = Some(w);
+                            }
                         }
                     }
                     if let Some((slack, kind, node, early)) = worst {
@@ -671,18 +654,27 @@ impl Ctx<'_, '_> {
                 for &p in &s.pins {
                     let (su, h) = (s.setup.unwrap_or(0), s.hold.unwrap_or(0));
                     self.float(chip, p, b.e - su, b.l + h, b.e, ev, b.cl);
-                    let pw = self.w.pin_wave(chip, p);
+                    let pw = self.w.pin_wave(chip, p).clone();
+                    let pname = self.pin_name(chip, p);
                     let mut worst: Option<(i64, &str, (u32, u32), u32)> = None;
                     for t in &pw.tr {
-                        let su = b.e - s.setup.unwrap_or(0) - t.l;
-                        let h = t.e - (b.l + s.hold.unwrap_or(0));
-                        let w = if su >= h {
-                            (su, "strobe", (t.cl, b.ce), b.ce)
-                        } else {
-                            (h, "hold", (t.ce, b.cl), t.ce)
-                        };
-                        if worst.is_none_or(|x| w.0 < x.0) {
-                            worst = Some(w);
+                        for part in self.w.parts_of(t).iter() {
+                            let su =
+                                b.e - s.setup.unwrap_or(0) - part.l + self.credit(part.cl, b.ce);
+                            let h =
+                                part.e - (b.l + s.hold.unwrap_or(0)) + self.credit(b.cl, part.ce);
+                            let w = if su >= h {
+                                (su, "strobe", (part.cl, b.ce), b.ce)
+                            } else {
+                                (h, "hold", (part.ce, b.cl), part.ce)
+                            };
+                            if let Some(x) = self.false_path(chip, w.1, &pname, ev, w.2.0) {
+                                self.excepted[x] += 1;
+                                continue;
+                            }
+                            if worst.is_none_or(|x| w.0 < x.0) {
+                                worst = Some(w);
+                            }
                         }
                     }
                     if let Some((slack, kind, node, early)) = worst {
@@ -860,6 +852,15 @@ impl Ctx<'_, '_> {
                             .map_or(NONE, |t| t.ce);
                         let slack = tolerance - (rb - ra + 1) + self.credit(late, early);
                         let ev = self.event(late);
+                        // a false path through either driver's change
+                        let net = &d.nets[n];
+                        if let Some(x) = [late, early]
+                            .into_iter()
+                            .find_map(|nd| self.false_path(ci, "handover", net, ev, nd))
+                        {
+                            self.excepted[x] += 1;
+                            continue;
+                        }
                         match found.iter_mut().find(|f| f.0 == key) {
                             Some(f) => f.1.1 += 1,
                             None => found.push((key, (n as u32, 1, slack, (late, early), ev))),
@@ -944,15 +945,35 @@ impl Ctx<'_, '_> {
             pins.dedup_by_key(|x| x.0);
             for (p, why) in pins {
                 let w = self.w.pin_wave(ci as u32, p);
-                let bad: Vec<(i64, i32, u32)> =
+                // a glitch's changes may come from several edges (their
+                // windows overlap): it counts if one of them is the window's
+                let bad: Vec<(i64, i32, u32, i32)> =
                     w.tr.iter()
                         .filter(|t| !t.clean)
-                        .map(|t| (t.e, self.event(t.cl), t.cl))
-                        .filter(|x| self.counts_start(x.1))
+                        .filter_map(|t| {
+                            let (first, last) = (self.event(t.ce), self.event(t.cl));
+                            [first, last]
+                                .into_iter()
+                                .find(|&e| self.counts_start(e))
+                                .map(|ev| (t.e, ev, t.cl, if first < 0 { last } else { first }))
+                        })
                         .collect();
-                for (at, ev, node) in bad {
-                    let what = format!("{} ({why}) may glitch", self.pin_name(ci as u32, p));
+                for (at, ev, node, first) in bad {
+                    let pin = self.pin_name(ci as u32, p);
+                    let what = format!("{pin} ({why}) may glitch");
                     self.push(ci as u32, "glitch", what, -1, at, ev, (node, NONE), NONE);
+                    let last = self.event(node);
+                    if first >= 0 && last > first && !self.case.skip.contains(&c.reference) {
+                        let note = format!(
+                            "{}.{pin}'s changes from edges {first} to {last} overlap (their \
+                             windows are wider than the time between them): what it times \
+                             isn't checked",
+                            c.reference
+                        );
+                        if !self.notes.contains(&note) {
+                            self.notes.push(note);
+                        }
+                    }
                 }
             }
         }
@@ -1047,6 +1068,7 @@ pub fn run(d: &Design, t: &Trace, w: &mut Waves, o: &Options, case: &Case) -> Br
         through,
         excepted: vec![0; case.exceptions.len()],
         unresolved: Vec::new(),
+        notes: Vec::new(),
         crossings: Vec::new(),
         across: o.cppr_across_edges,
     };
@@ -1195,7 +1217,20 @@ pub fn run(d: &Design, t: &Trace, w: &mut Waves, o: &Options, case: &Case) -> Br
         marginal,
         min_slack: all.first().map(|c| c.slack),
         worst,
-        notes: w.notes.clone(),
+        notes: {
+            let mut notes = w.notes.clone();
+            notes.extend(cx.notes);
+            if all.is_empty() {
+                notes.push(if skipped > 0 {
+                    format!("no check evaluated but on the {skipped} the case skips")
+                } else {
+                    "no check evaluated: no clock or strobe has an edge in the window that \
+                     can be timed"
+                        .to_string()
+                });
+            }
+            notes
+        },
         traces: traces(d, w, &o.trace),
         evaluated,
         excepted: cx.excepted,

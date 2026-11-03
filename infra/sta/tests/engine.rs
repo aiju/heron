@@ -678,3 +678,276 @@ fn repeats() {
     assert_eq!(r[0].repeats, Some(2));
     assert_eq!(r[0].end, 6);
 }
+
+#[test]
+fn late_enable_sees_early_change() {
+    // A rises at the edge while C is still 0 (A doesn't matter then); C
+    // follows 20 ns later, and Y = A·C rises with it
+    let mut b = Build::new();
+    b.osc("MCLK", 40_000);
+    b.reg("RA", "A", "A", "MCLK", [1000, 4000, 0, 0]);
+    b.gate("UC", "C", &["A"], vec![vec![(1, 1)]], 20_000, 21_000);
+    b.gate(
+        "UY",
+        "Y",
+        &["A", "C"],
+        vec![vec![(1, 1), (2, 1)]],
+        1000,
+        2000,
+    );
+    let o = Options {
+        trace: vec!["Y".into()],
+        ..Options::default()
+    };
+    let r = analyse(&b.design(), &case(&[("A", 0, 1)], "MCLK"), &o).unwrap();
+    let (_, init, tr) = &r[0].traces[0];
+    assert_eq!(*init, 0);
+    assert_eq!(tr.len(), 1, "{tr:?}");
+    assert_eq!((tr[0].2, tr[0].3), (0, 1), "{tr:?}");
+}
+
+#[test]
+fn gated_change_traced_through_the_gate() {
+    // LE = /W·(C + LE), its own pin fed back: W falls first, but LE can
+    // only rise once C does, so its earliest change goes back through C.
+    // YR, clocked by C, takes LE: its hold gets C's spread back (CPPR)
+    let mut b = Build::new();
+    b.osc("MCLK", 40_000);
+    b.reg("RW0", "W0", "W0", "MCLK", [500, 1500, 0, 0]);
+    b.reg("RW", "W", "W0", "MCLK", [500, 1500, 0, 0]);
+    b.gate("UC", "C", &["MCLK"], vec![vec![(1, 1)]], 1000, 10_000);
+    b.gate(
+        "ULE",
+        "LE",
+        &["W", "C", "LE"],
+        vec![vec![(1, 0), (2, 1)], vec![(1, 0), (3, 1)]],
+        1000,
+        2000,
+    );
+    b.gate("UB", "LEB", &["LE"], vec![vec![(1, 1)]], 1000, 2000);
+    b.reg("YR", "YQ", "LEB", "C", [1000, 2000, 0, 0]);
+    let o = Options {
+        marginal: i64::MAX,
+        trace: vec!["W".into(), "C".into(), "LE".into(), "LEB".into()],
+        ..Options::default()
+    };
+    // W falls at the second rising edge, with C
+    let r = analyse(&b.design(), &case(&[("W0", 1, 0), ("W", 1, 1)], "MCLK"), &o).unwrap();
+    let hold = r[0]
+        .worst
+        .iter()
+        .find(|c| c.chip == "YR" && c.check == "hold" && c.event == 2)
+        .unwrap_or_else(|| panic!("{:?} {:?}", r[0].traces, r[0].worst));
+    // LEB from C at 41 + 1 + 1 ns; C at YR by 50 ns; their shared 9 ns
+    // back
+    assert_eq!(hold.slack, 43_000 - 50_000 + 9000, "{hold:?}");
+}
+
+#[test]
+fn strobe_false_path() {
+    // UM's write strobe /WE ends as WE rises at the second edge; D follows
+    // WE through N and changes 2 ns after the end, inside its 5 ns hold.
+    // A false path through N leaves that change out
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RWE", "WE", "WEN", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("UWN", "WEN", &["WE"], not(1), 1000, 2000);
+    b.gate("UN", "N", &["WE"], vec![vec![(1, 1)]], 1000, 2000);
+    b.gate("UD", "D", &["N"], vec![vec![(1, 1)]], 1000, 2000);
+    let desc = Desc {
+        checks: vec![CheckIn {
+            kind: CheckKindIn::Strobe {
+                active: vec![vec![(0, 0)]],
+                stable: vec![],
+                data: vec![sta::input::DataIn {
+                    pins: vec![1],
+                    setup: Some(0),
+                    hold: Some(5000),
+                    names: vec!["tDW".into(), "tDH".into()],
+                }],
+                width: None,
+                eq: "/WE".into(),
+            },
+            estimated: vec![],
+        }],
+        ..Desc::default()
+    };
+    b.chip("UM", "mem", &[("WE", "WE"), ("D", "D")], Some(desc));
+    let c = case(&[("WE", 1, 0)], "MCLK");
+    let r = analyse(&b.design(), &c, &Options::default()).unwrap();
+    let held = |r: &[sta::BranchOut]| {
+        r[0].worst
+            .iter()
+            .filter(|c| c.chip == "UM" && c.check == "hold")
+            .map(|c| c.slack)
+            .min()
+    };
+    // D from WE's rise at 21 ns, 1 + 1 ns on: 23 - (22 + 5), and WE's
+    // spread, 1 ns, which both go through, back
+    assert_eq!(held(&r), Some(-3000), "{:?}", r[0].worst);
+    let mut c = c;
+    c.exceptions = vec![sta::input::Exception {
+        reason: "a test".into(),
+        chip: Some("UM".into()),
+        through: Some("N".into()),
+        ..Default::default()
+    }];
+    let r = analyse(&b.design(), &c, &Options::default()).unwrap();
+    assert_eq!(held(&r), None, "{:?}", r[0].worst);
+    assert!(r[0].excepted[0] > 0);
+}
+
+#[test]
+fn pulse_width_shares_its_path() {
+    // T is high for one 20 ns period; through a 1 to 10 ns buffer its
+    // edges each spread by 9 ns, but both go through the same register and
+    // buffer, so the pulse at UW keeps its 20 ns
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RT", "T", "TN", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("UT", "TN", &["T"], not(1), 1000, 2000);
+    b.gate("UB", "TB", &["T"], vec![vec![(1, 1)]], 1000, 10_000);
+    let desc = Desc {
+        checks: vec![CheckIn {
+            kind: CheckKindIn::Width {
+                pin: 0,
+                level: 1,
+                min: 15_000,
+                names: vec!["tW".into()],
+            },
+            estimated: vec![],
+        }],
+        ..Desc::default()
+    };
+    b.chip("UW", "sink", &[("I", "TB")], Some(desc));
+    let o = Options {
+        marginal: i64::MAX,
+        ..Options::default()
+    };
+    let r = analyse(&b.design(), &case(&[("T", 0, 1)], "MCLK"), &o).unwrap();
+    let w = r[0]
+        .worst
+        .iter()
+        .filter(|c| c.chip == "UW" && c.check == "width")
+        .map(|c| c.slack)
+        .min();
+    // rise by 12 ns, fall from 22: 10 ns, and the shared path's spread,
+    // 1 + 9 ns, back
+    assert_eq!(
+        w,
+        Some(22_000 - 12_000 + 10_000 - 15_000),
+        "{:?}",
+        r[0].worst
+    );
+}
+
+#[test]
+fn no_checks_says_why() {
+    // the register's clock over a 1 to 12 ns wire: its edges' windows,
+    // 11 ns, are wider than the clock's 10 ns half period
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("R1", "Q", "D", "MCLK", [1000, 2000, 1000, 0]);
+    b.gate("U1", "D", &["Q"], not(1), 1000, 2000);
+    b.chips[1].in_delays = vec![[0, 0], [0, 0], [1000, 12_000]];
+    let r = analyse(
+        &b.design(),
+        &case(&[("Q", 0, 1)], "MCLK"),
+        &Options::default(),
+    )
+    .unwrap();
+    assert!(
+        r[0].worst
+            .iter()
+            .any(|c| c.chip == "R1" && c.check == "glitch" && c.slack < 0),
+        "{:?}",
+        r[0].worst
+    );
+    assert!(
+        r[0].notes
+            .iter()
+            .any(|n| n.starts_with("R1.CLK's changes from edges 0 to")),
+        "{:?}",
+        r[0].notes
+    );
+    // and a case with nothing to check says so
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.gate("U1", "Y", &["MCLK"], not(1), 1000, 2000);
+    let r = analyse(&b.design(), &case(&[], "MCLK"), &Options::default()).unwrap();
+    assert_eq!(r[0].checks, 0);
+    assert!(
+        r[0].notes
+            .iter()
+            .any(|n| n.starts_with("no check evaluated")),
+        "{:?}",
+        r[0].notes
+    );
+}
+
+#[test]
+fn latch_closing_its_own_input() {
+    // the latch UQ closes as LE falls (1 to 4 ns), and that fall changes
+    // its D (an inverter, 1 to 2 ns): D may change before LE's latest
+    // fall, but LE's own spread is common to both, so D comes 0.5 ns after
+    // its hold: the latch keeps the 0 it had
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RL0", "LE0", "LE0", "MCLK", [1000, 4000, 1000, 0]);
+    b.reg("RL", "LE", "LE0", "MCLK", [1000, 4000, 1000, 0]);
+    b.gate("UD", "D", &["LE"], not(1), 1000, 2000);
+    let desc = Desc {
+        outputs: vec![OutIn {
+            pin: 0,
+            func: Some(vec![
+                vec![(1, 1), (2, 1)],
+                vec![(1, 0), (0, 1)],
+                vec![(2, 1), (0, 1)],
+            ]),
+            inv: false,
+            arcs: vec![arc(&[2], 1000, 3000), arc(&[1], 1000, 4000)],
+            enable: None,
+            on: vec![],
+            off: vec![],
+        }],
+        checks: vec![CheckIn {
+            kind: CheckKindIn::Setup {
+                pins: vec![2],
+                clock: 1,
+                edge: 0,
+                setup: 1000,
+                hold: 500,
+                names: vec![],
+            },
+            estimated: vec![],
+        }],
+        ..Desc::default()
+    };
+    b.chip(
+        "UQ",
+        "latch",
+        &[("Q", "Q"), ("LE", "LE"), ("D", "D")],
+        Some(desc),
+    );
+    let o = Options {
+        marginal: i64::MAX,
+        trace: vec!["Q".into(), "D".into(), "LE".into()],
+        ..Options::default()
+    };
+    // LE falls at the second edge
+    let r = analyse(
+        &b.design(),
+        &case(&[("LE0", 1, 0), ("LE", 1, 1)], "MCLK"),
+        &o,
+    )
+    .unwrap();
+    let hold = r[0]
+        .worst
+        .iter()
+        .find(|c| c.chip == "UQ" && c.check == "hold")
+        .map(|c| c.slack);
+    // D from 21 + 1 ns, LE by 24 ns, the hold 0.5 ns, LE's 3 ns back
+    assert_eq!(hold, Some(22_000 - 24_000 - 500 + 3000), "{:?}", r[0].worst);
+    let (_, init, tr) = &r[0].traces[0];
+    assert_eq!((*init, tr.len()), (0, 0), "{:?}", r[0].traces);
+}
