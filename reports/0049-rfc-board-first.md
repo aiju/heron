@@ -65,8 +65,10 @@ in section 14, and the napkin's sections below are as they were.
   register file needs **5 ticks** without wire delays, not the
   napkin's 4 (Emily: 5 is fine), but **6** with the napkin's 1–12 ns
   over the backplane and the clocks through a tree on it (14.3).
-  Strobes' widths still fail, besides holds the engine can't credit,
-  and the backplane has no spare line left. At 5 ticks the 55 ns flash costs nothing. A taken branch
+  With the engine's fixes for what Reed found (RFC 0048), the gated
+  clocks, the write strobe's addresses and some holds still fail, the
+  interrupt requests aren't synchronised, and the backplane has no
+  spare line left. At 5 ticks the 55 ns flash costs nothing. A taken branch
   takes about five microcycles. The SST39SF010A's 45 ns grade was
   end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
 
@@ -885,18 +887,32 @@ What changed in the netlist to get here, and what fails:
 - **The cases pin IORD_n and IOWR_n high** (memory loads and stores),
   as they do the WAIT lines: a 26 ns setup on the flags at every length
   was the VIDEO board's read latch possibly on B.
-- **Holds still failing:** Y, the flags, PC and FPC (−6 to −8 ns), the
-  engine's (below).
-- **Strobes:** the register file's write strobe comes down a chain
-  with about 18 ns of spread on each edge (the master clock's tree, the
-  clock generator, WRS's tree, U_RFT), and the engine's width check
-  doesn't credit what the two edges share (below): 8.2 ns short of the
-  SRAM's 9, though by hand the pulse is near a tick. The copies'
-  addresses against it (−5.2 ns) are partly real: they switch through
-  two GALs after WPH, the strobe through one after WRS, down two trees.
-  Made on each board from its master clock, a strobe would be a tick
-  less one GAL's spread, but that needs the board to sample WRS a tick
-  after it changes (above).
+- **What still fails,** with the engine's fixes (below), at each word's
+  length; the cases branch on WEN, which the case's start leaves open:
+  - **Gated clocks sampling WPH** (MEM.U_MC, CTRL.U_IQK: setups of
+    −3.8 ns): ARM samples WPH on the board's master clock a tick after
+    WPH changes, and that transfer doesn't fit a tick (WPH's spread and
+    the slots' skew). MAR's hold (−10.2 ns, the words that load it from
+    a register) and the queue's (CTRL.U_QD/U_QE, −4.2 ns in a fetch)
+    come from the same clocks. Gated clocks want replacing by enables
+    on the plain board clock.
+  - **The write strobe against the addresses** (U_RFA/U_RFB, −5.2 ns):
+    a race between edges a tick apart. The copies' addresses switch
+    through two GALs after WPH, the strobe through one after WRS, down
+    two trees.
+  - **Y against the copy** (−17.5 ns, with no write): both enables
+    switch from U_BYP as LEW rises, with no break before make; most of
+    the slack is the engine taking LEW's rise and the addresses that
+    follow as one change.
+  - **The microinstruction's holds:** each board's µPC against UPCN
+    (−1.7 ns: CTRL's next-address GALs change UPCN as CTRL's own clock
+    rises, before another board's may have), and the 574s against the
+    µPC on the same clock net (−0.6 ns: the parts' output hold is 0,
+    and the wires on a board are 0–1 ns).
+  - **PC, FPC** (−1.6 to −3.9 ns, in the words that load them from A).
+  - **Interrupts aren't synchronised:** the CF card's INTRQ reaches
+    every µPC through U_IRQ and the next-address logic (crossings).
+    An interrupt request wants a synchroniser before the sequencer.
 - **The backplane's spare lines:** none. The tree takes four source
   pins on top of the four clocks; the decoded register numbers' DEC1_n
   took one; MCLKN's two came back. DIN 41612's 160-pin form (rows z–d,
@@ -904,27 +920,27 @@ What changed in the netlist to get here, and what fails:
 - **A false path, named and counted:** every check but the register
   file's own leaves out what goes through LEW.
 
-**What the engine can't yet do** (RFC 0048), each found here:
+**The engine,** fixed for what Reed found (RFC 0048, at
+`claude/dazzling-volta-xxh8wp` 07d2c97):
 
-1. **A latch's opening:** where an output's change waits for a gating
-   input (LE rising with CK2), the engine traces it through the other
-   input (WPH), and so credits none of CK2's own spread against the
-   capturing clock. Y's, the flags' and PC's holds fail by that; by
-   hand, the ALU's result moves at least 5 ns after CK2 against Y's
-   1.8 ns hold.
-2. **A change after the enable it follows:** inputs whose changes
-   overlap a latch's closing in time are taken as passing through it,
-   even when they are caused by the closing. Hence the false path.
-3. **False paths and strobes:** a false path leaves out a register's
-   setup and hold, but not a RAM's strobe checks: the store's data
-   against MEM's write strobe (−28 ns) is the same path the false
-   path removes elsewhere.
-4. **No checks, silently:** with clock edges that can't be told apart
-   it times nothing and says nothing (`sta.run` now refuses that).
-5. **Widths and the shared path:** a width is from one edge's latest to
-   the next's earliest, with no credit for the chips both edges go
-   through, and `cppr_across_edges` doesn't reach it. A one-tick pulse
-   down a chain with more than about 10 ns of spread can't pass.
+1. **Gated outputs:** a change that reaches an output only once another
+   input changes is traced through that input, so the latches' opening
+   at CK2 gets CK2's credit. Y's and the flags' holds went.
+2. **Latches:** a change that goes back through the closing of the
+   latch's own enable, on the same net, and passes its hold doesn't
+   reach Q. LEW isn't LE's net, and LE's opening may glitch by Atmel's
+   rule (WPH falling and CK2 rising overlap), so the false path through
+   LEW stays for now.
+3. **False paths** apply to strobes' and handovers' checks too, and
+   strobes get the CPPR credit.
+4. **Widths** credit the path a signal's two edges share: the write
+   strobe's width passes. (Open in RFC 0048: rise and fall are taken to
+   track.)
+5. **No checks** are now a glitch with a note, not silence.
+
+It also stopped keeping an input's old value when its change didn't
+reach an output, which had been optimistic: the gated clocks', MAR's,
+the queue's, the µPC's and the interrupt's failures above showed then.
 
 ### 14.4 Branches
 
@@ -963,11 +979,13 @@ such a test against a board's netlist; that harness isn't built yet.
 
 1. **The register file's timing:** 5 ticks (Emily, 2026-11-02), which
    with the wires is 6 for now and needs 2 below (14.3).
-2. **Back to 5 ticks:** the read address on the master clock, which
-   needs CTRL's phases sampled on each board a tick after they change,
-   or phases each board makes for itself in lockstep; and the engine's
-   gaps (14.3), which hide what's real among the holds and the strobes.
-   And the backplane's spare lines (14.3).
+2. **The clocking, again:** what still fails (14.3) mostly comes back
+   to one transfer, a board sampling CTRL's phases a tick after they
+   change, which doesn't fit a tick: the gated clocks, the strobes, the
+   read address on the master clock that 5 ticks would need. Phases
+   each board makes for itself in lockstep, or enables on the plain
+   board clock in place of gated clocks; and a synchroniser for the
+   interrupt requests. And the backplane's spare lines (14.3).
 3. **The branch hardware**, if CTRL can give room.
 4. **The control store's part:** the 55 ns flash for now (14.2).
 5. **The minimum delays' fraction** (RFC 0048, open): 30% makes every

@@ -147,7 +147,7 @@ def case(name, word, ticks, after_mar=False, wired=True):
     skip = [c["ref"] for c in _ex(wired)["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
     return {"label": f"{name} @{ticks}", "clock": "MCLK_S", "pins": pins, "before": before,
             "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1}, "start": start, "skip": skip,
-            "branch": [], "exceptions": EXCEPTIONS + lew_exceptions(_ex(wired)), "end": {"net": "CYC_S", "events": 40}}
+            "branch": ["ALU.WEN"], "exceptions": EXCEPTIONS + lew_exceptions(_ex(wired)), "end": {"net": "CYC_S", "events": 40}}
 
 
 # the wires (min, max ps), from a net's drivers to a receiving pin: the
