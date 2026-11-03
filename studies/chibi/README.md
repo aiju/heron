@@ -65,7 +65,7 @@ heron chibi hw run FILE.s [--trace A:B]
 heron chibi hw odt                  # ODT's session at chip level, against the model
 heron chibi hw copper               # the copper's test at chip level
 heron chibi hw devices              # the device task's (PCM, the keyboard) at chip level
-heron chibi hw sta [--write]        # static timing analysis (about 4 minutes); --write: ticks.json
+heron chibi hw sta [--write]        # static timing analysis (about 6 minutes); --write: ticks.json
 heron chibi hw bom                  # the parts list
 heron chibi hw gals [--write]       # every 22V10's equations; --write: gals.md
 heron chibi report [--write]        # RFC 0047's performance.md (a few minutes)

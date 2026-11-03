@@ -26,14 +26,14 @@ gives no minimum.
   0's select meets ADS by 1.1 ns. With `U_SYS` a -15 as well, it misses
   by 6.4 ns: the chip-level run's 7 ns, though its mix came from an
   older search that isn't at hand.
-- **No length fixes 791 checks.** Most are holds at the halves' ends, a
+- **No length fixes 784 checks.** Most are holds at the halves' ends, a
   few nanoseconds short, between the clock generator's outputs on one
   edge. Of the new checks:
   - bus handovers: the D bus at the low half's start, the RAM's output
     enable as the phase changes, a task's change;
   - interrupts sampled with no synchroniser;
   - the CF card's strobes at PIO 0.
-- **It takes 210 s** for 7402 cases on four cores: the search, the
+- **It takes 340 s** for 7402 cases on four cores: the search, the
   variants and the tails, the peak 4.8 GB. The aim is under a second
   ([17](../0048-rfc-sta-engine.md#17-performance)).
 
@@ -105,6 +105,23 @@ RFC's text. Each was a false failure that made some word longer than
   reloading it at every HCK edge, glitched every select decoded from
   them.
 
+Reed's analysis (`studies/reed`, on its own branch) then led to five
+more fixes, which change Chibi Heron's checks but not its ticks:
+
+- an input whose change didn't reach the output kept its old value, so
+  a later change of another input could miss the output altogether (an
+  optimistic error: now 8 more holds and 4 more handovers fail, 17 fewer
+  floats, and the run takes 340 s rather than 210);
+- a change that reaches the output only once another input starts
+  changing is traced through that input, for its CPPR credit;
+- a latch's D, changed by its own enable's closing after its hold, no
+  longer passes to Q;
+- false paths apply to strobes and handovers, and strobes' checks get
+  CPPR's credit;
+- a pulse's two edges, or a period's, are credited their shared path
+  (the CF card's write strobe, above); a glitch counts if any of its
+  changes is the window's (3 more).
+
 Two choices of the first results changed and the ticks didn't:
 
 - CPPR now credits a shared path only at one reference edge, as
@@ -122,7 +139,7 @@ are in `heron chibi hw sta`'s report.
 
 ### Holds at the halves' ends
 
-Of the 512 (chip, pin) holds that fail, those at the halves' ends are
+Of the 520 (chip, pin) holds that fail, those at the halves' ends are
 1 to 6 ns short. A typical one:
 
 - **The data:** U_FLG's inputs from the next word. CLK0 is from U_CGB,
@@ -174,7 +191,7 @@ measurement. `sta2.py` checked no holds.
 
 ### Bus handovers
 
-121 (chip, net) checks fail, on 31 chips; the tolerance is 1 ns.
+120 (chip, net) checks fail, on 32 chips; the tolerance is 1 ns.
 
 - **The D bus at the low half's start**, in every case without a
   task's change:
@@ -198,7 +215,7 @@ measurement. `sta2.py` checked no holds.
   overlaps the next cycle's phase F, in which the video may read the RAM
   (-5.4 ns).
 - **A task's change:** µPC's high bits (`U_UPCM`, `U_UPCH`) and `U_TOP`
-  hand UPC7–UPC12 over in up to 7.8 ns (-6.8), and `U_UPCL` and
+  hand UPC7–UPC12 over in up to 6.8 ns (-5.8), and `U_UPCL` and
   `U_TASK` UPC0–UPC6 (-5.6). TASKD, one 22V10 delay, is all that
   separates them, and its minimum is 1 ns against the others' maximums.
 
@@ -224,10 +241,10 @@ enable off as the half ends.
 
 ### The CF card at PIO 0
 
-- **The write strobe** lasts at least 141 ns, against t2's 290 ns for an
-  8-bit register (165 ns for 16-bit data). U_SLOW gives it 9 ticks
-  (179 ns), and `U_CFA`, a 74HCT541 (4.5 to 35 ns), takes up to 30 ns of
-  that in skew.
+- **The write strobe** lasts U_SLOW's 9 ticks (179 ns), against t2's
+  290 ns for an 8-bit register: enough for 16-bit data (165 ns), not
+  for the card's registers. Both its edges go through `U_CFA`, a
+  74HCT541 (4.5 to 35 ns), so that spread is credited.
 - **The address and CS** change with the read strobe at the half's end,
   through the same buffer, so they're held 34 to 56 ns less than t9
   (20 ns) after it.
