@@ -214,6 +214,8 @@ pub struct Waves<'a> {
     pub fraction: f64,
     /// Options::monotone.
     pub monotone: bool,
+    /// Options::cppr_across_edges.
+    pub across: bool,
     pub net: Vec<Wave>,
     pub val: Vec<Wave>,
     pub en: Vec<Wave>,
@@ -231,6 +233,59 @@ pub struct Waves<'a> {
     /// latest).
     tails: Vec<Option<(i64, i64)>>,
     xw: Wave,
+}
+
+/// The path to a node from its reference edge, nodes first to last.
+pub(crate) fn chain(nodes: &[Node], mut n: u32) -> Vec<u32> {
+    let mut out = Vec::new();
+    while n != NONE {
+        out.push(n);
+        n = nodes[n as usize].parent;
+    }
+    out.reverse();
+    out
+}
+
+/// How far two paths share their nets from their reference edges: 0 if
+/// they don't start at reference edges.
+pub(crate) fn shared(nodes: &[Node], a: &[u32], b: &[u32]) -> usize {
+    let (Some(&a0), Some(&b0)) = (a.first(), b.first()) else {
+        return 0;
+    };
+    let (ra, rb) = (nodes[a0 as usize], nodes[b0 as usize]);
+    if ra.parent != NONE || rb.parent != NONE || ra.event < 0 || rb.event < 0 {
+        return 0;
+    }
+    let mut k = 0;
+    while k < a.len() && k < b.len() && nodes[a[k] as usize].key == nodes[b[k] as usize].key {
+        k += 1;
+    }
+    k
+}
+
+/// Common path pessimism's credit between a late time (at node `late`) and
+/// an early one (`early`): where both paths go through the same nets from
+/// their reference edges, the last shared net's spread; from different
+/// edges only if `across`, each one's delay measured from its own edge.
+pub(crate) fn credit(nodes: &[Node], late: u32, early: u32, across: bool) -> i64 {
+    if late == NONE || early == NONE {
+        return 0;
+    }
+    let (a, b) = (chain(nodes, late), chain(nodes, early));
+    let k = shared(nodes, &a, &b);
+    if k == 0 {
+        return 0;
+    }
+    let (ra, rb) = (nodes[a[0] as usize], nodes[b[0] as usize]);
+    let (x, y) = (nodes[a[k - 1] as usize], nodes[b[k - 1] as usize]);
+    if ra.event == rb.event {
+        // one edge: its own jitter is common too
+        (x.t - y.t).max(0)
+    } else if across {
+        ((x.t - ra.t) - (y.t - rb.t)).max(0)
+    } else {
+        0
+    }
 }
 
 pub fn event_time(e: u32, period: i64) -> i64 {
@@ -272,7 +327,7 @@ impl<'a> Waves<'a> {
         sets: &[&[Arc]],
         key: u32,
     ) -> Wave {
-        let (effects, mut cur, own, func, asynch) = self.effects(chip, func, sets, key);
+        let (effects, mut cur, own, func, asynch, trs) = self.effects(chip, func, sets, key);
         let func = func.as_ref();
         let value = |f: Option<&crate::input::Sop>, vals: &[u8]| -> u8 {
             match f {
@@ -288,6 +343,13 @@ impl<'a> Waves<'a> {
         let mut distinct: Vec<(usize, usize)> = Vec::new();
         let mut moves: Vec<(u32, u8, u8)> = Vec::new();
         let mut by: Vec<(i32, Win, u32, u32)> = Vec::new();
+        // the inputs' changes that reach the output somewhere; the others
+        // still change the inputs' values, once they're over
+        let mut timed: Vec<Vec<bool>> = trs.iter().map(|t| vec![false; t.len()]).collect();
+        for x in &effects {
+            timed[x.pin][x.k] = true;
+        }
+        let mut next = vec![0usize; trs.len()];
         let mut i = 0;
         while i < effects.len() {
             let mut j = i + 1;
@@ -298,10 +360,20 @@ impl<'a> Waves<'a> {
             }
             let cluster = &effects[i..j];
             i = j;
+            let start = cluster.iter().map(|x| x.union.ie).min().unwrap_or(0);
+            for (q, t) in trs.iter().enumerate() {
+                while next[q] < t.len() && !timed[q][next[q]] && t[next[q]].0 < start {
+                    if !own.get(q).copied().unwrap_or(false) {
+                        cur[q] = t[next[q]].1;
+                    }
+                    next[q] += 1;
+                }
+            }
             before.clear();
             before.extend_from_slice(&cur);
             for x in cluster {
                 cur[x.pin] = x.tr.after;
+                next[x.pin] = next[x.pin].max(x.k + 1);
             }
             for _ in 0..3 {
                 let v = flip(value(func, &cur));
@@ -432,8 +504,9 @@ impl<'a> Waves<'a> {
 
     /// The effects at an output of its inputs' changes, in time order;
     /// the inputs' values before the window; which inputs are the output's
-    /// own net; the function over the inputs' indices; and the
-    /// asynchronous source it depends on, if any.
+    /// own net; the function over the inputs' indices; the asynchronous
+    /// source it depends on, if any; and each input's transitions, as
+    /// (latest, value after).
     #[allow(clippy::type_complexity)] // eval's working set
     fn effects(
         &self,
@@ -447,6 +520,7 @@ impl<'a> Waves<'a> {
         Vec<bool>,
         Option<crate::input::Sop>,
         Option<Taint>,
+        Vec<Vec<(i64, u8)>>,
     ) {
         debug_assert!(sets.len() <= 2);
         let mut pins: Vec<u32> = func.map(support).unwrap_or_default();
@@ -473,10 +547,14 @@ impl<'a> Waves<'a> {
                 .collect()
         });
         let init: Vec<u8> = waves.iter().map(|w| w.init).collect();
+        let trs: Vec<Vec<(i64, u8)>> = waves
+            .iter()
+            .map(|w| w.tr.iter().map(|t| (t.l, t.after)).collect())
+            .collect();
         // inputs that don't change: no effects
         if waves.iter().all(|w| w.tr.is_empty()) {
             let asynch = taint_of(&waves, &pins, lfunc.as_ref(), sets, &[], &[], &[], &[]);
-            return (Vec::new(), init, Vec::new(), lfunc, asynch);
+            return (Vec::new(), init, Vec::new(), lfunc, asynch, trs);
         }
         let f = self.fraction;
         let own_net = if key & STATE == 0 { Some(key) } else { None };
@@ -516,6 +594,7 @@ impl<'a> Waves<'a> {
         }
         let mut effects = Vec::with_capacity(cuts.len());
         let mut spans: Vec<(i64, i64)> = Vec::new();
+        let closing = func.map_or(Vec::new(), |f| closing_inputs(f, &own));
         for (pi, &p) in pins.iter().enumerate() {
             // an output's own net, fed back (a latch's): its value counts,
             // its changes are the output's own
@@ -523,6 +602,16 @@ impl<'a> Waves<'a> {
                 continue;
             }
             for (k, tr) in waves[pi].tr.iter().enumerate() {
+                // a change that the closing of an input holding the output
+                // (a latch's enable) makes, and that comes after it by the
+                // hold: it finds that input closed
+                let closed = closing
+                    .iter()
+                    .filter(|&&(q, _)| q != pi)
+                    .find_map(|&(q, c)| {
+                        self.after_closing(chip, &pins, &waves, q, c, pi, tr)
+                            .map(|(e, l)| (q, c, e, l))
+                    });
                 // the stretches of a change in which the function can
                 // answer it, with the other inputs as they are then: the
                 // rest doesn't reach the output; between stretches the
@@ -536,8 +625,15 @@ impl<'a> Waves<'a> {
                             break;
                         }
                         let row = si * np;
-                        let get = |q: u32| sval[row + q as usize];
-                        let mv = |q: u32| q as usize == pi || sbusy[row + q as usize];
+                        let shut = |q: u32| {
+                            closed.and_then(|(cq, c, e, l)| {
+                                (q as usize == cq && a <= l && b > e).then_some(c)
+                            })
+                        };
+                        let get = |q: u32| shut(q).unwrap_or(sval[row + q as usize]);
+                        let mv = |q: u32| {
+                            q as usize == pi || shut(q).is_none() && sbusy[row + q as usize]
+                        };
                         if !held1(fun, &get, &mv) && matters(fun, pi as u32, &get, &mv) {
                             match spans.last_mut() {
                                 Some(last) if last.1 + 1 == a => last.1 = b - 1,
@@ -557,6 +653,23 @@ impl<'a> Waves<'a> {
                     if si + 1 < n_spans {
                         tr.after = X;
                     }
+                    // cut short by another input starting to change: that
+                    // input's change sets when this one can first reach
+                    // the output, so the earliest time goes back through it
+                    let gate = (ne > tr.e)
+                        .then(|| {
+                            (0..pins.len())
+                                .filter(|&q| q != pi && !own[q])
+                                .flat_map(|q| waves[q].tr.iter())
+                                .find(|t| t.e == ne)
+                                .map(|t| {
+                                    self.parts_of(t)
+                                        .iter()
+                                        .find(|x| x.e == ne)
+                                        .map_or(t.ce, |x| x.ce)
+                                })
+                        })
+                        .flatten();
                     for part in self.parts_of(&tr).iter() {
                         let (pe, pl) = (part.e.max(ne), part.l.min(nl));
                         if pe > pl {
@@ -600,7 +713,13 @@ impl<'a> Waves<'a> {
                                 event: part.event,
                                 win,
                                 union,
-                                from: (part.ce, part.cl),
+                                from: (
+                                    match gate {
+                                        Some(g) if pe > part.e => g,
+                                        _ => part.ce,
+                                    },
+                                    part.cl,
+                                ),
                             });
                         }
                     }
@@ -609,7 +728,86 @@ impl<'a> Waves<'a> {
         }
         effects.sort_by_key(|x| (x.union.e, x.union.l));
         let asynch = taint_of(&waves, &pins, func, sets, &own, &cuts, &sval, &sbusy);
-        (effects, init, own, lfunc, asynch)
+        (effects, init, own, lfunc, asynch, trs)
+    }
+
+    /// The net a pin's wire stages start from (the net itself without
+    /// them).
+    fn root_net(&self, mut n: u32) -> u32 {
+        loop {
+            let drv = &self.d.drivers[n as usize];
+            if drv.len() != 1 {
+                return n;
+            }
+            let c = &self.d.chips[self.d.outs[drv[0] as usize].chip as usize];
+            match (c.model.as_str(), c.source(0)) {
+                ("wire", Source::Net(m)) => n = m,
+                _ => return n,
+            }
+        }
+    }
+
+    /// Whether an input's change comes after the closing of the input `q`
+    /// (to `c`, which holds the output): every part of it goes back through
+    /// that closing at q's net, and is no earlier than q's latest at the
+    /// pin plus the hold the chip's check on that edge asks (with the
+    /// paths' shared part credited). If so, the closing's window at the
+    /// pin.
+    #[allow(clippy::too_many_arguments)] // the input's and the closing's
+    fn after_closing(
+        &self,
+        chip: u32,
+        pins: &[u32],
+        waves: &[&Wave],
+        q: usize,
+        c: u8,
+        pi: usize,
+        tr: &Tr,
+    ) -> Option<(i64, i64)> {
+        let d = self.d;
+        let hold = d
+            .checks
+            .iter()
+            .filter(|x| x.chip == chip)
+            .find_map(|x| match &x.kind {
+                crate::design::CheckKind::Setup {
+                    pins: ps,
+                    clock,
+                    rise,
+                    hold,
+                    ..
+                } if *clock == pins[q] && *rise == (c == V1) && ps.contains(&pins[pi]) => {
+                    Some(*hold)
+                }
+                _ => None,
+            })?;
+        let Source::Net(n) = d.chips[chip as usize].source(pins[q]) else {
+            return None;
+        };
+        let root = self.root_net(n);
+        let mut window: Option<(i64, i64)> = None;
+        for part in self.parts_of(tr).iter() {
+            // the closing at q's net that this part goes back through
+            let z = chain(&self.nodes, part.ce)
+                .into_iter()
+                .map(|i| self.nodes[i as usize])
+                .find(|x| x.key == root)?;
+            let rt = self.net[root as usize]
+                .tr
+                .iter()
+                .find(|t| t.after == c && t.e <= z.t && z.t <= t.l)?;
+            // and at the pin
+            let et = waves[q]
+                .tr
+                .iter()
+                .filter(|t| t.after == c && t.e >= rt.e)
+                .min_by_key(|t| t.e)?;
+            if part.e - (et.l + hold) + credit(&self.nodes, et.cl, part.ce, self.across) < 0 {
+                return None;
+            }
+            window = Some(window.map_or((et.e, et.l), |(e, l)| (e.min(et.e), l.max(et.l))));
+        }
+        window
     }
 
     /// A transition's parts by reference edge: one, unless it has several.
@@ -1247,6 +1445,40 @@ fn taint_of(
 }
 
 /// The inputs a cluster of effects moves, one entry per pin: how many.
+/// The inputs that hold an output fed back from its own net, and the value
+/// that does: with that input at it, the function is its own value for
+/// every value of the others (a latch's enable, closed). Only for an
+/// output with one own input and a dozen inputs at most.
+fn closing_inputs(f: &crate::input::Sop, own: &[bool]) -> Vec<(usize, u8)> {
+    let n = own.len();
+    let mut ones = own.iter().enumerate().filter(|x| *x.1).map(|x| x.0);
+    let (Some(o), None) = (ones.next(), ones.next()) else {
+        return Vec::new();
+    };
+    if n > 12 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for q in (0..n).filter(|&q| q != o) {
+        for c in [V0, V1] {
+            let holds = (0..1u32 << n).all(|m| {
+                let v = |i: u32| {
+                    if i as usize == q {
+                        c
+                    } else {
+                        (m >> i & 1) as u8
+                    }
+                };
+                m >> q & 1 != 0 || sop(f, &v) == v(o as u32)
+            });
+            if holds {
+                out.push((q, c));
+            }
+        }
+    }
+    out
+}
+
 fn moves_of(cluster: &[Effect], moves: &mut Vec<(u32, u8, u8)>) -> usize {
     moves.clear();
     for x in cluster {
@@ -1343,6 +1575,7 @@ pub fn run<'a>(d: &'a Design, t: &'a Trace, o: &crate::input::Options) -> Result
         t,
         fraction: o.fraction,
         monotone: o.monotone,
+        across: o.cppr_across_edges,
         net: t.init.iter().map(|&v| Wave::constant(v)).collect(),
         val: vec![Wave::constant(X); no],
         en: vec![Wave::constant(V1); no],
