@@ -1000,8 +1000,13 @@ the fast clock has to go, and what the branch path, two transfers a
 cycle and the write phase are worth. Section 14.3 is from before the
 card.
 
-1. **The register file's timing:** 5 ticks (Emily, 2026-11-02): with
-   the clock card, met for register ops (loads and fetches 6).
+1. **The register file's timing:** 7 ticks for now (Emily, 2026-11-04),
+   in place of the 5 of 2026-11-02: under the strict analysis a read and
+   a write in one cycle of a single-ported copy don't fit 5 or 6 with
+   margin, and 5 was worth about 1% on RFC 0050's suite. A dual-ported
+   register file: leaning against (special parts), not a definite no.
+   The netlist isn't changed yet: the design gets completed first, and
+   this comes back after ([clocking-and-front-end.md, 6](0049-rfc-board-first/clocking-and-front-end.md#6-the-write-phase-at-6-or-7-ticks)).
 2. **The clocking, again:** a board can't sample CTRL's phases a tick
    after they change, which the read address on the master clock (for
    5 ticks) and strobes made on each board would need; phases each

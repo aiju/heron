@@ -321,6 +321,64 @@ not a pulse, but it stays on the list until a case shows it gone.
 
 The chip-level gate passes on the merged engine: all 24 runs.
 
+**The second round** (the engine's cc0a9a6): a latch closing on an
+unknown value now keeps it, and the latch-enable glitch is Atmel's rule
+on U_RFT's two inputs. With both attempts together (the latches' enable
+from the card, known register numbers), the register file's strobe
+checks and its glitch are gone and register ops, r into MAR, the jump
+and the store are at 5 again; what's left is the handover on the copies'
+data pins (the copy and Y switch on the same terms: up to 28 ns of
+overlap under the strict model) and the holds around the strobe. Kept
+aside with the rest (`rda+regs`).
+
+## 6. The write phase at 6 or 7 ticks
+
+Worked on paper (2026-11-04), before any netlist: phases on whole ticks
+from U_CGA only (no inverter, no U_CGB), every pin at most one GAL from
+the tree, nothing gated by logic, every check at +1 ns or more under the
+strict analysis. A phase reaches the ALU's pins 5.1-11.4 ns after its
+edge (U_CGA, the tree, the slot's wire), a GAL adds 1-6, so two events
+a tick apart have about 7-8 ns between them at worst, and a tick serves
+every handover.
+
+In a cycle of n ticks, the copies' pins, counted from its end (the
+write's data has to stay past the strobe, and Y loads the next result
+at n):
+
+| Tick | |
+|---|---|
+| 0 | the address back to the read; Y lets go |
+| 1 | the copy drives again; the latches open (Y has taken the result) |
+| 0 to n-4 | the read |
+| n-4 | the latches close; the copy lets go |
+| n-3 | the address to W; Y drives (WPH) |
+| n-2 to n-1 | the strobe (as MEM's WRSE) |
+| n | Y loads the next result |
+
+So the read has two ticks at 6 and three at 7. At 6 two paths miss: the
+register numbers (U_RB and the microinstruction at 0, U_RAG, the SRAM)
+reach the latches 0.6 ns before they close, and the copy turning on at
+1 through U_BYP misses by 1.3 ns. Loading the register numbers earlier
+doesn't help (the port's select is the microinstruction's), and a
+half-tick phase moves the shortfall to the next handover. At 7 both
+have about a tick to spare.
+
+On RFC 0050's suite (the estimate, `heron reed estimate`'s recipes on
+each workload's mix): 7 everywhere costs 13-17% against 6; 7 only where
+a write is pending (the card stretching the cycle on ALU's WEN, a
+backplane line) 8-13%; a dual-ported register file is 17-20% faster
+than as built. The phases collapse to MCLK, CYC, WPH, RDA (the latches'
+enable and the copies' window) and WRS (one strobe for ALU and MEM):
+nine of U_CGA's ten outputs.
+
+Still open in that plan: U_BYP's choice (the copy or Y) settles from
+the register numbers about 35 ns in, after RDA's earliest rise at 1, so
+the copy and Y may overlap there unless the choice comes earlier.
+
+**Decision (Emily, 2026-11-04):** 7 ticks for now, the cycle not
+stretched on WEN. The netlist stays as it is while the design is
+completed; this comes back after.
+
 ## What I'd do
 
 1. The card, with the CDC341s on the backplane (1), and the fast clock
