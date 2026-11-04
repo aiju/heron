@@ -33,11 +33,13 @@ instruction's extension pointer's parcel). The decode happens a cycle
 before the instruction's first word executes, so the instruction's
 registers come in two stages: U_NOP/U_NRB at the decode, U_OP/U_RB as it
 starts (OP and the register byte on the backplane, d and s for the ALU
-board), and the queue keeps the decoded instruction's start (NXP) beside
-the executing one's (XP) and extension pointer (EP). A word is fetched
-when a slot is free and the microinstruction leaves B free (FETCH, to
-MEM); it lands in its slot at the cycle's end. A jump (PC loaded from A)
-empties the queue.
+board), and the queue keeps the decoded instruction's start (NXP) and
+the executing one's extension pointer (EP). A parcel is held (PV) until
+it's consumed: an instruction's first as it's decoded, an extension
+parcel as a word consumes it (IQC). AV marks those still to decode, from
+which READY comes. A word is fetched when a slot is free and the
+microinstruction leaves B free (FETCH, to MEM); it lands in its slot at
+the cycle's end. A jump (PC loaded from A) empties the queue.
 
 PC is the address after the executing instruction: U_PCL holds bits 2-1
 and the length the decode found (applied as the instruction starts), the
@@ -185,7 +187,7 @@ def queue(nl, ck):
            **{f"Y{i + 1}": BP.RX[i] for i in range(4)}, Y5="XL_NC5", Y6="XL_NC6", Y7="XL_NC7",
            Y8="XL_NC8")
 
-    dp, ep, xp, nxp = ["DP0", "DP1"], ["EP0", "EP1"], ["XP0", "XP1"], ["NXP0", "NXP1"]
+    dp, ep, nxp = ["DP0", "DP1"], ["EP0", "EP1"], ["NXP0", "NXP1"]
     pv = ["PV0", "PV1", "PV2", "PV3"]
     iqc = f("IQC")
     flush = lit("FLUSHC")
@@ -214,14 +216,6 @@ def queue(nl, ck):
                         True, False)
     outs["DEC1"] = (AND(lit("DECODING"), lit("RESET_n"), negate(flush)), True, False)
     outs["DEC1_n"] = (AND(lit("DECODING"), lit("RESET_n"), negate(flush)), True, True)
-    # XP: the executing instruction's start, from NXP as it starts; a jump
-    # sets it where it sets DP, so that nothing is released before the
-    # first decode
-    for i in range(2):
-        tgt = lit("A1") if i == 0 else ZERO
-        outs[xp[i]] = (OR(AND(flush, tgt),
-                          AND(negate(flush), OR(AND(lit("DEC1"), lit(nxp[i])),
-                                                AND(lit("DEC1", 0), lit(xp[i]))))), True, False)
     G.add(nl, "U_IQP", outs, clock=ck[2])
     # U_IQE: the extension pointer: NXP + 1 as an instruction starts, + 1 a
     # parcel consumed
@@ -238,37 +232,50 @@ def queue(nl, ck):
     # the parcels' enables onto PE (always: x is read from it) and PD
     for p in range(4):
         outs[f"PEOE{p}_n"] = (negate(eq(ep, p)), False, False)
+    # CONS: the extension parcel the word consumes, released at the
+    # cycle's end, so that its slot can take the next word before the
+    # instruction ends (a 2-parcel instruction executing and a 3-parcel one
+    # decoded would otherwise want five parcels of four)
+    for p in range(4):
+        outs[f"CONS{p}"] = (AND(consume, eq(ep, p)), False, False)
     G.add(nl, "U_IQE", outs, clock=ck[2])
-    # U_IQR: the parcels released as an instruction ends (those from XP up
-    # to NXP, when DEC1 says the decoded one starts); the slot the next
-    # word goes to (FS: DP's own if it holds no valid parcel, else the
-    # other); READY, the decoded instruction's parcels all in the queue
-    ins_r = xp + nxp + ["DEC1"] + dp + pv + ["DLEN0", "DLEN1"]
+    # U_IQA: the parcels fetched and not yet decoded, AV: set as PV is by a
+    # fetch, cleared by the decode that takes them (DP's DLEN parcels), a
+    # jump, or reset. READY comes from them, not from PV: a parcel stays
+    # valid until its instruction ends, and the decode pointer can come
+    # round to the executing instruction's own
+    av = ["AV0", "AV1", "AV2", "AV3"]
+    ins_a = av + ["FETCH", "FS"] + dp + ["DECODING", "DLEN0", "DLEN1", "FLUSHC", "RESET_n"]
 
-    def rel(x0, x1, n0, n1, d1, i):
-        if not d1:
+    def av_next(a0, a1, a2, a3, fe, fs_, d0, d1, dec, l0, l1, fl, rst, i):
+        if not rst or fl:
             return 0
-        k, n = x0 | x1 << 1, n0 | n1 << 1
-        while k != n:
-            if k == i:
-                return 1
-            k = add2(k, 1)
-        return 0
-    outs = {}
-    for i in range(4):
-        outs[f"REL{i}"] = (table(xp + nxp + ["DEC1"], lambda *b, i=i: rel(*b, i)), False, False)
+        v = (a0, a1, a2, a3)[i]
+        d = d0 | d1 << 1
+        if dec and any(add2(d, k) == i for k in range(max(1, l0 | l1 << 1))):
+            v = 0
+        if fe and fs_ == i // 2 and (i % 2 or d != i + 1):
+            v = 1
+        return v
+    outs = {av[i]: (table(ins_a, lambda *b, i=i: av_next(*b, i)), True, False) for i in range(4)}
+    # FS: the slot the next word goes to: DP's own if it holds no valid
+    # parcel, else the other
     outs["FS"] = (table(dp + pv, lambda d0, d1, *v: int(bool(v[2 * d1] or v[2 * d1 + 1])) ^ d1),
                   False, False)
-    outs["READY"] = (table(dp + ["DLEN0", "DLEN1"] + pv, lambda d0, d1, l0, l1, *v: all(
+    outs["READY"] = (table(dp + ["DLEN0", "DLEN1"] + av, lambda d0, d1, l0, l1, *v: all(
         v[add2(d0 | d1 << 1, k)] for k in range(max(1, l0 | l1 << 1)))), False, False)
-    G.add(nl, "U_IQR", outs)
+    G.add(nl, "U_IQA", outs, clock=ck[2])
     # U_IQV: the parcels' valid bits, and FETCH: a fetched word sets its
     # slot's (but a parcel before DP in DP's own slot: a jump's target may
     # be a word's second parcel)
 
     outs = {}
     for i in range(4):
-        keep = AND(lit(pv[i]), lit(f"REL{i}", 0), lit("RESET_n"), negate(flush))
+        # (a parcel goes as it is consumed: an instruction's first as it's
+        # decoded, into NOP and NRB; an extension parcel as a word consumes
+        # it (CONS): the microcode consumes each exactly once)
+        decoded = AND(lit("DECODING"), eq(dp, i))
+        keep = AND(lit(pv[i]), lit(f"CONS{i}", 0), negate(decoded), lit("RESET_n"), negate(flush))
         fill = AND(lit("FETCH"), lit("FS", i // 2), lit("RESET_n"), negate(flush))
         if i % 2 == 0:
             # parcel 0 of a slot: not when DP is the slot's parcel 1

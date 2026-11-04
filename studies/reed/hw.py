@@ -242,8 +242,25 @@ LOOPS = {
 }
 
 
+# instructions of 2 and 3 parcels in a row: the decode pointer catching up
+# with the executing instruction's parcels (the queue's AV and CONS)
+QUEUE = """
+        .org 0
+        MOV  r1, #0x300
+        MOV  r4, #0x400
+.l:     MOV  r2, #0x1111
+        MOV  r3, #0x22223333
+        ADD  r2, r3
+        MOV  r6, #0x7FFF
+        XOR  r6, r2
+        SUB  r1, #0x100
+        BNE  .l
+        HALT
+"""
+
+
 def programs():
-    out = {"smoke": SMOKE}
+    out = {"smoke": SMOKE, "queue": QUEUE}
     for name, body in LOOPS.items():
         out[name] = f"""
         .org 0
@@ -293,3 +310,34 @@ def check(corners=("max", "min"), seeds=(1, 2, 3)):
                              + f"; contention {hw['contention']['count']}x, longest "
                                f"{hw['contention']['max_ps'] / 1000:.1f} ns")
     return good, lines
+
+
+# ---- the model against the chip level, cycle by cycle -------------------------
+
+def lockstep(names=None, cycles=400):
+    """Each program on the chip-level simulator and on the model (model.py),
+    their µPC and PC compared every cycle: [(name, cycles compared,
+    mismatches)]. The model starts three cycles before the chip level's
+    first traced cycle (its power-up reset)."""
+    import re
+    from . import model
+    progs = programs()
+    out = []
+    for name in names or progs:
+        img = asmcore.assemble_text(isas.get("v2"), progs[name], name=f"{name}.s")
+        ram = bytearray(RAM_BYTES)
+        for a, b in img.mem.items():
+            ram[a] = b
+        r = run(ram, trace=(0, cycles))
+        seq = []
+        for line in r["trace"]:
+            d = dict(re.findall(r"(\w+)=([0-9A-Fa-f]+)", line))
+            seq.append((int(d["UPC"], 16), int(d["PC"], 16)))
+        m = model.Model(ram)
+        ms = []
+        for _ in range(len(seq) + 3):
+            m.step()
+            ms.append((m.upc, m.pc >> 1))
+        bad = [i for i, h in enumerate(seq) if ms[i + 3] != h]
+        out.append((name, len(seq), bad))
+    return out

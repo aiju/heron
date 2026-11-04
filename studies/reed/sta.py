@@ -166,6 +166,7 @@ def case(name, word, ticks, after_mar=False, wired=True):
     # the queue: both slots free (so a fetch is wanted), DP at 0
     for i in range(4):
         start[f"CTRL.PV{i}"] = (0, 0)
+        start[f"CTRL.AV{i}"] = (0, 0)
     skip = [c["ref"] for c in _ex(wired)["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
     return {"label": f"{name} @{ticks}", "clock": "CLK.MCLK_S", "pins": pins, "before": before,
             "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1}, "start": start, "skip": skip,

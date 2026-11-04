@@ -3,7 +3,7 @@ have one driver each, and every board fits a double Eurocard."""
 
 import unittest
 
-from heron.studies.reed import bus, fields, system
+from heron.studies.reed import bus, fields, hw, system
 
 
 class TestReed(unittest.TestCase):
@@ -51,3 +51,21 @@ class TestReed(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestModel(unittest.TestCase):
+    def test_programs_against_the_reference(self):
+        from heron.infra import asm as asmcore, isas
+        from heron.studies.reed import model
+        for name, text in hw.programs().items():
+            img = asmcore.assemble_text(isas.get("v2"), text, name=f"{name}.s")
+            m = model.run_image(img, max_cycles=100_000)
+            ref = hw.reference(img)
+            self.assertEqual(m.stopped, "halt", name)
+            self.assertEqual(m.rf[:16], list(ref.r[:16]), name)
+            self.assertEqual(bytes(m.ram[:0x10000]), bytes(ref.mem[a] for a in range(0x10000)), name)
+
+    def test_model_in_lockstep_with_chip_level(self):
+        for name, n, bad in hw.lockstep(["queue"]):
+            self.assertGreater(n, 40)
+            self.assertEqual(bad, [], name)
