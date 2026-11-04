@@ -13,7 +13,7 @@ What it keeps, at a cycle's start (a cycle is one microinstruction):
          and the executing instruction's opcode and register byte, PNL, PC,
          H, IFLAG
   ALU    the register file (both copies hold the same), the flags (N, C,
-         V, ZL, ZH, ZPEND, FZH, ST) and QIN
+         V, ZL, ZH, ZB, ZPEND, ZSZ, FZH, ST) and QIN
   MEM    MAR (with AL and IOSP), FPC, MQ, the RAM
 
 A result is written into the register file at the cycle's end: in the
@@ -97,11 +97,14 @@ class Word:
 class Model:
     def __init__(self, ram=None, inp=b"", prog=None):
         self.prog = prog or ucode.build()
-        imgs = self.prog.images()
-        self.cs = [Word(a, {b: imgs[b][a] for b in imgs}) for a in range(ucode.WORDS)]
-        lo, hi = ucode.decode_table(self.prog)
-        self.dt_entry = [lo[p] | (hi[p] & 0x3F) << 8 for p in range(1 << 16)]
-        self.dt_len = [hi[p] >> 6 for p in range(1 << 16)]
+        cache = getattr(self.prog, "_model_cache", None)
+        if cache is None:
+            imgs = self.prog.images()
+            cs = [Word(a, {b: imgs[b][a] for b in imgs}) for a in range(ucode.WORDS)]
+            lo, hi = ucode.decode_table(self.prog)
+            cache = (cs, [lo[p] | (hi[p] & 0x3F) << 8 for p in range(1 << 16)], [hi[p] >> 6 for p in range(1 << 16)])
+            self.prog._model_cache = cache
+        self.cs, self.dt_entry, self.dt_len = cache
         self.ram = bytearray(RAM_BYTES)
         if ram is not None:
             self.ram[:len(ram)] = ram
@@ -116,7 +119,8 @@ class Model:
         self.pnl, self.pc, self.h, self.iflag = 0, 0, 0, 0
         # ALU
         self.rf = [0] * 32
-        self.fn = self.fc = self.fv = self.zl = self.zh = self.zpend = self.fzh = self.fst = 0
+        self.fn = self.fc = self.fv = self.zl = self.zh = self.zb = self.zpend = self.fzh = self.fst = 0
+        self.zsz = 0
         self.qin = 0
         # MEM
         self.mar = self.al = self.iosp = 0
@@ -186,7 +190,7 @@ class Model:
         op, rb = self.op, self.rb
         rs, rd = rb & 15, rb >> 4
         fn, fc, fv = self.fn, self.fc, self.fv
-        fz = (self.zl & self.zh) if self.zpend else self.fzh
+        fz = self._znow() if self.zpend else self.fzh
         mq0 = self.mq & 1
         # the executing instruction's condition, and FLUSH
         cc = rd if (op >> 6) & 1 else op & 15
@@ -254,7 +258,7 @@ class Model:
             B = ob
         aop = w.AOP
         if aop == F.AOP["MQSTEP"]:
-            sel, m = FUN["ADD"] if mq0 else FUN["PASSA"]
+            sel, m = FUN["ADD"] if mq0 else FUN["INCA"]
         else:
             sel, m = AOP_SM[aop]
         ci = w.CI
@@ -298,7 +302,7 @@ class Model:
                 nxt = ucode.WAITD
         # flags (U_ZL, U_ZH, U_FLA, U_FLB)
         fl = w.FL
-        setnz, setcv = fl in (2, 3), fl == 3
+        setnz, setcv = fl in (1, 2, 3), fl == 3
         f31 = f >> 31
         if setcv:
             self.fc = c32
@@ -307,10 +311,15 @@ class Model:
                 self.fv = int(a31 != b31 and f31 != a31)
             else:
                 self.fv = int(a31 == b31 and f31 != a31)
+        elif fl == F.FL["SH"]:
+            self.fc = (oa & 1) if bin_ == F.BIN["SHIFT"] else c32
+            self.fv = 0
         if setnz:
-            self.fn = f31
-        self.fzh = (self.zl & self.zh) if self.zpend else self.fzh
-        self.zl, self.zh, self.zpend = int(f & 0xFFFF == 0), int(f >> 16 == 0), int(setnz)
+            nsz = w.NSZ
+            self.fn = f31 if nsz == 0 else (f >> 15) & 1 if nsz == 1 else (f >> 7) & 1
+        self.fzh = self._znow() if self.zpend else self.fzh
+        self.zl, self.zh, self.zb = int(f & 0xFFFF == 0), int(f >> 16 == 0), int(f & 0xFF == 0)
+        self.zpend, self.zsz = int(setnz), w.NSZ
         stop = w.STOP
         if stop == F.STOP["F31"]:
             self.fst = f31
@@ -386,6 +395,11 @@ class Model:
         if self.ucount is not None:
             self.ucount[w.addr] = self.ucount.get(w.addr, 0) + 1
         self.mir, self.upc = n, nxt
+
+    def _znow(self):
+        """Z from ZL, ZH and ZB as the size registered with them says."""
+        z = self.zsz
+        return (self.zl & self.zh) if z == 0 else self.zl if z == 1 else self.zb
 
     def _imm(self, imm, pe, op, rs, rd, rb):
         I = F.IMM

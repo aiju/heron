@@ -196,7 +196,9 @@ def alu(nl, ck):
         if name == "RES":
             name = "PASSB"
         if name == "MQSTEP":
-            name = "ADD" if mq0 else "PASSA"
+            # (the step that doesn't add is A in arithmetic mode, whose
+            # carry out is 0: the shift that follows takes it in)
+            name = "ADD" if mq0 else "INCA"
         return FUN[name]
     outs = {}
     for i in range(4):
@@ -249,13 +251,15 @@ def buses(nl):
 
 
 def flags(nl, ck):
-    for name, half in (("U_ZL", FN[:16]), ("U_ZH", FN[16:])):
-        net = "ZL" if name == "U_ZL" else "ZH"
-        G.add(nl, name, {net: ([{n: 0 for n in half}], True, False)}, clock=ck[2])
-    fl, aop, stop, si = f("FL"), f("AOP"), f("STOP"), f("SI")
+    # U_ZL: the low half zero, and the low byte (ZB); U_ZH the high half
+    G.add(nl, "U_ZL", {"ZL": ([{n: 0 for n in FN[:16]}], True, False),
+                       "ZB": ([{n: 0 for n in FN[:8]}], True, False)}, clock=ck[2])
+    G.add(nl, "U_ZH", {"ZH": ([{n: 0 for n in FN[16:]}], True, False)}, clock=ck[2])
+    fl, aop, stop, si, nsz, bin_ = f("FL"), f("AOP"), f("STOP"), f("SI"), f("NSZ"), f("BIN")
     # which flags the operation sets: FL's
-    set_nz = OR(eq(fl, F.FL["NZ"]), eq(fl, F.FL["NZCV"]))
+    set_nz = OR(eq(fl, F.FL["SH"]), eq(fl, F.FL["NZ"]), eq(fl, F.FL["NZCV"]))
     set_cv = eq(fl, F.FL["NZCV"])
+    set_sh = eq(fl, F.FL["SH"])
     # an add or a subtract (for V and C)
     sub = eq(aop, F.AOP["SUB"])
     # C: the carry out (the 181's CN4, active low: C32_n); for a subtract,
@@ -266,22 +270,35 @@ def flags(nl, ck):
     v_sub = OR(AND(lit("OA31"), lit("OB31", 0), lit("F31", 0)), AND(lit("OA31", 0), lit("OB31"), lit("F31")))
     # SETCV, SUBOP and SETNZ: helpers, so that each flag is a few terms
     scv, sop_, snz = lit("SETCV"), lit("SUBOP"), lit("SETNZ")
+    # a shift's C (FL SH): OA's bit 0 on the shift path, else the carry out
+    shifting = eq(bin_, F.BIN["SHIFT"])
+    keep_cv = AND(lit("SETCV", 0), negate(set_sh))
     outs = {
         "SETCV": (set_cv, False, False),
         "SUBOP": (sub, False, False),
-        "FC": (OR(AND(scv, c), AND(lit("SETCV", 0), lit("FC"))), True, False),
-        "FV": (OR(AND(scv, sop_, v_sub), AND(scv, lit("SUBOP", 0), v_add), AND(lit("SETCV", 0), lit("FV"))),
+        "FC": (OR(AND(scv, c), AND(set_sh, shifting, lit("OA0")), AND(set_sh, negate(shifting), c),
+                  AND(keep_cv, lit("FC"))), True, False),
+        "FV": (OR(AND(scv, sop_, v_sub), AND(scv, lit("SUBOP", 0), v_add), AND(keep_cv, lit("FV"))),
                True, False),
         "QIN": (lit("F0"), True, False),
     }
     G.add(nl, "U_FLA", outs, clock=ck[2])
+    # N from the operand's top bit (NSZ); Z, a cycle later, from ZL, ZH and
+    # ZB as the size registered with it (ZSZ) says
+    nbit = OR(AND(eq(nsz, F.NSZ["WORD"]), lit("F31")), AND(eq(nsz, F.NSZ["HALF"]), lit("F15")),
+              AND(eq(nsz, F.NSZ["BYTE"]), lit("F7")))
+    zsz = ["ZSZ0", "ZSZ1"]
+    znow = OR(AND(eq(zsz, F.NSZ["WORD"]), lit("ZL"), lit("ZH")), AND(eq(zsz, F.NSZ["HALF"]), lit("ZL")),
+              AND(eq(zsz, F.NSZ["BYTE"]), lit("ZB")))
     outs = {
         "SETNZ": (set_nz, False, False),
-        "FN": (OR(AND(snz, lit("F31")), AND(lit("SETNZ", 0), lit("FN"))), True, False),
+        "FN": (OR(AND(snz, nbit), AND(lit("SETNZ", 0), lit("FN"))), True, False),
         "ZPEND": (snz, True, False),
-        "FZH": (OR(AND(lit("ZPEND"), lit("ZL"), lit("ZH")), AND(lit("ZPEND", 0), lit("FZH"))), True, False),
+        "ZSZ0": (lit(nsz[0]), True, False),
+        "ZSZ1": (lit(nsz[1]), True, False),
+        "FZH": (OR(AND(lit("ZPEND"), znow), AND(lit("ZPEND", 0), lit("FZH"))), True, False),
         "FST": (OR(AND(eq(stop, F.STOP["F31"]), lit("F31")), AND(eq(stop, F.STOP["C32"]), c),
                    AND(eq(stop, F.STOP["HOLD"]), lit("FST"))), True, False),
-        "FZ": (OR(AND(lit("ZPEND"), lit("ZL"), lit("ZH")), AND(lit("ZPEND", 0), lit("FZH"))), False, False),
+        "FZ": (OR(AND(lit("ZPEND"), znow), AND(lit("ZPEND", 0), lit("FZH"))), False, False),
     }
     G.add(nl, "U_FLB", outs, clock=ck[2])

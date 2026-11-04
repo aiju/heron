@@ -21,7 +21,7 @@ CTRL_DIRECT = [("JT", 14), ("SEQ", 2), ("CND", 4), ("LEN", 2), ("CSPARE", 2)]
 CTRL_REG = [("IQC", 2), ("IMM", 4), ("PCOP", 2), ("BFREE", 1), ("DACC", 1), ("IFL", 2),
             ("TK", 1), ("CSPARE2", 3)]
 ALU = [("RAS", 2), ("RBS", 2), ("K", 5), ("WS", 2), ("AOP", 4), ("CI", 2), ("FL", 2), ("AIN", 1),
-       ("BIN", 2), ("AOUT", 2), ("BOUT", 1), ("SI", 2), ("STOP", 2), ("ASPARE", 3)]
+       ("BIN", 2), ("AOUT", 2), ("BOUT", 1), ("SI", 2), ("STOP", 2), ("NSZ", 2), ("ASPARE", 1)]
 MEM = [("MOP", 3), ("MSZ", 2), ("MARLD", 1), ("MQ", 2)]
 
 SLICES = {"CTRL": CTRL_DIRECT + CTRL_REG, "ALU": ALU, "MEM": MEM}
@@ -66,7 +66,12 @@ AOP = {"RES": 0, "ADD": 1, "SUB": 2, "AND": 3, "OR": 4, "XOR": 5, "PASSA": 6, "P
        "INCA": 8, "DECA": 9, "SHL": 10, "BIC": 11, "NOTA": 12, "ZERO": 13, "MQSTEP": 14, "ONES": 15}
 # CI OWN: the function's own (a subtract and an increment carry in)
 CI = {"0": 0, "1": 1, "C": 2, "OWN": 3}
-FL = {"NONE": 0, "RES": 1, "NZ": 2, "NZCV": 3}
+# SH: a shift's: N and Z, C the bit shifted out (OA's bit 0 on the shift
+# path, else the carry out: a left shift is A + A), V cleared
+FL = {"NONE": 0, "SH": 1, "NZ": 2, "NZCV": 3}
+# NSZ: the operand's size for N and Z: N from bit 31, 15 or 7, Z from the
+# word, the low half or the low byte (a byte's MOVS, INC, DEC)
+NSZ = {"WORD": 0, "HALF": 1, "BYTE": 2}
 BIN = {"RF": 0, "BUS": 1, "SHIFT": 2, "NONE": 3}
 AOUT = {"NONE": 0, "OA": 1, "F": 2}
 SI = {"0": 0, "C": 1, "SIGN": 2, "ROT": 3}

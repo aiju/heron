@@ -317,8 +317,8 @@ def check(corners=("max", "min"), seeds=(1, 2, 3)):
 def lockstep(names=None, cycles=400):
     """Each program on the chip-level simulator and on the model (model.py),
     their µPC and PC compared every cycle: [(name, cycles compared,
-    mismatches)]. The model starts three cycles before the chip level's
-    first traced cycle (its power-up reset)."""
+    mismatches)], from the model's cycle where the chip level's trace
+    (which starts at its first decode) begins."""
     import re
     from . import model
     progs = programs()
@@ -335,9 +335,13 @@ def lockstep(names=None, cycles=400):
             seq.append((int(d["UPC"], 16), int(d["PC"], 16)))
         m = model.Model(ram)
         ms = []
-        for _ in range(len(seq) + 3):
+        for _ in range(len(seq) + 1000):
             m.step()
             ms.append((m.upc, m.pc >> 1))
-        bad = [i for i, h in enumerate(seq) if ms[i + 3] != h]
+        # the chip level's trace starts at its first decode: the model's
+        # cycle that matches its first few
+        k = min(6, len(seq))
+        off = next((o for o in range(len(ms) - len(seq)) if ms[o:o + k] == seq[:k]), None)
+        bad = list(range(len(seq))) if off is None else [i for i, h in enumerate(seq) if ms[i + off] != h]
         out.append((name, len(seq), bad))
     return out

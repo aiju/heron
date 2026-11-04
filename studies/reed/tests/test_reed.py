@@ -69,3 +69,10 @@ class TestModel(unittest.TestCase):
         for name, n, bad in hw.lockstep(["queue"]):
             self.assertGreater(n, 40)
             self.assertEqual(bad, [], name)
+
+
+class TestMicrocode(unittest.TestCase):
+    def test_every_family_against_the_reference(self):
+        from heron.studies.reed import fuzz
+        res = fuzz.fuzz(n=40, seed=3)
+        self.assertEqual({k: v for k, v in res.items() if v}, {})

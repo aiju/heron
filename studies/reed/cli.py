@@ -12,6 +12,11 @@
                      (hw.py), against the draft 2 simulator
   hw check           programs at both corners (max, min) and three seeds,
                      with the wires: the chip-level gate
+  hw lockstep        the cycle-level model (model.py) against the chip level,
+                     its µPC and PC every cycle
+  fuzz [FAMILY...] [--n N] [--seed S]
+                     random instructions of each family on the model against
+                     draft 2's simulator (fuzz.py)
   sta [--word W]     static timing of each kind of microcycle (sta.WORDS):
                      the shortest length at which nothing a length can fix
                      fails worse than at the longest, and what still fails
@@ -32,8 +37,12 @@ def main(argv=None):
     sub.add_parser("estimate")
     sub.add_parser("ucode")
     h = sub.add_parser("hw")
-    h.add_argument("what", choices=("smoke", "check"))
+    h.add_argument("what", choices=("smoke", "check", "lockstep"))
     h.add_argument("--trace")
+    z = sub.add_parser("fuzz")
+    z.add_argument("families", nargs="*")
+    z.add_argument("--n", type=int, default=200)
+    z.add_argument("--seed", type=int, default=1)
     q = sub.add_parser("sta")
     q.add_argument("--word")
     q.add_argument("--paths", type=int, default=2)
@@ -54,10 +63,18 @@ def main(argv=None):
             ok, lines = hw.check()
             print("\n".join(lines))
             return 0 if ok else 1
+        if a.what == "lockstep":
+            res = hw.lockstep()
+            for name, n, bad in res:
+                print(f"{name:<10} {n} cycles, {len(bad)} differ" + (f" (the first {bad[0]})" if bad else ""))
+            return 0 if all(not b for _, _, b in res) else 1
         trace = tuple(int(x) for x in a.trace.split(":")) if a.trace else None
         ok, rep = hw.smoke(trace)
         print(rep)
         return 0 if ok else 1
+    elif a.cmd == "fuzz":
+        from . import fuzz
+        fuzz.main(a.families or None, a.n, a.seed)
     elif a.cmd == "estimate":
         from . import estimate
         estimate.main()
