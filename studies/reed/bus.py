@@ -29,8 +29,8 @@ SZ = bus("SZ", 2)
 
 # {line: (driver board, what it is)}
 CONTROL = {
-    **{f"{c}_S": ("CTRL", f"{c}'s source: the backplane's tree for it takes it") for c in
-       ("MCLK", "CYC", "WPH", "WRS")},
+    "LEN0": ("CTRL", "the cycle's length, for the clock card"),
+    "LEN1": ("CTRL", "the cycle's length, for the clock card"),
     **{n: ("CTRL", "the next microprogram address: every board's µPC loads it as the cycle starts")
        for n in UPCN},
     **{n: ("CTRL", "the decoded instruction's register numbers d and s, a cycle before it "
@@ -52,9 +52,8 @@ CONTROL = {
     "WAIT_V": ("VIDEO", "hold the cycle: the frame buffer is busy"),
     "VIRQ": ("VIDEO", "the frame's interrupt, to the interrupt controller"),
 }
-# the clocks: each from CTRL (its source, X_S) into a CDC341 on the
-# backplane, which gives each slot a trace of its own; a board sees its
-# slot's as X (the machine's net X_BOARD)
+# the clocks: each from the clock card (clockcard.py), a trace of its own
+# to each slot; a board sees its slot's as X (the machine's net X_BOARD)
 CLOCKS = ("MCLK", "CYC", "WPH", "WRS")
 SOURCES = {c: f"{c}_S" for c in CLOCKS}
 BOARDS = ("CTRL", "ALU", "MEM", "IO", "VIDEO")
@@ -64,30 +63,22 @@ def slot_clock(clock, board):
     return f"{clock}_{board}"
 
 
-def tree(nl):
-    """The backplane's clock tree: a CDC341 a clock, an output a slot."""
-    for c in CLOCKS:
-        nl.add("clkdrv", f"U_T{c}", A=SOURCES[c],
-               **{f"Y{i + 1}": slot_clock(c, b) for i, b in enumerate(BOARDS)},
-               **{f"Y{i}": f"T{c}_NC{i}" for i in range(len(BOARDS) + 1, 9)})
 
 
 def pin_map():
     """{connector: {pin: net}}: P1 the buses (A in row a, B in row c,
     grounds in row b), P2 the control lines in rows a and c, row b grounds
-    and the supply (every fourth pin 5 V): first the clocks, each slot's
-    and its source beside it (CTRL's slot alone has the sources on the
-    backplane); row b's grounds beside every pin."""
+    and the supply (every fourth pin 5 V): first the slot's clocks; row
+    b's grounds beside every pin."""
     p1 = {}
     for i in range(32):
         p1[f"a{i + 1}"] = A[i]
         p1[f"b{i + 1}"] = "GND"
         p1[f"c{i + 1}"] = B[i]
     p2 = {f"b{i + 1}": ("VCC" if i % 4 == 3 else "GND") for i in range(32)}
-    lines = [n for n in CONTROL if n not in SOURCES.values()]
+    lines = list(CONTROL)
     slots = [f"a{i}" for i in range(1, 33)] + [f"c{i}" for i in range(1, 33)]
-    row = [n for c in CLOCKS for n in (SOURCES[c], c)]
-    for k, n in enumerate(row):
+    for k, n in enumerate(CLOCKS):
         p2[f"a{1 + k}"] = n
     free = [s for s in slots if s not in p2]
     if len(lines) > len(free):

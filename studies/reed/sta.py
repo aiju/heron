@@ -32,11 +32,11 @@ from collections import Counter
 
 from heron.infra.hw import waves
 
-from . import bus as BP, fields as F, parts, system
+from . import bus as BP, clockcard, fields as F, parts, system
 
 X = waves.X
 LENGTH_CHECKS = {"setup", "strobe", "width", "period", "float"}
-FIELD_NET = {"MEM": {"MARLD": ["ALE"], "MSZ": ["SZ0", "SZ1"]}}
+FIELD_NET = {"MEM": {"MARLD": ["ALE"], "MSZ": ["SZ0", "SZ1"]}, "CTRL": {"LEN": ["LEN0", "LEN1"]}}
 
 # the microcycles: {board: {field: value}}; fields not named are 0, but
 # NONE where 0 does something
@@ -72,8 +72,8 @@ WORDS = {
 }
 # the case's state as it starts: the queue's (a slot free, for a fetch)
 START = {
-    "CTRL.TC0": (X, 0), "CTRL.TC1": (X, 0), "CTRL.TC2": (X, 0), "CYC_S": (0, 1),
-    "WPH_S": (1, 0), "WRS_S": (1, 1),
+    "CLK.TC0": (X, 0), "CLK.TC1": (X, 0), "CLK.TC2": (X, 0), "CLK.CYC_S": (0, 1),
+    "CLK.WPH_S": (1, 0), "CLK.WRS_S": (1, 1), "CLK.WPH0": (1, 0),
 }
 STROBES = {}
 # named exceptions (RFC 0048 8), each counted in the results: none but
@@ -114,14 +114,14 @@ def word_values(word):
     for board in F.SLICES:
         vals = {**BASE.get(board, {}), **word.get(board, {})}
         for name, w in F.SLICES[board]:
-            if board == "CTRL" and name in ("JT", "SEQ", "CND", "CSPARE"):
+            if board == "CTRL" and name in ("JT", "SEQ", "CND", "LEN", "CSPARE"):
                 continue
             v = vals.get(name, 0)
             for i, n in enumerate(field_nets(board, name)):
                 pins[n] = (v >> i) & 1
         # the parts' outputs (before the µPC changes): the MIRs' D inputs
         packed = F.pack(board, **{k: v for k, v in vals.items()
-                                  if not (board == "CTRL" and k in ("JT", "SEQ", "CND", "CSPARE"))})
+                                  if not (board == "CTRL" and k in ("JT", "SEQ", "CND", "LEN", "CSPARE"))})
         start = F.CTRL_REG_BASE if board == "CTRL" else 0
         for b in range(start, 8 * F.PARTS[board]):
             before[f"{board}.cs{board}_{b}"] = (packed >> b) & 1
@@ -135,8 +135,18 @@ def word_values(word):
 def case(name, word, ticks, after_mar=False, wired=True):
     pins, before = word_values(word)
     before.update(STROBES)
-    pins["CTRL.uLEN0"], pins["CTRL.uLEN1"] = (ticks - F.LEN_BASE) & 1, (ticks - F.LEN_BASE) >> 1
+    # the cycle's length on the card (LENR, taken as it starts); LEN, the
+    # next word's, the same
+    ln = ticks - F.LEN_BASE
+    pins["LEN0"], pins["LEN1"] = ln & 1, ln >> 1
     start = dict(START)
+    if clockcard.HALF_WPH:
+        # (WPHD loads on the inverted clock: high from the cycle before)
+        del start["CLK.WPH_S"]
+        before["CLK.WPHD"] = 1
+    else:
+        del start["CLK.WPH0"]
+    start["CLK.LENR0"], start["CLK.LENR1"] = (X, ln & 1), (X, ln >> 1)
     for a in ARMS:
         start[a] = (0, 0)
         if a.replace("ARM_", "ARMD_") in ARMDS:
@@ -148,9 +158,9 @@ def case(name, word, ticks, after_mar=False, wired=True):
     for i in range(4):
         start[f"CTRL.PV{i}"] = (0, 0)
     skip = [c["ref"] for c in _ex(wired)["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
-    return {"label": f"{name} @{ticks}", "clock": "MCLK_S", "pins": pins, "before": before,
+    return {"label": f"{name} @{ticks}", "clock": "CLK.MCLK_S", "pins": pins, "before": before,
             "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1}, "start": start, "skip": skip,
-            "branch": ["ALU.WEN"], "exceptions": EXCEPTIONS + lew_exceptions(_ex(wired)), "end": {"net": "CYC_S", "events": 40}}
+            "branch": ["ALU.WEN"], "exceptions": EXCEPTIONS + lew_exceptions(_ex(wired)), "end": {"net": "CLK.CYC_S", "events": 40}}
 
 
 # the wires (min, max ps), from a net's drivers to a receiving pin: the

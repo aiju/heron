@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from heron.infra.hw import chips, gal
 from heron.infra.hw.netlist import Netlist
 
-from . import alu, bus as BP, ctrl, io, mem, parts, video
+from . import alu, bus as BP, clockcard, ctrl, io, mem, parts, video
 
 BUILDERS = {"CTRL": ctrl.build, "ALU": alu.build, "MEM": mem.build, "IO": io.build, "VIDEO": video.build}
 _cache = {}
@@ -36,20 +36,15 @@ def backplane_nets():
 
 
 def machine(sim=True):
-    """The boards, each under its name, and the backplane's clock tree
-    (BP.U_TMCLK, ...): a board's clocks on its slot's nets, the sources
-    on the backplane from CTRL's slot alone."""
+    """The boards, each under its name, and the clock card (CLK.U_CGA,
+    CLK.U_TMCLK, ...): a board's clocks on its slot's nets."""
     nl = Netlist()
     shared = {n: n for n in set(BP.A) | set(BP.B) | set(BP.CONTROL)}
     for name in BUILDERS:
         conn = dict(shared)
         conn.update({c: BP.slot_clock(c, name) for c in BP.CLOCKS})
-        if name != "CTRL":
-            conn.update({s: f"NC_{name}_{s}" for s in BP.SOURCES.values()})
         nl.include(board(name, sim), name, conn)
-    t = Netlist()
-    BP.tree(t)
-    nl.include(t, "BP", {n: n for n in backplane_nets() if n not in ("GND", "VCC")})
+    nl.include(clockcard.build(sim), "CLK", {n: n for n in backplane_nets() if n not in ("GND", "VCC")})
     return nl
 
 
@@ -61,7 +56,7 @@ def check(nl):
     nets = nl.nets()
     errors = []
     lines = dict(BP.CONTROL)
-    lines.update({BP.slot_clock(c, b): ("BP", "") for c in BP.CLOCKS for b in BP.BOARDS})
+    lines.update({BP.slot_clock(c, b): ("CLK", "") for c in BP.CLOCKS for b in BP.BOARDS})
     for line, (owner, _) in lines.items():
         drivers = [(i, p) for i, p, k in nets.get(line, []) if k in ("out", "tri", "io")
                    and i.type.family not in ("passive",)]

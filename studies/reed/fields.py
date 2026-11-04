@@ -15,9 +15,11 @@ The µPC is 14 bits: 16K words. Each part is 128K x 8 with A14-A16 tied low.
 ADDR_BITS = 14
 
 # (name, width), from bit 0 of the board's slice
-CTRL_DIRECT = [("JT", 14), ("SEQ", 2), ("CND", 4), ("CSPARE", 4)]
-CTRL_REG = [("LEN", 2), ("IQC", 2), ("IMM", 4), ("PCOP", 2), ("BFREE", 1), ("DACC", 1),
-            ("IFL", 2), ("CSPARE2", 2)]
+# (LEN straight from the parts too: the next word's, a cycle early, which
+# the clock card takes as the cycle starts)
+CTRL_DIRECT = [("JT", 14), ("SEQ", 2), ("CND", 4), ("LEN", 2), ("CSPARE", 2)]
+CTRL_REG = [("IQC", 2), ("IMM", 4), ("PCOP", 2), ("BFREE", 1), ("DACC", 1), ("IFL", 2),
+            ("CSPARE2", 4)]
 ALU = [("RAS", 2), ("RBS", 2), ("K", 5), ("WS", 2), ("AOP", 4), ("CI", 2), ("FL", 2), ("AIN", 1),
        ("BIN", 2), ("AOUT", 2), ("BOUT", 1), ("SI", 2), ("STOP", 2), ("ASPARE", 3)]
 MEM = [("MOP", 3), ("MSZ", 2), ("MARLD", 1), ("MQ", 2)]

@@ -2,17 +2,9 @@
 store, the decode table, the instruction queue, the instruction
 registers, the immediate unit, PC.
 
-The clocks. The master clock (50.35 MHz, a tick 19.86 ns) goes onto the
-backplane as MCLK_S, into the backplane's clock tree (bus.tree: a CDC341,
-a trace to each slot). U_CGA, on this slot's MCLK, counts the cycle's
-ticks and gives the sources of CYC, WPH and WRS, each into a tree of its
-own. A cycle is 5 + LEN ticks, held at its fourth-last tick while a WAIT
-line is up. CYC rises as a cycle starts and is high for two ticks; WPH
-is high for the cycle's last three ticks (the write phase: the register
-file and the RAM switch to the write address, then are written), and
-WRS is low for its middle tick: the write strobe every board takes, a
-tick after the address has switched and a tick before it switches back.
-Every board, CTRL too, takes its slot's CYC through a CDC341 of its own.
+The clocks come from the clock card (clockcard.py), CTRL's slot's through
+a CDC341 of its own, as every board's do; CTRL gives the card LEN, the
+cycle's length, from its microinstruction.
 
 The sequencer. The next-address GALs (U_NA0-2) drive the backplane's
 UPCN lines, the next microinstruction's address: every board, CTRL too,
@@ -69,10 +61,11 @@ def f(name):
 def build(sim=True):
     nl = Netlist()
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
-    clocks(nl, sim)
     ck = clock_buffer(nl, src="CYC")
     nl.section("control store")
-    control_slice(nl, "CTRL", ck[0], direct=("JT", "SEQ", "CND", "CSPARE"))
+    # (LEN, the next cycle's length, onto the backplane for the clock card)
+    control_slice(nl, "CTRL", ck[0], direct=("JT", "SEQ", "CND", "LEN", "CSPARE"),
+                  rename={"uLEN0": "LEN0", "uLEN1": "LEN1"})
     sequencer(nl, ck)
     nl.section("queue")
     queue(nl, ck)
@@ -83,37 +76,6 @@ def build(sim=True):
     BP.connectors(nl)
     nl.finish()
     return nl
-
-
-def clocks(nl, sim):
-    nl.section("clocks")
-    if sim:
-        nl.add("osc", "X_OSC", OUT="MCLK_S", params={"period_ps": TICK_PS, "phase_ps": 5000})
-    # U_CGA, on this slot's MCLK: the tick TC, and the sources of CYC
-    # (ticks 0-1), WPH (the last three) and WRS (the middle of those)
-    tc = ["TC0", "TC1", "TC2"]
-    ins = tc + f("LEN") + ["WAIT_IO", "WAIT_V"]
-
-    def nxt(t0, t1, t2, l0, l1, w0, w1):
-        t, n = t0 | t1 << 1 | t2 << 2, F.LEN_BASE + (l0 | l1 << 1)
-        if t >= n:
-            return 0
-        if t == n - 1:
-            return 0
-        if (w0 or w1) and t == n - 4:
-            return t
-        return t + 1
-
-    def cyc_len(t0, t1, t2, l0, l1, w0, w1):
-        return F.LEN_BASE + (l0 | l1 << 1)
-
-    outs = {}
-    for i in range(3):
-        outs[f"TC{i}"] = (table(ins, lambda *b, i=i: (nxt(*b) >> i) & 1), True, False)
-    outs["CYC_S"] = (table(ins, lambda *b: nxt(*b) in (0, 1)), True, False)
-    outs["WPH_S"] = (table(ins, lambda *b: nxt(*b) >= cyc_len(*b) - 3), True, False)
-    outs["WRS_S"] = (table(ins, lambda *b: nxt(*b) == cyc_len(*b) - 2), True, True)
-    G.add(nl, "U_CGA", outs, clock="MCLK")
 
 
 def sequencer(nl, ck):
