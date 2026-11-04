@@ -14,8 +14,8 @@ read and write share each cycle, through latches:
     and enables take LEW (LE's copy), they change only after the latches have closed:
     the copies' addresses switch to W (the last cycle's destination, held
     in U_WG), and Y_A and Y_B (574s that
-    took the last cycle's result) write it, RFWE_n low while WRS is (the
-    write phase's middle tick);
+    took the last cycle's result) write it, RFWEA_n and RFWEB_n low while WRS
+    is (the write phase's middle tick) and once each copy's address is W;
   - a read of the register the write phase is about to write takes Y
     instead of the copy (U_BYP compares both ports' addresses with W and
     drives the copies', Y's and the latches' enables), so a result is
@@ -77,7 +77,7 @@ def register_file(nl, ck):
         a = {f"A{i}": addr[i] for i in range(5)}
         a.update({f"A{i}": "GND" for i in range(5, 16)})
         for k in range(4):
-            nl.add("sram64k", f"U_RF{copy}{k}", CE="GND", OE=oe, WE="RFWE_n", **a,
+            nl.add("sram64k", f"U_RF{copy}{k}", CE="GND", OE=oe, WE=f"RFWE{copy}_n", **a,
                    **{f"IO{i}": data[8 * k + i] for i in range(8)})
             out = OA if copy == "A" else OB
             nl.add("573", f"U_L{copy}{k}", OE=f"L{copy}OE_n", LE="LE",
@@ -112,7 +112,10 @@ def register_file(nl, ck):
     rb = sel(f("RBS"), {F.RBS["s"]: rs, F.RBS["x"]: rx, F.RBS["K"]: "K"})
     for name, addr, fn in (("U_RAG", RFA, ra), ("U_RBG", RFB, rb)):
         for part, bits in enumerate((range(0, 3), range(3, 5))):
-            outs = {addr[i]: (OR(AND(lit("LEW", 0), lit(w[i])), AND(lit("LEW"), fn[i])), False, False)
+            # (with the consensus terms, W's bit and the read's: a bit
+            # that's the same on both sides doesn't glitch as LEW switches)
+            outs = {addr[i]: (OR(AND(lit("LEW", 0), lit(w[i])), AND(lit("LEW"), fn[i]),
+                                 AND(lit(w[i]), fn[i])), False, False)
                     for i in bits}
             G.add(nl, f"{name}{part}", outs).part = FAST_GAL
     # W: this cycle's destination, for the next cycle's write phase
@@ -133,16 +136,25 @@ def register_file(nl, ck):
         outs[f"RFOE{c}_n"] = (OR(*own), False, True)
         outs[f"Y{c}OE_n"] = (OR(*own), False, False)
     G.add(nl, "U_BYP", outs).part = FAST_GAL
-    # U_RFT: the write strobe (WRS, while W is to be written); the latches'
-    # enable, opened by this board's clock (Y's) and held open (its own
+    # U_RFW: each copy's write strobe, while WRS is and W is to be written,
+    # and only once the copy's address is W: each address bit changes once
+    # in the write phase, so the address can't match before its last bit
+    # has come, and the strobe can't start before the address is there
+    outs = {}
+    for c, addr in (("A", RFA), ("B", RFB)):
+        terms = [AND(lit("WRS")), AND(lit("WEN", 0))]
+        for i in range(5):
+            terms += [AND(lit(addr[i]), lit(W[i], 0)), AND(lit(addr[i], 0), lit(W[i]))]
+        outs[f"RFWE{c}_n"] = (OR(*terms), False, False)
+    G.add(nl, "U_RFW", outs).part = FAST_GAL
+    # U_RFT: the latches' enable, opened by this board's clock (Y's) and held open (its own
     # pin, fed back) until the write phase, so that the next read can't
     # reach the ALU before the board has taken the result, and a longer
     # cycle gives the read longer; LEW, the same, for the copies' addresses
     # and the copies' and Y's enables, which so change only while the
     # latches are closed (sta.EXCEPTIONS)
     le = OR(AND(lit("WPH", 0), lit(ck[1])), AND(lit("WPH", 0), lit("LE")))
-    outs = {"RFWE_n": (OR(lit("WRS"), lit("WEN", 0)), False, False),
-            "LE": (le, False, False), "LEW": (le, False, False)}
+    outs = {"LE": (le, False, False), "LEW": (le, False, False)}
     G.add(nl, "U_RFT", outs).part = FAST_GAL
 
 

@@ -303,7 +303,16 @@ def queue(nl, ck):
     G.add(nl, "U_IQV", outs, clock=ck[2])
     seq = f("SEQ")
     dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(eq(seq, F.SEQ_BRDEC), lit("COND", 0)))
-    irqt = AND(OR(eq(seq, F.SEQ_DECODE), AND(eq(seq, F.SEQ_BRDEC), lit("COND", 0))), lit("IRQ"), lit("IFLAG"))
+    # the interrupt request, which the devices raise when they like:
+    # synchronised to the cycle's clock (U_IRQS, two flip-flops) before
+    # the decode sees it
+    inst = nl.add("74", "U_IRQS", **{"1D": "IRQ", "1CLK": ck[1], "1PRE": "VCC", "1CLR": "RESET_n",
+                                    "1Q": "IRQ1", "1QN": "IRQ1_n",
+                                    "2D": "IRQ1", "2CLK": ck[1], "2PRE": "VCC", "2CLR": "RESET_n",
+                                    "2Q": "IRQS", "2QN": "IRQS_n"})
+    inst.nocheck = True
+    irqt = AND(OR(eq(seq, F.SEQ_DECODE), AND(eq(seq, F.SEQ_BRDEC), lit("COND", 0))), lit("IRQS"),
+               lit("IFLAG"))
     decoding = AND(dec, negate(irqt), lit("READY"), lit("RESET_n"))
     outs = {"IRQT": (irqt, False, False), "DECODING": (decoding, False, False),
             "DECODING_n": (decoding, False, True)}

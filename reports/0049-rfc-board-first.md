@@ -56,8 +56,8 @@ control store in 45 ns parts; and design for test by the backplane
 netlist, [studies/reed](../studies/reed/README.md): what it found is
 in section 14, and the napkin's sections below are as they were.
 
-- **Reed's first netlist:** five boards (CTRL 66 packages, ALU 70, MEM 65,
-  IO 30, VIDEO 49: 280, 46 of them 22V10s, and the backplane's clock
+- **Reed's first netlist:** five boards (CTRL 67 packages, ALU 71, MEM 65,
+  IO 30, VIDEO 49: 282, 47 of them 22V10s, and the backplane's clock
   tree), each within a double
   Eurocard, joined on the backplane by name. It passes the netlist's
   checks, and every control line has one driver. The static timing
@@ -66,9 +66,9 @@ in section 14, and the napkin's sections below are as they were.
   napkin's 4 (Emily: 5 is fine), but **6** with the napkin's 1–12 ns
   over the backplane and the clocks through a tree on it (14.3).
   With the engine's fixes for what Reed found (RFC 0048), the write
-  strobe's addresses, Y's handover to the register file's copies and a
-  few small holds still fail, and the interrupt requests aren't
-  synchronised. The backplane has ten spare lines. At 5 ticks the 55 ns flash costs nothing. A taken branch
+  strobe's addresses (as far as the engine can tell), Y's handover to
+  the register file's copies and a few small holds still fail. The
+  backplane has ten spare lines. At 5 ticks the 55 ns flash costs nothing. A taken branch
   takes about five microcycles. The SST39SF010A's 45 ns grade was
   end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
 
@@ -764,12 +764,12 @@ chip-level simulation.
 
 | Board | Packages | Area | 22V10s | What's on it |
 |---|---:|---:|---:|---|
-| **CTRL** | 66 | 59 | 14 | the clock generator (U_CGA: the sources of CYC, WPH and WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
-| **ALU** | 70 | 68 | 14 | its slice (4 parts, the µPC and 4 × 574); the register file (its own U_RB, two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP; its address muxes and U_BYP in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
+| **CTRL** | 67 | 59 | 14 | the clock generator (U_CGA: the sources of CYC, WPH and WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC; the interrupt's synchroniser |
+| **ALU** | 71 | 69 | 15 | its slice (4 parts, the µPC and 4 × 574); the register file (its own U_RB, two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP, the write strobes in U_RFW; those and the address muxes in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
 | **MEM** | 65 | 52 | 5 | its slice (1 part, the µPC and 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR (823s), FPC; MQ |
 | **IO** | 30 | 29 | 7 | two UARTs, the timer, the boot flash, the CF card, two PS/2 ports (a 299 each, received in hardware), the interrupt controller, sound, reset |
 | **VIDEO** | 49 | 40 | 6 | a 2 MB frame buffer, 640 × 480 × 8 through a palette in SRAM and an ADV7125, posted writes and latched reads |
-| **total** | **280** | | **46** | |
+| **total** | **282** | | **47** | |
 | *backplane* | 4 | | | the clock tree: a CDC341 for each of MCLK, CYC, WPH, WRS |
 
 Area is in the napkin's units (a DIP-20's slot, 70 to a board), with SOIC
@@ -902,9 +902,15 @@ What changed in the netlist to get here, and what fails:
   - **MAR** (−1.2 ns, loaded from a register): A against MEM's clock,
     the slots' skew.
   - **The write strobe against the addresses** (U_RFA/U_RFB, −5.2 ns):
-    a race between edges a tick apart. The copies' addresses switch
-    through two GALs after WPH, the strobe through one after WRS, down
-    two trees.
+    the copies' addresses switch through two GALs after WPH, the strobe
+    through one after WRS, down two trees. U_RFW now holds each copy's
+    strobe off until its address is W, and the address muxes have
+    their consensus terms, so each bit changes once (a bit the same on
+    both sides doesn't move): the strobe can't start before the address
+    is there. The engine can't see that, as it compares the address's
+    latest change with the strobe's earliest, not with the change that
+    lets the strobe fall; with the register numbers known, the copy
+    whose address doesn't change passes.
   - **Y against the copy** (−17.5 ns, with no write): both enables
     switch from U_BYP as LEW rises, with no break before make; most of
     the slack is the engine taking LEW's rise and the addresses that
@@ -915,9 +921,9 @@ What changed in the netlist to get here, and what fails:
     µPC on the same clock net (−0.6 ns: the parts' output hold is 0,
     and the wires on a board are 0–1 ns).
   - **PC, FPC** (−1.6 to −3.9 ns, in the words that load them from A).
-  - **Interrupts aren't synchronised:** the CF card's INTRQ reaches
-    every µPC through U_IRQ and the next-address logic (crossings).
-    An interrupt request wants a synchroniser before the sequencer.
+  - **Interrupts are synchronised** to CTRL's cycle clock (U_IRQS, a
+    74F74: two flip-flops) before the decode sees them; the crossings
+    from the CF card's INTRQ went.
 - **The backplane's spare lines:** ten. The tree takes four source
   pins on top of the four clocks and the decoded register numbers'
   DEC1_n one; MCLKN's line, the opcode's eight and the master clock's
@@ -991,8 +997,9 @@ such a test against a board's netlist; that harness isn't built yet.
    after they change, which the read address on the master clock (for
    5 ticks) and strobes made on each board would need; phases each
    board makes for itself in lockstep would avoid it. A synchroniser
-   for the interrupt requests. The write strobe against the addresses,
-   Y's handover, the µPC's holds (14.3).
+   for the interrupt requests (done). Y's handover, the µPC's holds
+   (14.3); cases with the register numbers known (a bypass, none), as
+   the unknown ones hide paths.
 3. **The branch hardware**, if CTRL can give room.
 4. **The control store's part:** the 55 ns flash for now (14.2).
 5. **The minimum delays' fraction** (RFC 0048, open): 30% makes every
