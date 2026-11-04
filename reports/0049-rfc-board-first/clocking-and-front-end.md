@@ -231,6 +231,48 @@ Loops, measured there:
 So the adder as built buys 5%; FETCH registered a cycle ahead, and the
 squash for a not-taken branch, are worth more than the adder was alone.
 
+## 5. A timing bug the static analysis missed, and the checking since
+
+**What happened.** With WPH half a tick late, the chip-level run found
+the register file's write data 4.2 ns short of its setup to the strobe's
+end. The static analysis reported no strobe check on the register file at
+all. Two causes:
+
+- **In the design:** the clock card delayed WPH half a tick through an
+  inverter and two GAL stages (about 14 ns), against about 4 ns for WRS,
+  so the write phase started with the strobe, not half a tick before it.
+- **In the analysis:** the strobe is gated by its address, and the
+  address changes in a window overlapping both of WRS's edges. The engine
+  folded the whole pulse into one transition ("high, high, may glitch")
+  and then ran none of the strobe's checks. It did report "the strobe may
+  pulse", at a slack of 0.0, and I took that for an artefact. A glitch on
+  a strobe is a failure.
+
+**What changed in the design.** The ALU's write phase (WPA, a sixth clock)
+and its strobe (WRS) both come straight from U_CGB's registers on the
+inverted clock, WPH and WRSE half a tick later each, so their order is the
+clock's edges'. WPA falls half a tick into the next cycle: the address and
+the data stay a tick after the strobe ends. MEM keeps WRSE, where U_CGA
+makes it: its data comes over A, which the next cycle's word may drive.
+
+**What changed in the checking.**
+
+- `heron reed sta` lists every glitch first, as something to fix.
+- `heron reed hw check` (and a unit test): four programs on the whole
+  machine at chip level, at the parts' maximum delays and at their minima
+  (else 30% of typical), each with the wires on the drivers' pins (12 ns
+  and 1 ns over the backplane), and three power-up seeds, against draft
+  2's simulator. All 24 runs are right and have no timing violation on
+  CTRL, ALU, MEM or the clock card.
+- Two engine gaps to RFC 0048's session: a strobe folded into "may
+  glitch" gets no checks; and a register that first loads after the
+  window's start (U_CGB's) can't be given its state, so the analysis
+  can't judge the new write phase yet (its strobe shows as "may pulse").
+
+**Found along the way:** B's handovers between boards (CTRL's immediates
+and MEM's crossbar) overlap up to 17.8 ns at the maximum corner. The
+napkin's slots were the discipline for this; the netlist has none.
+
 ## What I'd do
 
 1. The card, with the CDC341s on the backplane (1), and the fast clock
