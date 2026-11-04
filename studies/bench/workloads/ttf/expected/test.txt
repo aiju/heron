@@ -1,0 +1,9 @@
+raster 2f39f04f
+lines 00000000
+layout 00001505
+window bbbf33fa
+misses 00000004
+scrolled bbbf33fa
+pens 0000002a
+hits 00000003
+cached 00000078

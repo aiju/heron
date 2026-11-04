@@ -126,7 +126,9 @@ def build(p):                     # optional: make (image, input) some other way
   the same on both: no `long` (64 bits on the host), no pointers kept in
   integers, its own random numbers rather than `rand()`, and `qsort` only
   with comparators that never return 0 for different elements (the two
-  libraries' sorts order ties differently).
+  libraries' sorts order ties differently). Nor may a call's arguments
+  have side effects that depend on each other, `f(rnd(), rnd())`: the two
+  compilers evaluate arguments in different orders.
 - **The results** are `bench_report("label", value)` lines: checksums of
   what the workload made (`bench_hash`, the same in C and assembly) and
   counts.
