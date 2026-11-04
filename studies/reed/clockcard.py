@@ -33,6 +33,8 @@ CGA_CLOCK = "osc"
 # a tick late (U_CGB, on the inverted master clock), so the write phase is
 # two and a half ticks and the read half a tick longer
 HALF_WPH = True
+# LATE_WRS: the register file's strobe half a tick later than MEM's
+LATE_WRS = True
 LEN = ["LEN0", "LEN1"]
 
 
@@ -44,6 +46,8 @@ def build(sim=True):
     sources = {c: f"{c}_S" for c in BP.CLOCKS}
     if not HALF_WPH:
         sources["WRSE"] = "WRS_S"
+    elif not LATE_WRS:
+        sources["WRS"] = "WRSE_S"
     for c in BP.CLOCKS:
         nl.add("clkdrv", f"U_T{c}", A=sources[c],
                **{f"Y{i + 1}": BP.slot_clock(c, b) for i, b in enumerate(BP.BOARDS)},
@@ -91,7 +95,7 @@ def build(sim=True):
         nl.add("04", "U_INV", **{"1A": clock, "1Y": "MCLKN_C", **{f"{i}A": "GND" for i in range(2, 7)}})
         G.add(nl, "U_CGB", {"WPHD": ([{"WPH0": 1}], True, False),
                             "WPH_S": ([{"WPH0": 1, "WPHD": 1}], False, False),
-                            "WRS_S": ([{"WRSE_S": 1}], True, False)},
+                            **({"WRS_S": ([{"WRSE_S": 1}], True, False)} if LATE_WRS else {})},
               clock="MCLKN_C").part = FAST_GAL
 
     nl.finish()
