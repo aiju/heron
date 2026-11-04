@@ -250,11 +250,14 @@ pub struct Case {
     /// Nets held at a value throughout (a reset that isn't asserted).
     #[serde(default)]
     pub constant: HashMap<String, u8>,
-    /// Registers' outputs before the edge at 0 and after it.
+    /// Registers' outputs before their first load in the window (the edge
+    /// at 0, or a later edge for one that doesn't load there) and what they
+    /// take at it.
     #[serde(default)]
     pub start: HashMap<String, (u8, u8)>,
     /// Nets' values before the edge at 0, until they first change: the
-    /// previous word's, for a pair (RFC 0048 8).
+    /// previous word's, for a pair (RFC 0048 8). A register's output: its
+    /// state until its first load, which computes its own.
     #[serde(default)]
     pub before: HashMap<String, u8>,
     /// Registers that split the case where they would load X.

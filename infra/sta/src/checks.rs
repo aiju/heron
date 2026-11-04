@@ -566,16 +566,31 @@ impl Ctx<'_, '_> {
         let mut k = 0;
         while k < tr.len() {
             let a = tr[k];
-            if a.after == V0 {
+            // a pulse merged into one change that may glitch (its edges'
+            // windows overlap something else's): it may be active anywhere
+            // in it, so it starts at the change's earliest and ends by its
+            // latest
+            let merged = a.before == V0 && a.after == V0 && !a.clean;
+            if a.after == V0 && !merged {
                 k += 1;
                 continue;
             }
             // the strobe's end: the next transition to inactive
-            let Some(m) = (k + 1..tr.len()).find(|&m| tr[m].after == V0) else {
-                break;
+            let m = if merged {
+                k
+            } else {
+                match (k + 1..tr.len()).find(|&m| tr[m].after == V0) {
+                    Some(m) => m,
+                    None => break,
+                }
             };
             let b = tr[m];
-            let ev = self.event(a.cl);
+            // (a start merged from several edges counts if one is the
+            // window's)
+            let ev = [self.event(a.cl), self.event(a.ce)]
+                .into_iter()
+                .find(|&e| self.counts_start(e))
+                .unwrap_or(-1);
             let glitchy = tr[k..=m].iter().any(|t| !t.clean);
             k = m + 1;
             if !self.counts_start(ev) {
@@ -593,7 +608,8 @@ impl Ctx<'_, '_> {
                     NONE,
                 );
             }
-            if let Some(wd) = width {
+            // (a merged pulse's width isn't known: the glitch says so)
+            if let Some(wd) = width.filter(|_| !merged) {
                 self.push(
                     chip,
                     "strobe",
