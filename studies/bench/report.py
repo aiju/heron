@@ -24,7 +24,7 @@ def klass(kind):
     mem = "[" in kind
     if op in ("Bcc", "BRA", "Jcc", "DBNZ"):
         return "branch"
-    if op in ("CALL", "BSR", "RET", "SAVE", "RESTORE") or kind == "JMP [r]+":
+    if op in ("CALL", "BSR", "RET", "SAVE", "RESTORE") or kind == "JMP [sp]+":
         return "call, return"
     if op == "JMP":
         return "jump"
@@ -76,7 +76,7 @@ def _old_suite():
             t = 0
             for pc, n in m.pc_counts.items():
                 ws = [m.parcel(pc + 2 * k) for k in range(3)]
-                kinds[isa.kind(ws)] += n
+                kinds[suite.kind(isa, ws, pc)] += n
                 t += 2 * isa.disassemble(ws, pc)[1]
             touched.append(t)
             instr += m.instructions
@@ -145,11 +145,33 @@ def tables(target="v2_hw"):
                        f"{r['ms'] * 1e6 / r['instructions']:.0f} ns |")
         out.append("")
 
+    bus = {t: {row["name"]: row for row in targets.times(t, [w.name for w in ws], "small")}
+           for t in ("v2_hw", "v2_hw.bus", "v2_hw.bus.cache256", "v2_hw.bus.cache4096")}
+    bad = [f"{n} on {t}" for t, rows in bus.items() for n, row in rows.items() if not row["ok"]]
+    if bad:
+        raise suite.BenchError("wrong output: " + ", ".join(bad))
+    out += ["### Code over the bus", "",
+            "At `small`, on Full Heron with code and data on a memory card instead of the CPU "
+            "card's RAM, so that every fetch and data access is a bus transfer, and with the "
+            "instruction cache for bus space that RFC 0031 measured (direct mapped, a word a "
+            "line), as [its performance.md](../0031-rfc-draft-2-cpu/performance.md#code-over-the-bus) "
+            "has them. In brackets: the time over the CPU card's RAM's.", "",
+            "| Workload | Executed | CPU card's RAM | over the bus | with 256 words of cache | "
+            "with 4096 words of cache |",
+            "|---|---:|---:|---:|---:|---:|"]
+    for w in ws:
+        base = bus["v2_hw"][w.name]["ms"]
+        cells = [_ms(base)] + [f"{_ms(bus[t][w.name]['ms'])} ({bus[t][w.name]['ms'] / base:.2f}x)"
+                               for t in ("v2_hw.bus", "v2_hw.bus.cache256", "v2_hw.bus.cache4096")]
+        out.append(f"| `{w.name}` | {runs[w.name, 'small']['code_touched'] / 1024:.1f} KB | "
+                   + " | ".join(cells) + " |")
+    out.append("")
+
     out += ["## What they do", "",
             "The instruction mix at `ref`, by class, in % of the instructions executed. "
             "*Call, return* counts `CALL`, `BSR`, `RET`, `SAVE`, `RESTORE` and returns "
-            "through the stack; *jump* the other `JMP`s (dispatch through tables and "
-            "pointers). For contrast, the last rows are draft 1's program suite on draft 2, "
+            "through the stack (`JMP [sp]+`); *jump* the other `JMP`s (dispatch through "
+            "tables and pointers, a threaded interpreter's `JMP [r]+`). For contrast, the last rows are draft 1's program suite on draft 2, "
             "which the implementations have been measured with so far, its programs "
             "together (their *executed* is the median program's).", "",
             "| Workload | Executed | " + " | ".join(CLASSES) + " |",

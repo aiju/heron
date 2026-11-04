@@ -341,6 +341,16 @@ def image_key(img, inp):
     return h.hexdigest()[:16]
 
 
+def kind(isa, ws, pc=0):
+    """The instruction-mix kind (heron.studies.v2_isa.v2.kind), with a
+    return through the stack, `JMP [sp]+`, told from a jump through a
+    table, `JMP [r8]+` (a threaded interpreter's NEXT)."""
+    k = isa.kind(ws)
+    if k == "JMP [r]+" and "[sp]+" in isa.disassemble(ws, pc)[0]:
+        return "JMP [sp]+"
+    return k
+
+
 def stats(r):
     """What a run on the instruction-level simulator says about a workload:
     its size, its instruction mix and how it spends the reference
@@ -359,7 +369,7 @@ def stats(r):
     touched = 0
     for pc, n in m.pc_counts.items():
         ws = parcels(pc)
-        kinds[isa.kind(ws)] += n
+        kinds[kind(isa, ws, pc)] += n
         touched += 2 * isa.disassemble(ws, pc)[1]
     lo, hi = img.extent()
     return {

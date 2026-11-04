@@ -11,6 +11,11 @@ and the target's own sources.
             chip-level netlist matches cycle for cycle, code and data in the
             CPU card's RAM, costed with the length classes the CPU's own
             report picked (LENGTHS, ticks of 20 ns).
+    v2_hw.bus, v2_hw.bus.cache256, v2_hw.bus.cache4096
+            the same with code and data on a memory card, every access a
+            bus transfer, without and with RFC 0031's instruction cache
+            for bus space (256 or 4,096 words), as its performance.md has
+            them.
 
 Other implementations (Heron Mini, Chibi Heron, Reed) add a target here
 when their models are on main: a function from (image, input,
@@ -28,15 +33,19 @@ V2_HW_LENGTHS = (4, 5, 6, 9)
 V2_HW_TICK_NS = 20
 
 
+BUS = 0x1000_0000      # the memory card's region (RFC 0031's `perf --bus`)
+
+
 def _v2_hw_tag():
     from heron.studies.v2_hw import perf
     return "v2_hw-" + perf._sources_tag() + "-" + "-".join(map(str, V2_HW_LENGTHS))
 
 
-def run_v2_hw(mem, inp, max_cycles):
+def run_v2_hw(mem, inp, max_cycles, code_base=0, icache=0):
     from types import SimpleNamespace
     from heron.studies.v2_hw import check, perf
-    m = check.run_rtl(SimpleNamespace(mem=mem), inp, profile=True, max_cycles=max_cycles)
+    m = check.run_rtl(SimpleNamespace(mem=mem), inp, profile=True, max_cycles=max_cycles,
+                      code_base=code_base, icache=icache)
     row = {"instructions": m.instructions, "cycles": m.cycles,
            "hold": m.hold_ticks, "ucount": dict(m.ucount)}
     ticks = perf.time_with([dict(row, name="x")], V2_HW_LENGTHS)["x"]
@@ -44,12 +53,18 @@ def run_v2_hw(mem, inp, max_cycles):
             "ms": ticks * V2_HW_TICK_NS / 1e6, "output": bytes(m.out).decode("latin-1")}
 
 
-TARGETS = {"v2_hw": (run_v2_hw, _v2_hw_tag)}
+# target: (run(mem, inp, max_cycles, **options), its cache tag, options)
+TARGETS = {
+    "v2_hw": (run_v2_hw, _v2_hw_tag, {}),
+    "v2_hw.bus": (run_v2_hw, _v2_hw_tag, {"code_base": BUS}),
+    "v2_hw.bus.cache256": (run_v2_hw, _v2_hw_tag, {"code_base": BUS, "icache": 256}),
+    "v2_hw.bus.cache4096": (run_v2_hw, _v2_hw_tag, {"code_base": BUS, "icache": 4096}),
+}
 
 
 def _one(target, name, size, mem, inp, max_cycles, path):
-    fn, _ = TARGETS[target]
-    row = fn(mem, inp, max_cycles)
+    fn, _, opts = TARGETS[target]
+    row = fn(mem, inp, max_cycles, **opts)
     row.update(name=name, size=size)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path + ".tmp", "w") as f:
@@ -63,12 +78,13 @@ def times(target, names, size="ref", jobs=4, force=False):
     ok (the output was the expected)."""
     if target not in TARGETS:
         raise suite.BenchError(f"no target {target!r} (there are: {', '.join(TARGETS)})")
-    tag = TARGETS[target][1]()
+    tag = TARGETS[target][1]() + "".join(f"-{k}{v:x}" for k, v in TARGETS[target][2].items())
     todo, rows = [], {}
     for n in names:
         w = suite.get(n)
         img, inp = w.image(size)
-        path = os.path.join(suite.OUT, target, f"{n}-{size}-{suite.image_key(img, inp)}-{tag}.json")
+        path = os.path.join(suite.OUT, target.split(".")[0],
+                            f"{n}-{size}-{suite.image_key(img, inp)}-{tag}.json")
         if not force and os.path.exists(path):
             with open(path) as f:
                 rows[n] = json.load(f)
