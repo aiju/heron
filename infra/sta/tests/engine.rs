@@ -1051,3 +1051,69 @@ fn start_before_a_later_first_load() {
         "{tr:?}"
     );
 }
+
+#[test]
+fn latch_closing_on_an_unknown_value() {
+    // as latch_closing_its_own_input, but D = LE·U with U not known: Q is
+    // D's unknown value while LE is high, and keeps it as LE falls (D's
+    // change, which that fall makes, comes after the hold): Q doesn't
+    // change at all
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RL0", "LE0", "LE0", "MCLK", [1000, 4000, 1000, 0]);
+    b.reg("RL", "LE", "LE0", "MCLK", [1000, 4000, 1000, 0]);
+    b.net("U");
+    b.gate(
+        "UD",
+        "D",
+        &["LE", "U"],
+        vec![vec![(1, 1), (2, 1)]],
+        1000,
+        2000,
+    );
+    let desc = Desc {
+        outputs: vec![OutIn {
+            pin: 0,
+            func: Some(vec![
+                vec![(1, 1), (2, 1)],
+                vec![(1, 0), (0, 1)],
+                vec![(2, 1), (0, 1)],
+            ]),
+            inv: false,
+            arcs: vec![arc(&[2], 1000, 3000), arc(&[1], 1000, 4000)],
+            enable: None,
+            on: vec![],
+            off: vec![],
+        }],
+        checks: vec![CheckIn {
+            kind: CheckKindIn::Setup {
+                pins: vec![2],
+                clock: 1,
+                edge: 0,
+                setup: 1000,
+                hold: 500,
+                names: vec![],
+            },
+            estimated: vec![],
+        }],
+        ..Desc::default()
+    };
+    b.chip(
+        "UQ",
+        "latch",
+        &[("Q", "Q"), ("LE", "LE"), ("D", "D")],
+        Some(desc),
+    );
+    let o = Options {
+        trace: vec!["Q".into(), "D".into()],
+        ..Options::default()
+    };
+    let r = analyse(
+        &b.design(),
+        &case(&[("LE0", 1, 0), ("LE", 1, 1)], "MCLK"),
+        &o,
+    )
+    .unwrap();
+    let (_, init, tr) = &r[0].traces[0];
+    assert_eq!((*init, tr.len()), (2, 0), "{:?}", r[0].traces);
+}
