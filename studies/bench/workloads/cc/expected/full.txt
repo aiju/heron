@@ -1,0 +1,12 @@
+asm f4ae9baa
+bytes 0001dee3
+lines 00001847
+insns 00001296
+peephole 0000023b
+source 000007bb
+tokens 000031a7
+nodes 00002260
+symbols 000002c5
+functions 0000009f
+strings 0000001c
+errors 00000000

@@ -132,6 +132,12 @@ Change the generator and rerun it rather than editing the output by hand:
   - `heron lisp report --write`
   - `heron graphics bench --write` (also the screenshots next to it)
   - `heron kernel report --write`
+- `reports/0050-rfc-benchmark/results.md`: `heron bench report --write`
+  (the register-transfer runs are cached in `build/bench/`; uncached,
+  about 25 minutes on four cores); the benchmark's expected outputs,
+  `studies/bench/workloads/*/expected/`: `heron bench expected` (needs
+  gcc); `studies/bench/workloads/inflate/archive-*.bin`:
+  `python3 studies/bench/workloads/inflate/make_data.py`;
 - `reports/0036-report-fen/performance.md` and `desktop.png`:
   `heron fen bench --write`;
 - `reports/0029-rfc-draft-2-system/register-banks-results.md`:
@@ -183,7 +189,7 @@ Run commands from the repository root as `python3 -m heron ...` (or as
 - `heron test`: the repository's own tests (front matter, the index, links,
   infra's dependencies).
 - `heron test v1_isa v2_isa v2_hw c_compiler v1b_hw v1b_system
-  v1b_tradeoffs v0_hw graphics kernel bus_si formal`: a study's unit tests
+  v1b_tradeoffs v0_hw graphics kernel bus_si formal bench`: a study's unit tests
   (`formal`'s need `pip install z3-solver`). Run the ones for the studies
   you touched, or `--active` for every active one.
 - `heron v1_isa test`, `heron v1_isa --isa v1a test` and
@@ -201,6 +207,9 @@ Run commands from the repository root as `python3 -m heron ...` (or as
   `--isa v2`, on draft 2 (`--features tagged`: its tagged operations).
 - `heron egret test --heron [--isa v2]`: Egret's programs on every build
   of the VM, on 1b or draft 2.
+- `heron bench test`: the benchmark's workloads at every size against
+  their expected output; `heron bench time`: their times on Full Heron's
+  model.
 - `heron graphics test` and `heron graphics selftest`: the graphics
   scenes against the host reference, and the kernels against pixel
   references.

@@ -1,0 +1,12 @@
+asm 12c890df
+bytes 000002b3
+lines 00000026
+insns 00000019
+peephole 00000008
+source 00000014
+tokens 00000044
+nodes 00000028
+symbols 00000006
+functions 00000002
+strings 00000000
+errors 00000000

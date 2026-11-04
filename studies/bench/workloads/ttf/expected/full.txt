@@ -1,0 +1,9 @@
+raster d4b3b22e
+lines 00000010
+layout 709c0f33
+window 53719f12
+misses 0000002f
+scrolled 39e8bb59
+pens 182db2cd
+hits 000017c9
+cached 00000bdc

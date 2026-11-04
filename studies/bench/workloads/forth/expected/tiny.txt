@@ -1,0 +1,10 @@
+primes 00000011
+fib 00000005
+queens 00000002
+sorted 8952a5e4
+life d87e0485
+chars 00000018
+lines 00000001
+words 00000006
+distinct 00000006
+table 0fbb6d27

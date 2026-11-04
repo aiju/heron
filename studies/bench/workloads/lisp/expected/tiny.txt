@@ -1,0 +1,6 @@
+deriv 34
+sort 80463
+closures 74
+plist 55
+sieve 8
+eval 211

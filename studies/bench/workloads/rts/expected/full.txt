@@ -1,0 +1,10 @@
+units 000000c8
+state 79a35a2b
+minimap 5aae3676
+frames 0d13af0c
+alive 0025001a
+kills 004a003f
+blows 0500029f
+fields 0f003c00
+steps 051e07c1
+drawn 0c41117b

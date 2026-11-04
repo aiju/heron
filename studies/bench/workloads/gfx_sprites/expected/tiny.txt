@@ -1,0 +1,4 @@
+score 00000064
+hits 00000004
+screen_sum aedc014e
+screen_fletcher 9dc729f0

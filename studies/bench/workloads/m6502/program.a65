@@ -1,0 +1,1080 @@
+; The m6502 workload's program: 8-bit software of the kinds a 6502 ran,
+; in one ROM. Each pass runs every part once; the passes, and the size of
+; each part, are the workload's parameters (workload.py):
+;
+;   sieve       the BYTE sieve of Eratosthenes on SIEVE flags
+;   sort_test   SORTN pseudo-random signed words, Shell-sorted, checked,
+;               and their CRC-16
+;   muldiv_test DIVN 16-bit divisions, each checked by a multiplication
+;   text_test   copying, case-folding, word and letter counts, a
+;               comparison and a reversal of TEXTN characters of text
+;   bcd_test    FIBN Fibonacci numbers in 12-digit BCD (decimal mode),
+;               each checked by a decimal subtraction
+;   vm_test     a small Forth-like bytecode machine, dispatched through a
+;               table with the RTS trick, running Collatz chains for
+;               1..VMN
+;
+; and a BRK "system call" per pass. At the end it prints its results
+; through a vectored putc (JMP (outvec)), with numbers converted to
+; decimal in decimal mode, and writes to DONE.
+;
+; The machine: RAM below $C000, the I/O page at $C000 (OUT, DONE), ROM
+; from $F000 up with the vectors at $FFFA. The results are kept in RAM
+; below $0600, which the emulators hash.
+
+OUT     = $C000
+DONE    = $C001
+
+; ---- zero page -------------------------------------------------------------
+
+ptr     = $00           ; general pointers
+ptr2    = $02
+tmp     = $04
+num1    = $06           ; mul16 and div16's operands, and dec16's number
+num2    = $08
+prod    = $0A           ; 4 bytes: mul16's product
+rem     = $0E           ; div16's remainder
+seed    = $10           ; rand's state
+crc     = $12
+count   = $14
+idx     = $16
+gap     = $18           ; shellsort
+gapi    = $19
+i       = $1A
+j       = $1B
+key     = $1C           ; 2 bytes
+reps    = $1E
+inword  = $1F           ; bit 7: inside a word
+ip      = $20           ; the VM's instruction pointer
+outvec  = $22           ; putc's vector
+vtmp    = $24           ; 2 bytes
+bcd     = $26           ; 3 bytes: dec16's digits
+fa      = $30           ; 6 bytes each: Fibonacci numbers in BCD,
+fb      = $36           ; least significant byte first
+fc      = $3C
+dstack  = $C0           ; the VM's data stack grows down from here, in
+                        ; the zero page, X pointing at the top's low byte
+
+; ---- RAM -----------------------------------------------------------------------
+
+R_PRIMES  = $0200       ; 2 bytes: primes found by the sieve
+R_SORTCRC = $0202       ; 2: the CRC-16 of the sorted words
+R_INV     = $0204       ; 1: pairs out of order after sorting (0)
+R_DIVSUM  = $0205       ; 2: the sum of the quotients
+R_DIVBAD  = $0207       ; 1: divisions that didn't check (0)
+R_LEN     = $0208       ; 1: the text's length
+R_WORDS   = $0209       ; 1: its words
+R_CMP     = $020A       ; 1: strcmp of the case-folded text and the original
+R_TEXTCRC = $020B       ; 2: the CRC-16 of the reversed text
+R_FIB     = $0210       ; 6: the last Fibonacci number, BCD
+R_BCDBAD  = $0216       ; 1: subtractions that didn't check (0)
+R_VM      = $0218       ; 2: the total length of the Collatz chains
+R_BRK     = $021A       ; 1: the sum of BRK's signatures
+var_n     = $0280       ; the VM program's variables
+var_m     = $0282
+var_total = $0284
+hist      = $0300       ; letter counts, A-Z
+buf       = $0400       ; the text, case-folded
+buf2      = $0500       ; the text, reversed
+sortarr   = $0600       ; the words to sort
+flags     = $0800       ; the sieve's flags
+flags_end = flags + SIEVE
+
+        .org $F000
+
+; ---- start-up and the main loop ---------------------------------------------
+
+reset:  SEI
+        CLD
+        LDX #$FF
+        TXS
+        LDA #<putc_out
+        STA outvec
+        LDA #>putc_out
+        STA outvec+1
+        LDA #$A5
+        STA seed
+        LDA #$5A
+        STA seed+1
+        LDA #REPS
+        STA reps
+        CLI
+@pass:  JSR sieve
+        JSR sort_test
+        JSR muldiv_test
+        JSR text_test
+        JSR bcd_test
+        JSR vm_test
+        BRK                     ; a system call, signature 3
+        .byte 3
+        DEC reps
+        BEQ @done
+        JMP @pass
+@done:  JSR report
+        LDA R_PRIMES            ; leave something in the registers
+        LDX R_SORTCRC
+        LDY R_VM
+        STA DONE
+
+; BRK (and IRQ, which never comes): adds the signature byte after the BRK
+; to R_BRK. The stack holds Y, X, A, then P and the return address as
+; BRK pushed them.
+irq:    PHA
+        TXA
+        PHA
+        TYA
+        PHA
+        TSX
+        LDA $0104,X             ; P: is B set?
+        AND #$10
+        BEQ @out
+        SEC
+        LDA $0105,X             ; the return address minus one is the signature
+        SBC #1
+        STA ptr
+        LDA $0106,X
+        SBC #0
+        STA ptr+1
+        LDY #0
+        LDA (ptr),Y
+        CLC
+        ADC R_BRK
+        STA R_BRK
+@out:   PLA
+        TAY
+        PLA
+        TAX
+        PLA
+        RTI
+
+; ---- the sieve -------------------------------------------------------------------
+
+; flags[k] stands for 2k + 3. For each k still set, 2k + 3 is a prime,
+; and clears every (2k + 3)th flag after it.
+sieve:  LDA #<flags
+        STA ptr
+        LDA #>flags
+        STA ptr+1
+        LDA #<SIEVE
+        STA count
+        LDA #>SIEVE
+        STA count+1
+        LDA #1
+        JSR fill
+        LDA #0
+        STA idx
+        STA idx+1
+        STA R_PRIMES
+        STA R_PRIMES+1
+        LDA #<flags             ; ptr = &flags[idx]
+        STA ptr
+        LDA #>flags
+        STA ptr+1
+        LDY #0
+@loop:  LDA (ptr),Y
+        BEQ @next
+        LDA idx                 ; the prime, 2 * idx + 3
+        ASL A
+        STA tmp
+        LDA idx+1
+        ROL A
+        STA tmp+1
+        LDA tmp
+        CLC
+        ADC #3
+        STA tmp
+        BCC @nc
+        INC tmp+1
+@nc:    CLC                     ; ptr2 = &flags[idx + prime]
+        LDA ptr
+        ADC tmp
+        STA ptr2
+        LDA ptr+1
+        ADC tmp+1
+        STA ptr2+1
+@mark:  LDA ptr2+1              ; while ptr2 < flags_end
+        CMP #>flags_end
+        BCC @clear
+        BNE @count
+        LDA ptr2
+        CMP #<flags_end
+        BCS @count
+@clear: TYA
+        STA (ptr2),Y
+        CLC
+        LDA ptr2
+        ADC tmp
+        STA ptr2
+        LDA ptr2+1
+        ADC tmp+1
+        STA ptr2+1
+        JMP @mark
+@count: INC R_PRIMES
+        BNE @next
+        INC R_PRIMES+1
+@next:  INC ptr
+        BNE @n2
+        INC ptr+1
+@n2:    INC idx
+        BNE @n3
+        INC idx+1
+@n3:    LDA idx
+        CMP #<SIEVE
+        BNE @loop
+        LDA idx+1
+        CMP #>SIEVE
+        BNE @loop
+        RTS
+
+; fill: store A in count bytes from ptr (ptr's high byte moves)
+fill:   LDY #0
+        LDX count+1
+        BEQ @part
+@page:  STA (ptr),Y
+        INY
+        BNE @page
+        INC ptr+1
+        DEX
+        BNE @page
+@part:  LDX count
+        BEQ @done
+@last:  STA (ptr),Y
+        INY
+        DEX
+        BNE @last
+@done:  RTS
+
+; ---- sorting --------------------------------------------------------------------
+
+sort_test:
+        LDX #0                  ; SORTN random words
+@fill:  JSR rand
+        LDA seed
+        STA sortarr,X
+        LDA seed+1
+        STA sortarr+1,X
+        INX
+        INX
+        CPX #SORTN*2
+        BNE @fill
+        JSR shellsort
+        LDA #0                  ; count the pairs out of order
+        STA R_INV
+        LDX #0
+@check: LDA sortarr+2,X         ; a[k+1] - a[k], signed
+        CMP sortarr,X
+        LDA sortarr+3,X
+        SBC sortarr+1,X
+        BVC @nv
+        EOR #$80
+@nv:    BPL @ok
+        INC R_INV
+@ok:    INX
+        INX
+        CPX #(SORTN-1)*2
+        BNE @check
+        LDA #<sortarr           ; and their CRC
+        STA ptr
+        LDA #>sortarr
+        STA ptr+1
+        LDA #SORTN*2
+        STA count
+        LDA #0
+        STA count+1
+        JSR crc16
+        LDA crc
+        STA R_SORTCRC
+        LDA crc+1
+        STA R_SORTCRC+1
+        RTS
+
+; rand: the next of John Metcalf's 16-bit xorshift (7, 9, 8) in seed
+rand:   LDA seed+1
+        LSR A
+        LDA seed
+        ROR A
+        EOR seed+1
+        STA seed+1
+        ROR A
+        EOR seed
+        STA seed
+        EOR seed+1
+        STA seed+1
+        RTS
+
+; shellsort: SORTN signed words at sortarr (SORTN < 128), by insertion
+; sorts with the gaps below
+shellsort:
+        LDX #0
+@gap:   LDA gaps,X
+        BEQ @done
+        STX gapi
+        STA gap
+        CMP #SORTN
+        BCS @nextgap
+        STA i                   ; for i = gap .. SORTN - 1:
+@outer: LDA i
+        ASL A
+        TAY
+        LDA sortarr,Y           ;   key = a[i]
+        STA key
+        LDA sortarr+1,Y
+        STA key+1
+        LDA i
+        STA j
+@inner: LDA j                   ;   while j >= gap and a[j - gap] > key:
+        CMP gap
+        BCC @place
+        SEC
+        SBC gap
+        ASL A
+        TAY
+        LDA key                 ;     key - a[j - gap], signed
+        CMP sortarr,Y
+        LDA key+1
+        SBC sortarr+1,Y
+        BVC @nv
+        EOR #$80
+@nv:    BPL @place
+        LDA j                   ;     a[j] = a[j - gap]
+        ASL A
+        TAX
+        LDA sortarr,Y
+        STA sortarr,X
+        LDA sortarr+1,Y
+        STA sortarr+1,X
+        LDA j                   ;     j -= gap
+        SEC
+        SBC gap
+        STA j
+        JMP @inner
+@place: LDA j                   ;   a[j] = key
+        ASL A
+        TAX
+        LDA key
+        STA sortarr,X
+        LDA key+1
+        STA sortarr+1,X
+        INC i
+        LDA i
+        CMP #SORTN
+        BCC @outer
+@nextgap:
+        LDX gapi
+        INX
+        JMP @gap
+@done:  RTS
+
+gaps:   .byte 57, 23, 10, 4, 1, 0
+
+; crc16: the CRC-16 (CCITT: $1021, from $FFFF) of count bytes at ptr, in
+; crc, a byte at a time from the tables below: crc = crc << 8 ^
+; table[crc >> 8 ^ byte]
+crc16:  LDA #$FF
+        STA crc
+        STA crc+1
+        LDY #0
+@byte:  LDA count
+        ORA count+1
+        BEQ @done
+        LDA (ptr),Y
+        EOR crc+1
+        TAX
+        LDA crc
+        EOR crctab_hi,X
+        STA crc+1
+        LDA crctab_lo,X
+        STA crc
+        INY
+        BNE @dec
+        INC ptr+1
+@dec:   LDA count
+        BNE @d2
+        DEC count+1
+@d2:    DEC count
+        JMP @byte
+@done:  RTS
+
+; ---- multiplication and division ----------------------------------------------
+
+; Divides random numbers by random divisors, and checks each quotient q
+; and remainder r by q * y + r == x.
+muldiv_test:
+        LDA #0
+        STA R_DIVSUM
+        STA R_DIVSUM+1
+        STA R_DIVBAD
+        LDA #DIVN
+        STA count
+@loop:  JSR rand                ; x
+        LDA seed
+        STA num1
+        STA vtmp
+        LDA seed+1
+        STA num1+1
+        STA vtmp+1
+        JSR rand                ; y, 1 to 8191
+        LDA seed+1
+        LSR A
+        LSR A
+        LSR A
+        STA num2+1
+        STA key+1
+        LDA seed
+        ORA #1
+        STA num2
+        STA key
+        JSR div16
+        CLC                     ; add up the quotients
+        LDA R_DIVSUM
+        ADC num1
+        STA R_DIVSUM
+        LDA R_DIVSUM+1
+        ADC num1+1
+        STA R_DIVSUM+1
+        LDA key                 ; q * y
+        STA num2
+        LDA key+1
+        STA num2+1
+        JSR mul16
+        CLC                     ; + r
+        LDA prod
+        ADC rem
+        TAX
+        LDA prod+1
+        ADC rem+1
+        CMP vtmp+1
+        BNE @bad
+        CPX vtmp
+        BEQ @ok
+@bad:   INC R_DIVBAD
+@ok:    DEC count
+        BNE @loop
+        RTS
+
+; mul16: prod (4 bytes) = num1 * num2, shifting and adding; num2 is used up
+mul16:  LDA #0
+        STA prod+2
+        STA prod+3
+        LDX #16
+@loop:  LSR num2+1
+        ROR num2
+        BCC @shift
+        CLC
+        LDA prod+2
+        ADC num1
+        STA prod+2
+        LDA prod+3
+        ADC num1+1
+        STA prod+3
+@shift: ROR prod+3
+        ROR prod+2
+        ROR prod+1
+        ROR prod
+        DEX
+        BNE @loop
+        RTS
+
+; div16: num1 = num1 / num2, rem = num1 % num2, unsigned (num2 < $8000)
+div16:  LDA #0
+        STA rem
+        STA rem+1
+        LDX #16
+@loop:  ASL num1
+        ROL num1+1
+        ROL rem
+        ROL rem+1
+        LDA rem
+        SEC
+        SBC num2
+        TAY
+        LDA rem+1
+        SBC num2+1
+        BCC @skip
+        STA rem+1
+        STY rem
+        INC num1
+@skip:  DEX
+        BNE @loop
+        RTS
+
+; ---- text -----------------------------------------------------------------------------
+
+text_test:
+        LDY #0                  ; copy TEXTN characters of the text
+@copy:  LDA text,Y
+        STA buf,Y
+        INY
+        CPY #TEXTN
+        BNE @copy
+        LDA #0
+        STA buf,Y
+        STY R_LEN
+        LDX #25                 ; clear the letter counts
+@clr:   STA hist,X
+        DEX
+        BPL @clr
+        STA R_WORDS
+        STA inword
+        LDY #0                  ; fold to upper case, counting letters and words
+@fold:  LDA buf,Y
+        BEQ @folded
+        CMP #'a'
+        BCC @upper
+        CMP #'z'+1
+        BCS @upper
+        AND #$DF
+        STA buf,Y
+@upper: CMP #'A'
+        BCC @sep
+        CMP #'Z'+1
+        BCS @sep
+        SEC
+        SBC #'A'
+        TAX
+        INC hist,X
+        BIT inword
+        BMI @nextc
+        LDA #$80
+        STA inword
+        INC R_WORDS
+        CLV
+        BVC @nextc
+@sep:   LDA #0
+        STA inword
+@nextc: INY
+        BNE @fold
+@folded:
+        LDA #<buf               ; compare with the original
+        STA ptr
+        LDA #>buf
+        STA ptr+1
+        LDA #<text
+        STA ptr2
+        LDA #>text
+        STA ptr2+1
+        JSR strcmp
+        STA R_CMP
+        LDX R_LEN               ; reverse it into buf2
+        LDY #0
+@rev:   DEX
+        LDA buf,X
+        STA buf2,Y
+        INY
+        CPX #0
+        BNE @rev
+        LDA #0
+        STA buf2,Y
+        LDA #<buf2              ; and its CRC
+        STA ptr
+        LDA #>buf2
+        STA ptr+1
+        LDA R_LEN
+        STA count
+        LDA #0
+        STA count+1
+        JSR crc16
+        LDA crc
+        STA R_TEXTCRC
+        LDA crc+1
+        STA R_TEXTCRC+1
+        RTS
+
+; strcmp: A = 0, 1 or $FF as the string at ptr is equal to, after or
+; before the one at ptr2
+strcmp: LDY #0
+@loop:  LDA (ptr),Y
+        CMP (ptr2),Y
+        BNE @diff
+        TAX
+        BEQ @same
+        INY
+        BNE @loop
+        INC ptr+1
+        INC ptr2+1
+        JMP @loop
+@same:  LDA #0
+        RTS
+@diff:  LDA #1
+        BCS @out
+        LDA #$FF
+@out:   RTS
+
+text:   .byte "The quick brown fox jumps over the lazy dog. Pack my box with "
+        .byte "five dozen liquor jugs! How vexingly quick daft zebras jump; "
+        .byte "sphinx of black quartz, judge my vow. Waltz, bad nymph, for "
+        .byte "quick jigs vex.", 0
+
+; ---- decimal arithmetic --------------------------------------------------------------
+
+; Fibonacci numbers in BCD: fc = fa + fb, checked by fc - fb == fa, in
+; decimal mode, which PHP and PLP keep to this routine.
+bcd_test:
+        PHP
+        SED
+        LDA #0
+        LDX #5
+@clr:   STA fa,X
+        STA fb,X
+        DEX
+        BPL @clr
+        LDA #1
+        STA fb
+        LDA #FIBN
+        STA count
+@next:  CLC                     ; fc = fa + fb
+        LDX #0
+        LDY #6
+@add:   LDA fa,X
+        ADC fb,X
+        STA fc,X
+        INX
+        DEY
+        BNE @add
+        SEC                     ; fc - fb == fa?
+        LDX #0
+        LDY #6
+@sub:   LDA fc,X
+        SBC fb,X
+        PHP                     ; keep the borrow across the compare
+        CMP fa,X
+        BEQ @same
+        INC R_BCDBAD
+@same:  PLP
+        INX
+        DEY
+        BNE @sub
+        LDY #5                  ; fa = fb, fb = fc
+@move:  LDX fb,Y
+        STX fa,Y
+        LDX fc,Y
+        STX fb,Y
+        DEY
+        BPL @move
+        DEC count
+        BNE @next
+        LDX #5
+@copy:  LDA fb,X
+        STA R_FIB,X
+        DEX
+        BPL @copy
+        PLP
+        RTS
+
+; ---- a bytecode machine ---------------------------------------------------------------
+
+; A Forth-like machine: 16-bit values on a data stack in the zero page,
+; X pointing at the top's low byte; opcodes dispatched by pushing the
+; handler's address minus one and returning to it (the RTS trick). The
+; program (vmprog) runs Collatz chains.
+vm_test:
+        LDA #0
+        STA var_total
+        STA var_total+1
+        LDA #<vmprog
+        STA ip
+        LDA #>vmprog
+        STA ip+1
+        LDX #dstack
+        JSR vm_next             ; returns at HALT
+        LDA var_total
+        STA R_VM
+        LDA var_total+1
+        STA R_VM+1
+        RTS
+
+vm_next:
+        LDY #0
+        LDA (ip),Y
+        INC ip
+        BNE @go
+        INC ip+1
+@go:    ASL A
+        TAY
+        LDA vm_table+1,Y
+        PHA
+        LDA vm_table,Y
+        PHA
+        RTS
+
+vm_table:
+        .word vm_halt-1, vm_lit-1, vm_fetch-1, vm_store-1, vm_dup-1, vm_drop-1
+        .word vm_add-1, vm_sub-1, vm_and-1, vm_half-1, vm_double-1, vm_inc-1
+        .word vm_dec-1, vm_jz-1, vm_jmp-1
+
+OP_HALT = 0
+OP_LIT = 1
+OP_FETCH = 2
+OP_STORE = 3
+OP_DUP = 4
+OP_DROP = 5
+OP_ADD = 6
+OP_SUB = 7
+OP_AND = 8
+OP_HALF = 9
+OP_DOUBLE = 10
+OP_INC = 11
+OP_DEC = 12
+OP_JZ = 13
+OP_JMP = 14
+
+vm_halt:
+        RTS
+
+vm_lit: DEX                     ; ( -- w ), w following the opcode
+        DEX
+        LDY #0
+        LDA (ip),Y
+        STA 0,X
+        INY
+        LDA (ip),Y
+        STA 1,X
+        CLC
+        LDA ip
+        ADC #2
+        STA ip
+        BCC @n
+        INC ip+1
+@n:     JMP vm_next
+
+vm_fetch:                       ; ( addr -- w )
+        LDA (0,X)
+        PHA
+        INC 0,X
+        BNE @hi
+        INC 1,X
+@hi:    LDA (0,X)
+        STA 1,X
+        PLA
+        STA 0,X
+        JMP vm_next
+
+vm_store:                       ; ( w addr -- )
+        LDA 2,X
+        STA (0,X)
+        INC 0,X
+        BNE @hi
+        INC 1,X
+@hi:    LDA 3,X
+        STA (0,X)
+        INX
+        INX
+        INX
+        INX
+        JMP vm_next
+
+vm_dup: DEX                     ; ( w -- w w )
+        DEX
+        LDA 2,X
+        STA 0,X
+        LDA 3,X
+        STA 1,X
+        JMP vm_next
+
+vm_drop:                        ; ( w -- )
+        INX
+        INX
+        JMP vm_next
+
+vm_add: CLC                     ; ( a b -- a+b )
+        LDA 2,X
+        ADC 0,X
+        STA 2,X
+        LDA 3,X
+        ADC 1,X
+        STA 3,X
+        INX
+        INX
+        JMP vm_next
+
+vm_sub: SEC                     ; ( a b -- a-b )
+        LDA 2,X
+        SBC 0,X
+        STA 2,X
+        LDA 3,X
+        SBC 1,X
+        STA 3,X
+        INX
+        INX
+        JMP vm_next
+
+vm_and: LDA 2,X                 ; ( a b -- a&b )
+        AND 0,X
+        STA 2,X
+        LDA 3,X
+        AND 1,X
+        STA 3,X
+        INX
+        INX
+        JMP vm_next
+
+vm_half:                        ; ( u -- u/2 )
+        LSR 1,X
+        ROR 0,X
+        JMP vm_next
+
+vm_double:                      ; ( w -- w*2 )
+        ASL 0,X
+        ROL 1,X
+        JMP vm_next
+
+vm_inc: INC 0,X                 ; ( w -- w+1 )
+        BNE @n
+        INC 1,X
+@n:     JMP vm_next
+
+vm_dec: LDA 0,X                 ; ( w -- w-1 )
+        BNE @n
+        DEC 1,X
+@n:     DEC 0,X
+        JMP vm_next
+
+vm_jz:  LDA 0,X                 ; ( w -- ), to the address following if w = 0
+        ORA 1,X
+        INX
+        INX
+        TAY
+        BEQ vm_jmp
+        CLC                     ; else past it
+        LDA ip
+        ADC #2
+        STA ip
+        BCC @n
+        INC ip+1
+@n:     JMP vm_next
+
+vm_jmp: LDY #1                  ; to the address following
+        LDA (ip),Y
+        PHA
+        DEY
+        LDA (ip),Y
+        STA ip
+        PLA
+        STA ip+1
+        JMP vm_next
+
+; The total length of the Collatz chains from VMN down to 1, into var_total
+vmprog: .byte OP_LIT
+        .word VMN
+        .byte OP_LIT
+        .word var_n
+        .byte OP_STORE
+vm_outer:                       ; m = n
+        .byte OP_LIT
+        .word var_n
+        .byte OP_FETCH, OP_LIT
+        .word var_m
+        .byte OP_STORE
+vm_inner:                       ; while m != 1:
+        .byte OP_LIT
+        .word var_m
+        .byte OP_FETCH, OP_DUP, OP_LIT
+        .word 1
+        .byte OP_SUB, OP_JZ
+        .word vm_chained
+        .byte OP_DUP, OP_LIT    ;   m = m odd ? 3m + 1 : m / 2
+        .word 1
+        .byte OP_AND, OP_JZ
+        .word vm_even
+        .byte OP_DUP, OP_DOUBLE, OP_ADD, OP_INC, OP_JMP
+        .word vm_set
+vm_even:
+        .byte OP_HALF
+vm_set: .byte OP_LIT
+        .word var_m
+        .byte OP_STORE
+        .byte OP_LIT            ;   total += 1
+        .word var_total
+        .byte OP_FETCH, OP_INC, OP_LIT
+        .word var_total
+        .byte OP_STORE, OP_JMP
+        .word vm_inner
+vm_chained:                     ; n -= 1, until it's 0
+        .byte OP_DROP, OP_LIT
+        .word var_n
+        .byte OP_FETCH, OP_DEC, OP_DUP, OP_LIT
+        .word var_n
+        .byte OP_STORE, OP_JZ
+        .word vm_end
+        .byte OP_JMP
+        .word vm_outer
+vm_end: .byte OP_HALT
+
+; ---- printing --------------------------------------------------------------------
+
+report: JSR print
+        .byte "primes ", 0
+        LDA R_PRIMES
+        STA num1
+        LDA R_PRIMES+1
+        STA num1+1
+        JSR dec16
+        JSR print
+        .byte 10, "sort ", 0
+        LDA R_SORTCRC+1
+        JSR hex8
+        LDA R_SORTCRC
+        JSR hex8
+        JSR space
+        LDA R_INV
+        JSR hex8
+        JSR print
+        .byte 10, "div ", 0
+        LDA R_DIVSUM
+        STA num1
+        LDA R_DIVSUM+1
+        STA num1+1
+        JSR dec16
+        JSR space
+        LDA R_DIVBAD
+        JSR hex8
+        JSR print
+        .byte 10, "text ", 0
+        LDA R_WORDS
+        STA num1
+        LDA #0
+        STA num1+1
+        JSR dec16
+        JSR space
+        LDA R_CMP
+        JSR hex8
+        JSR space
+        LDA R_TEXTCRC+1
+        JSR hex8
+        LDA R_TEXTCRC
+        JSR hex8
+        JSR print
+        .byte 10, "fib ", 0
+        LDX #5
+@fib:   LDA R_FIB,X
+        JSR hex8
+        DEX
+        BPL @fib
+        JSR space
+        LDA R_BCDBAD
+        JSR hex8
+        JSR print
+        .byte 10, "vm ", 0
+        LDA R_VM
+        STA num1
+        LDA R_VM+1
+        STA num1+1
+        JSR dec16
+        JSR print
+        .byte 10, "brk ", 0
+        LDA R_BRK
+        JSR hex8
+        LDA #10
+        JMP putc
+
+; print: print the string after the JSR, and return past it
+print:  PLA
+        STA ptr2
+        PLA
+        STA ptr2+1
+        LDY #0
+@loop:  INC ptr2
+        BNE @get
+        INC ptr2+1
+@get:   LDA (ptr2),Y
+        BEQ @end
+        JSR putc
+        JMP @loop
+@end:   LDA ptr2+1
+        PHA
+        LDA ptr2
+        PHA
+        RTS
+
+space:  LDA #' '
+putc:   JMP (outvec)
+
+putc_out:
+        STA OUT
+        RTS
+
+; hex8: print A as two hex digits
+hex8:   PHA
+        LSR A
+        LSR A
+        LSR A
+        LSR A
+        JSR hexdig
+        PLA
+        AND #$0F
+hexdig: CMP #10
+        BCC @digit
+        ADC #'A'-'0'-10-1       ; the carry is set
+@digit: ADC #'0'
+        JMP putc
+
+; dec16: print num1 in decimal, five digits: double-dabble in decimal
+; mode, each bit shifted out of num1 added into twice the BCD so far
+dec16:  SED
+        LDA #0
+        STA bcd
+        STA bcd+1
+        STA bcd+2
+        LDX #16
+@bit:   ASL num1
+        ROL num1+1
+        LDA bcd
+        ADC bcd
+        STA bcd
+        LDA bcd+1
+        ADC bcd+1
+        STA bcd+1
+        LDA bcd+2
+        ADC bcd+2
+        STA bcd+2
+        DEX
+        BNE @bit
+        CLD
+        LDA bcd+2
+        JSR hexdig
+        LDA bcd+1
+        JSR hex8
+        LDA bcd
+        JMP hex8
+
+; ---- the CRC's tables ---------------------------------------------------------------
+
+crctab_lo:
+        .byte $00, $21, $42, $63, $84, $A5, $C6, $E7, $08, $29, $4A, $6B, $8C, $AD, $CE, $EF
+        .byte $31, $10, $73, $52, $B5, $94, $F7, $D6, $39, $18, $7B, $5A, $BD, $9C, $FF, $DE
+        .byte $62, $43, $20, $01, $E6, $C7, $A4, $85, $6A, $4B, $28, $09, $EE, $CF, $AC, $8D
+        .byte $53, $72, $11, $30, $D7, $F6, $95, $B4, $5B, $7A, $19, $38, $DF, $FE, $9D, $BC
+        .byte $C4, $E5, $86, $A7, $40, $61, $02, $23, $CC, $ED, $8E, $AF, $48, $69, $0A, $2B
+        .byte $F5, $D4, $B7, $96, $71, $50, $33, $12, $FD, $DC, $BF, $9E, $79, $58, $3B, $1A
+        .byte $A6, $87, $E4, $C5, $22, $03, $60, $41, $AE, $8F, $EC, $CD, $2A, $0B, $68, $49
+        .byte $97, $B6, $D5, $F4, $13, $32, $51, $70, $9F, $BE, $DD, $FC, $1B, $3A, $59, $78
+        .byte $88, $A9, $CA, $EB, $0C, $2D, $4E, $6F, $80, $A1, $C2, $E3, $04, $25, $46, $67
+        .byte $B9, $98, $FB, $DA, $3D, $1C, $7F, $5E, $B1, $90, $F3, $D2, $35, $14, $77, $56
+        .byte $EA, $CB, $A8, $89, $6E, $4F, $2C, $0D, $E2, $C3, $A0, $81, $66, $47, $24, $05
+        .byte $DB, $FA, $99, $B8, $5F, $7E, $1D, $3C, $D3, $F2, $91, $B0, $57, $76, $15, $34
+        .byte $4C, $6D, $0E, $2F, $C8, $E9, $8A, $AB, $44, $65, $06, $27, $C0, $E1, $82, $A3
+        .byte $7D, $5C, $3F, $1E, $F9, $D8, $BB, $9A, $75, $54, $37, $16, $F1, $D0, $B3, $92
+        .byte $2E, $0F, $6C, $4D, $AA, $8B, $E8, $C9, $26, $07, $64, $45, $A2, $83, $E0, $C1
+        .byte $1F, $3E, $5D, $7C, $9B, $BA, $D9, $F8, $17, $36, $55, $74, $93, $B2, $D1, $F0
+crctab_hi:
+        .byte $00, $10, $20, $30, $40, $50, $60, $70, $81, $91, $A1, $B1, $C1, $D1, $E1, $F1
+        .byte $12, $02, $32, $22, $52, $42, $72, $62, $93, $83, $B3, $A3, $D3, $C3, $F3, $E3
+        .byte $24, $34, $04, $14, $64, $74, $44, $54, $A5, $B5, $85, $95, $E5, $F5, $C5, $D5
+        .byte $36, $26, $16, $06, $76, $66, $56, $46, $B7, $A7, $97, $87, $F7, $E7, $D7, $C7
+        .byte $48, $58, $68, $78, $08, $18, $28, $38, $C9, $D9, $E9, $F9, $89, $99, $A9, $B9
+        .byte $5A, $4A, $7A, $6A, $1A, $0A, $3A, $2A, $DB, $CB, $FB, $EB, $9B, $8B, $BB, $AB
+        .byte $6C, $7C, $4C, $5C, $2C, $3C, $0C, $1C, $ED, $FD, $CD, $DD, $AD, $BD, $8D, $9D
+        .byte $7E, $6E, $5E, $4E, $3E, $2E, $1E, $0E, $FF, $EF, $DF, $CF, $BF, $AF, $9F, $8F
+        .byte $91, $81, $B1, $A1, $D1, $C1, $F1, $E1, $10, $00, $30, $20, $50, $40, $70, $60
+        .byte $83, $93, $A3, $B3, $C3, $D3, $E3, $F3, $02, $12, $22, $32, $42, $52, $62, $72
+        .byte $B5, $A5, $95, $85, $F5, $E5, $D5, $C5, $34, $24, $14, $04, $74, $64, $54, $44
+        .byte $A7, $B7, $87, $97, $E7, $F7, $C7, $D7, $26, $36, $06, $16, $66, $76, $46, $56
+        .byte $D9, $C9, $F9, $E9, $99, $89, $B9, $A9, $58, $48, $78, $68, $18, $08, $38, $28
+        .byte $CB, $DB, $EB, $FB, $8B, $9B, $AB, $BB, $4A, $5A, $6A, $7A, $0A, $1A, $2A, $3A
+        .byte $FD, $ED, $DD, $CD, $BD, $AD, $9D, $8D, $7C, $6C, $5C, $4C, $3C, $2C, $1C, $0C
+        .byte $EF, $FF, $CF, $DF, $AF, $BF, $8F, $9F, $6E, $7E, $4E, $5E, $2E, $3E, $0E, $1E
+
+; ---- the vectors ---------------------------------------------------------------------
+
+        .org $FFFA
+        .word reset, reset, irq         ; NMI, reset, IRQ and BRK

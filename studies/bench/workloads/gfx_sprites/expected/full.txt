@@ -1,0 +1,4 @@
+score 0000090d
+hits 00000052
+screen_sum b23ea553
+screen_fletcher 33ea2843

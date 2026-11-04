@@ -1,0 +1,7 @@
+frames 00000006
+rows 00000016
+bytes 000002fa
+screen 9fe3ae9d
+lines 00000034
+length 00000443
+undo 00000003
