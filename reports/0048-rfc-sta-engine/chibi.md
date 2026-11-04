@@ -105,8 +105,8 @@ RFC's text. Each was a false failure that made some word longer than
   reloading it at every HCK edge, glitched every select decoded from
   them.
 
-Reed's analysis (`studies/reed`, on its own branch) then led to five
-more fixes, which change Chibi Heron's checks but not its ticks:
+Reed's analysis (`studies/reed`, on its own branch) then led to more
+fixes, which change Chibi Heron's checks but not its ticks:
 
 - an input whose change didn't reach the output kept its old value, so
   a later change of another input could miss the output altogether (an
@@ -120,7 +120,12 @@ more fixes, which change Chibi Heron's checks but not its ticks:
   CPPR's credit;
 - a pulse's two edges, or a period's, are credited their shared path
   (the CF card's write strobe, above); a glitch counts if any of its
-  changes is the window's (3 more).
+  changes is the window's (3 more);
+- a strobe whose pulse merges into one change that may glitch is
+  checked across the whole of it (none of Chibi Heron's strobes merge
+  so: its "may pulse" ones are runs whose start or end may glitch, and
+  were checked already), and a register that first loads after the
+  edge at 0 can be given its starting state.
 
 Two choices of the first results changed and the ticks didn't:
 
