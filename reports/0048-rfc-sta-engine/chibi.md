@@ -125,7 +125,11 @@ fixes, which change Chibi Heron's checks but not its ticks:
   checked across the whole of it (none of Chibi Heron's strobes merge
   so: its "may pulse" ones are runs whose start or end may glitch, and
   were checked already), and a register that first loads after the
-  edge at 0 can be given its starting state.
+  edge at 0 can be given its starting state;
+- one input's change is evaluated for each value of the inputs not
+  known, an output's own fed-back value included, so a latch closing on
+  a value not known keeps it; and a latch's own changing value no longer
+  lets D through once it's closed (nothing changes for Chibi Heron).
 
 Two choices of the first results changed and the ticks didn't:
 
