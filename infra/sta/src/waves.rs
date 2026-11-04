@@ -409,7 +409,15 @@ impl<'a> Waves<'a> {
                         } else if rb == V1 && ra == V1 {
                             false
                         } else {
-                            rb == V0 || ra == V0
+                            // a value not known: for every value of the
+                            // inputs not known, as RFC 0048 4 has it
+                            let p = cluster[0].pin;
+                            match one_change(fun, inv, &before, &cur, &own, p) {
+                                Some(OneChange::None) => continue,
+                                Some(OneChange::Change) => true,
+                                Some(OneChange::Glitch) => false,
+                                None => rb == V0 || ra == V0,
+                            }
                         }
                     } else if self.monotone
                         && all_clean
@@ -631,8 +639,12 @@ impl<'a> Waves<'a> {
                             })
                         };
                         let get = |q: u32| shut(q).unwrap_or(sval[row + q as usize]);
+                        // (the output's own value changes with the output: a
+                        // term that shares it with another still covers it,
+                        // so it isn't moving here, only not known)
                         let mv = |q: u32| {
-                            q as usize == pi || shut(q).is_none() && sbusy[row + q as usize]
+                            q as usize == pi
+                                || shut(q).is_none() && !own[q as usize] && sbusy[row + q as usize]
                         };
                         if !held1(fun, &get, &mv) && matters(fun, pi as u32, &get, &mv) {
                             match spans.last_mut() {
@@ -1445,6 +1457,101 @@ fn taint_of(
 }
 
 /// The inputs a cluster of effects moves, one entry per pin: how many.
+/// What one input's change does to a sum of products.
+enum OneChange {
+    None,
+    Change,
+    Glitch,
+}
+
+/// One input's (p's) change at a sum of products, exactly: for every value
+/// of the inputs not known, its own fed-back value (at most one) whatever
+/// the function leaves it at, whether the output may change, and whether
+/// it may glitch (1 before and after with no term holding it). None where
+/// that can't be told: the change's own values not known, more than ten
+/// inputs not known, or the output not settling.
+fn one_change(
+    f: &crate::input::Sop,
+    inv: bool,
+    before: &[u8],
+    after: &[u8],
+    own: &[bool],
+    p: usize,
+) -> Option<OneChange> {
+    if !known(before[p]) || !known(after[p]) {
+        return None;
+    }
+    let mut owns = own.iter().enumerate().filter(|x| *x.1).map(|x| x.0);
+    let (o, None) = (owns.next(), owns.next()) else {
+        return None;
+    };
+    let unknown: Vec<usize> = (0..before.len())
+        .filter(|&q| q != p && Some(q) != o && !known(before[q]))
+        .collect();
+    if unknown.len() > 10 {
+        return None;
+    }
+    let flip = |v: u8| if inv { not(v) } else { v };
+    let mut out = OneChange::None;
+    let (mut vb, mut va) = (before.to_vec(), after.to_vec());
+    for m in 0..1u32 << unknown.len() {
+        for (i, &q) in unknown.iter().enumerate() {
+            vb[q] = (m >> i & 1) as u8;
+            va[q] = vb[q];
+        }
+        // the output's states before: its own value, where it has one, as
+        // the function leaves it
+        let states: Vec<Option<u8>> = match o {
+            None => vec![None],
+            Some(o) => [V0, V1]
+                .into_iter()
+                .filter(|&q| {
+                    vb[o] = q;
+                    flip(sop(f, &|i| vb[i as usize])) == q
+                })
+                .map(Some)
+                .collect(),
+        };
+        if states.is_empty() {
+            return None;
+        }
+        for st in states {
+            if let (Some(o), Some(q)) = (o, st) {
+                vb[o] = q;
+                va[o] = q;
+                // after: from its own value before, until it settles
+                let mut settled = false;
+                for _ in 0..4 {
+                    let v = flip(sop(f, &|i| va[i as usize]));
+                    if v == va[o] {
+                        settled = true;
+                        break;
+                    }
+                    va[o] = v;
+                }
+                if !settled {
+                    return None;
+                }
+            }
+            let (b, a) = (sop(f, &|i| vb[i as usize]), sop(f, &|i| va[i as usize]));
+            if b != a {
+                out = OneChange::Change;
+            } else if b == V1 {
+                // held only by a term without p, true before and after
+                let holds = f.iter().any(|t| {
+                    t.iter().all(|&(q, want)| {
+                        q as usize != p && vb[q as usize] == want && va[q as usize] == want
+                    })
+                });
+                if !holds {
+                    return Some(OneChange::Glitch);
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
 /// The inputs that hold an output fed back from its own net, and the value
 /// that does: with that input at it, the function is its own value for
 /// every value of the others (a latch's enable, closed). Only for an

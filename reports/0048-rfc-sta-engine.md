@@ -149,11 +149,17 @@ multiplexers.
    No transition.
 2. **One input changes** (or several, each in a window of its own, taken
    one at a time). The output's value before and after is computed for
-   every value of the unknown inputs:
+   every value of the unknown inputs (up to ten of them; beyond that,
+   unknown values count as X):
    - different: one rise or fall (a change, if its direction isn't known);
    - 1 both before and after, with no term holding it: a glitch (a
      static hazard: one term turns off before the next turns on);
    - 0 both before and after: no transition.
+
+   An output fed back to its own inputs takes, for each of those values,
+   the value its function leaves it at before the change, and settles
+   from there after it: a latch closing on a D whose value isn't known
+   keeps that value, and doesn't change.
 3. **Two or more inputs change** in windows that overlap, and the output
    isn't held: a glitch (a race between the inputs).
 
@@ -179,7 +185,9 @@ These refinements apply to every combinatorial output:
   first, LE's earliest rise goes back through C.
 - **An output fed back to its own inputs** (a latch made of gates): its
   value counts, but its changes are the output's own and don't time it
-  again.
+  again. Nor do they let another input's change reach it: a term that
+  shares the output's own value with another still covers it while that
+  value moves.
 - **An input that holds such an output when it closes** (a latch's
   enable at 0: the function is then the output's own value whatever the
   others are): a change of another input that goes back through that
