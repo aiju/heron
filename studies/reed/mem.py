@@ -206,7 +206,7 @@ def control(nl, ck):
     mq = f("MQ")
     outs.update({
         "MAROE_n": (lit("FETCH"), False, False),
-        "FPCLD_n": (eq(mop, F.MOP["FPC"]), False, True),
+        "FPCLD_n": (lit("FLUSH"), False, True),
         "MXOE_n": (OR(AND(load, ram_), lit("FETCH")), False, True),
         "IORD_n": (AND(load, io), False, True),
         "IOWR_n": (AND(store, io), False, True),

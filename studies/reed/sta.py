@@ -62,11 +62,14 @@ WORDS = {
               "MEM": dict(MOP=F.MOP["STORE"], MSZ=F.MSZ["WORD"])},
     "fetch": {"CTRL": dict(BFREE=1)},
     "jump (K onto A, FPC and PC from A)": {"ALU": dict(RAS=F.RAS["K"], K=31, AOUT=F.AOUT["OA"]),
-                                           "MEM": dict(MOP=F.MOP["FPC"]),
                                            "CTRL": dict(PCOP=F.PCOP_LOAD)},
-    "PC + disp (a branch's target)": {"ALU": dict(AIN=1, WS=F.WS["K"], K=30, AOP=F.AOP["ADD"],
-                                                  CI=F.CI["0"], BIN=F.BIN["BUS"]),
-                                      "CTRL": dict(IMM=F.IMM["S8X2"], PCOP=F.PCOP_DRIVE)},
+    # a branch's word: the branch adder's target onto A, PC and FPC from it
+    # if the condition (the tail word's CND: the opcode's cc) holds
+    "branch (the adder's target, if taken)": {"CTRL": dict(PCOP=F.PCOP_BRANCH, TK=1,
+                                                           SEQ=F.SEQ_BRDEC, JT=0x10)},
+    "PC onto A (a call's link)": {"ALU": dict(AIN=1, WS=F.WS["K"], K=30, AOP=F.AOP["PASSA"],
+                                              BIN=F.BIN["NONE"]),
+                                  "CTRL": dict(PCOP=F.PCOP_DRIVE)},
     "shift right": {"ALU": dict(RAS=F.RAS["d"], WS=F.WS["d"], AOP=F.AOP["PASSB"], BIN=F.BIN["SHIFT"],
                                 SI=F.SI["0"])},
 }
@@ -125,10 +128,14 @@ def word_values(word):
         start = F.CTRL_REG_BASE if board == "CTRL" else 0
         for b in range(start, 8 * F.PARTS[board]):
             before[f"{board}.cs{board}_{b}"] = (packed >> b) & 1
-    # CTRL's sequencer fields: the next word, a plain jump to 0
+    # CTRL's sequencer fields: the next word's (straight from the parts):
+    # the word's own CTRL JT, SEQ and CND if it gives them, else a plain
+    # jump to 0
+    nxt = word.get("CTRL", {})
     for name in ("JT", "SEQ", "CND"):
-        for n in field_nets("CTRL", name):
-            pins[n] = 0
+        v = nxt.get(name, 0)
+        for i, n in enumerate(field_nets("CTRL", name)):
+            pins[n] = (v >> i) & 1
     return pins, before
 
 

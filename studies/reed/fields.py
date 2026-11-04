@@ -19,7 +19,7 @@ ADDR_BITS = 14
 # the clock card takes as the cycle starts)
 CTRL_DIRECT = [("JT", 14), ("SEQ", 2), ("CND", 4), ("LEN", 2), ("CSPARE", 2)]
 CTRL_REG = [("IQC", 2), ("IMM", 4), ("PCOP", 2), ("BFREE", 1), ("DACC", 1), ("IFL", 2),
-            ("CSPARE2", 4)]
+            ("TK", 1), ("CSPARE2", 3)]
 ALU = [("RAS", 2), ("RBS", 2), ("K", 5), ("WS", 2), ("AOP", 4), ("CI", 2), ("FL", 2), ("AIN", 1),
        ("BIN", 2), ("AOUT", 2), ("BOUT", 1), ("SI", 2), ("STOP", 2), ("ASPARE", 3)]
 MEM = [("MOP", 3), ("MSZ", 2), ("MARLD", 1), ("MQ", 2)]
@@ -31,7 +31,8 @@ CTRL_REG_BASE = 24
 
 # ---- codes ------------------------------------------------------------------
 
-# BRDEC: JT if the condition holds, else decode (a branch's last word)
+# BRDEC: JT if the executing word loads PC (FLUSH: a jump, or a branch
+# taken), else decode (a branch's tail word)
 SEQ_JUMP, SEQ_DECODE, SEQ_DECODE_NOIRQ, SEQ_BRDEC = 0, 1, 2, 3
 # CND: the condition a JUMP XORs into JT's bit 0 (0: none, so JT itself)
 # (interrupts are taken at a decode, not tested)
@@ -45,8 +46,13 @@ IQC_NONE, IQC_NEXT, IQC_H = 0, 1, 2
 # IMM: what CTRL drives onto B
 IMM = {"NONE": 0, "PE_SX": 1, "PE_ZX": 2, "PE_HI": 3, "H_PE": 4, "Q": 5, "NQ": 6, "U7": 7,
        "S8X2": 8, "R4": 9, "ZERO": 10, "ONE": 11, "FOUR": 12, "VEC": 13}
-# PCOP: PC onto A, PC loaded from A
-PCOP_NONE, PCOP_DRIVE, PCOP_LOAD = 0, 1, 2
+# PCOP: PC onto A; PC and FPC loaded from A (and the queue emptied); a
+# branch's target onto A, PC + 2 x the register byte (the branch adder).
+# TK: PC and FPC loaded from A (the queue emptied) if the executing
+# instruction's condition holds: its opcode's cc in row B, d's in row F
+# (cc 14 and 15 always). A word that may load PC (LOAD or TK) doesn't
+# fetch (BFREE 0).
+PCOP_NONE, PCOP_DRIVE, PCOP_LOAD, PCOP_BRANCH = 0, 1, 2, 3
 IFL_HOLD, IFL_SET, IFL_CLEAR = 0, 1, 2
 
 # ALU: register selects
@@ -67,7 +73,8 @@ SI = {"0": 0, "C": 1, "SIGN": 2, "ROT": 3}
 STOP = {"HOLD": 0, "Z": 1, "F31": 2, "C32": 3}
 
 # MEM
-MOP = {"NONE": 0, "LOAD": 1, "STORE": 2, "FPC": 3}
+# (MOP 3 reserved: FPC loads on CTRL's FLUSH)
+MOP = {"NONE": 0, "LOAD": 1, "STORE": 2, "RES": 3}
 MSZ = {"BYTE": 0, "HALF": 1, "WORD": 2}
 MQ = {"HOLD": 0, "SHIFT": 1, "LOAD": 2, "DRIVE": 3}
 

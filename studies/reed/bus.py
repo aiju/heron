@@ -38,6 +38,8 @@ CONTROL = {
     "DEC1_n": ("CTRL", "the decoded instruction starts at this cycle's end (U_RB loads)"),
     **{n: ("CTRL", "the executing instruction's index register x") for n in RX},
     "FETCH": ("CTRL", "the queue wants a word, and B is free this cycle"),
+    "FLUSH": ("CTRL", "PC and FPC load from A at this cycle's end, the queue empties: a jump, "
+                      "or a branch whose condition holds"),
     **{n: ("ALU", "flags") for n in ("FN", "FZ", "FC", "FV", "FST")},
     "QIN": ("ALU", "the bit MQ shifts in (the last result's bit 0)"),
     "AERR": ("MEM", "address error: the access is misaligned"),

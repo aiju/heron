@@ -49,6 +49,7 @@ from heron.infra.hw.netlist import Netlist
 
 from . import bus as BP, fields as F
 from .common import AND, OR, ONE, ZERO, anyof, bus, clock_buffer, control_slice, eq, gated_clock, lit, negate, table
+from .parts import FAST_GAL
 
 TICK_PS = 19861
 IVEC, WAITD = 0x0004, 0x0002
@@ -92,8 +93,8 @@ def sequencer(nl, ck):
     brdec = eq(seq, F.SEQ_BRDEC)
     # JT (bit 0 XORed with the condition) for JUMP; JT for BRDEC whose
     # condition holds; else a decode
-    to_jt = OR(jump, AND(brdec, lit("COND")))
-    dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(brdec, lit("COND", 0)))
+    to_jt = OR(jump, AND(brdec, lit("FLUSHC")))
+    dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(brdec, lit("FLUSHC", 0)))
     for k, bits in enumerate((range(0, 5), range(5, 10), range(10, 14))):
         outs = {}
         for i in bits:
@@ -101,7 +102,7 @@ def sequencer(nl, ck):
             if i == 0:
                 take_jt = OR(AND(jump, lit(jt[0], 1), lit("COND", 0)),
                              AND(jump, lit(jt[0], 0), lit("COND", 1)),
-                             AND(brdec, lit("COND"), lit(jt[0])))
+                             AND(brdec, lit("FLUSHC"), lit(jt[0])))
             irq = AND(dec, lit("IRQT")) if (IVEC >> i) & 1 else ZERO
             wait = AND(dec, lit("IRQT", 0), lit("READY", 0)) if (WAITD >> i) & 1 else ZERO
             entry = AND(dec, lit("IRQT", 0), lit("READY"), lit(f"DT{i}"))
@@ -132,6 +133,20 @@ def sequencer(nl, ck):
             terms.append(AND(sel, OR(AND(lit(base_net), lit(b0, 0)), AND(lit(base_net, 0), lit(b0)))))
     outs["COND"] = (OR(*terms), False, False)
     G.add(nl, "U_COND", outs)
+    # U_TKN: TAKEN, the executing instruction's condition (row B its
+    # opcode's cc, row F d's; 14 and 15 always), and FLUSH: PC and FPC from
+    # A, the queue emptied (a jump, or TK and TAKEN)
+    def taken_of(base, cc):
+        # cc 15's base is "always" too: its bit 0 doesn't invert it
+        return OR(AND(lit(base), lit(cc[0], 0)), AND(lit(base, 0), lit(cc[0]), negate(AND(*[lit(c) for c in cc[1:4]]))),
+                  AND(lit(base), lit(cc[0]), AND(*[lit(c) for c in cc[1:4]])))
+    taken = OR(AND(lit(op[6], 0), taken_of("CCBO", op[0:4])), AND(lit(op[6]), taken_of("CCBD", rd)))
+    pcop, tk = f("PCOP"), f("TK")[0]
+    # (FLUSHC, CTRL's own copy, so that its logic doesn't wait for the
+    # backplane's)
+    flush = OR(eq(pcop, F.PCOP_LOAD), AND(lit(tk), lit("TAKEN")))
+    G.add(nl, "U_TKN", {"TAKEN": (taken, False, False), "FLUSH": (flush, False, False),
+                        "FLUSHC": (flush, False, False)})
 
 
 def queue(nl, ck):
@@ -172,21 +187,21 @@ def queue(nl, ck):
 
     dp, ep, xp, nxp = ["DP0", "DP1"], ["EP0", "EP1"], ["XP0", "XP1"], ["NXP0", "NXP1"]
     pv = ["PV0", "PV1", "PV2", "PV3"]
-    iqc, pcop = f("IQC"), f("PCOP")
-    flush = eq(pcop, F.PCOP_LOAD)
+    iqc = f("IQC")
+    flush = lit("FLUSHC")
     consume = anyof(iqc, [F.IQC_NEXT, F.IQC_H])
 
     def add2(a, k):
         return (a + k) & 3
 
     # U_IQP: the pointers, on the cycle's clock
-    ins = dp + ["DLEN0", "DLEN1", "DECODING", "A1"] + pcop + ["RESET_n"]
+    ins = dp + ["DLEN0", "DLEN1", "DECODING", "A1", "FLUSHC", "RESET_n"]
     outs = {}
     for i in range(2):
-        def dp_next(d0, d1, l0, l1, dec, a1, p0, p1, rst, i=i):
+        def dp_next(d0, d1, l0, l1, dec, a1, fl, rst, i=i):
             if not rst:
                 return 0
-            if (p0 | p1 << 1) == F.PCOP_LOAD:
+            if fl:
                 return (a1 >> 0) & 1 if i == 0 else 0
             v = d0 | d1 << 1
             if dec:
@@ -260,11 +275,11 @@ def queue(nl, ck):
             fill = AND(fill, OR(lit("DP1", 1 - i // 2), lit("DP0", 0)))
         outs[pv[i]] = (OR(keep, fill), True, False)
     free = OR(AND(lit("FS", 0), lit("PV0", 0), lit("PV1", 0)), AND(lit("FS"), lit("PV2", 0), lit("PV3", 0)))
-    outs["FETCH"] = (AND(free, lit(f("BFREE")[0]), lit(f("DACC")[0], 0), negate(flush), lit("RESET_n")),
-                     False, False)
+    # (a word that may load PC doesn't set BFREE: the microassembler's rule)
+    outs["FETCH"] = (AND(free, lit(f("BFREE")[0]), lit(f("DACC")[0], 0), lit("RESET_n")), False, False)
     G.add(nl, "U_IQV", outs, clock=ck[2])
     seq = f("SEQ")
-    dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(eq(seq, F.SEQ_BRDEC), lit("COND", 0)))
+    dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(eq(seq, F.SEQ_BRDEC), lit("FLUSHC", 0)))
     # the interrupt request, which the devices raise when they like:
     # synchronised to the cycle's clock (U_IRQS, two flip-flops) before
     # the decode sees it
@@ -273,7 +288,7 @@ def queue(nl, ck):
                                     "2D": "IRQ1", "2CLK": ck[1], "2PRE": "VCC", "2CLR": "RESET_n",
                                     "2Q": "IRQS", "2QN": "IRQS_n"})
     inst.nocheck = True
-    irqt = AND(OR(eq(seq, F.SEQ_DECODE), AND(eq(seq, F.SEQ_BRDEC), lit("COND", 0))), lit("IRQS"),
+    irqt = AND(OR(eq(seq, F.SEQ_DECODE), AND(eq(seq, F.SEQ_BRDEC), lit("FLUSHC", 0))), lit("IRQS"),
                lit("IFLAG"))
     decoding = AND(dec, negate(irqt), lit("READY"), lit("RESET_n"))
     outs = {"IRQT": (irqt, False, False), "DECODING": (decoding, False, False),
@@ -347,7 +362,7 @@ def immediates(nl, ck):
         "OEPL_n": (anyof(imm, [I["PE_SX"], I["PE_ZX"]]), False, True),
         "OEPH_n": (anyof(imm, [I["PE_HI"], I["H_PE"]]), False, True),
         "OEH_n": (eq(imm, I["H_PE"]), False, True),
-        "OEPC_n": (eq(pcop, F.PCOP_DRIVE), False, True),
+        "OEPC_n": (anyof(pcop, [F.PCOP_DRIVE, F.PCOP_BRANCH]), False, True),
     })
     G.add(nl, "U_IMMO", outs)
     nl.add("541", "U_S8", OE1="OES8_n", OE2="GND", **{f"A{i + 1}": (rs + rd)[i] for i in range(8)},
@@ -372,16 +387,17 @@ def _n(bits):
 
 def pc(nl, ck):
     """PC: bits 2-1 and the pending length in U_PCL, the interrupt flag I
-    there too; bits 21-3 in 74F163s, counting on U_PCL's carry; onto A
-    through 541s."""
+    there too; bits 21-3 in 74F163s, counting on U_PCL's carry; all of them
+    load from A on FLUSH. Onto A through the branch adder (U_BA0-4: PC + 2
+    x the register byte while BR, else PC) and 541s."""
     pcl = ["PC1", "PC2"]
     pnl = ["PNL0", "PNL1"]
-    pcop, ifl = f("PCOP"), f("IFL")
-    load = eq(pcop, F.PCOP_LOAD)
-    ins = pcl + pnl + ["DEC1"] + pcop + ["A1", "A2"]
+    ifl = f("IFL")
+    load = lit("FLUSHC")
+    ins = pcl + pnl + ["DEC1", "FLUSHC", "A1", "A2"]
 
-    def nxt(p1, p2, n0, n1, d1, o0, o1, a1, a2):
-        if (o0 | o1 << 1) == F.PCOP_LOAD:
+    def nxt(p1, p2, n0, n1, d1, fl, a1, a2):
+        if fl:
             return a1 | a2 << 1
         v = p1 | p2 << 1
         if d1:
@@ -405,8 +421,82 @@ def pc(nl, ck):
         nl.add("163", f"U_PC{k}", CLK=ck[4], CLR="VCC", LOAD="PCLD_n",
                ENP="PCCY", ENT="PCCY" if k == 0 else f"PCRC{k - 1}",
                A=d[0], B=d[1], C=d[2], D=d[3], QA=q[0], QB=q[1], QC=q[2], QD=q[3], RCO=f"PCRC{k}")
-    a_src = ["GND"] + pcl + hi[:19] + ["GND"] * 10
+    branch_adder(nl, pcl + hi[:19])
+    a_src = ["GND"] + [f"T{i}" for i in range(1, 22)] + ["GND"] * 10
     for k in range(4):
         nl.add("541", f"U_PCA{k}", OE1="OEPC_n", OE2="GND",
                **{f"A{i + 1}": a_src[8 * k + i] for i in range(8)},
                **{f"Y{i + 1}": BP.A[8 * k + i] for i in range(8)})
+
+
+def branch_adder(nl, pc):
+    """U_BA0-4: T21-T1 = PC21-PC1 + (PCOP BRANCH ? the register byte,
+    sign-extended : 0): a branch's target, in halfwords. Bits 1-4 ripple
+    in U_BA0, which also gives their carry out (C4) straight from its
+    inputs; bits 5-8 ripple in U_BA1 from C4, which gives their group's
+    generate and propagate (GH, PH); bits 9-21 are PC plus or minus one (the
+    low byte's carry, less its sign: BINC0, BDEC0, from C4, GH and PH), four
+    bits a GAL, each passing on whether the next group counts."""
+    rb = BP.RS + BP.RD
+    pcop = f("PCOP")
+    br = AND(lit(pcop[0]), lit(pcop[1]))          # PCOP_BRANCH: 3
+    assert F.PCOP_BRANCH == 3
+    d = [AND(br, lit(rb[i])) for i in range(8)]
+
+    def xor(*fs):
+        out = fs[0]
+        for g in fs[1:]:
+            out = OR(AND(out, negate(g)), AND(negate(out), g))
+        return out
+
+    def gen(i):
+        return AND(lit(pc[i]), d[i])
+
+    def prop(i):
+        return OR(lit(pc[i]), d[i])
+
+    # bits 1-4: a ripple inside the GAL; C4 from the inputs
+    outs = {}
+    for i in range(4):
+        cin = lit(f"BC{i}") if i else ZERO
+        outs[f"T{i + 1}"] = (xor(lit(pc[i]), d[i], cin) if i else xor(lit(pc[0]), d[0]), False, False)
+        if i < 3:
+            outs[f"BC{i + 1}"] = (OR(gen(i), AND(prop(i), cin)) if i else gen(0), False, False)
+    outs["BC4"] = (OR(gen(3), AND(prop(3), gen(2)), AND(prop(3), prop(2), gen(1)),
+                      AND(prop(3), prop(2), prop(1), gen(0))), False, False)
+    G.add(nl, "U_BA0", outs).part = FAST_GAL
+    # bits 5-8: a ripple from C4; the group's generate and propagate
+    outs = {}
+    for i in range(4, 8):
+        cin = lit(f"BC{i}")
+        outs[f"T{i + 1}"] = (xor(lit(pc[i]), d[i], cin), False, False)
+        if i < 7:
+            outs[f"BC{i + 1}"] = (OR(gen(i), AND(prop(i), cin)), False, False)
+    outs["GH"] = (OR(gen(7), AND(prop(7), gen(6)), AND(prop(7), prop(6), gen(5)),
+                     AND(prop(7), prop(6), prop(5), gen(4))), False, False)
+    outs["PH"] = (AND(prop(7), prop(6), prop(5), prop(4)), False, False)
+    G.add(nl, "U_BA1", outs).part = FAST_GAL
+    # bits 9-21: +1 on the carry out of bit 8, -1 on the sign
+    sign = d[7]
+    c8 = OR(lit("GH"), AND(lit("PH"), lit("BC4")))
+    groups = (range(8, 12), range(12, 16), range(16, 21))
+    for k, bits in enumerate(groups):
+        outs = {}
+        if k == 0:
+            outs["BINC0"] = (AND(c8, negate(sign)), False, False)
+            outs["BDEC0"] = (AND(negate(c8), sign), False, False)
+        inc, dec = f"BINC{k}", f"BDEC{k}"
+        bits = list(bits)
+        for j, i in enumerate(bits):
+            below = bits[:j]
+            if len(below) == 4:
+                up, down = lit(f"BINC{k + 1}"), lit(f"BDEC{k + 1}")
+            else:
+                up = AND(lit(inc), *[lit(pc[b]) for b in below])
+                down = AND(lit(dec), *[lit(pc[b], 0) for b in below])
+            flip = OR(up, down)
+            outs[f"T{i + 1}"] = (OR(AND(lit(pc[i]), negate(flip)), AND(lit(pc[i], 0), flip)), False, False)
+        top = bits[:4]
+        outs[f"BINC{k + 1}"] = (AND(lit(inc), *[lit(pc[b]) for b in top]), False, False)
+        outs[f"BDEC{k + 1}"] = (AND(lit(dec), *[lit(pc[b], 0) for b in top]), False, False)
+        G.add(nl, f"U_BA{k + 2}", outs).part = FAST_GAL
