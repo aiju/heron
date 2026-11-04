@@ -404,8 +404,10 @@ A case is what a study fixes; everything else is X.
   change; only a glitch may still pulse.
 - **Constants** (`constant`): a net's value throughout (a reset that
   isn't asserted).
-- **The start state** (`start`): the values registers on the reference
-  clock take at the edge at 0, and the values they had before it. In
+- **The start state** (`start`): a register's value until its first
+  load in the window, and what it takes at that load: the edge at 0 for
+  a register on the reference clock, a later edge for one that doesn't
+  load there (one on the inverted clock loads first at event 1). In
   Chibi Heron:
   - the clock generator at phase F, tick 0, with CLK0 and HCK rising;
   - TASK and TASKP as the case says.
@@ -436,8 +438,10 @@ A case is what a study fixes; everything else is X.
 - **Pairs** (`before`): where X before the start is too pessimistic (a
   bus driver the previous word may have left on), a study can give the
   previous word too, as nets' values before 0, until they first change.
-  The study chooses the pairs; in Chibi Heron they would come from the
-  microcode's successors.
+  On a register's output that's its state until its first load, which
+  then computes its own value (where `start` would give it). The study
+  chooses the pairs; in Chibi Heron they would come from the microcode's
+  successors.
 - **Exceptions:** each with its reason, and each counted in the results.
   An exception matches a check by any of its chip, its kind (setup,
   hold, ...), its pin, and the values of nets at its edge (`when`):
@@ -565,6 +569,12 @@ What must hold after the end (tAH, tDH) is reported as a hold: like a
 register's, no length changes it. Each of these is a capture against
 one of the strobe's edges, so the part of the two paths they share is
 credited as [9.1](#91-setup-and-hold) does.
+
+A strobe whose pulse merges into one change that may glitch (an input's
+window overlapping both its edges) may be active anywhere in that
+change. Its address and data are then checked across the whole of it:
+set up before its earliest time, held past its latest. Its width isn't
+known, which the glitch check reports ([9.4](#94-clean-clocks-and-strobes)).
 
 This covers the RAMs' and the register file's writes, the UARTs', the
 DAC0832's, the 82C54's and the CF card's, each by its own description.

@@ -328,8 +328,20 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
         touched_net: vec![false; d.nets.len()],
         val: vec![X; no],
         en: vec![X; no],
+        // a register's state before its first load: the start's, else its
+        // net's value before the window (a pair's), else not known
         state: (0..no)
-            .map(|o| start[o].map(|x| x.0).unwrap_or(X))
+            .map(|o| {
+                let out = &d.outs[o];
+                start[o]
+                    .map(|x| x.0)
+                    .or_else(|| {
+                        out.net
+                            .filter(|_| out.is_reg())
+                            .and_then(|n| before[n as usize])
+                    })
+                    .unwrap_or(X)
+            })
             .collect(),
         touched: vec![false; no],
         pinned: pinned.clone(),
@@ -436,9 +448,10 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
                 if !definite {
                     v = merge(old, v);
                 }
-                if e == 0
-                    && let Some((_, after)) = start[o as usize]
-                {
+                // the start state's value at the first load, the edge at 0's
+                // or, for a register that doesn't load there, a later one's
+                let first = loads[o as usize].is_empty();
+                if first && let Some((_, after)) = start[o as usize] {
                     v = after;
                 }
                 let force = forced.iter().find(|x| x.0 == (o, e)).map(|x| x.1);
@@ -448,7 +461,7 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
                     && definite
                     && branch[o as usize]
                     && end.is_none()
-                    && !(e == 0 && start[o as usize].is_some())
+                    && !(first && start[o as usize].is_some())
                 {
                     return Ok(Outcome::Fork {
                         net: out.net.unwrap_or(0),
@@ -458,7 +471,7 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
                 if v == X
                     && old == X
                     && force.is_none()
-                    && !(e == 0 && start[o as usize].is_some())
+                    && !(first && start[o as usize].is_some())
                     && holds(next, out.inv, &own, &get)
                 {
                     held[o as usize].push(e);
@@ -477,16 +490,6 @@ pub fn run(d: &Design, case: &Case) -> Result<Outcome, Error> {
                 s.mark_state(o);
             }
             s.settle()?;
-        }
-        if e == 0 {
-            for (o, st) in start.iter().enumerate() {
-                if st.is_some() && !loads[o].iter().any(|l| l.0 == 0) {
-                    return Err(Error(format!(
-                        "start: {} doesn't load at the edge at 0",
-                        d.out_name(o as u32)
-                    )));
-                }
-            }
         }
         pre.push(before.clone());
         pre_state.push(before_state);

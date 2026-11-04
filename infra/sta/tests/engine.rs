@@ -951,3 +951,103 @@ fn latch_closing_its_own_input() {
     let (_, init, tr) = &r[0].traces[0];
     assert_eq!((*init, tr.len()), (0, 0), "{:?}", r[0].traces);
 }
+
+#[test]
+fn strobe_that_may_pulse() {
+    // WE = WRS + A: WRS falls at 0 and rises at 20 ns, A falls in a window
+    // over both, so WE's pulse merges into one change that may glitch:
+    // 3 to 23 ns, while WRS may be low. The strobe /WE may be active
+    // anywhere in it: D, which changes at 15 to 16 ns, is checked against
+    // all of it
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.reg("RW", "WRS", "WRSN", "MCLK", [1000, 2000, 0, 0]);
+    b.gate("UWN", "WRSN", &["WRS"], not(1), 1000, 2000);
+    b.reg("RA", "A0", "A0", "MCLK", [1000, 2000, 0, 0]);
+    b.gate("UA", "A", &["A0"], vec![vec![(1, 1)]], 1000, 30_000);
+    b.gate(
+        "UWE",
+        "WE",
+        &["WRS", "A"],
+        vec![vec![(1, 1)], vec![(2, 1)]],
+        1000,
+        1000,
+    );
+    b.reg("RD", "D", "D", "MCLK", [15_000, 16_000, 0, 0]);
+    let desc = Desc {
+        checks: vec![CheckIn {
+            kind: CheckKindIn::Strobe {
+                active: vec![vec![(0, 0)]],
+                stable: vec![],
+                data: vec![sta::input::DataIn {
+                    pins: vec![1],
+                    setup: Some(3000),
+                    hold: Some(2000),
+                    names: vec!["tDW".into(), "tDH".into()],
+                }],
+                width: Some(5000),
+                eq: "/WE".into(),
+            },
+            estimated: vec![],
+        }],
+        ..Desc::default()
+    };
+    b.chip("UM", "mem", &[("WE", "WE"), ("D", "D")], Some(desc));
+    let o = Options {
+        trace: vec!["WE".into()],
+        ..Options::default()
+    };
+    let c = case(&[("WRS", 1, 0), ("A0", 1, 0), ("D", 0, 1)], "MCLK");
+    let r = analyse(&b.design(), &c, &o).unwrap();
+    let (_, _, tr) = &r[0].traces[0];
+    assert_eq!(
+        (tr[0].0, tr[0].1, tr[0].2, tr[0].3, tr[0].4),
+        (3000, 23_000, 1, 1, false),
+        "{tr:?}"
+    );
+    let data = r[0]
+        .worst
+        .iter()
+        .find(|c| c.chip == "UM" && c.what.contains("D data"))
+        .map(|c| c.slack);
+    // D at 15 to 16 ns, inside the window: nearer its end at 23 ns, held
+    // 2 ns after it: 15 - (23 + 2)
+    assert_eq!(data, Some(15_000 - 25_000), "{:?}", r[0].worst);
+}
+
+#[test]
+fn start_before_a_later_first_load() {
+    // RN, a toggle on the inverted clock, first loads at the master
+    // clock's fall (event 1): its start state holds until then, and its
+    // value there is the start's
+    let mut b = Build::new();
+    b.osc("MCLK", 20_000);
+    b.gate("UN", "MCLKN", &["MCLK"], not(1), 1000, 2000);
+    b.reg("RN", "Q", "QD", "MCLKN", [1000, 2000, 0, 0]);
+    b.gate("UQ", "QD", &["Q"], not(1), 1000, 2000);
+    let o = Options {
+        trace: vec!["Q".into()],
+        ..Options::default()
+    };
+    let r = analyse(&b.design(), &case(&[("Q", 1, 0)], "MCLK"), &o).unwrap();
+    let (_, init, tr) = &r[0].traces[0];
+    assert_eq!(*init, 1, "{tr:?}");
+    // at 10 ns, through the inverter and the clock-to-output: 12 to 14 ns
+    assert_eq!(
+        (tr[0].0, tr[0].1, tr[0].2, tr[0].3),
+        (12_000, 14_000, 1, 0),
+        "{tr:?}"
+    );
+    // or its value before the window (a pair's) until it first loads,
+    // which then computes its own
+    let mut c = case(&[], "MCLK");
+    c.before.insert("Q".into(), 1);
+    let r = analyse(&b.design(), &c, &o).unwrap();
+    let (_, init, tr) = &r[0].traces[0];
+    assert_eq!(*init, 1, "{tr:?}");
+    assert_eq!(
+        (tr[0].0, tr[0].1, tr[0].2, tr[0].3),
+        (12_000, 14_000, 1, 0),
+        "{tr:?}"
+    );
+}

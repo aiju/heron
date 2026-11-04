@@ -19,10 +19,13 @@ A case is a dict (infra/sta/src/input.rs, Case):
                 outputs read a word
     constant    {net: 0 or 1}: values the net has throughout (a reset that
                 isn't asserted)
-    start       {net: (before, after)}: a register's output just before
-                the edge at 0 and what it takes there (2 for X)
+    start       {net: (before, after)}: a register's output before its
+                first load in the window (the edge at 0, or a later edge
+                for one that doesn't load there) and what it takes there
+                (2 for X)
     before      {net: 0 or 1}: values before the edge at 0, until the net
-                first changes (a pair's previous word)
+                first changes (a pair's previous word); a register's
+                output: its state until its first load
     branch      [net]: registers that split the case where they'd load X
     forced      [(net, event, value)]: a branch's choices, to rerun it
     skip        [ref]: chips whose checks the case doesn't count
