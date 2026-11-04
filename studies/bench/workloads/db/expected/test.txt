@@ -1,0 +1,8 @@
+parts 00000008
+suppliers 00000003
+moves 0000000c
+bad 00000000
+reorder 00000001
+matches 00000002
+length 000002c8
+report 49e0c310
