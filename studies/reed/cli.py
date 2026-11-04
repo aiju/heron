@@ -10,6 +10,8 @@
   hw smoke [--trace A:B]
                      the whole machine at chip level running a small program
                      (hw.py), against the draft 2 simulator
+  hw check           programs at both corners (max, min) and three seeds,
+                     with the wires: the chip-level gate
   sta [--word W]     static timing of each kind of microcycle (sta.WORDS):
                      the shortest length at which nothing a length can fix
                      fails worse than at the longest, and what still fails
@@ -30,7 +32,7 @@ def main(argv=None):
     sub.add_parser("estimate")
     sub.add_parser("ucode")
     h = sub.add_parser("hw")
-    h.add_argument("what", choices=("smoke",))
+    h.add_argument("what", choices=("smoke", "check"))
     h.add_argument("--trace")
     q = sub.add_parser("sta")
     q.add_argument("--word")
@@ -48,6 +50,10 @@ def main(argv=None):
         print(ucode.listing())
     elif a.cmd == "hw":
         from . import hw
+        if a.what == "check":
+            ok, lines = hw.check()
+            print("\n".join(lines))
+            return 0 if ok else 1
         trace = tuple(int(x) for x in a.trace.split(":")) if a.trace else None
         ok, rep = hw.smoke(trace)
         print(rep)

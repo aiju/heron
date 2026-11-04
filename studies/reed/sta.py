@@ -76,7 +76,7 @@ WORDS = {
 # the case's state as it starts: the queue's (a slot free, for a fetch)
 START = {
     "CLK.TC0": (X, 0), "CLK.TC1": (X, 0), "CLK.TC2": (X, 0), "CLK.CYC_S": (0, 1),
-    "CLK.WPH_S": (1, 0), "CLK.WRS_S": (1, 1), "CLK.WPH0": (1, 0),
+    "CLK.WPH_S": (1, 0), "CLK.WRS_S": (1, 1),
 }
 STROBES = {}
 # named exceptions (RFC 0048 8), each counted in the results: none but
@@ -147,16 +147,15 @@ def case(name, word, ticks, after_mar=False, wired=True):
     ln = ticks - F.LEN_BASE
     pins["LEN0"], pins["LEN1"] = ln & 1, ln >> 1
     start = dict(START)
+    start["CLK.LENR0"], start["CLK.LENR1"] = (X, ln & 1), (X, ln >> 1)
     if clockcard.HALF_WPH:
-        # (WPHD loads on the inverted clock: high from the cycle before)
-        del start["CLK.WPH_S"], start["CLK.WRS_S"]
-        start["CLK.WRSE_S"] = (1, 1)
-        before["CLK.WPHD"] = 1
+        # (WPA and WRS load on the inverted clock: WPA high, WRS inactive,
+        # from the cycle before)
+        del start["CLK.WRS_S"]
+        before["CLK.WPA_S"] = 1
         if clockcard.LATE_WRS:
             before["CLK.WRS_S"] = 1
-    else:
-        del start["CLK.WPH0"]
-    start["CLK.LENR0"], start["CLK.LENR1"] = (X, ln & 1), (X, ln >> 1)
+        start["CLK.WRSE_S"] = (1, 1)
     for a in ARMS:
         start[a] = (0, 0)
         if a.replace("ARM_", "ARMD_") in ARMDS:
@@ -259,6 +258,14 @@ def run(names=None, lengths=(5, 6, 7, 8), paths=1, jobs=None, wired=True):
     return out
 
 
+def must_fix(c):
+    """A glitch on a strobe, a clock or an enable: never an artefact to look
+    past. A strobe whose pulse the engine can't place collapses into one
+    uncertain transition, and its data and address then aren't checked at
+    all (RFC 0049's clocking-and-front-end.md, 5)."""
+    return c["check"] == "glitch"
+
+
 def report(out, paths=2):
     lines = []
     for n, (t, res, longest) in out.items():
@@ -266,6 +273,12 @@ def report(out, paths=2):
         kinds = Counter(c["check"] for c in fails)
         lines.append(f"{n:<38} {t} ticks   failing there: "
                      + (", ".join(f"{k} {v}" for k, v in sorted(kinds.items())) or "none"))
+        urgent = {}
+        for c in fails:
+            if must_fix(c):
+                urgent.setdefault((c["chip"].rstrip("0123456789"), c["what"].split(":")[0]), c)
+        for c in urgent.values():
+            lines.append(f"  !! {c['chip']} {c['check']} {c['what']}: must be fixed, not explained")
         shown = set()
         for c in sorted(fails, key=lambda c: c["slack"]):
             key = (c["chip"].rstrip("0123456789"), c["check"])

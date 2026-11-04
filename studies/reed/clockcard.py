@@ -9,8 +9,10 @@ to each slot.
            fourth-last tick while a WAIT line is up; CYC_S (ticks 0-1),
            WPH_S (the last three, the write phase) and WRS_S (low for the
            middle of those, the write strobe)
-  U_T*     a CDC341 for each of MCLK, CYC, WPH, WRS and WRSE (MEM's strobe,
-           half a tick before WRS), an output a slot
+  U_CGB    on the inverted clock: WPA (the ALU's write phase) and WRS (its
+           strobe), WPH and WRSE half a tick later
+  U_T*     a CDC341 for each of MCLK, CYC, WPH, WPA, WRS and WRSE, an output
+           a slot
 
 LEN comes from CTRL's control store: the next word's, a cycle early, on
 two backplane lines, which U_CGA takes as a cycle starts (LENR, the
@@ -46,6 +48,7 @@ def build(sim=True):
     sources = {c: f"{c}_S" for c in BP.CLOCKS}
     if not HALF_WPH:
         sources["WRSE"] = "WRS_S"
+        sources["WPA"] = "WPH_S"
     elif not LATE_WRS:
         sources["WRS"] = "WRSE_S"
     for c in BP.CLOCKS:
@@ -78,8 +81,7 @@ def build(sim=True):
     for i in range(3):
         outs[f"TC{i}"] = (table(ins, lambda *b, i=i: (nxt(*b) >> i) & 1), True, False)
     outs["CYC_S"] = (table(ins, lambda *b: nxt(*b) in (0, 1)), True, False)
-    wph = "WPH0" if HALF_WPH else "WPH_S"
-    outs[wph] = (table(ins, lambda *b: nxt(*b) >= cyc_len(*b) - 3), True, False)
+    outs["WPH_S"] = (table(ins, lambda *b: nxt(*b) >= cyc_len(*b) - 3), True, False)
     # (WRSE_S, the strobe where U_CGA makes it, is MEM's: its data comes
     # over A, which the next cycle's word may drive)
     wrs = "WRSE_S" if HALF_WPH else "WRS_S"
@@ -87,14 +89,14 @@ def build(sim=True):
     clock = "MCLK_S" if CGA_CLOCK == "osc" else "MCLK_CARD"
     G.add(nl, "U_CGA", outs, clock=clock).part = FAST_GAL
     if HALF_WPH:
-        # WPHD: WPH0 half a tick later; WPH_S rises with it and falls with
-        # WPH0, at the cycle's end; WRS_S, the strobe, all of it half a tick
-        # later (so that it starts a tick after the write phase does, and
-        # ends just after the cycle: the address and the data stay until
-        # the next cycle's LEW)
+        # the ALU's write phase and its strobe, each WPH and WRSE half a
+        # tick later, both straight from U_CGB's registers on the inverted
+        # clock, so that their order is the clock's edges', not gates':
+        # WPA from tick n-2.5 to n+0.5 (half a tick into the next cycle),
+        # WRS from n-1.5 to n-0.5: the address and the data a tick before
+        # the strobe starts, and a tick after it ends
         nl.add("04", "U_INV", **{"1A": clock, "1Y": "MCLKN_C", **{f"{i}A": "GND" for i in range(2, 7)}})
-        G.add(nl, "U_CGB", {"WPHD": ([{"WPH0": 1}], True, False),
-                            "WPH_S": ([{"WPH0": 1, "WPHD": 1}], False, False),
+        G.add(nl, "U_CGB", {"WPA_S": ([{"WPH_S": 1}], True, False),
                             **({"WRS_S": ([{"WRSE_S": 1}], True, False)} if LATE_WRS else {})},
               clock="MCLKN_C").part = FAST_GAL
 

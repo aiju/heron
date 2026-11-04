@@ -153,7 +153,9 @@ def register_file(nl, ck):
     # cycle gives the read longer; LEW, the same, for the copies' addresses
     # and the copies' and Y's enables, which so change only while the
     # latches are closed (sta.EXCEPTIONS)
-    le = OR(AND(lit("WPH", 0), lit(ck[1])), AND(lit("WPH", 0), lit("LE")))
+    # (WPA: the ALU's write phase, from half a tick after WPH to half a
+    # tick into the next cycle; clockcard.py)
+    le = OR(AND(lit("WPA", 0), lit(ck[1])), AND(lit("WPA", 0), lit("LE")))
     outs = {"LE": (le, False, False), "LEW": (le, False, False)}
     G.add(nl, "U_RFT", outs).part = FAST_GAL
 

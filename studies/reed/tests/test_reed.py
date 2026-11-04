@@ -42,5 +42,12 @@ class TestReed(unittest.TestCase):
         self.assertTrue(ok, rep)
 
 
+    def test_chip_level_gate(self):
+        """Every program at both corners and three seeds (hw.check)."""
+        from heron.studies.reed import hw
+        ok, lines = hw.check()
+        self.assertTrue(ok, "\n".join(lines))
+
+
 if __name__ == "__main__":
     unittest.main()

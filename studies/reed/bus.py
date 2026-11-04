@@ -56,7 +56,7 @@ CONTROL = {
 }
 # the clocks: each from the clock card (clockcard.py), a trace of its own
 # to each slot; a board sees its slot's as X (the machine's net X_BOARD)
-CLOCKS = ("MCLK", "CYC", "WPH", "WRS", "WRSE")
+CLOCKS = ("MCLK", "CYC", "WPH", "WPA", "WRS", "WRSE")
 SOURCES = {c: f"{c}_S" for c in CLOCKS}
 BOARDS = ("CTRL", "ALU", "MEM", "IO", "VIDEO")
 
