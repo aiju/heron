@@ -42,6 +42,9 @@ pub struct ChipDesc {
     /// Don't report this chip's timing violations (a synchroniser).
     #[serde(default)]
     pub nocheck: bool,
+    /// A programmable part's equations (a 22V10's: models.rs, Gal).
+    #[serde(default)]
+    pub program: Vec<i64>,
     /// Extra delay (ps) on each output pin, in pin order: what the wiring
     /// on a printed circuit board adds (infra/pcb/wires.py). Empty: none.
     #[serde(default)]
@@ -571,6 +574,7 @@ pub fn build(netlist: &Netlist, pre: &HashMap<&str, Vec<u8>>, rng: &mut Rng) -> 
             info: &info,
             delays: &desc.delays,
             params: &desc.params,
+            program: &desc.program,
         };
         let model = Model::new(
             &desc.model,

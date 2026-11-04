@@ -20,7 +20,7 @@ import os
 import re
 from collections import defaultdict
 
-from . import chips
+from . import chips, gal
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ELK_URL = "https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"
@@ -142,7 +142,7 @@ def model(nl, title, cards=None, variant=chips.DEFAULT_VARIANT):
         if inst.ref in gate_refs or inst.type.family in ("fixture", "passive"):
             continue
         card = _card(inst.ref)
-        pins = [(p, k, inst.conn[p]) for p, k in inst.type.pins if p in inst.conn]
+        pins = [(p, inst.kind(p), inst.conn[p]) for p, _k in inst.type.pins if p in inst.conn]
         sides = {"W": [], "E": []}
         for p, k, n in pins:
             sides[_side(inst, p, k)].append((p, k, n))
@@ -179,7 +179,8 @@ def model(nl, title, cards=None, variant=chips.DEFAULT_VARIANT):
         typ = inst.type
         drawn[inst.ref] = {"id": inst.ref, "kind": "chip", "ref": inst.ref,
                            "part": inst.part_number(variant), "type": typ.name,
-                           "desc": typ.desc or "", "w": CHIP_W, "h": h, "ports": ports,
+                           "desc": gal.equations(inst) if inst.gal else typ.desc or "",
+                           "w": CHIP_W, "h": h, "ports": ports,
                            "sheet": sheet_of(inst.ref, inst.section)}
 
     # every net's ends
@@ -189,7 +190,7 @@ def model(nl, title, cards=None, variant=chips.DEFAULT_VARIANT):
             if n in RAILS or (inst.ref, p) not in pin_port:
                 continue
             sid, k = pin_port[(inst.ref, p)]
-            kind = inst.type.kind(p)
+            kind = inst.kind(p)
             end = [sid, k, p]
             if kind in ("out", "tri", "io"):
                 nets[n]["drivers"].append(end)
