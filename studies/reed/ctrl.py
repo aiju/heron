@@ -77,7 +77,7 @@ def build(sim=True):
     nl.section("queue")
     queue(nl, ck)
     nl.section("immediates")
-    immediates(nl)
+    immediates(nl, ck)
     nl.section("PC")
     pc(nl, ck)
     BP.connectors(nl)
@@ -177,17 +177,18 @@ def queue(nl, ck):
     keep the pointers (U_IQP), the parcels' valid bits (U_IQV), the slots'
     clocks (U_IQK) and the parcels' enables onto PD and PE (U_IQO)."""
     pd, pe = bus("PD", 16), bus("PE", 16)
+    # each parcel's bytes twice (onto PD and PE), in 823s loading a slot
+    # from B at the cycle's end while its QLD_n is low
     for p in range(4):
         src = BP.B[0:16] if p % 2 == 0 else BP.B[16:32]
-        clk = f"QCK{p // 2}"
+        en = f"QLD{p // 2}_n"
         for half in range(2):
             d = src[8 * half:8 * half + 8]
-            nl.add("574", f"U_QD{p}{half}", OE=f"PDOE{p}_n", CLK=clk,
-                   **{f"D{i + 1}": d[i] for i in range(8)},
-                   **{f"Q{i + 1}": pd[8 * half + i] for i in range(8)})
-            nl.add("574", f"U_QE{p}{half}", OE=f"PEOE{p}_n", CLK=clk,
-                   **{f"D{i + 1}": d[i] for i in range(8)},
-                   **{f"Q{i + 1}": pe[8 * half + i] for i in range(8)})
+            for name, out, oe in (("QD", pd, f"PDOE{p}_n"), ("QE", pe, f"PEOE{p}_n")):
+                nl.add("823", f"U_{name}{p}{half}", OE=oe, CLK=ck[3], EN=en, CLR="VCC",
+                       **{f"D{i + 1}": d[i] for i in range(8)}, D9="GND",
+                       **{f"Q{i + 1}": out[8 * half + i] for i in range(8)},
+                       Q9=f"{name}{p}{half}_NC")
     # the instruction registers: decoded (at the decode), executing (as it starts)
     # the register byte (s in its low nibble, d high): the decoded one on
     # the backplane, which the ALU board's U_RB takes as this one does
@@ -309,15 +310,15 @@ def queue(nl, ck):
     for p in range(4):
         outs[f"PDOE{p}_n"] = (negate(eq(dp, p)), False, False)
     G.add(nl, "U_IQO", outs)
-    # U_IQK: the slots' clocks (QCK0, QCK1) and H's, gated at the cycle's end
-    outs = {}
-    gated_clock(outs, "QCK0", AND(lit("FETCH"), lit("FS", 0)), clk=ck[3])
-    gated_clock(outs, "QCK1", AND(lit("FETCH"), lit("FS")), clk=ck[3])
-    gated_clock(outs, "HCK", eq(iqc, F.IQC_H), clk=ck[3])
-    G.add(nl, "U_IQK", outs, clock="MCLK")
+    # U_IQK: the slots' load enables (QLD0_n, QLD1_n) and H's, for the
+    # 823s on the board's clock
+    outs = {"QLD0_n": (AND(lit("FETCH"), lit("FS", 0)), False, True),
+            "QLD1_n": (AND(lit("FETCH"), lit("FS")), False, True),
+            "HLD_n": (eq(iqc, F.IQC_H), False, True)}
+    G.add(nl, "U_IQK", outs)
 
 
-def immediates(nl):
+def immediates(nl, ck):
     """What CTRL drives onto B: the extension parcel at PE (sign- or zero-
     extended, or as the high half), H and PE (a 32-bit constant, H loaded
     a cycle before), and constants from the executing instruction's fields
@@ -389,8 +390,9 @@ def immediates(nl):
                **{f"Y{i + 1}": BP.B[8 * k + i] for i in range(8)})
         nl.add("541", f"U_PH{k}", OE1="OEPH_n", OE2="GND", **{f"A{i + 1}": pe[8 * k + i] for i in range(8)},
                **{f"Y{i + 1}": BP.B[16 + 8 * k + i] for i in range(8)})
-        nl.add("574", f"U_H{k}", OE="OEH_n", CLK="HCK", **{f"D{i + 1}": pe[8 * k + i] for i in range(8)},
-               **{f"Q{i + 1}": BP.B[8 * k + i] for i in range(8)})
+        nl.add("823", f"U_H{k}", OE="OEH_n", CLK=ck[3], EN="HLD_n", CLR="VCC",
+               **{f"D{i + 1}": pe[8 * k + i] for i in range(8)}, D9="GND",
+               **{f"Q{i + 1}": BP.B[8 * k + i] for i in range(8)}, Q9=f"H{k}_NC")
 
 
 def _n(bits):

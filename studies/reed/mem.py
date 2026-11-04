@@ -5,7 +5,7 @@ the RAM's address net RA (bits 20-2 to every chip, bit 21 choosing the
 row) from MAR or from FPC, and its data net MD.
 
   - MAR (three 574s) loads A, the effective address the ALU sends late in
-    a cycle (MARLD), at the cycle's end, through a gated clock (MARCK);
+    a cycle (MARLD), at the cycle's end (823s with a load enable);
     U_LN0 keeps the address's bits 1-0 and whether it's in the I/O space
     (A30). FPC (74F163s) loads A for a jump (MOP FPC) and counts a word a
     fetch.
@@ -71,10 +71,12 @@ def addresses(nl, ck):
                **{f"A{i + 1}": BP.A[8 * k + i] for i in range(8)},
                **{f"Y{i + 1}": AI[8 * k + i] for i in range(8)})
     # MAR: bits 25-2 onto RA, but while FPC drives it
+    # (823s on the clock the microinstruction's 574s take, loading while
+    # ALE, this cycle's MARLD, is high)
     for k in range(3):
-        nl.add("574", f"U_MAR{k}", OE="MAROE_n", CLK="MARCK",
-               **{f"D{i + 1}": AI[2 + 8 * k + i] for i in range(8)},
-               **{f"Q{i + 1}": RA[2 + 8 * k + i] for i in range(8)})
+        nl.add("823", f"U_MAR{k}", OE="MAROE_n", CLK=ck[0], EN="ALE_n", CLR="VCC",
+               **{f"D{i + 1}": AI[2 + 8 * k + i] for i in range(8)}, D9="GND",
+               **{f"Q{i + 1}": RA[2 + 8 * k + i] for i in range(8)}, Q9=f"MAR{k}_NC")
     fp = [f"FP{i}" for i in range(2, 22)]
     for k in range(5):
         q = fp[4 * k:4 * k + 4]
@@ -154,13 +156,16 @@ def control(nl, ck):
         sb = OR(AND(lit("FETCH", 0), sb), AND(lit("FETCH"), [{}] if j & 2 else ZERO))
         zero = AND(lit("FETCH", 0), zero)
         return sa, sb, zero
-    # U_LN0, clocked by MARCK: the address's bits 1-0 and A30; lanes 0-1's selects
-    outs = {"AL0": (lit("AI0"), True, False), "AL1": (lit("AI1"), True, False),
-            "IOSP": (lit("AI30"), True, False), "FETCH_n": (lit("FETCH", 0), False, False)}
+    # U_LN0, on MAR's clock: the address's bits 1-0 and A30, loading with
+    # MAR (else held); lanes 0-1's selects
+    def held(net, src):
+        return (OR(AND(lit("ALE"), lit(src)), AND(lit("ALE", 0), lit(net))), True, False)
+    outs = {"AL0": held("AL0", "AI0"), "AL1": held("AL1", "AI1"), "IOSP": held("IOSP", "AI30"),
+            "FETCH_n": (lit("FETCH", 0), False, False)}
     for j in (0, 1):
         sa, sb, z = sel_fns(j)
         outs[f"XSA{j}"], outs[f"XSB{j}"], outs[f"XG{j}"] = (sa, False, False), (sb, False, False), (z, False, False)
-    G.add(nl, "U_LN0", outs, clock="MARCK")
+    G.add(nl, "U_LN0", outs, clock=ck[0])
     outs = {}
     for j in (2, 3):
         sa, sb, z = sel_fns(j)
@@ -196,9 +201,8 @@ def control(nl, ck):
             n = f"WE{row}{lane}_n"
             outs[n] = (AND(st_w, rsel, sel), False, True)
     G.add(nl, "U_WE", outs)
-    # U_MC, on MCLK: MAR's gated clock; the enables; the I/O space's strobes; MQ's S1
-    outs = {}
-    gated_clock(outs, "MARCK", lit("ALE"), clk=ck[2])
+    # U_MC: MAR's load enable; the enables; the I/O space's strobes; MQ's S1
+    outs = {"ALE_n": (lit("ALE"), False, True)}
     mq = f("MQ")
     outs.update({
         "MAROE_n": (lit("FETCH"), False, False),
@@ -210,7 +214,7 @@ def control(nl, ck):
         # hold with the outputs on (MQOE_n, in U_ST)
         "MQS1": (anyof(mq, [F.MQ["LOAD"], F.MQ["SHIFT"]]), False, False),
     })
-    G.add(nl, "U_MC", outs, clock="MCLK")
+    G.add(nl, "U_MC", outs)
 
 
 

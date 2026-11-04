@@ -23,9 +23,9 @@ read and write share each cycle, through latches:
     22V10's 5 ns grade: the read and the bypass then fit a 5-tick cycle.
 
 The ALU is eight 74F181s with their carry lookahead in U_CLA; U_ALUF gives
-their function and carry from the microinstruction's AOP and CI, or, for
-AOP ROW, from the instruction's opcode (MOV, MOVS, ADD, SUB, CMP, AND, OR,
-XOR, ADC, SBC, BIC and TST by their rows). OA comes from copy A or from the
+their function and carry from the microinstruction's AOP and CI alone
+(the opcode doesn't reach this board: each operation's microcode names
+its function, carry and flags). OA comes from copy A or from the
 A bus (U_XA); OB from copy B, the B bus (U_XB), or OA shifted right a bit
 (U_SH, the bit in from U_BUS). F goes to Y_A and Y_B, and onto A (U_FA),
 an address that leaves in the cycle it's made.
@@ -165,8 +165,8 @@ def alu(nl, ck):
         terms.append({"CN0": 0, **{f"P{m}": 0 for m in range(kk)}})
         outs[cn[kk]] = (terms, False, True)
     G.add(nl, "U_CLA", outs)
-    # U_ALUF: the function, from AOP, or the opcode for ROW
-    aop, ci, op = f("AOP"), f("CI"), BP.OP
+    # U_ALUF: the function, from AOP
+    aop, ci = f("AOP"), f("CI")
     A = F.AOP
     # (S3-S0, M, carry in as the 181 takes it: 1 = none) for each AOP
     FUN = {"ADD": (0b1001, 0, 1), "SUB": (0b0110, 0, 0), "AND": (0b1011, 1, 1), "OR": (0b1110, 1, 1),
@@ -174,19 +174,13 @@ def alu(nl, ck):
            "INCA": (0b0000, 0, 0), "DECA": (0b1111, 0, 1), "SHL": (0b1100, 0, 1),
            "BIC": (0b0111, 1, 1), "NOTA": (0b0000, 1, 1), "ZERO": (0b0011, 1, 1),
            "ONES": (0b1100, 1, 1)}
-    # the rows' operations, as AOPs
-    ROW = {0x1: "PASSB", 0x3: "PASSB", 0x4: "ADD", 0x5: "SUB", 0x6: "SUB", 0x8: "AND", 0x9: "OR",
-           0xA: "XOR"}
-    ROW_E = {0x0: "ADD", 0x1: "SUB", 0x2: "BIC", 0x3: "AND", 0xA: "BIC", 0xB: "AND"}   # ADC, SBC, BIC, TST
-    ins = aop + op + ["MQ0"]
+    ins = aop + ["MQ0"]
 
-    def fun(a0, a1, a2, a3, o0, o1, o2, o3, o4, o5, o6, o7, mq0):
+    def fun(a0, a1, a2, a3, mq0):
         code = a0 | a1 << 1 | a2 << 2 | a3 << 3
-        opc = o0 | o1 << 1 | o2 << 2 | o3 << 3 | o4 << 4 | o5 << 5 | o6 << 6 | o7 << 7
         name = {v: k for k, v in A.items()}[code]
-        if name == "ROW":
-            row, col = opc >> 4, opc & 15
-            name = ROW.get(row) or (ROW_E.get(col) if row == 0xE else None) or "PASSB"
+        if name == "RES":
+            name = "PASSB"
         if name == "MQSTEP":
             name = "ADD" if mq0 else "PASSA"
         return FUN[name]
@@ -194,15 +188,12 @@ def alu(nl, ck):
     for i in range(4):
         outs[f"AS{i}"] = (table(ins, lambda *b, i=i: (fun(*b)[0] >> i) & 1), False, False)
     outs["AM"] = (table(ins, lambda *b: fun(*b)[1]), False, False)
-    # the carry in (CN0 is active low): CI's, or for ROW the operation's own
-    # (a subtract and an increment carry in), but ADC and SBC (E0, E1) take C
-    opc_e = AND(eq(op[4:], 0xE), eq(op[1:4], 0))
+    # the carry in (CN0 is active low): CI's, OWN the function's own (a
+    # subtract and an increment carry in); ADC and SBC take C (CI C)
     terms = [
         eq(ci, F.CI["1"]),
         AND(eq(ci, F.CI["C"]), lit("FC")),
-        AND(eq(ci, F.CI["ROW"]), anyof(aop, [A["SUB"], A["INCA"]])),
-        AND(eq(ci, F.CI["ROW"]), eq(aop, A["ROW"]), anyof(op[4:], [0x5, 0x6])),
-        AND(eq(ci, F.CI["ROW"]), eq(aop, A["ROW"]), opc_e, lit("FC")),
+        AND(eq(ci, F.CI["OWN"]), anyof(aop, [A["SUB"], A["INCA"]])),
     ]
     outs["CN0"] = (OR(*terms), False, True)
     G.add(nl, "U_ALUF", outs)
@@ -247,16 +238,12 @@ def flags(nl, ck):
     for name, half in (("U_ZL", FN[:16]), ("U_ZH", FN[16:])):
         net = "ZL" if name == "U_ZL" else "ZH"
         G.add(nl, name, {net: ([{n: 0 for n in half}], True, False)}, clock=ck[2])
-    fl, aop, stop, si, op = f("FL"), f("AOP"), f("STOP"), f("SI"), BP.OP
-    row = op[4:]
-    # which flags the operation sets: FL's, or for ROW the row's
-    nz_rows = [0x3, 0x8, 0x9, 0xA]
-    nzcv_rows = [0x4, 0x5, 0x6]
-    set_nz = OR(eq(fl, F.FL["NZ"]), eq(fl, F.FL["NZCV"]),
-                AND(eq(fl, F.FL["ROW"]), anyof(row, nz_rows + nzcv_rows + [0xE])))
-    set_cv = OR(eq(fl, F.FL["NZCV"]), AND(eq(fl, F.FL["ROW"]), anyof(row, nzcv_rows + [0xE])))
-    # an add or a subtract (for V and C): SUB, and ROW's SUB, CMP and SBC
-    sub = OR(eq(aop, F.AOP["SUB"]), AND(eq(aop, F.AOP["ROW"]), anyof(row, [0x5, 0x6])))
+    fl, aop, stop, si = f("FL"), f("AOP"), f("STOP"), f("SI")
+    # which flags the operation sets: FL's
+    set_nz = OR(eq(fl, F.FL["NZ"]), eq(fl, F.FL["NZCV"]))
+    set_cv = eq(fl, F.FL["NZCV"])
+    # an add or a subtract (for V and C)
+    sub = eq(aop, F.AOP["SUB"])
     # C: the carry out (the 181's CN4, active low: C32_n); for a subtract,
     # "no borrow" is the carry out itself
     c = lit("C32_n", 0)

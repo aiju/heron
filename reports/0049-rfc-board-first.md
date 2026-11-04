@@ -65,10 +65,10 @@ in section 14, and the napkin's sections below are as they were.
   register file needs **5 ticks** without wire delays, not the
   napkin's 4 (Emily: 5 is fine), but **6** with the napkin's 1–12 ns
   over the backplane and the clocks through a tree on it (14.3).
-  With the engine's fixes for what Reed found (RFC 0048), the gated
-  clocks, the write strobe's addresses and some holds still fail, the
-  interrupt requests aren't synchronised, and the backplane has no
-  spare line left. At 5 ticks the 55 ns flash costs nothing. A taken branch
+  With the engine's fixes for what Reed found (RFC 0048), the write
+  strobe's addresses, Y's handover to the register file's copies and a
+  few small holds still fail, and the interrupt requests aren't
+  synchronised. The backplane has ten spare lines. At 5 ticks the 55 ns flash costs nothing. A taken branch
   takes about five microcycles. The SST39SF010A's 45 ns grade was
   end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
 
@@ -764,9 +764,9 @@ chip-level simulation.
 
 | Board | Packages | Area | 22V10s | What's on it |
 |---|---:|---:|---:|---|
-| **CTRL** | 66 | 57 | 14 | the clock generator (U_CGA: the sources of CYC, WPH and WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
+| **CTRL** | 66 | 59 | 14 | the clock generator (U_CGA: the sources of CYC, WPH and WRS); the sequencer (µPC, next address, condition); its slice of the control store (5 parts, 2 × 574); the decode table (2 parts: entry and length); the queue (two words, each parcel held twice, onto PD for the decode and PE for the extension parcels); the two-stage instruction register; the immediates; PC |
 | **ALU** | 70 | 68 | 14 | its slice (4 parts, the µPC and 4 × 574); the register file (its own U_RB, two copies, read latches, Y_A and Y_B, the write address in U_WG, the bypass in U_BYP; its address muxes and U_BYP in the 22V10's 5 ns grade); 8 × 74F181 with a GAL's lookahead; the transceivers to A and B; the shift path; F onto A; the flags |
-| **MEM** | 65 | 51 | 5 | its slice (1 part, the µPC and 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR, FPC; MQ |
+| **MEM** | 65 | 52 | 5 | its slice (1 part, the µPC and 1 × 574); 4 MB; the byte crossbar (16 × 74F153); the store lanes; MAR (823s), FPC; MQ |
 | **IO** | 30 | 29 | 7 | two UARTs, the timer, the boot flash, the CF card, two PS/2 ports (a 299 each, received in hardware), the interrupt controller, sound, reset |
 | **VIDEO** | 49 | 40 | 6 | a 2 MB frame buffer, 640 × 480 × 8 through a palette in SRAM and an ADV7125, posted writes and latched reads |
 | **total** | **280** | | **46** | |
@@ -869,11 +869,21 @@ What changed in the netlist to get here, and what fails:
 - **The register numbers on the ALU board** (above).
 - **The clock tree** on the backplane (above), and no MCLKN, which
   nothing took. CTRL loses its MCLK and CYC buffers to the backplane's.
-- **Gated clocks clear two ticks into the cycle** (`gated_clock`'s
-  ARMD), so ARM can't clear before the board's clock, which comes about
-  a tick after the edge, rises: MAR's hold passes at the lengths the
-  words take. VIDEO's two still clear a tick in (its GAL has no room;
-  the board isn't timed yet).
+- **No gated clocks on CTRL, ALU or MEM:** MAR, H and the queue's
+  sixteen registers are 74ABT823s (9 bits, a clock enable, three-state
+  outputs) on their board's plain clock, U_LN0's latched address bits
+  are held by feedback, and the enables come from the microinstruction
+  (ALE_n for MAR) and the queue's GALs (QLD0_n, QLD1_n, HLD_n). A gated
+  clock was a GAL later than the clocks that launch its data, so A and
+  B could change before it rose (MAR −10.2 ns, the queue −4.2), and its
+  ARM sampled WPH on the master clock a tick after WPH changed, which
+  doesn't fit a tick (−3.8). IO's ALEK and VIDEO's three remain (those
+  boards aren't timed yet).
+- **The opcode stays on CTRL:** the ALU's function, carry and flags
+  are its microinstruction's alone (AOP, CI and FL; their opcode-driven
+  codes are reserved), so each operation has microcode of its own,
+  which the decode table's entries make free. The ALU's U_ALUF stops
+  decoding opcodes, and eight backplane lines come free.
 - **Every board has its own µPC:** CTRL drives the next address
   (UPCN) on the backplane, and each board loads it on the clock its
   slice's 574s take. A µPC on CTRL alone changed the word under the
@@ -889,13 +899,8 @@ What changed in the netlist to get here, and what fails:
   was the VIDEO board's read latch possibly on B.
 - **What still fails,** with the engine's fixes (below), at each word's
   length; the cases branch on WEN, which the case's start leaves open:
-  - **Gated clocks sampling WPH** (MEM.U_MC, CTRL.U_IQK: setups of
-    −3.8 ns): ARM samples WPH on the board's master clock a tick after
-    WPH changes, and that transfer doesn't fit a tick (WPH's spread and
-    the slots' skew). MAR's hold (−10.2 ns, the words that load it from
-    a register) and the queue's (CTRL.U_QD/U_QE, −4.2 ns in a fetch)
-    come from the same clocks. Gated clocks want replacing by enables
-    on the plain board clock.
+  - **MAR** (−1.2 ns, loaded from a register): A against MEM's clock,
+    the slots' skew.
   - **The write strobe against the addresses** (U_RFA/U_RFB, −5.2 ns):
     a race between edges a tick apart. The copies' addresses switch
     through two GALs after WPH, the strobe through one after WRS, down
@@ -913,10 +918,13 @@ What changed in the netlist to get here, and what fails:
   - **Interrupts aren't synchronised:** the CF card's INTRQ reaches
     every µPC through U_IRQ and the next-address logic (crossings).
     An interrupt request wants a synchroniser before the sequencer.
-- **The backplane's spare lines:** none. The tree takes four source
-  pins on top of the four clocks; the decoded register numbers' DEC1_n
-  took one; MCLKN's two came back. DIN 41612's 160-pin form (rows z–d,
-  as VME64x uses, 2.54 mm) would give each connector 64 more.
+- **The backplane's spare lines:** ten. The tree takes four source
+  pins on top of the four clocks and the decoded register numbers'
+  DEC1_n one; MCLKN's line, the opcode's eight and the master clock's
+  two guard grounds (row b's grounds are beside every pin) came back.
+  (Not 160-pin connectors: Emily, 2026-11-04.) CTRL's sources could
+  share their positions with its own slot's clocks, for four more, but
+  only with a CDC341 a clock on CTRL to match the tree's stage.
 - **A false path, named and counted:** every check but the register
   file's own leaves out what goes through LEW.
 
@@ -979,13 +987,12 @@ such a test against a board's netlist; that harness isn't built yet.
 
 1. **The register file's timing:** 5 ticks (Emily, 2026-11-02), which
    with the wires is 6 for now and needs 2 below (14.3).
-2. **The clocking, again:** what still fails (14.3) mostly comes back
-   to one transfer, a board sampling CTRL's phases a tick after they
-   change, which doesn't fit a tick: the gated clocks, the strobes, the
-   read address on the master clock that 5 ticks would need. Phases
-   each board makes for itself in lockstep, or enables on the plain
-   board clock in place of gated clocks; and a synchroniser for the
-   interrupt requests. And the backplane's spare lines (14.3).
+2. **The clocking, again:** a board can't sample CTRL's phases a tick
+   after they change, which the read address on the master clock (for
+   5 ticks) and strobes made on each board would need; phases each
+   board makes for itself in lockstep would avoid it. A synchroniser
+   for the interrupt requests. The write strobe against the addresses,
+   Y's handover, the µPC's holds (14.3).
 3. **The branch hardware**, if CTRL can give room.
 4. **The control store's part:** the 55 ns flash for now (14.2).
 5. **The minimum delays' fraction** (RFC 0048, open): 30% makes every

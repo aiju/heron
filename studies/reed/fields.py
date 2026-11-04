@@ -51,10 +51,14 @@ IFL_HOLD, IFL_SET, IFL_CLEAR = 0, 1, 2
 RAS = {"d": 0, "s": 1, "K": 2, "NONE": 3}
 RBS = {"s": 0, "x": 1, "K": 2, "NONE": 3}
 WS = {"NONE": 0, "d": 1, "s": 2, "K": 3}
-AOP = {"ROW": 0, "ADD": 1, "SUB": 2, "AND": 3, "OR": 4, "XOR": 5, "PASSA": 6, "PASSB": 7,
+# (the ALU's function, its carry and its flags are the microinstruction's
+# alone: each operation has microcode of its own, from the decode table's
+# entries, and the opcode doesn't leave CTRL; code 0s are reserved)
+AOP = {"RES": 0, "ADD": 1, "SUB": 2, "AND": 3, "OR": 4, "XOR": 5, "PASSA": 6, "PASSB": 7,
        "INCA": 8, "DECA": 9, "SHL": 10, "BIC": 11, "NOTA": 12, "ZERO": 13, "MQSTEP": 14, "ONES": 15}
-CI = {"0": 0, "1": 1, "C": 2, "ROW": 3}
-FL = {"NONE": 0, "ROW": 1, "NZ": 2, "NZCV": 3}
+# CI OWN: the function's own (a subtract and an increment carry in)
+CI = {"0": 0, "1": 1, "C": 2, "OWN": 3}
+FL = {"NONE": 0, "RES": 1, "NZ": 2, "NZCV": 3}
 BIN = {"RF": 0, "BUS": 1, "SHIFT": 2, "NONE": 3}
 AOUT = {"NONE": 0, "OA": 1, "F": 2}
 SI = {"0": 0, "C": 1, "SIGN": 2, "ROT": 3}

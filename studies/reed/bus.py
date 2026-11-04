@@ -22,7 +22,7 @@ def bus(name, n, start=0):
 
 
 UPCN = bus("UPCN", 14)
-OP = bus("OP", 8)
+OP = bus("OP", 8)          # CTRL's own: the opcode doesn't leave it
 RD, RS, RX = bus("RD", 4), bus("RS", 4), bus("RX", 4)    # RD, RS: each board's own
 NRD, NRS = bus("NRD", 4), bus("NRS", 4)
 SZ = bus("SZ", 2)
@@ -33,7 +33,6 @@ CONTROL = {
        ("MCLK", "CYC", "WPH", "WRS")},
     **{n: ("CTRL", "the next microprogram address: every board's µPC loads it as the cycle starts")
        for n in UPCN},
-    **{n: ("CTRL", "the executing instruction's opcode") for n in OP},
     **{n: ("CTRL", "the decoded instruction's register numbers d and s, a cycle before it "
                    "executes: the ALU board takes them as CTRL's U_RB does") for n in NRD + NRS},
     "DEC1_n": ("CTRL", "the decoded instruction starts at this cycle's end (U_RB loads)"),
@@ -78,8 +77,7 @@ def pin_map():
     grounds in row b), P2 the control lines in rows a and c, row b grounds
     and the supply (every fourth pin 5 V): first the clocks, each slot's
     and its source beside it (CTRL's slot alone has the sources on the
-    backplane), the master clock's with a ground after each in their row
-    too."""
+    backplane); row b's grounds beside every pin."""
     p1 = {}
     for i in range(32):
         p1[f"a{i + 1}"] = A[i]
@@ -88,11 +86,7 @@ def pin_map():
     p2 = {f"b{i + 1}": ("VCC" if i % 4 == 3 else "GND") for i in range(32)}
     lines = [n for n in CONTROL if n not in SOURCES.values()]
     slots = [f"a{i}" for i in range(1, 33)] + [f"c{i}" for i in range(1, 33)]
-    row = []
-    for c in CLOCKS:
-        row += [SOURCES[c], c] + (["GND"] if c == "MCLK" else [])
-        if c == "MCLK":
-            row.insert(1, "GND")
+    row = [n for c in CLOCKS for n in (SOURCES[c], c)]
     for k, n in enumerate(row):
         p2[f"a{1 + k}"] = n
     free = [s for s in slots if s not in p2]

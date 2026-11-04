@@ -42,10 +42,10 @@ FIELD_NET = {"MEM": {"MARLD": ["ALE"], "MSZ": ["SZ0", "SZ1"]}}
 # NONE where 0 does something
 BASE = {"ALU": {"RAS": F.RAS["NONE"], "RBS": F.RBS["NONE"], "BIN": F.BIN["NONE"]}}
 WORDS = {
-    "ADD r, r": {"ALU": dict(RAS=F.RAS["d"], RBS=F.RBS["s"], WS=F.WS["d"], AOP=F.AOP["ROW"],
-                             CI=F.CI["ROW"], FL=F.FL["ROW"], BIN=F.BIN["RF"])},
-    "ADD r, #q": {"ALU": dict(RAS=F.RAS["d"], WS=F.WS["d"], AOP=F.AOP["ROW"], CI=F.CI["ROW"],
-                              FL=F.FL["ROW"], BIN=F.BIN["BUS"]),
+    "ADD r, r": {"ALU": dict(RAS=F.RAS["d"], RBS=F.RBS["s"], WS=F.WS["d"], AOP=F.AOP["ADD"],
+                             CI=F.CI["0"], FL=F.FL["NZCV"], BIN=F.BIN["RF"])},
+    "ADD r, #q": {"ALU": dict(RAS=F.RAS["d"], WS=F.WS["d"], AOP=F.AOP["ADD"], CI=F.CI["0"],
+                              FL=F.FL["NZCV"], BIN=F.BIN["BUS"]),
                   "CTRL": dict(IMM=F.IMM["Q"])},
     "r + d16 into MAR": {"ALU": dict(RAS=F.RAS["s"], AOP=F.AOP["ADD"], CI=F.CI["0"], BIN=F.BIN["BUS"],
                                      AOUT=F.AOUT["F"]),
@@ -53,8 +53,8 @@ WORDS = {
     "r into MAR": {"ALU": dict(RAS=F.RAS["s"], AOUT=F.AOUT["OA"]), "MEM": dict(MARLD=1)},
     "load, pass": {"ALU": dict(WS=F.WS["d"], AOP=F.AOP["PASSB"], BIN=F.BIN["BUS"]),
                    "MEM": dict(MOP=F.MOP["LOAD"], MSZ=F.MSZ["WORD"])},
-    "load, add": {"ALU": dict(RAS=F.RAS["d"], WS=F.WS["d"], AOP=F.AOP["ROW"], CI=F.CI["ROW"],
-                              FL=F.FL["ROW"], BIN=F.BIN["BUS"]),
+    "load, add": {"ALU": dict(RAS=F.RAS["d"], WS=F.WS["d"], AOP=F.AOP["ADD"], CI=F.CI["0"],
+                              FL=F.FL["NZCV"], BIN=F.BIN["BUS"]),
                   "MEM": dict(MOP=F.MOP["LOAD"], MSZ=F.MSZ["WORD"])},
     "load byte": {"ALU": dict(WS=F.WS["d"], AOP=F.AOP["PASSB"], BIN=F.BIN["BUS"]),
                   "MEM": dict(MOP=F.MOP["LOAD"], MSZ=F.MSZ["BYTE"])},
@@ -94,9 +94,11 @@ def lew_exceptions(ex):
 
 
 # the gated clocks that clear two ticks in (common.gated_clock)
-ARMDS = {"CTRL.ARMD_QCK0", "CTRL.ARMD_QCK1", "CTRL.ARMD_HCK", "MEM.ARMD_MARCK", "IO.ARMD_ALEK"}
-ARMS = ["CTRL.ARM_QCK0", "CTRL.ARM_QCK1", "CTRL.ARM_HCK", "MEM.ARM_MARCK", "IO.ARM_ALEK",
-        "VIDEO.ARM_VALEK", "VIDEO.ARM_VWK", "VIDEO.ARM_PXCK"]
+ARMDS = {"IO.ARMD_ALEK"}
+ARMS = ["IO.ARM_ALEK", "VIDEO.ARM_VALEK", "VIDEO.ARM_VWK", "VIDEO.ARM_PXCK"]
+# the load enables as the case starts: nothing loads at the edge at 0 but
+# MAR after a word that loads it (as the gated clocks' ARMs were)
+NO_LOAD = {"CTRL.QLD0_n": 1, "CTRL.QLD1_n": 1, "CTRL.HLD_n": 1}
 
 
 def field_nets(board, name):
@@ -139,8 +141,9 @@ def case(name, word, ticks, after_mar=False, wired=True):
         start[a] = (0, 0)
         if a.replace("ARM_", "ARMD_") in ARMDS:
             start[a.replace("ARM_", "ARMD_")] = (0, 0)
-    if after_mar:
-        start["MEM.ARM_MARCK"] = (1, 1)
+    before.update(NO_LOAD)
+    before["ALE"] = 1 if after_mar else 0
+    before["MEM.ALE_n"] = 0 if after_mar else 1
     # the queue: both slots free (so a fetch is wanted), DP at 0
     for i in range(4):
         start[f"CTRL.PV{i}"] = (0, 0)

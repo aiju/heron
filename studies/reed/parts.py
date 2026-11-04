@@ -26,7 +26,7 @@ chips.VARIANTS[VARIANT] = {
     "logic": "74F", "alu": "74F181", "cla": "74F182", "rf": "IS61C256AL-12",
     "ram": "IS61C256AL-12", "ram512": "AS7C4096A-12", "rom": CS_PART,
     "parts": {"541": "74ABT541", "574": "74ABT574", "245": "74ABT245", "573": "74ABT573",
-              "377": "74ABT377", "22v10": "ATF22V10C-7", "sram64k": "IS61C6416AL-12",
+              "377": "74ABT377", "823": "74ABT823", "22v10": "ATF22V10C-7", "sram64k": "IS61C6416AL-12",
               "sram512": "AS7C4096A-12", "clkdrv": "CDC341", "14": "74HCT14"},
 }
 
@@ -35,7 +35,7 @@ chips.VARIANTS[VARIANT] = {
 # (report 0044: 59% of A4's slots in SMD against 79% in tight DIP)
 PACKAGES = {
     "74ABT541": ("SOIC-20", 0.75), "74ABT574": ("SOIC-20", 0.75), "74ABT245": ("SOIC-20", 0.75),
-    "74ABT573": ("SOIC-20", 0.75), "74ABT377": ("SOIC-20", 0.75), "74F153": ("SOIC-16", 0.6),
+    "74ABT573": ("SOIC-20", 0.75), "74ABT377": ("SOIC-20", 0.75), "74ABT823": ("SOIC-24", 0.85), "74F153": ("SOIC-16", 0.6),
     "74F163": ("SOIC-16", 0.6), "74F299": ("SOIC-20", 0.75), "74F521": ("SOIC-20", 0.75),
     "74F04": ("SOIC-14", 0.55), "74HCT14": ("SOIC-14", 0.55), "74F181": ("DIP-24W", 1.7),
     "ATF22V10C-7": ("DIP-24", 1.1), "ATF22V10C-5": ("PLCC-28", 1.0),
