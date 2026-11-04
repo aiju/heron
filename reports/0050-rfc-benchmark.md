@@ -221,8 +221,9 @@ are an implementation's feature, not a program).
   executes a tentative instruction.
 - **No system mode** (Emily, 2026-11-04). Mini and Chibi have no modes
   or page map, so it couldn't be common to all implementations anyway.
-- **The first megabyte**, draft 2's instruction-level simulator's RAM
-  and Full Heron's identity-mapped window, and under Chibi's 2 MB.
+- **The first megabyte:** it is all the RAM draft 2's instruction-level
+  simulator has, it is the window Full Heron's suite maps, and it is
+  under Chibi's 2 MB.
 - **Results only at the end.** Console output while working would time
   the console (the old suite's *prints* problem).
 - **Three sizes.** `ref` is sized for realistic data: a compiler
@@ -247,7 +248,47 @@ are an implementation's feature, not a program).
 
 ### 9. What it shows so far
 
-**Pending:** the tables are in [results.md](0050-rfc-benchmark/results.md).
+On Full Heron, the only implementation whose model is on `main`. The
+tables are in [results.md](0050-rfc-benchmark/results.md).
+
+- **Every workload at `ref` takes 1.8 to 2.9 seconds** on Full Heron
+  with code and data in the CPU card's RAM, at 183–273 ns an
+  instruction. The hand-written ones run 1.7 to 2.8 cycles an
+  instruction, the compiled ones 1.8 to 2.5. `gfx_desktop` is the
+  slowest per instruction: its unaligned copies shift by a register,
+  which takes a cycle a bit.
+- **Their code is real-sized.** The code that runs is 1.8–17.5 KB (the
+  compiler's 17.5 KB, the compiled programs' 6–9 KB, the interpreters' and
+  kernels' 2–4 KB), against 0.4 KB (hand-written) and 0.8 KB (C) for draft
+  1's median program.
+- **Multiply and divide are rare, but compiled code pays for them.** They
+  are at most 2% of any workload's instructions. In the hand-written
+  workloads they are 0–2.5% of Full Heron's time, against 22.5% of the
+  old suite's; in the compiled ones 10–18% (`db`, `rts`, `ttf`,
+  `textutils`, `cc`), each one taking dozens of cycles. Most of those
+  are the C library's `qsort`, which multiplies an index by the
+  element's size at every step (the biggest in `db` and `textutils`), and
+  multiplies by constants that the compiler leaves as `MULS #n` (array
+  indexing in `rts`, `cc` and `ttf`); then hashing and decimal
+  conversion. A `qsort` that steps pointers and a compiler that turns
+  constant multiplies into shifts and adds would take most of it away,
+  which matters most on a machine with a slow multiply (Chibi's goes a
+  bit a step).
+- **Calls, returns and dispatch:** calls and returns are up to 9.5% of a
+  workload's instructions (`cc`; `db`, `textutils` and `lisp` 5–7%), and
+  jumps through a register 10% of the emulator's and 31% of the Forth's
+  (dispatch, and `NEXT`).
+- **Code over the bus costs more than the old suite showed, and the
+  instruction cache's size now matters.** With every access a bus
+  transfer, the workloads take 2.15–2.65 times as long (the old suite
+  1.81–2.77, 2.08 in total). With RFC 0031's instruction cache for bus
+  space they still take 1.29–1.76 times as long with 4,096 words, and
+  with 256 words up to 0.21 more (`cc` 1.61 against 1.40, `lisp` 1.57
+  against 1.45); on the old suite the two sizes gave the same time
+  for every hand-written program. What the cache can't take away is the
+  data: the workloads that move the most data (`gfx_sprites` 1.71,
+  `forth` 1.76, its stacks in memory) lose most, which says data should
+  stay on the CPU card or have a cache of its own.
 
 ### 10. Open questions
 
@@ -271,4 +312,7 @@ are an implementation's feature, not a program).
 ### 11. Next steps
 
 - Times on Heron Mini and Chibi Heron, once their models are on `main`.
+- The C library's `qsort` stepping pointers, and the C compiler's
+  constant multiplies as shifts and adds ([9](#9-what-it-shows-so-far)):
+  changes to the C compiler's study, measured with this suite.
 - The open questions above, as Emily decides them.
