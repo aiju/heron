@@ -22,7 +22,8 @@ and the results are in [results.md](0050-rfc-benchmark/results.md).
 
 Decided (Emily, 2026-11-04): subscores only, no single number; absolute
 times, tied to no reference machine; no system-mode workloads; new
-programs welcome; a study of its own.
+programs welcome; a study of its own; three sizes named `tiny`, `small`
+and `full`.
 
 ## Contents
 
@@ -88,11 +89,11 @@ parameters:
 
 | Size | Instructions | For |
 |---|---|---|
-| `test` | up to about 100,000 | chip-level simulation |
+| `tiny` | up to about 100,000 | chip-level simulation |
 | `small` | up to about 1,500,000 | quick runs on the slower models |
-| `ref` | 5 to 15 million | the results: data of realistic size |
+| `full` | 5 to 15 million | the results: data of realistic size |
 
-The `ref` size is the one an implementation's results quote. The
+The `full` size is the one an implementation's results quote. The
 others exist so that slow simulators can check a workload's output at
 all.
 
@@ -122,7 +123,7 @@ pixel at a time).
 
 ### 5. What an implementation reports
 
-An implementation's results are, for each workload at `ref`:
+An implementation's results are, for each workload at `full`:
 
 - its time, in milliseconds, with the clock and cycle lengths it assumes
   stated once for the whole table;
@@ -226,18 +227,18 @@ are an implementation's feature, not a program).
   under Chibi's 2 MB.
 - **Results only at the end.** Console output while working would time
   the console (the old suite's *prints* problem).
-- **Three sizes.** `ref` is sized for realistic data: a compiler
+- **Three sizes.** `full` is sized for realistic data: a compiler
   compiling 2,000 lines, a 40 KB file in the editor, 60 ticks of a game
   with 200 units, a corpus of tens of kilobytes. At about 5,000
   instructions a source line (`cc`) or 150,000 a game tick (`rts`), that
   needs millions of instructions. Full Heron's register-transfer model
-  runs some 75,000 cycles a second, so the suite at `ref` takes about 15
-  minutes on four cores; the chip-level simulators need `test`. `small`
+  runs some 75,000 cycles a second, so the suite at `full` takes about 15
+  minutes on four cores; the chip-level simulators need `tiny`. `small`
   is what the workloads were first sized for, and keeps a middle ground.
 - **The Lisp starts from a saved image**, as Lisp systems do: reading its
   prelude costs 470,000 instructions before any work, too much for
-  `test`. Its unit of work is still big (an interpreted Lisp spends
-  thousands of instructions on a few forms), so its `test` is 400,000.
+  `tiny`. Its unit of work is still big (an interpreted Lisp spends
+  thousands of instructions on a few forms), so its `tiny` is 400,000.
 - **Checksums.** Results are `bench_hash` of what a workload made
   (`h = h × 33 ^ byte`, shifts and adds only, so that a machine without a
   fast multiply doesn't pay for checking itself), except where hashing a
@@ -251,7 +252,7 @@ are an implementation's feature, not a program).
 On Full Heron, the only implementation whose model is on `main`. The
 tables are in [results.md](0050-rfc-benchmark/results.md).
 
-- **Every workload at `ref` takes 1.8 to 2.9 seconds** on Full Heron
+- **Every workload at `full` takes 1.8 to 2.9 seconds** on Full Heron
   with code and data in the CPU card's RAM, at 183–273 ns an
   instruction. The hand-written ones run 1.7 to 2.8 cycles an
   instruction, the compiled ones 1.8 to 2.5. `gfx_desktop` is the
@@ -292,7 +293,7 @@ tables are in [results.md](0050-rfc-benchmark/results.md).
 
 ### 10. Open questions
 
-1. **Egret and Curlew as workloads.** With `ref` at millions of
+1. **Egret and Curlew as workloads.** With `full` at millions of
    instructions, Egret's start-up fits; its desktop's interactions (a
    keystroke, "print it") would be the most direct measure of what report
    0021 found slow. Curlew is a third kind of interpreter (lazy, compiled
@@ -302,7 +303,7 @@ tables are in [results.md](0050-rfc-benchmark/results.md).
    instructions in the graphics workloads, `MULFX` and `MULA`, the tagged
    operations in the Lisp. That needs a second build of the workloads that
    use them, and says what each extra is worth on real programs.
-3. **`small`:** worth keeping, or `test` and `ref` only?
+3. **`small`:** worth keeping, or `tiny` and `full` only?
 4. **A cheaper checksum** in the library (a word at a time) would take
    the results' cost below 2% everywhere.
 5. **The other implementations' targets.** Heron Mini's and Chibi Heron's

@@ -8,7 +8,7 @@ is (README.md has the full contract):
     PART = "asm"                  # or "c": hand-written or compiled
     CATEGORY = "interpreters"
     SOURCES = ["forth.s"]         # in the folder; .s for asm, .c for C
-    SIZES = {"test": {"N": 2}, "ref": {"N": 20}}
+    SIZES = {"tiny": {"N": 2}, "full": {"N": 20}}
 
 and optionally:
 
@@ -37,7 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIB = os.path.join(HERE, "lib")
 WORKLOADS = os.path.join(HERE, "workloads")
 OUT = os.path.join(BUILD, "bench")
-SIZES = ("test", "small", "ref")
+SIZES = ("tiny", "small", "full")
 PARTS = {"asm": "hand-written assembly", "c": "compiled C"}
 MAX_CYCLES = 200_000_000
 ISA = "v2"
@@ -319,7 +319,7 @@ def tentative(m):
     return out
 
 
-def run(w, size="ref", trace=None):
+def run(w, size="full", trace=None):
     from heron.studies.v2_isa.sim import Machine, SimError
     img, inp = w.image(size)
     m = Machine(img, inp=inp)

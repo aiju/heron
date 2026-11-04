@@ -12,9 +12,9 @@
                                         model; cached in build/bench/)
   report   [--write]                    the tables of the results page
 
-Sizes are `test` (up to about 100,000 instructions, for the chip-level
+Sizes are `tiny` (up to about 100,000 instructions, for the chip-level
 simulators), `small` (up to 1.5 million, for quick runs on slower models)
-and `ref` (5 to 15 million, with data of realistic size: the one the
+and `full` (5 to 15 million, with data of realistic size: the one the
 results quote).
 """
 
@@ -137,19 +137,19 @@ def main(argv=None):
     sub.add_parser("list").set_defaults(fn=cmd_list)
     r = sub.add_parser("run")
     r.add_argument("name")
-    r.add_argument("--size", choices=suite.SIZES, default="ref")
+    r.add_argument("--size", choices=suite.SIZES, default="full")
     r.add_argument("--stats", action="store_true")
     r.add_argument("--profile", action="store_true", help="with --stats: cycles by routine")
     r.set_defaults(fn=cmd_run)
     for name, fn, default in (("test", cmd_test, "all"), ("expected", cmd_expected, "all"),
-                              ("stats", cmd_stats, "ref")):
+                              ("stats", cmd_stats, "full")):
         t = sub.add_parser(name)
         t.add_argument("names", nargs="*")
         t.add_argument("--size", choices=suite.SIZES + ("all",), default=default)
         t.set_defaults(fn=fn)
     t = sub.add_parser("time")
     t.add_argument("names", nargs="*")
-    t.add_argument("--size", choices=suite.SIZES, default="ref")
+    t.add_argument("--size", choices=suite.SIZES, default="full")
     t.add_argument("--on", default="v2_hw")
     t.add_argument("--jobs", type=int, default=4)
     t.add_argument("--force", action="store_true")

@@ -44,8 +44,8 @@ the final state pixel by pixel, painter's order, without clipping lists,
 copies or tables: the machine's incremental redraws must leave exactly
 that picture.
 
-`ref` is the full screen, eight windows and 200 actions, `small` five
-windows and 14 actions; `test` a screen of
+`full` is the full screen, eight windows and 200 actions, `small` five
+windows and 14 actions; `tiny` a screen of
 192 x 128 (the top left corner of the same framebuffer), the first three
 windows and two actions. The windows are the same desktop, scaled."""
 
@@ -59,9 +59,9 @@ PART = "asm"
 CATEGORY = "graphics"
 SOURCES = ["wm.s", "text.s", "kernels.s"]
 REFERENCE_C = ["ref.c"]
-SIZES = {"test": {"SW": 192, "SH": 128, "WINDOWS": 3, "ACTIONS": 2},
+SIZES = {"tiny": {"SW": 192, "SH": 128, "WINDOWS": 3, "ACTIONS": 2},
          "small": {"SW": 640, "SH": 480, "WINDOWS": 5, "ACTIONS": 14},
-         "ref": {"SW": 640, "SH": 480, "WINDOWS": 8, "ACTIONS": 200}}
+         "full": {"SW": 640, "SH": 480, "WINDOWS": 8, "ACTIONS": 200}}
 
 # ---- the session ------------------------------------------------------------
 #

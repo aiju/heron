@@ -15,10 +15,10 @@ with its prelude and bench.lisp's definitions read, evaluated and
 collected (made here on the instruction-level simulator; `%save-image`
 leaves all of memory as it is). The run is what comes after "the run" in
 bench.lisp, read from the console. Reading the prelude would cost
-470,000 instructions before any work, more than the `test` size allows.
+470,000 instructions before any work, more than the `tiny` size allows.
 
-Each part's unit costs 50,000-90,000 instructions, so `test` (n = 1, every
-part once) is larger than the suite's usual `test` size. The expected
+Each part's unit costs 50,000-90,000 instructions, so `tiny` (n = 1, every
+part once) is larger than the suite's usual `tiny` size. The expected
 output comes from the Lisp's reference interpreter in Python
 (studies/lisp/reference.py), on the whole of bench.lisp."""
 
@@ -28,7 +28,7 @@ import os
 TITLE = "the Lisp's interpreter and collector running a mixed program"
 PART = "asm"
 CATEGORY = "interpreters"
-SIZES = {"test": {"N": 1}, "small": {"N": 4}, "ref": {"N": 30}}
+SIZES = {"tiny": {"N": 1}, "small": {"N": 4}, "full": {"N": 30}}
 MAX_CYCLES = 400_000_000
 
 HERE = os.path.dirname(os.path.abspath(__file__))

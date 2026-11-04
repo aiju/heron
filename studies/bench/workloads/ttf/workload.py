@@ -23,9 +23,9 @@ The results: hashes of the rasterised glyphs, the line breaks, the
 window's pixels after the first drawing and after the scrolling, where
 every string's pen ended, and the cache's counts.
 
-The sizes: `test` one glyph and a 64 x 24 window with its title only;
+The sizes: `tiny` one glyph and a 64 x 24 window with its title only;
 `small` eight glyphs, two paragraphs in a 240 x 80 window, one scroll;
-`ref` all 62 letters and digits, six paragraphs in a 480 x 240 window,
+`full` all 62 letters and digits, six paragraphs in a 480 x 240 window,
 eight scrolls.
 
 Where the time goes (`small`): about two thirds in rasterising (the
@@ -46,9 +46,9 @@ PART = "c"
 CATEGORY = "graphics"
 SOURCES = ["main.c", "text.c", "ttf.c", "raster.c", "expand.c", "gfx.c"]
 SIZES = {
-    "test": {"RASTER": 1, "PARAS": 0, "SCROLLS": 0, "STEP": 3, "WIN_W": 64, "WIN_H": 24},
+    "tiny": {"RASTER": 1, "PARAS": 0, "SCROLLS": 0, "STEP": 3, "WIN_W": 64, "WIN_H": 24},
     "small": {"RASTER": 8, "PARAS": 2, "SCROLLS": 1, "STEP": 3, "WIN_W": 240, "WIN_H": 80},
-    "ref": {"RASTER": 62, "PARAS": 6, "SCROLLS": 8, "STEP": 3, "WIN_W": 480, "WIN_H": 240}
+    "full": {"RASTER": 62, "PARAS": 6, "SCROLLS": 8, "STEP": 3, "WIN_W": 480, "WIN_H": 240}
 }
 
 

@@ -86,10 +86,10 @@ only what they all have
   kilobytes, data of tens to hundreds of kilobytes, so that fetch, caches
   and the memory system are exercised as real programs exercise them.
 - **Three sizes,** the same program with different parameters:
-  - `test`: up to 100,000 instructions or so, for the chip-level
+  - `tiny`: up to 100,000 instructions or so, for the chip-level
     simulators (the Lisp's is 400,000: its unit of work is that big);
   - `small`: up to 1,500,000, for quick runs on the slower models;
-  - `ref`: 5 to 15 million, with data of realistic size: the size the
+  - `full`: 5 to 15 million, with data of realistic size: the size the
     results quote. Full Heron's register-transfer model runs it in about
     15 minutes on four cores.
 - **It checks itself:** its output is compared with an expected output
@@ -106,7 +106,7 @@ PART = "asm"                      # "asm" (hand-written) or "c" (compiled)
 CATEGORY = "interpreters"         # interpreters, emulation, graphics, text,
                                   # tools, apps, games
 SOURCES = ["forth.s", "words.s"]  # in the folder: .s files, or .c files
-SIZES = {"test": {"N": 2}, "small": {"N": 20}, "ref": {"N": 150}}   # each size's parameters
+SIZES = {"tiny": {"N": 2}, "small": {"N": 20}, "full": {"N": 150}}   # each size's parameters
 
 def data(p):                      # optional: input data, linked in
     return {"corpus": b"..."}
@@ -155,4 +155,4 @@ def build(p):                     # optional: make (image, input) some other way
 
 To add one: make the folder, write the workload, `heron bench expected
 NAME`, then `heron bench test NAME` and `heron bench time NAME --size
-test`.
+tiny`.

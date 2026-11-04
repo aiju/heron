@@ -1,6 +1,6 @@
 """The benchmark's harness: workloads keep the contract, data and parameters
 reach the code, the checks catch what they should, and every workload
-runs at its `test` size with its expected output."""
+runs at its `tiny` size with its expected output."""
 
 import os
 import tempfile
@@ -119,10 +119,10 @@ class Harness(unittest.TestCase):
 
 class Workloads(unittest.TestCase):
     def test_every_workload(self):
-        """Every workload at its `test` size, against its expected output."""
+        """Every workload at its `tiny` size, against its expected output."""
         for w in suite.workloads():
             with self.subTest(w.name):
-                r = suite.run(w, "test")
+                r = suite.run(w, "tiny")
                 self.assertTrue(r.ok, r.error)
 
 

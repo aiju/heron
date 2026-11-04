@@ -50,9 +50,9 @@ PART = "asm"
 CATEGORY = "graphics"
 SOURCES = ["game.s", "kernels.s"]
 REFERENCE_C = ["ref.c"]
-SIZES = {"test": {"SW": 256, "SH": 144, "NSPR": 12, "NKIND": 2, "FRAMES": 2, "SCROLL": 2},
+SIZES = {"tiny": {"SW": 256, "SH": 144, "NSPR": 12, "NKIND": 2, "FRAMES": 2, "SCROLL": 2},
          "small": {"SW": 640, "SH": 480, "NSPR": 48, "NKIND": 8, "FRAMES": 24, "SCROLL": 8},
-         "ref": {"SW": 640, "SH": 480, "NSPR": 48, "NKIND": 8, "FRAMES": 200, "SCROLL": 8}}
+         "full": {"SW": 640, "SH": 480, "NSPR": 48, "NKIND": 8, "FRAMES": 200, "SCROLL": 8}}
 
 MAPW = 64                       # the map's width in tiles (it wraps)
 NTILES = 16

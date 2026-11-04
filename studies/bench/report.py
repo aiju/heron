@@ -101,7 +101,7 @@ def tables(target="v2_hw"):
             if not r.ok:
                 raise suite.BenchError(f"{w.name} ({size}): {r.error}")
             runs[w.name, size] = suite.stats(r)
-    hw = {row["name"]: row for row in targets.times(target, [w.name for w in ws], "ref")}
+    hw = {row["name"]: row for row in targets.times(target, [w.name for w in ws], "full")}
     bad = [n for n, row in hw.items() if not row["ok"]]
     if bad:
         raise suite.BenchError(f"wrong output on {target}: {', '.join(bad)}")
@@ -115,12 +115,12 @@ def tables(target="v2_hw"):
     out += ["## The workloads", "",
             "Sizes and instructions from the instruction-level simulator. *Code*: the "
             "image's instructions; *executed*: the bytes of the instructions that ran at "
-            "least once, at `ref`; *image*: code and data as loaded.", "",
+            "least once, at `full`; *image*: code and data as loaded.", "",
             "| Workload | Part | Category | What | Code | Executed | Image | "
             + " | ".join(f"Instructions, {z}" for z in suite.SIZES) + " |",
             "|---|---|---|---|---:|---:|---:|" + "---:|" * len(suite.SIZES)]
     for w in ws:
-        s = runs[w.name, "ref"]
+        s = runs[w.name, "full"]
         out.append(f"| `{w.name}` | {w.part} | {w.category} | {w.title} | "
                    f"{s['code_bytes'] / 1024:.1f} KB | {s['code_touched'] / 1024:.1f} KB | "
                    f"{s['image_bytes'] / 1024:.0f} KB | "
@@ -128,7 +128,7 @@ def tables(target="v2_hw"):
     out.append("")
 
     out += ["## Full Heron", "",
-            "Time at `ref` on Full Heron's register-transfer model "
+            "Time at `full` on Full Heron's register-transfer model "
             "([RFC 0031](../0031-rfc-draft-2-cpu.md)), which its chip-level netlist matches "
             "cycle for cycle: code and data in the CPU card's RAM, microcycles of "
             f"{', '.join(map(str, targets.V2_HW_LENGTHS))} ticks of "
@@ -149,7 +149,7 @@ def tables(target="v2_hw"):
         out.append("")
 
     out += ["### Where the time goes", "",
-            "Each workload's time at `ref` on Full Heron by what its microcycles do, as "
+            "Each workload's time at `full` on Full Heron by what its microcycles do, as "
             "[RFC 0031's table](../0031-rfc-draft-2-cpu/performance.md#where-the-time-goes) "
             "has it for draft 1's suite (where multiply and divide steps were 22.5% of the "
             "time), in %.", "",
@@ -184,7 +184,7 @@ def tables(target="v2_hw"):
     out.append("")
 
     out += ["## What they do", "",
-            "The instruction mix at `ref`, by class, in % of the instructions executed. "
+            "The instruction mix at `full`, by class, in % of the instructions executed. "
             "*Call, return* counts `CALL`, `BSR`, `RET`, `SAVE`, `RESTORE` and returns "
             "through the stack (`JMP [sp]+`); *jump* the other `JMP`s (dispatch through "
             "tables and pointers, a threaded interpreter's `JMP [r]+`). For contrast, the last rows are draft 1's program suite on draft 2, "
@@ -193,7 +193,7 @@ def tables(target="v2_hw"):
             "| Workload | Executed | " + " | ".join(CLASSES) + " |",
             "|---|---:|" + "---:|" * len(CLASSES)]
     for w in ws:
-        s = runs[w.name, "ref"]
+        s = runs[w.name, "full"]
         m = mix(s["kinds"])
         out.append(f"| `{w.name}` | {s['code_touched'] / 1024:.1f} KB | "
                    + " | ".join(f"{m[c]:.1f}" for c in CLASSES) + " |")

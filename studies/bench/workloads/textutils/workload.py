@@ -16,7 +16,7 @@ by backtracking. Each pipeline's terminal output is hashed and reported.
 The files (corpus.py) are made up by a deterministic generator: a system
 log, prose with Zipf-distributed words, a C-like source file and a
 password file. LOG, WORDS, FUNCS and USERS are their sizes, PIPES how
-many of the script's lines run (three at test).
+many of the script's lines run (three at `tiny`).
 
 Where the time goes (`small`): a quarter in sort (the key comparison, qsort's
 calls through a function pointer and its byte-at-a-time swaps, strcmp
@@ -32,9 +32,9 @@ TITLE = "Fen's text utilities: grep, sed, sort, uniq, tr, cut in pipelines"
 PART = "c"
 CATEGORY = "text"
 SOURCES = ["sh.c", "cmds.c", "grep.c", "regex.c", "sort.c"]
-SIZES = {"test": {"PIPES": 3, "LOG": 12, "WORDS": 6, "FUNCS": 0, "USERS": 3},
+SIZES = {"tiny": {"PIPES": 3, "LOG": 12, "WORDS": 6, "FUNCS": 0, "USERS": 3},
          "small": {"PIPES": 99, "LOG": 36, "WORDS": 110, "FUNCS": 2, "USERS": 10},
-         "ref": {"PIPES": 99, "LOG": 300, "WORDS": 1500, "FUNCS": 15, "USERS": 30}}
+         "full": {"PIPES": 99, "LOG": 300, "WORDS": 1500, "FUNCS": 15, "USERS": 30}}
 
 
 def data(p):

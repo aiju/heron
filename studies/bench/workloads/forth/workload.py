@@ -34,7 +34,7 @@ words the program defined (their CALL r12 or CALL [r14 + n]). By job:
 text about 30%, life 20%, sort 16%, sieve 13%, fib 8%, queens 7%, and
 compiling the source (parse_name, find, interpret, number) 6%. The
 source is the same at both sizes, so compiling it is three quarters of
-the test size, whose jobs are tiny.
+the `tiny` size, whose jobs are tiny.
 """
 
 import os
@@ -51,11 +51,11 @@ FORTH_NAMES = {
     "LIFE": "life-size", "GENS": "life-gens",
 }
 SIZES = {
-    "test": {"SIEVE": 30, "FIB": 5, "QUEENS": 4, "SORT": 5, "LIFE": 3, "GENS": 1,
+    "tiny": {"SIEVE": 30, "FIB": 5, "QUEENS": 4, "SORT": 5, "LIFE": 3, "GENS": 1,
              "TEXT": 24},
     "small": {"SIEVE": 1500, "FIB": 16, "QUEENS": 7, "SORT": 150, "LIFE": 14, "GENS": 5,
             "TEXT": 1000},
-    "ref": {"SIEVE": 8000, "FIB": 20, "QUEENS": 8, "SORT": 1000, "LIFE": 24, "GENS": 20, "TEXT": 8000}
+    "full": {"SIEVE": 8000, "FIB": 20, "QUEENS": 8, "SORT": 1000, "LIFE": 24, "GENS": 20, "TEXT": 8000}
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))

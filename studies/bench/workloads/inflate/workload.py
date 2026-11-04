@@ -16,14 +16,14 @@ are each file's checksum (for a PNG, the CRC-32 of its pixels) and, for
 the round trips, the compressed size.
 
 SCALE picks the archive: 100 has seven files, about ten times as big as
-10's, which inflate to 24 KB; 1, for the `test` budget, four of them,
+10's, which inflate to 24 KB; 1, for the `tiny` budget, four of them,
 about 500 bytes.
 
 Where the time goes, at `small`: half in inflate, most of it in the loop
 that decodes a block's symbols and copies its matches; a quarter in the
 containers, CRC-32 and Adler-32 over every byte and the PNG unfiltering;
 a fifth in the compressor, finding matches along the hash chains and
-sending codes. At `test`, the files are so small that building each
+sending codes. At `tiny`, the files are so small that building each
 block's Huffman tables (and the compressor's fixed ones) takes the most.
 """
 import os
@@ -32,7 +32,7 @@ TITLE = "inflate: zlib, gzip and PNG files, and deflate and back"
 PART = "c"
 CATEGORY = "tools"
 SOURCES = ["main.c", "inflate.c", "deflate.c", "formats.c"]
-SIZES = {"test": {"SCALE": 1}, "small": {"SCALE": 10}, "ref": {"SCALE": 100}}
+SIZES = {"tiny": {"SCALE": 1}, "small": {"SCALE": 10}, "full": {"SCALE": 100}}
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

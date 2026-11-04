@@ -37,11 +37,11 @@ TITLE = "an inventory: CSV tables indexed, joined, sorted, searched, reported"
 PART = "c"
 CATEGORY = "apps"
 SOURCES = ["main.c", "csv.c", "inventory.c", "report.c"]
-SIZES = {"test": {"PARTS": 8, "MOVES": 12, "SUPPLIERS": 3, "SECTIONS": 2 | 8, "TOP": 3,
+SIZES = {"tiny": {"PARTS": 8, "MOVES": 12, "SUPPLIERS": 3, "SECTIONS": 2 | 8, "TOP": 3,
                   "QUERIES": 3, "PAGE": 4},
          "small": {"PARTS": 120, "MOVES": 300, "SUPPLIERS": 12, "SECTIONS": 127, "TOP": 12,
                  "QUERIES": 8, "PAGE": 30},
-         "ref": {"PARTS": 1000, "MOVES": 2500, "SUPPLIERS": 40, "SECTIONS": 127, "TOP": 20, "QUERIES": 24, "PAGE": 60}}
+         "full": {"PARTS": 1000, "MOVES": 2500, "SUPPLIERS": 40, "SECTIONS": 127, "TOP": 20, "QUERIES": 24, "PAGE": 60}}
 
 
 def data(p):

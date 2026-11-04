@@ -89,7 +89,7 @@ def _one(target, name, size, mem, inp, max_cycles, path):
     return row
 
 
-def times(target, names, size="ref", jobs=4, force=False):
+def times(target, names, size="full", jobs=4, force=False):
     """[row] for the workloads on a target: name, instructions, cycles, ms,
     ok (the output was the expected)."""
     if target not in TARGETS:
