@@ -6,6 +6,10 @@
                      alone
   estimate           a rough time an instruction (estimate.py): front ends
                      and cycle lengths on the napkin's mix, not a measurement
+  ucode              the microcode's listing (ucode.py)
+  hw smoke [--trace A:B]
+                     the whole machine at chip level running a small program
+                     (hw.py), against the draft 2 simulator
   sta [--word W]     static timing of each kind of microcycle (sta.WORDS):
                      the shortest length at which nothing a length can fix
                      fails worse than at the longest, and what still fails
@@ -24,6 +28,10 @@ def main(argv=None):
     sub.add_parser("boards")
     sub.add_parser("check")
     sub.add_parser("estimate")
+    sub.add_parser("ucode")
+    h = sub.add_parser("hw")
+    h.add_argument("what", choices=("smoke",))
+    h.add_argument("--trace")
     q = sub.add_parser("sta")
     q.add_argument("--word")
     q.add_argument("--paths", type=int, default=2)
@@ -35,6 +43,15 @@ def main(argv=None):
         nl = system.machine(sim=True)
         system.check(nl)
         print(f"ok: {len(nl.instances)} instances, every control line driven by its board alone")
+    elif a.cmd == "ucode":
+        from . import ucode
+        print(ucode.listing())
+    elif a.cmd == "hw":
+        from . import hw
+        trace = tuple(int(x) for x in a.trace.split(":")) if a.trace else None
+        ok, rep = hw.smoke(trace)
+        print(rep)
+        return 0 if ok else 1
     elif a.cmd == "estimate":
         from . import estimate
         estimate.main()

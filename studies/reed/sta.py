@@ -149,8 +149,9 @@ def case(name, word, ticks, after_mar=False, wired=True):
     start = dict(START)
     if clockcard.HALF_WPH:
         # (WPHD loads on the inverted clock: high from the cycle before)
-        del start["CLK.WPH_S"]
-        before["CLK.WPHD"] = 1
+        del start["CLK.WPH_S"], start["CLK.WRS_S"]
+        start["CLK.WRSE_S"] = (1, 1)
+        before["CLK.WPHD"], before["CLK.WRS_S"] = 1, 1
     else:
         del start["CLK.WPH0"]
     start["CLK.LENR0"], start["CLK.LENR1"] = (X, ln & 1), (X, ln >> 1)

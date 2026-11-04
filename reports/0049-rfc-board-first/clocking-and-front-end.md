@@ -154,6 +154,83 @@ a microcycle, as the crossbar's rotation isn't built):
   estimate. MEM's crossbar doing rotations by bytes (the napkin's plan,
   not built) would save about one tick an instruction.
 
+## 4. The branch adder as built, the microcode, and the machine running
+
+Done after the above, 2026-11-04.
+
+**The branch adder** (`ctrl.branch_adder`, five 5 ns 22V10s, in front of
+PC's drivers onto A): PC + 2 × the register byte while PCOP is BRANCH,
+else PC. Its low byte has its carries looked ahead (bits 1–4's carry
+out, bits 5–8's generate and propagate, straight from the inputs), the
+upper bits count up or down from those: about six GAL levels, against
+thirteen as a ripple. With it:
+
+- **FLUSH** (a backplane line, and CTRL's own copy): PC and FPC load from
+  A and the queue empties, on PCOP LOAD (a jump), or on TK (a new field)
+  and TAKEN, the executing instruction's condition (row B its opcode's
+  cc, row F d's; 14 and 15 always). MEM's FPC loads on it.
+- **BRDEC** jumps on FLUSH: a branch's tail word goes to WAITD if the
+  branch's word loaded PC, else to the next instruction.
+- A branch's word fits **5 ticks**; nothing else changed length. A word
+  that may load PC doesn't fetch.
+
+**The microassembler** (`ucode.py`, `heron reed ucode`): words by field,
+their successors and lengths, placed in the control store; the decode
+table from draft 2's encodings; the images of every control-store part.
+136 words: MOV, MOVS, ADD, SUB, CMP, AND, OR and XOR on registers, the
+small immediates, sext16, zext16 and imm32, and words at `[r]`,
+`[r + d16]` and `[abs16]`; their stores; row 7's MOV and CMP; LSL and LSR
+by one; Bcc, BRA and BSR; JMP r and RET; Jcc, JMP and CALL with a 16-bit
+displacement; HALT. Anything else decodes to UNIMPL.
+
+**At chip level** (`hw.py`, `heron reed hw smoke`, and a unit test): the
+whole machine's netlist on the chip-level simulator from power-up, the
+images in its parts, a 20-instruction program (register and immediate
+operations, a store and a load, a compare and a branch, BSR and RET,
+shifts) in the RAM. Its registers and memory match draft 2's simulator.
+Loops, measured there:
+
+| An iteration | Cycles | ns |
+|---|---:|---:|
+| SUB, BNE taken | 5 | 556 |
+| ADD, XOR, SUB, BNE taken | 8 | 914 |
+| a load, ADD, SUB, BNE taken | 9 | 1013 |
+
+**What the microcode and the run found:**
+
+- **A taken branch is four microcycles** (about 440 ns), a not-taken one
+  two: the sequencer chooses a word's successor while the word before it
+  executes, so the branch needs its tail word to see its own outcome. A
+  not-taken branch in one would need the fall-through's first word
+  squashed (a line every board obeys); a taken one in three, the fetched
+  word bypassed into the decode table.
+- **A word that may fetch is 6 ticks:** the fetch path (FPC, the RAM, B,
+  the queue) needs them, and whether a word fetches is decided in it. So
+  the register operations that fetch are 6 ticks, not 5. FETCH decided a
+  cycle ahead and registered would take them back to 5.
+- **The write phase was too tight** with WPH half a tick late: the
+  chip-level run showed the register file's write data 4.2 ns short of
+  its setup to the strobe's end, which the static analysis couldn't see
+  (the strobe waits for its address, a correlation it doesn't follow).
+  The register file's strobe (WRS) is now half a tick later too, and
+  MEM's (WRSE, a fifth clock from the card, one line) stays where it was,
+  as a store's data comes over A, which the next cycle's word may drive.
+  The run is then clean but for the VIDEO board, not timed yet; the
+  static analysis instead finds the register file's late strobe ending
+  too near the next cycle's switch back (−5 to −9 ns). The way out is
+  the address and Y's data released by the strobe itself, which needs
+  pins on full GALs on the full ALU board.
+
+`heron reed estimate`, on the napkin's mix, with what was built:
+
+| Cycles | today | adder, as built | adder (1 / 3 microcycles) | + bypass |
+|---|---:|---:|---:|---:|
+| as microcoded (fetching words 6 ticks) | 346 | 329 | 293 | 276 |
+| with FETCH registered (5 ticks) | 316 | 303 | 271 | 254 |
+
+So the adder as built buys 5%; FETCH registered a cycle ahead, and the
+squash for a not-taken branch, are worth more than the adder was alone.
+
 ## What I'd do
 
 1. The card, with the CDC341s on the backplane (1), and the fast clock

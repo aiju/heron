@@ -19,6 +19,8 @@ heron reed boards      # each board's packages, area and parts
 heron reed check       # build the whole machine and check it
 heron reed sta         # static timing of each kind of microcycle (seconds)
 heron reed estimate    # a rough time an instruction: front ends and cycle lengths on the napkin's mix
+heron reed ucode       # the microcode's listing
+heron reed hw smoke    # the whole machine at chip level running a small program, against draft 2's simulator
 heron test reed        # the unit tests
 ```
 
@@ -32,8 +34,11 @@ heron test reed        # the unit tests
 | `clockcard.py` | the clock card: the oscillator, the clock generator, the clock trees |
 | `system.py` | the boards joined; the checks; the boards' statistics |
 | `sta.py` | the static timing cases: each kind of microcycle at each length, and what fails |
+| `ucode.py` | the microassembler and the microcode: words by field, the decode table, the parts' images |
+| `hw.py` | the machine at chip level (infra/hwsim): preloads, the run, the smoke test against `v2_isa` |
 | `estimate.py` | a rough time an instruction from microcycle counts and `sta`'s lengths (not a measurement) |
 
-There is no microcode yet and no chip-level simulation: what the timing
-analysis finds, and what's next, is in RFC 0049's section 14 and
+The microcode covers a subset of draft 2 (`ucode.py`'s docstring); what the
+timing analysis and the chip-level runs find, and what's next, is in RFC
+0049's section 14 and
 [clocking-and-front-end.md](../../reports/0049-rfc-board-first/clocking-and-front-end.md).

@@ -190,7 +190,9 @@ def control(nl, ck):
     G.add(nl, "U_ST", outs)
     # U_WE: each row's lanes' write strobes, while WRS is, in a store to RAM,
     # for the lanes the size and address choose
-    st_w = AND(store, ram_, lit("WRS", 0))
+    # (WRSE: the strobe a tick into the write phase, which ends a tick
+    # before the cycle does; the register file's WRS is half a tick later)
+    st_w = AND(store, ram_, lit("WRSE", 0))
     outs = {}
     for row in range(2):
         rsel = lit("RA21", row)

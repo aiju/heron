@@ -28,5 +28,19 @@ class TestReed(unittest.TestCase):
             self.assertLessEqual(sum(w for _, w in fl), 8 * fields.PARTS[board], board)
 
 
+    def test_microcode_builds(self):
+        from heron.studies.reed import ucode
+        p = ucode.build()
+        imgs = ucode.images(p)
+        self.assertEqual(len(imgs), sum(fields.PARTS.values()) + 2)
+
+    def test_smoke_at_chip_level(self):
+        """A small program on the whole machine's netlist, against the draft
+        2 simulator (hw.smoke)."""
+        from heron.studies.reed import hw
+        ok, rep = hw.smoke()
+        self.assertTrue(ok, rep)
+
+
 if __name__ == "__main__":
     unittest.main()

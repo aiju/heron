@@ -18,6 +18,9 @@ CYCLES = {
     "netlist, 6 ticks": dict(R=6, A=6, M=6, L=6, LA=7, S=6, F=6),
     # the clock card (U_CGA on the oscillator, WPH half a tick late)
     "clock card": dict(R=5, A=6, M=5, L=6, LA=6, S=5, F=6),
+    # as microcoded (ucode.py): a word that may fetch (BFREE) takes the
+    # fetch's 6, so the register ops that fetch are 6 too
+    "clock card, as microcoded": dict(R=6, A=6, M=5, L=6, LA=6, S=5, F=6),
     # a register file with no write phase in its cycle (dual-ported): a
     # register op in 4, as the read and the ALU need (estimate)
     "clock card, RF without a write phase": dict(R=4, A=5, M=4, L=6, LA=6, S=4, F=6),
@@ -35,6 +38,11 @@ FRONT = {
     # the branch's one word (the condition in hardware)
     "adder": {"Bcc taken": "R F F", "Bcc not taken": "R", "RET": "R F F",
               "CALL": "R F F", "JMP table": "R R A L R F F"},
+    # the branch adder as built (ucode.py, measured at chip level: a taken
+    # Bcc 4 microcycles, ~22 ticks): the branch's word, its tail (which
+    # fetches), WAITD twice; not taken, the word and its tail
+    "adder, as built": {"Bcc taken": "R F F R", "Bcc not taken": "R F", "RET": "R F F R",
+                        "CALL": "R R F F R", "JMP table": "R R A L R F F R"},
     # and the fetched word bypassed into the decode table: fetch and decode
     # in one longer cycle (F+1 ticks)
     "adder + bypass": {"Bcc taken": "R FD", "Bcc not taken": "R", "RET": "R FD",
