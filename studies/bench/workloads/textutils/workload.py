@@ -18,7 +18,7 @@ log, prose with Zipf-distributed words, a C-like source file and a
 password file. LOG, WORDS, FUNCS and USERS are their sizes, PIPES how
 many of the script's lines run (three at test).
 
-Where the time goes (ref): a quarter in sort (the key comparison, qsort's
+Where the time goes (`small`): a quarter in sort (the key comparison, qsort's
 calls through a function pointer and its byte-at-a-time swaps, strcmp
 for ties), a sixth in the regular-expression matcher (the search loop,
 the backtracking `here`), a quarter in moving lines from buffer to
@@ -33,7 +33,8 @@ PART = "c"
 CATEGORY = "text"
 SOURCES = ["sh.c", "cmds.c", "grep.c", "regex.c", "sort.c"]
 SIZES = {"test": {"PIPES": 3, "LOG": 12, "WORDS": 6, "FUNCS": 0, "USERS": 3},
-         "ref": {"PIPES": 99, "LOG": 36, "WORDS": 110, "FUNCS": 2, "USERS": 10}}
+         "small": {"PIPES": 99, "LOG": 36, "WORDS": 110, "FUNCS": 2, "USERS": 10},
+         "ref": {"PIPES": 99, "LOG": 300, "WORDS": 1500, "FUNCS": 15, "USERS": 30}}
 
 
 def data(p):

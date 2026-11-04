@@ -20,11 +20,11 @@ printed with sprintf in padded columns with money in thousands. The
 report is hashed.
 
 PARTS, MOVES and SUPPLIERS are the tables' sizes; SECTIONS the report's
-sections (a bit each, all of them at ref), and TOP, QUERIES and PAGE how
+sections (a bit each, all of them from `small` up), and TOP, QUERIES and PAGE how
 many of the most valuable, of the searches and of the listing's lines it
 has.
 
-Where the time goes (ref): a fifth in sprintf, formatting the report's
+Where the time goes (`small`): a fifth in sprintf, formatting the report's
 columns; a fifth parsing the CSV (csv_next, strtoul); an eighth sorting
 (qsort, its swaps, the comparisons and their strcmp); strstr for the
 searches; FNV hashing of codes for the index and the joins; and hashing
@@ -39,8 +39,9 @@ CATEGORY = "apps"
 SOURCES = ["main.c", "csv.c", "inventory.c", "report.c"]
 SIZES = {"test": {"PARTS": 8, "MOVES": 12, "SUPPLIERS": 3, "SECTIONS": 2 | 8, "TOP": 3,
                   "QUERIES": 3, "PAGE": 4},
-         "ref": {"PARTS": 120, "MOVES": 300, "SUPPLIERS": 12, "SECTIONS": 127, "TOP": 12,
-                 "QUERIES": 8, "PAGE": 30}}
+         "small": {"PARTS": 120, "MOVES": 300, "SUPPLIERS": 12, "SECTIONS": 127, "TOP": 12,
+                 "QUERIES": 8, "PAGE": 30},
+         "ref": {"PARTS": 1000, "MOVES": 2500, "SUPPLIERS": 40, "SECTIONS": 127, "TOP": 20, "QUERIES": 24, "PAGE": 60}}
 
 
 def data(p):

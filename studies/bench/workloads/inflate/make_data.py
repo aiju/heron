@@ -225,6 +225,8 @@ SCALES = {
     1: dict(notes=200, stored=32, png=(8, 5), readme=80),
     10: dict(notes=6000, syslog=4000, stored=512, png=(48, 36), csv=3000,
              readme=1500, boot=1000),
+    100: dict(notes=60000, syslog=40000, stored=4096, png=(160, 120), csv=25000,
+              readme=12000, boot=8000),
 }
 
 

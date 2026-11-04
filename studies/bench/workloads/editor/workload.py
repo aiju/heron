@@ -19,11 +19,12 @@ sends the cells that differ to the terminal as escape sequences, which
 are hashed. The file (gen_source.py) is a made-up C module with tabs,
 block comments, strings and lines wider than the window.
 
-STEPS is how many of the script's commands run (three at test), ROWS the
+STEPS is how many of the script's commands run (three at test), PASSES
+how many times (each from elsewhere in the file), ROWS the
 window's height (eight at test) and FUNCS the file's size (about 10 KB at
-ref).
+`small`, 40 KB at `ref`, five passes).
 
-Where the time goes (ref): a fifth comparing laid-out rows with the
+Where the time goes (`small`): a fifth comparing laid-out rows with the
 screen (draw_row), a quarter laying rows out (copying the line out of
 the gap buffer, colouring it, expanding tabs), an eighth moving the gap
 (memmove, memcpy), and the rest in counting lines at load and in the
@@ -38,7 +39,8 @@ PART = "c"
 CATEGORY = "apps"
 SOURCES = ["session.c", "edit.c", "view.c", "syntax.c", "gap.c"]
 SIZES = {"test": {"STEPS": 3, "ROWS": 8, "FUNCS": 1},
-         "ref": {"STEPS": 1000, "ROWS": 30, "FUNCS": 15}}
+         "small": {"STEPS": 1000, "ROWS": 30, "FUNCS": 15},
+         "ref": {"STEPS": 1000, "ROWS": 30, "FUNCS": 60, "PASSES": 5}}
 
 
 def data(p):

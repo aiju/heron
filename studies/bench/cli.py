@@ -12,8 +12,10 @@
                                         model; cached in build/bench/)
   report   [--write]                    the tables of the results page
 
-Sizes are `test` (tens of thousands of instructions, for the chip-level
-simulators) and `ref` (hundreds of thousands, the one the results quote).
+Sizes are `test` (up to about 100,000 instructions, for the chip-level
+simulators), `small` (up to 1.5 million, for quick runs on slower models)
+and `ref` (5 to 15 million, with data of realistic size: the one the
+results quote).
 """
 
 import argparse

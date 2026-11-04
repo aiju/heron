@@ -25,7 +25,7 @@ alphabetically and written out as a table. Each job ends in a count or a
 checksum that the program reports. reference() does the same jobs in
 Python, by the same algorithms.
 
-Where its time goes (ref): in the inner interpreter, as in any threaded
+Where its time goes (`small`): in the inner interpreter, as in any threaded
 Forth. NEXT alone is 28% of the instructions, and the time is spread over
 the primitives the program uses most, a few instructions each: lit, +,
 dovar (variables), swap, docol and exit, zbranch, the loop runtimes, over,
@@ -53,8 +53,9 @@ FORTH_NAMES = {
 SIZES = {
     "test": {"SIEVE": 30, "FIB": 5, "QUEENS": 4, "SORT": 5, "LIFE": 3, "GENS": 1,
              "TEXT": 24},
-    "ref": {"SIEVE": 1500, "FIB": 16, "QUEENS": 7, "SORT": 150, "LIFE": 14, "GENS": 5,
+    "small": {"SIEVE": 1500, "FIB": 16, "QUEENS": 7, "SORT": 150, "LIFE": 14, "GENS": 5,
             "TEXT": 1000},
+    "ref": {"SIEVE": 8000, "FIB": 20, "QUEENS": 8, "SORT": 1000, "LIFE": 24, "GENS": 20, "TEXT": 8000}
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))

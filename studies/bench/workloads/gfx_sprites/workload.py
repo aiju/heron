@@ -27,7 +27,7 @@ every sprite's art and mask to each of the 8 pixels of a word (as the
 RTS and the bobs demo do), so that drawing moves whole words: three
 (keep, image) pairs a row.
 
-Where the time goes (ref, from the profile, in the reference
+Where the time goes (`small`, from the profile, in the reference
 configuration's cycles): the sprites half of it (drawing them 29%, saving
 and restoring under them 22%), the scrolls' copies 18%, start-up 12%
 (the map's tiles, the shifted art), the status line 8% and the checksum
@@ -51,7 +51,8 @@ CATEGORY = "graphics"
 SOURCES = ["game.s", "kernels.s"]
 REFERENCE_C = ["ref.c"]
 SIZES = {"test": {"SW": 256, "SH": 144, "NSPR": 12, "NKIND": 2, "FRAMES": 2, "SCROLL": 2},
-         "ref": {"SW": 640, "SH": 480, "NSPR": 48, "NKIND": 8, "FRAMES": 24, "SCROLL": 8}}
+         "small": {"SW": 640, "SH": 480, "NSPR": 48, "NKIND": 8, "FRAMES": 24, "SCROLL": 8},
+         "ref": {"SW": 640, "SH": 480, "NSPR": 48, "NKIND": 8, "FRAMES": 200, "SCROLL": 8}}
 
 MAPW = 64                       # the map's width in tiles (it wraps)
 NTILES = 16

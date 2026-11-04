@@ -1,6 +1,6 @@
-deriv 136
-sort 992719
-closures 293
-plist 550
-sieve 22
-eval 844
+deriv 1020
+sort 46797551
+closures 2191
+plist 25575
+sieve 109
+eval 6330

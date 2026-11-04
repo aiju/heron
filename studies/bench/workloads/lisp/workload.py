@@ -28,7 +28,7 @@ import os
 TITLE = "the Lisp's interpreter and collector running a mixed program"
 PART = "asm"
 CATEGORY = "interpreters"
-SIZES = {"test": {"N": 1}, "ref": {"N": 4}}
+SIZES = {"test": {"N": 1}, "small": {"N": 4}, "ref": {"N": 30}}
 MAX_CYCLES = 400_000_000
 
 HERE = os.path.dirname(os.path.abspath(__file__))

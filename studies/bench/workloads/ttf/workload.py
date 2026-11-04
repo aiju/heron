@@ -24,9 +24,11 @@ window's pixels after the first drawing and after the scrolling, where
 every string's pen ended, and the cache's counts.
 
 The sizes: `test` one glyph and a 64 x 24 window with its title only;
-`ref` eight glyphs, two paragraphs in a 240 x 80 window, one scroll.
+`small` eight glyphs, two paragraphs in a 240 x 80 window, one scroll;
+`ref` all 62 letters and digits, six paragraphs in a 480 x 240 window,
+eight scrolls.
 
-Where the time goes (ref): about two thirds in rasterising (the
+Where the time goes (`small`): about two thirds in rasterising (the
 paragraphs' 46 distinct glyphs and part 1's eight): the scan converter
 (sweep, prepare, start, aa_span, flush: 40%), decoding and flattening the
 outlines (ttf_outline, decode, quad, rs_edge: 13%); then drawing coverage
@@ -45,7 +47,8 @@ CATEGORY = "graphics"
 SOURCES = ["main.c", "text.c", "ttf.c", "raster.c", "expand.c", "gfx.c"]
 SIZES = {
     "test": {"RASTER": 1, "PARAS": 0, "SCROLLS": 0, "STEP": 3, "WIN_W": 64, "WIN_H": 24},
-    "ref": {"RASTER": 8, "PARAS": 2, "SCROLLS": 1, "STEP": 3, "WIN_W": 240, "WIN_H": 80},
+    "small": {"RASTER": 8, "PARAS": 2, "SCROLLS": 1, "STEP": 3, "WIN_W": 240, "WIN_H": 80},
+    "ref": {"RASTER": 62, "PARAS": 6, "SCROLLS": 8, "STEP": 3, "WIN_W": 480, "WIN_H": 240}
 }
 
 

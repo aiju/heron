@@ -21,12 +21,14 @@ Positions are fixed point (pixels x 16); the random numbers are the
 game's own LCG. The results: hashes of the units' state every REPORT
 ticks, of every minimap and every frame's drawing list, and counts.
 
-The sizes: `test` a 32 x 16 map, 16 units, 3 ticks; `ref` the 96 x 64
+The sizes: `test` a 32 x 16 map, 16 units, 3 ticks; `small` the 96 x 64
 map, 200 units, 6 ticks (about 0.4 s of game time at 1.4 M
 instructions: the game costs some 150,000 instructions a tick with 200
-units, close to the Mini game's own measured cost per unit).
+units, close to the Mini game's own measured cost per unit); `ref` the
+same for 60 ticks, about 4 s of game time.
 
-Where the time goes (ref): a quarter in start-up, making the map (12%,
+Where the time goes (`small`; at `ref` start-up is a twentieth): a
+quarter in start-up, making the map (12%,
 four passes over its 6,144 cells) and placing the units; the rest in the
 ticks: the frame's bookkeeping (view_frame, sort_units, cell_dirty,
 touches_dirty, the minimap: about 30%), steering on the occupancy grid
@@ -41,5 +43,6 @@ CATEGORY = "games"
 SOURCES = ["game.c", "map.c", "units.c", "combat.c", "view.c"]
 SIZES = {
     "test": {"MAP_W": 32, "MAP_H": 16, "NUNITS": 16, "TICKS": 3, "REPORT": 1},
-    "ref": {"MAP_W": 96, "MAP_H": 64, "NUNITS": 200, "TICKS": 6, "REPORT": 2},
+    "small": {"MAP_W": 96, "MAP_H": 64, "NUNITS": 200, "TICKS": 6, "REPORT": 2},
+    "ref": {"MAP_W": 96, "MAP_H": 64, "NUNITS": 200, "TICKS": 60, "REPORT": 2}
 }

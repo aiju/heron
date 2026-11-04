@@ -30,7 +30,7 @@ with edge masks, copies shifted by any number of pixels, glyphs as their
 1-bit rows shifted to the pixel and expanded a byte to a word through a
 table, and opaque text through a table made for its two colours.
 
-Where the time goes (ref, from the profile, in the reference
+Where the time goes (`small`, from the profile, in the reference
 configuration's cycles): text about half (draw_text 29%, draw_cells 22%,
 as in report 0043's tools), the copies of moves and scrolls 14%
 (copy_rect), fills 13%, the cursor 6%, the region arithmetic (visible
@@ -44,7 +44,8 @@ the final state pixel by pixel, painter's order, without clipping lists,
 copies or tables: the machine's incremental redraws must leave exactly
 that picture.
 
-`ref` is the full screen, five windows and 14 actions; `test` a screen of
+`ref` is the full screen, eight windows and 200 actions, `small` five
+windows and 14 actions; `test` a screen of
 192 x 128 (the top left corner of the same framebuffer), the first three
 windows and two actions. The windows are the same desktop, scaled."""
 
@@ -59,7 +60,8 @@ CATEGORY = "graphics"
 SOURCES = ["wm.s", "text.s", "kernels.s"]
 REFERENCE_C = ["ref.c"]
 SIZES = {"test": {"SW": 192, "SH": 128, "WINDOWS": 3, "ACTIONS": 2},
-         "ref": {"SW": 640, "SH": 480, "WINDOWS": 5, "ACTIONS": 14}}
+         "small": {"SW": 640, "SH": 480, "WINDOWS": 5, "ACTIONS": 14},
+         "ref": {"SW": 640, "SH": 480, "WINDOWS": 8, "ACTIONS": 200}}
 
 # ---- the session ------------------------------------------------------------
 #

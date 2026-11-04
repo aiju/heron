@@ -22,11 +22,12 @@ arithmetic, a binary tree, an output buffer, a tokenizer, a hash table,
 sorting, rectangles and bit twiddling, each with its own names,
 constants and choices among ways of writing them. LINES is how much of
 it is compiled, in whole functions: the instruction budget of a size
-makes that 20 lines at `test` and some 250 at `ref`, since compiling
-costs about 5,000 instructions a line. The results are a checksum of the
+makes that 20 lines at `test`, some 250 at `small` and 2,000 at `ref`,
+since compiling costs about 5,000 instructions a line. The assembly is
+written out a buffer at a time, into the results' checksum. The results are a checksum of the
 assembly and counts of tokens, nodes, symbols and lines.
 
-Where the time goes, at `ref`: the peephole optimiser takes a quarter
+Where the time goes, at `small`: the peephole optimiser takes a quarter
 (taking lines apart, matching mnemonics, following labels through a
 hash table), formatting and writing out the assembly a fifth, the lexer
 a sixth (scanning, skipping blanks, interning), the parser a tenth, the
@@ -41,7 +42,7 @@ TITLE = "a C compiler, compiling C to draft 2 assembly"
 PART = "c"
 CATEGORY = "tools"
 SOURCES = ["main.c", "lex.c", "sym.c", "parse.c", "gen.c", "peep.c"]
-SIZES = {"test": {"LINES": 21}, "ref": {"LINES": 245}}
+SIZES = {"test": {"LINES": 21}, "small": {"LINES": 245}, "ref": {"LINES": 2000}}
 
 
 def data(p):

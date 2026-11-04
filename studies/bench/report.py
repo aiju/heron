@@ -113,13 +113,15 @@ def tables(target="v2_hw"):
             "Sizes and instructions from the instruction-level simulator. *Code*: the "
             "image's instructions; *executed*: the bytes of the instructions that ran at "
             "least once, at `ref`; *image*: code and data as loaded.", "",
-            "| Workload | Part | Category | What | Code | Executed | Image | Instructions, test | Instructions, ref |",
-            "|---|---|---|---|---:|---:|---:|---:|---:|"]
+            "| Workload | Part | Category | What | Code | Executed | Image | "
+            + " | ".join(f"Instructions, {z}" for z in suite.SIZES) + " |",
+            "|---|---|---|---|---:|---:|---:|" + "---:|" * len(suite.SIZES)]
     for w in ws:
-        s, t = runs[w.name, "ref"], runs[w.name, "test"]
+        s = runs[w.name, "ref"]
         out.append(f"| `{w.name}` | {w.part} | {w.category} | {w.title} | "
                    f"{s['code_bytes'] / 1024:.1f} KB | {s['code_touched'] / 1024:.1f} KB | "
-                   f"{s['image_bytes'] / 1024:.0f} KB | {t['instructions']:,} | {s['instructions']:,} |")
+                   f"{s['image_bytes'] / 1024:.0f} KB | "
+                   + " | ".join(f"{runs[w.name, z]['instructions']:,}" for z in suite.SIZES) + " |")
     out.append("")
 
     out += ["## Full Heron", "",

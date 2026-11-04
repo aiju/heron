@@ -14,7 +14,9 @@
        undo                             the last command undone
 
    The file is linked in by the harness (workload.py makes it). STEPS
-   commands of the script are run. */
+   commands of the script are run, PASSES times: each pass after the
+   first starts with a goto elsewhere in the file, as a session moves
+   from one function to the next. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -106,15 +108,26 @@ static void run(Ed *e, const char *cmd)
     frame(e);
 }
 
+#ifndef PASSES
+#define PASSES 1
+#endif
+
 int main(void)
 {
     static Ed e;
-    int i, n = sizeof script / sizeof script[0];
+    char cmd[24];
+    int i, pass, n = sizeof script / sizeof script[0];
     ed_open(&e, "ring.c", (const char *)source, source_len);
     view_init();
     frame(&e);
-    for (i = 0; i < STEPS && i < n; i++)
-        run(&e, script[i]);
+    for (pass = 0; pass < PASSES; pass++) {
+        if (pass > 0) {
+            sprintf(cmd, "goto %d", 1 + pass * 97 % (e.nlines > 100 ? e.nlines - 100 : 1));
+            run(&e, cmd);
+        }
+        for (i = 0; i < STEPS && i < n; i++)
+            run(&e, script[i]);
+    }
     bench_report("frames", frames);
     bench_report("rows", rows_drawn);
     bench_report("bytes", term_bytes);

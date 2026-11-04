@@ -1,8 +1,8 @@
-parts 00000078
-suppliers 0000000c
-moves 0000011c
-bad 0a010500
-reorder 0000002d
-matches 00000021
-length 00002f8e
-report 81666765
+parts 000003e8
+suppliers 00000028
+moves 00000941
+bad 2f243000
+reorder 00000141
+matches 00000153
+length 0000a4a7
+report 4ba50683

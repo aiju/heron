@@ -1,7 +1,7 @@
-frames 0000002c
-rows 000000e6
-bytes 000022b4
-screen dcd42f23
-lines 0000021c
-length 0000285b
-undo 0000003c
+frames 000000dc
+rows 000004b7
+bytes 0000aca5
+screen 4412d156
+lines 00000847
+length 00009fc2
+undo 000000f2

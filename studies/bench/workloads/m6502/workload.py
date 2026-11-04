@@ -27,9 +27,10 @@ reversing, Fibonacci numbers in 12-digit BCD in decimal mode, and a
 Forth-like bytecode machine dispatched with the RTS trick running Collatz
 chains; a BRK "system call" per pass, and printing through a vectored
 putc with decimal conversion in decimal mode at the end. `test` runs
-6,500 6502 instructions, `ref` 107,000 (two passes of larger problems).
+6,500 6502 instructions, `small` 107,000 (two passes of larger problems),
+`ref` sixteen passes.
 
-Where the time goes (ref, the instruction-level profile): about 10.5
+Where the time goes (`small`, the instruction-level profile): about 10.5
 Heron instructions per 6502 instruction, three of them the dispatch
 (the opcode, the count, the jump through the table) and one the cycle
 count. Taken branches are 11% of the cycles (their page check),
@@ -58,8 +59,9 @@ SOURCES = ["emu.s", "ops_load.s", "ops_alu.s", "ops_rmw.s", "ops_flow.s"]
 SIZES = {
     "test": {"REPS": 1, "SIEVE": 16, "SORTN": 6, "DIVN": 1, "TEXTN": 12,
              "FIBN": 3, "VMN": 2},
-    "ref": {"REPS": 2, "SIEVE": 300, "SORTN": 48, "DIVN": 8, "TEXTN": 160,
+    "small": {"REPS": 2, "SIEVE": 300, "SORTN": 48, "DIVN": 8, "TEXTN": 160,
             "FIBN": 40, "VMN": 6},
+    "ref": {"REPS": 16, "SIEVE": 300, "SORTN": 48, "DIVN": 8, "TEXTN": 160, "FIBN": 40, "VMN": 6}
 }
 
 HERE = os.path.dirname(os.path.abspath(__file__))

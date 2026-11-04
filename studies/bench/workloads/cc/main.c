@@ -20,11 +20,13 @@ int ninsns, npeep;
 /* Two arenas: one for what lives as long as the compilation (names,
    types, global symbols, strings), one for a function's syntax tree and
    locals, emptied when the function has been written out. Sizes are
-   rounded up to 8 so that the host's 8-byte pointers stay aligned. */
+   rounded up to 8 so that the host's 8-byte pointers stay aligned, and
+   the arenas grow with the pointers, so that the host's reference build,
+   whose structures are bigger, has room for what fits on Heron. */
 
 #ifndef PERM_SIZE
-#define PERM_SIZE (48 * 1024)
-#define FUNC_SIZE (48 * 1024)
+#define PERM_SIZE (48 * 1024 / 4 * sizeof(void *))
+#define FUNC_SIZE (48 * 1024 / 4 * sizeof(void *))
 #endif
 
 static char perm_arena[PERM_SIZE], func_arena[FUNC_SIZE];
@@ -94,6 +96,20 @@ static int out_used;
 static char data[DATA_SIZE];
 static int data_used;
 static int out_lines;
+static unsigned out_hash = BENCH_HASH0;   /* of what has been written */
+static int out_total;
+
+/* Writes the buffer out, as a compiler writes its output file a buffer at
+   a time: here, into the results' hash. */
+static void out_write(void)
+{
+#ifdef CC_DUMP
+    fwrite(out, 1, out_used, stdout);
+#endif
+    out_hash = bench_hash(out_hash, out, out_used);
+    out_total += out_used;
+    out_used = 0;
+}
 
 static char *put_str(char *d, const char *s)
 {
@@ -270,10 +286,8 @@ void text_flush(void)
         if (!lines[i])
             continue;
         len = strlen(lines[i]);
-        if (out_used + len + 1 > OUT_SIZE) {
-            error("too much output");
-            break;
-        }
+        if (out_used + len + 1 > OUT_SIZE)
+            out_write();
         memcpy(out + out_used, lines[i], len);
         out_used += len;
         out[out_used++] = '\n';
@@ -299,11 +313,9 @@ int main(void)
     for (i = 0; i < data_used; i++)
         if (data[i] == '\n')
             out_lines++;
-#ifdef CC_DUMP
-    fwrite(out, 1, out_used, stdout);
-#endif
-    bench_report("asm", bench_hash(BENCH_HASH0, out, out_used));
-    bench_report("bytes", out_used);
+    out_write();
+    bench_report("asm", out_hash);
+    bench_report("bytes", out_total);
     bench_report("lines", out_lines);
     bench_report("insns", ninsns);
     bench_report("peephole", npeep);

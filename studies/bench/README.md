@@ -1,7 +1,7 @@
 ---
 status: active
 depends-on: [v2_isa, c_compiler, v2_hw, lisp, graphics]
-reports: []
+reports: [50]
 ---
 
 # A performance benchmark for Heron
@@ -16,14 +16,31 @@ program suite. It has two parts, timed and reported apart:
 - **compiled C:** applications, as the C compiler compiles them.
 
 Each workload is reported on its own, in absolute time on each
-implementation; there is no total and no reference machine.
+implementation; there is no total and no reference machine. Why, and
+what it found: [RFC 0050](../../reports/0050-rfc-benchmark.md); the
+results: [results.md](../../reports/0050-rfc-benchmark/results.md).
+
+| Workload | Part | Category | What |
+|---|---|---|---|
+| [`m6502`](workloads/m6502/workload.py) | asm | emulation | A 6502 emulator running 8-bit programs |
+| [`gfx_desktop`](workloads/gfx_desktop/workload.py) | asm | graphics | A window system redrawing a desktop: copies, fills, text, a cursor |
+| [`gfx_sprites`](workloads/gfx_sprites/workload.py) | asm | graphics | A 2D game's frames: masked sprites, save-under, scrolling tiles |
+| [`forth`](workloads/forth/workload.py) | asm | interpreters | A Forth, compiling and running its program |
+| [`lisp`](workloads/lisp/workload.py) | asm | interpreters | The Lisp's interpreter and collector running a mixed program |
+| [`db`](workloads/db/workload.py) | C | apps | An inventory: CSV tables indexed, joined, sorted, searched, reported |
+| [`editor`](workloads/editor/workload.py) | C | apps | A text editor: gap buffer, C colouring, redisplay, undo |
+| [`rts`](workloads/rts/workload.py) | C | games | A real-time strategy game's logic: flow fields, steering, combat |
+| [`ttf`](workloads/ttf/workload.py) | C | graphics | TrueType text: glyphs rasterised, laid out and drawn through a cache |
+| [`textutils`](workloads/textutils/workload.py) | C | text | Fen's text utilities: grep, sed, sort, uniq, tr, cut in pipelines |
+| [`cc`](workloads/cc/workload.py) | C | tools | A C compiler, compiling C to draft 2 assembly |
+| [`inflate`](workloads/inflate/workload.py) | C | tools | Inflate: zlib, gzip and PNG files, and deflate and back |
 
 ```sh
 heron bench list                    # the workloads
-heron bench test [NAME...]          # every workload, both sizes, against its expected output
+heron bench test [NAME...]          # every workload, every size, against its expected output
 heron bench run NAME --stats        # one on the instruction-level simulator: output, mix (--profile: by routine)
 heron bench stats                   # size, instruction mix and cycles of every workload
-heron bench time [--size test]      # absolute times on Full Heron's model (v2_hw), cached in build/bench/
+heron bench time [--size S]         # absolute times on Full Heron's model (v2_hw), cached in build/bench/
 heron bench expected [NAME...]      # write the expected outputs from the host references
 heron bench report [--write]        # the results page
 heron test bench                    # the study's unit tests
@@ -68,10 +85,13 @@ only what they all have
 - **It's a program, not a loop:** code of several kilobytes to tens of
   kilobytes, data of tens to hundreds of kilobytes, so that fetch, caches
   and the memory system are exercised as real programs exercise them.
-- **Two sizes,** the same program with different parameters:
-  - `test`: 20,000 to 100,000 instructions, for the chip-level
-    simulators;
-  - `ref`: 300,000 to 1,500,000 instructions, the size the results quote.
+- **Three sizes,** the same program with different parameters:
+  - `test`: up to 100,000 instructions or so, for the chip-level
+    simulators (the Lisp's is 400,000: its unit of work is that big);
+  - `small`: up to 1,500,000, for quick runs on the slower models;
+  - `ref`: 5 to 15 million, with data of realistic size: the size the
+    results quote. Full Heron's register-transfer model runs it in about
+    15 minutes on four cores.
 - **It checks itself:** its output is compared with an expected output
   that comes from an independent reference on the host (the same C built
   with gcc, or a model in C or Python), committed in `expected/`.
@@ -86,7 +106,7 @@ PART = "asm"                      # "asm" (hand-written) or "c" (compiled)
 CATEGORY = "interpreters"         # interpreters, emulation, graphics, text,
                                   # tools, apps, games
 SOURCES = ["forth.s", "words.s"]  # in the folder: .s files, or .c files
-SIZES = {"test": {"N": 2}, "ref": {"N": 20}}   # the parameters of each size
+SIZES = {"test": {"N": 2}, "small": {"N": 20}, "ref": {"N": 150}}   # each size's parameters
 
 def data(p):                      # optional: input data, linked in
     return {"corpus": b"..."}
