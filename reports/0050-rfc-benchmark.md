@@ -2,7 +2,7 @@
 number: 50
 type: rfc
 title: A performance benchmark for Heron
-status: draft
+status: open
 date: 2026-11-04
 context:
   studies: [bench]
