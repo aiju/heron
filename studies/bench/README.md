@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: [v2_isa, c_compiler, v2_hw, lisp]
+depends-on: [v2_isa, c_compiler, v2_hw, lisp, graphics]
 reports: []
 ---
 
