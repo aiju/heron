@@ -63,12 +63,15 @@ in section 14, and the napkin's sections below are as they were.
   checks, and every control line has one driver. The static timing
   engine (RFC 0048) finds that a microcycle that reads and writes the
   register file needs **5 ticks** without wire delays, not the
-  napkin's 4 (Emily: 5 is fine), but **6** with the napkin's 1–12 ns
-  over the backplane and the clocks through a tree on it (14.3).
-  With the engine's fixes for what Reed found (RFC 0048), the write
-  strobe's addresses (as far as the engine can tell), Y's handover to
-  the register file's copies and a few small holds still fail. The
-  backplane has ten spare lines. At 5 ticks the 55 ns flash costs nothing. A taken branch
+  napkin's 4 (Emily: 5 is fine), and with the napkin's 1–12 ns over
+  the backplane **5** too, once the clocks come from a clock card (the
+  generator on the oscillator itself, the write phase two and a half
+  ticks): loads and fetches 6
+  ([clocking-and-front-end.md](0049-rfc-board-first/clocking-and-front-end.md)).
+  Y's handover to the register file's copies, the store's RAM checks
+  at 5 and a few small holds still fail. The backplane has twelve spare
+  lines. On the napkin's mix, about 316 ns an instruction, and about 254
+  with a branch adder (an estimate, `heron reed estimate`). At 5 ticks the 55 ns flash costs nothing. A taken branch
   takes about five microcycles. The SST39SF010A's 45 ns grade was
   end-of-lifed in 2013 ([14](#14-reed-design-a-at-chip-level)).
 
@@ -991,8 +994,14 @@ such a test against a board's netlist; that harness isn't built yet.
 
 ### 14.6 Next
 
-1. **The register file's timing:** 5 ticks (Emily, 2026-11-02), which
-   with the wires is 6 for now and needs 2 below (14.3).
+[clocking-and-front-end.md](0049-rfc-board-first/clocking-and-front-end.md)
+has the clock card (built: register ops in 5 ticks with the wires), where
+the fast clock has to go, and what the branch path, two transfers a
+cycle and the write phase are worth. Section 14.3 is from before the
+card.
+
+1. **The register file's timing:** 5 ticks (Emily, 2026-11-02): with
+   the clock card, met for register ops (loads and fetches 6).
 2. **The clocking, again:** a board can't sample CTRL's phases a tick
    after they change, which the read address on the master clock (for
    5 ticks) and strobes made on each board would need; phases each

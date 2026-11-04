@@ -20,8 +20,8 @@ to memory); the VIDEO board runs on its own phase and the
 IO board's devices on their accesses, so neither's checks count here.
 
 The wires (wires()): the napkin's 1-12 ns from board to board over the
-backplane, 0-1 ns on a board; the clocks the backplane's tree's (bus.tree),
-1-2.5 ns on each slot's trace, 0-2 ns from CTRL's sources to the tree. No
+backplane, 0-1 ns on a board; the clocks the clock card's trees'
+(clockcard.py), 1-2.5 ns on each slot's trace. No
 load derating: the parts' data has no pin capacitances yet.
 
   heron reed sta [--word NAME] [--paths N] [--no-wires]
