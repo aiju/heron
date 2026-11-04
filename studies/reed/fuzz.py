@@ -210,9 +210,22 @@ def gen_mul(rng):
 def gen_div(rng):
     d, s = rng.randrange(1, 16), rng.randrange(16)
     regs = regs_for(rng, True)
+    if rng.random() < 0.1:
+        regs[d], regs[s] = 0x80000000, 0xFFFFFFFF
     if regs[s] == 0:
         regs[s] = 7
-    return regs, parcels(0xE7, d << 4 | s)
+    return regs, parcels(rng.choice([0xE7, 0xE8]), d << 4 | s)
+
+
+def gen_multiple(rng):
+    ra = rng.randrange(16)
+    rc = rng.randrange(ra, 16)
+    rb = rng.randrange(16)
+    regs = regs_for(rng)
+    for j in range(ra, rc + 1):
+        if j != rb:
+            regs[j] = value(rng)
+    return regs, parcels(rng.choice([0x01, 0x02]), ra << 4 | rb, rc << 12)
 
 
 def gen_bictst(rng):
@@ -241,7 +254,7 @@ def gen_save(rng):
 
 FAMILIES = {"ea": gen_ea, "store": gen_store, "clr": gen_clr_inc_dec, "lea": gen_lea, "unary": gen_unary,
             "shift": gen_shift, "mul": gen_mul, "div": gen_div, "bictst": gen_bictst, "mvi": gen_mvi,
-            "save": gen_save}
+            "save": gen_save, "multiple": gen_multiple}
 
 
 def fuzz(families=None, n=200, seed=1, stop_at=5):

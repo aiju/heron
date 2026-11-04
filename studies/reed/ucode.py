@@ -845,41 +845,161 @@ def multiply(p, entries):
                 entries[(spec, None, R)] = (label, 1 + ext_parcels(SPECIAL[R][0]))
 
 
+def div_bits(p, dsrc, after):
+    """The 32 bits of the restoring divide, the divisor from dsrc (fields
+    that put it on OB): T1 holds the dividend, shifting out at the top as
+    the quotient comes in at the bottom; T0 the remainder. Each bit: T0 =
+    T0 << 1 | C (the dividend's top bit), T0 -= d (C: no borrow, the
+    quotient's bit), T1 = T1 << 1 | C (the quotient's bit in, the next top
+    bit out), and, decided on the subtraction's C two words on, T0 += d if
+    it borrowed. Returns the first bit's first word; `after` follows."""
+    nxt = after
+    for i in reversed(range(32)):
+        d2 = W(None, f"RAS=K K={T0} AOP=SHL CI=C WS=K")
+        d3 = W(None, f"RAS=K K={T0} {dsrc} AOP=SUB CI=OWN FL=NZCV WS=K")
+        d4 = W(None, f"RAS=K K={T1} AOP=SHL CI=C FL=NZCV WS=K")
+        restore = W(None, f"RAS=K K={T0} {dsrc} AOP=ADD CI=0 WS=K", next=("jump", p._label(nxt)))
+        d5 = W(None, "", next=("if", "C", p.pair(restore, W(None, "", next=("jump", p._label(nxt))))))
+        p.place(d5)
+        d4.next = ("jump", d5.label)
+        p.routine(d2, d3, d4)
+        nxt = d2
+    return nxt
+
+
+def negate(k):
+    """T(k) = -T(k): two words."""
+    return [W(None, f"RAS=K K={k} AOP=NOTA WS=K"), W(None, f"RAS=K K={k} AOP=INCA CI=OWN WS=K")]
+
+
 def divide(p, entries):
-    """DIVU rd, rs: restoring, a bit at a time. T1 holds the dividend,
-    shifting out at the top as the quotient comes in at the bottom; T0 the
-    remainder. Each bit: T0 = T0 << 1 | C (the dividend's top bit), T0 -=
-    rs (C: no borrow, the quotient's bit), T1 = T1 << 1 | C (the quotient's
-    bit in, the next top bit out), and, decided on the subtraction's C two
-    words on, T0 += rs if it borrowed. At the end r0 = T0 through MQ (one K
-    a word). DIVS traps for now."""
-    label = "DIVU.r"
+    """DIVU rd, rs and DIVS rd, rs (div_bits); r0 = the remainder through MQ
+    at the end (one K a word). A zero divisor traps (unimpl, for now).
+    DIVS divides the magnitudes, the divisor in MQ (port B can't reach a
+    temporary while the remainder takes K), then gives the quotient the
+    operands' signs' XOR (T2) and the remainder the dividend's; -2^31 by
+    -1 sets V (C stays 0)."""
+    # DIVU
     end = [W(None, f"RBS=K K={T0} BIN=RF BOUT=1 MQ=LOAD"),
            W(None, "AOP=PASSB BIN=BUS MQ=DRIVE WS=K K=0"),
            W(None, f"RAS=K K={T1} AOP=PASSA WS=d"),
            W(None, "RAS=d AOP=ADD CI=0 BIN=BUS IMM=ZERO FL=NZCV"),
            W(None, "RAS=d AOP=PASSA FL=NZ", next="decode")]
     p.routine(*end)
-    nxt = end[0]
-    for i in reversed(range(32)):
-        d2 = W(None, f"RAS=K K={T0} AOP=SHL CI=C WS=K")                                # rem << 1 | top
-        d3 = W(None, f"RAS=K K={T0} RBS=s BIN=RF AOP=SUB CI=OWN FL=NZCV WS=K")         # C: rem >= d
-        d4 = W(None, f"RAS=K K={T1} AOP=SHL CI=C FL=NZCV WS=K")                        # q bit in, top out
-        restore = W(None, f"RAS=K K={T0} RBS=s BIN=RF AOP=ADD CI=0 WS=K", next=("jump", p._label(nxt)))
-        d5 = W(None, "", next=("if", "C", p.pair(restore, W(None, "", next=("jump", p._label(nxt))))))
-        p.place(d5)
-        d4.next = ("jump", d5.label)
-        p.routine(d2, d3, d4)
-        nxt = d2
-    first = [W(label, "RBS=s BIN=RF AOP=PASSB FL=NZ"),                     # Z: rs = 0
+    loop = div_bits(p, "RBS=s BIN=RF", end[0])
+    first = [W("DIVU.r", "RBS=s BIN=RF AOP=PASSB FL=NZ"),                  # Z: rs = 0
              W(None, f"RAS=d AOP=PASSA WS=K K={T1}"),
              W(None, f"AOP=ZERO WS=K K={T0}"),
              W(None, f"RAS=K K={T1} AOP=SHL CI=0 FL=NZCV WS=K")]          # the first top bit out
     first[2].next = ("if", "Z", p.pair(W(None, "", next=("jump", p._label(first[3]))), trap_word()))
-    first[3].next = ("jump", nxt.label)
+    first[3].next = ("jump", loop.label)
     p.place(first[3])
     p.routine(*first[:3])
-    entries[(0xE7, None, None)] = (label, 1)
+    entries[(0xE7, None, None)] = ("DIVU.r", 1)
+    # DIVS: the end first
+    nz = W(None, "RAS=d AOP=PASSA FL=NZ", next="decode")
+    p.place(nz)
+    clear = lambda: cv_words(p, nz, 0)
+    # V without C: 0 - 0x80000000 (T0, the remainder, is 0 when it overflows)
+    ov = [W(None, f"RBS=K K={K_SIGN} BIN=RF BOUT=1 MQ=LOAD"),
+          W(None, f"RAS=K K={T0} AOP=SUB CI=OWN BIN=BUS MQ=DRIVE FL=NZCV", next=("jump", nz.label))]
+    f6 = W(None, "", next=("if", "N", p.pair(ov[0], clear())))               # T2's N: no overflow
+    p.routine(*ov)
+    fin = [W(None, f"RBS=K K={T0} BIN=RF BOUT=1 MQ=LOAD"),
+           W(None, "AOP=PASSB BIN=BUS MQ=DRIVE WS=K K=0"),                   # r0 = the remainder
+           W(None, f"RAS=K K={T1} AOP=PASSA WS=d FL=NZ"),                    # rd = q; N: q's
+           W(None, f"RAS=K K={T2} AOP=PASSA FL=NZ"),                         # N: the quotient's sign
+           W(None, "", next=("if", "N", p.pair(clear(), f6)))]              # q < 0 with T2 >= 0: V
+    p.routine(*fin)
+
+    def rem_sign():
+        """Decided on the dividend's N (E2's): the remainder negated."""
+        neg = negate(T0)
+        neg[-1].next = ("jump", fin[0].label)
+        w = W(None, "", next=("if", "N", p.pair(W(None, "", next=("jump", fin[0].label)), neg[0])))
+        p.routine(*neg)
+        return w
+    q_neg = negate(T1)
+    r_after_q = rem_sign()
+    q_neg[-1].next = ("jump", p._label(r_after_q))
+    p.place(r_after_q)
+    r_pos = rem_sign()
+    e3 = W(None, "", next=("if", "N", p.pair(r_pos, q_neg[0])))
+    p.routine(*q_neg)
+    ends = [W(None, f"RAS=K K={T2} AOP=PASSA FL=NZ"),                        # E1: N: the quotient's sign
+            W(None, "RAS=d AOP=PASSA FL=NZ"),                                 # E2: N: the dividend's
+            e3]
+    p.routine(*ends)
+    loop = div_bits(p, "BIN=BUS MQ=DRIVE", ends[0])
+    # the start: the divisor's Z (traps) and N; T2 = rd ^ rs; T1 = rd (N)
+    start_loop = W(None, f"RAS=K K={T1} AOP=SHL CI=0 FL=NZCV WS=K", next=("jump", loop.label))
+    p.place(start_loop)
+    m_neg = negate(T1)
+    m_neg[-1].next = ("jump", start_loop.label)
+    # J: T0 = 0; its successor from T1's N (W3's flags, unchanged since)
+    j_ = W(None, f"AOP=ZERO WS=K K={T0}", next=("if", "N", p.pair(W(None, "", next=("jump", start_loop.label)), m_neg[0])))
+    p.routine(*m_neg)
+    p.place(j_)
+    pos = W(None, "RBS=s BIN=RF BOUT=1 MQ=LOAD", next=("jump", j_.label))
+    dneg = [W(None, f"RAS=s AOP=NOTA WS=K K={T0}"), W(None, f"RAS=K K={T0} AOP=INCA CI=OWN WS=K"),
+            W(None, f"RBS=K K={T0} BIN=RF BOUT=1 MQ=LOAD", next=("jump", j_.label))]
+    w4 = W(None, "", next=("if", "N", p.pair(pos, dneg[0])))                 # the divisor's N (W1's)
+    p.routine(*dneg)
+    w3 = W(None, f"RAS=d AOP=PASSA FL=NZ WS=K K={T1}",
+           next=("if", "Z", p.pair(w4, trap_word())))                       # the divisor's Z (W1's)
+    p.routine(W("DIVS.r", "RBS=s BIN=RF AOP=PASSB FL=NZ"),
+              W(None, f"RAS=d RBS=s BIN=RF AOP=XOR WS=K K={T2}"), w3)
+    entries[(0xE8, None, None)] = ("DIVS.r", 1)
+
+
+def multiple(p, entries):
+    """LDM rb, ra-rc and STM rb, ra-rc (rc in the extension parcel's bits
+    15-12): the parcel into MQ, shifted down twelve, then rc's bits off MQ0
+    one a word (a 16-way tree, each test deciding two words on), into the
+    chain for rc entered at ra; T0 the pointer from rb, each register a
+    word that puts it into MAR (T0 += 4) and one that moves the data."""
+    for opc, name in ((0x01, "LDM"), (0x02, "STM")):
+        chains = {}
+        for rc in range(15 + 1):
+            chain = {}
+            for j in range(rc, -1, -1):
+                a = W(None, f"RAS=K K={T0} AOUT=OA AOP=ADD CI=0 BIN=BUS IMM=FOUR WS=K MARLD=1")
+                if name == "LDM":
+                    b = W(None, f"AOP=PASSB {load_src('w')} WS=K K={j}")
+                else:
+                    b = W(None, f"RAS=K K={j} AOUT=OA MOP=STORE MSZ=WORD DACC=1")
+                b.next = "decode" if j == rc else ("jump", chain[j + 1][0].label)
+                a.next = ("jump", p._label(b))
+                p.place(a), p.place(b)
+                chain[j] = (a, b)
+            chains[rc] = chain
+        for ra in range(16):
+            def tree(level, bits):
+                if level == 4:
+                    rc = bits
+                    if rc < ra:
+                        return trap_word()
+                    w = W(None, "", next=("jump", chains[rc][ra][0].label))
+                    return w
+                lo = tree(level + 1, bits)
+                hi = tree(level + 1, bits | 1 << level)
+                for w in (lo, hi):
+                    if w.addr is None and isinstance(w.next, tuple) and w.next[0] == "jump":
+                        pass
+                # (a node's choice is made while the word before it executes:
+                # the twelfth shift brings rc's bit 0 to MQ0 for the root's,
+                # which the thirteenth word sees; it and levels 0 and 1 shift
+                # on for the next)
+                f = "MQ=SHIFT" if level < 2 else ""
+                return W(None, f, next=("if", "MQ0", p.pair(lo, hi)))
+            root = tree(0, 0)
+            p.place(root)
+            # MQ = the parcel (consumed), T0 = rb; then the shifts
+            ws = [W(f"{name}.{ra:X}", f"AOP=PASSA RAS=s WS=K K={T0} BIN=BUS IMM=PE_ZX MQ=LOAD IQC=NEXT")]
+            ws += [W(None, "MQ=SHIFT") for _ in range(13)]
+            ws[-1].next = ("jump", root.label)
+            p.routine(*ws)
+            entries[(opc, ra, None)] = (f"{name}.{ra:X}", 2)
 
 
 # ---- branches, jumps, calls ----------------------------------------------------------------
@@ -1012,6 +1132,7 @@ def build():
     shifts(p, entries)
     multiply(p, entries)
     divide(p, entries)
+    multiple(p, entries)
     branches(p, entries)
     save_restore(p, entries)
     p.entry_map = entries
