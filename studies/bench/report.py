@@ -16,6 +16,9 @@ RESULTS = os.path.join(ROOT, "reports", "0050-rfc-benchmark", "results.md")
 # heron.studies.v2_isa.v2.kind()
 CLASSES = ["load", "store", "ALU on memory", "ALU, move", "shift", "multiply, divide",
            "branch", "call, return", "jump"]
+# what Full Heron's microcycles do (heron.studies.v2_hw.perf.kind_of)
+KINDS = ["ALU, address or shift", "multiply or divide step", "data read", "data write",
+         "refill after a jump", "extension parcel", "jump or branch", "decode only"]
 SHIFTS = {"LSL", "LSR", "ASR", "ROL", "ROR", "ROXL", "ROXR"}
 
 
@@ -144,6 +147,19 @@ def tables(target="v2_hw"):
                        f"{r['cycles'] / r['instructions']:.2f} | {_ms(r['ms'])} | "
                        f"{r['ms'] * 1e6 / r['instructions']:.0f} ns |")
         out.append("")
+
+    out += ["### Where the time goes", "",
+            "Each workload's time at `ref` on Full Heron by what its microcycles do, as "
+            "[RFC 0031's table](../0031-rfc-draft-2-cpu/performance.md#where-the-time-goes) "
+            "has it for draft 1's suite (where multiply and divide steps were 22.5% of the "
+            "time), in %.", "",
+            "| Workload | " + " | ".join(KINDS) + " |",
+            "|---|" + "---:|" * len(KINDS)]
+    for w in ws:
+        k = hw[w.name]["kinds"]
+        t = sum(k.values()) or 1
+        out.append(f"| `{w.name}` | " + " | ".join(f"{100 * k.get(c, 0) / t:.1f}" for c in KINDS) + " |")
+    out.append("")
 
     bus = {t: {row["name"]: row for row in targets.times(t, [w.name for w in ws], "small")}
            for t in ("v2_hw", "v2_hw.bus", "v2_hw.bus.cache256", "v2_hw.bus.cache4096")}

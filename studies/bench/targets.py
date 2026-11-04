@@ -38,7 +38,7 @@ BUS = 0x1000_0000      # the memory card's region (RFC 0031's `perf --bus`)
 
 def _v2_hw_tag():
     from heron.studies.v2_hw import perf
-    return "v2_hw-" + perf._sources_tag() + "-" + "-".join(map(str, V2_HW_LENGTHS))
+    return "v2_hw2-" + perf._sources_tag() + "-" + "-".join(map(str, V2_HW_LENGTHS))
 
 
 def run_v2_hw(mem, inp, max_cycles, code_base=0, icache=0):
@@ -50,7 +50,23 @@ def run_v2_hw(mem, inp, max_cycles, code_base=0, icache=0):
            "hold": m.hold_ticks, "ucount": dict(m.ucount)}
     ticks = perf.time_with([dict(row, name="x")], V2_HW_LENGTHS)["x"]
     return {"instructions": m.instructions, "cycles": m.cycles, "ticks": ticks,
-            "ms": ticks * V2_HW_TICK_NS / 1e6, "output": bytes(m.out).decode("latin-1")}
+            "ms": ticks * V2_HW_TICK_NS / 1e6, "output": bytes(m.out).decode("latin-1"),
+            "kinds": v2_hw_kinds(m.ucount, m.hold_ticks)}
+
+
+def v2_hw_kinds(ucount, hold):
+    """Ticks by what the microcycles do (RFC 0031's "where the time
+    goes"), bus holds apart."""
+    from heron.studies.v2_hw import perf, ucode as uc
+    mc = uc.built()
+    out = {}
+    for a, n in ucount.items():
+        need = mc.ticks[a]
+        k = perf.kind_of(mc.by_addr[a])
+        out[k] = out.get(k, 0) + n * min(L for L in V2_HW_LENGTHS if L >= need)
+    if hold:
+        out["bus holds"] = hold
+    return out
 
 
 # target: (run(mem, inp, max_cycles, **options), its cache tag, options)
