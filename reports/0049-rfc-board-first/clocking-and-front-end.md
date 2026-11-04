@@ -273,6 +273,54 @@ makes it: its data comes over A, which the next cycle's word may drive.
 and MEM's crossbar) overlap up to 17.8 ns at the maximum corner. The
 napkin's slots were the discipline for this; the netlist has none.
 
+**The engine's fixes, and what they show.** RFC 0048's session closed
+both gaps: a strobe whose pulse merges into one change is now checked
+across the whole of it, and a register's `start` and `before` hold until
+its first load, wherever that is (U_CGB's, half a tick in). With them the
+analysis judges the new write phase, and finds two things the chip-level
+runs didn't:
+
+- **The register file's address isn't a tick ahead of its strobe:** 5.4
+  ns short of tAS, on every word that writes, at every length. The
+  address comes from WPA through U_RFT (LEW) and U_RAG, two GALs behind
+  the inverter, U_CGB and the tree: 31.4 ns at the maximum after its
+  edge, against the strobe's 7.1 ns at the minimum a tick later. Nothing
+  shares a path but the inverter, and two edges' paths get no credit for
+  it (RFC 0048 9.1).
+- **The read starts half a tick in, honestly:** the copies' addresses
+  are W until WPA falls and LEW follows, so the read starts there and not
+  at the edge at 0. Four words take a tick more: r into MAR, the jump
+  and the store 6, a load and add 7. Register ops stay at 5.
+
+U_RFW gates the strobe on its address being W, so the strobe can't start
+before the address reaches U_RFW. That's why the chip-level runs pass,
+at a margin of about U_RFW's minimum delay less the wires' skew. The
+engine can't see it: with the register numbers unknown, W and the
+addresses are X, so the strobe may start anywhere in WRS's window. That
+is the "may pulse" still flagged: X values the engine can't correlate,
+not a pulse, but it stays on the list until a case shows it gone.
+
+**Two attempts, neither kept:**
+
+- **The latches' enable from the card** (RDA, the inverse of WPA, a U_CGB
+  register: the 573s' LE and the address muxes' select, with no U_RFT).
+  The address is then one GAL behind the tree, and the strobe's tAS
+  would pass by about 2 ns. But the latches then close on the same edge
+  that switches their inputs a GAL later. The hold check credits the
+  shared path and passes, by 0.7 ns. The latch's own closing, though,
+  is propagated without the credit, so its output may change through the
+  write phase, and every check after it fails at every length (by 17 to
+  56 ns). U_BYP on the address match alone, instead of the phase, needs
+  the engine to know that the address is W, which it can't with X
+  values.
+- **Cases with the register numbers known** (d and s 1, the last word's
+  d 14, or 1 for the bypass, or no write), as 14.6 asked: the strobe is
+  then a clean pulse, and a new set of failures shows up (the latches'
+  setups in the bypass and no-write cases, 32 ns, against an edge I
+  don't yet understand). Not triaged; the patch is kept aside.
+
+The chip-level gate passes on the merged engine: all 24 runs.
+
 ## What I'd do
 
 1. The card, with the CDC341s on the backplane (1), and the fast clock
