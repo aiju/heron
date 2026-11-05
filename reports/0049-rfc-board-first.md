@@ -150,6 +150,16 @@ The rules the sketches keep, Emily's and the ones that follow from them:
   82C54) takes 1.7 units, a socketed PLCC-32 or an SOJ 1.2, a DIP-40 2.4
   ([napkin.md](0049-rfc-board-first/napkin.md#area-units)). Every board
   here is within 70 units.
+
+  **Decided** (Emily, 2026-11-05): Reed's cards are **6U × 220 mm**
+  (233.35 × 220), six layers. A trial floorplan of ALU, the fullest
+  board, couldn't be fitted to 160 mm but fills about two thirds of
+  220 mm, which leaves room for test points, rework and a respin's
+  patches; the fab's price is $66 a board against $57 at 160 mm. The 70
+  units stay each board's budget: the larger card is the slack, not room
+  for more chips. **Open:** the napkin's area model is still a 160 mm
+  card's, and the cooling (a fan tray under the subrack; the GALs alone
+  are roughly 30–45 W, unmeasured).
 - **B2 The backplane.** Two DIN 41612 connectors of 96 pins: A (32), B
   (32), 64 control lines, 64 grounds and supplies.
 - **B3 One driver a control line.** Every control line here has exactly
