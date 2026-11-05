@@ -264,4 +264,195 @@ pub mod v2 {
             Ok(out)
         }
     }
+
+    /// The board behind a `SysMachine`: RAM is the machine's own; beyond
+    /// it, only a console at physical 0x7FFF_FF00 (0xFFFF_FF00 through the
+    /// window): a byte written there goes out. No interrupts.
+    struct ConsoleBus {
+        out: Vec<u8>,
+    }
+
+    const CONSOLE_PA: u32 = 0x7FFF_FF00;
+
+    impl v2_isa::sys::Bus for ConsoleBus {
+        fn read(&mut self, pa: u32, _size: u32, _cycles: u64) -> Option<u32> {
+            (pa & !3 == CONSOLE_PA).then_some(0xFFFF_FFFF)
+        }
+
+        fn write(&mut self, pa: u32, _size: u32, value: u32, _cycles: u64) -> bool {
+            if pa & !3 != CONSOLE_PA {
+                return false;
+            }
+            self.out.push(value as u8);
+            true
+        }
+
+        fn irq(&mut self, _cycles: u64) -> (u8, u64) {
+            (0, u64::MAX)
+        }
+    }
+
+    /// Draft 2 in system mode (RFC 0029, `Machine::new_system`) on a plain
+    /// board: `ram_size` bytes of RAM from physical 0 and a console, no
+    /// interrupts. A reference for a CPU's system half: set its state, run
+    /// it an instruction at a time, read its state back.
+    #[pyclass]
+    struct SysMachine {
+        m: Engine,
+    }
+
+    #[pymethods]
+    impl SysMachine {
+        #[new]
+        #[pyo3(signature = (ram_size=4 << 20))]
+        fn new(ram_size: u32) -> PyResult<SysMachine> {
+            let bus = Box::new(ConsoleBus { out: Vec::new() });
+            Ok(SysMachine {
+                m: Engine::new_system(ram_size, bus, config(REFERENCE)?),
+            })
+        }
+
+        /// Write bytes into RAM at a physical address.
+        fn load(&mut self, pa: u32, data: &[u8]) -> PyResult<()> {
+            let a = pa as usize;
+            if a + data.len() > self.m.mem.len() {
+                return Err(PyValueError::new_err("outside RAM"));
+            }
+            self.m.mem[a..a + data.len()].copy_from_slice(data);
+            Ok(())
+        }
+
+        /// RAM, physical from 0.
+        fn mem<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+            PyBytes::new(py, &self.m.mem)
+        }
+
+        /// Run at most `steps` instructions: "steps" when they ran out,
+        /// "halted" (HALT, I clear), "idle" (HALT waiting, nothing to wake
+        /// it), or the simulation's error.
+        fn run(&mut self, steps: u64) -> String {
+            match self.m.run_system(u64::MAX, steps) {
+                Ok(v2_isa::RunStatus::Halted) => "halted".into(),
+                Ok(v2_isa::RunStatus::Idle) => "idle".into(),
+                Ok(_) => "steps".into(),
+                Err(e) => e,
+            }
+        }
+
+        /// The registers in use (the current bank's).
+        fn r(&self) -> [u32; 16] {
+            self.m.r
+        }
+
+        fn set_r(&mut self, r: [u32; 16]) {
+            self.m.r = r;
+        }
+
+        #[getter]
+        fn pc(&self) -> u32 {
+            self.m.pc
+        }
+
+        #[setter]
+        fn set_pc(&mut self, v: u32) {
+            self.m.pc = v;
+        }
+
+        /// sr, as MFSR reads it.
+        fn sr(&self) -> u32 {
+            self.m.sr()
+        }
+
+        /// Set sr whole, S too, and switch to the bank its mode runs in.
+        fn set_sr(&mut self, x: u32) {
+            use v2_isa::sys::{SR_I, SR_IPL_SHIFT, SR_S, SR_T};
+            self.m.set_ccr(x);
+            self.m.i = ((x & SR_I) != 0) as u8;
+            let s = self.m.sys_mut();
+            s.t = ((x & SR_T) != 0) as u8;
+            s.ipl = ((x >> SR_IPL_SHIFT) & 15) as u8;
+            s.supervisor = x & SR_S != 0;
+            s.forget_pc_page();
+            let to = if s.supervisor { 0 } else { s.bank as usize };
+            self.m.switch_bank(to);
+        }
+
+        /// far, fsr, ctx, mapa and bank.
+        fn sysregs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+            let s = self.m.sys();
+            let d = PyDict::new(py);
+            for (k, v) in [("far", s.far), ("fsr", s.fsr), ("ctx", s.ctx), ("mapa", s.mapa), ("bank", s.bank)] {
+                d.set_item(k, v)?;
+            }
+            Ok(d)
+        }
+
+        /// Set one of far, fsr, ctx, mapa and bank (bank: user mode's; the
+        /// registers in use stay).
+        fn set_sysreg(&mut self, name: &str, v: u32) -> PyResult<()> {
+            let s = self.m.sys_mut();
+            match name {
+                "far" => s.far = v,
+                "fsr" => s.fsr = v,
+                "ctx" => s.ctx = v % v2_isa::sys::CONTEXTS as u32,
+                "mapa" => s.mapa = v % v2_isa::sys::MAP_SIZE as u32,
+                "bank" => s.bank = v % v2_isa::sys::BANKS as u32,
+                _ => return Err(PyValueError::new_err(format!("no special register {name}"))),
+            }
+            s.forget_pc_page();
+            Ok(())
+        }
+
+        /// The page map's entry at context x 4096 + page.
+        fn map(&self, index: usize) -> u32 {
+            self.m.sys().map[index % v2_isa::sys::MAP_SIZE]
+        }
+
+        fn set_map(&mut self, index: usize, entry: u32) {
+            let s = self.m.sys_mut();
+            s.map[index % v2_isa::sys::MAP_SIZE] = entry & v2_isa::sys::PTE_MASK;
+            s.forget_pc_page();
+        }
+
+        /// Bank n's r0-r15 (the registers in use, if n is theirs).
+        fn bank_regs(&self, n: usize) -> [u32; 16] {
+            let s = self.m.sys();
+            if s.cur_bank == n { self.m.r } else { s.banks[n % v2_isa::sys::BANKS] }
+        }
+
+        fn set_bank_regs(&mut self, n: usize, regs: [u32; 16]) {
+            let cur = self.m.sys().cur_bank;
+            if cur == n {
+                self.m.r = regs;
+            } else {
+                self.m.sys_mut().banks[n % v2_isa::sys::BANKS] = regs;
+            }
+        }
+
+        /// What went to the console.
+        fn out<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
+            let b = self.m.sys_mut().bus_as::<ConsoleBus>().map(|b| b.out.clone()).unwrap_or_default();
+            PyBytes::new(py, &b)
+        }
+
+        /// Traps taken (but SWIs): (pc, what).
+        fn traps(&self) -> Vec<(u32, String)> {
+            self.m.traps.clone()
+        }
+
+        /// Exceptions taken, by vector offset / 4 (SWIs all at 0x40).
+        fn exceptions(&self) -> Vec<u64> {
+            self.m.sys().exceptions.to_vec()
+        }
+
+        #[getter]
+        fn instructions(&self) -> u64 {
+            self.m.instructions
+        }
+
+        #[getter]
+        fn waiting(&self) -> bool {
+            self.m.sys().waiting
+        }
+    }
 }

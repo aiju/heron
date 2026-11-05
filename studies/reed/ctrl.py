@@ -119,7 +119,10 @@ def sequencer(nl, ck):
     # cc and d's
     cnd, op, rd = f("CND"), BP.OP, BP.RD
     flags = {"N": "FN", "Z": "FZ", "C": "FC", "V": "FV"}
-    simple = {"ST": lit("FST"), "MQ0": lit("MQ0"), "KILL": lit("KILL_n", 0), "FFQ": lit("FFQ"),
+    # (FFQ: a fetch has faulted and the instruction at the decode pointer
+    # isn't all there, as the decode's diversion to IVEC has it)
+    simple = {"ST": lit("FST"), "MQ0": lit("MQ0"), "KILL": lit("KILL_n", 0),
+              "FFQ": AND(lit("FFQ"), lit("READY", 0)),
               "ILEN0": lit("ILEN0"), "ILEN1": lit("ILEN1"), "IRQP": lit("IRQP")}
     terms = []
     for name, code in F.CND.items():

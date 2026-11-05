@@ -62,7 +62,7 @@ class TestModel(unittest.TestCase):
             m = model.run_image(img, max_cycles=100_000)
             ref = hw.reference(img)
             self.assertEqual(m.stopped, "halt", name)
-            self.assertEqual(m.rf[:16], list(ref.r[:16]), name)
+            self.assertEqual(m.regs(), list(ref.r[:16]), name)
             self.assertEqual(bytes(m.ram[:0x10000]), bytes(ref.mem[a] for a in range(0x10000)), name)
 
     def test_model_in_lockstep_with_chip_level(self):
@@ -76,3 +76,16 @@ class TestMicrocode(unittest.TestCase):
         from heron.studies.reed import fuzz
         res = fuzz.fuzz(n=40, seed=3)
         self.assertEqual({k: v for k, v in res.items() if v}, {})
+
+
+class TestSystem(unittest.TestCase):
+    def test_systest_against_the_reference(self):
+        """sw/systest.s: RFC 0029's system half on the model and on draft 2's
+        system simulator, the same output, exception log, pages and banks."""
+        from heron.studies.reed import systest
+        img, ram = systest.image()
+        ref, status = systest.run_reference(ram)
+        m = systest.run_model(ram)
+        self.assertEqual(status, "halted")
+        self.assertEqual(m.stopped, "halt")
+        self.assertEqual(systest.compare(ref, m), [])

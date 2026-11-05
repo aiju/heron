@@ -155,9 +155,12 @@ def register_file(nl, ck):
     # and only once the copy's address is W: each address bit changes once
     # in the write phase, so the address can't match before its last bit
     # has come, and the strobe can't start before the address is there
+    # (not in a cancelled cycle, KILL_n low: the write then is the last
+    # word's, so a fault cancels the word before its access as well, as far
+    # as its result goes: an address register's step, say)
     outs = {}
     for c, addr in (("A", RFA), ("B", RFB)):
-        terms = [AND(lit("WRS")), AND(lit("WEN", 0))]
+        terms = [AND(lit("WRS")), AND(lit("WEN", 0)), AND(lit("KILL_n", 0))]
         for i in range(5):
             terms += [AND(lit(addr[i]), lit(W[i], 0)), AND(lit(addr[i], 0), lit(W[i]))]
         outs[f"RFWE{c}_n"] = (OR(*terms), False, False)

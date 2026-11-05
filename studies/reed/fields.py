@@ -37,7 +37,8 @@ SEQ_JUMP, SEQ_DECODE, SEQ_DECODE_NOIRQ, SEQ_BRDEC = 0, 1, 2, 3
 # CND: the condition a JUMP XORs into JT's bit 0 (0: none, so JT itself)
 # (interrupts are taken at a decode, not tested; KILL: the cycle is
 # cancelled, MEM's KILL_n, which word 0 tells a fault's entry from reset
-# by; FFQ: a fetch has faulted; ILEN0-1: the executing instruction's
+# by; FFQ: a fetch has faulted and the decode pointer's instruction isn't
+# all there; ILEN0-1: the executing instruction's
 # length in parcels; IRQP: an interrupt is pending and enabled)
 CND = {"NONE": 0, "Z": 1, "N": 2, "C": 3, "V": 4, "ST": 5, "MQ0": 6, "KILL": 7,
        "CC_OP": 8, "CC_D": 9, "FFQ": 10, "ILEN0": 11, "ILEN1": 12, "IRQP": 13}
@@ -86,7 +87,7 @@ STOP = {"HOLD": 0, "Z": 1, "F31": 2, "C32": 3}
 
 # MEM
 # (FPC loads on CTRL's FLUSH.) SYSW: S from B31; CTXW: CTX (the page map's
-# context, bit 7 the map's enable) from B7-B0; MAPW: the page map's entry
+# context from B6-B0, its enable from B31); MAPW: the page map's entry
 # at CTX and MAR from B; FARR: FAR and FSR onto B
 MOP = {"NONE": 0, "LOAD": 1, "STORE": 2, "SYSW": 3, "CTXW": 4, "MAPW": 5, "FARR": 6}
 # (INDEX: the index parcel's z, from CTRL on the IZ lines: 0 byte, 1 half,

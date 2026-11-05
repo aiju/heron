@@ -43,6 +43,7 @@ def main(argv=None):
     z.add_argument("families", nargs="*")
     z.add_argument("--n", type=int, default=200)
     z.add_argument("--seed", type=int, default=1)
+    sub.add_parser("systest")
     q = sub.add_parser("sta")
     q.add_argument("--word")
     q.add_argument("--paths", type=int, default=2)
@@ -75,6 +76,9 @@ def main(argv=None):
     elif a.cmd == "fuzz":
         from . import fuzz
         fuzz.main(a.families or None, a.n, a.seed)
+    elif a.cmd == "systest":
+        from . import systest
+        return systest.main()
     elif a.cmd == "estimate":
         from . import estimate
         estimate.main()

@@ -115,8 +115,9 @@ def page_map(nl, ck):
     (RV21-RV12, from MAR or FPC) and the RAM's page bits (RA21-RA12), 128
     contexts of 1024 entries (a context is 4 MB: the virtual address's
     bits 21-12), each the physical page (bits 21-12) and V, W, X. CTX (an
-    823 loaded from B by MOP CTXW) holds the context, its bit 7 the map's
-    enable (reset clears it: the map is off). While the map translates (U_MAPC: enabled, and the address's
+    823 loaded from B by MOP CTXW: B6-B0, and B31 into bit 7) holds the
+    context, its bit 7 the map's enable (reset clears it: the map is
+    off). While the map translates (U_MAPC: enabled, and the address's
     bit 31 clear) it drives RA21-RA12; else the bypass's 541s pass the
     virtual address straight through (the map off, or the supervisor's
     window: bit 31 set). MOP MAPW writes the entry at CTX and MAR from B
@@ -130,8 +131,9 @@ def page_map(nl, ck):
     W, a fetch from one without X, a translated address above 4 MB (bits
     30-22 not 0), a user's address with bit 31 set."""
     ctx = bus("CTX", 8)
+    # (bit 7, the map's enable, from B31: ctx's bit 31)
     nl.add("823", "U_CTX", OE="GND", CLK=ck[1], EN="CTXW_n", CLR="RESET_n",
-           **{f"D{i + 1}": BP.B[i] for i in range(8)}, D9="GND",
+           **{f"D{i + 1}": BP.B[i] for i in range(7)}, D8=BP.B[31], D9="GND",
            **{f"Q{i + 1}": ctx[i] for i in range(8)}, Q9="CTX_NC")
     for k in range(2):
         nl.add("sram512", f"U_MAP{k}", role="fastram", CE="GND", OE="MAPOE_n", WE="MAPWE_n",

@@ -23,9 +23,10 @@ A cycle that faults (FAULT: misaligned, z 3, the page map's) is cancelled
 as the netlist cancels it: CTRL's and ALU's fields read 0 for it and the
 next (KILL), MEM's strobes don't come, and the next address is 0.
 
-A result is written into the register file at the cycle's end: in the
-netlist it is written in the next cycle's write phase, and that cycle's
-reads of it take Y through the bypass, which is the same. A bus that
+A result is written into the register file as the next cycle starts (in
+the netlist it is written in the next cycle's write phase, and that
+cycle's reads of it take Y through the bypass, which is the same), and
+taken back if that cycle faults: the write strobe doesn't come then. A bus that
 two drivers drive, or that something reads while nothing drives it, is
 a microcode error.
 
@@ -296,6 +297,7 @@ class Model:
         self.nop = self.nrb = self.op = self.rb = 0
         self.pnl, self.pc, self.h, self.iflag = 0, 0, 0, 0
         self.ilen = 0
+        self.pending = None
         self.irq1 = self.irqs = 0
         self.ffq = 0
         # ALU (the register file by bank: EB picks one; 0x100 the system's)
@@ -319,6 +321,7 @@ class Model:
         self.ucount = None
 
     def bank(self, n):
+        self._apply_pending()
         b = self.banks.get(n)
         if b is None:
             b = self.banks[n] = [0] * 32
@@ -399,7 +402,19 @@ class Model:
 
     # ---- a microcycle -----------------------------------------------------------
 
+    def _apply_pending(self):
+        """The last cycle's result into its register: (the undo, or None)."""
+        p = self.pending
+        if p is None:
+            return None
+        lst, i, v = p
+        self.pending = None
+        old = lst[i]
+        lst[i] = v
+        return (lst, i, old)
+
     def step(self):
+        undo = self._apply_pending()
         w, n = self.mir, self.cs[self.upc]
         q, pv, rf = self.q, self.pv, self.rf
         op, rb = self.op, self.rb
@@ -438,6 +453,9 @@ class Model:
         kill = fault or killq
         if kill:
             w = _zero_board(w, ("CTRL", "ALU"))
+            if undo is not None:
+                lst, i, old = undo
+                lst[i] = old
         # the executing instruction's condition, and FLUSH
         cc = rd if (op >> 6) & 1 else op & 15
         taken = taken_of(cc, fn, fz, fc, fv)
@@ -549,7 +567,7 @@ class Model:
             elif w.MOP == F.MOP["CTXW"]:
                 if B is None:
                     raise ModelError(f"µ{w.addr:04X}: CTX from an undriven B")
-                self.ctx = B & 0xFF
+                self.ctx = (B & 0x7F) | (B >> 31) << 7
             elif w.MOP == F.MOP["MAPW"]:
                 if B is None:
                     raise ModelError(f"µ{w.addr:04X}: the page map from an undriven B")
@@ -622,7 +640,7 @@ class Model:
             self.rf = rf = self.bank(self.eb)
         ws = w.WS
         if ws:
-            rf[rd if ws == 1 else rs if ws == 2 else w.K] = f
+            self.pending = (rf, rd if ws == 1 else rs if ws == 2 else w.K, f)
         # MEM (MAR and MQ load in a cancelled cycle too: from whatever A
         # and B have)
         if w.MARLD:
@@ -759,7 +777,9 @@ class Model:
         if cnd == C["KILL"]:
             return int(self._kill)
         if cnd == C["FFQ"]:
-            return self.ffq
+            av, dp = self.av, self.dp
+            ready = all(av[(dp + k) & 3] for k in range(max(1, self.dt_len[self.q[dp]])))
+            return int(self.ffq and not ready)
         if cnd == C["ILEN0"]:
             return self.ilen & 1
         if cnd == C["ILEN1"]:
@@ -782,10 +802,13 @@ class Model:
             step()
             s = stops.get(self.mir.addr)
             if s:
+                self._apply_pending()
                 return s
+        self._apply_pending()
         return None
 
     def regs(self):
+        self._apply_pending()
         return list(self.rf[:16])
 
     def sysregs(self):

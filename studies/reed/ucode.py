@@ -45,6 +45,9 @@ from . import fields as F
 from .ctrl import IVEC, WAITD
 
 WORDS = 1 << F.ADDR_BITS
+# where a path stops for the parcels' check: the stops, and the exceptions,
+# which empty the queue
+STOPS = ("unimpl", "halted", "halt", "halt1", "illegal", "divzero", "privilege", "fault_go")
 CTRL_DIRECT = ("JT", "SEQ", "CND", "LEN", "CSPARE")
 # fields whose 0 isn't "nothing"
 DEFAULTS = {"ALU": {"RAS": F.RAS["NONE"], "RBS": F.RBS["NONE"], "BIN": F.BIN["NONE"]}}
@@ -85,7 +88,8 @@ class Word:
         return self.f[board].get(name, DEFAULTS.get(board, {}).get(name, 0))
 
     def drives_b(self):
-        return (self.get("CTRL", "IMM") != F.IMM["NONE"] or self.get("MEM", "MOP") == F.MOP["LOAD"]
+        return (self.get("CTRL", "IMM") != F.IMM["NONE"]
+                or self.get("MEM", "MOP") in (F.MOP["LOAD"], F.MOP["FARR"])
                 or bool(self.get("ALU", "BOUT")) or self.get("MEM", "MQ") == F.MQ["DRIVE"])
 
     def may_load_pc(self):
@@ -170,7 +174,8 @@ class Program:
             name = w.label or hex(w.addr)
             if w.may_load_pc() and w.get("CTRL", "BFREE"):
                 errors.append(f"{name}: fetches in a word that may load PC")
-            onto_b = [w.get("CTRL", "IMM") != F.IMM["NONE"], w.get("MEM", "MOP") == F.MOP["LOAD"],
+            onto_b = [w.get("CTRL", "IMM") != F.IMM["NONE"],
+                      w.get("MEM", "MOP") in (F.MOP["LOAD"], F.MOP["FARR"]),
                       bool(w.get("ALU", "BOUT")), w.get("MEM", "MQ") == F.MQ["DRIVE"]]
             if sum(onto_b) > 1:
                 errors.append(f"{name}: two drivers onto B")
@@ -204,7 +209,7 @@ class Program:
         (entry_parcels: {label: parcels})."""
         errors = []
         for label, n in entry_parcels.items():
-            if label in ("unimpl", "halt"):
+            if label in STOPS:
                 continue
             seen = set()
             todo = [(self.words[self.addr(label)], 0)]
@@ -225,7 +230,7 @@ class Program:
                         errors.append(f"{label}: ends at {w.label} having consumed {used} of {n - 1}")
                         break
                     continue
-                todo.extend((s, used) for s in succ if s.label not in ("unimpl", "halted", "halt", "halt1"))
+                todo.extend((s, used) for s in succ if s.label not in STOPS)
         if errors:
             raise ValueError("parcels:\n  " + "\n  ".join(errors[:20]))
 
@@ -375,7 +380,9 @@ def load_src(size):
 # ---- the indexed modes ------------------------------------------------------------
 
 PE = "BIN=BUS IMM=PE_ZX"
-TRAP = "unimpl"
+# an index parcel's z of 3, a reserved form: the illegal instruction's
+# exception (ucode_sys)
+TRAP = "illegal"
 
 
 def trap_word():
@@ -916,11 +923,14 @@ def divide(p, entries):
            W(None, "RAS=d AOP=PASSA FL=NZ", next="decode")]
     p.routine(*end)
     loop = div_bits(p, "RBS=s BIN=RF", end[0])
-    first = [W("DIVU.r", "RBS=s BIN=RF AOP=PASSB FL=NZ"),                  # Z: rs = 0
+    # (rs = 0 on ST, an AND with all ones, so that the divide error
+    # leaves the flags)
+    first = [W("DIVU.r", f"RAS=K K={K_M1} RBS=s BIN=RF AOP=AND STOP=C32"),
              W(None, f"RAS=d AOP=PASSA WS=K K={T1}"),
              W(None, f"AOP=ZERO WS=K K={T0}"),
              W(None, f"RAS=K K={T1} AOP=SHL CI=0 FL=NZCV WS=K")]          # the first top bit out
-    first[2].next = ("if", "Z", p.pair(W(None, "", next=("jump", p._label(first[3]))), trap_word()))
+    first[2].next = ("if", "ST", p.pair(W(None, "", next=("jump", "divzero")),
+                                        W(None, "", next=("jump", p._label(first[3])))))
     first[3].next = ("jump", loop.label)
     p.place(first[3])
     p.routine(*first[:3])
@@ -974,10 +984,16 @@ def divide(p, entries):
             W(None, f"RBS=K K={T0} BIN=RF BOUT=1 MQ=LOAD", next=("jump", j_.label))]
     w4 = W(None, "", next=("if", "N", p.pair(pos, dneg[0])))                 # the divisor's N (W1's)
     p.routine(*dneg)
-    w3 = W(None, f"RAS=d AOP=PASSA FL=NZ WS=K K={T1}",
-           next=("if", "Z", p.pair(w4, trap_word())))                       # the divisor's Z (W1's)
-    p.routine(W("DIVS.r", "RBS=s BIN=RF AOP=PASSB FL=NZ"),
-              W(None, f"RAS=d RBS=s BIN=RF AOP=XOR WS=K K={T2}"), w3)
+    w3 = W(None, f"RAS=d AOP=PASSA FL=NZ WS=K K={T1}", next=("jump", w4.label if w4.label else p._label(w4)))
+    p.place(w4)
+    # (rs = 0 first, on ST, before any flag changes: the divide error
+    # leaves them; then the divisor's N, W1's, which w4 decides on)
+    w1 = W(None, "RBS=s BIN=RF AOP=PASSB FL=NZ")
+    p.routine(w1, W(None, ""), w3)
+    p.routine(W("DIVS.r", f"RAS=K K={K_M1} RBS=s BIN=RF AOP=AND STOP=C32"),
+              W(None, f"RAS=d RBS=s BIN=RF AOP=XOR WS=K K={T2}"),
+              W(None, "", next=("if", "ST", p.pair(W(None, "", next=("jump", "divzero")),
+                                                  W(None, "", next=("jump", w1.label))))))
     entries[(0xE8, None, None)] = ("DIVS.r", 1)
 
 
@@ -1122,29 +1138,58 @@ def branches(p, entries):
 # ---- SAVE and RESTORE --------------------------------------------------------------------------
 
 def save_restore(p, entries):
-    """SAVE ra-rb: rb down to ra, each a pre-decrement of sp into MAR and a
-    store; RESTORE ra-rb: ra up to rb, each sp into MAR (sp += 4) and a
-    load. A chain for each fixed end, entered at the other."""
+    """SAVE ra-rb: rb down to ra, each T0 -= 4 into MAR and a store;
+    RESTORE ra-rb: ra up to rb, each T0 into MAR (T0 += 4) and a load. T0
+    starts as sp (through MQ: one K a word) and goes back into sp at the
+    end, so that sp changes after the last access (RFC 0029's precise
+    faults: SAVE and RESTORE update sp last). A chain for each fixed end,
+    entered at the other; the end's access (ra's, by d: K is free) also
+    takes T0 into MQ."""
+    to_t0 = lambda: [W(None, f"RBS=K K={SP} BIN=RF BOUT=1 MQ=LOAD"),
+                     W(None, f"MQ=DRIVE BIN=BUS AOP=PASSB WS=K K={T0}")]
+    to_sp = lambda: W(None, f"MQ=DRIVE BIN=BUS AOP=PASSB WS=K K={SP}", next="decode")
     for ra in range(15):
         chain = {}
         for j in range(ra, 15):
-            a = W(None, f"RAS=K K={SP} AOP=SUB CI=OWN BIN=BUS IMM=FOUR AOUT=F WS=K MARLD=1")
-            b = W(None, f"RAS=K K={j} AOUT=OA MOP=STORE MSZ=WORD DACC=1",
-                  next="decode" if j == ra else ("jump", chain[j - 1][0].label))
+            a = W(None, f"RAS=K K={T0} AOP=SUB CI=OWN BIN=BUS IMM=FOUR AOUT=F WS=K MARLD=1")
+            if j == ra:
+                b = W(None, f"RAS=d AOUT=OA MOP=STORE MSZ=WORD DACC=1 RBS=K K={T0} BIN=RF BOUT=1 MQ=LOAD")
+                end = to_sp()
+                b.next = ("jump", p._label(end))
+                p.place(end)
+            else:
+                b = W(None, f"RAS=K K={j} AOUT=OA MOP=STORE MSZ=WORD DACC=1",
+                      next=("jump", chain[j - 1][0].label))
             a.next = ("jump", p._label(b))
             p.place(a), p.place(b)
             chain[j] = (a, b)
-            entries[(0xF4, ra, j)] = (a.label, 1)
+            start = to_t0()
+            start[0].next = ("jump", p._label(start[1]))
+            start[1].next = ("jump", a.label)
+            p.place(start[0]), p.place(start[1])
+            entries[(0xF4, ra, j)] = (start[0].label, 1)
     for rb in range(15):
         chain = {}
         for j in range(rb, -1, -1):
-            a = W(None, f"RAS=K K={SP} AOUT=OA AOP=ADD CI=0 BIN=BUS IMM=FOUR WS=K MARLD=1")
-            b = W(None, f"AOP=PASSB {load_src('w')} WS=K K={j}",
-                  next="decode" if j == rb else ("jump", chain[j + 1][0].label))
+            a = W(None, f"RAS=K K={T0} AOUT=OA AOP=ADD CI=0 BIN=BUS IMM=FOUR WS=K MARLD=1")
+            b = W(None, f"AOP=PASSB {load_src('w')} WS=K K={j}")
+            # (the last load, rb's, goes on to put T0, past it, into sp)
+            if j != rb:
+                b.next = ("jump", chain[j + 1][0].label)
             a.next = ("jump", p._label(b))
             p.place(a), p.place(b)
             chain[j] = (a, b)
-            entries[(0xF5, j, rb)] = (a.label, 1)
+            start = to_t0()
+            start[0].next = ("jump", p._label(start[1]))
+            start[1].next = ("jump", a.label)
+            p.place(start[0]), p.place(start[1])
+            entries[(0xF5, j, rb)] = (start[0].label, 1)
+        # the end: T0 into sp, through MQ
+        last = chain[rb][1]
+        fin = [W(None, f"RBS=K K={T0} BIN=RF BOUT=1 MQ=LOAD"), to_sp()]
+        fin[0].next = ("jump", p._label(fin[1]))
+        p.place(fin[0]), p.place(fin[1])
+        last.next = ("jump", fin[0].label)
 
 
 # ---- the decode table -------------------------------------------------------------------
@@ -1158,15 +1203,22 @@ def build():
     # queue empty, EB 0; then the constants, and WAITD until the first
     # instruction is in
     boot = Word("boot", "AOP=ZERO AOUT=F PCOP=LOAD IMM=ZERO EBLD=1", next=("jump", "_consts"))
-    fault = Word("fault", "", next=("jump", "unimpl"))
+    fault = Word("fault", "", next=("jump", "fault_go"))
     p.place(Word("reset", "", next=("if", "KILL", p.pair(boot, fault))), at=0)
     p.place(Word("waitd", "", next="decode", note="decode again"), at=WAITD)
     p.place(Word("halt", "", next=("jump", "halt1")), at=6)
     p.place(Word("halt1", "", next=("jump", "halted")), at=8)
     p.place(Word("halted", "", next=("jump", "halted")), at=9)
     p.place(Word("unimpl", "", next=("jump", "unimpl")), at=7)
-    first = reset_constants(p, "waitd")
+    # (then the system bank's: its constants, the special registers' reset
+    # values and the system's constants)
+    from . import ucode_sys
+    sys_consts = ucode_sys.system_constants(p, "waitd")
+    to_sys = W(None, ucode_sys.EB_SYS, next=("jump", reset_constants(p, sys_consts)))
+    p.place(to_sys)
+    first = reset_constants(p, to_sys.label)
     p.labels["_consts"] = p.addr(first)
+    ucode_sys.system(p, entries)
     ea_rows(p, entries)
     stores(p, entries)
     lea(p, entries)
@@ -1193,9 +1245,7 @@ def entry(p, parcel):
     for key in ((op, hi, lo), (op, None, lo), (op, hi, None), (op, None, None)):
         if key in e:
             return e[key]
-    if op == 0xFE and rb == 3:
-        return "halt", 1
-    return "unimpl", 1
+    return "illegal", 1
 
 
 def decode_table(p):

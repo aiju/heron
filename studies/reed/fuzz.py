@@ -61,9 +61,10 @@ def compare(ref, m):
     bad = []
     if m.stopped != "halt":
         bad.append(f"the model stopped at {m.stopped}")
+    regs = m.regs()
     for r in range(16):
-        if m.rf[r] != ref.r[r]:
-            bad.append(f"r{r} {m.rf[r]:08X}, the reference {ref.r[r]:08X}")
+        if regs[r] != ref.r[r]:
+            bad.append(f"r{r} {regs[r]:08X}, the reference {ref.r[r]:08X}")
     fz = m._znow() if m.zpend else m.fzh
     flags = (m.fn, fz, m.fc, m.fv)
     rflags = (int(ref.n), int(ref.z), int(ref.c), int(ref.v))
