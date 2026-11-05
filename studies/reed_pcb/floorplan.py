@@ -83,12 +83,12 @@ def alu_floorplan(boxes, halves=14):
     return fp
 
 
-def place(name="ALU", size=SIZE, params=Params(), gal_sockets=False):
+def place(name="ALU", size=SIZE, params=Params(), gal_sockets=False, layers=4):
     """Place a board by its floorplan: (board, placer, chips left over).
     Raises ValueError where a box doesn't fit its place or two overlap."""
     if name != "ALU":
         raise ValueError(f"no floorplan for {name} yet")
-    b = P.build_board(name, size, params, gal_sockets)
+    b = P.build_board(name, size, params, gal_sockets, layers)
     b.name += "-floorplan"
     pl = GridPlacer(b, b.region, params)
     plan = alu_floorplan(pl.boxes, pl.lat.halves)
@@ -104,6 +104,7 @@ def place(name="ALU", size=SIZE, params=Params(), gal_sockets=False):
         pl._set(ref, hc, row)
     pl.commit()
     place_decaps(b)
+    P.centre_decaps(b)
     return b, pl, []
 
 

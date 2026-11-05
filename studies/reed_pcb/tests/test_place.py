@@ -99,5 +99,31 @@ class Floorplan(unittest.TestCase):
             self.assertEqual(demo.check(b, pl)["problems"], [])
 
 
+@unittest.skipUnless(footprints.available(place.EXTRA), NEEDS)
+class Routed(unittest.TestCase):
+    def test_floorplan_routes_on_six_layers(self):
+        """The floorplan's board routes completely on six layers, and passes
+        the four checks (route.py), in seconds."""
+        import tempfile
+
+        from heron.studies.reed_pcb import floorplan, route
+        b, pl, _ = floorplan.place(layers=6)
+        with tempfile.TemporaryDirectory() as d:
+            res = route.route(b, out=d)
+        self.assertEqual(res["unrouted"], [])
+        self.assertEqual(res["fanout_crowded"], [])
+        self.assertTrue(res["checks"]["passed"], res["checks"])
+
+    def test_clearance_check_finds_a_violation(self):
+        from heron.infra.pcb import board as B
+
+        from heron.studies.reed_pcb import route
+        b = B.Board("t", 20, 20, layers=4)
+        b.tracks = [("F.Cu", 1, 1, 10, 1, 0.127, "A"), ("F.Cu", 1, 1.2, 10, 1.2, 0.127, "B"),
+                    ("B.Cu", 1, 1.2, 10, 1.2, 0.127, "C"), ("F.Cu", 1, 5, 10, 5, 0.127, "D")]
+        bad = route.clearance_check(b)
+        self.assertEqual(sorted(tuple(sorted(x[:2])) for x in bad), [("A", "B")])
+
+
 if __name__ == "__main__":
     unittest.main()

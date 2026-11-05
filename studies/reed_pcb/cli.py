@@ -12,10 +12,41 @@
                         floorplan.py rather than annealed (the ALU);
                         --gal-sockets: the ATF22V10C-5s in PLCC-28 sockets,
                         not soldered
+  route [the same options] [--layers 4|6]
+                        place a board the same way, then fan out, route on
+                        infra's grid router and check it, into
+                        build/reed_pcb/<name>-<n>L/: board.kicad_pcb,
+                        board.png, result.json
 """
 
 import argparse
 import json
+
+
+def _placed(args, layers):
+    """(board, placer, chips left over) as the options ask."""
+    from heron.studies.pcb_columns.grid import Params
+
+    from . import floorplan, place
+    prm = Params(half=args.half, gap=args.gap, module=args.module, pads=args.pads)
+    default = floorplan.SIZE if args.floorplan else place.CARD
+    size = tuple(float(v) for v in args.size.lower().split("x")) if args.size else default
+    if args.floorplan:
+        return floorplan.place(args.board.upper(), size, prm, args.gal_sockets, layers)
+    b, pl, left = place.place(args.board.upper(), size, prm, args.seed, args.moves,
+                              args.gal_sockets, layers)
+    return b, pl, left
+
+
+def cmd_route(args):
+    from . import route
+    b, pl, left = _placed(args, args.layers)
+    if left:
+        print(f"doesn't fit: {len(left)} chips left over")
+        return 1
+    res = route.route(b, args.board.upper())
+    print(json.dumps(res, indent=1))
+    return 0 if res["routed"] and res["checks"]["passed"] else 1
 
 
 def cmd_place(args):
@@ -39,7 +70,18 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="heron reed_pcb", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("place", help="place a board on the column grid")
+    for cmd, fn, hlp in (("place", cmd_place, "place a board on the column grid"),
+                         ("route", cmd_route, "place a board, then route and check it")):
+        p = sub.add_parser(cmd, help=hlp)
+        _options(p)
+        p.set_defaults(fn=fn)
+        if cmd == "route":
+            p.add_argument("--layers", type=int, default=6, choices=[4, 6])
+    args = ap.parse_args(argv)
+    return args.fn(args)
+
+
+def _options(p):
     p.add_argument("--board", default="ALU", help="CTRL, ALU or MEM")
     p.add_argument("--size", help="the card: depth x height, mm (a double Eurocard: 160x233.35)")
     p.add_argument("--floorplan", action="store_true",
@@ -53,6 +95,3 @@ def main(argv=None):
                    help="rows from a DIP's last pin to the next DIP's pin 1")
     p.add_argument("--module", type=int, default=1, help="box heights in whole modules of N rows")
     p.add_argument("--pads", default="round", choices=["round", "long", "socket", "socket-long"])
-    p.set_defaults(fn=cmd_place)
-    args = ap.parse_args(argv)
-    return args.fn(args)

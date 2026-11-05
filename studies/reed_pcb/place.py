@@ -134,7 +134,7 @@ def connector_part(inst, width, height):
     return part
 
 
-def build_board(name, size=CARD, params=Params(), gal_sockets=False):
+def build_board(name, size=CARD, params=Params(), gal_sockets=False, layers=4):
     """The board with its parts, the connectors and mechanics in place,
     the chips not yet placed."""
     footprints.use(EXTRA)
@@ -142,7 +142,7 @@ def build_board(name, size=CARD, params=Params(), gal_sockets=False):
     rails = physical.rails(nl)
     w, h = size
     tag = ("-sockets" if gal_sockets else "") + ("" if size == CARD else f"-{w:g}x{h:g}")
-    b = B.Board(f"{name.lower()}-{params.label()}{tag}", w, h, layers=4)
+    b = B.Board(f"{name.lower()}-{params.label()}{tag}", w, h, layers=layers)
     b.packages = {}
     for ref, insts, conn in _groups(nl):
         inst = insts[0]
@@ -174,15 +174,33 @@ def build_board(name, size=CARD, params=Params(), gal_sockets=False):
 OVER_COST = 10000.0
 
 
-def place(name, size=CARD, params=Params(), seed=1, moves=60000, gal_sockets=False):
+def place(name, size=CARD, params=Params(), seed=1, moves=60000, gal_sockets=False, layers=4):
     """Place a board: (board, placer, chips left over)."""
-    b = build_board(name, size, params, gal_sockets)
+    b = build_board(name, size, params, gal_sockets, layers)
     pl = GridPlacer(b, b.region, params, seed=seed)
     pl.over_cost = OVER_COST
     left = pl.run(moves)
     if not left:
         place_decaps(b)
+        centre_decaps(b)
     return b, pl, left
+
+
+def centre_decaps(b):
+    """Under a surface-mount PLCC, the capacitor at the body's middle, which
+    has no pads, rather than level with the VCC pin (place_decaps): there
+    its vias, out along its axis, keep clear of the pins' inner ends,
+    where at pin 1 one of them met the pad."""
+    from heron.infra.pcb import kicadlib
+    for c in b.parts.values():
+        if c.kind != "decap":
+            continue
+        chip = b.parts.get(c.ref[1:])
+        if chip is None or not chip.fp.name.startswith("Package_LCC:PLCC") or not chip.fp.smd:
+            continue
+        bx, by = chip.body_centre()
+        dx, dy = kicadlib.rotate(bx, by, chip.rot)
+        c.place(chip.x + dx, chip.y + dy, (chip.rot + 90) % 180, "B")
 
 
 # ---- what a placement measures ---------------------------------------------------------
