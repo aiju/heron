@@ -381,7 +381,13 @@ pub mod v2 {
         fn sysregs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
             let s = self.m.sys();
             let d = PyDict::new(py);
-            for (k, v) in [("far", s.far), ("fsr", s.fsr), ("ctx", s.ctx), ("mapa", s.mapa), ("bank", s.bank)] {
+            for (k, v) in [
+                ("far", s.far),
+                ("fsr", s.fsr),
+                ("ctx", s.ctx),
+                ("mapa", s.mapa),
+                ("bank", s.bank),
+            ] {
                 d.set_item(k, v)?;
             }
             Ok(d)
@@ -417,7 +423,11 @@ pub mod v2 {
         /// Bank n's r0-r15 (the registers in use, if n is theirs).
         fn bank_regs(&self, n: usize) -> [u32; 16] {
             let s = self.m.sys();
-            if s.cur_bank == n { self.m.r } else { s.banks[n % v2_isa::sys::BANKS] }
+            if s.cur_bank == n {
+                self.m.r
+            } else {
+                s.banks[n % v2_isa::sys::BANKS]
+            }
         }
 
         fn set_bank_regs(&mut self, n: usize, regs: [u32; 16]) {
@@ -431,7 +441,12 @@ pub mod v2 {
 
         /// What went to the console.
         fn out<'py>(&mut self, py: Python<'py>) -> Bound<'py, PyBytes> {
-            let b = self.m.sys_mut().bus_as::<ConsoleBus>().map(|b| b.out.clone()).unwrap_or_default();
+            let b = self
+                .m
+                .sys_mut()
+                .bus_as::<ConsoleBus>()
+                .map(|b| b.out.clone())
+                .unwrap_or_default();
             PyBytes::new(py, &b)
         }
 
