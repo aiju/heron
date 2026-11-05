@@ -141,7 +141,7 @@ def build_board(name, size=CARD, params=Params(), gal_sockets=False):
     nl = netlist(name)
     rails = physical.rails(nl)
     w, h = size
-    tag = "-sockets" if gal_sockets else ""
+    tag = ("-sockets" if gal_sockets else "") + ("" if size == CARD else f"-{w:g}x{h:g}")
     b = B.Board(f"{name.lower()}-{params.label()}{tag}", w, h, layers=4)
     b.packages = {}
     for ref, insts, conn in _groups(nl):
