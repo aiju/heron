@@ -160,15 +160,56 @@ operands leave no word free to fetch.
   operand's words, the load into T0, the jump and its tail, then the
   refill.
 
+## 6. The easy wins, built (2026-11-05)
+
+From section 5's list, what took no new chips on CTRL:
+
+- **The indexed mode's size from the parcel:** z on two spare backplane
+  lines (IZ, through U_XL's spare channels); MSZ INDEX takes it, U_SZ (a
+  new GAL on MEM) making the access's size SZ; N and Z at the operand's
+  size take SZ too (NSZ SZ), so U_FLB needed no new inputs (ST moved to
+  U_ZH). The z tests are gone. A z of 3, which should trap, isn't caught.
+- **D8:** the parcel's low byte sign-extended as an immediate (U_PL0 and
+  U_PL1 enabled apart; B8 is FILL's from U_F9's spare channel, U_IMMG
+  giving B0-B7 only). The three-word sign extension through MQ is gone.
+  `[R + x*s + d8]` is now the scale's 3-6 words, T1 += R, T1 + D8 into
+  MAR, and the access: 7-9 microcycles from about 17. The 24-bit forms
+  (`[abs24 + x]`, `[pc + d24 + x]`) are as before.
+- **A JMP through memory or to a constant** loads PC straight from the
+  load or the constant, a word less.
+- **A shift by a register** is a 32-way tree on the count (in MQ, off
+  MQ0) into the shift by n's words: 7 + n from 2n + 2.
+
+CTRL stays at 72 packages, MEM goes to 66. At `full`, at 7 ticks:
+
+| Workload | Before | After | |
+|---|---:|---:|---:|
+| `m6502` | 671 ns | 479 ns | -29% |
+| `gfx_desktop` | 638 ns | 535 ns | -16% |
+| `editor` | 482 ns | 412 ns | -14% |
+| `inflate` | 590 ns | 516 ns | -12% |
+| `forth` | 502 ns | 456 ns | -9% |
+| `ttf` | 532 ns | 506 ns | -5% |
+| `lisp` | 363 ns | 347 ns | -4% |
+| `rts` | 718 ns | 687 ns | -4% |
+| `textutils` | 484 ns | 470 ns | -3% |
+| `gfx_sprites` | 445 ns | 436 ns | -2% |
+| `db` | 550 ns | 540 ns | -2% |
+| `cc` | 494 ns | 489 ns | -1% |
+
+What's largest now: the multiply (`MULS` 24-38% of db, rts and
+textutils), WAITD (the refill after a jump, 9-25% everywhere), `Bcc`
+(8-17%), `DBNZ` (7-15% of the graphics workloads), and m6502's table
+jump (27%, the scale's tests and the refill after it).
+
 ## What I'd do
 
 Each is a small piece of hardware, measured here before anything is
 built. In the order I'd look at them:
 
-1. **An index dispatch:** the index parcel's s and z bits as a multiway
-   jump (or a second decode-table lookup of the parcel), and d8
-   sign-extended as an immediate: the indexed modes from 15-25
-   microcycles to about 3.
+1. **An index dispatch** (the rest of it, after section 6): the scale as
+   a multiway jump on s, the indexed modes from 7-9 microcycles to about
+   4.
 2. **The fetch:** a word fetched ahead whenever MEM is free, and the
    queue's refill after a jump overlapped with the jump's own words
    (WAITD is 7-24% everywhere); and a jump through memory with the load
