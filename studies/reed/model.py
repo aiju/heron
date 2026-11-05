@@ -120,7 +120,7 @@ class Model:
         # ALU
         self.rf = [0] * 32
         self.fn = self.fc = self.fv = self.zl = self.zh = self.zb = self.zpend = self.fzh = self.fst = 0
-        self.zsz = 0
+        self.zsz = 2
         self.qin = 0
         # MEM
         self.mar = self.al = self.iosp = 0
@@ -197,6 +197,9 @@ class Model:
         taken = taken_of(cc, fn, fz, fc, fv)
         flush = w.PCOP == F.PCOP_LOAD or (w.TK and taken)
         pe = q[self.ep]
+        # the access's size (U_SZ): the word's MSZ, or for INDEX the index
+        # parcel's z (its 3, which should trap, isn't caught)
+        sz = w.MSZ if w.MSZ != 3 else (pe >> 8) & 3
         A = B = None
         # CTRL onto A (PC through the branch adder) and B (the immediates)
         if w.PCOP in (F.PCOP_DRIVE, F.PCOP_BRANCH):
@@ -219,7 +222,7 @@ class Model:
         if w.MOP == F.MOP["LOAD"]:
             if B is not None:
                 raise ModelError(f"µ{w.addr:04X}: a load onto a driven B")
-            B = self._load(w.MSZ)
+            B = self._load(sz)
         if w.MQ == F.MQ["DRIVE"]:
             if B is not None:
                 raise ModelError(f"µ{w.addr:04X}: MQ onto a driven B")
@@ -281,7 +284,7 @@ class Model:
         if w.MOP == F.MOP["STORE"]:
             if A is None:
                 raise ModelError(f"µ{w.addr:04X}: a store from an undriven A")
-            self._store(w.MSZ, A)
+            self._store(sz, A)
         # ---- the cycle's end ----------------------------------------------------
         # the sequencer: the word after the next, from the next's direct fields
         seq = n.SEQ
@@ -315,11 +318,11 @@ class Model:
             self.fc = (oa & 1) if bin_ == F.BIN["SHIFT"] else c32
             self.fv = 0
         if setnz:
-            nsz = w.NSZ
-            self.fn = f31 if nsz == 0 else (f >> 15) & 1 if nsz == 1 else (f >> 7) & 1
+            nz_sz = sz if w.NSZ else 2
+            self.fn = (f >> 7) & 1 if nz_sz == 0 else (f >> 15) & 1 if nz_sz == 1 else f31
         self.fzh = self._znow() if self.zpend else self.fzh
         self.zl, self.zh, self.zb = int(f & 0xFFFF == 0), int(f >> 16 == 0), int(f & 0xFF == 0)
-        self.zpend, self.zsz = int(setnz), w.NSZ
+        self.zpend, self.zsz = int(setnz), (sz if w.NSZ else 2)
         stop = w.STOP
         if stop == F.STOP["F31"]:
             self.fst = f31
@@ -398,8 +401,8 @@ class Model:
 
     def _znow(self):
         """Z from ZL, ZH and ZB as the size registered with them says."""
-        z = self.zsz
-        return (self.zl & self.zh) if z == 0 else self.zl if z == 1 else self.zb
+        z = self.zsz           # SZ's code: 0 byte, 1 half, 2 (or 3) word
+        return self.zb if z == 0 else self.zl if z == 1 else (self.zl & self.zh)
 
     def _imm(self, imm, pe, op, rs, rd, rb):
         I = F.IMM
@@ -429,6 +432,8 @@ class Model:
             return 4
         if imm == I["VEC"]:
             return 0x40
+        if imm == I["D8"]:
+            return sext(pe, 8) & MASK
         raise ModelError(f"IMM {imm}")
 
     def _cond(self, cnd, fn, fz, fc, fv, mq0, op, rd):

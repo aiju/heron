@@ -254,7 +254,12 @@ def flags(nl, ck):
     # U_ZL: the low half zero, and the low byte (ZB); U_ZH the high half
     G.add(nl, "U_ZL", {"ZL": ([{n: 0 for n in FN[:16]}], True, False),
                        "ZB": ([{n: 0 for n in FN[:8]}], True, False)}, clock=ck[2])
-    G.add(nl, "U_ZH", {"ZH": ([{n: 0 for n in FN[16:]}], True, False)}, clock=ck[2])
+    # (and ST, the microcode's flag: F31, the carry out, or held, by STOP)
+    stop = f("STOP")
+    G.add(nl, "U_ZH", {"ZH": ([{n: 0 for n in FN[16:]}], True, False),
+                       "FST": (OR(AND(eq(stop, F.STOP["F31"]), lit("F31")),
+                                  AND(eq(stop, F.STOP["C32"]), lit("C32_n", 0)),
+                                  AND(eq(stop, F.STOP["HOLD"]), lit("FST"))), True, False)}, clock=ck[2])
     fl, aop, stop, si, nsz, bin_ = f("FL"), f("AOP"), f("STOP"), f("SI"), f("NSZ"), f("BIN")
     # which flags the operation sets: FL's
     set_nz = OR(eq(fl, F.FL["SH"]), eq(fl, F.FL["NZ"]), eq(fl, F.FL["NZCV"]))
@@ -283,22 +288,23 @@ def flags(nl, ck):
         "QIN": (lit("F0"), True, False),
     }
     G.add(nl, "U_FLA", outs, clock=ck[2])
-    # N from the operand's top bit (NSZ); Z, a cycle later, from ZL, ZH and
-    # ZB as the size registered with it (ZSZ) says
-    nbit = OR(AND(eq(nsz, F.NSZ["WORD"]), lit("F31")), AND(eq(nsz, F.NSZ["HALF"]), lit("F15")),
-              AND(eq(nsz, F.NSZ["BYTE"]), lit("F7")))
+    # N from the operand's top bit: NSZ SZ takes the access's size from
+    # MEM's SZ lines (0 byte, 1 half, 2 word); Z, a cycle later, from ZL,
+    # ZH and ZB as the size registered with it (ZSZ, in SZ's code) says
+    sz = BP.SZ
+    by_sz = lit(nsz[0])
+    nbit = OR(AND(negate(by_sz), lit("F31")), AND(by_sz, eq(sz, 0), lit("F7")),
+              AND(by_sz, eq(sz, 1), lit("F15")), AND(by_sz, lit(sz[1]), lit("F31")))
     zsz = ["ZSZ0", "ZSZ1"]
-    znow = OR(AND(eq(zsz, F.NSZ["WORD"]), lit("ZL"), lit("ZH")), AND(eq(zsz, F.NSZ["HALF"]), lit("ZL")),
-              AND(eq(zsz, F.NSZ["BYTE"]), lit("ZB")))
+    znow = OR(AND(lit(zsz[1]), lit("ZL"), lit("ZH")), AND(eq(zsz, 1), lit("ZL")), AND(eq(zsz, 0), lit("ZB")))
     outs = {
         "SETNZ": (set_nz, False, False),
         "FN": (OR(AND(snz, nbit), AND(lit("SETNZ", 0), lit("FN"))), True, False),
         "ZPEND": (snz, True, False),
-        "ZSZ0": (lit(nsz[0]), True, False),
-        "ZSZ1": (lit(nsz[1]), True, False),
+        # (the size Z is taken at, in SZ's code: the word's, 2, unless NSZ SZ)
+        "ZSZ0": (AND(by_sz, lit(sz[0])), True, False),
+        "ZSZ1": (OR(negate(by_sz), AND(by_sz, lit(sz[1]))), True, False),
         "FZH": (OR(AND(lit("ZPEND"), znow), AND(lit("ZPEND", 0), lit("FZH"))), True, False),
-        "FST": (OR(AND(eq(stop, F.STOP["F31"]), lit("F31")), AND(eq(stop, F.STOP["C32"]), c),
-                   AND(eq(stop, F.STOP["HOLD"]), lit("FST"))), True, False),
         "FZ": (OR(AND(lit("ZPEND"), znow), AND(lit("ZPEND", 0), lit("FZH"))), False, False),
     }
     G.add(nl, "U_FLB", outs, clock=ck[2])

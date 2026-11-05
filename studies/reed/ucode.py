@@ -308,7 +308,8 @@ def reset_constants(p, then):
 
 # ---- operands -------------------------------------------------------------------
 
-SIZE = {"w": "WORD", "b": "BYTE", "h": "HALF"}
+# (i: the index parcel's, MSZ INDEX)
+SIZE = {"w": "WORD", "b": "BYTE", "h": "HALF", "i": "INDEX"}
 # EA modes 0-E: (key, size) for those that aren't special
 MODES = {0: ("r", "w"), 1: ("q", "w"), 2: ("[r]", "w"), 3: ("[r+d]", "w"), 4: ("[sp+n]", "w"),
          5: ("[r+x]", None), 6: ("[r]+", "w"), 7: ("-[r]", "w"), 8: ("[r]", "b"), 9: ("[r+d]", "b"),
@@ -422,6 +423,36 @@ def size_of(state):
     return {0: "b", 1: "h", 2: "w"}[state["z0"] | state["z1"] << 1]
 
 
+def indexed_rx(p, label, dest, finals, sized):
+    """[R + x*s + d8]: T1 = x << s (s's bits tested on ST, the flags
+    staying, deciding two words later), T1 += R, then T1 + D8 (the
+    parcel's displacement, sign-extended, on B) into dest. Sized, the
+    access takes the parcel's size itself (MSZ INDEX, z on the IZ lines):
+    finals["i"]() follows, and consumes the parcel (PE is the parcel
+    until then); unsized, the sum consumes it and finals["w"]()."""
+    a1 = W(label, f"RAS=K K={K_0400} AOP=AND {PE} STOP=C32")                  # s0
+    a2 = W(None, f"RAS=K K={K_0800} AOP=AND {PE} STOP=C32")                   # s1
+    a3 = W(None, f"RBS=x BIN=RF AOP=PASSB WS=K K={T1}")                       # T1 = x; s0 decides
+    a4_1 = W(None, f"RAS=K K={T1} AOP=SHL CI=0 WS=K")
+    a4_0 = W(None, "")
+    b1 = W(None, f"RAS=K K={T1} AOP=SHL CI=0 WS=K")
+    b2 = W(None, f"RAS=K K={T1} AOP=SHL CI=0 WS=K")
+    tail = finals["i" if sized else "w"]()
+    j2 = W(None, f"RAS=K K={T1} AOP=ADD CI=0 BIN=BUS IMM=D8 {dest}" + ("" if sized else " IQC=NEXT"),
+           next=("jump", p._label(tail[0])))
+    j1 = W(None, f"RAS=K K={T1} AOP=ADD CI=0 RBS=s BIN=RF WS=K", next=("jump", p._label(j2)))
+    p.routine(*tail)
+    p.place(j2)
+    a4_1.next = a4_0.next = ("if", "ST", p.pair(W(None, "", next=("jump", p._label(j1))), b1))
+    p.place(j1)
+    b1.next, b2.next = ("jump", p._label(b2)), ("jump", j1.label)
+    p.place(b2)
+    a3.next = ("if", "ST", p.pair(a4_0, a4_1))
+    a1.next, a2.next = ("jump", p._label(a2)), ("jump", p._label(a3))
+    p.place(a1), p.place(a2), p.place(a3)
+    return label
+
+
 def indexed(p, label, kind, dest, finals, sized=True):
     """An indexed operand's address (kind "[r+x]", "[abs24+x]" or
     "[pc+d24+x]") into dest ("AOUT=F MARLD=1" for MAR, "WS=d" for LEA):
@@ -433,6 +464,8 @@ def indexed(p, label, kind, dest, finals, sized=True):
     The index parcel at PE: x (bits 15-12), s (11-10), z (9-8), d8 (7-0);
     for abs24 and d24, a23-16 in the low byte and the next parcel a15-0.
     A negative abs24 or d24 traps for now (unimpl)."""
+    if kind == "[r+x]":
+        return indexed_rx(p, label, dest, finals, sized)
     # T1 = x << s: s0 and s1 tested, decided two words later
     a1 = W(label, f"RAS=K K={K_0400} AOP=AND {PE} STOP=C32")
     a2 = W(None, f"RAS=K K={K_0800} AOP=AND {PE} STOP=C32")
@@ -499,7 +532,7 @@ def row_op(row, size="w"):
     if name == "MOV":
         return "AOP=PASSB WS=d"
     if name == "MOVS":
-        return f"AOP=PASSB WS=d FL=NZ NSZ={SIZE[size]}"
+        return "AOP=PASSB WS=d FL=NZ" + ("" if size == "w" else " NSZ=SZ")
     if name == "ADD":
         return "RAS=d AOP=ADD CI=0 FL=NZCV WS=d"
     if name in ("SUB", "CMP"):
@@ -519,8 +552,9 @@ def operand_routine(p, label, key, size, op):
         return label
     if key in INDEXED:
         return indexed(p, label, key, "AOUT=F MARLD=1",
-                       {s_: (lambda s_=s_: [W(None, f"{op(s_)} {load_src(s_)}", next="decode")])
-                        for s_ in "bhw"})
+                       {s_: (lambda s_=s_: [W(None, f"{op(s_)} {load_src(s_)}" + (" IQC=NEXT" if s_ == "i" else ""),
+                                              next="decode")])
+                        for s_ in "bhwi"})
     if key in CONSTANT:
         pre, src = constant_src(key)
         words = [W(None, f) for f in pre] + [W(None, f"{op('w')} {src}", next="decode")]
@@ -576,7 +610,8 @@ def store_routine(p, label, key, size, data):
     st = f"{data} MOP=STORE DACC=1"
     if key in INDEXED:
         return indexed(p, label, key, "AOUT=F MARLD=1",
-                       {s_: (lambda s_=s_: [W(None, f"{st} MSZ={SIZE[s_]}", next="decode")]) for s_ in "bhw"})
+                       {s_: (lambda s_=s_: [W(None, f"{st} MSZ={SIZE[s_]}" + (" IQC=NEXT" if s_ == "i" else ""),
+                                              next="decode")]) for s_ in "bhwi"})
     words = [W(None, f) for f in address_words(key, size)]
     words.append(W(None, f"{st} MSZ={SIZE[size]}", next="decode"))
     words[0].label = label
@@ -591,10 +626,11 @@ def rmw_routine(p, label, key, size, delta):
 
     def tail(s_):
         return [W(None, f"AOP=PASSB {load_src(s_)} WS=K K={T0}"),
-                W(None, f"RAS=K K={T0} {step} FL=NZ NSZ={SIZE[s_]} WS=K"),
-                W(None, f"RAS=K K={T0} AOUT=OA MOP=STORE MSZ={SIZE[s_]} DACC=1", next="decode")]
+                W(None, f"RAS=K K={T0} {step} FL=NZ NSZ=SZ MSZ={SIZE[s_]} WS=K"),
+                W(None, f"RAS=K K={T0} AOUT=OA MOP=STORE MSZ={SIZE[s_]} DACC=1"
+                        + (" IQC=NEXT" if s_ == "i" else ""), next="decode")]
     if key in INDEXED:
-        return indexed(p, label, key, "AOUT=F MARLD=1", {s_: (lambda s_=s_: tail(s_)) for s_ in "bhw"})
+        return indexed(p, label, key, "AOUT=F MARLD=1", {s_: (lambda s_=s_: tail(s_)) for s_ in "bhwi"})
     words = [W(None, f) for f in address_words(key, size)] + tail(size)
     words[0].label = label
     p.routine(*words)
@@ -729,28 +765,21 @@ def shifts(p, entries):
                 ws[0].label = label
                 p.routine(*ws)
             entries[(0xC0 | k << 2 | (n & 1), None, n >> 1)] = (label, 1)
-        # by rs & 31: count c in T0. i1 c (Z if 0), i2 c-1 (Z if 1), i3
-        # c-2 (Z if 2); i3's successor from i1's flags, i4's from i2's, y1's
-        # from i3's, each loop's y from the x before. The last shift sets
-        # the flags
+        # by rs & 31: rs into MQ, then a 32-way tree on MQ0, a bit a level,
+        # into the shift by n's words above. A node's choice is made while
+        # the word before it executes: MQ's load and the first shift bring
+        # bit 0 to MQ0 for the root, and the words before levels 1-4 shift
+        # on (7 words before the n shifts, against the loop's 2n + 2)
         label = f"{name}.r"
-        final = W(None, f"{sh} FL=SH", next="decode")
-        x = W(None, f"RAS=K K={T0} AOP=DECA CI=0 FL=NZ WS=K")
-        y = W(None, sh)
-        loop = p.pair(x, final)
-        x.next = ("jump", p._label(y))
-        y.next = ("if", "Z", loop)
-        p.place(y)
-        y1 = W(None, sh, next=("if", "Z", loop))
-        i4 = W(None, f"RAS=K K={T0} AOP=DECA CI=0 FL=NZ WS=K",
-               next=("if", "Z", p.pair(y1, W(None, f"{sh} FL=SH", next="decode"))))
-        zero = W(None, "RAS=d AOP=PASSA FL=NZ", next="decode")
-        i3 = W(None, f"RAS=K K={T0} AOP=DECA CI=0 FL=NZ WS=K", next=("if", "Z", p.pair(i4, zero)))
-        p.place(i3)
-        i2 = W(None, f"RAS=K K={T0} AOP=DECA CI=0 FL=NZ WS=K", next=("jump", i3.label))
-        p.place(i2)
-        p.routine(W(label, f"RBS=K K={K_1F} BIN=RF BOUT=1 MQ=LOAD"),
-                  W(None, f"RAS=s AOP=AND BIN=BUS MQ=DRIVE FL=NZ WS=K K={T0}", next=("jump", i2.label)))
+
+        def tree(level, bits, name=name):
+            if level == 5:
+                return W(None, "", next=("jump", f"{name}.{bits}"))
+            lo, hi = tree(level + 1, bits), tree(level + 1, bits | 1 << level)
+            return W(None, "MQ=SHIFT" if level < 3 else "", next=("if", "MQ0", p.pair(lo, hi)))
+        root = tree(0, 0)
+        p.place(root)
+        p.routine(W(label, "RBS=s BIN=RF BOUT=1 MQ=LOAD"), W(None, "MQ=SHIFT", next=("jump", root.label)))
         entries[(0xC2 | k << 2, None, None)] = (label, 1)
 
 
@@ -1048,6 +1077,14 @@ def branches(p, entries):
 
             def go():
                 return [W(None, f"RAS=K K={T0} AOUT=OA PCOP=LOAD"), tail_word()]
+
+            def fetch_go(src):
+                """The operand (fields on OB) into T0 then to PC; a JMP's
+                straight onto A for PC, a word less (a CALL writes the link
+                after it has read the operand)."""
+                if name == "JMP":
+                    return [W(None, f"AOP=PASSB {src} AOUT=F PCOP=LOAD"), tail_word()]
+                return [W(None, f"AOP=PASSB {src} WS=K K={T0}")] + link() + go()
             if key == "r":
                 if name == "JMP":
                     ws = [W(label, "RAS=s AOUT=OA PCOP=LOAD"), tail_word()]
@@ -1056,16 +1093,16 @@ def branches(p, entries):
                 p.routine(*ws)
             elif key in CONSTANT:
                 pre, src = constant_src(key)
-                ws = [W(None, f) for f in pre] + [W(None, f"AOP=PASSB {src} WS=K K={T0}")] + link() + go()
+                ws = [W(None, f) for f in pre] + fetch_go(src)
                 ws[0].label = label
                 p.routine(*ws)
             elif key in INDEXED:
-                def after(link=link, go=go):
-                    return [W(None, f"AOP=PASSB {load_src('w')} WS=K K={T0}")] + link() + go()
+                def after(fetch_go=fetch_go):
+                    return fetch_go(load_src("w"))
                 indexed(p, label, key, "AOUT=F MARLD=1", {"w": after}, sized=False)
             else:
                 ws = [W(None, f) for f in address_words(key, size)]
-                ws += [W(None, f"AOP=PASSB {load_src('w')} WS=K K={T0}")] + link() + go()
+                ws += fetch_go(load_src("w"))
                 ws[0].label = label
                 p.routine(*ws)
             entries[(opc, col, R)] = (label, 1 + ext_parcels(key))

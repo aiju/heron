@@ -181,10 +181,10 @@ def queue(nl, ck):
            **{f"D{i + 1}": nop[i] for i in range(8)}, **{f"Q{i + 1}": BP.OP[i] for i in range(8)})
     nl.add("377", "U_RB", CLK=ck[1], EN="DEC1_n",
            **{f"D{i + 1}": nrb[i] for i in range(8)}, **{f"Q{i + 1}": rb[i] for i in range(8)})
-    # x: the index parcel's bits 15-12 as PE has them; and WPH onto the backplane
+    # x and z: the index parcel's bits 15-12 and 9-8 as PE has them
     nl.add("541", "U_XL", OE1="GND", OE2="GND",
-           **{f"A{i + 1}": pe[12 + i] for i in range(4)}, A5="GND", A6="GND", A7="GND", A8="GND",
-           **{f"Y{i + 1}": BP.RX[i] for i in range(4)}, Y5="XL_NC5", Y6="XL_NC6", Y7="XL_NC7",
+           **{f"A{i + 1}": pe[12 + i] for i in range(4)}, A5=pe[8], A6=pe[9], A7="GND", A8="GND",
+           **{f"Y{i + 1}": BP.RX[i] for i in range(4)}, Y5=BP.IZ[0], Y6=BP.IZ[1], Y7="XL_NC7",
            Y8="XL_NC8")
 
     dp, ep, nxp = ["DP0", "DP1"], ["EP0", "EP1"], ["NXP0", "NXP1"]
@@ -324,8 +324,9 @@ def immediates(nl, ck):
 
     # the enables (one product term each, as a 22V10 has): U_IMMO's decodes
     outs = {}
-    oe, oe_no_s8 = [{"OEF9_n": 0}], [{"OEG_n": 0}]
-    for b in range(9):
+    # (B0's enable: the GAL forms', but not D8's, whose low byte is PE's)
+    oe, oe_no_s8 = [{"OEF9_n": 0, "OEPL0_n": 1}], [{"OEG_n": 0}]
+    for b in range(8):
         terms = []
         if b < 4:
             terms.append(AND(eq(imm, I["Q"]), lit(rs[b])))
@@ -347,12 +348,14 @@ def immediates(nl, ck):
     # FILL (B's bits above a form's) and the drivers' enables (U_IMMO),
     # U_IMMG's and PC's onto A among them
     outs = {}
-    fill_ins = imm + rd[3:] + [pe[15]]
+    fill_ins = imm + rd[3:] + [pe[15], pe[7]]
 
-    def fill(i0, i1, i2, i3, d3, p15):
+    def fill(i0, i1, i2, i3, d3, p15, p7):
         c = i0 | i1 << 1 | i2 << 2 | i3 << 3
         if c == I["PE_SX"]:
             return p15
+        if c == I["D8"]:
+            return p7
         if c == I["NQ"]:
             return 1
         if c == I["S8X2"]:
@@ -362,24 +365,28 @@ def immediates(nl, ck):
     pcop = f("PCOP")
     outs.update({
         "OES8_n": (eq(imm, I["S8X2"]), False, True),
-        "OEF9_n": (anyof(imm, gal_forms), False, True),
+        # (U_F9 drives B8-B15 with FILL: B8 is FILL's in every GAL form,
+        # and in D8, PE's low byte sign-extended)
+        "OEF9_n": (anyof(imm, gal_forms + [I["D8"]]), False, True),
         "OEG_n": (anyof(imm, [c for c in gal_forms if c != I["S8X2"]]), False, True),
-        "OEFH_n": (anyof(imm, [c for c in gal_forms if c != I["PE_HI"]] + [I["PE_SX"], I["PE_ZX"]]),
+        "OEFH_n": (anyof(imm, [c for c in gal_forms if c != I["PE_HI"]] + [I["PE_SX"], I["PE_ZX"], I["D8"]]),
                    False, True),
-        "OEPL_n": (anyof(imm, [I["PE_SX"], I["PE_ZX"]]), False, True),
+        "OEPL0_n": (anyof(imm, [I["PE_SX"], I["PE_ZX"], I["D8"]]), False, True),
+        "OEPL1_n": (anyof(imm, [I["PE_SX"], I["PE_ZX"]]), False, True),
         "OEPH_n": (anyof(imm, [I["PE_HI"], I["H_PE"]]), False, True),
         "OEH_n": (eq(imm, I["H_PE"]), False, True),
         "OEPC_n": (anyof(pcop, [F.PCOP_DRIVE, F.PCOP_BRANCH]), False, True),
     })
     G.add(nl, "U_IMMO", outs)
+    # (S8X2: B7-B1 from U_S8, B8 its sign, FILL, from U_F9)
     nl.add("541", "U_S8", OE1="OES8_n", OE2="GND", **{f"A{i + 1}": (rs + rd)[i] for i in range(8)},
-           **{f"Y{i + 1}": BP.B[1 + i] for i in range(8)})
+           **{f"Y{i + 1}": BP.B[1 + i] for i in range(7)}, Y8="S8_NC")
     nl.add("541", "U_F9", OE1="OEF9_n", OE2="GND", **{f"A{i + 1}": "FILL" for i in range(8)},
-           **{f"Y{i + 1}": BP.B[9 + i] for i in range(7)}, Y8="F9_NC")
+           **{f"Y{i + 1}": BP.B[9 + i] for i in range(7)}, Y8=BP.B[8])
     for k in range(2):
         nl.add("541", f"U_FH{k}", OE1="OEFH_n", OE2="GND", **{f"A{i + 1}": "FILL" for i in range(8)},
                **{f"Y{i + 1}": BP.B[16 + 8 * k + i] for i in range(8)})
-        nl.add("541", f"U_PL{k}", OE1="OEPL_n", OE2="GND", **{f"A{i + 1}": pe[8 * k + i] for i in range(8)},
+        nl.add("541", f"U_PL{k}", OE1=f"OEPL{k}_n", OE2="GND", **{f"A{i + 1}": pe[8 * k + i] for i in range(8)},
                **{f"Y{i + 1}": BP.B[8 * k + i] for i in range(8)})
         nl.add("541", f"U_PH{k}", OE1="OEPH_n", OE2="GND", **{f"A{i + 1}": pe[8 * k + i] for i in range(8)},
                **{f"Y{i + 1}": BP.B[16 + 8 * k + i] for i in range(8)})

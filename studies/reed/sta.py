@@ -61,6 +61,17 @@ WORDS = {
     "store": {"ALU": dict(RAS=F.RAS["d"], AOUT=F.AOUT["OA"]),
               "MEM": dict(MOP=F.MOP["STORE"], MSZ=F.MSZ["WORD"])},
     "fetch": {"CTRL": dict(BFREE=1)},
+    # a jump through memory: the load straight onto A for PC and FPC
+    "load, jump": {"ALU": dict(AOP=F.AOP["PASSB"], BIN=F.BIN["BUS"], AOUT=F.AOUT["F"]),
+                   "MEM": dict(MOP=F.MOP["LOAD"], MSZ=F.MSZ["WORD"]), "CTRL": dict(PCOP=F.PCOP_LOAD)},
+    # an indexed operand: T1 + D8 into MAR, then the load at the parcel's
+    # size (IZ, U_SZ) with N and Z at it (SZ to the ALU)
+    "T1 + d8 into MAR": {"ALU": dict(RAS=F.RAS["K"], K=31, AOP=F.AOP["ADD"], CI=F.CI["0"], BIN=F.BIN["BUS"],
+                                     AOUT=F.AOUT["F"]),
+                         "CTRL": dict(IMM=F.IMM["D8"]), "MEM": dict(MARLD=1)},
+    "load, index size, MOVS": {"ALU": dict(AOP=F.AOP["PASSB"], BIN=F.BIN["BUS"], WS=F.WS["d"], FL=F.FL["NZ"],
+                                           NSZ=F.NSZ["SZ"]),
+                               "MEM": dict(MOP=F.MOP["LOAD"], MSZ=F.MSZ["INDEX"])},
     "jump (K onto A, FPC and PC from A)": {"ALU": dict(RAS=F.RAS["K"], K=31, AOUT=F.AOUT["OA"]),
                                            "CTRL": dict(PCOP=F.PCOP_LOAD)},
     # a branch's word: the branch adder's target onto A, PC and FPC from it

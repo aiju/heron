@@ -26,6 +26,7 @@ OP = bus("OP", 8)          # CTRL's own: the opcode doesn't leave it
 RD, RS, RX = bus("RD", 4), bus("RS", 4), bus("RX", 4)    # RD, RS: each board's own
 NRD, NRS = bus("NRD", 4), bus("NRS", 4)
 SZ = bus("SZ", 2)
+IZ = bus("IZ", 2)
 
 # {line: (driver board, what it is)}
 CONTROL = {
@@ -37,6 +38,7 @@ CONTROL = {
                    "executes: the ALU board takes them as CTRL's U_RB does") for n in NRD + NRS},
     "DEC1_n": ("CTRL", "the decoded instruction starts at this cycle's end (U_RB loads)"),
     **{n: ("CTRL", "the executing instruction's index register x") for n in RX},
+    **{n: ("CTRL", "the index parcel's size z (PE's bits 9-8), for MSZ and NSZ INDEX") for n in IZ},
     "FETCH": ("CTRL", "the queue wants a word, and B is free this cycle"),
     "FLUSH": ("CTRL", "PC and FPC load from A at this cycle's end, the queue empties: a jump, "
                       "or a branch whose condition holds"),

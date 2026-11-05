@@ -44,8 +44,9 @@ LEN_BASE = 5
 # IQC: the queue: none, consume the extension parcel, latch it into H and consume it
 IQC_NONE, IQC_NEXT, IQC_H = 0, 1, 2
 # IMM: what CTRL drives onto B
+# (D8: PE's low byte sign-extended, the index parcel's displacement)
 IMM = {"NONE": 0, "PE_SX": 1, "PE_ZX": 2, "PE_HI": 3, "H_PE": 4, "Q": 5, "NQ": 6, "U7": 7,
-       "S8X2": 8, "R4": 9, "ZERO": 10, "ONE": 11, "FOUR": 12, "VEC": 13}
+       "S8X2": 8, "R4": 9, "ZERO": 10, "ONE": 11, "FOUR": 12, "VEC": 13, "D8": 14}
 # PCOP: PC onto A; PC and FPC loaded from A (and the queue emptied); a
 # branch's target onto A, PC + 2 x the register byte (the branch adder).
 # TK: PC and FPC loaded from A (the queue emptied) if the executing
@@ -69,9 +70,10 @@ CI = {"0": 0, "1": 1, "C": 2, "OWN": 3}
 # SH: a shift's: N and Z, C the bit shifted out (OA's bit 0 on the shift
 # path, else the carry out: a left shift is A + A), V cleared
 FL = {"NONE": 0, "SH": 1, "NZ": 2, "NZCV": 3}
-# NSZ: the operand's size for N and Z: N from bit 31, 15 or 7, Z from the
-# word, the low half or the low byte (a byte's MOVS, INC, DEC)
-NSZ = {"WORD": 0, "HALF": 1, "BYTE": 2}
+# NSZ: N and Z at the word's size, or (SZ) at the access's size, MEM's SZ
+# lines (the word's MSZ, or the index parcel's): N from bit 31, 15 or 7, Z
+# from the word, the low half or the low byte (a byte's MOVS, INC, DEC)
+NSZ = {"WORD": 0, "SZ": 1}
 BIN = {"RF": 0, "BUS": 1, "SHIFT": 2, "NONE": 3}
 AOUT = {"NONE": 0, "OA": 1, "F": 2}
 SI = {"0": 0, "C": 1, "SIGN": 2, "ROT": 3}
@@ -80,7 +82,9 @@ STOP = {"HOLD": 0, "Z": 1, "F31": 2, "C32": 3}
 # MEM
 # (MOP 3 reserved: FPC loads on CTRL's FLUSH)
 MOP = {"NONE": 0, "LOAD": 1, "STORE": 2, "RES": 3}
-MSZ = {"BYTE": 0, "HALF": 1, "WORD": 2}
+# (INDEX: the index parcel's z, from CTRL on the IZ lines: 0 byte, 1 half,
+# 2 word; its 3, which should trap, isn't caught)
+MSZ = {"BYTE": 0, "HALF": 1, "WORD": 2, "INDEX": 3}
 MQ = {"HOLD": 0, "SHIFT": 1, "LOAD": 2, "DRIVE": 3}
 
 

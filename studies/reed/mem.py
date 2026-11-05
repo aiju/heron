@@ -47,7 +47,7 @@ def build(sim=True):
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
     ck = clock_buffer(nl, src="CYC")
     nl.section("control store")
-    control_slice(nl, "MEM", ck[0], rename={"uMARLD": "ALE", "uMSZ0": "SZ0", "uMSZ1": "SZ1"})
+    control_slice(nl, "MEM", ck[0], rename={"uMARLD": "ALE", "uMSZ0": "MSZR0", "uMSZ1": "MSZR1"})
     nl.section("addresses")
     addresses(nl, ck)
     nl.section("RAM")
@@ -128,6 +128,12 @@ def stores(nl):
 
 
 def control(nl, ck):
+    # U_SZ: the access's size (SZ, on the backplane too): the
+    # microinstruction's, or for MSZ INDEX the index parcel's (IZ, from CTRL)
+    G.add(nl, "U_SZ", {f"SZ{i}": (OR(AND(lit("MSZR0", 0), lit(f"MSZR{i}")),
+                                     AND(lit("MSZR1", 0), lit(f"MSZR{i}")),
+                                     AND(lit("MSZR0"), lit("MSZR1"), lit(BP.IZ[i]))), False, False)
+                       for i in range(2)})
     mop, msz = f("MOP"), f("MSZ")
     load, store = eq(mop, F.MOP["LOAD"]), eq(mop, F.MOP["STORE"])
     S = F.MSZ
