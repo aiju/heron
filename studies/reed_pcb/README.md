@@ -24,6 +24,8 @@ yet.
 heron reed_pcb place                  # the ALU board: build/reed_pcb/<name>/
 heron reed_pcb place --gal-sockets    # the ATF22V10C-5s in PLCC-28 sockets
 heron reed_pcb place --seed 3 --module 5
+heron reed_pcb place --size 220x233.35   # a deeper card
+heron reed_pcb place --floorplan      # the ALU by its hand-made floorplan, on 220 mm
 heron test reed_pcb                   # the unit tests
 ```
 
@@ -35,6 +37,7 @@ estimate, the cells each package takes).
 | File | What's in it |
 |---|---|
 | `place.py` | A board's parts from Reed's netlist (packages, pinouts, the register file's 16-bit SRAMs as one package each, the connectors), placing it, its numbers |
+| `floorplan.py` | The ALU placed by hand: four byte slices from the backplane inwards, the control below beside P2 |
 | `cli.py` | The commands |
 
 **Packages and pinouts:** the footprints are KiCad's, by the package

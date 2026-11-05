@@ -250,8 +250,13 @@ def build(name, size=CARD, params=Params(), seed=1, moves=60000, gal_sockets=Fal
           kicad=True):
     """Place a board and write it to build/reed_pcb/<name>/: result.json,
     board.svg and board.kicad_pcb."""
+    return write(name, *place(name, size, params, seed, moves, gal_sockets), kicad=kicad)
+
+
+def write(name, b, pl, left, kicad=True):
+    """Write a placement to build/reed_pcb/<board's name>/: (board, placer,
+    its numbers)."""
     from heron.studies.pcb_columns import draw
-    b, pl, left = place(name, size, params, seed, moves, gal_sockets)
     d = os.path.join(OUT, b.name)
     os.makedirs(d, exist_ok=True)
     res = summary(name, b, pl, left)

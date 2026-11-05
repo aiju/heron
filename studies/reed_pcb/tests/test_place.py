@@ -89,5 +89,15 @@ class Placed(unittest.TestCase):
         self.assertEqual(demo.check(b, pl)["problems"], [])
 
 
+@unittest.skipUnless(footprints.available(place.EXTRA), NEEDS)
+class Floorplan(unittest.TestCase):
+    def test_places(self):
+        from heron.studies.reed_pcb import floorplan
+        for sockets in (False, True):
+            b, pl, left = floorplan.place(gal_sockets=sockets)
+            self.assertEqual(set(pl.pos), {p.ref for p in pl.chips})
+            self.assertEqual(demo.check(b, pl)["problems"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
