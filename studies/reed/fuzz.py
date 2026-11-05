@@ -1,7 +1,11 @@
 """Reed's microcode against draft 2's instruction-level simulator, an
 instruction at a time: random instructions of each family, on registers
 and memory set up so that their operands are valid, on the cycle-level
-model (model.py); registers, flags and the data area compared.
+model (model.py); registers, flags and the data area compared. A share
+of the cases have their pointers misaligned: those that then fault are
+compared at the address error's vector (a HALT at 0x14 on both machines,
+physical 0x14 being vbr + 0x14 on Reed too), for precise faults: the
+registers, the flags, the data but the frame's sr, and the saved PC.
 
   heron reed fuzz [FAMILY...] [--n N] [--seed S]
 """
@@ -31,8 +35,11 @@ def parcels(op, rb, *ext):
 
 def program(regs, insn, data):
     """An image: r0-r15 = regs, then the instruction (a list of parcels) at
-    CODE, then HALT; the data area's bytes."""
-    lines = ["        .org 0"] + [f"        MOV  r{i}, #{v:#x}" for i, v in enumerate(regs)]
+    CODE, then HALT; the data area's bytes. HALTs at the vectors of an
+    illegal instruction, a divide error and an address error."""
+    lines = ["        .org 0", "        JMP  init", "        .org 0x08", "        HALT",
+             "        .org 0x10", "        HALT", "        .org 0x14", "        HALT",
+             "        .org 0x40", "init:"] + [f"        MOV  r{i}, #{v:#x}" for i, v in enumerate(regs)]
     lines += [f"        JMP  {CODE:#x}"]
     img = asmcore.assemble_text(isa(), "\n".join(lines), name="fuzz.s")
     mem = dict(img.mem)
@@ -203,9 +210,68 @@ def gen_mul(rng):
     d, s = rng.randrange(1, 16), rng.randrange(16)
     regs = regs_for(rng, True)
     if opc >= 0xEC:
-        R = rng.choice([0, 1, 2, 3, 4, 7, 0xA])
+        R = rng.choice([0, 1, 2, 3, 4, 7, 0xA, 0xD, 0xE])
+        if R in (0xD, 0xE):
+            ext = ea_ext(rng, 0xF, R, rng.choice("bhw"))
+            x = ext[0] >> 12
+            regs[x] = 0
+            return regs, parcels(opc, d << 4 | R, *ext)
         return regs, parcels(opc, d << 4 | R, *ea_ext(rng, 0xF, R, "w"))
     return regs, parcels(opc, d << 4 | s)
+
+
+def flags_first(rng):
+    """A CMP of two registers first, for flags to start from."""
+    return parcels(0x60, rng.randrange(256))
+
+
+def gen_carry(rng):
+    d, s = rng.randrange(16), rng.randrange(16)
+    regs = regs_for(rng, True)
+    if rng.random() < 0.3:
+        regs[d] = (-regs[s]) & 0xFFFFFFFF
+    return regs, flags_first(rng) + parcels(rng.choice([0xE0, 0xE1]), d << 4 | s)
+
+
+def gen_clz(rng):
+    d, s = rng.randrange(16), rng.randrange(16)
+    regs = regs_for(rng, True)
+    regs[s] = rng.choice([0, 1, 0x80000000, rng.getrandbits(32) >> rng.randrange(33)])
+    return regs, flags_first(rng) + parcels(0xDB, d << 4 | s)
+
+
+def gen_divul(rng):
+    d, s = rng.randrange(1, 16), rng.randrange(1, 16)
+    regs = regs_for(rng, True)
+    r = rng.random()
+    if r < 0.1:
+        regs[s] = 0
+    elif r < 0.7:
+        regs[s] = regs[s] or 1
+        regs[0] = rng.randrange(regs[s])
+    if 15 not in (d, s):
+        regs[15] = pointer(rng)         # (a divide error's frame goes there)
+    return regs, flags_first(rng) + parcels(0xE9, d << 4 | s)
+
+
+def gen_movsi(rng):
+    R = rng.randrange(4)
+    return regs_for(rng, True), parcels(0x3F, rng.randrange(16) << 4 | R, *ea_ext(rng, 0xF, R, "w"))
+
+
+def gen_neg24(rng):
+    """MOV rd, [abs24 + x] with abs24 negative (sign-extended), x bringing it
+    back into the data area."""
+    size = rng.choice("bhw")
+    al = {"w": 4, "h": 2, "b": 1}[size]
+    t = DATA + 0x800 + al * rng.randrange(0x400)
+    k = rng.randrange(1, 0x800000)
+    a24 = (-k) & 0xFFFFFF
+    d, x = rng.randrange(16), rng.randrange(1, 16)
+    regs = regs_for(rng)
+    regs[x] = (t + k) & 0xFFFFFFFF
+    z = {"b": 0, "h": 1, "w": 2}[size]
+    return regs, parcels(0x1F, d << 4 | 0xD, x << 12 | z << 8 | a24 >> 16, a24 & 0xFFFF)
 
 
 def gen_div(rng):
@@ -255,7 +321,42 @@ def gen_save(rng):
 
 FAMILIES = {"ea": gen_ea, "store": gen_store, "clr": gen_clr_inc_dec, "lea": gen_lea, "unary": gen_unary,
             "shift": gen_shift, "mul": gen_mul, "div": gen_div, "bictst": gen_bictst, "mvi": gen_mvi,
-            "save": gen_save, "multiple": gen_multiple}
+            "save": gen_save, "multiple": gen_multiple, "carry": gen_carry, "clz": gen_clz,
+            "divul": gen_divul, "movsi": gen_movsi, "neg24": gen_neg24}
+
+
+def compare_trap(ref, m):
+    """After an address or divide error on both: the registers (sp 8 lower on both,
+    the frame's), the flags, the data but the frame's flags word or sr,
+    and the frame's PC."""
+    bad = []
+    if m.stopped != "halt":
+        bad.append(f"the model stopped at {m.stopped}")
+    regs = m.regs()
+    for r in range(16):
+        if regs[r] != ref.r[r]:
+            bad.append(f"r{r} {regs[r]:08X}, the reference {ref.r[r]:08X}")
+    fz = m._znow() if m.zpend else m.fzh
+    flags = (m.fn, fz, m.fc, m.fv)
+    rflags = (int(ref.n), int(ref.z), int(ref.c), int(ref.v))
+    if flags != rflags:
+        bad.append(f"NZCV {flags}, the reference {rflags}")
+    sp = ref.r[15]
+    mem = ref.mem
+    diff = [a for a in range(DATA, DATA_END) if m.ram[a] != mem[a] and not sp <= a < sp + 4]
+    if diff:
+        bad.append(f"{len(diff)} data bytes differ, the first at {diff[0]:05X}")
+    return bad
+
+
+def misalign(rng, regs):
+    """The pointers (into the data area) moved off their alignment."""
+    k = rng.randrange(1, 4)
+    # (but sp, which the exception's frame goes on)
+    return [r + k if DATA <= r < DATA_END and i != 15 else r for i, r in enumerate(regs)]
+
+
+TRAPPING = {"ea", "store", "clr", "mul", "bictst", "multiple", "save"}
 
 
 def fuzz(families=None, n=200, seed=1, stop_at=5):
@@ -268,6 +369,8 @@ def fuzz(families=None, n=200, seed=1, stop_at=5):
         fails = []
         for i in range(n):
             regs, insn = FAMILIES[fam](rng)
+            if fam in TRAPPING and rng.random() < 0.3:
+                regs = misalign(rng, regs)
             data = bytes(rng.getrandbits(8) for _ in range(DATA_END - DATA))
             img = program(regs, insn, data)
             dis = isa().disassemble(insn + [0, 0], CODE)
@@ -279,11 +382,12 @@ def fuzz(families=None, n=200, seed=1, stop_at=5):
                 ref.run(max_cycles=200_000)
             except Exception:
                 continue                  # the reference faults: not a test
-            if ref.traps:
+            trapped = bool(ref.traps)
+            if trapped and not all("misaligned" in t[1] or "divide" in t[1] for t in ref.traps):
                 continue
             try:
                 m = model.run_image(img, max_cycles=200_000, prog=PROG[0])
-                bad = compare(ref, m)
+                bad = compare_trap(ref, m) if trapped else compare(ref, m)
             except model.ModelError as e:
                 bad = [f"model: {e}"]
             if bad:

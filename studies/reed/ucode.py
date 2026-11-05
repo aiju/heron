@@ -404,6 +404,22 @@ def decisions(p, ops, tests, final):
     def build(pos, state):
         if pos == len(ops):
             return final(state)
+        if callable(ops[pos]):
+            # (words that depend on the decisions taken: none, or some
+            # before the rest)
+            extra = ops[pos](state)
+            rest = build(pos + 1, state)
+            if not extra:
+                return rest
+            ws = [W(None, f) for f in extra]
+            for a, b in zip(ws, ws[1:]):
+                a.next = ("jump", p._label(b))
+            ws[-1].next = ("jump", p._label(rest))
+            if rest.addr is None:
+                p.place(rest)
+            for w in ws[1:]:
+                p.place(w)
+            return ws[0]
         w = W(None, ops[pos])
         if pos in at:
             name, trap = at[pos]
@@ -469,8 +485,9 @@ def indexed(p, label, kind, dest, finals, sized=True):
     parcel) consumed. Then finals[size]() (a routine, size "b", "h" or
     "w" from the parcel's z; z = 3 traps), or finals["w"]() unsized.
     The index parcel at PE: x (bits 15-12), s (11-10), z (9-8), d8 (7-0);
-    for abs24 and d24, a23-16 in the low byte and the next parcel a15-0.
-    A negative abs24 or d24 traps for now (unimpl)."""
+    for abs24 and d24, a23-16 in the low byte and the next parcel a15-0,
+    sign-extended (a negative one: T0 + 0xFF00_0000, T0 - 0xFF_0000 -
+    0xFFFF - 1)."""
     if kind == "[r+x]":
         return indexed_rx(p, label, dest, finals, sized)
     # T1 = x << s: s0 and s1 tested, decided two words later
@@ -493,10 +510,15 @@ def indexed(p, label, kind, dest, finals, sized=True):
                 f"RBS=K K={T1} BIN=RF BOUT=1 MQ=LOAD",
                 f"RAS=K K={T0} AOP=ADD CI=0 BIN=BUS MQ=DRIVE IQC=NEXT {dest}"]
     else:
+        sext = [f"RBS=K K={K_FF0000} BIN=RF BOUT=1 MQ=LOAD",
+                f"RAS=K K={T0} AOP=SUB CI=0 BIN=BUS MQ=DRIVE WS=K",
+                f"RBS=K K={K_FFFF} BIN=RF BOUT=1 MQ=LOAD",
+                f"RAS=K K={T0} AOP=SUB CI=OWN BIN=BUS MQ=DRIVE WS=K"]
         disp = [f"AOP=PASSB BIN=BUS IMM=PE_HI IQC=NEXT WS=K K={T0}",
                 f"RBS=K K={K_FF0000} BIN=RF BOUT=1 MQ=LOAD",
                 f"RAS=K K={T0} AOP=AND BIN=BUS MQ=DRIVE WS=K",
-                f"RAS=K K={T0} AOP=ADD CI=0 BIN=BUS IMM=PE_ZX IQC=NEXT WS=K"]
+                f"RAS=K K={T0} AOP=ADD CI=0 BIN=BUS IMM=PE_ZX IQC=NEXT WS=K",
+                lambda st, sext=sext: sext if st.get("neg") else []]
         if kind == "[pc+d24+x]":
             disp.append(f"AIN=1 PCOP=DRIVE AOP=ADD CI=0 RBS=K K={T0} BIN=RF WS=K")
         disp += [f"RBS=K K={T1} BIN=RF BOUT=1 MQ=LOAD",
@@ -507,7 +529,7 @@ def indexed(p, label, kind, dest, finals, sized=True):
         tests += [("z0", None), ("z1", lambda st: st["z0"] and st["z1"])]
     if kind != "[r+x]":
         ops.append(f"RAS=K K={K_80} AOP=AND {PE} STOP=C32")
-        tests.append(("neg", lambda st: st["neg"]))
+        tests.append(("neg", None))
     ops += disp
     built = {}
 
@@ -573,11 +595,14 @@ def operand_routine(p, label, key, size, op):
     return label
 
 
-def modes(memory_only=False, no_constants=False):
-    """[(col, R or None, key, size)] for the EA modes and the special mode."""
+def modes(memory_only=False, no_constants=False, no_quick=False):
+    """[(col, R or None, key, size)] for the EA modes and the special mode
+    (no_quick: but the quick constants)."""
     out = []
     for col, (key, size) in MODES.items():
         if (memory_only or no_constants) and key in CONSTANT:
+            continue
+        if no_quick and key in ("q", "nq"):
             continue
         if memory_only and key == "r":
             continue
@@ -591,7 +616,7 @@ def modes(memory_only=False, no_constants=False):
 
 def ea_rows(p, entries):
     for row, name in ROWS.items():
-        for col, R, key, size in modes(no_constants=(name == "MOVS")):
+        for col, R, key, size in modes(no_quick=(name == "MOVS")):
             label = f"{name}.{col:X}" + (f"{R:X}" if R is not None else "")
             operand_routine(p, label, key, size, lambda s_, row=row: row_op(row, s_))
             entries[(row << 4 | col, None, R)] = (label, 1 + ext_parcels(key))
@@ -681,6 +706,7 @@ def lea(p, entries):
 
     def nop():
         return [W(None, "", next="decode")]
+    # (unsized: a z of 3 isn't caught here, the one place it isn't)
     indexed(p, "LEA.5", "[r+x]", "WS=d", {"w": nop}, sized=False)
     entries[(0x05, None, None)] = ("LEA.5", 2)
     spec = {4: ["AOP=PASSB BIN=BUS IMM=PE_SX IQC=NEXT WS=d"],
@@ -695,7 +721,8 @@ def lea(p, entries):
             p.routine(*ws)
             entries[(0x0F, None, r)] = (label, 1 + ext_parcels(SPECIAL[r][0]))
     for R, kind in ((0xD, "[abs24+x]"), (0xE, "[pc+d24+x]")):
-        indexed(p, f"LEA.F{R:X}", kind, "WS=d", {"w": nop}, sized=False)
+        # (sized only for z 3, which is illegal: every size's the same)
+        indexed(p, f"LEA.F{R:X}", kind, "WS=d", {s_: nop for s_ in "bhw"})
         entries[(0x0F, None, R)] = (f"LEA.F{R:X}", 3)
 
 
@@ -813,11 +840,33 @@ def cv_words(p, nz, overflow):
 
 
 def multiply(p, entries):
+    """MULU and MULS of rd by rs or by the special mode's operand: the
+    operand into T0 (an indexed one's at the index parcel's size), then the
+    body, which every form shares (the register's builds it)."""
     for opc, spec, name in ((0xE4, 0xEC, "MULU"), (0xE5, 0xED, "MULS")):
+        body = None
         for R in [None] + list(SPECIAL):
-            if R is not None and SPECIAL[R][0] in INDEXED:
-                continue
             label = f"{name}." + ("r" if R is None else f"F{R:X}")
+            if body is not None:
+                key, size = SPECIAL[R]
+                if key in INDEXED:
+                    def final(s_, body=body):
+                        return [W(None, f"AOP=PASSB {load_src(s_)} WS=K K={T0}"
+                                  + (" IQC=NEXT" if s_ == "i" else ""), next=("jump", body.label))]
+                    indexed(p, label, key, "AOUT=F MARLD=1",
+                            {s_: (lambda s_=s_, final=final: final(s_)) for s_ in "bhwi"})
+                else:
+                    if key in CONSTANT:
+                        cpre, csrc = constant_src(key)
+                        pre = [W(None, f) for f in cpre] + [W(None, f"AOP=PASSB {csrc} WS=K K={T0}")]
+                    else:
+                        pre = [W(None, f) for f in address_words(key, size)]
+                        pre.append(W(None, f"AOP=PASSB {load_src(size)} WS=K K={T0}"))
+                    pre[-1].next = ("jump", body.label)
+                    pre[0].label = label
+                    p.routine(*pre)
+                entries[(spec, None, R)] = (label, 1 + ext_parcels(key))
+                continue
             if R is None:
                 # (rd may be rs: the source into T0 before rd is cleared)
                 src, pre = f"RBS=K K={T0}", [W(None, f"RBS=s BIN=RF AOP=PASSB WS=K K={T0}")]
@@ -831,8 +880,8 @@ def multiply(p, entries):
                     pre = [W(None, f) for f in address_words(key, size)]
                     pre.append(W(None, f"AOP=PASSB {load_src(size)} WS=K K={T0}"))
             # T2 = rd (the multiplier, kept for MULS), MQ = T2 and rd = 0
-            words = pre + [W(None, f"RAS=d AOP=PASSA WS=K K={T2}"),
-                           W(None, f"RBS=K K={T2} BIN=RF BOUT=1 MQ=LOAD AOP=ZERO WS=d")]
+            body = W(f"{name}.body", f"RAS=d AOP=PASSA WS=K K={T2}")
+            words = pre + [body, W(None, f"RBS=K K={T2} BIN=RF BOUT=1 MQ=LOAD AOP=ZERO WS=d")]
             words += mul_loop(src)
             nz = W(None, "RAS=d AOP=PASSA FL=NZ", next="decode")
             p.place(nz)
@@ -995,6 +1044,148 @@ def divide(p, entries):
               W(None, "", next=("if", "ST", p.pair(W(None, "", next=("jump", "divzero")),
                                                   W(None, "", next=("jump", w1.label))))))
     entries[(0xE8, None, None)] = ("DIVS.r", 1)
+
+
+def go_to(p, target):
+    """A word that only jumps (a pair's arm to a word placed elsewhere)."""
+    return W(None, "", next=("jump", target if isinstance(target, str) else p._label(target)))
+
+
+def flags_const(p, nz, c, v, k=T0):
+    """Words that set N, Z, C, V (bits 3-0) to the constant nz << 2 | c << 1 |
+    v: the constant made in T(k) from IMM ONE, then NSZ LOAD."""
+    val = nz << 2 | c << 1 | v
+    bits = bin(val)[2:]
+    out = [f"AOP=PASSB BIN=BUS IMM=ONE WS=K K={k}" if bits[0] == "1" else f"AOP=ZERO WS=K K={k}"]
+    for b in bits[1:]:
+        out.append(f"RAS=K K={k} AOP=SHL CI={b} WS=K")
+    out.append(f"RAS=K K={k} AOP=PASSA NSZ=LOAD")
+    return out
+
+
+def carry_ops(p, entries):
+    """ADC rd, rs and SBC rd, rs: rd +- rs with C in, NZCV, but Z only if it
+    was set before as well (for multiple words: Z stays clear once a word
+    wasn't 0). The operation is the first word; the second decides on the
+    Z it found (the instruction before's), and with Z clear and the result
+    0, the flags are made again with Z clear (N is 0 then)."""
+    for opc, name, aop in ((0xE0, "ADC", "ADD"), (0xE1, "SBC", "SUB")):
+        done = W(None, "", next="decode")
+        p.place(done)
+        leaves = {}
+        for c in (0, 1):
+            for v in (0, 1):
+                ws = [W(None, f) for f in flags_const(p, 0, c, v)]
+                for a, b in zip(ws, ws[1:]):
+                    a.next = ("jump", p._label(b))
+                ws[-1].next = "decode"
+                for w in ws:
+                    p.place(w)
+                leaves[c, v] = ws[0]
+        on_v = {c: W(None, "", next=("if", "V", p.pair(go_to(p, leaves[c, 0]), go_to(p, leaves[c, 1]))))
+                for c in (0, 1)}
+        fix = W(None, "", next=("if", "C", p.pair(on_v[0], on_v[1])))
+        was_clear = W(None, "", next=("if", "Z", p.pair(go_to(p, done), fix)))
+        first = W(name, f"RAS=d RBS=s BIN=RF AOP={aop} CI=C FL=NZCV WS=d")
+        second = W(None, "", next=("if", "Z", p.pair(was_clear, go_to(p, done))))
+        first.next = ("jump", p._label(second))
+        p.place(first), p.place(second)
+        entries[(opc, None, None)] = (name, 1)
+
+
+def clz(p, entries):
+    """CLZ rd, rs: T0 = rs shifted left a bit at a time (ST its new top bit)
+    and rd counting, two words a bit: each shift's successor decides on the
+    shift before's ST, so that rd is the count of zeros above the first 1
+    when it stops; 32 for 0. Then N and Z from rd."""
+    done = W(None, "RAS=d AOP=PASSA FL=NZ", next="decode")
+    p.place(done)
+    shifts = [W(None, f"RAS=K K={T0} AOP=SHL CI=0 WS=K STOP=F31") for _ in range(32)]
+    incs = [W(None, "RAS=d AOP=INCA CI=OWN WS=d") for _ in range(32)]
+    for j in range(32):
+        incs[j].next = ("jump", p._label(shifts[j + 1]) if j < 31 else done.label)
+    for j in range(1, 32):
+        shifts[j].next = ("if", "ST", p.pair(go_to(p, incs[j]), go_to(p, done)))
+    shifts[0].next = ("jump", p._label(incs[0]))
+    for w in shifts + incs:
+        if w.addr is None:
+            p.place(w)
+    first = [W("CLZ", f"RBS=s BIN=RF AOP=PASSB WS=K K={T0} STOP=F31"),
+             W(None, "AOP=ZERO WS=d")]
+    decide = W(None, "", next=("if", "ST", p.pair(go_to(p, shifts[0]), go_to(p, done))))
+    first[0].next = ("jump", p._label(first[1]))
+    first[1].next = ("jump", p._label(decide))
+    for w in first + [decide]:
+        p.place(w)
+    entries[(0xDB, None, None)] = ("CLZ", 1)
+
+
+def divul(p, entries):
+    """DIVUL r0:rd, rs: r0:rd / rs, the quotient into rd and the remainder
+    into r0, C = V = 0; with r0 >= rs (the quotient wouldn't fit) only V is
+    set (N, Z and C as they were: the flags made again, a leaf for each);
+    rs = 0 the divide error. The restoring divide of DIVU with T0 = r0 to
+    start, so that the remainder's shift can carry out: then (ST, the
+    shift's C32) the subtraction can't borrow, and the quotient's bit is 1
+    whatever its C says. Five words a bit."""
+    end = [W(None, f"RBS=K K={T0} BIN=RF BOUT=1 MQ=LOAD"),
+           W(None, "AOP=PASSB BIN=BUS MQ=DRIVE WS=K K=0"),
+           W(None, f"RAS=K K={T1} AOP=PASSA WS=d"),
+           W(None, "RAS=d AOP=ADD CI=0 BIN=BUS IMM=ZERO FL=NZCV"),
+           W(None, "RAS=d AOP=PASSA FL=NZ", next="decode")]
+    p.routine(*end)
+    nxt = end[0]
+    dsrc = "RBS=s BIN=RF"
+    for i in reversed(range(32)):
+        d2 = W(None, f"RAS=K K={T0} AOP=SHL CI=C WS=K STOP=C32")
+        d3 = W(None, f"RAS=K K={T0} {dsrc} AOP=SUB CI=OWN FL=NZCV WS=K")
+        over = W(None, f"RAS=K K={T1} AOP=SHL CI=1 FL=NZCV WS=K", next=("jump", p._label(nxt)))
+        d4 = W(None, f"RAS=K K={T1} AOP=SHL CI=C FL=NZCV WS=K")
+        restore = W(None, f"RAS=K K={T0} {dsrc} AOP=ADD CI=0 WS=K", next=("jump", p._label(nxt)))
+        d5 = W(None, "", next=("if", "C", p.pair(restore, go_to(p, nxt))))
+        d4.next = ("jump", p._label(d5))
+        p.place(d5), p.place(d4)
+        sel = W(None, "", next=("if", "ST", p.pair(go_to(p, d4), over)))
+        d2.next, d3.next = ("jump", p._label(d3)), ("jump", p._label(sel))
+        p.place(sel), p.place(d2), p.place(d3)
+        nxt = d2
+    loop = nxt
+    # r0 >= rs: V alone; leaves by N, Z and C
+    leaves = {}
+    for n in (0, 1):
+        for z in (0, 1):
+            for c in (0, 1):
+                ws = [W(None, f) for f in flags_const(p, n << 1 | z, c, 1)]
+                for a, b in zip(ws, ws[1:]):
+                    a.next = ("jump", p._label(b))
+                ws[-1].next = "decode"
+                for w in ws:
+                    p.place(w)
+                leaves[n, z, c] = ws[0]
+    on_c = {(n, z): W(None, "", next=("if", "C", p.pair(go_to(p, leaves[n, z, 0]), go_to(p, leaves[n, z, 1]))))
+            for n in (0, 1) for z in (0, 1)}
+    on_z = {n: W(None, "", next=("if", "Z", p.pair(on_c[n, 0], on_c[n, 1]))) for n in (0, 1)}
+    too_big = W(None, "", next=("if", "N", p.pair(on_z[0], on_z[1])))
+    p.place(too_big)
+    # the start: rs = 0 (ST), then r0 >= rs (ST, a subtraction's C32): no
+    # flag changes until both are decided
+    start = [W(None, f"RAS=d AOP=PASSA WS=K K={T1}"),
+             W(None, f"RBS=K K=0 BIN=RF BOUT=1 MQ=LOAD"),
+             W(None, f"AOP=PASSB BIN=BUS MQ=DRIVE WS=K K={T0}"),
+             W(None, f"RAS=K K={T1} AOP=SHL CI=0 FL=NZCV WS=K", next=("jump", p._label(loop)))]
+    ws = [W("DIVUL", f"RAS=K K={K_M1} RBS=s BIN=RF AOP=AND STOP=C32"),
+          W(None, "RAS=K K=0 RBS=s BIN=RF AOP=SUB CI=OWN STOP=C32"),
+          W(None, "", next=("if", "ST", p.pair(go_to(p, "divzero"), W(None, "")))),
+          ]
+    fits = W(None, "", next=("if", "ST", p.pair(go_to(p, start[0]), go_to(p, too_big))))
+    a = p.addr(ws[2].next[2]) + 1
+    p.words[a].next = ("jump", p._label(fits))
+    p.place(fits)
+    ws[0].next, ws[1].next = ("jump", p._label(ws[1])), ("jump", p._label(ws[2]))
+    for w in ws:
+        p.place(w)
+    p.routine(*start)
+    entries[(0xE9, None, None)] = ("DIVUL", 1)
 
 
 def multiple(p, entries):
@@ -1226,6 +1417,9 @@ def build():
     shifts(p, entries)
     multiply(p, entries)
     divide(p, entries)
+    carry_ops(p, entries)
+    clz(p, entries)
+    divul(p, entries)
     multiple(p, entries)
     branches(p, entries)
     save_restore(p, entries)
