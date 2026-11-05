@@ -278,8 +278,10 @@ phase); the IO board, still untimed, has small setup failures left
 Its processes: one counts in a loop the timer cuts into; one prints and
 yields; one fills 64 KB of its data area (sixteen demand-zero pages, and
 one of stack) and checks it; one tries the kernel's memory through the
-window and is killed. On the model (`heron reed kernel`), 690,000
-instructions in 1.56 million microcycles:
+window and is killed. The page map's contents are undefined after reset,
+so the kernel first clears the processes' contexts (4096 entries, all
+invalid). On the model (`heron reed kernel`), 709,000 instructions in
+1.69 million microcycles, 209 ms as built:
 
 ```
 Reed nucleus: 4 processes

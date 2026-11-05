@@ -64,7 +64,7 @@ def main(chip=False):
     prog = ucode.build()
     sym, m = run_model(1, prog=prog)
     print(f"the model: {m.stopped}, {m.instructions:,} instructions, {m.cycles:,} cycles, "
-          f"{m.ticks * model.TICK_PS / 1e6:.1f} ms as built")
+          f"{m.ticks * model.TICK_PS / 1e9:.1f} ms as built")
     print(bytes(m.out).decode(errors="replace").rstrip())
     res = results(sym, m.ram)
     for k, p in enumerate(res["procs"]):
@@ -76,11 +76,17 @@ def main(chip=False):
     hwr = hw.run(bytearray(ram), prog, max_cycles=4 * m0.cycles)
     hres = results(sym, hwr["ram"])
     mres = results(sym, m0.ram)
-    v = [x for x in hwr["violation_summary"] if not x["what"].startswith(hw.UNTIMED)]
+    # (the clock card's WAIT_IO input is the IO board's timing, untimed
+    # yet: reported apart)
+    io_wait = [x for x in hwr["violation_summary"] if x["what"].startswith("CLK.U_CGA.I3")]
+    v = [x for x in hwr["violation_summary"] if not x["what"].startswith(hw.UNTIMED) and x not in io_wait]
     print(f"chip level: {hwr['stopped_at']} after {hwr['cycles']:,} cycles, {hwr['time_ps'] / 1e9:.1f} ms; "
           f"the model (console in RAM) {m0.cycles:,} cycles")
     same = kept(hres) == kept(mres)
     print("the same results as the model's" if same else f"differ:\n  chip  {kept(hres)}\n  model {kept(mres)}")
     print(f"timing violations on CTRL, ALU, MEM and the clock card: {sum(x['count'] for x in v)}"
           + "".join(f"\n  {x['what']}: {x['count']}x, worst {x['worst_slack_ps'] / 1000:.1f} ns" for x in v[:8]))
+    for x in io_wait:
+        print(f"and WAIT_IO at the clock card (the IO board's): {x['count']}x, worst "
+              f"{x['worst_slack_ps'] / 1000:.1f} ns")
     return 0 if same and not v and hwr["stopped_at"] == "halt" else 1

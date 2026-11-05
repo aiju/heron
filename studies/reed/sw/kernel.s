@@ -230,6 +230,15 @@ map:    LSR  r2, #12
 kmain:  MOV  sp, #KSTACK
         MOV  r1, #s_hello
         BSR  puts
+        ; the page map's contents are undefined after reset: the
+        ; processes' contexts (1 to NPROC) cleared, every entry invalid
+        MOV  r1, #1024
+        MTSR SR_MAPA, r1
+        MOV  r2, #0
+        MOV  r3, #1024 * NPROC
+.c:     MTSR SR_MAPD, r2        ; (mapa moves on)
+        SUB  r3, #1
+        BNE  .c
         ; each process: its code page, mapped onto itself (V, X), ready
         MOV  r9, #0
 .p:     MOV  [cur], r9
