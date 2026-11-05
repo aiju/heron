@@ -98,3 +98,36 @@ class TestSystem(unittest.TestCase):
         n, first = hw.lockstep_image(bytearray(ram), 20_000)
         self.assertGreater(n, 15_000)
         self.assertIsNone(first)
+
+    def test_interrupt_at_chip_level(self):
+        """sw/irqtest.s: the timer's interrupt at level 6 through the IO
+        board's controller, the same log at chip level as on the model."""
+        import os
+        from heron.studies.reed import hw, model, systest, ucode
+        img, ram = systest.image(os.path.join(os.path.dirname(systest.__file__), "sw", "irqtest.s"))
+        prog = ucode.build()
+        m = model.Model(bytes(ram), prog=prog)
+        self.assertEqual(m.run(400_000), "halt")
+        r = hw.run(bytearray(ram), prog, max_cycles=20_000)
+        self.assertEqual(r["stopped_at"], "halt")
+        log = lambda mem: bytes(mem[0x10000:0x10014])
+        self.assertEqual(log(r["ram"]), log(m.ram))
+        self.assertEqual(int.from_bytes(log(m.ram)[4:8], "little"), 0x86000006)
+
+    def test_user_interrupts_at_chip_level(self):
+        """sw/irquser.s: a user-mode loop in bank 1 with the page map on,
+        the timer interrupting it, the same sum at chip level as on the
+        model (the interrupts' count is the timer's)."""
+        import os
+        from heron.studies.reed import hw, model, systest, ucode
+        img, ram = systest.image(os.path.join(os.path.dirname(systest.__file__), "sw", "irquser.s"))
+        prog = ucode.build()
+        m = model.Model(bytes(ram), prog=prog)
+        self.assertEqual(m.run(3_000_000), "halt")
+        r = hw.run(bytearray(ram), prog, max_cycles=200_000)
+        self.assertEqual(r["stopped_at"], "halt")
+        word = lambda mem, i: int.from_bytes(bytes(mem[0x10000 + 4 * i:0x10004 + 4 * i]), "little")
+        self.assertEqual(word(m.ram, 2), 0x600D)
+        self.assertEqual(word(r["ram"], 2), 0x600D)
+        self.assertEqual(word(r["ram"], 0), word(m.ram, 0))
+        self.assertGreater(word(r["ram"], 1), 10)

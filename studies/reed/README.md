@@ -1,6 +1,6 @@
 ---
 status: active
-depends-on: []
+depends-on: [v2_isa]
 reports: [49]
 ---
 
@@ -21,6 +21,11 @@ heron reed sta         # static timing of each kind of microcycle (seconds)
 heron reed estimate    # a rough time an instruction: front ends and cycle lengths on the napkin's mix
 heron reed ucode       # the microcode's listing
 heron reed hw smoke    # the whole machine at chip level running a small program, against draft 2's simulator
+heron reed hw check    # the chip-level gate: small programs at both corners and three seeds
+heron reed hw lockstep # the model against the chip level, cycle by cycle
+heron reed fuzz        # the microcode against draft 2's simulator, an instruction at a time (faults too)
+heron reed systest     # the system half (sw/systest.s) against draft 2's system simulator
+heron reed kernel [--chip]   # the nucleus (sw/kernel.s) on the model; --chip at chip level too (minutes)
 heron test reed        # the unit tests
 ```
 
@@ -35,10 +40,19 @@ heron test reed        # the unit tests
 | `system.py` | the boards joined; the checks; the boards' statistics |
 | `sta.py` | the static timing cases: each kind of microcycle at each length, and what fails |
 | `ucode.py` | the microassembler and the microcode: words by field, the decode table, the parts' images |
-| `hw.py` | the machine at chip level (infra/hwsim): preloads, the run, the smoke test against `v2_isa` |
+| `ucode_sys.py` | the system's microcode: exceptions, interrupts, the system instructions (RFC 0029) |
+| `model.py` | the cycle-level model: the microcode's images run with the netlist's semantics, and the IO board as software sees it |
+| `hw.py` | the machine at chip level (infra/hwsim): preloads, the run, the smoke test against `v2_isa`, the lockstep with the model |
+| `fuzz.py` | random instructions on the model against draft 2's simulator, faults compared at the vector |
+| `systest.py` | `sw/systest.s` on the model and on draft 2's system simulator (`heron.native.v2.SysMachine`) |
+| `kernel.py` | the nucleus on the model, and at chip level |
+| `sw/` | programs for Reed: `systest.s`, `irqtest.s` and `irquser.s` (interrupts, from supervisor and user mode), `kernel.s` |
 | `estimate.py` | a rough time an instruction from microcycle counts and `sta`'s lengths (not a measurement) |
 
-The microcode covers a subset of draft 2 (`ucode.py`'s docstring); what the
-timing analysis and the chip-level runs find, and what's next, is in RFC
-0049's section 14 and
-[clocking-and-front-end.md](../../reports/0049-rfc-board-first/clocking-and-front-end.md).
+The microcode is draft 2's instruction set but its tentative instructions,
+and RFC 0029's system half with Reed's differences. What the timing
+analysis and the chip-level runs find, and what's next, is in RFC 0049's
+section 14 and its folder:
+[clocking-and-front-end.md](../../reports/0049-rfc-board-first/clocking-and-front-end.md),
+[microcode-and-model.md](../../reports/0049-rfc-board-first/microcode-and-model.md),
+[system.md](../../reports/0049-rfc-board-first/system.md).

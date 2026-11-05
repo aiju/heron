@@ -16,7 +16,8 @@ The address: U_IA (three 574s) take A when MEM's MAR does (ALE: U_IOT's
 gated clock ALEK), and U_IOD decodes it at the same edge into the
 selects. The access: U_IOT gives the devices' strobes (IOR_n, IOW_n) from
 the cycle's second tick, holds the cycle (WAIT_IO) for the device's class
-of access time, and ends a write's strobe as the write phase starts. Data
+of access time, and ends a write's strobe as the write phase starts or
+the class's time is done, whichever is first. Data
 comes on A (a store's) and goes on B (a load's), each through 541s;
 B16-B23 read 0, and B24-B31 too but for the interrupt controller's
 registers, whose bits 27-24 are a level.
@@ -92,7 +93,11 @@ def address(nl, ck):
     outs["WDONE"] = (full, False, False)
     outs["WAIT_IO"] = (AND(acc, lit("WDONE", 0)), False, False)
     outs["IOR_n"] = (rd, True, True)
-    outs["IOW_n"] = (AND(wr, lit("WPH", 0)), True, True)
+    # (a write's strobe ends at the write phase or once its count is done,
+    # and doesn't start again while the access lasts: MEM's IOWR_n reaches
+    # here only into the next cycle's first tick, and a strobe there would
+    # write again; a read's lasts into that tick as one strobe)
+    outs["IOW_n"] = (AND(wr, lit("WPH", 0), lit("WDONE", 0)), True, True)
     G.add(nl, "U_IOT", outs, clock="MCLK")
 
 

@@ -70,6 +70,8 @@ P_SIZE  = 28
         RTI                     ; (no level up any more: spurious)
         .org W + 0x54
         JMP  tick               ; level 6, the timer
+        .org W + 0x58
+        JMP  frame              ; level 7, the video's frame (at chip level: the model has no video)
         .org W + 0x100
         JMP  sys_putc           ; SWI #0: r1 a byte to the console
         .org W + 0x104
@@ -80,6 +82,13 @@ P_SIZE  = 28
         JMP  sys_getpid         ; SWI #3: r1 = pid
 
         .org W + 0x200
+; the video's frame: a write to its control register acknowledges it
+frame:  PUSH r1
+        MOV  r1, #0
+        MOV  half [0xF0000400], r1
+        POP  r1
+        RTI
+
 boot:   MOV  r1, #kmain         ; (absolute: Reed comes here at 0x200)
         JMP  r1
 
