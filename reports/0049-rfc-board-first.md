@@ -1024,7 +1024,8 @@ card.
    system instructions; the model in lockstep with the chip level; RFC
    0050's workloads all right on it, 360-720 ns an instruction at 7
    ticks. Next there: an index dispatch, the fetch and the refill,
-   multiply and shifts.
+   multiply and shifts. The rest of the instruction set is done too
+   (item 9).
 7. **The board tester** of 14.5, in the simulator first.
 8. **System features, some time** (Emily, 2026-11-05): register banking
    (the register file's SRAMs are 64K deep and use addresses 0-31 only:
@@ -1032,4 +1033,15 @@ card.
    registers shared or banked **open**), and a trap on an address with
    bit 31 clear (beside the address error: MEM latches A30 with MAR
    already). Both after the exceptions' microcode, following RFC 0029.
+   Built with item 9: banked, the microcode's registers too; bit 31 as
+   RFC 0029's window has it.
+9. **The system half and a kernel** (done, 2026-11-05:
+   [system.md](0049-rfc-board-first/system.md)): RFC 0029 on Reed, its
+   differences **open** (interrupts by the IO board's sources at fixed
+   levels, contexts of 4 MB, the page map's enable in `ctx`); a fault
+   cancels its cycle and the next; the page map on MEM; every instruction
+   of draft 2 but the tentative ones. The system test the same as draft
+   2's system simulator, and in lockstep at chip level; a small
+   preemptive kernel on the model and at chip level. Memory words 7
+   ticks with the map. 0-2.3% on RFC 0050's suite.
 

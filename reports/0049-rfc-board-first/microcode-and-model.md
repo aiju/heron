@@ -61,7 +61,8 @@ constant and by a register, `BIC`, `TST`, `MULU`, `MULS`, `DIVU`, `DIVS`,
 branches, jumps and calls through any operand, `DBNZ`, `SAVE`,
 `RESTORE`, `LDM` and `STM`. Not yet: `DIVUL`, `ADC`, `SBC`, `CLZ`, the
 system instructions and the exceptions; those trap to `unimpl`, as does a
-negative abs24 or d24 in the special mode's indexed forms.
+negative abs24 or d24 in the special mode's indexed forms. (Since done:
+[system.md](system.md).)
 
 `fuzz.py` checks it a random instruction at a time against draft 2's
 simulator, registers, flags and memory: every family passes 400 cases
