@@ -8,8 +8,9 @@ space is A29 clear:
   A28 set      the boot flash (SST39SF010A, a byte per halfword: A17-A1)
   A28 clear    the devices, by A15-A12: 0 UART 0, 1 UART 1, 2 timer
                (82C54), 3 and 4 the CF card's command and control blocks
-               (16-bit True IDE), 5 PS/2 and the interrupt controller and
-               the DAC (by A13-A12 again within DEVX: see U_IRQ, U_KBD)
+               (16-bit True IDE), 5 (DEVX) PS/2, the interrupt controller
+               and the DAC, by A11-A10: 0 the keyboard, 1 the mouse, 2 the
+               interrupt controller, 3 the DAC (see interrupts())
 
 The address: U_IA (three 574s) take A when MEM's MAR does (ALE: U_IOT's
 gated clock ALEK), and U_IOD decodes it at the same edge into the
@@ -17,7 +18,8 @@ selects. The access: U_IOT gives the devices' strobes (IOR_n, IOW_n) from
 the cycle's second tick, holds the cycle (WAIT_IO) for the device's class
 of access time, and ends a write's strobe as the write phase starts. Data
 comes on A (a store's) and goes on B (a load's), each through 541s;
-B16-B31 read 0.
+B16-B23 read 0, and B24-B31 too but for the interrupt controller's
+registers, whose bits 27-24 are a level.
 """
 
 from heron.infra.hw import gal as G
@@ -95,21 +97,32 @@ def address(nl, ck):
 
 
 def data(nl):
-    """Reads onto B (B16-B31 0) while the access lasts, but for the cycle's
-    first two ticks (so that the driver is off as the next cycle starts);
-    writes from A."""
+    """Reads onto B (B16-B31 0, and B8-B15 for a byte) while the access
+    lasts, but for the cycle's first two ticks (so that the driver is off
+    as the next cycle starts); writes from A."""
     # U_IOB, on MCLK: the data drivers' enables; ALEK, A's latch clock
+    # (B15-B8 from IOD15-IOD8 but for a byte's read, which gives 0 there:
+    # the 8-bit devices leave IOD15-IOD8 to the pull-ups)
+    rd = AND(lit("IORD_n", 0), lit("SELIO"), lit("CK1", 0))
+    byte = AND(lit(BP.SZ[0], 0), lit(BP.SZ[1], 0))
     outs = {
-        "IOBOE_n": (AND(lit("IORD_n", 0), lit("SELIO"), lit("CK1", 0)), False, True),
+        "IOBOE_n": (rd, False, True),
+        "IOBOE1_n": (AND(rd, negate(byte)), False, True),
+        "IOZB_n": (AND(rd, byte), False, True),
         "IOWOE_n": (AND(lit("IOWR_n", 0), lit("SELIO")), False, True),
     }
     gated_clock(outs, "ALEK", lit("ALE"), clk="CK2")
     G.add(nl, "U_IOB", outs, clock="MCLK")
+    nl.add("541", "U_DZB", OE1="IOZB_n", OE2="GND", **{f"A{i + 1}": "GND" for i in range(8)},
+           **{f"Y{i + 1}": BP.B[8 + i] for i in range(8)})
     for k in range(2):
-        nl.add("541", f"U_DR{k}", OE1="IOBOE_n", OE2="GND",
+        nl.add("541", f"U_DR{k}", OE1="IOBOE_n" if k == 0 else "IOBOE1_n", OE2="GND",
                **{f"A{i + 1}": IOD[8 * k + i] for i in range(8)},
                **{f"Y{i + 1}": BP.B[8 * k + i] for i in range(8)})
-        nl.add("541", f"U_DZ{k}", OE1="IOBOE_n", OE2="GND", **{f"A{i + 1}": "GND" for i in range(8)},
+        # (B27-B24: DZ24-DZ27, a level from the interrupt controller, 0 for
+        # every other register)
+        zin = ["GND"] * 8 if k == 0 else [f"DZ{24 + i}" for i in range(4)] + ["GND"] * 4
+        nl.add("541", f"U_DZ{k}", OE1="IOBOE_n", OE2="GND", **{f"A{i + 1}": zin[i] for i in range(8)},
                **{f"Y{i + 1}": BP.B[16 + 8 * k + i] for i in range(8)})
         nl.add("541", f"U_DW{k}", OE1="IOWOE_n", OE2="GND",
                **{f"A{i + 1}": BP.A[8 * k + i] for i in range(8)},
@@ -163,7 +176,7 @@ def ps2(nl):
     for port, a12, clk, data, irq in (("KBD", 0, "KCLK", "KDATA", "KIRQ"),
                                       ("MSE", 1, "MCLKL", "MDATA", "MIRQ")):
         s1, s2, c = f"{port}_S1", f"{port}_S2", [f"{port}_C{i}" for i in range(4)]
-        sel = AND(lit("DEVX_n", 0), lit(IOA[13], 0), lit(IOA[12], a12))
+        sel = lit(f"{port}SEL_n", 0)
         rd = AND(sel, lit("IOR_n", 0))
         wr = AND(sel, lit("IOW_n", 0))
         edge = AND(lit(s1), lit(s2, 0))            # a falling edge (S1 the clock inverted, as the 14 gives it)
@@ -204,29 +217,69 @@ def ps2(nl):
            P4="GND", P5="GND", P6="GND", P7="GND")
 
 
-def interrupts(nl, sim):
-    """U_IRQ: IRQ while a source is up; a read at DEVX +0x2000 gives the
-    highest one's number (IOD0-IOD2: 0 the timer, 1 the frame, 2 UART 0,
-    3 UART 1, 4 the keyboard, 5 the mouse, 6 the CF card, 7 none); the
-    UARTs' reset (RESET, high) and the DAC's select."""
-    src = ["TINT", "VIRQ", "UINT0", "UINT1", "KIRQ", "MIRQ", "CFINT"]
-    sel = AND(lit("DEVX_n", 0), lit(IOA[13]), lit(IOA[12], 0), lit("IOR_n", 0))
+# the interrupt sources and their levels (RFC 0029's 1-8, 8 unused): the
+# video's frame 7, the timer 6, UART 0 5, UART 1 4, the keyboard 3, the
+# mouse 2, the CF card 1
+LEVELS = {"VIRQ": 7, "TINT": 6, "UINT0": 5, "UINT1": 4, "KIRQ": 3, "MIRQ": 2, "CFINT": 1}
+# the interrupt controller's registers, at DEVX + 0x800 (A11-A10 = 2): by A2
+IC_VECTOR, IC_STATUS = 0x800, 0x804
 
-    def vec(i):
-        def fn(*s):
-            for k, v in enumerate(s):
-                if v:
-                    return (k >> i) & 1
-            return (7 >> i) & 1
-        return table(src, fn)
-    outs = {"IRQ": (OR(*[lit(s) for s in src]), False, False),
-            "RESET": (lit("RESET_n", 0), False, False),
-            "DACCS_n": (AND(lit("DEVX_n", 0), lit(IOA[13]), lit(IOA[12])), False, True),
-            "KBDSEL_n": (AND(lit("DEVX_n", 0), lit(IOA[13], 0), lit(IOA[12], 0)), False, True),
-            "MSESEL_n": (AND(lit("DEVX_n", 0), lit(IOA[13], 0), lit(IOA[12])), False, True)}
+
+def interrupts(nl, sim):
+    """The interrupt controller. Each source has a level (LEVELS); IPL
+    (U_IPL) holds off the levels at or below it, and IRQ asks the CPU
+    while a source above it is up (U_PRI). Its registers, by A2:
+
+      0  read: the vector's offset for the highest level up (0x3C + 4 x
+         the level, in bits 7-0; 0x3C if none) and the level in bits
+         27-24. Written: IPL from bits 27-24 (sr's place for it)
+      4  read: the CPU's flags (ccr, bits 3-0, from the backplane's lines)
+         and IPL in bits 27-24. Written: IPL from bits 3-0 (SPL's)
+
+    U_DXS decodes DEVX's registers at ALEK; U_PRI also gives the UARTs'
+    reset (RESET, high)."""
+    a = BP.A
+    dev = AND(lit(a[30]), lit(a[29], 0), lit(a[28], 0), eq(a[12:16], 5))
+    sub = {"KBDSEL_n": 0, "MSESEL_n": 1, "ICSEL_n": 2, "DACCS_n": 3}
+    outs = {n: (AND(dev, eq(a[10:12], v)), True, True) for n, v in sub.items()}
+    outs["ICA2"] = (lit(a[2]), True, False)
+    G.add(nl, "U_DXS", outs, clock="ALEK")
+    src = list(LEVELS)
+    ipl = ["IPL0", "IPL1", "IPL2", "IPL3"]
+
+    def highest(*on):
+        return max([LEVELS[s] for s, v in zip(src, on) if v], default=0)
+    outs = {"IRQ": (table(src + ipl, lambda *b: int(highest(*b[:7]) > sum(v << i for i, v in enumerate(b[7:])))),
+                    False, False),
+            "RESET": (lit("RESET_n", 0), False, False)}
     for i in range(3):
-        outs[IOD[i]] = (vec(i), False, False, sel)
-    G.add(nl, "U_IRQ", outs)
+        outs[f"LV{i}"] = (table(src, lambda *b, i=i: (highest(*b) >> i) & 1), False, False)
+    for i in range(2, 7):
+        outs[f"VO{i}"] = (table(src, lambda *b, i=i: ((0x3C + 4 * highest(*b)) >> i) & 1), False, False)
+    G.add(nl, "U_PRI", outs)
+    # IPL: written from A27-A24 (register 0) or A3-A0 (register 4) while
+    # IOW_n is low, on MCLK; 0 at reset
+    wr = AND(lit("ICSEL_n", 0), lit("IOW_n", 0))
+    outs = {}
+    for i in range(4):
+        outs[ipl[i]] = (AND(lit("RESET_n"), OR(AND(wr, lit("ICA2", 0), lit(a[24 + i])),
+                                                AND(wr, lit("ICA2"), lit(a[i])),
+                                                AND(negate(wr), lit(ipl[i])))), True, False)
+    G.add(nl, "U_IPL", outs, clock="MCLK")
+    # bits 27-24 of a read: the level (register 0), IPL (register 4), else 0
+    rd = lit("ICSEL_n", 0)
+    outs = {f"DZ{24 + i}": (OR(AND(rd, lit("ICA2", 0), lit(f"LV{i}")) if i < 3 else ZERO,
+                                AND(rd, lit("ICA2"), lit(ipl[i]))), False, False) for i in range(4)}
+    G.add(nl, "U_DZG", outs)
+    # bits 7-0: the vector's offset (register 0), the flags (register 4)
+    vo = ["GND", "GND"] + [f"VO{i}" for i in range(2, 7)] + ["GND"]
+    nl.add("541", "U_VR", OE1="ICSEL_n", OE2="ICRD0_n", **{f"A{i + 1}": vo[i] for i in range(8)},
+           **{f"Y{i + 1}": IOD[i] for i in range(8)})
+    fl = ["FV", "FC", "FZ", "FN"] + ["GND"] * 4
+    nl.add("541", "U_SR", OE1="ICSEL_n", OE2="ICRD1_n", **{f"A{i + 1}": fl[i] for i in range(8)},
+           **{f"Y{i + 1}": IOD[i] for i in range(8)})
+    G.add(nl, "U_ICR", {"ICRD0_n": (AND(lit("IOR_n", 0), lit("ICA2", 0)), False, True),
+                        "ICRD1_n": (AND(lit("IOR_n", 0), lit("ICA2")), False, True)})
     if sim:
         nl.add("por", "U_POR", RST="RESET_n", params={"release_ps": 2_000_000})
     else:

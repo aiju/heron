@@ -44,7 +44,11 @@ CONTROL = {
                       "or a branch whose condition holds"),
     **{n: ("ALU", "flags") for n in ("FN", "FZ", "FC", "FV", "FST")},
     "QIN": ("ALU", "the bit MQ shifts in (the last result's bit 0)"),
-    "AERR": ("MEM", "address error: the access is misaligned"),
+    "FAULT": ("MEM", "the access faults (misaligned, z 3, or the page map's): the cycle is "
+                     "cancelled and the next address is 0"),
+    "KILL_n": ("MEM", "cancel this cycle's microinstruction (FAULT, or FAULT the cycle before): "
+                      "CTRL's and ALU's word registers clear"),
+    "FFLT": ("MEM", "the fetch faults (the page map's): its word isn't taken"),
     "ALE": ("MEM", "MAR loads from A at this cycle's end: the I/O boards latch A too"),
     "IORD_n": ("MEM", "a read in the I/O space this cycle"),
     "IOWR_n": ("MEM", "a write in the I/O space this cycle"),

@@ -1152,9 +1152,14 @@ def save_restore(p, entries):
 def build():
     p = Program()
     entries = {}
-    # reset: A = 0 (the ALU's ZERO onto A), PC and FPC from it, the queue
-    # empty; then the constants, and WAITD until the first instruction is in
-    p.place(Word("reset", "AOP=ZERO AOUT=F PCOP=LOAD", next=("jump", "_consts")), at=0)
+    # word 0: reset's, and a fault's (FAULT sends the next address to 0),
+    # told apart by KILL, which the cancelled cycle before a fault's word 0
+    # has. Reset: A = 0 (the ALU's ZERO onto A), PC and FPC from it, the
+    # queue empty, EB 0; then the constants, and WAITD until the first
+    # instruction is in
+    boot = Word("boot", "AOP=ZERO AOUT=F PCOP=LOAD IMM=ZERO EBLD=1", next=("jump", "_consts"))
+    fault = Word("fault", "", next=("jump", "unimpl"))
+    p.place(Word("reset", "", next=("if", "KILL", p.pair(boot, fault))), at=0)
     p.place(Word("waitd", "", next="decode", note="decode again"), at=WAITD)
     p.place(Word("halt", "", next=("jump", "halt1")), at=6)
     p.place(Word("halt1", "", next=("jump", "halted")), at=8)

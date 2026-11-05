@@ -21,7 +21,7 @@ CTRL_DIRECT = [("JT", 14), ("SEQ", 2), ("CND", 4), ("LEN", 2), ("CSPARE", 2)]
 CTRL_REG = [("IQC", 2), ("IMM", 4), ("PCOP", 2), ("BFREE", 1), ("DACC", 1), ("IFL", 2),
             ("TK", 1), ("CSPARE2", 3)]
 ALU = [("RAS", 2), ("RBS", 2), ("K", 5), ("WS", 2), ("AOP", 4), ("CI", 2), ("FL", 2), ("AIN", 1),
-       ("BIN", 2), ("AOUT", 2), ("BOUT", 1), ("SI", 2), ("STOP", 2), ("NSZ", 2), ("ASPARE", 1)]
+       ("BIN", 2), ("AOUT", 2), ("BOUT", 1), ("SI", 2), ("STOP", 2), ("NSZ", 2), ("EBLD", 1)]
 MEM = [("MOP", 3), ("MSZ", 2), ("MARLD", 1), ("MQ", 2)]
 
 SLICES = {"CTRL": CTRL_DIRECT + CTRL_REG, "ALU": ALU, "MEM": MEM}
@@ -35,9 +35,12 @@ CTRL_REG_BASE = 24
 # taken), else decode (a branch's tail word)
 SEQ_JUMP, SEQ_DECODE, SEQ_DECODE_NOIRQ, SEQ_BRDEC = 0, 1, 2, 3
 # CND: the condition a JUMP XORs into JT's bit 0 (0: none, so JT itself)
-# (interrupts are taken at a decode, not tested)
-CND = {"NONE": 0, "Z": 1, "N": 2, "C": 3, "V": 4, "ST": 5, "MQ0": 6, "AERR": 7,
-       "CC_OP": 8, "CC_D": 9}
+# (interrupts are taken at a decode, not tested; KILL: the cycle is
+# cancelled, MEM's KILL_n, which word 0 tells a fault's entry from reset
+# by; FFQ: a fetch has faulted; ILEN0-1: the executing instruction's
+# length in parcels; IRQP: an interrupt is pending and enabled)
+CND = {"NONE": 0, "Z": 1, "N": 2, "C": 3, "V": 4, "ST": 5, "MQ0": 6, "KILL": 7,
+       "CC_OP": 8, "CC_D": 9, "FFQ": 10, "ILEN0": 11, "ILEN1": 12, "IRQP": 13}
 # LEN: the cycle's ticks, 5 + LEN (a cycle that reads and writes the register
 # file needs 5: its read, then a write phase of three ticks)
 LEN_BASE = 5
@@ -73,15 +76,19 @@ FL = {"NONE": 0, "SH": 1, "NZ": 2, "NZCV": 3}
 # NSZ: N and Z at the word's size, or (SZ) at the access's size, MEM's SZ
 # lines (the word's MSZ, or the index parcel's): N from bit 31, 15 or 7, Z
 # from the word, the low half or the low byte (a byte's MOVS, INC, DEC)
-NSZ = {"WORD": 0, "SZ": 1}
+# LOAD: the flags from F's bits 3-0 (N, Z, C, V as ccr has them), for MTSR
+# and RTI
+NSZ = {"WORD": 0, "SZ": 1, "LOAD": 2}
 BIN = {"RF": 0, "BUS": 1, "SHIFT": 2, "NONE": 3}
 AOUT = {"NONE": 0, "OA": 1, "F": 2}
 SI = {"0": 0, "C": 1, "SIGN": 2, "ROT": 3}
 STOP = {"HOLD": 0, "Z": 1, "F31": 2, "C32": 3}
 
 # MEM
-# (MOP 3 reserved: FPC loads on CTRL's FLUSH)
-MOP = {"NONE": 0, "LOAD": 1, "STORE": 2, "RES": 3}
+# (FPC loads on CTRL's FLUSH.) SYSW: S from B31; CTXW: CTX (the page map's
+# context, bit 7 the map's enable) from B7-B0; MAPW: the page map's entry
+# at CTX and MAR from B; FARR: FAR and FSR onto B
+MOP = {"NONE": 0, "LOAD": 1, "STORE": 2, "SYSW": 3, "CTXW": 4, "MAPW": 5, "FARR": 6}
 # (INDEX: the index parcel's z, from CTRL on the IZ lines: 0 byte, 1 half,
 # 2 word; its 3, which should trap, isn't caught)
 MSZ = {"BYTE": 0, "HALF": 1, "WORD": 2, "INDEX": 3}

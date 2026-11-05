@@ -9,12 +9,19 @@ What it keeps, at a cycle's start (a cycle is one microinstruction):
   CTRL   µPC (the next word's address: its direct fields JT, SEQ, CND and
          LEN are read during this cycle), the executing word, the queue
          (four parcels, their valid bits PV, the bits AV of those still to
-         decode, DP, NXP, EP), the decoded
-         and the executing instruction's opcode and register byte, PNL, PC,
-         H, IFLAG
-  ALU    the register file (both copies hold the same), the flags (N, C,
-         V, ZL, ZH, ZB, ZPEND, ZSZ, FZH, ST) and QIN
-  MEM    MAR (with AL and IOSP), FPC, MQ, the RAM
+         decode, DP, NXP, EP, FFQ), the decoded
+         and the executing instruction's opcode and register byte, PNL, PC
+         (bits 21-1 and 31), ILEN, H, IFLAG, the interrupt's synchroniser
+  ALU    the register file (both copies hold the same) by bank, EB, the
+         flags (N, C, V, ZL, ZH, ZB, ZPEND, ZSZ, FZH, ST) and QIN
+  MEM    MAR (with AL, IOSP, M31 and MRANGE), FPC (with F31 and FRANGE),
+         MQ, S, KILLQ, FAR and FSR, CTX and the page map, the RAM
+  IO     the interrupt controller, UART 0 and the timer's counter 0, as
+         far as software sees them (io_board)
+
+A cycle that faults (FAULT: misaligned, z 3, the page map's) is cancelled
+as the netlist cancels it: CTRL's and ALU's fields read 0 for it and the
+next (KILL), MEM's strobes don't come, and the next address is 0.
 
 A result is written into the register file at the cycle's end: in the
 netlist it is written in the next cycle's write phase, and that cycle's
@@ -22,9 +29,9 @@ reads of it take Y through the bypass, which is the same. A bus that
 two drivers drive, or that something reads while nothing drives it, is
 a microcode error.
 
-The I/O space (A30) holds only the benchmark's console at 0xFFFFFF00 (a
-byte written goes out; a read gives the next input byte, or -1): the
-IO board's devices aren't modelled.
+The I/O space (A30 of the physical address) holds the benchmark's console
+at 0xFFFFFF00 (a byte written goes out; a read gives the next input byte,
+or -1), and the IO board's devices that io_board models; the rest read 0.
 """
 
 from . import fields as F, ucode
@@ -47,6 +54,20 @@ for _code, _name in AOP_NAME.items():
 
 class ModelError(Exception):
     pass
+
+
+ZERO_WORD = None
+
+
+def _zero_board(w, boards):
+    """w with the fields of `boards` 0 (a cancelled word: CTRL's and ALU's)."""
+    out = Word.__new__(Word)
+    for name in Word.__slots__:
+        setattr(out, name, getattr(w, name))
+    for b in boards:
+        for name, _ in F.SLICES[b]:
+            setattr(out, name, 0)
+    return out
 
 
 def alu181x32(a, b, sel, m, cin):
@@ -94,6 +115,163 @@ class Word:
                 setattr(self, name, (val >> b) & ((1 << w) - 1))
 
 
+UCLK_PS = 542535                # the UARTs' and the timer's clock, 1.8432 MHz
+TICK_PS = 19861
+
+
+class IOBoard:
+    """The IO board as software sees it (io.py): the interrupt controller
+    (levels, IPL, its two registers), UART 0 (a TL16C550C without its
+    timing: a byte written to THR goes out at once, RBR gives the input's
+    next byte) and the timer's counter 0 in mode 0 (OUT0, TINT, rises at
+    the count's end and stays until the count is written again). Time is
+    the model's ticks."""
+
+    LEVELS = {"VIRQ": 7, "TINT": 6, "UINT0": 5, "UINT1": 4, "KIRQ": 3, "MIRQ": 2, "CFINT": 1}
+
+    def __init__(self, model):
+        self.m = model
+        self.ipl = 0
+        # UART 0
+        self.ier = self.lcr = self.mcr = self.scr = 0
+        self.thre_irq = 0
+        # timer counter 0: (count loaded, the time it was loaded at in ps, mode)
+        self.t_ctl = 0
+        self.t_lsb = None
+        self.t_count = 0
+        self.t_start = None
+        self.t_latched = None
+        self.out = model.out
+
+    def now_ps(self):
+        return self.m.ticks * TICK_PS
+
+    def tint(self):
+        if self.t_start is None:
+            return 0
+        return int((self.now_ps() - self.t_start) // UCLK_PS >= self.t_count)
+
+    def rx_ready(self):
+        return self.m.inp_pos < len(self.m.inp)
+
+    def sources(self):
+        u0 = int((self.ier & 1 and self.rx_ready()) or (self.ier & 2 and self.thre_irq))
+        return {"TINT": self.tint(), "UINT0": u0}
+
+    def highest(self):
+        return max([self.LEVELS[k] for k, v in self.sources().items() if v], default=0)
+
+    def irq(self):
+        return int(self.highest() > self.ipl)
+
+    def read(self, a, size):
+        """A read at physical address a (A30 set): B's value."""
+        if (a >> 29) & 1 or (a >> 28) & 1:
+            return 0
+        slot = (a >> 12) & 15
+        if slot == 0:
+            v = self._uart_read((a >> 1) & 7)
+        elif slot == 2:
+            v = self._timer_read((a >> 1) & 3)
+        elif slot == 5 and (a >> 10) & 3 == 2:
+            m = self.m
+            if a & 4:
+                fz = m._znow() if m.zpend else m.fzh
+                return m.fv | m.fc << 1 | fz << 2 | m.fn << 3 | self.ipl << 24 | 0xFF00 * (size != 0)
+            lv = self.highest()
+            return (0x3C + 4 * lv) | lv << 24 | 0xFF00 * (size != 0)
+        else:
+            v = 0xFF
+        # (IOD15-8 pulled up; a byte's read gives 0 there)
+        return (v & 0xFF) | (0xFF00 if size != 0 else 0)
+
+    def write(self, a, v):
+        if (a >> 29) & 1 or (a >> 28) & 1:
+            return
+        slot = (a >> 12) & 15
+        if slot == 0:
+            self._uart_write((a >> 1) & 7, v & 0xFF)
+        elif slot == 2:
+            self._timer_write((a >> 1) & 3, v & 0xFF)
+        elif slot == 5 and (a >> 10) & 3 == 2:
+            self.ipl = (v & 15) if a & 4 else (v >> 24) & 15
+
+    def _uart_read(self, r):
+        m = self.m
+        if r == 0 and not self.lcr & 0x80:
+            if self.rx_ready():
+                m.inp_pos += 1
+                return m.inp[m.inp_pos - 1]
+            return 0
+        if r == 1:
+            return self.ier
+        if r == 2:
+            if self.ier & 1 and self.rx_ready():
+                return 0xC4
+            if self.ier & 2 and self.thre_irq:
+                self.thre_irq = 0
+                return 0xC2
+            return 0xC1
+        if r == 3:
+            return self.lcr
+        if r == 4:
+            return self.mcr
+        if r == 5:
+            return 0x60 | int(self.rx_ready())
+        if r == 7:
+            return self.scr
+        return 0
+
+    def _uart_write(self, r, v):
+        if r == 0 and not self.lcr & 0x80:
+            self.out.append(v)
+            self.thre_irq = 1
+        elif r == 1 and not self.lcr & 0x80:
+            if v & 2 and not self.ier & 2:
+                self.thre_irq = 1
+            self.ier = v & 15
+        elif r == 3:
+            self.lcr = v
+        elif r == 4:
+            self.mcr = v
+        elif r == 7:
+            self.scr = v
+
+    def _timer_write(self, r, v):
+        if r == 3:
+            if (v >> 6) == 0:
+                if (v >> 4) & 3 == 0:
+                    self.t_latched = self._timer_value()
+                else:
+                    self.t_ctl = v
+                    self.t_lsb = None
+                    self.t_start = None
+            return
+        if r != 0:
+            return
+        rw = (self.t_ctl >> 4) & 3
+        if rw == 3 and self.t_lsb is None:
+            self.t_lsb = v
+            self.t_start = None
+            return
+        n = (v << 8 | self.t_lsb) if rw == 3 else (v if rw == 1 else v << 8)
+        self.t_lsb = None
+        self.t_count = n or 0x10000
+        self.t_start = self.now_ps()
+
+    def _timer_value(self):
+        if self.t_start is None:
+            return self.t_count
+        return max(0, self.t_count - int((self.now_ps() - self.t_start) // UCLK_PS))
+
+    def _timer_read(self, r):
+        if r != 0:
+            return 0
+        v = self.t_latched if self.t_latched is not None else self._timer_value()
+        self.t_latched = None
+        return v & 0xFF
+
+
 class Model:
     def __init__(self, ram=None, inp=b"", prog=None):
         self.prog = prog or ucode.build()
@@ -117,26 +295,72 @@ class Model:
         self.dec1 = 0
         self.nop = self.nrb = self.op = self.rb = 0
         self.pnl, self.pc, self.h, self.iflag = 0, 0, 0, 0
-        # ALU
-        self.rf = [0] * 32
+        self.ilen = 0
+        self.irq1 = self.irqs = 0
+        self.ffq = 0
+        # ALU (the register file by bank: EB picks one; 0x100 the system's)
+        self.banks = {}
+        self.eb = 0
+        self.rf = self.bank(0)
         self.fn = self.fc = self.fv = self.zl = self.zh = self.zb = self.zpend = self.fzh = self.fst = 0
         self.zsz = 2
         self.qin = 0
         # MEM
-        self.mar = self.al = self.iosp = 0
-        self.fpc, self.mq = 0, 0
+        self.mar = self.al = self.iosp = self.m31 = self.mrange = 0
+        self.io_a = 0
+        self.fpc, self.f31, self.frange, self.mq = 0, 0, 0, 0
+        self.s, self.killq = 1, 0
+        self.far = 0
+        self.ctx = 0
+        self.map = [0] * (1 << 17)
+        self.io = IOBoard(self)
         # counts
         self.cycles = self.ticks = self.instructions = 0
         self.ucount = None
 
+    def bank(self, n):
+        b = self.banks.get(n)
+        if b is None:
+            b = self.banks[n] = [0] * 32
+        return b
+
     # ---- memory -------------------------------------------------------------
 
+    def _va(self):
+        """The data access's virtual address, as MAR holds it (bits 25-2,
+        AL, M31; MRANGE for bits 30-22 not all 0)."""
+        return self.m31 << 31 | (self.mar << 2) | self.al
+
+    def translate(self, va31, rng, low, store, fetch):
+        """(physical address bits 21-0, I/O space, fsr's page-map bits 0-4)
+        for an access: low is the address's bits 21-0. The page map is used
+        while CTX's bit 7 is set: an address with bit 31 clear is through
+        the map's context CTX, one with it set the supervisor's window (a
+        user's faults)."""
+        if not self.ctx & 0x80:
+            return low, None, 0
+        if va31:
+            if not self.s:
+                return low, None, 1 << 4
+            return low, None, 0
+        if rng:
+            return low, None, 1 << 3
+        e = self.map[(self.ctx & 0x7F) << 10 | (low >> 12) & 0x3FF]
+        why = 0
+        if not e & 1:
+            why |= 1
+        if store and not e & 2:
+            why |= 2
+        if fetch and not e & 4:
+            why |= 4
+        return (e & 0x3FF000) | (low & 0xFFF), False, why
+
     def _ram_addr(self):
-        return ((self.mar << 2) | self.al) & (RAM_BYTES - 1)
+        return self.pa & (RAM_BYTES - 1)
 
     def _load(self, size):
-        if self.iosp:
-            return self._io_read()
+        if self.io_space:
+            return self._io_read(size)
         a = self._ram_addr()
         r = self.ram
         if size == F.MSZ["WORD"]:
@@ -150,7 +374,7 @@ class Model:
         return r[a]
 
     def _store(self, size, data):
-        if self.iosp:
+        if self.io_space:
             return self._io_write(data)
         a = self._ram_addr()
         r = self.ram
@@ -165,22 +389,21 @@ class Model:
         else:
             r[a] = data & 255
 
-    def _io_addr(self):
-        """The address's bits 25-0 (MAR's, and AL)."""
-        return (self.mar << 2) | self.al
-
-    def _io_read(self):
-        if self._io_addr() != CONSOLE & 0x3FFFFFF:
-            raise ModelError(f"I/O read at {self._io_addr():08X}")
-        if self.inp_pos < len(self.inp):
-            self.inp_pos += 1
-            return self.inp[self.inp_pos - 1]
-        return MASK
+    def _io_read(self, size):
+        a = self.io_a
+        if a & 0x7FFFFFFF == CONSOLE & 0x7FFFFFFF:
+            if self.inp_pos < len(self.inp):
+                self.inp_pos += 1
+                return self.inp[self.inp_pos - 1]
+            return MASK
+        return self.io.read(a & 0x7FFFFFFF, size)
 
     def _io_write(self, data):
-        if self._io_addr() != CONSOLE & 0x3FFFFFF:
-            raise ModelError(f"I/O write at {self._io_addr():08X}")
-        self.out.append(data & 255)
+        a = self.io_a
+        if a & 0x7FFFFFFF == CONSOLE & 0x7FFFFFFF:
+            self.out.append(data & 255)
+            return
+        self.io.write(a & 0x7FFFFFFF, data)
 
     # ---- a microcycle -----------------------------------------------------------
 
@@ -192,37 +415,78 @@ class Model:
         fn, fc, fv = self.fn, self.fc, self.fv
         fz = self._znow() if self.zpend else self.fzh
         mq0 = self.mq & 1
+        pe = q[self.ep]
+        # the access's size (U_SZ): the word's MSZ, or for INDEX the index
+        # parcel's z
+        sz = w.MSZ if w.MSZ != 3 else (pe >> 8) & 3
+        # MEM's fault (U_SYS, and the page map's): the cycle, and the
+        # next, cancelled (KILL)
+        mop = w.MOP
+        acc = mop in (F.MOP["LOAD"], F.MOP["STORE"])
+        killq = self.killq
+        fault = False
+        self.io_space = bool(self.iosp)
+        self.pa = self._va()
+        if acc and not killq:
+            align = (sz == 2 and self.al) or (sz == 1 and self.al & 1)
+            z3 = sz == 3
+            low, io, why = self.translate(self.m31, self.mrange, self._va() & 0x3FFFFF, mop == F.MOP["STORE"], False)
+            if io is False:
+                self.io_space = False
+            self.pa = low
+            if align or z3 or why:
+                fault = True
+                fsr = why | (mop == F.MOP["STORE"]) << 5 | bool(align) << 7 | z3 << 8
+                self.far = (self._va() & 0x3FFFFF) | fsr << 22 | self.m31 << 31
+        elif acc:
+            low, io, why = self.translate(self.m31, self.mrange, self._va() & 0x3FFFFF, mop == F.MOP["STORE"], False)
+            if io is False:
+                self.io_space = False
+            self.pa = low
+        kill = fault or killq
+        if kill:
+            w = _zero_board(w, ("CTRL", "ALU"))
         # the executing instruction's condition, and FLUSH
         cc = rd if (op >> 6) & 1 else op & 15
         taken = taken_of(cc, fn, fz, fc, fv)
         flush = w.PCOP == F.PCOP_LOAD or (w.TK and taken)
-        pe = q[self.ep]
-        # the access's size (U_SZ): the word's MSZ, or for INDEX the index
-        # parcel's z (its 3, which should trap, isn't caught)
-        sz = w.MSZ if w.MSZ != 3 else (pe >> 8) & 3
         A = B = None
         # CTRL onto A (PC through the branch adder) and B (the immediates)
         if w.PCOP in (F.PCOP_DRIVE, F.PCOP_BRANCH):
             t = (self.pc >> 1) + (sext(rb, 8) if w.PCOP == F.PCOP_BRANCH else 0)
-            A = (t & 0x1FFFFF) << 1
+            A = (t & 0x1FFFFF) << 1 | (self.pc & 0x80000000)
         if w.IMM != F.IMM["NONE"]:
             B = self._imm(w.IMM, pe, op, rs, rd, rb)
         # the fetch
         dp = self.dp
         d1 = dp >> 1
         fs = (1 if (pv[2 * d1] or pv[2 * d1 + 1]) else 0) ^ d1
-        fetch = (not pv[2 * fs] and not pv[2 * fs + 1]) and w.BFREE and not w.DACC
+        fetch = (not pv[2 * fs] and not pv[2 * fs + 1]) and w.BFREE and not w.DACC and not self.ffq
+        ffl = False
         if fetch:
             if B is not None:
                 raise ModelError(f"µ{w.addr:04X}: a fetch onto a driven B")
-            a = (self.fpc << 2) & (RAM_BYTES - 1)
-            r = self.ram
-            B = r[a] | r[a + 1] << 8 | r[a + 2] << 16 | r[a + 3] << 24
+            low, _, why = self.translate(self.f31, self.frange, (self.fpc << 2) & 0x3FFFFF, False, True)
+            if why:
+                ffl = True
+                self.far = ((self.fpc << 2) & 0x3FFFFF) | (why | 1 << 6) << 22 | self.f31 << 31
+                B = 0
+            else:
+                a = low & (RAM_BYTES - 1)
+                r = self.ram
+                B = r[a] | r[a + 1] << 8 | r[a + 2] << 16 | r[a + 3] << 24
         # MEM onto B
         if w.MOP == F.MOP["LOAD"]:
             if B is not None:
                 raise ModelError(f"µ{w.addr:04X}: a load onto a driven B")
-            B = self._load(sz)
+            if fault or killq:
+                B = 0
+            else:
+                B = self._load(sz)
+        elif w.MOP == F.MOP["FARR"]:
+            if B is not None:
+                raise ModelError(f"µ{w.addr:04X}: FAR onto a driven B")
+            B = self.far
         if w.MQ == F.MQ["DRIVE"]:
             if B is not None:
                 raise ModelError(f"µ{w.addr:04X}: MQ onto a driven B")
@@ -280,11 +544,24 @@ class Model:
             if A is not None:
                 raise ModelError(f"µ{w.addr:04X}: ALU onto a driven A")
             A = oa if aout == F.AOUT["OA"] else f
-        # MEM: a store's data comes on A
-        if w.MOP == F.MOP["STORE"]:
+        # MEM: a store's data comes on A (no strobe in a cancelled cycle)
+        if w.MOP == F.MOP["STORE"] and not kill:
             if A is None:
                 raise ModelError(f"µ{w.addr:04X}: a store from an undriven A")
             self._store(sz, A)
+        if not kill:
+            if w.MOP == F.MOP["SYSW"]:
+                if B is None:
+                    raise ModelError(f"µ{w.addr:04X}: S from an undriven B")
+                self.s = B >> 31
+            elif w.MOP == F.MOP["CTXW"]:
+                if B is None:
+                    raise ModelError(f"µ{w.addr:04X}: CTX from an undriven B")
+                self.ctx = B & 0xFF
+            elif w.MOP == F.MOP["MAPW"]:
+                if B is None:
+                    raise ModelError(f"µ{w.addr:04X}: the page map from an undriven B")
+                self.map[(self.ctx & 0x7F) << 10 | (self.mar >> 10) & 0x3FF] = B & 0x3FF007
         # ---- the cycle's end ----------------------------------------------------
         # the sequencer: the word after the next, from the next's direct fields
         seq = n.SEQ
@@ -292,6 +569,7 @@ class Model:
         pd = q[dp]
         dlen = self.dt_len[pd]
         decoding = False
+        self._kill = kill
         if seq == F.SEQ_JUMP:
             nxt = n.JT ^ self._cond(n.CND, fn, fz, fc, fv, mq0, op, rd)
         elif not dec:
@@ -299,15 +577,23 @@ class Model:
         else:
             av = self.av
             ready = all(av[(dp + k) & 3] for k in range(max(1, dlen)))
-            if ready:
+            dec_irq = seq == F.SEQ_DECODE or (seq == F.SEQ_BRDEC and not flush)
+            if dec_irq and ((self.irqs and self.iflag) or (self.ffq and not ready)):
+                nxt = ucode.IVEC
+            elif ready:
                 nxt, decoding = self.dt_entry[pd], True
             else:
                 nxt = ucode.WAITD
+        if fault:
+            nxt = 0
         # flags (U_ZL, U_ZH, U_FLA, U_FLB)
         fl = w.FL
-        setnz, setcv = fl in (1, 2, 3), fl == 3
+        load_fl = w.NSZ == F.NSZ["LOAD"]
+        setnz, setcv = fl in (1, 2, 3) and not load_fl, fl == 3 and not load_fl
         f31 = f >> 31
-        if setcv:
+        if load_fl:
+            self.fv, self.fc, self.fn = f & 1, (f >> 1) & 1, (f >> 3) & 1
+        elif setcv:
             self.fc = c32
             a31, b31 = oa >> 31, obv >> 31
             if aop == F.AOP["SUB"]:
@@ -318,11 +604,14 @@ class Model:
             self.fc = (oa & 1) if bin_ == F.BIN["SHIFT"] else c32
             self.fv = 0
         if setnz:
-            nz_sz = sz if w.NSZ else 2
+            nz_sz = sz if w.NSZ == 1 else 2
             self.fn = (f >> 7) & 1 if nz_sz == 0 else (f >> 15) & 1 if nz_sz == 1 else f31
-        self.fzh = self._znow() if self.zpend else self.fzh
+        if load_fl:
+            self.fzh = (f >> 2) & 1
+        else:
+            self.fzh = self._znow() if self.zpend else self.fzh
         self.zl, self.zh, self.zb = int(f & 0xFFFF == 0), int(f >> 16 == 0), int(f & 0xFF == 0)
-        self.zpend, self.zsz = int(setnz), (sz if w.NSZ else 2)
+        self.zpend, self.zsz = int(setnz), (sz if w.NSZ == 1 else 2)
         stop = w.STOP
         if stop == F.STOP["F31"]:
             self.fst = f31
@@ -331,28 +620,40 @@ class Model:
         elif stop == F.STOP["Z"]:
             self.fst = 0
         old_qin, self.qin = self.qin, f & 1
-        # the register file
+        # the bank (EB, from B), and the register file: the result is
+        # written in the next cycle's write phase, so into the bank EB has
+        # then
+        if w.EBLD:
+            if B is None:
+                raise ModelError(f"µ{w.addr:04X}: EB from an undriven B")
+            self.eb = B & 0x1FF
+            self.rf = rf = self.bank(self.eb)
         ws = w.WS
         if ws:
             rf[rd if ws == 1 else rs if ws == 2 else w.K] = f
-        # MEM
+        # MEM (MAR and MQ load in a cancelled cycle too: from whatever A
+        # and B have)
         if w.MARLD:
-            if A is None:
+            if A is None and not kill:
                 raise ModelError(f"µ{w.addr:04X}: MAR from an undriven A")
-            self.mar, self.al, self.iosp = (A >> 2) & 0xFFFFFF, A & 3, (A >> 30) & 1
+            A_ = A or 0
+            self.mar, self.al, self.iosp = (A_ >> 2) & 0xFFFFFF, A_ & 3, (A_ >> 30) & 1
+            self.m31, self.mrange, self.io_a = A_ >> 31, int(A_ & 0x7FC00000 != 0), A_
         mqf = w.MQ
         if mqf == F.MQ["LOAD"]:
-            if B is None:
+            if B is None and not kill:
                 raise ModelError(f"µ{w.addr:04X}: MQ from an undriven B")
-            self.mq = B
+            self.mq = B or 0
         elif mqf == F.MQ["SHIFT"]:
             self.mq = (self.mq >> 1) | old_qin << 31
         if flush:
             if A is None:
                 raise ModelError(f"µ{w.addr:04X}: PC from an undriven A")
             self.fpc = (A >> 2) & 0xFFFFF
-        elif fetch:
+            self.f31, self.frange = A >> 31, int(A & 0x7FC00000 != 0)
+        elif fetch and not ffl:
             self.fpc = (self.fpc + 1) & 0xFFFFF
+        self.killq = int(fault)
         # the queue
         dec1 = self.dec1
         av = self.av
@@ -363,11 +664,15 @@ class Model:
         if flush:
             pv[0] = pv[1] = pv[2] = pv[3] = 0
             av[0] = av[1] = av[2] = av[3] = 0
-        elif fetch:
+        elif fetch and not ffl:
             q[2 * fs], q[2 * fs + 1] = B & 0xFFFF, B >> 16
             pv[2 * fs + 1] = av[2 * fs + 1] = 1
             if dp != 2 * fs + 1:
                 pv[2 * fs] = av[2 * fs] = 1
+        if flush:
+            self.ffq = 0
+        elif fetch and ffl:
+            self.ffq = 1
         if w.IQC in (F.IQC_NEXT, F.IQC_H):
             pv[self.ep] = 0
         if w.IQC == F.IQC_H:
@@ -375,12 +680,15 @@ class Model:
         if dec1:
             self.op, self.rb = self.nop, self.nrb
             self.ep = (self.nxp + 1) & 3
-            self.pc = (self.pc + 2 * self.pnl) & 0x3FFFFE
-            self.instructions += 1
+            if not kill:
+                # (DEC1K: a cancelled cycle's instruction keeps its PC and length)
+                self.pc = (self.pc & 0x80000000) | ((self.pc + 2 * self.pnl) & 0x3FFFFE)
+                self.ilen = self.pnl
+                self.instructions += 1
         elif w.IQC in (F.IQC_NEXT, F.IQC_H):
             self.ep = (self.ep + 1) & 3
         if flush:
-            self.pc = A & 0x3FFFFE
+            self.pc = A & 0x803FFFFE
             self.dp = (A >> 1) & 1
         elif decoding:
             self.dp = (dp + dlen) & 3
@@ -393,8 +701,12 @@ class Model:
             self.iflag = 1
         elif w.IFL == F.IFL_CLEAR:
             self.iflag = 0
+        # the interrupt request, through U_IRQS's two flip-flops
+        self.irqs, self.irq1 = self.irq1, self.io.irq()
         self.cycles += 1
-        self.ticks += F.LEN_BASE + w.LEN
+        # (LEN: the executing word's, which a cancelled word keeps: the
+        # clock card had it a cycle early)
+        self.ticks += F.LEN_BASE + self.mir.LEN
         if self.ucount is not None:
             self.ucount[w.addr] = self.ucount.get(w.addr, 0) + 1
         self.mir, self.upc = n, nxt
@@ -452,6 +764,16 @@ class Model:
             return self.fst
         if cnd == C["MQ0"]:
             return mq0
+        if cnd == C["KILL"]:
+            return int(self._kill)
+        if cnd == C["FFQ"]:
+            return self.ffq
+        if cnd == C["ILEN0"]:
+            return self.ilen & 1
+        if cnd == C["ILEN1"]:
+            return (self.ilen >> 1) & 1
+        if cnd == C["IRQP"]:
+            return int(self.irqs and self.iflag)
         if cnd in (C["CC_OP"], C["CC_D"]):
             cc = op & 15 if cnd == C["CC_OP"] else rd
             return base_cond(cc >> 1, fn, fz, fc, fv) ^ (cc & 1)
@@ -473,6 +795,11 @@ class Model:
 
     def regs(self):
         return list(self.rf[:16])
+
+    def sysregs(self):
+        """The system bank's r0-r15 (the special registers the microcode
+        keeps: ucode.SYS)."""
+        return list(self.bank(0x100)[:16])
 
 
 def run_image(img, inp=b"", max_cycles=50_000_000, prog=None):

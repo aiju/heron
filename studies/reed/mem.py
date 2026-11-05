@@ -58,6 +58,8 @@ def build(sim=True):
     stores(nl)
     nl.section("control")
     control(nl, ck)
+    nl.section("faults")
+    faults(nl, ck)
     nl.section("MQ")
     mq(nl, ck)
     BP.connectors(nl)
@@ -176,9 +178,6 @@ def control(nl, ck):
     for j in (2, 3):
         sa, sb, z = sel_fns(j)
         outs[f"XSA{j}"], outs[f"XSB{j}"], outs[f"XG{j}"] = (sa, False, False), (sb, False, False), (z, False, False)
-    # the address error: a misaligned word or half
-    outs["AERR"] = (OR(AND(OR(load, store), eq(msz, S["WORD"]), OR(lit("AL0"), lit("AL1"))),
-                       AND(OR(load, store), eq(msz, S["HALF"]), lit("AL0"))), False, False)
     # the rows' chip enables (row 1 for RA21 set; neither while the access is the I/O space's)
     outs["RCE0_n"] = (OR(lit("RA21", 0), AND(io, lit("FETCH", 0))), False, True)
     outs["RCE1_n"] = (OR(lit("RA21"), AND(io, lit("FETCH", 0))), False, True)
@@ -198,7 +197,7 @@ def control(nl, ck):
     # for the lanes the size and address choose
     # (WRSE: the strobe a tick into the write phase, which ends a tick
     # before the cycle does; the register file's WRS is half a tick later)
-    st_w = AND(store, ram_, lit("WRSE", 0))
+    st_w = AND(store, ram_, lit("WRSE", 0), lit("KILL_n"))
     outs = {}
     for row in range(2):
         rsel = lit("RA21", row)
@@ -216,8 +215,9 @@ def control(nl, ck):
         "MAROE_n": (lit("FETCH"), False, False),
         "FPCLD_n": (lit("FLUSH"), False, True),
         "MXOE_n": (OR(AND(load, ram_), lit("FETCH")), False, True),
-        "IORD_n": (AND(load, io), False, True),
-        "IOWR_n": (AND(store, io), False, True),
+        "IORD_n": (AND(load, io, lit("KILL_n")), False, True),
+        "IOWR_n": (AND(store, io, lit("KILL_n")), False, True),
+        "FAROE_n": (eq(mop, F.MOP["FARR"]), False, True),
         # 299 modes: hold 0, shift toward IO0 2, load 3 (S0 in U_ST); drive:
         # hold with the outputs on (MQOE_n, in U_ST)
         "MQS1": (anyof(mq, [F.MQ["LOAD"], F.MQ["SHIFT"]]), False, False),
@@ -225,6 +225,49 @@ def control(nl, ck):
     G.add(nl, "U_MC", outs)
 
 
+
+
+FAR = bus("FAR", 36)
+
+
+def faults(nl, ck):
+    """U_SYS: S, the supervisor's mode (set by reset, loaded from B31 by
+    MOP SYSW); FAULT, an access that faults (misaligned: a word not on a
+    word, a half not on a half; or z 3, an index parcel's size that isn't
+    one), which cancels the cycle; KILLQ, FAULT a cycle late, which
+    cancels the next; KILL_n, either (CTRL's and ALU's words clear, MEM's
+    strobes don't come); FFLT, a fetch's fault (none yet: the page map's).
+    FAR and FSR (four 823s) take the faulting access's address and why at
+    the cycle's end; MOP FARR reads them onto B: the address's bits 21-0
+    and 31 (B21-B0, B31), and FSR in B30-B22 (bits 0-4 the page map's
+    reasons, 5 a store, 6 a fetch, 7 misaligned, 8 z 3)."""
+    mop, sz = f("MOP"), BP.SZ
+    acc = anyof(mop, [F.MOP["LOAD"], F.MOP["STORE"]])
+    S = F.MSZ
+    align = OR(AND(eq(sz, S["WORD"]), OR(lit("AL0"), lit("AL1"))), AND(eq(sz, S["HALF"]), lit("AL0")))
+    z3 = AND(lit(sz[0]), lit(sz[1]))
+    fault = AND(acc, OR(align, z3), lit("KILLQ", 0))
+    sysw = AND(eq(mop, F.MOP["SYSW"]), lit("KILL_n"))
+    outs = {
+        "FAULT": (fault, False, False),
+        "KILLQ": (AND(lit("RESET_n"), fault), True, False),
+        "KILL_n": (OR(fault, lit("KILLQ")), False, True),
+        "FAREN_n": (fault, False, True),
+        "S": (OR(lit("RESET_n", 0), AND(sysw, lit(BP.B[31])), AND(negate(sysw), lit("S"))), True, False),
+        "FFLT": (ZERO, False, False),
+        "FSALIGN": (align, False, False),
+        "FSZ3": (z3, False, False),
+        "FSSTORE": (eq(mop, F.MOP["STORE"]), False, False),
+        # (the address's bit 31, loading with MAR: U_LN0 is full)
+        "M31": (OR(AND(lit("ALE"), lit("AI31")), AND(lit("ALE", 0), lit("M31"))), True, False),
+    }
+    G.add(nl, "U_SYS", outs, clock=ck[0])
+    src = (["AL0", "AL1"] + RA[2:22] + ["GND"] * 5 + ["FSSTORE", "GND", "FSALIGN", "FSZ3", "M31"]
+           + ["GND"] * 4)
+    for k in range(4):
+        nl.add("823", f"U_FAR{k}", OE="FAROE_n", CLK=ck[1], EN="FAREN_n", CLR="VCC",
+               **{f"D{i + 1}": src[9 * k + i] for i in range(9)},
+               **{f"Q{i + 1}": BP.B[9 * k + i] if 9 * k + i < 32 else f"FAR_NC{9 * k + i}" for i in range(9)})
 
 
 def mq(nl, ck):

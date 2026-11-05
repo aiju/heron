@@ -68,7 +68,7 @@ def build(sim=True):
     nl.section("control store")
     # (LEN, the next cycle's length, onto the backplane for the clock card)
     control_slice(nl, "CTRL", ck[0], direct=("JT", "SEQ", "CND", "LEN", "CSPARE"),
-                  rename={"uLEN0": "LEN0", "uLEN1": "LEN1"})
+                  rename={"uLEN0": "LEN0", "uLEN1": "LEN1"}, clear="KILL_n")
     sequencer(nl, ck)
     nl.section("queue")
     queue(nl, ck)
@@ -108,33 +108,30 @@ def sequencer(nl, ck):
             irq = AND(dec, lit("IRQT")) if (IVEC >> i) & 1 else ZERO
             wait = AND(dec, lit("IRQT", 0), lit("READY", 0)) if (WAITD >> i) & 1 else ZERO
             entry = AND(dec, lit("IRQT", 0), lit("READY"), lit(f"DT{i}"))
-            outs[upcd[i]] = (AND(lit("RESET_n"), OR(take_jt, irq, wait, entry)), False, False)
+            # (RUNOK: not reset, and no fault this cycle, which sends the
+            # next address to 0)
+            outs[upcd[i]] = (AND(lit("RUNOK"), OR(take_jt, irq, wait, entry)), False, False)
         G.add(nl, f"U_NA{k}", outs)
-    # the condition: flags, MQ0, the address error, the instruction's cc.
-    # A cc is a base condition (cc's bits 3-1) XORed with cc's bit 0: CCBO
-    # and CCBD are the bases for the opcode's cc and d's
+    # the condition: flags, MQ0, KILL (a fault's entry, at word 0), the
+    # instruction's cc, a fetch's fault, the instruction's length, an
+    # interrupt pending. A cc is a base condition (cc's bits 3-1) XORed
+    # with cc's bit 0: CCBO and CCBD (U_IQK) are the bases for the opcode's
+    # cc and d's
     cnd, op, rd = f("CND"), BP.OP, BP.RD
     flags = {"N": "FN", "Z": "FZ", "C": "FC", "V": "FV"}
-
-    def base(code, n, z, c, v):
-        return [z, c, n, v, c & (1 - z), int(n == v), int(z == 0 and n == v), 1][code]
-    outs = {}
-    for name, src in (("CCBO", op[1:4]), ("CCBD", rd[1:4])):
-        nets = src + ["FN", "FZ", "FC", "FV"]
-        outs[name] = (table(nets, lambda a, b, c_, n, z, c, v: base(a | b << 1 | c_ << 2, n, z, c, v)),
-                      False, False)
+    simple = {"ST": lit("FST"), "MQ0": lit("MQ0"), "KILL": lit("KILL_n", 0), "FFQ": lit("FFQ"),
+              "ILEN0": lit("ILEN0"), "ILEN1": lit("ILEN1"), "IRQP": lit("IRQP")}
     terms = []
     for name, code in F.CND.items():
         sel = eq(cnd, code)
         if name in flags:
             terms.append(AND(sel, lit(flags[name])))
-        elif name in ("ST", "MQ0", "AERR"):
-            terms.append(AND(sel, lit({"ST": "FST", "MQ0": "MQ0", "AERR": "AERR"}[name])))
+        elif name in simple:
+            terms.append(AND(sel, simple[name]))
         elif name in ("CC_OP", "CC_D"):
             b0, base_net = (op[0], "CCBO") if name == "CC_OP" else (rd[0], "CCBD")
             terms.append(AND(sel, OR(AND(lit(base_net), lit(b0, 0)), AND(lit(base_net, 0), lit(b0)))))
-    outs["COND"] = (OR(*terms), False, False)
-    G.add(nl, "U_COND", outs)
+    G.add(nl, "U_COND", {"COND": (OR(*terms), False, False)})
     # U_TKN: TAKEN, the executing instruction's condition (row B its
     # opcode's cc, row F d's; 14 and 15 always), and FLUSH: PC and FPC from
     # A, the queue emptied (a jump, or TK and TAKEN)
@@ -216,6 +213,11 @@ def queue(nl, ck):
                         True, False)
     outs["DEC1"] = (AND(lit("DECODING"), lit("RESET_n"), negate(flush)), True, False)
     outs["DEC1_n"] = (AND(lit("DECODING"), lit("RESET_n"), negate(flush)), True, True)
+    # DEC1K: DEC1 in a cycle that isn't cancelled, for PC and the length
+    # (U_PCL): a cancelled instruction's PC stays its own; RUNOK, for the
+    # next-address GALs
+    outs["DEC1K"] = (AND(lit("DEC1"), lit("KILL_n")), False, False)
+    outs["RUNOK"] = (AND(lit("RESET_n"), lit("FAULT", 0)), False, False)
     G.add(nl, "U_IQP", outs, clock=ck[2])
     # U_IQE: the extension pointer: NXP + 1 as an instruction starts, + 1 a
     # parcel consumed
@@ -245,16 +247,16 @@ def queue(nl, ck):
     # valid until its instruction ends, and the decode pointer can come
     # round to the executing instruction's own
     av = ["AV0", "AV1", "AV2", "AV3"]
-    ins_a = av + ["FETCH", "FS"] + dp + ["DECODING", "DLEN0", "DLEN1", "FLUSHC", "RESET_n"]
+    ins_a = av + ["FETCH", "FS"] + dp + ["DECODING", "DLEN0", "DLEN1", "FLUSHC", "RESET_n", "FFLT"]
 
-    def av_next(a0, a1, a2, a3, fe, fs_, d0, d1, dec, l0, l1, fl, rst, i):
+    def av_next(a0, a1, a2, a3, fe, fs_, d0, d1, dec, l0, l1, fl, rst, ff, i):
         if not rst or fl:
             return 0
         v = (a0, a1, a2, a3)[i]
         d = d0 | d1 << 1
         if dec and any(add2(d, k) == i for k in range(max(1, l0 | l1 << 1))):
             v = 0
-        if fe and fs_ == i // 2 and (i % 2 or d != i + 1):
+        if fe and not ff and fs_ == i // 2 and (i % 2 or d != i + 1):
             v = 1
         return v
     outs = {av[i]: (table(ins_a, lambda *b, i=i: av_next(*b, i)), True, False) for i in range(4)}
@@ -276,14 +278,21 @@ def queue(nl, ck):
         # it (CONS): the microcode consumes each exactly once)
         decoded = AND(lit("DECODING"), eq(dp, i))
         keep = AND(lit(pv[i]), lit(f"CONS{i}", 0), negate(decoded), lit("RESET_n"), negate(flush))
-        fill = AND(lit("FETCH"), lit("FS", i // 2), lit("RESET_n"), negate(flush))
+        # (a fetch that faults (FFLT) fills nothing)
+        fill = AND(lit("FETCH"), lit("FFLT", 0), lit("FS", i // 2), lit("RESET_n"), negate(flush))
         if i % 2 == 0:
             # parcel 0 of a slot: not when DP is the slot's parcel 1
             fill = AND(fill, OR(lit("DP1", 1 - i // 2), lit("DP0", 0)))
         outs[pv[i]] = (OR(keep, fill), True, False)
     free = OR(AND(lit("FS", 0), lit("PV0", 0), lit("PV1", 0)), AND(lit("FS"), lit("PV2", 0), lit("PV3", 0)))
-    # (a word that may load PC doesn't set BFREE: the microassembler's rule)
-    outs["FETCH"] = (AND(free, lit(f("BFREE")[0]), lit(f("DACC")[0], 0), lit("RESET_n")), False, False)
+    # (a word that may load PC doesn't set BFREE: the microassembler's rule;
+    # after a fetch has faulted, FFQ, none until a jump empties the queue)
+    outs["FETCH"] = (AND(free, lit(f("BFREE")[0]), lit(f("DACC")[0], 0), lit("RESET_n"), lit("FFQ", 0)),
+                     False, False)
+    # FFQ: a fetch has faulted; the decode that then finds its instruction
+    # not all there takes the interrupt's entry, which tests it
+    outs["FFQ"] = (AND(lit("RESET_n"), negate(flush), OR(lit("FFQ"), AND(lit("FETCH"), lit("FFLT")))),
+                   True, False)
     G.add(nl, "U_IQV", outs, clock=ck[2])
     seq = f("SEQ")
     dec = OR(anyof(seq, [F.SEQ_DECODE, F.SEQ_DECODE_NOIRQ]), AND(eq(seq, F.SEQ_BRDEC), lit("FLUSHC", 0)))
@@ -295,19 +304,30 @@ def queue(nl, ck):
                                     "2D": "IRQ1", "2CLK": ck[1], "2PRE": "VCC", "2CLR": "RESET_n",
                                     "2Q": "IRQS", "2QN": "IRQS_n"})
     inst.nocheck = True
-    irqt = AND(OR(eq(seq, F.SEQ_DECODE), AND(eq(seq, F.SEQ_BRDEC), lit("FLUSHC", 0))), lit("IRQS"),
-               lit("IFLAG"))
+    # IRQT: the decode goes to the interrupt's entry: an interrupt pending
+    # and enabled, or the instruction's parcels not all there with a fetch
+    # faulted (FFQ). IRQP: an interrupt pending and enabled, for HALT
+    dec_irq = OR(eq(seq, F.SEQ_DECODE), AND(eq(seq, F.SEQ_BRDEC), lit("FLUSHC", 0)))
+    irqt = AND(dec_irq, OR(AND(lit("IRQS"), lit("IFLAG")), AND(lit("FFQ"), lit("READY", 0))))
     decoding = AND(dec, negate(irqt), lit("READY"), lit("RESET_n"))
     outs = {"IRQT": (irqt, False, False), "DECODING": (decoding, False, False),
-            "DECODING_n": (decoding, False, True)}
+            "DECODING_n": (decoding, False, True), "IRQP": (AND(lit("IRQS"), lit("IFLAG")), False, False)}
     for p in range(4):
         outs[f"PDOE{p}_n"] = (negate(eq(dp, p)), False, False)
     G.add(nl, "U_IQO", outs)
     # U_IQK: the slots' load enables (QLD0_n, QLD1_n) and H's, for the
     # 823s on the board's clock
-    outs = {"QLD0_n": (AND(lit("FETCH"), lit("FS", 0)), False, True),
-            "QLD1_n": (AND(lit("FETCH"), lit("FS")), False, True),
+    outs = {"QLD0_n": (AND(lit("FETCH"), lit("FFLT", 0), lit("FS", 0)), False, True),
+            "QLD1_n": (AND(lit("FETCH"), lit("FFLT", 0), lit("FS")), False, True),
             "HLD_n": (eq(iqc, F.IQC_H), False, True)}
+    # and the condition codes' bases for U_COND and U_TKN
+
+    def base(code, n, z, c, v):
+        return [z, c, n, v, c & (1 - z), int(n == v), int(z == 0 and n == v), 1][code]
+    for name, src in (("CCBO", BP.OP[1:4]), ("CCBD", BP.RD[1:4])):
+        nets = src + ["FN", "FZ", "FC", "FV"]
+        outs[name] = (table(nets, lambda a, b, c_, n, z, c, v: base(a | b << 1 | c_ << 2, n, z, c, v)),
+                      False, False)
     G.add(nl, "U_IQK", outs)
 
 
@@ -400,15 +420,18 @@ def _n(bits):
 
 
 def pc(nl, ck):
-    """PC: bits 2-1 and the pending length in U_PCL, the interrupt flag I
-    there too; bits 21-3 in 74F163s, counting on U_PCL's carry; all of them
-    load from A on FLUSH. Onto A through the branch adder (U_BA0-4: PC + 2
-    x the register byte while BR, else PC) and 541s."""
+    """PC: bits 2-1, bit 31 and the pending length in U_PCL, the interrupt
+    flag I there too, and ILEN, the executing instruction's length (a
+    fault's entry takes it off PC); bits 21-3 in 74F163s, counting on
+    U_PCL's carry; all of them load from A on FLUSH. Onto A through the
+    branch adder (U_BA0-4: PC + 2 x the register byte while BR, else PC)
+    and 541s. PC moves on as an instruction starts (DEC1K), but not in a
+    cancelled cycle: a fault's instruction keeps its PC and length."""
     pcl = ["PC1", "PC2"]
     pnl = ["PNL0", "PNL1"]
     ifl = f("IFL")
     load = lit("FLUSHC")
-    ins = pcl + pnl + ["DEC1", "FLUSHC", "A1", "A2"]
+    ins = pcl + pnl + ["DEC1K", "FLUSHC", "A1", "A2"]
 
     def nxt(p1, p2, n0, n1, d1, fl, a1, a2):
         if fl:
@@ -423,7 +446,11 @@ def pc(nl, ck):
                         True, False)
     outs["IFLAG"] = (AND(lit("RESET_n"), OR(eq(ifl, F.IFL_SET), AND(negate(eq(ifl, F.IFL_CLEAR)), lit("IFLAG")))),
                      True, False)
-    carry = table(pcl + pnl + ["DEC1"], lambda p1, p2, n0, n1, d1: int(
+    for i in range(2):
+        outs[f"ILEN{i}"] = (OR(AND(lit("DEC1K"), lit(pnl[i])), AND(lit("DEC1K", 0), lit(f"ILEN{i}"))),
+                            True, False)
+    outs["PC31"] = (OR(AND(load, lit("A31")), AND(negate(load), lit("PC31"))), True, False)
+    carry = table(pcl + pnl + ["DEC1K"], lambda p1, p2, n0, n1, d1: int(
         d1 and (p1 | p2 << 1) + (n0 | n1 << 1) > 3))
     outs["PCCY"] = (carry, False, False)
     outs["PCLD_n"] = (load, False, True)
@@ -436,7 +463,7 @@ def pc(nl, ck):
                ENP="PCCY", ENT="PCCY" if k == 0 else f"PCRC{k - 1}",
                A=d[0], B=d[1], C=d[2], D=d[3], QA=q[0], QB=q[1], QC=q[2], QD=q[3], RCO=f"PCRC{k}")
     branch_adder(nl, pcl + hi[:19])
-    a_src = ["GND"] + [f"T{i}" for i in range(1, 22)] + ["GND"] * 10
+    a_src = ["GND"] + [f"T{i}" for i in range(1, 22)] + ["GND"] * 9 + ["PC31"]
     for k in range(4):
         nl.add("541", f"U_PCA{k}", OE1="OEPC_n", OE2="GND",
                **{f"A{i + 1}": a_src[8 * k + i] for i in range(8)},

@@ -53,7 +53,7 @@ def build(sim=True):
     nl.add("const", "X_RAIL", LO="GND", HI="VCC")
     ck = clock_buffer(nl, src="CYC")
     nl.section("control store")
-    control_slice(nl, "ALU", ck[0])
+    control_slice(nl, "ALU", ck[0], clear="KILL_n")
     nl.section("register file")
     register_file(nl, ck)
     nl.section("ALU")
@@ -72,10 +72,20 @@ OA, OB, FN = bus("OA", 32), bus("OB", 32), bus("F", 32)
 RFA, RFB, W = bus("RFA", 5), bus("RFB", 5), bus("W", 5)
 
 
+EB = bus("EB", 9)
+
+
 def register_file(nl, ck):
+    # the bank (EB): the copies' address bits 5-13, from B as a word with
+    # EBLD ends (an 823 on the board's clock); 0-255 r0-r15 and the
+    # microcode's registers of a bank, 256 the system's (the special
+    # registers, bank 0x100)
+    nl.add("823", "U_EB", OE="GND", CLK=ck[1], EN="EBLD_n", CLR="VCC",
+           **{f"D{i + 1}": BP.B[i] for i in range(9)}, **{f"Q{i + 1}": EB[i] for i in range(9)})
     for copy, addr, data, oe in (("A", RFA, RAD, "RFOEA_n"), ("B", RFB, RBD, "RFOEB_n")):
         a = {f"A{i}": addr[i] for i in range(5)}
-        a.update({f"A{i}": "GND" for i in range(5, 16)})
+        a.update({f"A{i}": EB[i - 5] for i in range(5, 14)})
+        a.update({f"A{i}": "GND" for i in range(14, 16)})
         for k in range(4):
             nl.add("sram64k", f"U_RF{copy}{k}", CE="GND", OE=oe, WE=f"RFWE{copy}_n", **a,
                    **{f"IO{i}": data[8 * k + i] for i in range(8)})
@@ -117,6 +127,11 @@ def register_file(nl, ck):
             outs = {addr[i]: (OR(AND(lit("LEW", 0), lit(w[i])), AND(lit("LEW"), fn[i]),
                                  AND(lit(w[i]), fn[i])), False, False)
                     for i in bits}
+            if (name, part) == ("U_RAG", 1):
+                latch_enables(outs, ck)
+            if (name, part) == ("U_RBG", 1):
+                # the bank's load enable (EBLD is 0 in a cancelled word)
+                outs["EBLD_n"] = (lit(f("EBLD")[0]), False, True)
             G.add(nl, f"{name}{part}", outs).part = FAST_GAL
     # W: this cycle's destination, for the next cycle's write phase
     wsel = sel(f("WS"), {F.WS["d"]: rd, F.WS["s"]: rs, F.WS["K"]: "K"})
@@ -147,17 +162,21 @@ def register_file(nl, ck):
             terms += [AND(lit(addr[i]), lit(W[i], 0)), AND(lit(addr[i], 0), lit(W[i]))]
         outs[f"RFWE{c}_n"] = (OR(*terms), False, False)
     G.add(nl, "U_RFW", outs).part = FAST_GAL
-    # U_RFT: the latches' enable, opened by this board's clock (Y's) and held open (its own
-    # pin, fed back) until the write phase, so that the next read can't
-    # reach the ALU before the board has taken the result, and a longer
-    # cycle gives the read longer; LEW, the same, for the copies' addresses
-    # and the copies' and Y's enables, which so change only while the
-    # latches are closed (sta.EXCEPTIONS)
-    # (WPA: the ALU's write phase, from half a tick after WPH to half a
-    # tick into the next cycle; clockcard.py)
+
+
+
+def latch_enables(outs, ck):
+    """LE, the latches' enable, opened by this board's clock (Y's) and held
+    open (its own pin, fed back) until the write phase, so that the next
+    read can't reach the ALU before the board has taken the result, and a
+    longer cycle gives the read longer; LEW, the same, for the copies'
+    addresses and the copies' and Y's enables, which so change only while
+    the latches are closed (sta.EXCEPTIONS). In U_RAG1, beside RFA3-4.
+    (WPA: the ALU's write phase, from half a tick after WPH to half a
+    tick into the next cycle; clockcard.py)"""
     le = OR(AND(lit("WPA", 0), lit(ck[1])), AND(lit("WPA", 0), lit("LE")))
-    outs = {"LE": (le, False, False), "LEW": (le, False, False)}
-    G.add(nl, "U_RFT", outs).part = FAST_GAL
+    outs["LE"] = (le, False, False)
+    outs["LEW"] = (le, False, False)
 
 
 def alu(nl, ck):
@@ -273,18 +292,22 @@ def flags(nl, ck):
     # V: the operands' signs agree (add) or differ (sub), and the result's differs
     v_add = OR(AND(lit("OA31"), lit("OB31"), lit("F31", 0)), AND(lit("OA31", 0), lit("OB31", 0), lit("F31")))
     v_sub = OR(AND(lit("OA31"), lit("OB31", 0), lit("F31", 0)), AND(lit("OA31", 0), lit("OB31"), lit("F31")))
-    # SETCV, SUBOP and SETNZ: helpers, so that each flag is a few terms
-    scv, sop_, snz = lit("SETCV"), lit("SUBOP"), lit("SETNZ")
+    # SETCV: a helper, so that each flag is a few terms
+    scv = lit("SETCV")
     # a shift's C (FL SH): OA's bit 0 on the shift path, else the carry out
     shifting = eq(bin_, F.BIN["SHIFT"])
-    keep_cv = AND(lit("SETCV", 0), negate(set_sh))
+    # NSZ LOAD: every flag from F's bits 3-0 (V 0, C 1, Z 2, N 3, as ccr has
+    # them), for MTSR and RTI; a word that loads sets no flag otherwise
+    ld = lit(nsz[1])
+    nld = lit(nsz[1], 0)
+    keep_cv = AND(lit("SETCV", 0), negate(set_sh), nld)
     outs = {
         "SETCV": (set_cv, False, False),
-        "SUBOP": (sub, False, False),
-        "FC": (OR(AND(scv, c), AND(set_sh, shifting, lit("OA0")), AND(set_sh, negate(shifting), c),
+        "FC": (OR(AND(nld, scv, c), AND(nld, set_sh, shifting, lit("OA0")),
+                  AND(nld, set_sh, negate(shifting), c), AND(ld, lit("F1")),
                   AND(keep_cv, lit("FC"))), True, False),
-        "FV": (OR(AND(scv, sop_, v_sub), AND(scv, lit("SUBOP", 0), v_add), AND(keep_cv, lit("FV"))),
-               True, False),
+        "FV": (OR(AND(nld, scv, sub, v_sub), AND(nld, scv, negate(sub), v_add), AND(ld, lit("F0")),
+                  AND(keep_cv, lit("FV"))), True, False),
         "QIN": (lit("F0"), True, False),
     }
     G.add(nl, "U_FLA", outs, clock=ck[2])
@@ -297,14 +320,16 @@ def flags(nl, ck):
               AND(by_sz, eq(sz, 1), lit("F15")), AND(by_sz, lit(sz[1]), lit("F31")))
     zsz = ["ZSZ0", "ZSZ1"]
     znow = OR(AND(lit(zsz[1]), lit("ZL"), lit("ZH")), AND(eq(zsz, 1), lit("ZL")), AND(eq(zsz, 0), lit("ZB")))
+    # (SETNZ written out: the pins went to NSZ LOAD's)
+    nz = AND(set_nz, nld)
     outs = {
-        "SETNZ": (set_nz, False, False),
-        "FN": (OR(AND(snz, nbit), AND(lit("SETNZ", 0), lit("FN"))), True, False),
-        "ZPEND": (snz, True, False),
+        "FN": (OR(AND(nz, nbit), AND(negate(set_nz), nld, lit("FN")), AND(ld, lit("F3"))), True, False),
+        "ZPEND": (nz, True, False),
         # (the size Z is taken at, in SZ's code: the word's, 2, unless NSZ SZ)
         "ZSZ0": (AND(by_sz, lit(sz[0])), True, False),
         "ZSZ1": (OR(negate(by_sz), AND(by_sz, lit(sz[1]))), True, False),
-        "FZH": (OR(AND(lit("ZPEND"), znow), AND(lit("ZPEND", 0), lit("FZH"))), True, False),
+        "FZH": (OR(AND(nld, lit("ZPEND"), znow), AND(nld, lit("ZPEND", 0), lit("FZH")), AND(ld, lit("F2"))),
+                True, False),
         "FZ": (OR(AND(lit("ZPEND"), znow), AND(lit("ZPEND", 0), lit("FZH"))), False, False),
     }
     G.add(nl, "U_FLB", outs, clock=ck[2])
