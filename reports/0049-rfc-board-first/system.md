@@ -254,8 +254,9 @@ timed twice, the map off and on:
 The other kinds are as they were (the window's bypass adds a 541 to every
 access; the map, its SRAMs). So a word with a load, a store or a fetch is
 7 ticks now, which is also what an I/O device's WAIT_IO needs to reach
-the clock card in time; the rest 5 or 6. The 7 ticks decided for now
-cover all of it. What the analysis reported before still fails as it did
+the clock card in time; the rest 5 or 6. Every cycle at 7, the bound
+the times here are quoted at, covers all of it (not a decided length:
+[clocking-and-front-end.md, 6](clocking-and-front-end.md#6-the-write-phase-at-6-or-7-ticks)). What the analysis reported before still fails as it did
 (the register file's handovers and glitches, deferred with the write
 phase); the IO board, still untimed, has small setup failures left
 (WAIT_IO at the clock card, -1.2 ns; the timer's address, -2.3 ns).

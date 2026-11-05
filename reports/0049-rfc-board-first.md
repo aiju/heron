@@ -1010,8 +1010,11 @@ the fast clock has to go, and what the branch path, two transfers a
 cycle and the write phase are worth. Section 14.3 is from before the
 card.
 
-1. **The register file's timing:** 7 ticks for now (Emily, 2026-11-04),
-   in place of the 5 of 2026-11-02: under the strict analysis a read and
+1. **The register file's timing:** not the stretch on WEN (Emily,
+   2026-11-04: a cycle of 6 ticks, 7 when a write is pending). I first
+   wrote this down as "7 ticks for now", everywhere; that was my
+   misreading (corrected 2026-11-05), and the length is **open** again.
+   Under the strict analysis a read and
    a write in one cycle of a single-ported copy don't fit 5 or 6 with
    margin, and 5 was worth about 1% on RFC 0050's suite. A dual-ported
    register file: leaning against (special parts), not a definite no.

@@ -85,7 +85,8 @@ expected output.
 
 At the `full` size (8-13 million instructions each, RFC 0050's quoted
 size), microcycles as the microcode's lengths have them today (5 or 6
-ticks) and at the 7 ticks decided for now:
+ticks) and at 7 ticks everywhere (which I took for a decision; it wasn't,
+see [clocking-and-front-end.md, 6](clocking-and-front-end.md#6-the-write-phase-at-6-or-7-ticks)):
 
 | Workload | Instructions | Microcycles an instruction | As built | At 7 ticks | Full Heron (RFC 0050) |
 |---|---:|---:|---:|---:|---:|

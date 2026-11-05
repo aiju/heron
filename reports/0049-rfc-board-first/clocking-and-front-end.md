@@ -375,9 +375,12 @@ Still open in that plan: U_BYP's choice (the copy or Y) settles from
 the register numbers about 35 ns in, after RDA's earliest rise at 1, so
 the copy and Y may overlap there unless the choice comes earlier.
 
-**Decision (Emily, 2026-11-04):** 7 ticks for now, the cycle not
-stretched on WEN. The netlist stays as it is while the design is
-completed; this comes back after.
+**Decision (Emily, 2026-11-04):** the cycle not stretched on WEN. The
+netlist stays as it is while the design is completed; this comes back
+after. (Corrected 2026-11-05: I had this as "7 ticks for now" as well,
+everywhere, which Emily didn't decide. Where the other documents quote
+times "at 7 ticks", that is every microcycle at 7, a pessimistic bound,
+not a decided length.)
 
 ## What I'd do
 
