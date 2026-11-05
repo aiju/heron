@@ -37,3 +37,4 @@ commands, and `heron test <study>` runs its unit tests.
 | [websim](websim/README.md) | The simulator on the website: the Lisp, Egret and Fen in a browser, on the studies' simulators built for WebAssembly |
 | [cards](cards/README.md) | Napkin designs for the next Heron on double Eurocards, board first: parts lists per board, instruction timings from path budgets (RFC 0049) |
 | [reed](reed/README.md) | Reed, design A of RFC 0049, at chip level: five boards on a backplane, checked and timed |
+| [reed_pcb](reed_pcb/README.md) | Reed's CPU boards as printed circuit boards: placed on RFC 0046's column grid on a double Eurocard (routing and timing with routed wires to come) |

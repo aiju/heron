@@ -125,6 +125,43 @@ PINOUTS = {
 
 PINOUTS = {k: v.split() for k, v in PINOUTS.items()}
 
+
+def plcc28_of_dip24(pins):
+    """A 24-pin DIP's pinout on the 28-pin PLCC that has the same die: the
+    DIP's pins in order round the package from PLCC pin 2, skipping pins 8,
+    15 and 22, which with pin 1 are the PLCC's own (each side's middle
+    pin is the DIP's next, the corner pins are 1, 8, 15, 22)."""
+    if len(pins) != 24:
+        raise ValueError("not a 24-pin pinout")
+    out = [None] * 28
+    it = iter(pins)
+    for n in range(2, 29):
+        if n not in (8, 15, 22):
+            out[n - 1] = next(it)
+    return out
+
+
+# ATF22V10C in PLCC-28 (Microchip/Atmel doc0735, figure 2-3): the DIP's
+# pins as plcc28_of_dip24 puts them; pin 1 VCC and 8, 15, 22 GND, which
+# the -5 grade needs connected ("for all PLCCs except -5 they can be left
+# unconnected")
+PINOUTS["22v10_plcc"] = plcc28_of_dip24(PINOUTS["22v10"])
+for _n, _rail in ((1, "=VCC"), (8, "=GND"), (15, "=GND"), (22, "=GND")):
+    PINOUTS["22v10_plcc"][_n - 1] = _rail
+
+# AT27C010 OTP EPROM (JEDEC 32-pin 1 Mbit, DIP and PLCC): the flash's
+# pins, but pin 1 is VPP (at VCC to read) and pin 31 PGM, which takes the
+# flash's WE (high to read)
+PINOUTS["27c010"] = ["=VCC"] + PINOUTS["flash"][1:]
+
+# 64K x 16 SRAM, 44-pin SOJ and TSOP II (the JEDEC pinout of the
+# IS61C6416AL, CY7C1021, AS7C1026): LB and UB enable the low and high
+# byte. Not yet checked against the IS61C6416AL's datasheet, which ISSI's
+# site doesn't serve to a script, nor against KiCad, which has no symbol
+PINOUTS["sram64k16"] = ("A4 A3 A2 A1 A0 CE IO0 IO1 IO2 IO3 VCC GND IO4 IO5 IO6 IO7 WE "
+                        "A15 A14 A13 A12 NC NC A11 A10 A9 A8 NC IO8 IO9 IO10 IO11 GND VCC "
+                        "IO12 IO13 IO14 IO15 LB UB OE A7 A6 A5").split()
+
 # Pins where the logical model's names come from KiCad's symbol for the
 # check (check.py): our name -> KiCad's pin name, per type. Gate packages
 # are checked by unit instead (which pins make a gate, and which is the
@@ -146,6 +183,7 @@ KICAD_SYMBOLS = {
     "sram": "Memory_RAM:IS62C256AL", "82c54": "Timer:82C54",
     "534": "74xx:74LS374",            # the 534 has the 374's pins
     "por": "Power_Supervisor:TL7705A",
+    "22v10": "Logic_Programmable:PEEL22CV10AP", "27c010": "Memory_EPROM:27C010",
 }
 
 # Our pin name -> KiCad's, where they differ only by naming convention.
@@ -231,6 +269,16 @@ def kicad_pin_name(typ, pin):
         return {"CE": "CE#", "OE": "OE#", "WE": "WE#", "GND": "VSS"}.get(pin, pin)
     if typ == "por":
         return {"RST": "~{RESET}", "GND": "GND", "VCC": "VCC"}[pin]
+    if typ == "22v10":
+        # the PEEL22CV10's names are its DIP pins' numbers
+        if pin == "CLK":
+            return "I1/CLK"
+        if pin.startswith("IO"):
+            return f"IO{14 + int(pin[2:])}"
+        n = int(pin[1:])
+        return f"I{n + 1 if n <= 10 else 13}"
+    if typ == "27c010":
+        return {"CE": "~{CE}", "OE": "~{OE}", "WE": "~{PGM}"}.get(pin, pin)
     raise KeyError((typ, pin))
 
 
