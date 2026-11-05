@@ -1026,4 +1026,10 @@ card.
    ticks. Next there: an index dispatch, the fetch and the refill,
    multiply and shifts.
 7. **The board tester** of 14.5, in the simulator first.
+8. **System features, some time** (Emily, 2026-11-05): register banking
+   (the register file's SRAMs are 64K deep and use addresses 0-31 only:
+   a bank register on their address bits 5 and up, the microcode's
+   registers shared or banked **open**), and a trap on an address with
+   bit 31 clear (beside the address error: MEM latches A30 with MAR
+   already). Both after the exceptions' microcode, following RFC 0029.
 
