@@ -1018,8 +1018,12 @@ card.
 4. **The control store's part:** the 55 ns flash for now (14.2).
 5. **The minimum delays' fraction** (RFC 0048, open): 30% makes every
    same-edge ordering fail; real minima for the 22V10s would help most.
-6. **A smoke test at chip level** (a few hand-written microinstructions
-   on the simulator), then the microcode and a register-transfer model
-   checked against draft 2's simulator.
+6. **The microcode and a cycle-level model** (done, 2026-11-05:
+   [microcode-and-model.md](0049-rfc-board-first/microcode-and-model.md)):
+   the user instruction set but `DIVUL`, `ADC`, `SBC`, `CLZ` and the
+   system instructions; the model in lockstep with the chip level; RFC
+   0050's workloads all right on it, 360-720 ns an instruction at 7
+   ticks. Next there: an index dispatch, the fetch and the refill,
+   multiply and shifts.
 7. **The board tester** of 14.5, in the simulator first.
 
