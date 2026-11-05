@@ -49,7 +49,9 @@ FOOTPRINTS = {
     "SOJ-44": "Package_SO:SOJ-44_10.16x28.575mm_P1.27mm",
 }
 CAP = "Capacitor_SMD:C_0805_2012Metric"
-EXTRA = sorted(set(FOOTPRINTS.values()) - set(footprints.names()))
+CAP_HAND = "Capacitor_SMD:C_0805_2012Metric_Pad1.18x1.45mm_HandSolder"
+EXTRA = sorted(set(FOOTPRINTS.values()) - set(footprints.names())) + [CAP_HAND]
+HAND_TOE = 0.5          # mm a surface-mount pad is lengthened outwards, soldered by hand
 
 # pinouts (infra/pcb/packages.py) by part number, where not the chip type's
 PINOUT_OF_PART = {"ATF22V10C-5": "22v10_plcc", "AT27C010-45": "27c010",
@@ -134,9 +136,13 @@ def connector_part(inst, width, height):
     return part
 
 
-def build_board(name, size=CARD, params=Params(), gal_sockets=False, layers=4):
+def build_board(name, size=CARD, params=Params(), gal_sockets=False, layers=4, hand=False):
     """The board with its parts, the connectors and mechanics in place,
-    the chips not yet placed."""
+    the chips not yet placed. `hand`: for soldering by hand, every
+    surface-mount chip's pads HAND_TOE longer outwards
+    (kicadlib.longer_pads) and the capacitors' pads KiCad's hand-soldering
+    ones."""
+    from heron.infra.pcb import kicadlib
     footprints.use(EXTRA)
     nl = netlist(name)
     rails = physical.rails(nl)
@@ -157,11 +163,14 @@ def build_board(name, size=CARD, params=Params(), gal_sockets=False, layers=4):
         part, pkg, fp, pinout = package(inst, gal_sockets)
         if fp.startswith("Package_DIP:"):
             fp = dip_footprint(fp, params.pads)
-        b.add(B.Part(ref, fp, _pad_nets(pinout, conn, rails), value=part, kind="chip",
+        fpo = kicadlib.footprint(fp)
+        if hand and fpo.smd:
+            fpo = kicadlib.longer_pads(fpo, HAND_TOE)
+        b.add(B.Part(ref, fpo, _pad_nets(pinout, conn, rails), value=part, kind="chip",
                      inst=inst.ref, section=inst.section))
         b.packages[ref] = (part, pkg)
-        b.add(B.Part(f"C{ref}", CAP, {"1": "VCC", "2": "GND"}, value="100n", kind="decap",
-                     section=inst.section))
+        b.add(B.Part(f"C{ref}", CAP_HAND if hand else CAP, {"1": "VCC", "2": "GND"},
+                     value="100n", kind="decap", section=inst.section))
     b.region = cards.mechanics(b)
     return b
 
@@ -187,16 +196,17 @@ def place(name, size=CARD, params=Params(), seed=1, moves=60000, gal_sockets=Fal
 
 
 def centre_decaps(b):
-    """Under a surface-mount PLCC, the capacitor at the body's middle, which
-    has no pads, rather than level with the VCC pin (place_decaps): there
-    its vias, out along its axis, keep clear of the pins' inner ends,
-    where at pin 1 one of them met the pad."""
+    """Under a PLCC (soldered or in a socket), the capacitor at the body's
+    middle, which has no pads, rather than level with the VCC pin
+    (place_decaps): there its vias, out along its axis, keep clear of the
+    pins' inner ends, where at a soldered PLCC's pin 1 one of them met
+    the pad."""
     from heron.infra.pcb import kicadlib
     for c in b.parts.values():
         if c.kind != "decap":
             continue
         chip = b.parts.get(c.ref[1:])
-        if chip is None or not chip.fp.name.startswith("Package_LCC:PLCC") or not chip.fp.smd:
+        if chip is None or not chip.fp.name.startswith("Package_LCC:PLCC"):
             continue
         bx, by = chip.body_centre()
         dx, dy = kicadlib.rotate(bx, by, chip.rot)

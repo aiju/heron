@@ -18,7 +18,9 @@ gives them, on a double Eurocard (233.35 × 160 mm) with
 the two DIN 41612 connectors at the back edge, the 233.35 mm one that
 meets the backplane in a card cage; [RFC 0046](../../reports/0046-rfc-column-grid.md)'s
 column grid places the chips (`studies/pcb_columns`), by annealing or
-by a hand-made floorplan; infra's grid router (`infra/pcb/router.py`)
+by a hand-made floorplan, or (the ALU, for soldering by hand) blocks do:
+small grids of parts, each with its own pitch, placed by hand
+(`blocks.py`, `alu_layout.py`); infra's grid router (`infra/pcb/router.py`)
 routes it on four or six layers, after the supply pins are fanned out
 to the planes, and `route.py` checks the result. The routed wires'
 delays in Reed's static timing are next.
@@ -31,6 +33,9 @@ heron reed_pcb place --size 220x233.35   # a deeper card
 heron reed_pcb place --floorplan      # the ALU by its hand-made floorplan, on 220 mm
 heron reed_pcb route --floorplan      # ... routed on six layers and checked: build/reed_pcb/<name>-6L/
 heron reed_pcb route --layers 4       # the annealed board on four layers
+heron reed_pcb place --blocks         # the ALU in blocks, for soldering by hand
+heron reed_pcb route --blocks         # ... routed on six layers, 0.15 mm tracks and gaps
+heron reed_pcb route --blocks --track 0.2 --via 0.6/0.3
 heron test reed_pcb                   # the unit tests
 ```
 
@@ -54,6 +59,8 @@ nets' copper on each layer. KiCad's own DRC isn't run.
 |---|---|
 | `place.py` | A board's parts from Reed's netlist (packages, pinouts, the register file's 16-bit SRAMs as one package each, the connectors), placing it, its numbers |
 | `floorplan.py` | The ALU placed by hand: four byte slices from the backplane inwards, the control below beside P2 |
+| `blocks.py` | Placement by blocks: a block's pitch from its parts and the spacing for soldering by hand, placing blocks beside each other, the spacing check |
+| `alu_layout.py` | The ALU in blocks on 220 mm: four byte bands from the ALUs out to the backplane, the control below; the rules for a board soldered by hand |
 | `route.py` | Fanout, routing and the four checks |
 | `cli.py` | The commands |
 
@@ -65,6 +72,13 @@ SOJ-44 (`sram64k16`) for this study. The SOJ-44's isn't checked against
 the datasheet yet (ISSI's site doesn't serve it to a script, and KiCad
 has no symbol for it); it agrees with `studies/chibi`'s, written
 independently.
+
+**Soldered by hand** (the block layout): surface-mount pads 0.5 mm longer
+outwards (`kicadlib.longer_pads`), KiCad's hand-soldering 0805 pads for
+the capacitors, the ATF22V10C-5s in through-hole PLCC-28 sockets, and
+the gaps in `blocks.py` (3 mm between surface-mount ICs' pads, 2 mm
+between their bodies, sockets close with their pins on one 0.1 inch
+lattice); 0.15 mm tracks and gaps and 0.6/0.3 mm vias.
 
 **What it needs:** KiCad's footprint library, downloaded on first use
 into `build/kicad/footprints/` where KiCad isn't installed

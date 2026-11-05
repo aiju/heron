@@ -125,5 +125,48 @@ class Routed(unittest.TestCase):
         self.assertEqual(sorted(tuple(sorted(x[:2])) for x in bad), [("A", "B")])
 
 
+@unittest.skipUnless(footprints.available(place.EXTRA), NEEDS)
+class Blocks(unittest.TestCase):
+    def test_longer_pads(self):
+        from heron.infra.pcb import kicadlib
+        fp = kicadlib.footprint(place.FOOTPRINTS["SOIC-20"])
+        h = kicadlib.longer_pads(fp, 0.5)
+        a, b = fp.pads_by_number()["1"][0], h.pads_by_number()["1"][0]
+        self.assertAlmostEqual(b.w, a.w + 0.5)
+        self.assertAlmostEqual(b.x, a.x - 0.25)          # pin 1 is on the left: out is -x
+        self.assertAlmostEqual(b.y, a.y)
+        self.assertLessEqual(h.courtyard[0], b.x - b.w / 2 - 0.25 + 1e-6)
+
+    def test_layout(self):
+        """Every chip in a block, the spacing kept, the through-hole parts'
+        pins on the 0.1 inch lattice, a byte's parts in line."""
+        from heron.studies.reed_pcb import alu_layout, blocks
+        b, bl, probs = alu_layout.place()
+        self.assertEqual(probs, [])
+        for blk in bl.values():
+            if blk.tht:
+                self.assertAlmostEqual(blk.pitch[0] / blocks.ROW, round(blk.pitch[0] / blocks.ROW))
+        mid = [b.parts[r].courtyard() for r in ("U_ALU0", "U_ZL", "U_RFA01")]
+        ys = [(c[1] + c[3]) / 2 for c in mid]
+        self.assertLess(max(ys) - min(ys), 1.3)
+
+    def test_check_finds_crowding(self):
+        from heron.studies.reed_pcb import alu_layout, blocks
+        b, bl, probs = alu_layout.place()
+        p, q = b.parts["U_LA0"], b.parts["U_YA0"]
+        q.place(q.x - 1.0, q.y, q.rot)
+        self.assertTrue(any("U_LA0" in x and "U_YA0" in x for x in blocks.check(b, b.region)))
+
+    def test_routes_on_six_layers(self):
+        import tempfile
+
+        from heron.studies.reed_pcb import alu_layout, route
+        b, bl, probs = alu_layout.place(layers=6)
+        with tempfile.TemporaryDirectory() as d:
+            res = route.route(b, out=d)
+        self.assertEqual(res["unrouted"], [])
+        self.assertTrue(res["checks"]["passed"], res["checks"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11,12 +11,16 @@
                         --floorplan: by the hand-made floorplan in
                         floorplan.py rather than annealed (the ALU);
                         --gal-sockets: the ATF22V10C-5s in PLCC-28 sockets,
-                        not soldered
-  route [the same options] [--layers 4|6]
+                        not soldered; --blocks: the ALU in blocks
+                        (alu_layout.py), for soldering by hand, on 220 mm
+  route [the same options] [--layers 4|6] [--track MM] [--via DIA/DRILL]
                         place a board the same way, then fan out, route on
                         infra's grid router and check it, into
                         build/reed_pcb/<name>-<n>L/: board.kicad_pcb,
-                        board.png, result.json
+                        board.png, result.json. --track: the tracks' width
+                        and gaps, --via its size and hole, mm (default
+                        infra's 0.127 and 0.45/0.2; with --blocks 0.15 and
+                        0.6/0.3)
 """
 
 import argparse
@@ -27,10 +31,13 @@ def _placed(args, layers):
     """(board, placer, chips left over) as the options ask."""
     from heron.studies.pcb_columns.grid import Params
 
-    from . import floorplan, place
+    from . import alu_layout, floorplan, place
     prm = Params(half=args.half, gap=args.gap, module=args.module, pads=args.pads)
-    default = floorplan.SIZE if args.floorplan else place.CARD
+    default = floorplan.SIZE if args.floorplan or args.blocks else place.CARD
     size = tuple(float(v) for v in args.size.lower().split("x")) if args.size else default
+    if args.blocks:
+        b, bl, probs = alu_layout.place(args.board.upper(), size, layers)
+        return b, None, (["spacing: " + p for p in probs] if probs else [])
     if args.floorplan:
         return floorplan.place(args.board.upper(), size, prm, args.gal_sockets, layers)
     b, pl, left = place.place(args.board.upper(), size, prm, args.seed, args.moves,
@@ -42,8 +49,15 @@ def cmd_route(args):
     from . import route
     b, pl, left = _placed(args, args.layers)
     if left:
-        print(f"doesn't fit: {len(left)} chips left over")
+        print(f"doesn't fit, or breaks the spacing: {left[:5]}")
         return 1
+    if args.track:
+        b.rules.update(track=args.track, clearance=args.track)
+    if args.via:
+        dia, drill = (float(v) for v in args.via.split("/"))
+        b.rules.update(via_dia=dia, via_drill=drill)
+    if args.track or args.via:
+        b.name += f"-t{b.rules['track']:g}-v{b.rules['via_dia']:g}"
     res = route.route(b, args.board.upper())
     print(json.dumps(res, indent=1))
     return 0 if res["routed"] and res["checks"]["passed"] else 1
@@ -52,10 +66,14 @@ def cmd_route(args):
 def cmd_place(args):
     from heron.studies.pcb_columns.grid import Params
 
-    from . import floorplan, place
+    from . import alu_layout, floorplan, place
     prm = Params(half=args.half, gap=args.gap, module=args.module, pads=args.pads)
-    default = floorplan.SIZE if args.floorplan else place.CARD
+    default = floorplan.SIZE if args.floorplan or args.blocks else place.CARD
     size = tuple(float(v) for v in args.size.lower().split("x")) if args.size else default
+    if args.blocks:
+        _, _, res = alu_layout.build(args.board.upper(), size)
+        print(json.dumps(res, indent=1))
+        return 0 if not res["problems"] else 1
     if args.floorplan:
         _, _, res = floorplan.build(args.board.upper(), size=size, params=prm,
                                     gal_sockets=args.gal_sockets)
@@ -77,6 +95,8 @@ def main(argv=None):
         p.set_defaults(fn=fn)
         if cmd == "route":
             p.add_argument("--layers", type=int, default=6, choices=[4, 6])
+            p.add_argument("--track", type=float, help="tracks' width and gaps, mm")
+            p.add_argument("--via", help="via size and hole, mm: DIA/DRILL")
     args = ap.parse_args(argv)
     return args.fn(args)
 
@@ -86,6 +106,8 @@ def _options(p):
     p.add_argument("--size", help="the card: depth x height, mm (a double Eurocard: 160x233.35)")
     p.add_argument("--floorplan", action="store_true",
                    help="place by the hand-made floorplan (floorplan.py) instead of annealing")
+    p.add_argument("--blocks", action="store_true",
+                   help="the ALU in blocks, for soldering by hand (alu_layout.py)")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--moves", type=int, default=60000)
     p.add_argument("--gal-sockets", action="store_true",

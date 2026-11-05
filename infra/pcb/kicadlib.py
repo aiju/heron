@@ -127,3 +127,50 @@ def rotate(x, y, deg):
     c, s = math.cos(a), math.sin(a)
     # KiCad: positive angles turn counter-clockwise on screen (y down)
     return x * c + y * s, -x * s + y * c
+
+
+def longer_pads(fp, toe=0.5, margin=0.25, suffix="_HandSolder"):
+    """A copy of a surface-mount footprint for soldering by hand: every
+    numbered SMD pad lengthened by `toe` mm outwards (away from the
+    middle of the pads, along the pad's long axis), so an iron has
+    copper to touch beyond the lead, and the courtyard grown to hold the
+    pads with `margin` (one rectangle). Its name gets `suffix`."""
+    import copy
+    expr = copy.deepcopy(fp.expr)
+    pads = [p for p in sexpr.find_all(expr, "pad") if str(p[1]) and p[2] == "smd"]
+    if not pads:
+        return fp
+    cx = sum(float(sexpr.find(p, "at")[1]) for p in pads) / len(pads)
+    cy = sum(float(sexpr.find(p, "at")[2]) for p in pads) / len(pads)
+    xs, ys = [], []
+    for p in pads:
+        at, size = sexpr.find(p, "at"), sexpr.find(p, "size")
+        x, y = float(at[1]), float(at[2])
+        rot = float(at[3]) if len(at) > 3 else 0.0
+        w, h = float(size[1]), float(size[2])
+        # the pad's long axis, in footprint coordinates, pointing outwards
+        ax, ay = rotate(1.0, 0.0, rot) if w >= h else rotate(0.0, 1.0, rot)
+        if (x - cx) * ax + (y - cy) * ay < 0:
+            ax, ay = -ax, -ay
+        if w >= h:
+            size[1] = round(w + toe, 4)
+        else:
+            size[2] = round(h + toe, 4)
+        at[1], at[2] = round(x + ax * toe / 2, 4), round(y + ay * toe / 2, 4)
+        hw, hh = float(size[1]) / 2, float(size[2]) / 2
+        c, s = abs(math.cos(math.radians(rot))), abs(math.sin(math.radians(rot)))
+        ex, ey = hw * c + hh * s, hw * s + hh * c
+        xs += [float(at[1]) - ex, float(at[1]) + ex]
+        ys += [float(at[2]) - ey, float(at[2]) + ey]
+    x0, y0, x1, y1 = fp.courtyard
+    x0, y0 = min(x0, min(xs) - margin), min(y0, min(ys) - margin)
+    x1, y1 = max(x1, max(xs) + margin), max(y1, max(ys) + margin)
+    keep = [e for e in expr if not (isinstance(e, list) and e and e[0] in ("fp_line", "fp_rect", "fp_poly")
+                                    and sexpr.value(e, "layer") == "F.CrtYd")]
+    keep.append(["fp_rect", ["start", round(x0, 4), round(y0, 4)], ["end", round(x1, 4), round(y1, 4)],
+                 ["stroke", ["width", 0.05], ["type", "default"]], ["fill", "no"],
+                 ["layer", sexpr.Str("F.CrtYd")]])
+    name = fp.name + suffix
+    keep[1] = sexpr.Str(name.split(":", 1)[1])
+    out = Footprint(name, keep)
+    return out
