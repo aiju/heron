@@ -87,6 +87,38 @@ Emily's idea. **open**, until the card size is settled.
   an unloaded hop of about 133 mm between them, which needs simulating.
   BCLK needs length matching to the lower slots.
 
+### A single-ended ECL bus
+
+Emily's idea (2026-11-05). **open**. A and B (Reed's,
+[RFC 0049](0049-rfc-board-first.md)), or the system bus, as single-ended
+10KH ECL through TTL translators such as the SN10KHT5574 (octal
+ECL-to-TTL, D flip-flops, three-state TTL outputs, SOIC-24; TI lists it
+active, a distributor obsolete, and its transparent sibling the 5573 is
+obsolete).
+
+- **For:** one pin a bit, as now. ECL's open-emitter outputs wire-OR, so
+  a card that isn't driving holds its outputs low and a handover between
+  drivers can't overlap: the three-state handover problem goes away. The
+  swing is about 0.8 V on terminated 50 Ω lines with steady current:
+  little ground bounce or crosstalk.
+- **Registered receivers without latency:** the receiver can be the
+  destination register itself (MAR, the queue's slots, MQ: clocked at
+  the cycle's end, though the 5574 has no clock enable for registers that
+  load only sometimes), or capture at a phase after the bus's worst-case
+  arrival for a value used in the same cycle. Then the bus need be valid
+  only around that edge, and its timing is edge to edge; the cost is
+  the slack between the typical and the worst arrival, a capture phase
+  per bus from the clock card, and two kinds of receiver.
+- **Against:** −5.2 V and a termination rail (or a Thevenin pair at each
+  end of every line), drawing power all the time; translators on every
+  board that touches the bus (they replace the 245s and 541s, but
+  receiving and driving are separate parts); a small, old family to
+  source. RFC 0014 rejected −5.2 V on its backplane (2026-10-13) because
+  the ECL cruncher was deprioritised, not because of a bus.
+- **Where it fits best:** a shared bus with many independent cards, where
+  the handovers are hardest (RFC 0014's), more than Reed's CPU backplane,
+  whose single-ended ABT is within report 0022's budgets.
+
 ### Splitting the CPU into boards
 
 **open**: at least two boards. Where to split, and DIP or SOIC, wait until
