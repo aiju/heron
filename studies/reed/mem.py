@@ -33,6 +33,14 @@ from . import bus as BP, fields as F
 from .common import AND, OR, ONE, ZERO, anyof, bus, clock_buffer, control_slice, eq, gated_clock, lit, negate, table
 
 AI, RA, MD, MX = bus("AI", 32), bus("RA", 26), bus("MD", 32), bus("MX", 32)
+# the virtual address's bits 25-12 (MAR's, FPC's), before the page map;
+# RA21-RA12 are the physical address's, after it
+RV = bus("RV", 26)
+
+
+def vnet(i):
+    """The net an address bit i from MAR or FPC drives: RA below 12, RV above."""
+    return RA[i] if i < 12 else RV[i]
 
 
 RENAME = {"uMARLD": "ALE", "uMSZ0": "SZ0", "uMSZ1": "SZ1"}
@@ -50,6 +58,8 @@ def build(sim=True):
     control_slice(nl, "MEM", ck[0], rename={"uMARLD": "ALE", "uMSZ0": "MSZR0", "uMSZ1": "MSZR1"})
     nl.section("addresses")
     addresses(nl, ck)
+    nl.section("page map")
+    page_map(nl, ck)
     nl.section("RAM")
     ram(nl)
     nl.section("crossbar")
@@ -78,21 +88,99 @@ def addresses(nl, ck):
     for k in range(3):
         nl.add("823", f"U_MAR{k}", OE="MAROE_n", CLK=ck[0], EN="ALE_n", CLR="VCC",
                **{f"D{i + 1}": AI[2 + 8 * k + i] for i in range(8)}, D9="GND",
-               **{f"Q{i + 1}": RA[2 + 8 * k + i] for i in range(8)}, Q9=f"MAR{k}_NC")
+               **{f"Q{i + 1}": vnet(2 + 8 * k + i) for i in range(8)}, Q9=f"MAR{k}_NC")
     fp = [f"FP{i}" for i in range(2, 22)]
     for k in range(5):
         q = fp[4 * k:4 * k + 4]
         d = AI[2 + 4 * k:6 + 4 * k]
+        # (counting a word a fetch, a fetch that faults too: no fetch
+        # follows it until a jump loads FPC, CTRL's FFQ)
         nl.add("163", f"U_FPC{k}", CLK=ck[1], CLR="VCC", LOAD="FPCLD_n",
                ENP="FETCH", ENT="FETCH" if k == 0 else f"FPRC{k - 1}",
                A=d[0], B=d[1], C=d[2], D=d[3], QA=q[0], QB=q[1], QC=q[2], QD=q[3], RCO=f"FPRC{k}")
     for k in range(3):
         src = fp[8 * k:8 * k + 8] + ["GND"] * 4
-        dst = RA[2 + 8 * k:10 + 8 * k]
+        dst = [vnet(i) for i in range(2 + 8 * k, 10 + 8 * k)]
         n = min(8, 22 - (2 + 8 * k))
         nl.add("541", f"U_FPA{k}", OE1="FETCH_n", OE2="GND",
                **{f"A{i + 1}": src[i] if i < n else "GND" for i in range(8)},
                **{f"Y{i + 1}": dst[i] if i < n else f"FPA_NC{k}{i}" for i in range(8)})
+
+
+MAP_DATA = RA[12:22] + ["MV", "MW", "MX", "MSP5", "MSP6", "MSP7"]
+
+
+def page_map(nl, ck):
+    """The page map: two AS7C4096As (512K x 8) between the virtual address
+    (RV21-RV12, from MAR or FPC) and the RAM's page bits (RA21-RA12), 128
+    contexts of 1024 entries (a context is 4 MB: the virtual address's
+    bits 21-12), each the physical page (bits 21-12) and V, W, X. CTX (an
+    823 loaded from B by MOP CTXW) holds the context, its bit 7 the map's
+    enable (reset clears it: the map is off). While the map translates (U_MAPC: enabled, and the address's
+    bit 31 clear) it drives RA21-RA12; else the bypass's 541s pass the
+    virtual address straight through (the map off, or the supervisor's
+    window: bit 31 set). MOP MAPW writes the entry at CTX and MAR from B
+    (bits 21-12, 2-0) through two 541s, in the write strobe's ticks.
+
+    U_VA keeps what MAR and FPC don't hold: the address's bit 31 and
+    whether its bits 30-22 are all 0, each loaded with MAR (ALE) or FPC
+    (FLUSH); VA31 and VRNG are the access's (a fetch's, FPC's). U_PF
+    gives the page map's reasons to fault (FSR's bits 0-4) and PF, any of
+    them in an access: the entry isn't valid, a store to a page without
+    W, a fetch from one without X, a translated address above 4 MB (bits
+    30-22 not 0), a user's address with bit 31 set."""
+    ctx = bus("CTX", 8)
+    nl.add("823", "U_CTX", OE="GND", CLK=ck[1], EN="CTXW_n", CLR="RESET_n",
+           **{f"D{i + 1}": BP.B[i] for i in range(8)}, D9="GND",
+           **{f"Q{i + 1}": ctx[i] for i in range(8)}, Q9="CTX_NC")
+    for k in range(2):
+        nl.add("sram512", f"U_MAP{k}", role="fastram", CE="GND", OE="MAPOE_n", WE="MAPWE_n",
+               **{f"A{i}": RV[12 + i] for i in range(10)},
+               **{f"A{10 + i}": ctx[i] for i in range(7)}, A17="GND", A18="GND",
+               **{f"IO{i}": MAP_DATA[8 * k + i] for i in range(8)})
+    src = [RV[12 + i] for i in range(10)] + ["GND"] * 6
+    for k in range(2):
+        n = 8 if k == 0 else 2
+        nl.add("541", f"U_BYP{k}", OE1="BYPOE_n", OE2="GND",
+               **{f"A{i + 1}": src[8 * k + i] if i < n else "GND" for i in range(8)},
+               **{f"Y{i + 1}": RA[12 + 8 * k + i] if i < n else f"BYP_NC{i}" for i in range(8)})
+    wsrc = BP.B[12:20] + [BP.B[20], BP.B[21], BP.B[0], BP.B[1], BP.B[2], "GND", "GND", "GND"]
+    wdst = RA[12:20] + [RA[20], RA[21], "MV", "MW", "MX", "MWD_NC5", "MWD_NC6", "MWD_NC7"]
+    for k in range(2):
+        nl.add("541", f"U_MW{k}", OE1="MAPWOE_n", OE2="GND",
+               **{f"A{i + 1}": wsrc[8 * k + i] for i in range(8)},
+               **{f"Y{i + 1}": wdst[8 * k + i] for i in range(8)})
+    a = AI
+    rng = OR(*[lit(a[i]) for i in range(22, 31)])
+    outs = {
+        "M31": (OR(AND(lit("ALE"), lit(a[31])), AND(lit("ALE", 0), lit("M31"))), True, False),
+        "MRANGE": (OR(AND(lit("ALE"), rng), AND(lit("ALE", 0), lit("MRANGE"))), True, False),
+        "F31": (OR(AND(lit("FLUSH"), lit(a[31])), AND(lit("FLUSH", 0), lit("F31"))), True, False),
+        "FRANGE": (OR(AND(lit("FLUSH"), rng), AND(lit("FLUSH", 0), lit("FRANGE"))), True, False),
+        "VA31": (OR(AND(lit("FETCH"), lit("F31")), AND(lit("FETCH", 0), lit("M31"))), False, False),
+        "VRNG": (OR(AND(lit("FETCH"), lit("FRANGE")), AND(lit("FETCH", 0), lit("MRANGE"))), False, False),
+    }
+    G.add(nl, "U_VA", outs, clock=ck[0])
+    mop = f("MOP")
+    store = eq(mop, F.MOP["STORE"])
+    acc = OR(lit("FETCH"), anyof(mop, [F.MOP["LOAD"], F.MOP["STORE"]]))
+    en = lit("CTX7")
+    tr = AND(en, lit("VA31", 0))
+    why = {"PINV": AND(tr, lit("MV", 0)), "PWP": AND(tr, store, lit("MW", 0)),
+           "PX": AND(tr, lit("FETCH"), lit("MX", 0)), "PRNG": AND(tr, lit("VRNG")),
+           "PU31": AND(en, lit("VA31"), lit("S", 0))}
+    outs = {n: (e, False, False) for n, e in why.items()}
+    outs["PF"] = (AND(acc, OR(*why.values())), False, False)
+    G.add(nl, "U_PF", outs)
+    mapw = eq(mop, F.MOP["MAPW"])
+    outs = {
+        "MAPOE_n": (AND(tr, negate(mapw)), False, True),
+        "BYPOE_n": (AND(negate(tr), negate(mapw)), False, True),
+        "MAPWOE_n": (mapw, False, True),
+        "MAPWE_n": (AND(mapw, lit("WRSE", 0), lit("KILL_n")), False, True),
+        "CTXW_n": (AND(eq(mop, F.MOP["CTXW"]), lit("KILL_n")), False, True),
+    }
+    G.add(nl, "U_MAPC", outs)
 
 
 def ram(nl):
@@ -232,11 +320,12 @@ FAR = bus("FAR", 36)
 
 def faults(nl, ck):
     """U_SYS: S, the supervisor's mode (set by reset, loaded from B31 by
-    MOP SYSW); FAULT, an access that faults (misaligned: a word not on a
-    word, a half not on a half; or z 3, an index parcel's size that isn't
-    one), which cancels the cycle; KILLQ, FAULT a cycle late, which
-    cancels the next; KILL_n, either (CTRL's and ALU's words clear, MEM's
-    strobes don't come); FFLT, a fetch's fault (none yet: the page map's).
+    MOP SYSW); FAULT, a load or store that faults (misaligned: a word not
+    on a word, a half not on a half; z 3, an index parcel's size that
+    isn't one; or the page map's, PF), which cancels the cycle; KILLQ,
+    FAULT a cycle late, which cancels the next; KILL_n, either (CTRL's and
+    ALU's words clear, MEM's strobes don't come); FFLT, a fetch's fault
+    (the page map's), whose word the queue doesn't take.
     FAR and FSR (four 823s) take the faulting access's address and why at
     the cycle's end; MOP FARR reads them onto B: the address's bits 21-0
     and 31 (B21-B0, B31), and FSR in B30-B22 (bits 0-4 the page map's
@@ -246,24 +335,24 @@ def faults(nl, ck):
     S = F.MSZ
     align = OR(AND(eq(sz, S["WORD"]), OR(lit("AL0"), lit("AL1"))), AND(eq(sz, S["HALF"]), lit("AL0")))
     z3 = AND(lit(sz[0]), lit(sz[1]))
-    fault = AND(acc, OR(align, z3), lit("KILLQ", 0))
+    fault = AND(acc, OR(align, z3, lit("PF")), lit("KILLQ", 0))
+    ffl = AND(lit("FETCH"), lit("PF"))
     sysw = AND(eq(mop, F.MOP["SYSW"]), lit("KILL_n"))
     outs = {
         "FAULT": (fault, False, False),
         "KILLQ": (AND(lit("RESET_n"), fault), True, False),
         "KILL_n": (OR(fault, lit("KILLQ")), False, True),
-        "FAREN_n": (fault, False, True),
+        "FAREN_n": (OR(fault, ffl), False, True),
         "S": (OR(lit("RESET_n", 0), AND(sysw, lit(BP.B[31])), AND(negate(sysw), lit("S"))), True, False),
-        "FFLT": (ZERO, False, False),
+        "FFLT": (ffl, False, False),
         "FSALIGN": (align, False, False),
         "FSZ3": (z3, False, False),
         "FSSTORE": (eq(mop, F.MOP["STORE"]), False, False),
-        # (the address's bit 31, loading with MAR: U_LN0 is full)
-        "M31": (OR(AND(lit("ALE"), lit("AI31")), AND(lit("ALE", 0), lit("M31"))), True, False),
     }
     G.add(nl, "U_SYS", outs, clock=ck[0])
-    src = (["AL0", "AL1"] + RA[2:22] + ["GND"] * 5 + ["FSSTORE", "GND", "FSALIGN", "FSZ3", "M31"]
-           + ["GND"] * 4)
+    # (bits 21-12 the virtual address's, RV, not the page map's)
+    src = (["AL0", "AL1"] + RA[2:12] + RV[12:22] + ["PINV", "PWP", "PX", "PRNG", "PU31"]
+           + ["FSSTORE", "FETCH", "FSALIGN", "FSZ3", "VA31"] + ["GND"] * 4)
     for k in range(4):
         nl.add("823", f"U_FAR{k}", OE="FAROE_n", CLK=ck[1], EN="FAREN_n", CLR="VCC",
                **{f"D{i + 1}": src[9 * k + i] for i in range(9)},

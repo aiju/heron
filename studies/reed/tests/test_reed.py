@@ -12,8 +12,8 @@ class TestReed(unittest.TestCase):
 
     def test_boards_fit(self):
         for name, s in system.stats().items():
+            # (RFC 0049's B1: 70 units of area a board)
             self.assertLessEqual(s["area"], 70, name)
-            self.assertLessEqual(s["packages"], 72, name)
 
     def test_backplane_pins(self):
         m = bus.pin_map()

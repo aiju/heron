@@ -333,26 +333,18 @@ class Model:
 
     def translate(self, va31, rng, low, store, fetch):
         """(physical address bits 21-0, I/O space, fsr's page-map bits 0-4)
-        for an access: low is the address's bits 21-0. The page map is used
-        while CTX's bit 7 is set: an address with bit 31 clear is through
-        the map's context CTX, one with it set the supervisor's window (a
-        user's faults)."""
-        if not self.ctx & 0x80:
+        for an access, as U_PF and U_MAPC have them: low is the address's
+        bits 21-0. The page map translates while CTX's bit 7 is set and the
+        address's bit 31 is clear (the context CTX); bit 31 set is the
+        supervisor's window, which a user's access faults on. I/O space:
+        None (A30 as MAR has it), False (translated: never)."""
+        en = self.ctx & 0x80
+        if not en:
             return low, None, 0
         if va31:
-            if not self.s:
-                return low, None, 1 << 4
-            return low, None, 0
-        if rng:
-            return low, None, 1 << 3
+            return low, None, (0 if self.s else 1 << 4)
         e = self.map[(self.ctx & 0x7F) << 10 | (low >> 12) & 0x3FF]
-        why = 0
-        if not e & 1:
-            why |= 1
-        if store and not e & 2:
-            why |= 2
-        if fetch and not e & 4:
-            why |= 4
+        why = (not e & 1) | (bool(store and not e & 2)) << 1 | (bool(fetch and not e & 4)) << 2 | bool(rng) << 3
         return (e & 0x3FF000) | (low & 0xFFF), False, why
 
     def _ram_addr(self):
@@ -469,7 +461,7 @@ class Model:
             low, _, why = self.translate(self.f31, self.frange, (self.fpc << 2) & 0x3FFFFF, False, True)
             if why:
                 ffl = True
-                self.far = ((self.fpc << 2) & 0x3FFFFF) | (why | 1 << 6) << 22 | self.f31 << 31
+                self.far = ((self.fpc << 2) & 0x3FFFFF) | self.al | (why | 1 << 6) << 22 | self.f31 << 31
                 B = 0
             else:
                 a = low & (RAM_BYTES - 1)
@@ -651,7 +643,7 @@ class Model:
                 raise ModelError(f"µ{w.addr:04X}: PC from an undriven A")
             self.fpc = (A >> 2) & 0xFFFFF
             self.f31, self.frange = A >> 31, int(A & 0x7FC00000 != 0)
-        elif fetch and not ffl:
+        elif fetch:
             self.fpc = (self.fpc + 1) & 0xFFFFF
         self.killq = int(fault)
         # the queue
