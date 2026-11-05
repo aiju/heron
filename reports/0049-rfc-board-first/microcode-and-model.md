@@ -82,49 +82,66 @@ Three rules of the hardware shaped it:
 RFC 0050's twelve workloads all run on the model to `HALT` with their
 expected output.
 
-At the `tiny` size (about 90,000 instructions each; the full size's
-numbers will replace these), microcycles as the microcode's lengths have
-them today (5 or 6 ticks) and at the 7 ticks decided for now:
+At the `full` size (8-13 million instructions each, RFC 0050's quoted
+size), microcycles as the microcode's lengths have them today (5 or 6
+ticks) and at the 7 ticks decided for now:
 
-| Workload | Microcycles an instruction | As built | At 7 ticks | Full Heron (RFC 0050) |
-|---|---:|---:|---:|---:|
-| `m6502` | 4.63 | 514 ns | 643 ns | 198 ns |
-| `gfx_desktop` | 3.07 | 349 ns | 427 ns | 273 ns |
-| `gfx_sprites` | 3.81 | 431 ns | 529 ns | 225 ns |
-| `forth` | 3.37 | 380 ns | 468 ns | 240 ns |
-| `lisp` | 2.62 | 295 ns | 364 ns | 183 ns |
-| `db` | 2.97 | 338 ns | 413 ns | 235 ns |
-| `editor` | 4.42 | 488 ns | 615 ns | 208 ns |
-| `rts` | 4.12 | 468 ns | 573 ns | 261 ns |
-| `ttf` | 5.09 | 582 ns | 708 ns | 228 ns |
-| `textutils` | 3.01 | 339 ns | 418 ns | 213 ns |
-| `cc` | 3.52 | 401 ns | 490 ns | 225 ns |
-| `inflate` | 3.90 | 438 ns | 542 ns | 223 ns |
+| Workload | Instructions | Microcycles an instruction | As built | At 7 ticks | Full Heron (RFC 0050) |
+|---|---:|---:|---:|---:|---:|
+| `m6502` | 8,951,070 | 4.82 | 533 ns | 671 ns | 198 ns |
+| `gfx_desktop` | 10,772,934 | 4.59 | 529 ns | 638 ns | 273 ns |
+| `gfx_sprites` | 9,287,190 | 3.20 | 359 ns | 445 ns | 225 ns |
+| `forth` | 7,800,917 | 3.61 | 407 ns | 502 ns | 240 ns |
+| `lisp` | 11,110,590 | 2.61 | 294 ns | 363 ns | 183 ns |
+| `db` | 11,406,860 | 3.96 | 456 ns | 550 ns | 235 ns |
+| `editor` | 10,323,676 | 3.46 | 388 ns | 482 ns | 208 ns |
+| `rts` | 7,940,685 | 5.17 | 587 ns | 718 ns | 261 ns |
+| `ttf` | 9,314,093 | 3.83 | 436 ns | 532 ns | 228 ns |
+| `textutils` | 11,100,385 | 3.48 | 397 ns | 484 ns | 213 ns |
+| `cc` | 13,092,144 | 3.55 | 404 ns | 494 ns | 225 ns |
+| `inflate` | 9,991,628 | 4.24 | 476 ns | 590 ns | 223 ns |
 
-Full Heron's column is its own model at `full`, the optimistic reference
-point. The estimate (RFC 0049's `estimate.py` on each workload's mix)
-had Reed at 250-320 ns at 6 ticks: the microcode as written takes 1.3-2x
-that.
+Full Heron's column is its own model, the optimistic reference point.
+The estimate (`estimate.py`'s recipes on each workload's mix) had Reed
+at 250-320 ns at 6 ticks: the microcode as written takes 1.2-2x that,
+and the difference is the hardware gaps below, not the cycle.
 
 ## 5. Where the time goes, and what would help
 
 The microcycles by the instruction that spends them (the entry whose
-words they are), the six largest per workload, at `tiny`:
+words they are), the largest per workload, at `full`:
 
 | Workload | |
 |---|---|
-| `m6502` | `JMP [r + x]` 29%, `MOV` indexed 14%, WAITD 8%, store indexed 8% |
-| `gfx_desktop` | WAITD 12%, `LSL r` 11%, `Bcc` 9%, `LSR r` 8%, `MOV` indexed 8%, `DBNZ` 6% |
-| `gfx_sprites` | WAITD 15%, `DBNZ` 13%, `LSL r` 11%, `LSR r` 9%, `MOV` indexed 7% |
-| `forth` | WAITD 20%, `Bcc` 10%, `JMP [r]+` 9%, `CALL d16` 5% |
-| `lisp` | WAITD 21%, `Bcc` 16%, `MOV [r + d]` 7%, `J d16` 6% |
-| `db` | `Bcc` 18%, WAITD 15%, `MULS r` 11%, `DIVU` 5% |
-| `editor` | `MOV` indexed 16%, `CMP` indexed 13%, WAITD 12%, `Bcc` 10% |
-| `rts` | WAITD 12%, `MULS #i32` 11%, `Bcc` 11%, `LEA` indexed 7% |
-| `ttf` | `MULS r` 21%, `DIVS` 18%, WAITD 9%, `Bcc` 7% |
-| `textutils` | `Bcc` 18%, WAITD 17%, `DIVU` 10%, `LEA` indexed 7% |
-| `cc` | WAITD 17%, `Bcc` 13%, `DIVU` 9%, `MULS #s16` 6% |
-| `inflate` | WAITD 12%, `LSL r` 11%, `LEA` indexed 10%, `Bcc` 10% |
+| `m6502` | `JMP [r + x]` 35%, `MOV` indexed 16%, store indexed 8%, WAITD 7% |
+| `gfx_desktop` | `LSL r` 23%, `LSR r` 22%, WAITD 8%, `DBNZ` 8%, `MOV` indexed 5% |
+| `gfx_sprites` | WAITD 24%, `DBNZ` 15%, `MOV [r]+` 9%, store `[r]+` 9% |
+| `forth` | `JMP [r]+` (NEXT) 34%, WAITD 20%, `PUSH` 7%, `MOV [r]+` 6% |
+| `lisp` | WAITD 21%, `Bcc` 16%, `MOV [r + d]` 8%, `J d16` 7% |
+| `db` | `MULS r` 30%, `Bcc` 12%, WAITD 12%, `MULS #s16` 5% |
+| `editor` | WAITD 15%, `Bcc` 14%, `MOV` indexed 12%, `CMP` indexed 7%, `DBNZ` 6% |
+| `rts` | `MULS #s16` 19%, WAITD 9%, `LEA` indexed 8%, `MULS r` 8%, `DIVS` 7% |
+| `ttf` | WAITD 12%, `Bcc` 11%, `MULS #s16` 11%, `MOV` indexed 6%, `MULS r` 6% |
+| `textutils` | `MULS r` 23%, WAITD 15%, `Bcc` 14%, `LEA` indexed 4% |
+| `cc` | WAITD 17%, `Bcc` 13%, `DIVU` 11%, `MULS #s16` 7%, `CALL d16` 6% |
+| `inflate` | WAITD 12%, `LSL r` 10%, `LEA` indexed 10%, `Bcc` 8%, `DBNZ` 7% |
+
+By kind, in %:
+
+| Workload | register | memory operand | store, INC/DEC | branch | jump | call | refill | shift | multiply | divide |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `m6502` | 14 | 25 | 8 | 3 | 35 | 0 | 7 | 9 | 0 | 0 |
+| `gfx_desktop` | 10 | 15 | 6 | 12 | 0 | 0 | 8 | 48 | 0 | 0 |
+| `gfx_sprites` | 8 | 27 | 16 | 18 | 0 | 1 | 24 | 4 | 0 | 2 |
+| `forth` | 5 | 18 | 9 | 2 | 34 | 5 | 20 | 1 | 3 | 3 |
+| `lisp` | 14 | 24 | 8 | 23 | 4 | 5 | 21 | 2 | 0 | 0 |
+| `db` | 13 | 14 | 3 | 14 | 1 | 3 | 12 | 1 | 35 | 3 |
+| `editor` | 12 | 37 | 9 | 20 | 0 | 1 | 15 | 1 | 0 | 4 |
+| `rts` | 10 | 27 | 4 | 8 | 1 | 1 | 9 | 6 | 28 | 7 |
+| `ttf` | 11 | 23 | 7 | 12 | 1 | 2 | 12 | 11 | 18 | 5 |
+| `textutils` | 17 | 19 | 3 | 16 | 1 | 3 | 15 | 1 | 23 | 1 |
+| `cc` | 15 | 14 | 5 | 17 | 2 | 6 | 17 | 2 | 11 | 11 |
+| `inflate` | 10 | 38 | 5 | 15 | 0 | 1 | 12 | 19 | 0 | 0 |
 
 WAITD is the queue empty: after a jump (the refill) or where memory
 operands leave no word free to fetch.
@@ -138,7 +155,10 @@ operands leave no word free to fetch.
 - **Multiply and divide** are a bit at a time: about 70 microcycles for a
   `MULU`, 150-200 for a divide, and `MULS` and `DIVS` more for the
   signs.
-- **A taken branch** is 4 microcycles and the refill after it.
+- **A taken branch** is 4 microcycles and the refill after it; a jump
+  through memory (`JMP [r]+`, Forth's NEXT; a jump table) is the
+  operand's words, the load into T0, the jump and its tail, then the
+  refill.
 
 ## What I'd do
 
@@ -150,11 +170,15 @@ built. In the order I'd look at them:
    sign-extended as an immediate: the indexed modes from 15-25
    microcycles to about 3.
 2. **The fetch:** a word fetched ahead whenever MEM is free, and the
-   queue's refill after a jump overlapped with the jump's own words.
+   queue's refill after a jump overlapped with the jump's own words
+   (WAITD is 7-24% everywhere); and a jump through memory with the load
+   straight onto A for PC, a word less (microcode only).
 3. **Multiply and divide:** an early-out multiply (stop when MQ's
-   remaining bits are 0), two bits a step, or both.
-4. **Shifts:** a shift by a register unrolled through the decode of the
-   count, or a byte-at-a-time path through the crossbar.
+   remaining bits are 0), two bits a step, or both: multiplies are
+   18-35% of db, rts, ttf and textutils.
+4. **Shifts:** shifts by a register are 48% of gfx_desktop. A shift by a
+   register unrolled through a dispatch on the count, or a
+   byte-at-a-time path through the crossbar.
 5. **A second K field,** so that a word can read a constant and write a
    temporary: most of the extra words in the indexed modes, `DIVS` and
    the shifts come from it.
