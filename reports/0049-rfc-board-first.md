@@ -1055,3 +1055,11 @@ card.
    preemptive kernel on the model and at chip level. Memory words 7
    ticks with the map. 0-2.3% on RFC 0050's suite.
 
+10. **MQ onto the ALU board** (Emily, 2026-11-05): with 220 mm cards
+    (B1) ALU has the room for MQ's four 74F299s, which went to MEM when
+    the netlist was first built. It would free two control lines (QIN,
+    MQ0) and MEM's two MQ bits in its microword. ALU's microword has no
+    spare bit (its 32 fields fill four ROMs), so MQ's operations
+    (load from B, shift, drive B) either come from ALU's existing fields
+    (AOP's MQSTEP shifts, and loading and driving decoded from BIN and
+    BOUT) or take a fifth ROM: **open**.
