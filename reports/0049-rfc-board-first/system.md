@@ -300,7 +300,13 @@ timer ticks: several
 
 At chip level (`heron reed kernel --chip`), with its console in RAM (the
 UART takes its baud rate's time there, and the timer's interrupts come
-when the 82C54 says, so the runs part at once): the run is still going as this is written (about ten minutes); its result follows here.
+when the 82C54 says, so the runs part at once), it halts after 1,729,144
+cycles, 236 ms of simulated time (the model, its console in RAM:
+1,685,625), with the same results as the model's: each process's state,
+how it ended, its exit code or why it was killed, its page faults, the
+end's flag and the console's bytes. The only timing violations are the
+clock card's WAIT_IO input, 17,988 times at worst −1.2 ns: the IO board's
+timing (below), which the run reports apart.
 
 ### 10. What it costs
 
