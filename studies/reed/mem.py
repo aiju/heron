@@ -222,10 +222,16 @@ def stores(nl):
 def control(nl, ck):
     # U_SZ: the access's size (SZ, on the backplane too): the
     # microinstruction's, or for MSZ INDEX the index parcel's (IZ, from CTRL)
-    G.add(nl, "U_SZ", {f"SZ{i}": (OR(AND(lit("MSZR0", 0), lit(f"MSZR{i}")),
-                                     AND(lit("MSZR1", 0), lit(f"MSZR{i}")),
-                                     AND(lit("MSZR0"), lit("MSZR1"), lit(BP.IZ[i]))), False, False)
-                       for i in range(2)})
+    outs = {f"SZ{i}": (OR(AND(lit("MSZR0", 0), lit(f"MSZR{i}")),
+                          AND(lit("MSZR1", 0), lit(f"MSZR{i}")),
+                          AND(lit("MSZR0"), lit("MSZR1"), lit(BP.IZ[i]))), False, False)
+            for i in range(2)}
+    # and, on the master clock, CYC a tick late (CYCD: high in ticks 1-2)
+    # for LATE, from the cycle's fourth tick to its end: when a fault's
+    # FAULT has settled, and may cancel (U_SYS)
+    outs["CYCD"] = (lit(ck[5]), True, False)
+    outs["LATE"] = (AND(lit(ck[5], 0), lit("CYCD", 0)), False, False)
+    G.add(nl, "U_SZ", outs, clock="MCLK")
     mop, msz = f("MOP"), f("MSZ")
     load, store = eq(mop, F.MOP["LOAD"]), eq(mop, F.MOP["STORE"])
     S = F.MSZ
@@ -305,8 +311,13 @@ def control(nl, ck):
         "MAROE_n": (lit("FETCH"), False, False),
         "FPCLD_n": (lit("FLUSH"), False, True),
         "MXOE_n": (OR(AND(load, ram_), lit("FETCH")), False, True),
-        "IORD_n": (AND(load, io, lit("KILL_n")), False, True),
-        "IOWR_n": (AND(store, io, lit("KILL_n")), False, True),
+        # (the I/O space's strobes, but not in a cancelled cycle (KILLQ),
+        # nor a user's while the page map is on, its access to the window
+        # faulting: from signals settled as the cycle starts, so that the
+        # IO board's WAIT_IO is in time for the clock card; a supervisor's
+        # misaligned access to a device does strobe it)
+        "IORD_n": (AND(load, io, lit("KILLQ", 0), OR(lit("S"), lit("CTX7", 0))), False, True),
+        "IOWR_n": (AND(store, io, lit("KILLQ", 0), OR(lit("S"), lit("CTX7", 0))), False, True),
         "FAROE_n": (eq(mop, F.MOP["FARR"]), False, True),
         # 299 modes: hold 0, shift toward IO0 2, load 3 (S0 in U_ST); drive:
         # hold with the outputs on (MQOE_n, in U_ST)
@@ -326,7 +337,8 @@ def faults(nl, ck):
     on a word, a half not on a half; z 3, an index parcel's size that
     isn't one; or the page map's, PF), which cancels the cycle; KILLQ,
     FAULT a cycle late, which cancels the next; KILL_n, either (CTRL's and
-    ALU's words clear, MEM's strobes don't come); FFLT, a fetch's fault
+    ALU's words clear, MEM's strobes don't come; FAULT's from the cycle's
+    fourth tick, LATE, settled by then: a word that may fault is 7 ticks); FFLT, a fetch's fault
     (the page map's), whose word the queue doesn't take.
     FAR and FSR (four 823s) take the faulting access's address and why at
     the cycle's end; MOP FARR reads them onto B: the address's bits 21-0
@@ -343,7 +355,10 @@ def faults(nl, ck):
     outs = {
         "FAULT": (fault, False, False),
         "KILLQ": (AND(lit("RESET_n"), fault), True, False),
-        "KILL_n": (OR(fault, lit("KILLQ")), False, True),
+        # (a new fault cancels from the cycle's fourth tick, LATE, once
+        # FAULT has settled: the page map's data settles in the first
+        # ticks, and KILL_n clears CTRL's and ALU's word registers at once)
+        "KILL_n": (OR(AND(fault, lit("LATE")), lit("KILLQ")), False, True),
         "FAREN_n": (OR(fault, ffl), False, True),
         "S": (OR(lit("RESET_n", 0), AND(sysw, lit(BP.B[31])), AND(negate(sysw), lit("S"))), True, False),
         "FFLT": (ffl, False, False),

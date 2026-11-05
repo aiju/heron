@@ -89,3 +89,12 @@ class TestSystem(unittest.TestCase):
         self.assertEqual(status, "halted")
         self.assertEqual(m.stopped, "halt")
         self.assertEqual(systest.compare(ref, m), [])
+
+    def test_systest_at_chip_level(self):
+        """sw/systest.s at chip level in lockstep with the model, every
+        cycle to its HALT: user mode, faults, the page map, the banks."""
+        from heron.studies.reed import hw, systest
+        img, ram = systest.image()
+        n, first = hw.lockstep_image(bytearray(ram), 20_000)
+        self.assertGreater(n, 15_000)
+        self.assertIsNone(first)

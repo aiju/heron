@@ -314,6 +314,31 @@ def check(corners=("max", "min"), seeds=(1, 2, 3)):
 
 # ---- the model against the chip level, cycle by cycle -------------------------
 
+def lockstep_image(ram, cycles, prog=None):
+    """A RAM image on the chip-level simulator and on the model, their µPC
+    and PC compared every cycle: (cycles compared, the first that differs
+    or None), from the model's cycle where the chip level's trace (from its
+    first decode) begins."""
+    import re
+    from . import model
+    prog = prog or ucode.build()
+    r = run(ram, prog, max_cycles=cycles + 200, trace=(0, cycles))
+    seq = []
+    for line in r["trace"]:
+        d = dict(re.findall(r"(\w+)=([0-9A-Fa-f]+)", line))
+        seq.append((int(d["UPC"], 16), int(d["PC"], 16)))
+    m = model.Model(bytes(ram), prog=prog)
+    ms = []
+    for _ in range(len(seq) + 1000):
+        m.step()
+        ms.append((m.upc, (m.pc >> 1) & 0x1FFFFF))
+    k = min(6, len(seq))
+    off = next((o for o in range(len(ms) - len(seq)) if ms[o:o + k] == seq[:k]), None)
+    if off is None:
+        return len(seq), 0
+    return len(seq), next((i for i, h in enumerate(seq) if ms[i + off] != h), None)
+
+
 def lockstep(names=None, cycles=400):
     """Each program on the chip-level simulator and on the model (model.py),
     their µPC and PC compared every cycle: [(name, cycles compared,

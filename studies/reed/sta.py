@@ -14,7 +14,8 @@ straight from its parts, read the next word, a plain jump.
 The boards' clocks all come from the backplane (CYC through each board's
 CDC341), so the skew between boards is the backplane's and the CDC341s'.
 
-Left out, and so reported: RESET_n is high, and the WAIT lines low and
+Left out, and so reported: RESET_n is high, no access faults (FAULT,
+FFLT low, KILL_n high), and the WAIT lines low and
 IORD_n and IOWR_n high (no I/O access is timed yet: a load or store is
 to memory); the VIDEO board runs on its own phase and the
 IO board's devices on their accesses, so neither's checks count here.
@@ -88,7 +89,20 @@ WORDS = {
 START = {
     "CLK.TC0": (X, 0), "CLK.TC1": (X, 0), "CLK.TC2": (X, 0), "CLK.CYC_S": (0, 1),
     "CLK.WPH_S": (1, 0), "CLK.WRS_S": (1, 1),
+    # the system's state: no fault the cycle before, no fetch faulted,
+    # supervisor mode, the bank and the page map's context 0, the map off
+    # (MAP_ON's cases turn it on)
+    "MEM.KILLQ": (0, 0), "CTRL.FFQ": (0, 0), "MEM.S": (1, 1),
+    **{f"MEM.CTX{i}": (0, 0) for i in range(8)}, **{f"ALU.EB{i}": (0, 0) for i in range(9)},
 }
+# the accesses timed again with the page map on (their names with MAPPED)
+MAPPED = ", mapped"
+MAP_WORDS = ("load, pass", "load, add", "load byte", "store", "fetch", "load, jump", "load, index size, MOVS")
+# the page map on, and the entry valid with W and X: the access's address
+# through the map's SRAMs
+MAP_ON = {"start": {"MEM.CTX7": (1, 1), "MEM.M31": (0, 0), "MEM.MRANGE": (0, 0), "MEM.F31": (0, 0),
+                    "MEM.FRANGE": (0, 0)},
+          "constant": {"MEM.MV": 1, "MEM.MW": 1, "MEM.MX": 1}}
 STROBES = {}
 # named exceptions (RFC 0048 8), each counted in the results: none but
 # the false path below
@@ -151,6 +165,9 @@ def word_values(word):
 
 
 def case(name, word, ticks, after_mar=False, wired=True):
+    mapped = name.endswith(MAPPED)
+    if mapped:
+        word = WORDS[name[:-len(MAPPED)]]
     pins, before = word_values(word)
     before.update(STROBES)
     # the cycle's length on the card (LENR, taken as it starts); LEN, the
@@ -179,8 +196,14 @@ def case(name, word, ticks, after_mar=False, wired=True):
         start[f"CTRL.PV{i}"] = (0, 0)
         start[f"CTRL.AV{i}"] = (0, 0)
     skip = [c["ref"] for c in _ex(wired)["chips"] if c["ref"].split(".")[0] in ("VIDEO", "IO")]
+    # (no fault: an ordinary cycle; a fault's is timed apart)
+    constant = {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1,
+                "FAULT": 0, "FFLT": 0, "KILL_n": 1}
+    if mapped:
+        start.update(MAP_ON["start"])
+        constant.update(MAP_ON["constant"])
     return {"label": f"{name} @{ticks}", "clock": "CLK.MCLK_S", "pins": pins, "before": before,
-            "constant": {"RESET_n": 1, "WAIT_IO": 0, "WAIT_V": 0, "IORD_n": 1, "IOWR_n": 1}, "start": start, "skip": skip,
+            "constant": constant, "start": start, "skip": skip,
             "branch": ["ALU.WEN"], "exceptions": EXCEPTIONS + lew_exceptions(_ex(wired)), "end": {"net": "CLK.CYC_S", "events": 40}}
 
 
@@ -242,9 +265,9 @@ def run(names=None, lengths=(5, 6, 7, 8), paths=1, jobs=None, wired=True):
     """{word: (ticks, results at them)}: the shortest length at which
     nothing a length can fix fails worse than at the longest."""
     ex = _ex(wired)
-    names = names or list(WORDS)
+    names = names or list(WORDS) + [n + MAPPED for n in MAP_WORDS]
     items = [(n, t) for n in names for t in lengths]
-    cases = [case(n, WORDS[n], t, after_mar=n.startswith(("load", "store")), wired=wired)
+    cases = [case(n, WORDS.get(n), t, after_mar=n.startswith(("load", "store")), wired=wired)
              for n, t in items]
     res = waves.analyse(ex, cases, paths=paths, jobs=jobs)
     by = {}

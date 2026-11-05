@@ -44,6 +44,8 @@ def main(argv=None):
     z.add_argument("--n", type=int, default=200)
     z.add_argument("--seed", type=int, default=1)
     sub.add_parser("systest")
+    kp = sub.add_parser("kernel")
+    kp.add_argument("--chip", action="store_true")
     q = sub.add_parser("sta")
     q.add_argument("--word")
     q.add_argument("--paths", type=int, default=2)
@@ -76,6 +78,9 @@ def main(argv=None):
     elif a.cmd == "fuzz":
         from . import fuzz
         fuzz.main(a.families or None, a.n, a.seed)
+    elif a.cmd == "kernel":
+        from . import kernel
+        return kernel.main(a.chip)
     elif a.cmd == "systest":
         from . import systest
         return systest.main()

@@ -14,8 +14,9 @@ a field's name says its board, a value is a code's name or a number.
                              address + 1) if true
         ("brdec", label)     label if this word's predecessor loads PC (a
                              jump, or a branch taken), else decode
-  ticks the cycle's length, 5-8 (LEN): 6 where a fetch may happen (BFREE)
-        or memory is read, by default
+  ticks the cycle's length, 5-8 (LEN): 7 where a fetch may happen (BFREE)
+        or memory is read or written (through the page map), 6 for an
+        address made in the ALU for MAR, else 5, by default
 
 The hardware's rules the microcode keeps (ctrl.py, alu.py, mem.py):
 
@@ -98,10 +99,13 @@ class Word:
     def length(self):
         if self.ticks is not None:
             return self.ticks
-        memory = self.get("MEM", "MOP") == F.MOP["LOAD"]
+        # a load, a store or a fetch: 7 (sta: through the page map's SRAMs;
+        # and an I/O device's WAIT_IO in time for the clock card)
+        if self.get("CTRL", "BFREE") or self.get("MEM", "MOP") in (F.MOP["LOAD"], F.MOP["STORE"]):
+            return 7
         # an address computed in the ALU onto A for MAR: 6 (sta: r + d16)
         mar = self.get("MEM", "MARLD") and self.get("ALU", "AOUT") == F.AOUT["F"]
-        return 6 if self.get("CTRL", "BFREE") or memory or mar else 5
+        return 6 if mar else 5
 
 
 def W(label=None, fields="", next="next", **kw):
